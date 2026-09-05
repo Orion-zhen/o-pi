@@ -1,8 +1,9 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.js";
 import { createLazyLspFileOperations } from "../../src/file-tools/pi/lazy-lsp.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
+import type { FileToolRuntime } from "../../src/file-tools/pi/invocation.js";
 import type { FileToolsHost, SessionObservationSeed } from "../../src/file-tools/runtime/host.js";
 import type { SessionMutationScope } from "../../src/file-tools/runtime/session-mutation.js";
 import {
@@ -100,10 +101,8 @@ export interface FileToolsModuleImports {
 	lsp(): Promise<typeof import("../../src/lsp/index.js")>;
 }
 
-type FindAdapter = ReturnType<(typeof import("../../src/file-tools/pi/adapters/find.js"))["createFindAdapter"]>;
 type GrepAdapter = ReturnType<(typeof import("../../src/file-tools/pi/adapters/grep.js"))["createGrepAdapter"]>;
-type FileToolsLoaders = Omit<FileToolsModuleImports, "find" | "grep" | "renderers"> & {
-	find(): Promise<FindAdapter>;
+type FileToolsLoaders = Omit<FileToolsModuleImports, "grep" | "renderers"> & {
 	grep(): Promise<GrepAdapter>;
 };
 
@@ -125,11 +124,7 @@ export function createFileToolsExtension(importOverrides: Partial<FileToolsModul
 		const loaders: FileToolsLoaders = {
 			ls: createRetryableLoader(imports.ls),
 			host: createRetryableLoader(imports.host),
-			find: createRetryableLoader(async () => {
-				const adapter = (await imports.find()).createFindAdapter();
-				loadedToolInstances.add(adapter);
-				return adapter;
-			}),
+			find: createRetryableLoader(imports.find),
 			grep: createRetryableLoader(async () => {
 				const adapter = (await imports.grep()).createGrepAdapter();
 				loadedToolInstances.add(adapter);
@@ -172,6 +167,17 @@ function registerFileTools(
 		collectSkillCandidates(undefined, typeof pi.getCommands === "function" ? pi.getCommands() : []),
 	));
 
+	const runtimeForInvocation = async (ctx: ExtensionContext, signal: AbortSignal | undefined): Promise<FileToolRuntime> => {
+		const [invocationHost, index] = await Promise.all([hostForInvocation(), skillPathIndex()]);
+		return {
+			cwd: ctx.cwd,
+			sessionId: ctx.sessionManager.getSessionId(),
+			...(signal === undefined ? {} : { signal }),
+			host: invocationHost,
+			pathAccess: await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index),
+		};
+	};
+
 	const lsTool = registerObservedTool(pi, {
 		tool: {
 		name: "ls",
@@ -180,15 +186,8 @@ function registerFileTools(
 		promptSnippet: "list one directory",
 		parameters: lsParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [module, invocationHost, index] = await Promise.all([loaders.ls(), hostForInvocation(), skillPathIndex()]);
-			const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
-			return module.executeLs(params as LsParams, {
-				cwd: ctx.cwd,
-				sessionId: ctx.sessionManager.getSessionId(),
-				...(signal === undefined ? {} : { signal }),
-				host: invocationHost,
-				pathAccess,
-			});
+			const [module, runtime] = await Promise.all([loaders.ls(), runtimeForInvocation(ctx, signal)]);
+			return module.executeLs(params as LsParams, runtime);
 		},
 		},
 		repair: { singleStringField: "path", pathFields: ["path"] },
@@ -203,15 +202,8 @@ function registerFileTools(
 		promptSnippet: "fuzzy-search paths",
 		parameters: findParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [adapter, invocationHost, index] = await Promise.all([loaders.find(), hostForInvocation(), skillPathIndex()]);
-			const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
-			return adapter.execute(params as FindParams, {
-				cwd: ctx.cwd,
-				sessionId: ctx.sessionManager.getSessionId(),
-				...(signal !== undefined ? { signal } : {}),
-				host: invocationHost,
-				pathAccess,
-			});
+			const [module, runtime] = await Promise.all([loaders.find(), runtimeForInvocation(ctx, signal)]);
+			return module.executeFind(params as FindParams, runtime);
 		},
 		},
 		repair: { singleStringField: "query", pathFields: ["path"], pathListFields: ["path"] },
@@ -226,16 +218,8 @@ function registerFileTools(
 		promptSnippet: "locate relevant code",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [adapter, invocationHost, index] = await Promise.all([loaders.grep(), hostForInvocation(), skillPathIndex()]);
-			const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
-			return adapter.execute(params as GrepParams, {
-				cwd: ctx.cwd,
-				sessionId: ctx.sessionManager.getSessionId(),
-				...(signal !== undefined ? { signal } : {}),
-				host: invocationHost,
-				lsp,
-				pathAccess,
-			});
+			const [adapter, runtime] = await Promise.all([loaders.grep(), runtimeForInvocation(ctx, signal)]);
+			return adapter.execute(params as GrepParams, { ...runtime, lsp });
 		},
 		},
 		repair: { singleStringField: "query", pathFields: ["path"], pathListFields: ["path"] },
@@ -250,17 +234,8 @@ function registerFileTools(
 		promptSnippet: "read one file",
 		parameters: readParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [module, invocationHost, index] = await Promise.all([loaders.read(), hostForInvocation(), skillPathIndex()]);
-			const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
-			return module.executeRead(params as ReadParams, {
-				cwd: ctx.cwd,
-				sessionId: ctx.sessionManager.getSessionId(),
-				...(signal === undefined ? {} : { signal }),
-				model: ctx.model,
-				host: invocationHost,
-				lsp,
-				pathAccess,
-			});
+			const [module, runtime] = await Promise.all([loaders.read(), runtimeForInvocation(ctx, signal)]);
+			return module.executeRead(params as ReadParams, { ...runtime, model: ctx.model, lsp });
 		},
 	}, repair: {
 		singleStringField: "path",
@@ -279,17 +254,12 @@ function registerFileTools(
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const batch = mutationBatches.invocation(toolCallId);
 			try {
-				const [module, invocationHost, index] = await Promise.all([loaders.write(), hostForInvocation(), skillPathIndex()]);
-				const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
+				const [module, runtime] = await Promise.all([loaders.write(), runtimeForInvocation(ctx, signal)]);
 				return await module.executeWrite(params as WriteParams, {
-					cwd: ctx.cwd,
-					sessionId: ctx.sessionManager.getSessionId(),
-					...(signal !== undefined ? { signal } : {}),
-					host: invocationHost,
+					...runtime,
 					lsp,
 					...(onUpdate === undefined ? {} : { onUpdate }),
 					...(batch === undefined ? {} : { batch }),
-					pathAccess,
 				});
 			} finally {
 				batch?.settle();
@@ -316,17 +286,12 @@ function registerFileTools(
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const batch = mutationBatches.invocation(toolCallId);
 			try {
-				const [module, invocationHost, index] = await Promise.all([loaders.edit(), hostForInvocation(), skillPathIndex()]);
-				const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
+				const [module, runtime] = await Promise.all([loaders.edit(), runtimeForInvocation(ctx, signal)]);
 				return await module.executeEdit(params as EditParams, {
-					cwd: ctx.cwd,
-					sessionId: ctx.sessionManager.getSessionId(),
-					...(signal !== undefined ? { signal } : {}),
-					host: invocationHost,
+					...runtime,
 					lsp,
 					...(onUpdate === undefined ? {} : { onUpdate }),
 					...(batch === undefined ? {} : { batch }),
-					pathAccess,
 				});
 			} finally {
 				batch?.settle();

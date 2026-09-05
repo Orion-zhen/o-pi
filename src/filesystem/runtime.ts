@@ -184,11 +184,11 @@ function lazyMutationOperations(
 		return value;
 	});
 	return {
-		run<TRejected>(
+		run<TPrepared, TRejected = never>(
 			target: TargetRef,
 			options: MutationOptions,
-			transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
-		): Promise<FsResult<MutationRunResult<TRejected>>> {
+			transform: (snapshot: MutationSnapshot) => MutationTransform<TPrepared, TRejected> | Promise<MutationTransform<TPrepared, TRejected>>,
+		): Promise<FsResult<MutationRunResult<TPrepared, TRejected>>> {
 			if (context.signal?.aborted === true) return Promise.resolve(runtimeClosed(target.displayPath));
 			if (resolved !== undefined) return resolved.run(target, options, transform);
 			return service().then((mutations) => mutations === undefined

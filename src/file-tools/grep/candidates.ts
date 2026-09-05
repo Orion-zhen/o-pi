@@ -72,7 +72,6 @@ export interface CodeRegionBase {
 	readonly authority?: CodeAuthority;
 	readonly signals: readonly CandidateSignal[];
 	readonly evidence?: RegionEvidence;
-	readonly matchedBy: readonly GrepMatchedBy[];
 	readonly displayLines: readonly GrepDisplayLine[];
 }
 
@@ -91,17 +90,16 @@ export interface SemanticMainRegion extends CodeRegionBase {
 export type CodeRegion = VerifiedCodeRegion | SemanticMainRegion;
 
 export type RankedRegion = CodeRegion & {
+	readonly matchedBy: readonly GrepMatchedBy[];
 	readonly tier: number;
 	readonly fieldScore: number;
 	readonly evidenceScore: number;
 	readonly verifiedCoverage: number;
 };
 
-type DerivedDisplayFields = "matchedBy" | "displayLines";
-export type VerifiedRegionInput = Omit<CodeRegionBase, DerivedDisplayFields>;
-type SemanticMainInput = Omit<CodeRegionBase, "matchedBy" | "displayLines"> & {
+export type VerifiedRegionInput = Omit<CodeRegionBase, "displayLines">;
+type SemanticMainInput = Omit<CodeRegionBase, "displayLines"> & {
 	readonly displayLines?: readonly GrepDisplayLine[];
-	readonly queryMatch?: "semantic";
 };
 
 /** verified 主区域只能通过真实 TextHit 构造。 */
@@ -135,37 +133,17 @@ export function createVerifiedCodeRegion(
 		queryMatch: "verified",
 		verifiedHits: [firstHit, ...sortedHits.slice(1)],
 		matchLines: [firstLine, ...matchLines.slice(1)],
-		matchedBy: normalizeMatchedBy(input.signals, input.evidence),
 		displayLines,
 	};
 }
 
 export function createSemanticCodeRegion(input: SemanticMainInput): SemanticMainRegion {
-	const { queryMatch: _queryMatch, ...base } = input;
 	return {
-		...base,
+		...input,
 		queryMatch: "semantic",
-		matchedBy: normalizeMatchedBy(input.signals, input.evidence),
 		displayLines: input.displayLines ?? [],
 		matchLines: [],
 	};
-}
-
-export function normalizeMatchedBy(
-	signals: readonly CandidateSignal[],
-	evidence: RegionEvidence | undefined,
-): GrepMatchedBy[] {
-	const methods = new Set<GrepMatchedBy>();
-	const signalSet = new Set(signals);
-	if (signalSet.has("exact_qualified_definition")) methods.add("exact-qualified-symbol");
-	if (signalSet.has("exact_symbol_definition") || signalSet.has("exact_member_definition")) methods.add("exact-symbol");
-	if (signalSet.has("symbol_prefix")) methods.add("symbol-prefix");
-	if (signalSet.has("related_symbol")) methods.add("related");
-	if (evidence?.source === "text-literal") methods.add("literal");
-	if (evidence?.source === "text-regex") methods.add("regex");
-	if (evidence?.source === "text-lexical") methods.add("lexical");
-	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "related"];
-	return order.filter((method) => methods.has(method));
 }
 
 function declarationCoversHit(

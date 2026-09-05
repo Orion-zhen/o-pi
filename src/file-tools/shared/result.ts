@@ -14,7 +14,6 @@ export type FileToolErrorCode =
 	| "INVALID_OPERATION"
 	| "READ_REQUIRED"
 	| "STALE_READ"
-	| "EMPTY_OLD_TEXT"
 	| "OLD_TEXT_NOT_FOUND"
 	| "OLD_TEXT_NOT_UNIQUE"
 	| "OVERLAPPING_REPLACEMENTS"
@@ -71,24 +70,18 @@ export interface FsErrorMappingOptions {
 	readonly path?: string;
 	readonly next?: string;
 	readonly message?: string;
-	readonly details?: Readonly<Record<string, unknown>>;
 }
 
 /** Maps neutral filesystem failures into the existing file-tool protocol. */
 export function mapFsError(error: FsError, options: FsErrorMappingOptions = {}): FailedResult {
 	const code = fileToolCode(error, options.notFound ?? "path");
-	const details = mergeDetails(error.details, options.details);
 	const displayPath = options.path ?? error.path;
 	const message = options.message ?? (error.message.length > 0 ? error.message : defaultMessage(code));
 	return fail(code, message, {
 		...(displayPath !== undefined ? { path: displayPath } : {}),
 		...(options.next !== undefined ? { next: options.next } : {}),
-		...(details !== undefined ? { details } : {}),
+		...(error.details === undefined ? {} : { details: { ...error.details } }),
 	});
-}
-
-export function isAccessDenied(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && (error.code === "EACCES" || error.code === "EPERM");
 }
 
 type MappedFsErrorCode =
@@ -137,12 +130,4 @@ function defaultMessage(code: MappedFsErrorCode): string {
 		case "OPERATION_ABORTED": return "Operation aborted.";
 		case "STALE_READ": return "File changed during the operation.";
 	}
-}
-
-function mergeDetails(
-	left: Readonly<Record<string, unknown>> | undefined,
-	right: Readonly<Record<string, unknown>> | undefined,
-): Record<string, unknown> | undefined {
-	if (left === undefined && right === undefined) return undefined;
-	return { ...left, ...right };
 }

@@ -1,19 +1,23 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FileToolsConfigProvider, loadFileToolsConfig } from "../../src/file-tools/config.js";
+import { FileToolsConfigProvider } from "../../src/file-tools/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-file-tools-config-");
 preserveEnv("PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT");
 let workspace: string;
+let provider: FileToolsConfigProvider;
 
 beforeEach(() => {
 	workspace = temp.path;
+	provider = new FileToolsConfigProvider();
 	delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
 	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
 });
+
+afterEach(() => { provider.dispose(); });
 
 describe("file-tools config", () => {
 	it("加载默认值并支持用户覆盖", async () => {
@@ -88,17 +92,17 @@ describe("file-tools config", () => {
 		["grep_regional_display_limit", 0], ["grep_regional_display_limit", 21],
 	] as const)("拒绝越界限制 %s=%i", async (field, value) => {
 		await useConfig(`invalid-${field}-${value}.jsonc`, { limits: { [field]: value } });
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+		expect(await provider.load(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
 	it("拒绝未知限制", async () => {
 		await useConfig("unknown-limit.jsonc", { limits: { obsolete_limit: 1024 } });
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+		expect(await provider.load(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
 	it.each(["grep_output_token_budget", "grep_relation_action_limit"])("拒绝已移除的 grep 限制 %s", async (field) => {
 		await useConfig(`removed-${field}.jsonc`, { limits: { [field]: 1024 } });
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+		expect(await provider.load(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
 	it("合并项目配置但不允许项目放宽用户 ignore 策略", async () => {
@@ -129,7 +133,36 @@ describe("file-tools config", () => {
 		});
 
 		await writeFile(projectConfig, JSON.stringify({ ignore: { piignore: true } }));
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+		expect(await provider.load(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+	});
+
+	it.each(["piignore", "gitignore", "git_tracked_files_bypass"] as const)("项目不能改写用户开关 %s", async (field) => {
+		await useConfig("user-switch.jsonc", { ignore: { [field]: false } });
+		const projectConfig = path.join(workspace, "project-switch.jsonc");
+		process.env.PI_FILE_TOOLS_PROJECT_CONFIG = projectConfig;
+		await writeFile(projectConfig, JSON.stringify({ ignore: { [field]: true } }));
+		expect(await provider.load(workspace)).toMatchObject({
+			ok: false,
+			error: { details: { path: projectConfig, fields: [`ignore.${field}`] } },
+		});
+	});
+
+	it("配置修正后失效旧错误缓存，关闭时不返回在途加载结果", async () => {
+		const configPath = path.join(workspace, "changing.jsonc");
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await writeFile(configPath, JSON.stringify({ limits: { ls_entries: 0 } }));
+		const provider = new FileToolsConfigProvider();
+		try {
+			expect(await provider.load(workspace)).toMatchObject({ ok: false });
+			await writeFile(configPath, JSON.stringify({ limits: { ls_entries: 123 } }));
+			expect(await provider.load(workspace)).toMatchObject({ ok: true, value: { limits: { ls_entries: 123 } } });
+			const loading = provider.load(workspace);
+			provider.dispose();
+			expect(await loading).toMatchObject({ ok: false });
+			expect(await provider.load(workspace)).toMatchObject({ ok: false });
+		} finally {
+			provider.dispose();
+		}
 	});
 
 	it("并发调用按 cwd 选择项目配置", async () => {
@@ -172,7 +205,7 @@ async function useConfig(name: string, config: Record<string, unknown>): Promise
 }
 
 async function loadedConfig(cwd: string) {
-	const result = await loadFileToolsConfig(cwd);
+	const result = await provider.load(cwd);
 	if (!result.ok) throw new Error(result.error.message);
 	return result.value;
 }

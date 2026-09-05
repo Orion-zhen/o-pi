@@ -1,10 +1,10 @@
 import { parentPort } from "node:worker_threads";
 
-import { analyzeCodeFile, analyzeTextFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
+import { analyzeCodeFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
 
 interface ParseRequest {
 	id: number;
-	files: Array<{ path: string; text: string; syntax: boolean }>;
+	files: Array<{ path: string; text: string }>;
 }
 
 interface ParseSuccess {
@@ -27,7 +27,7 @@ workerPort.on("message", (request: ParseRequest) => {
 async function handle(request: ParseRequest): Promise<void> {
 	try {
 		const results = await Promise.all(request.files.map((file) =>
-			file.syntax ? analyzeCodeFile(file.path, file.text) : Promise.resolve(analyzeTextFile(file.path))));
+			analyzeCodeFile(file.path, file.text)));
 		const response: ParseSuccess = { id: request.id, results };
 		workerPort.postMessage(response);
 	} catch (error) {

@@ -9,17 +9,7 @@ import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types
 
 export interface InventoryScope {
 	readonly input: string;
-	readonly order: number;
 	readonly root: FileRef | DirectoryRef;
-	readonly visibilityBypass: boolean;
-}
-
-export interface ScopedFileMembership {
-	readonly scopeInput: string;
-	readonly scopeOrder: number;
-	readonly scopeRelativePath: string;
-	readonly explicitFile: boolean;
-	readonly visibilityBypass: boolean;
 }
 
 export interface ScopedFile {
@@ -27,12 +17,7 @@ export interface ScopedFile {
 	readonly path: string;
 	readonly snapshot: FileSnapshot;
 	readonly scopeInput: string;
-	readonly scopeOrder: number;
-	readonly scopeRelativePath: string;
 	readonly explicitFile: boolean;
-	readonly visibilityBypass: boolean;
-	/** 同一文件可由多个显式 scope 发现；外部通道按此集合获得完整准入范围。 */
-	readonly memberships: readonly ScopedFileMembership[];
 }
 
 export interface ScopeInventory {
@@ -83,7 +68,7 @@ export async function buildScopeInventory(
 		reservedSearchBytes: 0,
 	};
 
-	for (const [order, scopeInput] of input.paths.entries()) {
+	for (const scopeInput of input.paths) {
 		if (isAborted(context.operation.signal)) return aborted(scopeInput);
 		const resolved = await resolveScope(scopeInput, context);
 		if (isFailed(resolved)) {
@@ -100,9 +85,7 @@ export async function buildScopeInventory(
 		}
 		const scope: InventoryScope = {
 			input: scopeInput,
-			order,
 			root: resolved,
-			visibilityBypass: visibility.value.ignored,
 		};
 		const discovered = await discoverScope(scope, state);
 		if (isFailed(discovered)) {
@@ -187,7 +170,7 @@ function consumeDiscoveryEvent(
 	}
 	if (scope.root.kind === "directory") state.traversedEntries += 1;
 	if (event.ref.kind !== "file") return;
-	return addFile(event.ref, event.snapshot, scope, event.relativePath, scope.root.kind === "file", state)
+	return addFile(event.ref, event.snapshot, scope, state)
 		? undefined
 		: "byte-limit";
 }
@@ -200,32 +183,14 @@ function addFile(
 	ref: FileRef,
 	snapshot: FileSnapshot,
 	scope: InventoryScope,
-	relativePath: string,
-	explicitFile: boolean,
 	state: MutableInventoryState,
 ): boolean {
 	const existingIndex = state.seenFiles.get(snapshot.identity);
-	const membership: ScopedFileMembership = {
-		scopeInput: scope.input,
-		scopeOrder: scope.order,
-		scopeRelativePath: relativePath,
-		explicitFile,
-		visibilityBypass: scope.visibilityBypass,
-	};
+	const explicitFile = scope.root.kind === "file";
 	if (existingIndex !== undefined) {
 		const existing = state.files[existingIndex];
-		if (existing !== undefined && !existing.memberships.some((item) => item.scopeOrder === scope.order)) {
-			state.files[existingIndex] = {
-				...existing,
-				...(explicitFile && !existing.explicitFile ? {
-					scopeInput: scope.input,
-					scopeOrder: scope.order,
-					scopeRelativePath: membership.scopeRelativePath,
-				} : {}),
-				explicitFile: existing.explicitFile || explicitFile,
-				visibilityBypass: existing.visibilityBypass || scope.visibilityBypass,
-				memberships: [...existing.memberships, membership],
-			};
+		if (existing !== undefined && explicitFile && !existing.explicitFile) {
+			state.files[existingIndex] = { ...existing, scopeInput: scope.input, explicitFile: true };
 		}
 		return true;
 	}
@@ -240,11 +205,7 @@ function addFile(
 		path: normalizeOutputPath(ref.displayPath),
 		snapshot,
 		scopeInput: scope.input,
-		scopeOrder: scope.order,
-		scopeRelativePath: relativePath,
 		explicitFile,
-		visibilityBypass: scope.visibilityBypass,
-		memberships: [membership],
 	});
 	return true;
 }

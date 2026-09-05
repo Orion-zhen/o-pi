@@ -53,12 +53,12 @@ describe("filesystem mutation concurrency", () => {
 		const first = opened.filesystem.mutations.run(same, { createParents: false }, async () => {
 			firstEntered.resolve();
 			await firstRelease.promise;
-			return { type: "commit", bytes: bytes("one") };
+			return { type: "commit", prepared: undefined, bytes: bytes("one") };
 		});
 		await firstEntered.promise;
 		const second = opened.filesystem.mutations.run(same, { createParents: false }, () => {
 			secondEntered = true;
-			return { type: "commit", bytes: bytes("two") };
+			return { type: "commit", prepared: undefined, bytes: bytes("two") };
 		});
 		const otherEntered = deferred();
 		const otherRelease = deferred();
@@ -162,7 +162,7 @@ describe("filesystem mutation concurrency", () => {
 			maxActive = Math.max(maxActive, active);
 			await new Promise<void>((resolve) => setImmediate(resolve));
 			active -= 1;
-			return { type: "commit" as const, bytes: bytes("updated") };
+			return { type: "commit" as const, prepared: undefined, bytes: bytes("updated") };
 		};
 		const results = await Promise.all([
 			opened.filesystem.mutations.run(first, { createParents: false }, transform),
@@ -187,16 +187,16 @@ describe("filesystem mutation concurrency", () => {
 			events.push("first-transform");
 			entered.resolve();
 			await release.promise;
-			return { type: "commit", bytes: bytes("first") };
+			return { type: "commit", prepared: { order: 1 }, bytes: bytes("first") };
 		});
 		await entered.promise;
 		const second = opened.filesystem.mutations.run(target, { createParents: false }, () => {
 			events.push("second-transform");
-			return { type: "commit", bytes: bytes("second") };
+			return { type: "commit", prepared: { order: 2 }, bytes: bytes("second") };
 		});
 		release.resolve();
-		expect(expectOk(await first)).toMatchObject({ committed: true });
-		expect(expectOk(await second)).toMatchObject({ committed: true });
+		expect(expectOk(await first)).toMatchObject({ committed: true, prepared: { order: 1 } });
+		expect(expectOk(await second)).toMatchObject({ committed: true, prepared: { order: 2 } });
 		expect(events).toEqual(["first-transform", "observed", "second-transform", "observed"]);
 	});
 	it("aborts queued calls during idempotent runtime and workspace disposal", async () => {
@@ -208,7 +208,7 @@ describe("filesystem mutation concurrency", () => {
 		const active = opened.filesystem.mutations.run(target, { createParents: false }, async () => {
 			entered.resolve();
 			await release.promise;
-			return { type: "commit", bytes: bytes("active") };
+			return { type: "commit", prepared: undefined, bytes: bytes("active") };
 		});
 		await entered.promise;
 		const queued = commitBytes(opened, target, bytes("queued"), { createParents: false });

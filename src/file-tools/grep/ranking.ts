@@ -1,7 +1,5 @@
 import { tokenizeText } from "../../code-index/parser.js";
-import { selectRelevanceHeadMmr } from "../shared/ranking/selection.js";
 import {
-	normalizeMatchedBy,
 	type CandidateSignal,
 	type CodeRegion,
 	type RankedRegion,
@@ -9,6 +7,7 @@ import {
 	type RetrievalSource,
 } from "./candidates.js";
 import type { QueryPlan } from "./query-plan.js";
+import type { GrepMatchedBy } from "./types.js";
 
 export const GREP_RRF_K = 60;
 export const GREP_RELEVANCE_HEAD_SIZE = 4;
@@ -105,21 +104,57 @@ export function compareRankedRegions(left: RankedRegion, right: RankedRegion): n
 		|| compareString(left.id, right.id);
 }
 
-/** relevance head 原样保留，剩余名额只在当前最佳 tier 内执行确定性 MMR。 */
+/** 输入已按相关性排序且 ID 唯一。保留头部，剩余名额只在最佳 tier 内执行 MMR。 */
 export function selectRankedRegions(
 	candidates: readonly RankedRegion[],
 	limit: number,
 ): RankedRegion[] {
-	return selectRelevanceHeadMmr(candidates, limit, {
-		compare: compareRankedRegions,
-		tier: (candidate) => candidate.tier,
-		score: (candidate) => candidate.fieldScore + candidate.evidenceScore,
-		identity: (candidate) => candidate.id,
-		similarity: regionSimilarity,
-		headSize: GREP_RELEVANCE_HEAD_SIZE,
-		lambda: GREP_MMR_LAMBDA,
-		applyScoreCutoff: false,
-	});
+	if (limit <= 0 || candidates.length === 0) return [];
+	const target = Math.min(limit, candidates.length);
+	const headCount = Math.min(GREP_RELEVANCE_HEAD_SIZE, target);
+	const selected = candidates.slice(0, headCount);
+	const remaining = candidates.slice(headCount).map((candidate, index) => ({
+		candidate,
+		relevance: 1 - (index + headCount) / (candidates.length - 1),
+		redundancy: 0,
+		evaluated: 0,
+	}));
+	while (selected.length < target) {
+		const first = remaining[0];
+		if (first === undefined) break;
+		let bestIndex = -1;
+		let bestUtility = Number.NEGATIVE_INFINITY;
+		for (const [index, item] of remaining.entries()) {
+			if (item.candidate.tier !== first.candidate.tier) break;
+			if (GREP_MMR_LAMBDA * item.relevance <= bestUtility) break;
+			for (const chosen of selected.slice(item.evaluated)) {
+				item.redundancy = Math.max(item.redundancy, regionSimilarity(item.candidate, chosen));
+			}
+			item.evaluated = selected.length;
+			const utility = GREP_MMR_LAMBDA * item.relevance - (1 - GREP_MMR_LAMBDA) * item.redundancy;
+			if (utility > bestUtility) {
+				bestUtility = utility;
+				bestIndex = index;
+			}
+		}
+		const [chosen] = remaining.splice(bestIndex, 1);
+		if (chosen === undefined) break;
+		selected.push(chosen.candidate);
+	}
+	return [...selected.slice(0, headCount), ...selected.slice(headCount).sort(compareRankedRegions)];
+}
+
+function normalizeMatchedBy(signals: readonly CandidateSignal[], evidence: RegionEvidence | undefined): GrepMatchedBy[] {
+	const signalSet = new Set(signals);
+	const methods: GrepMatchedBy[] = [];
+	if (signalSet.has("exact_qualified_definition")) methods.push("exact-qualified-symbol");
+	if (signalSet.has("exact_symbol_definition") || signalSet.has("exact_member_definition")) methods.push("exact-symbol");
+	if (signalSet.has("symbol_prefix")) methods.push("symbol-prefix");
+	if (evidence?.source === "text-literal") methods.push("literal");
+	if (evidence?.source === "text-regex") methods.push("regex");
+	if (evidence?.source === "text-lexical") methods.push("lexical");
+	if (signalSet.has("related_symbol")) methods.push("related");
+	return methods;
 }
 
 function scoreEvidence(evidence: RegionEvidence | undefined): number {

@@ -1,35 +1,22 @@
 import path from "node:path";
 
-import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import type { CodeAnalysis, CodeAnalysisInput } from "../../../code-index/types.js";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
 import type { GrepParams } from "../../grep/types.js";
-import type { FileToolsHost, FileToolsInvocation } from "../../runtime/host.js";
+import type { FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
 import type { LspFileOperations } from "../../../lsp/index.js";
-import { formatErrorModelResult } from "../model-output.js";
+import { withFileToolsInvocation, type FileToolRuntime } from "../invocation.js";
 
-export interface ExecuteGrepOptions {
-	readonly cwd: string;
-	readonly sessionId: string;
-	readonly signal?: AbortSignal;
-	readonly host: FileToolsHost;
+export interface ExecuteGrepOptions extends FileToolRuntime {
 	readonly lsp: LspFileOperations;
-	readonly pathAccess: FilesystemPathAccess;
 }
 
 export function createGrepAdapter() {
 	const tool = new GrepTool();
 	return {
 		async execute(params: GrepParams, options: ExecuteGrepOptions) {
-			const opened = await options.host.open({
-				cwd: options.cwd,
-				sessionId: options.sessionId,
-				...(options.signal === undefined ? {} : { signal: options.signal }),
-				pathAccess: options.pathAccess,
-			});
-			if (isFailed(opened)) return failedResult(opened);
-			try {
+			return withFileToolsInvocation(options, async (opened) => {
 				const result = await tool.execute(params, {
 					filesystem: opened.filesystem,
 					operation: opened.context,
@@ -37,11 +24,9 @@ export function createGrepAdapter() {
 					prepareCodeAnalysis: (input) => prepareCodeAnalysisWithLsp(options.lsp, opened, input),
 					analyzeCode: (input) => analyzeCodeWithLsp(options.lsp, opened, input),
 				});
-				if (isFailed(result)) return failedResult(result);
+				if (isFailed(result)) return result;
 				return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result };
-			} finally {
-				opened.dispose();
-			}
+			});
 		},
 		dispose() {
 			tool.dispose();
@@ -103,8 +88,4 @@ function nativeWorkspacePath(root: string, relativePath: string): string | undef
 	return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
 		? resolved
 		: undefined;
-}
-
-function failedResult(result: Parameters<typeof formatErrorModelResult>[0]) {
-	return { content: [{ type: "text" as const, text: formatErrorModelResult(result) }], details: result };
 }

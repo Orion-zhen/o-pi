@@ -6,19 +6,19 @@ export type MutationSnapshot =
 	| { readonly exists: false }
 	| { readonly exists: true; readonly bytes: Uint8Array; readonly hash: string; readonly sizeBytes: number };
 
-export type MutationTransform<TRejected> =
-	| { readonly type: "commit"; readonly bytes: Uint8Array }
+export type MutationTransform<TPrepared, TRejected = never> =
+	| { readonly type: "commit"; readonly bytes: Uint8Array; readonly prepared: TPrepared }
 	| { readonly type: "reject"; readonly reason: TRejected };
 
 export interface MutationReceipt extends ContentVersion {
 	readonly before?: ContentVersion;
 	readonly created: boolean;
-	/** Destination identity revalidated immediately before commit. */
+	/** 提交前重新验证的目标身份。 */
 	readonly target: TargetRef;
 }
 
-export type MutationRunResult<TRejected> =
-	| { readonly committed: true; readonly receipt: MutationReceipt }
+export type MutationRunResult<TPrepared, TRejected = never> =
+	| { readonly committed: true; readonly receipt: MutationReceipt; readonly prepared: TPrepared }
 	| { readonly committed: false; readonly reason: TRejected; readonly snapshot: MutationSnapshot };
 
 export interface MutationOptions {
@@ -28,9 +28,10 @@ export interface MutationOptions {
 }
 
 export interface MutationOperations {
-	run<TRejected>(
+	/** 只有成功提交才返回准备结果，回调不需要通过外部可变状态传递数据。 */
+	run<TPrepared, TRejected = never>(
 		target: TargetRef,
 		options: MutationOptions,
-		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
-	): Promise<FsResult<MutationRunResult<TRejected>>>;
+		transform: (snapshot: MutationSnapshot) => MutationTransform<TPrepared, TRejected> | Promise<MutationTransform<TPrepared, TRejected>>,
+	): Promise<FsResult<MutationRunResult<TPrepared, TRejected>>>;
 }

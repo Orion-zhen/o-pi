@@ -1,11 +1,11 @@
 import { readRuns } from "./benchmark/cli.mjs";
 import { createTypeScriptLoader } from "./benchmark/loader.mjs";
-import { measureAsyncOperation, measureOperation } from "./benchmark/runtime.mjs";
+import { measureOperation } from "./benchmark/runtime.mjs";
 import { row as summaryRow } from "./benchmark/stats.mjs";
 
 const loadTypeScript = createTypeScriptLoader({ moduleCache: true });
 const { createFindQueryPlan } = await loadTypeScript("src/file-tools/find/query.ts");
-const { rankFindEntries, rankFindEntriesLimitedAsync } = await loadTypeScript("src/file-tools/find/ranker.ts");
+const { createLimitedFindRanker } = await loadTypeScript("src/file-tools/find/ranker.ts");
 const {
 	rankCodeRegions,
 	selectRankedRegions,
@@ -21,16 +21,15 @@ const findPlan = createFindQueryPlan("parser runtime");
 if (findPlan.status === "failed") throw new Error(findPlan.error.message);
 for (const size of sizes) {
 	const candidates = buildFindCandidates(size);
-	const ranked = rankFindEntries(candidates, findPlan);
-	const permutedRanked = rankFindEntries(permute(candidates), findPlan);
-	const limited = await rankFindEntriesLimitedAsync(candidates, findPlan, 50);
+	const ranked = rankFindEntries(candidates, findPlan, candidates.length).ranked;
+	const permutedRanked = rankFindEntries(permute(candidates), findPlan, candidates.length).ranked;
+	const limited = rankFindEntries(candidates, findPlan, 50);
 	if (ranked.length !== candidates.length) throw new Error(`find ranking fixture dropped candidates for N=${size}`);
 	if (!samePaths(ranked, permutedRanked)) throw new Error(`find ranking depends on insertion order for N=${size}`);
 	if (limited === undefined || limited.totalMatches !== ranked.length || !samePaths(limited.ranked, ranked.slice(0, 50))) {
 		throw new Error(`find limited ranking changed the relevance prefix for N=${size}`);
 	}
-	rows.push(row(`find fzf rank N=${size}`, sample(() => rankFindEntries(candidates, findPlan))));
-	rows.push(row(`find fzf top-50 N=${size}`, await sampleAsync(() => rankFindEntriesLimitedAsync(candidates, findPlan, 50))));
+	rows.push(row(`find fzf top-50 N=${size}`, sample(() => rankFindEntries(candidates, findPlan, 50))));
 }
 
 const plan = queryPlan("login");
@@ -203,8 +202,10 @@ function sample(operation) {
 	return measureOperation(operation, { warmups: 3, runs });
 }
 
-function sampleAsync(operation) {
-	return measureAsyncOperation(operation, { warmups: 3, runs });
+function rankFindEntries(entries, plan, limit) {
+	const ranker = createLimitedFindRanker(plan, limit);
+	for (const entry of entries) ranker.add(entry);
+	return ranker.result();
 }
 
 function row(metric, samples) {

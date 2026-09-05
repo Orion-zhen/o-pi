@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createQueryPlan } from "../../src/file-tools/grep/query-plan.js";
-import { classifySymbolMatch, rankCodeRegions } from "../../src/file-tools/grep/ranking.js";
+import { classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "../../src/file-tools/grep/ranking.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { queryPlan, rankingEvidence, semanticRegion, verifiedRegion } from "./grep-ranking-fixtures.js";
 
@@ -67,6 +67,22 @@ describe("grep query plan", () => {
 });
 
 describe("grep ranking", () => {
+	it("选择保留相关性头部，尾部增加多样性且不跨 tier", () => {
+		const candidates = rankCodeRegions(queryPlan("missing"), Array.from({ length: 20 }, (_value, index) => semanticRegion({
+			id: String(index),
+			path: index === 6 ? "other/file.ts" : "same/file.ts",
+			signals: [index >= 10 ? "related_symbol" : "lexical_high_coverage"],
+			evidence: rankingEvidence("text-lexical", index + 1),
+		})));
+		const selected = selectRankedRegions(candidates, 6);
+		expect(selected.slice(0, 4)).toEqual(candidates.slice(0, 4));
+		expect(selected.map((item) => item.id)).toContain("6");
+		expect(selected.every((item) => item.tier === candidates[0]?.tier)).toBe(true);
+		expect(selectRankedRegions(candidates, 1)).toEqual(candidates.slice(0, 1));
+		expect(selectRankedRegions(candidates, 0)).toEqual([]);
+		expect(selectRankedRegions([], 4)).toEqual([]);
+	});
+
 	it("根据 query 与 live AST 名称统一判定 symbol tier", () => {
 		const identifier = queryPlan("grep");
 		expect(classifySymbolMatch(identifier, "grep", "FileTools.grep")).toBe("exact_symbol_definition");

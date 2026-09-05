@@ -6,7 +6,6 @@ interface FileTelemetryInput {
 	path?: string | string[];
 	query?: string;
 	glob?: string;
-	match?: string;
 	lines?: string;
 	pages?: string;
 }
@@ -22,7 +21,7 @@ export function projectFileInput<T extends FileTelemetryInput>(
 		for (const key of keys) {
 			if (key === "path") continue;
 			const raw = value[key];
-			if (typeof raw === "string" && ["query", "glob", "match"].includes(key)) {
+			if (typeof raw === "string" && ["query", "glob"].includes(key)) {
 				Object.assign(projected, textFields(`input_${key}`, raw));
 			} else {
 				const item = scalar(raw);

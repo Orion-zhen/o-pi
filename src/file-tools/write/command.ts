@@ -1,14 +1,13 @@
 import type { MutationSnapshot } from "../../filesystem/contracts/mutation.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import type { DiagnosticSnapshot } from "../shared/diagnostics.js";
 import {
 	captureMutationDiagnostics,
 	collectMutationDiagnostics,
 	type MutationDiagnosticsSource,
 } from "../shared/mutation-diagnostics.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
+import type { TextDiffGenerator } from "../shared/text-diff.js";
 import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.js";
 
 const encoder = new TextEncoder();
@@ -34,9 +33,6 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 	}
 
 	const bytes = encoder.encode(params.content);
-	let snapshot: MutationSnapshot | undefined;
-	let renderedDiff: TextDiff | undefined;
-	let baseline: DiagnosticSnapshot | undefined;
 	const mutated = await context.filesystem.mutations.run(
 		target.value,
 		{
@@ -45,24 +41,20 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 			maxOutputBytes: context.maxFileBytes,
 		},
 		async (current) => {
-			snapshot = current;
-			renderedDiff = await context.diff.generate(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));
+			const renderedDiff = await context.diff.generate(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));
 			safePrepared(context.onPrepared, {
 				status: "preview",
 				path: target.value.displayPath,
 				diff: renderedDiff.diff,
 				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 			});
-			baseline = await captureMutationDiagnostics(context.diagnostics, target.value, context.operation.signal);
-			return { type: "commit", bytes };
+			const baseline = await captureMutationDiagnostics(context.diagnostics, target.value, context.operation.signal);
+			return { type: "commit", bytes, prepared: { renderedDiff, baseline } };
 		},
 	);
 	if (!mutated.ok) return mapFsError(mutated.error);
-	if (!mutated.value.committed || snapshot === undefined || renderedDiff === undefined) {
-		return fail("ACCESS_DENIED", "File could not be written.", { path: target.value.displayPath });
-	}
-
-	const receipt = mutated.value.receipt;
+	if (!mutated.value.committed) return mutated.value.reason;
+	const { receipt, prepared: { renderedDiff, baseline } } = mutated.value;
 	const result: WriteSuccess = {
 		status: "written",
 		path: receipt.target.displayPath,

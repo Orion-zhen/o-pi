@@ -1,47 +1,29 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import { readFile } from "../../read/command.js";
 import type { InlineImageProcessor, PdfDocumentSource } from "../../read/ports.js";
 import { formatReadModelResult, formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../read/presenter.js";
 import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../read/types.js";
-import type { FileToolsHost } from "../../runtime/host.js";
 import { isFailed, type FailedResult } from "../../shared/result.js";
 import type { LspFileOperations } from "../../../lsp/index.js";
 import { parseSkillPath, type SkillPath } from "../../../skill-context/resources.js";
-import { formatErrorModelResult } from "../model-output.js";
-import {
-	createReadObservationStore,
-	createReadStructureSource,
-} from "../ports/read.js";
+import { failedToolResult, withFileToolsInvocation, type FileToolRuntime } from "../invocation.js";
+import { createReadStructureSource } from "../ports/read.js";
 
-export interface ExecuteReadOptions {
-	readonly cwd: string;
-	readonly sessionId: string;
-	readonly signal?: AbortSignal;
+export interface ExecuteReadOptions extends FileToolRuntime {
 	readonly model: { api?: string; input?: readonly string[] } | undefined;
-	readonly host: FileToolsHost;
 	readonly lsp: LspFileOperations;
-	readonly pathAccess: FilesystemPathAccess;
 }
 
 export async function executeRead(params: ReadParams, options: ExecuteReadOptions) {
 	const supportedOutputFormats = readOutputFormats(options.model?.api);
 	const skill = params.path.startsWith("skill://") ? parseSkillPath(params.path) : undefined;
-	const opened = await options.host.open({
-		cwd: options.cwd,
-		sessionId: options.sessionId,
-		...(options.signal === undefined ? {} : { signal: options.signal }),
-		pathAccess: options.pathAccess,
-	});
-	if (isFailed(opened)) return failedResult(opened);
-	try {
-		const observation = createReadObservationStore(opened);
+	return withFileToolsInvocation<ReadFileSuccess | FailedResult>(options, async (opened) => {
 		const result = await readFile(
 			params,
 			{
 				filesystem: opened.filesystem,
 				operation: opened.context,
-				observation,
+				observation: opened.observation,
 				limits: {
 					bytes: opened.limits.read_bytes,
 					fileBytes: opened.limits.read_max_file_bytes,
@@ -57,9 +39,7 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 		);
 		if (skill?.kind === "skill") applySkillResolution(result, skill);
 		return presentResult(result, options.model);
-	} finally {
-		opened.dispose();
-	}
+	});
 }
 
 function readOutputFormats(api: string | undefined): readonly ReadOutputFormat[] {
@@ -84,7 +64,7 @@ function presentResult(
 	result: ReadFileSuccess | FailedResult,
 	model: { input?: readonly string[] } | undefined,
 ) {
-	if (isFailed(result)) return failedResult(result);
+	if (isFailed(result)) return failedToolResult(result);
 	if (!("media_type" in result)) {
 		return { content: [{ type: "text" as const, text: formatReadModelResult(result) }], details: result };
 	}
@@ -137,8 +117,4 @@ function applySkillResolution(
 	}
 	result.path = skill.logicalPath;
 	result.skill_resource = { skill: skill.skillName, path: skill.relativePath };
-}
-
-function failedResult(result: FailedResult) {
-	return { content: [{ type: "text" as const, text: formatErrorModelResult(result) }], details: result };
 }

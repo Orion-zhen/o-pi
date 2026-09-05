@@ -6,7 +6,7 @@ import { scannedTextLines, utf8ByteOffset } from "../../filesystem/services/text
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { TextFileEvidence, TextHit } from "./candidates.js";
+import type { LexicalTextAnchor, TextFileEvidence, TextHit } from "./candidates.js";
 import type { GrepContentCacheLease } from "./content-cache.js";
 import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import type { QueryPlan } from "./query-plan.js";
@@ -14,7 +14,7 @@ import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } fr
 import type { GrepScopeError, GrepSkippedFiles } from "./types.js";
 
 const MAX_ANCHORS_PER_FILE = 64;
-const DEFAULT_FILE_SCAN_CONCURRENCY = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2)));
+const FILE_SCAN_CONCURRENCY = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2)));
 export const MAX_STORED_TEXT_HITS = 10_000;
 export const MAX_STORED_LEXICAL_ANCHORS = 10_000;
 
@@ -39,10 +39,6 @@ export interface TextScanResult {
 export interface TextScannerContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly maxStoredHits?: number;
-	readonly maxStoredAnchors?: number;
-	/** 仅供 runtime 调优与边界测试；不暴露为模型参数。 */
-	readonly fileConcurrency?: number;
 	readonly retainTextMaxBytes?: number;
 	readonly contentCache?: GrepContentCacheLease;
 }
@@ -60,16 +56,6 @@ interface PreparedTextQuery {
 	readonly phrase: string;
 }
 
-interface MutableLexicalAnchor {
-	readonly path: string;
-	readonly line: number;
-	readonly byteStart: number;
-	readonly byteEnd: number;
-	readonly lineText: string;
-	readonly matchedTerms: readonly string[];
-	readonly phrase: boolean;
-}
-
 interface FileScanSuccess {
 	readonly hits: TextHit[];
 	readonly totalHits: number;
@@ -84,9 +70,6 @@ export async function scanInventoryText(
 	plan: Pick<QueryPlan, "queryMode" | "regex" | "targetTerms" | "targetQuery">,
 	context: TextScannerContext,
 ): Promise<ToolOutcome<TextScanResult>> {
-	const maxStoredHits = context.maxStoredHits ?? MAX_STORED_TEXT_HITS;
-	const maxStoredAnchors = context.maxStoredAnchors ?? MAX_STORED_LEXICAL_ANCHORS;
-	const fileConcurrency = context.fileConcurrency ?? DEFAULT_FILE_SCAN_CONCURRENCY;
 	const query = prepareTextQuery(plan);
 	const hits: TextHit[] = [];
 	const fileEvidence: TextFileEvidence[] = [];
@@ -100,15 +83,13 @@ export async function scanInventoryText(
 	let droppedTextHits = 0;
 	let droppedRelatedAnchors = 0;
 
-	for (let start = 0; start < inventory.files.length; start += fileConcurrency) {
+	for (let start = 0; start < inventory.files.length; start += FILE_SCAN_CONCURRENCY) {
 		if (context.operation.signal?.aborted === true) return aborted(inventory.files[start]?.path ?? inventory.scopes[0]?.input ?? ".");
-		const batch = inventory.files.slice(start, start + fileConcurrency);
+		const batch = inventory.files.slice(start, start + FILE_SCAN_CONCURRENCY);
 		const scannedBatch = await Promise.all(batch.map(async (file) => await scanFile(
 			file,
 			query,
 			context,
-			maxStoredHits,
-			maxStoredAnchors,
 		)));
 		for (const [index, scanned] of scannedBatch.entries()) {
 			const file = batch[index];
@@ -122,10 +103,10 @@ export async function scanInventoryText(
 			searchedFiles += 1;
 			searchedBytes += file.snapshot.sizeBytes;
 			totalHits += scanned.value.totalHits;
-			const retainedHits = scanned.value.hits.slice(0, Math.max(0, maxStoredHits - hits.length));
+			const retainedHits = scanned.value.hits.slice(0, Math.max(0, MAX_STORED_TEXT_HITS - hits.length));
 			hits.push(...retainedHits);
 			droppedTextHits += scanned.value.totalHits - retainedHits.length;
-			const retainedAnchors = scanned.value.evidence.anchors.slice(0, Math.max(0, maxStoredAnchors - storedAnchors));
+			const retainedAnchors = scanned.value.evidence.anchors.slice(0, Math.max(0, MAX_STORED_LEXICAL_ANCHORS - storedAnchors));
 			fileEvidence.push({ ...scanned.value.evidence, anchors: retainedAnchors });
 			storedAnchors += retainedAnchors.length;
 			droppedRelatedAnchors += scanned.value.totalAnchors - retainedAnchors.length;
@@ -159,8 +140,6 @@ async function scanFile(
 	file: ScopedFile,
 	query: PreparedTextQuery,
 	context: TextScannerContext,
-	hitCapacity: number,
-	anchorCapacity: number,
 ): Promise<{ readonly ok: true; readonly value: FileScanSuccess } | { readonly ok: false; readonly error: FsError }> {
 	let retained: TextContent | undefined;
 	const retainText =
@@ -183,7 +162,7 @@ async function scanFile(
 		context.contentCache?.set(file, context.filesystem, retained);
 	}
 	const fileHits: TextHit[] = [];
-	const anchors: MutableLexicalAnchor[] = [];
+	const anchors: LexicalTextAnchor[] = [];
 	const matchedTerms = new Set<string>();
 	let totalHits = 0;
 	let totalAnchors = 0;
@@ -191,7 +170,7 @@ async function scanFile(
 		const match = query.matcher(line.text);
 		if (match !== undefined) {
 			totalHits += 1;
-			if (fileHits.length < hitCapacity) {
+			if (fileHits.length < MAX_STORED_TEXT_HITS) {
 				const hit = createTextHit(file.path, line, match, query.queryMode);
 				if (hit !== undefined) fileHits.push(hit);
 			}
@@ -202,7 +181,7 @@ async function scanFile(
 			&& line.text.toLocaleLowerCase().includes(query.phrase);
 		if (lineTerms.length > 0 || hasPhrase) {
 			totalAnchors += 1;
-			if (anchors.length < MAX_ANCHORS_PER_FILE && anchors.length < anchorCapacity) {
+			if (anchors.length < MAX_ANCHORS_PER_FILE) {
 				anchors.push(createLexicalAnchor(file.path, line, lineTerms, hasPhrase));
 			}
 		}
@@ -297,7 +276,7 @@ function createLexicalAnchor(
 	line: ScannedLine,
 	matchedTerms: readonly string[],
 	phrase: boolean,
-): MutableLexicalAnchor {
+): LexicalTextAnchor {
 	return {
 		path,
 		line: line.line,

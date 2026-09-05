@@ -42,11 +42,11 @@ const MAX_CANONICAL_KEY_ATTEMPTS = 4;
 export class WorkspaceMutationService implements MutationOperations {
 	constructor(private readonly options: WorkspaceMutationServiceOptions) {}
 
-	async run<TRejected>(
+	async run<TPrepared, TRejected = never>(
 		target: TargetRef,
 		options: MutationOptions,
-		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
-	): Promise<FsResult<MutationRunResult<TRejected>>> {
+		transform: (snapshot: MutationSnapshot) => MutationTransform<TPrepared, TRejected> | Promise<MutationTransform<TPrepared, TRejected>>,
+	): Promise<FsResult<MutationRunResult<TPrepared, TRejected>>> {
 		const context = this.options.context;
 		const initialIdentity = this.options.namespace.bridge.getNativeIdentity(target);
 		if (initialIdentity === undefined) return invalidTarget(target);
@@ -72,12 +72,12 @@ export class WorkspaceMutationService implements MutationOperations {
 		}
 	}
 
-	private async runLocked<TRejected>(
+	private async runLocked<TPrepared, TRejected>(
 		current: PreparedTarget,
 		lexicalPath: string,
 		options: MutationOptions,
-		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
-	): Promise<FsResult<MutationRunResult<TRejected>>> {
+		transform: (snapshot: MutationSnapshot) => MutationTransform<TPrepared, TRejected> | Promise<MutationTransform<TPrepared, TRejected>>,
+	): Promise<FsResult<MutationRunResult<TPrepared, TRejected>>> {
 		const context = this.options.context;
 		const parent = current.parentMetadata === undefined
 			? await this.readParentMetadata(current.identity, current.target.displayPath)
@@ -137,7 +137,7 @@ export class WorkspaceMutationService implements MutationOperations {
 		} catch {
 			// The rename is authoritative; owner-state observation is best effort after commit.
 		}
-		return fsSuccess({ committed: true, receipt });
+		return fsSuccess({ committed: true, receipt, prepared: transformed.prepared });
 	}
 
 	private async validateBeforeCommit(

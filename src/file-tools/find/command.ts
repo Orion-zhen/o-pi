@@ -3,7 +3,6 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import type { DirectoryRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { combineOperationContext } from "../shared/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { createFindQueryPlan } from "./query.js";
@@ -35,86 +34,72 @@ export interface FindCommandContext {
 	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth" | "find_max_entries">;
 }
 
-/** find command 持有统一取消 owner；查询与排名本身无跨 invocation 状态。 */
-export class FindTool {
-	private readonly owner = new AbortController();
-	private disposed = false;
+/** 路径发现与排名只使用本次调用的状态和取消信号。 */
+export async function findFiles(params: FindParams, context: FindCommandContext): Promise<ToolOutcome<FindSuccess>> {
+	const normalized = validateFindParams(params);
+	if (isFailed(normalized)) return normalized;
+	const plan = createFindQueryPlan(normalized.query);
+	if (isFailed(plan)) return plan;
+	if (isOperationAborted(context.operation)) return aborted();
 
-	async execute(params: FindParams, context: FindCommandContext): Promise<ToolOutcome<FindSuccess>> {
-		if (this.disposed) return fail("OPERATION_ABORTED", "find is shut down.");
-		context = { ...context, operation: combineOperationContext(context.operation, this.owner.signal) };
-		const normalized = validateFindParams(params);
-		if (isFailed(normalized)) return normalized;
-		const plan = createFindQueryPlan(normalized.query);
-		if (isFailed(plan)) return plan;
-		if (isOperationAborted(context.operation)) return aborted();
-
-		const scopeErrors: FindScopeError[] = [];
-		const resolved: NormalizedFindScope[] = [];
-		for (const [order, inputPath] of normalized.paths.entries()) {
-			const root = await resolveSearchRoot(inputPath, context);
-			if (isFailed(root)) {
-				scopeErrors.push({ path: inputPath, error: root.error });
-				continue;
-			}
-			resolved.push({ root, order });
+	const scopeErrors: FindScopeError[] = [];
+	const resolved: NormalizedFindScope[] = [];
+	for (const [order, inputPath] of normalized.paths.entries()) {
+		const root = await resolveSearchRoot(inputPath, context);
+		if (isFailed(root)) {
+			scopeErrors.push({ path: inputPath, error: root.error });
+			continue;
 		}
+		resolved.push({ root, order });
+	}
 
-		const scopes = resolveEffectiveScopes(resolved, context.filesystem);
-		const ranker = createLimitedFindRanker(plan, context.limits.find_result_limit);
-		const seenPaths = new Set<string>();
-		let totalCandidates = 0;
-		const discoveries: Array<{ scope: NormalizedFindScope; result: ScopeDiscovery }> = [];
-		let remainingEntries = context.limits.find_max_entries;
-		for (const scope of scopes) {
-			if (isOperationAborted(context.operation)) return aborted();
-			const result = await discoverScope(scope, normalized.glob, remainingEntries, context, (entry) => {
-				if (seenPaths.has(entry.path)) return;
-				seenPaths.add(entry.path);
-				totalCandidates += 1;
-				ranker.add(entry);
-			});
-			if (isFailed(result)) scopeErrors.push({ path: scope.root.displayPath, error: result.error });
-			else {
-				discoveries.push({ scope, result });
-				remainingEntries = Math.max(0, remainingEntries - result.consumedEntries);
-				if (result.entryLimited) break;
-			}
-		}
+	const scopes = resolveEffectiveScopes(resolved, context.filesystem);
+	const ranker = createLimitedFindRanker(plan, context.limits.find_result_limit);
+	const seenPaths = new Set<string>();
+	let totalCandidates = 0;
+	const discoveries: Array<{ scope: NormalizedFindScope; result: ScopeDiscovery }> = [];
+	let remainingEntries = context.limits.find_max_entries;
+	for (const scope of scopes) {
 		if (isOperationAborted(context.operation)) return aborted();
-		if (discoveries.length === 0) {
-			const first = scopeErrors[0];
-			if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
-			return withScopeErrors({ status: "failed", error: first.error }, normalized.paths, scopeErrors);
-		}
-
-		if (isOperationAborted(context.operation)) return aborted();
-		const ranking = ranker.result();
-		const selected = ranking.ranked;
-		const matches = selected.map(({ entry }) => ({ path: entry.path, kind: entry.kind }));
-		const paths = discoveries.map(({ scope }) => scope.root.displayPath);
-		return renderFindResults({
-			query: normalized.query,
-			path: paths[0] ?? ".",
-			paths,
-			...(normalized.glob === undefined ? {} : { glob: normalized.glob }),
-			...(scopeErrors.length === 0 ? {} : { scopeErrors }),
-			totalCandidates,
-			totalMatches: ranking.totalMatches,
-			matches,
-			stats: sumStats(discoveries),
-			depthLimited: discoveries.some(({ result }) => result.depthLimited),
-			entryLimited: discoveries.some(({ result }) => result.entryLimited),
-			resultLimited: selected.length < ranking.totalMatches,
-			outputTokenBudget: context.limits.find_output_token_budget,
+		const result = await discoverScope(scope, normalized.glob, remainingEntries, context, (entry) => {
+			if (seenPaths.has(entry.path)) return;
+			seenPaths.add(entry.path);
+			totalCandidates += 1;
+			ranker.add(entry);
 		});
+		if (isFailed(result)) scopeErrors.push({ path: scope.root.displayPath, error: result.error });
+		else {
+			discoveries.push({ scope, result });
+			remainingEntries = Math.max(0, remainingEntries - result.consumedEntries);
+			if (result.entryLimited) break;
+		}
+	}
+	if (isOperationAborted(context.operation)) return aborted();
+	if (discoveries.length === 0) {
+		const first = scopeErrors[0];
+		if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
+		return withScopeErrors({ status: "failed", error: first.error }, normalized.paths, scopeErrors);
 	}
 
-	dispose(): void {
-		if (this.disposed) return;
-		this.disposed = true;
-		this.owner.abort(new Error("find is shut down."));
-	}
+	const ranking = ranker.result();
+	const selected = ranking.ranked;
+	const matches = selected.map(({ entry }) => ({ path: entry.path, kind: entry.kind }));
+	const paths = discoveries.map(({ scope }) => scope.root.displayPath);
+	return renderFindResults({
+		query: normalized.query,
+		path: paths[0] ?? ".",
+		paths,
+		...(normalized.glob === undefined ? {} : { glob: normalized.glob }),
+		...(scopeErrors.length === 0 ? {} : { scopeErrors }),
+		totalCandidates,
+		totalMatches: ranking.totalMatches,
+		matches,
+		stats: sumStats(discoveries),
+		depthLimited: discoveries.some(({ result }) => result.depthLimited),
+		entryLimited: discoveries.some(({ result }) => result.entryLimited),
+		resultLimited: selected.length < ranking.totalMatches,
+		outputTokenBudget: context.limits.find_output_token_budget,
+	});
 }
 
 function validateFindParams(params: FindParams): ToolOutcome<NormalizedFindParams> {

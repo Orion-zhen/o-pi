@@ -1,5 +1,3 @@
-import { setImmediate as yieldToEventLoop } from "node:timers/promises";
-
 import type { FindEntry } from "./types.js";
 import type { FindQueryPlan, FindQueryTerm } from "./query.js";
 
@@ -53,59 +51,6 @@ const BONUS_CAMEL_123 = 7;
 const BONUS_CONSECUTIVE = 4;
 const BONUS_FIRST_MULTIPLIER = 2;
 const NEGATIVE_INFINITY = Number.NEGATIVE_INFINITY;
-const RANKING_YIELD_INTERVAL = 256;
-
-/** 固定使用 path scheme 的 fzf-v2 风格排名，不接受模型侧 ranking flags。 */
-export function rankFindEntries(entries: readonly FindEntry[], plan: FindQueryPlan): RankedFindEntry[] {
-	const compiled = compileFindQueryPlan(plan);
-	const ranked: RankedFindEntry[] = [];
-	for (const entry of entries) {
-		const candidate = rankEntry(entry, compiled);
-		if (candidate !== undefined) ranked.push(candidate);
-	}
-	return ranked.sort(compareRankedEntries);
-}
-
-/** runtime 排名分批让出事件循环；undefined 表示 signal 已取消。 */
-export async function rankFindEntriesAsync(
-	entries: readonly FindEntry[],
-	plan: FindQueryPlan,
-	signal?: AbortSignal,
-): Promise<RankedFindEntry[] | undefined> {
-	const compiled = compileFindQueryPlan(plan);
-	const ranked: RankedFindEntry[] = [];
-	for (const [index, entry] of entries.entries()) {
-		if (isAborted(signal)) return undefined;
-		if (index > 0 && index % RANKING_YIELD_INTERVAL === 0) {
-			await yieldToEventLoop();
-			if (isAborted(signal)) return undefined;
-		}
-		const candidate = rankEntry(entry, compiled);
-		if (candidate !== undefined) ranked.push(candidate);
-	}
-	if (isAborted(signal)) return undefined;
-	return ranked.sort(compareRankedEntries);
-}
-
-/** 统计全部命中，但只保留 relevance 前缀，避免为 result limit 之外的命中执行全量排序。 */
-export async function rankFindEntriesLimitedAsync(
-	entries: readonly FindEntry[],
-	plan: FindQueryPlan,
-	limit: number,
-	signal?: AbortSignal,
-): Promise<LimitedFindRanking | undefined> {
-	const ranker = createLimitedFindRanker(plan, limit);
-	for (const [index, entry] of entries.entries()) {
-		if (isAborted(signal)) return undefined;
-		if (index > 0 && index % RANKING_YIELD_INTERVAL === 0) {
-			await yieldToEventLoop();
-			if (isAborted(signal)) return undefined;
-		}
-		ranker.add(entry);
-	}
-	if (isAborted(signal)) return undefined;
-	return ranker.result();
-}
 
 /** 接收流式候选并保留与完整排序相同的 relevance 前缀。 */
 export function createLimitedFindRanker(plan: FindQueryPlan, limit: number): LimitedFindRanker {
@@ -123,10 +68,6 @@ export function createLimitedFindRanker(plan: FindQueryPlan, limit: number): Lim
 			return { ranked: [...ranked], totalMatches };
 		},
 	};
-}
-
-function isAborted(signal: AbortSignal | undefined): boolean {
-	return signal?.aborted === true;
 }
 
 function rankEntry(entry: FindEntry, plan: CompiledFindQueryPlan): RankedFindEntry | undefined {

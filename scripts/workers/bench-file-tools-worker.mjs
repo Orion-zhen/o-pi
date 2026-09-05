@@ -9,35 +9,43 @@ if (process.argv[2] === "search") {
 
 async function runRegistrationBenchmark() {
 	const tools = new Map();
+	const handlers = new Map();
 	const started = performance.now();
 	const extension = await loadTypeScript("agent/extensions/file-tools.ts", { defaultExport: true });
 	extension({
 		registerTool(tool) { tools.set(tool.name, tool); },
-		on() {},
+		on(event, handler) { handlers.set(event, handler); },
+		// 基准不运行遥测扩展，也不预热 Pi 模块，只提供注册必需的事件接口。
+		events: { emit() {}, on() { return () => {}; } },
 	});
 	const registered = performance.now();
 	const ls = tools.get("ls");
 	if (ls === undefined) throw new Error("ls was not registered");
-	await ls.execute("benchmark", {}, undefined, undefined, {
+	const ctx = {
 		cwd: fromRoot(""),
 		sessionManager: {
 			getBranch: () => [],
 			getSessionId: () => "file-tools-benchmark",
 		},
-	});
-	const completed = performance.now();
-	console.log(JSON.stringify({ registrationMs: registered - started, firstToolMs: completed - registered }));
+	};
+	try {
+		const result = await ls.execute("benchmark", {}, undefined, undefined, ctx);
+		if (result.details?.status === "failed") throw new Error(result.details.error.message);
+		const completed = performance.now();
+		console.log(JSON.stringify({ registrationMs: registered - started, firstToolMs: completed - registered }));
+	} finally {
+		await handlers.get("session_shutdown")({ reason: "exit" }, ctx);
+	}
 }
 
 async function runSearchBenchmark() {
-	const { FindTool } = await loadTypeScript("src/file-tools/find/command.ts");
+	const { findFiles } = await loadTypeScript("src/file-tools/find/command.ts");
 	const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
 	const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
 	const { FileSystemRuntime } = await loadTypeScript("src/filesystem/runtime.ts");
 	const { NodeNativeFileSystem } = await loadTypeScript("src/filesystem/platform/node/native-filesystem.ts");
 
 	const host = new FileToolsHost();
-	const findTool = new FindTool();
 	const latencyHost = new FileToolsHost({
 		filesystem: new FileSystemRuntime({ native: withOperationDelay(new NodeNativeFileSystem(), 2) }),
 	});
@@ -47,7 +55,7 @@ async function runSearchBenchmark() {
 		const opened = await host.open({ cwd: fromRoot(""), sessionId: "benchmark-find" });
 		if (opened.status === "failed") return opened;
 		try {
-			return await findTool.execute(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
+			return await findFiles(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
 		} finally {
 			opened.dispose();
 		}
@@ -56,7 +64,7 @@ async function runSearchBenchmark() {
 		const opened = await latencyHost.open({ cwd: fromRoot(""), sessionId: "benchmark-latency-find" });
 		if (opened.status === "failed") return opened;
 		try {
-			return await findTool.execute(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
+			return await findFiles(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
 		} finally {
 			opened.dispose();
 		}
@@ -87,7 +95,6 @@ async function runSearchBenchmark() {
 		path: ["src", "tests", "docs", "agent"],
 	}));
 
-	findTool.dispose();
 	host.dispose();
 	latencyHost.dispose();
 	grepTool.dispose();

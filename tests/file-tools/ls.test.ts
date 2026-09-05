@@ -6,9 +6,7 @@ import { isLsSuccess } from "../../src/file-tools/ls/guards.js";
 import { formatCompactLsResult } from "../../src/file-tools/ls/presenter.js";
 import { executeLs } from "../../src/file-tools/pi/adapters/ls.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
-import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
@@ -236,24 +234,9 @@ describe("ls", () => {
 	});
 
 	it("保留非规则文件 soft-ignore 的来源类型", async () => {
-		host.dispose();
-		host = new FileToolsHost({
-			config: {
-				async load() {
-					return {
-						ok: true as const,
-						value: {
-							filesystem: {
-								blockedPaths: [],
-								visibility: createVisibilityPolicy({ ignore: { builtinProfile: "minimal" } }),
-								fingerprint: "builtin-ls-test",
-							},
-							limits: defaultFileToolsConfig().limits,
-						},
-					};
-				},
-			},
-		});
+		const configPath = path.join(outside, "builtin-file-tools.jsonc");
+		await writeFile(configPath, JSON.stringify({ blocked_path: [], ignored_path: [], ignore: { builtin_profile: "minimal" } }));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		await mkdir(path.join(workspace, "node_modules"));
 		expect(await listWorkspaceDirectory(workspace, {})).toMatchObject({
 			entries: [{ name: "node_modules", ignored: true, ignore_source: "builtin" }],

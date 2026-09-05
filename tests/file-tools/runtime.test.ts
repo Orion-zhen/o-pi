@@ -2,15 +2,15 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { FileToolLimits } from "../../src/file-tool-limits.js";
 import type { FileRef, TargetRef } from "../../src/filesystem/contracts/path.js";
 import type { FilesystemPolicy } from "../../src/filesystem/contracts/policy.js";
 import type { FsResult } from "../../src/filesystem/contracts/result.js";
-import { NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
+import { NodeNativeFileSystem, type NativeAtomicReplaceOptions, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { FileSystemRuntime, type OpenWorkspaceOptions } from "../../src/filesystem/runtime.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { contentHash } from "../../src/filesystem/services/text.js";
 import {
-	defaultFileToolsConfig,
 	FileToolsConfigProvider,
 	type FileToolsConfig,
 	type FileToolsConfigLoader,
@@ -25,11 +25,25 @@ const temp = useTempDir("o-pi-file-tools-host-");
 preserveEnv("PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT");
 let workspace: string;
 let hosts: FileToolsHost[];
+let defaultLimits: FileToolLimits;
 
 beforeEach(async () => {
 	workspace = path.join(temp.path, "workspace");
 	await mkdir(workspace);
 	hosts = [];
+	const userConfig = path.join(temp.path, "defaults.jsonc");
+	await writeFile(userConfig, "{}\n");
+	process.env.PI_FILE_TOOLS_CONFIG = userConfig;
+	delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
+	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
+	const provider = new FileToolsConfigProvider();
+	try {
+		const loaded = await provider.load(workspace);
+		if (!loaded.ok) throw new Error(loaded.error.message);
+		defaultLimits = loaded.value.limits;
+	} finally {
+		provider.dispose();
+	}
 });
 
 afterEach(() => {
@@ -169,27 +183,28 @@ describe("FileToolsHost runtime", () => {
 		const isolatedRef = await resolveFile(isolated, "real.txt");
 		const version = { hash: contentHash(bytes("content")), sizeBytes: bytes("content").byteLength };
 
-		expect(first.observation.remember(real, version)).toBe(true);
-		expect(second.observation).toBe(first.observation);
+		first.observation.remember(real, version);
 		expect(second.observation.get(alias)).toEqual(version);
-		expect(first.observation.entries()).toEqual([{
+		expect(host.sessionObservations("same")).toEqual([{
 			canonicalPath: path.join(workspace, "real.txt"),
 			version,
 		}]);
 		const nextVersion = { hash: contentHash(bytes("next")), sizeBytes: 4 };
-		expect(second.observation.remember(alias, nextVersion)).toBe(true);
+		second.observation.remember(alias, nextVersion);
 		expect(first.observation.get(real)).toEqual(nextVersion);
 		expect(isolated.observation.get(isolatedRef)).toBeUndefined();
-		expect(first.observation.remember(isolatedRef, version)).toBe(false);
-		expect(first.observation.forget(isolatedRef)).toBe(false);
-		expect(second.observation.forget(alias)).toBe(true);
+		first.observation.remember(isolatedRef, version);
+		first.observation.remember(alias, version);
+		expect(first.observation.get(real)).toEqual(nextVersion);
+		expect(isolated.observation.get(isolatedRef)).toBeUndefined();
+		expect(second.observation.get(real)).toBeUndefined();
+		first.dispose();
+		first.dispose();
 		expect(first.observation.get(real)).toBeUndefined();
 		first.observation.remember(real, version);
-		second.observation.clear();
 		expect(first.observation.get(real)).toBeUndefined();
-		const detach = first.observation.attach(first.nativeBridge);
-		detach();
-		detach();
+		expect(second.observation.get(alias)).toEqual(nextVersion);
+		expect(host.sessionObservations("same")).toEqual([{ canonicalPath: path.join(workspace, "real.txt"), version: nextVersion }]);
 	});
 
 	it("updates observations before releasing the mutation queue for a concurrent edit", async () => {
@@ -201,19 +216,41 @@ describe("FileToolsHost runtime", () => {
 		const first = opened.filesystem.mutations.run(target, { createParents: false }, async () => {
 			entered.resolve();
 			await release.promise;
-			return { type: "commit", bytes: bytes("one") };
+			return { type: "commit", prepared: undefined, bytes: bytes("one") };
 		});
 		await entered.promise;
 		let observedBySecond: string | undefined;
 		const second = opened.filesystem.mutations.run(target, { createParents: false }, () => {
 			observedBySecond = opened.observation.get(target)?.hash;
-			return { type: "commit", bytes: bytes("two") };
+			return { type: "commit", prepared: undefined, bytes: bytes("two") };
 		});
 		release.resolve();
 		expect(expectOk(await first)).toMatchObject({ committed: true });
 		expect(expectOk(await second)).toMatchObject({ committed: true });
 		expect(observedBySecond).toBe(contentHash(bytes("one")));
 		expect(opened.observation.get(target)).toEqual({ hash: contentHash(bytes("two")), sizeBytes: 3 });
+	});
+
+	it("提交后的调用取消不丢失已写入文件的观测版本", async () => {
+		const controller = new AbortController();
+		class CancelAfterCommit extends NodeNativeFileSystem {
+			override async atomicReplace<T>(path: string, bytes: Uint8Array, options: NativeAtomicReplaceOptions<T>): Promise<T> {
+				const receipt = await super.atomicReplace(path, bytes, options);
+				controller.abort();
+				return receipt;
+			}
+		}
+		const host = track(new FileToolsHost({ config: staticConfig(), filesystem: new FileSystemRuntime({ native: new CancelAfterCommit() }) }));
+		const opened = await host.open({ cwd: workspace, sessionId: "committed-abort", signal: controller.signal });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		const target = await resolveTarget(opened, "committed.txt");
+		expect(expectOk(await opened.filesystem.mutations.run(target, { createParents: false }, () => ({
+			type: "commit", bytes: bytes("committed"), prepared: undefined,
+		})))).toMatchObject({ committed: true });
+		expect(host.sessionObservations("committed-abort")).toEqual([{
+			canonicalPath: path.join(workspace, "committed.txt"),
+			version: { hash: contentHash(bytes("committed")), sizeBytes: 9 },
+		}]);
 	});
 
 	it("supports observation-based external stale detection inside the mutation session", async () => {
@@ -229,7 +266,7 @@ describe("FileToolsHost runtime", () => {
 		const result = await opened.filesystem.mutations.run(target, { createParents: false }, (snapshot) => {
 			const observed = opened.observation.get(target);
 			if (!snapshot.exists || observed?.hash !== snapshot.hash) return { type: "reject", reason: "stale" };
-			return { type: "commit", bytes: bytes("unsafe") };
+			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
 		});
 		expect(expectOk(result)).toMatchObject({ committed: false, reason: "stale" });
 	});
@@ -241,14 +278,13 @@ describe("FileToolsHost runtime", () => {
 		expect(expectOk(await opened.filesystem.mutations.run(
 			target,
 			{ createParents: false },
-			() => ({ type: "commit", bytes: bytes("life") }),
+			() => ({ type: "commit", prepared: undefined, bytes: bytes("life") }),
 		))).toMatchObject({ committed: true, receipt: { created: true } });
-		expect(opened.limits.ls_entries).toBe(defaultFileToolsConfig().limits.ls_entries);
+		expect(opened.limits.ls_entries).toBe(defaultLimits.ls_entries);
 		const file = await resolveFile(opened, "life.txt");
 
 		opened.dispose();
 		opened.dispose();
-		expect(opened.disposed).toBe(true);
 		await expect(opened.filesystem.paths.resolveTarget(
 			"after-dispose.txt",
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
@@ -257,7 +293,7 @@ describe("FileToolsHost runtime", () => {
 		await expect(opened.filesystem.mutations.run(
 			target,
 			{ createParents: false },
-			() => ({ type: "commit", bytes: bytes("unsafe") }),
+			() => ({ type: "commit", prepared: undefined, bytes: bytes("unsafe") }),
 		))
 			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 
@@ -303,7 +339,7 @@ function configSuccess(): FileToolsConfigResult {
 }
 
 function fileToolsConfig(): FileToolsConfig {
-	return { filesystem: policy(), limits: defaultFileToolsConfig().limits };
+	return { filesystem: policy(), limits: defaultLimits };
 }
 
 function policy(): FilesystemPolicy {

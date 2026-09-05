@@ -13,7 +13,7 @@ import type { ReadFileSuccess, ReadOutputFormat, ReadParams, ReadPdfMetadata, Re
 const PATH_SUGGESTION_ENTRY_LIMIT = 10_000;
 
 export interface ReadObservationStore {
-	remember(file: FileRef, version: ContentVersion): boolean;
+	remember(file: FileRef, version: ContentVersion): void;
 }
 
 export interface ReadCommandContext {
@@ -31,7 +31,6 @@ export interface ReadCommandContext {
 	readonly image: InlineImageProcessor;
 	readonly pdf: PdfDocumentSource;
 	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
-	readonly recordObservation?: boolean;
 }
 
 /** Reads one guarded workspace file and composes only read-owned optional ports. */
@@ -94,7 +93,7 @@ export async function readFile(
 				details: { mime_type: image.mimeType },
 			});
 		}
-		remember(context, file, loaded.value);
+		context.observation.remember(file, loaded.value);
 		const processed = image.value;
 		const result: ReadFileSuccess = {
 			path: file.displayPath,
@@ -118,7 +117,7 @@ export async function readFile(
 		}
 		const pdf = await readPdf(file.displayPath, loaded.value, ranges.pages, context);
 		if ("status" in pdf) return pdf;
-		remember(context, file, loaded.value);
+		context.observation.remember(file, loaded.value);
 		applyIgnore(pdf, ignoreSource);
 		return pdf;
 	}
@@ -140,7 +139,7 @@ export async function readFile(
 
 	const decoded = context.filesystem.content.decodeText(loaded.value, file.displayPath);
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
-	remember(context, file, decoded.value);
+	context.observation.remember(file, decoded.value);
 
 	const initialSlice = context.filesystem.content.sliceText(decoded.value, sliceOptions(ranges.lines, params.path, context));
 	if (!initialSlice.ok) return mapFsError(initialSlice.error, { notFound: "file" });
@@ -402,10 +401,6 @@ async function processImage(
 		if (!isAborted(operation)) throw error;
 		return undefined;
 	}
-}
-
-function remember(context: ReadCommandContext, file: FileRef, version: ContentVersion): void {
-	if (context.recordObservation !== false) context.observation.remember(file, version);
 }
 
 function applyIgnore(result: ReadFileSuccess, ignoreSource: string | undefined): void {

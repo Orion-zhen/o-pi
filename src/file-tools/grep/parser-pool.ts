@@ -1,4 +1,4 @@
-import { analyzeCodeFile, analyzeTextFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
+import { analyzeCodeFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
 import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
 import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
 import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";
@@ -13,14 +13,12 @@ interface GrepParseWorkload {
 }
 
 interface OffloadDecisionOptions {
-	concurrency?: number;
 	workerWarm?: boolean;
 }
 
 export interface GrepParseFile {
 	readonly path: string;
 	readonly text: string;
-	readonly syntax: boolean;
 }
 type GrepParserWorkerPool = WorkerTaskPool<GrepParseFile[], AnalyzedFileIndex[]>;
 
@@ -35,8 +33,7 @@ const WARM_WORKER_START_MS = 3;
 function shouldOffloadGrepParsing(workload: GrepParseWorkload, options: OffloadDecisionOptions = {}): boolean {
 	if (workload.fileCount <= 0 || workload.totalBytes <= 0) return false;
 	if (workload.maxFileBytes >= MAIN_THREAD_MAX_PARSE_BYTES) return true;
-	const concurrency = Math.max(1, options.concurrency ?? GREP_CONCURRENCY);
-	const workers = Math.min(concurrency, Math.ceil(workload.fileCount / GREP_PARSER_BATCH_SIZE));
+	const workers = Math.min(GREP_CONCURRENCY, Math.ceil(workload.fileCount / GREP_PARSER_BATCH_SIZE));
 	if (workers <= 1) return false;
 	const localMs = workload.fileCount * LOCAL_FILE_COST_MS + workload.totalBytes / LOCAL_BYTES_PER_MS;
 	const transferMs = workload.fileCount * TRANSFER_FILE_COST_MS + workload.totalBytes / TRANSFER_BYTES_PER_MS;
@@ -49,29 +46,16 @@ export class GrepParser {
 	private pool: GrepParserWorkerPool | undefined;
 	private disposed = false;
 
-	async analyzeFile(filePath: string, text: string, signal: AbortSignal | undefined, syntax = true): Promise<AnalyzedFileIndex> {
-		return (await this.analyzeFiles([{ path: filePath, text, syntax }], signal))[0]
-			?? await analyzeRequestedFile({ path: filePath, text, syntax }, signal);
-	}
-
 	async analyzeFiles(files: readonly GrepParseFile[], signal: AbortSignal | undefined): Promise<AnalyzedFileIndex[]> {
 		if (this.disposed || signal?.aborted === true) throw new AbortGrepParse();
-		const syntaxFiles = files.filter((file) => file.syntax);
-		const workload = parseWorkload(syntaxFiles);
+		const workload = parseWorkload(files);
 		const offload = shouldOffloadGrepParsing(workload, { workerWarm: this.pool !== undefined });
 		if (!offload) return await analyzeLocally(files, signal);
 		try {
 			this.pool ??= createGrepParserPool();
 			const pool = this.pool;
-			const batches = chunk(syntaxFiles, GREP_PARSER_BATCH_SIZE);
-			const syntaxResults = (await Promise.all(batches.map(async (batch) => await pool.run(batch, signal)))).flat();
-			let syntaxIndex = 0;
-			return await Promise.all(files.map(async (file) => {
-				if (!file.syntax) return analyzeTextFile(file.path);
-				const result = syntaxResults[syntaxIndex];
-				syntaxIndex += 1;
-				return result ?? await analyzeRequestedFile(file, signal);
-			}));
+			const batches = chunk(files, GREP_PARSER_BATCH_SIZE);
+			return (await Promise.all(batches.map((batch) => pool.run(batch, signal)))).flat();
 		} catch (error) {
 			if (this.isDisposed() || isAborted(signal) || error instanceof AbortGrepParse || error instanceof WorkerTaskAbortedError) {
 				throw new AbortGrepParse();
@@ -99,7 +83,7 @@ async function analyzeLocally(files: readonly GrepParseFile[], signal?: AbortSig
 	try {
 		for (const file of files) {
 			if (signal?.aborted === true) throw new AbortGrepParse();
-			result.push(await analyzeRequestedFile(file, signal));
+			result.push(await analyzeCodeFile(file.path, file.text, signal));
 		}
 		return result;
 	} catch (error) {
@@ -147,8 +131,4 @@ function chunk<T>(values: readonly T[], size: number): T[][] {
 	const result: T[][] = [];
 	for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size));
 	return result;
-}
-
-async function analyzeRequestedFile(file: GrepParseFile, signal?: AbortSignal): Promise<AnalyzedFileIndex> {
-	return file.syntax ? await analyzeCodeFile(file.path, file.text, signal) : analyzeTextFile(file.path);
 }

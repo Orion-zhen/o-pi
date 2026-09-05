@@ -163,7 +163,6 @@ export class GrepRegionizer {
 			fresh = await this.parser.analyzeFiles(pending.map((file) => ({
 				path: file.file.path,
 				text: file.content.text,
-				syntax: true,
 			})), signal);
 		} catch (error) {
 			if (signal?.aborted === true || error instanceof AbortGrepParse) return aborted();

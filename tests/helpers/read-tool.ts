@@ -14,7 +14,6 @@ export interface ReadWorkspaceTestOptions {
 	readonly pdf?: PdfDocumentSource;
 	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
 	readonly signal?: AbortSignal;
-	readonly recordObservation?: boolean;
 }
 
 export async function readWorkspaceFile(
@@ -43,7 +42,6 @@ export async function readWorkspaceFile(
 				pdf: options.pdf ?? createPdfDocumentSource(),
 				...(options.supportedOutputFormats === undefined ? {} : { supportedOutputFormats: options.supportedOutputFormats }),
 				...(options.structure === undefined ? {} : { structure: options.structure }),
-				...(options.recordObservation === undefined ? {} : { recordObservation: options.recordObservation }),
 			});
 		} finally {
 			opened.dispose();

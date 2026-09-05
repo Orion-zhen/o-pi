@@ -1,4 +1,5 @@
 import { rename, rm, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
@@ -205,7 +206,7 @@ describe("grep text search", () => {
 	});
 
 	it("TextScanner 以正文 UTF-8 坐标存储 BOM 后的多字节命中并观测未保存命中数", async () => {
-		const lines = "你😀hit\n你😀hit\n你😀hit\n你😀hit\n你😀hit\n";
+		const lines = "你😀hit\n".repeat(10_003);
 		await writeFile(path.join(testContext.workspace, "hits.txt"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(lines)]));
 		await withFileToolsInvocation(testContext.workspace, "grep-hit-limit", async (opened) => {
 			const inventory = expectInventorySuccess(await buildScopeInventory({ paths: ["hits.txt"] }, {
@@ -218,10 +219,8 @@ describe("grep text search", () => {
 			const scanned = expectSuccess(await scanInventoryText(inventory, queryPlan("hit"), {
 				filesystem: opened.filesystem,
 				operation: opened.context,
-				maxStoredHits: 2,
-				maxStoredAnchors: 2,
 			}));
-			expect(scanned.hits).toHaveLength(2);
+			expect(scanned.hits).toHaveLength(10_000);
 			expect(scanned.hits[0]).toMatchObject({
 				line: 1,
 				byteStart: 7,
@@ -229,17 +228,19 @@ describe("grep text search", () => {
 				matchStart: 3,
 				matchEnd: 6,
 			});
-			expect(scanned.totalHits).toBe(5);
+			expect(scanned.hits.at(-1)).toMatchObject({ line: 10_000 });
+			expect(scanned.totalHits).toBe(10_003);
+			expect(scanned.fileEvidence[0]?.anchors).toHaveLength(64);
 			expect(scanned.stats).toMatchObject({
 				droppedTextHits: 3,
-				droppedRelatedAnchors: 3,
+				droppedRelatedAnchors: 10_003 - 64,
 			});
 		});
 	});
 
 	it("TextScanner 有界并发读取并按 inventory 顺序提交全局容量", async () => {
-		await writeFile(path.join(testContext.workspace, "a.txt"), "hit\nhit\nhit\n");
-		await writeFile(path.join(testContext.workspace, "b.txt"), "hit\nhit\nhit\n");
+		const paths = Array.from({ length: 158 }, (_, index) => `${String(index).padStart(3, "0")}.txt`);
+		await Promise.all(paths.map((file) => writeFile(path.join(testContext.workspace, file), "hit\n".repeat(64))));
 		await withFileToolsInvocation(testContext.workspace, "grep-concurrent-scan", async (opened) => {
 			const inventory = expectInventorySuccess(await buildScopeInventory({ paths: ["."] }, {
 				filesystem: opened.filesystem,
@@ -248,7 +249,6 @@ describe("grep text search", () => {
 				maxEntries: 100_000,
 				maxSearchBytes: Number.MAX_SAFE_INTEGER,
 			}));
-			const started = deferredVoid();
 			const release = deferredVoid();
 			let active = 0;
 			let maxActive = 0;
@@ -256,28 +256,29 @@ describe("grep text search", () => {
 				async scanLines(file, options) {
 					active += 1;
 					maxActive = Math.max(maxActive, active);
-					if (active === 2) started.resolve();
+					queueMicrotask(() => release.resolve());
 					await release.promise;
-					active -= 1;
-					return await content.scanLines(file, options);
+					try {
+						return await content.scanLines(file, options);
+					} finally {
+						active -= 1;
+					}
 				},
 			}));
 			const pending = scanInventoryText(inventory, queryPlan("hit"), {
 				filesystem,
 				operation: opened.context,
-				fileConcurrency: 2,
-				maxStoredHits: 2,
-				maxStoredAnchors: 2,
 			});
-			await started.promise;
-			release.resolve();
 			const scanned = expectSuccess(await pending);
-			expect(maxActive).toBe(2);
-			expect(scanned.hits.map((hit) => hit.path)).toEqual(["a.txt", "a.txt"]);
-			expect(scanned.totalHits).toBe(6);
+			expect(maxActive).toBeGreaterThanOrEqual(availableParallelism() >= 4 ? 2 : 1);
+			expect(maxActive).toBeLessThanOrEqual(8);
+			const retainedPaths = paths.flatMap((file) => Array<string>(64).fill(file)).slice(0, 10_000);
+			expect(scanned.hits.map((hit) => hit.path)).toEqual(retainedPaths);
+			expect(scanned.fileEvidence.flatMap((file) => file.anchors.map((anchor) => anchor.path))).toEqual(retainedPaths);
+			expect(scanned.totalHits).toBe(10_112);
 			expect(scanned.stats).toMatchObject({
-				droppedTextHits: 4,
-				droppedRelatedAnchors: 4,
+				droppedTextHits: 112,
+				droppedRelatedAnchors: 112,
 			});
 		});
 	});

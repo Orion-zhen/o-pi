@@ -39,7 +39,7 @@ WorkspaceFileSystem 能力门面
 Node 平台后端
 ```
 
-Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位于 `src/file-tools/{ls,read,write,edit,find,grep}/`，互不导入。工具之间只共享错误、诊断、差异和纯排序原语。`src/filesystem/` 是工作区 I/O 的唯一数据平面，不依赖 Pi、模型输出、LSP、Tree-sitter 或具体工具结果。
+Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位于 `src/file-tools/{ls,read,write,edit,find,grep}/`，互不导入。工具之间只共享错误、诊断和差异契约。`src/filesystem/` 是工作区 I/O 的唯一数据平面，不依赖 Pi、模型输出、LSP、Tree-sitter 或具体工具结果。
 
 每次调用都由 `FileToolsHost.open({ cwd, sessionId, signal })` 根据调用的 `cwd` 加载配置。然后，`FileToolsHost` 提供 `WorkspaceFileSystem`、工具预算和会话观测状态。`WorkspaceFileSystem` 绑定不可变策略和仅供本次调用使用的可见性求值器。
 

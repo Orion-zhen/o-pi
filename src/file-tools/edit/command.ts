@@ -18,6 +18,18 @@ import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, Ed
 const encoder = new TextEncoder();
 const UTF8_BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
 
+interface EditedContent {
+	readonly file: TextContent;
+	readonly updatedText: string;
+	readonly replacementCount: number;
+	readonly changedRanges: readonly EditLineRange[];
+}
+
+interface PreparedEdit extends EditedContent {
+	readonly renderedDiff: TextDiff;
+	readonly baseline: DiagnosticSnapshot | undefined;
+}
+
 interface EditObservationStore {
 	get(target: TargetRef): ContentVersion | undefined;
 }
@@ -46,13 +58,7 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 	const target = await resolveEditMutationTarget(params.path, context.filesystem);
 	if (isFailed(target)) return target;
 
-	let before: TextContent | undefined;
-	let updatedText: string | undefined;
-	let replacementCount: number | undefined;
-	let changedRanges: readonly EditLineRange[] | undefined;
-	let renderedDiff: TextDiff | undefined;
-	let baseline: DiagnosticSnapshot | undefined;
-	const mutated = await context.filesystem.mutations.run<FailedResult>(
+	const mutated = await context.filesystem.mutations.run<PreparedEdit, FailedResult>(
 		target,
 		{
 			createParents: false,
@@ -62,13 +68,10 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 		async (snapshot) => {
 			const prepared = prepareSnapshot(snapshot, target, params.edits, context);
 			if (isFailed(prepared)) return { type: "reject", reason: prepared };
-			before = prepared.file;
-			updatedText = prepared.updatedText;
-			replacementCount = prepared.replacementCount;
-			changedRanges = prepared.changedRanges;
+			const { file: before, updatedText, replacementCount } = prepared;
 			const output = buildTextBytes(updatedText, before.hasBom, target.displayPath, context.maxFileBytes);
 			if (isFailed(output)) return { type: "reject", reason: output };
-			renderedDiff = await context.diff.generate(normalizeLineEndings(before.text), normalizeLineEndings(updatedText));
+			const renderedDiff = await context.diff.generate(normalizeLineEndings(before.text), normalizeLineEndings(updatedText));
 			safePrepared(context.onPrepared, {
 				status: "preview",
 				path: target.displayPath,
@@ -76,17 +79,14 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 				diff: renderedDiff.diff,
 				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 			});
-			baseline = await captureMutationDiagnostics(context.diagnostics, target, context.operation.signal);
-			return { type: "commit", bytes: output };
+			const baseline = await captureMutationDiagnostics(context.diagnostics, target, context.operation.signal);
+			return { type: "commit", bytes: output, prepared: { ...prepared, renderedDiff, baseline } };
 		},
 	);
 	if (!mutated.ok) return mapMutationError(mutated.error);
 	if (!mutated.value.committed) return mutated.value.reason;
-	if (before === undefined || updatedText === undefined || replacementCount === undefined || changedRanges === undefined || renderedDiff === undefined) {
-		return fail("ACCESS_DENIED", "File could not be written.", { path: target.displayPath });
-	}
-
-	const receipt = mutated.value.receipt;
+	const { receipt, prepared } = mutated.value;
+	const { file: before, updatedText, replacementCount, changedRanges, renderedDiff, baseline } = prepared;
 	const result: EditSuccess = {
 		status: "applied",
 		path: receipt.target.displayPath,
@@ -166,7 +166,7 @@ function prepareSnapshot(
 	target: TargetRef,
 	edits: readonly EditReplacement[],
 	context: EditCommandContext,
-): ToolOutcome<{ file: TextContent; updatedText: string; replacementCount: number; changedRanges: readonly EditLineRange[] }> {
+): ToolOutcome<EditedContent> {
 	if (!snapshot.exists) return fail("FILE_NOT_FOUND", "File does not exist.", { path: target.displayPath });
 	const file = context.filesystem.content.decodeText(
 		{ bytes: snapshot.bytes, hash: snapshot.hash, sizeBytes: snapshot.sizeBytes },

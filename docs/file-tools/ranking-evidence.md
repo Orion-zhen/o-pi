@@ -16,7 +16,7 @@
 sourceScore = sourceWeight / (60 + sourceRank)
 ```
 
-固定权重定义在 `src/file-tools/grep/ranking.ts`。
+固定权重定义在 `src/file-tools/grep/ranking.ts`。候选构建和合并阶段只保存信号与证据，排序完成时统一派生 `matched_by`，不维护重复的中间展示字段。
 
 来源排名和稳定顺序相互独立：
 

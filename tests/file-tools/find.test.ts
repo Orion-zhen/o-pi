@@ -2,14 +2,10 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FindTool } from "../../src/file-tools/find/command.js";
+import { findFiles } from "../../src/file-tools/find/command.js";
 import { createFindQueryPlan } from "../../src/file-tools/find/query.js";
-import {
-	createLimitedFindRanker,
-	rankFindEntries,
-	rankFindEntriesAsync,
-	rankFindEntriesLimitedAsync,
-} from "../../src/file-tools/find/ranker.js";
+import { createLimitedFindRanker } from "../../src/file-tools/find/ranker.js";
+import type { PathDiscovery } from "../../src/filesystem/contracts/discovery.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { FindParams, FindSuccess } from "../../src/file-tools/find/types.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
@@ -347,14 +343,13 @@ describe("find", () => {
 			},
 		}, base);
 		const host = track(new FileToolsHost({ filesystem: new FileSystemRuntime({ native }) }));
-		const tool = track(new FindTool());
 		const opened = track(expectSuccess(await host.open({ cwd: workspace, sessionId: "find-path-discovery" })));
 		expect(calls.readdir).toBe(0);
 		expect(calls.lstat).toBeLessThan(10);
 		calls.lstat = 0;
 		calls.realpath = 0;
 		calls.readdir = 0;
-		const result = expectSuccess(await tool.execute({ query: "target" }, {
+		const result = expectSuccess(await findFiles({ query: "target" }, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			limits: opened.limits,
@@ -366,17 +361,16 @@ describe("find", () => {
 		expect(calls).toEqual({ lstat: 0, realpath: 0, readdir: directoryCount + 1 });
 	});
 
-	it("AbortSignal 和 tool dispose 都终止调用", async () => {
+	it("AbortSignal 和租约关闭都终止调用", async () => {
 		const controller = new AbortController();
 		controller.abort();
 		expectFailure(await findWorkspaceFiles(workspace, { query: "auth" }, controller.signal), { code: "OPERATION_ABORTED" });
 
 		const host = track(new FileToolsHost());
-		const tool = track(new FindTool());
 		const opened = track(expectSuccess(await host.open({ cwd: workspace, sessionId: "disposed-find" })));
-		tool.dispose();
-		tool.dispose();
-		expectFailure(await tool.execute({ query: "auth" }, {
+		opened.dispose();
+		opened.dispose();
+		expectFailure(await findFiles({ query: "auth" }, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			limits: opened.limits,
@@ -384,21 +378,41 @@ describe("find", () => {
 	});
 
 	it("大型候选集排名会让出事件循环并响应取消", async () => {
-		const plan = createFindQueryPlan("parser runtime");
-		if ("status" in plan) throw new Error(plan.error.message);
-		const entries = Array.from({ length: 1_000 }, (_value, index) => {
-			const searchPath = `packages/component-${index}/parser-runtime-${index}.ts`;
-			return {
-				path: searchPath,
-				searchPath,
-				kind: "file" as const,
-				scopeOrder: 0,
-			};
-		});
+		await writeFixtures(...Array.from({ length: 600 }, (_value, index) => `parser-runtime-${index}.ts`));
 		const controller = new AbortController();
-		const pending = rankFindEntriesAsync(entries, plan, controller.signal);
-		queueMicrotask(() => controller.abort());
-		expect(await pending).toBeUndefined();
+		const host = track(new FileToolsHost());
+		const opened = track(expectSuccess(await host.open({ cwd: workspace, sessionId: "find-ranking-cancel", signal: controller.signal })));
+		let visited = 0;
+		let closed = false;
+		const discovery = opened.filesystem.discovery;
+		const result = await findFiles({ query: "parser runtime" }, {
+			filesystem: {
+				...opened.filesystem,
+				discovery: {
+					discover: (root, options) => discovery.discover(root, options),
+					async discoverPaths(root, options) {
+						const stream = await discovery.discoverPaths(root, options);
+						if (!stream.ok) return stream;
+						const value: PathDiscovery = {
+							async *[Symbol.asyncIterator]() {
+								for await (const event of stream.value) {
+									visited += 1;
+									if (visited === 256) queueMicrotask(() => controller.abort());
+									yield event;
+								}
+							},
+							async close() { closed = true; await stream.value.close(); },
+						};
+						return { ok: true, value };
+					},
+				},
+			},
+			operation: opened.context,
+			limits: opened.limits,
+		});
+		expectFailure(result, { code: "OPERATION_ABORTED" });
+		expect(visited).toBeLessThan(600);
+		expect(closed).toBe(true);
 	});
 
 	it("有界排名保留全量命中数并返回与完整排序相同的 relevance 前缀", async () => {
@@ -413,14 +427,13 @@ describe("find", () => {
 				scopeOrder: 0,
 			};
 		});
-		const complete = rankFindEntries(entries, plan);
-		const limited = await rankFindEntriesLimitedAsync(entries, plan, 7);
-		const streaming = createLimitedFindRanker(plan, 7);
-		for (const entry of entries) streaming.add(entry);
-		expect(limited).toEqual({
-			ranked: complete.slice(0, 7),
-			totalMatches: complete.length,
+		const complete = createLimitedFindRanker(plan, entries.length);
+		const limited = createLimitedFindRanker(plan, 7);
+		for (const entry of entries) complete.add(entry);
+		for (const entry of [...entries].reverse()) limited.add(entry);
+		expect(limited.result()).toEqual({
+			ranked: complete.result().ranked.slice(0, 7),
+			totalMatches: entries.length,
 		});
-		expect(streaming.result()).toEqual(limited);
 	});
 });

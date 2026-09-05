@@ -2,7 +2,6 @@ import { compareCodeUnitNesting, createTextTokenMatcher, languageFromPath, token
 import { compactDisplayLine, firstTermFocus } from "./display.js";
 import {
 	createSemanticCodeRegion,
-	normalizeMatchedBy,
 	type CandidateSignal,
 	type CodeRegion,
 	type LexicalTextAnchor,
@@ -14,20 +13,13 @@ import {
 import type { ScopeInventory } from "./inventory.js";
 import type { QueryPlan } from "./query-plan.js";
 import { rankCodeRegions } from "./ranking.js";
-import type { RegionizationResult, RegionizedFile } from "./regionizer.js";
+import type { RegionizationResult } from "./regionizer.js";
 import type { TextScanResult } from "./text-scanner.js";
 import type { GrepDisplayLine } from "./types.js";
 
 interface LocalEntry {
-	readonly id: string;
-	readonly path: string;
-	readonly startLine: number;
 	readonly quality: number;
 	readonly region: SemanticMainRegion;
-}
-
-interface UnitFile {
-	readonly unit: IndexedCodeUnit;
 }
 
 /** 有正文命中时只解析命中文件；零命中时解析代码 scope，为 related 回退提供 live AST。 */
@@ -69,21 +61,17 @@ export function buildRankedRegions(
 	for (const region of regionized.regions) {
 		byId.set(region.id, region.queryMatch === "verified" ? enrichVerifiedRegion(region) : region);
 	}
-	if (scan.totalHits > 0) return rankRegions(plan, byId);
+	if (scan.totalHits > 0) return rankCodeRegions(plan, [...byId.values()]);
 
-	const unitFiles = collectUnitFiles(regionized.files);
+	const units = regionized.files.flatMap((file) => file.analysis.index.units);
 	const queryTerms = uniqueTerms(plan.targetTerms.length > 0 ? plan.targetTerms : [plan.query]);
-	const groupedAnchors = groupLexicalAnchors(scan.fileEvidence, unitFiles);
+	const groupedAnchors = groupLexicalAnchors(scan.fileEvidence, units);
 	const entries = [
-		...anchoredUnitCandidates(groupedAnchors.byUnit, unitFiles, queryTerms, displayLimit),
+		...anchoredUnitCandidates(groupedAnchors.byUnit, units, queryTerms, displayLimit),
 		...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, queryTerms),
 	];
 	mergeEntries(byId, entries);
-	return rankRegions(plan, byId);
-}
-
-function collectUnitFiles(files: readonly RegionizedFile[]): UnitFile[] {
-	return files.flatMap((file) => file.analysis.index.units.map((unit) => ({ unit })));
+	return rankCodeRegions(plan, [...byId.values()]);
 }
 
 function enrichVerifiedRegion(region: VerifiedCodeRegion): VerifiedCodeRegion {
@@ -95,23 +83,20 @@ function enrichVerifiedRegion(region: VerifiedCodeRegion): VerifiedCodeRegion {
 
 function anchoredUnitCandidates(
 	anchorsByUnit: ReadonlyMap<string, readonly LexicalTextAnchor[]>,
-	units: readonly UnitFile[],
+	units: readonly IndexedCodeUnit[],
 	queryTerms: readonly string[],
 	displayLimit: number,
 ): LocalEntry[] {
 	const result: LocalEntry[] = [];
 	const matchTerms = createTextTokenMatcher(queryTerms);
 	for (const item of units) {
-		const anchors = anchorsByUnit.get(item.unit.id);
+		const anchors = anchorsByUnit.get(item.id);
 		if (anchors === undefined || anchors.length === 0) continue;
 		const anchorTerms = new Set(anchors.flatMap((anchor) => anchor.matchedTerms.map(normalizeTerm)));
-		const declarationTerms = new Set(matchTerms(item.unit.signature ?? ""));
+		const declarationTerms = new Set(matchTerms(item.signature ?? ""));
 		const structureTerms = new Set([
 			...declarationTerms,
-			...matchTerms([
-			item.unit.name,
-			item.unit.qualifiedName,
-		].filter((value): value is string => value !== undefined).join(" ")),
+			...matchTerms([item.name, item.qualifiedName].filter((value): value is string => value !== undefined).join(" ")),
 		]);
 		const matchedTerms = queryTerms.filter((term) => anchorTerms.has(term) || structureTerms.has(term));
 		if (!passesCoverage(matchedTerms.length, queryTerms.length)) continue;
@@ -124,7 +109,7 @@ function anchoredUnitCandidates(
 			.map(anchorDisplayLine);
 		const quality = matchedTerms.length * 1_000
 			+ anchors.reduce((score, anchor) => score + anchor.matchedTerms.length * 100 + (anchor.phrase ? 250 : 0), 0)
-			- Math.max(0, item.unit.endLine - item.unit.startLine);
+			- Math.max(0, item.endLine - item.startLine);
 		result.push(localEntry(
 			item,
 			quality,
@@ -137,16 +122,16 @@ function anchoredUnitCandidates(
 
 function groupLexicalAnchors(
 	evidence: readonly { readonly path: string; readonly anchors: readonly LexicalTextAnchor[] }[],
-	units: readonly UnitFile[],
+	units: readonly IndexedCodeUnit[],
 ): { readonly byUnit: ReadonlyMap<string, readonly LexicalTextAnchor[]>; readonly outside: readonly LexicalTextAnchor[] } {
-	const unitsByPath = new Map<string, UnitFile[]>();
+	const unitsByPath = new Map<string, IndexedCodeUnit[]>();
 	for (const item of units) {
-		const grouped = unitsByPath.get(item.unit.path);
-		if (grouped === undefined) unitsByPath.set(item.unit.path, [item]);
+		const grouped = unitsByPath.get(item.path);
+		if (grouped === undefined) unitsByPath.set(item.path, [item]);
 		else grouped.push(item);
 	}
 	for (const grouped of unitsByPath.values()) {
-		grouped.sort((left, right) => compareCodeUnitNesting(left.unit, right.unit));
+		grouped.sort(compareCodeUnitNesting);
 	}
 	const byUnit = new Map<string, LexicalTextAnchor[]>();
 	const outside: LexicalTextAnchor[] = [];
@@ -157,16 +142,16 @@ function groupLexicalAnchors(
 				outside.push(anchor);
 				continue;
 			}
-			const grouped = byUnit.get(enclosing.unit.id);
-			if (grouped === undefined) byUnit.set(enclosing.unit.id, [anchor]);
+			const grouped = byUnit.get(enclosing.id);
+			if (grouped === undefined) byUnit.set(enclosing.id, [anchor]);
 			else grouped.push(anchor);
 		}
 	}
 	return { byUnit, outside };
 }
 
-function smallestEnclosingUnit(units: readonly UnitFile[], anchor: LexicalTextAnchor): UnitFile | undefined {
-	return units.find((item) => item.unit.startLine <= anchor.line && anchor.line <= item.unit.endLine);
+function smallestEnclosingUnit(units: readonly IndexedCodeUnit[], anchor: LexicalTextAnchor): IndexedCodeUnit | undefined {
+	return units.find((item) => item.startLine <= anchor.line && anchor.line <= item.endLine);
 }
 
 function lexicalAnchorCandidates(
@@ -182,19 +167,16 @@ function lexicalAnchorCandidates(
 		const highCoverage = anchor.phrase || (queryTerms.length > 1 && anchor.matchedTerms.length / queryTerms.length >= 0.6);
 		const id = `${anchor.path}:${anchor.line}:${anchor.byteStart}:${anchor.byteEnd}:lexical`;
 		result.push({
-			id,
-			path: anchor.path,
-			startLine: anchor.line,
 			quality: anchor.matchedTerms.length * 100 + (anchor.phrase ? 100 : 0),
 			region: createSemanticCodeRegion({
 				id,
 				path: anchor.path,
-					startLine: anchor.line,
-					endLine: anchor.line,
-					startByte: anchor.byteStart,
-					endByte: anchor.byteEnd,
-					kind: "text",
-					signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
+				startLine: anchor.line,
+				endLine: anchor.line,
+				startByte: anchor.byteStart,
+				endByte: anchor.byteEnd,
+				kind: "text",
+				signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
 				displayLines: [anchorDisplayLine(anchor)],
 			}),
 		});
@@ -203,30 +185,27 @@ function lexicalAnchorCandidates(
 }
 
 function localEntry(
-	item: UnitFile,
+	item: IndexedCodeUnit,
 	quality: number,
 	signals: readonly CandidateSignal[],
 	displayLines: readonly GrepDisplayLine[] = [],
 ): LocalEntry {
 	return {
-		id: item.unit.id,
-		path: item.unit.path,
-		startLine: item.unit.startLine,
 		quality,
 		region: createSemanticCodeRegion({
-			id: item.unit.id,
-			path: item.unit.path,
-			startLine: item.unit.startLine,
-			endLine: item.unit.endLine,
-			startByte: item.unit.startByte,
-			endByte: item.unit.endByte,
-			kind: item.unit.kind,
-			...(item.unit.name === undefined ? {} : { symbol: item.unit.qualifiedName ?? item.unit.name }),
-			...(item.unit.qualifiedName === undefined ? {} : { qualifiedSymbol: item.unit.qualifiedName }),
-			...(item.unit.signature === undefined ? {} : { declaration: item.unit.signature }),
-			...(item.unit.declarationEndByte === undefined ? {} : { declarationEndByte: item.unit.declarationEndByte }),
+			id: item.id,
+			path: item.path,
+			startLine: item.startLine,
+			endLine: item.endLine,
+			startByte: item.startByte,
+			endByte: item.endByte,
+			kind: item.kind,
+			...(item.name === undefined ? {} : { symbol: item.qualifiedName ?? item.name }),
+			...(item.qualifiedName === undefined ? {} : { qualifiedSymbol: item.qualifiedName }),
+			...(item.signature === undefined ? {} : { declaration: item.signature }),
+			...(item.declarationEndByte === undefined ? {} : { declarationEndByte: item.declarationEndByte }),
 			symbolRole: "definition",
-			authority: item.unit.authority,
+			authority: item.authority,
 			signals,
 			displayLines,
 		}),
@@ -250,13 +229,6 @@ function mergeEntries(
 	for (const entry of entries) addRegion(regions, withEvidence(entry, ranks.get(entry) ?? Number.MAX_SAFE_INTEGER));
 }
 
-function rankRegions(
-	plan: QueryPlan,
-	regions: ReadonlyMap<string, VerifiedCodeRegion | SemanticMainRegion>,
-): RankedRegion[] {
-	return rankCodeRegions(plan, [...regions.values()]);
-}
-
 function addRegion(
 	regions: Map<string, VerifiedCodeRegion | SemanticMainRegion>,
 	incoming: SemanticMainRegion,
@@ -271,7 +243,6 @@ function addRegion(
 	const displayLines = existing.queryMatch === "verified"
 		? existing.displayLines
 		: mergeDisplayLines(existing.displayLines, incoming.displayLines);
-	const matchedBy = normalizeMatchedBy(signals, evidence);
 	const symbolRole = existing.symbolRole ?? incoming.symbolRole;
 	const authority = strongerAuthority(existing.authority, incoming.authority);
 	regions.set(existing.id, {
@@ -281,13 +252,12 @@ function addRegion(
 		signals,
 		...(evidence === undefined ? {} : { evidence }),
 		displayLines,
-		matchedBy,
 	});
 }
 
 function withEvidence(entry: LocalEntry, rank: number): SemanticMainRegion {
 	const evidence = { source: "text-lexical", rank } as const;
-	return { ...entry.region, evidence, matchedBy: normalizeMatchedBy(entry.region.signals, evidence) };
+	return { ...entry.region, evidence };
 }
 
 function mergeEvidence(left: RegionEvidence | undefined, right: RegionEvidence | undefined): RegionEvidence | undefined {
@@ -320,9 +290,9 @@ function compareAnchors(left: LexicalTextAnchor, right: LexicalTextAnchor): numb
 }
 
 function compareLocalEntriesStable(left: LocalEntry, right: LocalEntry): number {
-	return compareString(left.path, right.path)
-		|| left.startLine - right.startLine
-		|| compareString(left.id, right.id);
+	return compareString(left.region.path, right.region.path)
+		|| left.region.startLine - right.region.startLine
+		|| compareString(left.region.id, right.region.id);
 }
 
 function uniqueTerms(values: readonly string[]): string[] {

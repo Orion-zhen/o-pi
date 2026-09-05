@@ -23,7 +23,7 @@ describe("filesystem mutation commit boundaries", () => {
 			expect(snapshot).toMatchObject({ exists: true, hash: contentHash(bytes("before")) });
 			entered.resolve();
 			await release.promise;
-			return { type: "commit", bytes: bytes("unsafe") };
+			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
 		});
 		await entered.promise;
 		await writeFile(path.join(workspace, "stale.txt"), "external");
@@ -37,7 +37,7 @@ describe("filesystem mutation commit boundaries", () => {
 			{ createParents: false },
 			async () => {
 				await rm(path.join(workspace, "removed.txt"));
-				return { type: "commit", bytes: bytes("unsafe") };
+				return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
 			},
 		)).resolves.toMatchObject({ ok: false, error: { code: "changed-during-read" } });
 
@@ -77,7 +77,7 @@ describe("filesystem mutation commit boundaries", () => {
 		const result = await mutation.run({ createParents: false }, async () => {
 			await rm(path.join(workspace, "transform-link.txt"));
 			await symlink(protectedFile, path.join(workspace, "transform-link.txt"));
-			return { type: "commit", bytes: bytes("unsafe") };
+			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
 		});
 		expect(result).toMatchObject({ ok: false, error: { code: "blocked" } });
 		expect(await readFile(protectedFile, "utf8")).toBe("secret");
@@ -92,7 +92,7 @@ describe("filesystem mutation commit boundaries", () => {
 		const pending = mutation.run({ createParents: false }, async () => {
 			entered.resolve();
 			await release.promise;
-			return { type: "commit", bytes: bytes("unsafe") };
+			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
 		});
 		await entered.promise;
 		await rm(path.join(workspace, "link.txt"));

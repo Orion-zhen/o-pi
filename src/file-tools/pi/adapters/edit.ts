@@ -1,38 +1,19 @@
-import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import { editFile, previewEdit } from "../../edit/command.js";
 import type { EditParams, EditPreviewSuccess } from "../../edit/types.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../runtime/host.js";
 import { fail, isFailed } from "../../shared/result.js";
 import { isPlainRecord } from "../guards.js";
-import type { LspFileOperations } from "../../../lsp/index.js";
 import { formatEditModelResult } from "../../edit/presenter.js";
-import { formatErrorModelResult } from "../model-output.js";
+import { withFileToolsInvocation, type MutationRuntime } from "../invocation.js";
 import { createMutationDiagnosticsSource } from "../ports/mutation-diagnostics.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
-import type { MutationBatchInvocation } from "../mutation-batch.js";
-import { createMutationPostProcessObserver, mutationProgress, type MutationProgressCallback } from "../progress.js";
+import { createMutationPostProcessObserver, mutationProgress } from "../progress.js";
 
 export async function executeEdit(
 	params: EditParams,
-	runtime: {
-		cwd: string;
-		sessionId: string;
-		signal?: AbortSignal;
-		host: FileToolsHost;
-		lsp: LspFileOperations;
-		onUpdate?: MutationProgressCallback;
-		batch?: MutationBatchInvocation;
-		pathAccess: FilesystemPathAccess;
-	},
+	runtime: MutationRuntime,
 ) {
-	const opened = await runtime.host.open({
-		cwd: runtime.cwd,
-		sessionId: runtime.sessionId,
-		...(runtime.signal === undefined ? {} : { signal: runtime.signal }),
-		pathAccess: runtime.pathAccess,
-	});
-	if (isFailed(opened)) return failedResult(opened);
-	try {
+	return withFileToolsInvocation(runtime, async (opened) => {
 		let latestPreview: EditPreviewSuccess | undefined;
 		const progress = createMutationPostProcessObserver(runtime.onUpdate, () => ({
 			replacements: latestPreview?.replacements ?? params.edits.length,
@@ -43,11 +24,9 @@ export async function executeEdit(
 			latestPreview = preview;
 			runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
 		}));
-		const text = isFailed(result) ? formatErrorModelResult(result) : formatEditModelResult(result);
-		return { content: [{ type: "text" as const, text }], details: result };
-	} finally {
-		opened.dispose();
-	}
+		if (isFailed(result)) return result;
+		return { content: [{ type: "text", text: formatEditModelResult(result) }], details: result };
+	});
 }
 
 /** Renderer-only preview entry; owns and disposes its short-lived read-only host. */
@@ -99,8 +78,4 @@ function commandContext(
 		diagnostics,
 		onPrepared,
 	};
-}
-
-function failedResult(result: Parameters<typeof formatErrorModelResult>[0]) {
-	return { content: [{ type: "text" as const, text: formatErrorModelResult(result) }], details: result };
 }

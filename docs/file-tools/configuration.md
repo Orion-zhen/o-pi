@@ -74,27 +74,9 @@
 - `git_tracked_files_bypass`：已跟踪文件是否绕过 `.gitignore`。不会绕过 `.piignore`。
 - `builtin_profile`：内置软忽略档位，可取 `none`、`minimal` 或 `performance`。
 
-## 运行时配置
-
-内部忽略配置的默认值为：
-
-```ts
-{
-  piignore: { enabled: true, filename: ".piignore", nested: true },
-  gitignore: { enabled: true, nested: true, trackedFilesBypass: true },
-  gitInfoExclude: false,
-  globalGitignore: false,
-  builtinProfile: "minimal",
-  caseSensitivity: "auto",
-  diagnostics: "warn"
-}
-```
-
-规则来源优先级从高到低为：会话覆盖规则、`.piignore`、`.gitignore`、`.git/info/exclude`、Git 全局排除规则、内置规则。后两类默认关闭。
-
 ## 校验、分层与缓存
 
-配置损坏时，主机返回 `CONFIG_ERROR`，不会创建文件系统命名空间或继续访问工作区。加载器将结果拆分为文件系统策略和只读工具限制。文件系统策略只包含受阻路径和可见性规则。文件系统不接收搜索、模型输出或增强配置，各工具命令只接收自身需要的限制。
+配置损坏时，主机返回 `CONFIG_ERROR`，不会创建文件系统命名空间或继续访问工作区。加载器先校验并合并各层原始值，再一次性构建文件系统策略、工具限制和最终指纹，不生成中间策略。文件系统策略只包含受阻路径和可见性规则。文件系统不接收搜索、模型输出或增强配置，各工具命令只接收自身需要的限制。
 
 系统根据用户配置路径、项目配置路径和文件元数据，在进程内缓存有效配置。同一 `cwd` 的并发调用共享文件读取和模式校验结果。不同 `cwd` 不共享错误或项目配置。创建、替换或修改配置文件会改变指纹，下一次调用将自动重新加载配置。
 

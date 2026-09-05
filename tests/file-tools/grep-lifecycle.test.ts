@@ -15,10 +15,10 @@ const testContext = createGrepTestContext();
 describe("grep lifecycle", () => {
 	it("parser owner 支持本地、worker 和幂等 dispose", async () => {
 		const parser = new GrepParser();
-		const local = await parser.analyzeFile("notes.txt", "needle\n", undefined, false);
-		expect(local.status).toBe("unsupported");
+		const [local] = await parser.analyzeFiles([{ path: "local.ts", text: "export const needle = true;\n" }], undefined);
+		expect(local?.status).toBe("parsed");
 		const worker = await parser.analyzeFiles(
-			Array.from({ length: 33 }, (_value, index) => ({ path: `module-${index}.ts`, text: `export const value${index} = ${index};\n`, syntax: true })),
+			Array.from({ length: 33 }, (_value, index) => ({ path: `module-${index}.ts`, text: `export const value${index} = ${index};\n` })),
 			undefined,
 		);
 		expect(worker).toHaveLength(33);
@@ -39,7 +39,6 @@ describe("grep lifecycle", () => {
 			Array.from({ length: 64 }, (_value, index) => ({
 				path: `pending-${index}.ts`,
 				text: `export const pending${index} = '${"x".repeat(16 * 1024)}';\n`,
-				syntax: true,
 			})),
 			undefined,
 		);

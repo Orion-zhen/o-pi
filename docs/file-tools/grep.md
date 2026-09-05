@@ -164,6 +164,8 @@ LSP 无法完整提交时，C/C++、TypeScript、TSX、JavaScript、JSX、Python
 
 正文扫描按文件清单顺序预留文件快照所需空间。下一个文件无法完整纳入 `grep_max_search_bytes` 时，扫描停止。后续 LSP 或 Tree-sitter 增强只处理已纳入预算的文件。
 
+正文扫描的并发文件数取可用 CPU 数的一半并向下取整，限制在 1 到 8。正文命中和相关锚点各最多保留 10000 条，单文件最多保留 64 条相关锚点。容量按文件清单顺序分配，不受并发完成顺序影响。这些内部限制不接受调用级覆盖。
+
 `grep_ast_max_file_bytes` 限制 LSP 和 Tree-sitter 结构增强以及单文件缓存资格。`grep_content_cache_bytes` 与 `grep_content_cache_entries` 分别限制跨调用正文 LRU 缓存的总字节数和文件数。缓存限制不会裁剪搜索。任一缓存限制设为 `0` 时，正文缓存禁用。
 
 ## 零结果

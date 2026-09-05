@@ -47,13 +47,13 @@ describe("grep ScopeInventory", () => {
 			{ root: "src", options: { maxDepth: 7, maxEntries: 100_000, glob: "*.ts" } },
 		]);
 		expect(result.files).toEqual([
-			expect.objectContaining({ path: "root.ts", scopeOrder: 0, scopeRelativePath: "root.ts", explicitFile: true }),
-			expect.objectContaining({ path: "src/child.ts", scopeOrder: 1, scopeRelativePath: "child.ts", explicitFile: false }),
+			expect.objectContaining({ path: "root.ts", scopeInput: "root.ts", explicitFile: true }),
+			expect.objectContaining({ path: "src/child.ts", scopeInput: "src", explicitFile: false }),
 		]);
 		expect(contentReads).toBe(0);
 	});
 
-	it("按 snapshot identity 聚合 memberships，显式 ignored 子 scope 不被父 scope 吞掉", async () => {
+	it("按文件身份去重，显式忽略子目录不被父范围吞掉", async () => {
 		const configPath = path.join(testContext.outside, "ignored-inventory.jsonc");
 		await writeFile(configPath, JSON.stringify({
 			blocked_path: [".git/"],
@@ -68,19 +68,8 @@ describe("grep ScopeInventory", () => {
 
 		const result = expectInventorySuccess(await inventoryWorkspace(testContext.workspace, { paths: [".", "src", "ignored"] }));
 		expect(result.files.map((file) => file.path)).toEqual(["src/visible.ts", "ignored/explicit.ts"]);
-		expect(result.files[0]).toMatchObject({
-			scopeOrder: 0,
-			visibilityBypass: false,
-			memberships: [
-				expect.objectContaining({ scopeOrder: 0, scopeRelativePath: "src/visible.ts" }),
-				expect.objectContaining({ scopeOrder: 1, scopeRelativePath: "visible.ts" }),
-			],
-		});
-		expect(result.files[1]).toMatchObject({
-			scopeOrder: 2,
-			visibilityBypass: true,
-			memberships: [expect.objectContaining({ scopeOrder: 2, visibilityBypass: true })],
-		});
+		expect(result.files[0]).toMatchObject({ scopeInput: ".", explicitFile: false });
+		expect(result.files[1]).toMatchObject({ scopeInput: "ignored", explicitFile: false });
 		expect(new Set(result.files.map((file) => file.snapshot.identity)).size).toBe(result.files.length);
 	});
 
@@ -201,7 +190,7 @@ describe("grep ScopeInventory", () => {
 		expect(result.truncationReasons).toEqual(["byte_limit"]);
 	});
 
-	it("相同 visibility snapshot 的重复多 scope inventory 保持文件顺序、membership 和版本稳定", async () => {
+	it("相同可见性快照的重复多范围发现保持文件顺序和版本稳定", async () => {
 		await mkdir(path.join(testContext.workspace, "src"), { recursive: true });
 		await writeFile(path.join(testContext.workspace, "src", "b.ts"), "b");
 		await writeFile(path.join(testContext.workspace, "src", "a.ts"), "a");
@@ -222,7 +211,6 @@ describe("grep ScopeInventory", () => {
 			const snapshot = (inventory: ScopeInventory) => inventory.files.map((file) => ({
 				path: file.path,
 				identity: file.snapshot.identity,
-				memberships: file.memberships.map((membership) => [membership.scopeOrder, membership.scopeRelativePath]),
 				version: file.snapshot.version,
 			}));
 			expect(snapshot(second)).toEqual(snapshot(first));

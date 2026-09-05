@@ -121,13 +121,13 @@ describe("workspace lease operation context", () => {
 			const active = lease.filesystem.mutations.run(target, { createParents: false }, async () => {
 				entered.resolve();
 				await release.promise;
-				return { type: "commit", bytes: textBytes("active") };
+				return { type: "commit", prepared: undefined, bytes: textBytes("active") };
 			});
 			await entered.promise;
 			const waiting = lease.filesystem.mutations.run(
 				target,
 				{ createParents: false },
-				() => ({ type: "commit", bytes: textBytes("waiting") }),
+				() => ({ type: "commit", prepared: undefined, bytes: textBytes("waiting") }),
 			);
 			lease.dispose();
 			await expect(waiting).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
@@ -139,7 +139,7 @@ describe("workspace lease operation context", () => {
 			expect(expectFsOk(await nextLease.filesystem.mutations.run(
 				nextTarget,
 				{ createParents: false },
-				() => ({ type: "commit", bytes: textBytes("next") }),
+				() => ({ type: "commit", prepared: undefined, bytes: textBytes("next") }),
 			))).toMatchObject({ committed: true });
 		} finally {
 			runtime.dispose();

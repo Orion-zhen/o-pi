@@ -3,7 +3,6 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import {
 	FileSystemRuntime,
-	type WorkspaceFileSystemLease,
 	type WorkspaceNativeBridge,
 } from "../../filesystem/runtime.js";
 import {
@@ -12,7 +11,7 @@ import {
 } from "../config.js";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
-import { ObservationStore, type ObservationEntry } from "./observation-store.js";
+import { ObservationStore, type FileObservations, type ObservationEntry } from "./observation-store.js";
 import {
 	createSessionMutationScope,
 	type SessionMutationScope,
@@ -28,11 +27,10 @@ export interface FileToolsHostOpenOptions {
 export interface FileToolsInvocation {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly limits: Readonly<FileToolLimits>;
-	readonly observation: ObservationStore;
+	readonly observation: FileObservations;
 	readonly context: FsOperationContext;
 	/** 供 LSP adapter 使用的组合边界。 */
 	readonly nativeBridge: WorkspaceNativeBridge;
-	readonly disposed: boolean;
 	dispose(): void;
 }
 
@@ -47,12 +45,11 @@ export interface FileToolsHostOptions {
 	readonly initialSession?: SessionObservationSeed;
 }
 
-/** Composition owner for config, filesystem runtime, invocation leases, and session observations. */
+/** 统一拥有配置、文件系统、调用租约和会话观测。 */
 export class FileToolsHost {
 	private readonly config: FileToolsConfigLoader & { dispose?(): void };
 	private readonly filesystem: FileSystemRuntime;
 	private readonly sessions = new Map<string, ObservationStore>();
-	private readonly invocations = new Set<HostInvocation>();
 	private accepting = true;
 	private disposed = false;
 
@@ -80,6 +77,7 @@ export class FileToolsHost {
 			return await createSessionMutationScope({
 				filesystem: opened.filesystem,
 				observation: opened.observation,
+				observations: observation.entries(),
 				maxFileBytes: Math.max(
 					opened.limits.read_max_file_bytes,
 					opened.limits.write_max_file_bytes,
@@ -102,23 +100,24 @@ export class FileToolsHost {
 		if (!config.ok) return fail("CONFIG_ERROR", config.error.message, config.error.details === undefined ? {} : { details: config.error.details });
 		if (isAborted(options.signal)) return operationAborted();
 
-		let observation = this.sessions.get(options.sessionId);
+		let store = this.sessions.get(options.sessionId);
 		let createdSession = false;
-		if (observation === undefined) {
-			observation = new ObservationStore();
-			this.sessions.set(options.sessionId, observation);
+		if (store === undefined) {
+			store = new ObservationStore();
+			this.sessions.set(options.sessionId, store);
 			createdSession = true;
 		}
+		let observation: FileObservations;
 		const opened = await this.filesystem.open({
 			cwd: options.cwd,
 			policy: config.value.filesystem,
 			...(options.pathAccess === undefined ? {} : { pathAccess: options.pathAccess }),
 			...(options.signal === undefined ? {} : { context: { signal: options.signal } }),
-			onCommitted: (receipt) => { observation?.remember(receipt.target, receipt); },
+			onCommitted: (receipt) => { observation.remember(receipt.target, receipt); },
 		});
 		if (!opened.ok) {
-			if (createdSession && this.sessions.get(options.sessionId) === observation) {
-				observation.dispose();
+			if (createdSession && this.sessions.get(options.sessionId) === store) {
+				store.dispose();
 				this.sessions.delete(options.sessionId);
 			}
 			return mapFsError(opened.error);
@@ -127,17 +126,16 @@ export class FileToolsHost {
 			opened.value.dispose();
 			return hostClosed();
 		}
-		const detachObservation = observation.attach(opened.value.nativeBridge);
-		let invocation: HostInvocation;
-		invocation = new HostInvocation(
-			opened.value,
-			Object.freeze(structuredClone(config.value.limits)),
+		const lease = opened.value;
+		observation = store.bind(lease);
+		return {
+			filesystem: lease.filesystem,
+			context: lease.context,
+			nativeBridge: lease.nativeBridge,
+			limits: Object.freeze(structuredClone(config.value.limits)),
 			observation,
-			detachObservation,
-			() => this.invocations.delete(invocation),
-		);
-		this.invocations.add(invocation);
-		return invocation;
+			dispose: () => lease.dispose(),
+		};
 	}
 
 	stop(): void {
@@ -148,47 +146,10 @@ export class FileToolsHost {
 		if (this.disposed) return;
 		this.stop();
 		this.disposed = true;
-		for (const invocation of [...this.invocations]) invocation.dispose();
 		for (const observation of this.sessions.values()) observation.dispose();
 		this.sessions.clear();
 		this.filesystem.dispose();
 		this.config.dispose?.();
-	}
-}
-
-class HostInvocation implements FileToolsInvocation {
-	private isDisposed = false;
-
-	constructor(
-		private readonly lease: WorkspaceFileSystemLease,
-		readonly limits: Readonly<FileToolLimits>,
-		readonly observation: ObservationStore,
-		private readonly detachObservation: () => void,
-		private readonly onDispose: () => void,
-	) {}
-
-	get filesystem(): WorkspaceFileSystem {
-		return this.lease.filesystem;
-	}
-
-	get context(): FsOperationContext {
-		return this.lease.context;
-	}
-
-	get nativeBridge(): WorkspaceNativeBridge {
-		return this.lease.nativeBridge;
-	}
-
-	get disposed(): boolean {
-		return this.isDisposed;
-	}
-
-	dispose(): void {
-		if (this.isDisposed) return;
-		this.isDisposed = true;
-		this.detachObservation();
-		this.lease.dispose();
-		this.onDispose();
 	}
 }
 

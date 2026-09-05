@@ -15,6 +15,29 @@ let workspace: string;
 beforeEach(() => { workspace = test.workspace; });
 
 describe("filesystem mutation runtime", () => {
+	it.each(["commit", "reject", "too-large"] as const)("仅成功提交返回准备结果：%s", async (mode) => {
+		const mutation = await openMutation("prepared.txt", { initial: "before" });
+		const prepared = { operation: "test", ranges: [1, 2] };
+		const result = await mutation.run<typeof prepared, string>(
+			{ createParents: false, maxOutputBytes: mode === "too-large" ? 1 : 100 },
+			() => mode === "reject"
+				? { type: "reject", reason: "not-ready" }
+				: { type: "commit", bytes: bytes("after"), prepared },
+		);
+		if (mode === "commit") {
+			const committed = expectOk(result);
+			expect(committed).toMatchObject({ committed: true, prepared });
+			if (!committed.committed) throw new Error("Expected commit");
+			expect(committed.prepared).toBe(prepared);
+		} else {
+			expect(result).toMatchObject(mode === "reject"
+				? { ok: true, value: { committed: false, reason: "not-ready" } }
+				: { ok: false, error: { code: "too-large" } });
+			if (result.ok) expect(result.value).not.toHaveProperty("prepared");
+		}
+		expect(await readFile(path.join(workspace, "prepared.txt"), "utf8")).toBe(mode === "commit" ? "after" : "before");
+	});
+
 	it("修改快照读取抛出未知异常时关闭 handle，且不执行 transform", async () => {
 		const tracker = { opened: 0, closed: 0 };
 		const failure = new Error("unexpected snapshot failure");
@@ -29,7 +52,7 @@ describe("filesystem mutation runtime", () => {
 		let transformed = false;
 		await expect(mutation.run({ createParents: false }, () => {
 			transformed = true;
-			return { type: "commit", bytes: bytes("unsafe") };
+			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
 		})).rejects.toBe(failure);
 		expect(transformed).toBe(false);
 		expect(tracker).toEqual({ opened: 1, closed: 1 });
@@ -105,7 +128,7 @@ describe("filesystem mutation runtime", () => {
 			{ createParents: false },
 			() => {
 				transformed = true;
-				return { type: "commit", bytes: bytes("unsafe") };
+				return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
 			},
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 		expect(transformed).toBe(false);
@@ -116,7 +139,7 @@ describe("filesystem mutation runtime", () => {
 			{ createParents: false },
 			() => {
 				transformAbort.abort();
-				return { type: "commit", bytes: bytes("unsafe") };
+				return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
 			},
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
@@ -153,7 +176,7 @@ describe("filesystem mutation runtime", () => {
 			{ createParents: false, maxSnapshotBytes: 2, maxOutputBytes: 2 },
 			() => {
 				transformed = true;
-				return { type: "commit", bytes: bytes("x") };
+				return { type: "commit", prepared: undefined, bytes: bytes("x") };
 			},
 		)).resolves.toMatchObject({
 			ok: false,

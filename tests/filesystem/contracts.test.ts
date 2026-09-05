@@ -35,7 +35,7 @@ describe("filesystem contracts", () => {
 		expect(mapFsError({ code: "not-found", message: "" }, { notFound: "file" }).error.message).toBe("File does not exist.");
 		const result = mapFsError(
 			{ code: "not-found", message: "missing", path: "native-path", details: { source: "namespace", shared: "fs" } },
-			{ notFound: "file", path: "display-path", next: "Read an existing file.", details: { shared: "tool" } },
+			{ notFound: "file", path: "display-path", next: "Read an existing file." },
 		);
 		expect(result).toEqual({
 			status: "failed",
@@ -44,7 +44,7 @@ describe("filesystem contracts", () => {
 				message: "missing",
 				path: "display-path",
 				next: "Read an existing file.",
-				details: { source: "namespace", shared: "tool" },
+				details: { source: "namespace", shared: "fs" },
 			},
 		});
 	});

@@ -4,14 +4,12 @@ import {
 	configLayerFingerprint,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
-	defaultAgentConfigPath,
 	loadConfigLayers,
-	readDefaultJsoncConfigSync,
 	resolveConfigLayerPaths,
 	validateConfigValue,
 } from "../config-loader.js";
 import type { FilesystemPolicy } from "../filesystem/contracts/policy.js";
-import type { BuiltinIgnoreProfile, IgnoreConfig } from "../filesystem/contracts/visibility.js";
+import type { BuiltinIgnoreProfile } from "../filesystem/contracts/visibility.js";
 import { createVisibilityPolicy } from "../filesystem/services/visibility/policy.js";
 import type { FileToolLimits } from "../file-tool-limits.js";
 
@@ -64,14 +62,13 @@ class FileToolsConfigError extends Error {
 	}
 }
 
-/** 拥有一个 file-tools 运行时的配置元数据缓存。 */
+/** 拥有一个文件工具运行时的配置元数据缓存。 */
 export class FileToolsConfigProvider implements FileToolsConfigLoader {
 	private readonly cache = new Map<string, ConfigCacheEntry>();
 	private readonly pending = new Map<string, Promise<ConfigCacheEntry>>();
-	private epoch = 0;
 	private disposed = false;
 
-	/** 在访问工作区数据平面之前，先加载用户和调用工作目录（invocation-cwd）的项目 JSONC。 */
+	/** 工作区 I/O 前加载用户配置和调用目录的项目配置。 */
 	async load(cwd: string): Promise<FileToolsConfigResult> {
 		if (this.disposed) return configFailure("File-tools config provider is shut down.");
 		const paths = resolveConfigLayerPaths(CONFIG_DEFINITIONS.fileTools, cwd);
@@ -81,7 +78,6 @@ export class FileToolsConfigProvider implements FileToolsConfigLoader {
 		if (cached?.fingerprint === fingerprint) return structuredClone(cached.result);
 
 		const pendingKey = `${cacheKey}\0${fingerprint}`;
-		const epoch = this.epoch;
 		let pending = this.pending.get(pendingKey);
 		if (pending === undefined) {
 			pending = loadMergedConfig(cwd);
@@ -90,32 +86,17 @@ export class FileToolsConfigProvider implements FileToolsConfigLoader {
 		try {
 			const loaded = await pending;
 			if (this.disposed) return configFailure("File-tools config provider is shut down.");
-			if (this.epoch === epoch) this.cache.set(cacheKey, loaded);
+			this.cache.set(cacheKey, loaded);
 			return structuredClone(loaded.result);
 		} finally {
 			if (this.pending.get(pendingKey) === pending) this.pending.delete(pendingKey);
 		}
 	}
 
-	private clear(): void {
-		this.epoch += 1;
+	dispose(): void {
+		this.disposed = true;
 		this.cache.clear();
 		this.pending.clear();
-	}
-
-	dispose(): void {
-		if (this.disposed) return;
-		this.disposed = true;
-		this.clear();
-	}
-}
-
-export async function loadFileToolsConfig(cwd: string): Promise<FileToolsConfigResult> {
-	const provider = new FileToolsConfigProvider();
-	try {
-		return await provider.load(cwd);
-	} finally {
-		provider.dispose();
 	}
 }
 
@@ -131,9 +112,7 @@ async function loadMergedConfig(cwd: string): Promise<ConfigCacheEntry> {
 			loadValidator: loadCompleteValidator,
 			createError,
 		});
-		let merged = materializeDefaultConfig(defaultLayer.value as CompleteFileToolsConfig);
-		let projectRaw: RawFileToolsConfig | undefined;
-		let projectPath: string | undefined;
+		let merged = defaultLayer.value as CompleteFileToolsConfig;
 		for (const layer of overlayLayers) {
 			await validateConfigValue({
 				path: layer.path,
@@ -144,127 +123,59 @@ async function loadMergedConfig(cwd: string): Promise<ConfigCacheEntry> {
 				createError,
 			});
 			const raw = layer.value as RawFileToolsConfig;
-			if (layer.kind === "project") {
-				projectRaw = raw;
-				projectPath = layer.path;
-			} else {
-				merged = mergeConfig(merged, raw);
-			}
+			const project = layer.kind === "project";
+			const projectFailure = project ? projectIgnoreFailure(raw, layer.path) : undefined;
+			if (projectFailure !== undefined) return { fingerprint: loaded.fingerprint, result: projectFailure };
+			merged = {
+				blocked_path: project ? appendUnique(merged.blocked_path, raw.blocked_path) : raw.blocked_path ?? merged.blocked_path,
+				ignored_path: project ? appendUnique(merged.ignored_path, raw.ignored_path) : raw.ignored_path ?? merged.ignored_path,
+				limits: { ...merged.limits, ...raw.limits },
+				ignore: { ...merged.ignore, ...raw.ignore },
+			};
 		}
-		const result = mergeProjectConfig(merged, projectRaw, projectPath);
 		return {
 			fingerprint: loaded.fingerprint,
-			result: result.ok ? configSuccess(bindConfigFingerprint(result.value, loaded.fingerprint)) : result,
+			result: { ok: true, value: materializeConfig(merged, loaded.fingerprint) },
 		};
 	} catch (error) {
-		if (error instanceof FileToolsConfigError) {
-			return { fingerprint: await configLayerFingerprint(resolveConfigLayerPaths(CONFIG_DEFINITIONS.fileTools, cwd)), result: configFailure(error.message, error.details) };
-		}
-		throw error;
+		if (!(error instanceof FileToolsConfigError)) throw error;
+		return {
+			fingerprint: await configLayerFingerprint(resolveConfigLayerPaths(CONFIG_DEFINITIONS.fileTools, cwd)),
+			result: configFailure(error.message, error.details),
+		};
 	}
 }
 
-export function defaultFileToolsConfig(): FileToolsConfig {
-	return materializeDefaultConfig(readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath("file-tools.jsonc"),
-		schemaPath: SCHEMA_PATH,
-		label: "file-tools",
-		createError,
-	}) as CompleteFileToolsConfig);
-}
-
-function materializeDefaultConfig(raw: CompleteFileToolsConfig): FileToolsConfig {
-	const baseVisibility = createVisibilityPolicy();
+/** 原始配置合并完毕后，只构建一次运行时策略和最终指纹。 */
+function materializeConfig(raw: CompleteFileToolsConfig, fingerprint: string): FileToolsConfig {
 	const visibility = createVisibilityPolicy({
 		ignoredPaths: raw.ignored_path,
-		ignore: mergeIgnoreConfig(baseVisibility.ignore, raw.ignore),
+		ignore: {
+			piignore: { enabled: raw.ignore.piignore },
+			gitignore: { enabled: raw.ignore.gitignore, trackedFilesBypass: raw.ignore.git_tracked_files_bypass },
+			builtinProfile: raw.ignore.builtin_profile,
+		},
+		configFingerprint: fingerprint,
 	});
 	const blockedPaths = [...raw.blocked_path];
-	const filesystem: FilesystemPolicy = {
-		blockedPaths,
-		visibility,
-		fingerprint: `defaults\0${JSON.stringify({ blockedPaths, visibility: visibility.fingerprint })}`,
-	};
-	return { filesystem, limits: { ...raw.limits } };
-}
-
-function mergeProjectConfig(
-	userConfig: FileToolsConfig,
-	raw: RawFileToolsConfig | undefined,
-	sourcePath: string | undefined,
-): FileToolsConfigResult {
-	if (raw === undefined) return configSuccess(userConfig);
-	const unsupportedIgnoreKeys = ["piignore", "gitignore", "git_tracked_files_bypass"].filter((key) => key in (raw.ignore ?? {}));
-	if (unsupportedIgnoreKeys.length > 0) {
-		return configFailure("project file-tools config cannot change user ignore safety switches.", {
-			path: sourcePath,
-			fields: unsupportedIgnoreKeys.map((key) => `ignore.${key}`),
-		});
-	}
-	const merged = mergeConfig(userConfig, raw);
-	return configSuccess(withPolicies(merged, {
-		blockedPaths: appendUnique(userConfig.filesystem.blockedPaths, raw.blocked_path),
-		ignoredPaths: appendUnique(userConfig.filesystem.visibility.ignoredPaths, raw.ignored_path),
-	}));
-}
-
-function mergeConfig(base: FileToolsConfig, raw: RawFileToolsConfig | undefined): FileToolsConfig {
-	const ignoredPaths = raw?.ignored_path ?? [...base.filesystem.visibility.ignoredPaths];
-	const visibility = createVisibilityPolicy({
-		ignoredPaths,
-		ignore: mergeIgnoreConfig(base.filesystem.visibility.ignore, raw?.ignore),
-	});
-	const blockedPaths = raw?.blocked_path ?? [...base.filesystem.blockedPaths];
 	return {
 		filesystem: {
 			blockedPaths,
 			visibility,
-			fingerprint: `pending\0${JSON.stringify({ blockedPaths, visibility: visibility.fingerprint })}`,
+			fingerprint: `${fingerprint}\0${JSON.stringify({ blockedPaths, visibility: visibility.fingerprint })}`,
 		},
-		limits: { ...base.limits, ...raw?.limits },
+		limits: { ...raw.limits },
 	};
 }
 
-function withPolicies(
-	config: FileToolsConfig,
-	overrides: { readonly blockedPaths: readonly string[]; readonly ignoredPaths: readonly string[] },
-): FileToolsConfig {
-	const visibility = createVisibilityPolicy({ ignoredPaths: overrides.ignoredPaths, ignore: config.filesystem.visibility.ignore });
-	return {
-		...config,
-		filesystem: {
-			blockedPaths: [...overrides.blockedPaths],
-			visibility,
-			fingerprint: `pending\0${JSON.stringify({ blockedPaths: overrides.blockedPaths, visibility: visibility.fingerprint })}`,
-		},
-	};
-}
-
-function bindConfigFingerprint(config: FileToolsConfig, sourceFingerprint: string): FileToolsConfig {
-	const visibility = createVisibilityPolicy({
-		ignoredPaths: config.filesystem.visibility.ignoredPaths,
-		ignore: config.filesystem.visibility.ignore,
-		configFingerprint: sourceFingerprint,
-	});
-	return {
-		...config,
-		filesystem: {
-			blockedPaths: [...config.filesystem.blockedPaths],
-			visibility,
-			fingerprint: `${sourceFingerprint}\0${JSON.stringify({ blockedPaths: config.filesystem.blockedPaths, visibility: visibility.fingerprint })}`,
-		},
-	};
-}
-
-function mergeIgnoreConfig(base: IgnoreConfig, raw: RawFileToolsConfig["ignore"]): IgnoreConfig {
-	return {
-		piignore: { enabled: raw?.piignore ?? base.piignore.enabled },
-		gitignore: {
-			enabled: raw?.gitignore ?? base.gitignore.enabled,
-			trackedFilesBypass: raw?.git_tracked_files_bypass ?? base.gitignore.trackedFilesBypass,
-		},
-		builtinProfile: raw?.builtin_profile ?? base.builtinProfile,
-	};
+function projectIgnoreFailure(raw: RawFileToolsConfig, sourcePath: string): FileToolsConfigFailure | undefined {
+	const unsupported = ["piignore", "gitignore", "git_tracked_files_bypass"].filter((key) => key in (raw.ignore ?? {}));
+	if (unsupported.length > 0) {
+		return configFailure("project file-tools config cannot change user ignore safety switches.", {
+			path: sourcePath,
+			fields: unsupported.map((key) => `ignore.${key}`),
+		});
+	}
 }
 
 function createError(message: string, details?: Record<string, unknown>): FileToolsConfigError {
@@ -274,15 +185,10 @@ function createError(message: string, details?: Record<string, unknown>): FileTo
 const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "file-tools", createError });
 const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "file-tools", createError });
 
-function configSuccess(value: FileToolsConfig): FileToolsConfigResult {
-	return { ok: true, value };
-}
-
 function configFailure(message: string, details?: Record<string, unknown>): FileToolsConfigFailure {
 	return { ok: false, error: { message, ...(details === undefined ? {} : { details }) } };
 }
 
 function appendUnique(base: readonly string[], extra: readonly string[] | undefined): string[] {
-	if (extra === undefined) return [...base];
-	return Array.from(new Set([...base, ...extra]));
+	return extra === undefined ? [...base] : [...new Set([...base, ...extra])];
 }

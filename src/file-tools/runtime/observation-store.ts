@@ -1,54 +1,42 @@
 import type { ContentVersion } from "../../filesystem/contracts/content.js";
 import type { AnyPathRef } from "../../filesystem/contracts/path.js";
-import type { WorkspaceNativeBridge } from "../../filesystem/runtime.js";
+import type { WorkspaceFileSystemLease } from "../../filesystem/runtime.js";
 
 export interface ObservationEntry {
 	readonly canonicalPath: string;
 	readonly version: ContentVersion;
 }
 
-/** Session-owned observations keyed by canonical filesystem identity. */
+export interface FileObservations {
+	remember(ref: AnyPathRef, version: ContentVersion): void;
+	get(ref: AnyPathRef): ContentVersion | undefined;
+}
+
+/** 会话只保存规范路径和版本，每次调用独立绑定自己的路径引用。 */
 export class ObservationStore {
 	private readonly observations = new Map<string, ObservationEntry>();
-	private readonly bridges = new Map<WorkspaceNativeBridge, number>();
 	private disposed = false;
 
 	constructor(initial: readonly ObservationEntry[] = []) {
-		for (const observation of initial) {
-			this.observations.set(canonicalKey(observation.canonicalPath), {
-				canonicalPath: observation.canonicalPath,
-				version: copyVersion(observation.version),
-			});
-		}
+		for (const observation of initial) this.remember(observation.canonicalPath, observation.version);
 	}
 
-	attach(bridge: WorkspaceNativeBridge): () => void {
-		if (this.disposed) return () => {};
-		this.bridges.set(bridge, (this.bridges.get(bridge) ?? 0) + 1);
-		let attached = true;
-		return () => {
-			if (!attached) return;
-			attached = false;
-			const count = this.bridges.get(bridge) ?? 0;
-			if (count <= 1) this.bridges.delete(bridge);
-			else this.bridges.set(bridge, count - 1);
+	bind(lease: Pick<WorkspaceFileSystemLease, "nativeBridge" | "disposed">): FileObservations {
+		const canonicalPath = (ref: AnyPathRef): string | undefined => this.disposed || lease.disposed
+			? undefined
+			: lease.nativeBridge.getNativeIdentity(ref)?.canonicalPath;
+		return {
+			remember: (ref, version) => {
+				const path = canonicalPath(ref);
+				if (path === undefined) return;
+				this.remember(path, version);
+			},
+			get: (ref) => {
+				const path = canonicalPath(ref);
+				const entry = path === undefined ? undefined : this.observations.get(canonicalKey(path));
+				return entry === undefined ? undefined : copyVersion(entry.version);
+			},
 		};
-	}
-
-	remember(ref: AnyPathRef, version: ContentVersion): boolean {
-		const identity = this.identityFor(ref);
-		if (identity === undefined) return false;
-		this.observations.set(identity.key, {
-			canonicalPath: identity.canonicalPath,
-			version: copyVersion(version),
-		});
-		return true;
-	}
-
-	get(ref: AnyPathRef): ContentVersion | undefined {
-		const key = this.keyFor(ref);
-		const entry = key === undefined ? undefined : this.observations.get(key);
-		return entry === undefined ? undefined : copyVersion(entry.version);
 	}
 
 	entries(): readonly ObservationEntry[] {
@@ -59,37 +47,13 @@ export class ObservationStore {
 		return this.observations.size;
 	}
 
-	forget(ref: AnyPathRef): boolean {
-		const key = this.keyFor(ref);
-		return key === undefined ? false : this.observations.delete(key);
-	}
-
-	clear(): void {
+	dispose(): void {
+		this.disposed = true;
 		this.observations.clear();
 	}
 
-	dispose(): void {
-		if (this.disposed) return;
-		this.disposed = true;
-		this.clear();
-		this.bridges.clear();
-	}
-
-	private keyFor(ref: AnyPathRef): string | undefined {
-		return this.identityFor(ref)?.key;
-	}
-
-	private identityFor(ref: AnyPathRef): { readonly key: string; readonly canonicalPath: string } | undefined {
-		if (this.disposed) return undefined;
-		for (const bridge of this.bridges.keys()) {
-			const identity = bridge.getNativeIdentity(ref);
-			if (identity === undefined) continue;
-			return {
-				key: canonicalKey(identity.canonicalPath),
-				canonicalPath: identity.canonicalPath,
-			};
-		}
-		return undefined;
+	private remember(canonicalPath: string, version: ContentVersion): void {
+		this.observations.set(canonicalKey(canonicalPath), { canonicalPath, version: copyVersion(version) });
 	}
 }
 

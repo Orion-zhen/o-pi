@@ -22,8 +22,8 @@ export function commitBytes(
 	target: TargetRef,
 	bytes: Uint8Array,
 	options: MutationOptions,
-): Promise<FsResult<MutationRunResult<never>>> {
-	return opened.filesystem.mutations.run(target, options, () => ({ type: "commit", bytes }));
+): Promise<FsResult<MutationRunResult<undefined>>> {
+	return opened.filesystem.mutations.run(target, options, () => ({ type: "commit", bytes, prepared: undefined }));
 }
 
 type OpenMutationOptions = Readonly<{
@@ -80,9 +80,9 @@ export function useMutationFixture(prefix: string) {
 		const target = await resolveTarget(opened, input);
 		return {
 			opened,
-			run<TRejected>(
+			run<TPrepared, TRejected = never>(
 				mutationOptions: MutationOptions,
-				transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
+				transform: (snapshot: MutationSnapshot) => MutationTransform<TPrepared, TRejected> | Promise<MutationTransform<TPrepared, TRejected>>,
 			) { return opened.filesystem.mutations.run(target, mutationOptions, transform); },
 			commit: (bytes: Uint8Array, mutationOptions: MutationOptions) => commitBytes(opened, target, bytes, mutationOptions),
 		};
