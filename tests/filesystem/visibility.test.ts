@@ -58,6 +58,42 @@ async function write(relativePath: string, content = "\n"): Promise<void> {
 }
 
 describe("visibility rules", () => {
+	it("规则已加载也拒绝复制的目录引用", async () => {
+		const opened = await openVisibility();
+		expectFsOk(await opened.services.visibility.prepareDirectory(opened.namespace.root, []));
+		expect(await opened.services.visibility.prepareDirectory({ ...opened.namespace.root }, []))
+			.toMatchObject({ ok: false, error: { code: "invalid-path" } });
+	});
+
+	it("同一目录的并发求值共享枚举和规则读取", async () => {
+		await write("nested/.piignore", "hidden.txt\n");
+		await write("nested/hidden.txt");
+		await write("nested/visible.txt");
+		const base = new NodeNativeFileSystem();
+		const reads = new Map<string, number>();
+		const listings = new Map<string, number>();
+		const opened = await openReadonly(workspace, {
+			native: overrideNativeFileSystem({
+				async readdir(pathname, context) {
+					listings.set(pathname, (listings.get(pathname) ?? 0) + 1);
+					return base.readdir(pathname, context);
+				},
+				async read(pathname, context) {
+					reads.set(pathname, (reads.get(pathname) ?? 0) + 1);
+					return base.read(pathname, context);
+				},
+			}, base),
+		});
+		const [hidden, visible] = await Promise.all([
+			opened.resolveExisting("nested/hidden.txt"), opened.resolveExisting("nested/visible.txt"),
+		]);
+		const decisions = await Promise.all([hidden, visible, hidden].map((ref) => opened.services.visibility.evaluate(ref, "search")));
+		expect(decisions.map(expectFsOk)).toMatchObject([{ ignored: true }, { ignored: false }, { ignored: true }]);
+		expect(listings.get(workspace)).toBe(1);
+		expect(listings.get(path.join(workspace, "nested"))).toBe(1);
+		expect(reads.get(path.join(workspace, "nested/.piignore"))).toBe(1);
+	});
+
 	it("通过增量 operations 支持 Gitignore grammar 基础规则", async () => {
 		await write(".piignore", [
 			"\uFEFF",
@@ -185,8 +221,6 @@ describe("visibility rules", () => {
 		await execFileAsync("git", ["add", "-f", "tracked.json"], { cwd: workspace });
 
 		const tracked = await openVisibility({ builtinProfile: "none" });
-		expect(tracked.services.visibility.fingerprint)
-			.not.toBe(beforeTracking.services.visibility.fingerprint);
 		expect(await evaluate(tracked, "tracked.json")).toMatchObject({ ignored: false });
 		expect(await evaluate(tracked, "untracked.json")).toMatchObject({ ignored: true });
 

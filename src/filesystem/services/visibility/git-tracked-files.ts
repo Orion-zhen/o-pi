@@ -10,7 +10,6 @@ const execFileAsync = promisify(execFile);
 export interface GitTrackedFiles {
 	paths: ReadonlySet<string>;
 	ignoreCase: boolean | undefined;
-	fingerprint: string;
 }
 
 interface GitCacheEntry {
@@ -75,12 +74,11 @@ export class GitTrackedFilesLoader {
 		if (paths.status === "rejected") throw paths.reason;
 		if (ignoreCase.status === "rejected") throw ignoreCase.reason;
 		if (stateFingerprint.status === "rejected") throw stateFingerprint.reason;
-		const fingerprint = `${marker}|${stateFingerprint.value}`;
 		return {
 			marker,
 			statePaths,
 			stateFingerprint: stateFingerprint.value,
-			result: { paths: paths.value, ignoreCase: ignoreCase.value, fingerprint },
+			result: { paths: paths.value, ignoreCase: ignoreCase.value },
 		};
 	}
 

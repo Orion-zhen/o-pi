@@ -16,6 +16,8 @@ vi.mock("file-type", async (importOriginal) => {
 });
 
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import { suggestPaths } from "../../src/file-tools/read/path-suggestions.js";
+import { expectFsOk, openReadonly } from "../filesystem/fixtures.js";
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import { createPdfDocumentSource } from "../../src/file-tools/pi/ports/read-pdf.js";
 import type {
@@ -40,6 +42,31 @@ beforeEach(() => {
 });
 
 describe("read", () => {
+	it("拼写建议保持稳定排名，过滤不可见和无关文件", async () => {
+		await mkdir(path.join(workspace, "src"));
+		await writeFile(path.join(workspace, "src/main.ts"), "main");
+		await writeFile(path.join(workspace, "src/main.test.ts"), "test");
+		await writeFile(path.join(workspace, "src/hidden.ts"), "hidden");
+		await writeFile(path.join(workspace, ".piignore"), "src/hidden.ts\n");
+		const opened = await openReadonly(workspace);
+		const suggestions = expectFsOk(await suggestPaths(opened.services.discovery, opened.namespace.root,
+			"src/maim.ts", { limit: 3, maxEntries: 100 }));
+		expect(suggestions[0]).toMatchObject({ ref: { displayPath: "src/main.ts", kind: "file" } });
+		expect(suggestions.every((candidate) => candidate.ref.displayPath !== "src/hidden.ts")).toBe(true);
+		expect(expectFsOk(await suggestPaths(opened.services.discovery, opened.namespace.root,
+			"zzz_totally_unrelated_abc.txt", { limit: 3, maxEntries: 100 }))).toEqual([]);
+	});
+
+	it("建议数量为零时不扫描，取消则终止候选发现", async () => {
+		const owner = new AbortController();
+		const opened = await openReadonly(workspace, { ownerSignal: owner.signal });
+		expect(expectFsOk(await suggestPaths(opened.services.discovery, opened.namespace.root,
+			"a", { limit: 0, maxEntries: 10 }))).toEqual([]);
+		owner.abort();
+		expect(await suggestPaths(opened.services.discovery, opened.namespace.root,
+			"a", { limit: 1, maxEntries: 10 })).toMatchObject({ ok: false, error: { code: "aborted" } });
+	});
+
 	it("文件不存在时为 workspace 内路径附加相似路径建议", async () => {
 		await mkdir(path.join(workspace, "src"), { recursive: true });
 		await writeFile(path.join(workspace, "src", "main.ts"), "export const main = 1;\n");

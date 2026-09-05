@@ -1,7 +1,7 @@
 import type { FsOperationContext } from "../../contracts/result.js";
 import type { VisibilityPolicy } from "../../contracts/visibility.js";
 import type { WorkspaceNamespaceKernel } from "../../kernel/namespace.js";
-import { NodeNativeFileSystem, type NativeFileSystem } from "../../platform/node/native-filesystem.js";
+import type { NativeFileSystem } from "../../platform/node/native-filesystem.js";
 import { GitTrackedFilesLoader } from "./git-tracked-files.js";
 import {
 	compileBaseVisibilityRules,
@@ -14,7 +14,7 @@ export class WorkspaceVisibilityService {
 	private readonly native: NativeFileSystem;
 	private readonly git: GitTrackedFilesLoader;
 
-	constructor(native: NativeFileSystem = new NodeNativeFileSystem()) {
+	constructor(native: NativeFileSystem) {
 		this.native = native;
 		this.git = new GitTrackedFilesLoader(native);
 	}
@@ -28,7 +28,6 @@ export class WorkspaceVisibilityService {
 		const tracked = await this.git.load(root, context.signal);
 		const caseInsensitive = resolveCaseInsensitive(tracked.ignoreCase);
 		return new IncrementalVisibilityOperations({
-			root,
 			policy,
 			native: this.native,
 			namespace,

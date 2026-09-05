@@ -328,7 +328,6 @@ function textEvidence(matchMode: TextHit["matchMode"]): RegionEvidence {
 function astCacheKey(file: ScopedFile, hash: string, filesystem: WorkspaceFileSystem): string {
 	return [
 		filesystem.identity,
-		filesystem.visibility.fingerprint,
 		file.snapshot.identity,
 		file.path,
 		file.snapshot.version,

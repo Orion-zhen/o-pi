@@ -1,14 +1,8 @@
 import type { FsResult } from "./result.js";
 
-declare const pathIdBrand: unique symbol;
-
-/** Logical identity assigned by the filesystem namespace. */
-export type PathId = string & { readonly [pathIdBrand]: "filesystem-path" };
-
 export type ExistingPathKind = "file" | "directory" | "symlink" | "other";
 
 interface PathRefBase {
-	readonly id: PathId;
 	readonly displayPath: string;
 	readonly workspacePath?: string;
 }
@@ -46,15 +40,11 @@ export interface ResolveExistingOptions {
 	readonly followFinalSymlink: boolean;
 }
 
-export interface ResolveTargetOptions {
-	readonly followExistingSymlink: boolean;
-}
-
 export interface PathOperations {
 	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "file" }): Promise<FsResult<FileRef>>;
 	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "directory" }): Promise<FsResult<DirectoryRef>>;
 	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "any" }): Promise<FsResult<ExistingRef>>;
-	resolveTarget(input: string, options: ResolveTargetOptions): Promise<FsResult<TargetRef>>;
+	resolveTarget(input: string): Promise<FsResult<TargetRef>>;
 	/** candidate 位于 parent 的 canonical 子树内时，返回以 `/` 规范化的相对路径。 */
 	relative(parent: DirectoryRef, candidate: ExistingRef | TargetRef): string | undefined;
 	isWithin(parent: DirectoryRef, candidate: ExistingRef | TargetRef): boolean;

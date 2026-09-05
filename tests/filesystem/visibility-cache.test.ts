@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
+import { writeFile } from "node:fs/promises";
+import { NodeNativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -20,6 +22,24 @@ beforeEach(() => {
 });
 
 describe("visibility Git shared state", () => {
+	it("索引和 Git 配置变化后重新加载状态，不依赖公开可见性指纹", async () => {
+		if (!(await hasGit())) return;
+		await execFileAsync("git", ["init"], { cwd: workspace });
+		await writeFile(path.join(workspace, "tracked.txt"), "tracked");
+		const loader = new GitTrackedFilesLoader(new NodeNativeFileSystem());
+		try {
+			expect((await loader.load(workspace)).paths.has("tracked.txt")).toBe(false);
+			await execFileAsync("git", ["add", "tracked.txt"], { cwd: workspace });
+			expect((await loader.load(workspace)).paths.has("tracked.txt")).toBe(true);
+			for (const value of ["true", "false"]) {
+				await execFileAsync("git", ["config", "core.ignoreCase", value], { cwd: workspace });
+				expect((await loader.load(workspace)).ignoreCase).toBe(value === "true");
+			}
+		} finally {
+			loader.clear();
+		}
+	});
+
 	it("分离 consumer 取消并由 clear 终止 pending owner", async () => {
 		if (!(await hasGit())) return;
 		await execFileAsync("git", ["init"], { cwd: workspace });
@@ -37,7 +57,7 @@ describe("visibility Git shared state", () => {
 			await expect(first).rejects.toMatchObject({ code: "aborted" });
 			expect(shared.ownerAborts()).toBe(0);
 			shared.release.resolve();
-			await expect(second).resolves.toMatchObject({ paths: expect.any(Set), fingerprint: expect.any(String) });
+			await expect(second).resolves.toMatchObject({ paths: expect.any(Set) });
 		} finally {
 			shared.release.resolve();
 			loader.clear();

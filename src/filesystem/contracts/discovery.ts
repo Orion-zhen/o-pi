@@ -1,21 +1,13 @@
 import type { FileSnapshot } from "./metadata.js";
 import type { DirectoryRef, ExistingRef, FileRef } from "./path.js";
 import type { FsError, FsResult } from "./result.js";
-import type { TraversalSkipReason } from "./traversal.js";
 import type { VisibilityAnnotation } from "./visibility.js";
 
 export type DiscoveryRoot = FileRef | DirectoryRef;
 export type DiscoveryRef = FileRef | DirectoryRef;
 
-export interface DiscoveryEntryEvent {
-	readonly type: "entry";
-	readonly ref: DiscoveryRef;
-	/** 相对原始 discovery root、以 `/` 规范化的路径。 */
-	readonly relativePath: string;
-	/** 相对原始 root 的深度；显式文件 root 深度为 0。 */
-	readonly depth: number;
+export interface DiscoveryEntryEvent extends PathDiscoveryEntryEvent {
 	readonly snapshot: FileSnapshot;
-	readonly visibility: VisibilityAnnotation;
 }
 
 export interface PathDiscoveryEntryEvent {
@@ -31,7 +23,7 @@ export interface PathDiscoveryEntryEvent {
 export interface DiscoverySkipEvent {
 	readonly type: "skip";
 	readonly path: string;
-	readonly reason: TraversalSkipReason;
+	readonly reason: "blocked" | "ignored" | "symlink" | "entry-limit" | "depth-limit";
 	readonly kind?: ExistingRef["kind"];
 }
 

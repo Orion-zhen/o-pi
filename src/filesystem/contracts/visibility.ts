@@ -48,7 +48,6 @@ export interface VisibilityDirectoryEntry {
 }
 
 export interface VisibilityOperations {
-	readonly fingerprint: string;
 	evaluate(ref: ExistingRef, intent: VisibilityIntent): Promise<FsResult<VisibilityAnnotation>>;
 	/** 复用调用方已有的目录快照，加载只影响该目录后代的 ignore 规则。 */
 	prepareDirectory(

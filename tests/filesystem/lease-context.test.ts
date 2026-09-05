@@ -72,9 +72,7 @@ describe("workspace lease operation context", () => {
 		const runtime = new FileSystemRuntime({ native });
 		try {
 			const lease = await openLease(runtime);
-			const traversal = expectFsOk(await lease.filesystem.traversal.walk(lease.filesystem.root, {
-				intent: "search",
-			}));
+			const traversal = expectFsOk(await lease.filesystem.discovery.discover(lease.filesystem.root, {}));
 			const pending = collectAsync(traversal);
 			await started.promise;
 			lease.dispose();
@@ -167,7 +165,7 @@ async function resolveFile(lease: WorkspaceFileSystemLease, input: string): Prom
 }
 
 async function resolveTarget(lease: WorkspaceFileSystemLease, input: string): Promise<TargetRef> {
-	return expectFsOk(await lease.filesystem.paths.resolveTarget(input, { followExistingSymlink: true }));
+	return expectFsOk(await lease.filesystem.paths.resolveTarget(input));
 }
 
 function delayedReadHandle(

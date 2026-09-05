@@ -1,10 +1,8 @@
-import type { PathCatalogOperations } from "./catalog.js";
 import type { ContentOperations } from "./content.js";
 import type { DiscoveryOperations } from "./discovery.js";
 import type { MetadataOperations } from "./metadata.js";
 import type { MutationOperations } from "./mutation.js";
 import type { DirectoryRef, PathOperations } from "./path.js";
-import type { TraversalOperations } from "./traversal.js";
 import type { VisibilityOperations } from "./visibility.js";
 
 declare const workspaceIdentityBrand: unique symbol;
@@ -20,8 +18,6 @@ export interface WorkspaceFileSystem {
 	readonly metadata: MetadataOperations;
 	readonly content: ContentOperations;
 	readonly visibility: VisibilityOperations;
-	readonly traversal: TraversalOperations;
 	readonly discovery: DiscoveryOperations;
 	readonly mutations: MutationOperations;
-	readonly catalog: PathCatalogOperations;
 }

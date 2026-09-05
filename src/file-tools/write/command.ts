@@ -27,10 +27,7 @@ export interface WriteCommandContext {
 export async function writeFile(params: WriteParams, context: WriteCommandContext): Promise<ToolOutcome<WriteSuccess>> {
 	const inputBytes = Buffer.byteLength(params.content, "utf8");
 	if (inputBytes > context.maxFileBytes) return fileTooLarge(params.path, context.maxFileBytes, inputBytes);
-	const target = await context.filesystem.paths.resolveTarget(
-		params.path,
-		{ followExistingSymlink: true },
-	);
+	const target = await context.filesystem.paths.resolveTarget(params.path);
 	if (!target.ok) return mapFsError(target.error);
 	if (target.value.workspacePath === ".") {
 		return fail("INVALID_PATH", "Target must be a file path, not the current directory.", { path: params.path });

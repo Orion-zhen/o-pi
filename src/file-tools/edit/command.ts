@@ -139,7 +139,7 @@ async function resolveEditMutationTarget(
 	path: string,
 	filesystem: WorkspaceFileSystem,
 ): Promise<ToolOutcome<TargetRef>> {
-	const target = await filesystem.paths.resolveTarget(path, { followExistingSymlink: true });
+	const target = await filesystem.paths.resolveTarget(path);
 	if (!target.ok) return mapFsError(target.error, { notFound: "file" });
 	if (target.value.existingKind === undefined) {
 		return fail("FILE_NOT_FOUND", "File does not exist.", { path: target.value.displayPath });

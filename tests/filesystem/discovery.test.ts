@@ -27,6 +27,103 @@ beforeEach(async () => {
 	await mkdir(workspace);
 });
 
+describe.each(["discover", "discoverPaths"] as const)("filesystem %s boundaries", (method) => {
+	it.skipIf(process.platform === "win32")("保持顺序、剪枝和访问边界，且不跟随子符号链接", async () => {
+		for (const directory of ["a-dir", "cache", "ignored", "secret"]) await mkdir(path.join(workspace, directory));
+		for (const file of ["a-dir/a.txt", "b.txt", "cache/drop.txt", "cache/keep.txt", "ignored/hidden.txt", "secret/key.txt"]) {
+			await writeFile(path.join(workspace, file), "x");
+		}
+		await symlink("..", path.join(workspace, "a-dir/cycle"), "dir");
+		await writeFile(path.join(workspace, ".piignore"), "cache/*\n!cache/keep.txt\nignored/\n");
+		const opened = await openReadonly(workspace, { blockedPaths: ["secret/"] });
+		const stream = expectFsOk(await opened.services.discovery[method](opened.namespace.root, { maxEntries: 100 }));
+		const events = await collectAsync(stream);
+		expect(events.filter((event) => event.type === "entry").map((event) => event.ref.displayPath)).toEqual([
+			".piignore", "a-dir", "a-dir/a.txt", "b.txt", "cache", "cache/keep.txt",
+		]);
+		expect(events).toEqual(expect.arrayContaining([
+			expect.objectContaining({ type: "skip", path: "a-dir/cycle", reason: "symlink" }),
+			expect.objectContaining({ type: "skip", path: "cache/drop.txt", reason: "ignored" }),
+			expect.objectContaining({ type: "skip", path: "ignored", reason: "ignored" }),
+			expect.objectContaining({ type: "skip", path: "secret", reason: "blocked" }),
+		]));
+		const file = events.find((event) => event.type === "entry" && event.ref.displayPath === "b.txt");
+		if (method === "discover") expect(file).toMatchObject({ snapshot: { sizeBytes: 1, version: expect.any(String) } });
+		else expect(file).not.toHaveProperty("snapshot");
+	});
+
+	it("自动发现跳过忽略目录，显式根可穿过软忽略", async () => {
+		await mkdir(path.join(workspace, "ignored"));
+		await writeFile(path.join(workspace, "ignored/explicit.txt"), "x");
+		await writeFile(path.join(workspace, ".piignore"), "ignored/\n");
+		const opened = await openReadonly(workspace);
+		const implicit = await collectAsync(expectFsOk(await opened.services.discovery[method](opened.namespace.root, {})));
+		expect(implicit.filter((event) => event.type === "skip")).toEqual([
+			{ type: "skip", path: "ignored", reason: "ignored", kind: "directory" },
+		]);
+		const root = await opened.resolveDirectory("ignored");
+		const explicit = await collectAsync(expectFsOk(await opened.services.discovery[method](root, {})));
+		expect(explicit.filter((event) => event.type === "entry").map((event) => event.ref.displayPath)).toEqual(["ignored/explicit.txt"]);
+	});
+
+	it("保留目录局部错误与根错误，扫描数量限制不破坏后续发现", async () => {
+		await mkdir(path.join(workspace, "denied"));
+		await writeFile(path.join(workspace, "denied/x.txt"), "x");
+		await writeFile(path.join(workspace, "later.txt"), "later");
+		const base = new NodeNativeFileSystem();
+		let denyRoot = false;
+		const native = overrideNativeFileSystem({
+			async readdir(pathname, context) {
+				if (pathname === path.join(workspace, "denied") || (denyRoot && pathname === workspace)) {
+					throw new NativeFileSystemError("access-denied", "readdir", pathname);
+				}
+				return base.readdir(pathname, context);
+			},
+		}, base);
+		const opened = await openReadonly(workspace, { native });
+		const partial = await collectAsync(expectFsOk(await opened.services.discovery[method](opened.namespace.root, {})));
+		expect(partial).toEqual(expect.arrayContaining([
+			expect.objectContaining({ type: "error", path: "denied", error: expect.objectContaining({ code: "access-denied" }) }),
+			expect.objectContaining({ type: "entry", ref: expect.objectContaining({ displayPath: "later.txt" }) }),
+		]));
+		const limited = await collectAsync(expectFsOk(await opened.services.discovery[method](opened.namespace.root, { maxEntries: 1 })));
+		expect(limited.at(-1)).toMatchObject({ type: "skip", reason: "entry-limit" });
+		denyRoot = true;
+		expect(await opened.services.discovery[method](opened.namespace.root, {})).toMatchObject({ ok: false, error: { code: "access-denied", path: "." } });
+	});
+
+	it("保持深度、静态前缀、单次消费、提前关闭和取消语义", async () => {
+		await mkdir(path.join(workspace, "src/nested"), { recursive: true });
+		await writeFile(path.join(workspace, "src/nested/a.ts"), "a");
+		const owner = new AbortController();
+		const opened = await openReadonly(workspace, { ownerSignal: owner.signal });
+		const limited = await collectAsync(expectFsOk(await opened.services.discovery[method](opened.namespace.root, { maxDepth: 1 })));
+		expect(limited).toEqual([
+			expect.objectContaining({ type: "entry", ref: expect.objectContaining({ displayPath: "src" }), depth: 1 }),
+			expect.objectContaining({ type: "skip", path: "src", reason: "depth-limit" }),
+		]);
+		const prefix = expectFsOk(await opened.services.discovery[method](opened.namespace.root, { glob: "src/**/*.ts" }));
+		expect(await collectAsync(prefix)).toEqual([
+			expect.objectContaining({ type: "entry", relativePath: "src/nested/a.ts", depth: 3 }),
+		]);
+		expect(await collectAsync(prefix)).toEqual([]);
+		const closed = expectFsOk(await opened.services.discovery[method](opened.namespace.root, {}));
+		await closed.close();
+		expect(await collectAsync(closed)).toEqual([]);
+		const early = expectFsOk(await opened.services.discovery[method](opened.namespace.root, {}));
+		for await (const _event of early) break;
+		expect(await collectAsync(early)).toEqual([]);
+		const canceled = expectFsOk(await opened.services.discovery[method](opened.namespace.root, {}));
+		const events = [];
+		for await (const event of canceled) {
+			events.push(event);
+			if (event.type === "entry") owner.abort();
+		}
+		expect(events.at(-1)).toMatchObject({ type: "error", error: { code: "aborted" } });
+		expect(await opened.services.discovery[method](opened.namespace.root, {})).toMatchObject({ ok: false, error: { code: "aborted" } });
+	});
+});
+
 describe("filesystem discovery", () => {
 	it.each([
 		"/src/*.ts",

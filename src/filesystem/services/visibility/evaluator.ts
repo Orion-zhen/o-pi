@@ -1,14 +1,11 @@
-import path from "node:path";
-
 import type { VisibilityPolicy } from "../../contracts/visibility.js";
-import { CompiledPathRuleMatcher, type PathIdentity } from "../../kernel/access-policy.js";
+import { CompiledPathRuleMatcher } from "../../kernel/access-policy.js";
 import {
-	SOURCE_PRIORITY,
+	pathDepth,
 	type CompiledVisibilityRuleSet,
 	type MatchedIgnoreRule,
 	type VisibilityDecision,
 	type VisibilityEvaluateInput,
-	type VisibilityMatchState,
 	type VisibilitySourceMatch,
 	type VisibilitySourceType,
 } from "./model.js";
@@ -20,33 +17,40 @@ interface CompiledVisibilitySource {
 
 /** 只评估已加载的可见性规则，不发现或读取规则文件。 */
 export class VisibilityEvaluator {
-	private readonly sources: readonly CompiledVisibilitySource[];
-	private readonly negatedRuleSets: readonly CompiledVisibilityRuleSet[];
+	private readonly ruleSets: CompiledVisibilityRuleSet[] = [];
+	private sources: readonly CompiledVisibilitySource[] = [];
+	private negatedRuleSets: readonly CompiledVisibilityRuleSet[] = [];
 	private readonly trackedLookup: ReadonlySet<string>;
 	private readonly trackedBypassEnabled: boolean;
 	private readonly configuredRules: CompiledPathRuleMatcher;
 
 	constructor(
-		private readonly root: string,
 		ruleSets: readonly CompiledVisibilityRuleSet[],
 		trackedPaths: ReadonlySet<string>,
 		policy: VisibilityPolicy,
 		private readonly caseInsensitive: boolean,
 	) {
-		this.sources = groupRuleSetsBySource(ruleSets);
-		this.negatedRuleSets = ruleSets.filter((ruleSet) => ruleSet.hasNegatedRule);
+		this.addRules(ruleSets);
 		this.trackedLookup = caseInsensitive
 			? new Set(Array.from(trackedPaths, (trackedPath) => trackedPath.toLowerCase()))
 			: trackedPaths;
-		this.trackedBypassEnabled = policy.ignore.gitignore.trackedFilesBypass
-			&& this.sources.some((source) => source.sourceType === "gitignore");
+		this.trackedBypassEnabled = policy.ignore.gitignore.trackedFilesBypass;
 		this.configuredRules = new CompiledPathRuleMatcher(policy.ignoredPaths);
 	}
 
+	addRules(rules: readonly CompiledVisibilityRuleSet[]): void {
+		this.ruleSets.push(...rules);
+		this.ruleSets.sort((left, right) => left.priority - right.priority
+			|| pathDepth(left.baseDirectory) - pathDepth(right.baseDirectory)
+			|| (left.sourcePath ?? "").localeCompare(right.sourcePath ?? ""));
+		this.sources = groupRuleSetsBySource(this.ruleSets);
+		this.negatedRuleSets = this.ruleSets.filter((ruleSet) => ruleSet.hasNegatedRule);
+	}
+
 	evaluate(input: VisibilityEvaluateInput): VisibilityDecision {
-		const workspacePath = visibilityWorkspacePath(input);
-		const normalized = normalizeIgnorePath(workspacePath ?? input.path);
-		const tracked = workspacePath !== undefined && this.trackedBypassEnabled && (input.tracked ?? this.isTracked(normalized));
+		const workspacePath = input.workspacePath;
+		const normalized = normalizeIgnorePath(workspacePath ?? input.displayPath);
+		const tracked = workspacePath !== undefined && this.trackedBypassEnabled && this.isTracked(normalized);
 		let winner: VisibilitySourceMatch | undefined;
 		if (workspacePath !== undefined) {
 			for (const source of this.sources) {
@@ -57,8 +61,7 @@ export class VisibilityEvaluator {
 		}
 		const configuredRule = this.matchConfiguredRule(input);
 		if (configuredRule !== undefined) winner = { state: "ignore", rule: configuredRule };
-		const state: VisibilityMatchState = winner?.state ?? "none";
-		const ignored = state === "ignore";
+		const ignored = winner?.state === "ignore";
 		const prune = ignored && canPrune(input.intent) && input.kind === "directory"
 			&& (configuredRule !== undefined || !this.hasNegatedRuleForDescendant(normalized));
 		return {
@@ -109,22 +112,13 @@ export class VisibilityEvaluator {
 	}
 
 	private matchConfiguredRule(input: VisibilityEvaluateInput): MatchedIgnoreRule | undefined {
-		const workspacePath = input.workspacePath ?? (path.isAbsolute(input.path) ? undefined : normalizeIgnorePath(input.path));
-		const absolutePath = input.absolutePath ?? (workspacePath === undefined ? input.path : path.resolve(this.root, workspacePath));
-		const identity: PathIdentity = {
-			displayPath: input.path,
-			absolutePath,
-			...(workspacePath === undefined ? {} : { workspacePath }),
-		};
-		const pattern = this.configuredRules.match(identity);
+		const pattern = this.configuredRules.match(input);
 		if (pattern === undefined) return undefined;
 		return {
 			sourceType: "config",
 			sourcePath: "file-tools.jsonc",
 			pattern,
 			negated: false,
-			baseDirectory: ".",
-			priority: SOURCE_PRIORITY.config,
 		};
 	}
 }
@@ -159,11 +153,6 @@ function ruleMatchesDirectoryAncestor(
 	if (!rule.pattern.trimEnd().endsWith("/")) return false;
 	if (kind !== "directory") return true;
 	return relative.includes("/");
-}
-
-function visibilityWorkspacePath(input: VisibilityEvaluateInput): string | undefined {
-	if (input.workspacePath !== undefined) return input.workspacePath;
-	return input.absolutePath === undefined ? input.path : undefined;
 }
 
 function canPrune(intent: VisibilityEvaluateInput["intent"]): boolean {

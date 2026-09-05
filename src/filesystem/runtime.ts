@@ -115,10 +115,8 @@ export class FileSystemRuntime {
 			metadata: readonly.metadata,
 			content: readonly.content,
 			visibility: readonly.visibility,
-			traversal: readonly.traversal,
 			discovery: readonly.discovery,
 			mutations,
-			catalog: readonly.catalog,
 		};
 		const nativeBridge: WorkspaceNativeBridge = {
 			getNativeIdentity: (ref) => namespace.value.bridge.getNativeIdentity(ref),

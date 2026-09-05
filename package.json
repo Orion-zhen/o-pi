@@ -16,6 +16,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
+		"@earendil-works/pi-server": "latest",
 		"@types/node": "latest",
 		"@types/node-notifier": "latest",
 		"@types/picomatch": "latest",
@@ -23,6 +24,7 @@
 		"@vitest/coverage-v8": "latest",
 		"jiti": "latest",
 		"typescript": "latest",
+		"vite": "latest",
 		"vitest": "latest"
 	},
 	"dependencies": {

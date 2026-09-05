@@ -1,103 +1,55 @@
 # 忽略规则引擎
 
-本文说明 `.piignore`、`.gitignore`、内置规则和 Git 已跟踪文件集合如何参与文件发现。忽略规则不用于访问控制。路径安全规则见[路径与安全](path-security.md)。
-
-## 两个独立维度
-
-```text
-忽略规则：路径是否应从自动发现、遍历、搜索或索引中排除
-路径解析：把相对或绝对输入交给文件系统操作
-```
-
-自动发现、递归搜索和索引默认跳过软忽略路径。但是，调用方明确提供路径时，`ls`、`find`、`grep`、`read`、`write` 和 `edit` 仍可访问该路径。文件系统访问策略内核会强制拒绝或跳过受阻路径。忽略规则诊断不会解除受阻路径的访问限制。
+`.piignore`、`.gitignore`、内置规则和 Git 已跟踪文件集合共同决定自动发现的可见性。忽略规则不是访问控制，强制拒绝访问由[路径安全](path-security.md)负责。
 
 ## 规则来源
 
-系统默认读取根目录和嵌套目录中的 `.piignore` 与 `.gitignore`。规则来源的优先级从高到低排列如下：
+优先级从高到低为：
 
-1. 会话覆盖规则。
+1. 有效配置中的 `ignored_path`，包括调用前合并的覆盖规则。
 2. `.piignore`。
 3. `.gitignore`。
-4. `.git/info/exclude`，默认关闭。
-5. Git 全局排除规则，默认关闭。
-6. 内置规则。
+4. 内置规则。
 
-同一来源中，子目录规则优先于父目录规则。同一文件中，后面的匹配规则覆盖前面的规则。规则使用工作区相对的字面路径匹配，内部统一使用 `/`。符号链接的真实路径不会改写逻辑路径。
+同一来源中，子目录规则优先于父目录规则。同一文件中，后面的匹配规则优先。规则相对于所在目录匹配，使用工作区内的字面路径，内部统一使用 `/`。符号链接目标不会改写匹配路径。
 
-## 决策模型
+系统不读取 Git 全局忽略文件或 `.git/info/exclude`。
 
-可见性操作会明确携带意图：`list-entry`、`traverse`、`search`、`index`、`explicit-read` 或 `explicit-edit`。操作意图和调用方是否明确指定根路径，共同决定系统应标记、过滤还是允许穿过软忽略路径。受阻路径不属于可见性决策。
+## 可见性与剪枝
 
-匹配结果不是简单的布尔值：
+`visibility.evaluate` 返回：
 
 ```ts
-type IgnoreDecision = {
-  state: "none" | "ignore" | "include";
-  ignored: boolean;
-  prune: boolean;
-  matchedRule?: {
-    sourceType: "builtin" | "gitignore" | "piignore" | "git-info-exclude" | "global" | "session";
-    sourcePath?: string;
-    line?: number;
-    pattern: string;
-    negated: boolean;
-    baseDirectory: string;
-  };
-  diagnostics?: IgnoreDiagnostic[];
-};
-```
-
-`ignored` 与 `prune` 相互独立。路径可以被忽略，但如果后代可能被 `!pattern` 重新包含，遍历器就不能安全剪枝。`prune` 只影响后续遍历、搜索和索引。`ls` 始终只列直属成员。
-
-## 调用状态与快照
-
-每次文件系统调用都会获得一个可见性求值器。求值器绑定以下状态：
-
-- 有效配置。
-- Git 已跟踪文件集合。
-- 内置规则。
-- 会话覆盖规则。
-
-`FileSystemRuntime` 开始调用时只准备固定规则和 Git 状态，不递归发现忽略规则文件。目录枚举把同一份 `readdir` 快照交给可见性求值器。求值器在处理子项前，按需读取并编译当前目录中的 `.gitignore` 和 `.piignore`。规则顺序仍按来源优先级和目录深度稳定排列。明确调用的 `read`、`ls` 或非根搜索范围只准备目标祖先链，不扫描无关目录。
-
-同一次调用中，已加载的规则保持不变。后续调用会从实际目录快照重新读取遇到的规则文件。因此，`edit` 修改 `.piignore` 或 `.gitignore` 后，下一次工具调用会立即看到新规则。Git 索引和配置仍根据指纹缓存并失效。
-
-独立且完整的 `VisibilitySnapshot` API 保持不可变，并提供同步的 `evaluate` 和 `explain` 语义，供规则解释和运行时之外的调用使用。
-
-增量加载不能破坏 `!pattern` 语义。如果软忽略目录可能被尚未加载的嵌套同级规则或更高优先级规则重新包含，运行时会先检查该子树中的规则文件，再决定是否剪枝。`.git`、`node_modules` 和不可覆盖的配置或会话忽略规则仍可直接剪枝。
-
-## Git 已跟踪文件
-
-系统默认通过 `git ls-files -z` 批量读取已跟踪文件集合：
-
-- 已跟踪文件不受 `.gitignore` 软忽略规则影响。
-- `.piignore` 仍可忽略已跟踪文件。
-- 非 Git 仓库会退化为空的已跟踪文件集合。
-
-## 解释信息与诊断
-
-`explain` 可以定位最终生效的规则来源：
-
-```json
-{
-  "path": "dist/schema.json",
-  "ignored": true,
-  "prune": false,
-  "trace": [
-    {
-      "sourceType": "piignore",
-      "sourcePath": ".piignore",
-      "line": 3,
-      "pattern": "dist/"
-    }
-  ],
-  "winner": {
-    "sourceType": "piignore",
-    "sourcePath": ".piignore",
-    "line": 3,
-    "pattern": "dist/"
-  }
+interface VisibilityAnnotation {
+  readonly ignored: boolean;
+  readonly prune: boolean;
+  readonly source?: string;
+  readonly rule?: string;
 }
 ```
 
-忽略规则文件只支持 UTF-8，读取时会剥离 BOM。读取或编码错误会产生结构化诊断。系统会继续应用其他有效规则，不会因诊断而阻止访问。诊断不会直接写入 `ls` 条目，以免工具输出膨胀。开发者可以使用快照的 `explain` 调试规则。
+`ignored` 表示软忽略，`prune` 表示是否可以停止遍历目录后代。已加载的相关规则包含否定规则时，求值器保守地保留继续遍历的可能。配置中的忽略规则可直接剪枝。系统不会为已剪枝目录预先扫描嵌套规则文件。
+
+`ls` 标记软忽略条目。明确指定的 `read`、`write` 和 `edit` 不因软忽略被拒绝。`find` 和 `grep` 自动发现时跳过软忽略条目，但明确选中的软忽略根目录或 glob 静态目录前缀允许穿过软忽略。受阻路径始终不能绕过。
+
+## 调用状态与增量加载
+
+每次文件系统租约绑定有效配置、Git tracked 集合和内置规则。配置路径匹配器及大小写归一化后的 tracked 集合只构造一次。
+
+打开租约不会递归扫描规则文件。目录枚举将已有的 `readdir` 快照交给 `visibility.prepareDirectory`，在处理子项前加载该目录的 `.gitignore` 和 `.piignore`。明确访问非根路径时，只准备目标的祖先目录链。并发请求共享同一目录的加载任务。
+
+同一次租约中，已加载规则保持不变。后续租约重新读取访问到的规则文件，因此修改忽略文件后，下一次工具调用会使用新规则。
+
+规则文件只支持 UTF-8，允许 BOM。符号链接形式的忽略文件不读取。目录枚举、规则读取或编码失败时继续应用其他有效规则，取消仍会终止操作。公开结果保留匹配来源和规则，不提供独立的全量快照、`explain` 或诊断流接口。
+
+## Git 状态
+
+系统通过 `git ls-files -z` 批量读取 tracked 集合。启用 tracked bypass 时，已跟踪文件绕过 `.gitignore`，但不绕过 `.piignore` 和配置中的忽略规则。Git 不可用或工作区不是仓库时，tracked 集合为空。
+
+Git 的 `core.ignoreCase` 优先于平台默认。Git 状态缓存根据 `.git`、索引和配置文件的元数据失效。共享 Git 加载任务支持调用方独立取消，最后一个等待方离开或运行时关闭时终止后台任务。
+
+## 与正文缓存的关系
+
+每次 `grep` 都按当前策略重新发现候选，随后才查询正文和 AST 缓存。正文缓存按工作区、路径和文件快照区分，命中仍重新解析路径并复验快照。AST 缓存还绑定正文哈希。
+
+缓存不依赖整个工作区的可见性指纹。无关忽略规则变化不会淘汰未变文件的正文和 AST，当前候选范围和访问检查仍决定文件能否参与本次搜索。

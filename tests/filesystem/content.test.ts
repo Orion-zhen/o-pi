@@ -19,6 +19,21 @@ beforeEach(async () => {
 });
 
 describe("filesystem content services", () => {
+	it.each([false, true])("未知读取异常仍关闭 handle，closeError=%s", async (closeError) => {
+		await writeFile(path.join(workspace, "unexpected.txt"), "content");
+		const tracker = { opened: 0, closed: 0 };
+		const failure = new Error("unexpected read failure");
+		const opened = await openReadonly(workspace, {
+			native: wrapNative(new NodeNativeFileSystem(), {
+				tracker,
+				closeError,
+				beforeRead() { throw failure; },
+			}),
+		});
+		await expect(opened.readBytes("unexpected.txt")).rejects.toBe(failure);
+		expect(tracker).toEqual({ opened: 1, closed: 1 });
+	});
+
 	it.skipIf(process.platform === "win32")("blocks a protected final symlink introduced immediately before open", async () => {
 		const protectedDirectory = path.join(temp.path, "read-race-protected");
 		const protectedFile = path.join(protectedDirectory, "secret.txt");
@@ -214,7 +229,7 @@ describe("filesystem content services", () => {
 		expect(await baseOpened.services.content.scanLines(foreign, {})).toMatchObject({ ok: false, error: { code: "invalid-path" } });
 		expect(await baseOpened.services.metadata.stat(foreign)).toMatchObject({ ok: false, error: { code: "invalid-path" } });
 		expect(await baseOpened.services.metadata.list(foreignNamespace.root)).toMatchObject({ ok: false, error: { code: "invalid-path" } });
-		expect(await baseOpened.services.traversal.walk(foreignNamespace.root, { intent: "search" })).toMatchObject({
+		expect(await baseOpened.services.discovery.discover(foreignNamespace.root, {})).toMatchObject({
 			ok: false,
 			error: { code: "invalid-path" },
 		});
@@ -230,7 +245,7 @@ describe("filesystem content services", () => {
 		});
 		const file = await resolveFile(opened.namespace, "owned.txt");
 		const scan = expectFsOk(await opened.services.content.scanLines(file, {}));
-		const traversal = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, { intent: "search" }));
+		const traversal = expectFsOk(await opened.services.discovery.discover(opened.namespace.root, {}));
 
 		owner.abort("lease closed");
 		const scanResults = await collectAsync(scan);
@@ -241,7 +256,7 @@ describe("filesystem content services", () => {
 		expect(traversalEvents).toEqual([expect.objectContaining({ type: "error", error: expect.objectContaining({ code: "aborted" }) })]);
 		await expect(opened.services.content.readBytes(file, {}))
 			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
-		await expect(opened.namespace.paths.resolveTarget("fresh.txt", { followExistingSymlink: true }))
+		await expect(opened.namespace.paths.resolveTarget("fresh.txt"))
 			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 

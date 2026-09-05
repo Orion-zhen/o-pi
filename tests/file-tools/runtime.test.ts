@@ -143,7 +143,8 @@ describe("FileToolsHost runtime", () => {
 
 		expect(first.filesystem.identity).toBe(second.filesystem.identity);
 		expect(String(first.filesystem.identity)).not.toContain(workspace);
-		expect(firstRef.id).not.toBe(secondRef.id);
+		expect(firstRef).not.toBe(secondRef);
+		expect(second.nativeBridge.getNativeIdentity(firstRef)).toBeUndefined();
 	});
 
 	it("closes a workspace that finishes opening during host shutdown", async () => {
@@ -250,7 +251,6 @@ describe("FileToolsHost runtime", () => {
 		expect(opened.disposed).toBe(true);
 		await expect(opened.filesystem.paths.resolveTarget(
 			"after-dispose.txt",
-			{ followExistingSymlink: true },
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 		await expect(opened.filesystem.content.readBytes(file, {}))
 			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
@@ -285,7 +285,7 @@ async function resolveFile(opened: FileToolsInvocation, input: string): Promise<
 }
 
 async function resolveTarget(opened: FileToolsInvocation, input: string): Promise<TargetRef> {
-	return expectOk(await opened.filesystem.paths.resolveTarget(input, { followExistingSymlink: true }));
+	return expectOk(await opened.filesystem.paths.resolveTarget(input));
 }
 
 function expectOk<T>(result: FsResult<T>): T {

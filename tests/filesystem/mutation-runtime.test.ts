@@ -7,6 +7,7 @@ import { NativeFileSystemError, NodeNativeFileSystem } from "../../src/filesyste
 import { contentHash } from "../../src/filesystem/services/text.js";
 import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.js";
 import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
+import { wrapNative } from "./readonly-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-runtime-");
 const { openMutation, openRuntime, policy, resolveTarget, track } = test;
@@ -14,6 +15,26 @@ let workspace: string;
 beforeEach(() => { workspace = test.workspace; });
 
 describe("filesystem mutation runtime", () => {
+	it("修改快照读取抛出未知异常时关闭 handle，且不执行 transform", async () => {
+		const tracker = { opened: 0, closed: 0 };
+		const failure = new Error("unexpected snapshot failure");
+		const mutation = await openMutation("unexpected.txt", {
+			initial: "before",
+			native: wrapNative(new NodeNativeFileSystem(), {
+				tracker,
+				closeError: true,
+				beforeRead() { throw failure; },
+			}),
+		});
+		let transformed = false;
+		await expect(mutation.run({ createParents: false }, () => {
+			transformed = true;
+			return { type: "commit", bytes: bytes("unsafe") };
+		})).rejects.toBe(failure);
+		expect(transformed).toBe(false);
+		expect(tracker).toEqual({ opened: 1, closed: 1 });
+		expect(await readFile(path.join(workspace, "unexpected.txt"), "utf8")).toBe("before");
+	});
 	it("aborts a workspace while visibility is opening", async () => {
 		const controller = new AbortController();
 		const native = nativeOverride({

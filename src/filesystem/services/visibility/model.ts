@@ -2,10 +2,10 @@ import type ignoreFactory from "ignore";
 
 import type { ExistingPathKind } from "../../contracts/path.js";
 import type { VisibilityIntent } from "../../contracts/visibility.js";
+import type { PathIdentity } from "../../kernel/access-policy.js";
 import { NativeFileSystemError } from "../../platform/node/native-filesystem.js";
 
 export type VisibilitySourceType = "builtin" | "gitignore" | "piignore" | "config";
-export type VisibilityMatchState = "none" | "ignore" | "include";
 
 export const SOURCE_PRIORITY: Readonly<Record<VisibilitySourceType, number>> = {
 	builtin: 0,
@@ -17,11 +17,8 @@ export const SOURCE_PRIORITY: Readonly<Record<VisibilitySourceType, number>> = {
 export interface MatchedIgnoreRule {
 	readonly sourceType: VisibilitySourceType;
 	readonly sourcePath?: string | undefined;
-	readonly line?: number | undefined;
 	readonly pattern: string;
 	readonly negated: boolean;
-	readonly baseDirectory: string;
-	readonly priority: number;
 }
 
 export interface VisibilityRuleFile {
@@ -29,7 +26,6 @@ export interface VisibilityRuleFile {
 	readonly sourcePath: string;
 	readonly absolutePath: string;
 	readonly baseDirectory: string;
-	readonly stamp: string;
 }
 
 export interface CompiledVisibilityRuleSet {
@@ -49,17 +45,13 @@ export interface CompiledVisibilityRule {
 }
 
 export interface VisibilitySourceMatch {
-	readonly state: Exclude<VisibilityMatchState, "none">;
+	readonly state: "ignore" | "include";
 	readonly rule: MatchedIgnoreRule;
 }
 
-export interface VisibilityEvaluateInput {
-	readonly path: string;
-	readonly absolutePath?: string | undefined;
-	readonly workspacePath?: string | undefined;
+export interface VisibilityEvaluateInput extends PathIdentity {
 	readonly kind: ExistingPathKind;
 	readonly intent: VisibilityIntent;
-	readonly tracked?: boolean;
 }
 
 export interface VisibilityDecision {

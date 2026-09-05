@@ -9,6 +9,7 @@ export interface NativeOverrides {
 	readonly readdir?: (path: string) => void;
 	readonly closeError?: boolean;
 	readonly readError?: boolean;
+	readonly beforeRead?: () => void;
 }
 
 export function wrapNative(base: NativeFileSystem, overrides: NativeOverrides): NativeFileSystem {
@@ -34,6 +35,7 @@ function wrapHandle(handle: NativeOpenFile, overrides: NativeOverrides): NativeO
 	return {
 		metadata: overrides.stat?.(handle.metadata) ?? handle.metadata,
 		async read(buffer, offset, length, position, options) {
+			overrides.beforeRead?.();
 			if (overrides.readError === true) throw new NativeFileSystemError("io-error", "read", "test");
 			return await handle.read(buffer, offset, length, position, options);
 		},

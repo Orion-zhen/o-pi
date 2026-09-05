@@ -153,7 +153,6 @@ export class GrepContentCache {
 function cacheKey(file: ScopedFile, filesystem: WorkspaceFileSystem): string {
 	return [
 		filesystem.identity,
-		filesystem.visibility.fingerprint,
 		file.path,
 		file.snapshot.identity,
 		file.snapshot.version,

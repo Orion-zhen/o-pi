@@ -87,7 +87,6 @@ describe("workspace namespace", () => {
 		expect(namespace.paths.relative(namespace.root, mountedFile)).toBeUndefined();
 		expect(await namespace.paths.resolveTarget(
 			"skill://demo/references/new.md",
-			{ followExistingSymlink: true },
 		)).toMatchObject({ ok: true, value: { displayPath: "skill://demo/references/new.md" } });
 		expect(await namespace.paths.resolveExisting(
 			"skill://missing/SKILL.md",
@@ -99,7 +98,6 @@ describe("workspace namespace", () => {
 		}
 		expect(await namespace.paths.resolveTarget(
 			path.join(outsideAlias, "removed-skill", "new.md"),
-			{ followExistingSymlink: true },
 		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
 	});
 	it.skipIf(process.platform === "win32")("rejects mounted path traversal and symbolic-link escapes", async () => {
@@ -124,7 +122,6 @@ describe("workspace namespace", () => {
 		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
 		expect(await namespace.paths.resolveTarget(
 			"skill://demo/escape.txt",
-			{ followExistingSymlink: true },
 		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
 	});
 	it("enforces lexical blocked rules and preserves directory trailing-slash semantics", async () => {
@@ -187,7 +184,7 @@ describe("workspace namespace", () => {
 			"missing",
 			{ expected: "any", followFinalSymlink: true },
 		)).toMatchObject({ ok: false, error: { code: "not-found" } });
-		expect(await namespace.paths.resolveTarget("", { followExistingSymlink: true })).toMatchObject({
+		expect(await namespace.paths.resolveTarget("")).toMatchObject({
 			ok: false,
 			error: { code: "invalid-path" },
 		});
@@ -205,6 +202,16 @@ describe("workspace namespace", () => {
 		const otherExternal = await resolveFile(otherNamespace, path.join(outside, "external-dir", "outside.txt"));
 		expect(namespace.paths.relative(directory, otherExternal)).toBeUndefined();
 		expect(namespace.paths.isWithin(directory, otherExternal)).toBe(false);
+	});
+	it("拒绝复制或伪造的引用，但保留原始引用的归属", async () => {
+		await writeFile(path.join(workspace, "owned.txt"), "owned");
+		const namespace = await openNamespace();
+		const original = await resolveFile(namespace, "owned.txt");
+		const copied = { ...original };
+		expect(namespace.bridge.getNativeIdentity(original)?.canonicalPath).toBe(path.join(workspace, "owned.txt"));
+		expect(namespace.bridge.getNativeIdentity(copied)).toBeUndefined();
+		expect(namespace.paths.relative(namespace.root, copied)).toBeUndefined();
+		expect(await namespace.bridge.revalidateExisting(copied)).toMatchObject({ ok: false, error: { code: "invalid-path" } });
 	});
 	it("maps native errors, rethrows unknown failures, and honors cancellation", async () => {
 		await writeFile(path.join(workspace, "denied.txt"), "x");
@@ -243,7 +250,7 @@ describe("workspace namespace", () => {
 			{ expected: "file", followFinalSymlink: true },
 		)).rejects.toThrow("injected unknown error");
 		for (const [input, code] of [["stat-denied.txt", "access-denied"], ["invalid.txt", "invalid-path"]] as const) {
-			expect(await namespace.paths.resolveTarget(input, { followExistingSymlink: true }))
+			expect(await namespace.paths.resolveTarget(input))
 				.toMatchObject({ ok: false, error: { code, path: input } });
 		}
 

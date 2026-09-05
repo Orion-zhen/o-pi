@@ -27,7 +27,7 @@ export async function preflightWriteAccess(input: WriteAccessPreflightInput): Pr
 		context,
 	});
 	if (!namespace.ok) return namespace;
-	const target = await namespace.value.paths.resolveTarget(input.path, { followExistingSymlink: true });
+	const target = await namespace.value.paths.resolveTarget(input.path);
 	if (!target.ok) return target;
 	return {
 		ok: true,

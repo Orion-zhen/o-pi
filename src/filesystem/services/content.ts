@@ -33,48 +33,8 @@ export class WorkspaceContentService implements ContentOperations {
 	) {}
 
 	async readBytes(file: FileRef, options: ReadOptions): Promise<FsResult<ByteContent>> {
-		const context = this.context;
-		const identity = nativeIdentity(this.bridge, file);
-		if (!identity.ok) return identity;
-
-		const opened = await openValidatedFile(this.native, this.bridge, file, identity.value, context);
-		if (!opened.ok) return opened;
-		const { handle, metadata: before } = opened.value;
-		if (options.expectedSnapshot !== undefined && !sameSnapshot(before, options.expectedSnapshot)) {
-			await closeQuietly(handle);
-			return changedDuringRead(file.displayPath, "read");
-		}
-
-		let outcome: FsResult<ByteContent>;
-		try {
-			if (options.maxBytes !== undefined && before.sizeBytes > options.maxBytes) {
-				outcome = tooLarge(file.displayPath, options.maxBytes, before.sizeBytes);
-			} else {
-				const loaded = await readHandleBytes(handle, options.maxBytes, before.sizeBytes, context, file.displayPath);
-				if (!loaded.ok) outcome = loaded;
-				else {
-					const stable = await verifyStable(
-						this.bridge,
-						file,
-						handle.metadata,
-						identity.value,
-						before,
-					);
-					outcome = !stable.ok ? stable : stable.value
-						? fsSuccess(toByteContent(loaded.value))
-						: changedDuringRead(file.displayPath, "read");
-				}
-			}
-		} catch (error) {
-			outcome = fsFailure(mapNativeError(error, file.displayPath));
-		}
-
-		try {
-			await handle.close();
-		} catch (error) {
-			if (outcome.ok) return fsFailure(mapNativeError(error, file.displayPath));
-		}
-		return outcome;
+		const loaded = await readStableFile(this.native, this.bridge, file, this.context, options);
+		return loaded.ok ? fsSuccess(toByteContent(loaded.value.bytes)) : loaded;
 	}
 
 	async readText(file: FileRef, options: ReadOptions): Promise<FsResult<TextContent>> {
@@ -296,7 +256,54 @@ class NativeLineScan implements LineScan {
 	}
 }
 
-export async function readHandleBytes(
+interface StableFile {
+	readonly bytes: Uint8Array;
+	readonly metadata: NativeMetadata;
+}
+
+/** 普通读取与修改快照共用同一条稳定读取链，句柄在所有退出路径上关闭。 */
+export async function readStableFile(
+	native: NativeFileSystem,
+	bridge: WorkspaceNamespaceBridge,
+	file: FileRef,
+	context: FsOperationContext,
+	options: ReadOptions,
+): Promise<FsResult<StableFile>> {
+	const identity = nativeIdentity(bridge, file);
+	if (!identity.ok) return identity;
+	const opened = await openValidatedFile(native, bridge, file, identity.value, context);
+	if (!opened.ok) return opened;
+	const { handle, metadata } = opened.value;
+	let outcome: FsResult<StableFile> | undefined;
+	try {
+		if (options.expectedSnapshot !== undefined && !sameSnapshot(metadata, options.expectedSnapshot)) {
+			outcome = changedDuringRead(file.displayPath, "read");
+		} else if (options.maxBytes !== undefined && metadata.sizeBytes > options.maxBytes) {
+			outcome = tooLarge(file.displayPath, options.maxBytes, metadata.sizeBytes);
+		} else {
+			const loaded = await readHandleBytes(handle, options.maxBytes, metadata.sizeBytes, context, file.displayPath);
+			if (!loaded.ok) outcome = loaded;
+			else {
+				const stable = await verifyStable(bridge, file, handle.metadata, identity.value, metadata);
+				outcome = !stable.ok ? stable : stable.value
+					? fsSuccess({ bytes: loaded.value, metadata })
+					: changedDuringRead(file.displayPath, "read");
+			}
+		}
+	} catch (error) {
+		outcome = fsFailure(mapNativeError(error, file.displayPath));
+	} finally {
+		try {
+			await handle.close();
+		} catch (error) {
+			// 未知异常也必须先关闭句柄，且关闭失败不能覆盖原始失败。
+			if (outcome?.ok === true) outcome = fsFailure(mapNativeError(error, file.displayPath));
+		}
+	}
+	return outcome;
+}
+
+async function readHandleBytes(
 	handle: NativeOpenFile,
 	maxBytes: number | undefined,
 	sizeHint: number,
@@ -338,7 +345,7 @@ function toByteContent(bytes: Uint8Array): ByteContent {
 	return { bytes, hash: contentHash(bytes), sizeBytes: bytes.byteLength };
 }
 
-export async function openValidatedFile(
+async function openValidatedFile(
 	native: NativeFileSystem,
 	bridge: WorkspaceNamespaceBridge,
 	file: FileRef,
@@ -394,7 +401,7 @@ async function revalidateOpenedFile(
 	return fsSuccess(fresh.value.metadata);
 }
 
-export async function verifyStable(
+async function verifyStable(
 	bridge: WorkspaceNamespaceBridge,
 	file: FileRef,
 	openedMetadata: NativeMetadata,

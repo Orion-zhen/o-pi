@@ -4,12 +4,13 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import { detectFileType } from "./media.js";
+import { suggestPaths } from "./path-suggestions.js";
 import type { InlineImageProcessor, PdfDocumentHandle, PdfDocumentSource, ReadStructureSource } from "./ports.js";
 import { formatReadStructureContext } from "./presenter.js";
 import { parseReadRange, type ReadRange } from "./range.js";
 import type { ReadFileSuccess, ReadOutputFormat, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess, ReadStructureContext } from "./types.js";
 
-const PATH_CATALOG_ENTRY_LIMIT = 10_000;
+const PATH_SUGGESTION_ENTRY_LIMIT = 10_000;
 
 export interface ReadObservationStore {
 	remember(file: FileRef, version: ContentVersion): boolean;
@@ -319,15 +320,16 @@ async function safeDisposePdf(document: PdfDocumentHandle): Promise<void> {
 }
 
 async function missingPathSuggestions(input: string, context: ReadCommandContext): Promise<string[]> {
-	const target = await context.filesystem.paths.resolveTarget(input, { followExistingSymlink: true });
+	const target = await context.filesystem.paths.resolveTarget(input);
 	if (!target.ok || target.value.workspacePath === undefined || isAborted(context.operation)) return [];
-	const catalog = await context.filesystem.catalog.suggest(
+	const suggestions = await suggestPaths(
+		context.filesystem.discovery,
 		context.filesystem.root,
 		target.value.workspacePath,
-		{ limit: context.limits.suggestions, maxEntries: PATH_CATALOG_ENTRY_LIMIT },
+		{ limit: context.limits.suggestions, maxEntries: PATH_SUGGESTION_ENTRY_LIMIT },
 	);
-	if (!catalog.ok) return [];
-	return uniquePaths(catalog.value.map((candidate) => candidate.ref.workspacePath ?? candidate.ref.displayPath), context.limits.suggestions);
+	if (!suggestions.ok) return [];
+	return uniquePaths(suggestions.value.map((candidate) => candidate.ref.workspacePath ?? candidate.ref.displayPath), context.limits.suggestions);
 }
 
 function reserveContextBudget(

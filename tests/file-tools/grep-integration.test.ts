@@ -14,12 +14,66 @@ import {
 	firstRegion,
 	overrideContent,
 	withGrepRuntime,
+	withFileToolsInvocation,
 	writeConfig,
 } from "./grep-fixtures.js";
 
 const testContext = createGrepTestContext();
 
 describe("grep integration", () => {
+	it("跨调用缓存复用不受无关 ignore 变化影响，但当前策略仍决定准入", async () => {
+		await writeFile(path.join(testContext.workspace, "cached.ts"), "export function cachedNeedle() { return 42; }\n");
+		await withGrepRuntime(testContext.workspace, "policy-cache", async ({ execute }) => {
+			const fresh = (explicit = true) => withFileToolsInvocation(testContext.workspace, "policy-cache", async (opened) => {
+				const counted = countContentReads(opened.filesystem);
+				const result = await execute({ query: "cachedNeedle", ...(explicit ? { path: ["cached.ts"] } : { glob: "*.ts" }) }, {
+					filesystem: counted.filesystem, operation: opened.context, limits: opened.limits,
+				});
+				return { result, counts: counted.counts };
+			});
+			const cold = await fresh();
+			expect(firstRegion(expectGrepSuccess(cold.result))).toMatchObject({ path: "cached.ts", symbol: "cachedNeedle" });
+			expect(cold.counts.fullReads).toBe(1);
+			await writeFile(path.join(testContext.workspace, ".piignore"), "unrelated.txt\n");
+			const warm = await fresh();
+			expect(firstRegion(expectGrepSuccess(warm.result))).toMatchObject({ path: "cached.ts", symbol: "cachedNeedle" });
+			expect(warm.counts).toEqual({ fullReads: 0, lineScans: 0 });
+
+			await writeFile(path.join(testContext.workspace, ".piignore"), "cached.ts\n");
+			expect(expectGrepSuccess((await fresh(false)).result).regions).toEqual([]);
+			const explicit = await fresh();
+			expect(firstRegion(expectGrepSuccess(explicit.result))).toMatchObject({ path: "cached.ts" });
+			expect(explicit.counts.fullReads).toBe(0);
+
+			const blockedConfig = path.join(testContext.outside, "blocked-cache.jsonc");
+			await writeFile(blockedConfig, JSON.stringify({ blocked_path: ["cached.ts"] }));
+			process.env.PI_FILE_TOOLS_CONFIG = blockedConfig;
+			expect(expectGrepSuccess((await fresh(false)).result).regions).toEqual([]);
+			expect((await fresh()).result).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
+		});
+	});
+
+	it.skipIf(process.platform === "win32")("缓存过的普通文件变为受阻符号链接后，不返回旧正文或目标正文", async () => {
+		const cached = path.join(testContext.workspace, "cached.ts");
+		await writeFile(cached, "export const cachedNeedle = 1;\n");
+		const secret = path.join(testContext.workspace, "secret.ts");
+		await writeFile(secret, "export const secretNeedle = 2;\n");
+		const config = path.join(testContext.outside, "symlink-cache.jsonc");
+		await writeFile(config, JSON.stringify({ blocked_path: ["secret.ts"] }));
+		process.env.PI_FILE_TOOLS_CONFIG = config;
+		await withGrepRuntime(testContext.workspace, "symlink-cache", async ({ execute }) => {
+			const fresh = (query: string) => withFileToolsInvocation(testContext.workspace, "symlink-cache", (opened) => execute({ query, path: ["cached.ts"] }, {
+				filesystem: opened.filesystem, operation: opened.context, limits: opened.limits,
+			}));
+			expect(firstRegion(expectGrepSuccess(await fresh("cachedNeedle")))).toMatchObject({ path: "cached.ts" });
+			await rm(cached);
+			await symlink(secret, cached);
+			for (const query of ["cachedNeedle", "secretNeedle"]) {
+				expect(await fresh(query)).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
+			}
+		});
+	});
+
 	it("文件修改、删除、重命名和 ignore 变化会更新索引", async () => {
 		await writeFile(path.join(testContext.workspace, "a.ts"), "export function oldName() {}\n");
 		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "oldName" }))).symbol).toBe("oldName");

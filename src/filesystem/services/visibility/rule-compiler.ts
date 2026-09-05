@@ -1,12 +1,10 @@
-import { createHash } from "node:crypto";
 import ignoreFactory from "ignore";
 
 import type { FsOperationContext } from "../../contracts/result.js";
-import type { IgnoreConfig, VisibilityPolicy } from "../../contracts/visibility.js";
+import type { IgnoreConfig } from "../../contracts/visibility.js";
 import type { NativeFileSystem } from "../../platform/node/native-filesystem.js";
 import {
 	SOURCE_PRIORITY,
-	pathDepth,
 	rethrowVisibilityAbort,
 	type CompiledVisibilityRule,
 	type CompiledVisibilityRuleSet,
@@ -60,28 +58,12 @@ export async function compileVisibilityRuleFiles(
 		});
 		if (ruleSet !== undefined) ruleSets.push(ruleSet);
 	}
-	return { ruleSets: ruleSets.sort(compareRuleSets) };
+	return { ruleSets };
 }
 
 export function resolveCaseInsensitive(gitIgnoreCase: boolean | undefined): boolean {
 	if (gitIgnoreCase !== undefined) return gitIgnoreCase;
 	return process.platform === "win32" || process.platform === "darwin";
-}
-
-export function buildVisibilityFingerprint(
-	policy: VisibilityPolicy,
-	caseInsensitive: boolean,
-	ruleFiles: readonly VisibilityRuleFile[],
-	trackedPaths: ReadonlySet<string>,
-): string {
-	const filePart = ruleFiles
-		.map((file) => `${file.sourceType}:${file.sourcePath}:${file.stamp}`)
-		.sort()
-		.join("|");
-	const trackedPart = Array.from(trackedPaths).sort().join("\0");
-	return createHash("sha256")
-		.update(JSON.stringify({ policyFingerprint: policy.fingerprint, caseInsensitive, filePart, trackedPart }))
-		.digest("hex");
 }
 
 function compileRuleLines(input: {
@@ -113,11 +95,8 @@ function compileRuleLines(input: {
 		const rule: MatchedIgnoreRule = {
 			sourceType: input.sourceType,
 			sourcePath: input.sourcePath,
-			line: input.sourcePath === undefined ? undefined : index + 1,
 			pattern: rawPattern,
 			negated: parsed.negated,
-			baseDirectory: input.baseDirectory,
-			priority: SOURCE_PRIORITY[input.sourceType],
 		};
 		rules.push({ rule, matcher: ruleMatcher, directoryOnly: parsed.directoryOnly });
 	}
@@ -166,10 +145,4 @@ function stripBom(text: string): string {
 
 function stripCarriageReturn(text: string): string {
 	return text.endsWith("\r") ? text.slice(0, -1) : text;
-}
-
-function compareRuleSets(left: CompiledVisibilityRuleSet, right: CompiledVisibilityRuleSet): number {
-	return left.priority - right.priority
-		|| pathDepth(left.baseDirectory) - pathDepth(right.baseDirectory)
-		|| (left.sourcePath ?? "").localeCompare(right.sourcePath ?? "");
 }
