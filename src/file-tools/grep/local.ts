@@ -1,4 +1,7 @@
-import { compareCodeUnitNesting, createTextTokenMatcher, languageFromPath, tokenizeText, type IndexedCodeUnit } from "../../code-index/parser.js";
+import { compareCodeUnitNesting } from "../../code-index/units.js";
+import { createTextTokenMatcher, tokenizeText } from "../../code-index/text.js";
+import { languageFromPath } from "../../syntax-tree/grammars.js";
+import type { IndexedCodeUnit } from "../../code-index/types.js";
 import { compactDisplayLine, firstTermFocus } from "./display.js";
 import {
 	createSemanticCodeRegion,
@@ -63,7 +66,7 @@ export function buildRankedRegions(
 	}
 	if (scan.totalHits > 0) return rankCodeRegions(plan, [...byId.values()]);
 
-	const units = regionized.files.flatMap((file) => file.analysis.index.units);
+	const units = regionized.files.flatMap((file) => file.analysis.units);
 	const queryTerms = uniqueTerms(plan.targetTerms.length > 0 ? plan.targetTerms : [plan.query]);
 	const groupedAnchors = groupLexicalAnchors(scan.fileEvidence, units);
 	const entries = [
@@ -200,7 +203,7 @@ function localEntry(
 			startByte: item.startByte,
 			endByte: item.endByte,
 			kind: item.kind,
-			...(item.name === undefined ? {} : { symbol: item.qualifiedName ?? item.name }),
+			symbol: item.qualifiedName ?? item.name,
 			...(item.qualifiedName === undefined ? {} : { qualifiedSymbol: item.qualifiedName }),
 			...(item.signature === undefined ? {} : { declaration: item.signature }),
 			...(item.declarationEndByte === undefined ? {} : { declarationEndByte: item.declarationEndByte }),

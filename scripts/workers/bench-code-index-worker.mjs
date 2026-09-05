@@ -10,7 +10,7 @@ const started = performance.now();
 const parser = await loadTypeScript("src/code-index/parser.ts");
 const loaded = performance.now();
 const source = fixture(size, scenario);
-const files = ["fixture.ts", "fixture.tsx", "fixture.mts", "fixture.cts"];
+const files = ["fixture.ts", "fixture.tsx", "second.ts", "second.tsx"];
 
 const coldStarted = performance.now();
 const cold = await parser.analyzeCodeFile(files[0], source);
@@ -26,9 +26,9 @@ const workerBatch = await runWorker(files, source);
 const workerBatchMs = performance.now() - workerStarted;
 
 const oracle = {
-	units: cold.index.units.map((unit) => [unit.kind, unit.name, unit.startByte, unit.endByte]),
-	imports: cold.imports.map((item) => [item.specifier, item.startByte, item.endByte]),
-	warmUnits: warm.index.units.length,
+	units: cold.units,
+	imports: cold.imports.map((item) => [item.specifier, item.importKind]),
+	warmUnits: warm.units.length,
 	workerUnits: workerBatch.reduce((total, result) => total + result.units, 0),
 };
 console.log(JSON.stringify({
@@ -41,7 +41,15 @@ console.log(JSON.stringify({
 	workerBatchMs,
 	rssMb: process.memoryUsage().rss / 1024 / 1024,
 	oracleDigest: createHash("sha256").update(JSON.stringify(oracle)).digest("hex"),
-	counts: { units: local.reduce((total, result) => total + result.index.units.length, 0), imports: cold.imports.length },
+	complete: [cold, warm, ...local, ...workerBatch].every((result) => result.status === "parsed"),
+	counts: {
+		units: local.reduce((total, result) => total + result.units.length, 0),
+		imports: cold.imports.length,
+		coldStatus: cold.status,
+		warmStatus: warm.status,
+		localParsed: local.filter((result) => result.status === "parsed").length,
+		workerParsed: workerBatch.filter((result) => result.status === "parsed").length,
+	},
 }));
 
 function runWorker(paths, text) {

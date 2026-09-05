@@ -1,7 +1,7 @@
-import { collectUnits, firstNamedChildText, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
-import type { AnalysisControl } from "../types.js";
-import { getTreeSitterLanguage } from "../../syntax-tree/grammars.js";
-import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
+import { collectUnits, firstNamedChildText, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.js";
+import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.js";
+import type { ModuleImport } from "../types.js";
+import type { LanguageExtractor } from "./types.js";
 
 const TS_UNIT_KINDS = new Set([
 	"function_declaration",
@@ -47,7 +47,6 @@ function normalizeTsKind(kind: string): string {
 	if (kind === "interface_declaration") return "interface";
 	if (kind === "type_alias_declaration") return "type";
 	if (kind === "enum_declaration") return "enum";
-	if (kind === "variable_declarator") return "declaration";
 	return "declaration";
 }
 
@@ -67,8 +66,8 @@ function localExportNames(root: SyntaxNode): Set<string> {
 	return names;
 }
 
-function extractJavaScriptImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
-	const imports: RawImport[] = [];
+function extractJavaScriptImports(root: SyntaxNode, control: AnalysisControl): ModuleImport[] {
+	const imports: ModuleImport[] = [];
 	walkNamed(root, (node) => {
 		if (node.type === "import_statement" || node.type === "export_statement") {
 			const source = node.childForFieldName("source");
@@ -89,20 +88,13 @@ function extractJavaScriptImports(root: SyntaxNode, control: AnalysisControl): R
 	return imports;
 }
 
-function stringImport(node: SyntaxNode): RawImport | undefined {
+function stringImport(node: SyntaxNode): ModuleImport | undefined {
 	if (node.type !== "string") return undefined;
 	const fragment = node.namedChildren.find((child) => child.type === "string_fragment");
-	return fragment === undefined ? undefined : rawImport(node, fragment);
+	return fragment === undefined ? undefined : { specifier: fragment.text };
 }
 
-export const javascriptAdapter: LanguageAdapter = {
-	...getTreeSitterLanguage("javascript"),
-	extractUnits: extractJavaScriptUnits,
-	extractImports: extractJavaScriptImports,
-};
-
-export const jsxAdapter: LanguageAdapter = {
-	...getTreeSitterLanguage("jsx"),
+export const javascriptExtractor: LanguageExtractor = {
 	extractUnits: extractJavaScriptUnits,
 	extractImports: extractJavaScriptImports,
 };

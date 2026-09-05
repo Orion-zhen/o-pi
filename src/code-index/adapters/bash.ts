@@ -1,7 +1,7 @@
-import { collectUnits, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
-import type { AnalysisControl } from "../types.js";
-import { getTreeSitterLanguage } from "../../syntax-tree/grammars.js";
-import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
+import { collectUnits, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.js";
+import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.js";
+import type { ModuleImport } from "../types.js";
+import type { LanguageExtractor } from "./types.js";
 
 const bashRules: UnitRules = {
 	extract(node) {
@@ -17,8 +17,8 @@ const bashRules: UnitRules = {
 	},
 };
 
-function extractBashImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
-	const imports: RawImport[] = [];
+function extractBashImports(root: SyntaxNode, control: AnalysisControl): ModuleImport[] {
+	const imports: ModuleImport[] = [];
 	walkNamed(root, (node) => {
 		if (node.type !== "command") return;
 		const commandName = node.childForFieldName("name");
@@ -34,23 +34,20 @@ function extractBashImports(root: SyntaxNode, control: AnalysisControl): RawImpo
 	return imports;
 }
 
-function staticShellImport(node: SyntaxNode): RawImport | undefined {
-	if (node.type === "word" && node.namedChildren.length === 0) return rawImport(node, node, "relative");
+function staticShellImport(node: SyntaxNode): ModuleImport | undefined {
+	if (node.type === "word" && node.namedChildren.length === 0) return { specifier: node.text, importKind: "relative" };
 	if (node.type === "raw_string" && node.text.length >= 2) {
 		return {
 			specifier: node.text.slice(1, -1),
-			startChar: node.startIndex + 1,
-			endChar: node.endIndex - 1,
 			importKind: "relative",
 		};
 	}
 	if (node.type !== "string" || node.namedChildren.length !== 1) return undefined;
 	const content = node.namedChildren[0];
-	return content?.type === "string_content" ? rawImport(node, content, "relative") : undefined;
+	return content?.type === "string_content" ? { specifier: content.text, importKind: "relative" } : undefined;
 }
 
-export const bashAdapter: LanguageAdapter = {
-	...getTreeSitterLanguage("bash"),
+export const bashExtractor: LanguageExtractor = {
 	extractUnits: (root, control) => collectUnits(root, bashRules, control),
 	extractImports: extractBashImports,
 };

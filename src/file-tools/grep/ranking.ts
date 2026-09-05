@@ -1,4 +1,4 @@
-import { tokenizeText } from "../../code-index/parser.js";
+import { tokenizeText } from "../../code-index/text.js";
 import {
 	type CandidateSignal,
 	type CodeRegion,

@@ -5,7 +5,9 @@ import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-age
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
-import { analyzeCodeFile, createTextTokenMatcher, SourceIndex, tokenizeText } from "../../src/code-index/parser.js";
+import { analyzeCodeFile } from "../../src/code-index/parser.js";
+import { createTextTokenMatcher, tokenizeText } from "../../src/code-index/text.js";
+import { SourceIndex } from "../../src/code-index/source-index.js";
 import { dependencyPath } from "../helpers/tree-sitter-dependencies.js";
 
 const require = createRequire(import.meta.url);
@@ -27,7 +29,7 @@ afterEach(() => {
 });
 
 async function symbols(filePath: string, text: string): Promise<Array<[string, string | undefined, string | undefined]>> {
-	return (await analyzeCodeFile(filePath, text)).index.units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
+	return (await analyzeCodeFile(filePath, text)).units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
 }
 
 describe("shared code parser", () => {
@@ -36,20 +38,20 @@ describe("shared code parser", () => {
 		{ text: "abc", offsets: [0, 1, 3], bytes: [0, 1, 3] },
 		{ text: "é", offsets: [0, 1], bytes: [0, 2] },
 		{ text: "你😀", offsets: [0, 1, 2, 3], bytes: [0, 3, 7, 7] },
+		{ text: "\ud800x\udc00", offsets: [0, 1, 2, 3], bytes: [0, 3, 4, 7] },
 		{ text: "a\n你😀\nb", offsets: [0, 1, 2, 3, 4, 5, 6, 7], bytes: [0, 1, 2, 5, 9, 9, 10, 11] },
 	])("SourceIndex 将 UTF-16 边界转换为 UTF-8 byte: $text", ({ text, offsets, bytes }) => {
 		const index = new SourceIndex(text);
-		expect(index.byteLength).toBe(Buffer.byteLength(text, "utf8"));
 		for (const [position, expected] of offsets.map((offset, index) => [offset, bytes[index]] as const)) {
 			expect(index.byteForChar(position)).toBe(expected);
 		}
-		expect(index.byteForChar(text.length)).toBe(index.byteLength);
+		expect(index.byteForChar(text.length)).toBe(Buffer.byteLength(text, "utf8"));
 	});
 
 	it("SourceIndex 保留多行、EOF 和半开范围边界", () => {
 		const text = "first\n你😀\n";
 		const index = new SourceIndex(text);
-		expect(index.lineStarts).toEqual([0, 6, 14]);
+		expect(index.range(0, 6)).toEqual({ startLine: 1, endLine: 1, startByte: 0, endByte: 6 });
 		expect(index.lineStartChars).toEqual([0, 6, 10]);
 		expect(index.range(6, 10)).toEqual({ startLine: 2, endLine: 2, startByte: 6, endByte: 14 });
 		expect(index.range(text.length, text.length)).toEqual({ startLine: 3, endLine: 3, startByte: 14, endByte: 14 });
@@ -111,7 +113,7 @@ describe("shared code parser", () => {
 
 	it("dense ASCII units use exact source slices", async () => {
 		const text = Array.from({ length: 64 }, (_, index) => `function item${index}() { return ${index}; }`).join("\n");
-		const units = (await analyzeCodeFile("dense.ts", text)).index.units;
+		const units = (await analyzeCodeFile("dense.ts", text)).units;
 		expect(units).toHaveLength(64);
 		for (const [index, unit] of units.entries()) {
 			expect(unit.name).toBe(`item${index}`);
@@ -121,14 +123,13 @@ describe("shared code parser", () => {
 
 	it("提取 C/C++ symbol、文件级 include 和 UTF-8 byte range", async () => {
 		const c = await analyzeCodeFile("src/point.c", "// 你😀\n#include <stdio.h>\nint add(int value) { return value; }\n");
-		expect(c).toMatchObject({ status: "parsed", index: { language: "c" } });
-		expect(c.index.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([["function", "add"]]);
-		expect(c.imports).toEqual([expect.objectContaining({ specifier: "stdio.h", startLine: 2, endLine: 2 })]);
-		expect(c.imports[0]?.startByte).toBe(Buffer.byteLength("// 你😀\n#include <", "utf8"));
+		expect(c).toMatchObject({ status: "parsed", language: "c" });
+		expect(c.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([["function", "add"]]);
+		expect(c.imports).toEqual([{ specifier: "stdio.h", importKind: "external" }]);
 
 		const cpp = await analyzeCodeFile("include/api.H", "namespace api { class Client { public: void run() {} }; }\n");
-		expect(cpp).toMatchObject({ status: "parsed", index: { language: "cpp" } });
-		expect(cpp.index.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([
+		expect(cpp).toMatchObject({ status: "parsed", language: "cpp" });
+		expect(cpp.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([
 			["namespace", "api"],
 			["class", "api.Client"],
 			["method", "api.Client.run"],
@@ -171,12 +172,12 @@ describe("shared code parser", () => {
 		);
 		expect(analyzed).toMatchObject({
 			status: "parsed",
-			index: { language: "bash" },
+			language: "bash",
 		});
-		expect(analyzed.index.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([
+		expect(analyzed.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([
 			["function", "release"],
 		]);
-		expect(analyzed.index.units[0]?.calls).toEqual(["build_artifact"]);
+		expect(analyzed.units[0]?.calls).toEqual(["build_artifact"]);
 		expect(analyzed.imports.map((item) => item.specifier)).toEqual(["./common.sh"]);
 	});
 
@@ -217,16 +218,23 @@ describe("shared code parser", () => {
 			expected: ["class Service", "int run( int value )", "int oneLine()"],
 		},
 	])("为 $filePath 生成紧凑且不含 body 的 declaration", async ({ filePath, text, expected }) => {
-		const declarations = (await analyzeCodeFile(filePath, text)).index.units.map((unit) => unit.signature);
+		const declarations = (await analyzeCodeFile(filePath, text)).units.map((unit) => unit.signature);
 		expect(declarations).toEqual(expected);
 		expect(declarations.every((value) => value !== undefined && !value.includes("BODY_SENTINEL") && [...value].length <= 240)).toBe(true);
+	});
+
+	it("长 Unicode 声明按码点截断，不拆开代理对", async () => {
+		const declaration = `function run(label = "${"😀".repeat(260)}")`;
+		const unit = (await analyzeCodeFile("long.ts", `${declaration} { return label; }`)).units[0];
+		expect(unit?.signature).toBe(`${[...declaration].slice(0, 237).join("")}...`);
+		expect(unit?.declarationEndByte).toBe(Buffer.byteLength(`${declaration} `));
 	});
 
 	it("声明保留默认 lambda 的签名并省略外层 body", async () => {
 		const unit = (await analyzeCodeFile(
 			"nested-default.ts",
 			"export function run(callback = () => BODY_SENTINEL) { return callback(); }\n",
-		)).index.units[0];
+		)).units[0];
 		expect(unit?.signature).toBe("export function run(callback = () => BODY_SENTINEL)");
 	});
 
@@ -241,7 +249,7 @@ describe("shared code parser", () => {
 		["caller.c", "int caller(void) { target(); obj.run(); const char *text = \"fake()\"; return Value; /* ignored() */ }\n", "obj.run"],
 		["caller.cpp", "int caller() { target(); obj.run(); const char *text = \"fake()\"; return Value; /* ignored() */ }\n", "obj.run"],
 	])("从 %s AST 提取调用和引用，忽略字符串与注释", async (filePath, text, memberCall) => {
-		const unit = (await analyzeCodeFile(filePath, text)).index.units.find((candidate) => candidate.name === "caller");
+		const unit = (await analyzeCodeFile(filePath, text)).units.find((candidate) => candidate.name === "caller");
 		if (unit === undefined) throw new Error(`missing caller unit for ${filePath}`);
 		expect(unit.calls).toEqual(["target", memberCall]);
 		expect(unit.references).toContain("Value");
@@ -249,7 +257,7 @@ describe("shared code parser", () => {
 	});
 
 	it("动态外层调用仍保留可静态识别的内层调用", async () => {
-		const unit = (await analyzeCodeFile("nested-call.ts", "function caller() { return factory()(); }\n")).index.units[0];
+		const unit = (await analyzeCodeFile("nested-call.ts", "function caller() { return factory()(); }\n")).units[0];
 		expect(unit?.calls).toEqual(["factory"]);
 	});
 
@@ -258,8 +266,8 @@ describe("shared code parser", () => {
 		const text = `function caller() { return ${"target(".repeat(depth)}value${")".repeat(depth)}; }\n`;
 		const analyzed = await analyzeCodeFile("deep.ts", text);
 		expect(analyzed.status).toBe("parsed");
-		expect(analyzed.index.units).toHaveLength(1);
-		expect(analyzed.index.units[0]?.calls).toEqual(["target"]);
+		expect(analyzed.units).toHaveLength(1);
+		expect(analyzed.units[0]?.calls).toEqual(["target"]);
 	});
 
 	it("在进入本地 Tree-sitter 分析前响应已取消的 signal", async () => {
@@ -271,7 +279,7 @@ describe("shared code parser", () => {
 
 	it("函数内部局部声明不拆分为独立 region", async () => {
 		const parsed = await analyzeCodeFile("a.ts", "export function demo() {\n  const Token = 'Token';\n  return Token;\n}\n");
-		expect(parsed.index.units.map((unit) => unit.qualifiedName)).toEqual(["demo"]);
+		expect(parsed.units.map((unit) => unit.qualifiedName)).toEqual(["demo"]);
 	});
 
 	it.each([
@@ -302,7 +310,7 @@ describe("shared code parser", () => {
 			expected: ["type:Server", "method:Server.Stop"],
 		},
 	])("preserves complete declaration scope in $filePath", async ({ filePath, text, expected, functionsOnly }) => {
-		const units = (await analyzeCodeFile(filePath, text)).index.units;
+		const units = (await analyzeCodeFile(filePath, text)).units;
 		const actual = functionsOnly === true
 			? units.filter((unit) => unit.kind === "function").map((unit) => unit.qualifiedName)
 			: units.map((unit) => `${unit.kind}:${unit.qualifiedName}`);
@@ -311,12 +319,9 @@ describe("shared code parser", () => {
 
 	it("unsupported language 返回 text 空索引，且 file identity 使用规范化内部路径", async () => {
 		expect(await analyzeCodeFile("./docs\\notes.conf", "section=true\n")).toEqual({
-			index: {
-				id: "file:docs/notes.conf",
-				path: "docs/notes.conf",
-				language: "text",
-				units: [],
-			},
+			path: "docs/notes.conf",
+			language: "text",
+			units: [],
 			status: "unsupported",
 			imports: [],
 		});
@@ -346,7 +351,7 @@ describe("shared code parser", () => {
 			"relations.ts",
 			"export function caller() { const Local = () => true; return Local(); }\n",
 		);
-		const caller = analyzed.index.units.find((unit) => unit.name === "caller");
+		const caller = analyzed.units.find((unit) => unit.name === "caller");
 		expect(caller?.definitions).toEqual(expect.arrayContaining(["caller", "Local"]));
 	});
 
@@ -362,7 +367,7 @@ describe("shared code parser", () => {
 
 	it("SourceRange 使用 UTF-8 byte offset、1-based inclusive line 和半开字节区间", async () => {
 		const text = "// 你😀\nexport function demo() {\n  return '好';\n}\n";
-		const unit = (await analyzeCodeFile("utf8.ts", text)).index.units[0];
+		const unit = (await analyzeCodeFile("utf8.ts", text)).units[0];
 		if (unit === undefined) throw new Error("missing parsed unit");
 		expect(unit).toMatchObject({ startLine: 2, endLine: 4, startByte: Buffer.byteLength("// 你😀\n", "utf8") });
 		expect(Buffer.from(text, "utf8").subarray(unit.startByte, unit.endByte).toString("utf8")).toBe("export function demo() {\n  return '好';\n}");
@@ -395,29 +400,29 @@ describe("shared code parser", () => {
 	});
 
 	it("symbol ID 由 file、kind、qualified name 和 start byte 决定，同名位置可区分且不依赖 end byte", async () => {
-		const input = { fileId: "file:src/a.ts", kind: "function", qualifiedName: "demo", startByte: 12 };
+		const input = { fileId: "file:src/a.ts", kind: "function", symbolName: "demo", startByte: 12 };
 		expect(createSymbolId(input)).toBe("symbol:file%3Asrc%2Fa.ts:function:demo:12");
 		expect(createSymbolId(input)).toBe(createSymbolId({ ...input }));
 		expect(createSymbolId({ ...input, startByte: 48 })).not.toBe(createSymbolId(input));
 
-		const short = (await analyzeCodeFile("a.ts", "export function demo() {}\n")).index.units[0];
-		const long = (await analyzeCodeFile("a.ts", "export function demo() { return 1; }\n")).index.units[0];
+		const short = (await analyzeCodeFile("a.ts", "export function demo() {}\n")).units[0];
+		const long = (await analyzeCodeFile("a.ts", "export function demo() { return 1; }\n")).units[0];
 		expect(short?.id).toBe(long?.id);
 	});
 
 	it("runtime 或 grammar 失败时安全降级为空代码单元", async () => {
 		vi.resetModules();
 		vi.doMock("../../src/syntax-tree/loader.js", () => ({
-			loadTreeSitterParser: async () => undefined,
+			loadGrammar: async () => { throw new Error("runtime unavailable"); },
 		}));
 		const { analyzeCodeFile: analyzeWithFailure } = await import("../../src/code-index/parser.js");
 		expect(await analyzeWithFailure("broken.ts", "export function demo() {}\n")).toMatchObject({
 			status: "error",
-			index: { language: "typescript", units: [] },
+			language: "typescript", units: [],
 		});
 		expect(await analyzeWithFailure("broken.c", "int demo(void) {}\n")).toMatchObject({
 			status: "error",
-			index: { language: "c", units: [] },
+			language: "c", units: [],
 		});
 	});
 });

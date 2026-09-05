@@ -70,7 +70,7 @@ describe("lsp code analysis", () => {
 		}));
 		expect(analysis?.files.map(({ document: value, analysis: file }) => ({
 			path: value.path,
-			authority: file.index.units[0]?.authority,
+			authority: file.units[0]?.authority,
 		}))).toEqual([
 			{ path: "src.ts", authority: "called" },
 			{ path: "tests.ts", authority: "referenced" },
@@ -119,7 +119,7 @@ describe("lsp code analysis", () => {
 				};
 			},
 		}));
-		expect(analysis?.files[0]?.analysis.index.units[0]?.authority).toBe("called");
+		expect(analysis?.files[0]?.analysis.units[0]?.authority).toBe("called");
 	});
 
 	it("缺少完整 symbol analysis capability 时保持 unavailable", async () => {
@@ -193,7 +193,7 @@ describe("lsp code analysis", () => {
 		expect(analysis?.coveredPaths).toEqual(["src.ts", "tests.py"]);
 		expect(analysis?.files.map(({ document: value, analysis: file }) => ({
 			path: value.path,
-			units: file.index.units.map((unit) => ({ name: unit.name, startLine: unit.startLine, endLine: unit.endLine })),
+			units: file.units.map((unit) => ({ name: unit.name, startLine: unit.startLine, endLine: unit.endLine })),
 		}))).toEqual([
 			{ path: "src.ts", units: [{ name: "Source", startLine: 3, endLine: 3 }] },
 			{ path: "tests.py", units: [{ name: "Tests", startLine: 3, endLine: 3 }] },

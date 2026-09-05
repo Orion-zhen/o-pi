@@ -1,6 +1,7 @@
 import { availableParallelism } from "node:os";
 
-import { createTextTokenMatcher, languageFromPath, splitTokens } from "../../code-index/parser.js";
+import { createTextTokenMatcher, splitTokens } from "../../code-index/text.js";
+import { languageFromPath } from "../../syntax-tree/grammars.js";
 import type { ScannedLine, TextContent } from "../../filesystem/contracts/content.js";
 import { scannedTextLines, utf8ByteOffset } from "../../filesystem/services/text.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";

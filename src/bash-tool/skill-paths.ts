@@ -2,11 +2,11 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { resolveSkillResourceLocator, type SkillResourceError } from "../skill-context/resources.js";
 import { containsDynamicShellNode, decodeShellWord } from "../syntax-tree/bash.js";
-import { getTreeSitterLanguage } from "../syntax-tree/grammars.js";
+import { TREE_SITTER_LANGUAGES } from "../syntax-tree/grammars.js";
 import { parseSyntaxTree } from "../syntax-tree/parser.js";
 import type { SyntaxNode } from "../syntax-tree/types.js";
 
-const BASH_GRAMMAR = getTreeSitterLanguage("bash").grammar;
+const BASH_GRAMMAR = TREE_SITTER_LANGUAGES.bash.grammar;
 const SHELL_WORD_TYPES = new Set(["raw_string", "string", "word"]);
 
 interface ResolvedBashSkillPaths {
@@ -27,7 +27,7 @@ export async function resolveBashSkillPaths(
 	signal?: AbortSignal,
 ): Promise<ResolvedBashSkillPaths | SkillResourceError> {
 	if (!command.includes("skill://")) return { kind: "resolved", command };
-	const document = await parseSyntaxTree(BASH_GRAMMAR, command, signal === undefined ? {} : { signal });
+	const document = await parseSyntaxTree(BASH_GRAMMAR, command, signal);
 	if (document === undefined) {
 		return invalid(command, "Bash command containing a skill resource must have valid shell syntax.");
 	}

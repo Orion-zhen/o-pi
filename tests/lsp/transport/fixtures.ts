@@ -183,12 +183,12 @@ export async function queryManagerSymbols(manager: LspManager, root: string, que
 			};
 		},
 	});
-	return analysis?.files.flatMap(({ document, analysis: file }) => file.index.units.map((unit) => ({
+	return analysis?.files.flatMap(({ document, analysis: file }) => file.units.map((unit) => ({
 		path: document.path,
 		start_line: unit.startLine,
 		end_line: unit.endLine,
 		kind: unit.kind,
-		symbol: unit.name ?? "",
+		symbol: unit.name,
 		origin: "workspace-symbol" as const,
 	}))) ?? [];
 }

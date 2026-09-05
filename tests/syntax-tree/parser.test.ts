@@ -1,14 +1,15 @@
 import { createRequire } from "node:module";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Language, Parser, Tree } from "web-tree-sitter";
 
-import { getTreeSitterLanguage } from "../../src/syntax-tree/grammars.js";
+import { TREE_SITTER_LANGUAGES } from "../../src/syntax-tree/grammars.js";
 import { decodeShellWord } from "../../src/syntax-tree/bash.js";
-import { loadTreeSitterParser } from "../../src/syntax-tree/loader.js";
-import { parseSyntaxTree, SyntaxAnalysisAbortedError } from "../../src/syntax-tree/parser.js";
+import { parseSyntaxTree, SyntaxAnalysisAbortedError, SyntaxAnalysisTimeoutError } from "../../src/syntax-tree/parser.js";
 
 const require = createRequire(import.meta.url);
-const bashGrammar = getTreeSitterLanguage("bash").grammar;
-const javascriptGrammar = getTreeSitterLanguage("javascript").grammar;
+const bashGrammar = TREE_SITTER_LANGUAGES.bash.grammar;
+const javascriptGrammar = TREE_SITTER_LANGUAGES.javascript.grammar;
+afterEach(() => vi.restoreAllMocks());
 
 describe("shared syntax tree parser", () => {
 	it.each([
@@ -38,128 +39,108 @@ describe("shared syntax tree parser", () => {
 		expect(decodeShellWord("$x/*.ts", { resolveExpansion, allowUnquotedExpansion: true, allowGlob: true })).toBe("目录/*.ts");
 	});
 
-	it("通过统一 grammar catalog 加载 Bash WASM，不加载 native module", async () => {
-		const document = await parseSyntaxTree(
-			bashGrammar,
-			"echo ready && git push origin main > result.log",
-		);
+	it("加载 Bash WASM 而非 native 模块，文档只释放一次语法树", async () => {
+		const deleted = vi.spyOn(Tree.prototype, "delete");
+		const document = await parseSyntaxTree(bashGrammar, "echo ready && git push origin main > result.log");
 		expect(document?.root.type).toBe("program");
-		expect(document?.root.descendantsOfType("command").map((node) => node.text)).toEqual([
-			"echo ready",
-			"git push origin main",
-		]);
+		expect(document?.root.descendantsOfType("command").map((node) => node.text)).toEqual(["echo ready", "git push origin main"]);
 		document?.dispose();
 		document?.dispose();
+		expect(deleted).toHaveBeenCalledOnce();
 		expect(require.cache[require.resolve("tree-sitter-bash")]).toBeUndefined();
 	});
 
-	it("不同 grammar 共用 loader，并分别缓存 parser", async () => {
-		const bashFirst = await loadTreeSitterParser(bashGrammar);
-		const bashSecond = await loadTreeSitterParser(bashGrammar);
-		const javascript = await loadTreeSitterParser(javascriptGrammar);
-		if (bashFirst === undefined || bashSecond === undefined || javascript === undefined) {
-			throw new Error("Tree-sitter parser unavailable");
+	it("并发解析和后续解析不会改变仍存活的文档", async () => {
+		const documents = await Promise.all([
+			parseSyntaxTree(javascriptGrammar, "const first = 1;"),
+			parseSyntaxTree(javascriptGrammar, "const second = 2;"),
+			parseSyntaxTree(bashGrammar, "echo third"),
+		]);
+		try {
+			expect(documents.map((document) => document?.root.text)).toEqual(["const first = 1;", "const second = 2;", "echo third"]);
+			documents[1]?.dispose();
+			expect(documents[0]?.root.text).toBe("const first = 1;");
+		} finally {
+			for (const document of documents) document?.dispose();
 		}
-		expect(bashSecond).toBe(bashFirst);
-		expect(javascript).not.toBe(bashFirst);
 	});
 
-	it("grammar 加载失败后永久复用 undefined 结果", async () => {
-		const missingGrammar = { packageName: "tree-sitter-typescript", wasmFile: "missing.wasm" };
-		const first = loadTreeSitterParser(missingGrammar);
-		expect(loadTreeSitterParser(missingGrammar)).toBe(first);
-		expect(await first).toBeUndefined();
-
-		const second = loadTreeSitterParser(missingGrammar);
-		expect(second).toBe(first);
-		expect(await second).toBeUndefined();
+	it("确定的语法加载失败不重复加载", async () => {
+		const load = vi.spyOn(Language, "load").mockRejectedValueOnce(new Error("invalid WASM"));
+		const grammar = TREE_SITTER_LANGUAGES.tsx.grammar;
+		expect(await parseSyntaxTree(grammar, "const value = 1;")).toBeUndefined();
+		expect(await parseSyntaxTree(grammar, "const value = 2;")).toBeUndefined();
+		expect(load).toHaveBeenCalledOnce();
 	});
 
-	it("固定 250ms deadline 超时后 reset parser", async () => {
-		const parser = await loadTreeSitterParser(javascriptGrammar);
-		if (parser === undefined) throw new Error("javascript parser unavailable");
-		let now = 100;
-		const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
-		const parseSpy = vi.spyOn(parser, "parse").mockImplementation((_input, _oldTree, options) => {
-			now = 351;
+	it("固定 250ms 解析截止时间，超时后仍能解析其他文档", async () => {
+		const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+		vi.spyOn(Parser.prototype, "parse").mockImplementationOnce((_input, _oldTree, options) => {
+			clock.mockReturnValue(351);
 			expect(options?.progressCallback?.({ currentOffset: 0, hasError: false })).toBe(true);
 			return null;
 		});
-		try {
-			expect(await parseSyntaxTree(javascriptGrammar, "const value = 1;\n")).toBeUndefined();
-		} finally {
-			parseSpy.mockRestore();
-			clock.mockRestore();
-		}
+		expect(await parseSyntaxTree(javascriptGrammar, "const value = 1;")).toBeUndefined();
+		const document = await parseSyntaxTree(javascriptGrammar, "const next = 2;");
+		expect(document?.root.text).toBe("const next = 2;");
+		document?.dispose();
 	});
 
-	it("取消会向上抛出，并且 progress callback 取消后 parser 仍可复用", async () => {
-		const parser = await loadTreeSitterParser(javascriptGrammar);
-		if (parser === undefined) throw new Error("javascript parser unavailable");
+	it("同一截止时间和取消信号继续约束 AST 分析", async () => {
 		const controller = new AbortController();
-		const originalParse = parser.parse.bind(parser);
-		const parseSpy = vi.spyOn(parser, "parse")
-			.mockImplementationOnce((_input, _oldTree, options) => {
-				controller.abort();
-				expect(options?.progressCallback?.({ currentOffset: 0, hasError: false })).toBe(true);
-				return null;
-			})
-			.mockImplementation(originalParse);
+		const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+		const document = await parseSyntaxTree(javascriptGrammar, "const value = 1;", controller.signal);
+		expect(document).toBeDefined();
 		try {
-			await expect(parseSyntaxTree(javascriptGrammar, "const value = 1;\n", { signal: controller.signal }))
-				.rejects.toBeInstanceOf(SyntaxAnalysisAbortedError);
-			const document = await parseSyntaxTree(javascriptGrammar, "const value = 1;\n");
-			expect(document).toBeDefined();
-			document?.dispose();
+			clock.mockReturnValue(351);
+			expect(() => document?.control.check()).toThrow(SyntaxAnalysisTimeoutError);
+			controller.abort();
+			expect(() => document?.control.check()).toThrow(SyntaxAnalysisAbortedError);
 		} finally {
-			parseSpy.mockRestore();
+			document?.dispose();
 		}
 	});
 
-	it("parser 异常后替换失效 parser 并恢复解析", async () => {
-		const parser = await loadTreeSitterParser(javascriptGrammar);
-		if (parser === undefined) throw new Error("javascript parser unavailable");
-		const originalParse = parser.parse.bind(parser);
-		const parseSpy = vi.spyOn(parser, "parse")
-			.mockImplementationOnce(() => { throw new Error("simulated parser exception"); })
-			.mockImplementation(originalParse);
-		try {
-			expect(await parseSyntaxTree(javascriptGrammar, "function value() { return 1; }\n")).toBeUndefined();
-			const replacement = await loadTreeSitterParser(javascriptGrammar);
-			expect(replacement).toBeDefined();
-			expect(replacement).not.toBe(parser);
-			const document = await parseSyntaxTree(javascriptGrammar, "function value() { return 1; }\n");
-			expect(document).toBeDefined();
-			document?.dispose();
-		} finally {
-			parseSpy.mockRestore();
-		}
-	});
-
-	it("创建文档失败时释放 syntax tree，并替换 parser", async () => {
-		const parser = await loadTreeSitterParser(javascriptGrammar);
-		if (parser === undefined) throw new Error("javascript parser unavailable");
-		const originalParse = parser.parse.bind(parser);
-		let deleted = false;
-		const parseSpy = vi.spyOn(parser, "parse").mockImplementation((...args) => {
-			const tree = originalParse(...args);
-			if (tree === null) throw new Error("tree unavailable");
-			const originalDelete = tree.delete.bind(tree);
-			vi.spyOn(tree, "delete").mockImplementation(() => {
-				deleted = true;
-				originalDelete();
-			});
-			vi.spyOn(tree, "rootNode", "get").mockImplementation(() => { throw new Error("simulated root failure"); });
-			return tree;
+	it("语法加载期间的取消向上传播，不影响后续调用", async () => {
+		const controller = new AbortController();
+		const originalLoad = Language.load.bind(Language);
+		vi.spyOn(Language, "load").mockImplementationOnce(async (...args) => {
+			controller.abort();
+			return originalLoad(...args);
 		});
+		const grammar = TREE_SITTER_LANGUAGES.c.grammar;
+		await expect(parseSyntaxTree(grammar, "int first;", controller.signal)).rejects.toBeInstanceOf(SyntaxAnalysisAbortedError);
+		const document = await parseSyntaxTree(grammar, "int second;");
+		expect(document?.root.text).toBe("int second;");
+		document?.dispose();
+	});
+
+	it("progress callback 取消后继续解析其他文档", async () => {
+		const controller = new AbortController();
+		vi.spyOn(Parser.prototype, "parse").mockImplementationOnce((_input, _oldTree, options) => {
+			controller.abort();
+			expect(options?.progressCallback?.({ currentOffset: 0, hasError: false })).toBe(true);
+			return null;
+		});
+		await expect(parseSyntaxTree(javascriptGrammar, "const value = 1;", controller.signal)).rejects.toBeInstanceOf(SyntaxAnalysisAbortedError);
+		const document = await parseSyntaxTree(javascriptGrammar, "const next = 2;");
+		expect(document?.root.text).toBe("const next = 2;");
+		document?.dispose();
+	});
+
+	it("解析器异常后，并发等待者和后续调用不会取得已释放句柄", async () => {
+		vi.spyOn(Parser.prototype, "parse").mockImplementationOnce(() => { throw new Error("parser exception"); });
+		const deleted = vi.spyOn(Parser.prototype, "delete");
+		const documents = await Promise.all([
+			parseSyntaxTree(javascriptGrammar, "const first = 1;"),
+			parseSyntaxTree(javascriptGrammar, "const second = 2;"),
+			parseSyntaxTree(javascriptGrammar, "const third = 3;"),
+		]);
 		try {
-			expect(await parseSyntaxTree(javascriptGrammar, "const value = 1;\n")).toBeUndefined();
-			expect(deleted).toBe(true);
-			const replacement = await loadTreeSitterParser(javascriptGrammar);
-			expect(replacement).toBeDefined();
-			expect(replacement).not.toBe(parser);
+			expect(documents.map((document) => document?.root.text)).toEqual([undefined, "const second = 2;", "const third = 3;"]);
+			expect(deleted).toHaveBeenCalledTimes(3);
 		} finally {
-			parseSpy.mockRestore();
+			for (const document of documents) document?.dispose();
 		}
 	});
 });

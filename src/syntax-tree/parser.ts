@@ -1,13 +1,8 @@
 import type { Tree } from "web-tree-sitter";
-
-import { invalidateTreeSitterParser, loadTreeSitterParser } from "./loader.js";
-import type { AnalysisControl, GrammarSpec, SyntaxTreeDocument } from "./types.js";
+import { loadGrammar } from "./loader.js";
+import type { GrammarSpec, SyntaxTreeDocument } from "./types.js";
 
 const PARSE_DEADLINE_MS = 250;
-
-export interface ParseSyntaxTreeOptions {
-	signal?: AbortSignal;
-}
 
 export class SyntaxAnalysisAbortedError extends Error {
 	constructor() {
@@ -23,80 +18,41 @@ export class SyntaxAnalysisTimeoutError extends Error {
 	}
 }
 
-/** 使用共享 runtime、language 和 parser cache 解析任意已注册语法。 */
-export async function parseSyntaxTree(
-	grammar: GrammarSpec,
-	text: string,
-	options: ParseSyntaxTreeOptions = {},
-): Promise<SyntaxTreeDocument | undefined> {
-	if (isAborted(options.signal)) throw new SyntaxAnalysisAbortedError();
-	const parser = await loadTreeSitterParser(grammar);
-	if (isAborted(options.signal)) throw new SyntaxAnalysisAbortedError();
-	if (parser === undefined) return undefined;
-
+/** 加载和解析失败返回 undefined，取消向上传播。文档拥有独立于解析器的语法树。 */
+export async function parseSyntaxTree(grammar: GrammarSpec, text: string, signal?: AbortSignal): Promise<SyntaxTreeDocument | undefined> {
+	if (signal?.aborted === true) throw new SyntaxAnalysisAbortedError();
 	let tree: Tree | null = null;
 	try {
-		parser.reset();
+		const parse = await loadGrammar(grammar);
+		if (isAborted()) throw new SyntaxAnalysisAbortedError();
 		const deadline = performance.now() + PARSE_DEADLINE_MS;
-		const control = createAnalysisControl(deadline, options.signal);
-		tree = parser.parse(text, null, {
-			progressCallback: () => isAborted(options.signal) || performance.now() >= deadline,
-		});
-		if (tree === null) {
-			safeReset(parser);
-			if (isAborted(options.signal)) throw new SyntaxAnalysisAbortedError();
-			return undefined;
-		}
-		const root = tree.rootNode;
-		let disposed = false;
+		tree = parse(text, { progressCallback: () => isAborted() || performance.now() >= deadline });
+		if (isAborted()) throw new SyntaxAnalysisAbortedError();
+		if (tree === null) return undefined;
 		return {
-			text,
-			root,
-			control,
-			dispose() {
-				if (disposed) return;
-				disposed = true;
-				safeDeleteTree(tree);
-				tree = null;
+			root: tree.rootNode,
+			control: {
+				check() {
+					if (isAborted()) throw new SyntaxAnalysisAbortedError();
+					if (performance.now() >= deadline) throw new SyntaxAnalysisTimeoutError();
+				},
 			},
+			dispose,
 		};
 	} catch (error) {
-		safeDeleteTree(tree);
-		tree = null;
-		if (error instanceof SyntaxAnalysisAbortedError) {
-			safeReset(parser);
-			throw error;
-		}
-		invalidateTreeSitterParser(grammar, parser);
+		dispose();
+		if (error instanceof SyntaxAnalysisAbortedError) throw error;
+		if (isAborted()) throw new SyntaxAnalysisAbortedError();
 		return undefined;
 	}
-}
 
-function createAnalysisControl(deadline: number, signal: AbortSignal | undefined): AnalysisControl {
-	return {
-		check() {
-			if (isAborted(signal)) throw new SyntaxAnalysisAbortedError();
-			if (performance.now() >= deadline) throw new SyntaxAnalysisTimeoutError();
-		},
-	};
-}
-
-function isAborted(signal: AbortSignal | undefined): boolean {
-	return signal?.aborted === true;
-}
-
-function safeDeleteTree(tree: Tree | null): void {
-	try {
-		tree?.delete();
-	} catch {
-		// Tree 已离开文档所有权边界。
+	function isAborted(): boolean {
+		return signal?.aborted === true;
 	}
-}
 
-function safeReset(parser: { reset(): void }): void {
-	try {
-		parser.reset();
-	} catch {
-		// 无法确认 parser 可复用时，交由后续解析处理。
+	function dispose(): void {
+		const owned = tree;
+		tree = null;
+		owned?.delete();
 	}
 }

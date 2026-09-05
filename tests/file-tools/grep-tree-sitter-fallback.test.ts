@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 vi.mock("../../src/syntax-tree/loader.js", () => ({
-	loadTreeSitterParser: async () => undefined,
+	loadGrammar: async () => { throw new Error("runtime unavailable"); },
 }));
 
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";

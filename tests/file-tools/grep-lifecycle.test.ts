@@ -2,8 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
-import { loadTreeSitterParser } from "../../src/syntax-tree/loader.js";
+import { TREE_SITTER_LANGUAGES } from "../../src/syntax-tree/grammars.js";
 import { parseSyntaxTree } from "../../src/syntax-tree/parser.js";
 import type { AnalyzeCode } from "../../src/code-index/types.js";
 import { AbortGrepParse, GrepParser } from "../../src/file-tools/grep/parser-pool.js";
@@ -22,14 +21,9 @@ describe("grep lifecycle", () => {
 			undefined,
 		);
 		expect(worker).toHaveLength(33);
-		const shared = await loadTreeSitterParser(javascriptAdapter.grammar);
-		if (shared === undefined) throw new Error("javascript parser unavailable");
 		parser.dispose();
 		parser.dispose();
-		const retained = await loadTreeSitterParser(javascriptAdapter.grammar);
-		if (retained === undefined) throw new Error("javascript parser unavailable after grep disposal");
-		expect(retained).toBe(shared);
-		const document = await parseSyntaxTree(javascriptAdapter.grammar, "export const retained = true;\n");
+		const document = await parseSyntaxTree(TREE_SITTER_LANGUAGES.javascript.grammar, "export const retained = true;\n");
 		expect(document).toBeDefined();
 		document?.dispose();
 		await expect(parser.analyzeFiles([], undefined)).rejects.toBeInstanceOf(AbortGrepParse);

@@ -1,19 +1,7 @@
-import {
-	collectUnits,
-	declaratorName,
-	firstNamedChildText,
-	functionDeclaratorName,
-	hasAncestorType,
-	hasSimpleFunctionDeclarator,
-	hasStorageClass,
-	rawImport,
-	rawUnit,
-	walkNamed,
-	type UnitRules,
-} from "./shared.js";
-import type { AnalysisControl } from "../types.js";
-import { getTreeSitterLanguage } from "../../syntax-tree/grammars.js";
-import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
+import { collectUnits, firstNamedChildText, rawUnit, type UnitRules } from "./shared.js";
+import { declaratorName, functionDeclaratorName, hasAncestorType, hasSimpleFunctionDeclarator, hasStorageClass, extractIncludes } from "./c-family.js";
+import type { SyntaxNode } from "../../syntax-tree/types.js";
+import type { LanguageExtractor } from "./types.js";
 
 const cppRules: UnitRules = {
 	extract(node, scope) {
@@ -82,26 +70,7 @@ function hasExternalLinkage(node: SyntaxNode): boolean {
 	return true;
 }
 
-function extractCppImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
-	const imports: RawImport[] = [];
-	walkNamed(root, (node) => {
-		if (node.type !== "preproc_include") return;
-		const path = node.childForFieldName("path");
-		if (path === null) return;
-		if (path.type === "system_lib_string") {
-			imports.push({ specifier: path.text.slice(1, -1), startChar: path.startIndex + 1, endChar: path.endIndex - 1, importKind: "external" });
-			return;
-		}
-		if (path.type === "string_literal") {
-			const content = path.namedChildren[0];
-			if (content !== undefined) imports.push(rawImport(path, content, "relative"));
-		}
-	}, control);
-	return imports;
-}
-
-export const cppAdapter: LanguageAdapter = {
-	...getTreeSitterLanguage("cpp"),
+export const cppExtractor: LanguageExtractor = {
 	extractUnits: (root, control) => collectUnits(root, cppRules, control),
-	extractImports: extractCppImports,
+	extractImports: extractIncludes,
 };

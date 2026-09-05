@@ -1,22 +1,17 @@
 import path from "node:path";
 
-import type { FileIdentity, SymbolIdentityInput } from "./types.js";
-
 /** 生成不依赖 cwd 或文件系统状态的索引内部路径。 */
 export function normalizeIndexPath(filePath: string): string {
-	const slashPath = filePath.replace(/\\/gu, "/");
-	const normalized = path.posix.normalize(slashPath);
-	return normalized.startsWith("./") ? normalized.slice(2) : normalized;
+	return path.posix.normalize(filePath.replaceAll("\\", "/"));
 }
 
-export function createFileIdentity(filePath: string): FileIdentity {
+export function createFileIdentity(filePath: string): { id: string; path: string } {
 	const normalizedPath = normalizeIndexPath(filePath);
 	return { id: `file:${normalizedPath}`, path: normalizedPath };
 }
 
-export function createSymbolId(input: SymbolIdentityInput): string {
-	const symbolName = input.qualifiedName !== undefined ? input.qualifiedName : input.name;
-	return ["symbol", input.fileId, input.kind, symbolName, String(input.startByte)]
+export function createSymbolId(input: { fileId: string; kind: string; symbolName: string; startByte: number }): string {
+	return ["symbol", input.fileId, input.kind, input.symbolName, String(input.startByte)]
 		.map((part) => encodeURIComponent(part))
 		.join(":");
 }

@@ -1,7 +1,7 @@
-import { collectUnits, firstNamedChildText, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
-import type { AnalysisControl } from "../types.js";
-import { getTreeSitterLanguage } from "../../syntax-tree/grammars.js";
-import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
+import { collectUnits, firstNamedChildText, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.js";
+import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.js";
+import type { ModuleImport } from "../types.js";
+import type { LanguageExtractor } from "./types.js";
 
 const GO_UNIT_KINDS = new Set(["function_declaration", "method_declaration", "type_spec", "var_spec", "const_spec"]);
 
@@ -55,8 +55,8 @@ function findTypeIdentifier(root: SyntaxNode): SyntaxNode | undefined {
 	return undefined;
 }
 
-function extractGoImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
-	const imports: RawImport[] = [];
+function extractGoImports(root: SyntaxNode, control: AnalysisControl): ModuleImport[] {
+	const imports: ModuleImport[] = [];
 	walkNamed(root, (node) => {
 		if (node.type !== "import_declaration") return;
 		for (const child of node.namedChildren) {
@@ -74,15 +74,14 @@ function extractGoImports(root: SyntaxNode, control: AnalysisControl): RawImport
 	return imports;
 }
 
-function importSpec(node: SyntaxNode): RawImport | undefined {
+function importSpec(node: SyntaxNode): ModuleImport | undefined {
 	const path = node.childForFieldName("path");
 	if (path === null) return undefined;
 	const content = path.namedChildren[0];
-	return content === undefined ? undefined : rawImport(path, content);
+	return content === undefined ? undefined : { specifier: content.text };
 }
 
-export const goAdapter: LanguageAdapter = {
-	...getTreeSitterLanguage("go"),
+export const goExtractor: LanguageExtractor = {
 	extractUnits: (root, control) => collectUnits(root, goRules, control),
 	extractImports: extractGoImports,
 };

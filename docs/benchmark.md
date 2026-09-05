@@ -36,6 +36,8 @@ npm run bench -- --quick
 npm run bench -- --suites=startup,agent-loop,lazy
 ```
 
+`code-index` 的批处理使用两个 `.ts` 文件和两个 `.tsx` 文件，四项都进入真实解析，不混入未注册的扩展名。输出摘要覆盖代码单元内容与范围、导入模块名及路径语义，不包含已删除的导入坐标。`counts` 报告首次、后续及两种批处理的解析状态，`completeRuns` 表示所有文件都完成解析的正式采样数。大样本可能触发固定解析截止时间，不完整采样的耗时不能作为完整解析的性能结论。
+
 `scripts/benchmark/registry.mjs` 负责注册统一入口中的套件。运行逻辑和统计逻辑分别位于 `scripts/benchmark/runtime.mjs` 和 `scripts/benchmark/stats.mjs`。专项脚本只编排场景，独立进程使用的工作脚本集中在 `scripts/workers/`。
 
 可以通过 `--plugin` 加载外部套件。模块应通过 `default`、`suite` 或 `suites` 导出 `{ id, execute }` 对象或对象数组：

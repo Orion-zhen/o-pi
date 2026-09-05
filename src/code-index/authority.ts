@@ -1,6 +1,7 @@
 import path from "node:path";
 
-import type { AnalyzedFileIndex, CodeAuthority, CodeLanguage, IndexedCodeUnit, IndexedImport } from "./types.js";
+import { normalizeIndexPath } from "./identity.js";
+import type { AnalyzedFileIndex, CodeAuthority, CodeLanguage, IndexedCodeUnit, ModuleImport } from "./types.js";
 
 interface Definition {
 	readonly path: string;
@@ -15,7 +16,7 @@ interface DefinitionGroup {
 interface Origin {
 	readonly path: string;
 	readonly definitions: readonly string[];
-	readonly unitId?: string;
+	readonly unitId: string;
 }
 
 const AUTHORITY_PRIORITY = { called: 0, referenced: 1, defined: 2 } as const;
@@ -27,9 +28,8 @@ export function inferCodeAuthorities(files: readonly AnalyzedFileIndex[]): Analy
 	const simple = new Map<string, DefinitionGroup>();
 	const qualified = new Map<string, DefinitionGroup>();
 	for (const file of parsed) {
-		for (const unit of file.index.units) {
-			if (unit.name === undefined) continue;
-			const definition = { path: file.index.path, unit };
+		for (const unit of file.units) {
+			const definition = { path: file.path, unit };
 			addDefinition(simple, symbolLeaf(unit.name), definition);
 			addDefinition(qualified, normalizeSymbol(unit.qualifiedName ?? unit.name), definition);
 		}
@@ -37,16 +37,16 @@ export function inferCodeAuthorities(files: readonly AnalyzedFileIndex[]): Analy
 
 	const modulePaths = modulePathIndex(parsed);
 	const importsByPath = new Map(parsed.map((file) => [
-		file.index.path,
-		resolveImportedPaths(file.index.path, file.index.language, file.imports, modulePaths),
+		file.path,
+		resolveImportedPaths(file.path, file.language, file.imports, modulePaths),
 	]));
 	const resolved = new Map<string, Definition | undefined>();
 	const authorities = new Map<string, CodeAuthority>();
 
 	for (const file of parsed) {
-		for (const unit of file.index.units) {
+		for (const unit of file.units) {
 			const origin: Origin = {
-				path: file.index.path,
+				path: file.path,
 				unitId: unit.id,
 				definitions: normalizedDefinitions(unit.definitions),
 			};
@@ -58,13 +58,13 @@ export function inferCodeAuthorities(files: readonly AnalyzedFileIndex[]): Analy
 	if (authorities.size === 0) return [...files];
 	return files.map((file) => {
 		let changed = false;
-		const units = file.index.units.map((unit) => {
+		const units = file.units.map((unit) => {
 			const authority = authorities.get(unit.id);
 			if (authority === undefined || authority === unit.authority) return unit;
 			changed = true;
 			return { ...unit, authority };
 		});
-		return changed ? { ...file, index: { ...file.index, units } } : file;
+		return changed ? { ...file, units } : file;
 	});
 
 	function promoteRelations(origin: Origin, relations: readonly string[], authority: CodeAuthority): void {
@@ -134,12 +134,12 @@ function addDefinition(groups: Map<string, DefinitionGroup>, name: string, defin
 function modulePathIndex(files: readonly AnalyzedFileIndex[]): Map<string, Set<string>> {
 	const result = new Map<string, Set<string>>();
 	for (const file of files) {
-		const normalized = normalizePath(file.index.path);
-		addModulePath(result, normalized, file.index.path);
+		const normalized = normalizeIndexPath(file.path);
+		addModulePath(result, normalized, file.path);
 		const extension = path.posix.extname(normalized);
 		const stem = extension.length === 0 ? normalized : normalized.slice(0, -extension.length);
-		addModuleAliases(result, stem, file.index.path);
-		if (path.posix.basename(stem) === "index") addModuleAliases(result, path.posix.dirname(stem), file.index.path);
+		addModuleAliases(result, stem, file.path);
+		if (path.posix.basename(stem) === "index") addModuleAliases(result, path.posix.dirname(stem), file.path);
 	}
 	return result;
 }
@@ -161,7 +161,7 @@ function addModulePath(index: Map<string, Set<string>>, key: string, filePath: s
 function resolveImportedPaths(
 	sourcePath: string,
 	language: CodeLanguage,
-	imports: readonly IndexedImport[],
+	imports: readonly ModuleImport[],
 	modulePaths: ReadonlyMap<string, ReadonlySet<string>>,
 ): Set<string> {
 	const result = new Set<string>();
@@ -176,10 +176,10 @@ function resolveImportedPaths(
 	return result;
 }
 
-function importKeys(sourcePath: string, language: CodeLanguage, imported: IndexedImport): string[] {
+function importKeys(sourcePath: string, language: CodeLanguage, imported: ModuleImport): string[] {
 	const specifier = imported.specifier.trim().replaceAll("\\", "/").replace(/::\*$/u, "");
 	if (specifier.length === 0) return [];
-	const directory = path.posix.dirname(normalizePath(sourcePath));
+	const directory = path.posix.dirname(normalizeIndexPath(sourcePath));
 	if (language === "python" && specifier.startsWith(".")) {
 		let dots = 0;
 		while (specifier[dots] === ".") dots += 1;
@@ -211,7 +211,7 @@ function importKeys(sourcePath: string, language: CodeLanguage, imported: Indexe
 }
 
 function lookupKeys(value: string): string[] {
-	const normalized = normalizePath(value);
+	const normalized = normalizeIndexPath(value);
 	const extension = path.posix.extname(normalized);
 	return unique([
 		normalized,
@@ -230,11 +230,6 @@ function normalizeSymbol(value: string): string {
 function symbolLeaf(value: string): string {
 	const normalized = normalizeSymbol(value);
 	return normalized.slice(normalized.lastIndexOf(".") + 1);
-}
-
-function normalizePath(value: string): string {
-	const normalized = path.posix.normalize(value.replaceAll("\\", "/"));
-	return normalized.startsWith("./") ? normalized.slice(2) : normalized;
 }
 
 function only(values: readonly Definition[]): Definition | undefined {

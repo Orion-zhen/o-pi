@@ -1,4 +1,5 @@
-import { analyzeCodeFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
+import { analyzeCodeFile } from "../../code-index/parser.js";
+import type { AnalyzedFileIndex } from "../../code-index/types.js";
 import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
 import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
 import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";

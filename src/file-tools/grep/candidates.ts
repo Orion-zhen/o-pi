@@ -1,5 +1,5 @@
 import { compactDisplayLine } from "./display.js";
-import type { CodeAuthority } from "../../code-index/parser.js";
+import type { CodeAuthority } from "../../code-index/types.js";
 import type { GrepDisplayLine, GrepMatchedBy } from "./types.js";
 
 export type SymbolRole = "definition" | "enclosing";

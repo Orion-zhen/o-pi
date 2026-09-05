@@ -1,5 +1,5 @@
 import { createSemanticCodeRegion, createVerifiedCodeRegion, type CandidateSignal, type CodeRegion, type RankedRegion, type RegionEvidence, type TextHit } from "../../src/file-tools/grep/candidates.js";
-import type { CodeAuthority } from "../../src/code-index/parser.js";
+import type { CodeAuthority } from "../../src/code-index/types.js";
 import { packGrepResults, type GrepPackInput } from "../../src/file-tools/grep/packer.js";
 import { createQueryPlan, type QueryPlan } from "../../src/file-tools/grep/query-plan.js";
 import { rankCodeRegions } from "../../src/file-tools/grep/ranking.js";

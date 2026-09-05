@@ -1,4 +1,6 @@
-import { compareCodeUnitNesting, languageFromPath, type AnalyzedFileIndex, type IndexedCodeUnit } from "../../code-index/parser.js";
+import { compareCodeUnitNesting } from "../../code-index/units.js";
+import { languageFromPath } from "../../syntax-tree/grammars.js";
+import type { AnalyzedFileIndex, IndexedCodeUnit } from "../../code-index/types.js";
 import { inferCodeAuthorities } from "../../code-index/authority.js";
 import type { TextContent } from "../../filesystem/contracts/content.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
@@ -179,7 +181,9 @@ export class GrepRegionizer {
 			}
 			if (analysis === undefined) {
 				analysis = {
-					index: { id: file.file.snapshot.identity, path: file.file.path, language: languageFromPath(file.file.path), units: [] },
+					path: file.file.path,
+					language: languageFromPath(file.file.path),
+					units: [],
 					status: "error",
 					imports: [],
 				};
@@ -221,7 +225,7 @@ export function regionizeAnalyzedFiles(
 		const fileHits = fallback.get(file.file.path) ?? [];
 		const parsed = fileHits.length === 0
 			? []
-			: parsedRegions(file.file, asNonEmpty(fileHits), file.analysis.index.units);
+			: parsedRegions(file.file, asNonEmpty(fileHits), file.analysis.units);
 		regions.push(...parsed);
 		const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
 		const outside = fileHits.filter((hit) => !mappedHits.has(hit));
@@ -229,7 +233,7 @@ export function regionizeAnalyzedFiles(
 		else fallback.set(file.file.path, asNonEmpty(outside));
 		if (!includeUnmatchedUnits) continue;
 		const mappedUnits = new Set(parsed.map((region) => region.id));
-		for (const unit of file.analysis.index.units) {
+		for (const unit of file.analysis.units) {
 			if (mappedUnits.has(unit.id)) continue;
 			regions.push(createSemanticCodeRegion({
 				id: unit.id,
@@ -239,7 +243,7 @@ export function regionizeAnalyzedFiles(
 				startByte: unit.startByte,
 				endByte: unit.endByte,
 				kind: unit.kind,
-				...(unit.name === undefined ? {} : { symbol: unit.qualifiedName ?? unit.name }),
+				symbol: unit.qualifiedName ?? unit.name,
 				...(unit.qualifiedName === undefined ? {} : { qualifiedSymbol: unit.qualifiedName }),
 				...(unit.signature === undefined ? {} : { declaration: unit.signature }),
 				...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
@@ -289,7 +293,7 @@ function parsedRegions(
 			startByte: unit.startByte,
 			endByte: unit.endByte,
 			kind: unit.kind,
-			...(unit.name === undefined ? {} : { symbol: unit.qualifiedName ?? unit.name }),
+			symbol: unit.qualifiedName ?? unit.name,
 			...(unit.qualifiedName === undefined ? {} : { qualifiedSymbol: unit.qualifiedName }),
 			...(unit.signature === undefined ? {} : { declaration: unit.signature }),
 			...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),

@@ -267,7 +267,7 @@ describe("lsp transport manager and protocol", () => {
 			},
 		});
 		expect(fake.messages.filter((message) => message.method === "workspaceSymbol/resolve").map((message) => message.params)).toEqual(symbols);
-		expect(analysis?.files[0]?.analysis.index.units.map((unit) => unit.startLine)).toEqual([1, 2]);
+		expect(analysis?.files[0]?.analysis.units.map((unit) => unit.startLine)).toEqual([1, 2]);
 	});
 
 	it.each([

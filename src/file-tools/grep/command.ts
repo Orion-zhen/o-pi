@@ -1,4 +1,4 @@
-import { languageFromPath } from "../../code-index/parser.js";
+import { languageFromPath } from "../../syntax-tree/grammars.js";
 import type {
 	AnalyzeCode,
 	CodeAnalysisTarget,

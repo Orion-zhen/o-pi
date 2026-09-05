@@ -1,4 +1,4 @@
-import { getTreeSitterLanguage } from "../../../syntax-tree/grammars.js";
+import { TREE_SITTER_LANGUAGES } from "../../../syntax-tree/grammars.js";
 import { parseSyntaxTree, SyntaxAnalysisTimeoutError } from "../../../syntax-tree/parser.js";
 import type { SyntaxNode } from "../../../syntax-tree/types.js";
 import type { ApprovalUnit } from "../../types.js";
@@ -26,7 +26,7 @@ import { walkNamedNodes, walkNamedNodesSkippingFunctions } from "./syntax.js";
 
 const MAX_BASH_UNITS = 256;
 const MAX_NESTED_SHELL_DEPTH = 8;
-const BASH_GRAMMAR = getTreeSitterLanguage("bash").grammar;
+const BASH_GRAMMAR = TREE_SITTER_LANGUAGES.bash.grammar;
 
 interface ShellFunction {
 	body: SyntaxNode;

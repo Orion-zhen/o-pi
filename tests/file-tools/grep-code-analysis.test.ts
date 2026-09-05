@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AnalyzeCode, CodeAnalysis } from "../../src/code-index/types.js";
-import { analyzeCodeFile, type CodeAuthority } from "../../src/code-index/parser.js";
+import type { AnalyzeCode, CodeAnalysis, CodeAuthority } from "../../src/code-index/types.js";
+import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { deferredVoid } from "../helpers/async.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import {
@@ -299,10 +299,7 @@ function codeAnalyzer(
 				document,
 				analysis: {
 					...parsed,
-					index: {
-						...parsed.index,
-						units: parsed.index.units.map((unit) => ({ ...unit, authority: file.authority })),
-					},
+					units: parsed.units.map((unit) => ({ ...unit, authority: file.authority })),
 				},
 			};
 		}));

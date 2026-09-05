@@ -10,7 +10,7 @@ import type {
 	CodeDocument,
 	IndexedCodeUnit,
 } from "../../code-index/types.js";
-import { compareCodeUnitNesting } from "../../code-index/parser.js";
+import { compareCodeUnitNesting } from "../../code-index/units.js";
 import { LspClient } from "../client/client.js";
 import { analyzeLspDocument, type AnalyzedLspDocument, type AnalyzedLspUnit } from "./document.js";
 import { supportsCodeAnalysis } from "../protocol/features.js";
@@ -204,7 +204,7 @@ function unitForSeed(analysis: AnalyzedLspDocument, seed: WorkspaceSymbolSeed): 
 	const line = seed.range.start.line + 1;
 	return [...analysis.units]
 		.filter(({ unit }) => {
-			const unitName = normalizeSymbolText(unit.name ?? "");
+			const unitName = normalizeSymbolText(unit.name);
 			const unitQualified = unit.qualifiedName === undefined ? undefined : normalizeSymbolText(unit.qualifiedName);
 			return unitName === name || (qualified !== undefined && unitQualified === qualified);
 		})
@@ -235,10 +235,7 @@ function withAuthorities(
 ): AnalyzedFileIndex {
 	return {
 		...analysis,
-		index: {
-			...analysis.index,
-			units: values.map(({ unit, authority }) => ({ ...unit, authority })),
-		},
+		units: values.map(({ unit, authority }) => ({ ...unit, authority })),
 	};
 }
 

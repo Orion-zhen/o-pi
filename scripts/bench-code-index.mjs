@@ -23,5 +23,11 @@ for (const scenario of scenarios) for (const size of sizes) {
 		row("worker batch ms", samples.map((value) => value.workerBatchMs)),
 		row("RSS MB", samples.map((value) => value.rssMb)),
 	]);
-	console.log({ scenario: sample.scenario, size: sample.size, oracleDigest: sample.oracleDigest, counts: sample.counts });
+	console.log({
+		scenario: sample.scenario,
+		size: sample.size,
+		oracleDigest: sample.oracleDigest,
+		counts: sample.counts,
+		completeRuns: samples.filter((value) => value.complete).length,
+	});
 }

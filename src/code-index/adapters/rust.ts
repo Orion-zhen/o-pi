@@ -1,7 +1,7 @@
 import { collectUnits, firstNamedChildText, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.js";
-import type { AnalysisControl } from "../types.js";
-import { getTreeSitterLanguage } from "../../syntax-tree/grammars.js";
-import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
+import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.js";
+import type { ModuleImport } from "../types.js";
+import type { LanguageExtractor } from "./types.js";
 
 const RUST_UNIT_KINDS = new Set([
 	"function_item",
@@ -49,15 +49,15 @@ function normalizeRustKind(kind: string): string {
 	return "declaration";
 }
 
-function extractRustImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
-	const imports: RawImport[] = [];
+function extractRustImports(root: SyntaxNode, control: AnalysisControl): ModuleImport[] {
+	const imports: ModuleImport[] = [];
 	walkNamed(root, (node) => {
 		if (node.type === "use_declaration") collectUse(node.childForFieldName("argument"), imports, control);
 	}, control);
 	return imports;
 }
 
-function collectUse(root: SyntaxNode | null, imports: RawImport[], control: AnalysisControl): void {
+function collectUse(root: SyntaxNode | null, imports: ModuleImport[], control: AnalysisControl): void {
 	if (root === null) return;
 	const stack: Array<{ node: SyntaxNode; prefix: string }> = [{ node: root, prefix: "" }];
 	while (stack.length > 0) {
@@ -82,33 +82,28 @@ function collectUse(root: SyntaxNode | null, imports: RawImport[], control: Anal
 			}
 			case "use_as_clause": {
 				const path = node.childForFieldName("path");
-				if (path !== null) addRustImport(qualify(prefix, path.text), path, imports);
+				if (path !== null) imports.push({ specifier: qualify(prefix, path.text) });
 				break;
 			}
 			case "use_wildcard": {
 				const path = node.namedChildren[0];
 				const base = path === undefined ? prefix : qualify(prefix, path.text);
-				if (base.length > 0) addRustImport(`${base}::*`, node, imports);
+				if (base.length > 0) imports.push({ specifier: `${base}::*` });
 				break;
 			}
 			default:
 				if (node.type === "identifier" || node.type === "scoped_identifier" || node.type === "crate" || node.type === "self") {
-					addRustImport(qualify(prefix, node.text), node, imports);
+					imports.push({ specifier: qualify(prefix, node.text) });
 				}
 		}
 	}
-}
-
-function addRustImport(specifier: string, node: SyntaxNode, imports: RawImport[]): void {
-	imports.push({ specifier, startChar: node.startIndex, endChar: node.endIndex });
 }
 
 function qualify(prefix: string, value: string): string {
 	return prefix.length === 0 ? value : `${prefix}::${value}`;
 }
 
-export const rustAdapter: LanguageAdapter = {
-	...getTreeSitterLanguage("rust"),
+export const rustExtractor: LanguageExtractor = {
 	extractUnits: (root, control) => collectUnits(root, rustRules, control),
 	extractImports: extractRustImports,
 };

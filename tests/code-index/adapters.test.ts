@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { adapterFromPath } from "../../src/code-index/language-registry.js";
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
-import { parseSyntaxTree } from "../../src/syntax-tree/parser.js";
 
 describe("tree-sitter adapters", () => {
 describe.each([
@@ -80,16 +78,10 @@ describe.each([
 	},
 ])("$filePath adapter", ({ filePath, text, units, imports }) => {
 	it("extracts units and imports through the adapter contract", async () => {
-		const adapter = adapterFromPath(filePath);
-		if (adapter === undefined) throw new Error(`missing adapter for ${filePath}`);
-		const document = await parseSyntaxTree(adapter.grammar, text);
-		if (document === undefined) throw new Error(`missing syntax tree for ${adapter.language}`);
-		try {
-			expect(adapter.extractUnits(document.root, document.control).map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);
-			expect(adapter.extractImports(document.root, document.control).map((item) => item.specifier)).toEqual(imports);
-		} finally {
-			document.dispose();
-		}
+		const analyzed = await analyzeCodeFile(filePath, text);
+		expect(analyzed.status).toBe("parsed");
+		expect(analyzed.units.map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);
+		expect(analyzed.imports.map((item) => item.specifier)).toEqual(imports);
 	});
 });
 

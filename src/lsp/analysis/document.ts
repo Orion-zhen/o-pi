@@ -1,12 +1,12 @@
 import type { Position } from "vscode-languageserver-protocol";
 
 import { createFileIdentity, createSymbolId } from "../../code-index/identity.js";
-import { languageFromPath } from "../../code-index/parser.js";
-import { SourceIndex, type AnalyzedFileIndex, type CodeDocument, type IndexedCodeUnit } from "../../code-index/types.js";
+import { languageFromPath } from "../../syntax-tree/grammars.js";
+import { SourceIndex } from "../../code-index/source-index.js";
+import { compactDeclaration } from "../../code-index/text.js";
+import type { AnalyzedFileIndex, CodeDocument, IndexedCodeUnit } from "../../code-index/types.js";
 import { normalizeDocumentSymbols, symbolKindName, type NormalizedDocumentSymbol } from "./symbols.js";
 import type { LspDocumentSymbols } from "../types.js";
-
-const DECLARATION_CODE_POINT_LIMIT = 240;
 
 export interface AnalyzedLspUnit {
 	readonly unit: IndexedCodeUnit;
@@ -19,16 +19,12 @@ export interface AnalyzedLspDocument {
 }
 
 /** 将 LSP documentSymbol 规范化为 grep/code-index 共用的代码单元。 */
-export function analyzeLspDocument(
-	document: CodeDocument,
-	symbols: LspDocumentSymbols,
-): AnalyzedLspDocument | undefined {
+export function analyzeLspDocument(document: CodeDocument, symbols: LspDocumentSymbols): AnalyzedLspDocument | undefined {
 	const sourceIndex = new SourceIndex(document.text);
 	const file = createFileIdentity(document.path);
-	const flat = normalizeDocumentSymbols(symbols);
 	const units = new Map<string, AnalyzedLspUnit>();
-	for (const symbol of flat) {
-		const unit = indexedUnit(document, sourceIndex, symbol);
+	for (const symbol of normalizeDocumentSymbols(symbols)) {
+		const unit = indexedUnit(document, sourceIndex, symbol, file.id);
 		if (unit === undefined) return undefined;
 		units.set(unit.id, { unit, position: symbol.selectionRange.start });
 	}
@@ -38,12 +34,9 @@ export function analyzeLspDocument(
 		|| compareString(left.unit.id, right.unit.id));
 	return {
 		analysis: {
-			index: {
-				id: file.id,
-				path: document.path,
-				language: languageFromPath(document.path),
-				units: values.map(({ unit }) => unit),
-			},
+			path: document.path,
+			language: languageFromPath(document.path),
+			units: values.map(({ unit }) => unit),
 			status: "parsed",
 			imports: [],
 		},
@@ -51,28 +44,17 @@ export function analyzeLspDocument(
 	};
 }
 
-function indexedUnit(
-	document: CodeDocument,
-	sourceIndex: SourceIndex,
-	symbol: NormalizedDocumentSymbol,
-): IndexedCodeUnit | undefined {
+function indexedUnit(document: CodeDocument, sourceIndex: SourceIndex, symbol: NormalizedDocumentSymbol, fileId: string): IndexedCodeUnit | undefined {
 	const startChar = charOffset(document.text, sourceIndex, symbol.range.start);
 	const endChar = charOffset(document.text, sourceIndex, symbol.range.end);
 	if (startChar === undefined || endChar === undefined || endChar < startChar) return undefined;
 	const range = sourceIndex.range(startChar, endChar);
 	const declaration = declarationAt(document.text, sourceIndex, symbol.range.start.line);
-	const file = createFileIdentity(document.path);
+	const kind = symbolKindName(symbol.kind);
 	return {
-		id: createSymbolId({
-			fileId: file.id,
-			kind: symbolKindName(symbol.kind),
-			name: symbol.name,
-			...(symbol.qualifiedName === undefined ? {} : { qualifiedName: symbol.qualifiedName }),
-			startByte: range.startByte,
-		}),
+		id: createSymbolId({ fileId, kind, symbolName: symbol.qualifiedName ?? symbol.name, startByte: range.startByte }),
 		path: document.path,
-		language: languageFromPath(document.path),
-		kind: symbolKindName(symbol.kind),
+		kind,
 		name: symbol.name,
 		...(symbol.qualifiedName === undefined ? {} : { qualifiedName: symbol.qualifiedName }),
 		...(declaration === undefined ? {} : { signature: declaration.text, declarationEndByte: declaration.endByte }),
@@ -85,24 +67,13 @@ function indexedUnit(
 	};
 }
 
-function declarationAt(
-	text: string,
-	sourceIndex: SourceIndex,
-	line: number,
-): { readonly text: string; readonly endByte: number } | undefined {
+function declarationAt(text: string, sourceIndex: SourceIndex, line: number): { readonly text: string; readonly endByte: number } | undefined {
 	const start = sourceIndex.lineStartChars[line];
 	if (start === undefined) return undefined;
 	const next = sourceIndex.lineStartChars[line + 1] ?? text.length;
 	const end = trimLineTerminator(text, start, next);
-	const compact = text.slice(start, end).replace(/\s+/gu, " ").trim();
-	if (compact.length === 0) return undefined;
-	const points = [...compact];
-	return {
-		text: points.length <= DECLARATION_CODE_POINT_LIMIT
-			? compact
-			: `${points.slice(0, DECLARATION_CODE_POINT_LIMIT - 3).join("")}...`,
-		endByte: sourceIndex.byteForChar(end),
-	};
+	const compact = compactDeclaration(text.slice(start, end));
+	return compact.length === 0 ? undefined : { text: compact, endByte: sourceIndex.byteForChar(end) };
 }
 
 function charOffset(text: string, sourceIndex: SourceIndex, position: Position): number | undefined {

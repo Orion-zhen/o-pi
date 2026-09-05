@@ -349,12 +349,12 @@ async function queryWorkspaceSymbols(
 		},
 	});
 	if (analysis === undefined) return [];
-	return analysis.files.flatMap(({ document: value, analysis: file }) => file.index.units.map((unit) => ({
+	return analysis.files.flatMap(({ document: value, analysis: file }) => file.units.map((unit) => ({
 		path: value.path,
 		start_line: unit.startLine,
 		end_line: unit.endLine,
 		kind: unit.kind,
-		symbol: unit.name ?? "",
+		symbol: unit.name,
 		...(unit.qualifiedName === undefined ? {} : { qualified_symbol: unit.qualifiedName }),
 		exact: unit.name === query || unit.qualifiedName === query,
 		origin: "workspace-symbol" as const,
