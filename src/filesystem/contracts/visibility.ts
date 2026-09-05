@@ -3,9 +3,7 @@ import type { FsResult } from "./result.js";
 
 export type VisibilityIntent =
 	| "list-entry"
-	| "traverse"
 	| "search"
-	| "index"
 	| "explicit-read"
 	| "explicit-edit";
 

@@ -26,27 +26,6 @@ export interface ReadOptions {
 	readonly expectedSnapshot?: FileSnapshot;
 }
 
-export interface TextByteRange {
-	/** 已解码正文中的 UTF-8 byte 起点，包含该位置。 */
-	readonly startByte: number;
-	/** 已解码正文中的 UTF-8 byte 终点，不包含该位置。 */
-	readonly endByte: number;
-}
-
-export interface TextLineRange extends TextByteRange {
-	/** 逻辑行号从 1 开始且两端均包含；byte 范围包含末行存在的行终止符。 */
-	readonly startLine: number;
-	readonly endLine: number;
-}
-
-export interface TextRangeInput {
-	readonly startLine: number;
-	readonly endLine: number;
-	/** byte 起止位置必须同时提供或同时省略。 */
-	readonly startByte?: number;
-	readonly endByte?: number;
-}
-
 export interface ScannedLine {
 	readonly line: number;
 	/** Logical line text without its line terminator. */

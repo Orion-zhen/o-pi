@@ -127,7 +127,7 @@ describe("visibility rules", () => {
 			"src/inner.txt", "trail-space", "escaped-space ", ".env", "nonewline",
 		]) expect(await evaluate(opened, candidate)).toMatchObject({ ignored: true });
 		expect(await evaluate(opened, "nested/root-only.txt")).toMatchObject({ ignored: false });
-		expect(await evaluate(opened, "build", "traverse")).toMatchObject({ ignored: true });
+		expect(await evaluate(opened, "build", "search")).toMatchObject({ ignored: true });
 	});
 
 	it("按可达来源、目录层级和后置规则决定优先级", async () => {
@@ -140,10 +140,10 @@ describe("visibility rules", () => {
 		await write("sub/important.txt");
 
 		const opened = await openVisibility({ builtinProfile: "minimal" });
-		expect(await evaluate(opened, "dist", "traverse")).toMatchObject({ ignored: false });
+		expect(await evaluate(opened, "dist", "search")).toMatchObject({ ignored: false });
 		expect(await evaluate(opened, "important.txt")).toMatchObject({ ignored: false });
 		expect(await evaluate(opened, "sub/important.txt")).toMatchObject({ ignored: true });
-		expect(await evaluate(opened, "node_modules", "traverse")).toMatchObject({ ignored: false });
+		expect(await evaluate(opened, "node_modules", "search")).toMatchObject({ ignored: false });
 	});
 
 	it("区分 ignored 与 prune，并保守处理根规则 negation", async () => {
@@ -154,15 +154,15 @@ describe("visibility rules", () => {
 			builtinProfile: "none",
 			gitignore: { enabled: false },
 		});
-		expect(await evaluate(opened, "cache", "traverse")).toMatchObject({ ignored: true, prune: false });
-		expect(await evaluate(opened, "logs", "traverse")).toMatchObject({ ignored: true, prune: false });
+		expect(await evaluate(opened, "cache", "search")).toMatchObject({ ignored: true, prune: false });
+		expect(await evaluate(opened, "logs", "search")).toMatchObject({ ignored: true, prune: false });
 
 		await write(".piignore", "logs/\n");
 		const withoutNegation = await openVisibility({
 			builtinProfile: "none",
 			gitignore: { enabled: false },
 		});
-		expect(await evaluate(withoutNegation, "logs", "traverse")).toMatchObject({ ignored: true, prune: true });
+		expect(await evaluate(withoutNegation, "logs", "search")).toMatchObject({ ignored: true, prune: true });
 	});
 
 	it("增量加载嵌套 .gitignore 和 .piignore，规则相对于所在目录", async () => {
@@ -179,9 +179,9 @@ describe("visibility rules", () => {
 		expect(await evaluate(opened, "pkg/drop.tmp")).toMatchObject({ ignored: true });
 		expect(await evaluate(opened, "pkg/keep.tmp")).toMatchObject({ ignored: false });
 		expect(await evaluate(opened, "pkg/local.log")).toMatchObject({ ignored: true });
-		expect(await evaluate(opened, "root-only", "traverse")).toMatchObject({ ignored: true });
-		expect(await evaluate(opened, "pkg/deep/generated", "traverse")).toMatchObject({ ignored: true });
-		expect(await evaluate(opened, "generated", "traverse")).toMatchObject({ ignored: false });
+		expect(await evaluate(opened, "root-only", "search")).toMatchObject({ ignored: true });
+		expect(await evaluate(opened, "pkg/deep/generated", "search")).toMatchObject({ ignored: true });
+		expect(await evaluate(opened, "generated", "search")).toMatchObject({ ignored: false });
 	});
 
 	it("仅在访问目录链时加载宽目录树中的嵌套规则", async () => {
@@ -326,7 +326,7 @@ describe("visibility rules", () => {
 			policy: createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } }),
 		});
 
-		expect(await evaluate(opened, "ignored", "traverse")).toMatchObject({ ignored: true, prune: true });
+		expect(await evaluate(opened, "ignored", "search")).toMatchObject({ ignored: true, prune: true });
 		expect(ignoreReads).toEqual([path.join(workspace, ".piignore")]);
 	});
 });

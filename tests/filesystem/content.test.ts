@@ -5,9 +5,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { toFileSnapshot } from "../../src/filesystem/contracts/metadata.js";
 import { createWorkspaceNamespace } from "../../src/filesystem/kernel/namespace.js";
 import { NativeFileSystemError, NodeNativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
-import { buildTextBytes } from "../../src/filesystem/services/text.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { collectAsync, expectFsOk, openReadonly, resolveFile } from "./fixtures.js";
+import { buildTextBytes, collectAsync, expectFsOk, openReadonly, resolveFile } from "./fixtures.js";
 import { wrapNative } from "./readonly-fixtures.js";
 
 const temp = useTempDir("o-pi-readonly-fs-");

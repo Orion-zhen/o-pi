@@ -3,7 +3,6 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { FilesystemPathAccess } from "../../src/filesystem/contracts/access.js";
-import { preflightWriteAccess } from "../../src/filesystem/kernel/access-preflight.js";
 import { createWorkspaceNamespace, type WorkspaceNamespaceKernel } from "../../src/filesystem/kernel/namespace.js";
 import { NativeFileSystemError, NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { useTempDir } from "../helpers/lifecycle.js";
@@ -158,17 +157,6 @@ describe("workspace namespace", () => {
 			ok: false,
 			error: { code: "blocked", details: { matchedRule: "~/protected/", phase: "lexical" } },
 		});
-	});
-	it("provides a lightweight write preflight without exposing native identities", async () => {
-		const result = await preflightWriteAccess({
-			cwd: workspace,
-			path: "new/file.txt",
-			blockedPaths: [],
-			homeDirectory: outside,
-			native: new NodeNativeFileSystem(),
-			context: {},
-		});
-		expect(result).toEqual({ ok: true, value: { displayPath: "new/file.txt", workspacePath: "new/file.txt" } });
 	});
 	it("validates expected kinds and canonical containment", async () => {
 		await mkdir(path.join(workspace, "dir"));

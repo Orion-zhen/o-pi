@@ -4,8 +4,6 @@ import type {
 	NewlineKind,
 	ScannedLine,
 	TextContent,
-	TextLineRange,
-	TextRangeInput,
 	TextSlice,
 	TextSliceOptions,
 } from "../contracts/content.js";
@@ -56,19 +54,6 @@ export function describeText(bytes: Uint8Array, text: string): Pick<TextContent,
 	return { totalLines, newline, hasBom: hasUtf8Bom(bytes) };
 }
 
-export function normalizeLineEndings(text: string): string {
-	return text.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n");
-}
-
-export function logicalLines(text: string): { readonly lines: readonly string[]; readonly finalNewline: boolean } {
-	if (text === "") return { lines: [], finalNewline: false };
-	const normalized = normalizeLineEndings(text);
-	const finalNewline = normalized.endsWith("\n");
-	const lines = normalized.split("\n");
-	if (finalNewline) lines.pop();
-	return { lines, finalNewline };
-}
-
 /** 在已稳定读取的正文上复用 streaming scan 的 logical-line 与 UTF-8 坐标语义。 */
 export function* scannedTextLines(text: string): Generator<ScannedLine> {
 	if (text.length === 0) return;
@@ -103,53 +88,11 @@ export function* scannedTextLines(text: string): Generator<ScannedLine> {
 	}
 }
 
-export function buildTextBytes(text: string, hasBom: boolean): Uint8Array {
-	const body = encoder.encode(text);
-	if (!hasBom) return body;
-	const bytes = new Uint8Array(UTF8_BOM.byteLength + body.byteLength);
-	bytes.set(UTF8_BOM);
-	bytes.set(body, UTF8_BOM.byteLength);
-	return bytes;
-}
-
 /** 将合法 UTF-16 code-unit 边界转换为正文 UTF-8 byte 位置。 */
 export function utf8ByteOffset(text: string, codeUnitOffset: number): number | undefined {
 	if (!Number.isSafeInteger(codeUnitOffset) || codeUnitOffset < 0 || codeUnitOffset > text.length) return undefined;
 	if (splitsSurrogatePair(text, codeUnitOffset)) return undefined;
 	return encoder.encode(text.slice(0, codeUnitOffset)).byteLength;
-}
-
-/** 将从 1 开始且两端包含的逻辑行范围转换为正文 UTF-8 坐标。 */
-export function byteRangeForLines(text: string, startLine: number, endLine: number): TextLineRange | undefined {
-	if (!positiveInteger(startLine) || !positiveInteger(endLine) || endLine < startLine) return undefined;
-	const ranges = logicalLineCodeUnitRanges(text);
-	const start = ranges[startLine - 1];
-	const end = ranges[endLine - 1];
-	if (start === undefined || end === undefined) return undefined;
-	const startByte = utf8ByteOffset(text, start.start);
-	const endByte = utf8ByteOffset(text, end.end);
-	if (startByte === undefined || endByte === undefined) return undefined;
-	return { startLine, endLine, startByte, endByte };
-}
-
-/** 根据声明的逻辑行范围补全并验证可选 byte 坐标。 */
-export function resolveTextRange(text: string, input: TextRangeInput): TextLineRange | undefined {
-	const lines = byteRangeForLines(text, input.startLine, input.endLine);
-	if (lines === undefined || (input.startByte === undefined) !== (input.endByte === undefined)) return undefined;
-	if (input.startByte === undefined || input.endByte === undefined) return lines;
-	if (!nonNegativeInteger(input.startByte) || !nonNegativeInteger(input.endByte)
-		|| input.endByte < input.startByte
-		|| input.startByte < lines.startByte || input.endByte > lines.endByte
-		|| !isUtf8ByteBoundary(text, input.startByte) || !isUtf8ByteBoundary(text, input.endByte)) return undefined;
-	return { ...lines, startByte: input.startByte, endByte: input.endByte };
-}
-
-/** 仅在起止位置都是合法正文 UTF-8 边界时提取精确 byte 范围。 */
-export function extractByteRange(text: string, startByte: number, endByte: number): string | undefined {
-	if (!nonNegativeInteger(startByte) || !nonNegativeInteger(endByte) || endByte < startByte) return undefined;
-	const bytes = encoder.encode(text);
-	if (endByte > bytes.byteLength || !utf8Boundary(bytes, startByte) || !utf8Boundary(bytes, endByte)) return undefined;
-	return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(startByte, endByte));
 }
 
 /** Slices logical lines while preserving each selected line's original terminator. */
@@ -217,44 +160,11 @@ export function hasUtf8Bom(bytes: Uint8Array): boolean {
 		&& bytes[2] === UTF8_BOM[2];
 }
 
-function logicalLineCodeUnitRanges(text: string): readonly { readonly start: number; readonly end: number }[] {
-	if (text.length === 0) return [];
-	const ranges: Array<{ readonly start: number; readonly end: number }> = [];
-	let start = 0;
-	for (let index = 0; index < text.length; index += 1) {
-		if (text[index] !== "\r" && text[index] !== "\n") continue;
-		const terminatorEnd = text[index] === "\r" && text[index + 1] === "\n" ? index + 2 : index + 1;
-		ranges.push({ start, end: terminatorEnd });
-		if (terminatorEnd < text.length) start = terminatorEnd;
-		else start = text.length;
-		index = terminatorEnd - 1;
-	}
-	if (start < text.length) ranges.push({ start, end: text.length });
-	return ranges;
-}
-
-function isUtf8ByteBoundary(text: string, offset: number): boolean {
-	const bytes = encoder.encode(text);
-	return offset <= bytes.byteLength && utf8Boundary(bytes, offset);
-}
-
-function utf8Boundary(bytes: Uint8Array, offset: number): boolean {
-	return offset === 0 || offset === bytes.byteLength || (bytes[offset] !== undefined && (bytes[offset] & 0xc0) !== 0x80);
-}
-
 function splitsSurrogatePair(text: string, offset: number): boolean {
 	if (offset <= 0 || offset >= text.length) return false;
 	const previous = text.charCodeAt(offset - 1);
 	const current = text.charCodeAt(offset);
 	return previous >= 0xd800 && previous <= 0xdbff && current >= 0xdc00 && current <= 0xdfff;
-}
-
-function positiveInteger(value: number): boolean {
-	return Number.isSafeInteger(value) && value > 0;
-}
-
-function nonNegativeInteger(value: number): boolean {
-	return Number.isSafeInteger(value) && value >= 0;
 }
 
 function lineRecordEnd(text: string, start: number): number {

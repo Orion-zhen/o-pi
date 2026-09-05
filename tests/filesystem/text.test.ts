@@ -4,18 +4,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { TextContent } from "../../src/filesystem/contracts/content.js";
 import {
-	buildTextBytes,
-	byteRangeForLines,
 	describeText,
-	extractByteRange,
-	logicalLines,
-	normalizeLineEndings,
-	resolveTextRange,
 	sliceTextByLineRange,
 	utf8ByteOffset,
 } from "../../src/filesystem/services/text.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { expectFsOk, openReadonly, resolveFile } from "./fixtures.js";
+import { buildTextBytes, expectFsOk, openReadonly, resolveFile } from "./fixtures.js";
 
 const temp = useTempDir("o-pi-readonly-fs-");
 let workspace: string;
@@ -59,7 +53,7 @@ describe("filesystem text services", () => {
 		expect(describeText(new Uint8Array(), text)).toEqual({ totalLines, newline, hasBom: false });
 	});
 
-	it("validates decoded-text line, code-unit and UTF-8 byte coordinates", () => {
+	it("validates decoded-text code-unit and UTF-8 byte coordinates", () => {
 		const text = "你😀\r\nb\rc\n\n";
 		expect([
 			utf8ByteOffset(text, 0),
@@ -70,30 +64,6 @@ describe("filesystem text services", () => {
 		expect(utf8ByteOffset(text, -1)).toBeUndefined();
 		expect(utf8ByteOffset(text, 1.5)).toBeUndefined();
 		expect(utf8ByteOffset(text, text.length + 1)).toBeUndefined();
-
-		expect(byteRangeForLines(text, 2, 3)).toEqual({ startLine: 2, endLine: 3, startByte: 9, endByte: 13 });
-		expect(byteRangeForLines(text, 4, 4)).toEqual({ startLine: 4, endLine: 4, startByte: 13, endByte: 14 });
-		expect(byteRangeForLines("", 1, 1)).toBeUndefined();
-		expect(byteRangeForLines(text, 0, 1)).toBeUndefined();
-		expect(byteRangeForLines(text, 3, 2)).toBeUndefined();
-		expect(byteRangeForLines(text, 1, 5)).toBeUndefined();
-
-		expect(resolveTextRange(text, { startLine: 1, endLine: 1 })).toEqual({
-			startLine: 1, endLine: 1, startByte: 0, endByte: 9,
-		});
-		expect(resolveTextRange(text, { startLine: 1, endLine: 1, startByte: 3, endByte: 7 })).toEqual({
-			startLine: 1, endLine: 1, startByte: 3, endByte: 7,
-		});
-		expect(resolveTextRange(text, { startLine: 1, endLine: 1, startByte: 4, endByte: 7 })).toBeUndefined();
-		expect(resolveTextRange(text, { startLine: 1, endLine: 1, startByte: 3 })).toBeUndefined();
-		expect(resolveTextRange(text, { startLine: 2, endLine: 2, startByte: 0, endByte: 1 })).toBeUndefined();
-		expect(resolveTextRange(text, { startLine: 1.5, endLine: 2 })).toBeUndefined();
-
-		expect(extractByteRange(text, 3, 7)).toBe("😀");
-		expect(extractByteRange(text, 9, 13)).toBe("b\rc\n");
-		expect(extractByteRange(text, 4, 7)).toBeUndefined();
-		expect(extractByteRange(text, -1, 0)).toBeUndefined();
-		expect(extractByteRange(text, 0, 99)).toBeUndefined();
 	});
 
 	it("handles empty and mixed-newline text and rejects a single over-budget line", async () => {
@@ -119,8 +89,6 @@ describe("filesystem text services", () => {
 			ok: false,
 			error: { code: "invalid-path" },
 		});
-		expect(normalizeLineEndings("a\r\nb\rc")).toBe("a\nb\nc");
-		expect(logicalLines("a\n")).toEqual({ lines: ["a"], finalNewline: true });
 	});
 
 	it("stops slicing once line or byte budgets are exhausted", () => {

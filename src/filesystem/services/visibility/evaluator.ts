@@ -62,7 +62,7 @@ export class VisibilityEvaluator {
 		const configuredRule = this.matchConfiguredRule(input);
 		if (configuredRule !== undefined) winner = { state: "ignore", rule: configuredRule };
 		const ignored = winner?.state === "ignore";
-		const prune = ignored && canPrune(input.intent) && input.kind === "directory"
+		const prune = ignored && input.intent === "search" && input.kind === "directory"
 			&& (configuredRule !== undefined || !this.hasNegatedRuleForDescendant(normalized));
 		return {
 			ignored,
@@ -153,8 +153,4 @@ function ruleMatchesDirectoryAncestor(
 	if (!rule.pattern.trimEnd().endsWith("/")) return false;
 	if (kind !== "directory") return true;
 	return relative.includes("/");
-}
-
-function canPrune(intent: VisibilityEvaluateInput["intent"]): boolean {
-	return intent === "traverse" || intent === "search" || intent === "index";
 }

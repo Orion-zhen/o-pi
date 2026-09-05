@@ -112,3 +112,7 @@ export async function collectAsync<T>(iterable: AsyncIterable<T>): Promise<T[]> 
 export function textBytes(value: string): Uint8Array {
 	return new TextEncoder().encode(value);
 }
+
+export function buildTextBytes(text: string, hasBom: boolean): Uint8Array {
+	return textBytes(hasBom ? `\uFEFF${text}` : text);
+}
