@@ -4,20 +4,19 @@ import type { ContextUsage, ThemeColor } from "@earendil-works/pi-coding-agent";
 export type TuiIconMode = "unicode" | "ascii" | "nerd";
 
 /** Pi 工作指示器样式；off 会隐藏内置 streaming indicator。 */
-export type TuiWorkingIndicator = "dot" | "spinner" | "off";
+type TuiWorkingIndicator = "dot" | "spinner" | "off";
 
 /** footer 支持的字段；缺少数据时字段会自动隐藏。 */
-export type TuiFooterSegment = "cwd" | "git" | "ctx" | "tokens" | "cost";
+type TuiFooterSegment = "cwd" | "git" | "ctx" | "tokens" | "cost";
 
 /** Home 动效等级；playful 增加入场动画和 Home 存续期间的低频 Core 轨道。 */
-export type TuiHomeMotion = "off" | "subtle" | "playful";
+type TuiHomeMotion = "off" | "subtle" | "playful";
 
 /** Home 鼠标反馈；click-hold 在点击反馈外增加长按蓄力和释放爆炸。 */
 export type TuiHomePointerEffects = "off" | "click" | "click-hold";
 
-
 /** chrome 配置只控制 Pi 公开 UI API 暴露的轻量区域。 */
-export interface TuiChromeConfig {
+interface TuiChromeConfig {
 	title: boolean;
 	header: boolean;
 	footer: boolean;
@@ -31,8 +30,8 @@ export interface TuiFooterConfig {
 	style: TuiFooterStyleConfig;
 }
 
-/** footer 颜色和图标只使用 Pi theme token，不写死 ANSI。 */
-export interface TuiFooterStyleConfig {
+/** 页脚工作区与 Git 的 Pi 主题色配置。 */
+interface TuiFooterStyleConfig {
 	workspace_color: ThemeColor;
 	git_color: ThemeColor;
 }
@@ -69,15 +68,17 @@ export interface TuiConfig {
 
 export type TuiRunStatus = "ready" | "running" | "waiting";
 
-/** footer 渲染所需的纯数据快照，避免组件长期持有 ExtensionContext。 */
-export interface TuiFooterSnapshot {
-	cwd?: string;
+/** 活动会话的界面快照，供标题、Home、输入框和页脚共同读取。 */
+export interface TuiSnapshot {
+	cwd: string;
+	sessionName?: string;
+	hasPendingMessages: boolean;
 	git?: string;
 	modelId?: string;
 	modelProvider?: string;
 	modelReasoning?: boolean;
-	thinkingLevel?: string;
-	availableProviderCount?: number;
+	thinkingLevel: string;
+	availableProviderCount: number;
 	context?: ContextUsage;
 	inputTokens?: number;
 	outputTokens?: number;
@@ -87,20 +88,19 @@ export interface TuiFooterSnapshot {
 	totalCacheHitRate?: number;
 	costUsd?: number;
 	usingSubscription?: boolean;
-	status?: TuiRunStatus;
-	tools?: TuiFooterToolsSnapshot;
-	skills?: TuiFooterSkillsSnapshot;
+	status: TuiRunStatus;
+	tools: TuiToolsSnapshot;
+	skills?: TuiSkillsSnapshot;
 }
 
-/** footer 工具启用快照；activeNames 按工具注册顺序显示，totalCount 用于概览。 */
-export interface TuiFooterToolsSnapshot {
+/** 工具启用子集与全集均按注册顺序排列。 */
+export interface TuiToolsSnapshot {
 	activeNames: string[];
-	totalCount: number;
 	allNames: string[];
 }
 
 /** Home 的 skill 快照；与 tools 分开统计。 */
-export interface TuiFooterSkillsSnapshot {
+export interface TuiSkillsSnapshot {
 	totalCount: number;
 	modelInvocableCount: number;
 }

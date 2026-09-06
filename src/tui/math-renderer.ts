@@ -65,6 +65,9 @@ export function warmMathRenderer(): Promise<void> {
 		.loadDynamicFiles()
 		.then(() => {
 			fontsReady = true;
+		}, (error: unknown) => {
+			fontWarmup = undefined;
+			throw error;
 		});
 	return fontWarmup;
 }
@@ -124,10 +127,6 @@ function extractSvg(value: string): string | undefined {
 	const closeStart = value.lastIndexOf("</svg>");
 	if (closeStart < start) return undefined;
 	return value.slice(start, closeStart + "</svg>".length);
-}
-
-export function clearMathRenderCache(): void {
-	cache.clear();
 }
 
 function silenceMathJaxRetry(error: unknown): void {

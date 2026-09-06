@@ -17,7 +17,7 @@ interface UserTimestamp {
 	timestamp: number;
 }
 
-export interface MessageTimestampStyles {
+interface MessageTimestampStyles {
 	dim(text: string): string;
 	userBackground(text: string): string;
 	customBackground(text: string): string;
@@ -30,7 +30,6 @@ let nextUserTimestamp = 0;
 
 const renderedTimestamps = new WeakMap<object, number>();
 const assistantMessages = new WeakMap<AssistantMessageComponent, AssistantMessage>();
-const assistantTimestamps = new WeakMap<AssistantMessageComponent, number>();
 
 /** 安装内置消息组件补丁；重复调用只更新当前主题样式。 */
 export function configureMessageTimestampRenderer(nextStyles: MessageTimestampStyles | undefined): void {
@@ -54,14 +53,14 @@ export function recordUserMessageTimestamp(message: UserMessage): void {
 }
 
 /** 按本地时区生成固定宽度时间戳。 */
-export function formatMessageTimestamp(timestamp: number): string | undefined {
+function formatMessageTimestamp(timestamp: number): string | undefined {
 	const date = new Date(timestamp);
 	if (Number.isNaN(date.getTime())) return undefined;
 	return `[${String(date.getFullYear()).padStart(4, "0")}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}]`;
 }
 
 /** 格式化正文 TPS 与首个用户可见模型 token 的延迟。 */
-export function formatAssistantPerformance(performance: AssistantPerformance, hideThinking: boolean): string | undefined {
+function formatAssistantPerformance(performance: AssistantPerformance, hideThinking: boolean): string | undefined {
 	const ttftMs = hideThinking ? performance.ttftWithoutThinkingMs : performance.ttftWithThinkingMs;
 	if (!Number.isFinite(performance.bodyTps) || performance.bodyTps <= 0 || !Number.isFinite(ttftMs) || ttftMs < 0) return undefined;
 	const tps = performance.bodyTps >= 100 ? performance.bodyTps.toFixed(0) : performance.bodyTps.toFixed(1);
@@ -93,24 +92,23 @@ function patchSkillMessages(): void {
 
 function patchAssistantMessages(): void {
 	const originalUpdateContent = AssistantMessageComponent.prototype.updateContent;
-	AssistantMessageComponent.prototype.updateContent = function updateContentWithTimestamp(message: AssistantMessage): void {
-		assistantMessages.set(this, message);
-		if (hasAssistantBody(message)) assistantTimestamps.set(this, message.timestamp);
-		else assistantTimestamps.delete(this);
-		originalUpdateContent.call(this, message);
+	AssistantMessageComponent.prototype.updateContent = function updateContentWithTimestamp(
+		...args: Parameters<AssistantMessageComponent["updateContent"]>
+	): void {
+		assistantMessages.set(this, args[0]);
+		originalUpdateContent.apply(this, args);
 	};
 
 	const originalRender = AssistantMessageComponent.prototype.render;
 	AssistantMessageComponent.prototype.render = function renderWithTimestamp(width: number): string[] {
 		const lines = originalRender.call(this, width);
-		const timestamp = assistantTimestamps.get(this);
-		if (timestamp === undefined) return lines;
 		const message = assistantMessages.get(this);
-		const performance = message === undefined ? undefined : getAssistantPerformance(message);
+		if (message === undefined || !hasAssistantBody(message)) return lines;
+		const performance = getAssistantPerformance(message);
 		const performanceLabel = performance === undefined
 			? undefined
 			: formatAssistantPerformance(performance, readHideThinking(this));
-		return insertTimestamp(lines, width, timestamp, readOutputPadding(this), undefined, false, performanceLabel);
+		return insertTimestamp(lines, width, message.timestamp, readOutputPadding(this), undefined, false, performanceLabel);
 	};
 }
 

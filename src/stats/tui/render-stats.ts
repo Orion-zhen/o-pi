@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { formatWorkspace } from "../../tui/footer.js";
+import { formatWorkspace } from "../../tui/format.js";
 import { joinParts } from "../../tui/text.js";
 import type { ContextBreakdownItem, StatsSnapshot } from "../types.js";
 

@@ -11,7 +11,7 @@ const mathConfig: TuiMathConfig = {
 };
 
 describe("math renderer 字体初始化", () => {
-	it("字体加载失败时 reject 且图片 renderer 保持未就绪", async () => {
+	it("字体失败时保留文本回退，下一次初始化可恢复图片渲染", async () => {
 		vi.resetModules();
 		const error = new Error("font unavailable");
 		const { FontData } = await import("@mathjax/src/js/output/common/FontData.js");
@@ -21,6 +21,9 @@ describe("math renderer 字体初始化", () => {
 
 			await expect(renderer.warmMathRenderer()).rejects.toBe(error);
 			expect(renderer.renderDisplayMathImage(String.raw`x^2`, mathConfig)).toBeUndefined();
+			loadFonts.mockRestore();
+			await expect(renderer.warmMathRenderer()).resolves.toBeUndefined();
+			expect(renderer.renderDisplayMathImage(String.raw`x^2`, mathConfig)?.base64).toBeTruthy();
 		} finally {
 			loadFonts.mockRestore();
 			vi.resetModules();

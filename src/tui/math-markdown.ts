@@ -1,11 +1,4 @@
-import {
-	Markdown,
-	allocateImageId,
-	encodeITerm2,
-	getCapabilities,
-	getCellDimensions,
-	renderImage,
-} from "@earendil-works/pi-tui";
+import { Markdown, allocateImageId, encodeITerm2, getCapabilities, getCellDimensions, renderImage } from "@earendil-works/pi-tui";
 import type { TuiMathConfig } from "./types.js";
 
 type MarkdownRender = (this: Markdown, width: number) => string[];
@@ -27,18 +20,12 @@ interface DisplayMathBlock {
 	tex: string;
 }
 
-interface ProtectedRange {
-	start: number;
-	end: number;
-}
-
 interface SourceLine {
 	start: number;
-	end: number;
 	text: string;
 }
 
-const BARE_DISPLAY_ENV_PATTERN = /^ {0,3}\\begin\{(align\*?|aligned|alignedat|alignat\*?|equation\*?|gather\*?|multline\*?|split)\}/;
+const DISPLAY_OPEN_PATTERN = /^ {0,3}(\$\$|\\\[|\\begin\{(align\*?|aligned|alignedat|alignat\*?|equation\*?|gather\*?|multline\*?|split)\})/;
 const FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
 
 let installed = false;
@@ -46,21 +33,27 @@ let activeConfig: TuiMathConfig;
 let mathRendererModule: MathRendererModule | undefined;
 let mathRendererImport: Promise<MathRendererModule> | undefined;
 
-/** Pi 原生负责公式解析和文本回退；这里只增强顶层独立块级公式的图片显示。 */
+/** Pi 原生负责公式解析和文本回退，这里只增强顶层独立块级公式的图片显示。 */
 export function installMathMarkdownRenderer(config: TuiMathConfig): void {
 	activeConfig = config;
 	if (installed) return;
 	installed = true;
 	const originalRender = Markdown.prototype.render;
 	Markdown.prototype.render = function patchedMarkdownRender(width: number): string[] {
-		if (!activeConfig.enabled) return originalRender.call(this, width);
-		return renderDisplayMathImages(this, width, activeConfig, originalRender);
+		return activeConfig.enabled ? renderDisplayMathImages(this, width, activeConfig, originalRender) : originalRender.call(this, width);
 	};
 }
 
 export async function warmDisplayMathRenderer(): Promise<void> {
 	if (!supportsDisplayMathImages()) return;
-	const module = await loadMathRenderer();
+	mathRendererImport ??= import("./math-renderer.js").then((module) => {
+		mathRendererModule = module;
+		return module;
+	}).catch((error: unknown) => {
+		mathRendererImport = undefined;
+		throw error;
+	});
+	const module = await mathRendererImport;
 	await module.warmMathRenderer();
 }
 
@@ -73,15 +66,13 @@ function renderDisplayMathImages(markdown: Markdown, width: number, config: TuiM
 	const renderer = mathRendererModule;
 	if (imageProtocol === undefined || renderer === undefined) return render.call(markdown, width);
 
-	const internals = markdown as unknown as MarkdownInternals;
+	const internals = readMarkdownInternals(markdown);
 	const source = internals.text;
 	const blocks = parseDisplayMathBlocks(source);
 	if (blocks.length === 0) return render.call(markdown, width);
-
 	const lines: string[] = [];
 	let cursor = 0;
 	for (const block of blocks) {
-		if (block.start < cursor) continue;
 		if (block.start > cursor) lines.push(...renderMarkdownSource(source.slice(cursor, block.start), internals, width, render));
 		const imageLines = renderDisplayMathImage(block.tex, internals.paddingX, width, config, imageProtocol, renderer);
 		lines.push(...(imageLines ?? renderMarkdownSource(source.slice(block.start, block.end), internals, width, render)));
@@ -91,130 +82,88 @@ function renderDisplayMathImages(markdown: Markdown, width: number, config: TuiM
 	return lines.length > 0 ? lines : render.call(markdown, width);
 }
 
+/** Pi 未提供内容读取接口，私有字段访问集中在这个适配边界。 */
+function readMarkdownInternals(markdown: Markdown): MarkdownInternals {
+	function field<K extends keyof MarkdownInternals>(key: K): MarkdownInternals[K] {
+		const value: unknown = Reflect.get(markdown, key);
+		return value as MarkdownInternals[K];
+	}
+	return {
+		text: field("text"),
+		paddingX: field("paddingX"),
+		paddingY: field("paddingY"),
+		theme: field("theme"),
+		defaultTextStyle: field("defaultTextStyle"),
+		options: field("options"),
+	};
+}
+
 function renderMarkdownSource(source: string, internals: MarkdownInternals, width: number, render: MarkdownRender): string[] {
 	if (source.trim().length === 0) return [];
 	const next = new Markdown(source, internals.paddingX, internals.paddingY, internals.theme, internals.defaultTextStyle, internals.options);
 	return render.call(next, width);
 }
 
+/** 按源码顺序接受完整公式，直接跳过已消费的部分，不再排序或事后消除重叠。 */
 function parseDisplayMathBlocks(source: string): DisplayMathBlock[] {
 	if (!source.includes("$$") && !source.includes("\\[") && !source.includes("\\begin{")) return [];
-	const lines = splitLines(source);
-	const protectedRanges = collectFencedCodeRanges(lines, source.length);
 	const blocks: DisplayMathBlock[] = [];
-	for (const line of lines) {
-		if (rangeAt(protectedRanges, line.start) !== undefined) continue;
-
-		const dollar = /^ {0,3}\$\$/.exec(line.text);
-		if (dollar !== null) {
-			const open = line.start + dollar[0].length - 2;
-			const close = findClosingDelimiter(source, "$$", open + 2, protectedRanges);
-			if (close !== undefined) {
-				blocks.push({ start: line.start, end: close + 2, tex: source.slice(open + 2, close).trim() });
-			}
-			continue;
-		}
-
-		const bracket = /^ {0,3}\\\[/.exec(line.text);
-		if (bracket !== null) {
-			const open = line.start + bracket[0].length - 2;
-			const close = findClosingDelimiter(source, "\\]", open + 2, protectedRanges);
-			if (close !== undefined) {
-				blocks.push({ start: line.start, end: close + 2, tex: source.slice(open + 2, close).trim() });
-			}
-			continue;
-		}
-
-		const environment = BARE_DISPLAY_ENV_PATTERN.exec(line.text);
-		const name = environment?.[1];
-		if (environment === null || name === undefined) continue;
-		const open = line.start + environment.index + environment[0].indexOf("\\begin{");
-		const endToken = `\\end{${name}}`;
-		const close = findClosingDelimiter(source, endToken, open + environment[0].length, protectedRanges);
-		if (close !== undefined) {
-			blocks.push({ start: line.start, end: close + endToken.length, tex: source.slice(open, close + endToken.length).trim() });
-		}
+	let consumedUntil = 0;
+	for (const line of unfencedLines(source)) {
+		if (line.start < consumedUntil) continue;
+		const opening = DISPLAY_OPEN_PATTERN.exec(line.text);
+		const delimiter = opening?.[1];
+		if (opening === null || delimiter === undefined) continue;
+		const environment = opening[2];
+		const afterOpening = line.start + opening[0].length;
+		const token = environment === undefined ? delimiter === "$$" ? "$$" : "\\]" : `\\end{${environment}}`;
+		const close = findClosingDelimiter(source, token, line.start, afterOpening);
+		if (close === undefined) continue;
+		const end = close + token.length;
+		const tex = environment === undefined
+			? source.slice(afterOpening, close).trim()
+			: source.slice(afterOpening - delimiter.length, end).trim();
+		if (tex.length === 0) continue;
+		blocks.push({ start: line.start, end, tex });
+		consumedUntil = end;
 	}
-	return removeOverlappingBlocks(blocks);
+	return blocks;
 }
 
-function splitLines(source: string): SourceLine[] {
-	const lines: SourceLine[] = [];
-	let start = 0;
-	while (start <= source.length) {
+/** 起点必须是围栏外的行首，代码围栏及其内容不参与公式匹配。 */
+function* unfencedLines(source: string, start = 0): Generator<SourceLine> {
+	let fenceClose: RegExp | undefined;
+	while (start < source.length) {
 		const newline = source.indexOf("\n", start);
 		const end = newline === -1 ? source.length : newline;
-		lines.push({ start, end, text: source.slice(start, end).replace(/\r$/, "") });
-		if (newline === -1) break;
-		start = newline + 1;
+		const text = source.slice(start, end).replace(/\r$/, "");
+		if (fenceClose !== undefined) {
+			if (fenceClose.test(text)) fenceClose = undefined;
+		} else {
+			const marker = FENCE_OPEN_PATTERN.exec(text)?.[1];
+			if (marker === undefined) yield { start, text };
+			else fenceClose = new RegExp(`^ {0,3}${marker.charAt(0)}{${marker.length},}[ \\t]*$`);
+		}
+		start = end + 1;
 	}
-	return lines;
 }
 
-function collectFencedCodeRanges(lines: SourceLine[], sourceLength: number): ProtectedRange[] {
-	const ranges: ProtectedRange[] = [];
-	let open: { start: number; marker: string } | undefined;
-	for (const line of lines) {
-		if (open === undefined) {
-			const match = FENCE_OPEN_PATTERN.exec(line.text);
-			const marker = match?.[1];
-			if (marker !== undefined) open = { start: line.start, marker };
-			continue;
+function findClosingDelimiter(source: string, token: string, lineStart: number, afterOpening: number): number | undefined {
+	for (const line of unfencedLines(source, lineStart)) {
+		let column = line.text.indexOf(token, Math.max(0, afterOpening - line.start));
+		while (column !== -1) {
+			const close = line.start + column;
+			if (!isEscaped(source, close) && line.text.slice(column + token.length).trim().length === 0) return close;
+			column = line.text.indexOf(token, column + token.length);
 		}
-		const closePattern = new RegExp(`^ {0,3}${escapeRegExp(open.marker[0] ?? "")}{${open.marker.length},}[ \\t]*$`);
-		if (!closePattern.test(line.text)) continue;
-		ranges.push({ start: open.start, end: line.end });
-		open = undefined;
-	}
-	if (open !== undefined) ranges.push({ start: open.start, end: sourceLength });
-	return ranges;
-}
-
-function findClosingDelimiter(source: string, token: string, start: number, protectedRanges: ProtectedRange[]): number | undefined {
-	let cursor = start;
-	while (cursor < source.length) {
-		const close = source.indexOf(token, cursor);
-		if (close === -1) return undefined;
-		const protectedRange = rangeAt(protectedRanges, close);
-		if (protectedRange !== undefined) {
-			cursor = Math.max(close + token.length, protectedRange.end);
-			continue;
-		}
-		if (!isEscaped(source, close) && isLineEnd(source, close + token.length)) return close;
-		cursor = close + token.length;
 	}
 	return undefined;
-}
-
-function removeOverlappingBlocks(blocks: DisplayMathBlock[]): DisplayMathBlock[] {
-	const sorted = blocks.sort((left, right) => left.start - right.start);
-	const result: DisplayMathBlock[] = [];
-	let end = -1;
-	for (const block of sorted) {
-		if (block.start < end || block.tex.length === 0) continue;
-		result.push(block);
-		end = block.end;
-	}
-	return result;
-}
-
-function rangeAt(ranges: ProtectedRange[], offset: number): ProtectedRange | undefined {
-	return ranges.find((range) => offset >= range.start && offset < range.end);
-}
-
-function isLineEnd(source: string, offset: number): boolean {
-	const lineEnd = source.indexOf("\n", offset);
-	return source.slice(offset, lineEnd === -1 ? source.length : lineEnd).trim().length === 0;
 }
 
 function isEscaped(source: string, offset: number): boolean {
 	let slashCount = 0;
 	for (let index = offset - 1; index >= 0 && source[index] === "\\"; index -= 1) slashCount += 1;
 	return slashCount % 2 === 1;
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function renderDisplayMathImage(
@@ -227,32 +176,22 @@ function renderDisplayMathImage(
 ): string[] | undefined {
 	const image = renderer.renderDisplayMathImage(tex, config);
 	if (image === undefined) return undefined;
-	const availableWidth = Math.max(1, width - paddingX * 2);
-	const imageCells = displayImageCells(image.widthPx, image.heightPx, availableWidth, config);
+	const imageCells = displayImageCells(image.widthPx, image.heightPx, Math.max(1, width - paddingX * 2), config);
 	const prefix = " ".repeat(paddingX);
 	if (imageProtocol === "kitty") {
-		const rendered = renderImage(
-			image.base64,
-			{ widthPx: image.widthPx, heightPx: image.heightPx },
-			{
-				maxWidthCells: imageCells.columns,
-				maxHeightCells: imageCells.rows,
-				imageId: allocateImageId(),
-				moveCursor: false,
-			},
-		);
+		const rendered = renderImage(image.base64, { widthPx: image.widthPx, heightPx: image.heightPx }, {
+			maxWidthCells: imageCells.columns,
+			maxHeightCells: imageCells.rows,
+			imageId: allocateImageId(),
+			moveCursor: false,
+		});
 		if (rendered === null) return undefined;
-		return [prefix + rendered.sequence, ...Array.from({ length: rendered.rows - 1 }, () => "")];
+		return [prefix + rendered.sequence, ...Array<string>(rendered.rows - 1).fill("")];
 	}
-	const sequence = encodeITerm2(image.base64, {
-		width: imageCells.columns,
-		height: imageCells.rows,
-		preserveAspectRatio: true,
-		inline: true,
-	});
+	const sequence = encodeITerm2(image.base64, { width: imageCells.columns, height: imageCells.rows, preserveAspectRatio: true, inline: true });
 	const rowOffset = imageCells.rows - 1;
 	const moveUp = rowOffset > 0 ? `\x1b[${rowOffset}A` : "";
-	return [...Array.from({ length: rowOffset }, () => ""), prefix + moveUp + sequence];
+	return [...Array<string>(rowOffset).fill(""), prefix + moveUp + sequence];
 }
 
 function getSupportedImageProtocol(): SupportedImageProtocol | undefined {
@@ -260,21 +199,10 @@ function getSupportedImageProtocol(): SupportedImageProtocol | undefined {
 	return protocol === "kitty" || protocol === "iterm2" ? protocol : undefined;
 }
 
-async function loadMathRenderer(): Promise<MathRendererModule> {
-	if (mathRendererModule !== undefined) return mathRendererModule;
-	mathRendererImport ??= import("./math-renderer.js").then((module) => {
-		mathRendererModule = module;
-		return module;
-	});
-	return mathRendererImport;
-}
-
 function displayImageCells(widthPx: number, heightPx: number, availableWidth: number, config: TuiMathConfig): { columns: number; rows: number } {
 	const cell = getCellDimensions();
-	const maxWidthPx = Math.max(1, Math.min(config.max_width_cells, availableWidth) * cell.widthPx);
-	const maxHeightPx = Math.max(1, config.max_height_cells * cell.heightPx);
-	const scale = Math.min(1, maxWidthPx / Math.max(1, widthPx), maxHeightPx / Math.max(1, heightPx));
-	const columns = Math.max(1, Math.ceil((widthPx * scale) / cell.widthPx));
-	const rows = Math.max(1, Math.ceil((heightPx * scale) / cell.heightPx));
-	return { columns, rows };
+	const maxWidthPx = Math.min(config.max_width_cells, availableWidth) * cell.widthPx;
+	const maxHeightPx = config.max_height_cells * cell.heightPx;
+	const scale = Math.min(1, maxWidthPx / widthPx, maxHeightPx / heightPx);
+	return { columns: Math.max(1, Math.ceil((widthPx * scale) / cell.widthPx)), rows: Math.max(1, Math.ceil((heightPx * scale) / cell.heightPx)) };
 }

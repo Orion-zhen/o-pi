@@ -1,10 +1,10 @@
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { formatHomeFooter, formatHomePage, selectHomeTip, type HomeAnimationFrame, type HomePageOptions } from "../../src/tui/home.js";
-import { defaultTuiConfig } from "../../src/tui/config.js";
-import { footerSnapshot, plainTheme } from "./fixtures.js";
+import { formatHomeFooter, formatHomePage, selectHomeTip } from "../../src/tui/home.js";
+import type { HomeAnimationFrame } from "../../src/tui/home-animation.js";
+import { defaultTuiConfig, homeSnapshot, plainTheme, tuiSnapshot } from "./fixtures.js";
 
-const snapshot = footerSnapshot();
+const snapshot = homeSnapshot();
 
 const editorLines = ["─ NEW SESSION ─", "Ask anything...", "─ ● ready ─"];
 
@@ -37,7 +37,7 @@ describe("startup home", () => {
 
 	it("缺失可选数据时不展示占位脏值", () => {
 		const wideOutput = stripTerminalSequences(formatHomePage(
-			{ cwd: "/repo", status: "ready" },
+			tuiSnapshot(),
 			defaultTuiConfig().home,
 			120,
 			editorLines,
@@ -45,7 +45,7 @@ describe("startup home", () => {
 			homeOptions(28),
 		).join("\n"));
 		const output = stripTerminalSequences(formatHomePage(
-			{ cwd: "/repo", status: "ready" },
+			tuiSnapshot(),
 			defaultTuiConfig().home,
 			40,
 			editorLines,
@@ -88,8 +88,8 @@ describe("startup home", () => {
 
 function homeOptions(
 	height: number,
-	animation: HomeAnimationFrame = { reveal: 1, wave: 1 },
+	animation: Partial<HomeAnimationFrame> = {},
 	tip = selectHomeTip("session-test"),
-): HomePageOptions {
-	return { height, tip, animation };
+): Parameters<typeof formatHomePage>[5] {
+	return { height, tip, animation: { reveal: 1, wave: 1, orbit: 0, ...animation } };
 }

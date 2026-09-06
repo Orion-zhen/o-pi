@@ -61,7 +61,7 @@ export function formatChars(value: number): string {
 }
 
 /** 数量转短文本，千以上使用 k。 */
-export function formatCount(value: number): string {
+function formatCount(value: number): string {
 	if (!Number.isFinite(value)) return "";
 	if (Math.abs(value) < 1000) return String(Math.round(value));
 	return `${(value / 1000).toFixed(Math.abs(value) < 10_000 ? 1 : 0)}k`;

@@ -10,13 +10,7 @@ const RIPPLE_MS = 560;
 const BURST_MS = 720;
 const EXPLODE_MS = 820;
 
-export interface HomePointerInput {
-	readonly isTTY?: boolean;
-	on(event: "data", listener: (data: string | Buffer) => void): unknown;
-	off(event: "data", listener: (data: string | Buffer) => void): unknown;
-}
-
-export interface HomeMouseEvent {
+interface HomeMouseEvent {
 	button: number;
 	x: number;
 	y: number;
@@ -30,11 +24,10 @@ export interface HomePointerFrame {
 	y: number;
 }
 
-export interface HomePointerControllerOptions {
+interface HomePointerControllerOptions {
 	effects: TuiHomePointerEffects;
 	isActive(): boolean;
 	requestRender(): void;
-	input?: HomePointerInput;
 }
 
 interface PressState {
@@ -64,7 +57,6 @@ interface PreviousClick {
  */
 export class HomePointerController {
 	private readonly options: HomePointerControllerOptions;
-	private readonly input: HomePointerInput;
 	private readonly buffer: StdinBuffer | undefined;
 	private press: PressState | undefined;
 	private effect: TimedEffect | undefined;
@@ -74,19 +66,19 @@ export class HomePointerController {
 
 	constructor(options: HomePointerControllerOptions) {
 		this.options = options;
-		this.input = options.input ?? process.stdin;
-		if (options.effects === "off" || this.input.isTTY !== true) {
+		if (options.effects === "off" || process.stdin.isTTY !== true) {
 			this.buffer = undefined;
 			return;
 		}
 		const buffer = new StdinBuffer();
 		this.buffer = buffer;
 		buffer.on("data", this.handleBufferedInput);
-		this.input.on("data", this.handleRawInput);
+		process.stdin.on("data", this.handleRawInput);
 	}
 
-	getFrame(now = Date.now()): HomePointerFrame | undefined {
+	getFrame(): HomePointerFrame | undefined {
 		if (this.disposed || !this.options.isActive()) return undefined;
+		const now = Date.now();
 		const press = this.press;
 		if (press !== undefined && !press.dragged) {
 			const elapsed = Math.max(0, now - press.startedAt);
@@ -124,7 +116,7 @@ export class HomePointerController {
 		this.press = undefined;
 		this.effect = undefined;
 		this.previousClick = undefined;
-		this.input.off("data", this.handleRawInput);
+		process.stdin.off("data", this.handleRawInput);
 		if (this.buffer !== undefined) {
 			this.buffer.off("data", this.handleBufferedInput);
 			this.buffer.destroy();
@@ -237,7 +229,7 @@ export class HomePointerController {
 }
 
 /** 解析 Pi fullscreen 使用的 SGR 1006 鼠标协议，坐标转换为 0-based。 */
-export function parseSgrMouseEvent(data: string): HomeMouseEvent | undefined {
+function parseSgrMouseEvent(data: string): HomeMouseEvent | undefined {
 	const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(data);
 	if (match === null) return undefined;
 	const button = Number.parseInt(match[1] ?? "", 10);

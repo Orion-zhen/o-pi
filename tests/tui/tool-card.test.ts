@@ -12,8 +12,8 @@ describe("tui tool card", () => {
 			tool: "webfetch",
 			status: "success",
 			target: "https://example.com/" + "a".repeat(40) + "TARGET_SECRET" + "a".repeat(40) + "/end",
-			summary: `ok\u001b[31m ${"b".repeat(80)}SUMMARY_END`,
-		}, theme, { maxTargetChars: 24, maxSummaryChars: 20 });
+			summary: `ok\u001b[31m ${"b".repeat(200)}SUMMARY_END`,
+		}, theme);
 		for (const value of ["https://exam", "/end", "ok"]) expect(output).toContain(value);
 		for (const value of ["\u001b", "TARGET_SECRET", "SUMMARY_END"]) expect(output).not.toContain(value);
 	});

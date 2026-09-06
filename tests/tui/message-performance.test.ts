@@ -1,19 +1,21 @@
 import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createAssistantPerformanceTracker,
 	getAssistantPerformance,
-	resetAssistantPerformanceMeasurements,
 } from "../../src/tui/message-performance.js";
 
 beforeEach(() => {
-	resetAssistantPerformanceMeasurements();
+	createAssistantPerformanceTracker().reset();
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("assistant message performance", () => {
 	it("TTFT 同时保留可见思考和正文口径，TPS 只使用正文", () => {
 		let now = 0;
-		const tracker = createAssistantPerformanceTracker(() => now);
+		vi.spyOn(performance, "now").mockImplementation(() => now);
+		const tracker = createAssistantPerformanceTracker();
 		const message = assistantMessage([
 			{ type: "thinking", thinking: "summary" },
 			{ type: "text", text: "Hello world" },
@@ -42,7 +44,8 @@ describe("assistant message performance", () => {
 
 	it("正文只有一个观测点时不伪造 TPS", () => {
 		let now = 0;
-		const tracker = createAssistantPerformanceTracker(() => now);
+		vi.spyOn(performance, "now").mockImplementation(() => now);
+		const tracker = createAssistantPerformanceTracker();
 		const message = assistantMessage([{ type: "text", text: "buffered response" }]);
 
 		tracker.startRequest();
@@ -56,7 +59,8 @@ describe("assistant message performance", () => {
 
 	it("新 HTTP attempt 覆盖失败重试的起点", () => {
 		let now = 0;
-		const tracker = createAssistantPerformanceTracker(() => now);
+		vi.spyOn(performance, "now").mockImplementation(() => now);
+		const tracker = createAssistantPerformanceTracker();
 		const message = assistantMessage([{ type: "text", text: "Hello world" }]);
 
 		tracker.startRequest();

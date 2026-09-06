@@ -1,251 +1,79 @@
-import path from "node:path";
-import type { ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
-import { getTuiIconMode, tuiIcon } from "./icons.js";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatTokens, formatWorkspace } from "./format.js";
+import { tuiIcon } from "./icons.js";
 import { truncateMiddle } from "./text.js";
-import type { TuiFooterConfig, TuiFooterSegment, TuiFooterSnapshot, TuiIconMode } from "./types.js";
+import type { TuiFooterConfig, TuiSnapshot } from "./types.js";
 
 const NARROW_WIDTH = 80;
 
-type FooterDataBinder = (footerData: ReadonlyFooterDataProvider) => void;
-
-/** 生成 footer：首行展示工作区与 context，次行展示用量与工具启用数量。 */
-export function formatFooter(
-	snapshot: TuiFooterSnapshot,
-	config: TuiFooterConfig,
-	width: number,
-	theme: Pick<Theme, "fg">,
-	iconMode: TuiIconMode = getTuiIconMode(),
-): string[] {
-	const segments = width >= NARROW_WIDTH ? config.segments : config.narrow_segments;
-	const primary = renderPrimaryLine(snapshot, segments, width, theme, config, iconMode);
-	const secondary = renderSecondaryLine(snapshot, segments, width, theme, config, iconMode);
-	return secondary === undefined ? [primary] : [primary, secondary];
-}
-
-/** 自定义 footer 组件只保存纯快照读取函数，不持有 ExtensionContext。 */
-export class TuiFooterComponent implements Component {
-	private unsubscribe: (() => void) | undefined;
-
-	constructor(
-		private readonly tui: TUI,
-		private readonly theme: Theme,
-		footerData: ReadonlyFooterDataProvider,
-		private readonly config: TuiFooterConfig,
-		private readonly getSnapshot: () => TuiFooterSnapshot,
-		private readonly iconMode: TuiIconMode,
-		private readonly bindFooterData: FooterDataBinder,
-	) {
-		this.bindFooterData(footerData);
-		this.unsubscribe = footerData.onBranchChange(() => {
-			this.bindFooterData(footerData);
-			this.invalidate();
-			this.tui.requestRender();
-		});
+/** 字段按固定区域分组，组内保留配置顺序。固定字段只渲染一次。 */
+export function formatFooter(snapshot: TuiSnapshot, config: TuiFooterConfig, width: number, theme: Pick<Theme, "fg">): string[] {
+	const safeWidth = Math.max(1, Math.floor(width));
+	const segments = safeWidth >= NARROW_WIDTH ? config.segments : config.narrow_segments;
+	const separator = theme.fg("dim", " · ");
+	const workspace = theme.fg(config.style.workspace_color, truncateMiddle(formatWorkspace(snapshot.cwd), safeWidth > NARROW_WIDTH ? 40 : 22));
+	const git = snapshot.git ? theme.fg(config.style.git_color, `${tuiIcon("git")} ${snapshot.git}`) : undefined;
+	const context = snapshot.context !== undefined && snapshot.context.percent !== null ? formatContext(snapshot, theme) : undefined;
+	const cost = snapshot.costUsd !== undefined || snapshot.usingSubscription
+		? theme.fg("dim", `$${(snapshot.costUsd ?? 0).toFixed(3)}${snapshot.usingSubscription ? " (sub)" : ""}`) : undefined;
+	const left: string[] = [];
+	const right: string[] = [];
+	const secondary: Array<"tokens" | "cost"> = [];
+	for (const segment of segments) {
+		switch (segment) {
+			case "cwd": left.push(workspace); break;
+			case "git": if (git !== undefined) left.push(git); break;
+			case "ctx": if (context !== undefined) right.push(context); break;
+			case "tokens": case "cost": secondary.push(segment); break;
+		}
 	}
 
-	render(width: number): string[] {
-		return formatFooter(this.getSnapshot(), this.config, width, this.theme, this.iconMode);
-	}
-
-	invalidate(): void {}
-
-	dispose(): void {
-		this.unsubscribe?.();
-		this.unsubscribe = undefined;
-	}
+	const tools = theme.fg("dim", `tools ${snapshot.tools.activeNames.length}/${snapshot.tools.allNames.length}`);
+	const secondaryWidth = Math.max(1, safeWidth - visibleWidth(tools) - 1);
+	const costCount = cost === undefined ? 0 : secondary.filter((segment) => segment === "cost").length;
+	const tokenBudget = Math.max(1, secondaryWidth - costCount * (visibleWidth(cost ?? "") + visibleWidth(separator)));
+	const tokens = secondary.includes("tokens") ? formatTokenStats(snapshot, tokenBudget) : undefined;
+	const tokenText = tokens === undefined ? undefined : theme.fg("dim", tokens);
+	const usage = secondary.map((segment) => segment === "tokens" ? tokenText : cost).filter((part): part is string => part !== undefined).join(separator);
+	return [alignLine(left.join(separator), right.join(separator), safeWidth), alignLine(usage, tools, safeWidth)];
 }
 
-export function createFooterComponent(
-	config: TuiFooterConfig,
-	getSnapshot: () => TuiFooterSnapshot,
-	iconMode: TuiIconMode,
-	bindFooterData: FooterDataBinder,
-): (tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose(): void } {
-	return (tui, theme, footerData) => new TuiFooterComponent(tui, theme, footerData, config, getSnapshot, iconMode, bindFooterData);
-}
-
-function renderSegments(
-	snapshot: TuiFooterSnapshot,
-	segments: TuiFooterSegment[],
-	width: number,
-	theme: Pick<Theme, "fg">,
-	config: TuiFooterConfig,
-	iconMode: TuiIconMode,
-): string {
-	const parts = segments.map((segment) => renderSegment(snapshot, segment, width, theme, config, iconMode)).filter((part): part is string => part !== undefined && part.length > 0);
-	return parts.join(dim(theme, " · "));
-}
-
-function renderPrimaryLine(
-	snapshot: TuiFooterSnapshot,
-	segments: TuiFooterSegment[],
-	width: number,
-	theme: Pick<Theme, "fg">,
-	config: TuiFooterConfig,
-	iconMode: TuiIconMode,
-): string {
-	const left = renderSegments(snapshot, segments.filter(isLeftSegment), width, theme, config, iconMode);
-	const right = renderSegments(snapshot, segments.filter(isPrimaryRightSegment), width, theme, config, iconMode);
-	return alignLine(left, right, width);
-}
-
-function isLeftSegment(segment: TuiFooterSegment): boolean {
-	return segment === "cwd" || segment === "git";
-}
-
-function isPrimaryRightSegment(segment: TuiFooterSegment): boolean {
-	return segment === "ctx";
-}
-
-function renderSecondaryLine(
-	snapshot: TuiFooterSnapshot,
-	segments: TuiFooterSegment[],
-	width: number,
-	theme: Pick<Theme, "fg">,
-	config: TuiFooterConfig,
-	iconMode: TuiIconMode,
-): string | undefined {
-	const right = renderToolsCount(snapshot, theme);
-	const rightWidth = right === undefined ? 0 : visibleWidth(right);
-	const leftBudget = rightWidth === 0 ? width : Math.max(1, width - rightWidth - 1);
-	const left = renderSecondarySegments(snapshot, segments.filter(isSecondaryLeftSegment), leftBudget, theme, config, iconMode);
-	if (left.length === 0 && right === undefined) return undefined;
-	return alignLine(left, right ?? "", width);
-}
-
-function isSecondaryLeftSegment(segment: TuiFooterSegment): boolean {
-	return segment === "tokens" || segment === "cost";
-}
-
-function renderToolsCount(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
-	const tools = snapshot.tools;
-	if (tools === undefined) return undefined;
-	return dim(theme, `tools ${tools.activeNames.length}/${tools.totalCount}`);
-}
-
-/** 第二行要先扣除 cost/tools 宽度，再让 token 段自适应，避免 cache 命中率被最终截断吞掉。 */
-function renderSecondarySegments(
-	snapshot: TuiFooterSnapshot,
-	segments: TuiFooterSegment[],
-	width: number,
-	theme: Pick<Theme, "fg">,
-	config: TuiFooterConfig,
-	iconMode: TuiIconMode,
-): string {
-	const separator = dim(theme, " · ");
-	const tokenIndex = segments.indexOf("tokens");
-	if (tokenIndex === -1) return renderSegments(snapshot, segments, width, theme, config, iconMode);
-
-	const fixedParts = segments
-		.filter((segment) => segment !== "tokens")
-		.map((segment) => renderSegment(snapshot, segment, width, theme, config, iconMode))
-		.filter((part): part is string => part !== undefined && part.length > 0);
-	const fixedWidth = fixedParts.reduce((sum, part) => sum + visibleWidth(part), 0);
-	const separatorWidth = visibleWidth(separator) * fixedParts.length;
-	const tokenBudget = Math.max(1, width - fixedWidth - separatorWidth);
-	const parts = segments
-		.map((segment) => renderSegment(snapshot, segment, segment === "tokens" ? tokenBudget : width, theme, config, iconMode))
-		.filter((part): part is string => part !== undefined && part.length > 0);
-	return parts.join(separator);
-}
-
+/** 空间不足时两侧按原有比例截断，不采用 Home 的右侧优先策略。 */
 function alignLine(left: string, right: string, width: number): string {
-	const maxWidth = Math.max(1, width);
-	if (right.length === 0) return truncateToWidth(left, maxWidth, "…");
-	if (left.length === 0) return truncateToWidth(right, maxWidth, "…");
+	if (right.length === 0) return truncateToWidth(left, width, "…");
+	if (left.length === 0) return truncateToWidth(right, width, "…");
 	const leftWidth = visibleWidth(left);
 	const rightWidth = visibleWidth(right);
-	if (leftWidth + rightWidth + 1 <= maxWidth) {
-		const gap = maxWidth - leftWidth - rightWidth;
-		return `${left}${" ".repeat(Math.max(1, gap))}${right}`;
-	}
-	const leftMaxWidth = Math.min(leftWidth, Math.max(1, Math.floor((maxWidth - 1) * 0.55)));
-	const rightMaxWidth = Math.max(1, maxWidth - leftMaxWidth - 1);
-	const clippedLeft = truncateToWidth(left, leftMaxWidth, "…");
-	const clippedRight = truncateToWidth(right, rightMaxWidth, "…");
-	const gap = maxWidth - visibleWidth(clippedLeft) - visibleWidth(clippedRight);
-	return `${clippedLeft}${" ".repeat(Math.max(1, gap))}${clippedRight}`;
+	if (leftWidth + rightWidth + 1 <= width) return `${left}${" ".repeat(width - leftWidth - rightWidth)}${right}`;
+	const leftBudget = Math.min(leftWidth, Math.max(1, Math.floor((width - 1) * 0.55)));
+	const rightBudget = Math.max(1, width - leftBudget - 1);
+	const clippedLeft = truncateToWidth(left, leftBudget, "…");
+	const clippedRight = truncateToWidth(right, rightBudget, "…");
+	const gap = Math.max(1, width - visibleWidth(clippedLeft) - visibleWidth(clippedRight));
+	return truncateToWidth(`${clippedLeft}${" ".repeat(gap)}${clippedRight}`, width, "…");
 }
 
-function renderSegment(
-	snapshot: TuiFooterSnapshot,
-	segment: TuiFooterSegment,
-	width: number,
-	theme: Pick<Theme, "fg">,
-	config: TuiFooterConfig,
-	iconMode: TuiIconMode,
-): string | undefined {
-	if (segment === "cwd" && snapshot.cwd) {
-		const workspace = truncateMiddle(formatWorkspace(snapshot.cwd), width > NARROW_WIDTH ? 40 : 22);
-		return color(theme, config.style.workspace_color, workspace);
-	}
-	if (segment === "git" && snapshot.git) {
-		return color(theme, config.style.git_color, `${tuiIcon("git", iconMode)} ${snapshot.git}`);
-	}
-	if (segment === "ctx" && snapshot.context?.percent !== null && snapshot.context?.percent !== undefined) {
-		return formatContext(snapshot, theme);
-	}
-	if (segment === "tokens") {
-		return dimOptional(theme, formatTokenStats(snapshot, width));
-	}
-	if (segment === "cost" && (snapshot.costUsd !== undefined || snapshot.usingSubscription)) {
-		return dim(theme, `$${(snapshot.costUsd ?? 0).toFixed(3)}${snapshot.usingSubscription ? " (sub)" : ""}`);
-	}
-	return undefined;
-}
-
-/** 将 cwd 压缩为适合 TUI 的 workspace 文本，$HOME 下使用 ~。 */
-export function formatWorkspace(cwd: string): string {
-	const home = process.env["HOME"] || process.env["USERPROFILE"];
-	if (!home) return cwd;
-	const resolvedCwd = path.resolve(cwd);
-	const resolvedHome = path.resolve(home);
-	const relativeToHome = path.relative(resolvedHome, resolvedCwd);
-	const insideHome = relativeToHome === "" || (relativeToHome !== ".." && !relativeToHome.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeToHome));
-	if (!insideHome) return cwd;
-	return relativeToHome === "" ? "~" : `~/${relativeToHome.split(path.sep).join("/")}`;
-}
-
-/** 按 footer 规则格式化模型名；缺失模型时返回 undefined。 */
-export function formatModel(snapshot: TuiFooterSnapshot): string | undefined {
-	if (!snapshot.modelId) return undefined;
-	let label = snapshot.modelId;
-	if (snapshot.modelReasoning) {
-		const thinking = snapshot.thinkingLevel || "off";
-		label = thinking === "off" ? `${label} • thinking off` : `${label} • ${thinking}`;
-	}
-	if ((snapshot.availableProviderCount ?? 0) > 1 && snapshot.modelProvider) return `(${snapshot.modelProvider}) ${label}`;
-	return label;
-}
-
-/** 按 footer 规则格式化 context 百分比和窗口大小。 */
-export function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
+/** 同时用于启动横幅，未知用量在横幅中显示 ?。 */
+export function formatContext(snapshot: TuiSnapshot, theme: Pick<Theme, "fg">): string | undefined {
 	const usage = snapshot.context;
-	if (!usage) return undefined;
-	const contextWindow = usage.contextWindow || 0;
-	const percentValue = usage.percent ?? 0;
-	const percent = usage.percent === null ? "?" : percentValue.toFixed(1);
-	const value = usage.percent === null ? `?/${formatTokens(contextWindow)}` : `${percent}%/${formatTokens(contextWindow)}`;
-	const label = dim(theme, "ctx ");
-	if (usage.percent === null) return `${label}${theme.fg("muted", value)}`;
-	return `${label}${applyContextGradient(value, percentValue)}`;
+	if (usage === undefined) return undefined;
+	const label = theme.fg("dim", "ctx ");
+	const window = formatTokens(usage.contextWindow);
+	if (usage.percent === null) return `${label}${theme.fg("muted", `?/${window}`)}`;
+	return `${label}${applyContextGradient(`${usage.percent.toFixed(1)}%/${window}`, usage.percent)}`;
 }
 
-function formatTokenStats(snapshot: TuiFooterSnapshot, width: number): string | undefined {
-	const ioParts = [snapshot.inputTokens ? `↑${formatTokens(snapshot.inputTokens)}` : undefined, snapshot.outputTokens ? `↓${formatTokens(snapshot.outputTokens)}` : undefined].filter(
-		(part): part is string => part !== undefined,
-	);
-	const io = ioParts.join(" ");
+function formatTokenStats(snapshot: TuiSnapshot, width: number): string | undefined {
+	const io = [snapshot.inputTokens ? `↑${formatTokens(snapshot.inputTokens)}` : undefined, snapshot.outputTokens ? `↓${formatTokens(snapshot.outputTokens)}` : undefined]
+		.filter((part): part is string => part !== undefined).join(" ");
 	const cache = formatCacheStats(snapshot, width);
 	if (cache === undefined) return io.length > 0 ? io : undefined;
 	if (width < 44) return cache;
-	const cacheFirst = [cache, io].filter((part) => part.length > 0).join(" ");
-	if (width < 64) return cacheFirst;
-	return [io, cache].filter((part) => part.length > 0).join(" ");
+	return (width < 64 ? [cache, io] : [io, cache]).filter((part) => part.length > 0).join(" ");
 }
 
-function formatCacheStats(snapshot: TuiFooterSnapshot, width: number): string | undefined {
+function formatCacheStats(snapshot: TuiSnapshot, width: number): string | undefined {
 	const hasCounts = snapshot.cacheReadTokens !== undefined || snapshot.cacheWriteTokens !== undefined;
 	const hasRates = snapshot.latestCacheHitRate !== undefined || snapshot.totalCacheHitRate !== undefined;
 	if (!hasCounts && !hasRates) return undefined;
@@ -257,27 +85,6 @@ function formatCacheStats(snapshot: TuiFooterSnapshot, width: number): string | 
 	if (width < 44 && rates.length > 0) return `cache ${rates.join(" ")}`;
 	if (width < 64 && counts.length > 0) return `cache ${counts.join("/")} ${rates.join(" ")}`.trimEnd();
 	return `cache ${[...counts, ...rates].join(" ")}`;
-}
-
-/** 将 token 数压缩为短文本。 */
-export function formatTokens(count: number): string {
-	if (count < 1000) return count.toString();
-	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-	if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
-	if (count < 10_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-	return `${Math.round(count / 1_000_000)}M`;
-}
-
-function color(theme: Pick<Theme, "fg">, colorName: TuiFooterConfig["style"]["workspace_color"], text: string): string {
-	return theme.fg(colorName, text);
-}
-
-function dim(theme: Pick<Theme, "fg">, text: string): string {
-	return theme.fg("dim", text);
-}
-
-function dimOptional(theme: Pick<Theme, "fg">, text: string | undefined): string | undefined {
-	return text === undefined ? undefined : dim(theme, text);
 }
 
 function applyContextGradient(text: string, percent: number): string {

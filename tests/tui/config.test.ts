@@ -1,7 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { defaultTuiConfig, loadTuiConfig, TuiConfigError } from "../../src/tui/config.js";
+import { loadTuiConfig } from "../../src/tui/config.js";
+import { defaultTuiConfig } from "./fixtures.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
@@ -49,6 +50,6 @@ describe("tui config", () => {
 		const file = path.join(dir, "bad.jsonc");
 		await writeFile(file, text);
 		process.env.PI_TUI_CONFIG = file;
-		await expect(loadTuiConfig()).rejects.toBeInstanceOf(TuiConfigError);
+		await expect(loadTuiConfig()).rejects.toMatchObject({ name: "TuiConfigError" });
 	});
 });

@@ -1,19 +1,12 @@
 import { VERSION, type Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { WORDMARK_LINES } from "./brand.js";
 import { formatCapabilitySummary, summarizeCapabilityGroups } from "./capabilities.js";
-import { formatContext, formatModel, formatWorkspace } from "./footer.js";
+import { formatContext } from "./footer.js";
+import { formatModel, formatProject } from "./format.js";
 import { joinParts } from "./text.js";
-import type { TuiFooterSnapshot, TuiHomeConfig } from "./types.js";
+import type { TuiSnapshot, TuiHomeConfig } from "./types.js";
 
-const WORDMARK = String.raw`
- ██████╗     ██████╗ 
-██╔═══██╗    ██╔══██╗██╗
-██║   ██║    ██████╔╝
-██║   ██║    ██╔═══╝ ██║
-╚██████╔╝    ██║     ██║
- ╚═════╝     ╚═╝     ╚═╝
-`.replace(/^\n/, "").trimEnd();
-const WORDMARK_LINES = WORDMARK.split("\n");
 const FULL_HINTS = "/ commands · /stats · /tools · /agents · ctrl+o details · esc cancel";
 const TINY_HINTS = "/ commands · ctrl+o details";
 const STATUS_LABEL_WIDTH = 11;
@@ -24,7 +17,7 @@ type ResolvedLayout = "side_by_side" | "stacked" | "tiny";
 
 /** 复用旧版 regular startup banner；缺失数据直接省略，不伪造状态。 */
 export function formatStartupBanner(
-	snapshot: TuiFooterSnapshot,
+	snapshot: TuiSnapshot,
 	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
 	width: number,
 	theme: Pick<Theme, "fg">,
@@ -39,25 +32,13 @@ export function formatStartupBanner(
 	return ["", ...lines.map((line) => truncateToWidth(line, safeWidth, "…"))];
 }
 
-export function createStartupBannerComponent(
-	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
-	getSnapshot: () => TuiFooterSnapshot,
-): (tui: TUI, theme: Theme) => Component {
-	return (_tui, theme) => ({
-		render(width: number): string[] {
-			return formatStartupBanner(getSnapshot(), config, width, theme);
-		},
-		invalidate(): void {},
-	});
-}
-
 function resolveLayout(width: number): ResolvedLayout {
 	if (width < TINY_WIDTH) return "tiny";
 	return width >= SIDE_BY_SIDE_MIN_WIDTH ? "side_by_side" : "stacked";
 }
 
 function renderSideBySide(
-	snapshot: TuiFooterSnapshot,
+	snapshot: TuiSnapshot,
 	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
 	width: number,
 	theme: Pick<Theme, "fg">,
@@ -80,7 +61,7 @@ function renderSideBySide(
 }
 
 function renderStacked(
-	snapshot: TuiFooterSnapshot,
+	snapshot: TuiSnapshot,
 	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
 	width: number,
 	theme: Pick<Theme, "fg">,
@@ -91,12 +72,12 @@ function renderStacked(
 }
 
 function renderTiny(
-	snapshot: TuiFooterSnapshot,
+	snapshot: TuiSnapshot,
 	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
 	width: number,
 	theme: Pick<Theme, "fg">,
 ): string[] {
-	const workspace = formatWorkspaceWithGit(snapshot, theme);
+	const workspace = formatProject(snapshot, theme);
 	const title = color(theme, "accent", "O Pi");
 	const lines = [joinParts([title, workspace], color(theme, "dim", " · "))];
 	const tools = formatTinyTools(snapshot, config, width, theme);
@@ -106,12 +87,12 @@ function renderTiny(
 }
 
 function statusRows(
-	snapshot: TuiFooterSnapshot,
+	snapshot: TuiSnapshot,
 	config: Pick<TuiHomeConfig, "show_capabilities">,
 	width: number,
 	theme: Pick<Theme, "fg">,
 ): string[] {
-	const workspace = formatWorkspaceWithGit(snapshot, theme);
+	const workspace = formatProject(snapshot, theme);
 	const model = formatModel(snapshot);
 	const contextStatus = formatContextStatus(snapshot, theme);
 	const tools = formatTools(snapshot, config, width, theme);
@@ -132,32 +113,22 @@ function row(label: string, value: string, width: number, theme: Pick<Theme, "fg
 	return truncateToWidth(`${labelText}${truncateToWidth(value, valueWidth, "…")}`, width, "…");
 }
 
-function formatWorkspaceWithGit(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
-	if (!snapshot.cwd) return undefined;
-	const workspace = color(theme, "accent", formatWorkspace(snapshot.cwd));
-	if (!snapshot.git) return workspace;
-	return joinParts([workspace, color(theme, "success", snapshot.git)], color(theme, "dim", " · "));
-}
-
-function formatContextStatus(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
+function formatContextStatus(snapshot: TuiSnapshot, theme: Pick<Theme, "fg">): string | undefined {
 	const context = snapshot.context === undefined ? undefined : formatContext(snapshot, theme);
 	if (context === undefined) return undefined;
-	const status = snapshot.status === undefined
-		? undefined
-		: color(theme, snapshot.status === "ready" ? "success" : "warning", snapshot.status);
+	const status = color(theme, snapshot.status === "ready" ? "success" : "warning", snapshot.status);
 	return joinParts([context, status], color(theme, "dim", " · ")) || undefined;
 }
 
 function formatTools(
-	snapshot: TuiFooterSnapshot,
+	snapshot: TuiSnapshot,
 	config: Pick<TuiHomeConfig, "show_capabilities">,
 	width: number,
 	theme: Pick<Theme, "fg">,
 ): string | undefined {
 	const tools = snapshot.tools;
-	if (tools === undefined) return undefined;
 	const activeCount = tools.activeNames.length;
-	const totalCount = tools.totalCount;
+	const totalCount = tools.allNames.length;
 	const count = color(theme, activeCount === totalCount ? "success" : "warning", `${activeCount}/${totalCount}`);
 	if (!config.show_capabilities) return count;
 	const usedWidth = visibleWidth(count) + visibleWidth(" · ");
@@ -169,7 +140,7 @@ function formatTools(
 	return joinParts([count, summary], color(theme, "dim", " · "));
 }
 
-function formatSkills(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
+function formatSkills(snapshot: TuiSnapshot, theme: Pick<Theme, "fg">): string | undefined {
 	const skills = snapshot.skills;
 	if (skills === undefined) return undefined;
 	return joinParts(
@@ -179,15 +150,14 @@ function formatSkills(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): st
 }
 
 function formatTinyTools(
-	snapshot: TuiFooterSnapshot,
+	snapshot: TuiSnapshot,
 	config: Pick<TuiHomeConfig, "show_capabilities">,
 	width: number,
 	theme: Pick<Theme, "fg">,
 ): string | undefined {
 	const tools = snapshot.tools;
-	if (tools === undefined) return undefined;
 	const activeCount = tools.activeNames.length;
-	const totalCount = tools.totalCount;
+	const totalCount = tools.allNames.length;
 	const count = color(theme, activeCount === totalCount ? "success" : "warning", `${activeCount}/${totalCount} tools`);
 	if (!config.show_capabilities) {
 		return truncateToWidth(joinParts([count, formatTinySkills(snapshot)], color(theme, "dim", " · ")), width, "…");
@@ -201,7 +171,7 @@ function formatTinyTools(
 	);
 }
 
-function formatTinySkills(snapshot: TuiFooterSnapshot): string | undefined {
+function formatTinySkills(snapshot: TuiSnapshot): string | undefined {
 	const skills = snapshot.skills;
 	if (skills === undefined) return undefined;
 	return `skills:${skills.totalCount} model:${skills.modelInvocableCount}`;

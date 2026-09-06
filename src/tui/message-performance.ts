@@ -18,12 +18,12 @@ interface ActiveMeasurement {
 const completedMeasurements = new Map<string, AssistantPerformance>();
 
 /** 跟踪一次 native TUI 会话中的模型请求；计时使用单调时钟，避免系统时间调整。 */
-export function createAssistantPerformanceTracker(now: () => number = () => performance.now()) {
+export function createAssistantPerformanceTracker() {
 	let active: ActiveMeasurement | undefined;
 
 	return {
 		startRequest(): void {
-			active = { requestStartedAt: now() };
+			active = { requestStartedAt: performance.now() };
 		},
 
 		startMessage(message: AssistantMessage): void {
@@ -33,7 +33,7 @@ export function createAssistantPerformanceTracker(now: () => number = () => perf
 
 		updateMessage(message: AssistantMessage, event: AssistantMessageEvent): void {
 			if (active?.messageKey !== messageKey(message)) return;
-			const at = now();
+			const at = performance.now();
 			if (event.type === "thinking_delta" && event.delta.trim().length > 0) {
 				active.firstThinkingAt ??= at;
 			} else if (event.type === "thinking_end" && active.firstThinkingAt === undefined && event.content.trim().length > 0) {
@@ -63,10 +63,6 @@ export function createAssistantPerformanceTracker(now: () => number = () => perf
 
 export function getAssistantPerformance(message: AssistantMessage): AssistantPerformance | undefined {
 	return completedMeasurements.get(messageKey(message));
-}
-
-export function resetAssistantPerformanceMeasurements(): void {
-	completedMeasurements.clear();
 }
 
 function finalizeMeasurement(active: ActiveMeasurement, message: AssistantMessage): AssistantPerformance | undefined {

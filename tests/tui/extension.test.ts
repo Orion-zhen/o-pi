@@ -15,10 +15,11 @@ import {
 } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import tuiExtension, { createTuiExtension } from "../../agent/extensions/tui.js";
-import { getAssistantPerformance } from "../../src/tui/message-performance.js";
-import { createTuiRuntime, type MathMarkdownModule } from "../../src/tui/runtime.js";
+import type { TuiRuntime } from "../../src/tui/runtime.js";
+
+type MathMarkdownModule = typeof import("../../src/tui/math-markdown.js");
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
+import { deferred } from "../helpers/async.js";
 
 type Handler = (event: unknown, ctx: ExtensionContextStub) => Promise<void> | void;
 type TuiStub = { mode: TuiMode; requestRender(): void };
@@ -72,15 +73,24 @@ interface ModelStub {
 }
 
 let dir: string;
+const cleanups: Array<() => Promise<void> | void> = [];
 const temp = useTempDir("o-pi-tui-extension-");
 preserveEnv("PI_TUI_CONFIG", "HOME", "USERPROFILE");
 
 beforeEach(() => {
 	dir = temp.path;
 	setTestHome(dir);
+	vi.resetModules();
+	vi.doMock("../../src/tui/math-markdown.js", createMathFixture().load);
+	vi.doMock("../../src/notification/native.js", () => ({ notifyWaiting: vi.fn(async () => {}) }));
 });
 
-afterEach(() => {
+afterEach(async () => {
+	for (const cleanup of cleanups.splice(0)) await cleanup();
+	vi.doUnmock("../../src/tui/runtime.js");
+	vi.doUnmock("../../src/tui/math-markdown.js");
+	vi.doUnmock("../../src/notification/native.js");
+	vi.restoreAllMocks();
 	vi.useRealTimers();
 });
 
@@ -185,7 +195,7 @@ describe("tui extension", () => {
 		expect(chatRender).toHaveBeenCalledOnce();
 		await handlers.get("session_shutdown")?.({}, ctx);
 
-		await handlers.get("session_start")?.({}, ctx);
+		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
 		const restartedBanner = calls.header.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme);
 		expect(restartedBanner?.render(120).join("\n")).not.toContain("ignored-after-dispose");
 		await handlers.get("session_shutdown")?.({}, ctx);
@@ -243,13 +253,11 @@ describe("tui extension", () => {
 
 	it("首轮对话前 model_select 刷新 startup chrome 和 title", async () => {
 		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
-		const footerCount = calls.footer.length;
+		const header = calls.header.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme);
+		const footer = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
 		ctx.model = { provider: "openai", id: "gpt-5.2", reasoning: true };
 		await handlers.get("model_select")?.({ type: "model_select", model: ctx.model, previousModel: undefined, source: "set" }, ctx);
 
-		const header = calls.header.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme);
-		const footer = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
-		expect(calls.footer.length).toBeGreaterThan(footerCount);
 		expect(header?.render(120).join("\n")).toContain("gpt-5.2");
 		expect(footer?.render(120).join("\n")).toContain("tools 1/3");
 		expect(calls.title.at(-1)).toContain("gpt-5.2");
@@ -259,7 +267,10 @@ describe("tui extension", () => {
 	it("agent_settled 仅在 TUI 模式通知用户", async () => {
 		const handlers = new Map<string, Handler>();
 		const notifyUser = vi.fn(async () => {});
-		createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, undefined, notifyUser);
+		vi.doMock("../../src/notification/native.js", () => ({ notifyWaiting: notifyUser }));
+		const { createTuiRuntime } = await import("../../src/tui/runtime.js");
+		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI);
+		cleanups.push(() => runtime.dispose());
 
 		await handlers.get("agent_settled")?.({}, createContext(createUiCalls(), { mode: "tui" }));
 		await handlers.get("agent_settled")?.({}, createContext(createUiCalls(), { mode: "rpc" }));
@@ -278,7 +289,7 @@ describe("tui extension", () => {
 		expect(calls.status).toHaveLength(statusCount);
 		expect(calls.status.at(-1)?.text).toContain("ready");
 		expect(notifyUser).not.toHaveBeenCalled();
-		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+		await runtime.dispose();
 	});
 
 	it("agent run 在 turn_end 刷新快照但只在 agent 生命周期边界切换全局状态", async () => {
@@ -296,7 +307,7 @@ describe("tui extension", () => {
 		expect(calls.status.at(-1)?.text).toContain("ready");
 		expect(notifyUser).toHaveBeenCalledOnce();
 		expect(vi.getTimerCount()).toBe(1);
-		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+		await runtime.dispose();
 	});
 
 	it("系统通知失败不影响 waiting 和 ready 状态", async () => {
@@ -305,11 +316,11 @@ describe("tui extension", () => {
 		});
 		await handlers.get("agent_start")?.({}, ctx);
 
-		await expect(handlers.get("ui_prompt_start")?.({}, ctx)).resolves.toBeUndefined();
+		await handlers.get("ui_prompt_start")?.({}, ctx);
 		expect(calls.status.at(-1)?.text).toContain("waiting");
 		await expect(handlers.get("agent_settled")?.({}, ctx)).resolves.toBeUndefined();
 		expect(calls.status.at(-1)?.text).toContain("ready");
-		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+		await runtime.dispose();
 	});
 
 	it("provider 和消息事件接入模型性能跟踪", async () => {
@@ -332,6 +343,7 @@ describe("tui extension", () => {
 		}, ctx);
 		await handlers.get("message_end")?.({ message }, ctx);
 
+		const { getAssistantPerformance } = await import("../../src/tui/message-performance.js");
 		expect(getAssistantPerformance(message)).toMatchObject({ bodyTps: 20, ttftWithoutThinkingMs: 100 });
 		now.mockRestore();
 	});
@@ -351,7 +363,8 @@ describe("tui extension", () => {
 		const loadRuntime = vi.fn(async () => {
 			throw new Error("TUI runtime must not load");
 		});
-		const { handlers, calls } = await startTui({ mode }, {}, createTuiExtension(undefined, loadRuntime));
+		vi.doMock("../../src/tui/runtime.js", loadRuntime);
+		const { handlers, calls } = await startTui({ mode });
 
 		expect(loadRuntime).not.toHaveBeenCalled();
 		expect([...handlers.keys()]).toEqual(["session_start"]);
@@ -363,59 +376,59 @@ describe("tui extension", () => {
 		expect(vi.getTimerCount()).toBe(0);
 	});
 
-	it("重复加载同一 extension 不重复注册 native handler", async () => {
-		const handlers = new Map<string, Handler>();
-		const on = vi.fn((name: string, handler: Handler) => {
-			handlers.set(name, handler);
-		});
-		const pi = { ...createPi(handlers), on };
-		const loadRuntime = vi.fn(async () => ({
-			createTuiRuntime: () => ({ startSession: vi.fn(async () => {}), dispose: vi.fn() }),
-		}));
-		const extension = createTuiExtension(undefined, loadRuntime);
-
-		extension(pi as unknown as ExtensionAPI);
-		const registrationsAfterFirstLoad = on.mock.calls.length;
-		extension(pi as unknown as ExtensionAPI);
-
-		expect(on).toHaveBeenCalledTimes(registrationsAfterFirstLoad);
-		expect([...handlers.keys()]).toEqual(["session_start"]);
-	});
-
 	it("native runtime 只加载并创建一次，但为每个 session_start 重置状态", async () => {
 		const startSession = vi.fn(async () => {});
-		const dispose = vi.fn();
-		const createRuntime = vi.fn(() => ({ startSession, dispose }));
+		const dispose = vi.fn(async () => {});
+		const createRuntime = vi.fn((): TuiRuntime => ({ startSession, dispose }));
 		const loadRuntime = vi.fn(async () => ({ createTuiRuntime: createRuntime }));
-		const { handlers, ctx } = await startTui({ mode: "tui" }, {}, createTuiExtension(undefined, loadRuntime));
-		await handlers.get("session_start")?.({}, ctx);
+		vi.doMock("../../src/tui/runtime.js", loadRuntime);
+		const { handlers, ctx } = await startTui({ mode: "tui" });
+		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
 
 		expect(loadRuntime).toHaveBeenCalledOnce();
 		expect(createRuntime).toHaveBeenCalledOnce();
 		expect(startSession).toHaveBeenCalledTimes(2);
+		expect(startSession).toHaveBeenNthCalledWith(1, ctx, true);
+		expect(startSession).toHaveBeenNthCalledWith(2, ctx, false);
 	});
 
 	it("native runtime 动态加载失败时通知并保持非 TUI 隔离", async () => {
 		const loadRuntime = vi.fn(async () => {
 			throw new Error("runtime unavailable");
 		});
-		const { calls } = await startTui({ mode: "tui" }, {}, createTuiExtension(undefined, loadRuntime));
+		vi.doMock("../../src/tui/runtime.js", loadRuntime);
+		const { calls } = await startTui({ mode: "tui" });
 
 		expect(calls.notifications).toHaveLength(1);
-		expect(calls.notifications[0]).toMatchObject({ message: expect.stringContaining("runtime unavailable"), type: "warning" });
+		expect(calls.notifications[0]).toMatchObject({ message: expect.stringMatching(/^TUI runtime initialization failed: .+/u), type: "warning" });
 		expect(calls.title).toEqual([]);
 		expect(calls.status).toEqual([]);
+	});
+
+	it("runtime 模块加载失败后，下一个会话可以重新加载", async () => {
+		const startSession = vi.fn(async () => {});
+		const loadRuntime = vi.fn()
+			.mockRejectedValueOnce(new Error("load failed"))
+			.mockResolvedValue({ createTuiRuntime: () => ({ startSession, async dispose() {} }) });
+		vi.doMock("../../src/tui/runtime.js", loadRuntime);
+		const { handlers, calls, ctx } = await startTui();
+		vi.doMock("../../src/tui/runtime.js", loadRuntime);
+		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
+		expect(loadRuntime).toHaveBeenCalledTimes(2);
+		expect(startSession).toHaveBeenCalledOnce();
+		expect(calls.notifications).toHaveLength(1);
 	});
 
 	it("native runtime session 初始化失败时清理已创建资源", async () => {
 		const startSession = vi.fn(async () => {
 			throw new Error("config unavailable");
 		});
-		const dispose = vi.fn();
+		const dispose = vi.fn(async () => {});
 		const loadRuntime = vi.fn(async () => ({ createTuiRuntime: () => ({ startSession, dispose }) }));
-		const { calls, ctx } = await startTui({ mode: "tui" }, {}, createTuiExtension(undefined, loadRuntime));
+		vi.doMock("../../src/tui/runtime.js", loadRuntime);
+		const { calls } = await startTui({ mode: "tui" });
 
-		expect(dispose).toHaveBeenCalledWith(ctx);
+		expect(dispose).toHaveBeenCalledOnce();
 		expect(calls.notifications).toHaveLength(1);
 		expect(calls.notifications[0]).toMatchObject({ message: expect.stringContaining("config unavailable"), type: "warning" });
 	});
@@ -450,7 +463,7 @@ describe("tui extension", () => {
 
 		await handlers.get("agent_settled")?.({}, ctx);
 		expect(vi.getTimerCount()).toBe(0);
-		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+		await runtime.dispose();
 	});
 
 	it("动态加载完成后若 Agent 已运行则等待下一次 settled", async () => {
@@ -483,7 +496,7 @@ describe("tui extension", () => {
 		expect(load).toHaveBeenCalledOnce();
 		expect(math.install).toHaveBeenCalledOnce();
 		expect(math.warm).toHaveBeenCalledOnce();
-		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+		await runtime.dispose();
 	});
 
 	it("字体加载失败由 runtime 警告且不会标记为 warmed", async () => {
@@ -506,13 +519,93 @@ describe("tui extension", () => {
 		await vi.advanceTimersToNextTimerAsync();
 		expect(math.warm).toHaveBeenCalledTimes(2);
 		expect(calls.notifications).toHaveLength(2);
-		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+		await runtime.dispose();
+	});
+
+	it("排队消息未处理时不加载数学后端", async () => {
+		vi.useFakeTimers();
+		let pending = true;
+		const math = createMathFixture();
+		const { handlers, ctx, runtime } = await startRuntime({
+			context: { hasPendingMessages: () => pending }, loadMathMarkdown: math.load, notifyUser: async () => {},
+		});
+		await vi.advanceTimersByTimeAsync(750);
+		expect(math.load).not.toHaveBeenCalled();
+		pending = false;
+		await handlers.get("agent_settled")?.({}, ctx);
+		await vi.advanceTimersByTimeAsync(750);
+		expect(math.warm).toHaveBeenCalledOnce();
+		await runtime.dispose();
+	});
+
+	it("旧会话加载完成后不更新界面，新会话复用模块再初始化", async () => {
+		vi.useFakeTimers();
+		const loaded = deferred<MathMarkdownModule>();
+		const math = createMathFixture();
+		const load = vi.fn(() => loaded.promise);
+		vi.doMock("../../src/tui/math-markdown.js", load);
+		const { handlers, calls, ctx } = await startTui();
+		await vi.advanceTimersByTimeAsync(750);
+		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
+		const statusCount = calls.status.length;
+		loaded.resolve(math.module);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(math.install).not.toHaveBeenCalled();
+		expect(calls.status).toHaveLength(statusCount);
+		await vi.advanceTimersByTimeAsync(750);
+		expect(load).toHaveBeenCalledOnce();
+		expect(math.warm).toHaveBeenCalledOnce();
+		await handlers.get("session_shutdown")?.({}, ctx);
+	});
+
+	it("字体预热期间开始 Agent，完成预热不能把 running 改回 ready", async () => {
+		vi.useFakeTimers();
+		let idle = true;
+		const warmed = deferred<void>();
+		const math = createMathFixture(() => warmed.promise);
+		const { handlers, calls, ctx, runtime } = await startRuntime({ context: { isIdle: () => idle }, loadMathMarkdown: math.load });
+		await vi.advanceTimersByTimeAsync(750);
+		expect(math.warm).toHaveBeenCalledOnce();
+		idle = false;
+		await handlers.get("agent_start")?.({}, ctx);
+		const statusCount = calls.status.length;
+		warmed.resolve();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(calls.status).toHaveLength(statusCount);
+		expect(calls.status.at(-1)?.text).toContain("running");
+		await runtime.dispose();
+	});
+
+	it("关闭会话时停用已安装的数学补丁", async () => {
+		vi.useFakeTimers();
+		const math = createMathFixture();
+		const { runtime } = await startRuntime({ loadMathMarkdown: math.load });
+		await vi.advanceTimersByTimeAsync(750);
+		expect(math.install).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true }));
+		await runtime.dispose();
+		expect(math.install).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+	});
+
+	it("关闭 TUI 增强时不安装编辑器或加载数学模块", async () => {
+		vi.useFakeTimers();
+		const file = path.join(dir, "tui.jsonc");
+		await writeFile(file, '{ "enabled": false }');
+		process.env["PI_TUI_CONFIG"] = file;
+		const math = createMathFixture();
+		const { calls, runtime } = await startRuntime({ loadMathMarkdown: math.load });
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(calls.editor).toEqual([]);
+		expect(calls.header.at(-1)).toBeUndefined();
+		expect(calls.footer.at(-1)).toBeUndefined();
+		expect(math.load).not.toHaveBeenCalled();
+		await runtime.dispose();
 	});
 
 	it("session 关闭会取消尚未开始的数学渲染初始化", async () => {
 		vi.useFakeTimers();
 		const math = createMathFixture();
-		const { handlers, ctx } = await startTui({ mode: "tui" }, {}, createTuiExtension(math.load));
+		vi.doMock("../../src/tui/math-markdown.js", math.load);
+		const { handlers, ctx } = await startTui({ mode: "tui" });
 		await handlers.get("session_shutdown")?.({}, ctx);
 		await vi.runAllTimersAsync();
 
@@ -585,14 +678,18 @@ function createFooterDataController(initialBranch: string | null): {
 
 async function startRuntime(options: {
 	context?: Parameters<typeof createContext>[1];
-	loadMathMarkdown?: Parameters<typeof createTuiRuntime>[1];
-	notifyUser?: Parameters<typeof createTuiRuntime>[2];
+	loadMathMarkdown?: () => Promise<MathMarkdownModule>;
+	notifyUser?: () => Promise<void>;
 } = {}) {
+	if (options.loadMathMarkdown) vi.doMock("../../src/tui/math-markdown.js", options.loadMathMarkdown);
+	if (options.notifyUser) vi.doMock("../../src/notification/native.js", () => ({ notifyWaiting: options.notifyUser }));
+	const { createTuiRuntime } = await import("../../src/tui/runtime.js");
 	const handlers = new Map<string, Handler>();
 	const calls = createUiCalls();
 	const ctx = createContext(calls, options.context);
-	const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, options.loadMathMarkdown, options.notifyUser);
-	await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+	const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI);
+	cleanups.push(() => runtime.dispose());
+	await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0], false);
 	return { handlers, calls, ctx, runtime };
 }
 
@@ -610,13 +707,14 @@ function createMathFixture(warmDisplayMathRenderer: () => Promise<void> = async 
 async function startTui(
 	options: Parameters<typeof createContext>[1] = {},
 	piOptions: Parameters<typeof createPi>[1] = {},
-	extension: (pi: ExtensionAPI) => void = tuiExtension,
 ): Promise<{ handlers: Map<string, Handler>; calls: ReturnType<typeof createUiCalls>; ctx: ExtensionContextStub }> {
+	const { default: extension } = await import("../../agent/extensions/tui.js");
 	const handlers = new Map<string, Handler>();
 	const calls = createUiCalls();
 	const ctx = createContext(calls, options);
 	extension(createPi(handlers, piOptions) as unknown as ExtensionAPI);
-	await handlers.get("session_start")?.({}, ctx);
+	cleanups.push(() => handlers.get("session_shutdown")?.({}, ctx));
+	await handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, ctx);
 	return { handlers, calls, ctx };
 }
 

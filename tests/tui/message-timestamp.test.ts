@@ -6,15 +6,12 @@ import {
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createAssistantPerformanceTracker,
-	resetAssistantPerformanceMeasurements,
 } from "../../src/tui/message-performance.js";
 import {
 	configureMessageTimestampRenderer,
-	formatAssistantPerformance,
-	formatMessageTimestamp,
 	recordUserMessageTimestamp,
 	resetUserMessageTimestamps,
 } from "../../src/tui/message-timestamp.js";
@@ -49,22 +46,12 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-	resetAssistantPerformanceMeasurements();
+	createAssistantPerformanceTracker().reset();
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("message timestamp", () => {
-	it("按本地时区格式化日期和秒", () => {
-		expect(formatMessageTimestamp(timestamp)).toBe(label);
-		expect(formatMessageTimestamp(Number.NaN)).toBeUndefined();
-	});
-
-	it("格式化正文 TPS，并按思考可见性选择 TTFT", () => {
-		const performance = { bodyTps: 42.34, ttftWithThinkingMs: 850, ttftWithoutThinkingMs: 1_250 };
-
-		expect(formatAssistantPerformance(performance, false)).toBe("[TPS: 42.3, TTFT: 850ms]");
-		expect(formatAssistantPerformance(performance, true)).toBe("[TPS: 42.3, TTFT: 1.25s]");
-	});
-
 	it("用户消息完整重建时复用原始时间且不丢失时间戳", () => {
 		resetUserMessageTimestamps([userMessage("first", timestamp), userMessage("second", timestamp + 1_000)]);
 		const first = new UserMessageComponent("first", markdownTheme, 1).render(40);
@@ -102,6 +89,26 @@ describe("message timestamp", () => {
 		assertTimestamp(lines, width);
 	});
 
+	it("时间戳补丁完整透传流式状态，并保留省略参数时的原生行为", () => {
+		const observed: boolean[] = [];
+		const message = assistantMessage([{ type: "text", text: "answer" }], timestamp);
+		const component = new AssistantMessageComponent(undefined, false, markdownTheme, "Thinking...", 1, [
+			(text, context) => {
+				observed.push(context.isStreaming);
+				return text;
+			},
+		]);
+
+		component.updateContent(message, true);
+		component.render(80);
+		component.updateContent(message);
+		component.render(80);
+		component.updateContent(message, false);
+		component.render(80);
+
+		expect(observed).toEqual([true, true, false]);
+	});
+
 	it("思考内容完成后也不显示时间戳", () => {
 		const message = assistantMessage([{ type: "thinking", thinking: "reasoning" }], timestamp);
 		const lines = new AssistantMessageComponent(message, false, markdownTheme, "Thinking...", 1).render(40);
@@ -123,7 +130,8 @@ describe("message timestamp", () => {
 
 	it("隐藏思考时使用首个正文 token 的 TTFT，并在窄宽下安全降级", () => {
 		let now = 0;
-		const tracker = createAssistantPerformanceTracker(() => now);
+		vi.spyOn(performance, "now").mockImplementation(() => now);
+		const tracker = createAssistantPerformanceTracker();
 		const message = assistantMessage([
 			{ type: "thinking", thinking: "summary" },
 			{ type: "text", text: "Hello world" },

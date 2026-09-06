@@ -1,7 +1,7 @@
 import type { TuiIconMode } from "./types.js";
 
 export type ToolCardStatus = "running" | "success" | "error" | "warning" | "neutral";
-export type TuiIconName = "git";
+type TuiIconName = "git";
 
 const toolStatusIcons: Record<TuiIconMode, Record<ToolCardStatus, string>> = {
 	ascii: {
@@ -40,16 +40,12 @@ export function configureTuiIconMode(mode: TuiIconMode): void {
 	currentMode = mode;
 }
 
-export function getTuiIconMode(): TuiIconMode {
-	return currentMode;
-}
-
 /** 返回统一图标表中的界面图标。 */
-export function tuiIcon(name: TuiIconName, mode: TuiIconMode = currentMode): string {
-	return tuiIcons[mode][name];
+export function tuiIcon(name: TuiIconName): string {
+	return tuiIcons[currentMode][name];
 }
 
 /** 返回与全局图标模式一致的工具状态图标。 */
-export function statusIcon(status: ToolCardStatus, mode: TuiIconMode = currentMode): string {
-	return toolStatusIcons[mode][status];
+export function statusIcon(status: ToolCardStatus): string {
+	return toolStatusIcons[currentMode][status];
 }

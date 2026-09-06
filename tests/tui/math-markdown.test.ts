@@ -116,6 +116,35 @@ describe("math markdown renderer", () => {
 		expect(output).toContain(expected);
 	});
 
+	it("连续公式各渲染一次，围栏中的分隔符不会成为公式块", () => {
+		const source = "$$x^2$$\n\n```latex\n$$ignored$$\n```\n\n\\[y^2\\]";
+		const lines = renderLines(source);
+		expect(lines.filter((line) => getKittyImageMetadata(line) !== undefined)).toHaveLength(2);
+		expect(lines.join("\n")).toContain("$$ignored$$");
+	});
+
+	it.each([
+		["未闭合围栏", "~~~latex\n$$x^2$$"],
+		["围栏中的结束符", "\\[x^2\n```latex\n\\]\n```"],
+		["转义结束符", "\\[x^2\\\\]"],
+		["结束符后的正文", "\\[x^2\\] trailing"],
+	])("%s不生成图片", (_name, source) => {
+		expect(render(source)).not.toContain("\u001b_G");
+	});
+
+	it("未闭合公式不吞掉后续独立公式", () => {
+		const lines = renderLines("$$ pending\n\n\\[x^2\\]");
+		expect(lines.filter((line) => getKittyImageMetadata(line) !== undefined)).toHaveLength(1);
+		expect(lines.join("\n")).toContain("pending");
+	});
+
+	it("CRLF 与缩进不改变公式顺序", () => {
+		const lines = renderLines("before\r\n  $$x^2$$\r\n   \\[y^2\\]\r\nafter");
+		expect(lines.filter((line) => getKittyImageMetadata(line) !== undefined)).toHaveLength(2);
+		expect(lines.join("\n")).toContain("before");
+		expect(lines.join("\n")).toContain("after");
+	});
+
 	it("Pi 不支持的行内命令保留源码而不进入图片后端", () => {
 		const output = render("Inline $\\braket{\\psi|\\phi}$ done");
 		expect(output).toContain("$\\braket{\\psi|\\phi}$");

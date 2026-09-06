@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { TuiFooterToolsSnapshot } from "./types.js";
+import type { TuiToolsSnapshot } from "./types.js";
 
 /** Home 中展示的用户语义能力分组，避免暴露扩展文件名。 */
 interface CapabilityGroupDefinition {
@@ -9,7 +9,7 @@ interface CapabilityGroupDefinition {
 }
 
 /** 当前工具启用状态在某个能力分组下的汇总。 */
-export interface CapabilityGroupSummary {
+interface CapabilityGroupSummary {
 	label: string;
 	activeCount: number;
 	totalCount: number;
@@ -25,8 +25,7 @@ const CAPABILITY_GROUPS: readonly CapabilityGroupDefinition[] = [
 ];
 
 /** 按采集边界提供的工具全集和启用子集汇总能力分组。 */
-export function summarizeCapabilityGroups(tools: TuiFooterToolsSnapshot | undefined): CapabilityGroupSummary[] {
-	if (tools === undefined) return [];
+export function summarizeCapabilityGroups(tools: TuiToolsSnapshot): CapabilityGroupSummary[] {
 	return CAPABILITY_GROUPS.map((group) => {
 		const groupToolSet = new Set(group.toolNames);
 		return {

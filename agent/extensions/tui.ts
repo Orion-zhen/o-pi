@@ -1,61 +1,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { MathMarkdownLoader, TuiRuntime, TuiRuntimeModule } from "../../src/tui/runtime.js";
+import type { TuiRuntime } from "../../src/tui/runtime.js";
 
-export type { MathMarkdownLoader, MathMarkdownModule, TuiRuntime, TuiRuntimeModule } from "../../src/tui/runtime.js";
-
-/** o-pi TUI 的 native-only bootstrap；非 TUI 模式不会加载 TUI runtime。 */
-const registeredApis = new WeakSet<object>();
-
-export function createTuiExtension(
-	loadMathMarkdown?: MathMarkdownLoader,
-	loadTuiRuntime: TuiRuntimeLoader = loadDefaultTuiRuntime,
-): (pi: ExtensionAPI) => void {
-	return (pi) => {
-		if (registeredApis.has(pi)) return;
-		registeredApis.add(pi);
-		let runtime: TuiRuntime | undefined;
-		let runtimeModule: TuiRuntimeModule | undefined;
-		let runtimeLoad: Promise<TuiRuntimeModule> | undefined;
-
-		pi.on("session_start", async (event, ctx) => {
-			if (ctx.mode !== "tui") return;
-			try {
-				const module = await getTuiRuntime();
-				runtime ??= module.createTuiRuntime(pi, loadMathMarkdown);
-				await runtime.startSession(ctx, { replaySessionMessages: event.reason === "startup" });
-			} catch (error) {
-				await runtime?.dispose(ctx);
-				ctx.ui.notify(`TUI runtime initialization failed: ${stringifyError(error)}`, "warning");
-			}
-		});
-
-		function getTuiRuntime(): Promise<TuiRuntimeModule> {
-			if (runtimeModule !== undefined) return Promise.resolve(runtimeModule);
-			if (runtimeLoad !== undefined) return runtimeLoad;
-			const pending = loadTuiRuntime().then((module) => {
-				runtimeModule = module;
-				runtimeLoad = undefined;
-				return module;
-			}, (error: unknown) => {
-				runtimeLoad = undefined;
-				throw error;
-			});
-			runtimeLoad = pending;
-			return pending;
+/** Pi 为每次扩展初始化提供独立 API，非 TUI 模式不加载运行时。 */
+export default function tuiExtension(pi: ExtensionAPI): void {
+	let runtime: TuiRuntime | undefined;
+	pi.on("session_start", async (event, ctx) => {
+		if (ctx.mode !== "tui") return;
+		try {
+			const module = await import("../../src/tui/runtime.js");
+			runtime ??= module.createTuiRuntime(pi);
+			await runtime.startSession(ctx, event.reason === "startup");
+		} catch (error) {
+			await runtime?.dispose();
+			const message = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`TUI runtime initialization failed: ${message}`, "warning");
 		}
-	};
+	});
 }
-
-export type TuiRuntimeLoader = () => Promise<TuiRuntimeModule>;
-
-async function loadDefaultTuiRuntime(): Promise<TuiRuntimeModule> {
-	return import("../../src/tui/runtime.js");
-}
-
-function stringifyError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
-const tuiExtension = createTuiExtension();
-
-export default tuiExtension;
