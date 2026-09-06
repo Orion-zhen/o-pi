@@ -1,323 +1,177 @@
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
-import os from "node:os";
-import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { defaultCoordinatorEndpoint, prepareCoordinatorEndpoint } from "./endpoint.js";
 import {
 	parseServerMessage,
 	readCoordinatorMessages,
+	writeCoordinatorMessage,
 	type CoordinatedActivity,
 	type CoordinatedPresenceConfig,
-	writeCoordinatorMessage,
 } from "./coordinator-protocol.js";
 import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.js";
 
-const CONNECT_ATTEMPTS = 40;
 const CONNECT_RETRY_MS = 50;
+const DAEMON_RETRY_MS = 2_000;
 const HANDSHAKE_TIMEOUT_MS = 2_000;
 
-export interface DiscordPresenceCoordinator {
-	activate(
-		config: CoordinatedPresenceConfig,
-		joinedAt: number,
-		activity?: DiscordActivityPayload,
-	): Promise<void>;
-	request(activity: DiscordActivityPayload): void;
-	deactivate(): Promise<void>;
-	getStatus(): PresenceConnectionStatus;
+interface Registration {
+	config: CoordinatedPresenceConfig;
+	joinedAt: number;
+	continuityStartedAt: number | undefined;
+	presence: CoordinatedActivity | undefined;
+	controller: AbortController;
+	prepared: Promise<void>;
+	task?: Promise<void>;
 }
 
-export interface DiscordPresenceCoordinatorOptions {
-	endpoint?: string;
-	participantId?: string;
-	now?: () => number;
-	spawnDaemon?: (endpoint: string) => void;
-	handshakeTimeoutMs?: number;
-}
-
-/** 连接本机协调进程，并在协调进程退出后携带共享起点自动重连。 */
-export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordinator {
-	private readonly endpoint: string;
-	private readonly participantId: string;
-	private readonly now: () => number;
-	private readonly spawnDaemon: (endpoint: string) => void;
-	private readonly handshakeTimeoutMs: number;
-	private config: CoordinatedPresenceConfig | undefined;
-	private joinedAt: number | undefined;
-	private continuityStartedAt: number | undefined;
-	private presence: CoordinatedActivity | undefined;
+/** 每次启用只启动一个可取消的连接任务，断线时携带最后状态重新注册。 */
+export class DiscordPresenceCoordinatorClient {
+	private readonly endpoint = defaultCoordinatorEndpoint();
+	private readonly participantId = randomUUID();
+	private registration: Registration | undefined;
 	private socket: Socket | undefined;
-	private connecting: Promise<void> | undefined;
-	private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 	private status: PresenceConnectionStatus = "disabled";
-	private active = false;
-	private generation = 0;
 
-	constructor(options: DiscordPresenceCoordinatorOptions = {}) {
-		this.endpoint = options.endpoint ?? defaultCoordinatorEndpoint();
-		this.participantId = options.participantId ?? randomUUID();
-		this.now = options.now ?? Date.now;
-		this.spawnDaemon = options.spawnDaemon ?? spawnCoordinatorDaemon;
-		this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;
-	}
-
-	async activate(
-		config: CoordinatedPresenceConfig,
-		joinedAt: number,
-		activity?: DiscordActivityPayload,
-	): Promise<void> {
-		const wasActive = this.active;
-		const generation = this.generation;
-		this.active = true;
-		this.config = config;
-		if (!wasActive) {
-			this.joinedAt = joinedAt;
-			this.continuityStartedAt = undefined;
-			this.setStatus("disconnected");
+	async activate(config: CoordinatedPresenceConfig, joinedAt: number, activity?: DiscordActivityPayload): Promise<void> {
+		let registration = this.registration;
+		if (registration === undefined) {
+			registration = {
+				config,
+				joinedAt,
+				continuityStartedAt: undefined,
+				presence: undefined,
+				controller: new AbortController(),
+				prepared: prepareCoordinatorEndpoint(this.endpoint),
+			};
+			this.registration = registration;
+			this.status = "disconnected";
 		}
-		const nextPresence = activity === undefined ? undefined : { activity, activeAt: this.now() };
-		if (nextPresence !== undefined) this.presence = nextPresence;
-		if (this.socket !== undefined && !this.socket.destroyed) {
-			writeCoordinatorMessage(this.socket, { type: "configure", config });
-			if (nextPresence !== undefined) writeCoordinatorMessage(this.socket, { type: "activity", ...nextPresence });
-			return;
-		}
+		registration.config = config;
+		if (activity !== undefined) registration.presence = { activity, activeAt: Date.now() };
 		try {
-			await prepareCoordinatorEndpoint(this.endpoint);
+			await registration.prepared;
 		} catch (error) {
-			if (!wasActive && generation === this.generation) await this.deactivate();
+			if (this.registration === registration) await this.deactivate();
 			throw error;
 		}
-		if (!this.active || generation !== this.generation) return;
-		void this.ensureConnected().catch(() => undefined);
-	}
-
-	request(activity: DiscordActivityPayload): void {
-		if (!this.active) throw new Error("Discord presence coordinator is not active.");
-		const presence = { activity, activeAt: this.now() };
-		this.presence = presence;
-		const socket = this.socket;
-		if (socket !== undefined && !socket.destroyed) {
-			writeCoordinatorMessage(socket, { type: "activity", ...presence });
-		}
-	}
-
-	async deactivate(): Promise<void> {
-		if (!this.active && this.socket === undefined) return;
-		this.active = false;
-		const generation = ++this.generation;
-		this.config = undefined;
-		this.joinedAt = undefined;
-		this.continuityStartedAt = undefined;
-		this.presence = undefined;
-		if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
-		this.reconnectTimer = undefined;
-		const socket = this.socket;
-		this.socket = undefined;
-		if (socket !== undefined) await endSocket(socket);
-		if (!this.active && generation === this.generation) this.setStatus("disabled");
-	}
-
-	getStatus(): PresenceConnectionStatus {
-		return this.status;
-	}
-
-	private ensureConnected(): Promise<void> {
-		if (!this.active) return Promise.resolve();
-		if (this.socket !== undefined && !this.socket.destroyed) return Promise.resolve();
-		if (this.connecting !== undefined) return this.connecting;
-		const generation = this.generation;
-		const pending = this.connectLoop(generation).finally(() => {
-			if (this.connecting === pending) this.connecting = undefined;
-		});
-		this.connecting = pending;
-		return pending;
-	}
-
-	private async connectLoop(generation: number): Promise<void> {
-		await prepareCoordinatorEndpoint(this.endpoint);
-		let attempts = 0;
-		let daemonStarted = false;
-		while (this.active && generation === this.generation) {
-			this.setStatus("connecting");
-			try {
-				await this.connectOnce(generation);
-				return;
-			} catch (error) {
-				if (!this.active || generation !== this.generation) return;
-				this.setStatus("disconnected");
-				attempts += 1;
-				if (!daemonStarted) {
-					this.spawnDaemon(this.endpoint);
-					daemonStarted = true;
-				}
-				if (attempts === CONNECT_ATTEMPTS) {
-					this.scheduleReconnect();
-					throw error;
-				}
-				await delay(CONNECT_RETRY_MS);
+		if (this.registration !== registration) return;
+		if (registration.task === undefined) registration.task = this.connectLoop(registration);
+		if (this.socket !== undefined) {
+			writeCoordinatorMessage(this.socket, { type: "configure", config: registration.config });
+			if (activity !== undefined && registration.presence !== undefined) {
+				writeCoordinatorMessage(this.socket, { type: "activity", ...registration.presence });
 			}
 		}
 	}
 
-	private async connectOnce(generation: number): Promise<void> {
-		if (!this.active) return;
-		const socket = await openSocket(this.endpoint);
-		const config = this.config;
-		const joinedAt = this.joinedAt;
-		if (
-			!this.active
-			|| generation !== this.generation
-			|| config === undefined
-			|| joinedAt === undefined
-		) {
-			socket.destroy();
-			return;
+	request(activity: DiscordActivityPayload): void {
+		const registration = this.registration;
+		if (registration === undefined) throw new Error("Discord presence coordinator is not active.");
+		registration.presence = { activity, activeAt: Date.now() };
+		if (this.socket !== undefined) writeCoordinatorMessage(this.socket, { type: "activity", ...registration.presence });
+	}
+
+	async deactivate(): Promise<void> {
+		const registration = this.registration;
+		if (registration === undefined) return;
+		this.registration = undefined;
+		this.socket = undefined;
+		registration.controller.abort();
+		await registration.task;
+		if (this.registration === undefined) this.status = "disabled";
+	}
+
+	getStatus(): PresenceConnectionStatus { return this.status; }
+
+	private async connectLoop(registration: Registration): Promise<void> {
+		const { signal } = registration.controller;
+		let nextSpawnAt = 0;
+		while (!signal.aborted) {
+			this.status = "connecting";
+			try {
+				await this.connect(registration);
+			} catch {
+				if (signal.aborted) return;
+				this.status = "disconnected";
+				if (Date.now() >= nextSpawnAt) {
+					spawnCoordinatorDaemon(this.endpoint);
+					nextSpawnAt = Date.now() + DAEMON_RETRY_MS;
+				}
+			}
+			try {
+				await delay(CONNECT_RETRY_MS, undefined, { signal, ref: false });
+			} catch (error) {
+				if (!signal.aborted) throw error;
+			}
 		}
-		this.socket = socket;
-		socket.unref();
-		let settled = false;
-		await new Promise<void>((resolve, reject) => {
+	}
+
+	private connect(registration: Registration): Promise<void> {
+		return new Promise((_resolve, reject) => {
+			const { signal } = registration.controller;
+			const socket = createConnection({ path: this.endpoint, signal });
+			socket.unref();
+			let failure = new Error("Discord presence coordinator disconnected.");
+			let sentConfig: CoordinatedPresenceConfig;
+			let sentPresence: CoordinatedActivity | undefined;
 			const timeout = setTimeout(() => {
-				finish(new Error("Discord presence coordinator handshake timed out."));
-				socket.destroy();
-			}, this.handshakeTimeoutMs);
+				socket.destroy(new Error("Discord presence coordinator handshake timed out."));
+			}, HANDSHAKE_TIMEOUT_MS);
 			timeout.unref();
-			const finish = (error?: Error): void => {
-				if (settled) return;
-				settled = true;
-				clearTimeout(timeout);
-				if (error === undefined) resolve();
-				else reject(error);
-			};
 			const removeReader = readCoordinatorMessages(socket, (value) => {
+				if (signal.aborted) return;
 				try {
 					const message = parseServerMessage(value);
-					if (message.type === "error") {
-						finish(new Error(message.message));
-						socket.destroy();
-						return;
+					if (message.type === "error") throw new Error(message.message);
+					clearTimeout(timeout);
+					registration.continuityStartedAt = message.groupStartedAt;
+					this.status = message.status;
+					if (this.socket !== socket) {
+						this.socket = socket;
+						// 注册发出到握手完成之间可能收到配置和活动更新。
+						if (registration.config !== sentConfig) {
+							writeCoordinatorMessage(socket, { type: "configure", config: registration.config });
+						}
+						if (registration.presence !== undefined && registration.presence !== sentPresence) {
+							writeCoordinatorMessage(socket, { type: "activity", ...registration.presence });
+						}
 					}
-					this.continuityStartedAt = message.groupStartedAt;
-					this.setStatus(message.status);
-					finish();
 				} catch (error) {
-					if (!(error instanceof Error)) throw error;
-					finish(error);
-					socket.destroy();
+					socket.destroy(error instanceof Error ? error : new Error(String(error)));
 				}
-			}, (error) => {
-				finish(error);
-				socket.destroy();
+			}, (error) => socket.destroy(error));
+			socket.once("connect", () => {
+				sentConfig = registration.config;
+				sentPresence = registration.presence;
+				writeCoordinatorMessage(socket, {
+					type: "register", participantId: this.participantId, joinedAt: registration.joinedAt,
+					...(registration.continuityStartedAt === undefined ? {} : { continuityStartedAt: registration.continuityStartedAt }),
+					config: sentConfig, ...(sentPresence ?? {}),
+				});
 			});
-			socket.on("error", (error) => finish(error));
+			socket.on("error", (error) => { failure = error; });
 			socket.once("close", () => {
+				clearTimeout(timeout);
 				removeReader();
-				finish(new Error("Discord presence coordinator disconnected."));
-				if (this.socket === socket) {
-					this.socket = undefined;
-					if (this.active && generation === this.generation) {
-						this.setStatus("disconnected");
-						this.scheduleReconnect();
-					}
-				}
-			});
-			writeCoordinatorMessage(socket, {
-				type: "register",
-				participantId: this.participantId,
-				joinedAt,
-				...(this.continuityStartedAt === undefined ? {} : { continuityStartedAt: this.continuityStartedAt }),
-				config,
-				...(this.presence ?? {}),
+				if (this.socket === socket) this.socket = undefined;
+				reject(failure);
 			});
 		});
 	}
-
-	private scheduleReconnect(): void {
-		if (this.reconnectTimer !== undefined || !this.active) return;
-		this.reconnectTimer = setTimeout(() => {
-			this.reconnectTimer = undefined;
-			void this.ensureConnected().catch(() => this.scheduleReconnect());
-		}, CONNECT_RETRY_MS);
-		this.reconnectTimer.unref();
-	}
-
-	private setStatus(status: PresenceConnectionStatus): void {
-		if (this.status === status) return;
-		this.status = status;
-	}
 }
 
-export function defaultCoordinatorEndpoint(): string {
-	const identity = typeof process.getuid === "function"
-		? String(process.getuid())
-		: createHash("sha256").update(os.homedir()).digest("hex").slice(0, 16);
-	if (process.platform === "win32") return `\\\\.\\pipe\\o-pi-discord-presence-${identity}`;
-	return path.join(os.tmpdir(), `o-pi-${identity}`, "discord-presence.sock");
-}
-
-export async function prepareCoordinatorEndpoint(endpoint: string): Promise<void> {
-	if (process.platform === "win32") return;
-	const directory = path.dirname(endpoint);
-	await mkdir(directory, { recursive: true, mode: 0o700 });
-	const details = await stat(directory);
-	if (!details.isDirectory()) throw new Error("Discord presence coordinator path is not a directory.");
-	if (typeof process.getuid === "function" && details.uid !== process.getuid()) {
-		throw new Error("Discord presence coordinator directory is owned by another user.");
-	}
-	await chmod(directory, 0o700);
-}
-
-export function spawnCoordinatorDaemon(endpoint: string): void {
+function spawnCoordinatorDaemon(endpoint: string): void {
 	const entry = fileURLToPath(new URL("./coordinator-daemon.ts", import.meta.url));
-	const jitiRegister = import.meta.resolve("jiti/register");
-	const child = spawn(process.execPath, ["--import", jitiRegister, entry, endpoint], {
+	const child = spawn(process.execPath, ["--import", import.meta.resolve("jiti/register"), entry, endpoint], {
 		cwd: fileURLToPath(new URL("../..", import.meta.url)),
 		detached: true,
 		stdio: "ignore",
 		windowsHide: true,
 	});
+	// 启动失败与端点暂时不可用同样由连接任务按固定节奏重试。
+	child.on("error", () => {});
 	child.unref();
-}
-
-function openSocket(endpoint: string): Promise<Socket> {
-	return new Promise((resolve, reject) => {
-		const socket = createConnection(endpoint);
-		const onConnect = (): void => {
-			socket.off("error", onError);
-			resolve(socket);
-		};
-		const onError = (error: Error): void => {
-			socket.off("connect", onConnect);
-			socket.destroy();
-			reject(error);
-		};
-		socket.once("connect", onConnect);
-		socket.once("error", onError);
-	});
-}
-
-function endSocket(socket: Socket): Promise<void> {
-	return new Promise((resolve) => {
-		if (socket.destroyed) {
-			resolve();
-			return;
-		}
-		const timeout = setTimeout(() => socket.destroy(), 500);
-		timeout.unref();
-		socket.once("close", () => {
-			clearTimeout(timeout);
-			resolve();
-		});
-		socket.end();
-	});
-}
-
-function delay(milliseconds: number): Promise<void> {
-	return new Promise((resolve) => {
-		const timeout = setTimeout(resolve, milliseconds);
-		timeout.unref();
-	});
 }

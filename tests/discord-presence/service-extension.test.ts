@@ -1,27 +1,39 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDiscordPresenceExtension } from "../../agent/extensions/discord-presence.js";
+import discordPresenceExtension from "../../agent/extensions/discord-presence.js";
+import * as configModule from "../../src/discord-presence/config.js";
+import * as endpointModule from "../../src/discord-presence/endpoint.js";
 import { DiscordPresenceCoordinatorClient } from "../../src/discord-presence/coordinator-client.js";
 import { DiscordPresenceService } from "../../src/discord-presence/service.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import { enabledConfig, FakeCoordinator } from "./fixtures.js";
 
 const temp = useTempDir("o-pi-discord-presence-service-");
+let coordinator: FakeCoordinator;
 
 beforeEach(() => {
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date("2026-08-21T10:00:00Z"));
+	coordinator = new FakeCoordinator();
+	vi.spyOn(configModule, "loadDiscordPresenceConfig").mockResolvedValue(enabledConfig());
+	const prototype = DiscordPresenceCoordinatorClient.prototype;
+	vi.spyOn(prototype, "activate").mockImplementation(coordinator.activate.bind(coordinator));
+	vi.spyOn(prototype, "request").mockImplementation(coordinator.request.bind(coordinator));
+	vi.spyOn(prototype, "deactivate").mockImplementation(coordinator.deactivate.bind(coordinator));
+	vi.spyOn(prototype, "getStatus").mockImplementation(coordinator.getStatus.bind(coordinator));
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	vi.useRealTimers();
 });
 
 describe("Discord presence 服务与 Pi 适配", () => {
 	it("配置尚未加载时不虚构 profile", () => {
-		const service = new DiscordPresenceService({ coordinator: new FakeCoordinator() });
+		const service = new DiscordPresenceService();
 
 		expect(service.status()).toEqual({ enabled: false, profile: undefined, connection: "disabled" });
 		expect(service.profileNames()).toEqual([]);
@@ -35,10 +47,8 @@ describe("Discord presence 服务与 Pi 适配", () => {
 			},
 			registerCommand() {},
 		} as unknown as ExtensionAPI;
-		createDiscordPresenceExtension({
-			loadConfig: async () => { throw new Error("invalid presence config"); },
-			coordinator: new FakeCoordinator(),
-		})(pi);
+		vi.mocked(configModule.loadDiscordPresenceConfig).mockRejectedValue(new Error("invalid presence config"));
+		discordPresenceExtension(pi);
 		const start = handlers.get("session_start");
 		if (start === undefined) throw new Error("session_start handler missing");
 
@@ -55,13 +65,11 @@ describe("Discord presence 服务与 Pi 适配", () => {
 	it.skipIf(process.platform === "win32")("本地协调端点准备失败时回滚为关闭状态", async () => {
 		const blockedDirectory = path.join(temp.path, "blocked-endpoint");
 		await writeFile(blockedDirectory, "not a directory");
-		const coordinator = new DiscordPresenceCoordinatorClient({
-			endpoint: path.join(blockedDirectory, "coordinator.sock"),
-			spawnDaemon: () => undefined,
-		});
-		const service = new DiscordPresenceService({
-			loadConfig: async () => enabledConfig(), coordinator, processStartedAt: Date.now(),
-		});
+		vi.mocked(DiscordPresenceCoordinatorClient.prototype.activate).mockRestore();
+		vi.mocked(DiscordPresenceCoordinatorClient.prototype.deactivate).mockRestore();
+		vi.mocked(DiscordPresenceCoordinatorClient.prototype.getStatus).mockRestore();
+		vi.spyOn(endpointModule, "defaultCoordinatorEndpoint").mockReturnValue(path.join(blockedDirectory, "coordinator.sock"));
+		const service = new DiscordPresenceService();
 		await expect(service.startSession({
 			cwd: "/workspace/o-pi", model: undefined, sessionName: undefined, idle: true,
 		})).rejects.toThrow();
@@ -69,11 +77,8 @@ describe("Discord presence 服务与 Pi 适配", () => {
 	});
 
 	it("reload 与 off/on 始终沿用 Pi 进程计时起点", async () => {
-		const coordinator = new FakeCoordinator();
-		const processStartedAt = Date.now();
-		const service = new DiscordPresenceService({
-			loadConfig: async () => enabledConfig(), coordinator, processStartedAt,
-		});
+		const processStartedAt = Math.floor(performance.timeOrigin);
+		const service = new DiscordPresenceService();
 		const context = {
 			cwd: "/workspace/o-pi", model: { id: "gpt", name: "GPT" }, sessionName: "Session", idle: true,
 		};
@@ -100,7 +105,6 @@ describe("Discord presence 服务与 Pi 适配", () => {
 	it.each(["new", "resume", "fork", "reload"] as const)(
 		"扩展运行时因 %s 重建后仍沿用当前 Pi 进程的计时起点",
 		async (reason) => {
-			const coordinator = new FakeCoordinator();
 			const context = {
 				cwd: "/workspace/o-pi",
 				mode: "tui",
@@ -117,7 +121,7 @@ describe("Discord presence 服务与 Pi 适配", () => {
 					},
 					registerCommand() {},
 				} as unknown as ExtensionAPI;
-				createDiscordPresenceExtension({ loadConfig: async () => enabledConfig(), coordinator })(pi);
+				discordPresenceExtension(pi);
 				return handlers;
 			};
 
@@ -139,12 +143,7 @@ describe("Discord presence 服务与 Pi 适配", () => {
 	);
 
 	it("合并快速事件、切换 profile，并在 settled 与 shutdown 时更新和清理", async () => {
-		const coordinator = new FakeCoordinator();
-		const service = new DiscordPresenceService({
-			loadConfig: async () => enabledConfig(),
-			coordinator,
-			processStartedAt: Date.now(),
-		});
+		const service = new DiscordPresenceService();
 		await service.startSession({
 			cwd: "/workspace/o-pi",
 			model: { id: "gpt", name: "GPT" },
@@ -176,8 +175,24 @@ describe("Discord presence 服务与 Pi 适配", () => {
 		expect(coordinator.deactivateCount).toBe(1);
 	});
 
+	it("reload 保留流式工具记录和已稳定元数据", async () => {
+		const service = new DiscordPresenceService();
+		const context = { cwd: "/workspace/o-pi", model: undefined, sessionName: undefined, idle: false };
+		await service.startSession(context);
+		const stream = { messageKey: "message", contentIndex: 0, call: { id: "write", name: "write", arguments: {} } };
+		service.onToolStream({ ...stream, phase: "start" });
+		service.onToolStream({ ...stream, phase: "delta", delta: '{"path":"src/a' });
+		await service.reload(context);
+		service.onToolStream({ ...stream, phase: "delta", delta: '.ts"' });
+		expect(coordinator.activities.at(-1)?.details).toBe("Writing a.ts");
+		await service.disable();
+		await service.enable(context);
+		service.onToolStart("write", "write", { path: "wrong.py" });
+		expect(coordinator.activities.at(-1)?.details).toBe("Writing a.ts");
+		await service.shutdown();
+	});
+
 	it("扩展只在 TUI 启动，并注册可补全的运行时命令", async () => {
-		const coordinator = new FakeCoordinator();
 		const handlers = new Map<string, (event: Record<string, unknown>, ctx: ContextStub) => Promise<void> | void>();
 		let command: Parameters<ExtensionAPI["registerCommand"]>[1] | undefined;
 		const notices: Array<{ message: string; type: string | undefined }> = [];
@@ -195,10 +210,8 @@ describe("Discord presence 服务与 Pi 适配", () => {
 				command = options;
 			},
 		} as unknown as ExtensionAPI;
-		createDiscordPresenceExtension({
-			loadConfig: async () => extensionConfig,
-			coordinator,
-		})(pi);
+		vi.mocked(configModule.loadDiscordPresenceConfig).mockResolvedValue(extensionConfig);
+		discordPresenceExtension(pi);
 		const ctx = {
 			cwd: "/workspace/o-pi",
 			mode: "tui",
@@ -217,7 +230,6 @@ describe("Discord presence 服务与 Pi 适配", () => {
 			message: assistantMessage,
 			assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, partial: assistantMessage },
 		}, ctx);
-		await vi.advanceTimersByTimeAsync(15_000);
 		expect(coordinator.activities.at(-1)).toMatchObject({ details: "Editing" });
 
 		const completedCall = { ...streamedCall, arguments: { path: "/private/a.ts" } };
@@ -232,13 +244,11 @@ describe("Discord presence 服务与 Pi 适配", () => {
 				partial: updatedMessage,
 			},
 		}, ctx);
-		await vi.advanceTimersByTimeAsync(15_000);
 		expect(coordinator.activities.at(-1)).toMatchObject({ details: "Editing a.ts" });
 
 		handlers.get("tool_execution_start")?.({
 			type: "tool_execution_start", toolCallId: "edit-1", toolName: "edit", args: { path: "/other/b.ts" },
 		}, ctx);
-		await vi.advanceTimersByTimeAsync(15_000);
 		expect(coordinator.activities.at(-1)).toMatchObject({ details: "Editing a.ts" });
 		handlers.get("tool_execution_end")?.({ type: "tool_execution_end", toolCallId: "edit-1" }, ctx);
 		handlers.get("model_select")?.({ type: "model_select", model: { id: "new", name: "New" } }, ctx);

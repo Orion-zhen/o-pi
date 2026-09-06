@@ -1,17 +1,13 @@
-export type PresenceProfileName = string;
-
-export const PRESENCE_ACTIVITY_KINDS = [
-	"idle",
-	"thinking",
-	"reading",
-	"editing",
-	"writing",
-	"searching",
-	"browsing",
-	"shell",
-	"other_tool",
-] as const;
-export type PresenceActivityKind = typeof PRESENCE_ACTIVITY_KINDS[number];
+export type PresenceActivityKind =
+	| "idle"
+	| "thinking"
+	| "reading"
+	| "editing"
+	| "writing"
+	| "searching"
+	| "browsing"
+	| "shell"
+	| "other_tool";
 
 export interface PresenceProfileConfig {
 	details: Partial<Record<PresenceActivityKind, string>>;
@@ -19,7 +15,7 @@ export interface PresenceProfileConfig {
 	show_elapsed: boolean;
 }
 
-export interface PresenceAssetsConfig {
+interface PresenceAssetsConfig {
 	large: {
 		key: string;
 		text: string;
@@ -37,8 +33,8 @@ export interface DiscordPresenceConfig {
 	application_id: string;
 	update_interval_ms: number;
 	retry_interval_ms: number;
-	profile: PresenceProfileName;
-	profiles: Record<PresenceProfileName, PresenceProfileConfig>;
+	profile: string;
+	profiles: Record<string, PresenceProfileConfig>;
 	assets: PresenceAssetsConfig;
 }
 
@@ -58,16 +54,9 @@ export interface PresenceSession {
 	startedAt: number;
 }
 
-export interface PresenceTemplateValues {
-	project: string;
-	model: string;
-	session: string;
-	file: string;
-	language: string;
-	executable: string;
-	tool: string;
-	label: string;
-}
+export const PRESENCE_TEMPLATE_KEYS = ["project", "model", "session", "file", "language", "executable", "tool", "label"] as const;
+export const PRESENCE_TEMPLATE_PATTERN = /\{([a-z_]+)\}/gu;
+export type PresenceTemplateValues = Record<typeof PRESENCE_TEMPLATE_KEYS[number], string>;
 
 export interface DiscordActivityPayload {
 	details?: string;

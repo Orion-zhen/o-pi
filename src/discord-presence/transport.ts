@@ -1,7 +1,7 @@
 import type { Client } from "@xhayper/discord-rpc";
 import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.js";
 
-const SHUTDOWN_TIMEOUT_MS = 2_000;
+const RPC_TIMEOUT_MS = 2_000;
 
 type ConnectedClient = Client & { readonly user: NonNullable<Client["user"]> };
 
@@ -12,8 +12,6 @@ export interface DiscordPresenceTransport {
 	getStatus(): PresenceConnectionStatus;
 	onStatus(listener: (status: PresenceConnectionStatus) => void): () => void;
 }
-
-export type DiscordPresenceTransportFactory = (applicationId: string) => Promise<DiscordPresenceTransport>;
 
 export async function createDiscordRpcTransport(applicationId: string): Promise<DiscordPresenceTransport> {
 	const { Client: DiscordClient } = await import("@xhayper/discord-rpc");
@@ -31,7 +29,7 @@ export async function createDiscordRpcTransport(applicationId: string): Promise<
 
 	const discard = async (candidate: Client): Promise<void> => {
 		if (client === candidate) client = undefined;
-		await withTimeout(candidate.destroy(), SHUTDOWN_TIMEOUT_MS).catch(() => undefined);
+		await withTimeout(candidate.destroy(), RPC_TIMEOUT_MS).catch(() => undefined);
 	};
 
 	const connect = (): Promise<ConnectedClient> => {
@@ -67,7 +65,7 @@ export async function createDiscordRpcTransport(applicationId: string): Promise<
 		async setActivity(activity) {
 			const connected = await connect();
 			try {
-				await connected.user.setActivity(activity);
+				await withTimeout(connected.user.setActivity(activity), RPC_TIMEOUT_MS);
 			} catch (error) {
 				await discard(connected);
 				setStatus("disconnected");
@@ -77,7 +75,7 @@ export async function createDiscordRpcTransport(applicationId: string): Promise<
 		async clearActivity() {
 			const connected = client;
 			if (connected?.isConnected !== true || connected.user === undefined) return;
-			await withTimeout(connected.user.clearActivity(), SHUTDOWN_TIMEOUT_MS);
+			await withTimeout(connected.user.clearActivity(), RPC_TIMEOUT_MS);
 		},
 		async close() {
 			if (closed) return;

@@ -1,3 +1,4 @@
+import { PRESENCE_TEMPLATE_PATTERN } from "./types.js";
 import type {
 	DiscordActivityPayload,
 	DiscordPresenceConfig,
@@ -8,7 +9,6 @@ import type {
 } from "./types.js";
 
 const MAX_TEXT_LENGTH = 128;
-const TEMPLATE_PATTERN = /\{(project|model|session|file|language|executable|tool|label)\}/gu;
 const ACTIVITY_LABELS: Record<PresenceActivity["kind"], string> = {
 	idle: "Idle",
 	thinking: "Thinking",
@@ -55,8 +55,8 @@ export function renderDiscordActivity(
 	};
 }
 
-export function renderTemplate(template: string, values: PresenceTemplateValues): string {
-	const rendered = template.replace(TEMPLATE_PATTERN, (_match, key: string) => values[key as keyof PresenceTemplateValues]);
+function renderTemplate(template: string, values: PresenceTemplateValues): string {
+	const rendered = template.replace(PRESENCE_TEMPLATE_PATTERN, (_match, key: string) => values[key as keyof PresenceTemplateValues]);
 	return truncate(Array.from(rendered.replace(/[\r\n\t]+/gu, " ").replace(/\s{2,}/gu, " ").trim()), MAX_TEXT_LENGTH);
 }
 

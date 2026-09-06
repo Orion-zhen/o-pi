@@ -4,7 +4,7 @@ import { createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createPresenceCoordinatorServer, type PresenceCoordinatorServer } from "./coordinator-server.js";
-import { prepareCoordinatorEndpoint } from "./coordinator-client.js";
+import { prepareCoordinatorEndpoint } from "./endpoint.js";
 
 const STARTUP_IDLE_TIMEOUT_MS = 5_000;
 const endpoint = process.argv[2];

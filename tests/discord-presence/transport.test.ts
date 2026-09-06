@@ -56,38 +56,10 @@ const discordMock = vi.hoisted(() => {
 
 vi.mock("@xhayper/discord-rpc", () => ({ Client: discordMock.MockClient }));
 
-import { SwitchingDiscordTransport } from "../../src/discord-presence/switching-transport.js";
 import { createDiscordRpcTransport } from "../../src/discord-presence/transport.js";
-import { FakeTransport } from "./fixtures.js";
 
 beforeEach(() => {
 	discordMock.instances.length = 0;
-});
-
-describe("Discord Application 切换 transport", () => {
-	it("切换 Application 时清除旧连接，并只向当前连接发送", async () => {
-		const transports: FakeTransport[] = [];
-		const applicationIds: string[] = [];
-		const switching = new SwitchingDiscordTransport(async (applicationId) => {
-			applicationIds.push(applicationId);
-			const transport = new FakeTransport();
-			transports.push(transport);
-			return transport;
-		});
-		switching.selectApplication("123456789012345678");
-		await switching.setActivity({ details: "A", instance: false });
-		expect(transports[0]?.activities).toEqual([{ details: "A", instance: false }]);
-
-		switching.selectApplication("223456789012345678");
-		await switching.setActivity({ details: "B", instance: false });
-		expect(applicationIds).toEqual(["123456789012345678", "223456789012345678"]);
-		expect(transports[0]).toMatchObject({ clearCount: 1, closeCount: 1 });
-		expect(transports[1]?.activities).toEqual([{ details: "B", instance: false }]);
-		await switching.clearActivity();
-		expect(transports[1]).toMatchObject({ clearCount: 1, closeCount: 1 });
-		await switching.close();
-		expect(switching.getStatus()).toBe("disabled");
-	});
 });
 
 describe("@xhayper Discord transport", () => {
@@ -119,6 +91,26 @@ describe("@xhayper Discord transport", () => {
 		await transport.setActivity({ details: "Recovered", instance: false });
 		expect(discordMock.instances).toHaveLength(2);
 		await transport.close();
+	});
+
+	it("活动发送无响应时超时并丢弃连接，后续发送能够恢复", async () => {
+		vi.useFakeTimers();
+		const transport = await createDiscordRpcTransport("123456789012345678");
+		try {
+			await transport.setActivity({ details: "Initial", instance: false });
+			const client = discordMock.instances[0];
+			if (client === undefined) throw new Error("mock client missing");
+			vi.spyOn(client.user, "setActivity").mockImplementation(() => new Promise<void>(() => {}));
+			const failed = expect(transport.setActivity({ details: "Blocked", instance: false })).rejects.toThrow("timed out");
+			await vi.advanceTimersByTimeAsync(2_000);
+			await failed;
+			expect(client.destroyCount).toBe(1);
+			await transport.setActivity({ details: "Recovered", instance: false });
+			expect(discordMock.instances[1]?.activities).toEqual([{ details: "Recovered", instance: false }]);
+		} finally {
+			await transport.close();
+			vi.useRealTimers();
+		}
 	});
 
 	it("发送失败会丢弃 client，下一次发送重新连接", async () => {

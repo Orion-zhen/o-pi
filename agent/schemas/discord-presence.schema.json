@@ -10,7 +10,7 @@
 		"application_id": {
 			"type": "string",
 			"pattern": "^(|[0-9]{17,20})$",
-			"default": "1520833162148712580"
+			"default": "1540224977184358430"
 		},
 		"update_interval_ms": {
 			"type": "integer",

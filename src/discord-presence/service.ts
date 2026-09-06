@@ -1,26 +1,13 @@
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import {
-	currentActivity,
-	endTool,
-	initialPresenceActivityState,
-	settleAgent,
-	startTool,
-	startTurn,
-	updateTool,
-	type PresenceActivityState,
-} from "./activity.js";
+import { PresenceActivityTracker, type ToolStreamEvent } from "./activity-tracker.js";
 import { loadDiscordPresenceConfig } from "./config.js";
-import {
-	DiscordPresenceCoordinatorClient,
-	type DiscordPresenceCoordinator,
-} from "./coordinator-client.js";
+import { DiscordPresenceCoordinatorClient } from "./coordinator-client.js";
 import { renderDiscordActivity } from "./render.js";
 import type {
 	DiscordActivityPayload,
 	DiscordPresenceConfig,
 	PresenceConnectionStatus,
-	PresenceProfileName,
 	PresenceSession,
 } from "./types.js";
 
@@ -31,16 +18,10 @@ export interface PresenceStartContext {
 	idle: boolean;
 }
 
-export interface PresenceStatusSnapshot {
+interface PresenceStatusSnapshot {
 	enabled: boolean;
-	profile: PresenceProfileName | undefined;
+	profile: string | undefined;
 	connection: PresenceConnectionStatus;
-}
-
-export interface DiscordPresenceServiceOptions {
-	loadConfig?: (cwd: string) => Promise<DiscordPresenceConfig>;
-	coordinator?: DiscordPresenceCoordinator;
-	processStartedAt?: number;
 }
 
 interface LoadedPresenceState {
@@ -51,24 +32,18 @@ interface LoadedPresenceState {
 /** 管理 Presence 状态；所有 session 沿用当前 Pi 进程的计时起点。 */
 export class DiscordPresenceService {
 	private loaded: LoadedPresenceState | undefined;
-	private activity: PresenceActivityState = initialPresenceActivityState();
-	private readonly coordinator: DiscordPresenceCoordinator;
+	private readonly activity = new PresenceActivityTracker();
+	private readonly coordinator = new DiscordPresenceCoordinatorClient();
 	private coordinatorActive = false;
 	private runtimeEnabled: boolean | undefined;
-	private runtimeProfile: PresenceProfileName | undefined;
+	private runtimeProfile: string | undefined;
 	private generation = 0;
-	private readonly loadConfig: (cwd: string) => Promise<DiscordPresenceConfig>;
-	private readonly processStartedAt: number;
-
-	constructor(options: DiscordPresenceServiceOptions = {}) {
-		this.loadConfig = options.loadConfig ?? loadDiscordPresenceConfig;
-		this.coordinator = options.coordinator ?? new DiscordPresenceCoordinatorClient();
-		this.processStartedAt = options.processStartedAt ?? Math.floor(performance.timeOrigin);
-	}
+	private readonly processStartedAt = Math.floor(performance.timeOrigin);
 
 	async startSession(context: PresenceStartContext): Promise<void> {
 		this.runtimeEnabled = undefined;
 		this.runtimeProfile = undefined;
+		this.activity.clear();
 		await this.activate(context);
 	}
 
@@ -89,11 +64,12 @@ export class DiscordPresenceService {
 
 	async shutdown(): Promise<void> {
 		this.generation += 1;
+		this.activity.clear();
 		await this.disposeActive();
 		this.loaded = undefined;
 	}
 
-	selectProfile(profile: PresenceProfileName): void {
+	selectProfile(profile: string): void {
 		const config = this.loaded?.config;
 		if (config === undefined || !Object.hasOwn(config.profiles, profile)) {
 			throw new Error(`Unknown Discord presence profile: ${profile}`);
@@ -115,63 +91,56 @@ export class DiscordPresenceService {
 	}
 
 	onTurnStart(): void {
-		this.activity = startTurn(this.activity);
+		this.activity.startTurn();
 		this.publish();
 	}
 
 	onToolStart(toolCallId: string, toolName: string, args: unknown): void {
-		this.activity = startTool(this.activity, toolCallId, toolName, args);
+		this.activity.startTool(toolCallId, toolName, args);
 		this.publish();
 	}
 
-	onToolStreamUpdate(
-		previousToolCallId: string,
-		toolCallId: string,
-		toolName: string,
-		args: unknown,
-	): void {
-		this.activity = updateTool(this.activity, previousToolCallId, toolCallId, toolName, args);
+	onToolStream(event: ToolStreamEvent): void {
+		if (this.activity.stream(event)) this.publish();
+	}
+
+	onMessageAbort(messageKey: string): void {
+		this.activity.abortMessage(messageKey);
 		this.publish();
 	}
 
 	onToolEnd(toolCallId: string): void {
-		this.activity = endTool(this.activity, toolCallId);
+		this.activity.endTool(toolCallId);
 		this.publish();
 	}
 
 	onAgentSettled(): void {
-		this.activity = settleAgent();
+		this.activity.clear();
 		this.publish();
 	}
 
 	onModelSelect(model: { id: string; name: string }): void {
 		if (this.loaded !== undefined) {
-			this.loaded = {
-				...this.loaded,
-				session: { ...this.loaded.session, model: modelDisplayName(model) },
-			};
+			this.loaded.session.model = modelDisplayName(model);
 		}
 		this.publish();
 	}
 
 	onSessionName(name: string | undefined): void {
 		if (this.loaded !== undefined) {
-			this.loaded = {
-				...this.loaded,
-				session: { ...this.loaded.session, session: name ?? this.loaded.session.project },
-			};
+			this.loaded.session.session = name ?? this.loaded.session.project;
 		}
 		this.publish();
 	}
 
 	private async activate(context: PresenceStartContext): Promise<void> {
 		const generation = ++this.generation;
-		const config = await this.loadConfig(context.cwd);
+		const config = await loadDiscordPresenceConfig(context.cwd);
 		if (generation !== this.generation) return;
 		if (this.runtimeProfile !== undefined && !Object.hasOwn(config.profiles, this.runtimeProfile)) {
 			this.runtimeProfile = undefined;
 		}
-		this.activity = context.idle ? initialPresenceActivityState() : startTurn(initialPresenceActivityState());
+		if (!context.idle) this.activity.startTurn();
 		const project = path.basename(context.cwd) || context.cwd;
 		const session: PresenceSession = {
 			project,
@@ -211,7 +180,7 @@ export class DiscordPresenceService {
 		return renderDiscordActivity(
 			state.config,
 			profile,
-			currentActivity(this.activity),
+			this.activity.current(),
 			state.session,
 		);
 	}
@@ -229,7 +198,7 @@ export class DiscordPresenceService {
 		if (rendered !== undefined) this.coordinator.request(rendered);
 	}
 
-	private activeProfileName(config: DiscordPresenceConfig): PresenceProfileName {
+	private activeProfileName(config: DiscordPresenceConfig): string {
 		return this.runtimeProfile ?? config.profile;
 	}
 }

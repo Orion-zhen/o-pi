@@ -23,36 +23,36 @@ interface RegisterMessageBase {
 	config: CoordinatedPresenceConfig;
 }
 
-export type RegisterMessage = RegisterMessageBase & (
+type RegisterMessage = RegisterMessageBase & (
 	| { activity?: never; activeAt?: never }
 	| CoordinatedActivity
 );
 
-export interface ConfigureMessage {
+interface ConfigureMessage {
 	type: "configure";
 	config: CoordinatedPresenceConfig;
 }
 
-export interface ActivityMessage {
+interface ActivityMessage {
 	type: "activity";
 	activity: DiscordActivityPayload;
 	activeAt: number;
 }
 
-export type CoordinatorClientMessage = RegisterMessage | ConfigureMessage | ActivityMessage;
+type CoordinatorClientMessage = RegisterMessage | ConfigureMessage | ActivityMessage;
 
-export interface CoordinatorStatusMessage {
+interface CoordinatorStatusMessage {
 	type: "status";
 	status: PresenceConnectionStatus;
 	groupStartedAt: number;
 }
 
-export interface CoordinatorErrorMessage {
+interface CoordinatorErrorMessage {
 	type: "error";
 	message: string;
 }
 
-export type CoordinatorServerMessage = CoordinatorStatusMessage | CoordinatorErrorMessage;
+type CoordinatorServerMessage = CoordinatorStatusMessage | CoordinatorErrorMessage;
 
 export class CoordinatorProtocolError extends Error {}
 
@@ -69,13 +69,12 @@ export function readCoordinatorMessages(
 	let buffered = Buffer.alloc(0);
 	const onData = (chunk: Buffer): void => {
 		buffered = Buffer.concat([buffered, chunk]);
-		if (buffered.length > MAX_MESSAGE_BYTES && buffered.indexOf(0x0a) < 0) {
-			onError(new CoordinatorProtocolError("Coordinator message exceeds the size limit."));
-			return;
-		}
 		for (;;) {
 			const newline = buffered.indexOf(0x0a);
-			if (newline < 0) return;
+			if (newline < 0) {
+				if (buffered.length > MAX_MESSAGE_BYTES) onError(new CoordinatorProtocolError("Coordinator message exceeds the size limit."));
+				return;
+			}
 			const line = buffered.subarray(0, newline);
 			buffered = buffered.subarray(newline + 1);
 			if (line.length === 0) continue;
@@ -83,13 +82,15 @@ export function readCoordinatorMessages(
 				onError(new CoordinatorProtocolError("Coordinator message exceeds the size limit."));
 				return;
 			}
+			let parsed: unknown;
 			try {
-				const parsed: unknown = JSON.parse(line.toString("utf8"));
-				onMessage(parsed);
+				parsed = JSON.parse(line.toString("utf8"));
 			} catch {
 				onError(new CoordinatorProtocolError("Coordinator message is not valid JSON."));
 				return;
 			}
+			onMessage(parsed);
+			if (socket.destroyed) return;
 		}
 	};
 	socket.on("data", onData);

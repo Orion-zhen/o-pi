@@ -1,6 +1,5 @@
-import { chmod, mkdir, unlink } from "node:fs/promises";
+import { chmod, unlink } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
-import path from "node:path";
 import {
 	CoordinatorProtocolError,
 	parseClientMessage,
@@ -9,10 +8,8 @@ import {
 	type CoordinatedPresenceConfig,
 	writeCoordinatorMessage,
 } from "./coordinator-protocol.js";
-import { PresencePublisher, type PresenceClock } from "./publisher.js";
-import { SwitchingDiscordTransport } from "./switching-transport.js";
-import { createDiscordRpcTransport, type DiscordPresenceTransportFactory } from "./transport.js";
-import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.js";
+import { DiscordCoordinatorOutput } from "./output.js";
+import type { DiscordActivityPayload } from "./types.js";
 
 interface Participant {
 	config: CoordinatedPresenceConfig;
@@ -20,29 +17,14 @@ interface Participant {
 	order: number;
 }
 
-export interface SelectedPresence {
-	participantId: string;
-	config: CoordinatedPresenceConfig;
-	activity: DiscordActivityPayload;
-	groupStartedAt: number;
-}
-
-export interface PresenceCoordinatorOutput {
-	show(selection: SelectedPresence): void;
-	hide(): Promise<void>;
-	clear(): Promise<void>;
-	getStatus(): PresenceConnectionStatus;
-	onStatus(listener: (status: PresenceConnectionStatus) => void): () => void;
-}
-
-export interface PresenceBrokerOptions {
-	output: PresenceCoordinatorOutput;
-	onChange?: () => void;
-	onEmpty?: () => void;
+interface PresenceBrokerOptions {
+	output: DiscordCoordinatorOutput;
+	onChange: () => void;
+	onEmpty: () => void;
 }
 
 /** 维护参与者、最近活动选择和跨进程共享计时。 */
-export class PresenceBroker {
+class PresenceBroker {
 	private readonly participants = new Map<string, Participant>();
 	private selectedParticipantId: string | undefined;
 	private groupStartedAt: number | undefined;
@@ -68,7 +50,7 @@ export class PresenceBroker {
 		});
 		if (presence !== undefined) this.selectLatest();
 		else if (previousStart !== this.groupStartedAt && this.selectedParticipantId !== undefined) this.showSelected();
-		this.options.onChange?.();
+		this.options.onChange();
 	}
 
 	configure(participantId: string, config: CoordinatedPresenceConfig): void {
@@ -91,13 +73,12 @@ export class PresenceBroker {
 		if (this.participants.size === 0) {
 			this.selectedParticipantId = undefined;
 			this.groupStartedAt = undefined;
-			void this.options.output.clear();
-			this.options.onChange?.();
-			this.options.onEmpty?.();
+			this.options.onChange();
+			this.options.onEmpty();
 			return;
 		}
 		if (this.selectedParticipantId === participantId) this.selectLatest();
-		this.options.onChange?.();
+		this.options.onChange();
 	}
 
 	startedAt(): number | undefined {
@@ -139,56 +120,13 @@ export class PresenceBroker {
 		const activity = participant.presence.activity.startTimestamp === undefined
 			? participant.presence.activity
 			: { ...participant.presence.activity, startTimestamp: startedAt };
-		this.options.output.show({ participantId, config: participant.config, activity, groupStartedAt: startedAt });
+		this.options.output.show({ config: participant.config, activity });
 	}
 }
 
-export interface DiscordCoordinatorOutputOptions {
-	createTransport?: DiscordPresenceTransportFactory;
-	clock?: PresenceClock;
-}
-
-export class DiscordCoordinatorOutput implements PresenceCoordinatorOutput {
-	private readonly transport: SwitchingDiscordTransport;
-	private readonly publisher: PresencePublisher;
-
-	constructor(options: DiscordCoordinatorOutputOptions = {}) {
-		this.transport = new SwitchingDiscordTransport(options.createTransport ?? createDiscordRpcTransport);
-		this.publisher = new PresencePublisher(this.transport, 5_000, 30_000, options.clock);
-	}
-
-	show(selection: SelectedPresence): void {
-		this.transport.selectApplication(selection.config.applicationId);
-		this.publisher.configure(selection.config.updateIntervalMs, selection.config.retryIntervalMs);
-		this.publisher.request(selection.activity);
-	}
-
-	async hide(): Promise<void> {
-		this.publisher.clear();
-		await this.transport.clearActivity();
-	}
-
-	async clear(): Promise<void> {
-		this.publisher.stop();
-		await this.transport.clearActivity();
-		await this.transport.close();
-	}
-
-	getStatus(): PresenceConnectionStatus {
-		return this.transport.getStatus();
-	}
-
-	onStatus(listener: (status: PresenceConnectionStatus) => void): () => void {
-		return this.transport.onStatus(listener);
-	}
-}
-
-export interface PresenceCoordinatorServerOptions {
+interface PresenceCoordinatorServerOptions {
 	endpoint: string;
-	output?: PresenceCoordinatorOutput;
-	createTransport?: DiscordPresenceTransportFactory;
-	clock?: PresenceClock;
-	onEmpty?: () => void;
+	onEmpty: () => void;
 }
 
 export interface PresenceCoordinatorServer {
@@ -198,10 +136,7 @@ export interface PresenceCoordinatorServer {
 }
 
 export function createPresenceCoordinatorServer(options: PresenceCoordinatorServerOptions): PresenceCoordinatorServer {
-	const output = options.output ?? new DiscordCoordinatorOutput({
-		...(options.createTransport === undefined ? {} : { createTransport: options.createTransport }),
-		...(options.clock === undefined ? {} : { clock: options.clock }),
-	});
+	const output = new DiscordCoordinatorOutput();
 	const sockets = new Set<Socket>();
 	const participantSockets = new Map<string, Socket>();
 	let server: Server | undefined;
@@ -216,7 +151,7 @@ export function createPresenceCoordinatorServer(options: PresenceCoordinatorServ
 	const broker = new PresenceBroker({
 		output,
 		onChange: broadcastStatus,
-		...(options.onEmpty === undefined ? {} : { onEmpty: options.onEmpty }),
+		onEmpty: options.onEmpty,
 	});
 	const unsubscribeStatus = output.onStatus(broadcastStatus);
 
@@ -224,18 +159,15 @@ export function createPresenceCoordinatorServer(options: PresenceCoordinatorServ
 		async listen() {
 			if (closing !== undefined) throw new Error("Discord presence coordinator server is closed.");
 			if (server !== undefined) return;
-			if (process.platform !== "win32") await mkdir(path.dirname(options.endpoint), { recursive: true, mode: 0o700 });
 			server = createServer((socket) => {
 				sockets.add(socket);
 				socket.unref();
 				let participantId: string | undefined;
-				let registered = false;
 				const removeReader = readCoordinatorMessages(socket, (value) => {
 					try {
 						const message = parseClientMessage(value);
 						if (message.type === "register") {
-							if (registered) throw new CoordinatorProtocolError("Coordinator socket is already registered.");
-							registered = true;
+							if (participantId !== undefined) throw new CoordinatorProtocolError("Coordinator socket is already registered.");
 							participantId = message.participantId;
 							const previousSocket = participantSockets.get(participantId);
 							participantSockets.set(participantId, socket);
@@ -249,10 +181,9 @@ export function createPresenceCoordinatorServer(options: PresenceCoordinatorServ
 									? undefined
 									: { activity: message.activity, activeAt: message.activeAt },
 							);
-							broadcastStatus();
 							return;
 						}
-						if (!registered || participantId === undefined) {
+						if (participantId === undefined) {
 							throw new CoordinatorProtocolError("Coordinator socket must register first.");
 						}
 						if (message.type === "configure") broker.configure(participantId, message.config);
@@ -284,7 +215,7 @@ export function createPresenceCoordinatorServer(options: PresenceCoordinatorServ
 				const activeServer = server;
 				server = undefined;
 				if (activeServer !== undefined) await closeServer(activeServer);
-				await output.clear().catch(() => undefined);
+				await output.dispose();
 				if (process.platform !== "win32") await unlink(options.endpoint).catch(() => undefined);
 			})();
 			return closing;

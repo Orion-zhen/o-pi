@@ -2,7 +2,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	DiscordPresenceConfigError,
 	loadDiscordPresenceConfig,
 } from "../../src/discord-presence/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -39,6 +38,18 @@ describe("Discord presence 配置", () => {
 		});
 		const standard = configuredProfile(config, "standard");
 		expect(standard.details).toEqual({ thinking: "Considering options" });
+	});
+
+	it("空 details 替换全部订阅，图片配置仍递归合并", async () => {
+		const configPath = path.join(temp.path, "empty-details.jsonc");
+		process.env["PI_DISCORD_PRESENCE_CONFIG"] = configPath;
+		await writeFile(configPath, JSON.stringify({
+			profiles: { standard: { details: {} } },
+			assets: { small: { activities: { reading: "custom-read" } } },
+		}));
+		const config = await loadDiscordPresenceConfig(temp.path);
+		expect(configuredProfile(config, "standard").details).toEqual({});
+		expect(config.assets.small.activities).toMatchObject({ reading: "custom-read", editing: "editing" });
 	});
 
 	it("支持选择用户定义的 profile", async () => {
@@ -87,7 +98,7 @@ describe("Discord presence 配置", () => {
 		await expect(loadDiscordPresenceConfig(temp.path)).rejects.toMatchObject({
 			name: "DiscordPresenceConfigError",
 			details: { path: "profiles.minimal.state", placeholder: "secret" },
-		} satisfies Partial<DiscordPresenceConfigError>);
+		});
 	});
 });
 

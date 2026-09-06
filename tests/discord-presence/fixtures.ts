@@ -1,19 +1,15 @@
-import type { DiscordPresenceCoordinator } from "../../src/discord-presence/coordinator-client.js";
 import type { CoordinatedPresenceConfig } from "../../src/discord-presence/coordinator-protocol.js";
-import type {
-	PresenceCoordinatorOutput,
-	SelectedPresence,
-} from "../../src/discord-presence/coordinator-server.js";
-import { defaultDiscordPresenceConfig } from "../../src/discord-presence/config.js";
+import type { DiscordCoordinatorOutput } from "../../src/discord-presence/output.js";
+import { agentSchemaPath, defaultAgentConfigPath, readDefaultJsoncConfigSync } from "../../src/config-loader.js";
 import type { DiscordPresenceTransport } from "../../src/discord-presence/transport.js";
-import type {
-	DiscordActivityPayload,
-	DiscordPresenceConfig,
-	PresenceProfileConfig,
-} from "../../src/discord-presence/types.js";
+import type { DiscordActivityPayload, DiscordPresenceConfig, PresenceProfileConfig, PresenceConnectionStatus } from "../../src/discord-presence/types.js";
 
 export function enabledConfig(): DiscordPresenceConfig {
-	const config = defaultDiscordPresenceConfig();
+	const config = readDefaultJsoncConfigSync({
+		configPath: defaultAgentConfigPath("discord-presence.jsonc"),
+		schemaPath: agentSchemaPath("discord-presence.schema.json"),
+		label: "discord-presence", createError: (message) => new Error(message),
+	}) as DiscordPresenceConfig;
 	config.enabled = true;
 	config.application_id = "123456789012345678";
 	config.profile = "detailed";
@@ -38,20 +34,12 @@ export function configuredProfile(config: DiscordPresenceConfig, name: string): 
 	return profile;
 }
 
-export class FakeCoordinator implements DiscordPresenceCoordinator {
+export class FakeCoordinator {
 	readonly activities: DiscordActivityPayload[] = [];
-	readonly activations: Array<{
-		config: CoordinatedPresenceConfig;
-		joinedAt: number;
-		activity?: DiscordActivityPayload;
-	}> = [];
+	readonly activations: Array<{ config: CoordinatedPresenceConfig; joinedAt: number; activity?: DiscordActivityPayload }> = [];
 	deactivateCount = 0;
-	status: ReturnType<DiscordPresenceCoordinator["getStatus"]> = "disabled";
-	async activate(
-		config: CoordinatedPresenceConfig,
-		joinedAt: number,
-		activity?: DiscordActivityPayload,
-	): Promise<void> {
+	status: PresenceConnectionStatus = "disabled";
+	async activate(config: CoordinatedPresenceConfig, joinedAt: number, activity?: DiscordActivityPayload): Promise<void> {
 		this.activations.push({ config, joinedAt, ...(activity === undefined ? {} : { activity }) });
 		if (activity !== undefined) this.activities.push(activity);
 		this.status = "connected";
@@ -63,34 +51,18 @@ export class FakeCoordinator implements DiscordPresenceCoordinator {
 		this.deactivateCount += 1;
 		this.status = "disabled";
 	}
-	getStatus() {
-		return this.status;
-	}
+	getStatus() { return this.status; }
 }
 
-export class FakeCoordinatorOutput implements PresenceCoordinatorOutput {
-	readonly selections: SelectedPresence[] = [];
+export class FakeCoordinatorOutput {
+	readonly selections: Array<Parameters<DiscordCoordinatorOutput["show"]>[0]> = [];
 	hideCount = 0;
-	clearCount = 0;
-	status: ReturnType<PresenceCoordinatorOutput["getStatus"]> = "connected";
-	private readonly listeners = new Set<(status: ReturnType<PresenceCoordinatorOutput["getStatus"]>) => void>();
-
-	show(selection: SelectedPresence): void {
-		this.selections.push(selection);
-	}
-	async hide(): Promise<void> {
-		this.hideCount += 1;
-	}
-	async clear(): Promise<void> {
-		this.clearCount += 1;
-	}
-	getStatus() {
-		return this.status;
-	}
-	onStatus(listener: (status: ReturnType<PresenceCoordinatorOutput["getStatus"]>) => void): () => void {
-		this.listeners.add(listener);
-		return () => this.listeners.delete(listener);
-	}
+	disposeCount = 0;
+	show(selection: Parameters<DiscordCoordinatorOutput["show"]>[0]): void { this.selections.push(selection); }
+	async hide(): Promise<void> { this.hideCount += 1; }
+	async dispose(): Promise<void> { this.disposeCount += 1; }
+	getStatus(): PresenceConnectionStatus { return "connected"; }
+	onStatus(): () => void { return () => {}; }
 }
 
 export class FakeTransport implements DiscordPresenceTransport {
@@ -98,8 +70,8 @@ export class FakeTransport implements DiscordPresenceTransport {
 	clearCount = 0;
 	closeCount = 0;
 	failSetCount = 0;
-	status: ReturnType<DiscordPresenceTransport["getStatus"]> = "disconnected";
-	private readonly listeners = new Set<(status: ReturnType<DiscordPresenceTransport["getStatus"]>) => void>();
+	status: PresenceConnectionStatus = "disconnected";
+	private readonly listeners = new Set<(status: PresenceConnectionStatus) => void>();
 
 	async setActivity(activity: DiscordActivityPayload): Promise<void> {
 		if (this.failSetCount > 0) {
@@ -110,21 +82,17 @@ export class FakeTransport implements DiscordPresenceTransport {
 		this.status = "connected";
 		this.activities.push(activity);
 	}
-	async clearActivity(): Promise<void> {
-		this.clearCount += 1;
-	}
+	async clearActivity(): Promise<void> { this.clearCount += 1; }
 	async close(): Promise<void> {
 		this.status = "disabled";
 		this.closeCount += 1;
 	}
-	getStatus() {
-		return this.status;
-	}
-	onStatus(listener: (status: ReturnType<DiscordPresenceTransport["getStatus"]>) => void): () => void {
+	getStatus() { return this.status; }
+	onStatus(listener: (status: PresenceConnectionStatus) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
 	}
-	emitStatus(status: ReturnType<DiscordPresenceTransport["getStatus"]>): void {
+	emitStatus(status: PresenceConnectionStatus): void {
 		this.status = status;
 		for (const listener of this.listeners) listener(status);
 	}
