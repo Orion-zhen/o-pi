@@ -1,4 +1,4 @@
-import type { ApiKeyCredential, AuthResult, ModelsStoreEntry, Provider, RefreshModelsContext } from "@earendil-works/pi-ai";
+import { createModels, InMemoryCredentialStore, type ModelsStoreEntry, type Provider, type RefreshModelsContext } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { loadConfigFromText, providerConfigText, registerProvider } from "./fixtures.js";
@@ -44,7 +44,6 @@ describe("openai-compatible-provider model discovery", () => {
 		const stored = stores.get("local");
 		if (!stored) throw new Error("merged models were not stored");
 		expect(stored.models.every((model) => model.headers === undefined)).toBe(true);
-		expect(stored.models.every((model) => !Object.hasOwn(model.headers ?? {}, "x-o-pi-model-source"))).toBe(true);
 		expect(stored.models.map((model) => model.id)).toEqual(["manual", "dynamic"]);
 
 		const { provider: second, harness: secondHarness } = registerProvider(config, temp.path);
@@ -62,10 +61,8 @@ describe("openai-compatible-provider model discovery", () => {
 		expect(secondHarness.providers).toEqual([second]);
 		expect(fetch).toHaveBeenCalledOnce();
 
-		stores.delete("local");
 		await expect(refreshProvider(second, { publish, allowNetwork: true })).rejects.toThrow("offline");
 		expect(second.getModels().map((model) => model.id)).toEqual(["manual", "dynamic"]);
-		stores.set("local", stored);
 
 		await expect(refreshProvider(second, {
 			allowNetwork: true,
@@ -183,6 +180,39 @@ describe("openai-compatible-provider model discovery", () => {
 		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
+	it("缓存覆盖后的当前 Model 决定 API、推理能力和等级映射", async () => {
+		const config = await loadConfigFromText(temp.path, providerConfigText({
+			api: "openai-completions",
+			thinkingPreset: "deepseek",
+			models: [{ id: "m", compat: { supportsReasoningEffort: false } }],
+		}));
+		const { provider } = registerProvider(config, temp.path);
+		const baseline = provider.getModels()[0];
+		if (!baseline) throw new Error("baseline model missing");
+		await refreshProvider(provider, {
+			allowNetwork: false,
+			stored: { checkedAt: Date.now(), models: [{
+				...baseline,
+				api: "openai-responses",
+				reasoning: true,
+				thinkingLevelMap: { high: "max" },
+				compat: { supportsReasoningEffort: true },
+			}] },
+		});
+		const restored = provider.getModels()[0];
+		if (!restored) throw new Error("restored model missing");
+		let payload: unknown;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			payload = JSON.parse(String(init?.body));
+			return new Response('{"error":"stop"}', { status: 400 });
+		});
+		for await (const _event of provider.stream(restored, {
+			messages: [{ role: "user", content: "test", timestamp: 0 }],
+		}, { apiKey: "sk-test", reasoningEffort: "high" })) {}
+		expect(payload).toMatchObject({ thinking: { type: "enabled" }, reasoning_effort: "max" });
+		expect(payload).not.toHaveProperty("reasoning");
+	});
+
 	it("手写 models 覆盖显式字段并由 models endpoint 补齐缺失元数据", async () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({
 			baseUrl: "https://gateway.example.com/v1",
@@ -247,7 +277,7 @@ describe("openai-compatible-provider model discovery", () => {
 		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow(expected);
 	});
 
-	it("重复的 endpoint 模型 ID 进入统一归一化校验", async () => {
+	it("重复的 endpoint 模型 ID 在合并手写模型前被拒绝", async () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({ models: [{ id: "duplicate", name: "Manual" }] }));
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
 			data: [{ id: "duplicate", context_length: 1000 }, { id: "duplicate", context_length: 2000 }],
@@ -284,10 +314,14 @@ describe("openai-compatible-provider model discovery", () => {
 		});
 	});
 
-	it("使用 Pi 已解析的 keyless credential 刷新时不发送 Authorization", async () => {
+	it.each([
+		["EMPTY", { "X-Token": "$TOKEN" }, { accept: "application/json", "x-token": "header-token" }],
+		["$KEY", { "X-Token": "$TOKEN" }, { accept: "application/json", authorization: "Bearer sk-env", "x-token": "header-token" }],
+	] as const)("Pi 原生刷新解析 %s 和提供方请求头", async (apiKey, configuredHeaders, expectedHeaders) => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({
 			baseUrl: "http://127.0.0.1:8000/v1",
-			apiKey: "EMPTY",
+			apiKey,
+			headers: configuredHeaders,
 			models: "auto",
 		}, "local"));
 		let headers: Record<string, string> | undefined;
@@ -296,20 +330,19 @@ describe("openai-compatible-provider model discovery", () => {
 			return jsonResponse({ data: [{ id: "local-model" }] });
 		});
 		const { provider: provider } = registerProvider(config, temp.path);
-		const auth = provider.auth.apiKey;
-		if (!auth?.resolve) throw new Error("provider API-key auth is missing");
-		const result = await auth.resolve({
-			ctx: { env: async () => undefined, fileExists: async () => false },
-			signal: new AbortController().signal,
-		});
-		if (!result) throw new Error("keyless auth unexpectedly missing");
-		await refreshProvider(provider, { credential: credentialFromAuth(result), allowNetwork: true });
+		const models = createModels({ authContext: {
+			env: async (name) => ({ KEY: "sk-env", TOKEN: "header-token" })[name],
+			fileExists: async () => false,
+		} });
+		models.setProvider(provider);
+		const result = await models.refresh({ allowNetwork: true });
 
-		expect(headers).toEqual({ accept: "application/json" });
+		expect(result.errors.size).toBe(0);
+		expect(headers).toEqual(expectedHeaders);
 		expect(provider.getModels()[0]?.id).toBe("local-model");
 	});
 
-	it("远端独有模型使用 fallback runtime，远端补全手写模型保留手写 runtime", async () => {
+	it("远端独有模型继承 provider 配置，手写模型保留自身配置", async () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({
 			api: "openai-responses",
 			apiKey: "sk-test",
@@ -343,14 +376,20 @@ describe("openai-compatible-provider model discovery", () => {
 		expect(payloads.get("dynamic")).not.toHaveProperty("enable_thinking");
 	});
 
-	it("模型目录刷新收到非 API key credential 时明确失败", async () => {
+	it("已有 OAuth 凭证与 API-key-only 提供方不匹配时，Pi 不发起模型发现", async () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({ models: "auto" }));
-		const { provider: provider } = registerProvider(config, temp.path);
+		const { provider } = registerProvider(config, temp.path);
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify(provider.id, async () => ({
+			type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 60_000,
+		}));
+		const models = createModels({ credentials });
+		models.setProvider(provider);
+		const fetch = vi.spyOn(globalThis, "fetch");
 
-		await expect(refreshProvider(provider, {
-			allowNetwork: true,
-			credential: { type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 60_000 },
-		})).rejects.toThrow('Provider "gateway" model refresh requires an API key credential');
+		const result = await models.refresh({ allowNetwork: true });
+		expect(result.errors.size).toBe(0);
+		expect(fetch).not.toHaveBeenCalled();
 	});
 
 	it("自动发现模型失败时输出 provider 和 HTTP 状态且不泄露 Authorization", async () => {
@@ -386,7 +425,11 @@ describe("openai-compatible-provider model discovery", () => {
 		fetch.mockResolvedValue(unreadable);
 		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow("response cannot be read: body failed");
 
-		vi.useFakeTimers();
+		const timeoutController = new AbortController();
+		const timeoutSignal = vi.spyOn(AbortSignal, "timeout").mockImplementationOnce((ms) => {
+			expect(ms).toBe(30000);
+			return timeoutController.signal;
+		});
 		vi.mocked(globalThis.fetch).mockImplementation((_input, init) => new Promise<Response>((_resolve, reject) => {
 			const signal = init?.signal;
 			if (!signal) throw new Error("request signal missing");
@@ -396,8 +439,9 @@ describe("openai-compatible-provider model discovery", () => {
 		}));
 		const timeoutPromise = refreshProvider(provider, { allowNetwork: true });
 		const timeoutError = expect(timeoutPromise).rejects.toThrow("timed out after 30000ms");
-		await vi.advanceTimersByTimeAsync(30000);
+		timeoutController.abort(new DOMException("timed out", "TimeoutError"));
 		await timeoutError;
+		timeoutSignal.mockRestore();
 
 		const controller = new AbortController();
 		const cancelPromise = refreshProvider(provider, { allowNetwork: true, signal: controller.signal });
@@ -425,7 +469,6 @@ interface RefreshContextOptions {
 	stored?: Readonly<ModelsStoreEntry>;
 	publish?: RefreshModelsContext["publish"];
 	allowNetwork: boolean;
-	credential?: RefreshModelsContext["credential"];
 	signal?: AbortSignal;
 }
 
@@ -436,7 +479,7 @@ async function refreshProvider(provider: Provider, options: RefreshContextOption
 
 function refreshContext(options: RefreshContextOptions): RefreshModelsContext {
 	return {
-		credential: options.credential ?? { type: "api_key", key: "sk-test" },
+		credential: { type: "api_key", key: "sk-test" },
 		...(options.stored !== undefined ? { stored: options.stored } : {}),
 		publish: options.publish ?? (async (publication) => {
 			publication.update?.();
@@ -452,20 +495,12 @@ function createMapPublisher(
 	providerId: string,
 ): RefreshModelsContext["publish"] {
 	return async (publication) => {
-		if (publication.persist === null) stores.delete(providerId);
-		else if (publication.persist !== undefined) stores.set(providerId, publication.persist);
+		if (publication.persist) stores.set(providerId, publication.persist);
 		publication.update?.();
 		return true;
 	};
 }
 
-function credentialFromAuth(result: AuthResult): ApiKeyCredential {
-	return {
-		type: "api_key",
-		...(result.auth.apiKey !== undefined ? { key: result.auth.apiKey } : {}),
-		...(result.env !== undefined ? { env: result.env } : {}),
-	};
-}
 
 function jsonResponse(value: unknown, init: { status?: number; statusText?: string } = {}): Response {
 	return new Response(JSON.stringify(value), {

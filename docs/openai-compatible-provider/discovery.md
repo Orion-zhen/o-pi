@@ -42,7 +42,7 @@ Accept: application/json
 
 模型目录请求使用 Pi 当前解析出的提供方凭证和 `headers`。如果 `apiKey` 为 `EMPTY`，扩展不会自动发送 `Authorization`。完整规则见[认证和敏感配置](authentication.md)。
 
-请求支持取消。取消或超时后，扩展会清理计时器和中止事件监听器。
+请求使用 Node 原生 `AbortSignal.any()` 组合调用方取消信号和 30 秒超时信号，不自行维护计时器或转发中止事件。
 
 ## 支持的响应结构
 
@@ -68,7 +68,7 @@ Accept: application/json
 - `context_length`
 - `architecture.input_modalities` 中的 `image` 输入能力
 
-未声明的元数据不会进入模型目录。根数组、`models` 数组、字符串条目、字段别名、空目录、重复 ID 和缺失 ID 都会导致刷新失败。
+未声明的元数据不会进入模型目录。根数组、`models` 数组、字符串条目、空目录、重复 ID 和缺失 ID 都会导致刷新失败。字段别名不会用于补充元数据。重复 ID 在解析远端响应时拒绝，不会在合并时被静默去重。
 
 ## 合并手写模型和远端模型
 
@@ -102,7 +102,9 @@ Accept: application/json
 - `baseUrl` 和 API 类型
 - `checkedAt` 等 Pi 原生刷新状态
 
-缓存不包含 API 密钥、认证请求头或扩展内部标记。缓存恢复不比较当前配置；因此配置改变后，联网刷新前可能暂时显示旧的缓存 overlay。
+缓存不包含 API 密钥、认证请求头或扩展内部标记。缓存恢复不比较当前配置，因此配置改变后，联网刷新前可能暂时显示旧的缓存 overlay。
+
+请求的 API、推理能力、等级映射和 `compat` 始终读取当前 `Model`，与实际选用的目录快照保持一致。`thinkingPreset`、默认思考级别、模型请求头和 `dropParams` 等附加行为读取当前配置，不再维护原生模型属性的副本。
 
 ## 离线行为
 

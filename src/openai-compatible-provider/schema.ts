@@ -1,14 +1,12 @@
 import {
 	StringEnum,
-	type ModelThinkingLevel,
 	type OpenAICompletionsCompat,
 	type OpenAIResponsesCompat,
-	type ThinkingLevelMap,
 } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 
 /** OpenAI-compatible 请求中思考等级的编码预设。 */
-export const THINKING_PRESET_NAMES = [
+const THINKING_PRESET_NAMES = [
 	"none",
 	"model-suffix",
 	"openai",
@@ -23,17 +21,21 @@ export const THINKING_PRESET_NAMES = [
 	"string-thinking",
 	"ant-ling",
 ] as const;
-export const ThinkingPresetNameSchema = StringEnum(THINKING_PRESET_NAMES);
+const ThinkingPresetNameSchema = StringEnum(THINKING_PRESET_NAMES);
 
-export const OPENAI_API_NAMES = ["openai-completions", "openai-responses"] as const;
+const OPENAI_API_NAMES = ["openai-completions", "openai-responses"] as const;
 const OpenAIApiSchema = StringEnum(OPENAI_API_NAMES);
 
-// Pi 只导出 thinking level 类型，没有导出重复可消费的运行时枚举。normalize
-// 阶段通过 getSupportedThinkingLevels() 校验默认值与 map。
-const ThinkingLevelSchema = Type.Unsafe<ModelThinkingLevel>(Type.String({ minLength: 1 }));
-const ThinkingLevelMapSchema = Type.Unsafe<ThinkingLevelMap>(
-	Type.Record(Type.String({ minLength: 1 }), Type.Union([Type.String(), Type.Null()])),
-);
+export const MODEL_THINKING_LEVEL_VALUES = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const ThinkingLevelSchema = StringEnum(MODEL_THINKING_LEVEL_VALUES);
+const ThinkingLevelMapSchema = Type.Partial(Type.Record(
+	Type.Union(MODEL_THINKING_LEVEL_VALUES.map((level) => Type.Literal(level))),
+	Type.Union([Type.String(), Type.Null()]),
+), { additionalProperties: false });
+
+export function isModelThinkingLevel(value: unknown): value is typeof MODEL_THINKING_LEVEL_VALUES[number] {
+	return MODEL_THINKING_LEVEL_VALUES.some((level) => level === value);
+}
 
 const CostRatesSchema = {
 	input: Type.Number(),

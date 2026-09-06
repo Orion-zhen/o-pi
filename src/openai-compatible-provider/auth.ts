@@ -12,7 +12,6 @@ import {
 	resolveConfigValueOrThrow,
 	resolveHeadersOrThrow,
 } from "./config-values.js";
-import { defaultApiKeyConfig } from "./provider-defaults.js";
 import type { ProviderConfig } from "./schema.js";
 
 const EMPTY_API_KEY = "EMPTY";
@@ -22,7 +21,9 @@ const PROVIDER_HEADERS_ENV = "\u0000o-pi-openai-compatible-provider-headers";
 
 /** 为原生 pi-ai Provider 构造用户配置驱动的认证。 */
 export function createProviderAuth(providerId: string, provider: ProviderConfig): ApiKeyAuth {
-	const apiKeyConfig = configuredApiKey(providerId, provider);
+	const safeProvider = providerId.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+	const apiKeyConfig = provider.apiKey || `$PI_MODELS_JSONC_${safeProvider}_API_KEY`;
+	const explicitlyKeyless = provider.apiKey === EMPTY_API_KEY;
 	const headerConfigs = provider.headers;
 	return {
 		name: `${provider.name ?? providerId} API key`,
@@ -36,7 +37,7 @@ export function createProviderAuth(providerId: string, provider: ProviderConfig)
 			signal.throwIfAborted();
 			if (!await areConfigValuesAvailable(Object.values(headerConfigs ?? {}), ctx, credential?.env, signal)) return undefined;
 			if (credential?.key) return { type: "api_key", source: "stored API key" };
-			if (isExplicitKeyless(provider)) return { type: "api_key", source: "keyless provider" };
+			if (explicitlyKeyless) return { type: "api_key", source: "keyless provider" };
 			if (await isConfigValueAvailable(apiKeyConfig, ctx, credential?.env, signal)) {
 				return { type: "api_key", source: configValueSource(apiKeyConfig) };
 			}
@@ -58,16 +59,12 @@ export function createProviderAuth(providerId: string, provider: ProviderConfig)
 			const resolvedKey = credentialKey ?? (keyConfigAvailable
 				? resolveConfigValueOrThrow(apiKeyConfig, `API key for provider "${providerId}"`, env)
 				: undefined);
-			const keyless = resolvedKey === EMPTY_API_KEY || (credentialKey === undefined && isExplicitKeyless(provider));
+			const keyless = resolvedKey === EMPTY_API_KEY || (credentialKey === undefined && explicitlyKeyless);
 			const hasConfiguredAuthHeader = hasAuthHeader(configuredHeaders);
 			signal.throwIfAborted();
 
 			if (!keyless && resolvedKey === undefined && !hasConfiguredAuthHeader) return undefined;
 
-			const headers: ProviderHeaders = { ...configuredHeaders };
-			if ((keyless || hasConfiguredAuthHeader) && !hasAuthorizationHeader(headers)) {
-				headers.Authorization = null;
-			}
 			const resolvedEnv = {
 				...env,
 				...(keyless ? { [KEYLESS_AUTH_ENV]: "1" } : {}),
@@ -76,7 +73,6 @@ export function createProviderAuth(providerId: string, provider: ProviderConfig)
 			return {
 				auth: {
 					apiKey: keyless || resolvedKey === undefined ? UNUSED_API_KEY : resolvedKey,
-					...(Object.keys(headers).length > 0 ? { headers } : {}),
 				},
 				...(Object.keys(resolvedEnv).length > 0 ? { env: resolvedEnv } : {}),
 				source: credentialKey
@@ -105,7 +101,16 @@ export function resolveRefreshAuth(
 	};
 }
 
-export function resolvedProviderHeaders(
+/** 请求头只在传输边界合并，避免 Pi 预先合并后丢失调用方覆盖信息。 */
+export function resolveProviderRequestHeaders(providerId: string, env: Record<string, string> | undefined): ProviderHeaders {
+	const headers: ProviderHeaders = { ...resolvedProviderHeaders(providerId, env) };
+	if ((env?.[KEYLESS_AUTH_ENV] === "1" || hasAuthHeader(headers)) && !hasAuthorizationHeader(headers)) {
+		headers.Authorization = null;
+	}
+	return headers;
+}
+
+function resolvedProviderHeaders(
 	providerId: string,
 	env: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
@@ -116,14 +121,6 @@ export function resolvedProviderHeaders(
 		throw new TypeError(`Resolved provider headers for provider "${providerId}" are invalid`);
 	}
 	return parsed;
-}
-
-function configuredApiKey(providerId: string, provider: ProviderConfig): string {
-	return provider.apiKey && provider.apiKey.length > 0 ? provider.apiKey : defaultApiKeyConfig(providerId);
-}
-
-function isExplicitKeyless(provider: ProviderConfig): boolean {
-	return provider.apiKey === EMPTY_API_KEY;
 }
 
 async function resolveEnvironment(
@@ -177,7 +174,7 @@ function findAuthHeaderConfig(headers: Record<string, string> | undefined): stri
 	return Object.entries(headers ?? {}).find(([name]) => isAuthHeaderName(name))?.[1];
 }
 
-function hasAuthHeader(headers: Record<string, string> | undefined): boolean {
+function hasAuthHeader(headers: ProviderHeaders | undefined): boolean {
 	return Object.keys(headers ?? {}).some(isAuthHeaderName);
 }
 

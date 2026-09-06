@@ -1,16 +1,17 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ApiKeyCredential, AuthResult } from "@earendil-works/pi-ai";
-import { describe, expect, it } from "vitest";
+import { createModels } from "@earendil-works/pi-ai";
+import { describe, expect, it, vi } from "vitest";
 
-import { createProviderAuth, resolveRefreshAuth, resolvedProviderHeaders } from "../../src/openai-compatible-provider/auth.js";
+import { createProviderAuth } from "../../src/openai-compatible-provider/auth.js";
+import { loadProvider } from "./fixtures.js";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 const activeSignal = new AbortController().signal;
 
 describe("openai-compatible-provider auth", () => {
-	it("原生 auth 正确解析 env/header，并让 EMPTY provider 真正无 Authorization", async () => {
+	it("认证检查和解析支持环境变量、无密钥配置及取消", async () => {
 		const ctx = {
 			env: async (name: string) => ({ KEY: "sk-test", TOKEN: "header-token" })[name],
 			fileExists: async () => false,
@@ -23,13 +24,8 @@ describe("openai-compatible-provider auth", () => {
 		const configuredResult = await configured.resolve({ ctx, signal: activeSignal });
 		if (!configuredResult) throw new Error("configured auth unexpectedly missing");
 		expect(configuredResult).toMatchObject({
-			auth: { apiKey: "sk-test", headers: { "X-Token": "header-token" } },
+			auth: { apiKey: "sk-test" },
 			source: "KEY",
-		});
-		expect(resolveRefreshAuth("gateway", credentialFromAuth(configuredResult))).toMatchObject({
-			apiKey: "sk-test",
-			headers: { "X-Token": "header-token" },
-			keyless: false,
 		});
 
 		const keyless = createProviderAuth("local", {
@@ -38,20 +34,7 @@ describe("openai-compatible-provider auth", () => {
 		});
 		const keylessResult = await keyless.resolve({ ctx, signal: activeSignal });
 		if (!keylessResult) throw new Error("keyless auth unexpectedly missing");
-		expect(keylessResult).toMatchObject({
-			auth: { apiKey: "unused", headers: { Authorization: null } },
-			source: "keyless provider",
-		});
-		expect(resolveRefreshAuth("local", credentialFromAuth(keylessResult))).toMatchObject({ keyless: true });
-		expect(resolveRefreshAuth("local", credentialFromAuth(keylessResult))).not.toHaveProperty("apiKey");
-		expect(resolveRefreshAuth("local", { type: "api_key", key: "EMPTY" })).toMatchObject({
-			apiKey: "EMPTY",
-			keyless: false,
-		});
-
-		const providerHeadersEnv = Object.keys(configuredResult.env ?? {}).find((name) => name.includes("provider-headers"));
-		if (!providerHeadersEnv) throw new Error("provider headers marker missing");
-		expect(() => resolvedProviderHeaders("gateway", { [providerHeadersEnv]: "not-json" })).toThrow();
+		expect(keylessResult.source).toBe("keyless provider");
 
 		const incomplete = createProviderAuth("incomplete", {
 			baseUrl: "https://gateway.test/v1",
@@ -60,6 +43,54 @@ describe("openai-compatible-provider auth", () => {
 		});
 		await expect(incomplete.check?.({ ctx, signal: activeSignal })).resolves.toBeUndefined();
 		await expect(configured.resolve({ ctx, signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+	});
+
+	it.each([
+		[{ apiKey: "sk-key" }, {}, "Bearer sk-key", null],
+		[{ apiKey: "EMPTY" }, {}, null, null],
+		[{ apiKey: "EMPTY" }, { apiKey: "sk-request" }, "Bearer sk-request", null],
+		[{ apiKey: undefined, headers: { authorization: "$HEADER" } }, { env: { HEADER: "Custom token" } }, "Custom token", null],
+		[{ apiKey: "sk-key", headers: { "CF-AIG-Authorization": "Custom token" } }, {}, null, "Custom token"],
+		[{ apiKey: "EMPTY", headers: { authorization: "Custom token" } }, { headers: { AUTHORIZATION: null } }, null, null],
+	] as const)("认证字段在实际请求中保持无密钥、自定义头和调用方覆盖语义 %#", async (config, options, authorization, cfAuthorization) => {
+		const provider = await loadProvider(temp.path, config);
+		const model = provider.getModels()[0];
+		if (!model) throw new Error("provider model missing");
+		const models = createModels();
+		models.setProvider(provider);
+		let headers: Headers | undefined;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			headers = new Headers(init?.headers);
+			return new Response('{"error":"stop"}', { status: 400 });
+		});
+		for await (const _event of models.streamSimple(model, {
+			messages: [{ role: "user", content: "test", timestamp: 0 }],
+		}, options)) {}
+		expect(headers?.get("Authorization")).toBe(authorization);
+		expect(headers?.get("CF-AIG-Authorization")).toBe(cfAuthorization);
+	});
+
+	it("并发请求的环境变量、密钥和请求头互不串用", async () => {
+		const provider = await loadProvider(temp.path, {
+			apiKey: "$KEY", headers: { "X-Account": "$ACCOUNT" },
+			models: [{ id: "m", headers: { "X-Model": "$MODEL_HEADER" } }],
+		});
+		const model = provider.getModels()[0];
+		if (!model) throw new Error("provider model missing");
+		const models = createModels();
+		models.setProvider(provider);
+		const requests: (string | null)[][] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			const headers = new Headers(init?.headers);
+			requests.push([headers.get("Authorization"), headers.get("X-Account"), headers.get("X-Model")]);
+			return new Response('{"error":"stop"}', { status: 400 });
+		});
+		await Promise.all(["one", "two"].map(async (id) => {
+			for await (const _event of models.streamSimple(model, {
+				messages: [{ role: "user", content: "test", timestamp: 0 }],
+			}, { env: { KEY: id, ACCOUNT: id, MODEL_HEADER: id } })) {}
+		}));
+		expect(requests.sort()).toEqual([["Bearer one", "one", "one"], ["Bearer two", "two", "two"]]);
 	});
 
 	it("auth check 不执行命令，resolve 才在请求边界执行并缓存结果", async () => {
@@ -82,11 +113,3 @@ describe("openai-compatible-provider auth", () => {
 		expect(await readFile(marker, "utf8")).toBe("ran");
 	});
 });
-
-function credentialFromAuth(result: AuthResult): ApiKeyCredential {
-	return {
-		type: "api_key",
-		...(result.auth.apiKey !== undefined ? { key: result.auth.apiKey } : {}),
-		...(result.env !== undefined ? { env: result.env } : {}),
-	};
-}

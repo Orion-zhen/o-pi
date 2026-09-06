@@ -107,7 +107,7 @@ Pi 默认值
 → 模型配置
 ```
 
-`dropParams` 按提供方列表、模型列表的顺序拼接。`extraBody` 只能配置在提供方对象中，可以为手写模型和自动发现的模型统一添加请求体字段。
+`dropParams` 按提供方列表、模型列表的顺序应用。`extraBody` 只能配置在提供方对象中，可以为手写模型和自动发现的模型统一添加请求体字段。
 
 ## 认证
 
@@ -196,9 +196,10 @@ Pi 的 `ModelsStore` 会按提供方 ID 保存刷新后的模型目录。离线�
 ```text
 合并模型和单次请求的 samplingParams
 → Pi 生成请求体
-→ 转换思考字段或模型后缀
+→ 转换 Responses 思考字段
 → 合并提供方 extraBody
 → 删除 provider/model dropParams
+→ 应用 model-suffix 路由并清理思考字段
 ```
 
 模型的 `samplingParams` 直接写入 Pi 的 `Model`，其中应使用 `top_p`、`top_k` 等上游字段名。单次请求的同名参数优先。最大输出令牌数应使用模型顶层的 `maxTokens`。不要把令牌上限或核心请求字段放入 `samplingParams`。

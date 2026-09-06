@@ -8,7 +8,7 @@ type ConfigValuePart = { type: "literal"; value: string } | { type: "env"; name:
 type ConfigValueReference = { type: "command"; config: string } | { type: "template"; parts: ConfigValuePart[] };
 
 export function resolveConfigValueOrThrow(config: string, description: string, env?: Record<string, string>): string {
-	const resolvedValue = resolveConfigValueUncached(config, env);
+	const resolvedValue = resolveConfigValue(config, env);
 	if (resolvedValue !== undefined) return resolvedValue;
 
 	const reference = parseConfigValueReference(config);
@@ -122,12 +122,12 @@ function getTemplateEnvVarNames(parts: ConfigValuePart[]): string[] {
 }
 
 export function isCommandConfigValue(config: string): boolean {
-	return parseConfigValueReference(config).type === "command";
+	return config.startsWith("!");
 }
 
-function resolveConfigValueUncached(config: string, env?: Record<string, string>): string | undefined {
+function resolveConfigValue(config: string, env?: Record<string, string>): string | undefined {
 	const reference = parseConfigValueReference(config);
-	if (reference.type === "command") return executeCommandUncached(reference.config);
+	if (reference.type === "command") return executeCachedCommand(reference.config);
 	return resolveTemplate(reference.parts, env);
 }
 
@@ -149,7 +149,7 @@ function resolveEnvConfigValue(name: string, env?: Record<string, string>): stri
 	return env?.[name] || process.env[name] || undefined;
 }
 
-function executeCommandUncached(commandConfig: string): string | undefined {
+function executeCachedCommand(commandConfig: string): string | undefined {
 	if (commandResultCache.has(commandConfig)) return commandResultCache.get(commandConfig);
 	const result = executeCommand(commandConfig.slice(1));
 	commandResultCache.set(commandConfig, result);

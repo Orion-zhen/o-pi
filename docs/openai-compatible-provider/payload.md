@@ -8,11 +8,13 @@
 1. Pi 合并 `model.samplingParams` 和单次请求的 `samplingParams`
 2. Pi 传输层生成请求体并应用合并后的 `samplingParams`
 3. 扩展转换 Responses API 使用的非 `openai` 思考预设
-4. 扩展根据 `model-suffix` 改写模型 ID
-5. 扩展合并 `provider.extraBody`
-6. 扩展依次应用 `provider.dropParams` 和 `model.dropParams`
+4. 扩展合并 `provider.extraBody`
+5. 扩展依次应用 `provider.dropParams` 和 `model.dropParams`
+6. 扩展根据 `model-suffix` 改写模型 ID 并清理思考字段
 7. 扩展调用后续注册的 `onPayload`
 ```
+
+Pi 的 `streamSimple` 负责第 1 步。直接使用低层 `stream` 时，调用方应提供所需的 `samplingParams`，扩展不会额外合并模型默认值。
 
 单次请求的 `samplingParams` 会覆盖模型配置中的同名字段。调用方的 `onPayload` 可以继续修改结果。如果 `onPayload` 返回 `undefined`，扩展使用第 6 步产生的请求体。核心字段保护只适用于扩展自己的 `extraBody` 和 `dropParams`，不会限制扩展内部的 `model-suffix` 路由或调用方后续的 `onPayload`。
 
@@ -71,7 +73,7 @@ model, messages, input, tools, stream
 }
 ```
 
-扩展按以下顺序拼接两个列表：
+扩展依次应用两个列表：
 
 ```text
 provider.dropParams + model.dropParams
@@ -81,7 +83,7 @@ provider.dropParams + model.dropParams
 
 ## 思考字段和模型后缀
 
-Responses API 使用非 `openai` 预设时，扩展会先删除已有的思考字段，再按预设生成上游格式。`model-suffix` 会改写核心 `model` 字段，并删除传输层已经生成的思考字段。详细映射见[思考预设](thinking.md)。
+Responses API 使用非 `openai` 预设时，扩展会先删除已有的思考字段，再按预设生成上游格式。`model-suffix` 在 `extraBody` 和 `dropParams` 之后改写核心 `model` 字段，并清理思考字段，包括 `extraBody` 中添加的思考字段。详细映射见[思考预设](thinking.md)。
 
 ## 图片字段
 

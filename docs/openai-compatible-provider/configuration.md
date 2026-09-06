@@ -52,7 +52,7 @@ Pi 默认值
 
 - 模型的 `api`、`baseUrl` 和 `thinkingPreset` 等字段覆盖提供方的同名字段。
 - 模型配置会覆盖 `compat` 中的同名顶层字段。对象字段整体覆盖，不合并子字段。
-- `dropParams` 按提供方列表、模型列表的顺序拼接。
+- `dropParams` 按提供方列表、模型列表的顺序应用。
 - `extraBody` 只能配置在提供方对象中。
 - 提供方的 `timeoutMs` 和 `maxRetries` 用于模型请求。
 - 模型的 `samplingParams` 直接写入 Pi 模型。单次请求的同名参数优先。
@@ -75,7 +75,8 @@ providers.gateway.models[0].id is required
 - `api` 不是 `openai-completions` 或 `openai-responses`
 - `thinkingPreset` 不是受支持的预设
 - `compat` 不是对象
-- 思考级别或 `thinkingLevelMap` 无效
+- 思考级别或 `thinkingLevelMap` 的键不在 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 中
+- `defaultThinkingLevel` 不在构建后的原生模型支持的级别中
 - `reasoning: false` 与 `defaultThinkingLevel` 或 `thinkingLevelMap` 同时出现
 - 提供方的 `extraBody` 试图覆盖核心请求字段，或提供方/模型的 `dropParams` 试图删除核心请求字段
 

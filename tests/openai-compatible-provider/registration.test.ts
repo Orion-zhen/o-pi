@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { createEventBus, ModelRegistry, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { InMemoryCredentialStore, InMemoryModelsStore, type Provider } from "@earendil-works/pi-ai";
+import { ModelRegistry, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import openAICompatibleProvider from "../../agent/extensions/openai-compatible-provider.js";
@@ -66,7 +66,8 @@ describe("openai-compatible-provider registration", () => {
 			}, "vllm"),
 		} }));
 		const harness = createExtensionHarness();
-		const [provider] = registerOpenAICompatibleProviders(harness.pi, config, path.join(temp.path, "models.jsonc"));
+		registerOpenAICompatibleProviders(harness.pi, config, path.join(temp.path, "models.jsonc"));
+		const [provider] = harness.providers;
 
 		expect(provider).toMatchObject({
 			id: "vllm",
@@ -111,6 +112,32 @@ describe("openai-compatible-provider registration", () => {
 		expect(registry.getProviderDisplayName("opencode")).toBe("Private OpenCode");
 	});
 
+	it("ModelRuntime 请求保留已存储密钥和调用方请求头优先级", async () => {
+		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
+			gateway: providerConfig({
+				headers: { "X-Value": "provider" },
+				models: [{ id: "m", headers: { "X-Value": "model" } }],
+			}),
+		} }));
+		const credentials = new InMemoryCredentialStore();
+		await credentials.modify("gateway", async () => ({ type: "api_key", key: "sk-stored" }));
+		const runtime = await ModelRuntime.create({ credentials, modelsPath: null, modelsStore: new InMemoryModelsStore(), allowModelNetwork: false });
+		const registry = new ModelRegistry(runtime);
+		registerOpenAICompatibleProviders(createRegistryPi(registry), config, "models.jsonc");
+		const model = registry.find("gateway", "m");
+		if (!model) throw new Error("registered model missing");
+		let headers: Headers | undefined;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			headers = new Headers(init?.headers);
+			return new Response('{"error":"stop"}', { status: 400 });
+		});
+		for await (const _event of runtime.streamSimple(model, {
+			messages: [{ role: "user", content: "test", timestamp: 0 }],
+		}, { headers: { "x-value": "provider" } })) {}
+		expect(headers?.get("Authorization")).toBe("Bearer sk-stored");
+		expect(headers?.get("X-Value")).toBe("provider");
+	});
+
 	it("模型目录刷新由 ModelRuntime 更新快照且不重复注册 provider", async () => {
 		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
 			local: providerConfig({ baseUrl: "http://127.0.0.1:8000/v1", models: undefined }, "local"),
@@ -127,7 +154,7 @@ describe("openai-compatible-provider registration", () => {
 		const registry = new ModelRegistry(runtime);
 		const registerProvider = vi.spyOn(registry, "registerProvider");
 
-		const [provider] = registerOpenAICompatibleProviders(
+		registerOpenAICompatibleProviders(
 			createRegistryPi(registry),
 			config,
 			path.join(temp.path, "models.jsonc"),
@@ -135,7 +162,7 @@ describe("openai-compatible-provider registration", () => {
 		await registry.refresh({ allowNetwork: true, providers: ["local"] });
 
 		expect(registerProvider).toHaveBeenCalledOnce();
-		expect(registerProvider).toHaveBeenCalledWith(provider);
+		expect(registerProvider).toHaveBeenCalledWith(expect.objectContaining({ id: "local" }));
 		expect(fetch).toHaveBeenCalledOnce();
 		expect(registry.find("local", "dynamic-model")).toMatchObject({
 			id: "dynamic-model",
@@ -151,25 +178,27 @@ describe("openai-compatible-provider registration", () => {
 				models: [{ id: "m", defaultThinkingLevel: "minimal" }],
 			}),
 		} }));
-		const handlers = new Map<string, (event: unknown, ctx?: unknown) => void>();
+		const handlers = new Map<string, (event: unknown) => void>();
+		const providers: Provider[] = [];
 		const thinkingLevels: string[] = [];
 		const pi = {
-			events: createEventBus(),
-			registerProvider() {},
-			on(name: string, handler: (event: unknown, ctx?: unknown) => void) {
+			registerProvider(provider: Provider) { providers.push(provider); },
+			on(name: string, handler: (event: unknown) => void) {
 				handlers.set(name, handler);
 			},
 			setThinkingLevel(level: string) {
 				thinkingLevels.push(level);
 			},
 		};
-		registerOpenAICompatibleProviders(pi as unknown as ExtensionAPI, config, path.join(temp.path, "models.jsonc"));
+		registerOpenAICompatibleProviders(pi as ExtensionAPI, config, path.join(temp.path, "models.jsonc"));
 
-		const model = { provider: "gateway", id: "m" };
-		handlers.get("session_start")?.({ reason: "new" }, { model });
-		handlers.get("before_agent_start")?.({}, { model });
-		handlers.get("model_select")?.({ model, source: "restore" });
-		handlers.get("model_select")?.({ model, source: "set" });
+		expect([...handlers.keys()]).toEqual(["model_select"]);
+		const model = providers[0]?.getModels()[0];
+		const select = handlers.get("model_select");
+		if (!model || !select) throw new Error("model selection was not registered");
+		select({ model, source: "restore" });
+		expect(thinkingLevels).toEqual([]);
+		select({ model, source: "set" });
 
 		expect(thinkingLevels).toEqual(["minimal"]);
 	});

@@ -16,7 +16,7 @@ export function defaultModelsJsoncPath(): string {
 }
 
 /** 读取并校验 models.jsonc；文件不存在时返回 undefined，表示不注册任何 provider。 */
-export async function loadModelsJsoncConfig(configPath = defaultModelsJsoncPath()): Promise<ModelsJsoncConfig | undefined> {
+export async function loadModelsJsoncConfig(configPath: string): Promise<ModelsJsoncConfig | undefined> {
 	let text: string;
 	try {
 		text = await readFile(configPath, "utf8");
@@ -26,10 +26,9 @@ export async function loadModelsJsoncConfig(configPath = defaultModelsJsoncPath(
 	}
 	const parseErrors: ParseError[] = [];
 	const parsed = parse(stripUtf8Bom(text), parseErrors, { allowTrailingComma: true });
-	if (parseErrors.length > 0) {
-		const first = parseErrors[0];
-		const code = first ? printParseErrorCode(first.error) : "Unknown";
-		throw invalidModelsJsonc(configPath, `JSONC parse error: ${code}`);
+	const firstError = parseErrors[0];
+	if (firstError) {
+		throw invalidModelsJsonc(configPath, `JSONC parse error: ${printParseErrorCode(firstError.error)}`);
 	}
 	if (!validateModelsJsonc(parsed)) {
 		throw invalidModelsJsonc(configPath, formatSchemaError(validateModelsJsonc.errors?.[0]));
@@ -38,7 +37,7 @@ export async function loadModelsJsoncConfig(configPath = defaultModelsJsoncPath(
 }
 
 /** 检查私有模型配置权限；过宽时返回 warning，由扩展决定如何展示。 */
-export async function ensure_private_config_permissions(configPath = defaultModelsJsoncPath()): Promise<string | undefined> {
+export async function ensure_private_config_permissions(configPath: string): Promise<string | undefined> {
 	if (process.platform === "win32") return undefined;
 	let info;
 	try {

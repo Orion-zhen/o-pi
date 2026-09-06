@@ -29,78 +29,52 @@ export async function fetchProviderModelsFromEndpoint(
 	}
 	const requestAuth = resolveRefreshAuth(providerId, credential);
 	const headers = buildModelsEndpointHeaders(requestAuth);
-	const controller = new AbortController();
-	let timedOut = false;
-	const timeout = setTimeout(() => {
-		timedOut = true;
-		controller.abort();
-	}, DEFAULT_MODELS_ENDPOINT_TIMEOUT_MS);
-	const abortFromCaller = () => controller.abort();
-	if (signal.aborted) abortFromCaller();
-	else signal.addEventListener("abort", abortFromCaller, { once: true });
-
+	const timeout = AbortSignal.timeout(DEFAULT_MODELS_ENDPOINT_TIMEOUT_MS);
+	const requestSignal = AbortSignal.any([signal, timeout]);
+	let response: Response;
 	try {
-		let response: Response;
-		try {
-			response = await fetch(url, { method: "GET", headers, signal: controller.signal });
-		} catch (error) {
-			const reason = isAbortError(error)
-				? (timedOut ? `timed out after ${DEFAULT_MODELS_ENDPOINT_TIMEOUT_MS}ms` : "cancelled")
-				: stringifyError(error);
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint request failed: ${reason}`);
-		}
-
-		let responseText = "";
-		try {
-			responseText = await response.text();
-		} catch (error) {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint response cannot be read: ${stringifyError(error)}`);
-		}
-
-		if (!response.ok) {
-			throw invalidModelsJsonc(
-				configPath,
-				`provider "${providerId}" models endpoint returned HTTP ${response.status}${formatStatusText(response.statusText)}${formatErrorBody(responseText)}`,
-			);
-		}
-
-		let payload: unknown;
-		try {
-			payload = JSON.parse(responseText);
-		} catch {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint did not return valid JSON`);
-		}
-
-		return parseModelsEndpointPayload(payload, configPath, providerId);
-	} finally {
-		clearTimeout(timeout);
-		signal.removeEventListener("abort", abortFromCaller);
+		response = await fetch(url, { method: "GET", headers, signal: requestSignal });
+	} catch (error) {
+		const reason = requestSignal.aborted
+			? (requestSignal.reason === timeout.reason ? `timed out after ${DEFAULT_MODELS_ENDPOINT_TIMEOUT_MS}ms` : "cancelled")
+			: stringifyError(error);
+		throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint request failed: ${reason}`);
 	}
+
+	let responseText: string;
+	try {
+		responseText = await response.text();
+	} catch (error) {
+		throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint response cannot be read: ${stringifyError(error)}`);
+	}
+	if (!response.ok) {
+		throw invalidModelsJsonc(
+			configPath,
+			`provider "${providerId}" models endpoint returned HTTP ${response.status}${formatStatusText(response.statusText)}${formatErrorBody(responseText)}`,
+		);
+	}
+
+	let payload: unknown;
+	try {
+		payload = JSON.parse(responseText);
+	} catch {
+		throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint did not return valid JSON`);
+	}
+	return parseModelsEndpointPayload(payload, configPath, providerId);
 }
 
 /** 以 endpoint 元数据为基底，手写模型按字段覆盖；保留手写顺序并追加远端独有模型。 */
 export function mergeDiscoveredModelConfigs(
-	configured: ProviderConfig["models"],
+	configured: readonly ModelConfig[],
 	discovered: readonly ModelConfig[],
 ): ModelConfig[] {
-	if (!Array.isArray(configured)) return discovered.map((model) => ({ ...model }));
-
-	const consumedDiscovered = new Set<number>();
-	const merged = configured.map((entry) => {
-		const model = typeof entry === "string" ? { id: entry } : entry;
-		let remote: ModelConfig | undefined;
-		for (const [index, candidate] of discovered.entries()) {
-			if (consumedDiscovered.has(index) || candidate.id !== model.id) continue;
-			consumedDiscovered.add(index);
-			remote = candidate;
-			break;
-		}
-		return remote ? { ...remote, ...model } : { ...model };
+	const remaining = new Map(discovered.map((model) => [model.id, model]));
+	const merged = configured.map((model) => {
+		const remote = remaining.get(model.id);
+		remaining.delete(model.id);
+		return { ...remote, ...model };
 	});
-	for (const [index, model] of discovered.entries()) {
-		if (!consumedDiscovered.has(index)) merged.push({ ...model });
-	}
-	return merged;
+	return [...merged, ...remaining.values()];
 }
 
 function modelsEndpointUrl(provider: ProviderConfig): string {
@@ -129,7 +103,15 @@ function hasAuthHeader(headers: Record<string, string>): boolean {
 
 function parseModelsEndpointPayload(payload: unknown, configPath: string, providerId: string): ModelConfig[] {
 	const entries = extractModelEntries(payload, configPath, providerId);
-	const models = entries.map((entry, index) => parseModelEntry(entry, configPath, providerId, index));
+	const ids = new Set<string>();
+	const models = entries.map((entry, index) => {
+		const model = parseModelEntry(entry, configPath, providerId, index);
+		if (ids.has(model.id)) {
+			throw invalidModelsJsonc(configPath, `provider "${providerId}" contains duplicate model "${model.id}"`);
+		}
+		ids.add(model.id);
+		return model;
+	});
 	if (models.length === 0) {
 		throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint returned no models`);
 	}
@@ -169,16 +151,12 @@ function formatStatusText(value: string | undefined): string {
 function formatErrorBody(value: string): string {
 	const trimmed = value.replace(/\s+/g, " ").trim();
 	if (!trimmed) return "";
-	const snippet = trimmed.length > MAX_ERROR_BODY_CHARS ? `${trimmed.slice(0, MAX_ERROR_BODY_CHARS)}…` : trimmed;
+	const snippet = trimmed.length > MAX_ERROR_BODY_CHARS ? `${trimmed.slice(0, MAX_ERROR_BODY_CHARS)}...` : trimmed;
 	return `: ${snippet}`;
 }
 
 function stringifyError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-function isAbortError(error: unknown): boolean {
-	return error instanceof Error && error.name === "AbortError";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
