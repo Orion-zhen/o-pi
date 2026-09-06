@@ -121,7 +121,7 @@ export async function withGrepRuntime<T>(
 		opened = expectSuccess(await host.open({ cwd: workspace, sessionId }));
 		const context: GrepExecutionContext = {
 			filesystem: opened.filesystem,
-			operation: opened.context,
+			operation: opened.operation,
 			limits: opened.limits,
 		};
 		return await run({
@@ -188,7 +188,7 @@ export async function grepWithAnalyzer(
 	try {
 		return await tool.execute(params, {
 			filesystem: mapFilesystem(opened.filesystem),
-				operation: opened.context,
+				operation: opened.operation,
 				limits: opened.limits,
 				...(sources.prepareCodeAnalysis === undefined ? {} : { prepareCodeAnalysis: sources.prepareCodeAnalysis }),
 				...(sources.analyzeCode === undefined ? {} : { analyzeCode: sources.analyzeCode }),
@@ -216,7 +216,7 @@ export async function inventoryWorkspace(
 	try {
 		return await buildScopeInventory(params, {
 			filesystem: mapFilesystem(opened.filesystem),
-			operation: opened.context,
+			operation: opened.operation,
 			maxDepth,
 			maxEntries: 100_000,
 			maxSearchBytes,

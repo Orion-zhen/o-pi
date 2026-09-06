@@ -3,7 +3,7 @@ import type { WriteParams, WritePreviewSuccess } from "../../write/types.js";
 import { isFailed } from "../../shared/result.js";
 import { formatWriteModelResult } from "../../write/presenter.js";
 import { withFileToolsInvocation, type MutationRuntime } from "../invocation.js";
-import { createMutationDiagnosticsSource } from "../ports/mutation-diagnostics.js";
+import { bindFileLsp } from "../lsp.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 import { createMutationPostProcessObserver, mutationProgress } from "../progress.js";
 
@@ -13,11 +13,9 @@ export async function executeWrite(params: WriteParams, runtime: MutationRuntime
 		const progress = createMutationPostProcessObserver(runtime.onUpdate, () => (
 			latestPreview === undefined ? {} : { diff: latestPreview.diff }
 		));
-		const diagnostics = createMutationDiagnosticsSource(opened, runtime.lsp, progress, runtime.batch);
+		const diagnostics = bindFileLsp(opened, runtime.lsp).diagnostics(progress, runtime.batch);
 		const result = await writeFile(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			maxFileBytes: opened.limits.write_max_file_bytes,
+			...opened,
 			diff: piTextDiffGenerator,
 			diagnostics,
 			onPrepared(preview) {

@@ -55,7 +55,7 @@ async function runSearchBenchmark() {
 		const opened = await host.open({ cwd: fromRoot(""), sessionId: "benchmark-find" });
 		if (opened.status === "failed") return opened;
 		try {
-			return await findFiles(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
+			return await findFiles(params, opened);
 		} finally {
 			opened.dispose();
 		}
@@ -64,7 +64,7 @@ async function runSearchBenchmark() {
 		const opened = await latencyHost.open({ cwd: fromRoot(""), sessionId: "benchmark-latency-find" });
 		if (opened.status === "failed") return opened;
 		try {
-			return await findFiles(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
+			return await findFiles(params, opened);
 		} finally {
 			opened.dispose();
 		}
@@ -73,7 +73,7 @@ async function runSearchBenchmark() {
 		const opened = await grepHost.open({ cwd: fromRoot(""), sessionId: "benchmark-grep" });
 		if (opened.status === "failed") return opened;
 		try {
-			return await grepTool.execute(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
+			return await grepTool.execute(params, opened);
 		} finally { opened.dispose(); }
 	};
 	const coldFindMs = await measure(() => find({ query: "file tools config" }));

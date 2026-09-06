@@ -1,15 +1,12 @@
 import type { Dispatcher } from "undici";
+import type { HttpFetchResult, HttpFetchSuccess, WebHttpFetch, WebHttpResponse } from "./types.js";
+import type { WebToolsConfig } from "../config-types.js";
 
 import type {
 	CookieAccess,
 	CookieStore,
-	HttpFetchResult,
-	HttpFetchSuccess,
 	WebFetchExecutionContext,
-	WebToolsConfig,
 	WebFetchFailureDetails,
-	WebHttpFetch,
-	WebHttpResponse,
 } from "../core/types.js";
 import { mimeFromContentType, supportedImageMimeFromHeader } from "../content/image-types.js";
 import { classifyNetworkError, networkErrorMessage } from "./errors.js";

@@ -66,7 +66,7 @@ describe("技能资源定位符", () => {
 			sessionId: "skill-read",
 			model: undefined,
 			host,
-			lsp: lspOperations({ read: enhanceRead }),
+			lsp: async () => lspOperations({ read: enhanceRead }),
 			pathAccess,
 		});
 		const opened = await host.open({ cwd: temp.path, sessionId: "skill-read" });
@@ -150,7 +150,7 @@ describe("技能资源定位符", () => {
 				sessionId: "skill-pdf-read",
 				model: { input: ["text", "image"] },
 				host,
-				lsp: lspOperations(),
+				lsp: async () => lspOperations(),
 				pathAccess,
 			});
 			expect(result.content).toHaveLength(3);

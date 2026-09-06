@@ -1,5 +1,7 @@
 import path from "node:path";
-import type { FileChangeType } from "vscode-languageserver-protocol";
+import { FileChangeType } from "vscode-languageserver-protocol";
+import type { LspMutationInput, LspReadInput } from "../file-operations.js";
+import { emptySummary } from "../diagnostics/ledger.js";
 
 import type { CodeAnalysis } from "../../code-index/types.js";
 import { codeAnalysis as runCodeAnalysis, type LspCodeAnalysisInput } from "../analysis/code-analysis.js";
@@ -7,7 +9,6 @@ import {
 	beforeDiagnostics as readBeforeDiagnostics,
 	didWriteBatch as collectWriteDiagnostics,
 	knownDiagnostics as listKnownDiagnostics,
-	type LspWriteInput,
 } from "../diagnostics/operations.js";
 import { waitUnlessAborted } from "../analysis/deadline.js";
 import { LspManagerRuntime } from "./runtime.js";
@@ -47,14 +48,11 @@ export class LspManager {
 		return this.runtime.reload();
 	}
 
-	readEnhancement(
-		root: string,
-		filePath: string,
-		text: string,
-		range: { startLine: number; endLine: number },
-		options: { outline: boolean; enclosing: boolean },
-	): Promise<ReadEnhancement | undefined> {
-		return this.runtime.withClientOperation(() => this.readEnhancementOperation(root, filePath, text, range, options));
+	read(input: LspReadInput): Promise<ReadEnhancement | undefined> {
+		return this.runtime.withClientOperation(() => this.readEnhancementOperation(
+			input.workspaceRoot, input.filePath, input.content, input,
+			{ outline: input.truncated && !input.partial, enclosing: input.partial },
+		));
 	}
 
 	codeAnalysis(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined> {
@@ -79,8 +77,8 @@ export class LspManager {
 		});
 	}
 
-	beforeDiagnostics(root: string, filePath: string): Promise<LspDiagnosticSnapshot | undefined> {
-		return readBeforeDiagnostics(this.runtime, root, filePath);
+	beforeMutation(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspDiagnosticSnapshot | undefined> {
+		return readBeforeDiagnostics(this.runtime, input.workspaceRoot, input.filePath);
 	}
 
 	didChangeWatchedFiles(
@@ -103,8 +101,32 @@ export class LspManager {
 		});
 	}
 
-	didWriteBatch(writes: readonly LspWriteInput[]): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
-		return collectWriteDiagnostics(this.runtime, writes);
+	async afterMutation(input: LspMutationInput): Promise<LspDiagnosticsSummary | undefined> {
+		return (await this.afterMutationBatch([input]))[0];
+	}
+
+	/** 文件已提交。通知失败不能阻止诊断，诊断失败也不能改变提交结果。 */
+	async afterMutationBatch(inputs: readonly LspMutationInput[]): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
+		try {
+			await this.didChangeWatchedFiles(inputs.map((input) => ({
+				root: input.workspaceRoot,
+				filePath: input.filePath,
+				type: input.created ? FileChangeType.Created : FileChangeType.Changed,
+			})));
+		} catch {
+			// watched-file 通知和诊断是独立的增强步骤。
+		}
+		try {
+			return await collectWriteDiagnostics(this.runtime, inputs.map((input) => ({
+				root: input.workspaceRoot,
+				filePath: input.filePath,
+				text: input.content,
+				...(input.changed_ranges === undefined ? {} : { changed_ranges: input.changed_ranges }),
+				...(input.baseline === undefined ? {} : { baseline: input.baseline }),
+			})));
+		} catch {
+			return inputs.map(() => emptySummary("unavailable"));
+		}
 	}
 
 	knownDiagnostics(root: string, filePath?: string): Promise<Array<{ path: string; items: LspDiagnosticsSummary["items"] }>> {

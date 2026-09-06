@@ -1,5 +1,4 @@
-import { fields } from "../../telemetry/projection.js";
-import { defineToolTelemetry } from "../../telemetry/tool.js";
+import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
 import type { WebFetchDetails, WebFetchParams } from "../core/types.js";
 import { webResultFields } from "./common.js";
 

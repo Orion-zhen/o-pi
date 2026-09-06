@@ -1,5 +1,5 @@
 import { escapeXmlAttribute } from "../shared/mutation-presenter.js";
-import type { DiagnosticsSummary } from "../shared/diagnostics.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.js";
 import type { EditSuccess } from "./types.js";
 
 export function formatEditModelResult(result: EditSuccess): string {

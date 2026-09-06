@@ -211,14 +211,14 @@ describe("grep text search", () => {
 		await withFileToolsInvocation(testContext.workspace, "grep-hit-limit", async (opened) => {
 			const inventory = expectInventorySuccess(await buildScopeInventory({ paths: ["hits.txt"] }, {
 				filesystem: opened.filesystem,
-				operation: opened.context,
+				operation: opened.operation,
 				maxDepth: 12,
 				maxEntries: 100_000,
 				maxSearchBytes: Number.MAX_SAFE_INTEGER,
 			}));
 			const scanned = expectSuccess(await scanInventoryText(inventory, queryPlan("hit"), {
 				filesystem: opened.filesystem,
-				operation: opened.context,
+				operation: opened.operation,
 			}));
 			expect(scanned.hits).toHaveLength(10_000);
 			expect(scanned.hits[0]).toMatchObject({
@@ -244,7 +244,7 @@ describe("grep text search", () => {
 		await withFileToolsInvocation(testContext.workspace, "grep-concurrent-scan", async (opened) => {
 			const inventory = expectInventorySuccess(await buildScopeInventory({ paths: ["."] }, {
 				filesystem: opened.filesystem,
-				operation: opened.context,
+				operation: opened.operation,
 				maxDepth: 12,
 				maxEntries: 100_000,
 				maxSearchBytes: Number.MAX_SAFE_INTEGER,
@@ -267,7 +267,7 @@ describe("grep text search", () => {
 			}));
 			const pending = scanInventoryText(inventory, queryPlan("hit"), {
 				filesystem,
-				operation: opened.context,
+				operation: opened.operation,
 			});
 			const scanned = expectSuccess(await pending);
 			expect(maxActive).toBeGreaterThanOrEqual(availableParallelism() >= 4 ? 2 : 1);
@@ -292,7 +292,7 @@ describe("grep text search", () => {
 				await writeFile(replacementPath, "current");
 				const inventory = expectInventorySuccess(await buildScopeInventory({ paths }, {
 					filesystem: opened.filesystem,
-					operation: opened.context,
+					operation: opened.operation,
 					maxDepth: 12,
 					maxEntries: 100_000,
 					maxSearchBytes: Number.MAX_SAFE_INTEGER,
@@ -301,7 +301,7 @@ describe("grep text search", () => {
 				await rename(replacementPath, filePath);
 				const scanned = expectSuccess(await scanInventoryText(inventory, queryPlan("needle"), {
 					filesystem: opened.filesystem,
-					operation: opened.context,
+					operation: opened.operation,
 				}));
 				expect(scanned.hits).toEqual([]);
 				expect(scanned.stats.searchedFiles).toBe(0);
@@ -329,14 +329,14 @@ describe("grep text search", () => {
 			for (const [paths, explicit] of [[["."], false], [["race.txt"], true]] as const) {
 				const inventory = expectInventorySuccess(await buildScopeInventory({ paths }, {
 					filesystem,
-					operation: opened.context,
+					operation: opened.operation,
 					maxDepth: 12,
 					maxEntries: 100_000,
 					maxSearchBytes: Number.MAX_SAFE_INTEGER,
 				}));
 				const scanned = await scanInventoryText(inventory, queryPlan("needle"), {
 					filesystem,
-					operation: opened.context,
+					operation: opened.operation,
 				});
 				const success = expectSuccess(scanned);
 				expect(success.hits).toEqual([]);

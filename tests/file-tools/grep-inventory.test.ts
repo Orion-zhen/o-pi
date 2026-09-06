@@ -147,7 +147,7 @@ describe("grep ScopeInventory", () => {
 		try {
 			const result = expectInventorySuccess(await buildScopeInventory({ paths: ["first", "second"] }, {
 				filesystem: opened.filesystem,
-				operation: opened.context,
+				operation: opened.operation,
 				maxDepth: 12,
 				maxEntries: 2,
 				maxSearchBytes: Number.MAX_SAFE_INTEGER,
@@ -201,7 +201,7 @@ describe("grep ScopeInventory", () => {
 			const input = { paths: [".", "src"], glob: "*.ts" } as const;
 			const context = {
 				filesystem: opened.filesystem,
-				operation: opened.context,
+				operation: opened.operation,
 				maxDepth: 12,
 				maxEntries: 100_000,
 				maxSearchBytes: Number.MAX_SAFE_INTEGER,

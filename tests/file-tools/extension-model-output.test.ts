@@ -10,7 +10,7 @@ import { formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../src/fi
 import type { ReadPdfSuccess } from "../../src/file-tools/read/types.js";
 import { isGrepSuccessDetails } from "../../src/file-tools/pi/guards.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
-import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
+import { lspManager as lspFileHooks } from "../../src/lsp/index.js";
 import { registerExtension } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import { executeTool, textResult } from "./extension-fixture.js";

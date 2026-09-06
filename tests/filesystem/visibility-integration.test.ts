@@ -29,11 +29,7 @@ async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<To
 	const opened = await host.open({ cwd, sessionId: "visibility-test" });
 	if (isFailed(opened)) return opened;
 	try {
-		return await listDirectory(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			entryLimit: opened.limits.ls_entries,
-		});
+		return await listDirectory(params, opened);
 	} finally {
 		opened.dispose();
 	}
@@ -48,11 +44,7 @@ async function editWorkspace(cwd: string, params: EditParams): Promise<ToolOutco
 	if (isFailed(opened)) return opened;
 	try {
 		return await editFile(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			observation: opened.observation,
-			maxFileBytes: opened.limits.edit_max_file_bytes,
-			matchHintLimit: opened.limits.edit_match_hint_limit,
+			...opened,
 			diff: piTextDiffGenerator,
 		});
 	} finally {

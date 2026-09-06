@@ -20,6 +20,14 @@ beforeEach(() => {
 afterEach(() => { provider.dispose(); });
 
 describe("file-tools config", () => {
+	it("并发与缓存命中返回独立配置副本", async () => {
+		await useConfig("isolated.jsonc", { limits: { read_suggestion_limit: 7 } });
+		const [first, second] = await Promise.all([loadedConfig(workspace), loadedConfig(workspace)]);
+		first.limits.read_suggestion_limit = 1;
+		expect(second.limits.read_suggestion_limit).toBe(7);
+		expect(await loadedConfig(workspace)).toEqual(second);
+	});
+
 	it("加载默认值并支持用户覆盖", async () => {
 		delete process.env.PI_FILE_TOOLS_CONFIG;
 		expect(await loadedConfig(workspace)).toMatchObject({

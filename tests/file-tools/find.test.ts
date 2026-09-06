@@ -351,7 +351,7 @@ describe("find", () => {
 		calls.readdir = 0;
 		const result = expectSuccess(await findFiles({ query: "target" }, {
 			filesystem: opened.filesystem,
-			operation: opened.context,
+			operation: opened.operation,
 			limits: opened.limits,
 		}));
 		expect(result.details).toMatchObject({
@@ -372,7 +372,7 @@ describe("find", () => {
 		opened.dispose();
 		expectFailure(await findFiles({ query: "auth" }, {
 			filesystem: opened.filesystem,
-			operation: opened.context,
+			operation: opened.operation,
 			limits: opened.limits,
 		}), { code: "OPERATION_ABORTED" });
 	});
@@ -407,7 +407,7 @@ describe("find", () => {
 					},
 				},
 			},
-			operation: opened.context,
+			operation: opened.operation,
 			limits: opened.limits,
 		});
 		expectFailure(result, { code: "OPERATION_ABORTED" });

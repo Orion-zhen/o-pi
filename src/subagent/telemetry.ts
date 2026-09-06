@@ -1,5 +1,4 @@
-import { fields } from "../telemetry/projection.js";
-import { defineToolTelemetry } from "../telemetry/tool.js";
+import { defineToolTelemetry, fields } from "../telemetry/projection.js";
 import type { Resource, TelemetryFacts } from "../telemetry/types.js";
 import type { SubagentDetails, SubagentToolParams } from "./types.js";
 

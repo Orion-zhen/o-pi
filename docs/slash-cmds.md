@@ -298,7 +298,7 @@
 - 启用写入确认且任务使用写能力工具时，需要界面确认。没有界面而无法确认时，拒绝执行需要确认的任务。用户级 Agent 可用 `auto_confirm: true` 跳过确认。
 - 主 TUI 在编辑器上方实时展示运行进度、事件、耗时和词元。结束后卡片进入会话记录。
 - 最终卡片不进入模型上下文，不消耗模型词元。
-- `subagent` 模型工具与 `/run` 都调用 `runSubagentTasks()`，共享 `starting`、`running`、`completed` 三个 `SubagentProgressEvent` 阶段和最终 `SubagentToolResult`。TUI 部件只是进度消费者。RPC、JSON 和 print 模式不创建组件工厂，并通过通知返回核心结果。
+- `subagent` 模型工具与 `/run` 都调用 `executeSubagent()`，共享 `starting`、`running`、`completed` 三个 `SubagentProgressEvent` 阶段和最终 `SubagentToolResult`。TUI 部件只是进度消费者。RPC、JSON 和 print 模式不创建组件工厂，并通过通知返回核心结果。
 
 ## `/subagent-config`
 

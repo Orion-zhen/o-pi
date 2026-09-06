@@ -1,5 +1,4 @@
-import { fields, textFields } from "../../telemetry/projection.js";
-import { defineToolTelemetry } from "../../telemetry/tool.js";
+import { defineToolTelemetry, fields, textFields } from "../../telemetry/projection.js";
 import type { Candidate } from "../../telemetry/types.js";
 import type { WebSearchDetails, WebSearchParams, WebSearchProviderAttempt, WebSearchSuccessDetails } from "../core/types.js";
 import { webResultFields } from "./common.js";

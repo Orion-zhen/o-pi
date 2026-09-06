@@ -3,13 +3,12 @@ import {
 	CONFIG_DEFINITIONS,
 	agentPath,
 	agentSchemaPath,
-	configLayerFingerprint,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
 	loadValidatedMergedConfig,
-	resolveConfigLayerPaths,
 } from "../config-loader.js";
-import type { WebToolsConfig } from "./core/types.js";
+import { ConfigCache, type ConfigSnapshot } from "../config-cache.js";
+import type { WebToolsConfig } from "./config-types.js";
 import { guardPublicHttpUrlLiteral } from "./network/url-guard.js";
 import { normalizeDomains } from "./search-providers/query.js";
 
@@ -23,42 +22,18 @@ export class WebToolsConfigError extends Error {
 	}
 }
 
-interface ConfigCacheEntry {
-	fingerprint: string;
-	config: WebToolsConfig;
-}
-
-const configCache = new Map<string, ConfigCacheEntry>();
-const pendingConfigs = new Map<string, Promise<ConfigCacheEntry>>();
+const configCache = new ConfigCache(CONFIG_DEFINITIONS.webTools, loadConfigFile);
 
 /** 读取 Web 工具 JSONC 配置；配置错误直接失败，避免凭据或网络策略静默降级。 */
-export async function loadWebToolsConfig(): Promise<WebToolsConfig> {
-	const paths = resolveConfigLayerPaths(CONFIG_DEFINITIONS.webTools, process.cwd());
-	const cacheKey = paths.map((source) => source.path).join("\0");
-	const fingerprint = await configLayerFingerprint(paths);
-	const cached = configCache.get(cacheKey);
-	if (cached?.fingerprint === fingerprint) return structuredClone(cached.config);
-
-	const pendingKey = `${cacheKey}\0${fingerprint}`;
-	let pending = pendingConfigs.get(pendingKey);
-	if (pending === undefined) {
-		pending = loadConfigFile();
-		pendingConfigs.set(pendingKey, pending);
-	}
-	try {
-		const loaded = await pending;
-		configCache.set(cacheKey, loaded);
-		return structuredClone(loaded.config);
-	} finally {
-		if (pendingConfigs.get(pendingKey) === pending) pendingConfigs.delete(pendingKey);
-	}
+export function loadWebToolsConfig(): Promise<WebToolsConfig> {
+	return configCache.load(process.cwd());
 }
 
-async function loadConfigFile(): Promise<ConfigCacheEntry> {
+async function loadConfigFile(): Promise<ConfigSnapshot<WebToolsConfig>> {
 	const loaded = await loadValidatedMergedConfig(
 		CONFIG_DEFINITIONS.webTools, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
 	);
-	return { fingerprint: loaded.fingerprint, config: materializeConfig(loaded.merged as WebToolsConfig) };
+	return { fingerprint: loaded.fingerprint, value: materializeConfig(loaded.merged as WebToolsConfig) };
 }
 
 export function defaultCookiePath(): string {
@@ -66,7 +41,7 @@ export function defaultCookiePath(): string {
 }
 
 function materializeConfig(raw: WebToolsConfig): WebToolsConfig {
-	const { network, websearch, webfetch } = structuredClone(raw);
+	const { network, websearch, webfetch } = raw;
 	const config: WebToolsConfig = { network, websearch, webfetch };
 	config.websearch.include_domains = normalizeDomains(config.websearch.include_domains);
 	config.websearch.exclude_domains = normalizeDomains(config.websearch.exclude_domains);

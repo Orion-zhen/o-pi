@@ -27,7 +27,7 @@ describe("grep integration", () => {
 			const fresh = (explicit = true) => withFileToolsInvocation(testContext.workspace, "policy-cache", async (opened) => {
 				const counted = countContentReads(opened.filesystem);
 				const result = await execute({ query: "cachedNeedle", ...(explicit ? { path: ["cached.ts"] } : { glob: "*.ts" }) }, {
-					filesystem: counted.filesystem, operation: opened.context, limits: opened.limits,
+					filesystem: counted.filesystem, operation: opened.operation, limits: opened.limits,
 				});
 				return { result, counts: counted.counts };
 			});
@@ -63,7 +63,7 @@ describe("grep integration", () => {
 		process.env.PI_FILE_TOOLS_CONFIG = config;
 		await withGrepRuntime(testContext.workspace, "symlink-cache", async ({ execute }) => {
 			const fresh = (query: string) => withFileToolsInvocation(testContext.workspace, "symlink-cache", (opened) => execute({ query, path: ["cached.ts"] }, {
-				filesystem: opened.filesystem, operation: opened.context, limits: opened.limits,
+				filesystem: opened.filesystem, operation: opened.operation, limits: opened.limits,
 			}));
 			expect(firstRegion(expectGrepSuccess(await fresh("cachedNeedle")))).toMatchObject({ path: "cached.ts" });
 			await rm(cached);

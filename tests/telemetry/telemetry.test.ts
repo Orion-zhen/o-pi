@@ -17,7 +17,7 @@ import { registerTelemetryCommand } from "../../agent/extensions/telemetry.js";
 import { attachTelemetryService } from "../../src/telemetry/pi-adapter.js";
 import { defineToolTelemetry, fields } from "../../src/telemetry/projection.js";
 import { registerTelemetry, TelemetryService } from "../../src/telemetry/service.js";
-import { registerObservedTool } from "../../src/telemetry/tool.js";
+import { registerTool as registerProjectTool } from "../../src/register-tool.js";
 import type { CallRecord, GitRevision, TelemetryRecord, ToolTelemetry } from "../../src/telemetry/types.js";
 import type { TelemetryWriter } from "../../src/telemetry/writer.js";
 import { deferred } from "../helpers/async.js";
@@ -35,7 +35,7 @@ describe("telemetry service", () => {
 		let service: TelemetryService;
 		let observedTool: TestTool | undefined;
 		const registerTool = () => {
-			observedTool = registerObservedTool(toolPi.api, {
+			observedTool = registerProjectTool(toolPi.api, {
 				tool: testTool(),
 				telemetry: defineToolTelemetry<{ path: string; count?: number }, TestDetails>({
 					input: (params) => ({ fields: { input_count: params.count ?? 0 } }),
@@ -327,7 +327,7 @@ describe("observed tool registration", () => {
 		let registered: TestTool | undefined;
 		const pi = fakePi().api;
 		pi.registerTool = (tool) => { registered = fixture<TestTool>(tool); };
-		registerObservedTool(pi, { tool: testTool() });
+		registerProjectTool(pi, { tool: testTool() });
 		if (registered === undefined) throw new Error("tool not registered");
 		expect(registered.constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
 		expect(registered.prepareArguments?.({ path: "a", count: "2" })).toEqual({ path: "a", count: 2 });
@@ -338,7 +338,7 @@ describe("observed tool registration", () => {
 		let registered: TestTool | undefined;
 		const pi = fakePi().api;
 		pi.registerTool = (tool) => { registered = fixture<TestTool>(tool); };
-		registerObservedTool(pi, { tool: { ...testTool(), constrainedSampling: false } });
+		registerProjectTool(pi, { tool: { ...testTool(), constrainedSampling: false } });
 		if (registered === undefined) throw new Error("tool not registered");
 		expect(registered.constrainedSampling).toBe(false);
 	});
@@ -348,7 +348,7 @@ describe("observed tool registration", () => {
 		let registered: TestTool | undefined;
 		const pi = fakePi().api;
 		pi.registerTool = (tool) => { registered = fixture<TestTool>(tool); };
-		registerObservedTool(pi, { tool: testTool("test", async () => { throw original; }) });
+		registerProjectTool(pi, { tool: testTool("test", async () => { throw original; }) });
 		if (registered === undefined) throw new Error("tool not registered");
 		await expect(registered.execute("call", { path: "a" }, undefined, undefined, extensionContext())).rejects.toBe(original);
 	});

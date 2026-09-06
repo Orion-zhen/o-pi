@@ -14,11 +14,10 @@ export {
 } from "./commands.js";
 export { SUBAGENT_COMMAND_ENTRY } from "./constants.js";
 export { formatModelReference } from "./model.js";
-export { executeSubagent, resolveMode, SubagentExecutionError } from "./executor.js";
+export { executeSubagent, pendingSubagentResult, resolveMode, SubagentExecutionError } from "./executor.js";
 export { SubagentExecutionRegistry } from "./execution-lifecycle.js";
-export { pendingSubagentResult, runSubagentTasks } from "./progress.js";
 export { exceedsTokenLimit, formatResultForContext, sanitizeFileName } from "./output.js";
-export { resetSubagentSpawnForTests, runPiProcess, setSubagentSpawnForTests } from "./process.js";
+export { runPiProcess } from "./process.js";
 export {
 	cleanupForkExecutionContext,
 	createForkExecutionContext,

@@ -1,3 +1,4 @@
+import type { FileToolLimits } from "../../file-tool-limits.js";
 import type { DirectoryEntry } from "../../filesystem/contracts/metadata.js";
 import type { DirectoryRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
@@ -15,7 +16,7 @@ const TYPE_RANK: Record<LsEntryType, number> = {
 export interface LsCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly entryLimit: number;
+	readonly limits: Readonly<Pick<FileToolLimits, "ls_entries">>;
 }
 
 /** Lists one directory without recursive traversal, content reads, or mutation. */
@@ -40,7 +41,7 @@ export async function listDirectory(
 	}
 	entries.sort(compareEntries);
 
-	const visibleEntries = entries.slice(0, context.entryLimit);
+	const visibleEntries = entries.slice(0, context.limits.ls_entries);
 	if (visibleEntries.length < entries.length) {
 		return {
 			path: resolved.value.displayPath,

@@ -35,6 +35,11 @@ interface ToolDefaultsRule {
 	readonly expression: RegExp;
 }
 
+interface ToolDefaultsInput {
+	defaults?: Record<string, boolean>;
+	rules?: Array<{ match: string; tools: Record<string, boolean> }>;
+}
+
 interface ToolDefaultsLayer {
 	readonly defaults: Readonly<Record<string, boolean>>;
 	readonly rules: readonly ToolDefaultsRule[];
@@ -61,12 +66,12 @@ export async function loadToolDefaultsConfig(cwd = process.cwd()): Promise<ToolD
 	const layers: ToolDefaultsLayer[] = [];
 	const userPath = userConfigPath();
 	const userConfig = await readOptionalConfig(userPath);
-	if (userConfig !== undefined) layers.push(parseLayer(userConfig, userPath));
+	if (userConfig !== undefined) layers.push(parseLayer(userConfig));
 
 	const projectPath = projectConfigPath(cwd);
 	if (projectPath !== undefined) {
 		const projectConfig = await readOptionalConfig(projectPath);
-		if (projectConfig !== undefined) layers.push(parseLayer(projectConfig, projectPath));
+		if (projectConfig !== undefined) layers.push(parseLayer(projectConfig));
 	}
 
 	return { layers };
@@ -97,43 +102,17 @@ export function resolveToolDefaults(
 	return resolved;
 }
 
-function parseLayer(value: unknown, sourcePath: string): ToolDefaultsLayer {
-	if (!isRecord(value)) throw new ToolDefaultsConfigError("tools config must be an object.", { path: sourcePath });
-	const defaults = value["defaults"] === undefined ? {} : parseToolMap(value["defaults"], sourcePath);
-	const rawRules = value["rules"];
-	if (rawRules === undefined) return { defaults, rules: [] };
-	if (!Array.isArray(rawRules)) throw new ToolDefaultsConfigError("tools config rules must be an array.", { path: sourcePath });
-
-	const rules = rawRules.map((rawRule, index) => parseRule(rawRule, sourcePath, index));
-	rules.sort(compareRules);
-	return { defaults, rules };
-}
-
-function parseRule(value: unknown, sourcePath: string, index: number): ToolDefaultsRule {
-	if (!isRecord(value) || typeof value["match"] !== "string") {
-		throw new ToolDefaultsConfigError("tools config rule is invalid.", { path: sourcePath, rule: index });
-	}
-	const match = value["match"];
-	const wildcardIndex = match.indexOf("*");
-	return {
-		match,
-		tools: parseToolMap(value["tools"], sourcePath),
-		staticPrefixLength: wildcardIndex === -1 ? match.length : wildcardIndex,
-		exact: wildcardIndex === -1,
-		expression: compileMatchPattern(match),
-	};
-}
-
-function parseToolMap(value: unknown, sourcePath: string): Record<string, boolean> {
-	if (!isRecord(value)) throw new ToolDefaultsConfigError("tools map must be an object.", { path: sourcePath });
-	const tools: Record<string, boolean> = {};
-	for (const [toolName, enabled] of Object.entries(value)) {
-		if (typeof enabled !== "boolean") {
-			throw new ToolDefaultsConfigError("tool states must be boolean.", { path: sourcePath, tool: toolName });
-		}
-		tools[toolName] = enabled;
-	}
-	return tools;
+function parseLayer(value: ToolDefaultsInput): ToolDefaultsLayer {
+	const rules = (value.rules ?? []).map(({ match, tools }): ToolDefaultsRule => {
+		const wildcardIndex = match.indexOf("*");
+		return {
+			match, tools,
+			staticPrefixLength: wildcardIndex === -1 ? match.length : wildcardIndex,
+			exact: wildcardIndex === -1,
+			expression: compileMatchPattern(match),
+		};
+	});
+	return { defaults: value.defaults ?? {}, rules: rules.sort(compareRules) };
 }
 
 function compareRules(left: ToolDefaultsRule, right: ToolDefaultsRule): number {
@@ -149,12 +128,8 @@ function escapeRegExp(value: string): string {
 	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function readOptionalConfig(filePath: string): Promise<unknown | undefined> {
-	return readOptionalJsoncConfigWithSchema({
+async function readOptionalConfig(filePath: string): Promise<ToolDefaultsInput | undefined> {
+	return readOptionalJsoncConfigWithSchema<ToolDefaultsInput>({
 		path: filePath,
 		label: "tools",
 		createError: (message, details) => new ToolDefaultsConfigError(message, details),

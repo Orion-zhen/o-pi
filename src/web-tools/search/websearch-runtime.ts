@@ -3,28 +3,18 @@ import type { WebSearchCapability, WebCapabilityOptions } from "../core/runtime-
 import { providerSignature, SearchFlights } from "./search-flights.js";
 import { SearchRequestGate } from "./search-request-gate.js";
 import { resolveSearchApiKey } from "../search-providers/api-key.js";
-import type { ApiProviderOptions } from "../search-providers/api-provider.js";
 import { SearchProviderRouter } from "../search-providers/router.js";
 import type { WebSearchProvider } from "../search-providers/types.js";
-import type { WebToolsConfig } from "../core/types.js";
+import type { WebToolsConfig } from "../config-types.js";
 import { networkConfigSignature } from "../network/dispatcher.js";
 import { executeWebSearch } from "./websearch-tool.js";
 
-/** 管理搜索会话状态，路由命中后才加载具体提供方。 */
+/** 会话只持有并发请求和 DDG 节流状态。路由与凭据使用本次配置快照。 */
 export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearchCapability {
 	const searches = new SearchFlights();
-	let searchRequests = new SearchRequestGate(options.now);
-	let searchGateSignature = "";
-	let searchRouter: SearchProviderRouter | undefined;
-	let searchRouterSignature = "";
-	const getSearchRouter = (config: WebToolsConfig, signature: string): SearchProviderRouter => {
-		if (searchRouter === undefined || searchRouterSignature !== signature) {
-			searchRouter = new SearchProviderRouter(createSearchProviders(config, options, searchRequests));
-			searchRouterSignature = signature;
-		}
-		return searchRouter;
-	};
-
+	let gate: { interval: number; cooldown: number; requests: SearchRequestGate } | undefined;
+	let apiModule: Promise<typeof import("../search-providers/api-provider.js")> | undefined;
+	let ddgModule: Promise<typeof import("../search-providers/duckduckgo-html-provider.js")> | undefined;
 	return {
 		async search(params, context) {
 			let config: WebToolsConfig;
@@ -33,67 +23,49 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 			} catch (error) {
 				return runtimeConfigFailure("websearch", error);
 			}
-			const gateSignature = `${config.websearch.duckduckgo_html.min_interval_seconds}:${config.websearch.duckduckgo_html.blocked_cooldown_seconds}`;
-			if (gateSignature !== searchGateSignature) {
-				searchRequests.clear();
-				searchRequests = new SearchRequestGate(
-					options.now,
-					config.websearch.duckduckgo_html.min_interval_seconds * 1000,
-					config.websearch.duckduckgo_html.blocked_cooldown_seconds * 1000,
-				);
-				searchGateSignature = gateSignature;
+			const interval = config.websearch.duckduckgo_html.min_interval_seconds * 1000;
+			const cooldown = config.websearch.duckduckgo_html.blocked_cooldown_seconds * 1000;
+			if (gate?.interval !== interval || gate.cooldown !== cooldown) {
+				gate?.requests.clear();
+				gate = { interval, cooldown, requests: new SearchRequestGate(options.now, interval, cooldown) };
 			}
-			const signature = providerSignature(config.websearch);
-			const routerSignature = `${signature}:${gateSignature}:${networkConfigSignature(config.network)}`;
-			const router = getSearchRouter(config, routerSignature);
+			const router = new SearchProviderRouter(providers(config, gate.requests));
+			const signature = `${providerSignature(config.websearch)}:${networkConfigSignature(config.network)}`;
 			return executeWebSearch(params, { searches, router, providerSignature: signature, config, context, now: options.now });
 		},
 		async close() {
 			searches.clear();
-			searchRequests.clear();
-			searchRouter = undefined;
+			gate?.requests.clear();
 		},
 	};
-}
 
-function createSearchProviders(
-	config: WebToolsConfig,
-	options: WebCapabilityOptions,
-	requestGate: SearchRequestGate,
-): WebSearchProvider[] {
-	const providers: WebSearchProvider[] = [];
-	const shared = { dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl };
-	const formal: ApiProviderOptions[] = [
-		{ id: "brave_api", config: config.websearch.brave_api, ...shared },
-		{ id: "exa_api", config: config.websearch.exa_api, ...shared },
-		{ id: "tavily", config: config.websearch.tavily, ...shared },
-	];
-	for (const provider of formal) {
-		if (!provider.config.enabled || resolveSearchApiKey(provider.config.api_key) === undefined) continue;
-		providers.push(createLazyProvider(provider.id, async () => {
-			const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
-			return createApiSearchProvider(provider);
-		}));
+	function providers(config: WebToolsConfig, requestGate: SearchRequestGate): WebSearchProvider[] {
+		const result: WebSearchProvider[] = [];
+		const shared = { dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl };
+		const formal = [
+			{ id: "brave_api", config: config.websearch.brave_api },
+			{ id: "exa_api", config: config.websearch.exa_api },
+			{ id: "tavily", config: config.websearch.tavily },
+		] as const;
+		for (const provider of formal) {
+			if (!provider.config.enabled) continue;
+			const key = resolveSearchApiKey(provider.config.api_key);
+			if (key === undefined) continue;
+			result.push({
+				id: provider.id,
+				async search(params, context) {
+					apiModule ??= import("../search-providers/api-provider.js");
+					return (await apiModule).searchApiProvider({ ...provider, ...shared, key }, params, context);
+				},
+			});
+		}
+		if (config.websearch.duckduckgo_html.enabled) result.push({
+			id: "duckduckgo_html",
+			async search(params, context) {
+				ddgModule ??= import("../search-providers/duckduckgo-html-provider.js");
+				return (await ddgModule).searchDuckDuckGoProvider({ config: config.websearch.duckduckgo_html, requestGate, ...shared }, params, context);
+			},
+		});
+		return result;
 	}
-	if (config.websearch.duckduckgo_html.enabled) {
-		providers.push(createLazyProvider("duckduckgo_html", async () => {
-			const { createDuckDuckGoHtmlProvider } = await import("../search-providers/duckduckgo-html-provider.js");
-			return createDuckDuckGoHtmlProvider({ config: config.websearch.duckduckgo_html, requestGate, ...shared });
-		}));
-	}
-	return providers;
-}
-
-function createLazyProvider(
-	id: WebSearchProvider["id"],
-	load: () => Promise<WebSearchProvider>,
-): WebSearchProvider {
-	let providerPromise: Promise<WebSearchProvider> | undefined;
-	return {
-		id,
-		async search(params, context) {
-			providerPromise ??= load();
-			return (await providerPromise).search(params, context);
-		},
-	};
 }

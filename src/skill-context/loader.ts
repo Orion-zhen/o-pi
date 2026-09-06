@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import type { BuildSystemPromptOptions, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import { loadSkillsFromDir, type BuildSystemPromptOptions, type SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { parseSkillFile } from "./frontmatter.js";
 import type { LoadedSkill, SkillCandidate } from "./types.js";
 
@@ -57,6 +57,24 @@ export function collectModelInvocableSkillIndex(
 			candidate.disableModelInvocation === false && candidate.description !== undefined
 		))
 		.map((candidate) => ({ name: candidate.name, description: candidate.description }));
+}
+
+/** 命令元数据不含 disableModelInvocation，按目录读取一次完整技能元数据。 */
+export function collectSkillSummary(commands: SlashCommandInfo[]): { totalCount: number; modelInvocableCount: number } | undefined {
+	const candidates = collectSkillCandidates(undefined, commands);
+	if (candidates.length === 0) return undefined;
+	const directories = new Map<string, SkillCandidate["scope"]>();
+	for (const candidate of candidates) directories.set(path.dirname(candidate.path), candidate.scope);
+	const invocablePaths = new Set<string>();
+	for (const [dir, source] of directories) {
+		for (const skill of loadSkillsFromDir({ dir, source }).skills) {
+			if (!skill.disableModelInvocation) invocablePaths.add(path.resolve(skill.filePath));
+		}
+	}
+	return {
+		totalCount: candidates.length,
+		modelInvocableCount: candidates.filter((candidate) => invocablePaths.has(path.resolve(candidate.path))).length,
+	};
 }
 
 function candidateFromCommand(command: SlashCommandInfo): SkillCandidate | undefined {

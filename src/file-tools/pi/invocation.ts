@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { FilesystemPathAccess } from "../../filesystem/contracts/access.js";
-import type { LspFileOperations } from "../../lsp/index.js";
+import type { LoadLsp } from "../../lsp/file-operations.js";
 import type { FileToolsHost, FileToolsHostOpenOptions, FileToolsInvocation } from "../runtime/host.js";
 import { isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { formatErrorModelResult } from "./model-output.js";
@@ -13,7 +13,7 @@ export interface FileToolRuntime extends FileToolsHostOpenOptions {
 }
 
 export interface MutationRuntime extends FileToolRuntime {
-	readonly lsp: LspFileOperations;
+	readonly lsp: LoadLsp;
 	readonly onUpdate?: MutationProgressCallback;
 	readonly batch?: MutationBatchInvocation;
 }

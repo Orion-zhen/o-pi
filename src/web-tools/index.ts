@@ -1,6 +1,7 @@
 export { createWebToolsRuntime } from "./web-tools-runtime.js";
 export type { WebToolsRuntime } from "./core/types.js";
 export { loadWebToolsConfig } from "./config.js";
+export type { WebToolsConfig } from "./config-types.js";
 export type {
 	WebFetchParams,
 	WebFetchDetails,
@@ -15,5 +16,4 @@ export type {
 	WebSearchSuccessDetails,
 	WebSearchFailureDetails,
 	WebSearchProgressDetails,
-	WebToolsConfig,
 } from "./core/types.js";

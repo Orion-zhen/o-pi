@@ -1,4 +1,6 @@
+import type { SpawnOptionsWithoutStdio } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -9,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runSubagentCommand } from "../../src/subagent/commands.js";
 import { executeSubagent, resolveMode } from "../../src/subagent/executor.js";
 import { PiJsonProgressAccumulator } from "../../src/subagent/json-progress.js";
-import { resetSubagentSpawnForTests, runPiProcess, setSubagentSpawnForTests } from "../../src/subagent/process.js";
+import { runPiProcess } from "../../src/subagent/process.js";
 import {
 	cleanupForkExecutionContext,
 	createForkExecutionContext,
@@ -26,11 +28,20 @@ import type {
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
+const childProcess = vi.hoisted(() => ({
+	spawn: vi.fn<(command: string, args: readonly string[], options: SpawnOptionsWithoutStdio) => FakeChildProcess>(),
+}));
+vi.mock("node:child_process", async (original) => ({
+	...await original<typeof import("node:child_process")>(),
+	spawn: childProcess.spawn,
+}));
+
 let workspace: string;
 const temp = useTempDir("o-pi-subagent-execution-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_SUBAGENT_USER_CONFIG", "PI_SUBAGENT_PROJECT_CONFIG");
 
 beforeEach(async () => {
+	childProcess.spawn.mockReset();
 	workspace = temp.path;
 	setTestHome(workspace);
 	process.env.PI_CODING_AGENT_DIR = path.join(workspace, "agent");
@@ -41,7 +52,6 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-	resetSubagentSpawnForTests();
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
@@ -54,7 +64,7 @@ describe("subagent execution", () => {
 
 		const result = await runTasks(
 			[{ agent: "scout", task: "inspect auth" }, { agent: "scout", task: "inspect tests", cwd: "pkg" }],
-			context({ onUpdate: (partial) => updates.push(partial.details.results.length) }),
+			context({ onProgress: ({ result }) => updates.push(result.details.results.length) }),
 		);
 
 		expect(result.details.mode).toBe("parallel");
@@ -95,7 +105,7 @@ describe("subagent execution", () => {
 
 	it("通过 --system-prompt 直接传递原始 Agent Markdown 路径", async () => {
 		let capturedArgs: readonly string[] = [];
-		setSubagentSpawnForTests((_command, args, options) => {
+		childProcess.spawn.mockImplementation((_command, args, options) => {
 			capturedArgs = args;
 			expect(options.env?.PI_SUBAGENT_CHILD).toBe("1");
 			return completedProcess(messageStart(), messageEnd([{ type: "text", text: "done" }]));
@@ -123,7 +133,7 @@ describe("subagent execution", () => {
 		let capturedEnv: NodeJS.ProcessEnv | undefined;
 		let snapshot = "";
 		let snapshotPath = "";
-		setSubagentSpawnForTests((_command, args, options) => {
+		childProcess.spawn.mockImplementation((_command, args, options) => {
 			capturedArgs = args;
 			capturedEnv = options.env;
 			const proc = new FakeChildProcess();
@@ -169,7 +179,7 @@ describe("subagent execution", () => {
 		const snapshots: string[] = [];
 		const sessionDirs: string[] = [];
 		let calls = 0;
-		setSubagentSpawnForTests((_command, args) => {
+		childProcess.spawn.mockImplementation((_command, args) => {
 			calls += 1;
 			const snapshotPath = args[args.indexOf("--fork") + 1];
 			const sessionDir = args[args.indexOf("--session-dir") + 1];
@@ -254,7 +264,7 @@ describe("subagent execution", () => {
 	it("工具 fork 在 spawn 前拒绝无法在当前分支定位的 tool call", async () => {
 		await writeAgent("forker", "read", { fork: true });
 		const spawn = vi.fn();
-		setSubagentSpawnForTests(spawn);
+		childProcess.spawn.mockImplementation(spawn);
 
 		await expect(runTasks([{ agent: "forker", task: "inspect" }], forkExecutorContext({ toolCallId: "wrong-call" })))
 			.rejects.toThrow("fork setup error");
@@ -278,11 +288,32 @@ describe("subagent execution", () => {
 	it("fork 缺少当前模型时在 spawn 前失败", async () => {
 		await writeAgent("forker", "read", { fork: true, body: "Body." });
 		const spawn = vi.fn();
-		setSubagentSpawnForTests(spawn);
+		childProcess.spawn.mockImplementation(spawn);
 
 		await expect(runTasks([{ agent: "forker", task: "inspect" }], forkExecutorContext({ currentModel: undefined })))
 			.rejects.toThrow("fork setup error");
 		expect(spawn).not.toHaveBeenCalled();
+	});
+
+	it("fork 链的快照保留到最后一个子进程结束，然后统一清理", async () => {
+		await writeAgent("forker", "read", { fork: true });
+		const snapshots: string[] = [];
+		const readable: boolean[] = [];
+		childProcess.spawn.mockImplementation((_command, args) => {
+			const snapshot = args[args.indexOf("--fork") + 1];
+			if (snapshot === undefined) throw new Error("fork snapshot missing");
+			snapshots.push(snapshot);
+			readable.push(existsSync(snapshot));
+			return completedProcess(messageStart(), messageEnd([{ type: "text", text: "handoff" }]));
+		});
+		const result = await runTasks([
+			{ agent: "forker", task: "seed" },
+			{ agent: "forker", task: "continue {previous}" },
+		], forkExecutorContext());
+		expect(result.details.results).toHaveLength(2);
+		expect(readable).toEqual([true, true]);
+		expect(new Set(snapshots).size).toBe(1);
+		expect(snapshots.every((snapshot) => !existsSync(snapshot))).toBe(true);
 	});
 
 	it("chain 将上一步输出传入 {previous}，失败时停止后续步骤", async () => {
@@ -333,7 +364,7 @@ describe("subagent execution", () => {
 	it("provider 瞬时失败不依赖空输出开关也会重试", async () => {
 		await writeConfig({ retry_delay_ms: 0, retry_on_empty_output: false });
 		let calls = 0;
-		setSubagentSpawnForTests(() => {
+		childProcess.spawn.mockImplementation(() => {
 			calls += 1;
 			if (calls > 1) return completedProcess(messageStart(), messageEnd([{ type: "text", text: "recovered" }]));
 			const proc = new FakeChildProcess();
@@ -374,7 +405,7 @@ describe("subagent execution", () => {
 
 	it("损坏的 JSONL 明确失败且不重试", async () => {
 		let calls = 0;
-		setSubagentSpawnForTests(() => {
+		childProcess.spawn.mockImplementation(() => {
 			calls++;
 			const proc = new FakeChildProcess();
 			queueMicrotask(() => {
@@ -396,7 +427,7 @@ describe("subagent execution", () => {
 	it("preflight 统一拒绝未知 agent、越界 cwd 和未确认的写能力", async () => {
 		await writeAgent("worker", "read, edit");
 		const spawn = vi.fn();
-		setSubagentSpawnForTests(spawn);
+		childProcess.spawn.mockImplementation(spawn);
 
 		await expect(runTasks([{ agent: "missing", task: "x" }])).rejects.toThrow("missing");
 		await expect(runTasks([
@@ -435,7 +466,7 @@ describe("subagent execution", () => {
 	});
 
 	it("解析 message_update delta 并发送实时进度快照", async () => {
-		setSubagentSpawnForTests(() => completedProcess(
+		childProcess.spawn.mockImplementation(() => completedProcess(
 			messageStart(),
 			messageUpdate({ input: 12, output: 0, totalTokens: 12 }, { type: "text_start", contentIndex: 0 }),
 			messageUpdate({ input: 12, output: 1, totalTokens: 13 }, { type: "text_delta", contentIndex: 0, delta: "work" }),
@@ -623,7 +654,7 @@ async function writeAgent(
 }
 
 function setOutputSpawn(outputForTask: (task: string) => string | undefined): void {
-	setSubagentSpawnForTests((_command, args) => {
+	childProcess.spawn.mockImplementation((_command, args) => {
 		const task = args.at(-1)?.replace(/^Task: /, "") ?? "";
 		const output = outputForTask(task);
 		return output === undefined

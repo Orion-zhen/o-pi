@@ -1,5 +1,4 @@
-import { fields } from "../../telemetry/projection.js";
-import { defineToolTelemetry } from "../../telemetry/tool.js";
+import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
 import type { Candidate, Fields } from "../../telemetry/types.js";
 import type { GrepParams, GrepRegionRanking, GrepSuccess } from "../grep/types.js";
 import { isFailed, type ToolOutcome } from "../shared/result.js";

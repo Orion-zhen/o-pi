@@ -4,14 +4,14 @@ import type { InlineImageProcessor, PdfDocumentSource } from "../../read/ports.j
 import { formatReadModelResult, formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../read/presenter.js";
 import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../read/types.js";
 import { isFailed, type FailedResult } from "../../shared/result.js";
-import type { LspFileOperations } from "../../../lsp/index.js";
+import type { LoadLsp } from "../../../lsp/file-operations.js";
 import { parseSkillPath, type SkillPath } from "../../../skill-context/resources.js";
 import { failedToolResult, withFileToolsInvocation, type FileToolRuntime } from "../invocation.js";
-import { createReadStructureSource } from "../ports/read.js";
+import { bindFileLsp } from "../lsp.js";
 
 export interface ExecuteReadOptions extends FileToolRuntime {
 	readonly model: { api?: string; input?: readonly string[] } | undefined;
-	readonly lsp: LspFileOperations;
+	readonly lsp: LoadLsp;
 }
 
 export async function executeRead(params: ReadParams, options: ExecuteReadOptions) {
@@ -21,20 +21,11 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 		const result = await readFile(
 			params,
 			{
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				observation: opened.observation,
-				limits: {
-					bytes: opened.limits.read_bytes,
-					fileBytes: opened.limits.read_max_file_bytes,
-					lines: opened.limits.read_lines,
-					pdfPages: opened.limits.read_pdf_pages,
-					suggestions: opened.limits.read_suggestion_limit,
-				},
+				...opened,
 				image: lazyInlineImageProcessor,
 				pdf: lazyPdfDocumentSource,
 				supportedOutputFormats,
-				structure: createReadStructureSource(opened, options.lsp),
+				structure: bindFileLsp(opened, options.lsp).structure,
 			},
 		);
 		if (skill?.kind === "skill") applySkillResolution(result, skill);

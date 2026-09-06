@@ -7,15 +7,17 @@
 
 ## 加载生命周期
 
+工具参数和结果位于 `core/types.ts`，配置类型位于 `config-types.ts`，HTTP 与内容转换类型分别位于 `network/types.ts` 和 `content/types.ts`。
+
 扩展启动时只同步注册工具模式、渲染器和事件，不加载网络运行时，也不执行后台预热。首次工具调用共享同一个运行时加载 Promise。并发调用不会重复创建运行时。
 
 运行时按能力拆分。只调用 `websearch` 时不加载 WebFetch 和 Cookie 执行链。只调用 `webfetch` 时不加载搜索路由器和提供方。同一网络配置签名的安全调度器由两条能力链共享，并按需创建。搜索提供方只在路由器执行到对应分支时加载。因此，Exa 成功时不会加载 DDG 或 HTML 解析器。Cookie 存储只在配置启用且域名命中允许列表时加载。
 
-`source`、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown。只有 `readable` HTML 会加载转换链。JSONC 解析器和 AJV 也只在读取到配置文件且需要解析、校验时加载。并发校验共享同一个 Promise。
+`source`、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown。只有 `readable` HTML 会加载转换链。配置使用共享 JSONC 加载器和仓库的 Schema 校验器，并发读取同一配置快照时共享一个 Promise。
 
 成功配置按文件标识、大小和时间戳缓存，每次返回隔离副本。文件变化后会重新读取和校验。读取期间发生变化时会重试。配置错误不会写入成功缓存，下一次工具调用会再次读取。默认值全部由 `agent/defaults/web-tools.jsonc` 提供，TypeScript 只做规范化和语义校验。
 
-两条能力链、当前 router 的 provider 和 Cookie store 分别复用各自的加载 Promise，实例内的加载失败不会自动重试。扩展加载 runtime 失败后，下次调用可重新尝试。配置或 API key 变化时同步替换 router，已开始的调用继续使用原实例。Provider 不持有独立连接资源，也没有关闭协议。`session_shutdown` 不加载未使用的能力，先等待已开始的调用结束，再清理会话状态和共享 dispatcher。
+搜索、抓取、提供方代码和 Cookie 存储分别按需加载。扩展加载运行时失败后，下次调用可重新尝试。搜索会话只持有进行中的请求和 DDG 节流状态。每次请求使用自己的配置和已解析凭据，路由器和提供方不再维护配置签名驱动的实例缓存。网络配置或 API key 更新后，同名搜索也会另行执行，已经开始的请求不变。`session_shutdown` 不加载未使用的能力，先等待已经开始的调用结束，再清理会话状态和共享连接。
 
 需要向允许列表中的来源发送 Cookie 时，运行时只依赖 `WebFetchInteractionPort.confirmAuthentication()`，不依赖 Pi TUI。原生 TUI 与 RPC Extension UI 都能注入该端口。JSON 和打印模式没有端口时返回 `AUTH_CONFIRMATION_REQUIRED`。确认对话框只是适配器。抓取结果和错误结构不依赖组件或通知。
 
@@ -95,7 +97,7 @@ provider request failed.
 - 数据中心或共享出口 IP 可能触发 DDG bot challenge。
 - 工具会识别 challenge，但不会绕过 CAPTCHA、自动切换代理或重放请求。
 - 搜索只合并相同 key 的并发 in-flight 请求，不缓存已完成结果，也不保留 provider negative cache。
-- 配置签名包含正式 provider 配置和 API key 哈希；配置或环境变量变化时重建 router。正式 provider 不保留跨调用健康状态。
+- 并发请求的合并键包含搜索配置、API key 哈希和网络配置签名。提供方接收本次请求的数据，不保留跨调用健康状态。
 - `total_deadline_seconds` 限制整个调用。provider timeout、fallback 和 DDG 限流等待都服从剩余预算。
 - 会话内 DDG 请求串行发送，默认至少间隔 15 秒。一旦触发 challenge，进入 10 分钟冷却期，冷却期内不继续请求 DDG。
 - 该限速只降低触发概率，不能保证 DDG HTML 抓取长期稳定。

@@ -70,10 +70,10 @@ describe("lsp transport manager and protocol", () => {
 		});
 		const manager = await createManager(transport, fake);
 		const roots = [transport.workspace, transport.configDir, `${transport.workspace}/.`];
-		const results = await Promise.all(roots.map((root) => manager.readEnhancement(
-			root, path.join(root, "a.ts"), "function outer() {\n  return 1;\n}\n",
-			{ startLine: 2, endLine: 2 }, { outline: false, enclosing: true },
-		)));
+		const results = await Promise.all(roots.map((root) => manager.read({
+			workspaceRoot: root, filePath: path.join(root, "a.ts"), content: "function outer() {\n  return 1;\n}\n",
+			startLine: 2, endLine: 2, truncated: false, partial: true,
+		})));
 		expect(results).toEqual(roots.map(() => ({ enclosing_symbol: { name: "outer", kind: "function", line: 1, end_line: 3 } })));
 		expect(fake.connections).toBe(2);
 		for (const root of roots) {

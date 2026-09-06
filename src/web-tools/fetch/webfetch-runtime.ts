@@ -1,7 +1,8 @@
 import { runtimeConfigFailure } from "../core/runtime-errors.js";
 import type { WebFetchCapability, WebCapabilityOptions } from "../core/runtime-types.js";
 import { SnapshotCache } from "./snapshot-cache.js";
-import type { CookieStore, WebToolsConfig } from "../core/types.js";
+import type { CookieStore } from "../core/types.js";
+import type { WebToolsConfig } from "../config-types.js";
 import { executeWebFetch } from "./webfetch-tool.js";
 
 /** Fetch-only session state. Search-only sessions never import CookieJar or the fetch execution graph. */

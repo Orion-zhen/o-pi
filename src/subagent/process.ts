@@ -1,4 +1,4 @@
-import { spawn as nodeSpawn, type SpawnOptionsWithoutStdio } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
@@ -6,33 +6,6 @@ import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { PiJsonProgressAccumulator } from "./json-progress.js";
 import { formatModelReference } from "./model.js";
 import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress } from "./types.js";
-
-type SpawnFunction = (
-	command: string,
-	args: readonly string[],
-	options: SpawnOptionsWithoutStdio,
-) => SpawnedProcess;
-
-interface SpawnedProcess {
-	exitCode: number | null;
-	stdin: NodeJS.WritableStream;
-	stdout: NodeJS.ReadableStream;
-	stderr: NodeJS.ReadableStream;
-	kill(signal?: NodeJS.Signals | number): boolean;
-	on(event: "close", listener: (code: number | null) => void): this;
-	on(event: "error", listener: (error: Error) => void): this;
-}
-
-let spawnImpl: SpawnFunction = nodeSpawn;
-
-/** 测试注入点；生产环境始终使用 node:child_process.spawn 且 shell=false。 */
-export function setSubagentSpawnForTests(spawn: SpawnFunction): void {
-	spawnImpl = spawn;
-}
-
-export function resetSubagentSpawnForTests(): void {
-	spawnImpl = nodeSpawn;
-}
 
 export async function runPiProcess(input: ProcessRunInput, options: { signal?: AbortSignal; onUpdate?: (progress: ProcessRunProgress) => void } = {}): Promise<ProcessRunOutput> {
 	const start = Date.now();
@@ -47,7 +20,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	const launch = await buildLaunch(input);
 	const invocation = getPiInvocation(launch.args);
 	const exitCode = await new Promise<number>((resolve) => {
-		const proc = spawnImpl(invocation.command, invocation.args, {
+		const proc = spawn(invocation.command, invocation.args, {
 			cwd: launch.cwd,
 			shell: false,
 			stdio: ["pipe", "pipe", "pipe"],
@@ -119,7 +92,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			aborted = true;
 			terminateProcess(proc);
 		};
-		const terminateProcess = (procToKill: SpawnedProcess) => {
+		const terminateProcess = (procToKill: ChildProcessWithoutNullStreams) => {
 			if (terminating || settled) return;
 			terminating = true;
 			procToKill.kill("SIGTERM");

@@ -2,7 +2,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { registerObservedTool } from "../../src/telemetry/tool.js";
+import { registerTool } from "../../src/register-tool.js";
 import { webFetchTelemetry } from "../../src/web-tools/telemetry/webfetch.js";
 import { webSearchTelemetry } from "../../src/web-tools/telemetry/websearch.js";
 import type { WebFetchProgressDetails, WebSearchProgressDetails, WebToolsRuntime } from "../../src/web-tools/core/types.js";
@@ -85,7 +85,7 @@ export function createWebToolsExtension(
 			return pending;
 		};
 
-		const webSearchTool = registerObservedTool(pi, {
+		const webSearchTool = registerTool(pi, {
 			tool: {
 				name: "websearch",
 				label: "websearch",
@@ -113,7 +113,7 @@ export function createWebToolsExtension(
 			telemetry: webSearchTelemetry,
 		});
 
-		const webFetchTool = registerObservedTool(pi, {
+		const webFetchTool = registerTool(pi, {
 			tool: {
 				name: "webfetch",
 				label: "webfetch",

@@ -1,6 +1,6 @@
 import { Headers } from "undici";
 
-import type { WebHttpResponse } from "../../src/web-tools/core/types.js";
+import type { WebHttpResponse } from "../../src/web-tools/network/types.js";
 
 class FakeBody {
 	constructor(private readonly chunks: Uint8Array[]) {}

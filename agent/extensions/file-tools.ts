@@ -1,7 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.js";
-import { createLazyLspFileOperations } from "../../src/file-tools/pi/lazy-lsp.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolRuntime } from "../../src/file-tools/pi/invocation.js";
 import type { FileToolsHost, SessionObservationSeed } from "../../src/file-tools/runtime/host.js";
@@ -26,7 +25,7 @@ import { writeTelemetry } from "../../src/file-tools/telemetry/write.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { MutationBatchCoordinator } from "../../src/file-tools/pi/mutation-batch.js";
 import type { MutationProgressDetails } from "../../src/file-tools/pi/progress.js";
-import { registerObservedTool } from "../../src/telemetry/tool.js";
+import { registerTool } from "../../src/register-tool.js";
 import { collectSkillCandidates } from "../../src/skill-context/loader.js";
 import { buildSkillFilesystemAccess, buildSkillPathIndex } from "../../src/skill-context/resources.js";
 
@@ -98,7 +97,7 @@ export interface FileToolsModuleImports {
 	write(): Promise<typeof import("../../src/file-tools/pi/adapters/write.js")>;
 	edit(): Promise<typeof import("../../src/file-tools/pi/adapters/edit.js")>;
 	renderers?: () => Promise<typeof import("../../src/file-tools/tui/index.js")>;
-	lsp(): Promise<typeof import("../../src/lsp/index.js")>;
+	lsp(): Promise<{ lspManager: import("../../src/lsp/file-operations.js").LspFileOperations }>;
 }
 
 type GrepAdapter = ReturnType<(typeof import("../../src/file-tools/pi/adapters/grep.js"))["createGrepAdapter"]>;
@@ -160,7 +159,7 @@ function registerFileTools(
 		if (shuttingDown) host.stop();
 		return host;
 	};
-	const lsp = createLazyLspFileOperations(loaders.lsp);
+	const lsp = async () => (await loaders.lsp()).lspManager;
 	const mutationBatches = new MutationBatchCoordinator();
 	let sessionMutation: SessionMutationScope | undefined;
 	const skillPathIndex = createRetryableLoader(async () => buildSkillPathIndex(
@@ -178,7 +177,7 @@ function registerFileTools(
 		};
 	};
 
-	const lsTool = registerObservedTool(pi, {
+	const lsTool = registerTool(pi, {
 		tool: {
 		name: "ls",
 		label: "ls",
@@ -194,7 +193,7 @@ function registerFileTools(
 		telemetry: lsTelemetry,
 	});
 
-	const findTool = registerObservedTool(pi, {
+	const findTool = registerTool(pi, {
 		tool: {
 		name: "find",
 		label: "find",
@@ -210,7 +209,7 @@ function registerFileTools(
 		telemetry: findTelemetry,
 	});
 
-	const grepTool = registerObservedTool(pi, {
+	const grepTool = registerTool(pi, {
 		tool: {
 		name: "grep",
 		label: "grep",
@@ -226,7 +225,7 @@ function registerFileTools(
 		telemetry: grepTelemetry,
 	});
 
-	const readTool = registerObservedTool(pi, {
+	const readTool = registerTool(pi, {
 		tool: {
 		name: "read",
 		label: "read",
@@ -244,7 +243,7 @@ function registerFileTools(
 		telemetry: readTelemetry,
 	});
 
-	const writeTool = registerObservedTool<typeof writeParameters, ToolOutcome<WriteSuccess> | MutationProgressDetails>(pi, {
+	const writeTool = registerTool<typeof writeParameters, ToolOutcome<WriteSuccess> | MutationProgressDetails>(pi, {
 		tool: {
 		name: "write",
 		label: "write",
@@ -275,7 +274,7 @@ function registerFileTools(
 		telemetry: writeTelemetry,
 	});
 
-	const editTool = registerObservedTool<typeof editParameters, ToolOutcome<EditSuccess> | MutationProgressDetails>(pi, {
+	const editTool = registerTool<typeof editParameters, ToolOutcome<EditSuccess> | MutationProgressDetails>(pi, {
 		tool: {
 		name: "edit",
 		label: "edit",

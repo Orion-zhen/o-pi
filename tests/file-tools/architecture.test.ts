@@ -74,6 +74,7 @@ function isToolImplementation(filePath: string): boolean {
 }
 
 function bypassesFilesystemPlane(edge: ImportEdge): boolean {
+	if (edge.kind === "type-only") return false;
 	if (edge.specifier === "node:path" || edge.specifier.startsWith("node:fs")) return true;
 	if (edge.target === undefined) return false;
 	return edge.target.startsWith("src/file-tools/ignore/")

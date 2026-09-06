@@ -1,9 +1,10 @@
+import type { FileToolLimits } from "../../file-tool-limits.js";
 import type { ContentVersion, TextContent } from "../../filesystem/contracts/content.js";
 import type { MutationSnapshot } from "../../filesystem/contracts/mutation.js";
 import type { FileRef, TargetRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import type { DiagnosticSnapshot } from "../shared/diagnostics.js";
+import type { LspDiagnosticSnapshot as DiagnosticSnapshot } from "../../lsp/types.js";
 import {
 	captureMutationDiagnostics,
 	collectMutationDiagnostics,
@@ -38,8 +39,7 @@ export interface EditCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly observation: EditObservationStore;
-	readonly maxFileBytes: number;
-	readonly matchHintLimit: number;
+	readonly limits: Readonly<Pick<FileToolLimits, "edit_max_file_bytes" | "edit_match_hint_limit">>;
 	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: MutationDiagnosticsSource;
 	readonly onPrepared?: (preview: EditPreviewSuccess) => void;
@@ -48,8 +48,7 @@ export interface EditCommandContext {
 export interface EditPreviewContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly maxFileBytes: number;
-	readonly matchHintLimit: number;
+	readonly limits: Readonly<Pick<FileToolLimits, "edit_max_file_bytes" | "edit_match_hint_limit">>;
 	readonly diff: TextDiffGenerator;
 }
 
@@ -62,14 +61,14 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 		target,
 		{
 			createParents: false,
-			maxSnapshotBytes: context.maxFileBytes,
-			maxOutputBytes: context.maxFileBytes,
+			maxSnapshotBytes: context.limits.edit_max_file_bytes,
+			maxOutputBytes: context.limits.edit_max_file_bytes,
 		},
 		async (snapshot) => {
 			const prepared = prepareSnapshot(snapshot, target, params.edits, context);
 			if (isFailed(prepared)) return { type: "reject", reason: prepared };
 			const { file: before, updatedText, replacementCount } = prepared;
-			const output = buildTextBytes(updatedText, before.hasBom, target.displayPath, context.maxFileBytes);
+			const output = buildTextBytes(updatedText, before.hasBom, target.displayPath, context.limits.edit_max_file_bytes);
 			if (isFailed(output)) return { type: "reject", reason: output };
 			const renderedDiff = await context.diff.generate(normalizeLineEndings(before.text), normalizeLineEndings(updatedText));
 			safePrepared(context.onPrepared, {
@@ -116,14 +115,14 @@ export async function previewEdit(params: EditParams, context: EditPreviewContex
 	if (isFailed(file)) return file;
 	const loaded = await context.filesystem.content.readBytes(
 		file,
-		{ maxBytes: context.maxFileBytes },
+		{ maxBytes: context.limits.edit_max_file_bytes },
 	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	const decoded = context.filesystem.content.decodeText(loaded.value, file.displayPath);
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
-	const updated = applyReplacements(decoded.value.text, params.edits, file.displayPath, context.matchHintLimit);
+	const updated = applyReplacements(decoded.value.text, params.edits, file.displayPath, context.limits.edit_match_hint_limit);
 	if (isFailed(updated)) return updated;
-	const outputError = validateTextSize(updated.text, decoded.value.hasBom, file.displayPath, context.maxFileBytes);
+	const outputError = validateTextSize(updated.text, decoded.value.hasBom, file.displayPath, context.limits.edit_max_file_bytes);
 	if (outputError !== undefined) return outputError;
 	const rendered = await context.diff.generate(normalizeLineEndings(decoded.value.text), normalizeLineEndings(updated.text));
 	return {
@@ -188,7 +187,7 @@ function prepareSnapshot(
 			actual: file.value.hash,
 		});
 	}
-	const updated = applyReplacements(file.value.text, edits, target.displayPath, context.matchHintLimit);
+	const updated = applyReplacements(file.value.text, edits, target.displayPath, context.limits.edit_match_hint_limit);
 	return isFailed(updated) ? updated : {
 		file: file.value,
 		updatedText: updated.text,

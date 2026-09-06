@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { convertContent } from "../../src/web-tools/content/content-converter.js";
-import type { ContentConversion, WebFetchFailureDetails } from "../../src/web-tools/core/types.js";
+import type { ContentConversion } from "../../src/web-tools/content/types.js";
+import type { WebFetchFailureDetails } from "../../src/web-tools/core/types.js";
 
 const readability = { charThreshold: 500 };
 

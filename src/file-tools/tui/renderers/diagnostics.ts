@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { DiagnosticsSummary, DiagnosticStatus } from "../../shared/diagnostics.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../../lsp/types.js";
 import type { MutationPostProcessProgressDetails } from "../../pi/progress.js";
 
 export function formatDiffStats(diff: string): string {
@@ -56,7 +56,7 @@ export function formatLspDiagnostics(
 	return lines.join("\n");
 }
 
-function formatLspStatus(status: DiagnosticStatus, errors: number, warnings: number): string {
+function formatLspStatus(status: DiagnosticsSummary["status"], errors: number, warnings: number): string {
 	if (status === "errors") return `LSP ${errors} errors`;
 	if (status === "warnings") return `LSP ${warnings} warnings`;
 	return `LSP ${status}`;

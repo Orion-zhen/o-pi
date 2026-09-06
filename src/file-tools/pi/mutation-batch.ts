@@ -1,4 +1,5 @@
-import type { LspDiagnosticsSummary, LspFileOperations, LspMutationInput } from "../../lsp/index.js";
+import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.js";
+import type { LspDiagnosticsSummary } from "../../lsp/types.js";
 import type { MutationPostProcessObserver } from "./progress.js";
 
 interface Deferred<T> {
@@ -9,7 +10,7 @@ interface Deferred<T> {
 interface LspSubmission {
 	order: number;
 	input: LspMutationInput | undefined;
-	operations: LspFileOperations;
+	operations: LoadLsp;
 	progress?: MutationPostProcessObserver;
 	deferred: Deferred<LspDiagnosticsSummary | undefined>;
 }
@@ -31,7 +32,7 @@ interface MutationBatch {
 export interface MutationBatchInvocation {
 	lsp(
 		input: LspMutationInput | undefined,
-		operations: LspFileOperations,
+		operations: LoadLsp,
 		progress?: MutationPostProcessObserver,
 	): Promise<LspDiagnosticsSummary | undefined>;
 	settle(): void;
@@ -97,7 +98,7 @@ export class MutationBatchCoordinator {
 		batch: MutationBatch,
 		toolCallId: string,
 		input: LspMutationInput | undefined,
-		operations: LspFileOperations,
+		operations: LoadLsp,
 		progress: MutationPostProcessObserver | undefined,
 	): Promise<LspDiagnosticsSummary | undefined> {
 		const call = batch.calls.get(toolCallId);
@@ -153,7 +154,7 @@ async function processLspSubmissions(submissions: readonly LspSubmission[]): Pro
 		const inputs = buckets.unique.map((bucket) => bucket.latest.input).filter((input): input is LspMutationInput => input !== undefined);
 		let results: readonly (LspDiagnosticsSummary | undefined)[];
 		try {
-			results = await operations.afterMutationBatch(inputs);
+			results = await (await operations()).afterMutationBatch(inputs);
 		} catch {
 			results = inputs.map(() => undefined);
 		}

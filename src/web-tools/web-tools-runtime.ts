@@ -5,12 +5,9 @@ import type {
 	WebSearchCapability,
 	WebCapabilityOptions,
 } from "./core/runtime-types.js";
-import type {
-	WebHttpRequestInit,
-	WebHttpResponse,
-	WebToolsConfig,
-	WebToolsRuntime,
-} from "./core/types.js";
+import type { WebHttpRequestInit, WebHttpResponse } from "./network/types.js";
+import type { WebToolsConfig } from "./config-types.js";
+import type { WebToolsRuntime } from "./core/types.js";
 import { createNetworkDispatcher, networkConfigSignature } from "./network/dispatcher.js";
 import type { PrivateNetworkGrant } from "./network/private-network-grant.js";
 

@@ -4,10 +4,11 @@ import { Agent } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defaultWebToolsConfig } from "./config-fixture.js";
-import { createDuckDuckGoHtmlProvider } from "../../src/web-tools/search-providers/duckduckgo-html-provider.js";
+import { searchDuckDuckGoProvider } from "../../src/web-tools/search-providers/duckduckgo-html-provider.js";
+import type { NormalizedSearchParams, SearchProviderContext } from "../../src/web-tools/search-providers/types.js";
 import { normalizeSearchParams } from "../../src/web-tools/search-providers/query.js";
 import { SearchRequestGate } from "../../src/web-tools/search/search-request-gate.js";
-import type { WebHttpFetch, WebHttpRequestInit, WebHttpResponse } from "../../src/web-tools/core/types.js";
+import type { WebHttpFetch, WebHttpRequestInit, WebHttpResponse } from "../../src/web-tools/network/types.js";
 import { httpResponse } from "../helpers/http.js";
 
 afterEach(() => {
@@ -31,12 +32,11 @@ function searchParams(params: { query: string; limit: number }, includeDomains: 
 function provider(fetchImpl: WebHttpFetch, now = () => Date.now(), gate = new SearchRequestGate(now, 0, 0), timeoutSeconds?: number) {
 	const config = defaultWebToolsConfig().websearch.duckduckgo_html;
 	if (timeoutSeconds !== undefined) config.timeout_seconds = timeoutSeconds;
-	return createDuckDuckGoHtmlProvider({
-		config,
-		dispatcher: async () => new Agent(),
-		fetchImpl,
-		requestGate: gate,
-	});
+	return {
+		search: (params: NormalizedSearchParams, context: SearchProviderContext) => searchDuckDuckGoProvider({
+			config, dispatcher: async () => new Agent(), fetchImpl, requestGate: gate,
+		}, params, context),
+	};
 }
 
 describe("duckduckgo HTML provider", () => {

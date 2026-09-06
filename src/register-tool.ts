@@ -2,34 +2,33 @@ import type { ConstrainedSamplingConfig } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 
-import { repairableTool } from "../tool-repair/repair.js";
-import type { RepairSpecHints } from "../tool-repair/types.js";
+import { repairableTool } from "./tool-repair/repair.js";
+import type { RepairSpecHints } from "./tool-repair/types.js";
 import {
 	TELEMETRY_READY_CHANNEL,
 	TELEMETRY_REPAIR_CHANNEL,
 	TELEMETRY_TOOL_CHANNEL,
 	type TelemetryToolRegistration,
-} from "./events.js";
-import type { ToolTelemetry } from "./types.js";
+} from "./telemetry/events.js";
+import type { ToolTelemetry } from "./telemetry/types.js";
 
 type ExecutedParams<TParams extends TSchema, TDetails, TState> = Parameters<ToolDefinition<TParams, TDetails, TState>["execute"]>[1];
-type ObservedPi = Pick<ExtensionAPI, "events" | "registerTool">;
 
 const PREFERRED_STRICT_SAMPLING = {
 	type: "json_schema",
 	strict: "prefer",
 } satisfies ConstrainedSamplingConfig;
 
-export interface ObservedToolOptions<TParams extends TSchema, TDetails, TState> {
+interface RegisterToolOptions<TParams extends TSchema, TDetails, TState> {
 	tool: ToolDefinition<TParams, TDetails, TState>;
 	telemetry?: ToolTelemetry<ExecutedParams<TParams, TDetails, TState>, TDetails>;
 	repair?: RepairSpecHints;
 }
 
-/** Register a tool and announce its payload-free telemetry projection to this Pi runtime. */
-export function registerObservedTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
-	pi: ObservedPi,
-	options: ObservedToolOptions<TParams, TDetails, TState>,
+/** 组合采样策略、参数修复和遥测，注册后仍可由 TUI 附加呈现器。 */
+export function registerTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
+	pi: Pick<ExtensionAPI, "events" | "registerTool">,
+	options: RegisterToolOptions<TParams, TDetails, TState>,
 ): ToolDefinition<TParams, TDetails, TState> {
 	const prepared = repairableTool({
 		...options.tool,
@@ -72,5 +71,3 @@ function eraseRegistration<TParams extends TSchema, TDetails, TState>(
 		}),
 	};
 }
-
-export { defineToolTelemetry } from "./projection.js";

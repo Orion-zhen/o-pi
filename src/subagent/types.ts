@@ -213,7 +213,7 @@ interface ExecutorContextBase {
 	systemPrompt: string;
 	signal?: AbortSignal;
 	interaction?: SubagentInteractionPort;
-	onUpdate?: (partial: SubagentToolResult) => void;
+	onProgress?: SubagentProgressCallback;
 }
 
 export type ExecutorInvocation =

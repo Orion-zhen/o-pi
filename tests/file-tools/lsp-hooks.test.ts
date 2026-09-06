@@ -8,13 +8,15 @@ import { editFile } from "../../src/file-tools/edit/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
-import { createMutationDiagnosticsSource } from "../../src/file-tools/pi/ports/mutation-diagnostics.js";
+import { bindFileLsp } from "../../src/file-tools/pi/lsp.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { summarizeDiagnostics } from "../../src/lsp/diagnostics/ledger.js";
-import { createLspFileOperations, type LspFileOperations } from "../../src/lsp/adapters/file-operations.js";
+import type { LspFileOperations } from "../../src/lsp/file-operations.js";
+import * as diagnosticOperations from "../../src/lsp/diagnostics/operations.js";
+import { LspClient } from "../../src/lsp/client/client.js";
 import { LspManager } from "../../src/lsp/manager/manager.js";
 import type { LspDiagnosticSnapshot } from "../../src/lsp/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -25,7 +27,7 @@ let outside: string;
 let host: FileToolsHost;
 const workspaceTemp = useTempDir("o-pi-lsp-hooks-");
 const configTemp = useTempDir("o-pi-lsp-hooks-config-");
-preserveEnv("PI_FILE_TOOLS_CONFIG");
+preserveEnv("PI_FILE_TOOLS_CONFIG", "PI_LSP_CONFIG");
 
 beforeEach(async () => {
 	workspace = workspaceTemp.path;
@@ -36,28 +38,24 @@ beforeEach(async () => {
 	host = new FileToolsHost();
 });
 
-afterEach(() => host.dispose());
+afterEach(() => { host.dispose(); vi.restoreAllMocks(); });
 
 describe("file-tools lsp hooks", () => {
-	it("read 只为整文件截断请求 outline fallback", async () => {
+	it("read 只为 partial 或截断内容请求结构，完整读取不启动分析", async () => {
+		process.env.PI_LSP_CONFIG = path.join(outside, "lsp.jsonc");
+		await writeFile(process.env.PI_LSP_CONFIG, JSON.stringify({ servers: { fake: { command: ["unused"], languages: { test: "*.ts" } } } }));
+		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		const symbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([]);
 		const manager = new LspManager();
-		const enhancement = vi.spyOn(manager, "readEnhancement").mockResolvedValue(undefined);
-		const read = createLspFileOperations(manager).read;
-		const base = {
-			workspaceRoot: workspace,
-			filePath: path.join(workspace, "a.ts"),
-			content: "const value = 1;\n",
-			startLine: 1,
-			endLine: 1,
-		};
-
-		await read({ ...base, truncated: true, partial: true });
-		await read({ ...base, truncated: false, partial: false });
-		await read({ ...base, truncated: true, partial: false });
-
-		expect(enhancement).toHaveBeenNthCalledWith(1, workspace, path.join(workspace, "a.ts"), base.content, { startLine: 1, endLine: 1 }, { outline: false, enclosing: true });
-		expect(enhancement).toHaveBeenNthCalledWith(2, workspace, path.join(workspace, "a.ts"), base.content, { startLine: 1, endLine: 1 }, { outline: false, enclosing: false });
-		expect(enhancement).toHaveBeenNthCalledWith(3, workspace, path.join(workspace, "a.ts"), base.content, { startLine: 1, endLine: 1 }, { outline: true, enclosing: false });
+		const base = { workspaceRoot: workspace, filePath: path.join(workspace, "a.ts"), content: "const value = 1;\n", startLine: 1, endLine: 1 };
+		try {
+			await manager.read({ ...base, truncated: true, partial: true });
+			expect(symbols).toHaveBeenCalledTimes(1);
+			await manager.read({ ...base, truncated: false, partial: false });
+			expect(symbols).toHaveBeenCalledTimes(1);
+			await manager.read({ ...base, truncated: true, partial: false });
+			expect(symbols).toHaveBeenCalledTimes(2);
+		} finally { await manager.reload(); }
 	});
 
 	it("read 附加 partial enclosing symbol，hook 失败时仍成功", async () => {
@@ -199,8 +197,8 @@ describe("file-tools lsp hooks", () => {
 	it("afterMutation 对无源码路由的配置文件仍转发 watched-file create/change", async () => {
 		const manager = new LspManager();
 		const watched = vi.spyOn(manager, "didChangeWatchedFiles").mockResolvedValue();
-		const diagnosticsAfterMutation = vi.spyOn(manager, "didWriteBatch").mockResolvedValue([undefined]);
-		const hooks = createLspFileOperations(manager);
+		const diagnosticsAfterMutation = vi.spyOn(diagnosticOperations, "didWriteBatch").mockResolvedValue([undefined]);
+		const hooks = manager;
 		const configFile = path.join(workspace, "tsconfig.json");
 
 		await hooks.afterMutation({ workspaceRoot: workspace, filePath: configFile, content: "{}\n", created: true });
@@ -216,8 +214,8 @@ describe("file-tools lsp hooks", () => {
 		const watched = vi.spyOn(manager, "didChangeWatchedFiles").mockResolvedValue();
 		const first = diagnostics("errors");
 		const second = diagnostics("warnings");
-		const diagnosticsBatch = vi.spyOn(manager, "didWriteBatch").mockResolvedValue([first, second]);
-		const hooks = createLspFileOperations(manager);
+		const diagnosticsBatch = vi.spyOn(diagnosticOperations, "didWriteBatch").mockResolvedValue([first, second]);
+		const hooks = manager;
 		const inputs = [
 			{ workspaceRoot: workspace, filePath: path.join(workspace, "a.ts"), content: "a\n", created: true },
 			{ workspaceRoot: workspace, filePath: path.join(workspace, "b.ts"), content: "b\n", created: false },
@@ -230,7 +228,7 @@ describe("file-tools lsp hooks", () => {
 			{ root: workspace, filePath: path.join(workspace, "b.ts"), type: FileChangeType.Changed },
 		]);
 		expect(diagnosticsBatch).toHaveBeenCalledTimes(1);
-		expect(diagnosticsBatch).toHaveBeenCalledWith([
+		expect(diagnosticsBatch).toHaveBeenCalledWith(expect.anything(), [
 			{ root: workspace, filePath: path.join(workspace, "a.ts"), text: "a\n" },
 			{ root: workspace, filePath: path.join(workspace, "b.ts"), text: "b\n" },
 		]);
@@ -238,11 +236,11 @@ describe("file-tools lsp hooks", () => {
 
 	it("beforeMutation 使用调用方已解析的 absolutePath 和 workspace source", async () => {
 		const manager = new LspManager();
-		const beforeDiagnostics = vi.spyOn(manager, "beforeDiagnostics").mockResolvedValue(undefined);
-		const hooks = createLspFileOperations(manager);
+		const beforeDiagnostics = vi.spyOn(diagnosticOperations, "beforeDiagnostics").mockResolvedValue(undefined);
+		const hooks = manager;
 		const absolutePath = path.join(workspace, "resolved.ts");
 		await hooks.beforeMutation({ workspaceRoot: workspace, filePath: absolutePath });
-		expect(beforeDiagnostics).toHaveBeenCalledWith(workspace, absolutePath);
+		expect(beforeDiagnostics).toHaveBeenCalledWith(expect.anything(), workspace, absolutePath);
 		beforeDiagnostics.mockRestore();
 	});
 
@@ -291,11 +289,9 @@ async function writeWithHooks(params: { path: string; content: string }, hooks: 
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
-		const diagnostics = createMutationDiagnosticsSource(opened, lspOperations(hooks));
+		const diagnostics = bindFileLsp(opened, async () => lspOperations(hooks)).diagnostics();
 		return await writeFileCommand(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			maxFileBytes: opened.limits.write_max_file_bytes,
+			...opened,
 			diff: piTextDiffGenerator,
 			diagnostics,
 		});
@@ -308,13 +304,9 @@ async function editWithHooks(params: { path: string; edits: Array<{ old: string;
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
-		const diagnostics = createMutationDiagnosticsSource(opened, lspOperations(hooks));
+		const diagnostics = bindFileLsp(opened, async () => lspOperations(hooks)).diagnostics();
 		return await editFile(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			observation: opened.observation,
-			maxFileBytes: opened.limits.edit_max_file_bytes,
-			matchHintLimit: opened.limits.edit_match_hint_limit,
+			...opened,
 			diff: piTextDiffGenerator,
 			diagnostics,
 		});

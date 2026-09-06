@@ -1,4 +1,4 @@
-import type { DiagnosticsSummary } from "../shared/diagnostics.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.js";
 import type { MutationLineRange } from "../shared/mutation-diagnostics.js";
 
 export interface EditReplacement {

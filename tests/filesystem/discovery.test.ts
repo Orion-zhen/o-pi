@@ -9,7 +9,7 @@ import {
 	NodeNativeFileSystem,
 	type NativeFileSystem,
 } from "../../src/filesystem/platform/node/native-filesystem.js";
-import type { ReadonlyFileSystemServices } from "../../src/filesystem/services/readonly.js";
+import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import {
 	collectAsync,
@@ -327,7 +327,7 @@ describe("filesystem discovery", () => {
 async function discover(
 	opened: OpenedReadonly,
 	root: FileRef | DirectoryRef,
-	options: Parameters<ReadonlyFileSystemServices["discovery"]["discover"]>[1],
+	options: Parameters<WorkspaceFileSystem["discovery"]["discover"]>[1],
 ): Promise<DiscoveryEvent[]> {
 	const stream = expectFsOk(await opened.services.discovery.discover(root, options));
 	return await collectAsync(stream);

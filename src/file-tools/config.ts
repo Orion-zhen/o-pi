@@ -8,6 +8,7 @@ import {
 	resolveConfigLayerPaths,
 	validateConfigValue,
 } from "../config-loader.js";
+import { ConfigCache, type ConfigSnapshot } from "../config-cache.js";
 import type { FilesystemPolicy } from "../filesystem/contracts/policy.js";
 import type { BuiltinIgnoreProfile } from "../filesystem/contracts/visibility.js";
 import { createVisibilityPolicy } from "../filesystem/services/visibility/policy.js";
@@ -37,11 +38,6 @@ interface CompleteFileToolsConfig extends Required<RawFileToolsConfig> {
 	ignore: Required<NonNullable<RawFileToolsConfig["ignore"]>>;
 }
 
-interface ConfigCacheEntry {
-	fingerprint: string;
-	result: FileToolsConfigResult;
-}
-
 export interface FileToolsConfigFailure {
 	readonly ok: false;
 	readonly error: { readonly message: string; readonly details?: Record<string, unknown> };
@@ -64,43 +60,23 @@ class FileToolsConfigError extends Error {
 
 /** 拥有一个文件工具运行时的配置元数据缓存。 */
 export class FileToolsConfigProvider implements FileToolsConfigLoader {
-	private readonly cache = new Map<string, ConfigCacheEntry>();
-	private readonly pending = new Map<string, Promise<ConfigCacheEntry>>();
+	private readonly cache = new ConfigCache(CONFIG_DEFINITIONS.fileTools, loadMergedConfig);
 	private disposed = false;
 
 	/** 工作区 I/O 前加载用户配置和调用目录的项目配置。 */
 	async load(cwd: string): Promise<FileToolsConfigResult> {
 		if (this.disposed) return configFailure("File-tools config provider is shut down.");
-		const paths = resolveConfigLayerPaths(CONFIG_DEFINITIONS.fileTools, cwd);
-		const cacheKey = paths.map((source) => source.path).join("\0");
-		const fingerprint = await configLayerFingerprint(paths);
-		const cached = this.cache.get(cacheKey);
-		if (cached?.fingerprint === fingerprint) return structuredClone(cached.result);
-
-		const pendingKey = `${cacheKey}\0${fingerprint}`;
-		let pending = this.pending.get(pendingKey);
-		if (pending === undefined) {
-			pending = loadMergedConfig(cwd);
-			this.pending.set(pendingKey, pending);
-		}
-		try {
-			const loaded = await pending;
-			if (this.disposed) return configFailure("File-tools config provider is shut down.");
-			this.cache.set(cacheKey, loaded);
-			return structuredClone(loaded.result);
-		} finally {
-			if (this.pending.get(pendingKey) === pending) this.pending.delete(pendingKey);
-		}
+		const result = await this.cache.load(cwd);
+		return this.disposed ? configFailure("File-tools config provider is shut down.") : result;
 	}
 
 	dispose(): void {
 		this.disposed = true;
 		this.cache.clear();
-		this.pending.clear();
 	}
 }
 
-async function loadMergedConfig(cwd: string): Promise<ConfigCacheEntry> {
+async function loadMergedConfig(cwd: string): Promise<ConfigSnapshot<FileToolsConfigResult>> {
 	try {
 		const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.fileTools, cwd, createError);
 		const [defaultLayer, ...overlayLayers] = loaded.layers;
@@ -125,7 +101,7 @@ async function loadMergedConfig(cwd: string): Promise<ConfigCacheEntry> {
 			const raw = layer.value as RawFileToolsConfig;
 			const project = layer.kind === "project";
 			const projectFailure = project ? projectIgnoreFailure(raw, layer.path) : undefined;
-			if (projectFailure !== undefined) return { fingerprint: loaded.fingerprint, result: projectFailure };
+			if (projectFailure !== undefined) return { fingerprint: loaded.fingerprint, value: projectFailure };
 			merged = {
 				blocked_path: project ? appendUnique(merged.blocked_path, raw.blocked_path) : raw.blocked_path ?? merged.blocked_path,
 				ignored_path: project ? appendUnique(merged.ignored_path, raw.ignored_path) : raw.ignored_path ?? merged.ignored_path,
@@ -135,13 +111,13 @@ async function loadMergedConfig(cwd: string): Promise<ConfigCacheEntry> {
 		}
 		return {
 			fingerprint: loaded.fingerprint,
-			result: { ok: true, value: materializeConfig(merged, loaded.fingerprint) },
+			value: { ok: true, value: materializeConfig(merged, loaded.fingerprint) },
 		};
 	} catch (error) {
 		if (!(error instanceof FileToolsConfigError)) throw error;
 		return {
 			fingerprint: await configLayerFingerprint(resolveConfigLayerPaths(CONFIG_DEFINITIONS.fileTools, cwd)),
-			result: configFailure(error.message, error.details),
+			value: configFailure(error.message, error.details),
 		};
 	}
 }

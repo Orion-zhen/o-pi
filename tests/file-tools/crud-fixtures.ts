@@ -50,9 +50,7 @@ export function createCrudTestContext(): CrudTestContext {
 			if ("status" in opened) return opened;
 			try {
 				return await writeFileCommand(params, {
-					filesystem: opened.filesystem,
-					operation: opened.context,
-					maxFileBytes: opened.limits.write_max_file_bytes,
+					...opened,
 					diff,
 				});
 			} finally {
@@ -64,11 +62,7 @@ export function createCrudTestContext(): CrudTestContext {
 			if ("status" in opened) return opened;
 			try {
 				return await editFile(params, {
-					filesystem: opened.filesystem,
-					operation: opened.context,
-					observation: opened.observation,
-					maxFileBytes: opened.limits.edit_max_file_bytes,
-					matchHintLimit: opened.limits.edit_match_hint_limit,
+					...opened,
 					diff: runtime.diff ?? piTextDiffGenerator,
 					...(runtime.diagnostics === undefined ? {} : { diagnostics: runtime.diagnostics }),
 				});
@@ -81,10 +75,7 @@ export function createCrudTestContext(): CrudTestContext {
 			if ("status" in opened) return opened;
 			try {
 				return await previewEdit(params, {
-					filesystem: opened.filesystem,
-					operation: opened.context,
-					maxFileBytes: opened.limits.edit_max_file_bytes,
-					matchHintLimit: opened.limits.edit_match_hint_limit,
+					...opened,
 					diff: piTextDiffGenerator,
 				});
 			} finally {

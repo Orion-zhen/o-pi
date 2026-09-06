@@ -1,3 +1,4 @@
+import type { FileToolLimits } from "../../file-tool-limits.js";
 import type { ByteContent, ContentVersion, TextContent, TextSlice } from "../../filesystem/contracts/content.js";
 import type { FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
@@ -20,13 +21,8 @@ export interface ReadCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly observation: ReadObservationStore;
-	readonly limits: {
-		readonly bytes: number;
-		readonly fileBytes: number;
-		readonly lines: number;
-		readonly pdfPages: number;
-		readonly suggestions: number;
-	};
+	readonly limits: Readonly<Pick<FileToolLimits,
+		"read_bytes" | "read_max_file_bytes" | "read_lines" | "read_pdf_pages" | "read_suggestion_limit">>;
 	readonly structure?: ReadStructureSource;
 	readonly image: InlineImageProcessor;
 	readonly pdf: PdfDocumentSource;
@@ -63,7 +59,7 @@ export async function readFile(
 
 	const loaded = await context.filesystem.content.readBytes(
 		file,
-		{ maxBytes: context.limits.fileBytes },
+		{ maxBytes: context.limits.read_max_file_bytes },
 	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	if (isAborted(context.operation)) return aborted(file.displayPath);
@@ -195,7 +191,7 @@ async function readPdf(
 	const document = opened.value;
 	try {
 		if (isAborted(context.operation)) return aborted(path);
-		const selected = selectPdfPages(range, document.pageCount, context.limits.pdfPages, path);
+		const selected = selectPdfPages(range, document.pageCount, context.limits.read_pdf_pages, path);
 		if ("status" in selected) return selected;
 
 		const pages: ReadPdfPage[] = [];
@@ -325,10 +321,10 @@ async function missingPathSuggestions(input: string, context: ReadCommandContext
 		context.filesystem.discovery,
 		context.filesystem.root,
 		target.value.workspacePath,
-		{ limit: context.limits.suggestions, maxEntries: PATH_SUGGESTION_ENTRY_LIMIT },
+		{ limit: context.limits.read_suggestion_limit, maxEntries: PATH_SUGGESTION_ENTRY_LIMIT },
 	);
 	if (!suggestions.ok) return [];
-	return uniquePaths(suggestions.value.map((candidate) => candidate.ref.workspacePath ?? candidate.ref.displayPath), context.limits.suggestions);
+	return uniquePaths(suggestions.value.map((candidate) => candidate.ref.workspacePath ?? candidate.ref.displayPath), context.limits.read_suggestion_limit);
 }
 
 function reserveContextBudget(
@@ -339,8 +335,8 @@ function reserveContextBudget(
 	initialSlice: TextSlice,
 	structure: ReadStructureContext | undefined,
 ): { slice: TextSlice; structure?: ReadStructureContext } {
-	let bytes = context.limits.bytes;
-	let lines = context.limits.lines;
+	let bytes = context.limits.read_bytes;
+	let lines = context.limits.read_lines;
 	const structureText = formatReadStructureContext(structure);
 	if (structure === undefined || structureText === undefined || !reserveFits(structureText, bytes, lines)) {
 		return { slice: initialSlice };
@@ -361,8 +357,8 @@ function sliceOptions(range: ReadRange | undefined, path: string, context: ReadC
 	return {
 		...(range === undefined ? {} : { startLine: range.start }),
 		...(range?.end === undefined ? {} : { endLine: range.end }),
-		maxBytes: context.limits.bytes,
-		maxLines: context.limits.lines,
+		maxBytes: context.limits.read_bytes,
+		maxLines: context.limits.read_lines,
 		path,
 	};
 }

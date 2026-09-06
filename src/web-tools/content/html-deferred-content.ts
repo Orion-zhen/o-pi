@@ -1,4 +1,4 @@
-import type { WebFetchAnalysisSummary } from "../core/types.js";
+import type { WebFetchAnalysisSummary } from "./types.js";
 
 type DeferredFragmentKind = "template_for" | "shadow_root" | "noscript";
 

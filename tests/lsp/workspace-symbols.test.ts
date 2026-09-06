@@ -56,7 +56,7 @@ describe("lsp workspace symbols through code analysis", () => {
 		});
 		await withManager(async (manager) => {
 			await expect(queryWorkspaceSymbols(manager, "target")).resolves.toEqual([]);
-			await expect(manager.didWriteBatch([{ root: workspace, filePath: path.join(workspace, "a.ts"), text: "const x = 1;\n" }])).resolves.toEqual([undefined]);
+			await expect(manager.afterMutationBatch([{ workspaceRoot: workspace, filePath: path.join(workspace, "a.ts"), content: "const x = 1;\n", created: false }])).resolves.toEqual([undefined]);
 			await expect(manager.status(workspace)).resolves.toMatchObject({ enabled: false, servers: [] });
 		});
 	});
@@ -108,13 +108,13 @@ describe("lsp workspace symbols through code analysis", () => {
 		const ensureReady = mockReady();
 		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([]);
 
-		const result = await withManager((manager) => manager.readEnhancement(
-			workspace,
-			path.join(workspace, "a.ts"),
-			"const value = 1;\n",
-			{ startLine: 1, endLine: 1 },
-			{ outline: true, enclosing: false },
-		));
+		const result = await withManager((manager) => manager.read({
+			workspaceRoot: workspace,
+			filePath: path.join(workspace, "a.ts"),
+			content: "const value = 1;\n",
+			startLine: 1, endLine: 1,
+			truncated: true, partial: false,
+		}));
 
 		expect(result).toBeUndefined();
 		expect(ensureReady).not.toHaveBeenCalled();

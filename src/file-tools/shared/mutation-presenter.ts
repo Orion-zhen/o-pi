@@ -1,4 +1,4 @@
-import type { DiagnosticsSummary } from "./diagnostics.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.js";
 
 export function formatMutationResult(
 	tool: "edit" | "write",

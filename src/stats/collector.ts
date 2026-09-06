@@ -1,7 +1,8 @@
 import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { buildContextBreakdown } from "./context-breakdown.js";
-import type { CacheStats, StatsSnapshot, ToolStats, UsageStats } from "./types.js";
+import type { StatsSnapshot, ToolStats } from "./types.js";
+import { summarizeUsage } from "./usage.js";
 
 export interface StatsPiApi {
 	getAllTools(): ToolInfo[];
@@ -32,7 +33,7 @@ export async function collectStatsSnapshot(port: StatsQueryPort, pi: StatsPiApi)
 	const entries = port.getEntries();
 	const branchEntries = port.getBranch();
 	const messages = entries.map((entry) => (entry.type === "message" ? entry.message : undefined)).filter((message): message is Message => message !== undefined);
-	const usage = collectUsage(messages);
+	const { usage, cache } = summarizeUsage(messages);
 	const activeTools = pi.getActiveTools();
 	const allTools = pi.getAllTools();
 	const model = port.model;
@@ -52,7 +53,7 @@ export async function collectStatsSnapshot(port: StatsQueryPort, pi: StatsPiApi)
 			assistantTurns: entries.filter((entry) => entry.type === "message" && entry.message.role === "assistant").length,
 		},
 		usage,
-		cache: collectCache(messages, usage),
+		cache,
 		context: await buildContextBreakdown({
 			usage: contextUsage,
 			systemPrompt: port.getSystemPrompt(),
@@ -77,59 +78,6 @@ function getSystemPromptOptions(port: StatsQueryPort): BuildSystemPromptOptions 
 	} catch {
 		return undefined;
 	}
-}
-
-export function collectUsage(messages: Message[]): UsageStats {
-	let inputTokens = 0;
-	let outputTokens = 0;
-	let cacheReadTokens = 0;
-	let cacheWriteTokens = 0;
-	let costUsd = 0;
-	let lastTurnTokens: number | undefined;
-	let lastCostUsd: number | undefined;
-	let assistantTurns = 0;
-
-	for (const message of messages) {
-		if (message.role !== "assistant") continue;
-		assistantTurns += 1;
-		const usage = message.usage;
-		inputTokens += usage.input;
-		outputTokens += usage.output;
-		cacheReadTokens += usage.cacheRead;
-		cacheWriteTokens += usage.cacheWrite;
-		costUsd += usage.cost.total;
-		lastTurnTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-		lastCostUsd = usage.cost.total;
-	}
-
-	const totalObservedTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
-	return {
-		inputTokens,
-		outputTokens,
-		cacheReadTokens,
-		cacheWriteTokens,
-		totalObservedTokens,
-		...(lastTurnTokens !== undefined ? { lastTurnTokens } : {}),
-		...(assistantTurns > 0 ? { averageTokensPerAssistantTurn: totalObservedTokens / assistantTurns } : {}),
-		...(costUsd > 0 ? { costUsd } : {}),
-		...(lastCostUsd !== undefined && lastCostUsd > 0 ? { lastCostUsd } : {}),
-	};
-}
-
-export function collectCache(messages: Message[], usage: UsageStats): CacheStats {
-	let latestHitRate: number | undefined;
-	for (const message of messages) {
-		if (message.role !== "assistant") continue;
-		const promptTokens = message.usage.input + message.usage.cacheRead + message.usage.cacheWrite;
-		latestHitRate = promptTokens > 0 ? (message.usage.cacheRead / promptTokens) * 100 : undefined;
-	}
-
-	const totalPromptTokens = usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
-	return {
-		...(latestHitRate !== undefined ? { latestHitRate } : {}),
-		...(totalPromptTokens > 0 ? { totalHitRate: (usage.cacheReadTokens / totalPromptTokens) * 100 } : {}),
-		...(usage.cacheWriteTokens > 0 ? { readWriteRatio: usage.cacheReadTokens / usage.cacheWriteTokens } : {}),
-	};
 }
 
 export function collectTools(messages: Message[], activeCount: number | undefined, totalCount: number | undefined): ToolStats {

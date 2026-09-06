@@ -66,13 +66,13 @@ describe("lsp transport diagnostics", () => {
 		});
 		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } });
 		const file = path.join(workspace, "a.ts");
-		await expect(manager.didWriteBatch([{ root: workspace, filePath: file, text: "const a = 1;\n" }])).resolves.toMatchObject([{
+		await expect(manager.afterMutationBatch([{ workspaceRoot: workspace, created: false, filePath: file, content: "const a = 1;\n" }])).resolves.toMatchObject([{
 			status: "errors",
 			items: [{ message: "pulled error" }],
 		}]);
-		const baseline = await manager.beforeDiagnostics(workspace, file);
-		await expect(manager.didWriteBatch([{
-			root: workspace, filePath: file, text: "const a = 2;\n",
+		const baseline = await manager.beforeMutation({ workspaceRoot: workspace, filePath: file });
+		await expect(manager.afterMutationBatch([{
+			workspaceRoot: workspace, created: false, filePath: file, content: "const a = 2;\n",
 			...(baseline === undefined ? {} : { baseline }),
 		}])).resolves.toMatchObject([{
 			status: "errors",
@@ -171,10 +171,11 @@ describe("lsp transport diagnostics", () => {
 			},
 		});
 		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 1000, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } });
-		const pending = manager.didWriteBatch(Array.from({ length: 5 }, (_, index) => ({
-			root: workspace,
+		const pending = manager.afterMutationBatch(Array.from({ length: 5 }, (_, index) => ({
+			workspaceRoot: workspace,
+			created: false,
 			filePath: path.join(workspace, `${index}.ts`),
-			text: `export const value${index} = ${index};\n`,
+			content: `export const value${index} = ${index};\n`,
 		})));
 
 		await firstPullBatch.promise;
@@ -197,12 +198,12 @@ describe("lsp transport diagnostics", () => {
 		});
 		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, min_severity: "warning" } });
 		const file = path.join(workspace, "a.ts");
-		await expect(manager.didWriteBatch([{ root: workspace, filePath: file, text: "const a = 1;\n" }])).resolves.toMatchObject([{
+		await expect(manager.afterMutationBatch([{ workspaceRoot: workspace, created: false, filePath: file, content: "const a = 1;\n" }])).resolves.toMatchObject([{
 			status: "errors",
 			items: [{ message: "new error" }],
 		}]);
-		await expect(manager.beforeDiagnostics(workspace, file)).resolves.toMatchObject({ known: true, version: 1 });
-		await expect(manager.didWriteBatch([{ root: workspace, filePath: file, text: "const a = 2;\n" }])).resolves.toMatchObject([{
+		await expect(manager.beforeMutation({ workspaceRoot: workspace, filePath: file })).resolves.toMatchObject({ known: true, version: 1 });
+		await expect(manager.afterMutationBatch([{ workspaceRoot: workspace, created: false, filePath: file, content: "const a = 2;\n" }])).resolves.toMatchObject([{
 			status: "timeout",
 			total_items: 0,
 		}]);

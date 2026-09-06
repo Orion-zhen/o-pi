@@ -28,16 +28,7 @@ export async function readWorkspaceFile(
 		if ("status" in opened) return opened;
 		try {
 			return await readFile(params, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				observation: opened.observation,
-				limits: {
-					bytes: opened.limits.read_bytes,
-					fileBytes: opened.limits.read_max_file_bytes,
-					lines: opened.limits.read_lines,
-					pdfPages: opened.limits.read_pdf_pages,
-					suggestions: opened.limits.read_suggestion_limit,
-				},
+				...opened,
 				image: options.image ?? createInlineImageProcessor(),
 				pdf: options.pdf ?? createPdfDocumentSource(),
 				...(options.supportedOutputFormats === undefined ? {} : { supportedOutputFormats: options.supportedOutputFormats }),

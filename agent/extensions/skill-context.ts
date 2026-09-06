@@ -9,7 +9,7 @@ import { collectSkillCandidates } from "../../src/skill-context/loader.js";
 import { findVisibleToolCallIds } from "../../src/prune/prune.js";
 import type { SkillCandidate, SkillLoadDetails, SkillToolErrorDetails } from "../../src/skill-context/types.js";
 import { defineToolTelemetry } from "../../src/telemetry/projection.js";
-import { registerObservedTool } from "../../src/telemetry/tool.js";
+import { registerTool } from "../../src/register-tool.js";
 
 type SkillRendererModule = Pick<
 	typeof import("../../src/skill-context/tui/renderer.js"),
@@ -64,7 +64,7 @@ function registerSkillTool(pi: ExtensionAPI) {
 		modelCandidates = collectSkillCandidates(event.systemPromptOptions, []);
 	});
 
-	const tool = registerObservedTool(pi, {
+	const tool = registerTool(pi, {
 		tool: {
 			name: "skill",
 			label: "skill",

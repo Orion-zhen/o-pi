@@ -19,10 +19,13 @@ import {
 	type NativePathIdentity,
 } from "./kernel/namespace.js";
 import { NodeNativeFileSystem, type NativeFileSystem } from "./platform/node/native-filesystem.js";
-import { createReadonlyFileSystemServices } from "./services/readonly.js";
+import { WorkspaceContentService } from "./services/content.js";
+import { WorkspaceDiscoveryService } from "./services/discovery.js";
+import { WorkspaceMetadataService } from "./services/metadata.js";
 import { WorkspaceVisibilityService } from "./services/visibility/service.js";
 
 export interface WorkspaceNativeBridge {
+	readonly root: NativePathIdentity;
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined;
 }
 
@@ -85,12 +88,13 @@ export class FileSystemRuntime {
 				namespace.value,
 				context,
 			);
-			readonly = createReadonlyFileSystemServices({
-				native: this.native,
-				namespace: namespace.value,
+			const metadata = new WorkspaceMetadataService(this.native, namespace.value.bridge, visibility, context);
+			readonly = {
+				metadata,
+				content: new WorkspaceContentService(this.native, namespace.value.bridge, context),
 				visibility,
-				context,
-			});
+				discovery: new WorkspaceDiscoveryService({ native: this.native, namespace: namespace.value, visibility, context }, metadata),
+			};
 		} catch (error) {
 			return fsFailure(mapNativeError(error, namespace.value.root.displayPath));
 		}
@@ -119,6 +123,7 @@ export class FileSystemRuntime {
 			mutations,
 		};
 		const nativeBridge: WorkspaceNativeBridge = {
+			root: rootIdentity,
 			getNativeIdentity: (ref) => namespace.value.bridge.getNativeIdentity(ref),
 		};
 		const lease = new WorkspaceLease(filesystem, context, nativeBridge, leaseController, () => this.leases.delete(lease));

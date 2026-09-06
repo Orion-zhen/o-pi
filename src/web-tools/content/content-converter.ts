@@ -1,6 +1,8 @@
 import { parse as parseContentTypeHeader } from "content-type";
 
-import type { ContentConversion, HtmlReadabilityOptions, WebFetchFailureDetails, WebFetchMode, WebFetchOutputFormat, WebHttpHeaders } from "../core/types.js";
+import type { ContentConversion, HtmlReadabilityOptions } from "./types.js";
+import type { WebHttpHeaders } from "../network/types.js";
+import type { WebFetchFailureDetails, WebFetchMode, WebFetchOutputFormat } from "../core/types.js";
 
 const TEXT_TYPES = new Set(["text/plain", "text/markdown", "text/csv", "application/javascript", "application/x-javascript"]);
 const JSON_TYPES = new Set(["application/json", "application/ld+json"]);

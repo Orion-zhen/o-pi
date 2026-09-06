@@ -9,16 +9,16 @@ import {
 	NodeNativeFileSystem,
 	type NativeFileSystem,
 } from "../../src/filesystem/platform/node/native-filesystem.js";
-import {
-	createReadonlyFileSystemServices,
-	type ReadonlyFileSystemServices,
-} from "../../src/filesystem/services/readonly.js";
+import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
+import { WorkspaceContentService } from "../../src/filesystem/services/content.js";
+import { WorkspaceDiscoveryService } from "../../src/filesystem/services/discovery.js";
+import { WorkspaceMetadataService } from "../../src/filesystem/services/metadata.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { WorkspaceVisibilityService } from "../../src/filesystem/services/visibility/service.js";
 
 export interface OpenedReadonly {
 	readonly namespace: WorkspaceNamespaceKernel;
-	readonly services: ReadonlyFileSystemServices;
+	readonly services: Pick<WorkspaceFileSystem, "metadata" | "content" | "visibility" | "discovery">;
 	resolveExisting(input: string): Promise<ExistingRef>;
 	resolveFile(input: string): Promise<FileRef>;
 	resolveDirectory(input: string): Promise<DirectoryRef>;
@@ -50,7 +50,13 @@ export async function openReadonly(
 		namespace,
 		context,
 	);
-	const services = createReadonlyFileSystemServices({ native, namespace, visibility, context });
+	const metadata = new WorkspaceMetadataService(native, namespace.bridge, visibility, context);
+	const services = {
+		metadata,
+		content: new WorkspaceContentService(native, namespace.bridge, context),
+		visibility,
+		discovery: new WorkspaceDiscoveryService({ native, namespace, visibility, context }, metadata),
+	};
 	return {
 		namespace,
 		services,

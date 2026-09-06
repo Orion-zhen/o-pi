@@ -1,4 +1,4 @@
-import type { DiagnosticsSummary } from "../shared/diagnostics.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.js";
 
 export interface WriteParams {
 	path: string;

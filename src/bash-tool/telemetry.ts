@@ -1,5 +1,4 @@
-import { fields, textFields } from "../telemetry/projection.js";
-import { defineToolTelemetry } from "../telemetry/tool.js";
+import { defineToolTelemetry, fields, textFields } from "../telemetry/projection.js";
 import type { BashParams, BashToolDetails } from "./types.js";
 
 export const bashTelemetry = defineToolTelemetry<BashParams, BashToolDetails>({

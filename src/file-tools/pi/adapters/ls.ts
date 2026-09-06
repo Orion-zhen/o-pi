@@ -6,11 +6,7 @@ import { withFileToolsInvocation, type FileToolRuntime } from "../invocation.js"
 
 export async function executeLs(params: LsParams, runtime: FileToolRuntime) {
 	return withFileToolsInvocation(runtime, async (opened) => {
-		const result = await listDirectory(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			entryLimit: opened.limits.ls_entries,
-		});
+		const result = await listDirectory(params, opened);
 		if (isFailed(result)) return result;
 		return {
 			content: [{ type: "text", text: formatCompactLsResult(result) }],

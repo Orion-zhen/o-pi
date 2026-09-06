@@ -2,7 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSubagentCommandProgressAdapter } from "../../src/subagent/tui/adapter.js";
 import { renderSubagentCall, renderSubagentCommandEntry, renderSubagentResult } from "../../src/subagent/tui/renderer.js";
-import { pendingSubagentResult } from "../../src/subagent/progress.js";
+import { pendingSubagentResult } from "../../src/subagent/executor.js";
 import type { SubagentCompletedResult, SubagentDetails, SubagentRunningResult, UsageStats } from "../../src/subagent/types.js";
 
 const workspace = path.resolve("workspace");

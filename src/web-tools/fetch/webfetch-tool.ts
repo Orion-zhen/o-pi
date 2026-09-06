@@ -1,14 +1,13 @@
 import type {
-	ContentConversion,
 	SnapshotStatus,
 	WebFetchFailureDetails,
 	WebFetchMode,
 	WebFetchOmission,
-	WebFetchPage,
 	WebFetchParams,
 	WebFetchResult,
 	WebFetchSuccessDetails,
 } from "../core/types.js";
+import type { ContentConversion, WebFetchPage } from "../content/types.js";
 import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
 import { escapeXml } from "../network/url-utils.js";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.js";

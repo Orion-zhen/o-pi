@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as undici from "undici";
 
-import type { WebToolsConfig } from "../../src/web-tools/core/types.js";
+import type { WebToolsConfig } from "../../src/web-tools/config-types.js";
 import { createNetworkDispatcher, networkConfigSignature } from "../../src/web-tools/network/dispatcher.js";
 import {
 	inspectWebFetchTarget,

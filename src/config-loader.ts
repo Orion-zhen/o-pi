@@ -110,13 +110,13 @@ export async function readOptionalJsoncConfig<E extends Error>(options: ReadJson
 	return value;
 }
 
-export async function readOptionalJsoncConfigWithSchema<E extends Error>(
+export async function readOptionalJsoncConfigWithSchema<T = unknown, E extends Error = Error>(
 	options: ReadJsoncConfigWithSchemaOptions<E>,
-): Promise<unknown | undefined> {
+): Promise<T | undefined> {
 	const value = await readOptionalJsoncConfig(options);
 	if (value === undefined) return undefined;
 	await validateConfigValue({ ...options, value });
-	return value;
+	return value as T;
 }
 
 export async function validateConfigValue<E extends Error>(

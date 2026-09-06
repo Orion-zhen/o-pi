@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import type { Dispatcher } from "undici";
 
-import type { WebToolsConfig } from "../core/types.js";
+import type { WebToolsConfig } from "../config-types.js";
 import { createSecureLookup, resolveAllowedAddresses, type SecureLookupOptions } from "./network-policy.js";
 
 type UndiciNetworkModule = Pick<typeof import("undici"), "Agent" | "ProxyAgent" | "interceptors">;

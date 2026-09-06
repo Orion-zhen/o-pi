@@ -147,7 +147,7 @@ Agent 配置工具 ∩ pi.getAllTools()
 
 ## 应用层与适配器
 
-`runSubagentTasks()` 是 model tool 与 `/run` 的共同执行入口，返回相同的 `SubagentToolResult`，并可发送 `SubagentProgressEvent`：
+`executeSubagent()` 是模型工具与 `/run` 的共同执行入口，返回相同的 `SubagentToolResult`，通过 `context.onProgress` 发送 `SubagentProgressEvent`：
 
 ```text
 starting -> running* -> completed
@@ -189,7 +189,7 @@ Fork 行为：
 * `/run` 从当前 leaf fork。
 * snapshot 仅保留当前有效分支中参与模型上下文的 message、custom message、compaction 和 branch summary。普通 custom、label、model/thinking entry 不写入。
 * 同次 parallel/chain 共享只读 snapshot，每个任务和每次重试使用独立 child session。重试始终从同一 snapshot 开始，不继承失败输出。
-* snapshot、system prompt 和所有 child session 在整次执行结束后清理。
+* snapshot、system prompt 和所有 child session 在整次执行结束后清理。链式执行也会等待最后一个任务和结果持久化完成，不会在返回执行 Promise 时提前清理。
 
 隔离模式的 `--system-prompt` 直接引用发现阶段已校验的原始 Agent Markdown，不生成临时 prompt 或 profile。
 

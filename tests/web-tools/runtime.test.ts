@@ -8,7 +8,8 @@ import * as fetchModule from "../../src/web-tools/fetch/webfetch-runtime.js";
 import * as searchModule from "../../src/web-tools/search/websearch-runtime.js";
 import * as apiModule from "../../src/web-tools/search-providers/api-provider.js";
 import * as ddgModule from "../../src/web-tools/search-providers/duckduckgo-html-provider.js";
-import type { FormalWebSearchProviderId, WebHttpFetch, WebToolsRuntime } from "../../src/web-tools/core/types.js";
+import type { FormalWebSearchProviderId, WebToolsRuntime } from "../../src/web-tools/core/types.js";
+import type { WebHttpFetch } from "../../src/web-tools/network/types.js";
 import { createWebToolsRuntime } from "../../src/web-tools/web-tools-runtime.js";
 import { defaultWebToolsConfig } from "./config-fixture.js";
 import { deferredVoid } from "../helpers/async.js";
@@ -44,8 +45,8 @@ describe("web-tools runtime", () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.brave_api.api_key = "";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
-		const createApi = vi.spyOn(apiModule, "createApiSearchProvider");
-		const createDdg = vi.spyOn(ddgModule, "createDuckDuckGoHtmlProvider");
+		const createApi = vi.spyOn(apiModule, "searchApiProvider");
+		const createDdg = vi.spyOn(ddgModule, "searchDuckDuckGoProvider");
 		const html = await readFile(new URL("./fixtures/websearch/results.html", import.meta.url), "utf8");
 		network.fetch.mockImplementation(async (url) => url.hostname === "html.duckduckgo.com"
 			? httpResponse(200, html, { "content-type": "text/html" })
@@ -65,25 +66,24 @@ describe("web-tools runtime", () => {
 		for (const id of ["brave_api", "exa_api", "tavily"] as const) config.websearch[id].enabled = id === selected;
 		config.websearch[selected].api_key = "literal-key";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
-		const createApi = vi.spyOn(apiModule, "createApiSearchProvider");
-		const createDdg = vi.spyOn(ddgModule, "createDuckDuckGoHtmlProvider");
+		const createApi = vi.spyOn(apiModule, "searchApiProvider");
+		const createDdg = vi.spyOn(ddgModule, "searchDuckDuckGoProvider");
 		network.fetch.mockImplementation(async () => searchResponse(selected));
 		await expect(trackRuntime().search({ query: "official pi docs", limit: 1 }, { toolCallId: selected })).resolves.toMatchObject({ details: { status: "success", provider: selected } });
-		expect(createApi).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: selected }));
+		expect(createApi).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: selected }), expect.anything(), expect.anything());
 		expect(createDdg).not.toHaveBeenCalled();
 	});
 
-	it("提供方只在实际命中时创建，初始化失败在会话内复用", async () => {
-		const createApi = vi.spyOn(apiModule, "createApiSearchProvider").mockImplementation(() => {
-			throw new Error("provider initialization failed");
-		});
-		const createDdg = vi.spyOn(ddgModule, "createDuckDuckGoHtmlProvider");
+	it("失败请求不污染后续搜索，未调用时不发起网络请求", async () => {
+		const config = defaultWebToolsConfig();
+		config.websearch.duckduckgo_html.enabled = false;
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		network.fetch.mockRejectedValueOnce(new Error("connection refused")).mockResolvedValue(searchResponse("brave_api"));
 		const runtime = trackRuntime();
-		expect(createApi).not.toHaveBeenCalled();
-		await expect(runtime.search({ query: "first" }, { toolCallId: "first" })).rejects.toThrow("provider initialization failed");
-		await expect(runtime.search({ query: "second" }, { toolCallId: "second" })).rejects.toThrow("provider initialization failed");
-		expect(createApi).toHaveBeenCalledOnce();
-		expect(createDdg).not.toHaveBeenCalled();
+		expect(network.fetch).not.toHaveBeenCalled();
+		await expect(runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "first" })).resolves.toMatchObject({ details: { status: "failed" } });
+		await expect(runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "second" })).resolves.toMatchObject({ details: { status: "success" } });
+		expect(network.fetch).toHaveBeenCalledTimes(2);
 	});
 
 	it("按调用能力分别创建 search/fetch，共享资源只关闭一次", async () => {
@@ -190,8 +190,8 @@ describe("web-tools runtime", () => {
 		expect(network.fetch).not.toHaveBeenCalled();
 	});
 
-	it("并发搜索复用提供方，完成后的相同查询重新请求", async () => {
-		const createApi = vi.spyOn(apiModule, "createApiSearchProvider");
+	it("并发搜索各用自身请求数据，完成后的相同查询重新请求", async () => {
+		const createApi = vi.spyOn(apiModule, "searchApiProvider");
 		network.fetch.mockImplementation(async () => searchResponse("brave_api"));
 		const runtime = trackRuntime();
 		const results = await Promise.all([
@@ -200,7 +200,7 @@ describe("web-tools runtime", () => {
 		]);
 		results.push(await runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "again" }));
 		expect(results.every((result) => result.details.status === "success")).toBe(true);
-		expect(createApi).toHaveBeenCalledOnce();
+		expect(createApi).toHaveBeenCalledTimes(3);
 		expect(network.fetch).toHaveBeenCalledTimes(3);
 	});
 
@@ -231,6 +231,30 @@ describe("web-tools runtime", () => {
 			release.resolve();
 		}
 		await expect(first).resolves.toMatchObject({ details: { status: "success", provider: "brave_api" } });
+	});
+
+	it("网络配置热更新不会合并到旧网络上的同名搜索", async () => {
+		const config = defaultWebToolsConfig();
+		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
+		const started = deferredVoid();
+		const release = deferredVoid();
+		network.fetch.mockImplementation(async () => {
+			started.resolve();
+			await release.promise;
+			return searchResponse("brave_api");
+		});
+		const runtime = trackRuntime();
+		const params = { query: "official pi docs", limit: 1 };
+		const first = runtime.search(params, { toolCallId: "old-network" });
+		await started.promise;
+		config.network.fake_ip_ranges = ["198.18.0.0/16"];
+		const second = runtime.search(params, { toolCallId: "new-network" });
+		try {
+			await vi.waitFor(() => expect(network.fetch).toHaveBeenCalledTimes(2));
+			const [before, after] = network.fetch.mock.calls.map(([, init]) => init.dispatcher);
+			expect(before).not.toBe(after);
+		} finally { release.resolve(); }
+		await expect(Promise.all([first, second])).resolves.toHaveLength(2);
 	});
 
 	it("fetch 分页复用 snapshot，避免重复下载", async () => {

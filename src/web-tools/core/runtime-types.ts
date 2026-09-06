@@ -1,14 +1,14 @@
 import type { Dispatcher } from "undici";
+import type { WebHttpFetch } from "../network/types.js";
+import type { WebToolsConfig } from "../config-types.js";
 
 import type {
 	WebFetchExecutionContext,
 	WebFetchParams,
 	WebFetchResult,
-	WebHttpFetch,
 	WebSearchExecutionContext,
 	WebSearchParams,
 	WebSearchResult,
-	WebToolsConfig,
 } from "./types.js";
 
 export interface WebCapabilityOptions {

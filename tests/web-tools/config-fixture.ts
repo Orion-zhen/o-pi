@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parse } from "jsonc-parser";
 
-import type { WebToolsConfig } from "../../src/web-tools/core/types.js";
+import type { WebToolsConfig } from "../../src/web-tools/config-types.js";
 import { normalizeDomains } from "../../src/web-tools/search-providers/query.js";
 
 export function defaultWebToolsConfig(): WebToolsConfig {

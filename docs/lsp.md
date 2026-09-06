@@ -2,6 +2,8 @@
 
 LSP 仅作为 `grep`、`read`、`write` 和 `edit` 的可选内部后端。它不会注册模型可见的 `lsp` 工具。
 
+文件增强直接由 `LspManager` 提供，接口位于 `src/lsp/file-operations.ts`。文件工具通过 `src/file-tools/pi/lsp.ts` 统一绑定受控路径，不直接访问管理器内部状态。诊断类型只在 `src/lsp/types.ts` 定义，文件工具直接引用其类型。
+
 ## 配置
 
 默认配置与用户全局配置分别位于：

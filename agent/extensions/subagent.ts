@@ -8,14 +8,14 @@ import {
 	queryAgentsSummary,
 	querySubagentConfigSummary,
 	runSubagentCommand,
-	runSubagentTasks,
+	executeSubagent,
 	SUBAGENT_COMMAND_ENTRY,
 	SubagentExecutionRegistry,
 	type SubagentInteractionPort,
 	type SubagentToolParams,
 } from "../../src/subagent/index.js";
 import { subagentTelemetry } from "../../src/subagent/telemetry.js";
-import { registerObservedTool } from "../../src/telemetry/tool.js";
+import { registerTool } from "../../src/register-tool.js";
 
 type SubagentTuiModule = typeof import("../../src/subagent/tui/adapter.js");
 
@@ -38,7 +38,7 @@ export function createSubagentExtension(
 ): (pi: ExtensionAPI) => void {
 	return function subagentExtension(pi: ExtensionAPI): void {
 		const executions = new SubagentExecutionRegistry();
-		const subagentTool = registerObservedTool(pi, {
+		const subagentTool = registerTool(pi, {
 			tool: {
 				name: "subagent",
 				label: "subagent",
@@ -50,7 +50,7 @@ export function createSubagentExtension(
 					const lease = executions.start(signal);
 					try {
 						const interaction = createInteraction(ctx);
-						return await runSubagentTasks(
+						return await executeSubagent(
 							params as SubagentToolParams,
 							{
 								...captureExecutorContext(pi, {
@@ -61,9 +61,9 @@ export function createSubagentExtension(
 								}, { invocation: "tool", toolCallId }),
 								signal: lease.signal,
 								...(interaction === undefined ? {} : { interaction }),
-							},
-							(event) => {
-								if (event.phase !== "completed") onUpdate?.(event.result);
+								onProgress(event) {
+									if (event.phase !== "completed") onUpdate?.(event.result);
+								},
 							},
 						);
 					} finally {

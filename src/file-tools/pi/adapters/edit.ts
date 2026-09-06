@@ -1,11 +1,11 @@
 import { editFile, previewEdit } from "../../edit/command.js";
 import type { EditParams, EditPreviewSuccess } from "../../edit/types.js";
-import { FileToolsHost, type FileToolsInvocation } from "../../runtime/host.js";
+import { FileToolsHost } from "../../runtime/host.js";
 import { fail, isFailed } from "../../shared/result.js";
 import { isPlainRecord } from "../guards.js";
 import { formatEditModelResult } from "../../edit/presenter.js";
 import { withFileToolsInvocation, type MutationRuntime } from "../invocation.js";
-import { createMutationDiagnosticsSource } from "../ports/mutation-diagnostics.js";
+import { bindFileLsp } from "../lsp.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 import { createMutationPostProcessObserver, mutationProgress } from "../progress.js";
 
@@ -19,11 +19,16 @@ export async function executeEdit(
 			replacements: latestPreview?.replacements ?? params.edits.length,
 			...(latestPreview === undefined ? {} : { diff: latestPreview.diff }),
 		}));
-		const diagnostics = createMutationDiagnosticsSource(opened, runtime.lsp, progress, runtime.batch);
-		const result = await editFile(params, commandContext(opened, diagnostics, (preview) => {
-			latestPreview = preview;
-			runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
-		}));
+		const diagnostics = bindFileLsp(opened, runtime.lsp).diagnostics(progress, runtime.batch);
+		const result = await editFile(params, {
+			...opened,
+			diagnostics,
+			diff: piTextDiffGenerator,
+			onPrepared(preview) {
+				latestPreview = preview;
+				runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
+			},
+		});
 		if (isFailed(result)) return result;
 		return { content: [{ type: "text", text: formatEditModelResult(result) }], details: result };
 	});
@@ -38,10 +43,7 @@ export async function previewEditWorkspace(cwd: string, params: unknown) {
 		if (isFailed(opened)) return opened;
 		try {
 			return await previewEdit(params, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				maxFileBytes: opened.limits.edit_max_file_bytes,
-				matchHintLimit: opened.limits.edit_match_hint_limit,
+				...opened,
 				diff: piTextDiffGenerator,
 			});
 		} finally {
@@ -61,21 +63,4 @@ function isEditPreviewParams(value: unknown): value is EditParams {
 		&& edit["old"].length > 0
 		&& typeof edit["new"] === "string"
 		&& (edit["replace_all"] === undefined || typeof edit["replace_all"] === "boolean"));
-}
-
-function commandContext(
-	opened: FileToolsInvocation,
-	diagnostics: ReturnType<typeof createMutationDiagnosticsSource>,
-	onPrepared: (preview: EditPreviewSuccess) => void,
-) {
-	return {
-		filesystem: opened.filesystem,
-		operation: opened.context,
-		observation: opened.observation,
-		maxFileBytes: opened.limits.edit_max_file_bytes,
-		matchHintLimit: opened.limits.edit_match_hint_limit,
-		diff: piTextDiffGenerator,
-		diagnostics,
-		onPrepared,
-	};
 }

@@ -1,7 +1,7 @@
 import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
 import { loadSubagentConfig } from "./config.js";
 import { formatModelReference } from "./model.js";
-import { runSubagentTasks } from "./progress.js";
+import { executeSubagent } from "./executor.js";
 import type {
 	AgentDefinition,
 	ExecutorContext,
@@ -44,14 +44,14 @@ export function runSubagentCommand(
 	tasks: NonEmptyArray<SubagentTask>,
 	onProgress?: SubagentProgressCallback,
 ): Promise<SubagentToolResult> {
-	return runSubagentTasks(
+	return executeSubagent(
 		{ tasks },
 		{
 			...captureExecutorContext(port, context, { invocation: "command" }),
 			...(context.signal === undefined ? {} : { signal: context.signal }),
 			...(context.interaction === undefined ? {} : { interaction: context.interaction }),
+			...(onProgress === undefined ? {} : { onProgress }),
 		},
-		onProgress,
 	);
 }
 

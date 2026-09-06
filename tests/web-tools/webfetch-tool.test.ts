@@ -8,9 +8,8 @@ import type {
 	WebFetchInteractionPort,
 	WebFetchOmission,
 	WebFetchResult,
-	WebHttpFetch,
-	WebHttpRequestInit,
 } from "../../src/web-tools/core/types.js";
+import type { WebHttpFetch, WebHttpRequestInit } from "../../src/web-tools/network/types.js";
 import { executeWebFetch } from "../../src/web-tools/fetch/webfetch-tool.js";
 import type { PrivateNetworkGrant } from "../../src/web-tools/network/private-network-grant.js";
 import { httpResponse, redirectResponse } from "../helpers/http.js";

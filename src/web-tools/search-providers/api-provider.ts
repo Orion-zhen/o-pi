@@ -2,17 +2,19 @@ import type { Dispatcher } from "undici";
 
 import { classifyNetworkError } from "../network/errors.js";
 import { readLimitedResponseBody } from "../network/response-body.js";
-import type { FormalWebSearchProviderId, WebHttpFetch, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "../core/types.js";
+import type { FormalWebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem } from "../core/types.js";
+import type { WebHttpFetch } from "../network/types.js";
+import type { WebToolsConfig } from "../config-types.js";
 import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_SNIPPET_CHARS, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.js";
-import { resolveSearchApiKey } from "./api-key.js";
 import { filteredLexicalQuery } from "./query.js";
-import type { NormalizedSearchParams, SearchProviderResult, WebSearchProvider } from "./types.js";
+import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.js";
 
 type ProviderConfig = {
 	[Id in FormalWebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id] };
 }[FormalWebSearchProviderId];
 
 export type ApiProviderOptions = ProviderConfig & {
+	key: string;
 	dispatcher: () => Promise<Dispatcher>;
 	fetchImpl: WebHttpFetch;
 };
@@ -24,54 +26,43 @@ export interface ProviderRequest {
 	body?: string;
 }
 
-export function createApiSearchProvider(options: ApiProviderOptions): WebSearchProvider {
-	if (!options.config.enabled) throw new Error(`${options.id} provider is disabled.`);
-	const key = resolveSearchApiKey(options.config.api_key);
-	if (key === undefined) throw new Error(`${options.id} provider API key is unavailable.`);
-	return {
-		id: options.id,
-		async search(params, context) {
-			const remaining = (context.deadlineAt ?? Number.POSITIVE_INFINITY) - context.now();
-			if (remaining <= 0) return failed(options.id, "TIMEOUT", "websearch deadline exceeded.", params.query);
-			const timeout = AbortSignal.timeout(Math.min(options.config.timeout_seconds * 1000, remaining));
-			const signal = context.signal === undefined ? timeout : AbortSignal.any([context.signal, timeout]);
-			const request = buildProviderRequest(options, params, key);
-			context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
-			try {
-				const response = await options.fetchImpl(request.url, {
-					method: request.method,
-					redirect: "manual",
-					dispatcher: await options.dispatcher(),
-					signal,
-					headers: request.headers,
-					...(request.body !== undefined ? { body: request.body } : {}),
-				});
-				const body = await readLimitedResponseBody(response, {
-					maxBytes: options.config.response_bytes,
-					signal,
-					onProgress(receivedBytes) {
-						context.onUpdate?.({ content: `Downloading ${receivedBytes} bytes...`, details: { status: "progress", phase: "downloading", received_bytes: receivedBytes } });
-					},
-				});
-				if (body.status === "failed") {
-					const code = body.code === "ABORTED" && !userAborted(context) ? "TIMEOUT" : body.code;
-					return failed(options.id, code, body.message, params.query, response.status);
-				}
-				if (response.status < 200 || response.status >= 300) {
-					const classified = classifyHttpStatus(response.status, decode(body.bytes));
-					return failed(options.id, classified.code, classified.message, params.query, response.status, retryAfterMs(response.headers.get("retry-after"), context.now()));
-				}
-				context.onUpdate?.({ content: "Parsing results...", details: { status: "progress", phase: "parsing" } });
-				const parsed = parseJson(body.bytes);
-				if (parsed === undefined) return failed(options.id, "PARSE_FAILED", `${options.id} returned invalid JSON.`, params.query, response.status);
-				return normalizeProviderResponse(options.id, parsed, params.limit, body.bytes.length, params.query);
-			} catch (error) {
-				const networkCode = userAborted(context) ? "ABORTED" : signal.aborted ? "TIMEOUT" : classifyNetworkError(error, context.userSignal ?? (context.deadlineAt === undefined ? context.signal : undefined));
-				const code = networkCode === "BLOCKED_ADDRESS" ? "CONNECTION_FAILED" : networkCode;
-				return failed(options.id, code, sanitizeError(error, key), params.query);
-			}
-		},
-	};
+/** 配置和已解析凭据属于本次请求，提供方不保留会话状态。 */
+export async function searchApiProvider(options: ApiProviderOptions, params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchProviderResult> {
+	const remaining = (context.deadlineAt ?? Number.POSITIVE_INFINITY) - context.now();
+	if (remaining <= 0) return failed(options.id, "TIMEOUT", "websearch deadline exceeded.", params.query);
+	const timeout = AbortSignal.timeout(Math.min(options.config.timeout_seconds * 1000, remaining));
+	const signal = context.signal === undefined ? timeout : AbortSignal.any([context.signal, timeout]);
+	const request = buildProviderRequest(options, params, options.key);
+	context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
+	try {
+		const response = await options.fetchImpl(request.url, {
+			method: request.method, redirect: "manual", dispatcher: await options.dispatcher(), signal,
+			headers: request.headers,
+			...(request.body === undefined ? {} : { body: request.body }),
+		});
+		const body = await readLimitedResponseBody(response, {
+			maxBytes: options.config.response_bytes, signal,
+			onProgress(receivedBytes) {
+				context.onUpdate?.({ content: `Downloading ${receivedBytes} bytes...`, details: { status: "progress", phase: "downloading", received_bytes: receivedBytes } });
+			},
+		});
+		if (body.status === "failed") {
+			const code = body.code === "ABORTED" && !userAborted(context) ? "TIMEOUT" : body.code;
+			return failed(options.id, code, body.message, params.query, response.status);
+		}
+		if (response.status < 200 || response.status >= 300) {
+			const classified = classifyHttpStatus(response.status, decode(body.bytes));
+			return failed(options.id, classified.code, classified.message, params.query, response.status, retryAfterMs(response.headers.get("retry-after"), context.now()));
+		}
+		context.onUpdate?.({ content: "Parsing results...", details: { status: "progress", phase: "parsing" } });
+		const parsed = parseJson(body.bytes);
+		if (parsed === undefined) return failed(options.id, "PARSE_FAILED", `${options.id} returned invalid JSON.`, params.query, response.status);
+		return normalizeProviderResponse(options.id, parsed, params.limit, body.bytes.length, params.query);
+	} catch (error) {
+		const networkCode = userAborted(context) ? "ABORTED" : signal.aborted ? "TIMEOUT" : classifyNetworkError(error, context.userSignal ?? (context.deadlineAt === undefined ? context.signal : undefined));
+		const code = networkCode === "BLOCKED_ADDRESS" ? "CONNECTION_FAILED" : networkCode;
+		return failed(options.id, code, sanitizeError(error, options.key), params.query);
+	}
 }
 
 function buildProviderRequest(provider: ProviderConfig, params: NormalizedSearchParams, key: string): ProviderRequest {

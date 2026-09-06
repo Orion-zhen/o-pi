@@ -1,13 +1,14 @@
 import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
 import { mimeFromContentType, SUPPORTED_IMAGE_TYPES } from "../content/image-types.js";
 import type {
-	ContentConversion,
-	HttpFetchSuccess,
 	WebFetchFailureDetails,
 	WebFetchMedia,
 	WebFetchMode,
 	WebFetchOmission,
 } from "../core/types.js";
+
+import type { ContentConversion } from "../content/types.js";
+import type { HttpFetchSuccess } from "../network/types.js";
 
 const IMAGE_ACCEPT = "image/webp,image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1";
 

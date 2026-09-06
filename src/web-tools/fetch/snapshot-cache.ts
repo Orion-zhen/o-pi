@@ -1,4 +1,4 @@
-import type { WebFetchPage } from "../core/types.js";
+import type { WebFetchPage } from "../content/types.js";
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_ENTRIES = 32;

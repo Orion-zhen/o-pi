@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
-import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
-import type { DiagnosticsSummary } from "../../src/file-tools/shared/diagnostics.js";
+import { lspManager as lspFileHooks } from "../../src/lsp/index.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../src/lsp/types.js";
 import { registerExtension } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import { executeTool, type ExecuteResult } from "./extension-fixture.js";

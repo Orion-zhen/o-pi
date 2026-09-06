@@ -1,3 +1,4 @@
+import type { FileToolLimits } from "../../file-tool-limits.js";
 import type { MutationSnapshot } from "../../filesystem/contracts/mutation.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
@@ -16,7 +17,7 @@ const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
 export interface WriteCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly maxFileBytes: number;
+	readonly limits: Readonly<Pick<FileToolLimits, "write_max_file_bytes">>;
 	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: MutationDiagnosticsSource;
 	readonly onPrepared?: (preview: WritePreviewSuccess) => void;
@@ -25,7 +26,7 @@ export interface WriteCommandContext {
 /** Creates or fully overwrites one guarded UTF-8 file. */
 export async function writeFile(params: WriteParams, context: WriteCommandContext): Promise<ToolOutcome<WriteSuccess>> {
 	const inputBytes = Buffer.byteLength(params.content, "utf8");
-	if (inputBytes > context.maxFileBytes) return fileTooLarge(params.path, context.maxFileBytes, inputBytes);
+	if (inputBytes > context.limits.write_max_file_bytes) return fileTooLarge(params.path, context.limits.write_max_file_bytes, inputBytes);
 	const target = await context.filesystem.paths.resolveTarget(params.path);
 	if (!target.ok) return mapFsError(target.error);
 	if (target.value.workspacePath === ".") {
@@ -37,8 +38,8 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 		target.value,
 		{
 			createParents: true,
-			maxSnapshotBytes: context.maxFileBytes,
-			maxOutputBytes: context.maxFileBytes,
+			maxSnapshotBytes: context.limits.write_max_file_bytes,
+			maxOutputBytes: context.limits.write_max_file_bytes,
 		},
 		async (current) => {
 			const renderedDiff = await context.diff.generate(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));

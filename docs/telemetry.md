@@ -31,7 +31,7 @@ collector 查询和 live report 构建不依赖 UI。报告 DTO 可直接 `struc
 
 ## 工具接入
 
-仓库内模型工具统一通过 `registerObservedTool` 注册。它组合已有的 argument repair，并通过 Pi runtime EventBus 发布可选的 `input`、`result` 投影。collector 的 ready 握手保证工具和 telemetry extension 可以按任意顺序加载。工具 execute 不会被 telemetry wrapper 包裹。
+仓库内模型工具统一通过 `src/register-tool.ts` 的 `registerTool` 注册。该入口组合默认采样策略、参数修复和可选的遥测投影。遥测通过 Pi 事件总线传递，ready 握手保证工具和遥测扩展可以按任意顺序加载，不依赖跨扩展模块单例。工具 execute 不会被遥测包装。
 
 ```ts
 const searchTelemetry = defineToolTelemetry<SearchParams, SearchDetails>({
@@ -50,7 +50,7 @@ const searchTelemetry = defineToolTelemetry<SearchParams, SearchDetails>({
   }),
 });
 
-registerObservedTool(pi, { tool, repair, telemetry: searchTelemetry });
+registerTool(pi, { tool, repair, telemetry: searchTelemetry });
 ```
 
 没有专属投影的 host 工具仍会记录完成状态、耗时和输出大小。`definition_hash` 只标识模型可见 name、description、parameters 和 prompt fields 的变化，不代表实现版本，也不作为默认行为分组。

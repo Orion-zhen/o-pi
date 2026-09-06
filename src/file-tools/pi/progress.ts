@@ -1,6 +1,6 @@
-import type { DiagnosticsSummary, DiagnosticStatus } from "../shared/diagnostics.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.js";
 
-export type MutationLspProgressStatus = "pending" | "running" | DiagnosticStatus;
+export type MutationLspProgressStatus = "pending" | "running" | DiagnosticsSummary["status"];
 
 export interface MutationLspProgress {
 	status: MutationLspProgressStatus;

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
-import type { LspMutationInput } from "../../src/lsp/adapters/file-operations.js";
+import type { LspMutationInput } from "../../src/lsp/file-operations.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { FILE_TOOLS_OBSERVATION_STATE } from "../../src/file-tools/runtime/session-observation-state.js";
 import { registerExtension, type ExtensionHandler } from "../helpers/extension.js";
@@ -350,7 +350,7 @@ describe("file-tools extension lifecycle", () => {
 			async lsp() {
 				return {
 					...(await import("../../src/lsp/index.js")),
-					lspFileOperations: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }),
+					lspManager: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }),
 				};
 			},
 		}), {
@@ -407,7 +407,7 @@ describe("file-tools extension lifecycle", () => {
 		const batchLsp = vi.fn(async () => []);
 		const { registered, handlers } = registerExtension(createFileToolsExtension({
 			async lsp() {
-				return { ...(await import("../../src/lsp/index.js")), lspFileOperations: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }) };
+				return { ...(await import("../../src/lsp/index.js")), lspManager: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }) };
 			},
 		}));
 		const cwd = workspace.path;
@@ -436,7 +436,7 @@ describe("file-tools extension lifecycle", () => {
 		}));
 		const imports = {
 			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
-			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspFileOperations: lspOperations({ read: enhanceRead }) })),
+			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspManager: lspOperations({ read: enhanceRead }) })),
 		};
 		const getCommands = vi.fn(() => []);
 		const { registered, handlers } = registerExtension(createFileToolsExtension(imports), {

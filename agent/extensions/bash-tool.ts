@@ -5,7 +5,7 @@ import { executeBashCommand } from "../../src/bash-tool/bash-tool.js";
 import { loadBashToolConfig } from "../../src/bash-tool/config.js";
 import type { BashSessionMetadata, BashToolDetails } from "../../src/bash-tool/types.js";
 import { bashTelemetry } from "../../src/bash-tool/telemetry.js";
-import { registerObservedTool } from "../../src/telemetry/tool.js";
+import { registerTool } from "../../src/register-tool.js";
 
 const bashParameters = Type.Object({
 	command: Type.String({ description: "Shell command; default runs in workspace." }),
@@ -19,7 +19,7 @@ const bashParameters = Type.Object({
 /** 注册覆盖版 bash。执行后端用 Pi 本地 shell，输出管理由本项目控制。 */
 export default function bashTool(pi: ExtensionAPI): void {
 	const operations = createLocalBashOperations();
-	const tool = registerObservedTool<typeof bashParameters, NativeBashDetails | undefined, unknown>(pi, {
+	const tool = registerTool<typeof bashParameters, NativeBashDetails | undefined, unknown>(pi, {
 		tool: {
 			name: "bash",
 			label: "bash",

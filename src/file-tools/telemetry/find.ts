@@ -1,5 +1,4 @@
-import { fields } from "../../telemetry/projection.js";
-import { defineToolTelemetry } from "../../telemetry/tool.js";
+import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
 import type { Candidate } from "../../telemetry/types.js";
 import type { FailedResult } from "../shared/result.js";
 import { isFailed } from "../shared/result.js";

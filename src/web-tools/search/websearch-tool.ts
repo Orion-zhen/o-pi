@@ -2,7 +2,8 @@ import type { SearchProviderRouter } from "../search-providers/router.js";
 import { normalizeSearchParams } from "../search-providers/query.js";
 import type { SearchFlights } from "./search-flights.js";
 import { searchFlightKey } from "./search-flights.js";
-import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails, WebToolsConfig } from "../core/types.js";
+import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails } from "../core/types.js";
+import type { WebToolsConfig } from "../config-types.js";
 import { escapeXml } from "../network/url-utils.js";
 
 /** 搜索执行层依赖；provider 由 router 隔离，便于测试 fallback 和 singleflight。 */

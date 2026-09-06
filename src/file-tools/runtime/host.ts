@@ -28,7 +28,7 @@ export interface FileToolsInvocation {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly limits: Readonly<FileToolLimits>;
 	readonly observation: FileObservations;
-	readonly context: FsOperationContext;
+	readonly operation: FsOperationContext;
 	/** 供 LSP adapter 使用的组合边界。 */
 	readonly nativeBridge: WorkspaceNativeBridge;
 	dispose(): void;
@@ -130,9 +130,9 @@ export class FileToolsHost {
 		observation = store.bind(lease);
 		return {
 			filesystem: lease.filesystem,
-			context: lease.context,
+			operation: lease.context,
 			nativeBridge: lease.nativeBridge,
-			limits: Object.freeze(structuredClone(config.value.limits)),
+			limits: Object.freeze(config.value.limits),
 			observation,
 			dispose: () => lease.dispose(),
 		};

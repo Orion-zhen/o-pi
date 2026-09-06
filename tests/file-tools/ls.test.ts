@@ -37,11 +37,7 @@ async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<To
 	const opened = await host.open({ cwd, sessionId: "ls-test" });
 	if (isFailed(opened)) return opened;
 	try {
-		return await listDirectory(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			entryLimit: opened.limits.ls_entries,
-		});
+		return await listDirectory(params, opened);
 	} finally {
 		opened.dispose();
 	}

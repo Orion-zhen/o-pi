@@ -3,7 +3,9 @@ import { Parser } from "htmlparser2";
 
 import { classifyNetworkError } from "../network/errors.js";
 import { readLimitedResponseBody, responseContentLength } from "../network/response-body.js";
-import type { WebHttpFetch, WebHttpResponse, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "../core/types.js";
+import type { WebHttpFetch, WebHttpResponse } from "../network/types.js";
+import type { WebToolsConfig } from "../config-types.js";
+import type { WebSearchFailureDetails, WebSearchItem } from "../core/types.js";
 import {
 	normalizeSearchResultUrl,
 	normalizeSearchText,

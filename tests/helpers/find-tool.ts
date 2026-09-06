@@ -13,11 +13,7 @@ export async function findWorkspaceFiles(
 		const opened = await host.open({ cwd, sessionId: "find-test", ...(signal === undefined ? {} : { signal }) });
 		if (isFailed(opened)) return opened;
 		try {
-			return await findFiles(params, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			});
+			return await findFiles(params, opened);
 		} finally {
 			opened.dispose();
 		}

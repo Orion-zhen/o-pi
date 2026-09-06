@@ -24,11 +24,11 @@ TUI 适配器 -> 数据/查询/服务/控制器
 | 会话统计 | 无专用的 o-pi RPC 方法 | 可安全序列化为 JSON 的 `StatsSnapshot` | `/stats` 仅支持 TUI。在 RPC 模式下调用时会发送错误通知 |
 | 套餐用量 | 无专用的 o-pi RPC 方法 | `UsageService.load()` 返回可安全序列化为 JSON 的快照 | `/usage` 通过通知返回文本 |
 | 遥测 | 无专用的 o-pi RPC 方法 | 采集器快照和实时报告 DTO | `/telemetry` 通过通知返回文本 |
-| 技能和 LSP 查询 | 无专用的 o-pi RPC 方法 | `querySkillStatus()`、`queryLspStatus()`、`queryLspDiagnostics()` | 斜杠命令适配器输出文本。后续适配器可以直接使用 DTO |
+| 技能和 LSP 查询 | 无专用的 o-pi RPC 方法 | `querySkillStatus()`、`LspManager.status()`、`LspManager.knownDiagnostics()` | 斜杠命令适配器输出文本。后续适配器可以直接使用 DTO |
 | 工具选择 | 无专用的 o-pi RPC 方法 | `ToolSelectionController` 的快照和操作结果 | `/tools` 仅支持 TUI。在 RPC 模式下调用时会发送错误通知 |
 | 上下文裁剪 | 无专用的 o-pi RPC 方法 | `PruneService.execute()` 的操作结果 | 可以通过 `/prune` 调用。通知文本不是状态协议 |
 | 思考级别 | `set_thinking_level`、`cycle_thinking_level` | 会话分支内的按模型偏好恢复 | RPC 直接使用 Pi 原生命令。`thinking-preferences` 扩展会记录变更，并在切回模型时恢复当前分支的偏好 |
-| 子代理 | 工具和命令事件 | `runSubagentTasks()`、`runSubagentCommand()`、`SubagentProgressEvent` | 模型工具与 `/run` 共用结构化进度和结果。RPC 不创建 TUI 组件 |
+| 子代理 | 工具和命令事件 | `executeSubagent()`、`runSubagentCommand()`、`SubagentProgressEvent` | 模型工具与 `/run` 共用结构化进度和结果。RPC 不创建 TUI 组件 |
 | 审批 | Extension UI 的 `select` 和 `input` | `ApprovalInteractionPort` | RPC 交互始终支持单次允许和拒绝。满足配置和规则条件时，还支持会话内允许和持久允许。拒绝时可以附带指令 |
 | Web 认证确认 | Extension UI 的 `confirm` | `WebFetchInteractionPort` | RPC 交互可以确认是否向允许列表内的源站发送 Cookie |
 | 子代理写入确认 | Extension UI 的 `confirm` | `SubagentInteractionPort` | RPC 交互可以确认是否运行具备写入能力的子代理。没有交互端口时默认拒绝 |
