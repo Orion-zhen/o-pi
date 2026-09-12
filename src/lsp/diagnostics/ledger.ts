@@ -21,7 +21,6 @@ export interface DiagnosticLineRange {
 
 export interface DiagnosticSelection {
 	changedRanges: readonly DiagnosticLineRange[];
-	symbolRanges?: readonly DiagnosticLineRange[];
 }
 
 /** 保存按 client source+URI 分区的诊断快照，并提供事件驱动等待和 compact diff。 */
@@ -46,6 +45,7 @@ export class DiagnosticsLedger {
 				.map((diagnostic) => toItem(source, diagnostic, maxRelatedLocations))
 				.filter((item) => severityOrder[item.severity] <= severityOrder[minSeverity]),
 			known: true,
+			diagnostics: [...diagnostics],
 			revision: this.nextRevision,
 			updatedAt: Date.now(),
 			...(version !== undefined ? { version } : {}),
@@ -65,7 +65,7 @@ export class DiagnosticsLedger {
 	snapshot(source: string, uri: string): LspDiagnosticSnapshot {
 		const snapshot = this.entries.get(entryKey(source, uri));
 		return snapshot === undefined
-			? { source, uri, items: [], known: false, revision: 0 }
+			? { source, uri, items: [], diagnostics: [], known: false, revision: 0 }
 			: cloneSnapshot(snapshot);
 	}
 
@@ -75,6 +75,14 @@ export class DiagnosticsLedger {
 
 	all(): LspDiagnosticSnapshot[] {
 		return Array.from(this.entries.values(), cloneSnapshot);
+	}
+
+	recent(source: string, limit: number): LspDiagnosticSnapshot[] {
+		return [...this.entries.values()]
+			.filter((entry) => entry.source === source)
+			.sort((left, right) => right.revision - left.revision)
+			.slice(0, limit)
+			.map(cloneSnapshot);
 	}
 
 	count(source: string, root: string): number {
@@ -172,9 +180,13 @@ export function summarizeDiagnostics(
 	const diff = diffCounts(beforeKeys, afterKeys);
 	const fileErrors = after.items.filter((item) => item.severity === "error").length;
 	const fileWarnings = after.items.filter((item) => item.severity === "warning").length;
-	const selected = selection === undefined
-		? after.items.slice(0, maxItems)
-		: selectEditItems(after.items, beforeItems, baselineKnown, maxItems, selection);
+	const added = new Set(newDiagnosticItems(after.items, beforeItems));
+	const selected = after.items
+		.filter((item) => selection === undefined || item.severity === "error"
+			|| baselineKnown && added.has(item) && item.severity === "warning"
+				&& selection.changedRanges.some((range) => item.line >= range.startLine && item.line <= range.endLine))
+		.sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity]
+			|| Number(!added.has(left)) - Number(!added.has(right)));
 	return {
 		status: fileErrors > 0 ? "errors" : fileWarnings > 0 ? "warnings" : "clean",
 		file_errors: fileErrors,
@@ -184,24 +196,15 @@ export function summarizeDiagnostics(
 		resolved_errors: diff.resolved_errors,
 		resolved_warnings: diff.resolved_warnings,
 		baseline: baselineKnown ? "known" : "unknown",
-		total_items: selection === undefined ? after.items.length : selected.length,
-		items: selected.map((item) => ({ ...item })),
+		total_items: selected.length,
+		items: selected.slice(0, maxItems).map((item) => ({
+			...item,
+			...(baselineKnown ? { change: added.has(item) ? "new" as const : "existing" as const } : {}),
+		})),
 	};
 }
 
-function selectEditItems(
-	afterItems: readonly LspDiagnosticItem[],
-	beforeItems: readonly LspDiagnosticItem[],
-	baselineKnown: boolean,
-	maxItems: number,
-	selection: DiagnosticSelection,
-): LspDiagnosticItem[] {
-	if (maxItems <= 0) return [];
-	if (!baselineKnown) {
-		return afterItems
-			.filter((item) => item.severity === "error" && inRanges(item.line, selection.changedRanges, selection.symbolRanges))
-			.slice(0, maxItems);
-	}
+export function newDiagnosticItems(afterItems: readonly LspDiagnosticItem[], beforeItems: readonly LspDiagnosticItem[]): LspDiagnosticItem[] {
 	const remaining = countKeys(beforeItems);
 	const newItems: LspDiagnosticItem[] = [];
 	for (const item of afterItems) {
@@ -210,14 +213,7 @@ function selectEditItems(
 		if (count > 0) remaining.set(key, count - 1);
 		else newItems.push(item);
 	}
-	return [
-		...newItems.filter((item) => item.severity === "error"),
-		...newItems.filter((item) => item.severity === "warning" && inRanges(item.line, selection.changedRanges)),
-	].slice(0, maxItems);
-}
-
-function inRanges(line: number, ...groups: Array<readonly DiagnosticLineRange[] | undefined>): boolean {
-	return groups.some((ranges) => ranges?.some((range) => line >= range.startLine && line <= range.endLine) === true);
+	return newItems;
 }
 
 export function emptySummary(status: "unavailable" | "timeout", baseline: "known" | "unknown" = "unknown"): LspDiagnosticsSummary {
@@ -243,7 +239,7 @@ export function severityName(value: DiagnosticSeverity | undefined): LspSeverity
 }
 
 function cloneSnapshot(snapshot: LspDiagnosticSnapshot): LspDiagnosticSnapshot {
-	return { ...snapshot, items: snapshot.items.map((item) => ({ ...item })) };
+	return { ...snapshot, items: snapshot.items.map((item) => ({ ...item })), diagnostics: [...snapshot.diagnostics] };
 }
 
 function entryKey(source: string, uri: string): string {

@@ -249,6 +249,7 @@ export function regionizeAnalyzedFiles(
 				...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
 				symbolRole: "definition",
 				authority: unit.authority,
+				...(unit.navigation === undefined ? {} : { navigation: unit.navigation }),
 				signals: ["related_symbol"],
 			}));
 		}
@@ -299,6 +300,7 @@ function parsedRegions(
 			...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
 			symbolRole: "enclosing",
 			authority: unit.authority,
+			...(unit.navigation === undefined ? {} : { navigation: unit.navigation }),
 			signals: ["verified_enclosing_region"],
 			evidence: textEvidence(first.matchMode),
 		}, asNonEmpty(sortedHits));

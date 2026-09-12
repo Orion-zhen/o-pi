@@ -34,11 +34,6 @@ export interface FindStats {
 	skipped_entries: number;
 }
 
-/** 排名内部信息只供 details、renderer 和 telemetry 使用，不进入模型正文。 */
-export interface FindRankingDiagnostics {
-	algorithm: "fzf-v2-path-v1";
-}
-
 export interface FindDetails {
 	status: "success";
 	query: string;
@@ -53,7 +48,6 @@ export interface FindDetails {
 	displayed_matches: FindMatch[];
 	stats: FindStats;
 	truncated_by: FindTruncationReason[];
-	ranking: FindRankingDiagnostics;
 }
 
 export interface FindSuccess {

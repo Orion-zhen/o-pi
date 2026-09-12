@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -98,15 +98,36 @@ describe("file-tools lsp hooks", () => {
 		await expect(writeWithHooks({ path: "b.ts", content: "" }, throwingHooks())).resolves.toMatchObject({ status: "written" });
 	});
 
-	it("write->edit->edit 共用连续诊断基线且只返回每次新增错误", async () => {
+	it("跨文件诊断遵循受阻路径、忽略规则和符号链接边界", async () => {
+		const config = path.join(outside, "file-tools.jsonc");
+		await writeFile(config, JSON.stringify({
+			blocked_path: ["blocked.ts"], ignored_path: ["ignored.ts"],
+			ignore: { builtin_profile: "none", gitignore: false },
+		}));
+		for (const name of ["caller.ts", "blocked.ts", "ignored.ts"]) await writeFile(path.join(workspace, name), "bad();\n");
+		await writeFile(path.join(outside, "external.ts"), "bad();\n");
+		await symlink(path.join(outside, "external.ts"), path.join(workspace, "linked.ts"));
+		const result = await writeWithHooks({ path: "a.ts", content: "export const value = 1;\n" }, {
+			async afterMutation() {
+				return { ...diagnostics("errors"), related: ["caller.ts", "blocked.ts", "ignored.ts", "linked.ts", "../external.ts", "missing.ts"].map((path) => ({
+					path, baseline: "unknown" as const, items: diagnostics("errors").items,
+				})) };
+			},
+		});
+		expect(result).toMatchObject({ status: "written", lsp: { diagnostics: { related: [{ path: "caller.ts" }] } } });
+		if (result.status !== "written") throw new Error("write failed");
+		expect(result.lsp?.diagnostics?.related).toHaveLength(1);
+	});
+
+	it("write->edit->edit 共用连续诊断基线，每次展示当前错误并优先新增问题", async () => {
 		const source = `${workspace}\0ts`;
 		const uri = pathToFileURL(path.join(workspace, "chain.ts")).toString();
-		let current: LspDiagnosticSnapshot = { source, uri, items: [], known: false, revision: 0 };
+		let current: LspDiagnosticSnapshot = { source, uri, items: [], diagnostics: [], known: false, revision: 0 };
 		let mutation = 0;
 		const baselines: string[][] = [];
 		const hooks: Partial<LspFileOperations> = {
 			async beforeMutation() {
-				return { ...current, items: current.items.map((item) => ({ ...item })) };
+				return { ...current, items: current.items.map((item) => ({ ...item })), related: [] };
 			},
 			async afterMutation(input) {
 				baselines.push(input.baseline?.items.map((item) => item.message) ?? []);
@@ -116,6 +137,7 @@ describe("file-tools lsp hooks", () => {
 					source,
 					uri,
 					known: true,
+					diagnostics: [],
 					revision: mutation,
 					updatedAt: Date.now(),
 					items: [...current.items, { severity: "error", line: 1, column: 1, message }],
@@ -140,8 +162,15 @@ describe("file-tools lsp hooks", () => {
 		const second = await editWithHooks({ path: "chain.ts", edits: [{ old: "one", new: "two" }] }, hooks);
 
 		expect(written).toMatchObject({ lsp: { diagnostics: { items: [{ message: "write error" }] } } });
-		expect(first).toMatchObject({ lsp: { diagnostics: { baseline: "known", items: [{ message: "first edit error" }] } } });
-		expect(second).toMatchObject({ lsp: { diagnostics: { baseline: "known", items: [{ message: "second edit error" }] } } });
+		expect(first).toMatchObject({ lsp: { diagnostics: { baseline: "known", items: [
+			{ message: "first edit error", change: "new" },
+			{ message: "write error", change: "existing" },
+		] } } });
+		expect(second).toMatchObject({ lsp: { diagnostics: { baseline: "known", items: [
+			{ message: "second edit error", change: "new" },
+			{ message: "write error", change: "existing" },
+			{ message: "first edit error", change: "existing" },
+		] } } });
 		expect(baselines).toEqual([[], ["write error"], ["write error", "first edit error"]]);
 	});
 
@@ -151,7 +180,7 @@ describe("file-tools lsp hooks", () => {
 		let afterCalled = false;
 		const hooks: Partial<LspFileOperations> = {
 			async beforeMutation() {
-				return { source: "/repo\0ts", uri: pathToFileURL("a.ts").toString(), items: [], known: true, revision: 1, updatedAt: Date.now() };
+				return { source: "/repo\0ts", uri: pathToFileURL("a.ts").toString(), items: [], diagnostics: [], related: [], known: true, revision: 1, updatedAt: Date.now() };
 			},
 			async afterMutation(input) {
 				afterCalled = true;

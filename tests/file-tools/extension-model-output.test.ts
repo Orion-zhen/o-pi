@@ -251,12 +251,12 @@ describe("file-tools extension model output", () => {
 				status: "errors", file_errors: 2, file_warnings: 4, new_errors: 1, new_warnings: 0,
 				resolved_errors: 0, resolved_warnings: 0, baseline: "known", total_items: 2,
 				items: [
-					{ severity: "error", line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
+					{ severity: "error", line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304", hint: "Import foo from <module>" },
 					{ severity: "error", line: 40, column: 1, message: "hidden" },
 				],
 			} },
 		});
-		for (const value of ['lsp="errors"', "errors=2 warnings=4", "Cannot find name 'foo'.", "hidden"]) expect(text).toContain(value);
+		for (const value of ['lsp="errors"', "errors=2 warnings=4", "Cannot find name 'foo'.", "hidden", "hint: Import foo from &lt;module&gt;"]) expect(text).toContain(value);
 	});
 
 	it("edit baseline 未知时标记诊断因果关系不确定", () => {
@@ -284,8 +284,65 @@ describe("file-tools extension model output", () => {
 				},
 			},
 		});
-		expect(text).toBe('<edit path="src/parser.py" replacements="1">\nerror at line 104 (causality uncertain): bad &lt;type&gt;\n</edit>');
+		expect(text).toBe('<edit path="src/parser.py" replacements="1">\nerrors=1\nerror at line 104 (causality uncertain): bad &lt;type&gt;\n</edit>');
 		expect(text).not.toContain("total");
+	});
+
+	it("edit/write 展示当前有界错误清单，不展示已修复计数或 clean", () => {
+		const diagnostics = {
+			status: "errors" as const, file_errors: 3, file_warnings: 0, new_errors: 1, new_warnings: 0,
+			resolved_errors: 2, resolved_warnings: 0, baseline: "known" as const, total_items: 3,
+			items: [
+				{ severity: "error" as const, line: 8, column: 1, message: "new problem", change: "new" as const },
+				{ severity: "error" as const, line: 3, column: 1, message: "still broken", change: "existing" as const },
+			],
+		};
+		const edit = {
+			status: "applied" as const, path: "a.ts", replacements: 1, old_version: "old", new_version: "new",
+			old_size_bytes: 1, new_size_bytes: 1, diff: "",
+		};
+		const write = {
+			status: "written" as const, path: "a.ts", bytes: 1, action: "modify" as const, after_version: "new", after_size_bytes: 1, diff: "",
+		};
+		for (const output of [formatEditModelResult({ ...edit, lsp: { diagnostics } }), formatWriteModelResult({ ...write, lsp: { diagnostics } })]) {
+			expect(output).toContain("errors=3");
+			expect(output).toContain("new error");
+			expect(output).toContain("existing error");
+			expect(output).toContain("still broken");
+			expect(output).toContain("1 more diagnostics");
+			expect(output).not.toMatch(/resolved|clean/u);
+		}
+		const cleared = { ...diagnostics, status: "clean" as const, file_errors: 0, new_errors: 0, total_items: 0, items: [] };
+		expect(formatEditModelResult({ ...edit, lsp: { diagnostics: cleared } })).toBe('<edit path="a.ts" replacements="1"/>');
+		expect(formatWriteModelResult({ ...write, lsp: { diagnostics: cleared } })).toBe('<write path="a.ts"/>');
+		for (const status of ["timeout", "unavailable"] as const) {
+			const failed = { ...cleared, status };
+			expect(formatEditModelResult({ ...edit, lsp: { diagnostics: failed } })).toContain(`diag ${status}`);
+			expect(formatWriteModelResult({ ...write, lsp: { diagnostics: failed } })).toContain(`lsp="${status}"`);
+		}
+	});
+
+	it("当前文件无错时仍展示关联错误，按各文件基线标记归因", () => {
+		const diagnostics = {
+			status: "clean" as const, file_errors: 0, file_warnings: 0, new_errors: 0, new_warnings: 0,
+			resolved_errors: 0, resolved_warnings: 0, baseline: "known" as const, total_items: 0, items: [],
+			related: [
+				{ path: "caller.ts", baseline: "known" as const, items: [{ severity: "error" as const, line: 2, column: 3, message: "bad <type>" }] },
+				{ path: "other.ts", baseline: "unknown" as const, items: [{ severity: "error" as const, line: 4, column: 1, message: "missing argument" }] },
+			],
+		};
+		const edit = formatEditModelResult({
+			status: "applied", path: "api.ts", replacements: 1, old_version: "old", new_version: "new",
+			old_size_bytes: 1, new_size_bytes: 1, diff: "", lsp: { diagnostics },
+		});
+		const write = formatWriteModelResult({
+			status: "written", path: "api.ts", bytes: 1, action: "modify", after_version: "new", after_size_bytes: 1, diff: "", lsp: { diagnostics },
+		});
+		for (const output of [edit, write]) {
+			expect(output).toContain("related new error caller.ts:2:3: bad &lt;type&gt;");
+			expect(output).toContain("related error (causality uncertain) other.ts:4:1: missing argument");
+			expect(output).not.toContain('lsp="clean"');
+		}
 	});
 
 	it("文件工具失败结果给模型返回紧凑 error tag", async () => {

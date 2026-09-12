@@ -2,7 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AnalyzeCode, CodeAnalysis, CodeAuthority } from "../../src/code-index/types.js";
+import type { AnalyzeCode, CodeAnalysis, CodeAuthority, CodeNavigation } from "../../src/code-index/types.js";
+import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { deferredVoid } from "../helpers/async.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
@@ -78,6 +79,20 @@ describe("grep code analysis", () => {
 			["definition", "defined"],
 		]);
 		expect(analyzeCode).toHaveBeenCalledOnce();
+	});
+
+	it("只给前四个区域附加关系导航，位置不计入正文命中", async () => {
+		const files = Array.from({ length: 6 }, (_, index) => ({
+			path: `target-${index}.ts`, authority: "called" as const,
+			navigation: [{ kind: "caller" as const, path: "caller.ts", line: 2, column: 3 }],
+		}));
+		await Promise.all(files.map((file) => writeFile(path.join(testContext.workspace, file.path), "export function Target() { return true; }\n")));
+		await writeFile(path.join(testContext.workspace, "caller.ts"), "export function run() {\n  Target();\n}\n");
+		const result = await analyzeGrep("Target", { analyzeCode: codeAnalyzer(files) });
+		expect(result.regions.slice(0, 4).every((region) => region.navigation?.length === 1)).toBe(true);
+		expect(result.regions.slice(4).every((region) => region.navigation === undefined)).toBe(true);
+		expect(result.regions.every((region) => region.match_lines?.length === 1)).toBe(true);
+		expect(formatCompactGrepResult(result).match(/caller: caller.ts:2:3/gu)).toHaveLength(4);
 	});
 
 	it("analyzer 抛错时完整回退 Tree-sitter", async () => {
@@ -288,7 +303,7 @@ async function analyzeGrep(
 }
 
 function codeAnalyzer(
-	files: readonly { readonly path: string; readonly authority: CodeAuthority }[],
+	files: readonly { readonly path: string; readonly authority: CodeAuthority; readonly navigation?: readonly CodeNavigation[] }[],
 ): ReturnType<typeof vi.fn<AnalyzeCode>> {
 	return vi.fn<AnalyzeCode>(async (input): Promise<CodeAnalysis> => {
 		const analyzed = await Promise.all(files.map(async (file) => {
@@ -299,7 +314,7 @@ function codeAnalyzer(
 				document,
 				analysis: {
 					...parsed,
-					units: parsed.units.map((unit) => ({ ...unit, authority: file.authority })),
+					units: parsed.units.map((unit) => ({ ...unit, authority: file.authority, ...(file.navigation === undefined ? {} : { navigation: file.navigation }) })),
 				},
 			};
 		}));

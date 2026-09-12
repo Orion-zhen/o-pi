@@ -22,7 +22,7 @@ const DIAGNOSTIC_REQUEST_CONCURRENCY = 4;
 export type LspSaveDiagnosticsResult =
 	| { kind: "unavailable" }
 	| { kind: "publish"; waitMs: number }
-	| { kind: "pull"; snapshot?: LspDiagnosticSnapshot };
+	| { kind: "pull"; snapshot?: LspDiagnosticSnapshot; related?: readonly LspDiagnosticSnapshot[] };
 
 type DiagnosticsBucket = {
 	document: LspClientDocumentContext;
@@ -118,8 +118,7 @@ export class LspClientDiagnostics {
 							...(previousResultId === undefined ? {} : { previousResultId }),
 						}, { ...options, timeoutMs: availableMs });
 						if (report === undefined) return { kind: "pull" };
-						const snapshot = this.applyDocumentDiagnosticReport(document.uri, report);
-						return snapshot === undefined ? { kind: "pull" } : { kind: "pull", snapshot };
+						return this.applyDocumentDiagnosticReport(document.uri, report);
 					});
 				},
 			);
@@ -134,11 +133,14 @@ export class LspClientDiagnostics {
 		return results;
 	}
 
-	private applyDocumentDiagnosticReport(uri: string, report: DocumentDiagnosticReport): LspDiagnosticSnapshot | undefined {
+	private applyDocumentDiagnosticReport(uri: string, report: DocumentDiagnosticReport): LspSaveDiagnosticsResult {
+		const related: LspDiagnosticSnapshot[] = [];
 		for (const [relatedUri, relatedReport] of Object.entries(report.relatedDocuments ?? {})) {
-			this.applyDiagnosticReport(relatedUri, relatedReport);
+			const snapshot = this.applyDiagnosticReport(relatedUri, relatedReport);
+			if (snapshot !== undefined && relatedReport.kind === "full") related.push(snapshot);
 		}
-		return this.applyDiagnosticReport(uri, report);
+		const snapshot = this.applyDiagnosticReport(uri, report);
+		return { kind: "pull", ...(snapshot === undefined ? {} : { snapshot }), ...(related.length === 0 ? {} : { related }) };
 	}
 
 	private applyDiagnosticReport(

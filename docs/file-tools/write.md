@@ -37,22 +37,22 @@
 
 ## LSP 诊断
 
-只有实际得到 LSP 诊断时才增加状态：
-
-```xml
-<write path="src/a.ts" lsp="clean"/>
-```
-
-如果存在错误或警告，最多附加 5 条诊断，剩余内容用计数省略：
+取得最新诊断后，展示当前错误和警告。错误优先，同级别内新增问题优先，原有问题标记为 `existing`。基线未知时不标记新增或已存在。条数由 `diagnostics.max_items` 控制，剩余内容用计数省略：
 
 ```xml
 <write path="src/a.ts" lsp="errors">
-errors=2 warnings=1 new_errors=1 new_warnings=0
-diag error 12:5 Cannot find name 'foo'. (TS2304)
-diag warning 30:7 'bar' is declared but never used.
-... 4 more diagnostics
+errors=2 warnings=1
+diag new error 12:5 Cannot find name 'foo'. (TS2304)
+diag existing error 30:7 Argument type mismatch. (TS2345)
+... 1 more diagnostics
 </write>
 ```
+
+没有可见诊断时只返回普通写入成功，不报告 `clean` 或已修复计数。超时或不可用时分别标记 `lsp="timeout"` 或 `lsp="unavailable"`，不推断错误已经消失。
+
+可见错误可以附加 `hint: ...`，只展示唯一、已解析的单文件 quickfix 标题。基线已知时，不为原有错误重复请求提示。提示不会应用修改或执行命令。
+
+服务器本次返回的关联文件报告可以附加最多 3 个其他文件的错误，与当前文件共用 `diagnostics.max_items` 上限。基线已知时只展示新增错误，否则标记 `causality uncertain`。关联文件遵循受阻路径、忽略规则和符号链接边界，同批次已修改文件不重复展示。即使当前文件没有错误，关联错误仍会进入输出，但不会计入当前文件的统计。这不代表全工作区检查。
 
 `write` 专属端口会尽力提供 LSP 诊断。提交前取消不会写入。一旦提交，端口失败或取消不能回滚文件，也不能把成功结果改为失败。现有文件快照和新内容均受 `write_max_file_bytes` 限制。超限返回 `OUTPUT_LIMIT_EXCEEDED`，不会修改目标。
 

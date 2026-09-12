@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { AnalyzeCode, PrepareCodeAnalysis } from "../../code-index/types.js";
+import type { LspDiagnosticsSummary } from "../../lsp/types.js";
 import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.js";
 import type { ReadStructureSource } from "../read/ports.js";
 import type { FileToolsInvocation } from "../runtime/host.js";
@@ -43,6 +44,20 @@ export function bindFileLsp(invocation: FileToolsInvocation, load: LoadLsp) {
 	};
 	return { structure, prepareCodeAnalysis, analyzeCode, diagnostics };
 
+	async function filterRelated(result: LspDiagnosticsSummary | undefined): Promise<LspDiagnosticsSummary | undefined> {
+		if (result?.related === undefined) return result;
+		const related = [];
+		for (const diagnostic of result.related) {
+			if (!isWorkspaceLogicalPath(diagnostic.path)) continue;
+			const file = await invocation.filesystem.paths.resolveExisting(diagnostic.path, { expected: "file", followFinalSymlink: false });
+			if (!file.ok || file.value.workspacePath === undefined) continue;
+			const visibility = await invocation.filesystem.visibility.evaluate(file.value, "search");
+			if (visibility.ok && !visibility.value.ignored) related.push(diagnostic);
+		}
+		const { related: _related, ...summary } = result;
+		return related.length === 0 ? summary : { ...summary, related };
+	}
+
 	function diagnostics(progress?: MutationPostProcessObserver, batch?: MutationBatchInvocation): MutationDiagnosticsSource {
 		return {
 			async beforeMutation(input) {
@@ -68,10 +83,10 @@ export function bindFileLsp(invocation: FileToolsInvocation, load: LoadLsp) {
 					}),
 					...(input.baseline === undefined ? {} : { baseline: input.baseline }),
 				};
-				if (batch !== undefined) return batch.lsp(lspInput, load, progress);
+				if (batch !== undefined) return filterRelated(await batch.lsp(lspInput, load, progress));
 				progress?.lspStarted();
 				try {
-					const result = lspInput === undefined ? undefined : await (await load()).afterMutation(lspInput);
+					const result = await filterRelated(lspInput === undefined ? undefined : await (await load()).afterMutation(lspInput));
 					progress?.lspCompleted(result);
 					return result;
 				} catch (error) {

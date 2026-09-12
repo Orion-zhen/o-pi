@@ -4,7 +4,7 @@ import type { MutationSnapshot } from "../../filesystem/contracts/mutation.js";
 import type { FileRef, TargetRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import type { LspDiagnosticSnapshot as DiagnosticSnapshot } from "../../lsp/types.js";
+import type { LspMutationBaseline as DiagnosticSnapshot } from "../../lsp/types.js";
 import {
 	captureMutationDiagnostics,
 	collectMutationDiagnostics,

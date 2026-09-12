@@ -2,7 +2,6 @@ import pLimit from "p-limit";
 import type { Position, Range } from "vscode-languageserver-protocol";
 
 import type {
-	AnalyzedFileIndex,
 	CodeAnalysis,
 	CodeAnalysisInput,
 	CodeAnalysisTarget,
@@ -22,6 +21,7 @@ import {
 import type { LspWorkspace } from "../manager/workspace.js";
 import type { LspFileRoute } from "../types.js";
 import { pathToFileUri } from "../protocol/uri.js";
+import { relationNavigation } from "./navigation.js";
 import { normalizeSymbolText, type WorkspaceSymbolSeed } from "./symbols.js";
 
 const CODE_ANALYSIS_CONCURRENCY = 2;
@@ -161,6 +161,7 @@ async function analyzeDocumentSelection(
 		const authorityLimit = pLimit(CODE_ANALYSIS_CONCURRENCY);
 		const authorities = await Promise.all(selected.map(({ unit, position }) => authorityLimit(async () => {
 			const authority = await symbolAuthority(
+				input,
 				client,
 				document.filePath,
 				position,
@@ -168,12 +169,12 @@ async function analyzeDocumentSelection(
 				unit,
 				operation,
 			);
-			return authority === undefined ? undefined : { unit, authority };
+			return authority === undefined ? undefined : { ...unit, ...authority };
 		})));
-		if (!allDefined<{ readonly unit: IndexedCodeUnit; readonly authority: CodeAuthority }>(authorities)) return undefined;
+		if (!allDefined(authorities)) return undefined;
 		return {
 			document,
-			analysis: withAuthorities(analyzed.analysis, authorities),
+			analysis: { ...analyzed.analysis, units: authorities },
 		};
 	} catch {
 		return undefined;
@@ -181,21 +182,25 @@ async function analyzeDocumentSelection(
 }
 
 async function symbolAuthority(
+	input: LspCodeAnalysisInput,
 	client: LspClient,
 	filePath: string,
 	position: Position,
 	documentUri: string,
 	unit: IndexedCodeUnit,
 	operation: OperationDeadline,
-): Promise<CodeAuthority | undefined> {
+): Promise<Pick<IndexedCodeUnit, "authority" | "navigation"> | undefined> {
 	const [calls, references] = await Promise.all([
 		client.incomingCalls(filePath, position, operation.requestOptions()),
 		client.references(filePath, position, operation.requestOptions()),
 	]);
 	if (calls === undefined || references === undefined) return undefined;
-	if (calls.some((call) => outsideUnit(call.from.uri, call.from.range, documentUri, unit))) return "called";
-	if (references.some((reference) => outsideUnit(reference.uri, reference.range, documentUri, unit))) return "referenced";
-	return "defined";
+	const authority: CodeAuthority = calls.some((call) => outsideUnit(call.from.uri, call.from.range, documentUri, unit))
+		? "called"
+		: references.some((reference) => outsideUnit(reference.uri, reference.range, documentUri, unit)) ? "referenced" : "defined";
+	const navigation = await relationNavigation({ ...input, signal: operation.signal }, unit, calls, references);
+	if (operation.signal.aborted) return undefined;
+	return { authority, ...(navigation.length === 0 ? {} : { navigation }) };
 }
 
 function unitForSeed(analysis: AnalyzedLspDocument, seed: WorkspaceSymbolSeed): AnalyzedLspUnit | undefined {
@@ -227,16 +232,6 @@ function unitsForRanges(
 		if (unit !== undefined) selected.set(unit.unit.id, unit);
 	}
 	return [...selected.values()];
-}
-
-function withAuthorities(
-	analysis: AnalyzedFileIndex,
-	values: readonly { readonly unit: IndexedCodeUnit; readonly authority: CodeAuthority }[],
-): AnalyzedFileIndex {
-	return {
-		...analysis,
-		units: values.map(({ unit, authority }) => ({ ...unit, authority })),
-	};
 }
 
 function outsideUnit(uri: string, range: Range, documentUri: string, unit: IndexedCodeUnit): boolean {

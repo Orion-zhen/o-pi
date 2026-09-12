@@ -1,5 +1,5 @@
 import { compactDisplayLine } from "./display.js";
-import type { CodeAuthority } from "../../code-index/types.js";
+import type { CodeAuthority, CodeNavigation } from "../../code-index/types.js";
 import type { GrepDisplayLine, GrepMatchedBy } from "./types.js";
 
 export type SymbolRole = "definition" | "enclosing";
@@ -70,6 +70,7 @@ export interface CodeRegionBase {
 	readonly declarationEndByte?: number;
 	readonly symbolRole?: SymbolRole;
 	readonly authority?: CodeAuthority;
+	readonly navigation?: readonly CodeNavigation[];
 	readonly signals: readonly CandidateSignal[];
 	readonly evidence?: RegionEvidence;
 	readonly displayLines: readonly GrepDisplayLine[];

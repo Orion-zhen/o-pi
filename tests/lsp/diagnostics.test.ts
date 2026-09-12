@@ -74,7 +74,7 @@ describe("lsp diagnostics", () => {
 		});
 	});
 
-	it("edit 只选择可归因的新诊断，并按严重级别优先截断", () => {
+	it("edit 展示当前错误，新增优先，警告仍限于修改范围内的新增问题", () => {
 		const ledger = new DiagnosticsLedger();
 		ledger.update(source, uri, [
 			diag(DiagnosticSeverity.Error, 2, 1, "old error"),
@@ -94,14 +94,14 @@ describe("lsp diagnostics", () => {
 		})).toMatchObject({
 			baseline: "known",
 			items: [
-				{ severity: "error", line: 20, message: "new error" },
-				{ severity: "warning", line: 5, message: "new warning in change" },
+				{ severity: "error", line: 20, message: "new error", change: "new" },
+				{ severity: "error", line: 2, message: "old error", change: "existing" },
 			],
-			total_items: 2,
+			total_items: 3,
 		});
 	});
 
-	it("baseline 未知时只选择修改范围或所属符号内的 error", () => {
+	it("baseline 未知时展示当前文件全部错误，不猜测新增或已存在", () => {
 		const ledger = new DiagnosticsLedger();
 		ledger.update(source, uri, [
 			diag(DiagnosticSeverity.Error, 4, 1, "inside symbol"),
@@ -111,11 +111,37 @@ describe("lsp diagnostics", () => {
 
 		expect(summarizeDiagnostics(ledger.snapshot(source, uri), undefined, 8, undefined, {
 			changedRanges: [{ startLine: 5, endLine: 5 }],
-			symbolRanges: [{ startLine: 1, endLine: 10 }],
 		})).toMatchObject({
 			baseline: "unknown",
-			items: [{ severity: "error", line: 4, message: "inside symbol" }],
-			total_items: 1,
+			items: [
+				{ severity: "error", line: 4, message: "inside symbol" },
+				{ severity: "error", line: 20, message: "outside symbol" },
+			],
+			total_items: 2,
+		});
+	});
+
+	it.each([undefined, { changedRanges: [{ startLine: 8, endLine: 8 }] }])("有界快照保留仍存在的错误，已修复的问题从清单消失 %j", (selection) => {
+		const ledger = new DiagnosticsLedger();
+		ledger.update(source, uri, [
+			diag(DiagnosticSeverity.Error, 1, 1, "still broken"),
+			diag(DiagnosticSeverity.Error, 2, 1, "fixed"),
+		], "warning");
+		const before = ledger.snapshot(source, uri);
+		ledger.update(source, uri, [
+			diag(DiagnosticSeverity.Error, 3, 1, "still broken"),
+			diag(DiagnosticSeverity.Error, 8, 1, "new problem"),
+		], "warning");
+		const snapshot = ledger.snapshot(source, uri);
+		expect(summarizeDiagnostics(snapshot, before, 8, undefined, selection)).toMatchObject({
+			file_errors: 2,
+			items: [
+				{ message: "new problem", change: "new" },
+				{ message: "still broken", change: "existing" },
+			],
+		});
+		expect(summarizeDiagnostics(snapshot, before, 1, undefined, selection)).toMatchObject({
+			file_errors: 2, total_items: 2, items: [{ message: "new problem", change: "new" }],
 		});
 	});
 

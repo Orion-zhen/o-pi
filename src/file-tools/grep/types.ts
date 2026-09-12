@@ -1,3 +1,4 @@
+import type { CodeNavigation } from "../../code-index/types.js";
 import type { FileToolError } from "../shared/result.js";
 
 export type GrepMatchedBy =
@@ -64,6 +65,7 @@ export interface GrepRegion {
 	/** verified region 的完整唯一命中行号，不受展示限制影响。 */
 	match_lines?: number[];
 	display_lines?: GrepDisplayLine[];
+	navigation?: readonly CodeNavigation[];
 }
 
 export interface GrepScopeError {

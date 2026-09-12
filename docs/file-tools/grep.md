@@ -118,6 +118,15 @@ src/session/cache.ts:12-46 SessionCache.restore [not match, related]
 
 已验证区域保留完整且唯一的 `match_lines`。`grep_regional_display_limit` 只限制每个区域展示的代表行数。声明和代表行最多包含 240 个 Unicode 码点。完整源码通过 `read({ path: "...", lines: "N-M" })` 返回。
 
+前 4 个输出区域可以各附加最多 2 个关系位置。位置复用已有 LSP 调用和引用响应，优先展示实际调用点，再展示引用点，不发送额外 LSP 请求：
+
+```text
+  caller: src/http/login.ts:27:5
+  reference: src/session.ts:18:3
+```
+
+关系位置不是正文命中，不计入 `match_lines`。位置必须位于工作区内，通过本次范围、glob 和快照绑定加载器校验，并排除代码单元内部的自引用。重复位置只展示一次。每个代码单元最多探测 16 个不同候选，无法取得范围内有效位置时省略导航。Tree-sitter 回退不提供这类导航。
+
 代码区域的模型正文只展示路径和范围、可选符号、无标签声明和代表行。相关区域追加 `[not match, related]`。`kind`、`roles`、`matched_by` 和字段名只保留在 `details` 与内部排序数据中，不重复进入模型文本。未展示的已验证匹配以 `+N match lines` 标记。
 
 同一文件中连续的 `kind=text` 区域在模型文本和 `grep` 工具组件的展开视图中只显示一次文件路径，随后逐行展示。该压缩只发生在呈现器中。每行仍是独立候选和独立区域，分别参与排序与选择，不受 `grep_regional_display_limit` 的额外限制。`details` 不合并这些区域。

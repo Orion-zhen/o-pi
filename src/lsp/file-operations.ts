@@ -1,5 +1,5 @@
 import type { LspManager } from "./manager/manager.js";
-import type { LspDiagnosticSnapshot, LspLineRange } from "./types.js";
+import type { LspMutationBaseline, LspLineRange } from "./types.js";
 
 export interface LspReadInput {
 	readonly workspaceRoot: string;
@@ -17,7 +17,7 @@ export interface LspMutationInput {
 	readonly content: string;
 	readonly created: boolean;
 	readonly changed_ranges?: readonly LspLineRange[];
-	readonly baseline?: LspDiagnosticSnapshot;
+	readonly baseline?: LspMutationBaseline;
 }
 
 /** 管理器直接提供文件增强，不另建转发对象。 */

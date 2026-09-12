@@ -47,7 +47,7 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	const candidates = limited.regions;
 	const selected = selectRankedRegions(candidates, input.resultLimit);
 	const regions = selected
-		.map((candidate) => publicRegion(candidate, input.regionalDisplayLimit));
+		.map((candidate, index) => publicRegion(candidate, input.regionalDisplayLimit, index < GREP_RELEVANCE_HEAD_SIZE));
 	const reasons = orderedReasons([
 		...knownReasons,
 		...(candidates.length > regions.length ? ["result_limit" as const] : []),
@@ -77,7 +77,7 @@ function limitRelatedResults(
 	return { regions: result, dropped };
 }
 
-function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion {
+function publicRegion(candidate: RankedRegion, displayLimit: number, navigation: boolean): GrepRegion {
 	const displayLines = candidate.queryMatch === "verified"
 		? representativeLines(candidate.displayLines, displayLimit)
 		: candidate.displayLines.slice(0, displayLimit);
@@ -90,6 +90,7 @@ function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion
 		start_line: candidate.startLine,
 		end_line: candidate.endLine,
 		kind: candidate.kind,
+		...(!navigation || candidate.navigation === undefined || candidate.navigation.length === 0 ? {} : { navigation: candidate.navigation }),
 		...(candidate.symbol === undefined ? {} : { symbol: candidate.symbol }),
 		...(candidate.declaration === undefined ? {} : { declaration: boundedDeclaration(candidate.declaration) }),
 		query_match: candidate.queryMatch === "verified" ? "verified" : "semantic",
@@ -271,6 +272,9 @@ function renderRegion(region: GrepRegion): string {
 	if (region.declaration !== undefined) lines.push(`  ${region.declaration}`);
 	if (region.query_match === "verified") appendMatchingLines(lines, displayLines, region.match_lines?.length ?? 0);
 	else appendEvidenceLines(lines, displayLines);
+	for (const location of region.navigation ?? []) {
+		lines.push(`  ${location.kind}: ${location.path}:${location.line}:${location.column}`);
+	}
 	return lines.join("\n");
 }
 

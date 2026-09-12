@@ -53,7 +53,6 @@ describe("file-tools extension renderers", () => {
 			displayed_matches: [{ path: "src/main.ts", kind: "file" }],
 			stats: { traversed_entries: 1, ignored_entries: 0, skipped_entries: 0 },
 			truncated_by: [],
-			ranking: { algorithm: "fzf-v2-path-v1" },
 			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],
 		}, { expanded: true });
 
@@ -203,7 +202,7 @@ describe("file-tools extension renderers", () => {
 			width: 80,
 			context: { args, cwd, expanded: false, lastComponent: undefined, state },
 		});
-		expect(result).toContain("LSP clean");
+		expect(result).not.toContain("LSP clean");
 	});
 });
 

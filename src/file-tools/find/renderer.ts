@@ -23,7 +23,7 @@ export interface RenderFindInput {
 	outputTokenBudget: number;
 }
 
-/** 模型正文始终是 relevance 顺序的具体路径；不折叠、不混入非命中候选。 */
+/** 按排名器的选择顺序展示具体路径，不折叠或混入非命中候选。 */
 export function renderFindResults(input: RenderFindInput): { content: string; details: FindDetails } {
 	const initialReasons: FindTruncationReason[] = [
 		...(input.depthLimited ? ["depth_limit" as const] : []),
@@ -121,7 +121,6 @@ function buildResult(
 			displayed_matches: displayedMatches.map(copyMatch),
 			stats: input.stats,
 			truncated_by: [...truncatedBy],
-			ranking: { algorithm: "fzf-v2-path-v1" },
 		},
 	};
 }

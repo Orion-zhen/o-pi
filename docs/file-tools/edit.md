@@ -42,13 +42,33 @@
 
 参数完整后，TUI 可以执行只读预览。调用区域只在展开状态显示差异。实际修改仍须通过先读后改和版本校验。
 
-成功结果包含供 Pi TUI 使用的精简行号差异，`firstChangedLine` 记录首个变更行号。模型可见正文只确认修改已完成：
+成功结果包含供 Pi TUI 使用的精简行号差异，`firstChangedLine` 记录首个变更行号。没有可见诊断时，模型正文只确认修改已完成，不报告 `clean` 或已修复计数：
 
 ```xml
 <edit path="src/main.ts" replacements="2" first_changed_line="81"/>
 ```
 
-成功正文不包含版本字段或完整差异。`edit` 专属端口负责组合完整差异和修改前后的 LSP 诊断。提交后，端口失败或取消会被忽略，不能回滚修改或把成功结果改为失败。预览只读取队列外的当前快照，不写入观测状态，也不保证内容在实际执行前保持不变。
+成功正文不包含版本字段或完整差异。取得最新诊断后，展示当前文件的错误总数和有界错误清单。新增错误优先，原有错误标记为 `existing`，基线未知时标记 `causality uncertain`。警告仍只展示修改范围内的新增问题。条数受 `diagnostics.max_items` 限制，超出部分以数量省略：
+
+```text
+errors=3
+new error at line 18: Argument type mismatch.
+existing error at line 42: Cannot find name 'foo'.
+... 1 more diagnostics
+```
+
+没有诊断结果时不推断错误已经消失。超时或不可用分别返回 `diag timeout` 或 `diag unavailable`。可见错误可以附加唯一、已解析的单文件 quickfix 标题，格式为 `hint: ...`。原有错误不重复请求修复提示。提示不修改文件，不执行命令。
+
+服务器的本次拉取诊断若返回关联文件报告，还可以附加最多 3 个其他文件的错误，与当前文件共用 `diagnostics.max_items` 上限。同源基线已知时只展示新增错误，否则标记 `causality uncertain`。关联文件遵循受阻路径、忽略规则和符号链接边界。同批次已修改文件不重复列为关联文件。
+
+```text
+related new error src/caller.ts:27:5: Argument type mismatch.
+related error (causality uncertain) src/other.ts:18:3: Missing argument.
+```
+
+这不是全工作区检查，也不证明编辑是新增错误的唯一原因。服务器没有返回关联报告时，不额外扫描依赖文件。
+
+`edit` 专属端口负责组合完整差异和修改前后的 LSP 诊断。提交后，端口失败或取消会被忽略，不能回滚修改或把成功结果改为失败。预览只读取队列外的当前快照，不写入观测状态，也不保证内容在实际执行前保持不变。
 
 重复匹配时，模型可见错误保持紧凑：
 

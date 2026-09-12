@@ -1,4 +1,4 @@
-import type { DocumentSymbol, SymbolInformation } from "vscode-languageserver-protocol";
+import type { Diagnostic, DocumentSymbol, SymbolInformation } from "vscode-languageserver-protocol";
 
 /** LSP 诊断严重级别名称，按 protocol 数值从高到低映射。 */
 export type LspSeverityName = "error" | "warning" | "information" | "hint";
@@ -98,6 +98,9 @@ export interface LspDiagnosticItem {
 	line: number;
 	column: number;
 	message: string;
+	hint?: string;
+	/** 仅诊断摘要设置，基线未知时不标记。 */
+	change?: "new" | "existing";
 	code?: string;
 	source?: string;
 }
@@ -117,8 +120,16 @@ export interface LspDiagnosticsSummary {
 	resolved_errors: number;
 	resolved_warnings: number;
 	baseline: "known" | "unknown";
-	/** 符合 min_severity 的全部诊断数；items 只保留可展示的前 max_items 条。 */
+	/** 展示过滤后的诊断总数，items 只保留前 max_items 条。 */
 	total_items: number;
+	items: LspDiagnosticItem[];
+	/** 服务端本次明确关联的其他文件，只报告错误，不代表工作区检查完整。 */
+	related?: LspRelatedDiagnostics[];
+}
+
+export interface LspRelatedDiagnostics {
+	path: string;
+	baseline: "known" | "unknown";
 	items: LspDiagnosticItem[];
 }
 
@@ -127,6 +138,8 @@ interface LspDiagnosticSnapshotBase {
 	source: string;
 	uri: string;
 	items: LspDiagnosticItem[];
+	/** 保留服务器诊断及 data，仅用于后续代码操作请求。 */
+	diagnostics: readonly Diagnostic[];
 	revision: number;
 	version?: number;
 }
@@ -134,6 +147,11 @@ interface LspDiagnosticSnapshotBase {
 export type LspDiagnosticSnapshot =
 	| (LspDiagnosticSnapshotBase & { known: false })
 	| (LspDiagnosticSnapshotBase & { known: true; updatedAt: number });
+
+/** 修改前同时捕获同源的有界跨文件基线。 */
+export type LspMutationBaseline = LspDiagnosticSnapshot & {
+	readonly related: readonly LspDiagnosticSnapshot[];
+};
 
 /** 长文件截断 read 中尚未出现的顶层 symbol。 */
 export interface LspRemainingSymbol {

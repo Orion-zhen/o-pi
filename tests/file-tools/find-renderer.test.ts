@@ -38,8 +38,8 @@ describe("find renderer", () => {
 			total_matches: 2,
 			returned_matches: 2,
 			truncated_by: [],
-			ranking: { algorithm: "fzf-v2-path-v1" },
 		});
+		expect(result.details).not.toHaveProperty("ranking");
 		expect(result.content).not.toContain("score");
 	});
 

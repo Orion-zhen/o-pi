@@ -59,6 +59,14 @@ export interface CodeAnalysis {
 export type AnalyzeCode = (input: CodeAnalysisInput) => Promise<CodeAnalysis | undefined>;
 export type PrepareCodeAnalysis = (input: CodeAnalysisPreparationInput) => Promise<void>;
 
+/** 已通过本次搜索快照校验的关系位置，不代表正文命中。 */
+export interface CodeNavigation {
+	readonly kind: "caller" | "reference";
+	readonly path: string;
+	readonly line: number;
+	readonly column: number;
+}
+
 export interface IndexedCodeUnit extends SourceRange {
 	id: string;
 	path: string;
@@ -69,6 +77,7 @@ export interface IndexedCodeUnit extends SourceRange {
 	/** UTF-8 半开边界，用于判断事实命中是否已由 signature 展示。 */
 	declarationEndByte?: number;
 	authority: CodeAuthority;
+	navigation?: readonly CodeNavigation[];
 	exported: boolean;
 	definitions: string[];
 	references: string[];

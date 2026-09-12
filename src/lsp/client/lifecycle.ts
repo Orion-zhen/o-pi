@@ -162,7 +162,11 @@ export class LspClientLifecycle {
 						references: { dynamicRegistration: false },
 						callHierarchy: { dynamicRegistration: false },
 						diagnostic: { dynamicRegistration: false, relatedDocumentSupport: true },
-						publishDiagnostics: { relatedInformation: true },
+						publishDiagnostics: { relatedInformation: true, dataSupport: true },
+						codeAction: {
+							codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } },
+							disabledSupport: true,
+						},
 					},
 					workspace: {
 						configuration: true,

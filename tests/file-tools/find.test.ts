@@ -319,6 +319,44 @@ describe("find", () => {
 		expect(countTextTokensSync(first.content).tokens).toBeLessThanOrEqual(40);
 	});
 
+	it("截断时保留相关性头部，并覆盖原本落在限制外的正向 OR 分支", async () => {
+		await useConfig("branches", {
+			ignore: { builtin_profile: "none", gitignore: false },
+			limits: { find_result_limit: 5 },
+		});
+		await writeFixtures(
+			...Array.from({ length: 8 }, (_, index) => `authentication-${index}.ts`),
+			"id.ts", "unrelated.ts", "id.test.ts",
+		);
+		const head = await findPaths({ query: "'authentication", glob: "*.ts" });
+		const result = await find({ query: "'authentication | 'id !test", glob: "*.ts" });
+		expect(paths(result).slice(0, 4)).toEqual(head.slice(0, 4));
+		expect(paths(result)[4]).toBe("id.ts");
+		expect(result.details.total_matches).toBe(9);
+		expect(result.details.truncated_by).toEqual(["result_limit"]);
+		expect(await findPaths({ query: "'authentication | 'id !test", glob: "*.ts" })).toEqual(paths(result));
+	});
+
+	it("多个 AND 组中的 OR 分支独立覆盖，遍历顺序不影响结果且不重复路径", () => {
+		const plan = createFindQueryPlan("'authentication | 'id 'handler | 'db !test");
+		if ("status" in plan) throw new Error(plan.error.message);
+		const names = [
+			...Array.from({ length: 8 }, (_, index) => `authentication-handler-${index}.ts`),
+			"id-handler.ts", "authentication-db.ts", "id-db.ts", "id-db.test.ts",
+		];
+		const forward = createLimitedFindRanker(plan, 6);
+		const backward = createLimitedFindRanker(plan, 6);
+		for (const name of names) forward.add({ path: name, searchPath: name, kind: "file", scopeOrder: 0 });
+		for (const name of [...names].reverse()) backward.add({ path: name, searchPath: name, kind: "file", scopeOrder: 0 });
+		const result = forward.result();
+		expect(result).toEqual(backward.result());
+		expect(result.totalMatches).toBe(11);
+		const selected = result.ranked.map((candidate) => candidate.entry.path);
+		expect(selected).toContain("id-handler.ts");
+		expect(selected).toContain("authentication-db.ts");
+		expect(new Set(selected).size).toBe(6);
+	});
+
 	it("路径发现不为 readdir 已分类的普通文件和目录读取 metadata 或解析 realpath", async () => {
 		const fileCount = 64;
 		const directoryCount = 4;

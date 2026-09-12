@@ -14,7 +14,7 @@ import { waitUnlessAborted } from "../analysis/deadline.js";
 import { LspManagerRuntime } from "./runtime.js";
 import { findEnclosingSymbol, remainingSymbols } from "../analysis/symbols.js";
 import type {
-	LspDiagnosticSnapshot,
+	LspMutationBaseline,
 	LspDiagnosticsSummary,
 	LspEnclosingSymbol,
 	LspRemainingSymbol,
@@ -77,7 +77,7 @@ export class LspManager {
 		});
 	}
 
-	beforeMutation(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspDiagnosticSnapshot | undefined> {
+	beforeMutation(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspMutationBaseline | undefined> {
 		return readBeforeDiagnostics(this.runtime, input.workspaceRoot, input.filePath);
 	}
 

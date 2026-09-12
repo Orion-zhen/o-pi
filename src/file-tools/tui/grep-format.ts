@@ -118,7 +118,10 @@ function formatRegion(region: GrepRegion, theme: Pick<Theme, "fg">): string {
 		...(region.matched_by.length === 0 ? [] : [`matched-by=${region.matched_by.join(",")}`]),
 		...(region.match_lines === undefined ? [] : [`matches=${region.match_lines.length}`]),
 	];
-	return `${theme.fg("accent", range)} [${metadata.join("; ")}]`;
+	return [
+		`${theme.fg("accent", range)} [${metadata.join("; ")}]`,
+		...(region.navigation ?? []).map((location) => `  ${location.kind}: ${location.path}:${location.line}:${location.column}`),
+	].join("\n");
 }
 
 function kebabCase(value: string): string {

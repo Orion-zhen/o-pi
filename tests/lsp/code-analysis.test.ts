@@ -81,6 +81,57 @@ describe("lsp code analysis", () => {
 		expect(references).toHaveBeenCalledTimes(2);
 	});
 
+	it("关系导航复用调用位置，去重并排除范围外、自引用和失效位置", async () => {
+		const sourcePath = path.join(workspace, "src.ts");
+		const callerUri = uri(path.join(workspace, "caller.ts"));
+		mockCapabilities();
+		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([targetDocumentSymbol(0, 26)]);
+		const calls = vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([{
+			from: { name: "run", kind: SymbolKind.Function, uri: callerUri, range: range(), selectionRange: range() },
+			fromRanges: [range(), range()],
+		}]);
+		const references = vi.spyOn(LspClient.prototype, "references").mockResolvedValue([
+			{ uri: callerUri, range: range() },
+			{ uri: uri(sourcePath), range: range() },
+			{ uri: uri(path.join(workspace, "ignored.ts")), range: range() },
+			{ uri: "file:///outside.ts", range: range() },
+			{ uri: callerUri, range: { start: { line: 99, character: 0 }, end: { line: 99, character: 1 } } },
+		]);
+		const load = vi.fn(async (relativePath: string) => {
+			if (relativePath !== "src.ts" && relativePath !== "caller.ts") return undefined;
+			return {
+				...document(relativePath, relativePath === "src.ts" ? "export function Target() {}\n" : "Target();\n"),
+				filePath: path.join(workspace, relativePath),
+			};
+		});
+		const analysis = await analyze(analysisInput({ load }));
+		expect(analysis?.files[0]?.analysis.units[0]?.navigation).toEqual([
+			{ kind: "caller", path: "caller.ts", line: 1, column: 1 },
+		]);
+		expect(calls).toHaveBeenCalledOnce();
+		expect(references).toHaveBeenCalledOnce();
+		expect(load).not.toHaveBeenCalledWith("../outside.ts");
+	});
+
+	it("关系位置加载期间取消时不提交已完成的部分分析", async () => {
+		const controller = new AbortController();
+		mockCapabilities();
+		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([targetDocumentSymbol(0, 26)]);
+		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
+		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([{ uri: uri(path.join(workspace, "caller.ts")), range: range() }]);
+		const result = await analyze(analysisInput({
+			signal: controller.signal,
+			async load(relativePath) {
+				if (relativePath === "caller.ts") controller.abort();
+				return {
+					...document(relativePath, relativePath === "src.ts" ? "export function Target() {}\n" : "Target();\n"),
+					filePath: path.join(workspace, relativePath),
+				};
+			},
+		}));
+		expect(result).toBeUndefined();
+	});
+
 	it("选中 symbol 后 documentSymbol 请求失败时原子返回 unavailable", async () => {
 		const sourcePath = path.join(workspace, "src.ts");
 		mockCapabilities();

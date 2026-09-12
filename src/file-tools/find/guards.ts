@@ -15,8 +15,7 @@ export function isFindDetails(value: unknown): value is FindDetails {
 		&& Array.isArray(value["matches"])
 		&& Array.isArray(value["displayed_matches"])
 		&& isPlainRecord(value["stats"])
-		&& Array.isArray(value["truncated_by"])
-		&& isPlainRecord(value["ranking"]);
+		&& Array.isArray(value["truncated_by"]);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

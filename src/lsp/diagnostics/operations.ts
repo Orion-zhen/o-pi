@@ -1,6 +1,7 @@
 import path from "node:path";
 
-import { LspClient } from "../client/client.js";
+import { relatedDiagnostics } from "./related.js";
+import type { LspClient } from "../client/client.js";
 import {
 	diagnosticSourceKey,
 	emptySummary,
@@ -8,9 +9,9 @@ import {
 	type DiagnosticSelection,
 } from "./ledger.js";
 import type { LspManagerRuntime } from "../manager/runtime.js";
-import { modifiedSymbolRanges } from "../analysis/symbols.js";
 import type {
 	LspDiagnosticSnapshot,
+	LspMutationBaseline,
 	LspDiagnosticsSummary,
 	LspLineRange,
 } from "../types.js";
@@ -21,19 +22,22 @@ export interface LspWriteInput {
 	readonly filePath: string;
 	readonly text: string;
 	readonly changed_ranges?: readonly LspLineRange[];
-	readonly baseline?: LspDiagnosticSnapshot;
+	readonly baseline?: LspMutationBaseline;
 }
 
 export async function beforeDiagnostics(
 	context: LspManagerRuntime,
 	root: string,
 	filePath: string,
-): Promise<LspDiagnosticSnapshot | undefined> {
+): Promise<LspMutationBaseline | undefined> {
 	const workspace = await context.workspace(root);
 	if (workspace === undefined || !workspace.config.diagnostics.enabled) return undefined;
 	const source = workspace.sourceForFile(filePath);
 	if (source === undefined) return undefined;
-	return context.diagnostics.snapshot(source, pathToFileUri(filePath));
+	return {
+		...context.diagnostics.snapshot(source, pathToFileUri(filePath)),
+		related: context.diagnostics.recent(source, 32),
+	};
 }
 
 export async function didWriteBatch(
@@ -59,6 +63,7 @@ export async function didWriteBatch(
 				index,
 				write,
 				config,
+				workspace,
 				client,
 				source,
 				uri,
@@ -77,7 +82,9 @@ export async function didWriteBatch(
 
 		await Promise.all(Array.from(byClient, async ([client, grouped]) => {
 			const diagnosticsConfig = grouped[0].config.diagnostics;
-			const selections = await Promise.all(grouped.map((item) => createEditSelection(item.client, item.write, item.source, item.uri)));
+			const selections: Array<DiagnosticSelection | undefined> = grouped.map(({ write }) => write.changed_ranges === undefined
+				? undefined
+				: { changedRanges: write.changed_ranges.map((range) => ({ startLine: range.start_line, endLine: range.end_line })) });
 			const collected = await client.saveAndCollectDiagnosticsBatch(
 				grouped.map(({ write }) => ({ filePath: write.filePath, text: write.text })),
 				{ timeoutMs: Math.max(1, diagnosticsConfig.max_wait_ms) },
@@ -107,6 +114,35 @@ export async function didWriteBatch(
 					? summarizeDiagnostics(context.diagnostics.snapshot(item.source, item.uri), item.write.baseline, diagnosticsConfig.max_items, "timeout", selections[groupIndex])
 					: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items, undefined, selections[groupIndex]);
 			}));
+			const excluded = new Set(grouped.map((item) => item.uri));
+			for (const [index, item] of grouped.entries()) {
+				const value = collected[index];
+				const summary = results[item.index];
+				if (value?.kind !== "pull" || summary === undefined || summary.status === "timeout" || summary.status === "unavailable") continue;
+				const related = relatedDiagnostics(
+					item.workspace,
+					(value.related ?? []).filter((report) => context.diagnostics.revision(report.source, report.uri) === report.revision),
+					item.write.baseline?.related ?? [],
+					excluded,
+					Math.max(0, diagnosticsConfig.max_items - summary.items.length),
+				);
+				if (related.length > 0) summary.related = related;
+			}
+			const hintDeadline = Date.now() + Math.min(300, diagnosticsConfig.max_wait_ms);
+			for (const item of grouped) {
+				const summary = results[item.index];
+				const timeoutMs = hintDeadline - Date.now();
+				if (timeoutMs <= 0) break;
+				if (summary === undefined || !summary.items.some((diagnostic) => diagnostic.severity === "error")) continue;
+				const eligible = summary.items.filter((diagnostic) => diagnostic.severity === "error" && diagnostic.change !== "existing");
+				if (eligible.length === 0) continue;
+				// 提示是独立增强，失败不能丢弃已经取得的诊断。
+				const hints = await client.diagnosticHints(item.write.filePath, item.write.text, eligible, { timeoutMs }).catch(() => []);
+				for (const [index, diagnostic] of eligible.entries()) {
+					const hint = hints[index];
+					if (hint !== undefined) diagnostic.hint = hint;
+				}
+			}
 		}));
 		return results;
 	});
@@ -130,29 +166,6 @@ export async function knownDiagnostics(
 		if (filePath !== undefined && absolute.path !== filePath && absolute.relative !== filePath) return [];
 		return [{ path: absolute.relative, items: entry.items }];
 	});
-}
-
-async function createEditSelection(
-	client: LspClient,
-	write: LspWriteInput,
-	source: string,
-	uri: string,
-): Promise<DiagnosticSelection | undefined> {
-	if (write.changed_ranges === undefined) return undefined;
-	const changedRanges = write.changed_ranges.map((range) => ({
-		startLine: range.start_line,
-		endLine: range.end_line,
-	}));
-	if (baselineState(write.baseline, source, uri) === "known") return { changedRanges };
-	try {
-		const symbols = await client.documentSymbols(write.filePath, write.text);
-		return {
-			changedRanges,
-			symbolRanges: modifiedSymbolRanges(symbols, changedRanges).map((range) => ({ startLine: range.line, endLine: range.end_line })),
-		};
-	} catch {
-		return { changedRanges };
-	}
 }
 
 function baselineState(baseline: LspDiagnosticSnapshot | undefined, source: string | undefined, uri: string): "known" | "unknown" {

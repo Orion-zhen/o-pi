@@ -1,5 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../../lsp/types.js";
+import { relatedDiagnosticLines } from "../../shared/mutation-presenter.js";
 import type { MutationPostProcessProgressDetails } from "../../pi/progress.js";
 
 export function formatDiffStats(diff: string): string {
@@ -13,6 +14,10 @@ export function formatDiffStats(diff: string): string {
 }
 
 export function formatLspSummary(diagnostics: DiagnosticsSummary | undefined): string {
+	if (diagnostics?.related !== undefined && diagnostics.related.length > 0) {
+		const count = diagnostics.related.reduce((total, file) => total + file.items.length, 0);
+		return `LSP ${diagnostics.file_errors} errors, ${count} related errors`;
+	}
 	return formatLspStatus(
 		diagnostics?.status ?? "unavailable",
 		diagnostics?.file_errors ?? 0,
@@ -32,16 +37,22 @@ export function formatEditDiagnostics(
 	diagnostics: DiagnosticsSummary | undefined,
 	theme: Pick<Theme, "fg">,
 ): string | undefined {
-	if (diagnostics === undefined || diagnostics.items.length === 0) return undefined;
+	if (diagnostics === undefined) return undefined;
 	const uncertain = diagnostics.baseline === "unknown";
 	const lines = diagnostics.items
 		.filter((item) => item.severity === "error" || item.severity === "warning")
-		.map((item) => {
-			const prefix = uncertain ? item.severity : `new ${item.severity}`;
+		.flatMap((item) => {
+			const prefix = item.change === undefined ? item.severity : `${item.change} ${item.severity}`;
 			const certainty = uncertain ? " (causality uncertain)" : "";
 			const code = item.code === undefined ? "" : ` (${item.code})`;
-			return theme.fg("toolOutput", `${prefix} at line ${item.line}${certainty}: ${item.message}${code}`);
+			return [
+				theme.fg("toolOutput", `${prefix} at line ${item.line}${certainty}: ${item.message}${code}`),
+				...(item.hint === undefined ? [] : [theme.fg("toolOutput", `hint: ${item.hint}`)]),
+			];
 		});
+	const remaining = Math.max(0, diagnostics.total_items - diagnostics.items.length);
+	if (remaining > 0) lines.push(theme.fg("toolOutput", `... ${remaining} more diagnostics`));
+	lines.push(...relatedDiagnosticLines(diagnostics).map((line) => theme.fg("toolOutput", line)));
 	return lines.length === 0 ? undefined : lines.join("\n");
 }
 
@@ -49,21 +60,21 @@ export function formatLspDiagnostics(
 	diagnostics: DiagnosticsSummary | undefined,
 	theme: Pick<Theme, "fg">,
 ): string | undefined {
-	if (!hasVisibleLspDiagnostics(diagnostics) || (diagnostics.items.length === 0 && diagnostics.total_items === 0)) return undefined;
-	const lines = diagnostics.items.map((item) => theme.fg("toolOutput", `${item.severity} ${item.line}:${item.column} ${item.message}${item.code !== undefined ? ` (${item.code})` : ""}`));
+	if (diagnostics === undefined) return undefined;
+	if (diagnostics.status !== "errors" && diagnostics.status !== "warnings" && (diagnostics.related?.length ?? 0) === 0) return undefined;
+	const lines = diagnostics.items.flatMap((item) => [
+		theme.fg("toolOutput", `${item.change === undefined ? "" : `${item.change} `}${item.severity} ${item.line}:${item.column} ${item.message}${item.code !== undefined ? ` (${item.code})` : ""}`),
+		...(item.hint === undefined ? [] : [theme.fg("toolOutput", `hint: ${item.hint}`)]),
+	]);
 	const remaining = Math.max(0, diagnostics.total_items - diagnostics.items.length);
 	if (remaining > 0) lines.push(theme.fg("toolOutput", `... ${remaining} more diagnostics`));
-	return lines.join("\n");
+	lines.push(...relatedDiagnosticLines(diagnostics).map((line) => theme.fg("toolOutput", line)));
+	return lines.length === 0 ? undefined : lines.join("\n");
 }
 
 function formatLspStatus(status: DiagnosticsSummary["status"], errors: number, warnings: number): string {
+	if (status === "clean") return "";
 	if (status === "errors") return `LSP ${errors} errors`;
 	if (status === "warnings") return `LSP ${warnings} warnings`;
 	return `LSP ${status}`;
-}
-
-function hasVisibleLspDiagnostics(
-	diagnostics: DiagnosticsSummary | undefined,
-): diagnostics is DiagnosticsSummary & { status: "errors" | "warnings" } {
-	return diagnostics?.status === "errors" || diagnostics?.status === "warnings";
 }

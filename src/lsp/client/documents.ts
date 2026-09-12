@@ -54,6 +54,10 @@ export class LspClientDocuments {
 		return count;
 	}
 
+	hasContent(uri: string, text: string): boolean {
+		return this.states.get(uri)?.text === text;
+	}
+
 	currentVersion(uri: string): number | undefined {
 		return this.pendingVersions.get(uri) ?? this.states.get(uri)?.version;
 	}

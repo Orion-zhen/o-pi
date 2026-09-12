@@ -7,6 +7,7 @@ export interface RankedFindEntry {
 	readonly positions: readonly number[];
 	readonly basenameMatches: number;
 	readonly span: number;
+	readonly branches: readonly number[];
 }
 
 interface TermMatch {
@@ -24,6 +25,7 @@ interface SearchText {
 
 interface CompiledFindQueryTerm extends FindQueryTerm {
 	readonly pattern: readonly string[];
+	readonly branch?: number;
 }
 
 interface CompiledFindQueryPlan {
@@ -52,10 +54,11 @@ const BONUS_CONSECUTIVE = 4;
 const BONUS_FIRST_MULTIPLIER = 2;
 const NEGATIVE_INFINITY = Number.NEGATIVE_INFINITY;
 
-/** 接收流式候选并保留与完整排序相同的 relevance 前缀。 */
+/** 流式保留相关性前缀和每个正向 OR 分支的最佳候选。 */
 export function createLimitedFindRanker(plan: FindQueryPlan, limit: number): LimitedFindRanker {
 	const compiled = compileFindQueryPlan(plan);
 	const ranked: RankedFindEntry[] = [];
+	const branches = new Map<number, RankedFindEntry>();
 	let totalMatches = 0;
 	return {
 		add(entry) {
@@ -63,9 +66,13 @@ export function createLimitedFindRanker(plan: FindQueryPlan, limit: number): Lim
 			if (candidate === undefined) return;
 			totalMatches += 1;
 			insertRankedPrefix(ranked, candidate, limit);
+			for (const branch of candidate.branches) {
+				const current = branches.get(branch);
+				if (current === undefined || compareRankedEntries(candidate, current) < 0) branches.set(branch, candidate);
+			}
 		},
 		result() {
-			return { ranked: [...ranked], totalMatches };
+			return { ranked: totalMatches > limit ? coverBranches(ranked, branches) : [...ranked], totalMatches };
 		},
 	};
 }
@@ -74,11 +81,13 @@ function rankEntry(entry: FindEntry, plan: CompiledFindQueryPlan): RankedFindEnt
 	const search = prepareSearchText(entry.searchPath, plan.needsFoldedText);
 	let score = 0;
 	const positions = new Set<number>();
+	const branches: number[] = [];
 	for (const alternatives of plan.groups) {
 		let best: TermMatch | undefined;
 		for (const term of alternatives) {
 			const candidate = matchTerm(search, term);
 			if (!candidate.matched) continue;
+			if (term.branch !== undefined) branches.push(term.branch);
 			if (best === undefined || compareTermMatches(candidate, best) < 0) best = candidate;
 		}
 		if (best === undefined) return undefined;
@@ -93,6 +102,7 @@ function rankEntry(entry: FindEntry, plan: CompiledFindQueryPlan): RankedFindEnt
 		positions: sortedPositions,
 		basenameMatches: sortedPositions.filter((position) => position >= basenameStart).length,
 		span: matchSpan(sortedPositions),
+		branches,
 	};
 }
 
@@ -250,10 +260,12 @@ function contiguousScore(bonuses: readonly number[], positions: readonly number[
 }
 
 function compileFindQueryPlan(plan: FindQueryPlan): CompiledFindQueryPlan {
+	let nextBranch = 0;
 	return {
 		groups: plan.groups.map((alternatives) => alternatives.map((term) => ({
 			...term,
 			pattern: normalizeChars(term.text, term.caseSensitive),
+			...(alternatives.length > 1 && !term.inverse ? { branch: nextBranch++ } : {}),
 		}))),
 		needsFoldedText: plan.groups.some((alternatives) => alternatives.some((term) => !term.caseSensitive)),
 	};
@@ -357,6 +369,24 @@ function insertRankedPrefix(
 	if (low >= limit) return;
 	ranked.splice(low, 0, candidate);
 	if (ranked.length > limit) ranked.pop();
+}
+
+function coverBranches(ranked: readonly RankedFindEntry[], branches: ReadonlyMap<number, RankedFindEntry>): RankedFindEntry[] {
+	const selected = ranked.slice(0, 4);
+	const covered = new Set(selected.flatMap((candidate) => candidate.branches));
+	const candidates = [...new Set(branches.values())].sort(compareRankedEntries);
+	while (selected.length < ranked.length) {
+		const next = candidates.find((candidate) => candidate.branches.some((branch) => !covered.has(branch)));
+		if (next === undefined) break;
+		selected.push(next);
+		for (const branch of next.branches) covered.add(branch);
+	}
+	const selectedPaths = new Set(selected.map((candidate) => candidate.entry.path));
+	for (const candidate of ranked) {
+		if (selected.length === ranked.length) break;
+		if (!selectedPaths.has(candidate.entry.path)) selected.push(candidate);
+	}
+	return selected;
 }
 
 function basenameOffset(chars: readonly string[]): number {
