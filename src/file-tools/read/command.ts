@@ -9,7 +9,7 @@ import { suggestPaths } from "./path-suggestions.js";
 import type { InlineImageProcessor, PdfDocumentHandle, PdfDocumentSource, ReadStructureSource } from "./ports.js";
 import { formatReadRanges, parseReadRanges, resolveReadRanges, type ReadRange } from "./range.js";
 import { readTextRanges } from "./text.js";
-import type { ReadFileSuccess, ReadOutputFormat, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess } from "./types.js";
+import type { ReadFileSuccess, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess } from "./types.js";
 
 const PATH_SUGGESTION_ENTRY_LIMIT = 10_000;
 
@@ -26,7 +26,6 @@ export interface ReadCommandContext {
 	readonly structure?: ReadStructureSource;
 	readonly image: InlineImageProcessor;
 	readonly pdf: PdfDocumentSource;
-	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
 }
 
 /** Reads one guarded workspace file and composes only read-owned optional ports. */
@@ -67,9 +66,6 @@ export async function readFile(
 	const detected = await detectFileType(loaded.value.bytes);
 	if (isAborted(context.operation)) return aborted(file.displayPath);
 	if (detected?.kind === "image") {
-		if (context.supportedOutputFormats?.includes("image") === false) {
-			return fail("API_NOT_SUPPORTED", "API does not support image format.", { path: file.displayPath });
-		}
 		if (ranges.lines !== undefined || ranges.pages !== undefined) {
 			return fail("INVALID_OPERATION", "Range parameters do not apply to image files.", { path: file.displayPath });
 		}
@@ -105,9 +101,6 @@ export async function readFile(
 		return result;
 	}
 	if (detected?.kind === "pdf") {
-		if (context.supportedOutputFormats?.includes("image") === false) {
-			return fail("API_NOT_SUPPORTED", "API does not support image format.", { path: file.displayPath });
-		}
 		if (ranges.lines !== undefined) {
 			return fail("INVALID_OPERATION", "Line ranges apply only to text files.", { path: file.displayPath });
 		}

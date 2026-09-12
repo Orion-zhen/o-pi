@@ -32,7 +32,6 @@ const PNG_BYTES = Buffer.from(
 function runtime(
 	fetchImpl: WebHttpFetch,
 	acceptsImages = false,
-	imageOmissionReason?: "api_no_tool_image_output",
 	signal?: AbortSignal,
 	interaction?: WebFetchInteractionPort,
 	selectedCookieStore: CookieStore = cookieStore,
@@ -54,7 +53,6 @@ function runtime(
 			toolCallId: "t1",
 			acceptsImages,
 			...(privateNetworkGrant !== undefined ? { privateNetworkGrant } : {}),
-			...(imageOmissionReason !== undefined ? { imageOmissionReason } : {}),
 			...(signal !== undefined ? { signal } : {}),
 			...(interaction !== undefined ? { interaction } : {}),
 		},
@@ -93,7 +91,6 @@ describe("webfetch tool", () => {
 		const rt = runtime(
 			async () => httpResponse(200, "authenticated", { "content-type": "text/plain" }),
 			false,
-			undefined,
 			undefined,
 			interaction,
 			authenticatedStore,
@@ -247,7 +244,7 @@ describe("webfetch tool", () => {
 		const cancelledPromise = executeWebFetch({ url: "https://example.com/start" }, runtime(async (_url, init) => {
 			if (init.signal.aborted) throw new Error("aborted");
 			return { status: 200, statusText: "OK", headers: new Headers(), body: hanging };
-		}, false, undefined, userAbort.signal));
+		}, false, userAbort.signal));
 		userAbort.abort();
 		const cancelled = await cancelledPromise;
 		if (cancelled.details.status !== "failed") throw new Error("expected cancellation");
@@ -257,7 +254,7 @@ describe("webfetch tool", () => {
 	it("等待认证确认时可取消，且不会发送请求", async () => {
 		const controller = new AbortController();
 		const fetchImpl = vi.fn(async () => httpResponse(200, "unexpected"));
-		const rt = runtime(fetchImpl, false, undefined, controller.signal, {
+		const rt = runtime(fetchImpl, false, controller.signal, {
 			confirmAuthentication() {
 				controller.abort();
 				return new Promise<boolean>(() => undefined);
@@ -276,7 +273,7 @@ describe("webfetch tool", () => {
 			requests += 1;
 			if (scenario === "redirect" && requests === 1) return httpResponse(302, "", { location: "/final", "set-cookie": "step=1" });
 			return httpResponse(200, "response body", { "content-type": scenario === "skipped_image" ? "image/png" : "text/plain", "set-cookie": "step=2" });
-		}, false, undefined, undefined, undefined, {
+		}, false, undefined, undefined, {
 			async getCookieAccess() { return {}; },
 			async storeFromResponse(_url, headers) { stored.push(headers); },
 		});
@@ -332,7 +329,6 @@ describe("webfetch tool", () => {
 				false,
 				undefined,
 				undefined,
-				undefined,
 				cookieStore,
 				grant,
 			),
@@ -342,7 +338,7 @@ describe("webfetch tool", () => {
 
 		const wrongOrigin = await executeWebFetch(
 			{ url: "http://127.0.0.1:9090/private" },
-			runtime(async () => httpResponse(200, "unexpected"), false, undefined, undefined, undefined, cookieStore, grant),
+			runtime(async () => httpResponse(200, "unexpected"), false, undefined, undefined, cookieStore, grant),
 		);
 		expect(wrongOrigin.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
 	});
@@ -365,7 +361,6 @@ describe("webfetch tool", () => {
 					: httpResponse(200, "public response", { "content-type": "text/plain" });
 			},
 			false,
-			undefined,
 			undefined,
 			undefined,
 			cookieStore,
@@ -391,7 +386,6 @@ describe("webfetch tool", () => {
 		const rt = runtime(
 			async () => httpResponse(200, "x".repeat(2000), { "content-type": "text/plain" }),
 			false,
-			undefined,
 			undefined,
 			undefined,
 			cookieStore,
@@ -451,30 +445,19 @@ describe("webfetch tool", () => {
 		{
 			name: "模型不支持图像",
 			acceptsImages: false,
-			imageOmissionReason: undefined,
 			mediaEnabled: true,
 			expectedReason: "model_no_image_input",
 			expectedMedia: { discovered: 1, returned: 0 },
 		},
 		{
-			name: "API 不支持工具图片",
-			acceptsImages: false,
-			imageOmissionReason: "api_no_tool_image_output",
-			mediaEnabled: true,
-			expectedReason: "api_no_tool_image_output",
-			expectedMedia: { discovered: 1, returned: 0 },
-		},
-		{
 			name: "media.mode=off",
 			acceptsImages: true,
-			imageOmissionReason: undefined,
 			mediaEnabled: false,
 			expectedReason: undefined,
 			expectedMedia: { discovered: 0, returned: 0 },
 		},
 	] as const)("$name 时不下载主图", async ({
 		acceptsImages,
-		imageOmissionReason,
 		mediaEnabled,
 		expectedReason,
 		expectedMedia,
@@ -486,7 +469,6 @@ describe("webfetch tool", () => {
 				return httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
 			},
 			acceptsImages,
-			imageOmissionReason,
 		);
 		if (!mediaEnabled) rt.config.webfetch.media.mode = "off";
 		const result = await executeWebFetch({ url: "https://example.com/post" }, rt);
@@ -522,18 +504,7 @@ describe("webfetch tool", () => {
 		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(PNG_BYTES));
 	});
 
-	it.each([
-		{
-			name: "模型不支持图像",
-			imageOmissionReason: undefined,
-			expectedReason: "model_no_image_input",
-		},
-		{
-			name: "API 不支持工具图片",
-			imageOmissionReason: "api_no_tool_image_output",
-			expectedReason: "api_no_tool_image_output",
-		},
-	] as const)("$name 时根据响应头取消直接图片 body", async ({ imageOmissionReason, expectedReason }) => {
+	it("模型不支持图像时根据响应头取消直接图片 body", async () => {
 		let calls = 0;
 		let reads = 0;
 		let cancellations = 0;
@@ -562,14 +533,14 @@ describe("webfetch tool", () => {
 						},
 					},
 				};
-			}, false, imageOmissionReason),
+			}, false),
 		);
 		expect(calls).toBe(1);
 		expect(reads).toBe(0);
 		expect(cancellations).toBe(1);
 		expect(result.media).toBeUndefined();
 		expect(result.details).toMatchObject({ status: "success", format: "image", downloaded_bytes: 0 });
-		expectPrimaryMediaOmission(result, expectedReason);
+		expectPrimaryMediaOmission(result, "model_no_image_input");
 	});
 
 	it("直接图片声明与嗅探不匹配时拒绝为图片", async () => {

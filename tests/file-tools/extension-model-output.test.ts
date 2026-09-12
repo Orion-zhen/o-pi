@@ -217,7 +217,7 @@ describe("file-tools extension model output", () => {
 		expect(marker).not.toContain("secret-base64");
 	});
 
-	it("OpenAI completions API 只允许 read 返回文本", async () => {
+	it("OpenAI completions 视觉模型保留图片和 PDF 页面，交由 provider 转换", async () => {
 		const { registered } = registerExtension(fileTools);
 		const cwd = workspace.path;
 		await writeFile(join(cwd, "a.txt"), "text\n", "utf8");
@@ -234,20 +234,19 @@ describe("file-tools extension model output", () => {
 		expect(textResult(textRead)).toBe('<read path="a.txt" lines="1-1/1">\ntext\n</read>');
 
 		const imageRead = await executeTool(registered, "read", { path: "pixel.gif" }, ctx);
-		expect(textResult(imageRead)).toBe("<error>\nAPI does not support image format.\n</error>");
-		expect(imageRead.content).toHaveLength(1);
-		expect(imageRead.details).toMatchObject({
-			status: "failed",
-			error: { code: "API_NOT_SUPPORTED", message: "API does not support image format.", path: "pixel.gif" },
-		});
+		expect(imageRead.content).toEqual([
+			{ type: "text", text: "Read image file [image/gif]" },
+			{ type: "image", data: imageBytes.toString("base64"), mimeType: "image/gif" },
+		]);
+		expect(imageRead.details).toMatchObject({ path: "pixel.gif", media_type: "image" });
 
 		const pdfRead = await executeTool(registered, "read", { path: "document.pdf" }, ctx);
-		expect(textResult(pdfRead)).toBe("<error>\nAPI does not support image format.\n</error>");
-		expect(pdfRead.content).toHaveLength(1);
-		expect(pdfRead.details).toMatchObject({
-			status: "failed",
-			error: { code: "API_NOT_SUPPORTED", path: "document.pdf" },
-		});
+		expect(pdfRead.content.map((block) => block.type)).toEqual(["text", "text", "image", "text", "image"]);
+		expect(pdfRead.content.filter((block) => block.type === "image")).toEqual([
+			{ type: "image", data: expect.any(String), mimeType: "image/png" },
+			{ type: "image", data: expect.any(String), mimeType: "image/png" },
+		]);
+		expect(pdfRead.details).toMatchObject({ path: "document.pdf", media_type: "pdf" });
 	});
 
 	it("write 模型结果保留有界诊断摘要", () => {

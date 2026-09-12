@@ -138,22 +138,6 @@ describe("read", () => {
 		});
 		if ("version" in result) expect(result.version).toBe(sha256Version(imageBytes));
 
-		let processedUnsupportedImage = false;
-		const unsupported = await testContext.read({ path: "pixel.gif" }, {
-			supportedOutputFormats: ["text"],
-			image: {
-				async process() {
-					processedUnsupportedImage = true;
-					throw new Error("unsupported image must not be processed");
-				},
-			},
-		});
-		expect(unsupported).toMatchObject({
-			status: "failed",
-			error: { code: "API_NOT_SUPPORTED", message: "API does not support image format.", path: "pixel.gif" },
-		});
-		expect(processedUnsupportedImage).toBe(false);
-
 		for (const params of [{ path: "pixel.gif", lines: "1" }, { path: "pixel.gif", pages: "1" }]) {
 			expectFailure(await testContext.read(params), "INVALID_OPERATION");
 		}
@@ -403,14 +387,8 @@ describe("read PDF 页面", () => {
 		expect(configuredFake.renderedPages).toEqual([4, 5]);
 	});
 
-	it("校验 PDF 范围和 API 图片能力后才打开或渲染文档", async () => {
+	it("校验 PDF 范围后才打开或渲染文档", async () => {
 		await writeFile(path.join(workspace, "guarded.pdf"), await pdfFixture("two-page.pdf"));
-		const unsupported = fakePdfSource({ pageCount: 2 });
-		expectFailure(await testContext.read({ path: "guarded.pdf" }, {
-			pdf: unsupported.source,
-			supportedOutputFormats: ["text"],
-		}), "API_NOT_SUPPORTED");
-		expect(unsupported.openCalls).toBe(0);
 
 		const lines = fakePdfSource({ pageCount: 2 });
 		expectFailure(await testContext.read({ path: "guarded.pdf", lines: "1" }, { pdf: lines.source }), "INVALID_OPERATION");

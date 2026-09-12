@@ -6,8 +6,6 @@ export interface ReadParams {
 	pages?: string;
 }
 
-export type ReadOutputFormat = "text" | "image";
-
 export interface ReadRemainingSymbol {
 	name: string;
 	kind: string;

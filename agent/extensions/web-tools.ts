@@ -127,9 +127,7 @@ export function createWebToolsExtension(
 				promptGuidelines: [WEB_CONTENT_GUIDELINE, "Webfetch covers only detected static response content. Remind user of limitation if content is partial."],
 				parameters: webFetchParameters,
 				async execute(toolCallId, params, signal, onUpdate, ctx) {
-					const modelAcceptsImages = ctx.model?.input.includes("image") === true;
-					const apiAcceptsToolImages = ctx.model?.api !== "openai-completions";
-					const acceptsImages = modelAcceptsImages && apiAcceptsToolImages;
+					const acceptsImages = ctx.model?.input.includes("image") === true;
 					const privateNetworkGrant = readPrivateNetworkGrant(params);
 					const executionContext = {
 						toolCallId,
@@ -143,9 +141,6 @@ export function createWebToolsExtension(
 							}
 							: {}),
 						acceptsImages,
-						...(modelAcceptsImages && !apiAcceptsToolImages
-							? { imageOmissionReason: "api_no_tool_image_output" as const }
-							: {}),
 						...(ctx.hasUI
 							? {
 								interaction: {

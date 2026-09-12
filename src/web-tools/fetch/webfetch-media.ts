@@ -71,7 +71,7 @@ export async function resolvePrimaryMedia(
 	if (primary === undefined) return {};
 	if (offset > 0) return {};
 	if (options.context.acceptsImages !== true) {
-		return { omission: { kind: "primary_media", reason: options.context.imageOmissionReason ?? "model_no_image_input" } };
+		return { omission: { kind: "primary_media", reason: "model_no_image_input" } };
 	}
 	if ("data" in primary) return { media: primary };
 	const requested = validateRequestUrl(primary.url, options.context.privateNetworkGrant?.origin);

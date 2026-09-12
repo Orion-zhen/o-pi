@@ -99,7 +99,7 @@ export interface WebFetchSuccessDetails {
 export interface WebFetchOmission {
 	kind: "deferred_content" | "primary_media" | "embedded_content" | "structured_data" | "interactive_content";
 	reason:
-		| "unresolved_declaration" | "model_no_image_input" | "api_no_tool_image_output"
+		| "unresolved_declaration" | "model_no_image_input"
 		| "media_fetch_failed" | "media_too_large" | "unsupported_media_type"
 		| "video_not_returned" | "audio_not_returned" | "iframe_not_fetched" | "invalid_or_limited" | "client_rendered";
 }
@@ -184,7 +184,6 @@ export interface WebFetchExecutionContext {
 	signal?: AbortSignal;
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;
 	acceptsImages?: boolean;
-	imageOmissionReason?: "model_no_image_input" | "api_no_tool_image_output";
 	interaction?: WebFetchInteractionPort;
 }
 

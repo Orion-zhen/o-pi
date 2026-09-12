@@ -1,6 +1,6 @@
 import { readFile } from "../../src/file-tools/read/command.js";
 import type { InlineImageProcessor, PdfDocumentSource, ReadStructureSource } from "../../src/file-tools/read/ports.js";
-import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../src/file-tools/read/types.js";
+import type { ReadFileSuccess, ReadParams } from "../../src/file-tools/read/types.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { createInlineImageProcessor } from "../../src/file-tools/pi/ports/read-image.js";
@@ -12,7 +12,6 @@ export interface ReadWorkspaceTestOptions {
 	readonly structure?: ReadStructureSource;
 	readonly image?: InlineImageProcessor;
 	readonly pdf?: PdfDocumentSource;
-	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
 	readonly signal?: AbortSignal;
 }
 
@@ -31,7 +30,6 @@ export async function readWorkspaceFile(
 				...opened,
 				image: options.image ?? createInlineImageProcessor(),
 				pdf: options.pdf ?? createPdfDocumentSource(),
-				...(options.supportedOutputFormats === undefined ? {} : { supportedOutputFormats: options.supportedOutputFormats }),
 				...(options.structure === undefined ? {} : { structure: options.structure }),
 			});
 		} finally {

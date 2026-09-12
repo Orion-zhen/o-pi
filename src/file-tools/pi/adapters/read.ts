@@ -2,7 +2,7 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { readFile } from "../../read/command.js";
 import type { InlineImageProcessor, PdfDocumentSource } from "../../read/ports.js";
 import { formatReadModelResult, formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../read/presenter.js";
-import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../read/types.js";
+import type { ReadFileSuccess, ReadParams } from "../../read/types.js";
 import { isFailed, type FailedResult } from "../../shared/result.js";
 import type { LoadLsp } from "../../../lsp/file-operations.js";
 import { parseSkillPath, type SkillPath } from "../../../skill-context/resources.js";
@@ -10,12 +10,11 @@ import { failedToolResult, withFileToolsInvocation, type FileToolRuntime } from 
 import { bindFileLsp } from "../lsp.js";
 
 export interface ExecuteReadOptions extends FileToolRuntime {
-	readonly model: { api?: string; input?: readonly string[] } | undefined;
+	readonly model: { input?: readonly string[] } | undefined;
 	readonly lsp: LoadLsp;
 }
 
 export async function executeRead(params: ReadParams, options: ExecuteReadOptions) {
-	const supportedOutputFormats = readOutputFormats(options.model?.api);
 	const skill = params.path.startsWith("skill://") ? parseSkillPath(params.path) : undefined;
 	return withFileToolsInvocation<ReadFileSuccess | FailedResult>(options, async (opened) => {
 		const result = await readFile(
@@ -24,17 +23,12 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 				...opened,
 				image: lazyInlineImageProcessor,
 				pdf: lazyPdfDocumentSource,
-				supportedOutputFormats,
 				structure: bindFileLsp(opened, options.lsp).structure,
 			},
 		);
 		if (skill?.kind === "skill") applySkillResolution(result, skill);
 		return presentResult(result, options.model);
 	});
-}
-
-function readOutputFormats(api: string | undefined): readonly ReadOutputFormat[] {
-	return api === "openai-completions" ? ["text"] : ["text", "image"];
 }
 
 const lazyInlineImageProcessor: InlineImageProcessor = {

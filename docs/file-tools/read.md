@@ -120,7 +120,9 @@ PDF `details` 包括：
 
 ## 图片能力与二进制
 
-PDF 和普通图片使用相同的模型输出能力检查。`openai-completions` 等不支持图片输出的 API 返回 `API_NOT_SUPPORTED`。PDF.js 不会在该错误发生前加载或开始渲染。模型声明中没有图片输入能力时，结果沿用普通图片读取的警告行为。
+PDF 页面和普通图片均作为工具结果中的图片块返回，不按 API 名称禁图。视觉模型使用 `openai-completions` 时，`pi-ai` 在发送请求时把工具图片移到整批工具结果后的临时 `user` 图片消息。`openai-responses` 直接使用工具结果图片。模型声明中没有图片输入能力时，工具结果附加警告。
+
+临时 `user` 图片消息不写回会话历史。`prune` 在请求转换前移除完整工具事务，因此被裁剪的工具图片不会再进入后续请求。撤销裁剪会恢复对应图片，真正的用户图片不受工具裁剪影响。
 
 音频、视频和其他二进制文件返回 `BINARY_FILE_UNSUPPORTED`，错误详情包含识别到的 MIME。目录不会自动列出，`read` 读取目录时返回 `NOT_A_FILE`。
 
@@ -152,7 +154,6 @@ PDF 和普通图片使用相同的模型输出能力检查。`openai-completions
 | `NOT_A_FILE` | 目标不是普通文件 |
 | `INVALID_PATH` | 路径、`lines` 或 `pages` 语法非法，或范围起点越界 |
 | `INVALID_OPERATION` | `lines` 与 `pages` 同时出现，或范围参数与媒体类型不匹配 |
-| `API_NOT_SUPPORTED` | 当前 API 不能返回普通图片或 PDF 页面图片 |
 | `BINARY_FILE_UNSUPPORTED` | 二进制类型不支持，或 PDF 解析、密码、渲染或页面图片处理失败 |
 | `ENCODING_UNSUPPORTED` | 文本不是有效 UTF-8 |
 | `PROTECTED_PATH` | 路径被配置阻止 |

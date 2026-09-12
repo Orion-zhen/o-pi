@@ -128,7 +128,7 @@ describe("web-tools extension", () => {
 		expect(fetch).toHaveBeenCalledWith(params, expect.objectContaining({ privateNetworkGrant: grant }));
 	});
 
-	it("只在模型和 API 都支持工具图片时返回 Pi ImageContent", async () => {
+	it("视觉模型返回 Pi ImageContent，不按 API 限制工具图片", async () => {
 		const fetch = vi.fn(async (_params: WebFetchParams, _context: WebFetchExecutionContext) => ({
 			content: "page",
 			details: webFetchDetails({
@@ -161,9 +161,19 @@ describe("web-tools extension", () => {
 		);
 		expect(fetch).toHaveBeenLastCalledWith(
 			{ url: "https://example.com/" },
-			expect.objectContaining({ acceptsImages: false, imageOmissionReason: "api_no_tool_image_output" }),
+			expect.objectContaining({ acceptsImages: true }),
 		);
-		expect(completionsResult.content).toEqual([{ type: "text", text: "page" }]);
+		expect(completionsResult.content).toEqual(responsesResult.content);
+
+		const nonVisionResult = await tool.execute(
+			"fetch-non-vision", { url: "https://example.com/" }, undefined, undefined,
+			{ hasUI: false, model: { api: "openai-completions", input: ["text"] } },
+		);
+		expect(fetch).toHaveBeenLastCalledWith(
+			{ url: "https://example.com/" },
+			expect.objectContaining({ acceptsImages: false }),
+		);
+		expect(nonVisionResult.content).toEqual([{ type: "text", text: "page" }]);
 	});
 
 	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", { timeout: 30_000 }, async () => {
