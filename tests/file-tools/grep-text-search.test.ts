@@ -1,4 +1,4 @@
-import { rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -27,6 +27,38 @@ import { packCandidate, packRegions, queryPlan, rankingEvidence } from "./grep-r
 const testContext = createGrepTestContext();
 
 describe("grep text search", () => {
+	it("截断提示按全部候选统计可缩小的范围，不只统计已展示结果", async () => {
+		await testContext.useConfig({ grep_result_limit: 1 }, "navigation");
+		for (const name of ["alpha", "beta"]) await mkdir(path.join(testContext.workspace, name));
+		await writeFile(path.join(testContext.workspace, "alpha/a.conf"), "needle one\nneedle two\n");
+		await writeFile(path.join(testContext.workspace, "beta/b.conf"), "needle three\n");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
+		expect(result.navigation?.narrow).toEqual([{ path: "alpha", count: 2 }, { path: "beta", count: 1 }]);
+		expect(formatCompactGrepResult(result)).toContain('next: narrow path to "alpha" (2 candidates), "beta" (1 candidates)');
+		const complete = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["beta"], query: "needle" }));
+		expect(complete).not.toHaveProperty("navigation");
+		expect(formatCompactGrepResult(complete)).not.toContain("next:");
+	});
+
+	it("字节预算截断报告未纳入扫描的文件与后续范围", async () => {
+		await testContext.useConfig({ grep_max_search_bytes: 1024 }, "byte-navigation");
+		for (const name of ["a", "b", "c"]) await writeFile(path.join(testContext.workspace, `${name}.conf`), `needle${"x".repeat(594)}`);
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["a.conf", "b.conf", "c.conf"], query: "needle" }));
+		expect(result.truncated_by).toContain("byte_limit");
+		expect(result.stats.searched_files).toBe(1);
+		expect(result.navigation?.incomplete).toEqual(["b.conf", "c.conf"]);
+		expect(formatCompactGrepResult(result)).toContain('incomplete: ["b.conf","c.conf"]');
+	});
+
+	it("深度截断下的零命中保留具体未搜索子目录", async () => {
+		await testContext.useConfig({ grep_max_depth: 1 }, "depth-navigation");
+		await mkdir(path.join(testContext.workspace, "src/deep"), { recursive: true });
+		await writeFile(path.join(testContext.workspace, "src/deep/a.conf"), "needle\n");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["src"], query: "needle" }));
+		expect(result.navigation?.incomplete).toEqual(["src/deep"]);
+		expect(formatCompactGrepResult(result)).toContain('incomplete: ["src/deep"]');
+	});
+
 	it.each(["/absolute.ts", "../escape.ts", "a/../escape.ts", "bad\0glob"])("拒绝越界或 NUL glob %j", async (glob) => {
 		await expect(grepWorkspaceFiles(testContext.workspace, { query: "needle", glob })).resolves.toMatchObject({
 			status: "failed",
@@ -52,34 +84,54 @@ describe("grep text search", () => {
 		expect(firstRegion(result).display_lines?.[0]?.text).toContain("Needle42");
 	});
 
-	it("非法正则仅在 exact literal 有正文命中时返回带警告的 fallback", async () => {
+	it("显式 literal 按精确文本搜索，非法 regex 不再探测正文或启动分析", async () => {
 		await writeFile(path.join(testContext.workspace, "literal.ts"), "const value = read(input);\n");
 		const analyzeCode = vi.fn(async () => undefined);
 		const literal = expectGrepSuccess(await grepWithAnalyzer(testContext.workspace, {
 			path: ["literal.ts"],
 			query: "read(input",
+			mode: "literal",
 		}, { analyzeCode }));
-		expect(literal.query_mode).toBe("literal_fallback");
+		expect(literal.query_mode).toBe("literal");
 		expect(firstRegion(literal)).toMatchObject({
 			query_match: "verified",
 			matched_by: ["literal"],
 			sources: ["text-literal"],
 		});
-		expect(formatCompactGrepResult(literal)).toContain("warning: invalid regex; exact literal fallback used");
+		expect(formatCompactGrepResult(literal)).not.toContain("warning:");
 		await assertStrictMatches(testContext.workspace, literal, "read(input");
 
 		const malformedAlternation = await grepWithAnalyzer(testContext.workspace, {
 			path: ["literal.ts"],
-			query: "read(input|read:|ReadEnhancement|remainingSymbols|remaining_symbols",
+			query: "read(input",
 		}, { analyzeCode });
 		expect(malformedAlternation).toMatchObject({
 			status: "failed",
 			error: {
 				code: "INVALID_REGEX",
-				next: expect.stringContaining("opening parenthesis"),
+				next: expect.stringContaining('mode="literal"'),
 			},
 		});
 		expect(analyzeCode).toHaveBeenCalledOnce();
+	});
+
+	it("literal 对合法正则文本仍保持精确匹配，零命中不是正则错误", async () => {
+		await writeFile(path.join(testContext.workspace, "literal.conf"), "foo.bar\nfooXbar\n$schema\nitems[index]\n");
+		for (const query of ["foo.bar", "$schema", "items[index]"]) {
+			const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, {
+				path: ["literal.conf"], query, mode: "literal",
+			}));
+			expect(result.regions).toHaveLength(1);
+			await assertStrictMatches(testContext.workspace, result, query);
+		}
+		const missing = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, {
+			path: ["literal.conf"], query: "missing(", mode: "literal",
+		}));
+		expect(missing.regions).toEqual([]);
+		const regex = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, {
+			path: ["literal.conf"], query: "foo.bar", mode: "regex",
+		}));
+		expect(regex.regions).toHaveLength(2);
 	});
 
 	it("AST 外文本使用单行协议，并对同一行的多个 occurrence 去重", async () => {

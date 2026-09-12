@@ -1,6 +1,6 @@
 import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
 import type { TelemetryFacts } from "../../telemetry/types.js";
-import { parseReadRange } from "../read/range.js";
+import { parseReadRanges } from "../read/range.js";
 import type { ReadFileSuccess, ReadParams } from "../read/types.js";
 import { isFailed, type ToolOutcome } from "../shared/result.js";
 import { failureFields, pathTarget, projectFileInput } from "./common.js";
@@ -49,10 +49,10 @@ const projectReadInputBase = projectFileInput<ReadParams>(["path", "lines", "pag
 function projectReadInput(value: ReadParams): TelemetryFacts {
 	const facts = projectReadInputBase(value);
 	if (value.lines === undefined) return facts;
-	const parsed = parseReadRange(value.lines, "lines");
+	const parsed = parseReadRanges(value.lines, "lines");
 	if (!parsed.ok) return facts;
 	return {
 		...facts,
-		targets: [pathTarget(value.path, "file", parsed.value.start, parsed.value.end)],
+		targets: parsed.value.map((range) => pathTarget(value.path, "file", range.start, range.end)),
 	};
 }

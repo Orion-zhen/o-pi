@@ -5,7 +5,7 @@ import { isFailed, type ToolOutcome } from "../shared/result.js";
 import { failureFields, failureScopeFields, projectFileInput } from "./common.js";
 
 export const grepTelemetry = defineToolTelemetry<GrepParams, ToolOutcome<GrepSuccess>>({
-	input: projectFileInput<GrepParams>(["query", "path", "glob"], "path", { pathList: true }),
+	input: projectFileInput<GrepParams>(["query", "mode", "path", "glob"], "path", { pathList: true }),
 	result(_params, details) {
 		if (isFailed(details)) {
 			return { fields: { ...failureFields(details), ...failureScopeFields(details) } };

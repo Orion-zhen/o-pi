@@ -40,7 +40,7 @@ export interface LimitedFindRanking {
 }
 
 export interface LimitedFindRanker {
-	add(entry: FindEntry): void;
+	add(entry: FindEntry): boolean;
 	result(): LimitedFindRanking;
 }
 
@@ -63,13 +63,14 @@ export function createLimitedFindRanker(plan: FindQueryPlan, limit: number): Lim
 	return {
 		add(entry) {
 			const candidate = rankEntry(entry, compiled);
-			if (candidate === undefined) return;
+			if (candidate === undefined) return false;
 			totalMatches += 1;
 			insertRankedPrefix(ranked, candidate, limit);
 			for (const branch of candidate.branches) {
 				const current = branches.get(branch);
 				if (current === undefined || compareRankedEntries(candidate, current) < 0) branches.set(branch, candidate);
 			}
+			return true;
 		},
 		result() {
 			return { ranked: totalMatches > limit ? coverBranches(ranked, branches) : [...ranked], totalMatches };

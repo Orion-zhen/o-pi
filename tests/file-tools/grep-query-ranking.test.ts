@@ -24,45 +24,22 @@ describe("grep query plan", () => {
 		expect(isFailed(result) ? result.error.code : undefined).toBe(code);
 	});
 
-	it("非法正则建立 exact literal probe，并保留原始失败", () => {
-		const plan = queryPlan("read(input");
-		expect(plan).toMatchObject({
-			queryMode: "literal_fallback",
-			invalidRegex: {
-				status: "failed",
-				error: {
-					code: "INVALID_REGEX",
-					next: expect.stringContaining("opening parenthesis"),
-				},
-			},
-		});
-		expect(plan.regex.test("read(input)")).toBe(true);
-		expect(plan.regex.test("readinput")).toBe(false);
+	it.each(["$schema", "foo.bar", "items[index]", "read(input", "\\", "😀目标"])("literal 不解释正则元字符：%s", (query) => {
+		const plan = createQueryPlan({ query, mode: "literal" });
+		if (isFailed(plan)) throw new Error(plan.error.message);
+		expect(plan.queryMode).toBe("literal");
+		expect(plan.regex.test(`before ${query} after`)).toBe(true);
+		expect(plan.regex.test("unrelated")).toBe(false);
 	});
 
-	it("按 regex 失败类型生成不同恢复动作", () => {
-		const cases = [
-			["(", "opening parenthesis"],
-			["foo)", "closing parenthesis"],
-			["[", "character class"],
-			["\\", "trailing backslash"],
-			["[z-a]", "range endpoints"],
-			["*foo", "quantifier"],
-			["a{2,1}", "minimum"],
-			["(?", "group form"],
-			["(?<a>x)(?<a>y)", "unique name"],
-			["(?<1>x)", "valid identifier"],
-			["\\k<missing>", "backreference name"],
-			["\\u{}", "Unicode escape"],
-			["\\p{Nope}", "Unicode property"],
-		] as const;
-		const hints = cases.map(([query, expected]) => {
-			const plan = queryPlan(query);
-			if (plan.queryMode !== "literal_fallback") throw new Error(`expected invalid regex: ${query}`);
-			expect(plan.invalidRegex.error.next).toContain(expected);
-			return plan.invalidRegex.error.next;
-		});
-		expect(new Set(hints)).toHaveLength(cases.length);
+	it("非法 regex 立即失败并提示显式 literal 模式", () => {
+		const cases = ["(", "foo)", "[", "\\", "[z-a]", "*foo", "a{2,1}", "(?", "(?<a>x)(?<a>y)", "(?<1>x)", "\\k<missing>", "\\u{}", "\\p{Nope}"];
+		for (const query of cases) {
+			expect(createQueryPlan({ query })).toMatchObject({
+				status: "failed",
+				error: { code: "INVALID_REGEX", next: expect.stringContaining('mode="literal"') },
+			});
+		}
 	});
 });
 

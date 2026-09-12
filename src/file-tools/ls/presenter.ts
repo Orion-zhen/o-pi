@@ -6,7 +6,7 @@ export function formatCompactLsResult(result: LsSuccess): string {
 		? `${result.path} ${result.returned_entries}/${result.total_entries} truncated`
 		: `${result.path} ${result.entries.length}`;
 	const lines = [header, ...result.entries.map(formatCompactEntry)];
-	if (result.truncated) lines.push("[narrow path]");
+	if (result.truncated) lines.push(`next: ${result.continuation_hint}`);
 	return lines.join("\n");
 }
 

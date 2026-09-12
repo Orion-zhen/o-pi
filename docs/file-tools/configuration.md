@@ -44,13 +44,13 @@
 ### `limits`
 
 - `ls_entries`：一次 `ls` 最多返回的直属成员数。
-- `read_lines` / `read_bytes`：一次 `read` 最多返回的行数和 UTF-8 字节数。
+- `read_lines` / `read_bytes`：一次 `read` 全部文本片段共享的行数和 UTF-8 字节数。结构提示消耗两种预算，分段标记消耗字节预算。
 - `read_max_file_bytes`：`read` 可完整载入的单文件上限。局部行范围和 PDF 页面范围都不能绕过。
 - `read_pdf_pages`：一次 `read` 最多渲染并返回的 PDF 页面数。默认配置为 20，取值范围为 1 到 100。显式的 `pages` 范围不能绕过。
 - `read_suggestion_limit`：文件不存在时最多返回的相关路径数。默认配置为 3，取值范围为 1 到 10。
 - `write_max_file_bytes`：`write` 的现有文件快照和提交内容上限。
 - `edit_max_file_bytes`：`edit` 的现有文件快照和提交内容上限。
-- `edit_match_hint_limit`：`OLD_TEXT_NOT_UNIQUE` 匹配提示或 `OLD_TEXT_NOT_FOUND` 锚点候选的最大返回数。默认配置为 5，取值范围为 1 到 10。
+- `edit_match_hint_limit`：一次 `edit` 全部错误共享的恢复候选数，包括唯一上下文、格式等价和锚点候选。默认配置为 5，取值范围为 1 到 10。最多展示 8 个验证错误，该数量不接受配置。
 - `find_output_token_budget`：`find` 模型可见输出的词元预算，最小值为 32。
 - `find_result_limit`：`find` 最多保留的具体结果数。
 - `find_max_depth`：`find` 相对每个搜索范围的最大路径深度。范围根目录的深度为 0，直属子项为 1。

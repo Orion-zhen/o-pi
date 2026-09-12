@@ -456,7 +456,7 @@ describe("file-tools extension lifecycle", () => {
 		expect(getCommands).toHaveBeenCalledTimes(1);
 		expect(imports.lsp).toHaveBeenCalledTimes(1);
 		expect(enhanceRead).toHaveBeenCalledTimes(1);
-		expect(partial.details).toMatchObject({ lsp: { enclosing_symbol: { name: "value" } } });
+		expect(partial.details).toMatchObject({ segments: [{ lsp: { enclosing_symbol: { name: "value" } } }] });
 
 		await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
 		await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();

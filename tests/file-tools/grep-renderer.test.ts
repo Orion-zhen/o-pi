@@ -32,14 +32,14 @@ describe("grep renderer", () => {
 		for (const sourceLine of ["async login", "return secretSession"]) expect(output).not.toContain(sourceLine);
 	});
 
-	it("literal fallback 在折叠与展开状态都可区分", () => {
+	it("literal 模式在折叠与展开状态都可区分", () => {
 		const base = success();
 		const first = base.regions[0];
 		if (first === undefined) throw new Error("missing fixture region");
 		const details: GrepSuccess = {
 			...base,
 			query: "read(input",
-			query_mode: "literal_fallback",
+			query_mode: "literal",
 			regions: [{
 				...first,
 				matched_by: ["literal"],

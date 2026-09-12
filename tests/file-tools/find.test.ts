@@ -79,6 +79,40 @@ function track<T extends { dispose(): void }>(resource: T): T {
 }
 
 describe("find", () => {
+	it("截断导航统计全部已扫描命中，排除忽略与非命中路径", async () => {
+		await writeFixtures("root/alpha/a.ts", "root/alpha/b.ts", "root/beta/c.ts", "root/hidden/secret.ts", "root/docs/readme.md");
+		await useConfig("navigation", { ignored_path: ["root/hidden/"], limits: { find_result_limit: 1 } });
+		const result = await find({ path: ["root"], query: ".ts$" });
+		expect(result.details.navigation).toEqual({
+			narrow: [{ path: "root/alpha", count: 2 }, { path: "root/beta", count: 1 }],
+			incomplete: [],
+		});
+		expect(result.content).toContain('next: narrow path to "root/alpha" (2 candidates), "root/beta" (1 candidates)');
+		expect(result.content).not.toContain("hidden");
+		expect(result.content).not.toContain("docs");
+		const complete = await find({ path: ["root/beta"], query: ".ts$" });
+		expect(complete.details).not.toHaveProperty("navigation");
+		expect(complete.content).not.toContain("next:");
+	});
+
+	it("零命中且深度截断时返回已知未搜索子目录", async () => {
+		await writeFixtures("root/deep/a.ts");
+		await useConfig("depth-navigation", { limits: { find_max_depth: 1 } });
+		const result = await find({ path: ["root"], query: ".ts$" });
+		expect(result.details.truncated_by).toContain("depth_limit");
+		expect(result.details.navigation?.incomplete).toEqual(["root/deep"]);
+		expect(result.content).toContain('incomplete: ["root/deep"]');
+		expect(result.content).toContain("next: search incomplete paths separately");
+	});
+
+	it("共享遍历预算耗尽时指出尚未开始的后续范围", async () => {
+		await writeFixtures("one/a.ts", "one/b.ts", "two/c.ts");
+		await useConfig("entry-navigation", { limits: { find_max_entries: 1 } });
+		const result = await find({ path: ["one", "two"], query: ".ts$" });
+		expect(result.details.navigation?.incomplete).toEqual(["one", "two"]);
+		expect(result.content).toContain('incomplete: ["one","two"]');
+	});
+
 	it("校验 query 语法、NUL、换行和 glob 领域约束", async () => {
 		for (const params of [
 			{ query: " " },

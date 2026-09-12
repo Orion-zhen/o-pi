@@ -1,4 +1,5 @@
 import type { CodeNavigation } from "../../code-index/types.js";
+import type { SearchNavigation } from "../shared/search-navigation.js";
 import type { FileToolError } from "../shared/result.js";
 
 export type GrepMatchedBy =
@@ -9,7 +10,7 @@ export type GrepMatchedBy =
 	| "regex"
 	| "lexical"
 	| "related";
-export type GrepQueryMode = "regex" | "literal_fallback";
+export type GrepQueryMode = "regex" | "literal";
 export type TruncationReason =
 	| "depth_limit"
 	| "entry_limit"
@@ -18,6 +19,7 @@ export type TruncationReason =
 
 export interface GrepParams {
 	query: string;
+	mode?: GrepQueryMode;
 	path?: string[];
 	glob?: string;
 }
@@ -112,6 +114,7 @@ export interface GrepSuccess {
 	approx_tokens: number;
 	stats: GrepStats;
 	truncated_by: TruncationReason[];
+	navigation?: SearchNavigation;
 	regions: GrepRegion[];
 	ranking?: GrepRankingDiagnostics;
 }

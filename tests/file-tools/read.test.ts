@@ -111,9 +111,7 @@ describe("read", () => {
 		const result = await testContext.read({ path: "a.txt" });
 		expect(result).toMatchObject({
 			path: "a.txt",
-			content: "one\ntwo\n",
-			start_line: 1,
-			end_line: 2,
+			segments: [{ content: "one\ntwo\n", start_line: 1, end_line: 2 }],
 			total_lines: 2,
 			encoding: "utf-8",
 			newline: "lf",
@@ -197,7 +195,7 @@ describe("read", () => {
 		await testContext.useConfig({ limits: { read_max_file_bytes: 1024 } });
 		await writeFile(path.join(workspace, "exact.txt"), "x".repeat(1024));
 		expect(await testContext.read({ path: "exact.txt" })).toMatchObject({
-			content: "x".repeat(1024),
+			segments: [{ content: "x".repeat(1024) }],
 			size_bytes: 1024,
 		});
 		await writeFile(path.join(workspace, "oversized.txt"), `${"x".repeat(1024)}\n`);
@@ -212,9 +210,9 @@ describe("read", () => {
 	});
 
 	it.each([
-		["2", { content: "two\n", start_line: 2, end_line: 2, total_lines: 3 }],
-		["2-", { content: "two\nthree\n", start_line: 2, end_line: 3, total_lines: 3 }],
-		["2-99", { content: "two\nthree\n", start_line: 2, end_line: 3, total_lines: 3, truncated: false }],
+		["2", { segments: [{ content: "two\n", start_line: 2, end_line: 2 }], total_lines: 3 }],
+		["2-", { segments: [{ content: "two\nthree\n", start_line: 2, end_line: 3 }], total_lines: 3 }],
+		["2-99", { segments: [{ content: "two\nthree\n", start_line: 2, end_line: 3 }], total_lines: 3, truncated: false }],
 	] as const)("按行范围 %s 读取", async (lines, expected) => {
 		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\nthree\n", "utf8");
 		expect(await testContext.read({ path: "a.txt", lines })).toMatchObject(expected);
@@ -226,34 +224,34 @@ describe("read", () => {
 		await writeFile(path.join(workspace, "crlf.txt"), "one\r\ntwo\r\n");
 		await writeFile(path.join(workspace, "bom.txt"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("one\n")]));
 		expect(await testContext.read({ path: "empty.txt" })).toMatchObject({
-			content: "",
+			segments: [{ content: "", start_line: 1, end_line: 0 }],
 			total_lines: 0,
 			newline: "none",
 		});
 		expect(await testContext.read({ path: "nonewline.txt" })).toMatchObject({
-			content: "one",
+			segments: [{ content: "one" }],
 			total_lines: 1,
 			newline: "none",
 		});
 		expect(await testContext.read({ path: "crlf.txt" })).toMatchObject({ newline: "crlf" });
-		expect(await testContext.read({ path: "bom.txt" })).toMatchObject({ content: "one\n", bom: true });
+		expect(await testContext.read({ path: "bom.txt" })).toMatchObject({ segments: [{ content: "one\n" }], bom: true });
 	});
 
 	it("截断时返回 continuation", async () => {
 		await testContext.useConfig({ limits: { read_lines: 2 } });
 		await writeFile(path.join(workspace, "big.txt"), "one\ntwo\nthree\n");
 		const result = await testContext.read({ path: "big.txt" });
-		expect(result).toMatchObject({ truncated: true, continuation: { start_line: 3 }, end_line: 2 });
+		expect(result).toMatchObject({ truncated: true, continuation: { lines: "3" }, segments: [{ end_line: 2 }] });
 	});
 
 	it("仅在保留 structure 时为其预算重新切片", async () => {
 		await testContext.useConfig({ limits: { read_bytes: 1024, read_lines: 2 } });
 		await writeFile(path.join(workspace, "structured.ts"), "one\ntwo\nthree\n");
 		const truncated = await testContext.read({ path: "structured.ts" });
-		expect(truncated).toMatchObject({ truncated: true, continuation: { start_line: 3 } });
+		expect(truncated).toMatchObject({ truncated: true, continuation: { lines: "3" } });
 
 		const partial = await testContext.read({ path: "structured.ts", lines: "2" });
-		expect(partial).toMatchObject({ content: "two\n", start_line: 2, end_line: 2 });
+		expect(partial).toMatchObject({ segments: [{ content: "two\n", start_line: 2, end_line: 2 }] });
 
 		const oversized = await testContext.read({ path: "structured.ts", lines: "2" }, {
 			structure: {
@@ -262,7 +260,7 @@ describe("read", () => {
 				},
 			},
 		});
-		expect(oversized).not.toHaveProperty("lsp");
+		expect(oversized).not.toHaveProperty("segments.0.lsp");
 
 		const fitting = await testContext.read({ path: "structured.ts", lines: "2" }, {
 			structure: {
@@ -271,7 +269,7 @@ describe("read", () => {
 				},
 			},
 		});
-		expect(fitting).toMatchObject({ lsp: { enclosing_symbol: { name: "demo" } } });
+		expect(fitting).toMatchObject({ segments: [{ lsp: { enclosing_symbol: { name: "demo" } } }] });
 	});
 
 	it.each([
@@ -312,6 +310,27 @@ describe("read", () => {
 });
 
 describe("read PDF 页面", () => {
+	it("离散页范围排序合并、共享页数限制，并只渲染选中的页面", async () => {
+		await writeFile(path.join(workspace, "ranges.pdf"), await pdfFixture("two-page.pdf"));
+		await testContext.useConfig({ limits: { read_pdf_pages: 3 } });
+		const fake = fakePdfSource({ pageCount: 10 });
+		const result = await testContext.read({ path: "ranges.pdf", pages: "8-,2-3,1-2" }, {
+			pdf: fake.source, image: passthroughPdfImage,
+		});
+		expect(fake.renderedPages).toEqual([1, 2, 3]);
+		expect(fake.disposeCalls).toBe(1);
+		expect(result).toMatchObject({ continuation: { pages: "8-10" }, truncated: true });
+		const discrete = fakePdfSource({ pageCount: 10 });
+		expect(await testContext.read({ path: "ranges.pdf", pages: "8,2" }, {
+			pdf: discrete.source, image: passthroughPdfImage,
+		})).toMatchObject({ pages: [{ number: 2 }, { number: 8 }], truncated: false });
+		expect(discrete.renderedPages).toEqual([2, 8]);
+		const invalid = fakePdfSource({ pageCount: 10 });
+		expectFailure(await testContext.read({ path: "ranges.pdf", pages: "1-,11" }, { pdf: invalid.source }), "INVALID_PATH");
+		expect(invalid.renderedPages).toEqual([]);
+		expect(invalid.disposeCalls).toBe(1);
+	});
+
 	it("通过真实 PDF.js 路径返回页面图片、metadata、标签和版本", async () => {
 		const bytes = await pdfFixture("two-page.pdf");
 		await writeFile(path.join(workspace, "document.pdf"), bytes);
@@ -322,8 +341,6 @@ describe("read PDF 页面", () => {
 			media_type: "pdf",
 			mime_type: "application/pdf",
 			size_bytes: bytes.byteLength,
-			start_page: 1,
-			end_page: 2,
 			total_pages: 2,
 			truncated: false,
 			metadata: { title: "Stage 2 PDF", author: "Pi Tests", pdf_version: "1.7" },
@@ -352,7 +369,7 @@ describe("read PDF 页面", () => {
 			pdf: fake.source,
 			image: passthroughPdfImage,
 		});
-		expect(result).toMatchObject({ start_page: expected[0], end_page: expected[1], total_pages: 5, truncated: false });
+		expect(result).toMatchObject({ pages: sequence(expected[0], expected[1]).map((number) => ({ number })), total_pages: 5, truncated: false });
 		expect(fake.renderedPages).toEqual(sequence(expected[0], expected[1]));
 		expect(fake.disposeCalls).toBe(1);
 	});
@@ -365,11 +382,10 @@ describe("read PDF 页面", () => {
 			image: passthroughPdfImage,
 		});
 		expect(defaultResult).toMatchObject({
-			start_page: 1,
-			end_page: 20,
+			pages: sequence(1, 20).map((number) => ({ number })),
 			total_pages: 25,
 			truncated: true,
-			continuation: { start_page: 21 },
+			continuation: { pages: "21-25" },
 		});
 		expect(defaultFake.renderedPages).toEqual(sequence(1, 20));
 
@@ -380,10 +396,9 @@ describe("read PDF 页面", () => {
 			image: passthroughPdfImage,
 		});
 		expect(configuredResult).toMatchObject({
-			start_page: 4,
-			end_page: 5,
+			pages: [{ number: 4 }, { number: 5 }],
 			truncated: true,
-			continuation: { start_page: 6 },
+			continuation: { pages: "6-9" },
 		});
 		expect(configuredFake.renderedPages).toEqual([4, 5]);
 	});
@@ -402,7 +417,7 @@ describe("read PDF 页面", () => {
 		expect(lines.openCalls).toBe(0);
 
 		const outside = fakePdfSource({ pageCount: 2 });
-		expectFailure(await testContext.read({ path: "guarded.pdf", pages: "3" }, { pdf: outside.source }), { code: "INVALID_PATH", details: { start_page: 3, total_pages: 2 } });
+		expectFailure(await testContext.read({ path: "guarded.pdf", pages: "3" }, { pdf: outside.source }), { code: "INVALID_PATH", message: "pages start 3 is outside 1-2." });
 		expect(outside.renderedPages).toEqual([]);
 		expect(outside.disposeCalls).toBe(1);
 	});

@@ -69,7 +69,7 @@ describe("file-tools lsp hooks", () => {
 			},
 		})).resolves.toMatchObject({
 			path: "a.ts",
-			lsp: { enclosing_symbol: { name: "demo" } },
+			segments: [{ lsp: { enclosing_symbol: { name: "demo" } } }],
 		});
 
 		await expect(readWorkspaceFile(workspace, { path: "a.ts", lines: "2-" }, {

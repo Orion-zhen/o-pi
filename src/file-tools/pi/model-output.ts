@@ -1,15 +1,22 @@
-import type { FailedResult } from "../shared/result.js";
+import type { FailedResult, FileToolError } from "../shared/result.js";
 import { isPlainRecord } from "./guards.js";
 
 /** File-tool failure body; complete structured details stay outside model text. */
 export function formatErrorModelResult(result: FailedResult): string {
-	const hints = result.error.code === "OLD_TEXT_NOT_UNIQUE"
-		? formatEditMatchHints(result.error.details)
-		: result.error.code === "OLD_TEXT_NOT_FOUND"
-			? formatEditNotFoundHints(result.error.details)
+	const errors = [result.error, ...(result.error.errors ?? [])];
+	const body = errors.map(formatErrorBody).join("\n");
+	const next = [...new Set(errors.flatMap((error) => error.next === undefined ? [] : [error.next]))]
+		.map((hint) => `\nnext: ${escapeXmlText(hint)}`).join("");
+	return `<error>\n${body}${next}\n</error>`;
+}
+
+function formatErrorBody(error: FileToolError): string {
+	const hints = error.code === "OLD_TEXT_NOT_UNIQUE"
+		? formatEditMatchHints(error.details)
+		: error.code === "OLD_TEXT_NOT_FOUND"
+			? formatEditNotFoundHints(error.details)
 			: "";
-	const next = result.error.next === undefined ? "" : `\nnext: ${escapeXmlText(result.error.next)}`;
-	return `<error>\n${escapeXmlText(result.error.message)}${hints}${next}\n</error>`;
+	return `${escapeXmlText(error.message)}${hints}`;
 }
 
 function formatEditMatchHints(details: Record<string, unknown> | undefined): string {

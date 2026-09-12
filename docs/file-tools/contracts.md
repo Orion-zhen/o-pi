@@ -23,7 +23,7 @@
 - 相对路径按当前 `cwd` 解析。空路径、空数组和空元素非法。
 - `tool-repair` 会迁移 `find` 和 `grep` 的旧版单路径或分隔字符串。无法可靠解析时，模式校验会拒绝输入，不猜测真实路径。
 
-`find` 的 `query` 是 fzf 扩展搜索查询，`glob` 是独立的候选预筛选，不会从 `query` 推导。`find` 固定使用智能大小写和路径匹配模式。`grep` 的 `query` 区分大小写并逐行执行。合法查询使用 ECMAScript 正则。非法正则只有在完全相同的字面量直接命中正文时，才返回明确的 `literal_fallback`，否则保持 `INVALID_REGEX`。两个搜索工具的 glob 都由文件系统发现能力相对每个范围解释，只限制候选范围，不改变公共路径安全规则。
+`find` 的 `query` 是 fzf 扩展搜索查询，`glob` 是独立的候选预筛选，不会从 `query` 推导。`find` 固定使用智能大小写和路径匹配模式。`grep` 的 `query` 区分大小写并逐行执行。`mode` 默认为 `regex`，使用 ECMAScript 正则，也可以显式选择 `literal` 搜索精确文本。无效正则立即返回 `INVALID_REGEX`，不探测或切换模式。两个搜索工具的 glob 都由文件系统发现能力相对每个范围解释，只限制候选范围，不改变公共路径安全规则。
 
 ## 模型可见结果
 
@@ -44,11 +44,11 @@ TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显
 `ls`、`read`、`find` 和 `grep` 都有各自的输出限制：
 
 - `ls` 限制直属条目数。
-- `read` 分别限制文本行数、文本字节数和 PDF 页面数。
+- `read` 分别限制文本行数、文本字节数和 PDF 页面数，全部区间共享预算。
 - `find` 限制共享遍历条目数、范围深度、具体结果数和模型文本长度。
 - `grep` 限制共享遍历条目数、累计正文快照字节数、范围深度、AST 单文件增强字节数、相关结果数、每个区域的展示行数和总结果数。模型文本不设词元预算，正文扫描使用文件系统行流。
 
-预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 为文本返回继续读取行号，为 PDF 返回继续读取页码。`find.truncated_by` 区分 `depth_limit`、`entry_limit`、`result_limit` 和 `output_limit`。`grep.truncated_by` 区分 `depth_limit`、`entry_limit`、`byte_limit` 和 `result_limit`，不应用输出词元预算。正文命中、相关锚点、不在模型输出中提示的相关结果限额，以及 AST 增强的内部容量只进入名称明确的统计与遥测字段。
+预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 为文本返回 `continuation.lines`，为 PDF 返回 `continuation.pages`，均为可以直接复用的剩余区间字符串。`find.truncated_by` 区分 `depth_limit`、`entry_limit`、`result_limit` 和 `output_limit`。`grep.truncated_by` 区分 `depth_limit`、`entry_limit`、`byte_limit` 和 `result_limit`，不应用输出词元预算。正文命中、相关锚点、不在模型输出中提示的相关结果限额，以及 AST 增强的内部容量只进入名称明确的统计与遥测字段。
 
 候选使用各工具定义的固定表示。预算只决定保留哪些完整候选，不会随机截断或扩展同一候选。文件系统文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 字节坐标。逻辑行、AST 和位置提示范围不使用原始文件的 BOM 偏移量。详细词元估算见[词元计数器](../token-counter.md)。
 
@@ -62,9 +62,9 @@ File does not exist.
 </error>
 ```
 
-错误不会伪装成成功的零结果。无效正则只有在完全相同的字面量直接命中正文时，才返回带警告的成功结果。没有字面量证据时与路径错误、权限错误、取消和索引基础设施错误一样返回相应结构化错误。只有合法搜索但没有命中时才返回成功的 `none`。
+错误不会伪装成成功的零结果。无效正则与路径错误、权限错误、取消和索引基础设施错误一样返回结构化错误。只有合法搜索但没有命中时才返回成功的 `none`。
 
-带有恢复方式的错误会增加 `next:` 提示。`READ_REQUIRED` 和 `STALE_READ` 要求重新读取文件。`OLD_TEXT_NOT_UNIQUE` 提供有限数量、可直接使用且唯一的 `old/new` 提示。`OLD_TEXT_NOT_FOUND` 优先说明前序替换依赖或提供格式等价、稳定锚点候选，没有可靠候选时才要求重新读取。诊断不会放宽 `edit` 的严格匹配语义。
+带有恢复方式的错误会增加 `next:` 提示。`READ_REQUIRED` 和 `STALE_READ` 要求重新读取文件。`OLD_TEXT_NOT_UNIQUE` 提供有限数量、可直接使用且唯一的 `old/new` 提示。`OLD_TEXT_NOT_FOUND` 优先说明前序替换依赖或提供格式等价、稳定锚点候选，没有可靠候选时才要求重新读取。多个独立替换错误通过 `EDIT_VALIDATION_FAILED` 和有界的 `error.errors` 一次报告，恢复候选共享预算。诊断不会放宽 `edit` 的严格匹配语义。
 
 ## 版本、取消与修改
 

@@ -3,6 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../../tui/tool-card.js";
 import { compactWhitespace, formatBytes, formatChars, joinParts, truncateEnd } from "../../../tui/text.js";
 import type { ReadImageSuccess, ReadPdfSuccess, ReadSuccess } from "../../read/types.js";
+import { formatReadTextContent, readPdfRangeLabel, readTextRangeLabel } from "../../read/presenter.js";
 import { isReadFileSuccess, isReadImageSuccess, isReadPdfSuccess, isReadSuccess } from "../../read/guards.js";
 import { isPlainRecord } from "../../pi/guards.js";
 import type { PartialTextRenderContext, TextRenderContext, ToolReadResult } from "./contracts.js";
@@ -84,7 +85,7 @@ function formatReadPdfResult(
 		status: "success",
 		target: details.path,
 		summary: joinParts([
-			`pages ${details.start_page}-${details.end_page}/${details.total_pages}`,
+			`pages ${readPdfRangeLabel(details)}/${details.total_pages}`,
 			`${details.pages.length} attached`,
 			formatBytes(details.size_bytes),
 			details.truncated ? "more" : undefined,
@@ -116,13 +117,13 @@ function formatReadTextResult(details: ReadSuccess, expanded: boolean, theme: Pi
 		status: "success",
 		target: details.path,
 		summary: joinParts([
-			`lines ${details.start_line}-${details.end_line}/${details.total_lines}`,
-			formatChars(details.content.length),
+			`lines ${readTextRangeLabel(details)}/${details.total_lines}`,
+			formatChars(details.segments.reduce((sum, segment) => sum + segment.content.length, 0)),
 			details.truncated || details.continuation !== undefined ? "more" : undefined,
 		]),
 	}, theme);
 	if (!expanded) return header;
-	return `${header}\n\n${theme.fg("toolOutput", details.content)}`;
+	return `${header}\n\n${theme.fg("toolOutput", formatReadTextContent(details))}`;
 }
 
 function readTarget(args: unknown, cwd: string): string {

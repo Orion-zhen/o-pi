@@ -82,6 +82,16 @@ describe("file-tools extension model output", () => {
 		]) expect(output).toContain(value);
 	});
 
+	it("多范围 read 通过扩展返回有原始坐标的片段，不输出间隔正文", async () => {
+		const { registered } = registerExtension(fileTools);
+		const cwd = workspace.path;
+		await writeFile(join(cwd, "ranges.txt"), "one\nskipped\nthree\nfour\n");
+		const ctx = { cwd, sessionManager: { getSessionId: () => "ranges", getBranch: () => [] } };
+		const result = await executeTool(registered, "read", { path: "ranges.txt", lines: "3-4,1" }, ctx);
+		expect(textResult(result)).toBe('<read path="ranges.txt" lines="1-1,3-4/4">\n<lines range="1-1">\none\n</lines>\n<lines range="3-4">\nthree\nfour\n</lines>\n</read>');
+		expect(result.details).toMatchObject({ segments: [{ start_line: 1, end_line: 1 }, { start_line: 3, end_line: 4 }] });
+	});
+
 	it("read/edit 成功结果给模型返回紧凑文本，完整结构留在 details", async () => {
 		const { registered } = registerExtension(fileTools);
 		const cwd = workspace.path;
@@ -94,7 +104,7 @@ describe("file-tools extension model output", () => {
 			const readText = textResult(read);
 			expect(readText).toBe('<read path="a.ts" lines="1-2/2">\none\ntwo\n</read>');
 			expect(readText).not.toContain('"encoding"');
-			expect(read.details).toMatchObject({ path: "a.ts", content: "one\ntwo\n", encoding: "utf-8", bom: false });
+			expect(read.details).toMatchObject({ path: "a.ts", segments: [{ content: "one\ntwo\n" }], encoding: "utf-8", bom: false });
 
 			const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
 			await writeFile(join(cwd, "pixel.gif"), imageBytes);
@@ -151,8 +161,6 @@ describe("file-tools extension model output", () => {
 		expect(result.details).toMatchObject({
 			path: "document.pdf",
 			media_type: "pdf",
-			start_page: 1,
-			end_page: 2,
 			pages: [{ number: 1, label: "i" }, { number: 2, label: "A-1" }],
 		});
 
@@ -172,11 +180,9 @@ describe("file-tools extension model output", () => {
 			mime_type: "application/pdf",
 			size_bytes: 1,
 			version: "v",
-			start_page: 1,
-			end_page: 1,
 			total_pages: 3,
 			truncated: true,
-			continuation: { start_page: 2 },
+			continuation: { pages: "2" },
 			metadata: { title: `<&\"\u0000${"😀".repeat(300)}` },
 			pages: [],
 		};

@@ -48,6 +48,7 @@ export function formatFailureCard(
 		["Actual", error.actual],
 		["Next", error.next],
 		["Details", error.details === undefined ? undefined : JSON.stringify(error.details)],
+		["Errors", error.errors === undefined ? undefined : JSON.stringify(error.errors)],
 	];
 	return [
 		header,

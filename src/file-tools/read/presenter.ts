@@ -1,3 +1,4 @@
+import { formatReadRanges, mergeReadRanges } from "./range.js";
 import type {
 	ReadEnclosingSymbol,
 	ReadPdfPage,
@@ -15,28 +16,48 @@ const PDF_PAGE_HINTS_CODE_POINTS = 512;
 export function formatReadModelResult(result: ReadSuccess): string {
 	const attrs = [
 		`path="${escapeXmlAttribute(result.path)}"`,
-		`lines="${result.start_line}-${result.end_line}/${result.total_lines}"`,
+		`lines="${readTextRangeLabel(result)}/${result.total_lines}"`,
 	];
-	if (result.continuation !== undefined) attrs.push(`more="${result.continuation.start_line}"`);
+	if (result.continuation !== undefined) attrs.push(`more="${result.continuation.lines}"`);
 	else if (result.truncated) attrs.push('truncated="true"');
 	if (result.ignored) attrs.push(`ignored="${escapeXmlAttribute(result.ignore_source ?? "true")}"`);
 	if (result.bom) attrs.push('bom="true"');
 	if (result.newline !== "lf") attrs.push(`newline="${result.newline}"`);
 
-	const structure = formatReadStructureContext(result.lsp);
-	let text = `<read ${attrs.join(" ")}>\n${result.content}`;
-	if (!text.endsWith("\n")) text += "\n";
-	if (structure !== undefined) text += `${structure}\n`;
-	return `${text}</read>`;
+	return `<read ${attrs.join(" ")}>\n${formatReadTextContent(result)}</read>`;
+}
+
+export function readTextRangeLabel(result: ReadSuccess): string {
+	return result.segments.map((segment) => `${segment.start_line}-${segment.end_line}`).join(",");
+}
+
+export function readPdfRangeLabel(result: ReadPdfSuccess): string {
+	return formatReadRanges(mergeReadRanges(result.pages.map((page) => ({ start: page.number, end: page.number }))));
+}
+
+export function formatReadTextContent(result: ReadSuccess): string {
+	return result.segments.map((segment) => {
+		const structure = formatReadStructureContext(segment.lsp);
+		let body = segment.content;
+		if (!body.endsWith("\n")) body += "\n";
+		if (structure !== undefined) body += `${structure}\n`;
+		return result.segments.length > 1
+			? formatReadSegment(body, segment.start_line, segment.end_line)
+			: body;
+	}).join("");
+}
+
+export function formatReadSegment(content: string, startLine: number, endLine: number): string {
+	return `<lines range="${startLine}-${endLine}">\n${content}</lines>\n`;
 }
 
 /** Bounded model-visible summary for a rendered PDF. */
 export function formatReadPdfModelSummary(result: ReadPdfSuccess): string {
 	const attrs = [
 		`path="${escapeXmlAttribute(cleanXml(result.path))}"`,
-		`pages="${result.start_page}-${result.end_page}/${result.total_pages}"`,
+		`pages="${readPdfRangeLabel(result)}/${result.total_pages}"`,
 	];
-	if (result.continuation !== undefined) attrs.push(`more="${result.continuation.start_page}"`);
+	if (result.continuation !== undefined) attrs.push(`more="${result.continuation.pages}"`);
 	if (result.ignore_source !== undefined) attrs.push(`ignored="${escapeXmlAttribute(cleanXml(result.ignore_source))}"`);
 
 	for (const [key, raw] of [["title", result.metadata.title], ["author", result.metadata.author]] as const) {

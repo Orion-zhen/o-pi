@@ -173,6 +173,7 @@ export function buildEditNotFoundRecovery(
 ): EditNotFoundRecovery {
 	const afterEditIndex = findIntroducingEdit(text, old, previous);
 	if (afterEditIndex !== undefined) return { kind: "dependent", afterEditIndex };
+	if (limit <= 0) return { kind: "none" };
 	const formatCandidate = findUniqueFormatCandidate(text, old);
 	if (formatCandidate !== undefined) return { kind: "format", candidate: formatCandidate };
 	const candidates = buildAnchorCandidates(text, old, limit);

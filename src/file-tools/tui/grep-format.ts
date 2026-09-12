@@ -2,6 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { joinParts } from "../../tui/text.js";
 import { isGrepSuccessDetails } from "../pi/guards.js";
+import { formatSearchNavigation } from "../shared/search-navigation.js";
 import type { GrepParams, GrepRegion, TruncationReason } from "../grep/types.js";
 
 const LIMIT_LABELS: Record<TruncationReason, string> = {
@@ -18,7 +19,7 @@ export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">)
 	const paths = pathArgs(record["path"]);
 	const glob = typeof record["glob"] === "string" ? record["glob"] : undefined;
 	return formatToolCard(
-		{ tool: "grep", status: "running", target: `${JSON.stringify(query)} in ${paths.join(", ")}`, summary: joinParts([glob]) },
+		{ tool: "grep", status: "running", target: `${JSON.stringify(query)} in ${paths.join(", ")}`, summary: joinParts([record["mode"] === "literal" ? "literal" : undefined, glob]) },
 		theme,
 	);
 }
@@ -35,16 +36,15 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			`${details.returned_regions} regions`,
 			`${details.returned_files} files`,
 			`${details.stats.searched_files}/${details.stats.traversed_entries} searched/traversed`,
-			details.query_mode === "literal_fallback" ? "literal fallback" : undefined,
+			details.query_mode === "literal" ? "literal" : undefined,
 			details.truncated_by.length > 0 ? `limit:${formatLimitReasons(details.truncated_by)}` : undefined,
 			details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 		]),
 	}, theme);
 	if (!expanded) return header;
 	const lines = [header];
-	if (details.query_mode === "literal_fallback") lines.push(theme.fg("warning", "invalid regex; exact literal fallback used"));
 	appendRegions(lines, details.regions, theme);
-	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limit: ${formatLimitReasons(details.truncated_by, ", ")}`));
+	if (details.truncated_by.length > 0) lines.push(...formatSearchNavigation(details.navigation).map((line) => theme.fg("muted", line)));
 	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`));
 	if (details.stats.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.stats.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));
 	return lines.join("\n");

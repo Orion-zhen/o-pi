@@ -1,3 +1,4 @@
+import { formatSearchNavigation, SearchScopeCounts } from "../shared/search-navigation.js";
 import { countTextTokensSync } from "../../token-counter.js";
 import type { RankedRegion } from "./candidates.js";
 import {
@@ -35,6 +36,7 @@ export interface GrepPackInput {
 	regions: readonly RankedRegion[];
 	stats: Omit<GrepStats, "dropped_related_results">;
 	truncationReasons: readonly TruncationReason[];
+	incomplete?: readonly string[];
 	resultLimit: number;
 	relatedResultLimit: number;
 	regionalDisplayLimit: number;
@@ -54,6 +56,15 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	]);
 	const ranking = rankingDiagnostics(input.regions, candidates, selected, input.resultLimit);
 	const result = createSuccess(input, candidates.length, regions, reasons, limited.dropped, ranking);
+	if (reasons.length > 0) {
+		const counts = new SearchScopeCounts();
+		const scopes = [...(input.paths ?? [input.path])].sort((a, b) => b.length - a.length);
+		for (const candidate of candidates) {
+			const scope = scopes.find((scope) => scope === "." || candidate.path === scope || candidate.path.startsWith(scope.endsWith("/") ? scope : `${scope}/`));
+			if (scope !== undefined) counts.add(scope, candidate.path, true);
+		}
+		result.navigation = { narrow: counts.result(), ...(input.incomplete === undefined ? {} : { incomplete: input.incomplete }) };
+	}
 	return { ...result, approx_tokens: tokenCount(renderGrepSuccess(result)) };
 }
 
@@ -191,9 +202,6 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 		const omitted = result.scope_errors.length - 2;
 		lines.push(`partial; scope_errors=${shown}${omitted > 0 ? `,+${omitted}` : ""}`);
 	}
-	if (result.query_mode === "literal_fallback") {
-		lines.push("warning: invalid regex; exact literal fallback used");
-	}
 	if (result.regions.length === 0) {
 		lines.push("none");
 	} else {
@@ -204,9 +212,9 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	if (result.stats.skipped_files !== undefined) lines.push(`skipped: ${formatSkipped(result.stats.skipped_files)}`);
 	if (result.regions.length === 0) {
 		lines.push(`searched=${result.stats.searched_files}; skipped=${skippedCount(result.stats.skipped_files)}`);
-		if (result.truncated_by.length > 0) lines.push(`next: resolve ${result.truncated_by.join(",")}; narrow path/glob`);
-		else lines.push("next: refine query/path/glob");
+		if (result.truncated_by.length === 0) lines.push("next: refine query/path/glob");
 	}
+	if (result.truncated_by.length > 0) lines.push(...formatSearchNavigation(result.navigation));
 	lines.push("</grep>");
 	return lines.join("\n");
 }

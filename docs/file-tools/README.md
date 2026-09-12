@@ -39,7 +39,7 @@ WorkspaceFileSystem 能力门面
 Node 平台后端
 ```
 
-Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位于 `src/file-tools/{ls,read,write,edit,find,grep}/`，互不导入。工具之间只共享错误、诊断和差异契约。`src/filesystem/` 是工作区 I/O 的唯一数据平面，不依赖 Pi、模型输出、LSP、Tree-sitter 或具体工具结果。
+Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位于 `src/file-tools/{ls,read,write,edit,find,grep}/`，互不导入。工具之间共享错误、诊断、差异契约和搜索截断导航。`src/filesystem/` 是工作区 I/O 的唯一数据平面，不依赖 Pi、模型输出、LSP、Tree-sitter 或具体工具结果。
 
 每次调用都由 `FileToolsHost.open({ cwd, sessionId, signal })` 根据调用的 `cwd` 加载配置。然后，`FileToolsHost` 提供 `WorkspaceFileSystem`、工具预算和会话观测状态。`WorkspaceFileSystem` 绑定不可变策略和仅供本次调用使用的可见性求值器。
 
@@ -84,13 +84,14 @@ LSP 只提供内部增强，不是额外的模型可见工具。LSP 未配置、
 常见恢复方式：
 
 - 目录太大：用 `ls` 查看更具体的子目录。
-- `find` 或 `grep` 被截断：缩小 `path`、增加 `glob` 约束或拆分查询。先根据 `truncated_by` 判断具体限制。
-- `read` 被截断：文本根据 `continuation.start_line` 继续，PDF 根据 `continuation.start_page` 继续。
+- `find` 或 `grep` 被截断：根据 `truncated_by` 和导航提示缩小 `path`、增加 `glob` 约束或拆分查询。`incomplete` 列出少量已知未完成范围。
+- `read` 被截断：把 `continuation.lines` 或 `continuation.pages` 作为下次范围，保留全部未读区间。
 - `READ_REQUIRED`：先重新 `read`，再生成 `edit`。
 - `STALE_READ`：文件发生未被当前会话采纳的变化，重新 `read` 后再编辑。当前会话的 `bash` 命令期间产生的已观察文件变更会自动采纳。
 - `OLD_TEXT_NOT_UNIQUE`：优先使用错误中返回的唯一 `old/new` 文本对重试。文件变化时再重新 `read`。
 - `OLD_TEXT_NOT_FOUND`：按错误提示消除对前序替换的依赖，或使用格式等价候选或锚点候选重写 `old`。没有可靠候选时重新 `read`。
-- 无效正则只有在精确字面量存在直接命中时才显式降级。否则，它与路径错误或权限错误一样，不会伪装成零结果。
+- 无效正则立即报错。需要精确文本时显式设置 `mode: "literal"`，不隐式降级。
+- `EDIT_VALIDATION_FAILED`：一次修正全部已报告错误。任何验证错误都会阻止整次写入。
 
 公共输出和错误协议见[工具契约](contracts.md)。
 
@@ -106,7 +107,7 @@ LSP 只提供内部增强，不是额外的模型可见工具。LSP 未配置、
 
 ### `grep`
 
-`grep` 对 `query` 执行区分大小写的逐行搜索。合法查询使用 ECMAScript 正则。非法正则只有在精确字面量存在直接正文命中时才返回 `literal_fallback`，否则返回 `INVALID_REGEX`。
+`grep` 对 `query` 执行区分大小写的逐行搜索。`mode` 为 `regex` 或 `literal`，默认 `regex`。非法正则直接返回 `INVALID_REGEX`，字面量模式不解释元字符。
 
 对于任意合法查询，`grep` 都会优先尝试完整的 LSP 分析。LSP 事务不可用时，Tree-sitter 会把真实正文命中归入最小代码单元，并根据代码单元之间的关系标记 `called`、`referenced` 或 `defined`。
 
@@ -114,7 +115,7 @@ LSP 只提供内部增强，不是额外的模型可见工具。LSP 未配置、
 
 ### `read`
 
-`read` 读取 UTF-8 文本、可向模型内联返回的普通图片和 PDF 页面图片。文本使用 `lines` 范围，PDF 使用 `pages` 范围。PDF 默认一次最多返回 20 页，并通过 `continuation.start_page` 提供继续位置。它不提取 PDF 文字或执行 OCR。音频、视频及其他不支持的二进制文件会返回结构化错误。`read` 还为后续 `edit` 记录当前文件版本。
+`read` 读取 UTF-8 文本、可向模型内联返回的普通图片和 PDF 页面图片。文本使用 `lines` 范围，PDF 使用 `pages` 范围，均支持逗号分隔的多个区间。所有区间共享快照和预算。PDF 默认一次最多返回 20 页，并通过 `continuation.pages` 提供未读范围。它不提取 PDF 文字或执行 OCR。音频、视频及其他不支持的二进制文件会返回结构化错误。`read` 还为后续 `edit` 记录当前文件版本。
 
 ### `write`
 
@@ -122,7 +123,7 @@ LSP 只提供内部增强，不是额外的模型可见工具。LSP 未配置、
 
 ### `edit`
 
-`edit` 一次只修改一个已有的 UTF-8 文件。每个 `old` 文本必须非空且唯一。所有替换都与修改队列读取的当前原文匹配，并且范围不得重叠。当前会话必须已经对文件执行过 `read`、成功的 `write` 或成功的 `edit`，以建立观测状态。版本不一致时不会自动合并或覆盖。
+`edit` 一次只修改一个已有的 UTF-8 文件。每个 `old` 文本必须非空，未设置 `replace_all: true` 时必须唯一。所有替换都与修改队列读取的当前原文匹配，并且范围不得重叠。当前会话必须已经对文件执行过 `read`、成功的 `write` 或成功的 `edit`，以建立观测状态。版本不一致时不会自动合并或覆盖。
 
 ## 配置概览
 

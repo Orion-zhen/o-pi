@@ -7,9 +7,11 @@ export function isReadFileSuccess(value: unknown): value is ReadFileSuccess {
 export function isReadSuccess(value: unknown): value is ReadSuccess {
 	return isPlainRecord(value)
 		&& typeof value["path"] === "string"
-		&& typeof value["content"] === "string"
-		&& typeof value["start_line"] === "number"
-		&& typeof value["end_line"] === "number"
+		&& Array.isArray(value["segments"])
+		&& value["segments"].every((segment) => isPlainRecord(segment)
+			&& typeof segment["content"] === "string"
+			&& typeof segment["start_line"] === "number"
+			&& typeof segment["end_line"] === "number")
 		&& typeof value["total_lines"] === "number";
 }
 
@@ -25,9 +27,7 @@ export function isReadPdfSuccess(value: unknown): value is ReadPdfSuccess {
 	if (!isPlainRecord(value) || value["media_type"] !== "pdf" || typeof value["path"] !== "string" || !Array.isArray(value["pages"])) {
 		return false;
 	}
-	return typeof value["start_page"] === "number"
-		&& typeof value["end_page"] === "number"
-		&& typeof value["total_pages"] === "number"
+	return typeof value["total_pages"] === "number"
 		&& value["pages"].every(isReadPdfPage);
 }
 

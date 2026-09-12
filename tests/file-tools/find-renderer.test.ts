@@ -68,7 +68,7 @@ describe("find renderer", () => {
 		expect(result.details.truncated_by).toEqual(["depth_limit", "result_limit", "output_limit"]);
 		expect(result.details.displayed_matches.length).toBeLessThan(matches.length);
 		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(48);
-		for (const line of result.content.split("\n").slice(1)) {
+		for (const line of result.content.split("\n").slice(1).filter((line) => !line.startsWith("next:"))) {
 			expect(matches.some((match) => match.path === line)).toBe(true);
 		}
 	});

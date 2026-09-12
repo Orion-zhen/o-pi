@@ -240,7 +240,7 @@ export async function assertStrictMatches(workspace: string, result: GrepSuccess
 		expect(region.match_lines?.length).toBeGreaterThan(0);
 		for (const lineNumber of region.match_lines ?? []) {
 			const line = lines[lineNumber - 1] ?? "";
-			expect(result.query_mode === "literal_fallback" ? line.includes(query) : new RegExp(query, "u").test(line)).toBe(true);
+			expect(result.query_mode === "literal" ? line.includes(query) : new RegExp(query, "u").test(line)).toBe(true);
 		}
 	}
 }

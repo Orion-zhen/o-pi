@@ -102,7 +102,6 @@ export class GrepTool {
 		});
 		if (isFailed(scanned)) return scanned;
 		await preparation;
-		if (plan.queryMode === "literal_fallback" && scanned.totalHits === 0) return plan.invalidRegex;
 		const analysisPaths = semanticParsePriority(inventory, scanned);
 		const analyzed = await analyzeSymbols(plan, inventory, scanned, analysisPaths, context);
 		if (isFailed(analyzed)) return analyzed;
@@ -137,6 +136,7 @@ export class GrepTool {
 				regionized.skipped,
 			),
 			truncationReasons: inventory.truncationReasons,
+			incomplete: inventory.incomplete,
 			resultLimit: context.limits.grep_result_limit,
 			relatedResultLimit: context.limits.grep_related_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,

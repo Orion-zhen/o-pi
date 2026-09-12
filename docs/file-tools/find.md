@@ -87,6 +87,15 @@ matched=90 selected=50; truncated=depth_limit,result_limit,output_limit
 
 出现 `entry_limit` 或 `depth_limit` 时，命中数只反映已搜索的部分。零命中不代表目标不存在。
 
+截断时，`navigation.narrow` 最多提供 3 个更小的目录范围及其已扫描命中数。统计覆盖本次全部匹配，不只统计已展示结果。`navigation.incomplete` 最多提供 3 个已知未完成范围，来自深度或条目限制和未开始的后续搜索根。它不是完整的未搜索清单。
+
+```text
+incomplete: ["src/deep","tests"]
+next: narrow path to "src/auth" (12 candidates), "src/session" (4 candidates)
+```
+
+导航不额外扫描，且只在截断时进入结果。提示与路径行共享输出词元预算，预算不足时优先保留状态和首条完整路径。改变 `path` 后应按新范围调整带锚点的 `query` 和相对 `glob`。
+
 `details.matches` 保存结果限制应用后的完整选择。`displayed_matches` 只保存实际进入模型正文的路径。条目预算由运行时配置，模型参数不能放大该预算。`stats` 记录遍历、软忽略和跳过的条目数。排名分数不进入模型正文。
 
 零结果示例：

@@ -49,7 +49,7 @@ export async function listDirectory(
 			truncated: true,
 			returned_entries: visibleEntries.length,
 			total_entries: entries.length,
-			continuation_hint: "List a more specific subdirectory.",
+			continuation_hint: truncationHint(entries, resolved.value.displayPath),
 		};
 	}
 	return {
@@ -57,6 +57,12 @@ export async function listDirectory(
 		entries: visibleEntries,
 		truncated: false,
 	};
+}
+
+function truncationHint(entries: readonly LsEntry[], path: string): string {
+	const directories = entries.filter((entry) => entry.type === "directory" && entry.ignored !== true).slice(0, 3).map((entry) => entry.path);
+	const find = `find path=${JSON.stringify([path])} with a narrower query/glob`;
+	return directories.length === 0 ? find : `ls one of ${JSON.stringify(directories)}, or ${find}`;
 }
 
 function toLsEntry(

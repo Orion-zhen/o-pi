@@ -12,9 +12,9 @@
 -> 相关性头部/MMR 打包
 ```
 
-每个已验证结果都来自当前正文中的真实逐行命中。合法查询按 ECMAScript 正则执行。对于非法正则，系统只探测完全相同的字面量。字面量直接命中正文时，结果会明确标记为 `literal_fallback`。没有直接命中时，系统返回 `INVALID_REGEX`，不会把错误伪装成零结果，也不会查找相关结果。
+每个已验证结果都来自当前正文中的真实逐行命中。`mode` 默认为 `regex`，按 ECMAScript 正则执行。`literal` 模式搜索完全相同的文本。非法正则立即返回 `INVALID_REGEX`，不扫描正文、不启动 LSP，也不隐式切换模式。
 
-只要 LSP 能处理本次调用的全部结构分析目标，并具备所需能力，正则、字面量回退、唯一命中、多命中和零命中都会优先采用 LSP。任何部分失效时，系统都会丢弃整次 LSP 事务，并改用 Tree-sitter 重新执行完整分析。正文没有命中时，按固定规则提取的查询词可以形成明确标记的相关结果。
+只要 LSP 能处理本次调用的全部结构分析目标，并具备所需能力，正则、字面量、唯一命中、多命中和零命中都会优先采用 LSP。任何部分失效时，系统都会丢弃整次 LSP 事务，并改用 Tree-sitter 重新执行完整分析。正文没有命中时，按固定规则提取的查询词可以形成明确标记的相关结果。
 
 ## 参数
 
@@ -26,32 +26,24 @@
 }
 ```
 
-- `query`：区分大小写，逐逻辑行执行。合法的 ECMAScript 正则按正则匹配，不支持跨行。非法正则只有在完全相同的字面量直接命中正文时才会降级。
+- `query`：区分大小写，逐逻辑行执行，不支持跨行。
+- `mode`：`regex` 或 `literal`，默认 `regex`。后者不解释元字符，例如 `{"query":"$schema","mode":"literal"}`。
 - `path`：非空的目录或普通文件范围数组，默认为 `["."]`。多个范围取并集。
 - `glob`：相对每个 `path` 解释的候选文件 glob，只缩小范围。不含 `/` 时递归匹配基础名称，含 `/` 时匹配范围相对路径。
 - 相对路径按 `cwd` 解析。目录会递归检索，普通文件只检索该文件。
-- `path: []`、空路径和包含 CR 或 LF 的查询非法。无效正则没有完全相同的字面量命中时也非法。
+- `path: []`、空路径和包含 CR 或 LF 的查询非法。`regex` 模式下的无效正则始终非法。
 
-`grep` 没有匹配模式参数，也不分类标识符、长文本、自然语言或关系意图。
+`grep` 不从查询内容猜测模式，也不分类标识符、长文本、自然语言或关系意图。
 
 ## 候选
 
 ### 正文命中
 
-系统通过一次稳定的正文读取，在所有文件中执行已解析的查询。合法正则直接执行。非法正则使用完全转义后的字面量匹配器探测。只有整次扫描至少产生一个直接命中时，系统才接受降级。
+系统通过一次稳定的正文读取，在所有文件中执行已解析的查询。正则直接执行，字面量先完整转义再匹配。两种模式共用快照、结构分析、排序和输出流程。字面量零命中不是正则错误。
 
 对于大小未超过结构分析限制的代码文件，系统会一次性读取并解码，然后保留当前快照的正文，供 LSP 或 Tree-sitter 直接复用。普通文本和大文件继续采用流式逐行扫描。命中受支持的代码时，选定的结构分析器会把同一最小代码单元中的命中聚合为一个已验证区域。无法解析或没有语法归属的命中仍以文本行表示。
 
-字面量回退的成功正文会在结果开始处显示警告：
-
-```text
-<grep>
-warning: invalid regex; exact literal fallback used
-src/parser.ts:42: const value = read(input);
-</grep>
-```
-
-`details.query_mode` 为 `regex` 或 `literal_fallback`。回退区域的 `matched_by` 为 `literal`，`source` 为 `text-literal`。
+`details.query_mode` 为 `regex` 或 `literal`。字面量命中的 `matched_by` 为 `literal`，`source` 为 `text-literal`。显式字面量模式不是降级，不输出警告。
 
 ### 符号分析与零命中回退
 
@@ -150,6 +142,15 @@ src/session/cache.ts:12-46 SessionCache.restore [not match, related]
 
 正文命中、相关锚点、不会显示的相关结果限额，以及 AST 增强的内部容量不进入 `truncated_by`。`details.stats` 记录 `text_hits`、`dropped_text_hits`、`dropped_related_anchors`、`dropped_related_results` 和 `ast_skipped_oversized_files`。遥测投影使用对应的 `*_count` 字段。
 
+截断结果还可以包含 `navigation`：
+
+```text
+incomplete: ["src/deep","tests"]
+next: narrow path to "src/auth" (12 candidates), "src/session" (4 candidates)
+```
+
+`navigation.narrow` 最多列出 3 个更小的目录或文件范围，数量来自本次相关结果限额生效后的全部候选，不只统计已展示结果。`navigation.incomplete` 最多列出 3 个已知未完成范围，来源于遍历限制、无法纳入字节预算的文件和未开始的后续搜索根。它不是完整的未搜索清单，候选数也不代表未扫描部分。导航不额外读取或扫描文件。改变 `path` 后应按新范围调整相对 `glob`。未截断时不附加导航。
+
 `details.ranking` 只供遥测使用，记录以下信息：
 
 - 算法标识
@@ -196,7 +197,7 @@ next: refine query/path/glob
 | code | 条件 |
 | --- | --- |
 | `INVALID_OPERATION` | `query` 为空，或包含 NUL、CR 或 LF |
-| `INVALID_REGEX` | `query` 不是合法正则，且完全相同的字面量探测没有直接命中 |
+| `INVALID_REGEX` | `regex` 模式下的 `query` 不是合法正则。提示修正表达式或显式使用 `mode="literal"` |
 | `INVALID_PATH` | `path` 或 `glob` 非法 |
 | `PATH_NOT_FOUND` | 搜索范围不存在 |
 | `PROTECTED_PATH` | path 被配置阻止 |

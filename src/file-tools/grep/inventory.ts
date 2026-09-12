@@ -4,6 +4,7 @@ import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
+import { recordIncomplete } from "../shared/search-navigation.js";
 import { compactGrepSkippedFiles, createGrepSkippedFiles, type MutableGrepSkippedFiles } from "./skipped.js";
 import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
 
@@ -27,6 +28,7 @@ export interface ScopeInventory {
 	readonly skipped: GrepSkippedFiles;
 	readonly traversedEntries: number;
 	readonly truncationReasons: readonly TruncationReason[];
+	readonly incomplete: readonly string[];
 }
 
 export interface ScopeInventoryContext {
@@ -46,6 +48,7 @@ interface MutableInventoryState {
 	readonly seenFiles: Map<string, number>;
 	readonly skipped: MutableGrepSkippedFiles;
 	readonly truncationReasons: Set<TruncationReason>;
+	readonly incomplete: string[];
 	traversedEntries: number;
 	reservedSearchBytes: number;
 }
@@ -64,11 +67,12 @@ export async function buildScopeInventory(
 		seenFiles: new Map(),
 		skipped: createGrepSkippedFiles(),
 		truncationReasons: new Set(),
+		incomplete: [],
 		traversedEntries: 0,
 		reservedSearchBytes: 0,
 	};
 
-	for (const scopeInput of input.paths) {
+	for (const [scopeIndex, scopeInput] of input.paths.entries()) {
 		if (isAborted(context.operation.signal)) return aborted(scopeInput);
 		const resolved = await resolveScope(scopeInput, context);
 		if (isFailed(resolved)) {
@@ -93,7 +97,10 @@ export async function buildScopeInventory(
 			state.scopeErrors.push({ path: scopeInput, error: discovered.error });
 		} else {
 			state.scopes.push(scope);
-			if (state.truncationReasons.has("entry_limit") || state.truncationReasons.has("byte_limit")) break;
+			if (state.truncationReasons.has("entry_limit") || state.truncationReasons.has("byte_limit")) {
+				for (const pending of input.paths.slice(scopeIndex + 1)) recordIncomplete(state.incomplete, pending);
+				break;
+			}
 		}
 	}
 
@@ -104,6 +111,7 @@ export async function buildScopeInventory(
 	}
 	return {
 		scopes: state.scopes,
+		incomplete: state.incomplete,
 		files: state.files,
 		scopeErrors: state.scopeErrors,
 		skipped: compactGrepSkippedFiles(state.skipped),
@@ -155,8 +163,10 @@ function consumeDiscoveryEvent(
 	state: MutableInventoryState,
 ): FailedResult | "byte-limit" | undefined {
 	if (event.type === "skip") {
-		if (event.reason === "depth-limit") state.truncationReasons.add("depth_limit");
-		else if (event.reason === "entry-limit") state.truncationReasons.add("entry_limit");
+		if (event.reason === "depth-limit" || event.reason === "entry-limit") {
+			state.truncationReasons.add(event.reason === "depth-limit" ? "depth_limit" : "entry_limit");
+			recordIncomplete(state.incomplete, event.path);
+		}
 		else if (scope.root.kind === "directory" && event.reason !== "blocked") state.traversedEntries += 1;
 		return;
 	}
@@ -196,6 +206,7 @@ function addFile(
 	}
 	if (snapshot.sizeBytes > state.context.maxSearchBytes - state.reservedSearchBytes) {
 		state.truncationReasons.add("byte_limit");
+		recordIncomplete(state.incomplete, ref.displayPath);
 		return false;
 	}
 	state.reservedSearchBytes += snapshot.sizeBytes;

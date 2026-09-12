@@ -23,8 +23,9 @@ PDF 页面范围：
 ```
 
 - `path` 是明确的文件路径。相对路径按当前 `cwd` 解析。
-- `lines` 和 `pages` 都接受 `"N"`、`"N-M"` 和 `"N-"`。范围从 1 开始，两端均包含。
-- 范围不能包含空格、前导零、逗号、空起点或多个区间。终点不能小于起点。
+- `lines` 和 `pages` 都接受 `"N"`、`"N-M"` 和 `"N-"`，用逗号组合多个范围，例如 `"1-20,80-100,200-"`。范围从 1 开始，两端均包含。
+- 范围不能包含空格、前导零或空起点。终点不能小于起点。
+- 先校验全部范围，再按起点排序，合并相邻、重复和重叠范围。同一次调用的全部范围共享输出预算，并来自同一原始字节快照。
 - `lines` 和 `pages` 不能同时出现。
 - 文本仅接受 `lines`。PDF 仅接受 `pages`。普通图片不接受范围参数。
 - 范围终点超过文件行数或 PDF 总页数时，读取到末尾。范围起点超过末尾时返回 `INVALID_PATH`。
@@ -34,23 +35,38 @@ PDF 页面范围：
 模型可见成功结果是紧凑 XML，完整结构保留在 `details`：
 
 ```xml
-<read path="src/main.ts" lines="1-80/240" more="81">
+<read path="src/main.ts" lines="1-80/240" more="81-240">
 ...content...
 </read>
 ```
 
 文本 `details` 包括：
 
-- `content`：原始文本片段，不带行号。
-- `start_line`、`end_line` 和 `total_lines`。
+- `segments`：有序文本片段，每项包含原始 `content`、`start_line`、`end_line` 和可选的 `lsp`。正文不带行号。
+- `total_lines`：文件总行数。
 - `size_bytes`：原始文件字节数。
 - `encoding`：当前固定为 `utf-8`。
 - `newline`：`lf`、`crlf`、`mixed` 或 `none`。
 - `bom`：是否带 UTF-8 BOM。
-- `truncated` 和 `continuation.start_line`：输出截断状态和继续位置。
+- `truncated` 和 `continuation.lines`：输出截断状态和未读范围，可直接作为下次 `lines`。
 - `ignored` 和 `ignore_source`：明确读取软忽略文件时的状态。
 
 只有非默认状态才进入模型文本，例如 `ignored`、`bom`、`newline`、`more`、`truncated` 和 LSP 摘要。默认编码、版本和文件大小只保留在 `details`。
+
+多个片段分别标明原始范围，不把间隔内的未读内容当作已返回正文：
+
+```xml
+<read path="src/main.ts" lines="1-2,80-81/240" more="82-100,200-240">
+<lines range="1-2">
+...content...
+</lines>
+<lines range="80-81">
+...content...
+</lines>
+</read>
+```
+
+此时 `continuation.lines` 为 `"82-100,200-240"`。预算耗尽不会丢失后续区间，也不会把区间之间未请求的行加入续读。
 
 ## 普通图片结果
 
@@ -71,7 +87,7 @@ PDF.js 按物理页码顺序渲染选中的页面。每页渲染结果立即进�
 
 ```ts
 [
-  { type: "text", text: "<pdf path=\"docs/spec.pdf\" pages=\"2-3/10\" more=\"4\" title=\"Spec\" author=\"Example\"/>" },
+  { type: "text", text: "<pdf path=\"docs/spec.pdf\" pages=\"2-3/10\" more=\"4-10\" title=\"Spec\" author=\"Example\"/>" },
   { type: "text", text: "<pdf_page number=\"2\" label=\"ii\"/>" },
   { type: "image", data: "<page-2-base64>", mimeType: "image/png" },
   { type: "text", text: "<pdf_page number=\"3\"/>" },
@@ -83,24 +99,24 @@ PDF.js 按物理页码顺序渲染选中的页面。每页渲染结果立即进�
 
 PDF `details` 包括：
 
-- `start_page`、`end_page` 和 `total_pages`。
-- `truncated` 和可选的 `continuation.start_page`。
+- `total_pages`：总页数。实际返回页码由 `pages[].number` 表达，模型摘要按连续范围压缩，例如 `pages="2,8-10/20"`。
+- `truncated` 和可选的 `continuation.pages`，后者可直接作为下次 `pages`。
 - `metadata`：仅保留 `title`、`author`、`subject`、`keywords`、`creator`、`producer`、`creation_date`、`modification_date` 和 `pdf_version`。
 - `pages`：每页的物理页码、可选页面标签、点尺寸、旋转角度、处理后的图片和提示。
 - `size_bytes` 和根据原始 PDF 字节计算的 `version`。
 
 标题、作者和页面标签属于不可信文档内容。模型格式化会过滤 XML 1.0 禁止的控制字符，按 Unicode 码点限制长度并执行 XML 转义。完整 XMP、自定义 metadata、附件、注释和表单字段不会进入结果。
 
-未指定 `pages` 时，读取从第 1 页开始。一次调用最多返回 `read_pdf_pages` 页，默认值为 20。显式的大范围不能绕过该限制。PDF 仍有待返回页面时，结果包含：
+未指定 `pages` 时，读取从第 1 页开始。一次调用最多返回 `read_pdf_pages` 页，默认值为 20。全部范围共享该限制，重复页只渲染一次。例如 30 页 PDF 首次返回 20 页后，结果包含：
 
 ```json
 {
   "truncated": true,
-  "continuation": { "start_page": 21 }
+  "continuation": { "pages": "21-30" }
 }
 ```
 
-调用方可以使用 `pages: "21-"` 继续读取。命令只渲染最终选中的页面，不会先渲染完整文档。任一页面解析、渲染或图片处理失败时，整次调用失败，不返回前面页面的部分结果。已打开的 PDF 和页面资源始终释放。
+调用方可以使用 `pages: "21-30"` 继续读取。命令只渲染最终选中的页面，不会先渲染完整文档。任一页面解析、渲染或图片处理失败时，整次调用失败，不返回前面页面的部分结果。已打开的 PDF 和页面资源始终释放。
 
 ## 图片能力与二进制
 
@@ -116,13 +132,13 @@ PDF 和普通图片使用相同的模型输出能力检查。`openai-completions
 
 工作区路径不存在时，`read` 通过 `discovery` 获取候选，再按路径拼写相似度生成建议。候选受受阻路径、可见性、符号链接和条目预算约束。工作区外的路径不提供工作区内路径建议。
 
-只有部分文本读取或截断文本读取会调用 `read` 专属结构端口。如果可见片段未包含最小包围符号的声明行，LSP 会附加包围符号。长文件还可以附加非递归的 `remaining_symbols` 导航信息。LSP 未配置、调用失败或取消时，`read` 仍返回基础文本。PDF 不执行 LSP 结构增强。
+只有部分文本读取或截断文本读取会调用 `read` 专属结构端口。每个返回片段分别请求结构，结构提示与正文共享整次调用的预算。如果可见片段未包含最小包围符号的声明行，LSP 会附加包围符号。长文件还可以附加非递归的 `remaining_symbols` 导航信息。LSP 未配置、调用失败或取消时，`read` 仍返回基础文本。PDF 不执行 LSP 结构增强。
 
 当前分支已加载的 `skill://` 路径由文件系统命名空间解析。文本、普通图片和 PDF 结果保留逻辑路径，并附加 `skill_resource`。技能文件不执行工作区 LSP 增强，但会记录供 `edit` 使用的内容版本。
 
 ## 限制与错误
 
-- `read_lines` 和 `read_bytes` 限制文本结果。
+- `read_lines` 和 `read_bytes` 在所有片段间共享。结构提示消耗行数和字节预算，分段标记消耗字节预算。外层摘要不计入正文预算。
 - `read_pdf_pages` 限制一次返回的 PDF 页面数，默认 20。
 - `read_max_file_bytes` 限制文本、图片和 PDF 的原始文件大小。
 - 每张普通图片或 PDF 页面图片还受现有内联图片尺寸和 Base64 大小限制。
@@ -161,4 +177,4 @@ next: Related paths: src/main.ts
 - 不提取 PDF 文字，不执行 OCR，也不为 PDF 文字提供 `lines` 范围。
 - 不读取或发送附件、注释、表单字段、完整目录树、完整 XMP 或任意自定义 PDF metadata。
 - 不接受 PDF 密码参数。
-- 不支持 `"-M"`、逗号列表、离散页面集合或多个范围。
+- 不支持 `"-M"` 或倒序读取。

@@ -3,6 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../../tui/tool-card.js";
 import { joinParts } from "../../../tui/text.js";
 import { isFindDetails } from "../../find/guards.js";
+import { formatSearchNavigation } from "../../shared/search-navigation.js";
 import type { FindDetails } from "../../find/types.js";
 import { isPlainRecord } from "../../pi/guards.js";
 import type { PartialTextRenderContext, TextRenderContext, ToolTextResult } from "./contracts.js";
@@ -102,7 +103,7 @@ function formatFindDetails(
 		"",
 		`Traversed ${details.stats.traversed_entries}; ignored ${details.stats.ignored_entries}; skipped ${details.stats.skipped_entries}.`,
 	);
-	if (details.truncated_by.length > 0) lines.push(`Truncated: ${details.truncated_by.join(", ")}.`);
+	if (details.truncated_by.length > 0) lines.push(`Truncated: ${details.truncated_by.join(", ")}.`, ...formatSearchNavigation(details.navigation));
 	if (details.scope_errors !== undefined && details.scope_errors.length > 0) {
 		lines.push(`Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`);
 	}

@@ -1,3 +1,4 @@
+import { formatSearchNavigation, type SearchNavigation } from "../shared/search-navigation.js";
 import { countTextTokensSync } from "../../token-counter.js";
 import type {
 	FindDetails,
@@ -21,6 +22,7 @@ export interface RenderFindInput {
 	entryLimited: boolean;
 	resultLimited: boolean;
 	outputTokenBudget: number;
+	navigation?: SearchNavigation;
 }
 
 /** 按排名器的选择顺序展示具体路径，不折叠或混入非命中候选。 */
@@ -39,16 +41,19 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 
 	const reasons = [...initialReasons, "output_limit" as const];
 	const prefix = prefixLines(input, reasons);
+	const footer = formatSearchNavigation(input.navigation);
+	const first = input.matches[0];
+	while (footer.length > 0 && tokenCount([...prefix, ...(first === undefined ? [] : [formatMatch(first)]), ...footer].join("\n")) > input.outputTokenBudget) footer.pop();
 	const lines = takeBudgetedLines(prefix, input.outputTokenBudget);
 	const displayed: FindMatch[] = [];
 	for (const match of input.matches) {
 		const line = formatMatch(match);
-		const next = [...lines, line].join("\n");
+		const next = [...lines, line, ...footer].join("\n");
 		if (tokenCount(next) > input.outputTokenBudget) break;
 		lines.push(line);
 		displayed.push(match);
 	}
-	return buildResult(input, lines.join("\n"), displayed, reasons);
+	return buildResult(input, [...lines, ...footer].join("\n"), displayed, reasons);
 }
 
 function renderNoMatches(
@@ -58,7 +63,7 @@ function renderNoMatches(
 	const payload = [
 		"none",
 		`searched=${input.totalCandidates}; ignored=${input.stats.ignored_entries}; skipped=${input.stats.skipped_entries}`,
-		"next: refine query/path/glob",
+		...(initialReasons.length === 0 ? ["next: refine query/path/glob"] : formatSearchNavigation(input.navigation)),
 	];
 	const complete = [...prefixLines(input, initialReasons), ...payload];
 	const lines = takeBudgetedLines(complete, input.outputTokenBudget);
@@ -76,7 +81,7 @@ function resultLines(
 	reasons: readonly FindTruncationReason[],
 	matches: readonly FindMatch[],
 ): string[] {
-	return [...prefixLines(input, reasons), ...matches.map(formatMatch)];
+	return [...prefixLines(input, reasons), ...matches.map(formatMatch), ...(reasons.length === 0 ? [] : formatSearchNavigation(input.navigation))];
 }
 
 function prefixLines(
@@ -121,6 +126,7 @@ function buildResult(
 			displayed_matches: displayedMatches.map(copyMatch),
 			stats: input.stats,
 			truncated_by: [...truncatedBy],
+			...(truncatedBy.length === 0 || input.navigation === undefined ? {} : { navigation: input.navigation }),
 		},
 	};
 }

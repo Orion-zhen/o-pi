@@ -21,7 +21,7 @@ export function isGrepSuccessDetails(value: unknown): value is GrepSuccess {
 	return isPlainRecord(value)
 		&& value["status"] === "success"
 		&& typeof value["query"] === "string"
-		&& (value["query_mode"] === "regex" || value["query_mode"] === "literal_fallback")
+		&& (value["query_mode"] === "regex" || value["query_mode"] === "literal")
 		&& typeof value["path"] === "string"
 		&& (value["paths"] === undefined || isStrings(value["paths"]))
 		&& (value["scope_errors"] === undefined || isGrepScopeErrors(value["scope_errors"]))

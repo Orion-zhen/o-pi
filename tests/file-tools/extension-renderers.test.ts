@@ -59,6 +59,21 @@ describe("file-tools extension renderers", () => {
 		for (const value of ["src/main.ts", "missing", "PATH_NOT_FOUND"]) expect(output).toContain(value);
 	});
 
+	rendererTest("read 多片段摘要和展开内容都保留真实范围", async ({ registered }) => {
+		const details = {
+			path: "ranges.txt", segments: [
+				{ start_line: 1, end_line: 1, content: "one\n" },
+				{ start_line: 8, end_line: 9, content: "eight\nnine\n" },
+			],
+			total_lines: 10, size_bytes: 50, version: "v", encoding: "utf-8", newline: "lf", bom: false, truncated: false,
+		};
+		const collapsed = renderToolResult(registered, "read", details, { width: 150 });
+		expect(collapsed).toContain("1-1,8-9/10");
+		const expanded = renderToolResult(registered, "read", details, { width: 150, expanded: true });
+		expect(expanded).toContain('<lines range="8-9">');
+		expect(expanded).toContain("eight");
+	});
+
 	rendererTest("read 调用显示 lines 或 pages，PDF 结果展示页面摘要且不泄露 Base64", async ({ registered }) => {
 		const read = registered.slice().reverse().find((tool) => tool.name === "read");
 		const callContext = {
@@ -77,11 +92,9 @@ describe("file-tools extension renderers", () => {
 			mime_type: "application/pdf",
 			size_bytes: 2048,
 			version: "version",
-			start_page: 2,
-			end_page: 3,
 			total_pages: 10,
 			truncated: true,
-			continuation: { start_page: 4 },
+			continuation: { pages: "4-10" },
 			metadata: { title: "Private title", author: "Private author" },
 			pages: [
 				{

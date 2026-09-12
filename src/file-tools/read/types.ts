@@ -27,22 +27,26 @@ export interface ReadStructureContext {
 	enclosing_symbol?: ReadEnclosingSymbol;
 }
 
-export interface ReadSuccess {
-	path: string;
+export interface ReadTextSegment {
 	content: string;
 	start_line: number;
 	end_line: number;
+	lsp?: ReadStructureContext;
+}
+
+export interface ReadSuccess {
+	path: string;
+	segments: ReadTextSegment[];
 	total_lines: number;
 	size_bytes: number;
 	version: string;
 	encoding: "utf-8";
 	newline: NewlineKind;
 	truncated: boolean;
-	continuation?: { start_line: number };
+	continuation?: { lines: string };
 	bom: boolean;
 	ignored?: boolean;
 	ignore_source?: string;
-	lsp?: ReadStructureContext;
 	skill_resource?: { skill: string; path: string };
 }
 
@@ -94,11 +98,9 @@ export interface ReadPdfSuccess {
 	mime_type: "application/pdf";
 	size_bytes: number;
 	version: string;
-	start_page: number;
-	end_page: number;
 	total_pages: number;
 	truncated: boolean;
-	continuation?: { start_page: number };
+	continuation?: { pages: string };
 	metadata: ReadPdfMetadata;
 	pages: ReadPdfPage[];
 	ignored?: boolean;

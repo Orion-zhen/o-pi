@@ -12,8 +12,7 @@ import {
 } from "../shared/mutation-diagnostics.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
-import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.js";
-import { findAll } from "./matches.js";
+import { validateReplacements } from "./validation.js";
 import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.js";
 
 const encoder = new TextEncoder();
@@ -202,36 +201,8 @@ function applyReplacements(
 	path: string,
 	hintLimit: number,
 ): ToolOutcome<{ text: string; replacements: number; changedRanges: readonly EditLineRange[] }> {
-	const matches: Array<{ index: number; start: number; end: number; replacement: EditReplacement }> = [];
-	for (let index = 0; index < replacements.length; index += 1) {
-		const replacement = replacements[index];
-		if (replacement === undefined) continue;
-		const starts = findAll(text, replacement.old);
-		if (starts.length === 0) return notFoundFailure(text, replacement.old, replacements.slice(0, index), path, index, hintLimit);
-		if (starts.length > 1 && replacement.replace_all !== true) {
-			const hints = buildEditMatchHints(text, replacement.old, replacement.new, starts, hintLimit);
-			const summary = hints.length < starts.length ? `${starts.length} locations, ${hints.length} shown` : `${starts.length} locations`;
-			return fail("OLD_TEXT_NOT_UNIQUE", `edits[${index}].old matched ${summary}.`, {
-				path,
-				edit_index: index,
-				next: "Retry with one shown old/new pair; read only if the file changed.",
-				details: { matches: starts.length, shown: hints.length, hints },
-			});
-		}
-		for (const start of starts) matches.push({ index, start, end: start + replacement.old.length, replacement });
-	}
-	matches.sort((left, right) => left.start - right.start);
-	for (let index = 1; index < matches.length; index += 1) {
-		const previous = matches[index - 1];
-		const current = matches[index];
-		if (previous !== undefined && current !== undefined && current.start < previous.end) {
-			return fail("OVERLAPPING_REPLACEMENTS", `edits[${previous.index}] and edits[${current.index}] overlap.`, {
-				path,
-				edit_index: current.index,
-				details: { previous_edit_index: previous.index },
-			});
-		}
-	}
+	const matches = validateReplacements(text, replacements, path, hintLimit);
+	if (isFailed(matches)) return matches;
 	const outputChunks: string[] = [];
 	const changedRanges: EditLineRange[] = [];
 	let cursor = 0;
@@ -253,48 +224,6 @@ function applyReplacements(
 		replacements: matches.length,
 		changedRanges,
 	};
-}
-
-function notFoundFailure(
-	text: string,
-	old: string,
-	previous: readonly EditReplacement[],
-	path: string,
-	index: number,
-	hintLimit: number,
-): FailedResult {
-	const recovery = buildEditNotFoundRecovery(text, old, previous, hintLimit);
-	switch (recovery.kind) {
-		case "dependent":
-			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old is absent from the original file, but appears after edits[${recovery.afterEditIndex}].`, {
-				path,
-				edit_index: index,
-				next: `Rewrite edits[${index}] against the original content, or merge the dependent changes into one replacement.`,
-				details: { reason: "dependent_edit", after_edit_index: recovery.afterEditIndex },
-			});
-		case "format":
-			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found exactly; one formatting-equivalent candidate exists.`, {
-				path,
-				edit_index: index,
-				next: "Retry with the shown old text, adapting new if needed; read only if the file changed.",
-				details: { reason: "format_drift", candidates: [recovery.candidate] },
-			});
-		case "anchors": {
-			const shown = recovery.candidates.length;
-			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found in the original file; ${shown} nearby ${shown === 1 ? "candidate" : "candidates"} shown.`, {
-				path,
-				edit_index: index,
-				next: `Rewrite edits[${index}].old using a matching candidate, or read the file if none is correct.`,
-				details: { reason: "anchor_candidates", shown, candidates: recovery.candidates },
-			});
-		}
-		case "none":
-			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found in the original file.`, {
-				path,
-				edit_index: index,
-				next: "Refine your edit and try again.",
-			});
-	}
 }
 
 function buildTextBytes(

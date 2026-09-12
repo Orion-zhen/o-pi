@@ -17,7 +17,7 @@
 
 - 文件必须存在。当前会话必须已通过明确调用 `read` 建立观测状态，或已成功执行 `write` 或 `edit`。
 - `edits` 非空。
-- 每个 `old` 必须非空，并且在原文件中只出现一次。
+- 每个 `old` 必须非空，并且在原文件中只出现一次。设置 `replace_all: true` 时替换全部精确匹配。
 - 所有替换都以修改队列读取的当前原文为匹配对象。
 - 替换范围不得重叠。
 - 一次调用只能编辑一个文件，但可以修改多个位置。
@@ -33,6 +33,21 @@
 - 替换文本不唯一或旧文本不存在：返回 `OLD_TEXT_*`。
 - `OLD_TEXT_NOT_UNIQUE` 会返回有限数量的 `old/new` 替换建议。每个建议都包含可唯一匹配的最短上下文，可直接用于重试。
 - `OLD_TEXT_NOT_FOUND` 保持严格匹配，但会依次诊断前序替换依赖、唯一格式等价候选和基于稳定锚点的邻近候选。候选数量受 `limits.edit_match_hint_limit` 限制。
+
+验证会检查全部替换，缺失或歧义匹配不会阻止发现其他独立错误。歧义匹配不参与重叠检查，以免产生连带错误。只有全部替换验证通过才写入。
+
+存在多个错误时，返回 `EDIT_VALIDATION_FAILED`，`error.errors` 最多保存 8 个错误，`error.details.total_errors` 记录总数。全部错误共享 `edit_match_hint_limit` 恢复候选预算，包括格式等价候选。只有一个错误时直接返回对应的具体错误。预览与实际执行使用相同验证。模型正文末尾只展示去重后的恢复动作。
+
+```text
+3 edit errors, 3 shown. No changes applied.
+edits[0].old was not found in the original file.
+edits[1].old matched 2 locations, 1 shown.
+line 10 old="..." new="..."
+edits[2] and edits[3] overlap.
+next: Refine your edit and try again.
+next: Retry with one shown old/new pair; read only if the file changed.
+next: Merge overlapping replacements against the original content.
+```
 
 这些错误不会触发自动修正、合并或覆盖。存在前序依赖时，应将所有替换改写为匹配原文，或合并相互依赖的修改。格式候选可直接复制为 `old`，再按需调整 `new`。锚点候选只提供局部上下文。无法确认候选时，应按 `error.next` 重新调用 `read`。
 

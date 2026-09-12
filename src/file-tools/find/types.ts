@@ -1,3 +1,4 @@
+import type { SearchNavigation } from "../shared/search-navigation.js";
 import type { FileToolError } from "../shared/result.js";
 
 /** 模型只提供查询、候选 scope 和可选候选 glob；其余匹配策略由 find runtime 固定。 */
@@ -48,6 +49,7 @@ export interface FindDetails {
 	displayed_matches: FindMatch[];
 	stats: FindStats;
 	truncated_by: FindTruncationReason[];
+	navigation?: SearchNavigation;
 }
 
 export interface FindSuccess {

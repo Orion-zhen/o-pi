@@ -44,7 +44,8 @@ const findParameters = Type.Object(
 );
 const grepParameters = Type.Object(
 	{
-		query: Type.String({ minLength: 1, description: "Case-sensitive line query; valid ECMAScript regex, or exact literal fallback only when it matches." }),
+		query: Type.String({ minLength: 1, description: "Case-sensitive line query." }),
+		mode: Type.Optional(Type.Union([Type.Literal("regex"), Type.Literal("literal")], { default: "regex", description: "ECMAScript regex or exact text." })),
 		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "File or directory scopes; OR/union scope; default workspace." })),
 		glob: Type.Optional(Type.String({ minLength: 1, description: "Relative to each scope; without / matches basenames recursively; use a path pattern such as src/**/*.ts for scoped paths." })),
 	},
@@ -56,12 +57,12 @@ const readParameters = Type.Object(
 		lines: Type.Optional(Type.String({
 			minLength: 1,
 			pattern: READ_RANGE_PATTERN,
-			description: "Text only line range: N, N-M, or N-; 1-based inclusive.",
+			description: "Text line ranges: N, N-M, or N-, supports multiple comma-separated ranges; 1-based inclusive.",
 		})),
 		pages: Type.Optional(Type.String({
 			minLength: 1,
 			pattern: READ_RANGE_PATTERN,
-			description: "PDF only page range: N, N-M, or N-; 1-based inclusive.",
+			description: "PDF page ranges: N, N-M, or N-, supports multiple comma-separated ranges; 1-based inclusive.",
 		})),
 	},
 	{ additionalProperties: false, not: { required: ["lines", "pages"] } },

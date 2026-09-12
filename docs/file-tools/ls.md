@@ -64,12 +64,12 @@ shared@ -> ../shared
 5. 同类型内按 `name.toLowerCase()` 排序。
 6. 大小写折叠后相同时，按原始 `name` 排序。
 
-默认最多返回 200 个直属成员。条目超过限制时，结果返回稳定排序后的前 200 个条目，并设置 `truncated: true`。`details` 同时提供 `returned_entries`、`total_entries` 和 `continuation_hint`。工具不会自动递归、自动过滤或提供游标分页。
+默认最多返回 200 个直属成员。条目超过限制时，结果返回稳定排序后的前 200 个条目，并设置 `truncated: true`。`details` 同时提供 `returned_entries`、`total_entries` 和 `continuation_hint`。工具不会自动递归、自动过滤或提供游标分页。截断提示复用本次目录枚举，最多给出 3 个未软忽略的子目录。没有可推荐的子目录时，提示在当前目录用 `find` 缩小查询。
 
 ```text
 vendor 200/8432 truncated
 a/
-[narrow path]
+next: ls one of ["vendor/a"], or find path=["vendor"] with a narrower query/glob
 ```
 
 ## 错误

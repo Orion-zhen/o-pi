@@ -267,7 +267,7 @@ function createTextHit(
 		byteEnd: line.byteStart + endByte,
 		matchStart: match.start,
 		matchEnd: match.end,
-		matchMode: queryMode === "literal_fallback" ? "literal" : "regex",
+		matchMode: queryMode,
 		lineText: line.text,
 	};
 }

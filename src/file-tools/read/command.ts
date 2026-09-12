@@ -1,15 +1,15 @@
 import type { FileToolLimits } from "../../file-tool-limits.js";
-import type { ByteContent, ContentVersion, TextContent, TextSlice } from "../../filesystem/contracts/content.js";
+import type { ByteContent, ContentVersion } from "../../filesystem/contracts/content.js";
 import type { FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
+import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
 import { detectFileType } from "./media.js";
 import { suggestPaths } from "./path-suggestions.js";
 import type { InlineImageProcessor, PdfDocumentHandle, PdfDocumentSource, ReadStructureSource } from "./ports.js";
-import { formatReadStructureContext } from "./presenter.js";
-import { parseReadRange, type ReadRange } from "./range.js";
-import type { ReadFileSuccess, ReadOutputFormat, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess, ReadStructureContext } from "./types.js";
+import { formatReadRanges, parseReadRanges, resolveReadRanges, type ReadRange } from "./range.js";
+import { readTextRanges } from "./text.js";
+import type { ReadFileSuccess, ReadOutputFormat, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess } from "./types.js";
 
 const PATH_SUGGESTION_ENTRY_LIMIT = 10_000;
 
@@ -137,35 +137,8 @@ export async function readFile(
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
 	context.observation.remember(file, decoded.value);
 
-	const initialSlice = context.filesystem.content.sliceText(decoded.value, sliceOptions(ranges.lines, params.path, context));
-	if (!initialSlice.ok) return mapFsError(initialSlice.error, { notFound: "file" });
-	let sliced = initialSlice.value;
-	const partial = ranges.lines !== undefined;
-	const needsContext = partial || sliced.truncated || sliced.continuation !== undefined;
-	let structure: ReadStructureContext | undefined;
-	if (needsContext) {
-		structure = await safeStructureContext(context.structure, file, decoded.value.text, sliced, partial, context.operation);
-		if (isAborted(context.operation)) return aborted(file.displayPath);
-		const budgeted = reserveContextBudget(ranges.lines, params.path, context, decoded.value, sliced, structure);
-		sliced = budgeted.slice;
-		structure = budgeted.structure;
-	}
-
-	const result: ReadFileSuccess = {
-		path: file.displayPath,
-		content: sliced.content,
-		start_line: sliced.startLine,
-		end_line: sliced.endLine,
-		total_lines: decoded.value.totalLines,
-		size_bytes: decoded.value.sizeBytes,
-		version: decoded.value.hash,
-		encoding: "utf-8",
-		newline: decoded.value.newline,
-		truncated: sliced.truncated,
-		...(sliced.continuation === undefined ? {} : { continuation: { start_line: sliced.continuation.startLine } }),
-		bom: decoded.value.hasBom,
-		...(structure === undefined ? {} : { lsp: structure }),
-	};
+	const result = await readTextRanges(file, decoded.value, ranges.lines, context);
+	if (isFailed(result)) return result;
 	applyIgnore(result, ignoreSource);
 	return result;
 }
@@ -173,7 +146,7 @@ export async function readFile(
 async function readPdf(
 	path: string,
 	content: ByteContent,
-	range: ReadRange | undefined,
+	ranges: readonly ReadRange[] | undefined,
 	context: ReadCommandContext,
 ): Promise<ToolOutcome<ReadPdfSuccess>> {
 	const opened = await context.pdf.open({
@@ -191,11 +164,11 @@ async function readPdf(
 	const document = opened.value;
 	try {
 		if (isAborted(context.operation)) return aborted(path);
-		const selected = selectPdfPages(range, document.pageCount, context.limits.read_pdf_pages, path);
-		if ("status" in selected) return selected;
+		const selected = selectPdfPages(ranges, document.pageCount, context.limits.read_pdf_pages, path);
+		if (isFailed(selected)) return selected;
 
 		const pages: ReadPdfPage[] = [];
-		for (let pageNumber = selected.start; pageNumber <= selected.end; pageNumber += 1) {
+		for (const pageNumber of selected.numbers) {
 			if (isAborted(context.operation)) return aborted(path);
 			const rendered = await document.renderPage({
 				pageNumber,
@@ -254,11 +227,9 @@ async function readPdf(
 			mime_type: "application/pdf",
 			size_bytes: content.sizeBytes,
 			version: content.hash,
-			start_page: selected.start,
-			end_page: selected.end,
 			total_pages: document.pageCount,
-			truncated: selected.truncated,
-			...(selected.continuation === undefined ? {} : { continuation: { start_page: selected.continuation } }),
+			truncated: selected.continuation !== undefined,
+			...(selected.continuation === undefined ? {} : { continuation: { pages: selected.continuation } }),
 			metadata: readPdfMetadata(document),
 			pages,
 		};
@@ -268,27 +239,23 @@ async function readPdf(
 }
 
 function selectPdfPages(
-	range: ReadRange | undefined,
+	requested: readonly ReadRange[] | undefined,
 	totalPages: number,
 	limit: number,
 	path: string,
-): { start: number; end: number; truncated: boolean; continuation?: number } | ToolOutcome<never> {
-	const start = range?.start ?? 1;
-	if (start > totalPages) {
-		return fail("INVALID_PATH", `PDF page ${start} is outside 1-${totalPages}.`, {
-			path,
-			details: { start_page: start, total_pages: totalPages },
-		});
+): ToolOutcome<{ numbers: number[]; continuation?: string }> {
+	const ranges = resolveReadRanges(requested, totalPages, "pages", path);
+	if (isFailed(ranges)) return ranges;
+	const numbers: number[] = [];
+	for (const [index, range] of ranges.entries()) {
+		for (let page = range.start; page <= range.end; page += 1) {
+			if (numbers.length === limit) {
+				return { numbers, continuation: formatReadRanges([{ start: page, end: range.end }, ...ranges.slice(index + 1)]) };
+			}
+			numbers.push(page);
+		}
 	}
-	const requestedEnd = Math.min(range?.end ?? totalPages, totalPages);
-	const end = Math.min(requestedEnd, start + limit - 1);
-	const truncated = end < requestedEnd;
-	return {
-		start,
-		end,
-		truncated,
-		...(truncated ? { continuation: end + 1 } : {}),
-	};
+	return { numbers };
 }
 
 function readPdfMetadata(document: PdfDocumentHandle): ReadPdfMetadata {
@@ -327,65 +294,6 @@ async function missingPathSuggestions(input: string, context: ReadCommandContext
 	return uniquePaths(suggestions.value.map((candidate) => candidate.ref.workspacePath ?? candidate.ref.displayPath), context.limits.read_suggestion_limit);
 }
 
-function reserveContextBudget(
-	range: ReadRange | undefined,
-	path: string,
-	context: ReadCommandContext,
-	content: TextContent,
-	initialSlice: TextSlice,
-	structure: ReadStructureContext | undefined,
-): { slice: TextSlice; structure?: ReadStructureContext } {
-	let bytes = context.limits.read_bytes;
-	let lines = context.limits.read_lines;
-	const structureText = formatReadStructureContext(structure);
-	if (structure === undefined || structureText === undefined || !reserveFits(structureText, bytes, lines)) {
-		return { slice: initialSlice };
-	}
-
-	bytes -= renderedBytes(structureText);
-	lines -= renderedLines(structureText);
-	const sliced = context.filesystem.content.sliceText(content, {
-		...sliceOptions(range, path, context),
-		maxBytes: bytes,
-		maxLines: lines,
-	});
-	if (!sliced.ok) return { slice: initialSlice };
-	return { slice: sliced.value, structure };
-}
-
-function sliceOptions(range: ReadRange | undefined, path: string, context: ReadCommandContext) {
-	return {
-		...(range === undefined ? {} : { startLine: range.start }),
-		...(range?.end === undefined ? {} : { endLine: range.end }),
-		maxBytes: context.limits.read_bytes,
-		maxLines: context.limits.read_lines,
-		path,
-	};
-}
-
-async function safeStructureContext(
-	source: ReadStructureSource | undefined,
-	file: FileRef,
-	content: string,
-	slice: TextSlice,
-	partial: boolean,
-	operation: FsOperationContext,
-) {
-	try {
-		return await source?.context({
-			file,
-			content,
-			startLine: slice.startLine,
-			endLine: slice.endLine,
-			partial,
-			truncated: slice.truncated || slice.continuation !== undefined,
-			...(operation.signal === undefined ? {} : { signal: operation.signal }),
-		});
-	} catch {
-		return undefined;
-	}
-}
-
 async function processImage(
 	processor: InlineImageProcessor,
 	operation: FsOperationContext,
@@ -417,12 +325,12 @@ function shortIgnoreSource(source: string | undefined): string | undefined {
 
 function parseRanges(params: ReadParams): ParsedReadRanges | ToolOutcome<never> {
 	if (params.lines !== undefined) {
-		const parsed = parseReadRange(params.lines, "lines");
+		const parsed = parseReadRanges(params.lines, "lines");
 		if (!parsed.ok) return fail("INVALID_PATH", parsed.message, { path: params.path });
 		return { lines: parsed.value };
 	}
 	if (params.pages !== undefined) {
-		const parsed = parseReadRange(params.pages, "pages");
+		const parsed = parseReadRanges(params.pages, "pages");
 		if (!parsed.ok) return fail("INVALID_PATH", parsed.message, { path: params.path });
 		return { pages: parsed.value };
 	}
@@ -430,20 +338,8 @@ function parseRanges(params: ReadParams): ParsedReadRanges | ToolOutcome<never> 
 }
 
 interface ParsedReadRanges {
-	readonly lines?: ReadRange;
-	readonly pages?: ReadRange;
-}
-
-function reserveFits(rendered: string, bytes: number, lines: number): boolean {
-	return renderedBytes(rendered) < bytes && renderedLines(rendered) < lines;
-}
-
-function renderedBytes(rendered: string): number {
-	return Buffer.byteLength(`${rendered}\n`, "utf8");
-}
-
-function renderedLines(rendered: string): number {
-	return rendered.split(/\r\n|\r|\n/u).length;
+	readonly lines?: readonly ReadRange[];
+	readonly pages?: readonly ReadRange[];
 }
 
 function uniquePaths(paths: readonly string[], limit: number): string[] {

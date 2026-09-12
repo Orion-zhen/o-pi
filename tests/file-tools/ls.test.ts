@@ -55,9 +55,13 @@ describe("ls", () => {
 			const commandResult = await listWorkspaceDirectory(workspace, {});
 			expect(commandResult).toMatchObject({ truncated: true, returned_entries: 1 });
 			expect(commandResult).not.toHaveProperty("entryLimitReached");
+			expect(commandResult).toMatchObject({ continuation_hint: 'find path=["."] with a narrower query/glob' });
 
 			const piResult = await executeLs({}, { cwd: workspace, sessionId: "native-details", host, pathAccess });
 			expect(piResult.details).toMatchObject({ truncated: true, entryLimitReached: 1 });
+			await mkdir(path.join(workspace, "nested"));
+			const withDirectory = await listWorkspaceDirectory(workspace, {});
+			expect(withDirectory).toMatchObject({ continuation_hint: 'ls one of ["nested"], or find path=["."] with a narrower query/glob' });
 		} finally {
 			if (previousConfigPath === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
 			else process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
@@ -92,7 +96,7 @@ describe("ls", () => {
 				total_entries: 9,
 				continuation_hint: "List a more specific subdirectory.",
 			}),
-		).toBe(["src 4/9 truncated", "components/", "index.ts !.gitignore", "shared@ -> ../shared", "socket?", "[narrow path]"].join("\n"));
+		).toBe(["src 4/9 truncated", "components/", "index.ts !.gitignore", "shared@ -> ../shared", "socket?", "next: List a more specific subdirectory."].join("\n"));
 	});
 
 	it("只接受字段完整的截断结果", () => {
@@ -136,7 +140,7 @@ describe("ls", () => {
 				entries: [{ name: "ignored.txt", ignored: true, ignore_source: "file-tools.jsonc" }],
 			});
 			expect(await readWorkspaceFile(workspace, { path: "ignored.txt" })).toMatchObject({
-				content: "ignored\n",
+				segments: [{ content: "ignored\n" }],
 				ignored: true,
 				ignore_source: "file-tools.jsonc",
 			});
@@ -311,7 +315,7 @@ describe("ls", () => {
 			truncated: true,
 			returned_entries: 200,
 			total_entries: 250,
-			continuation_hint: "List a more specific subdirectory.",
+			continuation_hint: 'find path=["many"] with a narrower query/glob',
 		});
 		const success = expectLsSuccess(result);
 		expect(success.entries).toHaveLength(200);

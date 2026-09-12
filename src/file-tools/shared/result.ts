@@ -17,6 +17,7 @@ export type FileToolErrorCode =
 	| "OLD_TEXT_NOT_FOUND"
 	| "OLD_TEXT_NOT_UNIQUE"
 	| "OVERLAPPING_REPLACEMENTS"
+	| "EDIT_VALIDATION_FAILED"
 	| "ENCODING_UNSUPPORTED"
 	| "BINARY_FILE_UNSUPPORTED"
 	| "OUTPUT_LIMIT_EXCEEDED"
@@ -32,6 +33,7 @@ export interface FileToolError {
 	expected?: string;
 	actual?: string;
 	details?: Record<string, unknown>;
+	errors?: FileToolError[];
 }
 
 export interface FailedResult {
@@ -48,6 +50,7 @@ export interface FailureOptions {
 	expected?: string;
 	actual?: string;
 	details?: Record<string, unknown>;
+	errors?: FileToolError[];
 }
 
 export function fail(code: FileToolErrorCode, message: string, options: FailureOptions = {}): FailedResult {
@@ -58,6 +61,7 @@ export function fail(code: FileToolErrorCode, message: string, options: FailureO
 	if (options.expected !== undefined) error.expected = options.expected;
 	if (options.actual !== undefined) error.actual = options.actual;
 	if (options.details !== undefined) error.details = options.details;
+	if (options.errors !== undefined) error.errors = options.errors;
 	return { status: "failed", error };
 }
 

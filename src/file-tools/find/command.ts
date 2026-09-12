@@ -7,6 +7,7 @@ import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { createFindQueryPlan } from "./query.js";
 import { createLimitedFindRanker } from "./ranker.js";
+import { recordIncomplete, SearchScopeCounts } from "../shared/search-navigation.js";
 import { renderFindResults } from "./renderer.js";
 import type { FindEntry, FindParams, FindScopeError, FindStats, FindSuccess } from "./types.js";
 
@@ -26,6 +27,7 @@ interface ScopeDiscovery {
 	readonly consumedEntries: number;
 	readonly depthLimited: boolean;
 	readonly entryLimited: boolean;
+	readonly incomplete: readonly string[];
 }
 
 export interface FindCommandContext {
@@ -56,22 +58,28 @@ export async function findFiles(params: FindParams, context: FindCommandContext)
 	const scopes = resolveEffectiveScopes(resolved, context.filesystem);
 	const ranker = createLimitedFindRanker(plan, context.limits.find_result_limit);
 	const seenPaths = new Set<string>();
+	const scopeCounts = new SearchScopeCounts();
+	const incomplete: string[] = [];
 	let totalCandidates = 0;
 	const discoveries: Array<{ scope: NormalizedFindScope; result: ScopeDiscovery }> = [];
 	let remainingEntries = context.limits.find_max_entries;
-	for (const scope of scopes) {
+	for (const [scopeIndex, scope] of scopes.entries()) {
 		if (isOperationAborted(context.operation)) return aborted();
 		const result = await discoverScope(scope, normalized.glob, remainingEntries, context, (entry) => {
 			if (seenPaths.has(entry.path)) return;
 			seenPaths.add(entry.path);
 			totalCandidates += 1;
-			ranker.add(entry);
+			if (ranker.add(entry)) scopeCounts.add(scope.root.displayPath, entry.path);
 		});
 		if (isFailed(result)) scopeErrors.push({ path: scope.root.displayPath, error: result.error });
 		else {
 			discoveries.push({ scope, result });
 			remainingEntries = Math.max(0, remainingEntries - result.consumedEntries);
-			if (result.entryLimited) break;
+			for (const path of result.incomplete) recordIncomplete(incomplete, path);
+			if (result.entryLimited) {
+				for (const pending of scopes.slice(scopeIndex + 1)) recordIncomplete(incomplete, pending.root.displayPath);
+				break;
+			}
 		}
 	}
 	if (isOperationAborted(context.operation)) return aborted();
@@ -99,6 +107,7 @@ export async function findFiles(params: FindParams, context: FindCommandContext)
 		entryLimited: discoveries.some(({ result }) => result.entryLimited),
 		resultLimited: selected.length < ranking.totalMatches,
 		outputTokenBudget: context.limits.find_output_token_budget,
+		navigation: { narrow: scopeCounts.result(), incomplete },
 	});
 }
 
@@ -168,6 +177,7 @@ async function discoverScope(
 	let consumedEntries = 0;
 	let depthLimited = false;
 	let entryLimited = false;
+	const incomplete: string[] = [];
 	let processedEvents = 0;
 	try {
 		for await (const event of opened.value) {
@@ -190,8 +200,13 @@ async function discoverScope(
 				continue;
 			}
 			if (event.type === "skip") {
-				if (event.reason === "depth-limit") depthLimited = true;
-				else if (event.reason === "entry-limit") entryLimited = true;
+				if (event.reason === "depth-limit") {
+					depthLimited = true;
+					recordIncomplete(incomplete, event.path);
+				} else if (event.reason === "entry-limit") {
+					entryLimited = true;
+					recordIncomplete(incomplete, event.path);
+				}
 				else if (event.reason === "ignored") {
 					consumedEntries += 1;
 					ignoredEntries += 1;
@@ -214,6 +229,7 @@ async function discoverScope(
 		consumedEntries,
 		depthLimited,
 		entryLimited,
+		incomplete,
 	};
 }
 

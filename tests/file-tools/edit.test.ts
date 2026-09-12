@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import { isPlainRecord } from "../../src/file-tools/pi/guards.js";
+import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
 import { createCrudTestContext } from "./crud-fixtures.js";
 import { expectFailure } from "./result-fixtures.js";
 
@@ -15,6 +16,79 @@ beforeEach(() => {
 });
 
 describe("edit", () => {
+	it("一次报告缺失、歧义和重叠错误，预览与执行一致且不写入", async () => {
+		const original = "same\nsame\nalpha beta\nvalid\n";
+		await writeFile(path.join(workspace, "batch.txt"), original);
+		await testContext.read({ path: "batch.txt" });
+		const params = {
+			path: "batch.txt",
+			edits: [
+				{ old: "absent", new: "x" },
+				{ old: "same", new: "y" },
+				{ old: "alpha beta", new: "z" },
+				{ old: "beta", new: "w" },
+				{ old: "valid", new: "changed" },
+			],
+		};
+		const result = expectFailure(await testContext.edit(params), "EDIT_VALIDATION_FAILED");
+		expect(result.error).toMatchObject({
+			details: { total_errors: 3, shown_errors: 3 },
+			errors: [
+				{ code: "OLD_TEXT_NOT_FOUND", edit_index: 0 },
+				{ code: "OLD_TEXT_NOT_UNIQUE", edit_index: 1 },
+				{ code: "OVERLAPPING_REPLACEMENTS", edit_index: 3 },
+			],
+		});
+		expect(await testContext.preview(params)).toEqual(result);
+		const output = formatErrorModelResult(result);
+		for (const index of [0, 1, 2, 3]) expect(output).toContain(`edits[${index}]`);
+		expect(output).toContain("No changes applied.");
+		expect(await readFile(path.join(workspace, "batch.txt"), "utf8")).toBe(original);
+		expect(await testContext.edit({ path: "batch.txt", edits: [
+			{ old: "same\nsame", new: "one\ntwo" },
+			{ old: "alpha beta", new: "alpha gamma" },
+			{ old: "valid", new: "changed" },
+		] })).toMatchObject({ status: "applied", replacements: 3 });
+		expect(await readFile(path.join(workspace, "batch.txt"), "utf8")).toBe("one\ntwo\nalpha gamma\nchanged\n");
+	});
+
+	it("多个错误共享恢复候选预算", async () => {
+		await testContext.useConfig({ limits: { edit_match_hint_limit: 1 } });
+		await writeFile(path.join(workspace, "budget.txt"), "first first\nsecond second\n");
+		await testContext.read({ path: "budget.txt" });
+		const result = expectFailure(await testContext.edit({
+			path: "budget.txt",
+			edits: [{ old: "first", new: "1" }, { old: "second", new: "2" }],
+		}), "EDIT_VALIDATION_FAILED");
+		expect(result.error.errors?.map((error) => error.details?.["shown"])).toEqual([1, 0]);
+		expect(formatErrorModelResult(result).match(/line \d+ old=/gu)).toHaveLength(1);
+	});
+
+	it("格式等价候选也消耗共享提示预算", async () => {
+		await testContext.useConfig({ limits: { edit_match_hint_limit: 1 } });
+		await writeFile(path.join(workspace, "format-budget.txt"), "const  a = 1;\nconst  b = 2;\n");
+		await testContext.read({ path: "format-budget.txt" });
+		const result = expectFailure(await testContext.edit({
+			path: "format-budget.txt", edits: [{ old: "const a = 1;", new: "a" }, { old: "const b = 2;", new: "b" }],
+		}), "EDIT_VALIDATION_FAILED");
+		expect(result.error.errors?.[0]?.details).toMatchObject({ reason: "format_drift", candidates: [{ old: "const  a = 1;" }] });
+		expect(result.error.errors?.[1]?.details).toBeUndefined();
+		expect(formatErrorModelResult(result).match(/line \d+ old=/gu)).toHaveLength(1);
+	});
+
+	it("验证全部替换但最多报告八个错误", async () => {
+		await writeFile(path.join(workspace, "many-errors.txt"), "unchanged");
+		await testContext.read({ path: "many-errors.txt" });
+		const result = expectFailure(await testContext.edit({
+			path: "many-errors.txt",
+			edits: Array.from({ length: 12 }, (_, index) => ({ old: `missing_${index}`, new: "x" })),
+		}), "EDIT_VALIDATION_FAILED");
+		expect(result.error).toMatchObject({ details: { total_errors: 12, shown_errors: 8 } });
+		expect(result.error.errors).toHaveLength(8);
+		expect(formatErrorModelResult(result).match(/next:/gu)).toHaveLength(1);
+		expect(await readFile(path.join(workspace, "many-errors.txt"), "utf8")).toBe("unchanged");
+	});
+
 	it("要求目标文件存在且必须先 read", async () => {
 		expectFailure(await testContext.edit({ path: "missing.txt", edits: [{ old: "old", new: "new" }] }), "FILE_NOT_FOUND");
 		await writeFile(path.join(workspace, "a.txt"), "old\n");
