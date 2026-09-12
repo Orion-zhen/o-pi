@@ -47,7 +47,7 @@ export async function readTextRanges(
 			const reserved = bytes < maxBytes && lines < remainingLines
 				? context.filesystem.content.sliceText(content, { ...options, maxBytes: maxBytes - bytes, maxLines: remainingLines - lines })
 				: undefined;
-			if (reserved?.ok && reserved.value.endLine >= reserved.value.startLine) slice = reserved.value;
+			if (reserved?.ok) slice = reserved.value;
 			else {
 				structure = undefined;
 				structureText = undefined;
@@ -60,13 +60,12 @@ export async function readTextRanges(
 			...(structure === undefined ? {} : { lsp: structure }),
 		});
 		remainingBytes -= wrapperBytes + Buffer.byteLength(slice.content) + (structureText === undefined ? 0 : Buffer.byteLength(`${structureText}\n`));
-		remainingLines -= Math.max(0, slice.endLine - slice.startLine + 1) + (structureText === undefined ? 0 : structureText.split(/\r\n|\r|\n/u).length);
+		remainingLines -= slice.endLine - slice.startLine + 1 + (structureText === undefined ? 0 : structureText.split(/\r\n|\r|\n/u).length);
 		if (slice.continuation !== undefined) {
 			continuation = { lines: formatReadRanges(remainingRanges(ranges, index, slice.continuation.startLine)) };
 			break;
 		}
 	}
-	if (segments.length === 0) return fail("OUTPUT_LIMIT_EXCEEDED", "No text fits the output limit.", { path: file.displayPath });
 	return {
 		path: file.displayPath,
 		segments,

@@ -36,7 +36,7 @@ export interface GrepPackInput {
 	regions: readonly RankedRegion[];
 	stats: Omit<GrepStats, "dropped_related_results">;
 	truncationReasons: readonly TruncationReason[];
-	incomplete?: readonly string[];
+	incomplete: readonly string[];
 	resultLimit: number;
 	relatedResultLimit: number;
 	regionalDisplayLimit: number;
@@ -63,7 +63,7 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 			const scope = scopes.find((scope) => scope === "." || candidate.path === scope || candidate.path.startsWith(scope.endsWith("/") ? scope : `${scope}/`));
 			if (scope !== undefined) counts.add(scope, candidate.path, true);
 		}
-		result.navigation = { narrow: counts.result(), ...(input.incomplete === undefined ? {} : { incomplete: input.incomplete }) };
+		result.navigation = { narrow: counts.result(), incomplete: input.incomplete };
 	}
 	return { ...result, approx_tokens: tokenCount(renderGrepSuccess(result)) };
 }

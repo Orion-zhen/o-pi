@@ -1,5 +1,5 @@
 import type { Dispatcher } from "undici";
-import type { HttpFetchResult, HttpFetchSuccess, WebHttpFetch, WebHttpResponse } from "./types.js";
+import type { HttpFetchResult, HttpFetchSuccess, ValidatedUrl, WebHttpFetch, WebHttpResponse } from "./types.js";
 import type { WebToolsConfig } from "../config-types.js";
 
 import type {
@@ -38,26 +38,23 @@ export interface HttpResourceOptions {
 	omitSupportedImageBody?: boolean;
 }
 
-export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, resource: HttpResourceOptions = {}): Promise<HttpFetchResult> {
+/** 首次目标由调用边界校验，重定向在请求链内逐跳校验。 */
+export async function fetchHttpUrl(requested: ValidatedUrl, options: HttpClientOptions, resource: HttpResourceOptions = {}): Promise<HttpFetchResult> {
 	const deadline = createDeadline(options.config.webfetch.timeout_seconds * 1000);
 	const requestSignal = options.context.signal === undefined ? deadline.signal : AbortSignal.any([options.context.signal, deadline.signal]);
 	try {
-		return await fetchWithinDeadline(rawUrl, options, resource, requestSignal);
+		return await fetchWithinDeadline(requested, options, resource, requestSignal);
 	} finally {
 		deadline.dispose();
 	}
 }
 
 async function fetchWithinDeadline(
-	rawUrl: string,
+	requested: ValidatedUrl,
 	options: HttpClientOptions,
 	resource: HttpResourceOptions,
 	signal: AbortSignal,
 ): Promise<HttpFetchResult> {
-	const requested = validateRequestUrl(rawUrl, options.context.privateNetworkGrant?.origin);
-	if ("status" in requested) {
-		return { status: "failed", details: { ...requested, requested_url: safeRedact(rawUrl), duration_ms: options.now() - options.startedAt } };
-	}
 	const requestedUrl = requested.displayUrl;
 	let currentUrl = requested.url;
 	let fragment = requested.fragment;
@@ -273,8 +270,4 @@ function abortCode(signal: AbortSignal, userSignal: AbortSignal | undefined): "T
 
 function previewText(bytes: Uint8Array): string {
 	return new TextDecoder("utf-8", { fatal: false }).decode(bytes).replace(/\r\n?/g, "\n").trim().slice(0, 500);
-}
-
-function safeRedact(value: string): string {
-	try { return redactUrl(value); } catch { return value; }
 }

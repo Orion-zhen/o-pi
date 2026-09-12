@@ -22,7 +22,7 @@ export interface RenderFindInput {
 	entryLimited: boolean;
 	resultLimited: boolean;
 	outputTokenBudget: number;
-	navigation?: SearchNavigation;
+	navigation: SearchNavigation;
 }
 
 /** 按排名器的选择顺序展示具体路径，不折叠或混入非命中候选。 */
@@ -126,7 +126,7 @@ function buildResult(
 			displayed_matches: displayedMatches.map(copyMatch),
 			stats: input.stats,
 			truncated_by: [...truncatedBy],
-			...(truncatedBy.length === 0 || input.navigation === undefined ? {} : { navigation: input.navigation }),
+			...(truncatedBy.length === 0 ? {} : { navigation: input.navigation }),
 		},
 	};
 }

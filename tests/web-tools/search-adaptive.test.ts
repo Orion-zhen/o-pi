@@ -78,9 +78,10 @@ describe("adaptive search compilation and providers", () => {
 	});
 
 	it("规范化三家响应并忽略 provider 原生相关度字段", () => {
-		expect(normalizeProviderResponse("brave_api", { web: { results: [{ title: "A", url: "https://a.test/", description: "Alpha" }] } }, 3)).toMatchObject({ status: "success", results: [{ snippet: "Alpha" }] });
-		expect(normalizeProviderResponse("exa_api", { results: [{ title: "B", url: "https://b.test/", highlights: ["Beta"], highlightScores: [0.8] }] }, 3)).toMatchObject({ status: "success", results: [{ snippet: "Beta" }] });
-		expect(normalizeProviderResponse("tavily", { results: [{ title: "C", url: "https://c.test/", content: "Gamma", score: 0.7 }] }, 3)).toMatchObject({ status: "success", results: [{ snippet: "Gamma" }] });
+		const params = normalizeSearchParams({ query: "Alpha Beta Gamma", limit: 3 }, 8);
+		expect(normalizeProviderResponse("brave_api", { web: { results: [{ title: "A", url: "https://a.test/", description: "Alpha" }] } }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Alpha" }] });
+		expect(normalizeProviderResponse("exa_api", { results: [{ title: "B", url: "https://b.test/", highlights: ["Beta"], highlightScores: [0.8] }] }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Beta" }] });
+		expect(normalizeProviderResponse("tavily", { results: [{ title: "C", url: "https://c.test/", content: "Gamma", score: 0.7 }] }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Gamma" }] });
 	});
 
 	it("总 deadline 在发请求前生效", async () => {

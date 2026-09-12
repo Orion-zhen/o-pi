@@ -9,7 +9,9 @@ import type {
 } from "../core/types.js";
 import type { ContentConversion, WebFetchPage } from "../content/types.js";
 import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
-import { escapeXml } from "../network/url-utils.js";
+import { validateRequestUrl } from "../network/network-policy.js";
+import type { ValidatedUrl } from "../network/types.js";
+import { escapeXml, redactUrl } from "../network/url-utils.js";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.js";
 import { selectText } from "./text-selection.js";
 import type { SnapshotCache } from "./snapshot-cache.js";
@@ -31,13 +33,17 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	if (params.find !== undefined && limit < params.find.length) {
 		return failureResult({ status: "failed", error: { code: "INVALID_ARGUMENT", message: "limit must fit the full find string." } });
 	}
+	const requested = validateRequestUrl(params.url, runtime.context.privateNetworkGrant?.origin);
+	if ("status" in requested) {
+		return failureResult({ ...requested, requested_url: safeRedact(params.url), duration_ms: runtime.now() - options.startedAt });
+	}
 	const mediaEnabled = runtime.config.webfetch.media.mode === "auto";
 	const canReturnImages = !textOnly && mode === "readable" && offset === 0 && mediaEnabled && runtime.context.acceptsImages === true;
-	const snapshotKey = snapshotKeyFor(params.url, mode, mediaEnabled, runtime.context.privateNetworkGrant?.origin);
+	const snapshotKey = snapshotKeyFor(requested, mode, mediaEnabled, runtime.context.privateNetworkGrant?.origin);
 	const useSnapshot = params.offset !== undefined || textOnly;
 	const cached = useSnapshot ? runtime.snapshots.get(snapshotKey) : undefined;
 	let snapshotStatus: SnapshotStatus = !useSnapshot ? "not_needed" : cached === undefined ? "refetched" : "hit";
-	const page = cached ?? await readPage(params.url, mode, canReturnImages, options);
+	const page = cached ?? await readPage(requested, mode, canReturnImages, options);
 	if ("status" in page) return failureResult(page);
 	if (textOnly && page.format === "image") {
 		return failureResult({
@@ -104,14 +110,14 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 }
 
 async function readPage(
-	rawUrl: string,
+	requested: ValidatedUrl,
 	mode: WebFetchMode,
 	canReturnImages: boolean,
 	options: HttpClientOptions,
 ): Promise<WebFetchPage | WebFetchFailureDetails> {
 	const mediaEnabled = options.config.webfetch.media.mode === "auto";
 	const converterPromise = import("../content/content-converter.js");
-	const fetched = await fetchHttpUrl(rawUrl, options, {
+	const fetched = await fetchHttpUrl(requested, options, {
 		imageMaxBytes: options.config.webfetch.media.response_bytes,
 		preferHtmlForFragment: mode === "readable",
 		omitSupportedImageBody: !canReturnImages,
@@ -173,16 +179,13 @@ function collectOmissions(
 	return omissions;
 }
 
-function snapshotKeyFor(rawUrl: string, mode: WebFetchMode, mediaEnabled: boolean, privateNetworkOrigin: string | undefined): string {
-	let normalized = rawUrl;
-	try {
-		const url = new URL(rawUrl);
-		if (mode === "source") url.hash = "";
-		normalized = url.toString();
-	} catch {
-		// 无效 URL 会在 HTTP 请求边界返回结构化错误。
-	}
+function snapshotKeyFor(requested: ValidatedUrl, mode: WebFetchMode, mediaEnabled: boolean, privateNetworkOrigin: string | undefined): string {
+	const normalized = `${requested.url}${mode === "source" ? "" : requested.fragment}`;
 	return `${privateNetworkOrigin ?? "public"}\0${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
+}
+
+function safeRedact(value: string): string {
+	try { return redactUrl(value); } catch { return value; }
 }
 
 function successContent(details: WebFetchSuccessDetails, text: string): string {

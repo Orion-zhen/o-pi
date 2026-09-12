@@ -1,4 +1,5 @@
 import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
+import { validateRequestUrl } from "../network/network-policy.js";
 import { mimeFromContentType, SUPPORTED_IMAGE_TYPES } from "../content/image-types.js";
 import type {
 	WebFetchFailureDetails,
@@ -73,7 +74,9 @@ export async function resolvePrimaryMedia(
 		return { omission: { kind: "primary_media", reason: options.context.imageOmissionReason ?? "model_no_image_input" } };
 	}
 	if ("data" in primary) return { media: primary };
-	const fetched = await fetchHttpUrl(primary.url, options, { accept: IMAGE_ACCEPT, maxBytes: options.config.webfetch.media.response_bytes });
+	const requested = validateRequestUrl(primary.url, options.context.privateNetworkGrant?.origin);
+	if ("status" in requested) return { omission: { kind: "primary_media", reason: "media_fetch_failed" } };
+	const fetched = await fetchHttpUrl(requested, options, { accept: IMAGE_ACCEPT, maxBytes: options.config.webfetch.media.response_bytes });
 	if (fetched.status === "failed") {
 		return {
 			omission: {

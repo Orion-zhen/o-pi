@@ -12,7 +12,7 @@ async function fixture(name: string): Promise<string> {
 
 describe("websearch parser", () => {
 	it("提取标题、摘要和解包后的安全 URL，并丢弃广告、重复和非法协议", async () => {
-		const parsed = parseDuckDuckGoHtml(await fixture("results.html"));
+		const parsed = parseDuckDuckGoHtml(await fixture("results.html"), 20, "coding agent");
 		expect(parsed.status).toBe("success");
 		if (parsed.status !== "success") throw new Error("parse failed");
 		expect(parsed.results).toEqual([
@@ -38,10 +38,10 @@ describe("websearch parser", () => {
 	});
 
 	it("识别合法零结果、challenge 和未知结构", async () => {
-		expect(parseDuckDuckGoHtml(await fixture("no-results.html"))).toEqual({ status: "success", results: [] });
-		expect(parseDuckDuckGoHtml("<html><body>Not many results contain this phrase.</body></html>")).toEqual({ status: "success", results: [] });
-		expect(parseDuckDuckGoHtml(await fixture("challenge.html"))).toMatchObject({ status: "failed", code: "PROVIDER_BLOCKED" });
-		expect(parseDuckDuckGoHtml(await fixture("changed-markup.html"))).toMatchObject({ status: "failed", code: "PARSE_FAILED" });
+		expect(parseDuckDuckGoHtml(await fixture("no-results.html"), 20, "unknown project")).toEqual({ status: "success", results: [] });
+		expect(parseDuckDuckGoHtml("<html><body>Not many results contain this phrase.</body></html>", 20, "unknown project")).toEqual({ status: "success", results: [] });
+		expect(parseDuckDuckGoHtml(await fixture("challenge.html"), 20, "coding agent")).toMatchObject({ status: "failed", code: "PROVIDER_BLOCKED" });
+		expect(parseDuckDuckGoHtml(await fixture("changed-markup.html"), 20, "coding agent")).toMatchObject({ status: "failed", code: "PARSE_FAILED" });
 	});
 
 	it("流式解析嵌套标签、HTML entity 和多 class 结果块", () => {
@@ -49,7 +49,7 @@ describe("websearch parser", () => {
 			<div class="result extra">
 				<a class="link result__a" href="https://example.com/a">Rock &amp; <b>Roll</b></a>
 				<span class="result__snippet muted">A &lt; B</span>
-			</div>`);
+			</div>`, 20, "rock roll");
 		expect(parsed).toMatchObject({
 			status: "success",
 			results: [{ title: "Rock & Roll", snippet: "A < B", url: "https://example.com/a" }],

@@ -24,7 +24,7 @@ import {
 import { pathToFileUri } from "../protocol/uri.js";
 import { diagnosticHints } from "../diagnostics/hints.js";
 import { createOperationDeadline, waitUnlessAborted } from "../analysis/deadline.js";
-import type { LspConfig, LspDiagnosticItem, LspDocumentSymbols, LspRequestOptions, LspServerConfig, LspServerStatus } from "../types.js";
+import type { LspConfig, LspErrorDiagnostic, LspDocumentSymbols, LspRequestOptions, LspServerConfig, LspServerStatus } from "../types.js";
 
 interface ClientSession {
 	connection: LspClientConnection;
@@ -101,16 +101,16 @@ export class LspClient {
 	async diagnosticHints(
 		filePath: string,
 		text: string,
-		items: readonly LspDiagnosticItem[],
-		options: LspRequestOptions,
+		errors: readonly LspErrorDiagnostic[],
+		options: LspRequestOptions & { timeoutMs: number },
 	): Promise<readonly (string | undefined)[]> {
 		const uri = pathToFileUri(filePath);
-		const operation = createOperationDeadline(options.signal, options.timeoutMs ?? 300);
+		const operation = createOperationDeadline(options.signal, options.timeoutMs);
 		try {
 			return await this.withSession((session) => waitUnlessAborted(session.documents.enqueue(uri, async () => {
 				if (operation.signal.aborted || !session.documents.hasContent(uri, text)) return [];
 				const snapshot = this.ledger.snapshot(this.diagnosticSource(), uri);
-				return diagnosticHints(session.connection, uri, snapshot.diagnostics, items, operation.requestOptions());
+				return diagnosticHints(session.connection, uri, snapshot.diagnostics, errors, operation.requestOptions());
 			}), operation.signal)) ?? [];
 		} finally {
 			operation.dispose();

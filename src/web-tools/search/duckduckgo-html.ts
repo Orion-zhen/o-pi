@@ -142,7 +142,7 @@ export type DuckDuckGoParseResult =
 	  };
 
 /** 解析 DDG HTML 结果页；只抽取标题、URL 和摘要。 */
-export function parseDuckDuckGoHtml(html: string, limit = 20, query = ""): DuckDuckGoParseResult {
+export function parseDuckDuckGoHtml(html: string, limit: number, query: string): DuckDuckGoParseResult {
 	if (isChallengeHtml(html)) {
 		return { status: "failed", code: "PROVIDER_BLOCKED", message: "DuckDuckGo blocked the automated search request." };
 	}

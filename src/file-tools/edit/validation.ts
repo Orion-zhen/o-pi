@@ -1,4 +1,4 @@
-import { fail, type FailedResult, type FileToolError, type ToolOutcome } from "../shared/result.js";
+import { fail, type FileToolError, type ToolOutcome } from "../shared/result.js";
 import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.js";
 import { findAll } from "./matches.js";
 import type { EditReplacement } from "./types.js";
@@ -16,6 +16,10 @@ type MatchProblem =
 	| { readonly kind: "missing"; readonly index: number; readonly replacement: EditReplacement }
 	| { readonly kind: "ambiguous"; readonly index: number; readonly replacement: EditReplacement; readonly starts: readonly number[] }
 	| { readonly kind: "overlap"; readonly index: number; readonly previous: number };
+
+interface ProblemDescription extends FileToolError {
+	readonly hintsUsed: number;
+}
 
 /** 检查同一原文上的全部替换。错误数量与恢复候选分别使用共享预算。 */
 export function validateReplacements(
@@ -54,15 +58,15 @@ export function validateReplacements(
 
 	let remainingHints = hintLimit;
 	let remainingHintErrors = problems.filter((problem) => problem.kind !== "overlap").length;
-	const errors = problems.map((problem) => {
+	const errors: FileToolError[] = [];
+	for (const problem of problems) {
 		const budget = problem.kind === "overlap" ? 0 : Math.min(remainingHints, Math.max(1, Math.floor(remainingHints / remainingHintErrors)));
-		const error = describeProblem(problem, text, replacements, path, budget).error;
-		remainingHints -= hintCount(error);
+		const { hintsUsed, ...error } = describeProblem(problem, text, replacements, path, budget);
+		if (totalErrors === 1) return { status: "failed", error };
+		errors.push(error);
+		remainingHints -= hintsUsed;
 		if (problem.kind !== "overlap") remainingHintErrors -= 1;
-		return error;
-	});
-	const first = errors[0];
-	if (totalErrors === 1 && first !== undefined) return { status: "failed", error: first };
+	}
 	return fail("EDIT_VALIDATION_FAILED", `${totalErrors} edit errors, ${errors.length} shown. No changes applied.`, {
 		path,
 		errors,
@@ -76,75 +80,79 @@ function describeProblem(
 	replacements: readonly EditReplacement[],
 	path: string,
 	budget: number,
-): FailedResult {
+): ProblemDescription {
 	const { index } = problem;
 	if (problem.kind === "overlap") {
-		return fail("OVERLAPPING_REPLACEMENTS", `edits[${problem.previous}] and edits[${index}] overlap.`, {
+		return {
+			code: "OVERLAPPING_REPLACEMENTS",
+			message: `edits[${problem.previous}] and edits[${index}] overlap.`,
 			path,
 			edit_index: index,
 			next: "Merge overlapping replacements against the original content.",
 			details: { previous_edit_index: problem.previous },
-		});
+			hintsUsed: 0,
+		};
 	}
-	if (problem.kind === "missing") return notFoundFailure(text, problem.replacement.old, replacements.slice(0, index), path, index, budget);
+	if (problem.kind === "missing") return describeMissing(text, problem.replacement.old, replacements.slice(0, index), path, index, budget);
 	const { replacement, starts } = problem;
 	const hints = buildEditMatchHints(text, replacement.old, replacement.new, starts, budget);
 	const summary = hints.length < starts.length ? `${starts.length} locations, ${hints.length} shown` : `${starts.length} locations`;
-	return fail("OLD_TEXT_NOT_UNIQUE", `edits[${index}].old matched ${summary}.`, {
+	return {
+		code: "OLD_TEXT_NOT_UNIQUE",
+		message: `edits[${index}].old matched ${summary}.`,
 		path,
 		edit_index: index,
 		next: hints.length > 0
 			? "Retry with one shown old/new pair; read only if the file changed."
 			: "Add unique context to old, or use replace_all for every occurrence.",
 		details: { matches: starts.length, shown: hints.length, hints },
-	});
+		hintsUsed: hints.length,
+	};
 }
 
-function hintCount(error: FileToolError): number {
-	const details = error.details;
-	if (Array.isArray(details?.["hints"])) return details["hints"].length;
-	if (Array.isArray(details?.["candidates"])) return details["candidates"].length;
-	return 0;
-}
-
-function notFoundFailure(
+function describeMissing(
 	text: string,
 	old: string,
 	previous: readonly EditReplacement[],
 	path: string,
 	index: number,
 	hintLimit: number,
-): FailedResult {
+): ProblemDescription {
 	const recovery = buildEditNotFoundRecovery(text, old, previous, hintLimit);
+	const base = { code: "OLD_TEXT_NOT_FOUND", path, edit_index: index } as const;
 	switch (recovery.kind) {
 		case "dependent":
-			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old is absent from the original file, but appears after edits[${recovery.afterEditIndex}].`, {
-				path,
-				edit_index: index,
+			return {
+				...base,
+				message: `edits[${index}].old is absent from the original file, but appears after edits[${recovery.afterEditIndex}].`,
 				next: `Rewrite edits[${index}] against the original content, or merge the dependent changes into one replacement.`,
 				details: { reason: "dependent_edit", after_edit_index: recovery.afterEditIndex },
-			});
+				hintsUsed: 0,
+			};
 		case "format":
-			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found exactly; one formatting-equivalent candidate exists.`, {
-				path,
-				edit_index: index,
+			return {
+				...base,
+				message: `edits[${index}].old was not found exactly; one formatting-equivalent candidate exists.`,
 				next: "Retry with the shown old text, adapting new if needed; read only if the file changed.",
 				details: { reason: "format_drift", candidates: [recovery.candidate] },
-			});
+				hintsUsed: 1,
+			};
 		case "anchors": {
 			const shown = recovery.candidates.length;
-			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found in the original file; ${shown} nearby ${shown === 1 ? "candidate" : "candidates"} shown.`, {
-				path,
-				edit_index: index,
+			return {
+				...base,
+				message: `edits[${index}].old was not found in the original file; ${shown} nearby ${shown === 1 ? "candidate" : "candidates"} shown.`,
 				next: `Rewrite edits[${index}].old using a matching candidate, or read the file if none is correct.`,
 				details: { reason: "anchor_candidates", shown, candidates: recovery.candidates },
-			});
+				hintsUsed: shown,
+			};
 		}
 		case "none":
-			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found in the original file.`, {
-				path,
-				edit_index: index,
+			return {
+				...base,
+				message: `edits[${index}].old was not found in the original file.`,
 				next: "Refine your edit and try again.",
-			});
+				hintsUsed: 0,
+			};
 	}
 }

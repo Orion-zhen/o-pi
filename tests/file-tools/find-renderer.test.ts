@@ -25,6 +25,7 @@ describe("find renderer", () => {
 			depthLimited: false,
 			entryLimited: false,
 			resultLimited: false,
+			navigation: { narrow: [], incomplete: [] },
 			outputTokenBudget: 1_000,
 		});
 
@@ -59,6 +60,7 @@ describe("find renderer", () => {
 			depthLimited: true,
 			entryLimited: false,
 			resultLimited: true,
+			navigation: { narrow: [], incomplete: [] },
 			outputTokenBudget: 48,
 		});
 
@@ -91,6 +93,7 @@ describe("find renderer", () => {
 			depthLimited: false,
 			entryLimited: false,
 			resultLimited: false,
+			navigation: { narrow: [], incomplete: [] },
 			outputTokenBudget: 1_000,
 		});
 

@@ -6,7 +6,7 @@ import type { FormalWebSearchProviderId, WebSearchErrorCode, WebSearchFailureDet
 import type { WebHttpFetch } from "../network/types.js";
 import type { WebToolsConfig } from "../config-types.js";
 import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.js";
-import { compileSearchQuery, filteredLexicalQuery } from "./query.js";
+import { filteredLexicalQuery } from "./query.js";
 import { selectSearchSnippet } from "./snippets.js";
 import type { CompiledSearchQuery, NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.js";
 
@@ -58,7 +58,7 @@ export async function searchApiProvider(options: ApiProviderOptions, params: Nor
 		context.onUpdate?.({ content: "Parsing results...", details: { status: "progress", phase: "parsing" } });
 		const parsed = parseJson(body.bytes);
 		if (parsed === undefined) return failed(options.id, "PARSE_FAILED", `${options.id} returned invalid JSON.`, params.query, response.status);
-		return normalizeProviderResponse(options.id, parsed, params.limit, body.bytes.length, params.query);
+		return normalizeProviderResponse(options.id, parsed, params, body.bytes.length);
 	} catch (error) {
 		const networkCode = userAborted(context) ? "ABORTED" : signal.aborted ? "TIMEOUT" : classifyNetworkError(error, context.userSignal ?? (context.deadlineAt === undefined ? context.signal : undefined));
 		const code = networkCode === "BLOCKED_ADDRESS" ? "CONNECTION_FAILED" : networkCode;
@@ -115,10 +115,10 @@ export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"]
 	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify(body) };
 }
 
-export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: unknown, limit: number, downloadedBytes = 0, query = ""): SearchProviderResult {
+export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: unknown, params: NormalizedSearchParams, downloadedBytes: number): SearchProviderResult {
+	const { query, limit, compiled } = params;
 	if (!record(raw)) return failed(id, "PARSE_FAILED", `${id} response is not an object.`, query);
 	const rows = id === "brave_api" ? nestedRows(raw, "web") : array(raw["results"]);
-	const compiled = compileSearchQuery({ query });
 	const results: WebSearchItem[] = [];
 	const seen = new Set<string>();
 	for (const row of rows) {

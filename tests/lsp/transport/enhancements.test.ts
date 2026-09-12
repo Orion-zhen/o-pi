@@ -139,7 +139,7 @@ describe("lsp mutation enhancements", () => {
 		const client = directClient(transport, fake);
 		const filePath = path.join(transport.workspace, "a.ts");
 		await client.saveAndCollectDiagnosticsBatch([{ filePath, text: "const fixed = 1;\n" }], {});
-		expect(await client.diagnosticHints(filePath, "Foo();\n", [{ severity: "error", line: 1, column: 1, message: "missing Foo" }], {})).toEqual([]);
+		expect(await client.diagnosticHints(filePath, "Foo();\n", [{ severity: "error", line: 1, column: 1, message: "missing Foo" }], { timeoutMs: 300 })).toEqual([]);
 		expect(fake.methods).not.toContain("textDocument/codeAction");
 	});
 

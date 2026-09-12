@@ -133,6 +133,7 @@ export function packRegions(regions: readonly RankedRegion[], overrides: Partial
 			ast_skipped_oversized_files: 0,
 		},
 		truncationReasons: [],
+		incomplete: [],
 		resultLimit: 8,
 		relatedResultLimit: 8,
 		regionalDisplayLimit: 3,

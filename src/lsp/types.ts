@@ -105,6 +105,8 @@ export interface LspDiagnosticItem {
 	source?: string;
 }
 
+export type LspErrorDiagnostic = LspDiagnosticItem & { severity: "error" };
+
 export interface LspLineRange {
 	readonly start_line: number;
 	readonly end_line: number;

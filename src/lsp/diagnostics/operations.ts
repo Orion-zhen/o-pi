@@ -13,6 +13,7 @@ import type {
 	LspDiagnosticSnapshot,
 	LspMutationBaseline,
 	LspDiagnosticsSummary,
+	LspErrorDiagnostic,
 	LspLineRange,
 } from "../types.js";
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "../protocol/uri.js";
@@ -82,59 +83,56 @@ export async function didWriteBatch(
 
 		await Promise.all(Array.from(byClient, async ([client, grouped]) => {
 			const diagnosticsConfig = grouped[0].config.diagnostics;
-			const selections: Array<DiagnosticSelection | undefined> = grouped.map(({ write }) => write.changed_ranges === undefined
-				? undefined
-				: { changedRanges: write.changed_ranges.map((range) => ({ startLine: range.start_line, endLine: range.end_line })) });
 			const collected = await client.saveAndCollectDiagnosticsBatch(
 				grouped.map(({ write }) => ({ filePath: write.filePath, text: write.text })),
 				{ timeoutMs: Math.max(1, diagnosticsConfig.max_wait_ms) },
 			);
-			await Promise.all(grouped.map(async (item, groupIndex) => {
+			const summaries = await Promise.all(grouped.map(async (item, groupIndex) => {
 				const value = collected[groupIndex];
+				const selection: DiagnosticSelection | undefined = item.write.changed_ranges === undefined
+					? undefined
+					: { changedRanges: item.write.changed_ranges.map((range) => ({ startLine: range.start_line, endLine: range.end_line })) };
+				let summary: LspDiagnosticsSummary;
 				if (value === undefined || value.kind === "unavailable") {
-					results[item.index] = emptySummary("unavailable", baselineState(item.write.baseline, item.source, item.uri));
-					return;
-				}
-				if (value.kind === "pull") {
+					summary = emptySummary("unavailable", baselineState(item.write.baseline, item.source, item.uri));
+				} else if (value.kind === "pull") {
 					const current = context.diagnostics.snapshot(item.source, item.uri);
 					const snapshot = value.snapshot ?? (current.revision > item.capturedRevision ? current : undefined);
-					results[item.index] = snapshot === undefined
-						? summarizeDiagnostics(current, item.write.baseline, diagnosticsConfig.max_items, "timeout", selections[groupIndex])
-						: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items, undefined, selections[groupIndex]);
-					return;
+					summary = snapshot === undefined
+						? summarizeDiagnostics(current, item.write.baseline, diagnosticsConfig.max_items, "timeout", selection)
+						: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items, undefined, selection);
+				} else {
+					const snapshot = await context.diagnostics.waitForNewer(
+						item.source,
+						item.uri,
+						item.capturedRevision,
+						Math.min(diagnosticsConfig.max_wait_ms, value.waitMs),
+						diagnosticsConfig.settle_ms,
+					);
+					summary = snapshot === undefined
+						? summarizeDiagnostics(context.diagnostics.snapshot(item.source, item.uri), item.write.baseline, diagnosticsConfig.max_items, "timeout", selection)
+						: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items, undefined, selection);
 				}
-				const snapshot = await context.diagnostics.waitForNewer(
-					item.source,
-					item.uri,
-					item.capturedRevision,
-					Math.min(diagnosticsConfig.max_wait_ms, value.waitMs),
-					diagnosticsConfig.settle_ms,
-				);
-				results[item.index] = snapshot === undefined
-					? summarizeDiagnostics(context.diagnostics.snapshot(item.source, item.uri), item.write.baseline, diagnosticsConfig.max_items, "timeout", selections[groupIndex])
-					: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items, undefined, selections[groupIndex]);
+				return { item, value, summary };
 			}));
 			const excluded = new Set(grouped.map((item) => item.uri));
-			for (const [index, item] of grouped.entries()) {
-				const value = collected[index];
-				const summary = results[item.index];
-				if (value?.kind !== "pull" || summary === undefined || summary.status === "timeout" || summary.status === "unavailable") continue;
+			for (const { item, value, summary } of summaries) {
+				results[item.index] = summary;
+				if (value?.kind !== "pull" || summary.status === "timeout") continue;
 				const related = relatedDiagnostics(
 					item.workspace,
 					(value.related ?? []).filter((report) => context.diagnostics.revision(report.source, report.uri) === report.revision),
 					item.write.baseline?.related ?? [],
 					excluded,
-					Math.max(0, diagnosticsConfig.max_items - summary.items.length),
+					diagnosticsConfig.max_items - summary.items.length,
 				);
 				if (related.length > 0) summary.related = related;
 			}
 			const hintDeadline = Date.now() + Math.min(300, diagnosticsConfig.max_wait_ms);
-			for (const item of grouped) {
-				const summary = results[item.index];
+			for (const { item, summary } of summaries) {
 				const timeoutMs = hintDeadline - Date.now();
 				if (timeoutMs <= 0) break;
-				if (summary === undefined || !summary.items.some((diagnostic) => diagnostic.severity === "error")) continue;
-				const eligible = summary.items.filter((diagnostic) => diagnostic.severity === "error" && diagnostic.change !== "existing");
+				const eligible = summary.items.filter((diagnostic): diagnostic is LspErrorDiagnostic => diagnostic.severity === "error" && diagnostic.change !== "existing");
 				if (eligible.length === 0) continue;
 				// 提示是独立增强，失败不能丢弃已经取得的诊断。
 				const hints = await client.diagnosticHints(item.write.filePath, item.write.text, eligible, { timeoutMs }).catch(() => []);

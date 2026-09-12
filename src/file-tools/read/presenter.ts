@@ -19,7 +19,6 @@ export function formatReadModelResult(result: ReadSuccess): string {
 		`lines="${readTextRangeLabel(result)}/${result.total_lines}"`,
 	];
 	if (result.continuation !== undefined) attrs.push(`more="${result.continuation.lines}"`);
-	else if (result.truncated) attrs.push('truncated="true"');
 	if (result.ignored) attrs.push(`ignored="${escapeXmlAttribute(result.ignore_source ?? "true")}"`);
 	if (result.bom) attrs.push('bom="true"');
 	if (result.newline !== "lf") attrs.push(`newline="${result.newline}"`);

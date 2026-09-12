@@ -489,6 +489,7 @@ describe("grep text search", () => {
 				ast_skipped_oversized_files: 0,
 			},
 			truncationReasons: [],
+			incomplete: [],
 			resultLimit: 1,
 			relatedResultLimit: 8,
 			regionalDisplayLimit: 3,

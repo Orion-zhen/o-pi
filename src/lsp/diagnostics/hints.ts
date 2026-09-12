@@ -1,27 +1,27 @@
 import { CodeAction, CodeActionRequest, type Diagnostic, type TextEdit } from "vscode-languageserver-protocol";
 import type { LspFeatureSession } from "../protocol/features.js";
-import type { LspDiagnosticItem, LspRequestOptions } from "../types.js";
+import type { LspErrorDiagnostic, LspRequestOptions } from "../types.js";
 
 /** 只展示唯一、已解析、单文件 quickfix 的标题，不执行编辑或命令。 */
 export async function diagnosticHints(
 	session: LspFeatureSession,
 	uri: string,
 	diagnostics: readonly Diagnostic[],
-	items: readonly LspDiagnosticItem[],
-	options: LspRequestOptions,
+	errors: readonly LspErrorDiagnostic[],
+	options: Required<LspRequestOptions>,
 ): Promise<readonly (string | undefined)[]> {
 	const provider = session.capabilities()?.codeActionProvider;
 	if (provider === undefined || provider === false) return [];
-	const deadline = Date.now() + (options.timeoutMs ?? 300);
+	const deadline = Date.now() + options.timeoutMs;
 	const hints: Array<string | undefined> = [];
 	let requested = 0;
-	for (const [index, item] of items.entries()) {
+	for (const [index, item] of errors.entries()) {
 		const matching = diagnostics.filter((diagnostic) => diagnostic.range.start.line === item.line - 1
 			&& diagnostic.range.start.character === item.column - 1);
 		const diagnostic = matching[0];
 		const timeoutMs = deadline - Date.now();
-		if (diagnostic === undefined || item.severity !== "error") continue;
-		if (requested >= 3 || timeoutMs <= 0 || options.signal?.aborted === true) break;
+		if (diagnostic === undefined) continue;
+		if (requested >= 3 || timeoutMs <= 0 || options.signal.aborted) break;
 		requested += 1;
 		const actions = await session.request(CodeActionRequest.type, {
 			textDocument: { uri }, range: diagnostic.range,

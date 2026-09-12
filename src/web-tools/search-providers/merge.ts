@@ -56,9 +56,9 @@ function toOutput(candidate: Candidate, rank: number): WebSearchItem {
 
 function duplicate(candidate: Candidate, item: WebSearchItem, normalizedUrl: string): boolean {
 	if (candidate.key === normalizedUrl) return true;
-	const left = safeUrl(candidate.url);
-	const right = safeUrl(normalizedUrl);
-	if (left !== undefined && right !== undefined && left.hostname === right.hostname && normalizePath(left.pathname) === normalizePath(right.pathname)) return true;
+	const left = new URL(candidate.url);
+	const right = new URL(normalizedUrl);
+	if (left.hostname === right.hostname && normalizePath(left.pathname) === normalizePath(right.pathname)) return true;
 	return titleSimilarity(candidate.title, item.title) >= 0.9;
 }
 
@@ -76,5 +76,4 @@ function titleTokens(value: string): Set<string> {
 }
 
 function normalizePath(value: string): string { return value.replace(/\/+$/u, "") || "/"; }
-function safeUrl(value: string): URL | undefined { try { return new URL(value); } catch { return undefined; } }
-function registrableDomain(value: string): string { const url = safeUrl(value); return url === undefined ? value : getDomain(url.hostname) ?? url.hostname; }
+function registrableDomain(value: string): string { const url = new URL(value); return getDomain(url.hostname) ?? url.hostname; }
