@@ -3,6 +3,7 @@ import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
 import { removeAvatarImages } from "./html-avatar-filter.js";
+import { selectHtmlAnchor } from "./html-anchor.js";
 import { removeHtmlOutputNoise, selectHtmlContent } from "./html-content-selector.js";
 import { extractDeferredContent } from "./html-deferred-content.js";
 import { analyzeHtmlPage, type PageAnalysis, type TextCandidate } from "./html-page-analyzer.js";
@@ -37,11 +38,19 @@ export function htmlToMarkdown(
 	mediaEnabled: boolean,
 ): ContentConversion | WebFetchFailureDetails {
 	try {
-		const { document } = parseHTML(html);
+		let { document } = parseHTML(html);
+		const fragment = new URL(finalUrl).hash;
+		let anchor: string | undefined;
+		if (fragment !== "") {
+			const selection = selectHtmlAnchor(document, fragment);
+			if ("status" in selection) return selection;
+			document = selection.document;
+			anchor = selection.anchor;
+		}
 		const analysis = analyzeHtmlPage(document, finalUrl, mime, mediaEnabled);
 		const deferred = extractDeferredContent(document);
 		const deferredFragments = deferred.evidence;
-		const selected = selectDocumentBody(document, finalUrl, options, analysis, mediaEnabled);
+		const selected = selectDocumentBody(document, finalUrl, options, analysis, mediaEnabled, anchor !== undefined);
 		const title = analysis.metadata.heading ?? selected.title ?? analysis.metadata.title;
 		const deferredSections = deferred.fragments
 			.map((fragment) => fragmentToMarkdown(fragment, document, finalUrl))
@@ -62,6 +71,7 @@ export function htmlToMarkdown(
 			contentType: mime,
 			...(charset ? { charset } : {}),
 			...(title ? { title } : {}),
+			...(anchor !== undefined ? { anchor } : {}),
 		};
 	} catch (error) {
 		return { status: "failed", error: { code: "CONVERSION_FAILED", message: error instanceof Error ? error.message : String(error) } };
@@ -83,6 +93,7 @@ function selectDocumentBody(
 	options: HtmlReadabilityOptions,
 	analysis: PageAnalysis,
 	mediaEnabled: boolean,
+	anchored: boolean,
 ): SelectedBody {
 	const structured = analysis.textCandidates.find((candidate) => candidate.kind === "article_body")
 		?? analysis.textCandidates.find((candidate) => candidate.kind === "transcript");
@@ -102,6 +113,14 @@ function selectDocumentBody(
 	removeUnsafeNodes(document);
 	absolutizeUrls(document.documentElement, finalUrl);
 	removeAvatarImages(document);
+	if (anchored) {
+		return {
+			text: markdownFromHtml(document.body),
+			source: "semantic",
+			blockCount: document.body.childElementCount,
+			mediaUrls: mediaUrls(document.body, finalUrl, mediaEnabled),
+		};
+	}
 	const selection = selectHtmlContent(
 		document,
 		options,
@@ -162,7 +181,6 @@ function composeSections(
 	}
 	if (analysis.metadata.publishedAt !== undefined) metadataLines.push(`**Published:** ${analysis.metadata.publishedAt}`);
 	if (analysis.metadata.modifiedAt !== undefined) metadataLines.push(`**Modified:** ${analysis.metadata.modifiedAt}`);
-	appendSection(sections, metadataLines.join("\n\n"));
 
 	const main = removeMatchingTitleHeading(selected.text, title);
 	appendSection(sections, main);
@@ -187,7 +205,7 @@ function composeSections(
 		const combined = deferredSections.map((section) => section.text).join("\n\n");
 		appendSection(sections, combined, "Deferred content");
 	}
-	return normalizeMarkdown(sections.map((section) => section.text).join("\n\n")).trim();
+	return normalizeMarkdown([metadataLines.join("\n\n"), ...sections.map((section) => section.text)].join("\n\n")).trim();
 }
 
 function appendSection(
@@ -298,7 +316,6 @@ function safeAbsoluteUrl(value: string | null, base: string): string | undefined
 	try {
 		const url = new URL(value, base);
 		if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
-		url.hash = "";
 		return url.toString();
 	} catch {
 		return undefined;

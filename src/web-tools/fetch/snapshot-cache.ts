@@ -30,10 +30,10 @@ export class SnapshotCache {
 		return entry.page;
 	}
 
-	set(key: string, value: WebFetchPage): void {
+	set(key: string, value: WebFetchPage): boolean {
 		const { directMedia: _media, ...page } = value;
 		const sizeBytes = Buffer.byteLength(page.text, "utf8") + Buffer.byteLength(JSON.stringify(page.analysis), "utf8");
-		if (sizeBytes > DEFAULT_MAX_BYTES) return;
+		if (sizeBytes > DEFAULT_MAX_BYTES) return false;
 		const existing = this.entries.get(key);
 		if (existing !== undefined) this.remove(key, existing);
 		this.entries.set(key, { page, sizeBytes, createdAt: this.now() });
@@ -43,6 +43,7 @@ export class SnapshotCache {
 			if (first === undefined) break;
 			this.remove(...first);
 		}
+		return true;
 	}
 
 	clear(): void {

@@ -136,6 +136,7 @@
 					"type": "object",
 					"additionalProperties": false,
 					"properties": {
+						"find_max_passages": { "type": "integer", "minimum": 1 },
 						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 52428800, "default": 10485760 },
 						"default_output_chars": { "type": "integer", "minimum": 1000, "maximum": 100000, "default": 20000 }
 					}

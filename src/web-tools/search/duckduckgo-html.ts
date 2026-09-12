@@ -9,9 +9,11 @@ import type { WebSearchFailureDetails, WebSearchItem } from "../core/types.js";
 import {
 	normalizeSearchResultUrl,
 	normalizeSearchText,
-	SEARCH_RESULT_MAX_SNIPPET_CHARS,
 	SEARCH_RESULT_MAX_TITLE_CHARS,
 } from "../network/url-utils.js";
+
+import { compileSearchQuery } from "../search-providers/query.js";
+import { selectSearchSnippet } from "../search-providers/snippets.js";
 
 export { normalizeSearchText } from "../network/url-utils.js";
 
@@ -111,7 +113,7 @@ export async function searchDuckDuckGoHtml(options: DuckDuckGoHtmlOptions): Prom
 		};
 	}
 
-	const parsed = parseDuckDuckGoHtml(html, options.limit);
+	const parsed = parseDuckDuckGoHtml(html, options.limit, options.query);
 	if (parsed.status === "failed") {
 		const details = failure(parsed.code, parsed.message, options.query, response.status);
 		if (parsed.code === "PARSE_FAILED") details.response_preview = preview;
@@ -140,12 +142,13 @@ export type DuckDuckGoParseResult =
 	  };
 
 /** 解析 DDG HTML 结果页；只抽取标题、URL 和摘要。 */
-export function parseDuckDuckGoHtml(html: string, limit = 20): DuckDuckGoParseResult {
+export function parseDuckDuckGoHtml(html: string, limit = 20, query = ""): DuckDuckGoParseResult {
 	if (isChallengeHtml(html)) {
 		return { status: "failed", code: "PROVIDER_BLOCKED", message: "DuckDuckGo blocked the automated search request." };
 	}
 
 	const parsed = parseResultBlocks(html);
+	const compiled = compileSearchQuery({ query });
 	const seen = new Set<string>();
 	const results: WebSearchItem[] = [];
 	for (const block of parsed.blocks) {
@@ -158,12 +161,12 @@ export function parseDuckDuckGoHtml(html: string, limit = 20): DuckDuckGoParseRe
 		const normalizedUrl = url.toString();
 		if (seen.has(normalizedUrl)) continue;
 		seen.add(normalizedUrl);
-		const snippet = normalizeSearchText(block.snippet).slice(0, SEARCH_RESULT_MAX_SNIPPET_CHARS);
+		const snippet = selectSearchSnippet([block.snippet], compiled);
 		results.push({
 			rank: results.length + 1,
 			title,
 			url: normalizedUrl,
-			...(snippet.length > 0 ? { snippet } : {}),
+			...(snippet !== undefined ? { snippet } : {}),
 		});
 		if (results.length >= limit) break;
 	}

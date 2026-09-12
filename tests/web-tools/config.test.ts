@@ -58,7 +58,7 @@ describe("web-tools config", () => {
 					"timeout_seconds": 5,
 					"readability": { "char_threshold": 800, },
 					"media": { "mode": "off", "response_bytes": 1048576, },
-					"limits": { "default_output_chars": 1000, },
+					"limits": { "default_output_chars": 1000, "find_max_passages": 5, },
 					"cookies": { "domains": ["example.com"], "confirmation": "never", },
 				},
 			}`,
@@ -86,10 +86,17 @@ describe("web-tools config", () => {
 				timeout_seconds: 5,
 				readability: { char_threshold: 800 },
 				media: { mode: "off", response_bytes: 1048576 },
-				limits: { default_output_chars: 1000 },
+				limits: { default_output_chars: 1000, find_max_passages: 5 },
 				cookies: { domains: ["example.com"], confirmation: "never" },
 			},
 		});
+	});
+
+	it.each([0, -1, 1.5, "3"])("limits.find_max_passages 拒绝非正整数：%s", async (maxPassages) => {
+		const file = path.join(dir, "find.jsonc");
+		process.env.PI_WEB_TOOLS_CONFIG = file;
+		await writeFile(file, JSON.stringify({ webfetch: { limits: { find_max_passages: maxPassages } } }));
+		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 	});
 
 	it("复用未变化配置，返回隔离副本并在文件变更后失效", async () => {

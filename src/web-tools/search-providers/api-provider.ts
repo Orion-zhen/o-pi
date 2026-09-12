@@ -5,9 +5,10 @@ import { readLimitedResponseBody } from "../network/response-body.js";
 import type { FormalWebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem } from "../core/types.js";
 import type { WebHttpFetch } from "../network/types.js";
 import type { WebToolsConfig } from "../config-types.js";
-import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_SNIPPET_CHARS, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.js";
-import { filteredLexicalQuery } from "./query.js";
-import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.js";
+import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.js";
+import { compileSearchQuery, filteredLexicalQuery } from "./query.js";
+import { selectSearchSnippet } from "./snippets.js";
+import type { CompiledSearchQuery, NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.js";
 
 type ProviderConfig = {
 	[Id in FormalWebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id] };
@@ -117,11 +118,12 @@ export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"]
 export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: unknown, limit: number, downloadedBytes = 0, query = ""): SearchProviderResult {
 	if (!record(raw)) return failed(id, "PARSE_FAILED", `${id} response is not an object.`, query);
 	const rows = id === "brave_api" ? nestedRows(raw, "web") : array(raw["results"]);
+	const compiled = compileSearchQuery({ query });
 	const results: WebSearchItem[] = [];
 	const seen = new Set<string>();
 	for (const row of rows) {
 		if (!record(row)) continue;
-		const normalized = normalizedItem(id, row, results.length + 1);
+		const normalized = normalizedItem(id, row, results.length + 1, compiled);
 		if (normalized === undefined || seen.has(normalized.url)) continue;
 		seen.add(normalized.url);
 		results.push(normalized);
@@ -130,14 +132,13 @@ export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: un
 	return { status: "success", provider: id, results, downloadedBytes };
 }
 
-function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unknown>, rank: number): WebSearchItem | undefined {
+function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unknown>, rank: number, query: CompiledSearchQuery): WebSearchItem | undefined {
 	const rawUrl = string(row["url"]);
 	const url = rawUrl === undefined ? undefined : normalizeSearchResultUrl(rawUrl)?.toString();
 	if (url === undefined) return undefined;
 	const title = normalizeSearchText(string(row["title"]) ?? url).slice(0, SEARCH_RESULT_MAX_TITLE_CHARS) || url;
-	const highlights = array(row["highlights"]).filter((value): value is string => typeof value === "string").join(" ");
-	const extra = array(row["extra_snippets"]).filter((value): value is string => typeof value === "string").join(" ");
-	const snippet = normalizeSearchText((string(row[id === "tavily" ? "content" : "description"]) ?? highlights) || extra).slice(0, SEARCH_RESULT_MAX_SNIPPET_CHARS);
+	const candidates = [row[id === "tavily" ? "content" : "description"], ...array(row["highlights"]), ...array(row["extra_snippets"])];
+	const snippet = selectSearchSnippet(candidates.filter((value): value is string => typeof value === "string"), query);
 	return { rank, title, url, ...(snippet ? { snippet } : {}) };
 }
 

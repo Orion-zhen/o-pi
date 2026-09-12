@@ -75,7 +75,7 @@ export class SearchProviderRouter {
 			return {
 				status: "success",
 				provider: first.provider,
-				results: mergeSearchResults(usable.map((batch, index) => ({ ...batch, weight: index === 0 ? 1 : 0.9 })), params.limit),
+				results: mergeSearchResults(usable.map((batch, index) => ({ ...batch, weight: index === 0 ? 1 : 0.9 })), params.limit, params.compiled),
 				downloadedBytes: usable.reduce((sum, batch) => sum + batch.downloadedBytes, 0),
 				attempts,
 			};

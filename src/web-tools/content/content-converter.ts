@@ -22,6 +22,9 @@ export async function convertContent(
 	if ("status" in parsedContentType) return parsedContentType;
 	const { mime, charset } = parsedContentType;
 	const kind = shouldTreatUrlAsHtml(finalUrl, mode) ? "html" : classifyMime(mime);
+	if (mode === "readable" && new URL(finalUrl).hash !== "" && kind !== "html") {
+		return failure("ANCHOR_NOT_FOUND", "Native anchors require HTML. Retry without the fragment to read this response.");
+	}
 	if (kind === "binary") return failure("UNSUPPORTED_CONTENT_TYPE", `${mime || "binary content"} is not supported.`);
 	if (hasBinaryNul(body)) return failure("UNSUPPORTED_CONTENT_TYPE", "binary content is not supported.");
 

@@ -72,14 +72,18 @@ Provider 是运行时策略，不暴露给模型：
 单个 provider 的直接返回保留其结果顺序，跨 provider 合并采用前述去重和排序规则：
 
 ```xml
-<websearch_results query="pi coding agent" count="2" provider="brave_api" trust="untrusted">
+<websearch>
 [1] Pi Coding Agent
-URL: https://example.com/pi
-Snippet: Search result snippet.
-</websearch_results>
+https://example.com/pi
+Search result snippet.
+</websearch>
 ```
 
-搜索摘要来自搜索结果页，不等于页面正文。需要确认内容时，继续用 `webfetch` 读取选定 URL。
+查询、提供方、尝试记录和合并来源保留在 `details`，不重复进入模型正文。不可信内容规则由 prompt guideline 声明。
+
+摘要从提供方已返回的 description、content、highlights 和 extra snippets 中选择一个连续原文片段。精确短语、错误码和版本号优先，重复候选去重，同分保留提供方原始顺序。选片在截断前执行，统一空白后最多 240 字符，截去的前后文用 `...` 标记。没有查询词命中时取首个非空摘要的开头。跨提供方合并也按查询选择摘要，不再单纯保留较长摘要。此过程不调用 LLM，也不增加网络请求。
+
+搜索摘要不等于页面正文。需要确认内容时，继续用 `webfetch` 读取选定 URL。
 
 失败时模型只收到紧凑错误标签，完整错误结构保留在 `details`：
 
@@ -117,16 +121,55 @@ NO_PROVIDER_AVAILABLE, PROVIDER_BLOCKED, PARSE_FAILED
 webfetch({
   url: string,
   mode?: "readable" | "source",
+  find?: string,
   offset?: number,
   limit?: number,
 })
 ```
 
 - `readable`：HTML 响应使用 LinkeDOM 解析。解析器先分析 `<title>`、唯一 `h1`、description、Open Graph、Twitter Card 和受限 JSON-LD，生成 Readability、`main`、`article`、`[role=main]`、`[itemprop=articleBody]`、JSON-LD 正文和 `body` 候选；不再生成标题祖先候选。Readability 只把聚焦的语义根或最终 body fallback 候选克隆到临时合成文档，并通过 `serializer` 返回正文节点，不再序列化后重新解析。最终选中候选直接清理，不为清理再克隆一次。只对最终主正文执行一次 Turndown，仍传入 HTML 字符串，以满足 GFM 插件对表格 DOM 的要求。候选质量只依据标题保留、有效文本、链接密度、短链接列表、结构元素、媒体与导航/推荐/表单占比，并按固定顺序选择。同一 DOM 根的质量只计算一次。标准 head 信号、媒体节点、页面类型信号和顶层延迟目标分别使用单次节点快照，不再为每类字段重复遍历 DOM。`<base href>` 只用于解析 HTTP(S) 候选 URL，不会触发请求。已确认的客户端空壳会直接使用结构化正文或 metadata，不再进入 Readability 和正文质量选择。JSON-LD 只读取已知字段，并受总字符数、脚本数、对象数、遍历节点数和递归深度硬上限保护；无效或超限数据只保留通用 `structured_data/invalid_or_limited` 遗漏。声明式内容支持整个静态文档内的 `template[for]`、`template[shadowrootmode]`，以及 body 内的 `noscript` fallback。成功替换的目标与声明从同一基础文档移除，展开片段单独清理并转成延迟 section，不复制整页 DOM。片段最多处理 64 个、嵌套最多 8 层，重复、缺失、歧义、循环和超限声明按边界处理；普通未匹配 `<template>` 继续删除。URL 路径以 `.html`/`.htm` 结尾时即使响应头误报也按 HTML 处理。source、JSON、XML、纯文本保持原有轻量路径，不加载 DOM、Readability 或 Turndown。
-- `source`：返回解码后的响应源码文本。
-- `offset`/`limit`：对首次转换后的内存 snapshot 切片。下载转换和缓存命中返回同一种页面结构，包含正文、分析摘要和响应元数据，不重建 HTTP 响应。缓存自行管理时间和字节预算，不保存响应头对象或图片字节。长页面结果返回 `range.has_more` 和 `range.next_offset`，继续读取时使用上次返回的 offset。
+- `source`：读取解码后的响应源码文本，支持 `find` 选片，不按锚点选读。
+- `offset`/`limit`：对转换后的文本切片。使用锚点时，偏移和总长度相对所选内容。`find` 将 offset 解释为查找起点，limit 是所有返回片段共用的原文字符预算，不含包装和位置标签。长内容或尚有命中时返回 `range.has_more` 和 `range.next_offset`，继续读取时保留相同 URL、mode、find，使用上次返回的 offset。
+- 文本响应保存在有时间和字节上限的内存 snapshot 中，不保存 DOM、响应头对象或图片字节。显式传入 `offset` 或 `find` 时复用 snapshot，不传这两项则重新请求。没有可用 snapshot 时重新下载转换。整页、不同模式和锚点分别缓存，查找词不参与缓存键。缓存命中与下载转换保留相同的正文、分析摘要和响应元数据。
 - `webfetch.readability.char_threshold`：Readability 接受正文结果的最少字符数。
 - `webfetch.media`：`auto` 模式从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中统一选出至多一张主图。正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。直接图片 URL 复用首次响应字节。当前模型支持图像且所选 API 支持工具结果图片时，页面主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 均以实际字节嗅探后作为原生图片内容返回。模型不支持图像时不会发起二次图片请求。若响应头已明确声明受支持图片，而 source 模式、后续 offset、模型能力或 API 类型已确定不可能返回图片，WebFetch 会在响应头阶段取消直接图片 body，不下载图片字节。`off` 时跳过 HTML 图片候选收集、排序和主图解析，不把用户主动关闭媒体视为遗漏，也不会因页面存在图片而变为 partial；`response_bytes` 控制独立图片响应上限。OpenAI Chat Completions 的 tool message 只支持文本，因此 `openai-completions` 模型即使支持普通图片输入也不会返回工具图片。Responses 不受影响。
+
+### 页内查找
+
+```ts
+webfetch({ url: "https://example.com/docs#cancellation", find: "AbortSignal" })
+```
+
+- `find` 是 1–512 字符的字面子串，忽略大小写，不做词边界推断、语义匹配或查询语法解析。匹配不改写原文，不额外统一空白或解码内容。可以直接调用，不要求先读取网页。
+- HTML `readable` 查找已提取的 Markdown，先应用原生锚点选区。`source` 查找源码。Markdown、普通文本、CSV、JavaScript、JSON、XML、RSS 和 Atom 都查找当前文本表示。JSON 中的 `"\\u4e2d"` 不会因查询 `中` 而命中，也不支持字段路径。
+- `webfetch.limits.find_max_passages` 限制每次返回的上下文片段数，默认 `8`，接受正整数。邻近命中合并后计数，可在用户配置中覆盖。优先保留能放入预算的完整段落和短围栏代码块，否则在命中附近截取。默认单片段最多 800 字符，完整查找串更长时以其长度为下限，所有片段仍服从 limit。limit 放不下完整查找串时，在请求前返回 `INVALID_ARGUMENT`。
+- 每个片段用 `[start-end]` 标记原文的左闭右开字符范围，坐标单位为 UTF-16，与普通 offset 相同。没有命中时返回 `matches="0"`，不是工具错误，也不扩大范围或切换模式。
+- `matches` 只统计本次片段中完整返回的不重叠命中，不是整页总数。`next` 是下一处未完整返回命中的起点，使用同一个 find 继续查找。扩读时去掉 find，显式传入片段起点作为 offset，可复用同一 snapshot，包括 offset=0。
+- 查找只返回文本，不下载主图，主动省略媒体不产生 `primary_media` 遗漏。iframe、未解析声明和客户端空壳等真实遗漏仍保留。零命中不代表未返回的动态内容中不存在该字符串。
+- 不搜索直接图片、音视频流、PDF 或其他二进制，也不搜索图片响应的占位说明。视频和音频网页只查找已提取的静态文字或文字稿。
+
+```xml
+<webfetch kind="article" matches="2" next="4200">
+[620-760]
+First matching excerpt.
+
+[2100-2240]
+Second matching excerpt.
+</webfetch>
+```
+
+`details.range.kind` 区分 `read` 和 `find`。普通读取保留 start/end，查找结果保留起点、命中数和 passages 数组，不把离散片段声明成连续范围。展开预览只展示查找片段，遥测记录查找词长度和返回命中数，不记录查找词原文。
+
+### 原生锚点选读
+
+`readable` 模式支持 `https://example.com/docs#authentication`：
+
+- 按解码后的 fragment 精确匹配静态 HTML 的 `id`，其次匹配 `<a name>`。标题内锚点和紧邻标题之前的空 `<a>` 也指向该标题。
+- 标题目标包含其子章节，到下一个同级或更高层级标题前结束，范围不越过所属 `main`、`article` 或 `[role=main]`。其他目标只读取目标子树。
+- 显式选区不经过 Readability 正文筛选，仍应用安全节点清理、链接绝对化和头像过滤。选区外的正文、页面元数据、主图和遗漏不混入结果。章节外明确指向选区内目标的 `template[for]` 仍会解析。
+- 返回 `anchor` 标记实际选区。找不到静态目标、fragment 无法解码或响应不是 HTML 时返回 `ANCHOR_NOT_FOUND`。不生成标题 slug、不解释客户端路由、不回退到整页。移除 fragment 可显式读取整页。
+- 有锚点时优先请求 HTML，fragment 不发送给服务器。重定向未指定 fragment 时继承原锚点，显式 fragment 替换原值，单独的 `#` 清空选区。
+- 正文链接保留 fragment。
 
 `webfetch` 不搜索、不执行 JavaScript、不点击链接、不提交表单、不访问本机或私网。
 
@@ -134,22 +177,25 @@ webfetch({
 
 视频和音频只保留页面类型及未返回原因，不收集或下载流地址。视频页可返回 poster 或标准缩略图，并通过 `primary_media/video_not_returned` 明确报告视频本体未返回。音频页对应报告 `primary_media/audio_not_returned`。
 
-标题优先使用唯一 `h1`、最终正文标题，其次为 Open Graph、JSON-LD、Twitter Card 和 `<title>`。输出按标题/必要元数据、主正文、结构化内容和延迟内容组成 section。只按规范化文本相等或包含关系去重。metadata description 只在正文缺失时补充，不覆盖或重复已有正文。
+标题优先使用唯一 `h1`、最终正文标题，其次为 Open Graph、JSON-LD、Twitter Card 和 `<title>`。输出按标题/必要元数据、主正文、结构化内容和延迟内容组成 section。正文 section 按规范化文本相等或包含关系去重，标题元数据不参与该比较，避免正文包含标题词时被整段删除。metadata description 只在正文缺失时补充，不覆盖或重复已有正文。
 
 HTML 在转 Markdown 前会移除头像图片，但保留作者名称和个人页文本链接。判定组合使用 Schema.org、`rel=author`、microformats 等作者语义，严格的个人页路由结构、同目标文本链接、可解析尺寸和明确的 DOM 角色属性。不扫描图片 URL，也不让 alt 文案或单个模糊关键词独立触发删除。基础正文和声明式延迟正文使用同一过滤链。
 
-成功结果固定包含 `scope: "static_response"`，并用 `page_kind` 标记 article、image、video、audio 或 generic，用 `text_source` 标记 readability、semantic、body 或 metadata。`completeness` 只判断当前静态响应中已检测内容是否完整：文章正文无已知遗漏时为 `complete`。图片必须实际返回。视频和音频即使已有文字或缩略图仍为 `partial`。客户端空壳、文本分段、未解析声明、iframe、受限结构化数据或主图失败也为 `partial`。普通脚本存在本身不构成遗漏。`complete` 不代表任意客户端状态、交互、登录后 API 或响应中无法检测的动态内容已返回。
+成功结果固定包含 `scope: "static_response"`，并用 `page_kind` 标记 article、image、video、audio 或 generic，用 `text_source` 标记 readability、semantic、body 或 metadata。`completeness` 只报告静态响应中已检测到的真实遗漏，锚点请求只判断所选内容。无已知遗漏时为 `complete`，不表示本次返回了整页。锚点选读、查找选片、字符切片和续读时主动省略主图都不产生遗漏，未读完的文本由 `range` 和模型侧 `next` 表示。
+
+首段应返回的图片必须实际返回。视频和音频即使已有文字或缩略图仍为 `partial`。客户端空壳、未解析声明、iframe、受限结构化数据或主图失败也为 `partial`。普通脚本存在本身不构成遗漏。`complete` 不代表任意客户端状态、交互、登录后 API 或响应中无法检测的动态内容已返回。
 
 `details.omissions` 保留完整的类别和原因结构，可能包含以下值：
 
 ```text
-text_range/range
 deferred_content/unresolved_declaration
 primary_media/*
 embedded_content/iframe_not_fetched
 interactive_content/client_rendered
 structured_data/invalid_or_limited
-```模型侧使用紧凑 `<webfetch>` 包装：`kind` 始终存在。只有 metadata fallback 才输出 `source="metadata"`。遗漏原因去重后合并进 `partial`。有后续正文时只输出数字 `next`。requested URL 已存在于工具调用中，因此仅在跳转后输出不同的 `final`。固定的静态响应范围和不可信内容规则由 prompt guideline 声明，不在每次结果中重复。
+```
+
+模型侧使用紧凑 `<webfetch>` 包装：`kind` 始终存在，锚点选读时输出 `anchor`，查找时输出本次 `matches`。只有 metadata fallback 才输出 `source="metadata"`。真实遗漏原因去重后合并进 `partial`。有后续正文时只输出数字 `next`，不再输出 `partial="range"`。requested URL 已存在于工具调用中，因此仅在跳转后输出不同的 `final`。固定的静态响应范围和不可信内容规则由 prompt guideline 声明，不在每次结果中重复。
 
 ```xml
 <webfetch kind="video" partial="video_not_returned">
@@ -172,11 +218,11 @@ Static response content.
 ### 错误码
 
 ```text
-CONFIG_ERROR, INVALID_URL, BLOCKED_ADDRESS, COOKIE_ERROR,
+CONFIG_ERROR, INVALID_ARGUMENT, INVALID_URL, BLOCKED_ADDRESS, COOKIE_ERROR,
 AUTH_CONFIRMATION_REQUIRED, DNS_FAILED,
 CONNECTION_FAILED, TLS_FAILED, TIMEOUT, ABORTED,
 TOO_MANY_REDIRECTS, HTTP_ERROR, RESPONSE_TOO_LARGE,
-UNSUPPORTED_CONTENT_TYPE, CONVERSION_FAILED
+UNSUPPORTED_CONTENT_TYPE, CONVERSION_FAILED, ANCHOR_NOT_FOUND
 ```
 
 ## 共享网络策略

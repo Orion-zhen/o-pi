@@ -4,6 +4,8 @@ export { loadWebToolsConfig } from "./config.js";
 export type { WebToolsConfig } from "./config-types.js";
 export type {
 	WebFetchParams,
+	WebFetchRange,
+	WebFetchTextSpan,
 	WebFetchDetails,
 	WebFetchSuccessDetails,
 	WebFetchFailureDetails,

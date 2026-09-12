@@ -62,15 +62,17 @@ describe("websearch tool", () => {
 		await expect(executeWebSearch({ query: "site:example.com -site:example.com x" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
 	});
 
-	it("成功模型输出只在顶层包含 provider，并转义 XML", async () => {
+	it("成功模型输出只保留标题、URL、摘要，并转义 XML", async () => {
 		const calls = { count: 0 };
 		const result = await executeWebSearch({ query: "Title <pi>&" }, runtime([successProvider("exa_api", calls)]));
 		expect(result.details).toMatchObject({ status: "success", provider: "exa_api" });
-		expect(result.content).toContain('query="Title &lt;pi&gt;&amp;"');
-		expect(result.content).toContain('provider="exa_api"');
-		expect(result.content).toContain("[1] &lt;Title&gt;&amp;");
-		expect(result.content).not.toContain("Source:");
-		expect(result.content.match(/exa_api/g)).toHaveLength(1);
+		expect(result.content).toBe([
+			"<websearch>",
+			"[1] &lt;Title&gt;&amp;",
+			"https://example.com/?a=1",
+			"Snippet for Title &lt;pi&gt;&amp;",
+			"</websearch>",
+		].join("\n"));
 		expect(calls.count).toBe(1);
 	});
 

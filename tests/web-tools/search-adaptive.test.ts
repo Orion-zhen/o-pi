@@ -120,7 +120,7 @@ describe("adaptive search quality and merge", () => {
 		const merged = mergeSearchResults([
 			{ provider: "brave_api", weight: 1, results: [{ rank: 1, title: "Pi docs", url: "https://example.com/docs?utm_source=x#top" }, { rank: 2, title: "Pi API", url: "https://example.com/api" }, { rank: 3, title: "Pi guide", url: "https://example.com/guide" }] },
 			{ provider: "tavily", weight: 0.9, results: [{ rank: 1, title: "Pi docs", url: "https://example.com/docs" }, { rank: 2, title: "Other", url: "https://other.test/pi" }] },
-		], 5);
+		], 5, compileSearchQuery({ query: "pi" }));
 		expect(merged[0]).toMatchObject({ url: "https://example.com/docs", provenance: [{ provider: "brave_api" }, { provider: "tavily" }] });
 		expect(merged.filter((item) => new URL(item.url).hostname === "example.com")).toHaveLength(2);
 	});

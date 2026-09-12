@@ -4,12 +4,15 @@ import type { WebFetchFailureDetails } from "../core/types.js";
 export interface ValidatedUrl {
 	url: URL;
 	displayUrl: string;
+	fragment: string;
 }
 
 export interface HttpFetchSuccess {
 	status: "success";
 	requestedUrl: string;
 	finalUrl: string;
+	/** 留给内容选区，HTTP 请求不发送 fragment。 */
+	fragment: string;
 	httpStatus: number;
 	headers: WebHttpHeaders;
 	body: Uint8Array;

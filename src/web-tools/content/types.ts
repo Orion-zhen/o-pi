@@ -8,6 +8,7 @@ export interface ContentConversion {
 	contentType?: string;
 	charset?: string;
 	title?: string;
+	anchor?: string;
 	directMedia?: WebFetchMedia;
 }
 

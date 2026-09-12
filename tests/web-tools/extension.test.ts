@@ -30,6 +30,17 @@ describe("web-tools extension", () => {
 		expect(fetch.parameters).toMatchObject({ properties: { url: { minLength: 1, maxLength: 8192 } } });
 	});
 
+	it("find schema 只接受有界非空字符串，并传给 runtime", async () => {
+		const fetch = vi.fn(async () => ({ content: "found", details: webFetchDetails() }));
+		const runtime: WebToolsRuntime = { fetch, async search() { return successfulSearch("q", "search"); }, async close() {} };
+		const { registered } = registerExtension(createWebToolsExtension(async () => runtime));
+		const tool = registered.find((item) => item.name === "webfetch");
+		if (tool === undefined) throw new Error("missing webfetch");
+		expect(tool.parameters).toMatchObject({ properties: { find: { type: "string", minLength: 1, maxLength: 512 } } });
+		await tool.execute("find", { url: "https://example.com/", find: "foo()", offset: 0, limit: 500 }, undefined, undefined, { hasUI: false });
+		expect(fetch).toHaveBeenCalledWith({ url: "https://example.com/", find: "foo()", offset: 0, limit: 500 }, expect.anything());
+	});
+
 	it("按顺序注册工具并标记结构化错误", async () => {
 		const { registered, handlers } = registerExtension(webTools);
 		expect(registered.map((tool) => tool.name)).toEqual(["websearch", "webfetch"]);

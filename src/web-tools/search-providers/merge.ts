@@ -2,6 +2,8 @@ import { getDomain } from "tldts";
 
 import type { FormalWebSearchProviderId, WebSearchItem } from "../core/types.js";
 import { normalizeSearchResultUrl, normalizeSearchText } from "../network/url-utils.js";
+import { selectSearchSnippet } from "./snippets.js";
+import type { CompiledSearchQuery } from "./types.js";
 
 const RRF_K = 60;
 
@@ -14,6 +16,7 @@ interface Candidate extends WebSearchItem {
 export function mergeSearchResults(
 	inputs: readonly { provider: FormalWebSearchProviderId; weight: number; results: readonly WebSearchItem[] }[],
 	limit: number,
+	query: CompiledSearchQuery,
 ): WebSearchItem[] {
 	const candidates: Candidate[] = [];
 	for (const input of inputs) {
@@ -24,8 +27,10 @@ export function mergeSearchResults(
 			if (candidate === undefined) {
 				candidate = { ...item, url, key: url, providers: new Map(), rrf: 0 };
 				candidates.push(candidate);
-			} else if (item.snippet !== undefined && item.snippet.length > (candidate.snippet?.length ?? 0)) {
-				candidate.snippet = item.snippet;
+			} else if (item.snippet !== undefined) {
+				const snippets = candidate.snippet === undefined ? [item.snippet] : [candidate.snippet, item.snippet];
+				const selected = selectSearchSnippet(snippets, query);
+				if (selected !== undefined) candidate.snippet = selected;
 			}
 			candidate.providers.set(input.provider, item.rank);
 			candidate.rrf += input.weight / (RRF_K + item.rank);

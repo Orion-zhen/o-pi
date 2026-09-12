@@ -21,7 +21,7 @@ const SENSITIVE_QUERY_NAMES = new Set([
 const SEARCH_TRACKING_QUERY_NAMES = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"];
 
 export const SEARCH_RESULT_MAX_TITLE_CHARS = 300;
-export const SEARCH_RESULT_MAX_SNIPPET_CHARS = 500;
+export const SEARCH_RESULT_MAX_SNIPPET_CHARS = 240;
 
 export function redactUrl(value: string | URL): string {
 	const url = typeof value === "string" ? new URL(value) : new URL(value.toString());

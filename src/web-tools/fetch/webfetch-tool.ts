@@ -11,6 +11,7 @@ import type { ContentConversion, WebFetchPage } from "../content/types.js";
 import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
 import { escapeXml } from "../network/url-utils.js";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.js";
+import { selectText } from "./text-selection.js";
 import type { SnapshotCache } from "./snapshot-cache.js";
 
 const PREVIEW_MAX_LINES = 40;
@@ -25,24 +26,40 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	const mode = params.mode ?? "readable";
 	const offset = params.offset ?? 0;
 	const limit = params.limit ?? runtime.config.webfetch.limits.default_output_chars;
+	const textOnly = params.find !== undefined;
+	if (runtime.context.signal?.aborted) return failureResult({ status: "failed", error: { code: "ABORTED", message: "webfetch was aborted." } });
+	if (params.find !== undefined && limit < params.find.length) {
+		return failureResult({ status: "failed", error: { code: "INVALID_ARGUMENT", message: "limit must fit the full find string." } });
+	}
 	const mediaEnabled = runtime.config.webfetch.media.mode === "auto";
-	const canReturnImages = mode === "readable" && offset === 0 && mediaEnabled && runtime.context.acceptsImages === true;
+	const canReturnImages = !textOnly && mode === "readable" && offset === 0 && mediaEnabled && runtime.context.acceptsImages === true;
 	const snapshotKey = snapshotKeyFor(params.url, mode, mediaEnabled, runtime.context.privateNetworkGrant?.origin);
-	const cached = offset > 0 ? runtime.snapshots.get(snapshotKey) : undefined;
-	let snapshotStatus: SnapshotStatus = offset === 0 ? "not_needed" : cached === undefined ? "refetched" : "hit";
+	const useSnapshot = params.offset !== undefined || textOnly;
+	const cached = useSnapshot ? runtime.snapshots.get(snapshotKey) : undefined;
+	let snapshotStatus: SnapshotStatus = !useSnapshot ? "not_needed" : cached === undefined ? "refetched" : "hit";
 	const page = cached ?? await readPage(params.url, mode, canReturnImages, options);
-	if ("status" in page) return { content: failureContent(page), details: page };
-
-	const sliced = sliceText(page.text, offset, limit);
-	if (sliced.nextOffset !== undefined && snapshotStatus !== "hit" && page.directMedia === undefined) {
-		snapshotStatus = "created";
-		runtime.snapshots.set(snapshotKey, page);
+	if ("status" in page) return failureResult(page);
+	if (textOnly && page.format === "image") {
+		return failureResult({
+			status: "failed", error: { code: "UNSUPPORTED_CONTENT_TYPE", message: "find requires text content, not an image response." },
+			requested_url: page.response.requestedUrl, final_url: page.response.finalUrl, http_status: page.response.httpStatus,
+		});
 	}
 
-	const mediaResult = mediaEnabled ? await resolvePrimaryMedia(page, offset, options) : {};
-	const omissions = collectOmissions(page, sliced.start, sliced.nextOffset, mediaResult.omission);
+	const selected = selectText(page.text, offset, limit, params.find === undefined
+		? undefined
+		: { text: params.find, maxPassages: runtime.config.webfetch.limits.find_max_passages });
+	if (snapshotStatus !== "hit" && page.format !== "image") {
+		const stored = runtime.snapshots.set(snapshotKey, page);
+		if (stored && offset === 0) snapshotStatus = "created";
+	}
+
+	const mediaResult = !textOnly && mediaEnabled ? await resolvePrimaryMedia(page, offset, options) : {};
+	const omissions = collectOmissions(page, mediaResult.omission, !textOnly);
 	if (
-		page.analysis.pageKind === "image"
+		!textOnly
+		&& page.analysis.pageKind === "image"
+		&& offset === 0
 		&& mediaEnabled
 		&& mediaResult.media === undefined
 		&& !omissions.some((item) => item.kind === "primary_media")
@@ -61,18 +78,13 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		final_url: response.finalUrl,
 		http_status: response.httpStatus,
 		...(page.title ? { title: page.title } : {}),
+		...(page.anchor !== undefined ? { anchor: page.anchor } : {}),
 		...(page.contentType ? { content_type: page.contentType } : {}),
 		...(page.charset ? { charset: page.charset } : {}),
 		format: page.format,
 		downloaded_bytes: response.downloadedBytes,
 		total_chars: page.text.length,
-		range: {
-			start: sliced.start,
-			end: sliced.end,
-			total: page.text.length,
-			has_more: sliced.nextOffset !== undefined,
-			...(sliced.nextOffset !== undefined ? { next_offset: sliced.nextOffset } : {}),
-		},
+		range: selected.range,
 		authenticated: response.authenticated,
 		redirect_count: response.redirectCount,
 		snapshot: snapshotStatus,
@@ -82,10 +94,10 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 			returned: mediaResult.media !== undefined ? 1 : 0,
 		},
 		duration_ms: runtime.now() - options.startedAt,
-		preview: preview(page.text),
+		preview: preview(textOnly ? selected.text : page.text),
 	};
 	return {
-		content: successContent(details, sliced.text),
+		content: successContent(details, selected.text),
 		details,
 		...(mediaResult.media !== undefined ? { media: [mediaResult.media] } : {}),
 	};
@@ -101,6 +113,7 @@ async function readPage(
 	const converterPromise = import("../content/content-converter.js");
 	const fetched = await fetchHttpUrl(rawUrl, options, {
 		imageMaxBytes: options.config.webfetch.media.response_bytes,
+		preferHtmlForFragment: mode === "readable",
 		omitSupportedImageBody: !canReturnImages,
 	});
 	if (fetched.status === "failed") {
@@ -108,12 +121,14 @@ async function readPage(
 		return fetched.details;
 	}
 	options.context.onUpdate?.({ content: "Converting...", details: { status: "progress", phase: "converting", http_status: fetched.httpStatus } });
-	const direct = await directImageConversion(fetched, mode, options.config.webfetch.media.response_bytes, mediaEnabled);
+	const direct = mode === "readable" && fetched.fragment !== ""
+		? undefined
+		: await directImageConversion(fetched, mode, options.config.webfetch.media.response_bytes, mediaEnabled);
 	if (direct !== undefined) void converterPromise.catch(() => undefined);
 	const converted = direct ?? await (await converterPromise).convertContent(
 		fetched.body,
 		fetched.headers,
-		fetched.finalUrl,
+		`${fetched.finalUrl}${fetched.fragment}`,
 		mode,
 		{ charThreshold: options.config.webfetch.readability.char_threshold },
 		mediaEnabled,
@@ -144,19 +159,17 @@ async function readPage(
 
 function collectOmissions(
 	conversion: ContentConversion,
-	start: number,
-	nextOffset: number | undefined,
 	mediaOmission: WebFetchOmission | undefined,
+	includePrimaryMedia: boolean,
 ): WebFetchOmission[] {
 	const omissions: WebFetchOmission[] = [];
-	if (start > 0 || nextOffset !== undefined) omissions.push({ kind: "text_range", reason: "range" });
 	const deferred = conversion.analysis.deferredFragments;
 	if (deferred.resolved < deferred.discovered) omissions.push({ kind: "deferred_content", reason: "unresolved_declaration" });
 	omissions.push(...conversion.analysis.omissions);
 	if (mediaOmission !== undefined) omissions.push(mediaOmission);
 	const pageKind = conversion.analysis.pageKind;
-	if (pageKind === "video") omissions.push({ kind: "primary_media", reason: "video_not_returned" });
-	if (pageKind === "audio") omissions.push({ kind: "primary_media", reason: "audio_not_returned" });
+	if (includePrimaryMedia && pageKind === "video") omissions.push({ kind: "primary_media", reason: "video_not_returned" });
+	if (includePrimaryMedia && pageKind === "audio") omissions.push({ kind: "primary_media", reason: "audio_not_returned" });
 	return omissions;
 }
 
@@ -164,7 +177,7 @@ function snapshotKeyFor(rawUrl: string, mode: WebFetchMode, mediaEnabled: boolea
 	let normalized = rawUrl;
 	try {
 		const url = new URL(rawUrl);
-		url.hash = "";
+		if (mode === "source") url.hash = "";
 		normalized = url.toString();
 	} catch {
 		// 无效 URL 会在 HTTP 请求边界返回结构化错误。
@@ -172,27 +185,12 @@ function snapshotKeyFor(rawUrl: string, mode: WebFetchMode, mediaEnabled: boolea
 	return `${privateNetworkOrigin ?? "public"}\0${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
 }
 
-function sliceText(text: string, offset: number, limit: number): { text: string; start: number; end: number; nextOffset?: number } {
-	const start = safeBoundary(text, Math.min(text.length, offset));
-	let end = safeBoundary(text, Math.min(text.length, start + limit));
-	if (end < text.length) {
-		const newline = text.lastIndexOf("\n", end);
-		if (newline > start && end - newline < 1000) end = newline + 1;
-		end = safeBoundary(text, end);
-	}
-	return { text: text.slice(start, end), start, end, ...(end < text.length ? { nextOffset: end } : {}) };
-}
-
-function safeBoundary(text: string, index: number): number {
-	if (index <= 0 || index >= text.length) return Math.max(0, Math.min(index, text.length));
-	const code = text.charCodeAt(index);
-	return code >= 0xdc00 && code <= 0xdfff ? index + 1 : index;
-}
-
 function successContent(details: WebFetchSuccessDetails, text: string): string {
 	const partialReasons = [...new Set(details.omissions.map((item) => item.reason))];
 	const attrs = [
 		`kind="${details.page_kind}"`,
+		details.range.kind === "find" ? `matches="${details.range.matches}"` : undefined,
+		details.anchor !== undefined ? `anchor="${escapeXml(details.anchor)}"` : undefined,
 		details.final_url !== details.requested_url ? `final="${escapeXml(details.final_url)}"` : undefined,
 		details.text_source === "metadata" ? `source="metadata"` : undefined,
 		partialReasons.length > 0 ? `partial="${partialReasons.join(",")}"` : undefined,
@@ -201,8 +199,8 @@ function successContent(details: WebFetchSuccessDetails, text: string): string {
 	return `<webfetch ${attrs}>\n${text}\n</webfetch>`;
 }
 
-function failureContent(details: WebFetchFailureDetails): string {
-	return `<error tool="webfetch" code="${escapeXml(details.error.code)}">\n${escapeXml(details.error.message)}\n</error>`;
+function failureResult(details: WebFetchFailureDetails): WebFetchResult {
+	return { content: `<error tool="webfetch" code="${escapeXml(details.error.code)}">\n${escapeXml(details.error.message)}\n</error>`, details };
 }
 
 function preview(text: string): string {

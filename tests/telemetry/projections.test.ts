@@ -217,8 +217,11 @@ describe("tool telemetry projections", () => {
 		});
 		expect(output.candidates).toEqual([{ kind: "url", value: "https://example.com/a", rank: 1, group: "primary", sources: ["brave_api", "tavily"] }]);
 
-		const fetchParams = fixture<WebFetchParams>({ url: "https://example.com/a" });
-		expect(inputFacts(webFetchTelemetry, fetchParams).targets).toEqual([{ kind: "url", value: "https://example.com/a" }]);
+		const fetchParams = fixture<WebFetchParams>({ url: "https://example.com/a", find: "private lookup" });
+		const fetchInput = inputFacts(webFetchTelemetry, fetchParams);
+		expect(fetchInput.targets).toEqual([{ kind: "url", value: "https://example.com/a" }]);
+		expect(fetchInput.fields).toMatchObject({ input_find_chars: 14 });
+		expect(JSON.stringify(fetchInput)).not.toContain("private lookup");
 		resultFacts(webFetchTelemetry, fetchParams, fixture<WebFetchDetails>({ status: "ok", final_url: "https://example.com/a" }));
 	});
 

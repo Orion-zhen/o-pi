@@ -33,24 +33,29 @@ const webFetchParameters = Type.Object(
 		url: Type.String({
 			minLength: 1,
 			maxLength: 8192,
-			description: "HTTP(S) URL.",
+			description: "HTTP(S) URL. #anchor selects static HTML content in readable mode.",
 		}),
 		mode: Type.Optional(
 			StringEnum(["readable", "source"] as const, {
 				description: "Output mode; default readable.",
 			}),
 		),
+		find: Type.Optional(Type.String({
+			minLength: 1,
+			maxLength: 512,
+			description: "Case-insensitive literal substring. Return bounded text excerpts, no images.",
+		})),
 		offset: Type.Optional(
 			Type.Integer({
 				minimum: 0,
-				description: "Start character; default 0.",
+				description: "Character offset in selected content. Default 0. Explicit offset or find reuses snapshot.",
 			}),
 		),
 		limit: Type.Optional(
 			Type.Integer({
 				minimum: 1,
 				maximum: 100000,
-				description: "Character count.",
+				description: "Character budget, shared across find excerpts.",
 			}),
 		),
 	},

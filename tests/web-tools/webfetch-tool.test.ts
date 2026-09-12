@@ -135,6 +135,9 @@ describe("webfetch tool", () => {
 		if (first.details.status !== "success") throw new Error("failed");
 		expect(first.details.range.next_offset).toBeDefined();
 		expect(first.details.range.has_more).toBe(true);
+		expect(first.details).toMatchObject({ completeness: "complete", omissions: [] });
+		expect(first.content).toContain('next="');
+		expect(first.content).not.toContain("partial=");
 		const nextOffset = first.details.range.next_offset;
 		if (nextOffset === undefined) throw new Error("missing next_offset");
 
@@ -146,9 +149,10 @@ describe("webfetch tool", () => {
 			scope: "static_response",
 			page_kind: "generic",
 			text_source: "body",
-			completeness: "partial",
-			omissions: [{ kind: "text_range", reason: "range" }],
+			completeness: "complete",
+			omissions: [],
 		});
+		expect(second.content).not.toContain("partial=");
 		expect(calls).toBe(1);
 	});
 
@@ -631,6 +635,25 @@ describe("webfetch tool", () => {
 		expectPrimaryMediaOmission(result, "video_not_returned", { discovered: 1, returned: 1 });
 	});
 
+	it("续读文本不重复请求主图，也不把主动省略主图标记为 partial", async () => {
+		const html = `<main><h1>Illustrated article</h1><p>${"Article body with a primary illustration. ".repeat(40)}</p><img src="/diagram.png" alt="Technical diagram" width="800" height="600"></main>`;
+		const requests: string[] = [];
+		const rt = runtime(async (url) => {
+			requests.push(url.pathname);
+			return url.pathname === "/diagram.png"
+				? httpResponse(200, PNG_BYTES, { "content-type": "image/png" })
+				: httpResponse(200, html, { "content-type": "text/html" });
+		}, true);
+		const first = await executeWebFetch({ url: "https://example.com/illustrated", limit: 120 }, rt);
+		if (first.details.status !== "success" || first.details.range.next_offset === undefined) throw new Error("missing range");
+		expect(first.details).toMatchObject({ completeness: "complete", media: { discovered: 1, returned: 1 } });
+		const next = await executeWebFetch({ url: "https://example.com/illustrated", offset: first.details.range.next_offset, limit: 3000 }, rt);
+		expect(next.details).toMatchObject({ status: "success", snapshot: "hit", completeness: "complete", omissions: [] });
+		expect(next.media).toBeUndefined();
+		expect(next.content).not.toContain("partial=");
+		expect(requests).toEqual(["/illustrated", "/diagram.png"]);
+	});
+
 	it("音频页只记录媒体存在，不请求音频流", async () => {
 		const html = `
 			<html><head><meta property="og:type" content="audio.other"></head>
@@ -672,7 +695,7 @@ describe("webfetch tool", () => {
 		expectPrimaryMediaOmission(result, expectedReason);
 	});
 
-	it("未解析的声明式延迟内容和分段文本都会进入 completeness 契约", async () => {
+	it("分段只输出 next，未解析的声明式内容仍报告 partial", async () => {
 		const html = `<main><h1>Post</h1><p>${"Visible ".repeat(20)}</p></main><template for="missing"><p>Hidden reply</p></template>`;
 		const result = await executeWebFetch(
 			{ url: "https://example.com/post", limit: 20 },
@@ -685,10 +708,11 @@ describe("webfetch tool", () => {
 		});
 		if (result.details.status !== "success") throw new Error("failed");
 		expect(result.details.omissions).toEqual(expect.arrayContaining([
-			{ kind: "text_range", reason: "range" },
 			{ kind: "deferred_content", reason: "unresolved_declaration" },
 		]));
 		expect(result.content).not.toContain("Hidden reply");
+		expect(result.content).toContain('partial="unresolved_declaration"');
+		expect(result.content).toContain('next="');
 	});
 
 	it("文章正文无已知遗漏时报告静态范围内 complete，并标注正文来源", async () => {
@@ -778,7 +802,6 @@ describe("webfetch tool", () => {
 		});
 		if (second.details.status !== "success") throw new Error("failed");
 		expect(second.details.omissions).toEqual(expect.arrayContaining([
-			{ kind: "text_range", reason: "range" },
 			{ kind: "embedded_content", reason: "iframe_not_fetched" },
 			{ kind: "primary_media", reason: "video_not_returned" },
 		]));

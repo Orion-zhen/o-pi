@@ -46,10 +46,12 @@ function invocationSummary(args: unknown): string {
 	const mode = isRecord(args) && args["mode"] === "source" ? "source" : "readable";
 	const offset = isRecord(args) && typeof args["offset"] === "number" ? args["offset"] : undefined;
 	const limit = isRecord(args) && typeof args["limit"] === "number" ? args["limit"] : undefined;
-	const range = offset !== undefined && offset > 0
-		? limit !== undefined ? `offset ${offset}-${offset + limit}` : `offset ${offset}+`
-		: "offset 0";
-	return joinParts([mode, range]);
+	const finding = isRecord(args) && typeof args["find"] === "string";
+	const range = finding ? `from ${offset ?? 0}`
+		: offset !== undefined && offset > 0
+			? limit !== undefined ? `offset ${offset}-${offset + limit}` : `offset ${offset}+`
+			: "offset 0";
+	return joinParts([mode, finding ? "find" : undefined, range]);
 }
 
 export function formatWebFetchResult(
@@ -83,9 +85,11 @@ function formatProgress(details: unknown): string {
 
 function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
 	const format = labelFormat(details.format);
-	const range = details.range.next_offset !== undefined
-		? `${formatChars(details.range.start)}-${formatChars(details.range.end)} of ${formatChars(details.range.total)}`
-		: formatChars(details.total_chars);
+	const range = details.range.kind === "find"
+		? `${details.range.matches} matches, ${details.range.passages.length} excerpts`
+		: details.range.next_offset !== undefined
+			? `${formatChars(details.range.start)}-${formatChars(details.range.end)} of ${formatChars(details.range.total)}`
+			: formatChars(details.total_chars);
 	const header = formatToolCard({
 		tool: "webfetch",
 		status: "success",
@@ -113,8 +117,11 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 	const content = joinParts([
 		details.page_kind,
 		details.text_source,
+		details.anchor !== undefined ? `anchor #${details.anchor}` : undefined,
 		details.completeness,
-		`chars ${details.range.start}-${details.range.end} of ${details.range.total}`,
+		details.range.kind === "find"
+			? `find from ${details.range.start} of ${details.range.total}, ${range}`
+			: `chars ${details.range.start}-${details.range.end} of ${details.range.total}`,
 	]);
 	const coverage = joinParts([
 		details.deferred_fragments.discovered > 0
@@ -221,6 +228,7 @@ function isSuccessDetails(value: unknown): value is WebFetchSuccessDetails {
 		&& Array.isArray(value["omissions"])
 		&& typeof value["http_status"] === "number"
 		&& isRecord(value["range"])
+		&& (value["range"]["kind"] === "read" || value["range"]["kind"] === "find" && typeof value["range"]["matches"] === "number" && Array.isArray(value["range"]["passages"]))
 		&& isDeferredFragments(value["deferred_fragments"])
 		&& isRecord(value["media"]);
 }

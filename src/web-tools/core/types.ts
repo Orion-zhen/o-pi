@@ -9,6 +9,7 @@ export type WebSearchProviderId = FormalWebSearchProviderId | "duckduckgo_html";
 export interface WebFetchParams {
 	url: string;
 	mode?: WebFetchMode;
+	find?: string;
 	offset?: number;
 	limit?: number;
 }
@@ -28,10 +29,10 @@ export interface WebSearchItem {
 }
 
 export type WebFetchErrorCode =
-	| "CONFIG_ERROR" | "INVALID_URL" | "BLOCKED_ADDRESS" | "COOKIE_ERROR"
+	| "CONFIG_ERROR" | "INVALID_ARGUMENT" | "INVALID_URL" | "BLOCKED_ADDRESS" | "COOKIE_ERROR"
 	| "AUTH_CONFIRMATION_REQUIRED" | "DNS_FAILED" | "CONNECTION_FAILED" | "TLS_FAILED"
 	| "TIMEOUT" | "ABORTED" | "TOO_MANY_REDIRECTS" | "HTTP_ERROR"
-	| "RESPONSE_TOO_LARGE" | "UNSUPPORTED_CONTENT_TYPE" | "CONVERSION_FAILED";
+	| "RESPONSE_TOO_LARGE" | "UNSUPPORTED_CONTENT_TYPE" | "CONVERSION_FAILED" | "ANCHOR_NOT_FOUND";
 
 export type WebSearchErrorCode =
 	| "INVALID_ARGUMENT" | "CONFIG_ERROR" | "DNS_FAILED" | "CONNECTION_FAILED" | "TLS_FAILED"
@@ -50,6 +51,22 @@ export interface WebFetchFailureDetails {
 	response_preview?: string;
 }
 
+export interface WebFetchTextSpan {
+	start: number;
+	end: number;
+}
+
+export type WebFetchRange = {
+	/** 读取或查找的起点，坐标相对当前模式和锚点选区。 */
+	start: number;
+	total: number;
+	has_more: boolean;
+	next_offset?: number;
+} & (
+	| { kind: "read"; end: number }
+	| { kind: "find"; matches: number; passages: WebFetchTextSpan[] }
+);
+
 export interface WebFetchSuccessDetails {
 	status: "success";
 	scope: "static_response";
@@ -61,18 +78,14 @@ export interface WebFetchSuccessDetails {
 	final_url: string;
 	http_status: number;
 	title?: string;
+	/** 原生锚点选区，字符范围相对此选区。 */
+	anchor?: string;
 	content_type?: string;
 	charset?: string;
 	format: WebFetchOutputFormat;
 	downloaded_bytes: number;
 	total_chars: number;
-	range: {
-		start: number;
-		end: number;
-		total: number;
-		has_more: boolean;
-		next_offset?: number;
-	};
+	range: WebFetchRange;
 	authenticated: boolean;
 	redirect_count: number;
 	snapshot: SnapshotStatus;
@@ -84,10 +97,10 @@ export interface WebFetchSuccessDetails {
 }
 
 export interface WebFetchOmission {
-	kind: "text_range" | "deferred_content" | "primary_media" | "embedded_content" | "structured_data" | "interactive_content";
+	kind: "deferred_content" | "primary_media" | "embedded_content" | "structured_data" | "interactive_content";
 	reason:
-		| "range" | "unresolved_declaration" | "model_no_image_input" | "api_no_tool_image_output"
-		| "offset_range" | "media_fetch_failed" | "media_too_large" | "unsupported_media_type"
+		| "unresolved_declaration" | "model_no_image_input" | "api_no_tool_image_output"
+		| "media_fetch_failed" | "media_too_large" | "unsupported_media_type"
 		| "video_not_returned" | "audio_not_returned" | "iframe_not_fetched" | "invalid_or_limited" | "client_rendered";
 }
 

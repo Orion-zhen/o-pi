@@ -86,8 +86,9 @@ function parseRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailureDetails 
 		return failure("INVALID_URL", "URL userinfo is not allowed.");
 	}
 	if (url.hostname === "") return failure("INVALID_URL", "URL hostname is required.");
+	const fragment = url.hash;
 	url.hash = "";
-	return { url, displayUrl: redactUrl(url) };
+	return { url, displayUrl: redactUrl(url), fragment };
 }
 
 /** 解析全部地址并要求每个结果都是公网地址，或显式配置的本机代理 fake-ip。 */

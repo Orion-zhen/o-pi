@@ -17,7 +17,7 @@ describe("webfetch renderer", () => {
 		const collapsed = formatWebFetchResult(details, {}, theme);
 		const expanded = formatWebFetchResult(details, { expanded: true }, theme);
 		expect(collapsed).not.toContain(details.preview);
-		for (const value of ["Example article", details.final_url, details.preview, "text_range"]) {
+		for (const value of ["Example article", details.final_url, details.preview, "iframe_not_fetched"]) {
 			expect(expanded).toContain(value);
 		}
 		expect(expanded.length).toBeGreaterThan(collapsed.length);
@@ -36,6 +36,25 @@ describe("webfetch renderer", () => {
 			theme,
 		);
 		for (const value of ["BLOCKED_ADDRESS", "private network address"]) expect(failure).toContain(value);
+	});
+
+	it("find 呈现命中数和片段预览，不把离散片段展示成整段读取", () => {
+		const details = webFetchDetails({
+			range: { kind: "find", start: 100, total: 3000, matches: 2, passages: [{ start: 110, end: 160 }], has_more: false },
+			preview: "[110-160]\nMatching excerpt.",
+			media: { discovered: 1, returned: 0 },
+		});
+		const call = formatWebFetchCall({ url: "https://example.com/page", find: "lookup", offset: 100, limit: 50 }, theme);
+		expect(call).toContain("find");
+		expect(call).toContain("from 100");
+		expect(call).not.toContain("100-150");
+		const collapsed = formatWebFetchResult(details, {}, theme);
+		expect(collapsed).toContain("2 matches, 1 excerpts");
+		expect(collapsed).not.toContain("Matching excerpt");
+		const expanded = formatWebFetchResult(details, { expanded: true }, theme);
+		expect(expanded).toContain("find from 100 of 3000");
+		expect(expanded).toContain("[110-160]");
+		expect(expanded).toContain("Matching excerpt.");
 	});
 
 	it("progress 和最终结果接管调用阶段组件", () => {

@@ -76,23 +76,17 @@ function invalid(message: string): WebSearchFailureDetails {
 }
 
 function successContent(details: WebSearchSuccessDetails): string {
-	const attrs = [
-		`query="${escapeXml(details.query)}"`,
-		`count="${details.results.length}"`,
-		`provider="${escapeXml(details.provider)}"`,
-		`trust="untrusted"`,
-	].join(" ");
 	const body = details.results
 		.map((item) => {
 			const lines = [
 				`[${item.rank}] ${escapeXml(truncateChars(item.title, 160))}`,
-				`URL: ${escapeXml(item.url)}`,
-				item.snippet ? `Snippet: ${escapeXml(truncateChars(item.snippet, 240))}` : undefined,
+				escapeXml(item.url),
+				item.snippet ? escapeXml(item.snippet) : undefined,
 			].filter((line): line is string => line !== undefined);
 			return lines.join("\n");
 		})
 		.join("\n\n");
-	return `<websearch_results ${attrs}>\n${body}\n</websearch_results>`;
+	return `<websearch>\n${body}\n</websearch>`;
 }
 
 function failureContent(details: WebSearchFailureDetails): string {

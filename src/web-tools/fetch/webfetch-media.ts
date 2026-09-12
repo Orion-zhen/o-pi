@@ -68,7 +68,7 @@ export async function resolvePrimaryMedia(
 ): Promise<PrimaryMediaResult> {
 	const primary = conversion.directMedia ?? conversion.analysis.primaryMedia;
 	if (primary === undefined) return {};
-	if (offset > 0) return { omission: { kind: "primary_media", reason: "offset_range" } };
+	if (offset > 0) return {};
 	if (options.context.acceptsImages !== true) {
 		return { omission: { kind: "primary_media", reason: options.context.imageOmissionReason ?? "model_no_image_input" } };
 	}

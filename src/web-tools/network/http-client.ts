@@ -15,6 +15,7 @@ import { cancelBody, readLimitedResponseBody, responseContentLength } from "./re
 import { matchesDomainRule, redactUrl } from "./url-utils.js";
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const HTML_ACCEPT_HEADER = "text/html, application/xhtml+xml;q=0.9, */*;q=0.1";
 const ACCEPT_HEADER = "text/markdown, text/plain;q=0.9, application/json;q=0.9, application/xml;q=0.8, text/html;q=0.8, */*;q=0.1";
 
 export interface HttpClientOptions {
@@ -31,6 +32,7 @@ export interface HttpClientOptions {
 
 export interface HttpResourceOptions {
 	accept?: string;
+	preferHtmlForFragment?: boolean;
 	maxBytes?: number;
 	imageMaxBytes?: number;
 	omitSupportedImageBody?: boolean;
@@ -58,6 +60,7 @@ async function fetchWithinDeadline(
 	}
 	const requestedUrl = requested.displayUrl;
 	let currentUrl = requested.url;
+	let fragment = requested.fragment;
 	let redirectCount = 0;
 	let authenticated = false;
 	let lastStatus: number | undefined;
@@ -87,6 +90,7 @@ async function fetchWithinDeadline(
 			status: "success",
 			requestedUrl,
 			finalUrl: redactUrl(currentUrl),
+			fragment,
 			httpStatus: response.status,
 			headers: response.headers,
 			body,
@@ -133,7 +137,7 @@ async function fetchWithinDeadline(
 					signal,
 					headers: {
 						"User-Agent": options.config.webfetch.user_agent,
-						Accept: resource.accept ?? ACCEPT_HEADER,
+						Accept: resource.accept ?? (resource.preferHtmlForFragment && fragment !== "" ? HTML_ACCEPT_HEADER : ACCEPT_HEADER),
 						"Accept-Encoding": "gzip, deflate, br",
 						...(cookieAccess.header !== undefined ? { Cookie: cookieAccess.header } : {}),
 					},
@@ -156,6 +160,8 @@ async function fetchWithinDeadline(
 				const location = response.headers.get("location");
 				if (location === null) return failure({ status: "failed", error: { code: "HTTP_ERROR", message: "redirect response has no Location header." } }, response.status);
 				currentUrl = new URL(location, currentUrl);
+				// Location 没有 fragment 时继承原锚点，显式 # 则清空。
+				if (location.includes("#")) fragment = currentUrl.hash;
 				currentUrl.hash = "";
 				redirectCount += 1;
 				continue;
