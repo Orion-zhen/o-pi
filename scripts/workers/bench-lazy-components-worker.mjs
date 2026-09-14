@@ -30,8 +30,6 @@ if (mode === "tokenizer") {
 	const markdownImported = performance.now();
 	const module = await loadTypeScript("src/tui/math-renderer.ts");
 	const rendererImported = performance.now();
-	await module.warmMathRenderer();
-	const warmed = performance.now();
 	const config = {
 		enabled: true, display: true, inline: "text", max_width_cells: 120, max_height_cells: 18,
 		svg_scale: 2, foreground: "#d4d4d4",
@@ -44,8 +42,7 @@ if (mode === "tokenizer") {
 	writeJson({
 		markdownModuleImportMs: markdownImported - started,
 		rendererModuleImportMs: rendererImported - markdownImported,
-		fontWarmMs: warmed - rendererImported,
-		firstRenderMs: firstCompleted - warmed,
+		firstRenderMs: firstCompleted - rendererImported,
 		cachedRenderMs: warmCompleted - firstCompleted,
 		rssMb: process.memoryUsage().rss / 1024 / 1024,
 	});

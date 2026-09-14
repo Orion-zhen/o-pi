@@ -25,7 +25,7 @@ async function runToolBenchmark(toolMode) {
 	const tools = new Map();
 	const handlers = new Map();
 	let imageReads = 0;
-	const undici = createRequire(import.meta.url)("undici");
+	const undici = createRequire(import.meta.url)("undici/index.js");
 	const originalFetch = undici.fetch;
 	undici.fetch = async () => toolMode === "fetch-image-skip"
 		? skippedImageResponse(() => { imageReads += 1; })

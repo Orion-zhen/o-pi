@@ -1,4 +1,6 @@
 import { createRequire } from "node:module";
+import path from "node:path";
+import { binaryResourceDir } from "../runtime/paths.js";
 import type { ParseOptions, Tree } from "web-tree-sitter";
 import type { GrammarSpec } from "./types.js";
 
@@ -17,16 +19,20 @@ export function loadGrammar(spec: GrammarSpec): Promise<ParseGrammar> {
 	return pending;
 }
 
+function resolveWasm(spec: string): string {
+	return binaryResourceDir === undefined ? require.resolve(spec) : path.join(binaryResourceDir, "wasm", spec);
+}
+
 async function initializeRuntime() {
 	const module = await import("web-tree-sitter");
-	const wasm = require.resolve("web-tree-sitter/web-tree-sitter.wasm");
+	const wasm = resolveWasm("web-tree-sitter/web-tree-sitter.wasm");
 	await module.Parser.init({ locateFile: () => wasm });
 	return module;
 }
 
 async function initializeGrammar(spec: GrammarSpec): Promise<ParseGrammar> {
 	const module = await (runtime ??= initializeRuntime());
-	const language = await module.Language.load(require.resolve(spec));
+	const language = await module.Language.load(resolveWasm(spec));
 	return (text, options) => {
 		// 每次解析独占解析器，返回的语法树独立存活，无需重置或失效共享句柄。
 		const parser = new module.Parser();

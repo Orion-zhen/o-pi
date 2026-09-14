@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { cliInvocation } from "../runtime/invocation.js";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -18,7 +18,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	let aborted = false;
 
 	const launch = await buildLaunch(input);
-	const invocation = getPiInvocation(launch.args);
+	const invocation = cliInvocation(launch.args);
 	const exitCode = await new Promise<number>((resolve) => {
 		const proc = spawn(invocation.command, invocation.args, {
 			cwd: launch.cwd,
@@ -188,17 +188,6 @@ async function buildLaunch(input: ProcessRunInput): Promise<{ args: string[]; cw
 			PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE: fork.systemPromptPath,
 		},
 	};
-}
-
-function getPiInvocation(args: string[]): { command: string; args: string[] } {
-	const currentScript = process.argv[1];
-	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-	if (currentScript !== undefined && !isBunVirtualScript && existsSync(currentScript)) {
-		return { command: process.execPath, args: [currentScript, ...args] };
-	}
-	const execName = path.basename(process.execPath).toLowerCase();
-	if (!/^(node|bun)(\.exe)?$/.test(execName)) return { command: process.execPath, args };
-	return { command: "pi", args };
 }
 
 function buildChildEnv(): NodeJS.ProcessEnv {

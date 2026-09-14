@@ -1,30 +1,16 @@
 {
 	"name": "o-pi",
-	"version": "0.1.0",
-	"bin": { "opi": "dist/cli.js" },
-	"files": ["dist", "docs", "agent/defaults", "agent/schemas", "agent/*.example.jsonc"],
-	"engines": { "node": ">=22.19.0" },
+	"engines": {
+		"bun": ">=1.4.0"
+	},
+	"packageManager": "bun@1.4.0",
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"build": "node scripts/build.mjs",
-		"prepare": "npm run build",
-		"pretest": "npm run build",
-		"pretest:coverage": "npm run build",
-		"prebench": "npm run build",
-		"prebench:file-tools": "npm run build",
-		"prebench:web-tools": "npm run build",
-		"bench": "node scripts/bench.mjs",
-		"bench:file-tools": "node scripts/bench-file-tools.mjs",
-		"bench:file-tools:search": "node scripts/bench-file-tools-search.mjs",
-		"bench:file-tools:ranking": "node scripts/bench-file-tools-ranking.mjs",
-		"bench:code-index": "node scripts/bench-code-index.mjs",
-		"bench:web-tools": "node scripts/bench-web-tools.mjs",
-		"telemetry:report": "node scripts/generate-telemetry-report.mjs",
-		"refresh": "npm update && npm rebuild && npm run build",
-		"test": "vitest --run",
-		"test:coverage": "vitest --run --coverage",
-		"typecheck": "tsc --noEmit"
+		"build": "bun scripts/build.mjs",
+		"typecheck": "tsc --noEmit",
+		"test": "bun run build && vitest run",
+		"bench": "bun run build && bun scripts/bench.mjs"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-server": "latest",
@@ -33,6 +19,7 @@
 		"@types/picomatch": "latest",
 		"@types/turndown": "latest",
 		"@vitest/coverage-v8": "latest",
+		"bun": "latest",
 		"jiti": "latest",
 		"typescript": "latest",
 		"vite": "latest",
@@ -43,6 +30,7 @@
 		"@earendil-works/pi-ai": "latest",
 		"@earendil-works/pi-coding-agent": "latest",
 		"@earendil-works/pi-tui": "latest",
+		"@mathjax/mathjax-tex-font": "latest",
 		"@mathjax/src": "latest",
 		"@mozilla/readability": "latest",
 		"@napi-rs/canvas": "latest",
@@ -80,10 +68,7 @@
 		"vscode-languageserver-protocol": "latest",
 		"web-tree-sitter": "latest"
 	},
-	"allowScripts": {
-		"@google/genai": true,
-		"protobufjs": true
-	},
+	"trustedDependencies": ["@google/genai", "bun", "protobufjs"],
 	"overrides": {
 		"node-notifier": {
 			"uuid": "latest"

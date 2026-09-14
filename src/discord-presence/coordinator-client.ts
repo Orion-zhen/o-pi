@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
+import { cliInvocation } from "../runtime/invocation.js";
 import { defaultCoordinatorEndpoint, prepareCoordinatorEndpoint } from "./endpoint.js";
 import {
 	parseServerMessage,
@@ -164,11 +164,9 @@ export class DiscordPresenceCoordinatorClient {
 }
 
 function spawnCoordinatorDaemon(endpoint: string): void {
-	const source = import.meta.url.endsWith(".ts");
-	const entry = fileURLToPath(new URL(source ? "./coordinator-daemon.ts" : "./coordinator-daemon.js", import.meta.url));
-	const loader = source ? ["--import", import.meta.resolve("jiti/register")] : [];
-	const child = spawn(process.execPath, [...loader, entry, endpoint], {
-		cwd: fileURLToPath(new URL("../..", import.meta.url)),
+	const invocation = cliInvocation(["--opi-discord-daemon", endpoint]);
+	const child = spawn(invocation.command, invocation.args, {
+		cwd: process.cwd(),
 		detached: true,
 		stdio: "ignore",
 		windowsHide: true,

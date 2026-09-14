@@ -1,9 +1,8 @@
 import { readRuns } from "./benchmark/cli.mjs";
-import { createTypeScriptLoader } from "./benchmark/loader.mjs";
+import { loadTypeScript } from "./benchmark/loader.mjs";
 import { measureOperation } from "./benchmark/runtime.mjs";
 import { row as summaryRow } from "./benchmark/stats.mjs";
 
-const loadTypeScript = createTypeScriptLoader({ moduleCache: true });
 const { createFindQueryPlan } = await loadTypeScript("src/file-tools/find/query.ts");
 const { createLimitedFindRanker } = await loadTypeScript("src/file-tools/find/ranker.ts");
 const {

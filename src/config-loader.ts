@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { installationRoot } from "./runtime/paths.js";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { compileSchemaValidator, type SchemaValidateFunction } from "./schema-validator.js";
 
@@ -311,7 +311,7 @@ function createSchemaValidatorInternal<E extends Error>(
 }
 
 export function repoRoot(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+	return installationRoot();
 }
 
 export function agentPath(...segments: string[]): string {

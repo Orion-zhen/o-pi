@@ -1,8 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { useTempDir } from "../helpers/lifecycle.js";
 
 const running = new Set<ChildProcessWithoutNullStreams>();
+const temp = useTempDir("opi-rpc-");
 
 afterEach(() => {
 	for (const child of running) {
@@ -12,25 +14,19 @@ afterEach(() => {
 	running.clear();
 });
 
-describe.each([
-	{ name: "Pi", cliPath: path.resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js") },
-	{ name: "opi", cliPath: path.resolve("dist/cli.js") },
-])("真实 $name RPC", ({ cliPath }) => {
-	it("离线完成 state、commands、工具事件、extension UI 往返和干净 shutdown", async () => {
-		const extensionPath = path.resolve("tests/rpc/fixtures/dialog-extension.ts");
-		const child = spawn(process.execPath, [
-			cliPath,
+describe("真实 opi 二进制 RPC", () => {
+	it("离线完成 state、静态 commands、工具事件和干净 shutdown", async () => {
+		const cliPath = path.resolve(process.platform === "win32" ? "dist/opi.exe" : "dist/opi");
+		const child = spawn(cliPath, [
 			"--mode",
 			"rpc",
 			"--no-session",
 			"--offline",
 			"--approve",
-			"--no-extensions",
-			"--extension",
-			extensionPath,
 		], {
-			cwd: process.cwd(),
-			env: { ...process.env, PI_OFFLINE: "1" },
+			cwd: temp.path,
+			env: { PATH: process.env.PATH, HOME: temp.path, USERPROFILE: temp.path, SystemRoot: process.env.SystemRoot,
+				PI_CODING_AGENT_DIR: path.join(temp.path, "agent"), PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		running.add(child);
@@ -44,26 +40,9 @@ describe.each([
 		client.send({ id: "commands", type: "get_commands" });
 		const commands = await client.waitFor((message) => isResponse(message, "commands", "get_commands"));
 		expect(commands["success"]).toBe(true);
-		expect(commandNames(commands)).toContain("rpc-dialog-smoke");
-
-		client.send({ id: "dialog", type: "prompt", message: "/rpc-dialog-smoke" });
-		const request = await client.waitFor((message) => (
-			message["type"] === "extension_ui_request"
-			&& message["method"] === "confirm"
-			&& message["title"] === "RPC smoke"
-		));
-		const requestId = request["id"];
-		if (typeof requestId !== "string") throw new Error("RPC dialog request id missing");
-		client.send({ type: "extension_ui_response", id: requestId, confirmed: true });
-
-		const prompt = await client.waitFor((message) => isResponse(message, "dialog", "prompt"));
-		expect(prompt["success"]).toBe(true);
-		const notification = await client.waitFor((message) => (
-			message["type"] === "extension_ui_request"
-			&& message["method"] === "notify"
-			&& message["message"] === "rpc-dialog-smoke:confirmed"
-		));
-		expect(notification["notifyType"]).toBe("info");
+		for (const command of ["tools", "system", "stats", "prune", "run", "usage"]) {
+			expect(commandNames(commands)).toContain(command);
+		}
 
 		client.send({ id: "bash", type: "bash", command: "printf rpc-tool-smoke" });
 		const bashUpdate = await client.waitFor((message) => (

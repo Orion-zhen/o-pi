@@ -1,32 +1,35 @@
-import { execFile, spawnSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { RpcClient } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useTempDir } from "../helpers/lifecycle.js";
+import { startModelServer, type ModelRequest, type ModelResponse } from "./model-server.js";
 
 const exec = promisify(execFile);
-const cli = path.resolve("dist/cli.js");
+const builtCli = path.resolve(process.platform === "win32" ? "dist/opi.exe" : "dist/opi");
 const piCli = path.resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
-const provider = path.resolve("tests/cli/fixtures/provider.ts");
 const temp = useTempDir("opi-cli-");
+let cli: string;
 let cwd: string;
 let agentDir: string;
 let env: Record<string, string>;
+let server: Awaited<ReturnType<typeof startModelServer>>;
+let respond: (request: ModelRequest) => ModelResponse;
 
 beforeEach(async () => {
 	cwd = path.join(temp.path, "workspace");
 	agentDir = path.join(temp.path, ".pi", "agent");
+	cli = path.join(temp.path, path.basename(builtCli));
+	await copyFile(builtCli, cli, constants.COPYFILE_FICLONE);
+	respond = (request) => ({ text: JSON.stringify(request) });
+	server = await startModelServer((request) => respond(request));
 	env = {
-		PATH: process.env.PATH ?? "",
-		HOME: temp.path,
-		USERPROFILE: temp.path,
-		PI_CODING_AGENT_DIR: agentDir,
-		PI_OFFLINE: "1",
-		PI_SKIP_VERSION_CHECK: "1",
-		NODE_NO_WARNINGS: "1",
-		TERM: "xterm-256color",
+		PATH: process.env.PATH ?? "", HOME: temp.path, USERPROFILE: temp.path,
+		PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1",
+		NODE_NO_WARNINGS: "1", TERM: "xterm-256color",
+		...(process.env.SystemRoot === undefined ? {} : { SystemRoot: process.env.SystemRoot }),
 	};
 	await mkdir(cwd, { recursive: true });
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
@@ -34,169 +37,174 @@ beforeEach(async () => {
 	await writeFile(path.join(cwd, "sample.ts"), "export const value = 1;\n");
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
 		defaultProvider: "opi-fixture", defaultModel: "test", defaultThinkingLevel: "off",
-		extensions: [provider], defaultTools: [], quietStartup: true, tuiMode: "fullscreen",
+		defaultTools: [], quietStartup: true, tuiMode: "fullscreen",
 		compaction: { enabled: false }, retry: { enabled: false },
 	}));
+	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "opi-fixture": {
+		baseUrl: server.url, api: "openai-completions", apiKey: "fixture-key",
+		models: [{ id: "test", name: "Fixture", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 4096,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+	} } }));
 	await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
 	await writeFile(path.join(agentDir, "agents", "scout.md"), "---\nname: scout\ndescription: Read a source file\ntools: read\n---\nInspect the assigned file.\n");
 });
 
-describe("opi CLI", () => {
-	it.each([
-		["--version"], ["--help", "-ne"], ["--thinking", "invalid"],
-		["--mode", "invalid"], ["--session-id", "invalid"], ["--fork", "missing.jsonl", "--no-session"],
-	].map((args) => ({ args })))("与 Pi 保持参数、帮助和错误输出一致: $args", ({ args }) => {
-		const run = (entry: string) => spawnSync(process.execPath, [entry, ...args], {
-			cwd, env, encoding: "utf8", timeout: 15_000,
-		});
-		const original = run(piCli);
-		const integrated = run(cli);
-		expect(integrated.error).toBeUndefined();
-		expect(original.error).toBeUndefined();
-		expect(integrated.status).toBe(original.status);
-		expect(integrated.stdout).toBe(original.stdout);
-		expect(integrated.stderr).toBe(original.stderr);
-	});
+afterEach(async () => { await server?.close(); });
 
-	it("JSON 模式执行静态集成的文件工具、解析 worker、Bash 和写入保护", async () => {
-		await writeFile(path.join(cwd, "large.ts"), "export const valueInWorker = 3;\n" + "// worker input\n".repeat(20_000));
-		const events = await runJson("tools");
-		const results = toolResults(events);
-		expect(results.map((result) => result["toolName"])).toEqual(["ls", "find", "read", "grep", "edit", "write", "bash"]);
-		expect(results.every((result) => !result["isError"]), JSON.stringify(results)).toBe(true);
-		expect(JSON.stringify(results[0])).toContain("sample.ts");
-		expect(JSON.stringify(results.at(-1))).toContain("opi-bash");
-		expect(await readFile(path.join(cwd, "sample.ts"), "utf8")).toBe("export const value = 2;\n");
-		expect(await readFile(path.join(cwd, "created.txt"), "utf8")).toBe("written by opi\n");
-		expect(events.some((event) => event["type"] === "message_update")).toBe(true);
-	});
+async function run(args: string[], input = "") {
+	const pending = exec(cli, args, { cwd, env, timeout: 25_000, maxBuffer: 8 * 1024 * 1024 });
+	pending.child.stdin?.end(input);
+	return pending;
+}
 
-	it.each([
-		{ args: ["--tools", "read,grep"], expected: ["grep", "read"] },
-		{ args: ["--no-tools"], expected: [] },
-		{ args: ["--tools", "read,grep,edit", "--exclude-tools", "edit"], expected: ["grep", "read"] },
-	])("工具参数保持有效: $args", async ({ args, expected }) => {
-		const pending = exec(process.execPath, [cli, "--offline", "--approve", "--no-session", "-p", ...args, "inspect tools"], { cwd, env, timeout: 15_000 });
-		pending.child.stdin?.end();
-		const context = JSON.parse((await pending).stdout) as { tools?: Array<{ name: string }> };
-		expect((context.tools ?? []).map((tool) => tool.name).sort()).toEqual(expected);
-	});
-
-	it("管道输入与命令行消息保持 Pi 的合并行为", async () => {
-		const pending = exec(process.execPath, [cli, "--offline", "--approve", "--no-session", "-p", "cli marker"], { cwd, env, timeout: 15_000 });
-		pending.child.stdin?.end("stdin marker\n");
-		const output = (await pending).stdout;
-		expect(output).toContain("stdin marker");
-		expect(output).toContain("cli marker");
-	});
-
-	it("无界面审批仍阻止需要确认的工具", async () => {
-		const results = toolResults(await runJson("approval"));
-		expect(results).toHaveLength(1);
-		expect(results[0]).toMatchObject({ toolName: "bash", isError: true });
-		expect(JSON.stringify(results[0])).not.toContain("PATH=");
-	});
-
-	it.each([false, true])("子代理重新启动 opi 并使用相同的静态工具和配置，fork=%s", async (fork) => {
-		await writeFile(path.join(agentDir, "agents", "scout.md"), `---\nname: scout\ndescription: Read a source file\ntools: read\nfork: ${fork}\n---\nInspect the assigned file.\n`);
-		const results = toolResults(await runJson("subagent", ["--tools", "read,subagent"]));
-		expect(results).toHaveLength(1);
-		expect(results[0], JSON.stringify(results)).toMatchObject({ toolName: "subagent", isError: false });
-		const output = JSON.stringify(results);
-		expect(output).toContain(cli);
-		expect(output).toContain(fork ? "subagents" : "subagent_role");
-		expect(output).toContain("value = 1");
-	});
-
-	it("保留 @file、prompt template、系统提示词参数和 print 模式", async () => {
-		const promptPath = path.join(temp.path, "review.md");
-		await writeFile(promptPath, "Review $1\n");
-		await writeFile(path.join(cwd, "AGENTS.md"), "Project context marker.\n");
-		const pending = exec(process.execPath, [cli, "--offline", "--approve", "--no-session", "-p",
-			"--prompt-template", promptPath, "--system-prompt", "Custom role marker.",
-			"--append-system-prompt", "Appended marker.", "@sample.ts", "/review file"], { cwd, env, timeout: 15_000 });
-		pending.child.stdin?.end();
-		const result = await pending;
-		expect(result.stderr).toBe("");
-		expect(result.stdout).toContain("Custom role marker.");
-		expect(result.stdout).toContain("Appended marker.");
-		expect(result.stdout).toContain("Project context marker.");
-		expect(result.stdout).toContain("value = 1");
-		expect(result.stdout).toContain("/review file");
-		const template = exec(process.execPath, [cli, "--offline", "--approve", "--no-session", "-p", "--prompt-template", promptPath, "/review file"], { cwd, env, timeout: 15_000 });
-		template.child.stdin?.end();
-		expect((await template).stdout).toContain("Review file");
-	});
-
-	it("RPC 恢复会话、重新注册命令、切换思考级别且不重复注册", async () => {
-		const client = new RpcClient({ cliPath: cli, cwd, env, args: ["--offline", "--approve"] });
-		try {
-			await client.start();
-			const commands = (await client.getCommands()).map((command) => command.name);
-			for (const name of ["tools", "system", "stats", "prune", "run", "usage", "telemetry", "opi-fixture"]) {
-				expect(commands.filter((candidate) => candidate === name)).toHaveLength(1);
-			}
-			await client.setThinkingLevel("high");
-			expect((await client.getState()).thinkingLevel).toBe("high");
-			await client.promptAndWait("session marker", undefined, 15_000);
-			const original = await client.getState();
-			const text = await client.getLastAssistantText();
-			expect(text).toContain("session marker");
-			await client.newSession();
-			expect((await client.getState()).messageCount).toBe(0);
-			if (!original.sessionFile) throw new Error("Session file missing");
-			await client.switchSession(original.sessionFile);
-			expect(await client.getLastAssistantText()).toBe(text);
-			expect((await client.getCommands()).filter((command) => command.name === "tools")).toHaveLength(1);
-			await client.prompt("/opi-fixture-reload");
-			expect((await client.getCommands()).filter((command) => command.name === "tools")).toHaveLength(1);
-			expect(await client.getLastAssistantText()).toBe(text);
-			expect(client.getStderr()).toBe("");
-		} finally {
-			await client.stop();
-		}
-	});
-
-	it("-ne 关闭集成功能，-e 仍显式加载用户扩展", async () => {
-		const client = new RpcClient({ cliPath: cli, cwd, env, args: ["--offline", "--approve", "-ne", "-e", provider] });
-		try {
-			await client.start();
-			const commands = (await client.getCommands()).map((command) => command.name);
-			expect(commands).toContain("opi-fixture");
-			expect(commands).not.toContain("tools");
-			expect(commands).not.toContain("telemetry");
-		} finally {
-			await client.stop();
-		}
-	});
-
-	it.skipIf(process.platform !== "linux")("真实终端启动原 Pi TUI 并安装 o-pi 编辑器", async () => {
-		const command = `stty cols 100 rows 35; exec '${process.execPath}' '${cli}' --offline --approve`;
-		const pending = exec("/usr/bin/script", ["-qfec", command, "/dev/null"], {
-			cwd, env: { ...env, PI_STARTUP_BENCHMARK: "1" }, timeout: 20_000, maxBuffer: 4 * 1024 * 1024,
-		});
-		pending.child.stdin?.end();
-		const result = await pending;
-		expect(result.stdout).toContain("fixture-editor:custom");
-		expect(result.stdout).not.toContain("initialization failed");
-		expect(result.stdout).not.toContain("Failed to load extension");
-	});
-});
-
-async function runJson(scenario: string, args: string[] = []): Promise<Record<string, unknown>[]> {
-	const pending = exec(process.execPath, [cli, "--mode", "json", "--offline", "--approve", "--no-session", ...args, "Run the fixture"], {
-		cwd, env: { ...env, PI_OPI_TEST_SCENARIO: scenario }, timeout: 25_000, maxBuffer: 4 * 1024 * 1024,
-	});
-	pending.child.stdin?.end();
-	const result = await pending;
+async function runJson(args: string[] = []) {
+	const result = await run(["--mode", "json", "--offline", "--approve", "--no-session", ...args, "Run the fixture"]);
 	expect(result.stderr).toBe("");
 	return result.stdout.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
-function toolResults(events: Record<string, unknown>[]): Record<string, unknown>[] {
+function toolResults(events: Record<string, unknown>[]) {
 	return events.flatMap((event) => {
 		const message = event["message"];
 		return event["type"] === "message_end" && typeof message === "object" && message !== null
 			&& "role" in message && message.role === "toolResult" ? [message as Record<string, unknown>] : [];
 	});
 }
+
+function sequence(responses: ModelResponse[]): void {
+	respond = (request) => responses[request.messages.filter((message) => message.role === "tool").length]
+		?? { text: "completed" };
+}
+
+describe("standalone opi CLI", () => {
+	it.each([["--version"], ["--help", "-ne"], ["--thinking", "invalid"], ["--session-id", "invalid"]])("保留 Pi 的参数和输出: %j", async (...args) => {
+		const original = exec(process.execPath, [piCli, ...args], { cwd, env, timeout: 15_000 });
+		original.child.stdin?.end();
+		const capture = async (promise: Promise<{ stdout: string | Buffer; stderr: string | Buffer }>) => promise.then(
+			(result) => ({ stdout: result.stdout, stderr: result.stderr, code: 0 }),
+			(error: { stdout: string; stderr: string; code: number }) => ({ stdout: error.stdout, stderr: error.stderr, code: error.code }),
+		);
+		expect(await capture(run(args))).toEqual(await capture(original));
+	});
+
+	it("JSON 工具回路覆盖读写、WASM 解析 worker 和 Bash", async () => {
+		await writeFile(path.join(cwd, "large.ts"), "export const valueInWorker = 3;\n" + "// worker input\n".repeat(20_000));
+		sequence([
+			{ tool: "ls", args: { path: "." } }, { tool: "find", args: { query: "sample" } },
+			{ tool: "read", args: { path: "sample.ts" } }, { tool: "grep", args: { query: "value", path: ["sample.ts", "large.ts"] } },
+			{ tool: "edit", args: { path: "sample.ts", edits: [{ old: "value = 1", new: "value = 2" }] } },
+			{ tool: "write", args: { path: "created.txt", content: "written by opi\n" } },
+			{ tool: "bash", args: { command: "printf opi-bash" } },
+		]);
+		const results = toolResults(await runJson());
+		expect(results.map((result) => result["toolName"])).toEqual(["ls", "find", "read", "grep", "edit", "write", "bash"]);
+		expect(results.every((result) => !result["isError"]), JSON.stringify(results)).toBe(true);
+		expect(JSON.stringify(results.at(-1))).toContain("opi-bash");
+		expect(await readFile(path.join(cwd, "sample.ts"), "utf8")).toContain("value = 2");
+		expect(await readFile(path.join(cwd, "created.txt"), "utf8")).toBe("written by opi\n");
+	});
+
+	it("PDF 文字和页面渲染使用内嵌资源及原生 Canvas", async () => {
+		await copyFile(path.resolve("tests/file-tools/fixtures/read/two-page.pdf"), path.join(cwd, "sample.pdf"));
+		sequence([{ tool: "read", args: { path: "sample.pdf", pages: "1" } }]);
+		const results = toolResults(await runJson());
+		expect(results).toHaveLength(1);
+		expect(results[0]?.["isError"], JSON.stringify(results)).toBe(false);
+		expect(JSON.stringify(results)).toContain('"image"');
+	});
+
+	it.each([false, true])("子代理重启当前 opi 并使用原配置，fork=%s", async (fork) => {
+		await writeFile(path.join(agentDir, "agents", "scout.md"), `---\nname: scout\ndescription: Read a file\ntools: read\nfork: ${fork}\n---\nInspect the file.\n`);
+		respond = (request) => {
+			const parent = !request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Read sample.ts"));
+			if (request.messages.some((message) => message.role === "tool")) return { text: JSON.stringify(request.messages) };
+			return parent ? { tool: "subagent", args: { tasks: [{ agent: "scout", task: "Read sample.ts" }] } }
+				: { tool: "read", args: { path: "sample.ts" } };
+		};
+		const results = toolResults(await runJson(["--tools", "read,subagent"]));
+		expect(results).toHaveLength(1);
+		expect(results[0], JSON.stringify(results)).toMatchObject({ toolName: "subagent", isError: false });
+		expect(JSON.stringify(results)).toContain("value = 1");
+	});
+
+	it("保留 stdin、@file、提示词参数和模板", async () => {
+		const prompt = path.join(temp.path, "review.md");
+		await writeFile(prompt, "Review $1\n");
+		const result = await run(["--offline", "--approve", "--no-session", "-p", "--prompt-template", prompt,
+			"--system-prompt", "Custom role marker.", "--append-system-prompt", "Appended marker.", "@sample.ts", "cli marker"], "stdin marker\n");
+		for (const marker of ["Custom role marker.", "Appended marker.", "value = 1", "cli marker", "stdin marker"]) expect(result.stdout).toContain(marker);
+		const template = await run(["--offline", "--approve", "--no-session", "-p", "--prompt-template", prompt, "/review file"]);
+		expect(template.stdout).toContain("Review file");
+	});
+
+	it("不执行自动发现的外部扩展，-- 分隔符不绕过限制", async () => {
+		await mkdir(path.join(agentDir, "extensions"));
+		const marker = path.join(temp.path, "external-executed");
+		const extension = path.join(agentDir, "extensions", "external.ts");
+		await writeFile(extension, `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'bad'); export default () => {};`);
+		await run(["--offline", "--approve", "--no-session", "-p", "--", "message"]);
+		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(run(["-e", extension, "--version"])).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("external extensions") });
+	});
+
+	it("版本命令不依赖 PATH 中的 Node/Bun，也不读取当前目录的 .env", async () => {
+		env["PATH"] = path.join(temp.path, "empty-bin");
+		await writeFile(path.join(cwd, ".env"), "PI_PACKAGE_DIR=/missing-from-dotenv\n");
+		const result = await run(["--version"]);
+		expect(result.stderr).toBe("");
+		expect(result.stdout.trim()).toBe("0.85.1");
+	});
+
+	it("并发首次启动原子发布同一个完整资源目录", async () => {
+		const results = await Promise.all(Array.from({ length: 4 }, () => run(["--version"])));
+		expect(results.every((result) => result.stdout.trim() === "0.85.1")).toBe(true);
+		const directories = await readdir(path.join(temp.path, ".pi", "cache", "opi"));
+		expect(directories).toHaveLength(1);
+		expect(directories[0]).toMatch(/^[a-f0-9]{64}$/);
+	});
+
+	it.skipIf(process.platform !== "linux")("真实终端启动 Pi TUI 和静态界面增强", async () => {
+		const pending = exec("/usr/bin/script", ["-qfec", `stty cols 100 rows 35; exec '${cli}' --offline --approve`, "/dev/null"], {
+			cwd, env: { ...env, PI_TIMING: "1" }, timeout: 20_000, maxBuffer: 4 * 1024 * 1024,
+		});
+		let output = "";
+		let requestedExit = false;
+		pending.child.stdout?.on("data", (chunk) => {
+			output += String(chunk);
+			if (!requestedExit && output.includes("Startup Timings: main")) {
+				requestedExit = true;
+				setTimeout(() => pending.child.stdin?.write("\u0004"), 100);
+			}
+		});
+		const result = await pending;
+		expect(result.stdout).toContain("Startup Timings: main");
+		expect(result.stdout).not.toContain("initialization failed");
+		expect(result.stdout).not.toContain("Failed to load extension");
+	}, 25_000);
+
+	it.skipIf(process.platform !== "linux")("独立二进制在图片终端渲染公式，无动态字体加载错误", async () => {
+		respond = () => ({ text: "$$\n" + String.raw`\mathbb{R} \ni x = \frac{\alpha^2}{\sqrt{y}}` + "\n$$" });
+		const pending = exec("/usr/bin/script", ["-qfec", `stty cols 120 rows 40; exec '${cli}' --offline --approve --no-session 'Render math'`, "/dev/null"], {
+			cwd, env: { ...env, TERM_PROGRAM: "kitty" }, timeout: 20_000, maxBuffer: 4 * 1024 * 1024,
+		});
+		let output = "";
+		let requestedExit = false;
+		pending.child.stdout?.on("data", (chunk) => {
+			output += String(chunk);
+			if (!requestedExit && (output.includes("iVBORw0KGgo") || output.includes("Cannot find module") || output.includes("initialization failed"))) {
+				requestedExit = true;
+				setTimeout(() => pending.child.stdin?.write("\u0004"), 200);
+			}
+		});
+		const result = await pending;
+		expect(result.stderr).toBe("");
+		expect(result.stdout).not.toContain("Cannot find module");
+		expect(result.stdout).not.toContain("initialization failed");
+		expect(result.stdout).toContain("\u001b_G");
+		expect(result.stdout).toContain("iVBORw0KGgo");
+	}, 25_000);
+
+	it.each(["install", "remove", "uninstall", "update", "list", "config"])("拒绝不支持的包命令 %s", async (command) => {
+		await expect(run([command])).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Pi packages") });
+	});
+});

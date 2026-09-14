@@ -1,3 +1,6 @@
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { binaryResourceDir } from "../../../runtime/paths.js";
 import type { Canvas } from "@napi-rs/canvas";
 import type {
 	PDFDocumentLoadingTask,
@@ -32,10 +35,10 @@ export function createPdfDocumentSource(): PdfDocumentSource {
 
 			const loadingTask = runtime.pdfjs.getDocument({
 				data: new Uint8Array(input.bytes),
-				cMapUrl: import.meta.resolve("pdfjs-dist/cmaps/"),
+				cMapUrl: pdfAssetUrl("cmaps"),
 				cMapPacked: true,
-				standardFontDataUrl: import.meta.resolve("pdfjs-dist/standard_fonts/"),
-				wasmUrl: import.meta.resolve("pdfjs-dist/wasm/"),
+				standardFontDataUrl: pdfAssetUrl("standard_fonts"),
+				wasmUrl: pdfAssetUrl("wasm"),
 				useWorkerFetch: false,
 				maxImageSize: MAX_EMBEDDED_IMAGE_PIXELS,
 				canvasMaxAreaInBytes: MAX_CANVAS_BYTES,
@@ -185,7 +188,16 @@ async function loadPdfRuntime(): Promise<PdfRuntime> {
 		import("pdfjs-dist/legacy/build/pdf.mjs"),
 		import("@napi-rs/canvas"),
 	]);
+	if (binaryResourceDir !== undefined) {
+		pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(path.join(binaryResourceDir, "pdf", "pdf.worker.mjs")).href;
+	}
 	return { pdfjs, createCanvas: canvas.createCanvas };
+}
+
+function pdfAssetUrl(directory: string): string {
+	return binaryResourceDir === undefined
+		? fileURLToPath(import.meta.resolve(`pdfjs-dist/${directory}/`))
+		: path.join(binaryResourceDir, "pdf", directory) + path.sep;
 }
 
 function normalizeMetadata(info: object): PdfMetadata {
