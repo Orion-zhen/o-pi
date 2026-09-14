@@ -73,7 +73,7 @@ jobs:
           retention-days: 7
 
   release:
-    name: Publish and prune releases
+    name: Recreate rolling release
     needs: build
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
@@ -81,9 +81,7 @@ jobs:
     permissions:
       contents: write
     env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      RELEASE_TAG: weekly-${{ github.run_id }}-${{ github.run_attempt }}
+      RELEASE_TAG: rolling
     defaults:
       run:
         shell: bash
@@ -94,32 +92,52 @@ jobs:
           pattern: opi-*
           path: artifacts
           merge-multiple: true
-      - name: Publish complete release
+      - name: Prepare versioned assets
+        id: assets
         run: |
-          sha256sum opi-*.tar.gz > SHA256SUMS
-          cat > release-notes.md <<EOF
-          每周自动构建，使用构建时最新的官方 Bun 和依赖。
+          BUILD_ID="build-$(date -u +%Y%m%d)"
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+          for archive in opi-*.tar.gz; do
+            mv "$archive" "${archive/opi-/opi-${BUILD_ID}-}"
+          done
+          sha256sum opi-*.tar.gz > "SHA256SUMS-${BUILD_ID}"
+          cat > "${BUILD_ID}.md" <<EOF
+          构建号：${BUILD_ID}
 
-          源码：${GITHUB_SHA}
-          构建：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          源码：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}
+          构建：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}
 
-          支持 Linux x64、macOS ARM64 和 Windows x64。解压后将 opi 放入 PATH，无需安装 Bun 或 Node.js。
+          使用构建时最新的官方 Bun 和依赖。支持 Linux x64、macOS ARM64 和 Windows x64。
+          下载 opi-${BUILD_ID}-<平台>.tar.gz，解压后将 opi（Windows 为 opi.exe）放入 PATH，无需安装 Bun 或 Node.js。
+          校验文件：SHA256SUMS-${BUILD_ID}。
           EOF
-          gh release create "$RELEASE_TAG" opi-*.tar.gz SHA256SUMS \
-            --target "$GITHUB_SHA" \
-            --title "Weekly $(date -u +%Y-%m-%d) (${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT})" \
-            --notes-file release-notes.md --draft
-          gh release edit "$RELEASE_TAG" --draft=false --latest
-      - name: Delete previous workflow releases and tags
+      - name: Delete existing rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          gh api --paginate "repos/${GH_REPO}/releases?per_page=100" \
-            --jq '.[] | select(.tag_name | test("^weekly-[0-9]+-[0-9]+$")) | [.tag_name, .draft] | @tsv' \
-            > previous-releases.tsv
-          while IFS=$'\t' read -r tag draft; do
-            [[ "$tag" == "$RELEASE_TAG" ]] && continue
-            if [[ "$draft" == true ]]; then
-              gh release delete "$tag" --yes
-            else
-              gh release delete "$tag" --yes --cleanup-tag
+          set -euo pipefail
+          release_id=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | .id")
+          if [[ -n "$release_id" ]]; then
+            gh release delete "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          else
+            tag=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${RELEASE_TAG}" \
+              --jq ".[] | select(.ref == \"refs/tags/${RELEASE_TAG}\") | .ref")
+            if [[ -n "$tag" ]]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}"
             fi
-          done < previous-releases.tsv
+          fi
+      - name: Create rolling release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Rolling builds
+          target_commitish: ${{ github.sha }}
+          body_path: artifacts/${{ steps.assets.outputs.build_id }}.md
+          files: |
+            artifacts/opi-${{ steps.assets.outputs.build_id }}-*.tar.gz
+            artifacts/SHA256SUMS-${{ steps.assets.outputs.build_id }}
+            artifacts/${{ steps.assets.outputs.build_id }}.md
+          fail_on_unmatched_files: true
+          make_latest: "true"
