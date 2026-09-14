@@ -35,7 +35,7 @@ context
 
 `SYSTEM.md` 的内容进入 `custom_prompt`，替换默认角色、风格和通用行为。共享工具策略仍然保留。`APPEND_SYSTEM.md` 的内容进入 `append_system_prompt`。
 
-`src/system-prompt/service.ts` 负责合成已启用工具的长期规则、最小技能策略，以及只包含名称与描述的可加载技能索引。工具名、能力和参数由提供方原生工具定义提供。
+`src/harness/system-prompt/service.ts` 负责合成已启用工具的长期规则、最小技能策略，以及只包含名称与描述的可加载技能索引。工具名、能力和参数由提供方原生工具定义提供。
 
 ### `<tool_policy>`
 
@@ -116,7 +116,7 @@ promptGuidelines: [
 ]
 ```
 
-`src/system-prompt/service.ts` 只合成并去重 Pi 提供的已启用工具规则，不根据工具名追加专用规则。
+`src/harness/system-prompt/service.ts` 只合成并去重 Pi 提供的已启用工具规则，不根据工具名追加专用规则。
 
 ## 选择信息所在层
 
@@ -145,7 +145,7 @@ promptGuidelines: [
 
 ## 反模式
 
-- 在 `src/system-prompt/service.ts` 中按工具名硬编码路由规则。
+- 在 `src/harness/system-prompt/service.ts` 中按工具名硬编码路由规则。
 - 在多个工具的 `description` 中重复同一边界。
 - 在 `promptGuidelines` 中写入分页、截断、重试或错误恢复细节。
 - 只用提示词声明安全限制，不在运行时强制执行。

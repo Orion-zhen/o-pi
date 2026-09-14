@@ -6,7 +6,7 @@ if (mode !== "tokenizer" && mode !== "math") throw new Error("mode must be token
 
 const started = performance.now();
 if (mode === "tokenizer") {
-	const module = await loadTypeScript("src/token-counter.ts");
+	const module = await loadTypeScript("src/harness/token-counter.ts");
 	const imported = performance.now();
 	const firstO200k = await module.countTextTokens("benchmark English 中文 mixed input", { provider: "openai", modelId: "gpt-5" });
 	const firstO200kCompleted = performance.now();
@@ -26,9 +26,9 @@ if (mode === "tokenizer") {
 		warmCl100kMs: warmCl100kCompleted - firstCl100kCompleted,
 	});
 } else {
-	await loadTypeScript("src/tui/math-markdown.ts");
+	await loadTypeScript("src/tui/chat/math/markdown.ts");
 	const markdownImported = performance.now();
-	const module = await loadTypeScript("src/tui/math-renderer.ts");
+	const module = await loadTypeScript("src/tui/chat/math/renderer.ts");
 	const rendererImported = performance.now();
 	const config = {
 		enabled: true, display: true, inline: "text", max_width_cells: 120, max_height_cells: 18,

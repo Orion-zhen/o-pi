@@ -4,9 +4,10 @@
 
 入口：
 
-* `src/extensions/subagent.ts`：注册 `subagent` 工具和 slash commands。
-* `src/extensions/system-prompt.ts`：统一构建主 Agent 与子 Agent 的 system prompt。
-* `src/subagent/`：配置、Agent 发现、执行、进程、输出、命令和 renderer。
+* `src/harness/extensions/subagent.ts`：注册 `subagent` 工具和 slash commands。
+* `src/harness/extensions/system-prompt.ts`：统一构建主 Agent 与子 Agent 的 system prompt。
+* `src/harness/subagent/`：配置、Agent 发现、执行、进程、输出和命令。
+* `src/tui/chat/subagent/`：工具、进度和会话条目的终端呈现。
 
 ## Agent 定义
 
@@ -153,7 +154,7 @@ Agent 配置工具 ∩ pi.getAllTools()
 starting -> running* -> completed
 ```
 
-`src/subagent/commands.ts` 只负责参数解析、查询和任务执行，不导入 Theme、Component、`ctx.ui` 或 widget。`src/subagent/tui/` 消费 progress，读取 expanded 状态，注册 native/entry renderer 并管理临时 widget。RPC、JSON 和 print 不加载该目录，也不会因缺少 terminal/theme 丢失最终结果。
+`src/harness/subagent/commands.ts` 只负责参数解析、查询和任务执行，不导入 Theme、Component、`ctx.ui` 或 widget。`src/tui/chat/subagent/` 消费 progress，读取 expanded 状态，注册 native/entry renderer 并管理临时 widget。RPC、JSON 和 print 不加载该目录，也不会因缺少 terminal/theme 丢失最终结果。
 
 写权限确认使用 `SubagentInteractionPort.confirmWrite()`。Pi TUI 和 RPC Extension UI 都可注入该端口。没有端口时 write-capable Agent fail closed。每次运行由 session execution registry 跟踪，正常结束释放 lease，`session_shutdown` 主动 abort 所有未结束 child。
 

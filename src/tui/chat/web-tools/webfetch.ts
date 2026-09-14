@@ -1,0 +1,261 @@
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+
+import { formatToolCard } from "../../components/tool-card.js";
+import { formatBytes, formatChars, formatDuration, joinParts } from "../../components/text.js";
+import type { WebFetchDetails, WebFetchFailureDetails, WebFetchProgressDetails, WebFetchSuccessDetails } from "../../../harness/web-tools/core/types.js";
+import { compactUrl, shortUrlForCall, truncateMiddle } from "../../../harness/web-tools/network/url-utils.js";
+
+interface WebFetchRenderState {
+	callComponent?: Text;
+}
+
+interface WebFetchCallContext {
+	lastComponent?: unknown;
+	state: WebFetchRenderState;
+}
+
+interface WebFetchResultContext extends WebFetchCallContext {
+	args?: unknown;
+}
+
+export function renderWebFetchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context: WebFetchCallContext): Text {
+	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	context.state.callComponent = text;
+	text.setText(formatWebFetchCall(args, theme));
+	return text;
+}
+
+export function renderWebFetchResult(
+	result: { details?: unknown },
+	options: { expanded?: boolean; isPartial?: boolean },
+	theme: Pick<Theme, "fg" | "bold">,
+	context: WebFetchResultContext,
+): Text {
+	context.state.callComponent?.setText("");
+	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	text.setText(formatWebFetchResult(result.details, options, theme, context.args));
+	return text;
+}
+
+export function formatWebFetchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
+	return formatToolCard({ tool: "webfetch", status: "running", target: shortUrlForCall(args), summary: invocationSummary(args) }, theme);
+}
+
+function invocationSummary(args: unknown): string {
+	const mode = isRecord(args) && args["mode"] === "source" ? "source" : "readable";
+	const offset = isRecord(args) && typeof args["offset"] === "number" ? args["offset"] : undefined;
+	const limit = isRecord(args) && typeof args["limit"] === "number" ? args["limit"] : undefined;
+	const finding = isRecord(args) && typeof args["find"] === "string";
+	const range = finding ? `from ${offset ?? 0}`
+		: offset !== undefined && offset > 0
+			? limit !== undefined ? `offset ${offset}-${offset + limit}` : `offset ${offset}+`
+			: "offset 0";
+	return joinParts([mode, finding ? "find" : undefined, range]);
+}
+
+export function formatWebFetchResult(
+	details: unknown,
+	options: { expanded?: boolean; isPartial?: boolean },
+	theme: Pick<Theme, "fg" | "bold">,
+	_args?: unknown,
+): string {
+	const target = isRecord(_args) ? shortUrlForCall(_args) : targetFromDetails(details);
+	if (options.isPartial || isProgressDetails(details)) {
+		return formatToolCard({ tool: "webfetch", status: "running", target, summary: joinParts([invocationSummary(_args), formatProgress(details)]) }, theme);
+	}
+	if (isSuccessDetails(details)) return formatSuccess(details, options.expanded === true, theme);
+	if (isFailureDetails(details)) return formatFailure(details, options.expanded === true, theme);
+	return formatToolCard({ tool: "webfetch", status: "neutral", target, summary: "waiting" }, theme);
+}
+
+export function isWebFetchDetails(value: unknown): value is WebFetchDetails {
+	return isSuccessDetails(value) || isFailureDetails(value) || isProgressDetails(value);
+}
+
+function formatProgress(details: unknown): string {
+	if (!isProgressDetails(details)) return "requesting...";
+	if (details.phase === "redirecting") return "redirecting...";
+	if (details.phase === "converting") return "converting HTML -> Markdown...";
+	if (details.phase === "downloading") {
+		return details.received_bytes !== undefined ? `downloading ${formatBytes(details.received_bytes)}...` : "downloading...";
+	}
+	return "requesting...";
+}
+
+function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
+	const format = labelFormat(details.format);
+	const range = details.range.kind === "find"
+		? `${details.range.matches} matches, ${details.range.passages.length} excerpts`
+		: details.range.next_offset !== undefined
+			? `${formatChars(details.range.start)}-${formatChars(details.range.end)} of ${formatChars(details.range.total)}`
+			: formatChars(details.total_chars);
+	const header = formatToolCard({
+		tool: "webfetch",
+		status: "success",
+		target: compactUrl(details.final_url),
+		summary: joinParts([
+			`${details.http_status}`,
+			format.toLowerCase(),
+			details.page_kind,
+			details.text_source,
+			range,
+			details.range.next_offset !== undefined ? "more" : undefined,
+			details.completeness === "partial" ? "partial" : undefined,
+			details.completeness === "partial" ? primaryOmission(details) : undefined,
+			details.media.returned > 0 ? `${details.media.returned} image` : undefined,
+			formatDuration(details.duration_ms),
+		]),
+	}, theme);
+	if (!expanded) return header;
+	const response = joinParts([
+		`${details.http_status}`,
+		`${details.content_type ?? "unknown"} -> ${details.format}`,
+		details.charset,
+		formatBytes(details.downloaded_bytes),
+	]);
+	const content = joinParts([
+		details.page_kind,
+		details.text_source,
+		details.anchor !== undefined ? `anchor #${details.anchor}` : undefined,
+		details.completeness,
+		details.range.kind === "find"
+			? `find from ${details.range.start} of ${details.range.total}, ${range}`
+			: `chars ${details.range.start}-${details.range.end} of ${details.range.total}`,
+	]);
+	const coverage = joinParts([
+		details.deferred_fragments.discovered > 0
+			? `deferred ${details.deferred_fragments.resolved}/${details.deferred_fragments.discovered}`
+			: undefined,
+		details.deferred_fragments.limited ? "deferred limited" : undefined,
+		details.media.discovered > 0 ? `media ${details.media.returned}/${details.media.discovered}` : undefined,
+		details.omissions.length > 0 ? `omitted ${details.omissions.map((item) => `${item.kind}:${item.reason}`).join(", ")}` : undefined,
+	]);
+	const request = joinParts([
+		details.authenticated ? "cookie" : undefined,
+		`snapshot ${details.snapshot}`,
+		details.redirect_count > 0 ? `${details.redirect_count} ${details.redirect_count === 1 ? "redirect" : "redirects"}` : undefined,
+		`${details.duration_ms} ms`,
+	]);
+	return [
+		header,
+		details.title ? `  Title     ${truncateMiddle(details.title, 72)}` : undefined,
+		`  URL       ${details.final_url}`,
+		`  Response  ${response}`,
+		`  Content   ${content}`,
+		coverage ? `  Coverage  ${coverage}` : undefined,
+		`  Request   ${request}`,
+		details.preview ? `\n  Preview\n${indent(details.preview)}` : undefined,
+	]
+		.filter((item): item is string => item !== undefined)
+		.join("\n");
+}
+
+function primaryOmission(details: WebFetchSuccessDetails): string | undefined {
+	const omission = details.omissions[0];
+	return omission === undefined ? undefined : `${omission.kind}:${omission.reason}`;
+}
+
+function formatFailure(details: WebFetchFailureDetails, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
+	const status = details.http_status !== undefined ? `${details.http_status} ` : "";
+	const header = formatToolCard({
+		tool: "webfetch",
+		status: "error",
+		target: compactUrl(details.final_url ?? details.requested_url ?? "url"),
+		summary: joinParts([status.trim(), labelError(details), details.error.message]),
+	}, theme);
+	if (!expanded) return header;
+	const error = joinParts([
+		details.error.code,
+		details.http_status !== undefined ? `${details.http_status}` : undefined,
+		details.authenticated ? "cookie" : undefined,
+		details.redirect_count !== undefined && details.redirect_count > 0
+			? `${details.redirect_count} ${details.redirect_count === 1 ? "redirect" : "redirects"}`
+			: undefined,
+		details.duration_ms !== undefined ? `${details.duration_ms} ms` : undefined,
+	]);
+	return [
+		header,
+		details.final_url ? `  URL       ${details.final_url}` : undefined,
+		`  Error     ${error}`,
+		details.response_preview ? `\n  Response\n${indent(details.response_preview)}` : undefined,
+	]
+		.filter((item): item is string => item !== undefined)
+		.join("\n");
+}
+
+function targetFromDetails(details: unknown): string {
+	if (isSuccessDetails(details)) return compactUrl(details.final_url);
+	if (isFailureDetails(details)) return compactUrl(details.final_url ?? details.requested_url ?? "url");
+	return "url";
+}
+
+function labelFormat(format: string): string {
+	if (format === "markdown") return "Markdown";
+	if (format === "json") return "JSON";
+	if (format === "xml") return "XML";
+	if (format === "image") return "Image";
+	if (format === "source") return "Source";
+	return "Text";
+}
+
+function labelError(details: WebFetchFailureDetails): string {
+	switch (details.error.code) {
+		case "BLOCKED_ADDRESS":
+			return "blocked";
+		case "TIMEOUT":
+			return "timeout";
+		case "RESPONSE_TOO_LARGE":
+			return "too large";
+		case "UNSUPPORTED_CONTENT_TYPE":
+			return "unsupported";
+		default:
+			return details.error.code;
+	}
+}
+
+function indent(value: string): string {
+	return value.split("\n").map((line) => `  ${line}`).join("\n");
+}
+
+function isSuccessDetails(value: unknown): value is WebFetchSuccessDetails {
+	return isRecord(value)
+		&& value["status"] === "success"
+		&& value["scope"] === "static_response"
+		&& isPageKind(value["page_kind"])
+		&& isTextSource(value["text_source"])
+		&& (value["completeness"] === "complete" || value["completeness"] === "partial")
+		&& Array.isArray(value["omissions"])
+		&& typeof value["http_status"] === "number"
+		&& isRecord(value["range"])
+		&& (value["range"]["kind"] === "read" || value["range"]["kind"] === "find" && typeof value["range"]["matches"] === "number" && Array.isArray(value["range"]["passages"]))
+		&& isDeferredFragments(value["deferred_fragments"])
+		&& isRecord(value["media"]);
+}
+
+function isDeferredFragments(value: unknown): boolean {
+	return isRecord(value)
+		&& typeof value["discovered"] === "number"
+		&& typeof value["resolved"] === "number"
+		&& typeof value["limited"] === "boolean";
+}
+
+function isPageKind(value: unknown): boolean {
+	return value === "article" || value === "image" || value === "video" || value === "audio" || value === "generic";
+}
+
+function isTextSource(value: unknown): boolean {
+	return value === "readability" || value === "semantic" || value === "body" || value === "metadata";
+}
+
+function isFailureDetails(value: unknown): value is WebFetchFailureDetails {
+	return isRecord(value) && value["status"] === "failed" && isRecord(value["error"]) && typeof value["error"]["code"] === "string";
+}
+
+function isProgressDetails(value: unknown): value is WebFetchProgressDetails {
+	return isRecord(value) && value["status"] === "progress" && typeof value["phase"] === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}

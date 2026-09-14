@@ -1,6 +1,6 @@
 # Token Counter
 
-`src/token-counter.ts` 是本仓库统一的 token 计数入口。它用于：
+`src/harness/token-counter.ts` 是本仓库统一的 token 计数入口。它用于：
 
 * `/system` 查看器的 prompt token 估算。
 * `/stats` 的 context breakdown 分项估算。

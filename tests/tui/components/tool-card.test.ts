@@ -1,0 +1,20 @@
+import { describe, expect, it } from "vitest";
+import { formatToolCard } from "../../../src/tui/components/tool-card.js";
+
+const theme = {
+	fg: (_color: string, text: string) => text,
+	bold: (text: string) => text,
+};
+
+describe("tui tool card", () => {
+	it("截断 target、summary 并清理控制字符", () => {
+		const output = formatToolCard({
+			tool: "webfetch",
+			status: "success",
+			target: "https://example.com/" + "a".repeat(40) + "TARGET_SECRET" + "a".repeat(40) + "/end",
+			summary: `ok\u001b[31m ${"b".repeat(200)}SUMMARY_END`,
+		}, theme);
+		for (const value of ["https://exam", "/end", "ok"]) expect(output).toContain(value);
+		for (const value of ["\u001b", "TARGET_SECRET", "SUMMARY_END"]) expect(output).not.toContain(value);
+	});
+});

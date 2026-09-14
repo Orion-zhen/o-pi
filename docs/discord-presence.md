@@ -1,8 +1,8 @@
 # Discord Rich Presence
 
-`src/extensions/discord-presence.ts` 在交互式 TUI 会话中把 Pi 的当前活动发布到本机 Discord Desktop。`@xhayper/discord-rpc` 负责 Discord IPC，o-pi 负责配置、活动状态、模板、发送频率和生命周期。
+`src/harness/extensions/discord-presence.ts` 是各前端共用的业务扩展，把 Pi 的当前活动发布到运行 SDK 后端的本机 Discord Desktop。`@xhayper/discord-rpc` 负责 Discord IPC，o-pi 负责配置、活动状态、模板、发送频率和生命周期。
 
-该扩展只在 TUI 模式下发布活动，不支持打印、JSON 或 RPC 模式。Discord Desktop 必须正在运行，并允许分享当前活动。浏览器版 Discord 不提供本地 IPC。
+启用条件为配置开启且 SDK 的 `ctx.hasUI` 为 `true`，不限定前端名称。TUI 和 RPC 交互会话均支持，未来 Desktop 可加载同一扩展。print、JSON 和无交互 UI 的子代理不自动发布活动。Discord Desktop 必须正在运行，并允许分享当前活动。浏览器版 Discord 不提供本地 IPC。
 
 ## 快速启用
 
@@ -57,7 +57,7 @@
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `$schema` | `string` | `../schemas/discord-presence.schema.json` | 编辑器使用的 JSON Schema 路径。用户和项目覆盖配置可以省略。 |
-| `enabled` | `boolean` | `true` | 是否在 TUI 会话启动时启用 Presence。运行时命令可以临时覆盖。 |
+| `enabled` | `boolean` | `true` | 是否在具有交互 UI 的会话启动时启用 Presence。运行时命令可以临时覆盖。 |
 | `application_id` | `string` | `1540224977184358430` | Discord 应用 ID，必须是 17 至 20 位数字。最终配置关闭时可以使用空字符串。该 ID 是公开标识，不是密钥。 |
 | `update_interval_ms` | `integer` | `5000` | 两次活动发送尝试之间的最小间隔。取值范围为 5000 至 60000 毫秒。 |
 | `retry_interval_ms` | `integer` | `30000` | IPC 连接或活动发送失败后的重试间隔。取值范围为 5000 至 300000 毫秒。 |
@@ -290,7 +290,7 @@ JSONC 使用 `json`，JSX 使用 `javascript`，TSX 使用 `typescript`，YML �
 
 ## 运行时命令
 
-以下命令只在 TUI 模式下可用：
+以下命令在具有交互 UI 的会话中可用。RPC 可通过 `prompt` 调用，结果通过 Extension UI 的 `notify` 返回：
 
 | 命令 | 说明 |
 | --- | --- |
@@ -320,7 +320,7 @@ JSONC 使用 `json`，JSX 使用 `javascript`，TSX 使用 `typescript`，YML �
 
 ## 多进程协调
 
-同一系统用户启动的多个 TUI Pi 通过按需启动的本地协调进程共享一个 Discord RPC 连接。最近发布活动的 Pi 获得展示权。该 Pi 退出或执行 `/presence off` 后，协调器会恢复剩余 Pi 中最近活跃者的最后状态。
+同一系统用户下启用 Presence 的多个 Pi 会话，通过按需启动的本地协调进程共享一个 Discord RPC 连接。最近发布活动的 Pi 获得展示权。该 Pi 退出或执行 `/presence off` 后，协调器会恢复剩余 Pi 中最近活跃者的最后状态。
 
 不同 Pi 可以使用不同的展示档位、图片资源和应用 ID。展示权切换时，协调器会同步切换配置和 Discord 应用。其他程序发布的 Discord Presence 仍由 Discord 自行协调。
 
@@ -329,6 +329,12 @@ JSONC 使用 `json`，JSX 使用 `javascript`，TSX 使用 `typescript`，YML �
 协调进程异常重启后，存活客户端会携带原起点和最后状态重新注册。每个客户端只运行一个可取消的连接任务，关闭 Presence 时取消连接、握手和重试等待。握手无响应的本地连接会超时并重建，恢复后不需要新的活动事件即可重新发布最后状态。Discord 活动发送也有超时，避免无响应的请求阻塞后续更新和资源释放。
 
 在 Unix 平台上，协调器目录权限设置为 `0700`，套接字权限尽力设置为 `0600`。Windows 使用按当前用户身份区分的命名管道。最后一个参与者离开后，协调进程会清除活动、关闭 Discord RPC、删除本地端点并退出。
+
+## Desktop 接入
+
+Desktop 后端加载 `src/harness/extensions.ts` 中的业务扩展，按 SDK 约定绑定交互 UI 并管理会话生命周期，即可复用 Presence 的活动、配置和协调逻辑，无需导入 TUI 模块。
+
+独立打包时还需提供协调进程的启动路径。当前 `coordinator-client.ts` 使用现有 `cliInvocation(["--opi-discord-daemon", endpoint])` 启动守护进程，Desktop 不能直接假定自己的可执行文件支持该参数。这项打包适配在实现 Desktop 入口时处理。
 
 ## 内部职责
 

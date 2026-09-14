@@ -1,34 +1,35 @@
 # TUI
 
-`src/extensions/tui.ts` 只在 `ctx.mode === "tui"` 时加载界面运行时。RPC、JSON 和 print 模式不加载这套运行时或数学图片后端。工具执行和结构化结果不依赖 TUI。
+`src/cli.ts` 调用 `pi-coding-agent.main()`，复用上游会话初始化、输入、命令、排队和终端生命周期。`src/tui/` 只维护本项目的终端呈现与增强，不复制启动或交互宿主实现。各前端的依赖边界见[前端边界](frontends.md)。
+
+`src/tui/extensions.ts` 装配本仓库的呈现器与界面增强，`src/tui/shell/extension.ts` 绑定会话事件。RPC、JSON 和 print 模式不加载本地工具呈现器或数学图片后端。工具执行和结构化结果不依赖 TUI。
 
 聊天保留 Pi 原生单列会话记录。空会话在 `fullscreen` 模式显示 Home，在 `regular` 模式显示启动横幅。已有会话直接进入聊天。
 
 ## 实现边界
 
-输入框继承 Pi `CustomEditor`，使用公开的 `setEditorComponent()` 安装。自定义边框通过 `renderTopBorder()` 和 `renderBottomBorder()` 绘制，不解析原生渲染结果。原生编辑、历史导航、硬件光标、输入法、快捷键和补全继续由 Pi 管理。补全列表位于下边框之后，输入超出可见高度时保留原生滚动提示。
+输入框继承 Pi `CustomEditor`，使用公开的 `setEditorComponent()` 安装。自定义边框通过 `renderTopBorder()` 和 `renderBottomBorder()` 绘制，不解析原生渲染结果。编辑、历史导航、硬件光标和输入法继续复用 Pi 组件。快捷键绑定、命令分发和补全装配由上游 TUI 实现管理。补全列表位于下边框之后，输入超出可见高度时保留原生滚动提示。
 
-标题、页眉、页脚和工作指示器使用公开 UI API。以下两项例外需要局部原型补丁，不分叉 Pi 源码：
+上游 TUI 实现 SDK 的扩展 UI 协议，本地增强通过该协议安装标题、页眉、页脚和工作指示器。消息与 Markdown 组件仍有两处局部原型补丁：
 
-- `message-timestamp.ts` 增强内置用户、Skill 和助手消息组件。助手内容更新完整透传原生方法参数，包括 `isStreaming`。消息边距和全局思考隐藏设置仍读取 Pi 私有字段。
-- `math-markdown.ts` 增强 `Markdown.render()`，读取原生 Markdown 的文本、主题、选项和边距。只将顶层独立块级公式提升为图片，其他内容交回 Pi。
+- `chat/message-timestamp.ts` 增强内置用户、Skill 和助手消息组件。助手内容更新完整透传原生方法参数，包括 `isStreaming`。消息边距和全局思考隐藏设置仍读取 Pi 私有字段。
+- `chat/math/markdown.ts` 增强 `Markdown.render()`，读取原生 Markdown 的文本、主题、选项和边距。只将顶层独立块级公式提升为图片，其他内容交回 Pi。
 
 这些补丁依赖本地 Pi 实现，升级依赖时需要运行消息和数学渲染测试。
 
+内嵌工具呈现器按扩展实例缓存加载 Promise，失败交给 SDK 扩展错误边界，不在当前实例内重试。TUI 初始化失败时先释放已安装的界面资源，再由 SDK 报告错误。系统通知失败只在通知适配器处理。
+
 ### 代码职责
 
-| 文件 | 职责 |
+| 位置 | 职责 |
 | --- | --- |
-| `runtime.ts` | 事件接入、活动会话切换、通知和性能跟踪 |
-| `session.ts` | 会话界面资源、编辑器安装、Home 显隐和 Git 订阅 |
-| `snapshot.ts`、`types.ts` | 共用界面快照、工具和 Skill 统计、会话用量采集 |
-| `session-editor.ts` | 原生输入增强、边框标签和 Home 容器 |
-| `fullscreen-images.ts`、`kitty-frame.ts` | 当前终端实例的全屏 Kitty 图片输出顺序适配 |
-| `home.ts`、`banner.ts`、`footer.ts` | 页面布局和纯数据渲染 |
-| `brand.ts`、`home-animation.ts`、`home-pointer.ts` | 共用字标、动画生命周期和鼠标反馈 |
-| `math-initialization.ts` | 空闲初始化、会话隔离和加载状态 |
-| `math-markdown.ts`、`math-renderer.ts` | 公式块识别、终端图片与 MathJax 后端 |
-| `user-history.ts` | 路径级 JSONL 历史存储 |
+| `extensions.ts` | 使用 SDK 原生扩展列表装配终端呈现 |
+| `shell/` | 增强配置、界面快照、页眉页脚与界面资源生命周期 |
+| `editor/` | 自定义输入框、边框与路径级操作历史 |
+| `chat/` | 工具和消息渲染、时间指标与数学图片 |
+| `views/` | Home、审批、统计、用量、工具选择等界面 |
+| `terminal/` | Kitty 图片输出适配 |
+| `components/` | 滚动视图、工具卡片、图标和文本格式化 |
 
 界面共用 `TuiSnapshot`。活动会话的工作目录、运行状态、思考级别、提供商数量、排队状态和工具集合是必需字段。模型、Git、上下文等不可得的数据继续省略。用量在会话和轮次事件中采集，工具启用集合、会话名称和排队状态在重绘时读取。
 
@@ -107,7 +108,7 @@ Home 将原生输入框置于页面中央。上边框展示模型、提供商和
 
 ## 全屏 Kitty 图片
 
-仍由 `pi-coding-agent` 启动并管理 `pi-tui`，没有独立宿主，也不调整鼠标滚轮步长。
+本地入口挂载的上游 TUI 实现管理 `pi-tui`，不调整原有鼠标滚轮步长。
 
 针对 [Pi #8306](https://github.com/earendil-works/pi/issues/8306)，在现有编辑器工厂取得活动 TUI 引用后，适配该终端实例的 `write()`，不修改上游源码或全局原型。全屏同步帧先完成清行、背景和文字更新，再按原坐标绘制 Kitty 图片，最后恢复光标与属性。图片分块、裁剪参数、上传缓存和删除指令继续遵循 Pi 的输出。
 
@@ -127,7 +128,7 @@ Home 将原生输入框置于页面中央。上边框展示模型、提供商和
 
 ## 测试边界
 
-生产模块不提供仅供测试替换的时钟、stdin、加载器、通知后端、历史路径或容量参数。测试通过模块模拟、系统时钟和临时 HOME 隔离外部依赖，并从实际入口验证行为。历史测试使用真实的 8 MiB 压缩阈值、6 MiB 目标和 100 条限制，不在生产代码中保留缩小测试数据的选项。默认配置测试夹具位于 `tests/tui/fixtures.ts`。
+生产模块不提供仅供测试替换的时钟、stdin、加载器、通知后端、历史路径或容量参数。测试通过模块模拟、系统时钟和临时 HOME 隔离外部依赖，并从实际入口验证行为。历史测试使用真实的 8 MiB 压缩阈值、6 MiB 目标和 100 条限制，不在生产代码中保留缩小测试数据的选项。默认配置测试夹具位于 `tests/tui/shell/fixtures.ts`。
 
 ## 工具卡片
 

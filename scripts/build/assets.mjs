@@ -3,7 +3,7 @@ import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/pro
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { TREE_SITTER_LANGUAGES } from "../../src/syntax-tree/grammars.ts";
+import { TREE_SITTER_LANGUAGES } from "../../src/harness/syntax-tree/grammars.ts";
 import { runtimePlugin } from "./plugins.mjs";
 
 const require = createRequire(import.meta.url);
@@ -43,7 +43,7 @@ export async function collectAssets(root, staging) {
 	]) await add(require.resolve(spec), `native/${name}.node`);
 
 	for (const [name, entry] of [
-		["parser-worker", path.join(root, "src/file-tools/grep/parser-worker.ts")],
+		["parser-worker", path.join(root, "src/harness/file-tools/grep/parser-worker.ts")],
 	]) {
 		const output = path.join(staging, "workers", `${name}.mjs`);
 		const result = await Bun.build({ entrypoints: [entry], target: "bun", format: "esm", minify: true, plugins: [runtimePlugin()] });

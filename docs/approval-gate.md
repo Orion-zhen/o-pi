@@ -13,7 +13,7 @@
 
 审批策略判定为 `ask` 且存在交互式界面时，Approval Gate 会先尝试发送系统通知，再显示审批选择框。通知失败不影响审批。用户拒绝后，Approval Gate 返回 `{ block: true, reason }`，但不调用 `ctx.abort()`。
 
-Pi 调用扩展的默认导出注册审批钩子。`createApprovalGate()` 创建审批运行时，其 `authorize` 方法接收已构建的审批请求、配置和可选的 `ApprovalInteractionPort`，返回明确的批准或阻止结果。运行时按配置加载文件存储，审批交互使用共享系统通知模块。核心不依赖 Pi 事件或 TUI。`src/approval/pi/request.ts` 负责从 Pi 工具参数构建请求，扩展负责总开关、交互端口、状态事件和批准后的私网授权。
+Pi 调用扩展的默认导出注册审批钩子。`createApprovalGate()` 创建审批运行时，其 `authorize` 方法接收已构建的审批请求、配置和可选的 `ApprovalInteractionPort`，返回明确的批准或阻止结果。运行时按配置加载文件存储，审批交互使用共享系统通知模块。核心不依赖 Pi 事件或 TUI。`src/harness/approval/pi/request.ts` 负责从 Pi 工具参数构建请求，扩展负责总开关、交互端口、状态事件和批准后的私网授权。
 
 交互端口仅包含 `approve`、`input` 和 `notify`。扩展在 `ctx.hasUI` 为 `true` 时通过 Pi UI 注入端口。JSON 模式和打印模式没有该端口，因此使用 `ui.non_interactive` 策略。交互异常会向上阻止工具执行，并结束对应的审批状态事件。
 

@@ -34,7 +34,7 @@ async function runToolBenchmark(toolMode) {
 			: response("hello benchmark");
 	try {
 		const started = performance.now();
-		const { default: extension } = await loadTypeScript("src/extensions/web-tools.ts");
+		const { default: extension } = await loadTypeScript("src/harness/extensions/web-tools.ts");
 		extension({ events, registerTool(tool) { tools.set(tool.name, tool); }, on(name, handler) { handlers.set(name, handler); } });
 		const registered = performance.now();
 		const tool = tools.get(toolMode === "search" ? "websearch" : "webfetch");
@@ -71,13 +71,13 @@ async function runToolBenchmark(toolMode) {
 }
 
 async function runParserBenchmark() {
-	const fixture = readFileSync(fromRoot("tests/web-tools/fixtures/websearch/results.html"), "utf8");
+	const fixture = readFileSync(fromRoot("tests/harness/web-tools/fixtures/websearch/results.html"), "utf8");
 	const started = performance.now();
-	const module = await loadTypeScript("src/web-tools/search/duckduckgo-html.ts");
+	const module = await loadTypeScript("src/harness/web-tools/search/duckduckgo-html.ts");
 	const imported = performance.now();
-	module.parseDuckDuckGoHtml(fixture);
+	module.parseDuckDuckGoHtml(fixture, 20, "coding agent");
 	const firstCompleted = performance.now();
-	module.parseDuckDuckGoHtml(fixture);
+	module.parseDuckDuckGoHtml(fixture, 20, "coding agent");
 	const warmCompleted = performance.now();
 	console.log(JSON.stringify({ importMs: imported - started, firstParseMs: firstCompleted - imported, warmParseMs: warmCompleted - firstCompleted }));
 }
@@ -85,7 +85,7 @@ async function runParserBenchmark() {
 async function runHtmlBenchmark(scenario) {
 	const html = htmlFixture(scenario);
 	const started = performance.now();
-	const module = await loadTypeScript("src/web-tools/content/html-content-converter.ts");
+	const module = await loadTypeScript("src/harness/web-tools/content/html-content-converter.ts");
 	const imported = performance.now();
 	const result = module.htmlToMarkdown(html, "https://example.com/page", "text/html", { charThreshold: 500 }, "utf-8", true);
 	const completed = performance.now();

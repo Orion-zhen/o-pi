@@ -5,7 +5,7 @@
 ## 分层与依赖方向
 
 ```text
-src/extensions/file-tools.ts
+src/harness/extensions/file-tools.ts
         |
         v
 Pi 模式 / 适配器 / 呈现器 / 遥测
@@ -26,16 +26,17 @@ Node 平台后端
 
 主要目录：
 
-- `src/extensions/file-tools.ts`：注册模式、提示词元数据、遥测、延迟加载适配器和 TUI 呈现器。
-- `src/file-tools/{ls,read,write,edit,find,grep}/`：保存各工具自己的参数、结果、命令、呈现器、纯算法和端口。
-- `src/file-tools/pi/`：把 Pi、LSP、Skill、图片和差异能力转换为各工具定义的端口数据对象。
-- `src/file-tools/runtime/`：保存 `FileToolsHost`、会话级 `ObservationStore` 和命令变更作用域。
-- `src/file-tools/shared/`：保存工具错误、可选诊断调用边界和差异契约。诊断数据类型直接使用 `src/lsp/types.ts`，不再复制。排序算法由使用它的工具持有。
-- `src/file-tools/config.ts`、`src/file-tool-limits.ts`：实现配置控制平面和工具预算。
-- `src/filesystem/contracts/`：定义不透明路径引用和能力契约。
-- `src/filesystem/kernel/`：实现命名空间、字面身份、规范身份和访问策略。
-- `src/filesystem/services/`：实现元数据、可见性、内容、发现和修改服务。遍历是发现的内部实现，路径拼写建议由 `read` 自己负责。
-- `src/filesystem/platform/node/`：提供 Node I/O 原语和进程内修改队列。
+- `src/harness/extensions/file-tools.ts`：注册模式、提示词元数据、遥测和延迟加载适配器。
+- `src/tui/extensions.ts`、`src/tui/chat/file-tools/`：注入并实现终端呈现器。
+- `src/harness/file-tools/{ls,read,write,edit,find,grep}/`：保存各工具自己的参数、结果、命令、呈现器、纯算法和端口。
+- `src/harness/file-tools/pi/`：把 Pi、LSP、Skill、图片和差异能力转换为各工具定义的端口数据对象。
+- `src/harness/file-tools/runtime/`：保存 `FileToolsHost`、会话级 `ObservationStore` 和命令变更作用域。
+- `src/harness/file-tools/shared/`：保存工具错误、可选诊断调用边界和差异契约。诊断数据类型直接使用 `src/harness/lsp/types.ts`，不再复制。排序算法由使用它的工具持有。
+- `src/harness/file-tools/config.ts`、`src/harness/file-tool-limits.ts`：实现配置控制平面和工具预算。
+- `src/harness/filesystem/contracts/`：定义不透明路径引用和能力契约。
+- `src/harness/filesystem/kernel/`：实现命名空间、字面身份、规范身份和访问策略。
+- `src/harness/filesystem/services/`：实现元数据、可见性、内容、发现和修改服务。遍历是发现的内部实现，路径拼写建议由 `read` 自己负责。
+- `src/harness/filesystem/platform/node/`：提供 Node I/O 原语和进程内修改队列。
 - `src/worker-runtime/`：提供可供 `grep` 等 CPU 或进程任务复用的工作线程生命周期基础设施。
 
 六个工具互不导入，也不直接运行 `node:fs`、`node:path`、配置加载器、忽略规则实现、路径防护或 LSP。纯类型依赖不受运行时依赖规则限制。所有工作区元数据、枚举、读取、遍历和修改都通过 `WorkspaceFileSystem`。架构测试对这条边界执行静态检查，不保留旧允许列表。文件系统层不导入文件工具、Pi、LSP、Skill 或代码索引。
@@ -61,7 +62,7 @@ Node 平台后端
 - `write` 和 `edit`：声明诊断、修改观察器和共享文本差异契约。
 - `grep`：声明与工作区绑定的 `CodeAnalyzer`。LSP 不反向导入 `grep` 实现，而是统一返回标准化的代码单元及其 `called`、`referenced`、`defined` 权威等级。
 
-端口输入输出使用各工具需要的数据和不透明引用。`src/file-tools/pi/lsp.ts` 在调用开始时统一绑定原生根和路径访问，只在真正请求增强时加载 LSP 管理器。`LspManager` 直接提供文件增强接口，不另建逐方法转发对象。命令的可选增强边界负责降级，管理器负责隔离已提交修改后的通知与诊断失败。
+端口输入输出使用各工具需要的数据和不透明引用。`src/harness/file-tools/pi/lsp.ts` 在调用开始时统一绑定原生根和路径访问，只在真正请求增强时加载 LSP 管理器。`LspManager` 直接提供文件增强接口，不另建逐方法转发对象。命令的可选增强边界负责降级，管理器负责隔离已提交修改后的通知与诊断失败。
 
 `find` 没有外部增强端口。它只对文件系统路径发现返回的范围相对路径执行本地 fzf 排名。系统从已验证的父目录身份投影 `readdir` 已分类的普通文件和目录条目。符号链接和未知类型仍通过命名空间解析。可见性求值器复用目录快照增量加载分层忽略规则，不会在打开调用时预先扫描仓库。
 
@@ -71,20 +72,20 @@ Node 平台后端
 
 ## 延迟加载
 
-注册阶段只加载模式、防护、遥测和延迟加载控制器。此阶段不会加载文件系统主机、各工具命令、原生呈现器或用于增强功能的运行时模块。同一模块的并发调用共享一个可重试的 `Promise`。加载失败会清除该 `Promise`，后续调用可以重试。
+注册阶段只加载模式、防护、遥测和延迟加载控制器。此阶段不会加载文件系统主机、各工具命令、原生呈现器或用于增强功能的运行时模块。同一执行模块的并发调用共享一个可重试的 `Promise`。执行模块加载失败会清除该 `Promise`，后续调用可以重试。
 
 - 首次调用只动态导入对应的适配器和主机。
 - `find` 是无状态异步函数。`grep` 的缓存和解析器实例在其适配器首次加载时创建。
-- TUI 呈现器只在 `session_start` 且模式为 `tui` 时加载。RPC 模式不加载呈现器。
+- TUI 呈现器只在 `session_start` 且模式为 `tui` 时加载。RPC 模式不加载呈现器。呈现器加载失败由 SDK 报告，当前扩展实例不重试，已注册的执行工具保持可用。
 - 文件工具只在实际增强路径需要时请求 LSP 管理器，模块加载 Promise 仅由扩展持有。
 - 修改服务和队列在第一次调用 `write` 或 `edit` 时加载。只读调用不会预热它们。
 - 文件系统主机已经加载且当前会话存在观测状态时，`bash` 的执行事件才会创建命令变更作用域。未使用文件工具的命令不会预热主机。
-- `src/syntax-tree/grammars.ts` 是语言、扩展名和 WASM 包路径的唯一目录。语言发现不加载代码提取器。代码索引通过固定映射选择提取器，类型检查确保所有注册语言都有实现。JS、JSX、TS、TSX 共用提取逻辑，分别使用目录指定的语法。
+- `src/harness/syntax-tree/grammars.ts` 是语言、扩展名和 WASM 包路径的唯一目录。语言发现不加载代码提取器。代码索引通过固定映射选择提取器，类型检查确保所有注册语言都有实现。JS、JSX、TS、TSX 共用提取逻辑，分别使用目录指定的语法。
 - Tree-sitter 代码语法和 `grep` 工作线程只在 `grep` 索引路径需要时加载。Approval Gate 等扩展也可以按自身语法延迟加载共享运行时。
 
 ## 代码分析边界
 
-`src/code-index/parser.ts` 只编排单文件分析。结果直接包含路径、语言、状态、代码单元和导入，不再嵌套第二层文件索引。代码单元保留名称、声明、UTF-8 范围和词法关系。导入只保存静态模块名及相对或外部路径语义，不建立无人消费的坐标索引。
+`src/harness/code-index/parser.ts` 只编排单文件分析。结果直接包含路径、语言、状态、代码单元和导入，不再嵌套第二层文件索引。代码单元保留名称、声明、UTF-8 范围和词法关系。导入只保存静态模块名及相对或外部路径语义，不建立无人消费的坐标索引。
 
 `SourceIndex` 在整个文档上统一转换 UTF-16 与 UTF-8 坐标，ASCII 文档不分配字符偏移表。分词、查询词匹配和声明压缩位于独立文本模块，LSP 与 grep 不需要为这些操作导入语法解析入口。
 

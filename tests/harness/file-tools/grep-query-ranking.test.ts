@@ -1,0 +1,125 @@
+import { describe, expect, it } from "vitest";
+
+import { createQueryPlan } from "../../../src/harness/file-tools/grep/query-plan.js";
+import { classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "../../../src/harness/file-tools/grep/ranking.js";
+import { isFailed } from "../../../src/harness/file-tools/shared/result.js";
+import { queryPlan, rankingEvidence, semanticRegion, verifiedRegion } from "./grep-ranking-fixtures.js";
+
+describe("grep query plan", () => {
+	it("建立统一逐行正则、机械词项和无操作符结构查询", () => {
+		const plan = queryPlan("Auth(Service|Client)");
+		expect(plan.queryMode).toBe("regex");
+		expect(plan.regex.test("const x = new AuthService()")).toBe(true);
+		expect(plan.targetTerms).toEqual(["Auth", "Service", "Client"]);
+		expect(plan.targetQuery).toBe("Auth Service Client");
+		expect(plan.structuredQuery).toBeUndefined();
+		expect(queryPlan("src/file-tools/find").structuredQuery).toBe("src/file-tools/find");
+	});
+
+	it.each([
+		[{ query: " " }, "INVALID_OPERATION"],
+		[{ query: "a\nb" }, "INVALID_OPERATION"],
+	] as const)("拒绝非法 query：%j", (params, code) => {
+		const result = createQueryPlan(params);
+		expect(isFailed(result) ? result.error.code : undefined).toBe(code);
+	});
+
+	it.each(["$schema", "foo.bar", "items[index]", "read(input", "\\", "😀目标"])("literal 不解释正则元字符：%s", (query) => {
+		const plan = createQueryPlan({ query, mode: "literal" });
+		if (isFailed(plan)) throw new Error(plan.error.message);
+		expect(plan.queryMode).toBe("literal");
+		expect(plan.regex.test(`before ${query} after`)).toBe(true);
+		expect(plan.regex.test("unrelated")).toBe(false);
+	});
+
+	it("非法 regex 立即失败并提示显式 literal 模式", () => {
+		const cases = ["(", "foo)", "[", "\\", "[z-a]", "*foo", "a{2,1}", "(?", "(?<a>x)(?<a>y)", "(?<1>x)", "\\k<missing>", "\\u{}", "\\p{Nope}"];
+		for (const query of cases) {
+			expect(createQueryPlan({ query })).toMatchObject({
+				status: "failed",
+				error: { code: "INVALID_REGEX", next: expect.stringContaining('mode="literal"') },
+			});
+		}
+	});
+});
+
+describe("grep ranking", () => {
+	it("选择保留相关性头部，尾部增加多样性且不跨 tier", () => {
+		const candidates = rankCodeRegions(queryPlan("missing"), Array.from({ length: 20 }, (_value, index) => semanticRegion({
+			id: String(index),
+			path: index === 6 ? "other/file.ts" : "same/file.ts",
+			signals: [index >= 10 ? "related_symbol" : "lexical_high_coverage"],
+			evidence: rankingEvidence("text-lexical", index + 1),
+		})));
+		const selected = selectRankedRegions(candidates, 6);
+		expect(selected.slice(0, 4)).toEqual(candidates.slice(0, 4));
+		expect(selected.map((item) => item.id)).toContain("6");
+		expect(selected.every((item) => item.tier === candidates[0]?.tier)).toBe(true);
+		expect(selectRankedRegions(candidates, 1)).toEqual(candidates.slice(0, 1));
+		expect(selectRankedRegions(candidates, 0)).toEqual([]);
+		expect(selectRankedRegions([], 4)).toEqual([]);
+	});
+
+	it("根据 query 与 live AST 名称统一判定 symbol tier", () => {
+		const identifier = queryPlan("grep");
+		expect(classifySymbolMatch(identifier, "grep", "FileTools.grep")).toBe("exact_symbol_definition");
+		expect(classifySymbolMatch(identifier, "grepAuto", "GrepTool.grepAuto")).toBe("symbol_prefix");
+		const qualified = queryPlan("FileTools.grep");
+		expect(classifySymbolMatch(qualified, "grep", "FileTools.grep")).toBe("exact_qualified_definition");
+	});
+
+	it("不读取路径语义，优先返回具有 incoming call authority 的定义", () => {
+		const testDefinition = semanticRegion({
+			id: "test",
+			path: "tests/grep.test.ts",
+			symbol: "grep",
+			signals: ["lexical"],
+			authority: "defined",
+			evidence: rankingEvidence("text-lexical"),
+		});
+		const productionDefinition = semanticRegion({
+			id: "production",
+			path: "src/grep.ts",
+			symbol: "grep",
+			signals: ["lexical"],
+			authority: "called",
+			evidence: rankingEvidence("text-lexical"),
+		});
+		expect(rankCodeRegions(queryPlan("grep"), [testDefinition, productionDefinition]).map((item) => item.id))
+			.toEqual(["production", "test"]);
+	});
+
+	it("同 authority 只使用候选自身字段形成稳定顺序", () => {
+		const left = semanticRegion({
+			id: "left",
+			path: "z-production.ts",
+			signals: ["lexical"],
+			evidence: rankingEvidence("text-lexical"),
+		});
+		const test = semanticRegion({
+			id: "test",
+			path: "a-tests/feature.test.ts",
+			signals: ["lexical"],
+			evidence: rankingEvidence("text-lexical"),
+		});
+		const forward = rankCodeRegions(queryPlan("missing"), [left, test]).map((item) => item.id);
+		const reverse = rankCodeRegions(queryPlan("missing"), [test, left]).map((item) => item.id);
+		expect(forward).toEqual(["test", "left"]);
+		expect(reverse).toEqual(forward);
+	});
+
+	it("正文命中 tier 高于 related 候选", () => {
+		const direct = verifiedRegion({
+			id: "direct",
+			signals: ["verified_enclosing_region"],
+			evidence: rankingEvidence("text-regex"),
+		});
+		const related = semanticRegion({
+			id: "related",
+			signals: ["lexical_high_coverage"],
+			evidence: rankingEvidence("text-lexical"),
+		});
+		expect(rankCodeRegions(queryPlan("needle"), [related, direct]).map((item) => item.id))
+			.toEqual(["direct", "related"]);
+	});
+});

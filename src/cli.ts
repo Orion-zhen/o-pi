@@ -13,7 +13,7 @@ setBedrockProviderModule(bedrockProviderModule);
 
 if (process.argv[2] === "--opi-discord-daemon") {
 	process.argv.splice(2, 1);
-	await import("./discord-presence/coordinator-daemon.js");
+	await import("./harness/discord-presence/coordinator-daemon.js");
 } else {
 	await runCli();
 }
@@ -25,6 +25,6 @@ async function runCli(): Promise<void> {
 		console.error("opi does not manage Pi packages. Update opi from its source repository.");
 		process.exit(1);
 	}
-	const extensionFactories = parsed.noExtensions ? [] : (await import("./extensions.js")).extensions;
+	const extensionFactories = parsed.noExtensions ? [] : (await import("./tui/extensions.js")).createTuiExtensions();
 	await main(args, { extensionFactories });
 }

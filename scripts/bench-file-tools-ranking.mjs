@@ -3,13 +3,13 @@ import { loadTypeScript } from "./benchmark/loader.mjs";
 import { measureOperation } from "./benchmark/runtime.mjs";
 import { row as summaryRow } from "./benchmark/stats.mjs";
 
-const { createFindQueryPlan } = await loadTypeScript("src/file-tools/find/query.ts");
-const { createLimitedFindRanker } = await loadTypeScript("src/file-tools/find/ranker.ts");
+const { createFindQueryPlan } = await loadTypeScript("src/harness/file-tools/find/query.ts");
+const { createLimitedFindRanker } = await loadTypeScript("src/harness/file-tools/find/ranker.ts");
 const {
 	rankCodeRegions,
 	selectRankedRegions,
-} = await loadTypeScript("src/file-tools/grep/ranking.ts");
-const { createQueryPlan } = await loadTypeScript("src/file-tools/grep/query-plan.ts");
+} = await loadTypeScript("src/harness/file-tools/grep/ranking.ts");
+const { createQueryPlan } = await loadTypeScript("src/harness/file-tools/grep/query-plan.ts");
 const runs = readRuns(process.argv.slice(2), { defaultRuns: 15 });
 const sizes = [1_000, 5_000, 20_000];
 const rows = [];

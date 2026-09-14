@@ -1,6 +1,13 @@
 # opi CLI
 
-`opi` 是具有定制工具和前端的 Pi 封装。它通过 `@earendil-works/pi-coding-agent` 的公开 `main(args, { extensionFactories })` 启动，不修改 Pi 源码或替换其原型。
+`opi` 调用 `@earendil-works/pi-coding-agent` 的 `main(args, { extensionFactories })`，复用上游 CLI 启动流程和 TUI，不维护启动或交互宿主副本。未来图形应用直接使用 SDK，约定见[前端边界](frontends.md)。
+
+## 目录与调用方向
+
+- `src/cli.ts` 注册运行环境并调用上游 `main()`，`src/binary.ts` 初始化二进制资源。
+- `src/harness/` 包含本项目的工具、配置、审批策略、资源和业务扩展，不引用应用入口或前端。
+- `src/harness/extensions.ts` 提供 SDK 原生 `InlineExtension[]`，供各入口装配业务能力。
+- `src/tui/extensions.ts` 为 CLI 装配业务扩展、工具呈现器、审批弹窗和界面增强。呈现组件只在 TUI 模式按需加载。
 
 ## 构建与运行
 
@@ -27,8 +34,8 @@ bun run build
 ## 保留的 Pi 行为
 
 - 版本号、帮助、身份和上游更新提示沿用 Pi，不维护独立的 opi 版本号。
-- CLI 参数、交互模式、JSON/RPC 协议、认证与会话生命周期由 Pi 处理。
-- `src/extensions.ts` 静态注册本仓库模块，重型工具和 TUI 组件仍按需加载。
+- 参数解析、认证、会话初始化、JSON/RPC 协议、交互命令和终端生命周期均复用上游实现。
+- `src/harness/extensions.ts` 注册业务模块，`src/tui/extensions.ts` 装配界面。重型工具和 TUI 组件仍按需加载。
 - `~/.pi/agent/` 中的认证、模型、配置、会话以及本地 Skills、提示词、主题继续使用，包括 `PI_CODING_AGENT_DIR`。
 - `/reload` 重新发现外部扩展，读取修改后的入口和依赖，并重建模块状态。修改静态代码后必须重新构建并重启。
 - 子代理和 Discord 协调进程复用当前可执行文件。源码开发时使用 Bun 入口，不寻找系统 `pi` 或 Node.js 入口。
@@ -40,7 +47,7 @@ bun run build
 - 自动发现 `~/.pi/agent/extensions/` 和项目 `.pi/extensions/` 中的 TS/JS 扩展，包括目录入口和 `package.json` 中的 `pi.extensions`。
 - 支持全局及项目 settings 的 `extensions` 字段，以及 `-e/--extension <本地路径>`。
 - 项目扩展受 Pi 的项目信任规则控制。`--approve` 信任当前项目，`--no-approve` 忽略项目资源。
-- `-ne/--no-extensions` 禁用自动发现、settings 扩展和本仓库的集成模块，但仍加载显式 `-e`。Pi 自带内联模块仍由上游处理。
+- `-ne/--no-extensions` 禁用自动发现、settings 扩展和本仓库的集成模块，但仍加载显式 `-e` 和 Pi 自带内联模块。终端宿主不属于扩展，关闭扩展后仍可使用基础 TUI。
 
 ```bash
 opi -e ./my-extension.ts
@@ -70,7 +77,7 @@ bun run test --coverage
 
 `test` 显式先构建，避免二进制集成测试使用旧产物。只运行不依赖二进制的源码测试时，可用 `bun run vitest run tests/<目录>`。
 
-CLI 测试通过本地 HTTP 模型服务驱动真实二进制，覆盖参数输出对照、文件读写、解析 worker、PDF、子代理、提示词、并发资源提取、外部扩展加载和 Linux TUI 的 `/reload`。RPC 测试覆盖状态、静态命令、Bash 事件及退出。测试不调用付费模型。
+SDK 测试使用原生创建接口加载业务扩展，验证无需 CLI/TUI 的文件工具回路和会话替换。CLI 测试通过本地 HTTP 模型服务驱动真实二进制，覆盖参数输出对照、文件读写、解析 worker、PDF、子代理、提示词、并发资源提取、外部扩展加载和 Linux TUI 的 `/reload`。RPC 测试覆盖状态、静态命令、Bash 事件及退出。测试不调用付费模型。
 
 Linux 下可增加无 Node/Bun、无仓库挂载的容器验证：
 

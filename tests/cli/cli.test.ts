@@ -124,7 +124,7 @@ describe("standalone opi CLI", () => {
 	});
 
 	it("PDF 文字和页面渲染使用内嵌资源及原生 Canvas", async () => {
-		await copyFile(path.resolve("tests/file-tools/fixtures/read/two-page.pdf"), path.join(cwd, "sample.pdf"));
+		await copyFile(path.resolve("tests/harness/file-tools/fixtures/read/two-page.pdf"), path.join(cwd, "sample.pdf"));
 		sequence([{ tool: "read", args: { path: "sample.pdf", pages: "1" } }]);
 		const results = toolResults(await runJson());
 		expect(results).toHaveLength(1);
@@ -334,6 +334,62 @@ describe("standalone opi CLI", () => {
 		expect(result.stdout).toContain("\x1b[?1006l");
 		expect(result.stdout).toContain("\x1b[?1049l");
 	}, 25_000);
+
+	it.skipIf(process.platform !== "linux").each(["regular", "fullscreen"])("独立 TUI 宿主保留扩展 UI，并在 /new 后重新绑定：%s", async (mode) => {
+		const extension = path.join(temp.path, "ui-probe.ts");
+		await writeFile(extension, `
+			export default (pi) => {
+				pi.on("session_start", (event, ctx) => {
+					ctx.ui.notify(event.reason === "new" ? "REBOUND-MARKER" : "READY-MARKER");
+				});
+				pi.registerCommand("ui-probe", {
+					async handler(_args, ctx) {
+						const selected = await ctx.ui.select("SELECT-MARKER", ["first", "second"]);
+						const input = await ctx.ui.input("INPUT-MARKER");
+						const custom = await ctx.ui.custom((_tui, _theme, _keys, done) => ({
+							render: () => ["CUSTOM-MARKER"], invalidate() {},
+							handleInput(data) { if (data === "x") done("custom"); },
+						}), { overlay: true });
+						const confirmed = await ctx.ui.confirm("CONFIRM-MARKER", "Continue?");
+						ctx.ui.notify("PROBE-DONE:" + [selected, input, custom, confirmed].join(":"));
+					}
+				});
+			};
+		`);
+		const pending = exec("/usr/bin/script", ["-qfec", `stty cols 120 rows 40; exec '${cli}' --offline --approve -ne --tui-mode ${mode} -e '${extension}'`, "/dev/null"], {
+			cwd, env: { ...env, PI_TIMING: "1" }, timeout: 25_000, maxBuffer: 4 * 1024 * 1024,
+		});
+		const interactions = [
+			["SELECT-MARKER", "\r"], ["INPUT-MARKER", "answer\r"],
+			["CUSTOM-MARKER", "x"], ["CONFIRM-MARKER", "\r"],
+		] as const;
+		const steps = [
+			["READY-MARKER", "/ui-probe\r"], ...interactions,
+			["PROBE-DONE:first:answer:custom:true", "/new\r"],
+			["REBOUND-MARKER", "/ui-probe\r"], ...interactions,
+			["PROBE-DONE:first:answer:custom:true", "\u0004"],
+		] as const;
+		let output = "";
+		let offset = 0;
+		let step = 0;
+		pending.child.stdout?.on("data", (chunk) => {
+			output += String(chunk);
+			const current = steps[step];
+			if (current === undefined) return;
+			const index = output.indexOf(current[0], offset);
+			if (index === -1) return;
+			offset = index + current[0].length;
+			step += 1;
+			setTimeout(() => pending.child.stdin?.write(current[1]), 60);
+		});
+		const result = await pending.catch((error: unknown) => {
+			throw new Error(`PTY stopped at step ${step}/${steps.length}: ${JSON.stringify(output.slice(-5000))}`, { cause: error });
+		});
+		expect(step).toBe(steps.length);
+		expect(result.stderr).toBe("");
+		expect(result.stdout).not.toContain("initialization failed");
+		if (mode === "fullscreen") expect(result.stdout).toContain("\x1b[?1049l");
+	}, 30_000);
 
 	it.each(["install", "remove", "uninstall", "update", "list", "config"])("拒绝不支持的包命令 %s", async (command) => {
 		await expect(run([command])).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("Pi packages") });

@@ -11,11 +11,12 @@ async function runRegistrationBenchmark() {
 	const tools = new Map();
 	const handlers = new Map();
 	const started = performance.now();
-	const extension = await loadTypeScript("src/extensions/file-tools.ts", { defaultExport: true });
+	const extension = await loadTypeScript("src/harness/extensions/file-tools.ts", { defaultExport: true });
 	extension({
 		registerTool(tool) { tools.set(tool.name, tool); },
 		on(event, handler) { handlers.set(event, handler); },
-		// 基准不运行遥测扩展，也不预热 Pi 模块，只提供注册必需的事件接口。
+		getCommands() { return []; },
+		// 基准不运行遥测扩展，也不预热 Pi 模块。
 		events: { emit() {}, on() { return () => {}; } },
 	});
 	const registered = performance.now();
@@ -39,11 +40,11 @@ async function runRegistrationBenchmark() {
 }
 
 async function runSearchBenchmark() {
-	const { findFiles } = await loadTypeScript("src/file-tools/find/command.ts");
-	const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
-	const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
-	const { FileSystemRuntime } = await loadTypeScript("src/filesystem/runtime.ts");
-	const { NodeNativeFileSystem } = await loadTypeScript("src/filesystem/platform/node/native-filesystem.ts");
+	const { findFiles } = await loadTypeScript("src/harness/file-tools/find/command.ts");
+	const { GrepTool } = await loadTypeScript("src/harness/file-tools/grep/command.ts");
+	const { FileToolsHost } = await loadTypeScript("src/harness/file-tools/runtime/host.ts");
+	const { FileSystemRuntime } = await loadTypeScript("src/harness/filesystem/runtime.ts");
+	const { NodeNativeFileSystem } = await loadTypeScript("src/harness/filesystem/platform/node/native-filesystem.ts");
 
 	const host = new FileToolsHost();
 	const latencyHost = new FileToolsHost({

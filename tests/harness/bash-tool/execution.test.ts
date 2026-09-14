@@ -1,0 +1,699 @@
+import { access, chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createLocalBashOperations, type BashOperations, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Ajv, type AnySchema } from "ajv";
+import { visibleWidth } from "@earendil-works/pi-tui";
+
+import { presentation } from "../../../src/tui/extensions.js";
+import bashToolExtension from "../../../src/harness/extensions/bash-tool.js";
+import { createExecutionEnvironment } from "../../../src/harness/bash-tool/environment.js";
+import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.js";
+import { OutputCapture } from "../../../src/harness/bash-tool/output-capture.js";
+import { renderBashCall } from "../../../src/tui/chat/bash-tool/renderer.js";
+import type { BashSessionMetadata, ExecuteBashRuntime } from "../../../src/harness/bash-tool/types.js";
+import { loadBashToolConfig } from "../../../src/harness/bash-tool/config.js";
+import { SKILL_CONTEXT_ENTRY } from "../../../src/harness/skill-context/types.js";
+import { registerExtension } from "../../helpers/extension.js";
+import { bashToolConfig } from "./fixture.js";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { deferredVoid } from "../../helpers/async.js";
+
+vi.mock("node:fs/promises", { spy: true });
+
+let workspace: string;
+let config = bashToolConfig();
+const temp = useTempDir("o-pi-bash-test-");
+const sessionFileOne = path.join("sessions", "1.jsonl");
+const sessionFile = path.join("sessions", "session-1.jsonl");
+const staleSessionFile = path.join("stale", "session.jsonl");
+preserveEnv(
+	"PI_BASH_TOOL_CONFIG",
+	"PI_CODING_AGENT_DIR",
+	"PYTHONHOME",
+	"PI_SESSION_ID",
+	"PI_SESSION_FILE",
+	"PI_PROVIDER",
+	"PI_MODEL",
+	"PI_REASONING_LEVEL",
+	"GITHUB_TOKEN",
+	"OPENAI_API_KEY",
+	"BASH_SAFE_VALUE",
+	"PATH",
+	"Path",
+);
+
+beforeEach(() => {
+	workspace = temp.path;
+	delete process.env.PI_BASH_TOOL_CONFIG;
+	config = bashToolConfig();
+	config.limits.success_output_bytes = 200;
+	config.limits.failure_output_bytes = 300;
+});
+
+function fakeOperations(handler: BashOperations["exec"]): BashOperations {
+	return { exec: handler };
+}
+
+function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal?.aborted) {
+			resolve();
+			return;
+		}
+		signal?.addEventListener("abort", () => resolve(), { once: true });
+	});
+}
+
+describe("bash tool execution", () => {
+	it("扩展先注册无 renderer 的覆盖版 bash，TUI session 再加载 renderer，并统一标记失败结果", async () => {
+		const { registered: tools, handlers } = registerExtension((pi) => bashToolExtension(pi, presentation.bashTool));
+
+		expect(tools).toMatchObject([{ name: "bash", executionMode: "sequential" }]);
+		const tool = tools[0];
+		expect(tool?.renderCall).toBeUndefined();
+		for (const mode of ["rpc", "json", "print"]) {
+			await handlers.get("session_start")?.({}, { mode, ui: { notify() {} } });
+		}
+		expect(tools).toHaveLength(1);
+		await handlers.get("session_start")?.({}, { mode: "tui", ui: { notify() {} } });
+		await handlers.get("session_start")?.({}, { mode: "tui", ui: { notify() {} } });
+		expect(tools).toHaveLength(2);
+		expect(tools.at(-1)?.renderCall).toBeTypeOf("function");
+		const base = { duration_ms: 1, output_state: "complete", capture_complete: true };
+		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "timed_out" } })).toEqual({ isError: true });
+		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "exited", exit_code: 0 } })).toBeUndefined();
+		expect(handlers.get("tool_result")?.({ toolName: "read", details: base })).toBeUndefined();
+	});
+
+	it("参数 schema 在执行前拒绝越界 timeout", () => {
+		const { registered: tools } = registerExtension((pi) => bashToolExtension(pi, presentation.bashTool));
+		const schema = tools[0]?.parameters;
+		if (schema === undefined) throw new Error("bash tool schema was not registered");
+		const validate = new Ajv({ strict: false }).compile(schema as AnySchema);
+
+		for (const timeout of [0.01, 86_400]) expect(validate({ command: "echo ok", timeout })).toBe(true);
+		for (const timeout of [0, -1, 86_400.01]) expect(validate({ command: "echo no", timeout })).toBe(false);
+	});
+
+	it("折叠与展开切换时复用组件，并保留可见命令", () => {
+		const theme = {
+			fg(_color: string, text: string) { return text; },
+			bold(text: string) { return text; },
+		};
+		const state = {};
+		const firstCommand = Array.from({ length: 8 }, (_, index) => `command ${index + 1}`).join("\n");
+		const collapsed = renderBashCall(
+			{ command: firstCommand },
+			theme,
+			{ expanded: false, executionStarted: true, lastComponent: undefined, state },
+		);
+		const collapsedLines = collapsed.render(12);
+		const collapsedOutput = collapsedLines.join("\n");
+		expect(collapsedLines.every((line) => visibleWidth(line) <= 12)).toBe(true);
+		expect(collapsedOutput).toContain("command 8");
+		expect(collapsedOutput).not.toContain("command 1");
+		expect(state).toHaveProperty("startedAt");
+
+		const updated = renderBashCall(
+			{ command: `${firstCommand}\ncommand 9` },
+			theme,
+			{ expanded: false, executionStarted: true, lastComponent: collapsed, state },
+		);
+		expect(updated).toBe(collapsed);
+		expect(updated.render(12).join("\n")).toContain("command 9");
+
+		const expanded = renderBashCall(
+			{ command: `${firstCommand}\ncommand 9` },
+			theme,
+			{ expanded: true, executionStarted: true, lastComponent: updated, state },
+		);
+		const expandedLines = expanded.render(12);
+		const expandedOutput = expandedLines.join("\n");
+		expect(expandedLines.every((line) => visibleWidth(line) <= 12)).toBe(true);
+		expect(expandedOutput).toContain("command 1");
+		expect(expandedOutput).toContain("command 9");
+	});
+
+	it.skipIf(process.platform !== "win32")("Windows PATH 大小写保持单一环境变量并保留原路径", async () => {
+		process.env.Path = ["C:\\Existing\\bin", "c:\\existing\\bin"].join(path.delimiter);
+		const environment = await createExecutionEnvironment(workspace, { sessionId: "windows-session" }, config);
+		const pathKeys = Object.keys(environment).filter((key) => key.toLowerCase() === "path");
+		const pathKey = pathKeys[0];
+		if (pathKey === undefined) throw new Error("PATH was not constructed");
+
+		expect(pathKeys).toHaveLength(1);
+		expect(environment[pathKey]).toContain("C:\\Existing\\bin");
+	});
+
+	it("扩展每次 execute 重新读取 session、model 和 thinking metadata", async () => {
+		process.env.PI_SESSION_ID = "stale-session";
+		process.env.PI_PROVIDER = "stale-provider";
+		process.env.PI_MODEL = "stale-model";
+		process.env.PI_REASONING_LEVEL = "stale-level";
+		const { registered: tools } = registerExtension((pi) => bashToolExtension(pi, presentation.bashTool));
+		const tool = tools[0];
+		if (tool === undefined) throw new Error("bash tool was not registered");
+		let state: {
+			id: string;
+			file?: string;
+			model?: { provider: string; id: string };
+			thinking?: string;
+		} = {
+			id: "session-1",
+			file: sessionFileOne,
+			model: { provider: "provider-1", id: "model-1" },
+			thinking: "high",
+		};
+		const context = {
+			cwd: workspace,
+			sessionManager: {
+				getSessionId: () => state.id,
+				getSessionFile: () => state.file,
+				getBranch: () => [],
+			},
+			get model() { return state.model; },
+			get thinkingLevel() { return state.thinking; },
+		};
+		const command = "node -e \"process.stdout.write([process.env.PI_SESSION_ID,process.env.PI_SESSION_FILE,process.env.PI_PROVIDER,process.env.PI_MODEL,process.env.PI_REASONING_LEVEL].join('|'))\"";
+		const execute = tool.execute;
+		const updates: Array<{ details: unknown }> = [];
+		const first = await execute("tool:extension-1", { command }, undefined, (partial: { details: unknown }) => updates.push(partial), context as Parameters<typeof execute>[4]);
+		expect(updates.length).toBeGreaterThan(0);
+		expect(updates.every((partial) => partial.details === undefined)).toBe(true);
+		state = { id: "session-2", thinking: "low" };
+		const second = await execute("tool:extension-2", { command }, undefined, undefined, context as Parameters<typeof execute>[4]);
+
+		expect(first.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("session-1||provider-1|model-1|high") });
+		expect(first.details).toMatchObject({ status: "exited", exit_code: 0, output_state: "complete" });
+		expect(second.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("session-2||||low") });
+	});
+
+	it("注入当前 session metadata 并清除继承的过期字段", async () => {
+		process.env.PI_SESSION_ID = "stale-session";
+		process.env.PI_SESSION_FILE = staleSessionFile;
+		process.env.PI_PROVIDER = "stale-provider";
+		process.env.PI_MODEL = "stale-model";
+		process.env.PI_REASONING_LEVEL = "stale-level";
+		const seenEnvironments: Array<NodeJS.ProcessEnv | undefined> = [];
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			seenEnvironments.push(options.env);
+			return { exitCode: 0 };
+		});
+		const runtimeValue = runtime(operations);
+		runtimeValue.session = {
+			sessionId: "session-1",
+			sessionFile,
+			provider: "anthropic",
+			model: "claude-sonnet",
+			reasoningLevel: "high",
+		};
+		await executeBashCommand({ command: "env" }, runtimeValue);
+		runtimeValue.session = { sessionId: "session-2", reasoningLevel: "low" };
+		await executeBashCommand({ command: "env" }, runtimeValue);
+
+		expect(seenEnvironments).toHaveLength(2);
+		expect(seenEnvironments[0]).toMatchObject({
+			PI_SESSION_ID: "session-1",
+			PI_SESSION_FILE: sessionFile,
+			PI_PROVIDER: "anthropic",
+			PI_MODEL: "claude-sonnet",
+			PI_REASONING_LEVEL: "high",
+		});
+		expect(seenEnvironments[1]).toMatchObject({ PI_SESSION_ID: "session-2", PI_REASONING_LEVEL: "low" });
+		expect(seenEnvironments[1]?.PI_SESSION_FILE).toBeUndefined();
+		expect(seenEnvironments[1]?.PI_PROVIDER).toBeUndefined();
+		expect(seenEnvironments[1]?.PI_MODEL).toBeUndefined();
+	});
+
+	it("默认环境策略过滤常见 API key", async () => {
+		process.env.OPENAI_API_KEY = "secret-key";
+		const environment = await createExecutionEnvironment(workspace, { sessionId: "session" }, await loadBashToolConfig());
+		expect(environment.OPENAI_API_KEY).toBeUndefined();
+	});
+
+	it("按配置过滤继承环境并控制 PI_SESSION_FILE 暴露", async () => {
+		process.env.GITHUB_TOKEN = "secret-token";
+		process.env.BASH_SAFE_VALUE = "visible";
+		config.environment = { inherit: true, remove_name_regex: ["^GITHUB_TOKEN$"], expose_pi_session_file: false };
+		const environment = await createExecutionEnvironment(workspace, { sessionId: "session", sessionFile: "/private/session.jsonl" }, config);
+
+		expect(environment.GITHUB_TOKEN).toBeUndefined();
+		expect(environment.BASH_SAFE_VALUE).toBe("visible");
+		expect(environment.PI_SESSION_ID).toBe("session");
+		expect(environment.PI_SESSION_FILE).toBeUndefined();
+	});
+
+	it.each([".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"])(
+		"检测 %s 并为无前缀 Python 命令注入虚拟环境",
+		async (directory) => {
+			const virtualEnv = await createFakeVirtualEnvironment(directory);
+			const managedBin = path.join(workspace, "pi-agent", "bin");
+			process.env.PI_CODING_AGENT_DIR = path.dirname(managedBin);
+			process.env.PYTHONHOME = path.join(workspace, "global-python-home");
+			let seen: { command: string; env?: NodeJS.ProcessEnv } | undefined;
+			const operations = fakeOperations(async (command, _cwd, options) => {
+				seen = { command, ...(options.env !== undefined ? { env: options.env } : {}) };
+				return { exitCode: 0 };
+			});
+
+			await executeBashCommand({ command: "python -V && pip --version" }, runtime(operations));
+
+			expect(seen?.command).toBe("python -V && pip --version");
+			expect(seen?.env?.VIRTUAL_ENV).toBe(virtualEnv.root);
+			expect(seen?.env?.PIP_REQUIRE_VIRTUALENV).toBe("1");
+			expect(seen?.env?.PI_SESSION_ID).toBe("session/with unsafe chars");
+			const injectedPath = seen?.env === undefined ? undefined : environmentPath(seen.env);
+			expect(injectedPath?.split(path.delimiter).slice(0, 2)).toEqual([virtualEnv.bin, managedBin]);
+			expect(seen?.env?.PYTHONHOME).toBeUndefined();
+		},
+	);
+
+	it("并发探测真实虚拟环境，并保持目录配置优先级", async () => {
+		const directories = config.python_venv_paths;
+		await Promise.all(directories.map(createFakeVirtualEnvironment));
+		const fileSystem = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+		const gates = new Map(directories.map((directory) => [directory, deferredVoid()]));
+		const accessStarted: string[] = [];
+		const completionOrder: string[] = [];
+		await vi.mocked(access).withImplementation(async (target, mode) => {
+			await fileSystem.access(target, mode);
+			const directory = path.basename(path.dirname(path.dirname(target.toString())));
+			const gate = gates.get(directory);
+			if (gate === undefined) throw new Error(`无法识别探测路径: ${target}`);
+			accessStarted.push(directory);
+			await gate.promise;
+			completionOrder.push(directory);
+		}, async () => {
+			const resolving = createExecutionEnvironment(workspace, { sessionId: "probe" }, config);
+			try {
+				await vi.waitFor(() => expect(accessStarted).toHaveLength(directories.length));
+				expect(new Set(accessStarted)).toEqual(new Set(directories));
+				let settled = false;
+				void resolving.then(() => { settled = true; });
+				gates.get("venv")?.resolve();
+				await vi.waitFor(() => expect(completionOrder).toEqual(["venv"]));
+				expect(settled).toBe(false);
+				gates.get(".venv")?.resolve();
+				await expect(resolving).resolves.toMatchObject({ VIRTUAL_ENV: path.join(workspace, ".venv") });
+				expect(completionOrder).toEqual(["venv", ".venv"]);
+			} finally {
+				for (const gate of gates.values()) gate.resolve();
+				await resolving;
+			}
+		});
+	});
+
+	it("从 bash-tool 配置读取虚拟环境路径", async () => {
+		await createFakeVirtualEnvironment(".venv");
+		const configuredVirtualEnv = await createFakeVirtualEnvironment("custom-venv");
+		const configPath = path.join(workspace, "bash-tool.jsonc");
+		await writeFile(configPath, JSON.stringify({ python_venv_paths: ["custom-venv"] }));
+		process.env.PI_BASH_TOOL_CONFIG = configPath;
+		config = await loadBashToolConfig();
+		let seenEnv: NodeJS.ProcessEnv | undefined;
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			seenEnv = options.env;
+			return { exitCode: 0 };
+		});
+
+		await executeBashCommand({ command: "python -V" }, runtime(operations));
+
+		expect(config.python_venv_paths).toEqual(["custom-venv"]);
+		expect(seenEnv?.VIRTUAL_ENV).toBe(configuredVirtualEnv.root);
+	});
+
+	it("带虚拟环境标记但没有 Python 解释器时保持原执行环境", async () => {
+		const root = path.join(workspace, ".venv");
+		await mkdir(path.join(root, process.platform === "win32" ? "Scripts" : "bin"), { recursive: true });
+		await writeFile(path.join(root, "pyvenv.cfg"), "home = /usr/bin\n");
+		let seenEnv: NodeJS.ProcessEnv | undefined;
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			seenEnv = options.env;
+			return { exitCode: 0 };
+		});
+		await executeBashCommand({ command: "python -V" }, runtime(operations));
+		expect(seenEnv).toBeDefined();
+		expect(seenEnv?.VIRTUAL_ENV).toBeUndefined();
+		expect(seenEnv?.PI_SESSION_ID).toBe("session/with unsafe chars");
+	});
+
+	it.skipIf(process.platform === "win32")("真实本地后端优先解析虚拟环境中的 python/pip 变体", async () => {
+		const virtualEnv = await createFakeVirtualEnvironment(".venv");
+		for (const executable of ["python", "python3", "pip", "pip3"]) {
+			const file = path.join(virtualEnv.bin, executable);
+			await writeFile(file, `#!/bin/sh\necho venv-${executable}\n`);
+			await chmod(file, 0o700);
+		}
+
+		const result = await executeBashCommand({ command: "python && python3 && pip && pip3" }, runtime(createLocalBashOperations()));
+		expect(result.details.exit_code).toBe(0);
+		for (const executable of ["python", "python3", "pip", "pip3"]) expect(result.content).toContain(`venv-${executable}`);
+	});
+
+	it("原样传递正则转义和 Windows 反斜杠路径", async () => {
+		let seen: string | undefined;
+		const operations = fakeOperations(async (command, _cwd) => {
+			seen = command;
+			return { exitCode: 0 };
+		});
+		const command = String.raw`git grep -E '^\s+\w+\(' -- 'C:\temp\file.ts'`;
+		await executeBashCommand({ command }, runtime(operations));
+		expect(seen).toBe(command);
+	});
+
+	it.skipIf(process.platform === "win32")("执行已加载 skill 中未引用、单引号和带空格双引号的脚本路径", async () => {
+		const skillRoot = path.join(workspace, "skill root's");
+		const scripts = path.join(skillRoot, "scripts");
+		const directScript = path.join(scripts, "run.sh");
+		const spacedScript = path.join(scripts, "run task.sh");
+		await mkdir(scripts, { recursive: true });
+		await writeFile(directScript, "#!/bin/sh\nprintf 'skill-%s\\n' \"$1\"\n");
+		await chmod(directScript, 0o700);
+		await writeFile(spacedScript, "#!/bin/sh\nprintf 'skill-%s\\n' \"$1\"\n");
+		const runtimeValue = runtime(createLocalBashOperations());
+		runtimeValue.branch = skillBranch("demo", skillRoot);
+
+		const result = await executeBashCommand({
+			command: "test -d skill://demo && skill://demo/scripts/run.sh direct && bash 'skill://demo/scripts/run.sh' single && bash \"skill://demo/scripts/run task.sh\" double",
+		}, runtimeValue);
+
+		expect(result.details).toMatchObject({ status: "exited", exit_code: 0 });
+		for (const label of ["direct", "single", "double"]) expect(result.content).toContain(`skill-${label}`);
+		expect(result.content).not.toContain(skillRoot);
+	});
+
+	it("拒绝未加载、格式错误和动态拼接的 skill 路径且不执行命令", async () => {
+		let calls = 0;
+		const operations = fakeOperations(async () => {
+			calls += 1;
+			return { exitCode: 0 };
+		});
+		const skillRoot = path.join(workspace, "demo");
+		await mkdir(skillRoot, { recursive: true });
+		await writeFile(path.join(skillRoot, "script.sh"), "echo no\n");
+
+		const unloaded = await executeBashCommand({ command: "bash skill://demo/script.sh" }, runtime(operations));
+		const malformedRuntime = runtime(operations);
+		malformedRuntime.branch = skillBranch("demo", skillRoot);
+		const malformed = await executeBashCommand({ command: "bash skill://demo/../script.sh" }, malformedRuntime);
+		const dynamic = await executeBashCommand({ command: 'bash "skill://demo/$SCRIPT"' }, malformedRuntime);
+
+		expect(calls).toBe(0);
+		expect(unloaded.content).toContain('code="SKILL_RESOURCE_ACCESS_DENIED"');
+		expect(malformed.content).toContain('code="INVALID_SKILL_RESOURCE"');
+		expect(dynamic.content).toContain('code="INVALID_SKILL_RESOURCE"');
+		for (const result of [unloaded, malformed, dynamic]) {
+			expect(result.details).toMatchObject({ status: "exited", exit_code: 126 });
+		}
+	});
+
+	it("执行层不重复评估 Approval Gate 策略", async () => {
+		let executed: string | undefined;
+		const operations = fakeOperations(async (command) => {
+			executed = command;
+			return { exitCode: 0 };
+		});
+
+		const result = await executeBashCommand({ command: "mkfs.ext4 /dev/example" }, runtime(operations));
+
+		expect(executed).toBe("mkfs.ext4 /dev/example");
+		expect(result.details).toMatchObject({ status: "exited", exit_code: 0 });
+	});
+
+	it("Bash 配置只接受执行设置", async () => {
+		const file = path.join(workspace, "bash-tool.jsonc");
+		process.env.PI_BASH_TOOL_CONFIG = file;
+
+		await writeFile(file, JSON.stringify({ policy: { default_action: "deny" } }));
+		await expect(loadBashToolConfig()).rejects.toThrow("config does not match schema");
+
+		await writeFile(file, JSON.stringify({ environment: { remove_name_regex: ["("] } }));
+		await expect(loadBashToolConfig()).rejects.toThrow("remove_name_regex is invalid");
+	});
+
+	it("stdout/stderr 按事件顺序写入日志并保留非零退出码", async () => {
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(Buffer.from("out\n"));
+			options.onData(Buffer.from("err\n"));
+			return { exitCode: 3 };
+		});
+		const result = await executeBashCommand({ command: "x" }, runtime(operations));
+		expect(result.details.status).toBe("exited");
+		expect(result.details.exit_code).toBe(3);
+		if (!result.details.full_output_path) throw new Error("missing log path");
+		expect(await readFile(result.details.full_output_path, "utf8")).toBe("out\nerr\n");
+	});
+
+	it("timeout 和用户取消用本地状态区分", async () => {
+		const hanging = fakeOperations(async (_command, _cwd, options) => {
+			await waitForAbort(options.signal);
+			throw new Error("aborted");
+		});
+		const timedOut = await executeBashCommand({ command: "sleep", timeout: 0.01 }, runtime(hanging));
+		expect(timedOut.details.status).toBe("timed_out");
+
+		const lateCompletion = fakeOperations(async (_command, _cwd, options) => {
+			await waitForAbort(options.signal);
+			return { exitCode: 0 };
+		});
+		const lateTimedOut = await executeBashCommand({ command: "sleep", timeout: 0.01 }, runtime(lateCompletion));
+		expect(lateTimedOut.details.status).toBe("timed_out");
+
+		const controller = new AbortController();
+		setTimeout(() => controller.abort(), 5);
+		const aborted = await executeBashCommand({ command: "sleep" }, { ...runtime(hanging), signal: controller.signal });
+		expect(aborted.details.status).toBe("aborted");
+	});
+
+	it("文件流完成后才返回，完整小输出删除日志，失败保留日志", async () => {
+		const small = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(Buffer.from("ok\n"));
+			return { exitCode: 0 };
+		});
+		const success = await executeBashCommand({ command: "ok" }, runtime(small));
+		expect(success.details.full_output_path).toBeUndefined();
+
+		const failed = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(Buffer.from("bad\n"));
+			return { exitCode: 1 };
+		});
+		const failure = await executeBashCommand({ command: "bad" }, runtime(failed));
+		if (!failure.details.full_output_path) throw new Error("missing log path");
+		expect(await readFile(failure.details.full_output_path, "utf8")).toBe("bad\n");
+	});
+
+	it("预览 head/tail 重叠时不重复正文", async () => {
+		config.limits.success_output_bytes = 2_000;
+		config.limits.live_output_bytes = 100;
+		const output = `${"a".repeat(400)}${"b".repeat(400)}`;
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(Buffer.from(output));
+			return { exitCode: 0 };
+		});
+
+		const result = await executeBashCommand({ command: "overlap" }, runtime(operations));
+
+		expect(result.details).toMatchObject({
+			output_state: "complete",
+			total_bytes: 800,
+			returned_bytes: 800,
+		});
+		expect(result.content.endsWith(output)).toBe(true);
+	});
+
+	it("capture limit 后停止写文件但继续维护尾部预览", async () => {
+		config.limits.max_capture_bytes = 5;
+		config.limits.success_output_bytes = 80;
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(Buffer.from("12345"));
+			options.onData(Buffer.from("67890\nlast\n"));
+			return { exitCode: 0 };
+		});
+		const result = await executeBashCommand({ command: "big" }, runtime(operations));
+		expect(result.details.capture_complete).toBe(false);
+		expect(result.details.output_state).toBe("capture_truncated");
+		if (!result.details.full_output_path) throw new Error("missing log path");
+		expect(await readFile(result.details.full_output_path, "utf8")).toBe("12345");
+		expect(result.content).toContain("last");
+	});
+
+	it("日志文件权限尽力设为 0600", async () => {
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(Buffer.from("bad\n"));
+			return { exitCode: 1 };
+		});
+		const result = await executeBashCommand({ command: "bad" }, runtime(operations));
+		if (!result.details.full_output_path) throw new Error("missing log path");
+		if (process.platform !== "win32") {
+			expect((await stat(result.details.full_output_path)).mode & 0o777).toBe(0o600);
+		} else {
+			await chmod(result.details.full_output_path, 0o600);
+		}
+	});
+
+	it("onUpdate 首次立即发送、后续按 100ms 合并，结束时取消待发送更新", async () => {
+		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+		const updates: string[] = [];
+		const started = deferredVoid();
+		const complete = deferredVoid();
+		const operations = fakeOperations(async (_command, _cwd, { onData }) => {
+			onData(Buffer.from("a\n"));
+			onData(Buffer.from("b\n"));
+			started.resolve();
+			await complete.promise;
+			onData(Buffer.from("c\n"));
+			return { exitCode: 0 };
+		});
+		try {
+			const executing = executeBashCommand({ command: "updates" }, { ...runtime(operations), onUpdate: (content) => updates.push(content) });
+			await started.promise;
+			expect(updates).toHaveLength(1);
+			expect(updates[0]).toContain("a\n");
+			await vi.advanceTimersByTimeAsync(99);
+			expect(updates).toHaveLength(1);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(updates).toHaveLength(2);
+			expect(updates[1]).toContain("a\nb\n");
+			complete.resolve();
+			const result = await executing;
+			expect(result.content).toContain("a\nb\nc\n");
+			await vi.advanceTimersByTimeAsync(500);
+			expect(updates).toHaveLength(2);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			complete.resolve();
+			vi.useRealTimers();
+		}
+	});
+
+	it("实时输出在控制字符可见化后仍满足字节预算", async () => {
+		config.limits.live_output_bytes = 1_024;
+		const updates: string[] = [];
+		const operations = fakeOperations(async (_command, _cwd, { onData }) => {
+			onData(Buffer.alloc(1_024, 0x01));
+			return { exitCode: 0 };
+		});
+		await executeBashCommand({ command: "controls" }, { ...runtime(operations), onUpdate: (content) => updates.push(content) });
+		expect(updates).toHaveLength(1);
+		for (const update of updates) {
+			const body = update.slice(update.indexOf("\n\n") + 2);
+			expect(Buffer.byteLength(body)).toBeLessThanOrEqual(1_024);
+			expect(body).toContain("\\x01");
+		}
+	});
+
+	it("多字节 UTF-8 跨 chunk 不损坏", async () => {
+		const bytes = Buffer.from("emoji 😀\n");
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(bytes.subarray(0, 8));
+			options.onData(bytes.subarray(8));
+			return { exitCode: 0 };
+		});
+		const result = await executeBashCommand({ command: "utf8" }, runtime(operations));
+		expect(result.content).toContain("emoji 😀");
+	});
+
+	it("大块与连续 chunk 使用有界预览并保持 byte 统计和 UTF-8 边界", async () => {
+		const capture = await OutputCapture.create({
+			sessionId: "bounded-preview-test",
+			toolCallId: "large-chunks",
+			maxCaptureBytes: 1_024,
+			previewBytes: 1_024,
+		});
+		try {
+			const first = Buffer.concat([
+				Buffer.from("HEAD\n"),
+				Buffer.alloc(2 * 1024 * 1024, 0x78),
+				Buffer.from([0]),
+			]);
+			capture.append(first);
+			for (let index = 0; index < 32; index += 1) capture.append(Buffer.alloc(64 * 1024, 0x79));
+			const emoji = Buffer.from("😀");
+			capture.append(emoji.subarray(0, 2));
+			expect(capture.liveText(32)).not.toContain("�");
+			capture.append(Buffer.concat([emoji.subarray(2), Buffer.from("\nTAIL")]));
+			expect(capture.liveText(32)).toContain("😀\nTAIL");
+
+			const result = await capture.finish();
+			expect(result).toMatchObject({
+				totalBytes: first.byteLength + 32 * 64 * 1024 + emoji.byteLength + 5,
+				totalLines: 3,
+				captureComplete: false,
+				binary: true,
+			});
+			const preview = result.preview;
+			if (preview.kind !== "split") throw new Error("expected split preview");
+			expect(preview.head.byteLength + preview.tail.byteLength).toBe(1_024);
+			expect(preview.omittedBytes).toBe(result.totalBytes - 1_024);
+			expect(preview.head.toString("utf8").startsWith("HEAD\n")).toBe(true);
+			expect(preview.tail.toString("utf8").endsWith("😀\nTAIL")).toBe(true);
+		} finally {
+			await capture.deleteLog();
+		}
+	});
+
+	it("真实本地后端冒烟：读取 PI_*、合并 stdout/stderr 并返回退出码", async () => {
+		const runtimeValue = runtime(createLocalBashOperations());
+		runtimeValue.session = {
+			sessionId: "smoke-session",
+			provider: "smoke-provider",
+			model: "smoke-model",
+			reasoningLevel: "smoke-level",
+		};
+		const result = await executeBashCommand(
+			{ command: "node -e \"process.stdout.write([process.env.PI_SESSION_ID,process.env.PI_PROVIDER,process.env.PI_MODEL,process.env.PI_REASONING_LEVEL].join('/')); process.stderr.write('err\\\\n'); process.exit(3)\"" },
+			runtimeValue,
+		);
+		expect(result.details.exit_code).toBe(3);
+		expect(result.content).toContain("smoke-session/smoke-provider/smoke-model/smoke-level");
+		expect(result.content).toContain("err");
+	});
+});
+
+async function createFakeVirtualEnvironment(directory: string): Promise<{ root: string; bin: string }> {
+	const root = path.join(workspace, directory);
+	const bin = path.join(root, process.platform === "win32" ? "Scripts" : "bin");
+	const interpreter = path.join(bin, process.platform === "win32" ? "python.exe" : "python");
+	await mkdir(bin, { recursive: true });
+	await writeFile(path.join(root, "pyvenv.cfg"), "home = /usr/bin\n");
+	await writeFile(interpreter, "");
+	await chmod(interpreter, 0o700);
+	return { root, bin };
+}
+
+function environmentPath(env: NodeJS.ProcessEnv): string | undefined {
+	const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === "path");
+	return key === undefined ? undefined : env[key];
+}
+
+function runtime(operations: BashOperations): ExecuteBashRuntime {
+	const session: BashSessionMetadata = { sessionId: "session/with unsafe chars" };
+	return {
+		cwd: workspace,
+		session,
+		toolCallId: "tool:1",
+		operations,
+		config,
+		branch: [],
+	};
+}
+
+function skillBranch(name: string, skillRoot: string): SessionEntry[] {
+	return [{
+		type: "custom",
+		id: `skill:${name}`,
+		parentId: null,
+		timestamp: "t",
+		customType: SKILL_CONTEXT_ENTRY,
+		data: {
+			name,
+			path: path.join(skillRoot, "SKILL.md"),
+			root: skillRoot,
+			contentHash: "hash",
+			scope: "project",
+			loadedBy: "agent",
+			loadedAt: "t",
+		},
+	}];
+}

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useTempDir } from "../helpers/lifecycle.js";
@@ -17,6 +18,8 @@ afterEach(() => {
 
 describe("真实 opi 二进制 RPC", () => {
 	it("离线完成 state、静态 commands、工具事件和干净 shutdown", async () => {
+		const presenceConfig = path.join(temp.path, "discord-presence.jsonc");
+		await writeFile(presenceConfig, '{"enabled":false}');
 		const cliPath = path.resolve(process.platform === "win32" ? "dist/opi.exe" : "dist/opi");
 		const child = spawn(cliPath, [
 			"--mode",
@@ -27,7 +30,8 @@ describe("真实 opi 二进制 RPC", () => {
 		], {
 			cwd: temp.path,
 			env: { PATH: process.env.PATH, HOME: temp.path, USERPROFILE: temp.path, SystemRoot: process.env.SystemRoot,
-				PI_CODING_AGENT_DIR: path.join(temp.path, "agent"), PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
+				PI_CODING_AGENT_DIR: path.join(temp.path, "agent"), PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1",
+				PI_DISCORD_PRESENCE_CONFIG: presenceConfig },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		running.add(child);
@@ -41,9 +45,17 @@ describe("真实 opi 二进制 RPC", () => {
 		client.send({ id: "commands", type: "get_commands" });
 		const commands = await client.waitFor((message) => isResponse(message, "commands", "get_commands"));
 		expect(commands["success"]).toBe(true);
-		for (const command of ["tools", "system", "stats", "prune", "run", "usage"]) {
+		for (const command of ["tools", "system", "stats", "prune", "run", "usage", "presence"]) {
 			expect(commandNames(commands)).toContain(command);
 		}
+
+		client.send({ id: "presence", type: "prompt", message: "/presence status" });
+		const presence = await client.waitFor((message) => (
+			message["type"] === "extension_ui_request" && message["method"] === "notify"
+		));
+		expect(presence["message"]).toContain("Discord presence: off");
+		const presenceResponse = await client.waitFor((message) => isResponse(message, "presence", "prompt"));
+		expect(presenceResponse["success"]).toBe(true);
 
 		client.send({ id: "bash", type: "bash", command: "printf rpc-tool-smoke" });
 		const bashUpdate = await client.waitFor((message) => (

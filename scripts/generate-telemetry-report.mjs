@@ -17,7 +17,7 @@ if (options.help) {
 	process.exit(0);
 }
 
-const { generateTelemetryReport } = await loadTypeScript("src/telemetry-report/command.ts");
+const { generateTelemetryReport } = await loadTypeScript("src/harness/telemetry-report/command.ts");
 const result = await generateTelemetryReport({
 	...(options.input === undefined ? {} : { inputDirectory: path.resolve(options.input) }),
 	...(options.output === undefined ? {} : { outputDirectory: path.resolve(options.output) }),

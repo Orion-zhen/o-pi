@@ -1,9 +1,9 @@
-import { GrepTool } from "../../src/file-tools/grep/command.js";
-import type { GrepParams, GrepSuccess } from "../../src/file-tools/grep/types.js";
-import { bindFileLsp } from "../../src/file-tools/pi/lsp.js";
-import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { LspFileOperations } from "../../src/lsp/file-operations.js";
+import { GrepTool } from "../../src/harness/file-tools/grep/command.js";
+import type { GrepParams, GrepSuccess } from "../../src/harness/file-tools/grep/types.js";
+import { bindFileLsp } from "../../src/harness/file-tools/pi/lsp.js";
+import { FileToolsHost } from "../../src/harness/file-tools/runtime/host.js";
+import { isFailed, type ToolOutcome } from "../../src/harness/file-tools/shared/result.js";
+import type { LspFileOperations } from "../../src/harness/lsp/file-operations.js";
 
 import { lspOperations } from "./lsp.js";
 

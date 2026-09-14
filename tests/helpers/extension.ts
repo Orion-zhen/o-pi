@@ -30,6 +30,7 @@ export function registerExtension<TTool = CapturedExtensionTool>(
 	const commands = new Map<string, ExtensionHandler>();
 	const host: Partial<ExtensionAPI> = {
 		events: createEventBus(),
+		getCommands: () => [],
 		...api,
 		registerTool(tool) {
 			registered.push(tool as TTool);

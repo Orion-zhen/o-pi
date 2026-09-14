@@ -15,7 +15,7 @@ cargo run --release
 
 ## 启用 Pi 适配器
 
-主仓库中的 [`src/extensions/o-pet.ts`](../src/extensions/o-pet.ts) 监听 Pi 生命周期和工具事件，并通过本地 JSON Lines IPC 发送状态。桌宠和 Pi 适配器之间没有源码依赖。
+主仓库中的 [`src/harness/extensions/o-pet.ts`](../src/harness/extensions/o-pet.ts) 监听 Pi 生命周期和工具事件，并通过本地 JSON Lines IPC 发送状态。桌宠和 Pi 适配器之间没有源码依赖。
 
 默认端点由两个进程分别按平台规则确定。需要覆盖端点时，为两个进程设置相同的 `O_PET_ENDPOINT`：
 

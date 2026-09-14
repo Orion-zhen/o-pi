@@ -15,7 +15,7 @@ it.skipIf(process.platform !== "linux" || image === undefined)("无仓库、Node
 	await mkdir(path.join(agent, "agents"), { recursive: true });
 	await mkdir(path.join(agent, "configs"));
 	await copyFile(path.resolve("dist/opi"), path.join(temp.path, "opi"));
-	await copyFile(path.resolve("tests/file-tools/fixtures/read/two-page.pdf"), path.join(temp.path, "sample.pdf"));
+	await copyFile(path.resolve("tests/harness/file-tools/fixtures/read/two-page.pdf"), path.join(temp.path, "sample.pdf"));
 	await writeFile(path.join(temp.path, "sample.ts"), "export const value = 1;\n");
 	await writeFile(path.join(temp.path, "large.ts"), "export const valueInWorker = 3;\n" + "// worker input\n".repeat(20_000));
 	const canvas = createCanvas(3000, 2000);

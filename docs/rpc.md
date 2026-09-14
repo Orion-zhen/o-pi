@@ -12,7 +12,7 @@ o-pi 复用 Pi 原生的 `--mode rpc` JSONL 协议，不另行定义传输协议
 TUI 适配器 -> 数据/查询/服务/控制器
 ```
 
-只有 `src/tui/**` 和各功能的 `tui/` 目录可以在运行时依赖 `@earendil-works/pi-tui`。`rpc`、`json` 和 `print` 模式不会加载渲染器、查看器、组件工厂或终端与主题相关的代码。渲染器加载失败只能影响展示，不得改变工具定义、应用层行为、结构化结果或会话状态。
+业务位于 `src/harness/`，终端呈现位于 `src/tui/`，前者不引用后者。只有 `src/tui/` 可以直接依赖 `@earendil-works/pi-tui`。`rpc`、`json` 和 `print` 模式不会加载本项目的工具渲染器、查看器或组件工厂。渲染器加载失败只能影响展示，不得改变工具定义、应用层行为、结构化结果或会话状态。
 
 ## 能力矩阵
 
@@ -20,6 +20,7 @@ TUI 适配器 -> 数据/查询/服务/控制器
 | --- | --- | --- | --- |
 | 会话和模型状态 | `get_state` | 统计模块的 `collectStatsSnapshot()` | 可以直接读取原生状态。RPC 未单独提供完整的 `StatsSnapshot` |
 | 命令发现 | `get_commands` | 各扩展的命令适配器 | 可以发现扩展、提示词和技能命令 |
+| Discord Presence | `prompt`、Extension UI 的 `notify` | `DiscordPresenceService` | 按配置启用，与 TUI 共用活动和生命周期。支持 `/presence` 命令，发布到 SDK 后端本机的 Discord |
 | 系统提示词 | 无专用的 o-pi RPC 方法 | `buildAgentSystemPrompt()`、`buildRuntimeSystemPrompt()` | `/system` 仅提供 TUI 查看器，不是 RPC API |
 | 会话统计 | 无专用的 o-pi RPC 方法 | 可安全序列化为 JSON 的 `StatsSnapshot` | `/stats` 仅支持 TUI。在 RPC 模式下调用时会发送错误通知 |
 | 套餐用量 | 无专用的 o-pi RPC 方法 | `UsageService.load()` 返回可安全序列化为 JSON 的快照 | `/usage` 通过通知返回文本 |
@@ -56,7 +57,7 @@ opi --mode rpc --no-session --offline --approve
 - 调用 `get_state` 和 `get_commands`
 - 直接执行 Bash 时接收 `bash_execution_update` 和最终结果
 - 执行工具后读取会话状态
-- 发现静态集成的命令，并确认没有 `extension_error`
+- 发现静态集成的命令，调用 `/presence status`，并确认没有 `extension_error`
 - 解析仅使用 LF 换行的 JSONL
 - 关闭标准输入后以退出码 0 结束
 

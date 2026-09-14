@@ -1,4 +1,4 @@
-import type { LspFileOperations } from "../../src/lsp/file-operations.js";
+import type { LspFileOperations } from "../../src/harness/lsp/file-operations.js";
 
 /** Pi 接入测试使用完整接口，未指定的增强不产生结果。 */
 export function lspOperations(overrides: Partial<LspFileOperations> = {}): LspFileOperations {
