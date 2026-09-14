@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -156,11 +157,13 @@ function isResponse(message: Record<string, unknown>, id: string, command: strin
 }
 
 function commandNames(response: Record<string, unknown>): string[] {
+	assert.equal(response["success"], true);
 	const data = response["data"];
-	if (!isRecord(data) || !Array.isArray(data["commands"])) return [];
-	return data["commands"].flatMap((command) => (
-		isRecord(command) && typeof command["name"] === "string" ? [command["name"]] : []
-	));
+	assert(isRecord(data) && Array.isArray(data["commands"]));
+	return data["commands"].map((command: unknown) => {
+		assert(isRecord(command) && typeof command["name"] === "string");
+		return command["name"];
+	});
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

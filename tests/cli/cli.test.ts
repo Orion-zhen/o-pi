@@ -1,7 +1,7 @@
 import { VERSION } from "@earendil-works/pi-coding-agent";
 import { createCanvas } from "@napi-rs/canvas";
 import { execFile } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, writeFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -156,14 +156,59 @@ describe("standalone opi CLI", () => {
 		expect(template.stdout).toContain("Review file");
 	});
 
-	it("不执行自动发现的外部扩展，-- 分隔符不绕过限制", async () => {
+	it.each(["global", "cli"])("独立二进制加载外部 TS 扩展及其依赖: %s", async (source) => {
+		const directory = source === "global" ? path.join(agentDir, "extensions") : path.join(temp.path, "plugin");
+		await mkdir(directory, { recursive: true });
+		await mkdir(path.join(directory, "node_modules", "fixture-dependency"), { recursive: true });
+		await writeFile(path.join(directory, "node_modules", "fixture-dependency", "package.json"),
+			JSON.stringify({ name: "fixture-dependency", main: "index.cjs" }));
+		await writeFile(path.join(directory, "node_modules", "fixture-dependency", "index.cjs"), "exports.value = 'external-dependency-ok';");
+		const extension = path.join(directory, "external 中文 空格 #100%.ts");
+		await writeFile(extension, `
+			import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+			import { Type } from 'typebox';
+			import { truncateHead } from '@earendil-works/pi-coding-agent';
+			import { value } from 'fixture-dependency';
+			export default (pi: ExtensionAPI) => pi.registerTool({
+				name: 'external_fixture', label: 'Fixture', description: 'External fixture',
+				parameters: Type.Object({}),
+				async execute() { return { content: [{ type: 'text', text: truncateHead(value).content }], details: {} }; }
+			});
+		`);
+		const flags = source === "cli" ? ["-e", extension] : [];
+		env["PATH"] = path.join(temp.path, "empty-bin");
+		sequence([{ tool: "external_fixture", args: {} }]);
+		const results = toolResults(await runJson([...flags, "--tools", "external_fixture", "--"]));
+		expect(results).toHaveLength(1);
+		expect(results[0]?.["isError"], JSON.stringify(results)).toBe(false);
+		expect(JSON.stringify(results)).toContain("external-dependency-ok");
+	});
+
+	it("-ne 禁用自动发现和静态扩展，但保留显式 -e", async () => {
 		await mkdir(path.join(agentDir, "extensions"));
 		const marker = path.join(temp.path, "external-executed");
-		const extension = path.join(agentDir, "extensions", "external.ts");
-		await writeFile(extension, `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'bad'); export default () => {};`);
-		await run(["--offline", "--approve", "--no-session", "-p", "--", "message"]);
+		const extension = path.join(agentDir, "extensions", "external.js");
+		await writeFile(extension, `import {writeFileSync} from 'node:fs'; export default () => writeFileSync(${JSON.stringify(marker)}, 'loaded');`);
+		await run(["--offline", "--approve", "--no-session", "-ne", "-p", "--", "message"]);
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
-		await expect(run(["-e", extension, "--version"])).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("external extensions") });
+		await run(["--offline", "--approve", "--no-session", "-ne", "-e", extension, "-p", "message"]);
+		expect(await readFile(marker, "utf8")).toBe("loaded");
+	});
+
+	it("未信任项目时不执行项目扩展", async () => {
+		const directory = path.join(cwd, ".pi", "extensions");
+		await mkdir(directory, { recursive: true });
+		const marker = path.join(temp.path, "untrusted-executed");
+		await writeFile(path.join(directory, "external.ts"), `import {writeFileSync} from 'node:fs'; export default () => writeFileSync(${JSON.stringify(marker)}, 'bad');`);
+		await run(["--offline", "--no-approve", "--no-session", "-p", "message"]);
+		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("外部扩展初始化失败时报告错误", async () => {
+		const extension = path.join(temp.path, "broken.ts");
+		await writeFile(extension, "export default () => { throw new Error('external-fixture-failed'); };");
+		await expect(run(["--offline", "--approve", "--no-session", "-e", extension, "-p", "message"]))
+			.rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("external-fixture-failed") });
 	});
 
 	it("版本命令不依赖 PATH 中的 Node/Bun，也不读取当前目录的 .env", async () => {
@@ -184,6 +229,38 @@ describe("standalone opi CLI", () => {
 		expect(directories).toHaveLength(1);
 		expect(directories[0]).toMatch(/^[a-f0-9]{64}$/);
 	});
+
+	it.skipIf(process.platform !== "linux")("真实终端从无外部扩展启动，/reload 加载新增扩展", async () => {
+		const directory = path.join(agentDir, "extensions");
+		await mkdir(directory);
+		const pending = exec("/usr/bin/script", ["-qfec", `stty cols 100 rows 35; exec '${cli}' --offline --approve`, "/dev/null"], {
+			cwd, env: { ...env, PI_TIMING: "1" }, timeout: 20_000, maxBuffer: 4 * 1024 * 1024,
+		});
+		let output = "";
+		let requestedReload = false;
+		let requestedExit = false;
+		pending.child.stdout?.on("data", (chunk) => {
+			output += String(chunk);
+			if (!requestedReload && output.includes("NEW SESSION")) {
+				requestedReload = true;
+				writeFileSync(path.join(directory, "added.ts"), `
+					import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+					export default (pi: ExtensionAPI) => pi.on('session_start', (_event, ctx) => {
+						ctx.ui.notify('external-reloaded-marker', 'info');
+					});
+				`);
+				pending.child.stdin?.write("/reload\r");
+			}
+			if (!requestedExit && output.includes("external-reloaded-marker")) {
+				requestedExit = true;
+				setTimeout(() => pending.child.stdin?.write("\u0004"), 100);
+			}
+		});
+		const result = await pending;
+		expect(result.stdout).toContain("external-reloaded-marker");
+		expect(result.stdout).not.toContain("Failed to load extension");
+		expect(result.stderr).toBe("");
+	}, 25_000);
 
 	it.skipIf(process.platform !== "linux")("真实终端启动 Pi TUI 和静态界面增强", async () => {
 		const pending = exec("/usr/bin/script", ["-qfec", `stty cols 100 rows 35; exec '${cli}' --offline --approve`, "/dev/null"], {

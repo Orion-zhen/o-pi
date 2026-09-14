@@ -21,14 +21,10 @@ if (process.argv[2] === "--opi-discord-daemon") {
 async function runCli(): Promise<void> {
 	const args = process.argv.slice(2);
 	const parsed = parseArgs(args);
-	if (parsed.extensions?.length) {
-		console.error("opi does not load external extensions (-e/--extension).");
-		process.exit(1);
-	}
 	if (["install", "remove", "uninstall", "update", "list", "config"].includes(args[0] ?? "")) {
 		console.error("opi does not manage Pi packages. Update opi from its source repository.");
 		process.exit(1);
 	}
 	const extensionFactories = parsed.noExtensions ? [] : (await import("./extensions.js")).extensions;
-	await main(args[0] === "auth" ? args : ["--no-extensions", ...args], { extensionFactories });
+	await main(args, { extensionFactories });
 }

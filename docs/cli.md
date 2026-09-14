@@ -30,12 +30,28 @@ bun run build
 - CLI 参数、交互模式、JSON/RPC 协议、认证与会话生命周期由 Pi 处理。
 - `src/extensions.ts` 静态注册本仓库模块，重型工具和 TUI 组件仍按需加载。
 - `~/.pi/agent/` 中的认证、模型、配置、会话以及本地 Skills、提示词、主题继续使用，包括 `PI_CODING_AGENT_DIR`。
-- `/reload` 继续重载资源并重建模块状态。修改静态代码后必须重新构建并重启。
+- `/reload` 重新发现外部扩展，读取修改后的入口和依赖，并重建模块状态。修改静态代码后必须重新构建并重启。
 - 子代理和 Discord 协调进程复用当前可执行文件。源码开发时使用 Bun 入口，不寻找系统 `pi` 或 Node.js 入口。
 
-## 不支持的行为
+## 外部扩展
 
-不加载自动发现或显式指定的外部扩展。`-e/--extension` 会报错。`-ne/--no-extensions` 禁用本仓库的集成模块，Pi 自带内联模块仍由上游处理。
+编译产物沿用 Pi 的扩展发现与加载规则：
+
+- 自动发现 `~/.pi/agent/extensions/` 和项目 `.pi/extensions/` 中的 TS/JS 扩展，包括目录入口和 `package.json` 中的 `pi.extensions`。
+- 支持全局及项目 settings 的 `extensions` 字段，以及 `-e/--extension <本地路径>`。
+- 项目扩展受 Pi 的项目信任规则控制。`--approve` 信任当前项目，`--no-approve` 忽略项目资源。
+- `-ne/--no-extensions` 禁用自动发现、settings 扩展和本仓库的集成模块，但仍加载显式 `-e`。Pi 自带内联模块仍由上游处理。
+
+```bash
+opi -e ./my-extension.ts
+opi -ne -e ./my-extension.ts
+```
+
+外部扩展无需重新打包。启动或交互模式的 `/reload` 会读取扩展，不监听文件变化。扩展可导入 Pi 提供的内嵌 SDK 和 TypeBox，其他依赖需安装在扩展可解析的位置，不由 opi 自动安装。
+
+构建仅调整 `jiti/static` 的依赖加载时机，保留上游解析、转译、虚拟模块和缓存机制。Jiti/Babel 仍内嵌于单文件中，但首次加载外部扩展时才初始化，后续重载复用转译器。无外部扩展时仍执行 Pi 的资源发现，不增加后台监听或重复扫描。直接运行 `bun src/cli.ts` 不经过构建适配，沿用上游加载时机。
+
+## 不支持的行为
 
 `install`、`remove`、`uninstall`、`update`、`list` 和 `config` 是 Pi 包管理入口，opi 不提供这些命令。上游帮助仍可能列出它们。既有 settings 中的 `packages` 不在支持范围，需由用户移除或改用不含该字段的配置目录，opi 不改写这些文件，也不适配上游的包解析与安装逻辑。
 
@@ -54,7 +70,7 @@ bun run test --coverage
 
 `test` 显式先构建，避免二进制集成测试使用旧产物。只运行不依赖二进制的源码测试时，可用 `bun run vitest run tests/<目录>`。
 
-CLI 测试通过本地 HTTP 模型服务驱动真实二进制，覆盖参数输出对照、文件读写、解析 worker、PDF、子代理、提示词、并发资源提取、外部扩展拒绝和 Linux TUI。RPC 测试覆盖状态、静态命令、Bash 事件及退出。测试不调用付费模型。
+CLI 测试通过本地 HTTP 模型服务驱动真实二进制，覆盖参数输出对照、文件读写、解析 worker、PDF、子代理、提示词、并发资源提取、外部扩展加载和 Linux TUI 的 `/reload`。RPC 测试覆盖状态、静态命令、Bash 事件及退出。测试不调用付费模型。
 
 Linux 下可增加无 Node/Bun、无仓库挂载的容器验证：
 

@@ -18,7 +18,7 @@ bun run build
 
 开发时可直接运行 `bun src/cli.ts`。项目不固定 Bun 版本或提交锁文件。构建使用 PATH 中的 Bun，制作通用分发产物时使用官方 Bun，避免引入系统发行版特有的动态库依赖。
 
-`opi` 复用 Pi 的 CLI 和 TUI，静态集成本仓库的工具与界面增强。保留功能的参数和行为由 Pi 处理，`~/.pi/agent/` 下的个人配置、认证、本地资源及会话继续使用。不支持外部扩展或 Pi 包管理命令。`-ne/--no-extensions` 关闭本仓库的集成功能，`-e/--extension` 会报错。
+`opi` 复用 Pi 的 CLI 和 TUI，静态集成本仓库的工具与界面增强。保留功能的参数和行为由 Pi 处理，`~/.pi/agent/` 下的个人配置、认证、本地资源及会话继续使用。支持 Pi 的外部 TS/JS 扩展发现、`-e/--extension` 和 `/reload`，无外部扩展时不初始化 Jiti/Babel。`-ne/--no-extensions` 关闭本仓库的集成功能和外部扩展自动加载，但保留显式 `-e`。不支持 Pi 包管理命令。
 
 旧的 `agent/extensions/` 已迁至 `src/extensions/`，不再由原 `pi` 自动加载。已有用户切换命令为 `opi`，不要再通过 settings 或 `-e` 重复加载本仓库入口。
 
