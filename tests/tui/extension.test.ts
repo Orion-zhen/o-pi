@@ -95,6 +95,29 @@ afterEach(async () => {
 });
 
 describe("tui extension", () => {
+	it("编辑器工厂安装图片适配，离开 Home 时保留，会话重载与退出时恢复", async () => {
+		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
+		const terminal = new ProcessTerminal();
+		const originalWrite = terminal.write;
+		const ui = new TuiAltScreen(terminal);
+		const factory = calls.editor.at(-1);
+		if (factory === undefined) throw new Error("editor factory was not installed");
+		factory(ui, plainEditorTheme(), KeybindingsManager.create(dir));
+		const firstWrite = terminal.write;
+		expect(firstWrite).not.toBe(originalWrite);
+		await handlers.get("agent_start")?.({}, ctx);
+		expect(terminal.write).toBe(firstWrite);
+		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
+		expect(terminal.write).toBe(originalWrite);
+		const nextFactory = calls.editor.at(-1);
+		if (nextFactory === undefined) throw new Error("editor factory was not reinstalled");
+		nextFactory(ui, plainEditorTheme(), KeybindingsManager.create(dir));
+		expect(terminal.write).not.toBe(firstWrite);
+		expect(terminal.write).not.toBe(originalWrite);
+		await handlers.get("session_shutdown")?.({}, ctx);
+		expect(terminal.write).toBe(originalWrite);
+	});
+
 	it("聊天 footer 在渲染时读取当前工具启用状态", async () => {
 		const file = path.join(dir, "tui.jsonc");
 		await writeFile(file, '{ "home": { "enabled": false } }');

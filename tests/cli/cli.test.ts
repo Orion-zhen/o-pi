@@ -1,3 +1,4 @@
+import { createCanvas } from "@napi-rs/canvas";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
@@ -74,6 +75,23 @@ function toolResults(events: Record<string, unknown>[]) {
 function sequence(responses: ModelResponse[]): void {
 	respond = (request) => responses[request.messages.filter((message) => message.role === "tool").length]
 		?? { text: "completed" };
+}
+
+function expectFullscreenImageOrder(output: string): void {
+	const start = output.indexOf("\x1b[?1049h");
+	const end = output.indexOf("\x1b[?1049l", start);
+	expect(start).toBeGreaterThanOrEqual(0);
+	expect(end).toBeGreaterThan(start);
+	// Pi 退出时切回普通模式并回放记录。这里只检查实际全屏区间。
+	const frames = [...output.slice(start, end).matchAll(/\x1b\[\?2026h([\s\S]*?)\x1b\[\?2026l/g)]
+		.map((match) => match[1] ?? "")
+		.filter((frame) => /\x1b_Ga=(?:T|p),/.test(frame));
+	expect(frames.length).toBeGreaterThan(0);
+	for (const frame of frames) {
+		const imageStart = frame.search(/\x1b_Ga=(?:T|p),/);
+		expect(/\x1b\[(?:[012]?K|[23]J)/.test(frame.slice(imageStart))).toBe(false);
+		expect(frame.endsWith("\x1b8"), JSON.stringify({ prefix: frame.slice(0, 80), tail: frame.slice(-160) })).toBe(true);
+	}
 }
 
 describe("standalone opi CLI", () => {
@@ -202,6 +220,38 @@ describe("standalone opi CLI", () => {
 		expect(result.stdout).not.toContain("initialization failed");
 		expect(result.stdout).toContain("\u001b_G");
 		expect(result.stdout).toContain("iVBORw0KGgo");
+		expectFullscreenImageOrder(result.stdout);
+	}, 25_000);
+
+	it.skipIf(process.platform !== "linux")("Pi 交互宿主读取多行图片，完整帧先清行再绘图", async () => {
+		const canvas = createCanvas(180, 180);
+		const context = canvas.getContext("2d");
+		context.fillStyle = "#ff6060";
+		context.fillRect(0, 0, 180, 90);
+		context.fillStyle = "#6060ff";
+		context.fillRect(0, 90, 180, 90);
+		await writeFile(path.join(cwd, "picture.png"), canvas.toBuffer("image/png"));
+		sequence([{ tool: "read", args: { path: "picture.png" } }, { text: "Image read completed." }]);
+		const pending = exec("/usr/bin/script", ["-qfec", `stty cols 100 rows 35; exec '${cli}' --offline --approve --no-session 'Read image'`, "/dev/null"], {
+			cwd, env: { ...env, TERM_PROGRAM: "wezterm" }, timeout: 20_000, maxBuffer: 4 * 1024 * 1024,
+		});
+		let output = "";
+		let requestedExit = false;
+		pending.child.stdout?.on("data", (chunk) => {
+			output += String(chunk);
+			if (!requestedExit && output.includes("iVBORw0KGgo")) {
+				requestedExit = true;
+				setTimeout(() => pending.child.stdin?.write("\u0004"), 200);
+			}
+		});
+		const result = await pending;
+		expect(result.stderr).toBe("");
+		expect(result.stdout).not.toContain("initialization failed");
+		expectFullscreenImageOrder(result.stdout);
+		const rows = [...result.stdout.matchAll(/\x1b_G[^;\x1b]*,r=(\d+)/g)].map((match) => Number(match[1]));
+		expect(rows.some((count) => count > 1)).toBe(true);
+		expect(result.stdout).toContain("\x1b[?1006l");
+		expect(result.stdout).toContain("\x1b[?1049l");
 	}, 25_000);
 
 	it.each(["install", "remove", "uninstall", "update", "list", "config"])("拒绝不支持的包命令 %s", async (command) => {
