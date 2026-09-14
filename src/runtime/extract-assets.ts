@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -25,7 +25,9 @@ export function extractAssets(id: string, assets: readonly EmbeddedAsset[]): str
 			renameSync(staging, destination);
 		} catch (error) {
 			if (!(error instanceof Error && "code" in error
-				&& (error.code === "EEXIST" || error.code === "ENOTEMPTY") && existsSync(destination))) throw error;
+				&& (error.code === "EEXIST" || error.code === "ENOTEMPTY"
+					|| (process.platform === "win32" && error.code === "EPERM"))
+				&& statSync(destination, { throwIfNoEntry: false })?.isDirectory())) throw error;
 		}
 		return destination;
 	} finally {

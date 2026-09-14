@@ -195,9 +195,10 @@ async function loadPdfRuntime(): Promise<PdfRuntime> {
 }
 
 function pdfAssetUrl(directory: string): string {
-	return binaryResourceDir === undefined
+	const directoryPath = binaryResourceDir === undefined
 		? fileURLToPath(import.meta.resolve(`pdfjs-dist/${directory}/`))
-		: path.join(binaryResourceDir, "pdf", directory) + path.sep;
+		: path.join(binaryResourceDir, "pdf", directory);
+	return directoryPath.replace(/[\\/]$/, "") + "/";
 }
 
 function normalizeMetadata(info: object): PdfMetadata {

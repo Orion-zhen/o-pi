@@ -175,8 +175,11 @@ describe("standalone opi CLI", () => {
 	});
 
 	it("并发首次启动原子发布同一个完整资源目录", async () => {
-		const results = await Promise.all(Array.from({ length: 4 }, () => run(["--version"])));
-		expect(results.every((result) => result.stdout.trim() === VERSION)).toBe(true);
+		const results = await Promise.allSettled(Array.from({ length: 4 }, () => run(["--version"])));
+		for (const result of results) {
+			if (result.status === "rejected") throw result.reason;
+			expect(result.value.stdout.trim()).toBe(VERSION);
+		}
 		const directories = await readdir(path.join(temp.path, ".pi", "cache", "opi"));
 		expect(directories).toHaveLength(1);
 		expect(directories[0]).toMatch(/^[a-f0-9]{64}$/);
