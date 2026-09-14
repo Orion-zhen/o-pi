@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerTelemetry, type TelemetryService } from "../../src/telemetry/service.js";
+import { registerTelemetry, type TelemetryService } from "../telemetry/service.js";
 
 const COMMAND_DESCRIPTION = "Show telemetry of current session.";
 
@@ -17,15 +17,15 @@ export function registerTelemetryCommand(
 		description: COMMAND_DESCRIPTION,
 		async handler(_args, ctx) {
 			const [{ createLiveTelemetryReport }, { formatLiveTelemetrySummary }] = await Promise.all([
-				import("../../src/telemetry-report/live.js"),
-				import("../../src/telemetry-report/presentation/summary.js"),
+				import("../telemetry-report/live.js"),
+				import("../telemetry-report/presentation/summary.js"),
 			]);
 			const report = createLiveTelemetryReport(service.snapshot());
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify(formatLiveTelemetrySummary(report), "info");
 				return;
 			}
-			const { TelemetryViewer } = await import("../../src/telemetry-report/tui/viewer.js");
+			const { TelemetryViewer } = await import("../telemetry-report/tui/viewer.js");
 			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new TelemetryViewer(report, theme, () => tui.terminal.rows, done), {
 				overlay: true,
 				overlayOptions: { width: "90%", minWidth: 80 },

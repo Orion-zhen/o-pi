@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import statsExtension from "../../agent/extensions/stats.js";
+import statsExtension from "../../src/extensions/stats.js";
 
 describe("stats extension", () => {
 	it("注册 /stats，并在非 TUI 模式提示错误而非抛异常", async () => {

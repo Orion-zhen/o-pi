@@ -3,14 +3,14 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import {
 	ToolSelectionController,
 	type ToolSelectionRestoreNotice,
-} from "../../src/tool-defaults/controller.js";
+} from "../tool-defaults/controller.js";
 
-type ToolSelectorModule = typeof import("../../src/tool-defaults/tui/tool-selector.js");
+type ToolSelectorModule = typeof import("../tool-defaults/tui/tool-selector.js");
 type ToolSelectorLoader = () => Promise<ToolSelectorModule>;
 
 /** 注册工具选择生命周期；配置、恢复与持久化由 controller 负责。 */
 export function createToolsExtension(
-	loadTui: ToolSelectorLoader = () => import("../../src/tool-defaults/tui/tool-selector.js"),
+	loadTui: ToolSelectorLoader = () => import("../tool-defaults/tui/tool-selector.js"),
 ): (pi: ExtensionAPI) => void {
 	return function toolsExtension(pi: ExtensionAPI): void {
 		const controller = new ToolSelectionController(pi);

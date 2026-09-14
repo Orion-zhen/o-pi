@@ -3,7 +3,7 @@ import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadSkills } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/skills.js";
 import { beforeEach, describe, expect, it } from "vitest";
-import projectSkillsExtension from "../../agent/extensions/project-skills.js";
+import projectSkillsExtension from "../../src/extensions/project-skills.js";
 import { discoverAncestorPiSkillPaths } from "../../src/skill-context/discovery.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 

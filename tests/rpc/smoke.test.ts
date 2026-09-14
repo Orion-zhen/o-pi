@@ -12,9 +12,11 @@ afterEach(() => {
 	running.clear();
 });
 
-describe("真实 Pi RPC", () => {
+describe.each([
+	{ name: "Pi", cliPath: path.resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js") },
+	{ name: "opi", cliPath: path.resolve("dist/cli.js") },
+])("真实 $name RPC", ({ cliPath }) => {
 	it("离线完成 state、commands、工具事件、extension UI 往返和干净 shutdown", async () => {
-		const cliPath = path.resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
 		const extensionPath = path.resolve("tests/rpc/fixtures/dialog-extension.ts");
 		const child = spawn(process.execPath, [
 			cliPath,

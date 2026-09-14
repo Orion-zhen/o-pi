@@ -1,13 +1,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { loadApprovalGateConfig } from "../../src/approval/config.js";
-import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../../src/approval/events.js";
-import { createApprovalGate, type ApprovalOutcome } from "../../src/approval/index.js";
-import { buildApprovalRequest, isApprovalToolCall } from "../../src/approval/pi/request.js";
-import { buildBashApprovalRequest } from "../../src/approval/request/bash/parse.js";
-import { formatBashPolicyEvaluation } from "../../src/approval/rules/bash-facts.js";
-import { evaluateBashGatePolicy } from "../../src/approval/rules/policy.js";
-import { formatApprovalPrompt } from "../../src/approval/presentation.js";
-import { attachPrivateNetworkGrant, createPrivateNetworkGrantFor } from "../../src/web-tools/network/private-network-grant.js";
+import { loadApprovalGateConfig } from "../approval/config.js";
+import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../approval/events.js";
+import { createApprovalGate, type ApprovalOutcome } from "../approval/index.js";
+import { buildApprovalRequest, isApprovalToolCall } from "../approval/pi/request.js";
+import { buildBashApprovalRequest } from "../approval/request/bash/parse.js";
+import { formatBashPolicyEvaluation } from "../approval/rules/bash-facts.js";
+import { evaluateBashGatePolicy } from "../approval/rules/policy.js";
+import { formatApprovalPrompt } from "../approval/presentation.js";
+import { attachPrivateNetworkGrant, createPrivateNetworkGrantFor } from "../web-tools/network/private-network-grant.js";
 
 export default function approvalGateExtension(pi: ExtensionAPI): void {
 	const gate = createApprovalGate();
@@ -42,7 +42,7 @@ export default function approvalGateExtension(pi: ExtensionAPI): void {
 						type: "requested", toolCallId: event.toolCallId, toolName: event.toolName,
 					} satisfies ApprovalStatusEvent);
 					if (ctx.mode === "tui") {
-						const { openApprovalDialog } = await import("../../src/approval/tui/dialog.js");
+						const { openApprovalDialog } = await import("../approval/tui/dialog.js");
 						return openApprovalDialog(ctx.ui, request, decision, approvalOptions, dialogOptions);
 					}
 					return ctx.ui.select(formatApprovalPrompt(request, decision), [...approvalOptions], dialogOptions);

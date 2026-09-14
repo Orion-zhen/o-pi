@@ -1,11 +1,11 @@
 import { createLocalBashOperations, type ExtensionAPI, type ToolResultEvent, type TruncationResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { executeBashCommand } from "../../src/bash-tool/bash-tool.js";
-import { loadBashToolConfig } from "../../src/bash-tool/config.js";
-import type { BashSessionMetadata, BashToolDetails } from "../../src/bash-tool/types.js";
-import { bashTelemetry } from "../../src/bash-tool/telemetry.js";
-import { registerTool } from "../../src/register-tool.js";
+import { executeBashCommand } from "../bash-tool/bash-tool.js";
+import { loadBashToolConfig } from "../bash-tool/config.js";
+import type { BashSessionMetadata, BashToolDetails } from "../bash-tool/types.js";
+import { bashTelemetry } from "../bash-tool/telemetry.js";
+import { registerTool } from "../register-tool.js";
 
 const bashParameters = Type.Object({
 	command: Type.String({ description: "Shell command; default runs in workspace." }),
@@ -64,7 +64,7 @@ export default function bashTool(pi: ExtensionAPI): void {
 	let rendererLoad: Promise<void> | undefined;
 	pi.on("session_start", async (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
-		rendererLoad ??= import("../../src/bash-tool/tui/renderer.js").then(({ renderBashCall }) => {
+		rendererLoad ??= import("../bash-tool/tui/renderer.js").then(({ renderBashCall }) => {
 			pi.registerTool({ ...tool, renderCall: renderBashCall });
 		});
 		await rendererLoad;

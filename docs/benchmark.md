@@ -1,6 +1,6 @@
 # 性能基准
 
-统一入口：
+统一入口默认运行本仓库构建的 `opi`，可通过 `PI_BIN` 指定其他入口。涉及 CLI 的 npm 基准命令会先构建：
 
 ```bash
 npm run bench
@@ -22,8 +22,8 @@ npm run bench -- --quick
 
 | 套件 | 内容 |
 | --- | --- |
-| `startup` | 比较 Pi 核心、Pi 资源和全部扩展三种场景的非交互启动与 TUI 启动。全部扩展场景还汇总 Pi 内部主流程计时，以及每个扩展的 `module import` 和 `factory` 计时。 |
-| `agent-loop` | 启动真实的 `pi --print` 进程。本地 OpenAI-compatible 模拟模型依次触发两次 `ls`、两次 `find` 和两次 `grep`，并测量首次模型请求、每次工具回路和退出耗时。 |
+| `startup` | 比较 Pi 核心、Pi 资源和全部扩展三种场景的非交互启动与 TUI 启动。全部扩展场景还汇总 Pi 内部主流程计时和模块工厂计时，动态扩展另外记录导入计时。 |
+| `agent-loop` | 启动真实的 `opi --print` 进程。本地 OpenAI-compatible 模拟模型依次触发两次 `ls`、两次 `find` 和两次 `grep`，并测量首次模型请求、每次工具回路和退出耗时。 |
 | `lazy` | 测量分词器模块导入、o200k 和 cl100k 的首次与后续计数，以及数学 Markdown 解析器、MathJax/Resvg、字体预热、首次渲染和缓存渲染。 |
 | `file-tools` | 测量裸 Pi 与文件工具扩展的非交互启动、TUI 就绪、扩展导入与注册，以及注册后的首次 `ls`。 |
 | `file-search` | 测量首次与后续 `find`、带模拟文件系统延迟的 `find`、首次与后续 `grep`、并发 `grep` 和宽范围 `grep`。 |
@@ -94,7 +94,7 @@ Pi 在进入交互模式的运行循环前输出这些计时表。因此，数�
 设置 `PI_TIMING=1` 后可以获得 Pi 内部计时：
 
 - 主流程计时展示运行时和会话创建等阶段。
-- 扩展计时分别记录每个扩展的 `module import` 和 `factory`。
+- 动态扩展计时包含 `module import` 和 `factory`。静态集成模块只有 `factory` 计时，导入开销计入进程墙钟时间。
 
 外部墙钟时间还包括 Node.js 进程启动、Pi 命令行入口、伪终端和基准观测开销，因此其范围大于 Pi 内部计时。
 

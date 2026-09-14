@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import fileTools from "../../agent/extensions/file-tools.js";
+import fileTools from "../../src/extensions/file-tools.js";
 import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
 import { formatEditModelResult } from "../../src/file-tools/edit/presenter.js";
 import { formatWriteModelResult } from "../../src/file-tools/write/presenter.js";

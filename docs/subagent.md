@@ -1,11 +1,11 @@
 # Subagent 扩展
 
-本扩展提供轻量 subagent：每次调用启动独立 `pi` 子进程，Agent frontmatter 固定选择隔离或 fork 上下文。它不是多 Agent 框架，不实现后台会话、持久记忆、递归 subagent 或复杂 DSL。
+本扩展提供轻量 subagent：每次调用重新启动当前 CLI，在 `opi` 中启动独立 `opi` 子进程，Agent frontmatter 固定选择隔离或 fork 上下文。它不是多 Agent 框架，不实现后台会话、持久记忆、递归 subagent 或复杂 DSL。
 
 入口：
 
-* `agent/extensions/subagent.ts`：注册 `subagent` 工具和 slash commands。
-* `agent/extensions/system-prompt.ts`：统一构建主 Agent 与子 Agent 的 system prompt。
+* `src/extensions/subagent.ts`：注册 `subagent` 工具和 slash commands。
+* `src/extensions/system-prompt.ts`：统一构建主 Agent 与子 Agent 的 system prompt。
 * `src/subagent/`：配置、Agent 发现、执行、进程、输出、命令和 renderer。
 
 ## Agent 定义

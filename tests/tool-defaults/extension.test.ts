@@ -10,7 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import toolsExtension, { createToolsExtension } from "../../agent/extensions/cmd-slash-tools.js";
+import toolsExtension, { createToolsExtension } from "../../src/extensions/cmd-slash-tools.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => Promise<void> | void;

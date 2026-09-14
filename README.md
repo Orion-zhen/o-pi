@@ -4,21 +4,24 @@ Orion's Pi Agent.
 
 ## 安装使用
 
-首先确保系统中安装了 [Pi](https://github.com/earendil-works/pi).
-
-克隆到 Pi 配置路径:
+需要 Node.js >= 22.19.0，无需单独安装 Pi。仓库可放在任意目录，已有的 `~/.pi` 克隆也可继续使用。
 
 ```bash
-git clone https://github.com/Orion-zhen/o-pi.git ~/.pi
+git clone https://github.com/Orion-zhen/o-pi.git
+cd o-pi
+npm install
+npm run build
+npm link
+opi
 ```
 
-安装依赖:
+`npm run build` 编译入口，`npm link` 将 `opi` 加入 npm 全局命令目录。也可不安装全局入口，直接运行 `node dist/cli.js`。修改源码后执行 `npm run build`。
 
-```bash
-cd ~/.pi && npm install
-```
+`opi` 复用 Pi 的 CLI 和 TUI，静态集成本仓库的工具与界面增强。原有参数、斜杠命令和 `~/.pi/agent/` 下的个人配置、认证、资源及会话继续使用。`-ne/--no-extensions` 关闭集成功能和自动发现的扩展，显式 `-e/--extension` 仍有效。
 
-可复用的 Pi 体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需将其中字段合并到本机 `agent/settings.json`；provider、model、thinking level 和模型轮换列表等个人设置不包含在示例中。
+旧的 `agent/extensions/` 已迁至 `src/extensions/`，不再由原 `pi` 自动加载。已有用户切换命令为 `opi`，不要再通过 settings 或 `-e` 重复加载本仓库入口。
+
+可复用的体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需合并到 `~/.pi/agent/settings.json`，不要覆盖已有 provider、model 等个人设置。运行与升级边界见 [CLI](docs/cli.md)。
 
 ## 组合技
 
@@ -29,6 +32,7 @@ cd ~/.pi && npm install
 
 ## 文档
 
+* [CLI 入口](docs/cli.md)
 * [配置分层](docs/configuration.md)
 * [性能 Benchmark](docs/benchmark.md)
 * [文件工具设计](docs/file-tools/README.md)

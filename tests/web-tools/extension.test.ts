@@ -3,7 +3,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import webTools, { createWebToolsExtension } from "../../agent/extensions/web-tools.js";
+import webTools, { createWebToolsExtension } from "../../src/extensions/web-tools.js";
 import { attachPrivateNetworkGrant, type PrivateNetworkGrant } from "../../src/web-tools/network/private-network-grant.js";
 import type { WebFetchExecutionContext, WebFetchParams, WebToolsRuntime } from "../../src/web-tools/core/types.js";
 import { registerExtension } from "../helpers/extension.js";
@@ -223,7 +223,7 @@ function successfulSearch(query: string, content: string) {
 }
 
 async function runJitiExtension(body: string, configPath: string): Promise<string> {
-	const extensionPath = path.join(process.cwd(), "agent", "extensions", "web-tools.ts");
+	const extensionPath = path.join(process.cwd(), "src", "extensions", "web-tools.ts");
 	const script = `
 		import { createEventBus } from "@earendil-works/pi-coding-agent";
 		import { createJiti } from "jiti/static";

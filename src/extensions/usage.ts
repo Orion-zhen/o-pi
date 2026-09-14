@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { UsageService } from "../../src/usage/service.js";
-import { UsageRequestError, type UsageSnapshot } from "../../src/usage/types.js";
+import { UsageService } from "../usage/service.js";
+import { UsageRequestError, type UsageSnapshot } from "../usage/types.js";
 
 const COMMAND_DESCRIPTION = "Show OAuth plan usage.";
 const COMMAND_USAGE = "Usage: /usage [--refresh]";
@@ -29,7 +29,7 @@ export default function usageExtension(pi: Pick<ExtensionAPI, "registerCommand">
 			}
 
 			if (ctx.mode === "tui") {
-				const { UsageViewer } = await import("../../src/usage/tui/viewer.js");
+				const { UsageViewer } = await import("../usage/tui/viewer.js");
 				await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new UsageViewer(result, theme, () => tui.terminal.rows, done), {
 					overlay: true,
 					overlayOptions: { anchor: "center", width: "90%", minWidth: 110, margin: 1 },
@@ -37,7 +37,7 @@ export default function usageExtension(pi: Pick<ExtensionAPI, "registerCommand">
 				return;
 			}
 
-			const { renderUsage, renderUsageCancelled } = await import("../../src/usage/presentation/render.js");
+			const { renderUsage, renderUsageCancelled } = await import("../usage/presentation/render.js");
 			const lines = result === "aborted" ? renderUsageCancelled(96) : renderUsage(result, 96);
 			ctx.ui.notify(lines.join("\n"), result === "aborted" ? "error" : "info");
 		},

@@ -9,7 +9,7 @@ const parserWorker = worker;
 const args = process.argv.slice(2);
 const runs = readRuns(args);
 const warmups = Math.min(2, runs);
-const pi = process.env.PI_BIN ?? "pi";
+const pi = process.env.PI_BIN ?? fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const piArgs = [
 	"--offline", "--no-extensions", "--no-skills", "--no-prompt-templates",
 	"--no-themes", "--no-context-files", "--list-models", "__web_tools_benchmark_no_match__",
@@ -17,7 +17,7 @@ const piArgs = [
 
 const bare = measureProcess(pi, piArgs, { warmups, runs });
 const extension = measureProcess(pi, [
-	...piArgs.slice(0, -2), "--extension", "agent/extensions/web-tools.ts", ...piArgs.slice(-2),
+	...piArgs.slice(0, -2), "--extension", "src/extensions/web-tools.ts", ...piArgs.slice(-2),
 ], { warmups, runs });
 const search = measureJsonWorker(worker, ["search"], { warmups, runs });
 const fetch = measureJsonWorker(worker, ["fetch"], { warmups, runs });
@@ -71,7 +71,7 @@ async function measureReadyRows() {
 	const readyOptions = { warmups, runs, readyMarker: "-----------------------------", env: { ...process.env, PI_TIMING: "1" } };
 	const bareReady = await measureInteractiveReady(pi, readyArgs, readyOptions);
 	const extensionReady = await measureInteractiveReady(pi, [
-		...readyArgs, "--extension", "agent/extensions/web-tools.ts",
+		...readyArgs, "--extension", "src/extensions/web-tools.ts",
 	], readyOptions);
 	return [
 		row("Pi bare ready", bareReady),

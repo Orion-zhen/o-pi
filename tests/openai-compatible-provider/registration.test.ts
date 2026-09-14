@@ -4,7 +4,7 @@ import { InMemoryCredentialStore, InMemoryModelsStore, type Provider } from "@ea
 import { ModelRegistry, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import openAICompatibleProvider from "../../agent/extensions/openai-compatible-provider.js";
+import openAICompatibleProvider from "../../src/extensions/openai-compatible-provider.js";
 import { loadModelsJsoncConfig } from "../../src/openai-compatible-provider/config.js";
 import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/register.js";
 import { createExtensionHarness, createRegistryPi, loadConfigFromText, providerConfig } from "./fixtures.js";

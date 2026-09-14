@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createEventBus, type BuildSystemPromptOptions, type ExtensionAPI, type ExtensionContext, type InputEvent, type InputEventResult, type SessionEntry, type SlashCommandInfo, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import skillContextExtension from "../../agent/extensions/skill-context.js";
+import skillContextExtension from "../../src/extensions/skill-context.js";
 import { registerSkillCommands } from "../../src/skill-context/commands.js";
 import { SKILL_CONTEXT_ENTRY, SKILL_CONTEXT_MESSAGE, type SkillLoadEntry } from "../../src/skill-context/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";

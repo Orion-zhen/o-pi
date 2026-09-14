@@ -9,7 +9,7 @@ import type {
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import pruneExtension from "../../agent/extensions/prune.js";
+import pruneExtension from "../../src/extensions/prune.js";
 import {
 	getPruneTuiState,
 	isToolCallHidden,

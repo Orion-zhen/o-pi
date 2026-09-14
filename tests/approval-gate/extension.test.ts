@@ -4,7 +4,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import path from "node:path";
 import type { ExtensionContext, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import approvalGateExtension from "../../agent/extensions/approval-gate.js";
+import approvalGateExtension from "../../src/extensions/approval-gate.js";
 import { loadApprovalGateConfig } from "../../src/approval/config.js";
 import { APPROVAL_STATUS_CHANNEL } from "../../src/approval/events.js";
 import { formatApprovalPrompt } from "../../src/approval/presentation.js";

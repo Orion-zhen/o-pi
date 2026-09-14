@@ -1,6 +1,6 @@
 # TUI
 
-`agent/extensions/tui.ts` 只在 `ctx.mode === "tui"` 时加载界面运行时。RPC、JSON 和 print 模式不加载这套运行时或数学图片后端。工具执行和结构化结果不依赖 TUI。
+`src/extensions/tui.ts` 只在 `ctx.mode === "tui"` 时加载界面运行时。RPC、JSON 和 print 模式不加载这套运行时或数学图片后端。工具执行和结构化结果不依赖 TUI。
 
 聊天保留 Pi 原生单列会话记录。空会话在 `fullscreen` 模式显示 Home，在 `regular` 模式显示启动横幅。已有会话直接进入聊天。
 

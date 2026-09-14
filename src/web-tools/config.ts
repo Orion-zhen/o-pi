@@ -1,7 +1,7 @@
 import ipaddr from "ipaddr.js";
 import {
 	CONFIG_DEFINITIONS,
-	agentPath,
+	userAgentPath,
 	agentSchemaPath,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
@@ -37,7 +37,7 @@ async function loadConfigFile(): Promise<ConfigSnapshot<WebToolsConfig>> {
 }
 
 export function defaultCookiePath(): string {
-	return process.env[COOKIES_PATH_ENV] ?? agentPath("cookies.txt");
+	return userAgentPath("cookies.txt", COOKIES_PATH_ENV);
 }
 
 function materializeConfig(raw: WebToolsConfig): WebToolsConfig {

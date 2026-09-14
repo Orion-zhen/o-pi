@@ -2,7 +2,7 @@
 
 提示词模板是可以通过斜杠命令展开的 Markdown 片段。文件名决定命令名。例如，`review.md` 注册为 `/review`。
 
-Pi 负责解析模板、替换参数和处理同名冲突。本仓库的 `agent/extensions/agents-prompts.ts` 只通过 `resources_discover` 增加 `.agents/prompts` 中的模板文件。
+Pi 负责解析模板、替换参数和处理同名冲突。本仓库的 `src/extensions/agents-prompts.ts` 只通过 `resources_discover` 增加 `.agents/prompts` 中的模板文件。
 
 ## 加载位置
 
@@ -58,7 +58,7 @@ Additional focus: ${@:2}
 
 ## `.agents` 目录发现规则
 
-`agent/extensions/agents-prompts.ts` 按以下规则发现模板：
+`src/extensions/agents-prompts.ts` 按以下规则发现模板：
 
 - `~/.agents/prompts` 始终作为用户级资源扫描。
 - 项目受信任后，从当前工作目录向上扫描每一级 `.agents/prompts`。

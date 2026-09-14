@@ -708,7 +708,7 @@ async function startTui(
 	options: Parameters<typeof createContext>[1] = {},
 	piOptions: Parameters<typeof createPi>[1] = {},
 ): Promise<{ handlers: Map<string, Handler>; calls: ReturnType<typeof createUiCalls>; ctx: ExtensionContextStub }> {
-	const { default: extension } = await import("../../agent/extensions/tui.js");
+	const { default: extension } = await import("../../src/extensions/tui.js");
 	const handlers = new Map<string, Handler>();
 	const calls = createUiCalls();
 	const ctx = createContext(calls, options);

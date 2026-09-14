@@ -1,12 +1,12 @@
 import { createEventBus, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import bashToolExtension from "../../agent/extensions/bash-tool.js";
-import { createFileToolsExtension } from "../../agent/extensions/file-tools.js";
-import { createPruneExtension } from "../../agent/extensions/prune.js";
-import { createSkillContextExtension } from "../../agent/extensions/skill-context.js";
-import { createSubagentExtension } from "../../agent/extensions/subagent.js";
-import { createWebToolsExtension } from "../../agent/extensions/web-tools.js";
+import bashToolExtension from "../../src/extensions/bash-tool.js";
+import { createFileToolsExtension } from "../../src/extensions/file-tools.js";
+import { createPruneExtension } from "../../src/extensions/prune.js";
+import { createSkillContextExtension } from "../../src/extensions/skill-context.js";
+import { createSubagentExtension } from "../../src/extensions/subagent.js";
+import { createWebToolsExtension } from "../../src/extensions/web-tools.js";
 
 const bashRendererLoad = vi.hoisted(() => ({ count: 0 }));
 vi.mock("../../src/bash-tool/tui/renderer.js", async (importOriginal) => {

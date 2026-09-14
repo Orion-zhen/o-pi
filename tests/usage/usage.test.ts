@@ -2,7 +2,7 @@ import type { AuthResult } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import usageExtension from "../../agent/extensions/usage.js";
+import usageExtension from "../../src/extensions/usage.js";
 import { collectUsageSnapshot, type UsageContext } from "../../src/usage/client.js";
 import { renderUsage, renderUsageCancelled } from "../../src/usage/presentation/render.js";
 import { UsageService } from "../../src/usage/service.js";

@@ -13,9 +13,9 @@ import type {
 	ToolExecutionUpdateEvent,
 	TurnStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../../src/approval/events.js";
-import { OPetService, type OPetServiceOptions } from "../../src/o-pet/service.js";
-import { OPetStreamingToolTracker } from "../../src/o-pet/streaming.js";
+import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../approval/events.js";
+import { OPetService, type OPetServiceOptions } from "../o-pet/service.js";
+import { OPetStreamingToolTracker } from "../o-pet/streaming.js";
 
 export interface OPetEventHandlers {
 	sessionStart(

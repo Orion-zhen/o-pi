@@ -13,7 +13,7 @@ import { benchmarkEnv, run, SCRIPT_BIN, spawnInteractive } from "./benchmark/run
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lazyWorker = fileURLToPath(new URL("./workers/bench-lazy-components-worker.mjs", import.meta.url));
-const pi = process.env.PI_BIN ?? "pi";
+const pi = process.env.PI_BIN ?? fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const MAIN_TIMING_HEADER = "--- Startup Timings: main ---";
 const MAIN_TIMING_FOOTER = "-----------------------------";
 const EXTENSION_TIMING_HEADER = "--- Startup Timings: extensions ---";

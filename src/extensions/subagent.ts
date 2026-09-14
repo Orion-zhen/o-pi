@@ -13,11 +13,11 @@ import {
 	SubagentExecutionRegistry,
 	type SubagentInteractionPort,
 	type SubagentToolParams,
-} from "../../src/subagent/index.js";
-import { subagentTelemetry } from "../../src/subagent/telemetry.js";
-import { registerTool } from "../../src/register-tool.js";
+} from "../subagent/index.js";
+import { subagentTelemetry } from "../subagent/telemetry.js";
+import { registerTool } from "../register-tool.js";
 
-type SubagentTuiModule = typeof import("../../src/subagent/tui/adapter.js");
+type SubagentTuiModule = typeof import("../subagent/tui/adapter.js");
 
 const taskItem = Type.Object({
 	agent: Type.String({ minLength: 1 }),
@@ -34,7 +34,7 @@ const subagentParams = Type.Object(
 
 /** 注册轻量 subagent 工具和确定性命令；所有 component 仅由延迟加载的 TUI adapter 创建。 */
 export function createSubagentExtension(
-	loadTui: () => Promise<SubagentTuiModule> = () => import("../../src/subagent/tui/adapter.js"),
+	loadTui: () => Promise<SubagentTuiModule> = () => import("../subagent/tui/adapter.js"),
 ): (pi: ExtensionAPI) => void {
 	return function subagentExtension(pi: ExtensionAPI): void {
 		const executions = new SubagentExecutionRegistry();

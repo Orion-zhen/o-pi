@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { collectStatsSnapshot, type StatsPiApi } from "../../src/stats/collector.js";
+import { collectStatsSnapshot, type StatsPiApi } from "../stats/collector.js";
 
 const STATS_COMMAND_DESCRIPTION = "Show current session stats.";
 
@@ -24,7 +24,7 @@ export default function statsExtension(pi: Pick<ExtensionAPI, "registerCommand">
 				getSystemPrompt: () => ctx.getSystemPrompt(),
 				getSystemPromptOptions: () => ctx.getSystemPromptOptions(),
 			}, pi);
-			const { StatsViewer } = await import("../../src/stats/tui/stats-viewer.js");
+			const { StatsViewer } = await import("../stats/tui/stats-viewer.js");
 			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new StatsViewer(snapshot, theme, () => tui.terminal.rows, done), {
 				overlay: true,
 				overlayOptions: { width: "90%", minWidth: 80 },

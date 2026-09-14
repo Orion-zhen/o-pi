@@ -164,8 +164,10 @@ export class DiscordPresenceCoordinatorClient {
 }
 
 function spawnCoordinatorDaemon(endpoint: string): void {
-	const entry = fileURLToPath(new URL("./coordinator-daemon.ts", import.meta.url));
-	const child = spawn(process.execPath, ["--import", import.meta.resolve("jiti/register"), entry, endpoint], {
+	const source = import.meta.url.endsWith(".ts");
+	const entry = fileURLToPath(new URL(source ? "./coordinator-daemon.ts" : "./coordinator-daemon.js", import.meta.url));
+	const loader = source ? ["--import", import.meta.resolve("jiti/register")] : [];
+	const child = spawn(process.execPath, [...loader, entry, endpoint], {
 		cwd: fileURLToPath(new URL("../..", import.meta.url)),
 		detached: true,
 		stdio: "ignore",

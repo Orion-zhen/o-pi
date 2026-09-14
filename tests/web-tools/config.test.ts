@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -217,6 +218,10 @@ describe("web-tools config", () => {
 			await writeFile(file, JSON.stringify({ websearch: { exa_api: { endpoint: url } } }));
 			await expect(loadWebToolsConfig()).rejects.toThrow("exa_api.endpoint is not an allowed public HTTP URL");
 		}
+	});
+
+	it("Cookie 默认从用户配置目录读取，不依赖应用安装位置", () => {
+		expect(defaultCookiePath()).toBe(path.join(os.homedir(), ".pi", "agent", "cookies.txt"));
 	});
 
 	it("环境变量覆盖 Cookie 路径", () => {

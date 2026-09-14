@@ -5,13 +5,13 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { formatPruneOutcome } from "../../src/prune/presentation/outcome.js";
-import { applyPersistedToolPruning } from "../../src/prune/prune.js";
+import { formatPruneOutcome } from "../prune/presentation/outcome.js";
+import { applyPersistedToolPruning } from "../prune/prune.js";
 import {
 	PruneService,
 	type PruneOperation,
 	type PruneServicePort,
-} from "../../src/prune/service.js";
+} from "../prune/service.js";
 
 const COMMAND_NAME = "prune";
 const COMMAND_DESCRIPTION = "Remove stale tool transactions from context.";
@@ -23,14 +23,14 @@ type PruneApi = Pick<
 >;
 
 export type PruneTuiModule = Pick<
-	typeof import("../../src/prune/tui/index.js"),
+	typeof import("../prune/tui/index.js"),
 	"registerPruneEntryRenderer" | "resetPruneTuiState" | "syncPruneTuiState"
 >;
 
 export type PruneTuiLoader = () => Promise<PruneTuiModule>;
 
 export function createPruneExtension(
-	loadTui: PruneTuiLoader = () => import("../../src/prune/tui/index.js"),
+	loadTui: PruneTuiLoader = () => import("../prune/tui/index.js"),
 ): (pi: PruneApi) => void {
 	return function pruneExtension(pi: PruneApi): void {
 		const service = new PruneService();

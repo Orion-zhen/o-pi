@@ -1,8 +1,19 @@
 {
 	"name": "o-pi",
+	"version": "0.1.0",
+	"bin": { "opi": "dist/cli.js" },
+	"files": ["dist", "docs", "agent/defaults", "agent/schemas", "agent/*.example.jsonc"],
+	"engines": { "node": ">=22.19.0" },
 	"type": "module",
 	"private": true,
 	"scripts": {
+		"build": "node scripts/build.mjs",
+		"prepare": "npm run build",
+		"pretest": "npm run build",
+		"pretest:coverage": "npm run build",
+		"prebench": "npm run build",
+		"prebench:file-tools": "npm run build",
+		"prebench:web-tools": "npm run build",
 		"bench": "node scripts/bench.mjs",
 		"bench:file-tools": "node scripts/bench-file-tools.mjs",
 		"bench:file-tools:search": "node scripts/bench-file-tools-search.mjs",
@@ -10,7 +21,7 @@
 		"bench:code-index": "node scripts/bench-code-index.mjs",
 		"bench:web-tools": "node scripts/bench-web-tools.mjs",
 		"telemetry:report": "node scripts/generate-telemetry-report.mjs",
-		"refresh": "npm update && npm rebuild",
+		"refresh": "npm update && npm rebuild && npm run build",
 		"test": "vitest --run",
 		"test:coverage": "vitest --run --coverage",
 		"typecheck": "tsc --noEmit"

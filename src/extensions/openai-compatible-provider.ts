@@ -5,7 +5,7 @@ import {
 	ensure_private_config_permissions,
 	loadModelsJsoncConfig,
 	registerOpenAICompatibleProviders,
-} from "../../src/openai-compatible-provider/index.js";
+} from "../openai-compatible-provider/index.js";
 
 /** 从 ~/.pi/agent/models.jsonc 注册原生 pi-ai OpenAI-compatible provider。 */
 export default async function openAICompatibleProvider(pi: ExtensionAPI): Promise<void> {

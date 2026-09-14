@@ -5,7 +5,7 @@ import { createLocalBashOperations, type BashOperations, type SessionEntry } fro
 import { Ajv, type AnySchema } from "ajv";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import bashToolExtension from "../../agent/extensions/bash-tool.js";
+import bashToolExtension from "../../src/extensions/bash-tool.js";
 import { createExecutionEnvironment } from "../../src/bash-tool/environment.js";
 import { executeBashCommand } from "../../src/bash-tool/bash-tool.js";
 import { OutputCapture } from "../../src/bash-tool/output-capture.js";

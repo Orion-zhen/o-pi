@@ -3,7 +3,7 @@ import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadPromptTemplates } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/prompt-templates.js";
 import { beforeEach, describe, expect, it } from "vitest";
-import agentsPromptsExtension from "../../agent/extensions/agents-prompts.js";
+import agentsPromptsExtension from "../../src/extensions/agents-prompts.js";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 interface ResourcesEvent {

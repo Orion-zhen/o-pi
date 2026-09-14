@@ -3,16 +3,16 @@ import {
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { registerSkillCommands } from "../../src/skill-context/commands.js";
-import { executeSkillLoad, SkillLoadError } from "../../src/skill-context/executor.js";
-import { collectSkillCandidates } from "../../src/skill-context/loader.js";
-import { findVisibleToolCallIds } from "../../src/prune/prune.js";
-import type { SkillCandidate, SkillLoadDetails, SkillToolErrorDetails } from "../../src/skill-context/types.js";
-import { defineToolTelemetry } from "../../src/telemetry/projection.js";
-import { registerTool } from "../../src/register-tool.js";
+import { registerSkillCommands } from "../skill-context/commands.js";
+import { executeSkillLoad, SkillLoadError } from "../skill-context/executor.js";
+import { collectSkillCandidates } from "../skill-context/loader.js";
+import { findVisibleToolCallIds } from "../prune/prune.js";
+import type { SkillCandidate, SkillLoadDetails, SkillToolErrorDetails } from "../skill-context/types.js";
+import { defineToolTelemetry } from "../telemetry/projection.js";
+import { registerTool } from "../register-tool.js";
 
 type SkillRendererModule = Pick<
-	typeof import("../../src/skill-context/tui/renderer.js"),
+	typeof import("../skill-context/tui/renderer.js"),
 	"registerSkillMessageRenderer" | "renderSkillCall" | "renderSkillResult"
 >;
 
@@ -126,7 +126,7 @@ function registerSkillTool(pi: ExtensionAPI) {
 }
 
 async function loadSkillRenderers(): Promise<SkillRendererModule> {
-	return import("../../src/skill-context/tui/renderer.js");
+	return import("../skill-context/tui/renderer.js");
 }
 
 function isFailedSkillDetails(value: unknown): value is SkillToolErrorDetails {

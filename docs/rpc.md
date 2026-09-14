@@ -45,7 +45,7 @@ DTO、操作结果和进度事件不得包含 `Date`、TUI 组件、`Theme`、�
 
 ## 真实进程冒烟测试
 
-`tests/rpc/smoke.test.ts` 启动仓库实际安装的 Pi：
+`tests/rpc/smoke.test.ts` 分别启动仓库安装的 Pi 和编译后的 `opi`，使用相同参数验证协议：
 
 ```text
 pi --mode rpc --no-session --offline --approve \

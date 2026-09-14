@@ -5,7 +5,7 @@
 ## 分层与依赖方向
 
 ```text
-agent/extensions/file-tools.ts
+src/extensions/file-tools.ts
         |
         v
 Pi 模式 / 适配器 / 呈现器 / 遥测
@@ -26,7 +26,7 @@ Node 平台后端
 
 主要目录：
 
-- `agent/extensions/file-tools.ts`：注册模式、提示词元数据、遥测、延迟加载适配器和 TUI 呈现器。
+- `src/extensions/file-tools.ts`：注册模式、提示词元数据、遥测、延迟加载适配器和 TUI 呈现器。
 - `src/file-tools/{ls,read,write,edit,find,grep}/`：保存各工具自己的参数、结果、命令、呈现器、纯算法和端口。
 - `src/file-tools/pi/`：把 Pi、LSP、Skill、图片和差异能力转换为各工具定义的端口数据对象。
 - `src/file-tools/runtime/`：保存 `FileToolsHost`、会话级 `ObservationStore` 和命令变更作用域。

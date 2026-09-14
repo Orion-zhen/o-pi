@@ -3,8 +3,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	buildAgentSystemPrompt,
 	buildRuntimeSystemPrompt,
-} from "../../src/system-prompt/service.js";
-import type { TokenCounterScope } from "../../src/token-counter.js";
+} from "../system-prompt/service.js";
+import type { TokenCounterScope } from "../token-counter.js";
 
 const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt.";
 
@@ -28,7 +28,7 @@ export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand">)
 		async handler(_args, ctx) {
 			if (ctx.mode !== "tui") return;
 			const prompt = await buildRuntimeSystemPrompt(ctx.getSystemPromptOptions(), ctx.cwd);
-			const { SystemPromptViewer } = await import("../../src/system-prompt/tui/viewer.js");
+			const { SystemPromptViewer } = await import("../system-prompt/tui/viewer.js");
 			await ctx.ui.custom<void>(
 				(tui, theme, _keybindings, done) => new SystemPromptViewer(
 					prompt,

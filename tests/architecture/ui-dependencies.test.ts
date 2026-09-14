@@ -5,7 +5,7 @@ const PI_TUI = "@earendil-works/pi-tui";
 
 describe("UI dependency architecture", () => {
 	it("只允许共享或 feature TUI module 运行时依赖 pi-tui", async () => {
-		const edges = await repositoryImportEdges("src", "agent/extensions");
+		const edges = await repositoryImportEdges("src");
 		const staticTargets = new Map<string, string[]>();
 		const directPiTui = new Set<string>();
 		for (const edge of edges) {
@@ -30,9 +30,9 @@ describe("UI dependency architecture", () => {
 	});
 
 	it("extension 不直接引用 pi-tui，且不静态加载 feature TUI", async () => {
-		const edges = await repositoryImportEdges("src", "agent/extensions");
+		const edges = await repositoryImportEdges("src");
 		const violations = edges.flatMap((edge) => {
-			if (!edge.importer.startsWith("agent/extensions/")) return [];
+			if (!edge.importer.startsWith("src/extensions/")) return [];
 			if (edge.specifier === PI_TUI) return [`direct:${edge.kind}:${edge.importer}`];
 			if (edge.target !== undefined && isFeatureTuiModule(edge.target) && edge.kind === "static") {
 				return [`static-feature-tui:${edge.importer}:${edge.specifier}`];

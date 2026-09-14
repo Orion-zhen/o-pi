@@ -6,7 +6,7 @@ export default defineConfig({
 		exclude: ["**/node_modules/**", "**/.git/**", "o-pet/**"],
 		coverage: {
 			provider: "v8",
-			include: ["src/**/*.ts", "agent/extensions/**/*.ts"],
+			include: ["src/**/*.ts"],
 			reporter: ["text", "json-summary"],
 			thresholds: {
 				statements: 80,
