@@ -2,16 +2,16 @@ import type {
 	DirectoryEntry,
 	FileMetadata,
 	MetadataOperations,
-} from "../contracts/metadata.js";
-import type { DirectoryRef, ExistingRef } from "../contracts/path.js";
-import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
-import { mapNativeError } from "../kernel/native-error.js";
-import type { WorkspaceNamespaceBridge } from "../kernel/namespace.js";
-import type { NativeFileSystem } from "../platform/node/native-filesystem.js";
-import type { VisibilityOperations } from "../contracts/visibility.js";
-import { DIRECTORY_ENTRY_CONCURRENCY } from "./concurrency.js";
-import { compareLogicalPath } from "./path-order.js";
-import { nativeIdentity } from "./ref.js";
+} from "../contracts/metadata.ts";
+import type { DirectoryRef, ExistingRef } from "../contracts/path.ts";
+import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.ts";
+import { mapNativeError } from "../kernel/native-error.ts";
+import type { WorkspaceNamespaceBridge } from "../kernel/namespace.ts";
+import type { NativeFileSystem } from "../platform/node/native-filesystem.ts";
+import type { VisibilityOperations } from "../contracts/visibility.ts";
+import { DIRECTORY_ENTRY_CONCURRENCY } from "./concurrency.ts";
+import { compareLogicalPath } from "./path-order.ts";
+import { nativeIdentity } from "./ref.ts";
 
 /** Metadata and non-recursive enumeration over guarded refs. */
 export class WorkspaceMetadataService implements MetadataOperations {

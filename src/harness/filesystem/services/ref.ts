@@ -1,6 +1,6 @@
-import type { ExistingRef } from "../contracts/path.js";
-import { fsFailure, fsSuccess, type FsResult } from "../contracts/result.js";
-import type { NativePathIdentity, WorkspaceNamespaceBridge } from "../kernel/namespace.js";
+import type { ExistingRef } from "../contracts/path.ts";
+import { fsFailure, fsSuccess, type FsResult } from "../contracts/result.ts";
+import type { NativePathIdentity, WorkspaceNamespaceBridge } from "../kernel/namespace.ts";
 
 export function nativeIdentity(
 	bridge: WorkspaceNamespaceBridge,

@@ -1,8 +1,8 @@
 import { parse as parseContentTypeHeader } from "content-type";
 
-import type { ContentConversion, HtmlReadabilityOptions } from "./types.js";
-import type { WebHttpHeaders } from "../network/types.js";
-import type { WebFetchFailureDetails, WebFetchMode, WebFetchOutputFormat } from "../core/types.js";
+import type { ContentConversion, HtmlReadabilityOptions } from "./types.ts";
+import type { WebHttpHeaders } from "../network/types.ts";
+import type { WebFetchFailureDetails, WebFetchMode, WebFetchOutputFormat } from "../core/types.ts";
 
 const TEXT_TYPES = new Set(["text/plain", "text/markdown", "text/csv", "application/javascript", "application/x-javascript"]);
 const JSON_TYPES = new Set(["application/json", "application/ld+json"]);
@@ -42,7 +42,7 @@ export async function convertContent(
 	}
 	if (kind === "html") {
 		try {
-			return (await import("./html-content-converter.js")).htmlToMarkdown(normalized, finalUrl, mime, readability, decoded.charset, mediaEnabled);
+			return (await import("./html-content-converter.ts")).htmlToMarkdown(normalized, finalUrl, mime, readability, decoded.charset, mediaEnabled);
 		} catch (error) {
 			return failure("CONVERSION_FAILED", error instanceof Error ? error.message : String(error));
 		}

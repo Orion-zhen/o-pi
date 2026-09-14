@@ -6,9 +6,9 @@ import {
 	NativeFileSystemError,
 	NodeNativeFileSystem,
 	type NativeFileSystem,
-} from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { deferredVoid, type DeferredVoid } from "../../helpers/async.js";
-import { overrideNativeFileSystem } from "./fixtures.js";
+} from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { deferredVoid, type DeferredVoid } from "../../helpers/async.ts";
+import { overrideNativeFileSystem } from "./fixtures.ts";
 
 const execFileAsync = promisify(execFile);
 

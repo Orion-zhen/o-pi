@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import type { Dispatcher } from "undici";
 
-import type { WebToolsConfig } from "../config-types.js";
-import { createSecureLookup, resolveAllowedAddresses, type SecureLookupOptions } from "./network-policy.js";
+import type { WebToolsConfig } from "../config-types.ts";
+import { createSecureLookup, resolveAllowedAddresses, type SecureLookupOptions } from "./network-policy.ts";
 
 type UndiciNetworkModule = Pick<typeof import("undici"), "Agent" | "ProxyAgent" | "interceptors">;
 type NetworkConfig = WebToolsConfig["network"];

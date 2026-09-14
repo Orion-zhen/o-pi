@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { renderFindResults } from "../../../src/harness/file-tools/find/renderer.js";
-import { countTextTokensSync } from "../../../src/harness/token-counter.js";
+import { renderFindResults } from "../../../src/harness/file-tools/find/renderer.ts";
+import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
 
 const stats = {
 	traversed_entries: 2,

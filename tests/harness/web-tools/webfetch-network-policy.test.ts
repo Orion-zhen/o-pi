@@ -6,15 +6,15 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as undici from "undici";
 
-import type { WebToolsConfig } from "../../../src/harness/web-tools/config-types.js";
-import { createNetworkDispatcher, networkConfigSignature } from "../../../src/harness/web-tools/network/dispatcher.js";
+import type { WebToolsConfig } from "../../../src/harness/web-tools/config-types.ts";
+import { createNetworkDispatcher, networkConfigSignature } from "../../../src/harness/web-tools/network/dispatcher.ts";
 import {
 	inspectWebFetchTarget,
 	isAllowedResolvedAddress,
 	isPublicAddress,
 	resolveAllowedAddresses,
 	validateRequestUrl,
-} from "../../../src/harness/web-tools/network/network-policy.js";
+} from "../../../src/harness/web-tools/network/network-policy.ts";
 
 const resolver: { lookup(hostname: string, options: { all: true }): Promise<LookupAddress[]> } = dnsPromises;
 const servers: Server[] = [];

@@ -1,5 +1,5 @@
-import type { FindEntry } from "./types.js";
-import type { FindQueryPlan, FindQueryTerm } from "./query.js";
+import type { FindEntry } from "./types.ts";
+import type { FindQueryPlan, FindQueryTerm } from "./query.ts";
 
 export interface RankedFindEntry {
 	readonly entry: FindEntry;

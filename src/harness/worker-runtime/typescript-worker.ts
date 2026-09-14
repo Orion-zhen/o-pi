@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import path from "node:path";
-import { binaryResourceDir } from "../runtime/paths.js";
+import { binaryResourceDir } from "../runtime/paths.ts";
 
 export function createTypeScriptWorker(entry: URL): Worker {
 	return new Worker(binaryResourceDir === undefined

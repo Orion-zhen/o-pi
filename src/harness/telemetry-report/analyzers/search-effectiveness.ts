@@ -1,7 +1,7 @@
-import type { CallRecord } from "../../telemetry/types.js";
-import { compare, ratio } from "../shared.js";
-import type { SearchCandidateUse, SearchEffectivenessReport, SearchEffectivenessStatistics } from "../types.js";
-import type { CandidateObservation, CandidateObservationSet } from "./candidate-observations.js";
+import type { CallRecord } from "../../telemetry/types.ts";
+import { compare, ratio } from "../shared.ts";
+import type { SearchCandidateUse, SearchEffectivenessReport, SearchEffectivenessStatistics } from "../types.ts";
+import type { CandidateObservation, CandidateObservationSet } from "./candidate-observations.ts";
 
 const SEARCH_TOOLS = new Set(["find", "grep", "websearch"]);
 

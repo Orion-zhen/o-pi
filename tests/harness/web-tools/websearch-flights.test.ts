@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { providerSignature, SearchFlights, searchFlightKey } from "../../../src/harness/web-tools/search/search-flights.js";
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { preserveEnv } from "../../helpers/lifecycle.js";
+import { providerSignature, SearchFlights, searchFlightKey } from "../../../src/harness/web-tools/search/search-flights.ts";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { preserveEnv } from "../../helpers/lifecycle.ts";
 
 preserveEnv("WEBSEARCH_SIGNATURE_KEY");
 

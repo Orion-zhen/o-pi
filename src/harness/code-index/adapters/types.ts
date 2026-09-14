@@ -1,5 +1,5 @@
-import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.js";
-import type { ModuleImport } from "../types.js";
+import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.ts";
+import type { ModuleImport } from "../types.ts";
 
 export interface RawUnit {
 	readonly kind: string;

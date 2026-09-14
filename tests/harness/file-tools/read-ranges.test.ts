@@ -1,10 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { isReadSuccess } from "../../../src/harness/file-tools/read/guards.js";
-import { formatReadModelResult, formatReadTextContent } from "../../../src/harness/file-tools/read/presenter.js";
-import { createCrudTestContext } from "./crud-fixtures.js";
-import { expectFailure } from "./result-fixtures.js";
+import { isReadSuccess } from "../../../src/harness/file-tools/read/guards.ts";
+import { formatReadModelResult, formatReadTextContent } from "../../../src/harness/file-tools/read/presenter.ts";
+import { createCrudTestContext } from "./crud-fixtures.ts";
+import { expectFailure } from "./result-fixtures.ts";
 
 const context = createCrudTestContext();
 const source = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n";

@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FileToolsConfigProvider } from "../../../src/harness/file-tools/config.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { FileToolsConfigProvider } from "../../../src/harness/file-tools/config.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-file-tools-config-");
 preserveEnv("PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT");

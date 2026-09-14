@@ -1,8 +1,8 @@
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { discoverAgentsPromptPaths } from "../../../src/harness/prompt-resources/discovery.js";
-import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.js";
+import { discoverAgentsPromptPaths } from "../../../src/harness/prompt-resources/discovery.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-prompt-resources-");

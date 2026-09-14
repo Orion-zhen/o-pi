@@ -2,7 +2,7 @@ import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import thinkingPreferencesExtension from "../../../src/harness/extensions/thinking-preferences.js";
+import thinkingPreferencesExtension from "../../../src/harness/extensions/thinking-preferences.ts";
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 

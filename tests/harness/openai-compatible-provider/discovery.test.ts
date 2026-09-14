@@ -1,8 +1,8 @@
 import { createModels, InMemoryCredentialStore, type ModelsStoreEntry, type Provider, type RefreshModelsContext } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
-import { loadConfigFromText, providerConfigText, registerProvider } from "./fixtures.js";
-import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
+import { loadConfigFromText, providerConfigText, registerProvider } from "./fixtures.ts";
+import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 

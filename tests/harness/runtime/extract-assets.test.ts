@@ -1,8 +1,8 @@
 import { readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { extractAssets, type EmbeddedAsset } from "../../../src/harness/runtime/extract-assets.js";
-import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.js";
+import { extractAssets, type EmbeddedAsset } from "../../../src/harness/runtime/extract-assets.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 vi.mock("node:fs", { spy: true });
 

@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-file-tools-benchmark-");
 const worker = fileURLToPath(new URL("../../../scripts/workers/bench-file-tools-worker.mjs", import.meta.url));

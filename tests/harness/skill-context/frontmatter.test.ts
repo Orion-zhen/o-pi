@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSkillFile } from "../../../src/harness/skill-context/frontmatter.js";
+import { parseSkillFile } from "../../../src/harness/skill-context/frontmatter.ts";
 
 describe("skill frontmatter", () => {
 	it("解析 name、description 和去 frontmatter 后的 body", () => {

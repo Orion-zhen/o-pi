@@ -1,4 +1,4 @@
-import type { VisibilityPolicy } from "./visibility.js";
+import type { VisibilityPolicy } from "./visibility.ts";
 
 /** Filesystem policy selected from user and invocation-cwd project configuration. */
 export interface FilesystemPolicy {

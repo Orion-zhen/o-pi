@@ -1,10 +1,10 @@
-import type { FileToolLimits } from "../../file-tool-limits.js";
-import type { DirectoryEntry } from "../../filesystem/contracts/metadata.js";
-import type { DirectoryRef } from "../../filesystem/contracts/path.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { LsEntry, LsEntryType, LsParams, LsSuccess } from "./types.js";
+import type { FileToolLimits } from "../../file-tool-limits.ts";
+import type { DirectoryEntry } from "../../filesystem/contracts/metadata.ts";
+import type { DirectoryRef } from "../../filesystem/contracts/path.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import { mapFsError, type ToolOutcome } from "../shared/result.ts";
+import type { LsEntry, LsEntryType, LsParams, LsSuccess } from "./types.ts";
 
 const TYPE_RANK: Record<LsEntryType, number> = {
 	directory: 0,

@@ -20,7 +20,7 @@ describe("token counter loading", () => {
 	});
 
 	it("导入和启发式计数不加载 BPE，精确计数时才按编码器加载一次", async () => {
-		const { countTextTokens } = await import("../../src/harness/token-counter.js");
+		const { countTextTokens } = await import("../../src/harness/token-counter.ts");
 
 		expect(loads).toEqual({ o200k: 0, cl100k: 0 });
 		await expect(countTextTokens("abc中文", { modelId: "deepseek-chat" })).resolves.toMatchObject({ method: "deepseek_ratio" });

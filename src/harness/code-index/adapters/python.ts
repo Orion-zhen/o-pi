@@ -1,7 +1,7 @@
-import { collectUnits, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.js";
-import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.js";
-import type { ModuleImport } from "../types.js";
-import type { LanguageExtractor } from "./types.js";
+import { collectUnits, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.ts";
+import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.ts";
+import type { ModuleImport } from "../types.ts";
+import type { LanguageExtractor } from "./types.ts";
 
 const PYTHON_UNIT_KINDS = new Set(["function_definition", "class_definition"]);
 

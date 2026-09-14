@@ -1,13 +1,13 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { formatToolCard } from "../../../components/tool-card.js";
-import { compactWhitespace, formatBytes, formatChars, joinParts, truncateEnd } from "../../../components/text.js";
-import type { ReadImageSuccess, ReadPdfSuccess, ReadSuccess } from "../../../../harness/file-tools/read/types.js";
-import { formatReadTextContent, readPdfRangeLabel, readTextRangeLabel } from "../../../../harness/file-tools/read/presenter.js";
-import { isReadFileSuccess, isReadImageSuccess, isReadPdfSuccess, isReadSuccess } from "../../../../harness/file-tools/read/guards.js";
-import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.js";
-import type { PartialTextRenderContext, TextRenderContext, ToolReadResult } from "./contracts.js";
-import { displayToolPath, fallbackTextResult, formatFailureCard, stringArg, textComponent } from "./shared.js";
+import { formatToolCard } from "../../../components/tool-card.ts";
+import { compactWhitespace, formatBytes, formatChars, joinParts, truncateEnd } from "../../../components/text.ts";
+import type { ReadImageSuccess, ReadPdfSuccess, ReadSuccess } from "../../../../harness/file-tools/read/types.ts";
+import { formatReadTextContent, readPdfRangeLabel, readTextRangeLabel } from "../../../../harness/file-tools/read/presenter.ts";
+import { isReadFileSuccess, isReadImageSuccess, isReadPdfSuccess, isReadSuccess } from "../../../../harness/file-tools/read/guards.ts";
+import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.ts";
+import type { PartialTextRenderContext, TextRenderContext, ToolReadResult } from "./contracts.ts";
+import { displayToolPath, fallbackTextResult, formatFailureCard, stringArg, textComponent } from "./shared.ts";
 
 export function renderReadCall(
 	args: unknown,

@@ -15,11 +15,11 @@ import {
 } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { TuiRuntime } from "../../../src/tui/shell/lifecycle.js";
+import type { TuiRuntime } from "../../../src/tui/shell/lifecycle.ts";
 
-type MathMarkdownModule = typeof import("../../../src/tui/chat/math/markdown.js");
-import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.js";
-import { deferred } from "../../helpers/async.js";
+type MathMarkdownModule = typeof import("../../../src/tui/chat/math/markdown.ts");
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
+import { deferred } from "../../helpers/async.ts";
 
 type Handler = (event: unknown, ctx: ExtensionContextStub) => Promise<void> | void;
 type TuiStub = { mode: TuiMode; requestRender(): void };
@@ -81,15 +81,15 @@ beforeEach(() => {
 	dir = temp.path;
 	setTestHome(dir);
 	vi.resetModules();
-	vi.doMock("../../../src/tui/chat/math/markdown.js", createMathFixture().load);
-	vi.doMock("../../../src/harness/notification/native.js", () => ({ notifyWaiting: vi.fn(async () => {}) }));
+	vi.doMock("../../../src/tui/chat/math/markdown.ts", createMathFixture().load);
+	vi.doMock("../../../src/harness/notification/native.ts", () => ({ notifyWaiting: vi.fn(async () => {}) }));
 });
 
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
-	vi.doUnmock("../../../src/tui/shell/lifecycle.js");
-	vi.doUnmock("../../../src/tui/chat/math/markdown.js");
-	vi.doUnmock("../../../src/harness/notification/native.js");
+	vi.doUnmock("../../../src/tui/shell/lifecycle.ts");
+	vi.doUnmock("../../../src/tui/chat/math/markdown.ts");
+	vi.doUnmock("../../../src/harness/notification/native.ts");
 	vi.restoreAllMocks();
 	vi.useRealTimers();
 });
@@ -290,8 +290,8 @@ describe("tui extension", () => {
 	it("agent_settled 仅在 TUI 模式通知用户", async () => {
 		const handlers = new Map<string, Handler>();
 		const notifyUser = vi.fn(async () => {});
-		vi.doMock("../../../src/harness/notification/native.js", () => ({ notifyWaiting: notifyUser }));
-		const { createTuiRuntime } = await import("../../../src/tui/shell/lifecycle.js");
+		vi.doMock("../../../src/harness/notification/native.ts", () => ({ notifyWaiting: notifyUser }));
+		const { createTuiRuntime } = await import("../../../src/tui/shell/lifecycle.ts");
 		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI);
 		cleanups.push(() => runtime.dispose());
 
@@ -354,7 +354,7 @@ describe("tui extension", () => {
 		}, ctx);
 		await handlers.get("message_end")?.({ message }, ctx);
 
-		const { getAssistantPerformance } = await import("../../../src/tui/chat/message-performance.js");
+		const { getAssistantPerformance } = await import("../../../src/tui/chat/message-performance.ts");
 		expect(getAssistantPerformance(message)).toMatchObject({ bodyTps: 20, ttftWithoutThinkingMs: 100 });
 		now.mockRestore();
 	});
@@ -374,7 +374,7 @@ describe("tui extension", () => {
 		const loadRuntime = vi.fn(async () => {
 			throw new Error("TUI runtime must not load");
 		});
-		vi.doMock("../../../src/tui/shell/lifecycle.js", loadRuntime);
+		vi.doMock("../../../src/tui/shell/lifecycle.ts", loadRuntime);
 		const { handlers, calls } = await startTui({ mode });
 
 		expect(loadRuntime).not.toHaveBeenCalled();
@@ -392,7 +392,7 @@ describe("tui extension", () => {
 		const dispose = vi.fn(async () => {});
 		const createRuntime = vi.fn((): TuiRuntime => ({ startSession, dispose }));
 		const loadRuntime = vi.fn(async () => ({ createTuiRuntime: createRuntime }));
-		vi.doMock("../../../src/tui/shell/lifecycle.js", loadRuntime);
+		vi.doMock("../../../src/tui/shell/lifecycle.ts", loadRuntime);
 		const { handlers, ctx } = await startTui({ mode: "tui" });
 		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
 
@@ -416,7 +416,7 @@ describe("tui extension", () => {
 	});
 
 	it("终端初始化失败时恢复已安装的界面，再交给 SDK 错误边界", async () => {
-		const { default: extension } = await import("../../../src/tui/shell/extension.js");
+		const { default: extension } = await import("../../../src/tui/shell/extension.ts");
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const ctx = createContext(calls);
@@ -504,7 +504,7 @@ describe("tui extension", () => {
 		vi.useFakeTimers();
 		const error = new Error("renderer unavailable");
 		const math = createMathFixture(async () => { throw error; });
-		vi.doMock("../../../src/tui/chat/math/markdown.js", math.load);
+		vi.doMock("../../../src/tui/chat/math/markdown.ts", math.load);
 		const { handlers, calls, ctx } = await startTui();
 		await vi.advanceTimersToNextTimerAsync();
 		expect(math.warm).toHaveBeenCalledOnce();
@@ -542,7 +542,7 @@ describe("tui extension", () => {
 		const loaded = deferred<MathMarkdownModule>();
 		const math = createMathFixture();
 		const load = vi.fn(() => loaded.promise);
-		vi.doMock("../../../src/tui/chat/math/markdown.js", load);
+		vi.doMock("../../../src/tui/chat/math/markdown.ts", load);
 		const { handlers, calls, ctx } = await startTui();
 		await vi.advanceTimersByTimeAsync(750);
 		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
@@ -564,7 +564,7 @@ describe("tui extension", () => {
 			await loaded.promise;
 			throw new Error("renderer unavailable");
 		});
-		vi.doMock("../../../src/tui/chat/math/markdown.js", math.load);
+		vi.doMock("../../../src/tui/chat/math/markdown.ts", math.load);
 		const { handlers, calls, ctx } = await startTui();
 		await vi.advanceTimersByTimeAsync(750);
 		expect(math.warm).toHaveBeenCalledOnce();
@@ -623,7 +623,7 @@ describe("tui extension", () => {
 	it("session 关闭会取消尚未开始的数学渲染初始化", async () => {
 		vi.useFakeTimers();
 		const math = createMathFixture();
-		vi.doMock("../../../src/tui/chat/math/markdown.js", math.load);
+		vi.doMock("../../../src/tui/chat/math/markdown.ts", math.load);
 		const { handlers, ctx } = await startTui({ mode: "tui" });
 		await handlers.get("session_shutdown")?.({}, ctx);
 		await vi.runAllTimersAsync();
@@ -700,9 +700,9 @@ async function startRuntime(options: {
 	loadMathMarkdown?: () => Promise<MathMarkdownModule>;
 	notifyUser?: () => Promise<void>;
 } = {}) {
-	if (options.loadMathMarkdown) vi.doMock("../../../src/tui/chat/math/markdown.js", options.loadMathMarkdown);
-	if (options.notifyUser) vi.doMock("../../../src/harness/notification/native.js", () => ({ notifyWaiting: options.notifyUser }));
-	const { createTuiRuntime } = await import("../../../src/tui/shell/lifecycle.js");
+	if (options.loadMathMarkdown) vi.doMock("../../../src/tui/chat/math/markdown.ts", options.loadMathMarkdown);
+	if (options.notifyUser) vi.doMock("../../../src/harness/notification/native.ts", () => ({ notifyWaiting: options.notifyUser }));
+	const { createTuiRuntime } = await import("../../../src/tui/shell/lifecycle.ts");
 	const handlers = new Map<string, Handler>();
 	const calls = createUiCalls();
 	const ctx = createContext(calls, options.context);
@@ -727,7 +727,7 @@ async function startTui(
 	options: Parameters<typeof createContext>[1] = {},
 	piOptions: Parameters<typeof createPi>[1] = {},
 ): Promise<{ handlers: Map<string, Handler>; calls: ReturnType<typeof createUiCalls>; ctx: ExtensionContextStub }> {
-	const { default: extension } = await import("../../../src/tui/shell/extension.js");
+	const { default: extension } = await import("../../../src/tui/shell/extension.ts");
 	const handlers = new Map<string, Handler>();
 	const calls = createUiCalls();
 	const ctx = createContext(calls, options);

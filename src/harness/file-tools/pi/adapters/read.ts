@@ -1,13 +1,13 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { readFile } from "../../read/command.js";
-import type { InlineImageProcessor, PdfDocumentSource } from "../../read/ports.js";
-import { formatReadModelResult, formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../read/presenter.js";
-import type { ReadFileSuccess, ReadParams } from "../../read/types.js";
-import { isFailed, type FailedResult } from "../../shared/result.js";
-import type { LoadLsp } from "../../../lsp/file-operations.js";
-import { parseSkillPath, type SkillPath } from "../../../skill-context/resources.js";
-import { failedToolResult, withFileToolsInvocation, type FileToolRuntime } from "../invocation.js";
-import { bindFileLsp } from "../lsp.js";
+import { readFile } from "../../read/command.ts";
+import type { InlineImageProcessor, PdfDocumentSource } from "../../read/ports.ts";
+import { formatReadModelResult, formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../read/presenter.ts";
+import type { ReadFileSuccess, ReadParams } from "../../read/types.ts";
+import { isFailed, type FailedResult } from "../../shared/result.ts";
+import type { LoadLsp } from "../../../lsp/file-operations.ts";
+import { parseSkillPath, type SkillPath } from "../../../skill-context/resources.ts";
+import { failedToolResult, withFileToolsInvocation, type FileToolRuntime } from "../invocation.ts";
+import { bindFileLsp } from "../lsp.ts";
 
 export interface ExecuteReadOptions extends FileToolRuntime {
 	readonly model: { input?: readonly string[] } | undefined;
@@ -33,14 +33,14 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 
 const lazyInlineImageProcessor: InlineImageProcessor = {
 	async process(input) {
-		const { createInlineImageProcessor } = await import("../ports/read-image.js");
+		const { createInlineImageProcessor } = await import("../ports/read-image.ts");
 		return await createInlineImageProcessor().process(input);
 	},
 };
 
 const lazyPdfDocumentSource: PdfDocumentSource = {
 	async open(input) {
-		const { createPdfDocumentSource } = await import("../ports/read-pdf.js");
+		const { createPdfDocumentSource } = await import("../ports/read-pdf.ts");
 		return await createPdfDocumentSource().open(input);
 	},
 };

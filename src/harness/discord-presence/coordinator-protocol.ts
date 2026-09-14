@@ -1,5 +1,5 @@
 import type { Socket } from "node:net";
-import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.js";
+import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.ts";
 
 const MAX_MESSAGE_BYTES = 32 * 1024;
 const APPLICATION_ID = /^\d{17,20}$/u;

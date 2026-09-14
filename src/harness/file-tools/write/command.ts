@@ -1,15 +1,15 @@
-import type { FileToolLimits } from "../../file-tool-limits.js";
-import type { MutationSnapshot } from "../../filesystem/contracts/mutation.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
+import type { FileToolLimits } from "../../file-tool-limits.ts";
+import type { MutationSnapshot } from "../../filesystem/contracts/mutation.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
 import {
 	captureMutationDiagnostics,
 	collectMutationDiagnostics,
 	type MutationDiagnosticsSource,
-} from "../shared/mutation-diagnostics.js";
-import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { TextDiffGenerator } from "../shared/text-diff.js";
-import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.js";
+} from "../shared/mutation-diagnostics.ts";
+import { fail, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import type { TextDiffGenerator } from "../shared/text-diff.ts";
+import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });

@@ -1,14 +1,14 @@
 import { renderDiff, type Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
-import { formatToolCard } from "../../../components/tool-card.js";
-import { formatChars, joinParts } from "../../../components/text.js";
-import { isEditSuccess, isFailedEdit } from "../../../../harness/file-tools/edit/guards.js";
-import type { EditPreviewSuccess } from "../../../../harness/file-tools/edit/types.js";
-import type { FailedResult } from "../../../../harness/file-tools/shared/result.js";
-import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.js";
-import { isMutationProgress, type MutationPostProcessProgressDetails } from "../../../../harness/file-tools/pi/progress.js";
-import { formatDiffStats, formatEditDiagnostics, formatLspSummary, formatMutationPostProcessSummary } from "./diagnostics.js";
-import { formatFailureCard } from "./shared.js";
+import { formatToolCard } from "../../../components/tool-card.ts";
+import { formatChars, joinParts } from "../../../components/text.ts";
+import { isEditSuccess, isFailedEdit } from "../../../../harness/file-tools/edit/guards.ts";
+import type { EditPreviewSuccess } from "../../../../harness/file-tools/edit/types.ts";
+import type { FailedResult } from "../../../../harness/file-tools/shared/result.ts";
+import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.ts";
+import { isMutationProgress, type MutationPostProcessProgressDetails } from "../../../../harness/file-tools/pi/progress.ts";
+import { formatDiffStats, formatEditDiagnostics, formatLspSummary, formatMutationPostProcessSummary } from "./diagnostics.ts";
+import { formatFailureCard } from "./shared.ts";
 
 type EditPreview = EditPreviewSuccess | FailedResult;
 
@@ -57,7 +57,7 @@ export function renderEditCall(args: unknown, theme: Theme, context: EditCallCon
 	}
 	if (argsKey !== undefined && component.preview === undefined && !component.previewPending) {
 		component.previewPending = true;
-		void import("../../../../harness/file-tools/pi/adapters/edit.js")
+		void import("../../../../harness/file-tools/pi/adapters/edit.ts")
 			.then(({ previewEditWorkspace }) => previewEditWorkspace(context.cwd, args))
 			.catch(previewException)
 			.then((preview) => {

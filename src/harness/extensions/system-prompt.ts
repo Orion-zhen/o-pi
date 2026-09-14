@@ -1,6 +1,6 @@
 import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { buildAgentSystemPrompt, buildRuntimeSystemPrompt } from "../system-prompt/service.js";
+import { buildAgentSystemPrompt, buildRuntimeSystemPrompt } from "../system-prompt/service.ts";
 type SystemPresenter = (ctx: ExtensionCommandContext, prompt: string) => Promise<void>;
 
 const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt.";

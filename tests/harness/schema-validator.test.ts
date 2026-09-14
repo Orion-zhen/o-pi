@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSchemaValidator } from "../../src/harness/schema-validator.js";
+import { compileSchemaValidator } from "../../src/harness/schema-validator.ts";
 
 describe("schema validator", () => {
 	it("校验对象字段、required、additionalProperties、patternProperties 和本地 ref", () => {

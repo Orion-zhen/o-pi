@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { formatWorkspace } from "../../components/format.js";
-import { joinParts } from "../../components/text.js";
-import type { ContextBreakdownItem, StatsSnapshot } from "../../../harness/stats/types.js";
+import { formatWorkspace } from "../../components/format.ts";
+import { joinParts } from "../../components/text.ts";
+import type { ContextBreakdownItem, StatsSnapshot } from "../../../harness/stats/types.ts";
 
 const WIDE_WIDTH = 100;
 const MEDIUM_WIDTH = 70;

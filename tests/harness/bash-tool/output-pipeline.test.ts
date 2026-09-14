@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.js";
-import { bashToolConfig } from "./fixture.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.ts";
+import { bashToolConfig } from "./fixture.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-bash-output-");
 let logDirectory: string | undefined;

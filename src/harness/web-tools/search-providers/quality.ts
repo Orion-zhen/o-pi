@@ -1,7 +1,7 @@
 import { getDomain } from "tldts";
 
-import type { WebSearchItem } from "../core/types.js";
-import type { CompiledSearchQuery } from "./types.js";
+import type { WebSearchItem } from "../core/types.ts";
+import type { CompiledSearchQuery } from "./types.ts";
 
 export type SearchQuality = "accepted" | "partial" | "soft_miss" | "hard_failure";
 

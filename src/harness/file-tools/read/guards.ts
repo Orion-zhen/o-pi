@@ -1,4 +1,4 @@
-import type { ReadFileSuccess, ReadImageSuccess, ReadPdfSuccess, ReadSuccess } from "./types.js";
+import type { ReadFileSuccess, ReadImageSuccess, ReadPdfSuccess, ReadSuccess } from "./types.ts";
 
 export function isReadFileSuccess(value: unknown): value is ReadFileSuccess {
 	return isReadSuccess(value) || isReadImageSuccess(value) || isReadPdfSuccess(value);

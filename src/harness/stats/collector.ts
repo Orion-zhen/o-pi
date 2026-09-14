@@ -1,8 +1,8 @@
 import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
-import { buildContextBreakdown } from "./context-breakdown.js";
-import type { StatsSnapshot, ToolStats } from "./types.js";
-import { summarizeUsage } from "./usage.js";
+import { buildContextBreakdown } from "./context-breakdown.ts";
+import type { StatsSnapshot, ToolStats } from "./types.ts";
+import { summarizeUsage } from "./usage.ts";
 
 export interface StatsPiApi {
 	getAllTools(): ToolInfo[];

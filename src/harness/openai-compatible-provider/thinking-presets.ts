@@ -1,6 +1,6 @@
 import type { Api, Model, ModelThinkingLevel, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
 
-import type { OpenAICompatConfig, ThinkingPresetName } from "./schema.js";
+import type { OpenAICompatConfig, ThinkingPresetName } from "./schema.ts";
 
 const DEFAULT_COMPAT = {
 	supportsStore: false,

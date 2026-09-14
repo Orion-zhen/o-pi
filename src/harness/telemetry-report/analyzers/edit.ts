@@ -1,6 +1,6 @@
-import type { CallRecord } from "../../telemetry/types.js";
-import { numericSummary, requireRunCwd, resourceKey } from "../shared.js";
-import type { EditBatchStatistics, EditReport } from "../types.js";
+import type { CallRecord } from "../../telemetry/types.ts";
+import { numericSummary, requireRunCwd, resourceKey } from "../shared.ts";
+import type { EditBatchStatistics, EditReport } from "../types.ts";
 
 export function analyzeEdits(calls: readonly CallRecord[], cwdByRun: ReadonlyMap<string, string>): EditReport {
 	const edits = calls.filter((call) => call.tool === "edit");

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { loadProvider } from "./fixtures.js";
-import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
+import { loadProvider } from "./fixtures.ts";
+import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 

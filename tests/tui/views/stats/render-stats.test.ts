@@ -1,8 +1,8 @@
 import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { renderStats } from "../../../../src/tui/views/stats/render-stats.js";
-import type { StatsSnapshot } from "../../../../src/harness/stats/types.js";
+import { renderStats } from "../../../../src/tui/views/stats/render-stats.ts";
+import type { StatsSnapshot } from "../../../../src/harness/stats/types.ts";
 
 describe("stats renderer", () => {
 	it.each([120, 80, 56])("宽度 %i 下不产生越界行", (width) => {

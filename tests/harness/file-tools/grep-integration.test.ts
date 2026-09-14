@@ -2,11 +2,11 @@ import { chmod, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.js";
-import { grepWorkspaceFiles } from "../../helpers/grep-tool.js";
-import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.js";
-import { clearGrepTestRuntime as clearGrepIndex } from "../../helpers/grep-tool.js";
-import { expectFailure } from "./result-fixtures.js";
+import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.ts";
+import { grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
+import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.ts";
+import { clearGrepTestRuntime as clearGrepIndex } from "../../helpers/grep-tool.ts";
+import { expectFailure } from "./result-fixtures.ts";
 import {
 	countContentReads,
 	createGrepTestContext,
@@ -16,7 +16,7 @@ import {
 	withGrepRuntime,
 	withFileToolsInvocation,
 	writeConfig,
-} from "./grep-fixtures.js";
+} from "./grep-fixtures.ts";
 
 const testContext = createGrepTestContext();
 

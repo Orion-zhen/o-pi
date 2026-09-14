@@ -5,8 +5,8 @@ import {
 	createSchemaValidator,
 	loadConfigLayers,
 	validateConfigValue,
-} from "../config-loader.js";
-import type { AgentOverride, SubagentConfig } from "./types.js";
+} from "../config-loader.ts";
+import type { AgentOverride, SubagentConfig } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("subagent.schema.json");
 const PROJECT_SCHEMA_PATH = agentSchemaPath("subagent-project.schema.json");

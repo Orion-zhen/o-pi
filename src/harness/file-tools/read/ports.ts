@@ -1,5 +1,5 @@
-import type { FileRef } from "../../filesystem/contracts/path.js";
-import type { ReadStructureContext } from "./types.js";
+import type { FileRef } from "../../filesystem/contracts/path.ts";
+import type { ReadStructureContext } from "./types.ts";
 
 export interface ReadStructureSource {
 	context(input: {

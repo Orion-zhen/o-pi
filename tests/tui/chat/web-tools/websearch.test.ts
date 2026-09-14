@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { formatWebSearchCall, formatWebSearchResult, renderWebSearchCall, renderWebSearchResult } from "../../../../src/tui/chat/web-tools/websearch.js";
-import { expectRendererLifecycle, theme } from "./fixtures.js";
+import { formatWebSearchCall, formatWebSearchResult, renderWebSearchCall, renderWebSearchResult } from "../../../../src/tui/chat/web-tools/websearch.ts";
+import { expectRendererLifecycle, theme } from "./fixtures.ts";
 
 
 describe("websearch renderer", () => {

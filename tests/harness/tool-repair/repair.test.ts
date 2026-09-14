@@ -3,10 +3,10 @@ import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
-import fileTools from "../../../src/harness/extensions/file-tools.js";
-import subagentExtension from "../../../src/harness/extensions/subagent.js";
-import { repairableTool, type RepairObservation } from "../../../src/harness/tool-repair/index.js";
-import { registerExtension } from "../../helpers/extension.js";
+import fileTools from "../../../src/harness/extensions/file-tools.ts";
+import subagentExtension from "../../../src/harness/extensions/subagent.ts";
+import { repairableTool, type RepairObservation } from "../../../src/harness/tool-repair/index.ts";
+import { registerExtension } from "../../helpers/extension.ts";
 
 const simpleSchema = Type.Object(
 	{

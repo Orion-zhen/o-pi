@@ -9,7 +9,7 @@ import {
 	type UsageResetCredits,
 	type UsageSnapshot,
 	type UsageWindow,
-} from "./types.js";
+} from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_OPTIONAL_TIMEOUT_MS = 2_500;

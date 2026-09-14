@@ -2,7 +2,7 @@ import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
 
-import fileTools from "../../../src/harness/extensions/file-tools.js";
+import fileTools from "../../../src/harness/extensions/file-tools.ts";
 
 interface RegisteredTool {
 	parameters: AnySchema;

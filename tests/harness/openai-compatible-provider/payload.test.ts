@@ -1,8 +1,8 @@
 import { createModels } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
-import { capturePayload, loadProvider } from "./fixtures.js";
-import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
+import { capturePayload, loadProvider } from "./fixtures.ts";
+import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 

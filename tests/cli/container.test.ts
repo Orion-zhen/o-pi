@@ -4,8 +4,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { createCanvas } from "@napi-rs/canvas";
 import { expect, it } from "vitest";
-import { useTempDir } from "../helpers/lifecycle.js";
-import { startModelServer, type ModelResponse } from "./model-server.js";
+import { useTempDir } from "../helpers/lifecycle.ts";
+import { startModelServer, type ModelResponse } from "./model-server.ts";
 
 const temp = useTempDir("opi-container-");
 const image = process.env.OPI_CONTAINER_IMAGE;

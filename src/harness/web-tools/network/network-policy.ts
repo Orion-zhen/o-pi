@@ -3,9 +3,9 @@ import type dns from "node:dns";
 import type { LookupAddress } from "node:dns";
 import ipaddr from "ipaddr.js";
 
-import type { ValidatedUrl } from "./types.js";
-import type { WebFetchFailureDetails } from "../core/types.js";
-import { redactUrl } from "./url-utils.js";
+import type { ValidatedUrl } from "./types.ts";
+import type { WebFetchFailureDetails } from "../core/types.ts";
+import { redactUrl } from "./url-utils.ts";
 
 const MAX_URL_LENGTH = 8192;
 

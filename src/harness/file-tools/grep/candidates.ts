@@ -1,6 +1,6 @@
-import { compactDisplayLine } from "./display.js";
-import type { CodeAuthority, CodeNavigation } from "../../code-index/types.js";
-import type { GrepDisplayLine, GrepMatchedBy } from "./types.js";
+import { compactDisplayLine } from "./display.ts";
+import type { CodeAuthority, CodeNavigation } from "../../code-index/types.ts";
+import type { GrepDisplayLine, GrepMatchedBy } from "./types.ts";
 
 export type SymbolRole = "definition" | "enclosing";
 

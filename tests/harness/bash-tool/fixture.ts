@@ -1,4 +1,4 @@
-import type { BashToolConfig } from "../../../src/harness/bash-tool/types.js";
+import type { BashToolConfig } from "../../../src/harness/bash-tool/types.ts";
 
 export function bashToolConfig(): BashToolConfig {
 	return {

@@ -1,11 +1,11 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { formatToolCard } from "../../../components/tool-card.js";
-import { joinParts } from "../../../components/text.js";
-import { isLsSuccess } from "../../../../harness/file-tools/ls/guards.js";
-import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.js";
-import type { PartialTextRenderContext, TextRenderContext, ToolTextResult } from "./contracts.js";
-import { displayToolPath, failedPath, fallbackTextResult, formatFailureCard, stringArg, textComponent } from "./shared.js";
+import { formatToolCard } from "../../../components/tool-card.ts";
+import { joinParts } from "../../../components/text.ts";
+import { isLsSuccess } from "../../../../harness/file-tools/ls/guards.ts";
+import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.ts";
+import type { PartialTextRenderContext, TextRenderContext, ToolTextResult } from "./contracts.ts";
+import { displayToolPath, failedPath, fallbackTextResult, formatFailureCard, stringArg, textComponent } from "./shared.ts";
 
 export function renderLsCall(
 	args: unknown,

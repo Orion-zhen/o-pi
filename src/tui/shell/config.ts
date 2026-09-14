@@ -4,8 +4,8 @@ import {
 	createCompleteSchemaValidator,
 	createSchemaValidator,
 	loadValidatedMergedConfig,
-} from "../../harness/config-loader.js";
-import type { TuiConfig } from "./types.js";
+} from "../../harness/config-loader.ts";
+import type { TuiConfig } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("tui.schema.json");
 type TuiConfigFile = TuiConfig & { $schema?: string };

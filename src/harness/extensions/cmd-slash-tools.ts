@@ -2,7 +2,7 @@ import {
 	type ToolSelectionItem,
 	ToolSelectionController,
 	type ToolSelectionRestoreNotice,
-} from "../tool-defaults/controller.js";
+} from "../tool-defaults/controller.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 interface ToolSelectorModule {

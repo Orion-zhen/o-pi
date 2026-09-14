@@ -77,8 +77,7 @@ function scanSourceImports(importer: string, sourceText: string, absolutePath: s
 }
 
 function resolveTarget(importer: string, specifier: string): string {
-	const resolved = path.resolve(path.dirname(importer), specifier);
-	return relativePath(resolved.endsWith(".js") ? `${resolved.slice(0, -3)}.ts` : resolved);
+	return relativePath(path.resolve(path.dirname(importer), specifier));
 }
 
 function relativePath(filePath: string): string {

@@ -1,23 +1,23 @@
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
-import agentsPrompts from "./extensions/agents-prompts.js";
-import approvalGate from "./extensions/approval-gate.js";
-import bashTool from "./extensions/bash-tool.js";
-import tools from "./extensions/cmd-slash-tools.js";
-import discordPresence from "./extensions/discord-presence.js";
-import fileTools from "./extensions/file-tools.js";
-import lsp from "./extensions/lsp.js";
-import oPet from "./extensions/o-pet.js";
-import openAICompatibleProvider from "./extensions/openai-compatible-provider.js";
-import projectSkills from "./extensions/project-skills.js";
-import prune from "./extensions/prune.js";
-import skillContext from "./extensions/skill-context.js";
-import stats from "./extensions/stats.js";
-import subagent from "./extensions/subagent.js";
-import systemPrompt from "./extensions/system-prompt.js";
-import telemetry from "./extensions/telemetry.js";
-import thinkingPreferences from "./extensions/thinking-preferences.js";
-import usage from "./extensions/usage.js";
-import webTools from "./extensions/web-tools.js";
+import agentsPrompts from "./extensions/agents-prompts.ts";
+import approvalGate from "./extensions/approval-gate.ts";
+import bashTool from "./extensions/bash-tool.ts";
+import tools from "./extensions/cmd-slash-tools.ts";
+import discordPresence from "./extensions/discord-presence.ts";
+import fileTools from "./extensions/file-tools.ts";
+import lsp from "./extensions/lsp.ts";
+import oPet from "./extensions/o-pet.ts";
+import openAICompatibleProvider from "./extensions/openai-compatible-provider.ts";
+import projectSkills from "./extensions/project-skills.ts";
+import prune from "./extensions/prune.ts";
+import skillContext from "./extensions/skill-context.ts";
+import stats from "./extensions/stats.ts";
+import subagent from "./extensions/subagent.ts";
+import systemPrompt from "./extensions/system-prompt.ts";
+import telemetry from "./extensions/telemetry.ts";
+import thinkingPreferences from "./extensions/thinking-preferences.ts";
+import usage from "./extensions/usage.ts";
+import webTools from "./extensions/web-tools.ts";
 
 /** SDK 原生扩展列表。每次加载时由 factory 创建会话状态。 */
 export const extensions: InlineExtension[] = [

@@ -2,12 +2,12 @@ import type { AuthResult } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import { presentation } from "../../../src/tui/extensions.js";
-import usageExtension from "../../../src/harness/extensions/usage.js";
-import { collectUsageSnapshot, type UsageContext } from "../../../src/harness/usage/client.js";
-import { renderUsage, renderUsageCancelled } from "../../../src/harness/usage/presentation/render.js";
-import { UsageService } from "../../../src/harness/usage/service.js";
-import { UsageViewer } from "../../../src/tui/views/usage/viewer.js";
+import { presentation } from "../../../src/tui/extensions.ts";
+import usageExtension from "../../../src/harness/extensions/usage.ts";
+import { collectUsageSnapshot, type UsageContext } from "../../../src/harness/usage/client.ts";
+import { renderUsage, renderUsageCancelled } from "../../../src/harness/usage/presentation/render.ts";
+import { UsageService } from "../../../src/harness/usage/service.ts";
+import { UsageViewer } from "../../../src/tui/views/usage/viewer.ts";
 
 const NOW = new Date("2026-07-27T00:00:00Z");
 const CODEX_ACCOUNT_ID = "account_123";

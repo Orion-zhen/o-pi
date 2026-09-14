@@ -4,9 +4,9 @@ import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { defaultCookiePath, loadWebToolsConfig } from "../../../src/harness/web-tools/config.js";
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { defaultCookiePath, loadWebToolsConfig } from "../../../src/harness/web-tools/config.ts";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-web-config-");

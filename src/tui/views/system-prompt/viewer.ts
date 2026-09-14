@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, type Component, visibleWidth } from "@earendil-works/pi-tui";
-import { countTextTokensSync, type TokenCounterScope } from "../../../harness/token-counter.js";
-import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.js";
+import { countTextTokensSync, type TokenCounterScope } from "../../../harness/token-counter.ts";
+import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.ts";
 
 const MIN_BORDERED_PANEL_WIDTH = 4;
 const VIEWER_BODY_ROWS_RATIO = 0.75;

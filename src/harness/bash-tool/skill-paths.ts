@@ -1,10 +1,10 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { resolveSkillResourceLocator, type SkillResourceError } from "../skill-context/resources.js";
-import { containsDynamicShellNode, decodeShellWord } from "../syntax-tree/bash.js";
-import { TREE_SITTER_LANGUAGES } from "../syntax-tree/grammars.js";
-import { parseSyntaxTree } from "../syntax-tree/parser.js";
-import type { SyntaxNode } from "../syntax-tree/types.js";
+import { resolveSkillResourceLocator, type SkillResourceError } from "../skill-context/resources.ts";
+import { containsDynamicShellNode, decodeShellWord } from "../syntax-tree/bash.ts";
+import { TREE_SITTER_LANGUAGES } from "../syntax-tree/grammars.ts";
+import { parseSyntaxTree } from "../syntax-tree/parser.ts";
+import type { SyntaxNode } from "../syntax-tree/types.ts";
 
 const BASH_GRAMMAR = TREE_SITTER_LANGUAGES.bash.grammar;
 const SHELL_WORD_TYPES = new Set(["raw_string", "string", "word"]);

@@ -5,8 +5,8 @@ import type {
 	UsageResetCredits,
 	UsageSnapshot,
 	UsageWindow,
-} from "../types.js";
-import { visibleTextWidth, wrapPresentationText } from "./text-layout.js";
+} from "../types.ts";
+import { visibleTextWidth, wrapPresentationText } from "./text-layout.ts";
 
 const WIDE_MIN_WIDTH = 80;
 const BAR_WIDTH = 20;

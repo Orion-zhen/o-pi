@@ -1,5 +1,5 @@
 import { StdinBuffer } from "@earendil-works/pi-tui";
-import type { TuiHomePointerEffects } from "../../shell/types.js";
+import type { TuiHomePointerEffects } from "../../shell/types.ts";
 
 const FRAME_MS = 70;
 const LONG_PRESS_MS = 450;

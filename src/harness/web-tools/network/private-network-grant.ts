@@ -1,4 +1,4 @@
-import type { ResolvedAddresses } from "./network-policy.js";
+import type { ResolvedAddresses } from "./network-policy.ts";
 
 export interface PrivateNetworkGrant {
 	origin: string;

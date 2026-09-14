@@ -2,9 +2,9 @@ import { readFile, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { captureGitRevision } from "../../../src/harness/telemetry/revision.js";
-import { initializeGitRepository } from "../../helpers/git.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { captureGitRevision } from "../../../src/harness/telemetry/revision.ts";
+import { initializeGitRepository } from "../../helpers/git.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-telemetry-revision-");
 

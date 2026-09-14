@@ -1,15 +1,15 @@
-import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
-import { validateRequestUrl } from "../network/network-policy.js";
-import { mimeFromContentType, SUPPORTED_IMAGE_TYPES } from "../content/image-types.js";
+import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.ts";
+import { validateRequestUrl } from "../network/network-policy.ts";
+import { mimeFromContentType, SUPPORTED_IMAGE_TYPES } from "../content/image-types.ts";
 import type {
 	WebFetchFailureDetails,
 	WebFetchMedia,
 	WebFetchMode,
 	WebFetchOmission,
-} from "../core/types.js";
+} from "../core/types.ts";
 
-import type { ContentConversion } from "../content/types.js";
-import type { HttpFetchSuccess } from "../network/types.js";
+import type { ContentConversion } from "../content/types.ts";
+import type { HttpFetchSuccess } from "../network/types.ts";
 
 const IMAGE_ACCEPT = "image/webp,image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1";
 

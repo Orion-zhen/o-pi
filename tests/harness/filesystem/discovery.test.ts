@@ -2,22 +2,22 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { DiscoveryEvent } from "../../../src/harness/filesystem/contracts/discovery.js";
-import type { DirectoryRef, FileRef } from "../../../src/harness/filesystem/contracts/path.js";
+import type { DiscoveryEvent } from "../../../src/harness/filesystem/contracts/discovery.ts";
+import type { DirectoryRef, FileRef } from "../../../src/harness/filesystem/contracts/path.ts";
 import {
 	NativeFileSystemError,
 	NodeNativeFileSystem,
 	type NativeFileSystem,
-} from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import type { WorkspaceFileSystem } from "../../../src/harness/filesystem/contracts/workspace.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+} from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import type { WorkspaceFileSystem } from "../../../src/harness/filesystem/contracts/workspace.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 import {
 	collectAsync,
 	expectFsOk,
 	openReadonly,
 	overrideNativeFileSystem,
 	type OpenedReadonly,
-} from "./fixtures.js";
+} from "./fixtures.ts";
 
 const temp = useTempDir("o-pi-discovery-");
 let workspace: string;

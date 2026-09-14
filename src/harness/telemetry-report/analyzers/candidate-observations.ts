@@ -1,5 +1,5 @@
-import type { CallRecord, Candidate, Resource } from "../../telemetry/types.js";
-import { callsByRun, requireRunCwd, resourceKey, sameBatch, withinMillis } from "../shared.js";
+import type { CallRecord, Candidate, Resource } from "../../telemetry/types.ts";
+import { callsByRun, requireRunCwd, resourceKey, sameBatch, withinMillis } from "../shared.ts";
 
 const CALL_WINDOW = 10;
 const TIME_WINDOW_MS = 5 * 60_000;

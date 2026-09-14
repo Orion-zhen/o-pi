@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { discoverAncestorPiSkillPaths } from "../skill-context/discovery.js";
+import { discoverAncestorPiSkillPaths } from "../skill-context/discovery.ts";
 
 /** 让项目 .pi/skills 与 .agents/skills 一样支持从 cwd 向上发现。 */
 export default function projectSkillsExtension(pi: Pick<ExtensionAPI, "on">): void {

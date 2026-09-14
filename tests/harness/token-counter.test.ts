@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
-import { AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
-import { countTextTokens, countTextTokensSync, isLocalOrPrivateHttpUrl, REMOTE_TOKEN_CACHE_MAX_ENTRIES } from "../../src/harness/token-counter.js";
+import { countTextTokens, countTextTokensSync, isLocalOrPrivateHttpUrl, REMOTE_TOKEN_CACHE_MAX_ENTRIES } from "../../src/harness/token-counter.ts";
 
 describe("stats token counter", () => {
 	it("只允许本地或私网 tokenizer endpoint", () => {

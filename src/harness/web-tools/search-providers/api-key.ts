@@ -1,4 +1,4 @@
-import { resolveConfigValueOrThrow } from "../../openai-compatible-provider/config-values.js";
+import { resolveConfigValueOrThrow } from "../../openai-compatible-provider/config-values.ts";
 
 /** Resolve the shared config-value syntax without making an unavailable key fatal to fallback routing. */
 export function resolveSearchApiKey(config: string): string | undefined {

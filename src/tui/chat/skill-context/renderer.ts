@@ -1,8 +1,8 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
-import { formatToolCard } from "../../components/tool-card.js";
-import { formatChars, joinParts } from "../../components/text.js";
-import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails, type SkillToolErrorDetails } from "../../../harness/skill-context/types.js";
+import { formatToolCard } from "../../components/tool-card.ts";
+import { formatChars, joinParts } from "../../components/text.ts";
+import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails, type SkillToolErrorDetails } from "../../../harness/skill-context/types.ts";
 
 interface SkillRenderContext {
 	args?: unknown;

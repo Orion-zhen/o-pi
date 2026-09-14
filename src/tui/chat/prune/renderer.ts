@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 
-import { getPruneTuiState } from "./state.js";
+import { getPruneTuiState } from "./state.ts";
 
 export class PruneSummaryComponent implements Component {
 	constructor(

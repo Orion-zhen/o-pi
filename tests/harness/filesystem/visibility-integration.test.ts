@@ -2,15 +2,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { editFile } from "../../../src/harness/file-tools/edit/command.js";
-import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.js";
-import { listDirectory } from "../../../src/harness/file-tools/ls/command.js";
-import type { LsParams, LsSuccess } from "../../../src/harness/file-tools/ls/types.js";
-import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.js";
-import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.js";
-import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { readWorkspaceFile as readWorkspaceFileTest } from "../../helpers/read-tool.js";
+import { editFile } from "../../../src/harness/file-tools/edit/command.ts";
+import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.ts";
+import { listDirectory } from "../../../src/harness/file-tools/ls/command.ts";
+import type { LsParams, LsSuccess } from "../../../src/harness/file-tools/ls/types.ts";
+import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.ts";
+import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
+import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { readWorkspaceFile as readWorkspaceFileTest } from "../../helpers/read-tool.ts";
 
 let workspace: string;
 let host: FileToolsHost;

@@ -1,9 +1,9 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
-import type { TelemetryFacts } from "../../telemetry/types.js";
-import { parseReadRanges } from "../read/range.js";
-import type { ReadFileSuccess, ReadParams } from "../read/types.js";
-import { isFailed, type ToolOutcome } from "../shared/result.js";
-import { failureFields, pathTarget, projectFileInput } from "./common.js";
+import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
+import type { TelemetryFacts } from "../../telemetry/types.ts";
+import { parseReadRanges } from "../read/range.ts";
+import type { ReadFileSuccess, ReadParams } from "../read/types.ts";
+import { isFailed, type ToolOutcome } from "../shared/result.ts";
+import { failureFields, pathTarget, projectFileInput } from "./common.ts";
 
 export const readTelemetry = defineToolTelemetry<ReadParams, ToolOutcome<ReadFileSuccess>>({
 	input: projectReadInput,

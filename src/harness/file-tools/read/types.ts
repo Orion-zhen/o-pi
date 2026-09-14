@@ -1,4 +1,4 @@
-import type { NewlineKind } from "../../filesystem/contracts/content.js";
+import type { NewlineKind } from "../../filesystem/contracts/content.ts";
 
 export interface ReadParams {
 	path: string;

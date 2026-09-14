@@ -7,7 +7,7 @@ import {
 	ToolDefaultsConfigError,
 	type ToolDefaultsConfig,
 	type ToolDefaultsModel,
-} from "./config.js";
+} from "./config.ts";
 
 export const TOOL_SELECTION_ENTRY = "tools-config";
 

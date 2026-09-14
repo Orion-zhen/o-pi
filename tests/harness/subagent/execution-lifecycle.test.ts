@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SubagentExecutionRegistry } from "../../../src/harness/subagent/execution-lifecycle.js";
+import { SubagentExecutionRegistry } from "../../../src/harness/subagent/execution-lifecycle.ts";
 
 describe("SubagentExecutionRegistry", () => {
 	it("shutdown 中止全部未释放执行", () => {

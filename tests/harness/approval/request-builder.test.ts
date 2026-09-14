@@ -3,7 +3,7 @@ import path from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.js";
+import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
 
 const cwd = path.resolve("project");
 const systemPath = path.join(path.parse(cwd).root, "etc", "hosts");

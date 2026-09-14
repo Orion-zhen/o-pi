@@ -3,14 +3,14 @@ import { availableParallelism } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { buildScopeInventory } from "../../../src/harness/file-tools/grep/inventory.js";
-import { packGrepResults, renderGrepSuccess } from "../../../src/harness/file-tools/grep/packer.js";
-import { scanInventoryText } from "../../../src/harness/file-tools/grep/text-scanner.js";
-import { countTextTokensSync } from "../../../src/harness/token-counter.js";
-import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.js";
-import { compactDisplayLine } from "../../../src/harness/file-tools/grep/display.js";
-import { deferredVoid } from "../../helpers/async.js";
-import { grepWorkspaceFiles } from "../../helpers/grep-tool.js";
+import { buildScopeInventory } from "../../../src/harness/file-tools/grep/inventory.ts";
+import { packGrepResults, renderGrepSuccess } from "../../../src/harness/file-tools/grep/packer.ts";
+import { scanInventoryText } from "../../../src/harness/file-tools/grep/text-scanner.ts";
+import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
+import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.ts";
+import { compactDisplayLine } from "../../../src/harness/file-tools/grep/display.ts";
+import { deferredVoid } from "../../helpers/async.ts";
+import { grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
 import {
 	assertStrictMatches,
 	createGrepTestContext,
@@ -21,8 +21,8 @@ import {
 	grepWithAnalyzer,
 	overrideContent,
 	withFileToolsInvocation,
-} from "./grep-fixtures.js";
-import { packCandidate, packRegions, queryPlan, rankingEvidence } from "./grep-ranking-fixtures.js";
+} from "./grep-fixtures.ts";
+import { packCandidate, packRegions, queryPlan, rankingEvidence } from "./grep-ranking-fixtures.ts";
 
 const testContext = createGrepTestContext();
 

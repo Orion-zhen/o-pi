@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { joinParts } from "./text.js";
-import type { TuiSnapshot } from "../shell/types.js";
+import { joinParts } from "./text.ts";
+import type { TuiSnapshot } from "../shell/types.ts";
 
 /** $HOME 下使用 ~，保留路径边界，避免把相似前缀误认为子目录。 */
 export function formatWorkspace(cwd: string): string {

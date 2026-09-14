@@ -1,9 +1,9 @@
 import { getDomain } from "tldts";
 
-import type { FormalWebSearchProviderId, WebSearchItem } from "../core/types.js";
-import { normalizeSearchResultUrl, normalizeSearchText } from "../network/url-utils.js";
-import { selectSearchSnippet } from "./snippets.js";
-import type { CompiledSearchQuery } from "./types.js";
+import type { FormalWebSearchProviderId, WebSearchItem } from "../core/types.ts";
+import { normalizeSearchResultUrl, normalizeSearchText } from "../network/url-utils.ts";
+import { selectSearchSnippet } from "./snippets.ts";
+import type { CompiledSearchQuery } from "./types.ts";
 
 const RRF_K = 60;
 

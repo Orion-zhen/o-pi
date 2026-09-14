@@ -2,9 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { executeSkillLoad } from "../../../src/harness/skill-context/executor.js";
-import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../../src/harness/skill-context/types.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { executeSkillLoad } from "../../../src/harness/skill-context/executor.ts";
+import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../../src/harness/skill-context/types.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-skill-executor-");
 let tempDir: string;

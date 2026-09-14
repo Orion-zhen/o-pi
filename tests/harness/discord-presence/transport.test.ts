@@ -56,7 +56,7 @@ const discordMock = vi.hoisted(() => {
 
 vi.mock("@xhayper/discord-rpc", () => ({ Client: discordMock.MockClient }));
 
-import { createDiscordRpcTransport } from "../../../src/harness/discord-presence/transport.js";
+import { createDiscordRpcTransport } from "../../../src/harness/discord-presence/transport.ts";
 
 beforeEach(() => {
 	discordMock.instances.length = 0;

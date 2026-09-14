@@ -1,27 +1,27 @@
 import path from "node:path";
 import { FileChangeType } from "vscode-languageserver-protocol";
-import type { LspMutationInput, LspReadInput } from "../file-operations.js";
-import { emptySummary } from "../diagnostics/ledger.js";
+import type { LspMutationInput, LspReadInput } from "../file-operations.ts";
+import { emptySummary } from "../diagnostics/ledger.ts";
 
-import type { CodeAnalysis } from "../../code-index/types.js";
-import { codeAnalysis as runCodeAnalysis, type LspCodeAnalysisInput } from "../analysis/code-analysis.js";
+import type { CodeAnalysis } from "../../code-index/types.ts";
+import { codeAnalysis as runCodeAnalysis, type LspCodeAnalysisInput } from "../analysis/code-analysis.ts";
 import {
 	beforeDiagnostics as readBeforeDiagnostics,
 	didWriteBatch as collectWriteDiagnostics,
 	knownDiagnostics as listKnownDiagnostics,
-} from "../diagnostics/operations.js";
-import { waitUnlessAborted } from "../analysis/deadline.js";
-import { LspManagerRuntime } from "./runtime.js";
-import { findEnclosingSymbol, remainingSymbols } from "../analysis/symbols.js";
+} from "../diagnostics/operations.ts";
+import { waitUnlessAborted } from "../analysis/deadline.ts";
+import { LspManagerRuntime } from "./runtime.ts";
+import { findEnclosingSymbol, remainingSymbols } from "../analysis/symbols.ts";
 import type {
 	LspMutationBaseline,
 	LspDiagnosticsSummary,
 	LspEnclosingSymbol,
 	LspRemainingSymbol,
 	LspStatus,
-} from "../types.js";
+} from "../types.ts";
 
-export type { LspCodeAnalysisInput } from "../analysis/code-analysis.js";
+export type { LspCodeAnalysisInput } from "../analysis/code-analysis.ts";
 
 export interface LspCodeAnalysisPreparationInput {
 	readonly root: string;

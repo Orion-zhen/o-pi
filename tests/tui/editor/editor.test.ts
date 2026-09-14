@@ -1,9 +1,9 @@
 import { KeybindingsManager, useWindowsKeybindings } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { ProcessTerminal, stripTerminalSequences, TuiAltScreen, TuiMainScreen, visibleWidth, type EditorTheme, type TuiMode } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SessionEditor } from "../../../src/tui/editor/editor.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { defaultTuiConfig, plainTheme, tuiSnapshot } from "../shell/fixtures.js";
+import { SessionEditor } from "../../../src/tui/editor/editor.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { defaultTuiConfig, plainTheme, tuiSnapshot } from "../shell/fixtures.ts";
 
 const temp = useTempDir("o-pi-session-editor-");
 afterEach(() => {

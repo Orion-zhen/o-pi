@@ -3,10 +3,10 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import { convertToLlm, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import { applyPersistedToolPruning, PRUNE_STATE } from "../../../src/harness/prune/prune.js";
-import { capturePayload, loadProvider } from "../openai-compatible-provider/fixtures.js";
-import { useOpenAICompatibleProviderTestSetup } from "../openai-compatible-provider/test-support.js";
-import { assistant, customEntry, pruneState, restoreState, toolResult, user } from "./fixtures.js";
+import { applyPersistedToolPruning, PRUNE_STATE } from "../../../src/harness/prune/prune.ts";
+import { capturePayload, loadProvider } from "../openai-compatible-provider/fixtures.ts";
+import { useOpenAICompatibleProviderTestSetup } from "../openai-compatible-provider/test-support.ts";
+import { assistant, customEntry, pruneState, restoreState, toolResult, user } from "./fixtures.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 const toolImage: ImageContent = {

@@ -7,15 +7,15 @@ import {
 	type UnchangedDocumentDiagnosticReport,
 } from "vscode-languageserver-protocol";
 
-import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.js";
-import { LspClientDocuments } from "./documents.js";
+import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.ts";
+import { LspClientDocuments } from "./documents.ts";
 import type {
 	LspClientDocumentContext,
 	LspConfig,
 	LspDiagnosticSnapshot,
 	LspRequestOptions,
 	LspServerConfig,
-} from "../types.js";
+} from "../types.ts";
 
 const DIAGNOSTIC_REQUEST_CONCURRENCY = 4;
 

@@ -1,17 +1,17 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
-import { NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
+import { NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createWorkspaceNamespace } from "../../../src/harness/filesystem/kernel/namespace.js";
-import { GitTrackedFilesLoader } from "../../../src/harness/filesystem/services/visibility/git-tracked-files.js";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.js";
-import { WorkspaceVisibilityService } from "../../../src/harness/filesystem/services/visibility/service.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { expectFsOk } from "./fixtures.js";
-import { controlledGitNative, hasGit, nextImmediate } from "./visibility-fixtures.js";
+import { createWorkspaceNamespace } from "../../../src/harness/filesystem/kernel/namespace.ts";
+import { GitTrackedFilesLoader } from "../../../src/harness/filesystem/services/visibility/git-tracked-files.ts";
+import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { WorkspaceVisibilityService } from "../../../src/harness/filesystem/services/visibility/service.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { expectFsOk } from "./fixtures.ts";
+import { controlledGitNative, hasGit, nextImmediate } from "./visibility-fixtures.ts";
 
 const execFileAsync = promisify(execFile);
 const workspaceTemp = useTempDir("o-pi-visibility-git-");

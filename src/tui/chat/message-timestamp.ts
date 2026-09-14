@@ -6,7 +6,7 @@ import {
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { getAssistantPerformance, type AssistantPerformance } from "./message-performance.js";
+import { getAssistantPerformance, type AssistantPerformance } from "./message-performance.ts";
 
 const DEFAULT_PADDING_X = 1;
 

@@ -3,13 +3,13 @@ import path from "node:path";
 import { Agent } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { searchDuckDuckGoProvider } from "../../../src/harness/web-tools/search-providers/duckduckgo-html-provider.js";
-import type { NormalizedSearchParams, SearchProviderContext } from "../../../src/harness/web-tools/search-providers/types.js";
-import { normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.js";
-import { SearchRequestGate } from "../../../src/harness/web-tools/search/search-request-gate.js";
-import type { WebHttpFetch, WebHttpRequestInit, WebHttpResponse } from "../../../src/harness/web-tools/network/types.js";
-import { httpResponse } from "../../helpers/http.js";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { searchDuckDuckGoProvider } from "../../../src/harness/web-tools/search-providers/duckduckgo-html-provider.ts";
+import type { NormalizedSearchParams, SearchProviderContext } from "../../../src/harness/web-tools/search-providers/types.ts";
+import { normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.ts";
+import { SearchRequestGate } from "../../../src/harness/web-tools/search/search-request-gate.ts";
+import type { WebHttpFetch, WebHttpRequestInit, WebHttpResponse } from "../../../src/harness/web-tools/network/types.ts";
+import { httpResponse } from "../../helpers/http.ts";
 
 afterEach(() => {
 	vi.useRealTimers();

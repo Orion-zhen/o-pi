@@ -2,11 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { installationRoot } from "./runtime/paths.js";
+import { installationRoot } from "./runtime/paths.ts";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
-import { compileSchemaValidator, type SchemaValidateFunction } from "./schema-validator.js";
+import { compileSchemaValidator, type SchemaValidateFunction } from "./schema-validator.ts";
 
-export { expandHomePath, userCachePath } from "./cache-path.js";
+export { expandHomePath, userCachePath } from "./cache-path.ts";
 
 export type ConfigErrorFactory<E extends Error> = (message: string, details?: Record<string, unknown>) => E;
 export type ConfigLayerKind = "default" | "user" | "project";

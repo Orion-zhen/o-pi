@@ -1,12 +1,12 @@
-import { parseSyntaxTree, SyntaxAnalysisAbortedError } from "../syntax-tree/parser.js";
-import { TREE_SITTER_LANGUAGES, languageFromPath } from "../syntax-tree/grammars.js";
-import type { SyntaxTreeDocument } from "../syntax-tree/types.js";
-import { createFileIdentity, createSymbolId } from "./identity.js";
-import { LANGUAGE_EXTRACTORS } from "./language-registry.js";
-import { extractUnitRelations } from "./relations.js";
-import { SourceIndex } from "./source-index.js";
-import { compactDeclaration } from "./text.js";
-import type { AnalyzedFileIndex } from "./types.js";
+import { parseSyntaxTree, SyntaxAnalysisAbortedError } from "../syntax-tree/parser.ts";
+import { TREE_SITTER_LANGUAGES, languageFromPath } from "../syntax-tree/grammars.ts";
+import type { SyntaxTreeDocument } from "../syntax-tree/types.ts";
+import { createFileIdentity, createSymbolId } from "./identity.ts";
+import { LANGUAGE_EXTRACTORS } from "./language-registry.ts";
+import { extractUnitRelations } from "./relations.ts";
+import { SourceIndex } from "./source-index.ts";
+import { compactDeclaration } from "./text.ts";
+import type { AnalyzedFileIndex } from "./types.ts";
 
 /** 不支持或解析失败时返回空单元，由 grep 层回退到文本片段。取消直接向上传播。 */
 export async function analyzeCodeFile(filePath: string, text: string, signal?: AbortSignal): Promise<AnalyzedFileIndex> {

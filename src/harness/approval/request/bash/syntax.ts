@@ -1,5 +1,5 @@
-import { containsDynamicShellNode, decodeShellWord } from "../../../syntax-tree/bash.js";
-import type { SyntaxNode } from "../../../syntax-tree/types.js";
+import { containsDynamicShellNode, decodeShellWord } from "../../../syntax-tree/bash.ts";
+import type { SyntaxNode } from "../../../syntax-tree/types.ts";
 
 export function* walkNamedNodes(root: SyntaxNode, check: () => void): Generator<SyntaxNode> {
 	const stack = [root];

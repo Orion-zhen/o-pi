@@ -8,7 +8,7 @@ import {
 	type SessionEntry,
 	type SessionHeader,
 } from "@earendil-works/pi-coding-agent";
-import type { ExecutorContext, ForkExecutionContext } from "./types.js";
+import type { ExecutorContext, ForkExecutionContext } from "./types.ts";
 
 const FORK_RESOURCE_PREFIX = "pi-subagent-fork-";
 

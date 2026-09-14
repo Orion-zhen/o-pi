@@ -2,13 +2,13 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import { formatPruneOutcome } from "../../../src/harness/prune/presentation/outcome.js";
-import { PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.js";
+import { formatPruneOutcome } from "../../../src/harness/prune/presentation/outcome.ts";
+import { PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.ts";
 import {
 	PruneService,
 	type PruneServicePort,
-} from "../../../src/harness/prune/service.js";
-import { deferred } from "../../helpers/async.js";
+} from "../../../src/harness/prune/service.ts";
+import { deferred } from "../../helpers/async.ts";
 import {
 	assistant,
 	customEntry,
@@ -18,7 +18,7 @@ import {
 	solModel,
 	toolResult,
 	transactionEntries,
-} from "./fixtures.js";
+} from "./fixtures.ts";
 
 describe("PruneService", () => {
 	it("成本允许时写入 checkpoint 并返回 JSON-safe 结果", async () => {

@@ -2,11 +2,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { FileChangeType } from "vscode-languageserver-protocol";
 
-import { LspClient } from "../../../../src/harness/lsp/client/client.js";
-import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.js";
-import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.js";
-import { deferred } from "../../../helpers/async.js";
-import { createClientConfig, createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, queryManagerSymbols, send, useTransportFixture } from "./fixtures.js";
+import { LspClient } from "../../../../src/harness/lsp/client/client.ts";
+import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.ts";
+import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
+import { deferred } from "../../../helpers/async.ts";
+import { createClientConfig, createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, queryManagerSymbols, send, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 

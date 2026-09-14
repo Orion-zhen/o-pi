@@ -2,16 +2,16 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect } from "vitest";
 
-import type { ContentOperations } from "../../../src/harness/filesystem/contracts/content.js";
-import type { WorkspaceFileSystem } from "../../../src/harness/filesystem/contracts/workspace.js";
-import { clearGrepTestRuntime as clearGrepIndex } from "../../helpers/grep-tool.js";
-import { buildScopeInventory, type ScopeInventory } from "../../../src/harness/file-tools/grep/inventory.js";
-import { GrepTool } from "../../../src/harness/file-tools/grep/command.js";
-import type { AnalyzeCode, PrepareCodeAnalysis } from "../../../src/harness/code-index/types.js";
-import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.js";
-import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.js";
-import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import type { ContentOperations } from "../../../src/harness/filesystem/contracts/content.ts";
+import type { WorkspaceFileSystem } from "../../../src/harness/filesystem/contracts/workspace.ts";
+import { clearGrepTestRuntime as clearGrepIndex } from "../../helpers/grep-tool.ts";
+import { buildScopeInventory, type ScopeInventory } from "../../../src/harness/file-tools/grep/inventory.ts";
+import { GrepTool } from "../../../src/harness/file-tools/grep/command.ts";
+import type { AnalyzeCode, PrepareCodeAnalysis } from "../../../src/harness/code-index/types.ts";
+import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.ts";
+import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.ts";
+import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 export interface GrepTestContext {
 	readonly workspace: string;

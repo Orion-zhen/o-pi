@@ -1,6 +1,6 @@
-import { defineToolTelemetry, fields } from "../telemetry/projection.js";
-import type { Resource, TelemetryFacts } from "../telemetry/types.js";
-import type { SubagentDetails, SubagentToolParams } from "./types.js";
+import { defineToolTelemetry, fields } from "../telemetry/projection.ts";
+import type { Resource, TelemetryFacts } from "../telemetry/types.ts";
+import type { SubagentDetails, SubagentToolParams } from "./types.ts";
 
 export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, SubagentDetails>({
 	input: projectInput,

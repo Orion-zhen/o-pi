@@ -1,5 +1,5 @@
 import path from "node:path";
-import { binaryResourceDir, installationRoot } from "./paths.js";
+import { binaryResourceDir, installationRoot } from "./paths.ts";
 
 /** 产品只支持 Bun 源码入口和当前独立二进制。 */
 export function cliInvocation(args: string[]): { command: string; args: string[] } {

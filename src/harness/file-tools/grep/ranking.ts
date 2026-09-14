@@ -1,13 +1,13 @@
-import { tokenizeText } from "../../code-index/text.js";
+import { tokenizeText } from "../../code-index/text.ts";
 import {
 	type CandidateSignal,
 	type CodeRegion,
 	type RankedRegion,
 	type RegionEvidence,
 	type RetrievalSource,
-} from "./candidates.js";
-import type { QueryPlan } from "./query-plan.js";
-import type { GrepMatchedBy } from "./types.js";
+} from "./candidates.ts";
+import type { QueryPlan } from "./query-plan.ts";
+import type { GrepMatchedBy } from "./types.ts";
 
 export const GREP_RRF_K = 60;
 export const GREP_RELEVANCE_HEAD_SIZE = 4;

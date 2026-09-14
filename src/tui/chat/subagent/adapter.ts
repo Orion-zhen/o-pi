@@ -5,14 +5,14 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 
-import { SUBAGENT_COMMAND_ENTRY } from "../../../harness/subagent/constants.js";
-import type { SubagentProgressCallback } from "../../../harness/subagent/types.js";
+import { SUBAGENT_COMMAND_ENTRY } from "../../../harness/subagent/constants.ts";
+import type { SubagentProgressCallback } from "../../../harness/subagent/types.ts";
 import {
 	renderSubagentCall,
 	renderSubagentCommandEntry,
 	renderSubagentCommandWidget,
 	renderSubagentResult,
-} from "./renderer.js";
+} from "./renderer.ts";
 
 let commandWidgetSequence = 0;
 

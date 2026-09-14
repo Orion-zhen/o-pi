@@ -1,41 +1,41 @@
 import type { ExtensionCommandContext, InlineExtension } from "@earendil-works/pi-coding-agent";
-import { extensions as harnessExtensions } from "../harness/extensions.js";
-import approvalGate from "../harness/extensions/approval-gate.js";
-import bashTool from "../harness/extensions/bash-tool.js";
-import { createToolsExtension } from "../harness/extensions/cmd-slash-tools.js";
-import { createFileToolsExtension } from "../harness/extensions/file-tools.js";
-import { createPruneExtension } from "../harness/extensions/prune.js";
-import { createSkillContextExtension } from "../harness/extensions/skill-context.js";
-import stats from "../harness/extensions/stats.js";
-import { createSubagentExtension } from "../harness/extensions/subagent.js";
-import systemPrompt from "../harness/extensions/system-prompt.js";
-import telemetry from "../harness/extensions/telemetry.js";
-import usage from "../harness/extensions/usage.js";
-import { createWebToolsExtension } from "../harness/extensions/web-tools.js";
-import type { StatsSnapshot } from "../harness/stats/types.js";
-import type { LiveTelemetryReport } from "../harness/telemetry-report/live.js";
-import type { UsageSnapshot } from "../harness/usage/types.js";
-import tui from "./shell/extension.js";
+import { extensions as harnessExtensions } from "../harness/extensions.ts";
+import approvalGate from "../harness/extensions/approval-gate.ts";
+import bashTool from "../harness/extensions/bash-tool.ts";
+import { createToolsExtension } from "../harness/extensions/cmd-slash-tools.ts";
+import { createFileToolsExtension } from "../harness/extensions/file-tools.ts";
+import { createPruneExtension } from "../harness/extensions/prune.ts";
+import { createSkillContextExtension } from "../harness/extensions/skill-context.ts";
+import stats from "../harness/extensions/stats.ts";
+import { createSubagentExtension } from "../harness/extensions/subagent.ts";
+import systemPrompt from "../harness/extensions/system-prompt.ts";
+import telemetry from "../harness/extensions/telemetry.ts";
+import usage from "../harness/extensions/usage.ts";
+import { createWebToolsExtension } from "../harness/extensions/web-tools.ts";
+import type { StatsSnapshot } from "../harness/stats/types.ts";
+import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
+import type { UsageSnapshot } from "../harness/usage/types.ts";
+import tui from "./shell/extension.ts";
 
 /** 终端入口装配呈现器，harness 不知道组件的路径和加载方式。 */
 export const presentation = {
-	fileTools: { renderers: () => import("./chat/file-tools/index.js") },
-	bashTool: () => import("./chat/bash-tool/renderer.js"),
-	tools: () => import("./views/tool-defaults/tool-selector.js"),
-	prune: () => import("./chat/prune/index.js"),
-	skillContext: () => import("./chat/skill-context/renderer.js"),
-	subagent: () => import("./chat/subagent/adapter.js"),
+	fileTools: { renderers: () => import("./chat/file-tools/index.ts") },
+	bashTool: () => import("./chat/bash-tool/renderer.ts"),
+	tools: () => import("./views/tool-defaults/tool-selector.ts"),
+	prune: () => import("./chat/prune/index.ts"),
+	skillContext: () => import("./chat/skill-context/renderer.ts"),
+	subagent: () => import("./chat/subagent/adapter.ts"),
 	webTools: async () => {
 		const [fetch, search] = await Promise.all([
-			import("./chat/web-tools/webfetch.js"),
-			import("./chat/web-tools/websearch.js"),
+			import("./chat/web-tools/webfetch.ts"),
+			import("./chat/web-tools/websearch.ts"),
 		]);
 		return { ...fetch, ...search };
 	},
-	approvalGate: async (...args: Parameters<(typeof import("./views/approval/dialog.js"))["openApprovalDialog"]>) =>
-		(await import("./views/approval/dialog.js")).openApprovalDialog(...args),
+	approvalGate: async (...args: Parameters<(typeof import("./views/approval/dialog.ts"))["openApprovalDialog"]>) =>
+		(await import("./views/approval/dialog.ts")).openApprovalDialog(...args),
 	stats: async (ctx: ExtensionCommandContext, snapshot: StatsSnapshot) => {
-		const { StatsViewer } = await import("./views/stats/stats-viewer.js");
+		const { StatsViewer } = await import("./views/stats/stats-viewer.ts");
 		await ctx.ui.custom<void>(
 			(tui, theme, _keys, done) => new StatsViewer(snapshot, theme, () => tui.terminal.rows, done),
 			{
@@ -45,7 +45,7 @@ export const presentation = {
 		);
 	},
 	usage: async (ctx: ExtensionCommandContext, snapshot: UsageSnapshot | "aborted") => {
-		const { UsageViewer } = await import("./views/usage/viewer.js");
+		const { UsageViewer } = await import("./views/usage/viewer.ts");
 		await ctx.ui.custom<void>(
 			(tui, theme, _keys, done) => new UsageViewer(snapshot, theme, () => tui.terminal.rows, done),
 			{
@@ -55,7 +55,7 @@ export const presentation = {
 		);
 	},
 	systemPrompt: async (ctx: ExtensionCommandContext, prompt: string) => {
-		const { SystemPromptViewer } = await import("./views/system-prompt/viewer.js");
+		const { SystemPromptViewer } = await import("./views/system-prompt/viewer.ts");
 		const model = ctx.model;
 		const scope = model === undefined ? {} : { provider: model.provider, modelId: model.id, baseUrl: model.baseUrl };
 		await ctx.ui.custom<void>(
@@ -67,7 +67,7 @@ export const presentation = {
 		);
 	},
 	telemetry: async (ctx: ExtensionCommandContext, report: LiveTelemetryReport) => {
-		const { TelemetryViewer } = await import("./views/telemetry-report/viewer.js");
+		const { TelemetryViewer } = await import("./views/telemetry-report/viewer.ts");
 		await ctx.ui.custom<void>(
 			(tui, theme, _keys, done) => new TelemetryViewer(report, theme, () => tui.terminal.rows, done),
 			{

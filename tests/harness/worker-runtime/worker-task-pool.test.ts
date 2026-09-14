@@ -1,7 +1,7 @@
 import { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../../src/harness/worker-runtime/worker-task-pool.js";
+import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../../src/harness/worker-runtime/worker-task-pool.ts";
 
 const pools: Array<WorkerTaskPool<number, number>> = [];
 

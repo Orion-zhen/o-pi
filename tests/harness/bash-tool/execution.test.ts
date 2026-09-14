@@ -5,19 +5,19 @@ import { createLocalBashOperations, type BashOperations, type SessionEntry } fro
 import { Ajv, type AnySchema } from "ajv";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { presentation } from "../../../src/tui/extensions.js";
-import bashToolExtension from "../../../src/harness/extensions/bash-tool.js";
-import { createExecutionEnvironment } from "../../../src/harness/bash-tool/environment.js";
-import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.js";
-import { OutputCapture } from "../../../src/harness/bash-tool/output-capture.js";
-import { renderBashCall } from "../../../src/tui/chat/bash-tool/renderer.js";
-import type { BashSessionMetadata, ExecuteBashRuntime } from "../../../src/harness/bash-tool/types.js";
-import { loadBashToolConfig } from "../../../src/harness/bash-tool/config.js";
-import { SKILL_CONTEXT_ENTRY } from "../../../src/harness/skill-context/types.js";
-import { registerExtension } from "../../helpers/extension.js";
-import { bashToolConfig } from "./fixture.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
-import { deferredVoid } from "../../helpers/async.js";
+import { presentation } from "../../../src/tui/extensions.ts";
+import bashToolExtension from "../../../src/harness/extensions/bash-tool.ts";
+import { createExecutionEnvironment } from "../../../src/harness/bash-tool/environment.ts";
+import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.ts";
+import { OutputCapture } from "../../../src/harness/bash-tool/output-capture.ts";
+import { renderBashCall } from "../../../src/tui/chat/bash-tool/renderer.ts";
+import type { BashSessionMetadata, ExecuteBashRuntime } from "../../../src/harness/bash-tool/types.ts";
+import { loadBashToolConfig } from "../../../src/harness/bash-tool/config.ts";
+import { SKILL_CONTEXT_ENTRY } from "../../../src/harness/skill-context/types.ts";
+import { registerExtension } from "../../helpers/extension.ts";
+import { bashToolConfig } from "./fixture.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
+import { deferredVoid } from "../../helpers/async.ts";
 
 vi.mock("node:fs/promises", { spy: true });
 

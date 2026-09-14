@@ -5,7 +5,7 @@ import {
 	type FailedResult,
 	type FileToolError,
 	type ToolOutcome,
-} from "../../../src/harness/file-tools/shared/result.js";
+} from "../../../src/harness/file-tools/shared/result.ts";
 
 export function expectFailure<T>(
 	result: ToolOutcome<T>,

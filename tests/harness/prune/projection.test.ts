@@ -10,7 +10,7 @@ import {
 	PRUNE_STATE,
 	pruneToolTransactions,
 	readPruneState,
-} from "../../../src/harness/prune/prune.js";
+} from "../../../src/harness/prune/prune.ts";
 import {
 	assistant,
 	customEntry,
@@ -18,7 +18,7 @@ import {
 	restoreState,
 	toolResult,
 	user,
-} from "./fixtures.js";
+} from "./fixtures.ts";
 
 describe("prune context projection", () => {
 	it("只选择有对应 output 的完整工具事务", () => {

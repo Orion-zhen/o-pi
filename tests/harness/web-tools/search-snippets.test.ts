@@ -1,16 +1,16 @@
 import { Agent } from "undici";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { searchApiProvider } from "../../../src/harness/web-tools/search-providers/api-provider.js";
-import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.js";
-import { mergeSearchResults } from "../../../src/harness/web-tools/search-providers/merge.js";
-import { compileSearchQuery } from "../../../src/harness/web-tools/search-providers/query.js";
-import { searchDuckDuckGoHtml } from "../../../src/harness/web-tools/search/duckduckgo-html.js";
-import { executeWebSearch } from "../../../src/harness/web-tools/search/websearch-tool.js";
-import { SearchFlights } from "../../../src/harness/web-tools/search/search-flights.js";
-import type { FormalWebSearchProviderId } from "../../../src/harness/web-tools/core/types.js";
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { httpResponse } from "../../helpers/http.js";
+import { searchApiProvider } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
+import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.ts";
+import { mergeSearchResults } from "../../../src/harness/web-tools/search-providers/merge.ts";
+import { compileSearchQuery } from "../../../src/harness/web-tools/search-providers/query.ts";
+import { searchDuckDuckGoHtml } from "../../../src/harness/web-tools/search/duckduckgo-html.ts";
+import { executeWebSearch } from "../../../src/harness/web-tools/search/websearch-tool.ts";
+import { SearchFlights } from "../../../src/harness/web-tools/search/search-flights.ts";
+import type { FormalWebSearchProviderId } from "../../../src/harness/web-tools/core/types.ts";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { httpResponse } from "../../helpers/http.ts";
 
 const dispatchers: Agent[] = [];
 afterEach(async () => { await Promise.all(dispatchers.splice(0).map((dispatcher) => dispatcher.close())); });

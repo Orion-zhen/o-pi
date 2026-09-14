@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { isPathInside, safeRealpath } from "../resource-paths.js";
-import type { AgentDefinition, AgentDiscovery, SubagentConfig, SubagentSource } from "./types.js";
+import { isPathInside, safeRealpath } from "../resource-paths.ts";
+import type { AgentDefinition, AgentDiscovery, SubagentConfig, SubagentSource } from "./types.ts";
 
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "subagent"]);
 

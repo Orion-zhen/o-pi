@@ -1,4 +1,4 @@
-import { PRESENCE_TEMPLATE_PATTERN } from "./types.js";
+import { PRESENCE_TEMPLATE_PATTERN } from "./types.ts";
 import type {
 	DiscordActivityPayload,
 	DiscordPresenceConfig,
@@ -6,7 +6,7 @@ import type {
 	PresenceProfileConfig,
 	PresenceSession,
 	PresenceTemplateValues,
-} from "./types.js";
+} from "./types.ts";
 
 const MAX_TEXT_LENGTH = 128;
 const ACTIVITY_LABELS: Record<PresenceActivity["kind"], string> = {

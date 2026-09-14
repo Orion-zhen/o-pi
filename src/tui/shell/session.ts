@@ -1,13 +1,13 @@
 import type { ExtensionAPI, ExtensionContext, ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { formatStartupBanner } from "../views/home/banner.js";
-import { clearChrome, formatStatus, formatTitle, TUI_STATUS_KEY, workingIndicatorOptions } from "./chrome.js";
-import { formatFooter } from "./footer.js";
-import { installFullscreenImageFix } from "../terminal/fullscreen-images.js";
-import { formatHomeFooter, selectHomeTip } from "../views/home/home.js";
-import { configureTuiIconMode } from "../components/icons.js";
-import { configureMessageTimestampRenderer, resetUserMessageTimestamps } from "../chat/message-timestamp.js";
-import { SessionEditor } from "../editor/editor.js";
+import { formatStartupBanner } from "../views/home/banner.ts";
+import { clearChrome, formatStatus, formatTitle, TUI_STATUS_KEY, workingIndicatorOptions } from "./chrome.ts";
+import { formatFooter } from "./footer.ts";
+import { installFullscreenImageFix } from "../terminal/fullscreen-images.ts";
+import { formatHomeFooter, selectHomeTip } from "../views/home/home.ts";
+import { configureTuiIconMode } from "../components/icons.ts";
+import { configureMessageTimestampRenderer, resetUserMessageTimestamps } from "../chat/message-timestamp.ts";
+import { SessionEditor } from "../editor/editor.ts";
 import {
 	collectSessionState,
 	collectSkills,
@@ -15,9 +15,9 @@ import {
 	collectUserMessages,
 	countAvailableProviders,
 	userMessageText,
-} from "./snapshot.js";
-import type { TuiConfig, TuiRunStatus, TuiSkillsSnapshot, TuiSnapshot } from "./types.js";
-import { buildInitialHistory, normalizeHistoryCwd, type UserHistoryRecord, type UserHistoryStore } from "../editor/history.js";
+} from "./snapshot.ts";
+import type { TuiConfig, TuiRunStatus, TuiSkillsSnapshot, TuiSnapshot } from "./types.ts";
+import { buildInitialHistory, normalizeHistoryCwd, type UserHistoryRecord, type UserHistoryStore } from "../editor/history.ts";
 
 type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
 

@@ -3,14 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { loadApprovalGateConfig } from "../../../src/harness/approval/config.js";
-import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.js";
-import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.js";
-import { evaluateBashGatePolicy, evaluateGatePolicy } from "../../../src/harness/approval/rules/policy.js";
-import { FileApprovalStore } from "../../../src/harness/approval/rules/store.js";
-import { createExactAllowRules } from "../../../src/harness/approval/rules/allow.js";
-import type { ApprovalGateConfig, ApprovalRequest, BashApprovalRequest } from "../../../src/harness/approval/types.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { loadApprovalGateConfig } from "../../../src/harness/approval/config.ts";
+import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
+import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.ts";
+import { evaluateBashGatePolicy, evaluateGatePolicy } from "../../../src/harness/approval/rules/policy.ts";
+import { FileApprovalStore } from "../../../src/harness/approval/rules/store.ts";
+import { createExactAllowRules } from "../../../src/harness/approval/rules/allow.ts";
+import type { ApprovalGateConfig, ApprovalRequest, BashApprovalRequest } from "../../../src/harness/approval/types.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 let approvalStore: FileApprovalStore;

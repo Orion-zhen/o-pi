@@ -1,8 +1,8 @@
 import { stripVTControlCharacters } from "node:util";
 
-import { countLogicalLines, renderOutputPreview, renderSplitPreview } from "./output-preview.js";
-import { decodeUtf8Prefix, trimLeadingUtf8Continuation } from "./utf8.js";
-import type { BashLimits, BashOutputFormat, BashOutputState, BashRunStatus, BashToolDetails, CapturedOutput } from "./types.js";
+import { countLogicalLines, renderOutputPreview, renderSplitPreview } from "./output-preview.ts";
+import { decodeUtf8Prefix, trimLeadingUtf8Continuation } from "./utf8.ts";
+import type { BashLimits, BashOutputFormat, BashOutputState, BashRunStatus, BashToolDetails, CapturedOutput } from "./types.ts";
 
 interface OutputViewInput extends CapturedOutput {
 	status: BashRunStatus;

@@ -1,8 +1,8 @@
 import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, ImageContent, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
-import { countContentTokens, countTextTokens, type TokenCounterScope } from "../token-counter.js";
-import type { ContextBreakdownItem, ContextStats } from "./types.js";
-import { SKILL_CONTEXT_MESSAGE } from "../skill-context/types.js";
+import { countContentTokens, countTextTokens, type TokenCounterScope } from "../token-counter.ts";
+import type { ContextBreakdownItem, ContextStats } from "./types.ts";
+import { SKILL_CONTEXT_MESSAGE } from "../skill-context/types.ts";
 
 export interface ContextBreakdownInput {
 	usage: ContextUsage | undefined;

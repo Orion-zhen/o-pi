@@ -5,9 +5,9 @@ import type { Context, Provider, ProviderStreamOptions, SimpleStreamOptions } fr
 import { vi } from "vitest";
 import type { ModelRegistry, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { loadModelsJsoncConfig } from "../../../src/harness/openai-compatible-provider/config.js";
-import { registerOpenAICompatibleProviders } from "../../../src/harness/openai-compatible-provider/register.js";
-import type { ModelsJsoncConfig } from "../../../src/harness/openai-compatible-provider/schema.js";
+import { loadModelsJsoncConfig } from "../../../src/harness/openai-compatible-provider/config.ts";
+import { registerOpenAICompatibleProviders } from "../../../src/harness/openai-compatible-provider/register.ts";
+import type { ModelsJsoncConfig } from "../../../src/harness/openai-compatible-provider/schema.ts";
 
 export function providerConfig(
 	overrides: Record<string, unknown> = {},

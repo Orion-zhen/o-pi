@@ -1,7 +1,7 @@
-import { collectUnits, firstNamedChildText, rawUnit, type UnitRules } from "./shared.js";
-import { declaratorName, functionDeclaratorName, hasAncestorType, hasSimpleFunctionDeclarator, hasStorageClass, extractIncludes } from "./c-family.js";
-import type { SyntaxNode } from "../../syntax-tree/types.js";
-import type { LanguageExtractor } from "./types.js";
+import { collectUnits, firstNamedChildText, rawUnit, type UnitRules } from "./shared.ts";
+import { declaratorName, functionDeclaratorName, hasAncestorType, hasSimpleFunctionDeclarator, hasStorageClass, extractIncludes } from "./c-family.ts";
+import type { SyntaxNode } from "../../syntax-tree/types.ts";
+import type { LanguageExtractor } from "./types.ts";
 
 const cppRules: UnitRules = {
 	extract(node, scope) {

@@ -1,6 +1,6 @@
-import type { CodeNavigation } from "../../code-index/types.js";
-import type { SearchNavigation } from "../shared/search-navigation.js";
-import type { FileToolError } from "../shared/result.js";
+import type { CodeNavigation } from "../../code-index/types.ts";
+import type { SearchNavigation } from "../shared/search-navigation.ts";
+import type { FileToolError } from "../shared/result.ts";
 
 export type GrepMatchedBy =
 	| "exact-qualified-symbol"

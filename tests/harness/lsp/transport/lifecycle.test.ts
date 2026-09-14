@@ -1,11 +1,11 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { LspClient } from "../../../../src/harness/lsp/client/client.js";
-import { LspManager } from "../../../../src/harness/lsp/manager/manager.js";
-import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.js";
-import { deferred } from "../../../helpers/async.js";
-import { createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, directClient, documentSymbol, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.js";
+import { LspClient } from "../../../../src/harness/lsp/client/client.ts";
+import { LspManager } from "../../../../src/harness/lsp/manager/manager.ts";
+import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
+import { deferred } from "../../../helpers/async.ts";
+import { createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, directClient, documentSymbol, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 

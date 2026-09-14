@@ -1,6 +1,6 @@
 import { VERSION, type Theme } from "@earendil-works/pi-coding-agent";
-import type { HomeAnimationFrame } from "./animation.js";
-import type { HomePointerFrame } from "./pointer.js";
+import type { HomeAnimationFrame } from "./animation.ts";
+import type { HomePointerFrame } from "./pointer.ts";
 
 type SixLines = readonly [string, string, string, string, string, string];
 type BrandTheme = Pick<Theme, "fg">;

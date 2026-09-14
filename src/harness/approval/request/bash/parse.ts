@@ -1,7 +1,7 @@
-import type { ApprovalUnit, BashApprovalRequest } from "../../types.js";
-import { normalizeTargetPath } from "../path.js";
-import { analyzeBashScript } from "./analysis.js";
-import { normalizeSource } from "./syntax.js";
+import type { ApprovalUnit, BashApprovalRequest } from "../../types.ts";
+import { normalizeTargetPath } from "../path.ts";
+import { analyzeBashScript } from "./analysis.ts";
+import { normalizeSource } from "./syntax.ts";
 
 export async function buildBashApprovalRequest(command: string, cwd: string): Promise<BashApprovalRequest> {
 	return {

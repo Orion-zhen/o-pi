@@ -1,8 +1,8 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { deferred } from "../../../helpers/async.js";
-import { createProtocolServer, directClient, documentSymbol, send, useTransportFixture } from "./fixtures.js";
+import { deferred } from "../../../helpers/async.ts";
+import { createProtocolServer, directClient, documentSymbol, send, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 

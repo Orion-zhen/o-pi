@@ -1,5 +1,5 @@
 import { parseHTML } from "linkedom";
-import type { WebFetchFailureDetails } from "../core/types.js";
+import type { WebFetchFailureDetails } from "../core/types.ts";
 
 const HEADINGS = "h1, h2, h3, h4, h5, h6";
 const INACTIVE = 'head, script, style, template, noscript, [hidden], [aria-hidden="true"]';

@@ -1,4 +1,4 @@
-import type { IgnoreConfig, PartialIgnoreConfig, VisibilityPolicy } from "../../contracts/visibility.js";
+import type { IgnoreConfig, PartialIgnoreConfig, VisibilityPolicy } from "../../contracts/visibility.ts";
 
 export const defaultIgnoreConfig: IgnoreConfig = {
 	piignore: {

@@ -3,13 +3,13 @@ import { access } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DiscordPresenceCoordinatorClient } from "../../../src/harness/discord-presence/coordinator-client.js";
-import { parseClientMessage, parseServerMessage, readCoordinatorMessages, writeCoordinatorMessage } from "../../../src/harness/discord-presence/coordinator-protocol.js";
-import { createPresenceCoordinatorServer, type PresenceCoordinatorServer } from "../../../src/harness/discord-presence/coordinator-server.js";
-import * as endpointModule from "../../../src/harness/discord-presence/endpoint.js";
-import { DiscordCoordinatorOutput } from "../../../src/harness/discord-presence/output.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { coordinatedConfig, FakeCoordinatorOutput } from "./fixtures.js";
+import { DiscordPresenceCoordinatorClient } from "../../../src/harness/discord-presence/coordinator-client.ts";
+import { parseClientMessage, parseServerMessage, readCoordinatorMessages, writeCoordinatorMessage } from "../../../src/harness/discord-presence/coordinator-protocol.ts";
+import { createPresenceCoordinatorServer, type PresenceCoordinatorServer } from "../../../src/harness/discord-presence/coordinator-server.ts";
+import * as endpointModule from "../../../src/harness/discord-presence/endpoint.ts";
+import { DiscordCoordinatorOutput } from "../../../src/harness/discord-presence/output.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { coordinatedConfig, FakeCoordinatorOutput } from "./fixtures.ts";
 
 vi.mock("node:child_process", async (importOriginal) => ({
 	...await importOriginal<typeof import("node:child_process")>(),

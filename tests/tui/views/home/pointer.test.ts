@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HomePointerController } from "../../../../src/tui/views/home/pointer.js";
+import { HomePointerController } from "../../../../src/tui/views/home/pointer.ts";
 
 let ttyDescriptor: PropertyDescriptor | undefined;
 const controllers: HomePointerController[] = [];

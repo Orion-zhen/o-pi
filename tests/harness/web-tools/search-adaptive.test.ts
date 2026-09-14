@@ -1,14 +1,14 @@
 import { Agent } from "undici";
 import { describe, expect, it, vi } from "vitest";
 
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { resolveSearchApiKey } from "../../../src/harness/web-tools/search-providers/api-key.js";
-import { buildBraveRequest, buildExaRequest, buildTavilyRequest, searchApiProvider, normalizeProviderResponse } from "../../../src/harness/web-tools/search-providers/api-provider.js";
-import { mergeSearchResults } from "../../../src/harness/web-tools/search-providers/merge.js";
-import { assessSearchQuality } from "../../../src/harness/web-tools/search-providers/quality.js";
-import { compileSearchQuery, normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.js";
-import { preserveEnv } from "../../helpers/lifecycle.js";
-import { httpResponse } from "../../helpers/http.js";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { resolveSearchApiKey } from "../../../src/harness/web-tools/search-providers/api-key.ts";
+import { buildBraveRequest, buildExaRequest, buildTavilyRequest, searchApiProvider, normalizeProviderResponse } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
+import { mergeSearchResults } from "../../../src/harness/web-tools/search-providers/merge.ts";
+import { assessSearchQuality } from "../../../src/harness/web-tools/search-providers/quality.ts";
+import { compileSearchQuery, normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.ts";
+import { preserveEnv } from "../../helpers/lifecycle.ts";
+import { httpResponse } from "../../helpers/http.ts";
 
 preserveEnv("BRAVE_SEARCH_API_KEY", "WEBSEARCH_API_KEY_TEST");
 

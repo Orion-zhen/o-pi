@@ -1,8 +1,8 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
-import type { ToolOutcome } from "../shared/result.js";
-import { isFailed } from "../shared/result.js";
-import type { EditParams, EditSuccess } from "../edit/types.js";
-import { failureFields, pathTarget } from "./common.js";
+import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
+import type { ToolOutcome } from "../shared/result.ts";
+import { isFailed } from "../shared/result.ts";
+import type { EditParams, EditSuccess } from "../edit/types.ts";
+import { failureFields, pathTarget } from "./common.ts";
 
 export const editTelemetry = defineToolTelemetry<EditParams, ToolOutcome<EditSuccess>>({
 	input(params) {

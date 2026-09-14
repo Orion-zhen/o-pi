@@ -1,18 +1,18 @@
 import type { Dispatcher } from "undici";
-import type { HttpFetchResult, HttpFetchSuccess, ValidatedUrl, WebHttpFetch, WebHttpResponse } from "./types.js";
-import type { WebToolsConfig } from "../config-types.js";
+import type { HttpFetchResult, HttpFetchSuccess, ValidatedUrl, WebHttpFetch, WebHttpResponse } from "./types.ts";
+import type { WebToolsConfig } from "../config-types.ts";
 
 import type {
 	CookieAccess,
 	CookieStore,
 	WebFetchExecutionContext,
 	WebFetchFailureDetails,
-} from "../core/types.js";
-import { mimeFromContentType, supportedImageMimeFromHeader } from "../content/image-types.js";
-import { classifyNetworkError, networkErrorMessage } from "./errors.js";
-import { validateRequestUrl } from "./network-policy.js";
-import { cancelBody, readLimitedResponseBody, responseContentLength } from "./response-body.js";
-import { matchesDomainRule, redactUrl } from "./url-utils.js";
+} from "../core/types.ts";
+import { mimeFromContentType, supportedImageMimeFromHeader } from "../content/image-types.ts";
+import { classifyNetworkError, networkErrorMessage } from "./errors.ts";
+import { validateRequestUrl } from "./network-policy.ts";
+import { cancelBody, readLimitedResponseBody, responseContentLength } from "./response-body.ts";
+import { matchesDomainRule, redactUrl } from "./url-utils.ts";
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const HTML_ACCEPT_HEADER = "text/html, application/xhtml+xml;q=0.9, */*;q=0.1";

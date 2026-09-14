@@ -1,8 +1,8 @@
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { formatHomeFooter, formatHomePage, selectHomeTip } from "../../../../src/tui/views/home/home.js";
-import type { HomeAnimationFrame } from "../../../../src/tui/views/home/animation.js";
-import { defaultTuiConfig, homeSnapshot, plainTheme, tuiSnapshot } from "../../shell/fixtures.js";
+import { formatHomeFooter, formatHomePage, selectHomeTip } from "../../../../src/tui/views/home/home.ts";
+import type { HomeAnimationFrame } from "../../../../src/tui/views/home/animation.ts";
+import { defaultTuiConfig, homeSnapshot, plainTheme, tuiSnapshot } from "../../shell/fixtures.ts";
 
 const snapshot = homeSnapshot();
 

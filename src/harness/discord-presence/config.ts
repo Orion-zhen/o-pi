@@ -4,8 +4,8 @@ import {
 	createCompleteSchemaValidator,
 	createSchemaValidator,
 	loadValidatedMergedConfig,
-} from "../config-loader.js";
-import { PRESENCE_TEMPLATE_KEYS, PRESENCE_TEMPLATE_PATTERN, type DiscordPresenceConfig, type PresenceProfileConfig } from "./types.js";
+} from "../config-loader.ts";
+import { PRESENCE_TEMPLATE_KEYS, PRESENCE_TEMPLATE_PATTERN, type DiscordPresenceConfig, type PresenceProfileConfig } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("discord-presence.schema.json");
 const TEMPLATE_KEYS = new Set<string>(PRESENCE_TEMPLATE_KEYS);

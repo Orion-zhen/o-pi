@@ -5,8 +5,8 @@ import {
 	getCellDimensions, resetCapabilitiesCache, setCapabilities, setCellDimensions,
 } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { installFullscreenImageFix } from "../../../src/tui/terminal/fullscreen-images.js";
-import { RecordingTerminal } from "./recording-terminal.js";
+import { installFullscreenImageFix } from "../../../src/tui/terminal/fullscreen-images.ts";
+import { RecordingTerminal } from "./recording-terminal.ts";
 import { createInteractiveTuiReference } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/tui-renderer.js";
 
 const theme = {

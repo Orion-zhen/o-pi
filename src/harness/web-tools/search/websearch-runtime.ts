@@ -1,20 +1,20 @@
-import { runtimeConfigFailure } from "../core/runtime-errors.js";
-import type { WebSearchCapability, WebCapabilityOptions } from "../core/runtime-types.js";
-import { providerSignature, SearchFlights } from "./search-flights.js";
-import { SearchRequestGate } from "./search-request-gate.js";
-import { resolveSearchApiKey } from "../search-providers/api-key.js";
-import { SearchProviderRouter } from "../search-providers/router.js";
-import type { WebSearchProvider } from "../search-providers/types.js";
-import type { WebToolsConfig } from "../config-types.js";
-import { networkConfigSignature } from "../network/dispatcher.js";
-import { executeWebSearch } from "./websearch-tool.js";
+import { runtimeConfigFailure } from "../core/runtime-errors.ts";
+import type { WebSearchCapability, WebCapabilityOptions } from "../core/runtime-types.ts";
+import { providerSignature, SearchFlights } from "./search-flights.ts";
+import { SearchRequestGate } from "./search-request-gate.ts";
+import { resolveSearchApiKey } from "../search-providers/api-key.ts";
+import { SearchProviderRouter } from "../search-providers/router.ts";
+import type { WebSearchProvider } from "../search-providers/types.ts";
+import type { WebToolsConfig } from "../config-types.ts";
+import { networkConfigSignature } from "../network/dispatcher.ts";
+import { executeWebSearch } from "./websearch-tool.ts";
 
 /** 会话只持有并发请求和 DDG 节流状态。路由与凭据使用本次配置快照。 */
 export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearchCapability {
 	const searches = new SearchFlights();
 	let gate: { interval: number; cooldown: number; requests: SearchRequestGate } | undefined;
-	let apiModule: Promise<typeof import("../search-providers/api-provider.js")> | undefined;
-	let ddgModule: Promise<typeof import("../search-providers/duckduckgo-html-provider.js")> | undefined;
+	let apiModule: Promise<typeof import("../search-providers/api-provider.ts")> | undefined;
+	let ddgModule: Promise<typeof import("../search-providers/duckduckgo-html-provider.ts")> | undefined;
 	return {
 		async search(params, context) {
 			let config: WebToolsConfig;
@@ -54,7 +54,7 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 			result.push({
 				id: provider.id,
 				async search(params, context) {
-					apiModule ??= import("../search-providers/api-provider.js");
+					apiModule ??= import("../search-providers/api-provider.ts");
 					return (await apiModule).searchApiProvider({ ...provider, ...shared, key }, params, context);
 				},
 			});
@@ -62,7 +62,7 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 		if (config.websearch.duckduckgo_html.enabled) result.push({
 			id: "duckduckgo_html",
 			async search(params, context) {
-				ddgModule ??= import("../search-providers/duckduckgo-html-provider.js");
+				ddgModule ??= import("../search-providers/duckduckgo-html-provider.ts");
 				return (await ddgModule).searchDuckDuckGoProvider({ config: config.websearch.duckduckgo_html, requestGate, ...shared }, params, context);
 			},
 		});

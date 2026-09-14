@@ -2,18 +2,18 @@ import { mkdir, rename, rm, symlink, utimes, writeFile } from "node:fs/promises"
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.js";
-import { deferredVoid } from "../../helpers/async.js";
-import { grepWorkspaceFiles } from "../../helpers/grep-tool.js";
+import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.ts";
+import { deferredVoid } from "../../helpers/async.ts";
+import { grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
 import type {
 	DirectoryRef,
 	ExistingRef,
 	FileRef,
 	PathOperations,
 	ResolveExistingOptions,
-} from "../../../src/harness/filesystem/contracts/path.js";
-import type { FsResult } from "../../../src/harness/filesystem/contracts/result.js";
-import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.js";
+} from "../../../src/harness/filesystem/contracts/path.ts";
+import type { FsResult } from "../../../src/harness/filesystem/contracts/result.ts";
+import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.ts";
 import {
 	assertStrictMatches,
 	countContentReads,
@@ -23,7 +23,7 @@ import {
 	overrideContent,
 	withGrepRuntime,
 	writeConfig,
-} from "./grep-fixtures.js";
+} from "./grep-fixtures.ts";
 
 const testContext = createGrepTestContext();
 

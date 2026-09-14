@@ -1,5 +1,5 @@
-import type { FailedResult } from "../shared/result.js";
-import type { EditSuccess } from "./types.js";
+import type { FailedResult } from "../shared/result.ts";
+import type { EditSuccess } from "./types.ts";
 
 export function isEditSuccess(value: unknown): value is EditSuccess {
 	return isRecord(value) && value["status"] === "applied" && typeof value["diff"] === "string";

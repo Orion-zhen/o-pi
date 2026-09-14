@@ -11,8 +11,8 @@ import {
 	isCommandConfigValue,
 	resolveConfigValueOrThrow,
 	resolveHeadersOrThrow,
-} from "./config-values.js";
-import type { ProviderConfig } from "./schema.js";
+} from "./config-values.ts";
+import type { ProviderConfig } from "./schema.ts";
 
 const EMPTY_API_KEY = "EMPTY";
 const UNUSED_API_KEY = "unused";

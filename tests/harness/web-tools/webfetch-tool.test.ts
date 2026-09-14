@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { Agent } from "undici";
 
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.js";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.ts";
 import type {
 	CookieStore,
 	WebFetchInteractionPort,
 	WebFetchOmission,
 	WebFetchResult,
-} from "../../../src/harness/web-tools/core/types.js";
-import type { WebHttpFetch, WebHttpRequestInit } from "../../../src/harness/web-tools/network/types.js";
-import { executeWebFetch } from "../../../src/harness/web-tools/fetch/webfetch-tool.js";
-import type { PrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.js";
-import { httpResponse, redirectResponse } from "../../helpers/http.js";
+} from "../../../src/harness/web-tools/core/types.ts";
+import type { WebHttpFetch, WebHttpRequestInit } from "../../../src/harness/web-tools/network/types.ts";
+import { executeWebFetch } from "../../../src/harness/web-tools/fetch/webfetch-tool.ts";
+import type { PrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.ts";
+import { httpResponse, redirectResponse } from "../../helpers/http.ts";
 
 const cookieStore: CookieStore = {
 	async getCookieAccess() {

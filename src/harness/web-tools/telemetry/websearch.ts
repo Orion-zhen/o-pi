@@ -1,7 +1,7 @@
-import { defineToolTelemetry, fields, textFields } from "../../telemetry/projection.js";
-import type { Candidate } from "../../telemetry/types.js";
-import type { WebSearchDetails, WebSearchParams, WebSearchProviderAttempt, WebSearchSuccessDetails } from "../core/types.js";
-import { webResultFields } from "./common.js";
+import { defineToolTelemetry, fields, textFields } from "../../telemetry/projection.ts";
+import type { Candidate } from "../../telemetry/types.ts";
+import type { WebSearchDetails, WebSearchParams, WebSearchProviderAttempt, WebSearchSuccessDetails } from "../core/types.ts";
+import { webResultFields } from "./common.ts";
 
 export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearchDetails>({
 	input(params) {

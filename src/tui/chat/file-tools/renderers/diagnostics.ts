@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../../../harness/lsp/types.js";
-import { relatedDiagnosticLines } from "../../../../harness/file-tools/shared/mutation-presenter.js";
-import type { MutationPostProcessProgressDetails } from "../../../../harness/file-tools/pi/progress.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../../../harness/lsp/types.ts";
+import { relatedDiagnosticLines } from "../../../../harness/file-tools/shared/mutation-presenter.ts";
+import type { MutationPostProcessProgressDetails } from "../../../../harness/file-tools/pi/progress.ts";
 
 export function formatDiffStats(diff: string): string {
 	let added = 0;

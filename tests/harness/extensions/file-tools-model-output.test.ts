@@ -2,18 +2,18 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import fileTools from "../../../src/harness/extensions/file-tools.js";
-import { formatErrorModelResult } from "../../../src/harness/file-tools/pi/model-output.js";
-import { formatEditModelResult } from "../../../src/harness/file-tools/edit/presenter.js";
-import { formatWriteModelResult } from "../../../src/harness/file-tools/write/presenter.js";
-import { formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../../src/harness/file-tools/read/presenter.js";
-import type { ReadPdfSuccess } from "../../../src/harness/file-tools/read/types.js";
-import { isGrepSuccessDetails } from "../../../src/harness/file-tools/pi/guards.js";
-import { countTextTokensSync } from "../../../src/harness/token-counter.js";
-import { lspManager as lspFileHooks } from "../../../src/harness/lsp/index.js";
-import { registerExtension } from "../../helpers/extension.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { executeTool, textResult } from "../file-tools/extension-fixture.js";
+import fileTools from "../../../src/harness/extensions/file-tools.ts";
+import { formatErrorModelResult } from "../../../src/harness/file-tools/pi/model-output.ts";
+import { formatEditModelResult } from "../../../src/harness/file-tools/edit/presenter.ts";
+import { formatWriteModelResult } from "../../../src/harness/file-tools/write/presenter.ts";
+import { formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../../src/harness/file-tools/read/presenter.ts";
+import type { ReadPdfSuccess } from "../../../src/harness/file-tools/read/types.ts";
+import { isGrepSuccessDetails } from "../../../src/harness/file-tools/pi/guards.ts";
+import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
+import { lspManager as lspFileHooks } from "../../../src/harness/lsp/index.ts";
+import { registerExtension } from "../../helpers/extension.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { executeTool, textResult } from "../file-tools/extension-fixture.ts";
 
 describe("file-tools extension model output", () => {
 	const workspace = useTempDir("o-pi-file-output-");

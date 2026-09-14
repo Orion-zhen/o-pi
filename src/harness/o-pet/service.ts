@@ -1,5 +1,5 @@
-import { OPetClient, type OPetClientOptions, type OPetEventClient } from "./client.js";
-import type { OPetOutcome } from "./protocol.js";
+import { OPetClient, type OPetClientOptions, type OPetEventClient } from "./client.ts";
+import type { OPetOutcome } from "./protocol.ts";
 
 export interface OPetServiceOptions extends OPetClientOptions {
 	client?: OPetEventClient;

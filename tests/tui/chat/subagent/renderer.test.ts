@@ -1,9 +1,9 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createSubagentCommandProgressAdapter } from "../../../../src/tui/chat/subagent/adapter.js";
-import { renderSubagentCall, renderSubagentCommandEntry, renderSubagentResult } from "../../../../src/tui/chat/subagent/renderer.js";
-import { pendingSubagentResult } from "../../../../src/harness/subagent/executor.js";
-import type { SubagentCompletedResult, SubagentDetails, SubagentRunningResult, UsageStats } from "../../../../src/harness/subagent/types.js";
+import { createSubagentCommandProgressAdapter } from "../../../../src/tui/chat/subagent/adapter.ts";
+import { renderSubagentCall, renderSubagentCommandEntry, renderSubagentResult } from "../../../../src/tui/chat/subagent/renderer.ts";
+import { pendingSubagentResult } from "../../../../src/harness/subagent/executor.ts";
+import type { SubagentCompletedResult, SubagentDetails, SubagentRunningResult, UsageStats } from "../../../../src/harness/subagent/types.ts";
 
 const workspace = path.resolve("workspace");
 const outputFile = path.join(workspace, ".pi", "subagents", "runs", "run-1", "scout-1.md");

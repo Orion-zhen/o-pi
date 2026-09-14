@@ -2,12 +2,12 @@ import { chmod, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "n
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { FileSystemRuntime } from "../../../src/harness/filesystem/runtime.js";
-import { NativeFileSystemError, NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { contentHash } from "../../../src/harness/filesystem/services/text.js";
-import { deferredVoid as deferred } from "../../helpers/async.js";
-import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.js";
-import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
+import { FileSystemRuntime } from "../../../src/harness/filesystem/runtime.ts";
+import { NativeFileSystemError, NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { contentHash } from "../../../src/harness/filesystem/services/text.ts";
+import { deferredVoid as deferred } from "../../helpers/async.ts";
+import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.ts";
+import { commitBytes, useMutationFixture } from "./mutation-fixtures.ts";
 
 const test = useMutationFixture("o-pi-mutation-races-");
 const { openMutation, policy, resolveTarget, track } = test;

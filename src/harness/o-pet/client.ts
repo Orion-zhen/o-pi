@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Socket } from "node:net";
-import { prepareOPetEndpoint, resolveOPetEndpoint } from "./endpoint.js";
+import { prepareOPetEndpoint, resolveOPetEndpoint } from "./endpoint.ts";
 import {
 	serializeOPetMessage,
 	type OPetEvent,
-} from "./protocol.js";
+} from "./protocol.ts";
 
 const MAX_PENDING_EVENTS = 256;
 

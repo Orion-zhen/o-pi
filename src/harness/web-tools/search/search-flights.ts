@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
-import { resolveSearchApiKey } from "../search-providers/api-key.js";
-import type { SearchRouterResult } from "../search-providers/router.js";
-import type { WebToolsConfig } from "../config-types.js";
+import { resolveSearchApiKey } from "../search-providers/api-key.ts";
+import type { SearchRouterResult } from "../search-providers/router.ts";
+import type { WebToolsConfig } from "../config-types.ts";
 
 /** 会话内只合并相同 key 的并发搜索，不缓存已完成结果。 */
 export class SearchFlights {

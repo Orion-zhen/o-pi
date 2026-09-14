@@ -1,5 +1,5 @@
-import type { DirectoryRef, ExistingPathKind, ExistingRef } from "./path.js";
-import type { FsResult } from "./result.js";
+import type { DirectoryRef, ExistingPathKind, ExistingRef } from "./path.ts";
+import type { FsResult } from "./result.ts";
 
 export interface FileSnapshot {
 	/** Stable identity of one filesystem object, independent of content changes. */

@@ -5,19 +5,19 @@ import type {
 	MutationRunResult,
 	MutationSnapshot,
 	MutationTransform,
-} from "../contracts/mutation.js";
-import type { TargetRef } from "../contracts/path.js";
-import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
-import { isNativeError, mapNativeError } from "../kernel/native-error.js";
-import type { NativePathIdentity, ResolvedTargetPath, WorkspaceNamespaceKernel } from "../kernel/namespace.js";
+} from "../contracts/mutation.ts";
+import type { TargetRef } from "../contracts/path.ts";
+import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.ts";
+import { isNativeError, mapNativeError } from "../kernel/native-error.ts";
+import type { NativePathIdentity, ResolvedTargetPath, WorkspaceNamespaceKernel } from "../kernel/namespace.ts";
 import {
 	NativeFileSystemError,
 	type NativeFileSystem,
 	type NativeMetadata,
-} from "../platform/node/native-filesystem.js";
-import { MutationQueue, MutationQueueUnavailableError } from "../platform/node/mutation-queue.js";
-import { readStableFile } from "./content.js";
-import { contentHash } from "./text.js";
+} from "../platform/node/native-filesystem.ts";
+import { MutationQueue, MutationQueueUnavailableError } from "../platform/node/mutation-queue.ts";
+import { readStableFile } from "./content.ts";
+import { contentHash } from "./text.ts";
 
 export interface WorkspaceMutationServiceOptions {
 	readonly native: NativeFileSystem;

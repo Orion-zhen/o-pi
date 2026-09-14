@@ -1,11 +1,11 @@
 import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type createLiveTelemetryReport } from "../telemetry-report/live.js";
+import { type createLiveTelemetryReport } from "../telemetry-report/live.ts";
 type TelemetryPresenter = (
 	ctx: ExtensionCommandContext,
 	report: ReturnType<typeof createLiveTelemetryReport>,
 ) => Promise<void>;
 
-import { registerTelemetry, type TelemetryService } from "../telemetry/service.js";
+import { registerTelemetry, type TelemetryService } from "../telemetry/service.ts";
 
 const COMMAND_DESCRIPTION = "Show telemetry of current session.";
 
@@ -24,8 +24,8 @@ export function registerTelemetryCommand(
 		description: COMMAND_DESCRIPTION,
 		async handler(_args, ctx) {
 			const [{ createLiveTelemetryReport }, { formatLiveTelemetrySummary }] = await Promise.all([
-				import("../telemetry-report/live.js"),
-				import("../telemetry-report/presentation/summary.js"),
+				import("../telemetry-report/live.ts"),
+				import("../telemetry-report/presentation/summary.ts"),
 			]);
 			const report = createLiveTelemetryReport(service.snapshot());
 			if (ctx.mode !== "tui" || present === undefined) {

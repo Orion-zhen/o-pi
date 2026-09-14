@@ -1,8 +1,8 @@
-import type { CoordinatedPresenceConfig } from "../../../src/harness/discord-presence/coordinator-protocol.js";
-import type { DiscordCoordinatorOutput } from "../../../src/harness/discord-presence/output.js";
-import { agentSchemaPath, defaultAgentConfigPath, readDefaultJsoncConfigSync } from "../../../src/harness/config-loader.js";
-import type { DiscordPresenceTransport } from "../../../src/harness/discord-presence/transport.js";
-import type { DiscordActivityPayload, DiscordPresenceConfig, PresenceProfileConfig, PresenceConnectionStatus } from "../../../src/harness/discord-presence/types.js";
+import type { CoordinatedPresenceConfig } from "../../../src/harness/discord-presence/coordinator-protocol.ts";
+import type { DiscordCoordinatorOutput } from "../../../src/harness/discord-presence/output.ts";
+import { agentSchemaPath, defaultAgentConfigPath, readDefaultJsoncConfigSync } from "../../../src/harness/config-loader.ts";
+import type { DiscordPresenceTransport } from "../../../src/harness/discord-presence/transport.ts";
+import type { DiscordActivityPayload, DiscordPresenceConfig, PresenceProfileConfig, PresenceConnectionStatus } from "../../../src/harness/discord-presence/types.ts";
 
 export function enabledConfig(): DiscordPresenceConfig {
 	const config = readDefaultJsoncConfigSync({

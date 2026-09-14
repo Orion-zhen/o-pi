@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import type { LspManager } from "../manager/manager.js";
+import type { LspManager } from "../manager/manager.ts";
 
 type LspCommandApi = Pick<ExtensionAPI, "registerCommand">;
 

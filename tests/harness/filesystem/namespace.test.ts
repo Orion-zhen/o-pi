@@ -2,11 +2,11 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { FilesystemPathAccess } from "../../../src/harness/filesystem/contracts/access.js";
-import { createWorkspaceNamespace, type WorkspaceNamespaceKernel } from "../../../src/harness/filesystem/kernel/namespace.js";
-import { NativeFileSystemError, NodeNativeFileSystem, type NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { expectFsOk, overrideNativeFileSystem } from "./fixtures.js";
+import type { FilesystemPathAccess } from "../../../src/harness/filesystem/contracts/access.ts";
+import { createWorkspaceNamespace, type WorkspaceNamespaceKernel } from "../../../src/harness/filesystem/kernel/namespace.ts";
+import { NativeFileSystemError, NodeNativeFileSystem, type NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { expectFsOk, overrideNativeFileSystem } from "./fixtures.ts";
 
 const temp = useTempDir("o-pi-namespace-");
 let root: string;

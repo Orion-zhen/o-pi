@@ -1,12 +1,12 @@
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
-import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.js";
-import { buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.js";
+import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.ts";
+import { buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.ts";
 import {
 	ALLOW_ONCE, ALLOW_PERSISTENT, ALLOW_SESSION, DENY_WITH_INSTRUCTION,
 	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions,
-} from "../../../harness/approval/runtime/interaction.js";
-import type { ApprovalDecision, ApprovalRequest } from "../../../harness/approval/types.js";
+} from "../../../harness/approval/runtime/interaction.ts";
+import type { ApprovalDecision, ApprovalRequest } from "../../../harness/approval/types.ts";
 
 const HEIGHT_RATIO = 0.9;
 const FIXED_INNER_ROWS = 4;

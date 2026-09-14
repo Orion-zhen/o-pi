@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderSkillCall, renderSkillResult } from "../../../../src/tui/chat/skill-context/renderer.js";
-import type { SkillLoadDetails } from "../../../../src/harness/skill-context/types.js";
+import { renderSkillCall, renderSkillResult } from "../../../../src/tui/chat/skill-context/renderer.ts";
+import type { SkillLoadDetails } from "../../../../src/harness/skill-context/types.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,

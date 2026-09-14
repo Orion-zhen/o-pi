@@ -1,6 +1,6 @@
-import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.js";
-import { fsFailure, fsSuccess, type FsResult } from "../../filesystem/contracts/result.js";
-import type { DiscoveryOperations } from "../../filesystem/contracts/discovery.js";
+import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.ts";
+import { fsFailure, fsSuccess, type FsResult } from "../../filesystem/contracts/result.ts";
+import type { DiscoveryOperations } from "../../filesystem/contracts/discovery.ts";
 
 interface PathSuggestion {
 	readonly ref: FileRef;

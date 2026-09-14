@@ -1,9 +1,9 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.js";
-import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.js";
-import { deferred } from "../../../helpers/async.js";
-import { createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.js";
+import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.ts";
+import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
+import { deferred } from "../../../helpers/async.ts";
+import { createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 

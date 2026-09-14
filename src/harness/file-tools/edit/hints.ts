@@ -1,10 +1,10 @@
-import { findAll } from "./matches.js";
+import { findAll } from "./matches.ts";
 import type {
 	EditAnchorCandidate,
 	EditMatchHint,
 	EditNotFoundRecovery,
 	EditReplacement,
-} from "./types.js";
+} from "./types.ts";
 
 const MAX_ANCHORS = 8;
 const MAX_ANCHOR_OCCURRENCES = 64;

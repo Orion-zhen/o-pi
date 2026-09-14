@@ -1,7 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { formatStartupBanner } from "../../../../src/tui/views/home/banner.js";
-import { defaultTuiConfig, homeSnapshot, plainTheme, tuiSnapshot } from "../../shell/fixtures.js";
+import { formatStartupBanner } from "../../../../src/tui/views/home/banner.ts";
+import { defaultTuiConfig, homeSnapshot, plainTheme, tuiSnapshot } from "../../shell/fixtures.ts";
 
 const snapshot = homeSnapshot({ tokens: 0, contextWindow: 200_000, percent: 0 });
 

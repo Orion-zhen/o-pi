@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { FilesystemMount, FilesystemPathAccess } from "../contracts/access.js";
+import type { FilesystemMount, FilesystemPathAccess } from "../contracts/access.ts";
 import type {
 	DirectoryRef,
 	ExistingPathKind,
@@ -9,8 +9,8 @@ import type {
 	PathOperations,
 	ResolveExistingOptions,
 	TargetRef,
-} from "../contracts/path.js";
-import { fsFailure, fsSuccess, type FsError, type FsOperationContext, type FsResult } from "../contracts/result.js";
+} from "../contracts/path.ts";
+import { fsFailure, fsSuccess, type FsError, type FsOperationContext, type FsResult } from "../contracts/result.ts";
 import {
 	expandHomePath,
 	normalizeLogicalPath,
@@ -18,14 +18,14 @@ import {
 	WorkspaceAccessPolicy,
 	type BlockedPathMatch,
 	type PathIdentity,
-} from "./access-policy.js";
+} from "./access-policy.ts";
 import {
 	NodeNativeFileSystem,
 	type NativeFileSystem,
 	type NativeMetadata,
 	type NativePathKind,
-} from "../platform/node/native-filesystem.js";
-import { isNativeError, mapNativeError } from "./native-error.js";
+} from "../platform/node/native-filesystem.ts";
+import { isNativeError, mapNativeError } from "./native-error.ts";
 
 export interface WorkspaceNamespaceOptions {
 	readonly workspaceRoot: string;

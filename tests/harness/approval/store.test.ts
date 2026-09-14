@@ -2,11 +2,11 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.js";
-import { createExactAllowRules, createSimilarAllowRules } from "../../../src/harness/approval/rules/allow.js";
-import { FileApprovalStore } from "../../../src/harness/approval/rules/store.js";
-import type { ApprovalRequest, ApprovalUnit } from "../../../src/harness/approval/types.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
+import { createExactAllowRules, createSimilarAllowRules } from "../../../src/harness/approval/rules/allow.ts";
+import { FileApprovalStore } from "../../../src/harness/approval/rules/store.ts";
+import type { ApprovalRequest, ApprovalUnit } from "../../../src/harness/approval/types.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-store-");

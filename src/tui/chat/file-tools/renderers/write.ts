@@ -6,14 +6,14 @@ import {
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { formatToolCard } from "../../../components/tool-card.js";
-import { formatBytes, formatChars, joinParts } from "../../../components/text.js";
-import { isWriteSuccess } from "../../../../harness/file-tools/write/guards.js";
-import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.js";
-import { isMutationProgress, type MutationPostProcessProgressDetails } from "../../../../harness/file-tools/pi/progress.js";
-import type { TextRenderContext } from "./contracts.js";
-import { formatDiffStats, formatLspDiagnostics, formatLspSummary, formatMutationPostProcessSummary } from "./diagnostics.js";
-import { displayToolPath, formatFailureCard, stringArg, textComponent } from "./shared.js";
+import { formatToolCard } from "../../../components/tool-card.ts";
+import { formatBytes, formatChars, joinParts } from "../../../components/text.ts";
+import { isWriteSuccess } from "../../../../harness/file-tools/write/guards.ts";
+import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.ts";
+import { isMutationProgress, type MutationPostProcessProgressDetails } from "../../../../harness/file-tools/pi/progress.ts";
+import type { TextRenderContext } from "./contracts.ts";
+import { formatDiffStats, formatLspDiagnostics, formatLspSummary, formatMutationPostProcessSummary } from "./diagnostics.ts";
+import { displayToolPath, formatFailureCard, stringArg, textComponent } from "./shared.ts";
 
 interface WriteRendererState {
 	callComponent?: WriteCallComponent;

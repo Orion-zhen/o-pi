@@ -1,8 +1,8 @@
 import type { ApiKeyCredential } from "@earendil-works/pi-ai";
 
-import { resolveRefreshAuth } from "./auth.js";
-import { invalidModelsJsonc } from "./errors.js";
-import type { ModelConfig, ProviderConfig } from "./schema.js";
+import { resolveRefreshAuth } from "./auth.ts";
+import { invalidModelsJsonc } from "./errors.ts";
+import type { ModelConfig, ProviderConfig } from "./schema.ts";
 
 const DEFAULT_MODELS_ENDPOINT = "models";
 const DEFAULT_MODELS_ENDPOINT_TIMEOUT_MS = 30_000;

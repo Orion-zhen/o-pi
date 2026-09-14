@@ -1,7 +1,7 @@
 import path from "node:path";
 
-import type { CallRecord, Resource } from "../telemetry/types.js";
-import type { NumericSummary, RateSummary } from "./types.js";
+import type { CallRecord, Resource } from "../telemetry/types.ts";
+import type { NumericSummary, RateSummary } from "./types.ts";
 
 export function compare(left: string, right: string): number {
 	return left.localeCompare(right, "en");

@@ -1,12 +1,12 @@
-import { formatSearchNavigation, type SearchNavigation } from "../shared/search-navigation.js";
-import { countTextTokensSync } from "../../token-counter.js";
+import { formatSearchNavigation, type SearchNavigation } from "../shared/search-navigation.ts";
+import { countTextTokensSync } from "../../token-counter.ts";
 import type {
 	FindDetails,
 	FindMatch,
 	FindScopeError,
 	FindStats,
 	FindTruncationReason,
-} from "./types.js";
+} from "./types.ts";
 
 export interface RenderFindInput {
 	query: string;

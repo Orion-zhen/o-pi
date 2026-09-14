@@ -1,6 +1,6 @@
-import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.js";
-import type { ModuleImport } from "../types.js";
-import { walkNamed } from "./shared.js";
+import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.ts";
+import type { ModuleImport } from "../types.ts";
+import { walkNamed } from "./shared.ts";
 
 const DECLARATOR_NAME_TYPES = new Set([
 	"identifier", "field_identifier", "type_identifier", "qualified_identifier", "scoped_identifier", "operator_name", "destructor_name",

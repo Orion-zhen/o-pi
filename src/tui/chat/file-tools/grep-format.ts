@@ -1,9 +1,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { formatToolCard } from "../../components/tool-card.js";
-import { joinParts } from "../../components/text.js";
-import { isGrepSuccessDetails } from "../../../harness/file-tools/pi/guards.js";
-import { formatSearchNavigation } from "../../../harness/file-tools/shared/search-navigation.js";
-import type { GrepParams, GrepRegion, TruncationReason } from "../../../harness/file-tools/grep/types.js";
+import { formatToolCard } from "../../components/tool-card.ts";
+import { joinParts } from "../../components/text.ts";
+import { isGrepSuccessDetails } from "../../../harness/file-tools/pi/guards.ts";
+import { formatSearchNavigation } from "../../../harness/file-tools/shared/search-navigation.ts";
+import type { GrepParams, GrepRegion, TruncationReason } from "../../../harness/file-tools/grep/types.ts";
 
 const LIMIT_LABELS: Record<TruncationReason, string> = {
 	depth_limit: "depth",

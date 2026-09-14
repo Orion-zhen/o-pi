@@ -1,10 +1,10 @@
-import { createSemanticCodeRegion, createVerifiedCodeRegion, type CandidateSignal, type CodeRegion, type RankedRegion, type RegionEvidence, type TextHit } from "../../../src/harness/file-tools/grep/candidates.js";
-import type { CodeAuthority } from "../../../src/harness/code-index/types.js";
-import { packGrepResults, type GrepPackInput } from "../../../src/harness/file-tools/grep/packer.js";
-import { createQueryPlan, type QueryPlan } from "../../../src/harness/file-tools/grep/query-plan.js";
-import { rankCodeRegions } from "../../../src/harness/file-tools/grep/ranking.js";
-import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.js";
-import { isFailed } from "../../../src/harness/file-tools/shared/result.js";
+import { createSemanticCodeRegion, createVerifiedCodeRegion, type CandidateSignal, type CodeRegion, type RankedRegion, type RegionEvidence, type TextHit } from "../../../src/harness/file-tools/grep/candidates.ts";
+import type { CodeAuthority } from "../../../src/harness/code-index/types.ts";
+import { packGrepResults, type GrepPackInput } from "../../../src/harness/file-tools/grep/packer.ts";
+import { createQueryPlan, type QueryPlan } from "../../../src/harness/file-tools/grep/query-plan.ts";
+import { rankCodeRegions } from "../../../src/harness/file-tools/grep/ranking.ts";
+import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.ts";
+import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
 
 export function queryPlan(query: string): QueryPlan {
 	const result = createQueryPlan({ query });

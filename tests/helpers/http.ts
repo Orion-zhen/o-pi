@@ -1,6 +1,6 @@
 import { Headers } from "undici";
 
-import type { WebHttpResponse } from "../../src/harness/web-tools/network/types.js";
+import type { WebHttpResponse } from "../../src/harness/web-tools/network/types.ts";
 
 class FakeBody {
 	constructor(private readonly chunks: Uint8Array[]) {}

@@ -12,17 +12,17 @@ import type {
 	PathDiscovery,
 	PathDiscoveryEntryEvent,
 	PathDiscoveryEvent,
-} from "../contracts/discovery.js";
-import { toFileSnapshot, type FileSnapshot, type MetadataOperations } from "../contracts/metadata.js";
-import type { DirectoryRef, ExistingRef, SymlinkRef } from "../contracts/path.js";
-import { fsFailure, fsSuccess, type FsError, type FsOperationContext, type FsResult } from "../contracts/result.js";
-import type { VisibilityAnnotation, VisibilityOperations } from "../contracts/visibility.js";
-import { mapNativeError } from "../kernel/native-error.js";
-import type { WorkspaceNamespaceKernel } from "../kernel/namespace.js";
-import type { NativeDirectoryEntry, NativeFileSystem } from "../platform/node/native-filesystem.js";
-import { DIRECTORY_ENTRY_CONCURRENCY } from "./concurrency.js";
-import { compareLogicalPath } from "./path-order.js";
-import { nativeIdentity } from "./ref.js";
+} from "../contracts/discovery.ts";
+import { toFileSnapshot, type FileSnapshot, type MetadataOperations } from "../contracts/metadata.ts";
+import type { DirectoryRef, ExistingRef, SymlinkRef } from "../contracts/path.ts";
+import { fsFailure, fsSuccess, type FsError, type FsOperationContext, type FsResult } from "../contracts/result.ts";
+import type { VisibilityAnnotation, VisibilityOperations } from "../contracts/visibility.ts";
+import { mapNativeError } from "../kernel/native-error.ts";
+import type { WorkspaceNamespaceKernel } from "../kernel/namespace.ts";
+import type { NativeDirectoryEntry, NativeFileSystem } from "../platform/node/native-filesystem.ts";
+import { DIRECTORY_ENTRY_CONCURRENCY } from "./concurrency.ts";
+import { compareLogicalPath } from "./path-order.ts";
+import { nativeIdentity } from "./ref.ts";
 
 interface GlobSelector {
 	readonly staticDirectoryPrefix?: string;

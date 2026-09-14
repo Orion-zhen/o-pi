@@ -3,9 +3,9 @@ import path from "node:path";
 import { createModels } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
-import { createProviderAuth } from "../../../src/harness/openai-compatible-provider/auth.js";
-import { loadProvider } from "./fixtures.js";
-import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
+import { createProviderAuth } from "../../../src/harness/openai-compatible-provider/auth.ts";
+import { loadProvider } from "./fixtures.ts";
+import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 const activeSignal = new AbortController().signal;

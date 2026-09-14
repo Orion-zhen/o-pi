@@ -6,11 +6,11 @@ import {
 	createCompleteSchemaValidator,
 	createSchemaValidator,
 	loadValidatedMergedConfig,
-} from "../config-loader.js";
-import { ConfigCache, type ConfigSnapshot } from "../config-cache.js";
-import type { WebToolsConfig } from "./config-types.js";
-import { guardPublicHttpUrlLiteral } from "./network/url-guard.js";
-import { normalizeDomains } from "./search-providers/query.js";
+} from "../config-loader.ts";
+import { ConfigCache, type ConfigSnapshot } from "../config-cache.ts";
+import type { WebToolsConfig } from "./config-types.ts";
+import { guardPublicHttpUrlLiteral } from "./network/url-guard.ts";
+import { normalizeDomains } from "./search-providers/query.ts";
 
 const COOKIES_PATH_ENV = "PI_WEB_TOOLS_COOKIES";
 const SCHEMA_PATH = agentSchemaPath("web-tools.schema.json");

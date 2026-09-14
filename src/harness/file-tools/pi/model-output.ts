@@ -1,5 +1,5 @@
-import type { FailedResult, FileToolError } from "../shared/result.js";
-import { isPlainRecord } from "./guards.js";
+import type { FailedResult, FileToolError } from "../shared/result.ts";
+import { isPlainRecord } from "./guards.ts";
 
 /** File-tool failure body; complete structured details stay outside model text. */
 export function formatErrorModelResult(result: FailedResult): string {

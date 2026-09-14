@@ -1,9 +1,9 @@
-import type { ContentOperations } from "./content.js";
-import type { DiscoveryOperations } from "./discovery.js";
-import type { MetadataOperations } from "./metadata.js";
-import type { MutationOperations } from "./mutation.js";
-import type { DirectoryRef, PathOperations } from "./path.js";
-import type { VisibilityOperations } from "./visibility.js";
+import type { ContentOperations } from "./content.ts";
+import type { DiscoveryOperations } from "./discovery.ts";
+import type { MetadataOperations } from "./metadata.ts";
+import type { MutationOperations } from "./mutation.ts";
+import type { DirectoryRef, PathOperations } from "./path.ts";
+import type { VisibilityOperations } from "./visibility.ts";
 
 declare const workspaceIdentityBrand: unique symbol;
 

@@ -2,7 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model, ModelCostRates, Usage } from "@earendil-works/pi-ai";
 import type { SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 
-import { countTextTokensSync, type TokenCounterConfidence, type TokenCounterScope } from "../token-counter.js";
+import { countTextTokensSync, type TokenCounterConfidence, type TokenCounterScope } from "../token-counter.ts";
 
 export const PRUNE_STATE = "prune";
 export const COST_CLOSE_RATIO = 0.1;

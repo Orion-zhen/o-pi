@@ -1,13 +1,13 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { TokenCounterScope } from "../token-counter.js";
-import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
-import { loadSubagentConfig } from "./config.js";
-import { formatModelReference } from "./model.js";
-import { exceedsTokenLimit, formatFileHandoff, formatResultForContext, persistResult } from "./output.js";
-import { runPiProcess } from "./process.js";
-import { cleanupForkExecutionContext, createForkExecutionContext, formatForkAssignment } from "./session-context.js";
+import type { TokenCounterScope } from "../token-counter.ts";
+import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.ts";
+import { loadSubagentConfig } from "./config.ts";
+import { formatModelReference } from "./model.ts";
+import { exceedsTokenLimit, formatFileHandoff, formatResultForContext, persistResult } from "./output.ts";
+import { runPiProcess } from "./process.ts";
+import { cleanupForkExecutionContext, createForkExecutionContext, formatForkAssignment } from "./session-context.ts";
 import type {
 	AgentDefinition,
 	ExecutorContext,
@@ -26,7 +26,7 @@ import type {
 	SubagentToolParams,
 	SubagentToolResult,
 	UsageStats,
-} from "./types.js";
+} from "./types.ts";
 
 export class SubagentExecutionError extends Error {
 	constructor(message: string) {

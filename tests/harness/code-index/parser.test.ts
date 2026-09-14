@@ -4,11 +4,11 @@ import { promisify } from "node:util";
 import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createFileIdentity, createSymbolId } from "../../../src/harness/code-index/identity.js";
-import { analyzeCodeFile } from "../../../src/harness/code-index/parser.js";
-import { createTextTokenMatcher, tokenizeText } from "../../../src/harness/code-index/text.js";
-import { SourceIndex } from "../../../src/harness/code-index/source-index.js";
-import { dependencyPath } from "../../helpers/tree-sitter-dependencies.js";
+import { createFileIdentity, createSymbolId } from "../../../src/harness/code-index/identity.ts";
+import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
+import { createTextTokenMatcher, tokenizeText } from "../../../src/harness/code-index/text.ts";
+import { SourceIndex } from "../../../src/harness/code-index/source-index.ts";
+import { dependencyPath } from "../../helpers/tree-sitter-dependencies.ts";
 
 const require = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
@@ -25,7 +25,7 @@ const treeSitterModules = {
 
 afterEach(() => {
 	vi.useRealTimers();
-	vi.doUnmock("../../../src/harness/syntax-tree/loader.js");
+	vi.doUnmock("../../../src/harness/syntax-tree/loader.ts");
 });
 
 async function symbols(filePath: string, text: string): Promise<Array<[string, string | undefined, string | undefined]>> {
@@ -74,8 +74,8 @@ describe("shared code parser", () => {
 
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
 
-		await import("../../../src/harness/file-tools/grep/command.js");
-		const { default: fileTools } = await import("../../../src/harness/extensions/file-tools.js");
+		await import("../../../src/harness/file-tools/grep/command.ts");
+		const { default: fileTools } = await import("../../../src/harness/extensions/file-tools.ts");
 		const handlers = new Map<string, (...args: unknown[]) => unknown>();
 		fileTools({
 			events: createEventBus(),
@@ -412,10 +412,10 @@ describe("shared code parser", () => {
 
 	it("runtime 或 grammar 失败时安全降级为空代码单元", async () => {
 		vi.resetModules();
-		vi.doMock("../../../src/harness/syntax-tree/loader.js", () => ({
+		vi.doMock("../../../src/harness/syntax-tree/loader.ts", () => ({
 			loadGrammar: async () => { throw new Error("runtime unavailable"); },
 		}));
-		const { analyzeCodeFile: analyzeWithFailure } = await import("../../../src/harness/code-index/parser.js");
+		const { analyzeCodeFile: analyzeWithFailure } = await import("../../../src/harness/code-index/parser.ts");
 		expect(await analyzeWithFailure("broken.ts", "export function demo() {}\n")).toMatchObject({
 			status: "error",
 			language: "typescript", units: [],

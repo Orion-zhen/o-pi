@@ -2,9 +2,9 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
-vi.mock("../../../src/harness/worker-runtime/typescript-worker.js", async () => {
+vi.mock("../../../src/harness/worker-runtime/typescript-worker.ts", async () => {
 	const { Worker } = await import("node:worker_threads");
 	return {
 		createTypeScriptWorker: () => new Worker([
@@ -14,7 +14,7 @@ vi.mock("../../../src/harness/worker-runtime/typescript-worker.js", async () => 
 	};
 });
 
-import { clearGrepTestRuntime, grepWorkspaceFiles } from "../../helpers/grep-tool.js";
+import { clearGrepTestRuntime, grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
 
 const workspaceTemp = useTempDir("o-pi-grep-worker-fallback-");
 const configTemp = useTempDir("o-pi-grep-worker-fallback-config-");

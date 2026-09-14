@@ -3,8 +3,8 @@ import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadPromptTemplates } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/core/prompt-templates.js";
 import { beforeEach, describe, expect, it } from "vitest";
-import agentsPromptsExtension from "../../../src/harness/extensions/agents-prompts.js";
-import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.js";
+import agentsPromptsExtension from "../../../src/harness/extensions/agents-prompts.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 interface ResourcesEvent {
 	type: "resources_discover";

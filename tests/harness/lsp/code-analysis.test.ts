@@ -4,10 +4,10 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SymbolKind, type ServerCapabilities, type SymbolInformation } from "vscode-languageserver-protocol";
 
-import type { CodeDocument } from "../../../src/harness/code-index/types.js";
-import { LspClient } from "../../../src/harness/lsp/client/client.js";
-import { LspManager } from "../../../src/harness/lsp/manager/manager.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import type { CodeDocument } from "../../../src/harness/code-index/types.ts";
+import { LspClient } from "../../../src/harness/lsp/client/client.ts";
+import { LspManager } from "../../../src/harness/lsp/manager/manager.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let workspace: string;
 const workspaceTemp = useTempDir("o-pi-lsp-analysis-workspace-");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { repositoryImportEdges } from "../helpers/import-graph.js";
+import { repositoryImportEdges } from "../helpers/import-graph.ts";
 
 const PI_TUI = "@earendil-works/pi-tui";
 

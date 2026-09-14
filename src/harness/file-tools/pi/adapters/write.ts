@@ -1,11 +1,11 @@
-import { writeFile } from "../../write/command.js";
-import type { WriteParams, WritePreviewSuccess } from "../../write/types.js";
-import { isFailed } from "../../shared/result.js";
-import { formatWriteModelResult } from "../../write/presenter.js";
-import { withFileToolsInvocation, type MutationRuntime } from "../invocation.js";
-import { bindFileLsp } from "../lsp.js";
-import { piTextDiffGenerator } from "../ports/text-diff.js";
-import { createMutationPostProcessObserver, mutationProgress } from "../progress.js";
+import { writeFile } from "../../write/command.ts";
+import type { WriteParams, WritePreviewSuccess } from "../../write/types.ts";
+import { isFailed } from "../../shared/result.ts";
+import { formatWriteModelResult } from "../../write/presenter.ts";
+import { withFileToolsInvocation, type MutationRuntime } from "../invocation.ts";
+import { bindFileLsp } from "../lsp.ts";
+import { piTextDiffGenerator } from "../ports/text-diff.ts";
+import { createMutationPostProcessObserver, mutationProgress } from "../progress.ts";
 
 export async function executeWrite(params: WriteParams, runtime: MutationRuntime) {
 	return withFileToolsInvocation(runtime, async (opened) => {

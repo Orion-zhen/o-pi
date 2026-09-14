@@ -1,11 +1,11 @@
-import { compareCodeUnitNesting } from "../../code-index/units.js";
-import { languageFromPath } from "../../syntax-tree/grammars.js";
-import type { AnalyzedFileIndex, IndexedCodeUnit } from "../../code-index/types.js";
-import { inferCodeAuthorities } from "../../code-index/authority.js";
-import type { TextContent } from "../../filesystem/contracts/content.js";
-import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
+import { compareCodeUnitNesting } from "../../code-index/units.ts";
+import { languageFromPath } from "../../syntax-tree/grammars.ts";
+import type { AnalyzedFileIndex, IndexedCodeUnit } from "../../code-index/types.ts";
+import { inferCodeAuthorities } from "../../code-index/authority.ts";
+import type { TextContent } from "../../filesystem/contracts/content.ts";
+import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import { fail, mapFsError, type ToolOutcome } from "../shared/result.ts";
 import {
 	createSemanticCodeRegion,
 	createVerifiedCodeRegion,
@@ -13,11 +13,11 @@ import {
 	type RegionEvidence,
 	type TextHit,
 	type VerifiedCodeRegion,
-} from "./candidates.js";
-import type { ScopeInventory, ScopedFile } from "./inventory.js";
-import { AbortGrepParse, GrepParser } from "./parser-pool.js";
-import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.js";
-import type { GrepScopeError, GrepSkippedFiles } from "./types.js";
+} from "./candidates.ts";
+import type { ScopeInventory, ScopedFile } from "./inventory.ts";
+import { AbortGrepParse, GrepParser } from "./parser-pool.ts";
+import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.ts";
+import type { GrepScopeError, GrepSkippedFiles } from "./types.ts";
 
 const AST_CACHE_MAX_ENTRIES = 2_048;
 

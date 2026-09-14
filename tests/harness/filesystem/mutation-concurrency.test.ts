@@ -2,12 +2,12 @@ import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { FileSystemRuntime } from "../../../src/harness/filesystem/runtime.js";
-import { MutationQueue } from "../../../src/harness/filesystem/platform/node/mutation-queue.js";
-import { contentHash } from "../../../src/harness/filesystem/services/text.js";
-import { deferredVoid as deferred } from "../../helpers/async.js";
-import { expectFsOk as expectOk, textBytes as bytes } from "./fixtures.js";
-import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
+import { FileSystemRuntime } from "../../../src/harness/filesystem/runtime.ts";
+import { MutationQueue } from "../../../src/harness/filesystem/platform/node/mutation-queue.ts";
+import { contentHash } from "../../../src/harness/filesystem/services/text.ts";
+import { deferredVoid as deferred } from "../../helpers/async.ts";
+import { expectFsOk as expectOk, textBytes as bytes } from "./fixtures.ts";
+import { commitBytes, useMutationFixture } from "./mutation-fixtures.ts";
 
 const test = useMutationFixture("o-pi-mutation-concurrency-");
 const { openMutation, openRuntime, policy, resolveTarget, track } = test;

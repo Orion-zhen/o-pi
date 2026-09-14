@@ -3,10 +3,10 @@ import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
-import { isNotFound, stripUtf8Bom } from "../config-loader.js";
-import { compileSchemaValidator, type SchemaValidationError } from "../schema-validator.js";
-import { invalidModelsJsonc } from "./errors.js";
-import { ModelsJsoncConfigSchema, type ModelsJsoncConfig } from "./schema.js";
+import { isNotFound, stripUtf8Bom } from "../config-loader.ts";
+import { compileSchemaValidator, type SchemaValidationError } from "../schema-validator.ts";
+import { invalidModelsJsonc } from "./errors.ts";
+import { ModelsJsoncConfigSchema, type ModelsJsoncConfig } from "./schema.ts";
 
 const validateModelsJsonc = compileSchemaValidator(ModelsJsoncConfigSchema);
 

@@ -3,9 +3,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { CallRecord, RunRecord } from "../../../src/harness/telemetry/types.js";
-import { JsonlTelemetryWriter, telemetryRunFile } from "../../../src/harness/telemetry/writer.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import type { CallRecord, RunRecord } from "../../../src/harness/telemetry/types.ts";
+import { JsonlTelemetryWriter, telemetryRunFile } from "../../../src/harness/telemetry/writer.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("pi-telemetry-writer-");
 

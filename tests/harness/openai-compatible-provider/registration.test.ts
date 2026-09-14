@@ -4,11 +4,11 @@ import { InMemoryCredentialStore, InMemoryModelsStore, type Provider } from "@ea
 import { ModelRegistry, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import openAICompatibleProvider from "../../../src/harness/extensions/openai-compatible-provider.js";
-import { loadModelsJsoncConfig } from "../../../src/harness/openai-compatible-provider/config.js";
-import { registerOpenAICompatibleProviders } from "../../../src/harness/openai-compatible-provider/register.js";
-import { createExtensionHarness, createRegistryPi, loadConfigFromText, providerConfig } from "./fixtures.js";
-import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
+import openAICompatibleProvider from "../../../src/harness/extensions/openai-compatible-provider.ts";
+import { loadModelsJsoncConfig } from "../../../src/harness/openai-compatible-provider/config.ts";
+import { registerOpenAICompatibleProviders } from "../../../src/harness/openai-compatible-provider/register.ts";
+import { createExtensionHarness, createRegistryPi, loadConfigFromText, providerConfig } from "./fixtures.ts";
+import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 

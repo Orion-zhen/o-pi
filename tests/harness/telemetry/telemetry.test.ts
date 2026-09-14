@@ -13,15 +13,15 @@ import { describe, expect, it } from "vitest";
 
 import path from "node:path";
 import { loadExtensions } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
-import { presentation } from "../../../src/tui/extensions.js";
-import { registerTelemetryCommand } from "../../../src/harness/extensions/telemetry.js";
-import { attachTelemetryService } from "../../../src/harness/telemetry/pi-adapter.js";
-import { defineToolTelemetry, fields } from "../../../src/harness/telemetry/projection.js";
-import { registerTelemetry, TelemetryService } from "../../../src/harness/telemetry/service.js";
-import { registerTool as registerProjectTool } from "../../../src/harness/register-tool.js";
-import type { CallRecord, GitRevision, TelemetryRecord, ToolTelemetry } from "../../../src/harness/telemetry/types.js";
-import type { TelemetryWriter } from "../../../src/harness/telemetry/writer.js";
-import { deferred } from "../../helpers/async.js";
+import { presentation } from "../../../src/tui/extensions.ts";
+import { registerTelemetryCommand } from "../../../src/harness/extensions/telemetry.ts";
+import { attachTelemetryService } from "../../../src/harness/telemetry/pi-adapter.ts";
+import { defineToolTelemetry, fields } from "../../../src/harness/telemetry/projection.ts";
+import { registerTelemetry, TelemetryService } from "../../../src/harness/telemetry/service.ts";
+import { registerTool as registerProjectTool } from "../../../src/harness/register-tool.ts";
+import type { CallRecord, GitRevision, TelemetryRecord, ToolTelemetry } from "../../../src/harness/telemetry/types.ts";
+import type { TelemetryWriter } from "../../../src/harness/telemetry/writer.ts";
+import { deferred } from "../../helpers/async.ts";
 
 const parameters = Type.Object({ path: Type.String(), count: Type.Optional(Type.Integer()) }, { additionalProperties: false });
 interface TestDetails { status: string; error_code?: string; truncated?: boolean }

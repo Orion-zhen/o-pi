@@ -1,5 +1,5 @@
-import type { ExistingPathKind, ExistingRef } from "./path.js";
-import type { FsResult } from "./result.js";
+import type { ExistingPathKind, ExistingRef } from "./path.ts";
+import type { FsResult } from "./result.ts";
 
 export type VisibilityIntent =
 	| "list-entry"

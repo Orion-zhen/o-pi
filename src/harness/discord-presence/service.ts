@@ -1,15 +1,15 @@
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { PresenceActivityTracker, type ToolStreamEvent } from "./activity-tracker.js";
-import { loadDiscordPresenceConfig } from "./config.js";
-import { DiscordPresenceCoordinatorClient } from "./coordinator-client.js";
-import { renderDiscordActivity } from "./render.js";
+import { PresenceActivityTracker, type ToolStreamEvent } from "./activity-tracker.ts";
+import { loadDiscordPresenceConfig } from "./config.ts";
+import { DiscordPresenceCoordinatorClient } from "./coordinator-client.ts";
+import { renderDiscordActivity } from "./render.ts";
 import type {
 	DiscordActivityPayload,
 	DiscordPresenceConfig,
 	PresenceConnectionStatus,
 	PresenceSession,
-} from "./types.js";
+} from "./types.ts";
 
 export interface PresenceStartContext {
 	cwd: string;

@@ -1,11 +1,11 @@
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
-import { createSubagentExtension } from "../../../src/harness/extensions/subagent.js";
-import { presentation } from "../../../src/tui/extensions.js";
+import { createSubagentExtension } from "../../../src/harness/extensions/subagent.ts";
+import { presentation } from "../../../src/tui/extensions.ts";
 const subagentExtension = createSubagentExtension(presentation.subagent);
-import { SUBAGENT_COMMAND_ENTRY } from "../../../src/harness/subagent/constants.js";
-import { preserveEnv } from "../../helpers/lifecycle.js";
+import { SUBAGENT_COMMAND_ENTRY } from "../../../src/harness/subagent/constants.ts";
+import { preserveEnv } from "../../helpers/lifecycle.ts";
 
 preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK");
 

@@ -1,11 +1,11 @@
-import { GrepTool } from "../../src/harness/file-tools/grep/command.js";
-import type { GrepParams, GrepSuccess } from "../../src/harness/file-tools/grep/types.js";
-import { bindFileLsp } from "../../src/harness/file-tools/pi/lsp.js";
-import { FileToolsHost } from "../../src/harness/file-tools/runtime/host.js";
-import { isFailed, type ToolOutcome } from "../../src/harness/file-tools/shared/result.js";
-import type { LspFileOperations } from "../../src/harness/lsp/file-operations.js";
+import { GrepTool } from "../../src/harness/file-tools/grep/command.ts";
+import type { GrepParams, GrepSuccess } from "../../src/harness/file-tools/grep/types.ts";
+import { bindFileLsp } from "../../src/harness/file-tools/pi/lsp.ts";
+import { FileToolsHost } from "../../src/harness/file-tools/runtime/host.ts";
+import { isFailed, type ToolOutcome } from "../../src/harness/file-tools/shared/result.ts";
+import type { LspFileOperations } from "../../src/harness/lsp/file-operations.ts";
 
-import { lspOperations } from "./lsp.js";
+import { lspOperations } from "./lsp.ts";
 
 let host = new FileToolsHost();
 let tool = new GrepTool();

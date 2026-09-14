@@ -1,11 +1,11 @@
 import { VERSION, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { renderCompactWordmark, renderWordmark } from "./brand.js";
-import { formatCapabilitySummary, summarizeCapabilityGroups } from "./capabilities.js";
-import { formatProject, formatTokens } from "../../components/format.js";
-import type { HomeAnimationFrame } from "./animation.js";
-import { joinParts } from "../../components/text.js";
-import type { TuiSnapshot, TuiHomeConfig } from "../../shell/types.js";
+import { renderCompactWordmark, renderWordmark } from "./brand.ts";
+import { formatCapabilitySummary, summarizeCapabilityGroups } from "./capabilities.ts";
+import { formatProject, formatTokens } from "../../components/format.ts";
+import type { HomeAnimationFrame } from "./animation.ts";
+import { joinParts } from "../../components/text.ts";
+import type { TuiSnapshot, TuiHomeConfig } from "../../shell/types.ts";
 
 export const HOME_CONTENT_WIDTH = 88;
 const MEDIUM_MIN_WIDTH = 56;

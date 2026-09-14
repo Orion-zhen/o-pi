@@ -1,8 +1,8 @@
 import type { CallHierarchyIncomingCall, Location, Range } from "vscode-languageserver-protocol";
-import type { CodeNavigation, IndexedCodeUnit } from "../../code-index/types.js";
-import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
-import { waitUnlessAborted } from "./deadline.js";
-import type { LspCodeAnalysisInput } from "./code-analysis.js";
+import type { CodeNavigation, IndexedCodeUnit } from "../../code-index/types.ts";
+import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.ts";
+import { waitUnlessAborted } from "./deadline.ts";
+import type { LspCodeAnalysisInput } from "./code-analysis.ts";
 
 /** 复用关系响应和受控快照，不发送额外 LSP 请求。 */
 export async function relationNavigation(

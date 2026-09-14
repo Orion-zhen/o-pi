@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { renderDisplayMathImage } from "../../../../src/tui/chat/math/renderer.js";
-import type { TuiMathConfig } from "../../../../src/tui/shell/types.js";
+import { renderDisplayMathImage } from "../../../../src/tui/chat/math/renderer.ts";
+import type { TuiMathConfig } from "../../../../src/tui/shell/types.ts";
 
 const mathConfig: TuiMathConfig = {
 	enabled: true,

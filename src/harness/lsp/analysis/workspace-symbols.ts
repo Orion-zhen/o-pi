@@ -1,7 +1,7 @@
 import type { SymbolInformation, WorkspaceSymbol } from "vscode-languageserver-protocol";
 
-import { LspClient } from "../client/client.js";
-import type { OperationDeadline } from "./deadline.js";
+import { LspClient } from "../client/client.ts";
+import type { OperationDeadline } from "./deadline.ts";
 import {
 	hasUriOnlyWorkspaceSymbolLocation,
 	normalizeSymbolText,
@@ -9,9 +9,9 @@ import {
 	workspaceSymbolLocation,
 	workspaceSymbolSeed,
 	type WorkspaceSymbolSeed,
-} from "./symbols.js";
-import type { LspConfig } from "../types.js";
-import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
+} from "./symbols.ts";
+import type { LspConfig } from "../types.ts";
+import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.ts";
 
 const RESOLVE_CONCURRENCY = 4;
 

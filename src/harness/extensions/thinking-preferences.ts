@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import { ThinkingLevelPreferences } from "../thinking-level/preferences.js";
+import { ThinkingLevelPreferences } from "../thinking-level/preferences.ts";
 
 type ThinkingPreferencesAPI = Pick<
 	ExtensionAPI,

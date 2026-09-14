@@ -3,18 +3,18 @@ import path from "node:path";
 import type { Dispatcher } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import * as configModule from "../../../src/harness/web-tools/config.js";
-import * as fetchModule from "../../../src/harness/web-tools/fetch/webfetch-runtime.js";
-import * as searchModule from "../../../src/harness/web-tools/search/websearch-runtime.js";
-import * as apiModule from "../../../src/harness/web-tools/search-providers/api-provider.js";
-import * as ddgModule from "../../../src/harness/web-tools/search-providers/duckduckgo-html-provider.js";
-import type { FormalWebSearchProviderId, WebToolsRuntime } from "../../../src/harness/web-tools/core/types.js";
-import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.js";
-import { createWebToolsRuntime } from "../../../src/harness/web-tools/web-tools-runtime.js";
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { deferredVoid } from "../../helpers/async.js";
-import { httpResponse } from "../../helpers/http.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import * as configModule from "../../../src/harness/web-tools/config.ts";
+import * as fetchModule from "../../../src/harness/web-tools/fetch/webfetch-runtime.ts";
+import * as searchModule from "../../../src/harness/web-tools/search/websearch-runtime.ts";
+import * as apiModule from "../../../src/harness/web-tools/search-providers/api-provider.ts";
+import * as ddgModule from "../../../src/harness/web-tools/search-providers/duckduckgo-html-provider.ts";
+import type { FormalWebSearchProviderId, WebToolsRuntime } from "../../../src/harness/web-tools/core/types.ts";
+import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.ts";
+import { createWebToolsRuntime } from "../../../src/harness/web-tools/web-tools-runtime.ts";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { deferredVoid } from "../../helpers/async.ts";
+import { httpResponse } from "../../helpers/http.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 const network = vi.hoisted(() => ({ fetch: vi.fn<WebHttpFetch>() }));
 vi.mock("undici/index.js", async (importOriginal) => ({

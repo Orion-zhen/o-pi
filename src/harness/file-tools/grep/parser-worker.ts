@@ -1,7 +1,7 @@
 import { parentPort } from "node:worker_threads";
 
-import { analyzeCodeFile } from "../../code-index/parser.js";
-import type { AnalyzedFileIndex } from "../../code-index/types.js";
+import { analyzeCodeFile } from "../../code-index/parser.ts";
+import type { AnalyzedFileIndex } from "../../code-index/types.ts";
 
 interface ParseRequest {
 	id: number;

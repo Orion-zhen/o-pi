@@ -1,4 +1,4 @@
-import type { TuiIconMode } from "../shell/types.js";
+import type { TuiIconMode } from "../shell/types.ts";
 
 export type ToolCardStatus = "running" | "success" | "error" | "warning" | "neutral";
 type TuiIconName = "git";

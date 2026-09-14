@@ -1,4 +1,4 @@
-import type { GrammarSpec } from "./types.js";
+import type { GrammarSpec } from "./types.ts";
 
 const javascriptGrammar = "tree-sitter-javascript/tree-sitter-javascript.wasm";
 

@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { loadSkillsFromDir, type BuildSystemPromptOptions, type SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import { parseSkillFile } from "./frontmatter.js";
-import type { LoadedSkill, SkillCandidate } from "./types.js";
+import { parseSkillFile } from "./frontmatter.ts";
+import type { LoadedSkill, SkillCandidate } from "./types.ts";
 
 /** 合并框架的提示词技能与斜杠命令发现结果，同名时 project 覆盖 user。 */
 export function collectSkillCandidates(options: BuildSystemPromptOptions | undefined, commands: SlashCommandInfo[]): SkillCandidate[] {

@@ -1,18 +1,18 @@
 import { availableParallelism } from "node:os";
 
-import { createTextTokenMatcher, splitTokens } from "../../code-index/text.js";
-import { languageFromPath } from "../../syntax-tree/grammars.js";
-import type { ScannedLine, TextContent } from "../../filesystem/contracts/content.js";
-import { scannedTextLines, utf8ByteOffset } from "../../filesystem/services/text.js";
-import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { LexicalTextAnchor, TextFileEvidence, TextHit } from "./candidates.js";
-import type { GrepContentCacheLease } from "./content-cache.js";
-import type { ScopeInventory, ScopedFile } from "./inventory.js";
-import type { QueryPlan } from "./query-plan.js";
-import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.js";
-import type { GrepScopeError, GrepSkippedFiles } from "./types.js";
+import { createTextTokenMatcher, splitTokens } from "../../code-index/text.ts";
+import { languageFromPath } from "../../syntax-tree/grammars.ts";
+import type { ScannedLine, TextContent } from "../../filesystem/contracts/content.ts";
+import { scannedTextLines, utf8ByteOffset } from "../../filesystem/services/text.ts";
+import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import { fail, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import type { LexicalTextAnchor, TextFileEvidence, TextHit } from "./candidates.ts";
+import type { GrepContentCacheLease } from "./content-cache.ts";
+import type { ScopeInventory, ScopedFile } from "./inventory.ts";
+import type { QueryPlan } from "./query-plan.ts";
+import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.ts";
+import type { GrepScopeError, GrepSkippedFiles } from "./types.ts";
 
 const MAX_ANCHORS_PER_FILE = 64;
 const FILE_SCAN_CONCURRENCY = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2)));

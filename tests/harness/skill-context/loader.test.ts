@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BuildSystemPromptOptions, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
-import { collectModelInvocableSkillIndex, collectSkillCandidates, loadSkill } from "../../../src/harness/skill-context/loader.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { collectModelInvocableSkillIndex, collectSkillCandidates, loadSkill } from "../../../src/harness/skill-context/loader.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 let tempDir: string;
 const temp = useTempDir("o-pi-skill-loader-");

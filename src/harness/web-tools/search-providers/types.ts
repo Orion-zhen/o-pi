@@ -1,4 +1,4 @@
-import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchItem, WebSearchProviderId } from "../core/types.js";
+import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchItem, WebSearchProviderId } from "../core/types.ts";
 
 export type SearchIntent = "exact" | "navigation" | "news" | "fact" | "paper" | "semantic" | "general";
 

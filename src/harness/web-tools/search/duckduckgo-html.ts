@@ -1,21 +1,21 @@
 import type { Dispatcher } from "undici";
 import { Parser } from "htmlparser2";
 
-import { classifyNetworkError } from "../network/errors.js";
-import { readLimitedResponseBody, responseContentLength } from "../network/response-body.js";
-import type { WebHttpFetch, WebHttpResponse } from "../network/types.js";
-import type { WebToolsConfig } from "../config-types.js";
-import type { WebSearchFailureDetails, WebSearchItem } from "../core/types.js";
+import { classifyNetworkError } from "../network/errors.ts";
+import { readLimitedResponseBody, responseContentLength } from "../network/response-body.ts";
+import type { WebHttpFetch, WebHttpResponse } from "../network/types.ts";
+import type { WebToolsConfig } from "../config-types.ts";
+import type { WebSearchFailureDetails, WebSearchItem } from "../core/types.ts";
 import {
 	normalizeSearchResultUrl,
 	normalizeSearchText,
 	SEARCH_RESULT_MAX_TITLE_CHARS,
-} from "../network/url-utils.js";
+} from "../network/url-utils.ts";
 
-import { compileSearchQuery } from "../search-providers/query.js";
-import { selectSearchSnippet } from "../search-providers/snippets.js";
+import { compileSearchQuery } from "../search-providers/query.ts";
+import { selectSearchSnippet } from "../search-providers/snippets.ts";
 
-export { normalizeSearchText } from "../network/url-utils.js";
+export { normalizeSearchText } from "../network/url-utils.ts";
 
 export const SEARCH_ENDPOINT = new URL("https://html.duckduckgo.com/html/");
 

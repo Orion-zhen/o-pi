@@ -1,6 +1,6 @@
-import { classifyTool, preserveStableMetadata, stableExecutableFromCommand } from "./activity.js";
-import { completedTopLevelStringProperty, stringProperty } from "./streaming.js";
-import type { PresenceActivity } from "./types.js";
+import { classifyTool, preserveStableMetadata, stableExecutableFromCommand } from "./activity.ts";
+import { completedTopLevelStringProperty, stringProperty } from "./streaming.ts";
+import type { PresenceActivity } from "./types.ts";
 
 interface ToolCall {
 	id: string;

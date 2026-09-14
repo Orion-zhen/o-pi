@@ -1,5 +1,5 @@
 import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
-import { countTextTokensSync } from "../../harness/token-counter.js";
+import { countTextTokensSync } from "../../harness/token-counter.ts";
 
 export interface AssistantPerformance {
 	bodyTps: number;

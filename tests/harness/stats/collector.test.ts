@@ -1,8 +1,8 @@
 import type { Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { collectTools } from "../../../src/harness/stats/collector.js";
-import { summarizeUsage } from "../../../src/harness/stats/usage.js";
-import { assistantToolCall, toolResult, userMessage } from "./message-fixtures.js";
+import { collectTools } from "../../../src/harness/stats/collector.ts";
+import { summarizeUsage } from "../../../src/harness/stats/usage.ts";
+import { assistantToolCall, toolResult, userMessage } from "./message-fixtures.ts";
 
 describe("stats collector", () => {
 	it("空会话不产生费用或命中率，最后一轮零用量清除当前命中率", () => {

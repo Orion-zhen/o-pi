@@ -14,7 +14,7 @@ import {
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import type { LspDocumentSymbols, LspRequestOptions } from "../types.js";
+import type { LspDocumentSymbols, LspRequestOptions } from "../types.ts";
 
 /** 协议能力函数只依赖已建立连接的请求接口。 */
 export interface LspFeatureSession {

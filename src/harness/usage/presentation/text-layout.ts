@@ -1,4 +1,4 @@
-import { stripTerminalSequences } from "../../terminal-text.js";
+import { stripTerminalSequences } from "../../terminal-text.ts";
 import { eastAsianWidth } from "get-east-asian-width";
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });

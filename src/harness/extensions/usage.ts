@@ -1,7 +1,7 @@
 import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { UsageService } from "../usage/service.js";
-import { UsageRequestError, type UsageSnapshot } from "../usage/types.js";
+import { UsageService } from "../usage/service.ts";
+import { UsageRequestError, type UsageSnapshot } from "../usage/types.ts";
 
 const COMMAND_DESCRIPTION = "Show OAuth plan usage.";
 const COMMAND_USAGE = "Usage: /usage [--refresh]";
@@ -37,7 +37,7 @@ export default function usageExtension(
 				return;
 			}
 
-			const { renderUsage, renderUsageCancelled } = await import("../usage/presentation/render.js");
+			const { renderUsage, renderUsageCancelled } = await import("../usage/presentation/render.ts");
 			const lines = result === "aborted" ? renderUsageCancelled(96) : renderUsage(result, 96);
 			ctx.ui.notify(lines.join("\n"), result === "aborted" ? "error" : "info");
 		},

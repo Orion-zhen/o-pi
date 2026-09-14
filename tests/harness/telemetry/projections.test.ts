@@ -1,23 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { bashTelemetry } from "../../../src/harness/bash-tool/telemetry.js";
-import type { BashParams, BashToolDetails } from "../../../src/harness/bash-tool/types.js";
-import { editTelemetry } from "../../../src/harness/file-tools/telemetry/edit.js";
-import { findTelemetry } from "../../../src/harness/file-tools/telemetry/find.js";
-import { grepTelemetry } from "../../../src/harness/file-tools/telemetry/grep.js";
-import { readTelemetry } from "../../../src/harness/file-tools/telemetry/read.js";
-import { writeTelemetry } from "../../../src/harness/file-tools/telemetry/write.js";
-import type { ToolOutcome } from "../../../src/harness/file-tools/shared/result.js";
-import type { ReadFileSuccess, ReadParams } from "../../../src/harness/file-tools/read/types.js";
-import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.js";
-import type { FindDetails, FindParams } from "../../../src/harness/file-tools/find/types.js";
-import type { GrepParams, GrepSuccess } from "../../../src/harness/file-tools/grep/types.js";
-import type { WriteParams, WriteSuccess } from "../../../src/harness/file-tools/write/types.js";
-import { safeProject } from "../../../src/harness/telemetry/projection.js";
-import type { TelemetryFacts, ToolTelemetry } from "../../../src/harness/telemetry/types.js";
-import { webFetchTelemetry } from "../../../src/harness/web-tools/telemetry/webfetch.js";
-import { webSearchTelemetry } from "../../../src/harness/web-tools/telemetry/websearch.js";
-import type { WebFetchDetails, WebFetchParams, WebSearchDetails, WebSearchParams } from "../../../src/harness/web-tools/core/types.js";
+import { bashTelemetry } from "../../../src/harness/bash-tool/telemetry.ts";
+import type { BashParams, BashToolDetails } from "../../../src/harness/bash-tool/types.ts";
+import { editTelemetry } from "../../../src/harness/file-tools/telemetry/edit.ts";
+import { findTelemetry } from "../../../src/harness/file-tools/telemetry/find.ts";
+import { grepTelemetry } from "../../../src/harness/file-tools/telemetry/grep.ts";
+import { readTelemetry } from "../../../src/harness/file-tools/telemetry/read.ts";
+import { writeTelemetry } from "../../../src/harness/file-tools/telemetry/write.ts";
+import type { ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
+import type { ReadFileSuccess, ReadParams } from "../../../src/harness/file-tools/read/types.ts";
+import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.ts";
+import type { FindDetails, FindParams } from "../../../src/harness/file-tools/find/types.ts";
+import type { GrepParams, GrepSuccess } from "../../../src/harness/file-tools/grep/types.ts";
+import type { WriteParams, WriteSuccess } from "../../../src/harness/file-tools/write/types.ts";
+import { safeProject } from "../../../src/harness/telemetry/projection.ts";
+import type { TelemetryFacts, ToolTelemetry } from "../../../src/harness/telemetry/types.ts";
+import { webFetchTelemetry } from "../../../src/harness/web-tools/telemetry/webfetch.ts";
+import { webSearchTelemetry } from "../../../src/harness/web-tools/telemetry/websearch.ts";
+import type { WebFetchDetails, WebFetchParams, WebSearchDetails, WebSearchParams } from "../../../src/harness/web-tools/core/types.ts";
 
 describe("tool telemetry projections", () => {
 	it("bounds invalid and oversized facts without throwing", () => {

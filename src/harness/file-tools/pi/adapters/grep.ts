@@ -1,9 +1,9 @@
-import type { LoadLsp } from "../../../lsp/file-operations.js";
-import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
-import type { GrepParams } from "../../grep/types.js";
-import { isFailed } from "../../shared/result.js";
-import { withFileToolsInvocation, type FileToolRuntime } from "../invocation.js";
-import { bindFileLsp } from "../lsp.js";
+import type { LoadLsp } from "../../../lsp/file-operations.ts";
+import { GrepTool, formatCompactGrepResult } from "../../grep/command.ts";
+import type { GrepParams } from "../../grep/types.ts";
+import { isFailed } from "../../shared/result.ts";
+import { withFileToolsInvocation, type FileToolRuntime } from "../invocation.ts";
+import { bindFileLsp } from "../lsp.ts";
 
 export interface ExecuteGrepOptions extends FileToolRuntime {
 	readonly lsp: LoadLsp;

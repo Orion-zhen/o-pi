@@ -1,5 +1,5 @@
-export { DEFAULT_MAX_PATH_COUNT, parsePathList, repairableTool, repairArguments, isValid } from "./repair.js";
-export { createRepairSpec } from "./specs.js";
+export { DEFAULT_MAX_PATH_COUNT, parsePathList, repairableTool, repairArguments, isValid } from "./repair.ts";
+export { createRepairSpec } from "./specs.ts";
 export type {
 	ObjectArrayFromFieldsSpec,
 	RepairObservation,
@@ -9,4 +9,4 @@ export type {
 	RepairSpec,
 	RepairSpecHints,
 	ToolArgumentStatus,
-} from "./types.js";
+} from "./types.ts";

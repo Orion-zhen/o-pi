@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { CandidateRankingStatistics, GrepReport, SourceContributionStatistics, ToolStatistics } from "../../../harness/telemetry-report/types.js";
-import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live.js";
+import type { CandidateRankingStatistics, GrepReport, SourceContributionStatistics, ToolStatistics } from "../../../harness/telemetry-report/types.ts";
+import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live.ts";
 
 const WIDE_WIDTH = 76;
 

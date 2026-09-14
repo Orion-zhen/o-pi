@@ -1,5 +1,5 @@
-import type { CallRecord } from "../../telemetry/types.js";
-import { compare, numericSummary, rateSummary } from "../shared.js";
+import type { CallRecord } from "../../telemetry/types.ts";
+import { compare, numericSummary, rateSummary } from "../shared.ts";
 import type {
 	GrepCandidateChannelStatistics,
 	GrepFinding,
@@ -10,13 +10,13 @@ import type {
 	GrepReport,
 	GrepSourceStatistics,
 	RateSummary,
-} from "../types.js";
-import { summarizeCandidateRanking } from "./candidate-ranking.js";
+} from "../types.ts";
+import { summarizeCandidateRanking } from "./candidate-ranking.ts";
 import {
 	type CandidateAttribution,
 	type CandidateObservation,
 	type CandidateObservationSet,
-} from "./candidate-observations.js";
+} from "./candidate-observations.ts";
 
 type ResultKind = "verified" | "related";
 

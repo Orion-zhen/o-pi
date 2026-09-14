@@ -1,14 +1,14 @@
 import type { Dispatcher } from "undici";
 
-import { classifyNetworkError } from "../network/errors.js";
-import { readLimitedResponseBody } from "../network/response-body.js";
-import type { FormalWebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem } from "../core/types.js";
-import type { WebHttpFetch } from "../network/types.js";
-import type { WebToolsConfig } from "../config-types.js";
-import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.js";
-import { filteredLexicalQuery } from "./query.js";
-import { selectSearchSnippet } from "./snippets.js";
-import type { CompiledSearchQuery, NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.js";
+import { classifyNetworkError } from "../network/errors.ts";
+import { readLimitedResponseBody } from "../network/response-body.ts";
+import type { FormalWebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem } from "../core/types.ts";
+import type { WebHttpFetch } from "../network/types.ts";
+import type { WebToolsConfig } from "../config-types.ts";
+import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.ts";
+import { filteredLexicalQuery } from "./query.ts";
+import { selectSearchSnippet } from "./snippets.ts";
+import type { CompiledSearchQuery, NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
 type ProviderConfig = {
 	[Id in FormalWebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id] };

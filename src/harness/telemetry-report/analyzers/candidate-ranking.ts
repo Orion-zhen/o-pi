@@ -1,5 +1,5 @@
-import type { CallRecord, Candidate } from "../../telemetry/types.js";
-import { ratio } from "../shared.js";
+import type { CallRecord, Candidate } from "../../telemetry/types.ts";
+import { ratio } from "../shared.ts";
 import type {
 	AdoptionWindowStatistics,
 	CandidateLevelStatistics,
@@ -8,7 +8,7 @@ import type {
 	ConversionAtK,
 	OutputEfficiencyStatistics,
 	SourceContributionStatistics,
-} from "../types.js";
+} from "../types.ts";
 import {
 	type CandidateAttribution,
 	type CandidateLevel,
@@ -16,7 +16,7 @@ import {
 	type CandidateObservationSet,
 	type NormalizedCandidate,
 	type ProducerObservation,
-} from "./candidate-observations.js";
+} from "./candidate-observations.ts";
 
 const K_VALUES = [1, 3, 5, 10] as const;
 

@@ -1,6 +1,6 @@
 import { getSupportedThinkingLevels, type Model, type ModelThinkingLevel, type ThinkingLevelMap } from "@earendil-works/pi-ai";
 
-import { invalidModelsJsonc } from "./errors.js";
+import { invalidModelsJsonc } from "./errors.ts";
 import {
 	isModelThinkingLevel,
 	MODEL_THINKING_LEVEL_VALUES,
@@ -8,8 +8,8 @@ import {
 	type OpenAIApiName,
 	type ProviderConfig,
 	type ThinkingPresetName,
-} from "./schema.js";
-import { resolveCompat } from "./thinking-presets.js";
+} from "./schema.ts";
+import { resolveCompat } from "./thinking-presets.ts";
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const CORE_PAYLOAD_FIELDS = new Set(["model", "messages", "input", "tools", "stream"]);

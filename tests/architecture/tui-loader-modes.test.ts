@@ -1,18 +1,18 @@
 import { createEventBus, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import { presentation } from "../../src/tui/extensions.js";
-import bashToolExtension from "../../src/harness/extensions/bash-tool.js";
-import { createFileToolsExtension } from "../../src/harness/extensions/file-tools.js";
-import { createPruneExtension } from "../../src/harness/extensions/prune.js";
-import { createSkillContextExtension } from "../../src/harness/extensions/skill-context.js";
-import { createSubagentExtension } from "../../src/harness/extensions/subagent.js";
-import { createWebToolsExtension } from "../../src/harness/extensions/web-tools.js";
+import { presentation } from "../../src/tui/extensions.ts";
+import bashToolExtension from "../../src/harness/extensions/bash-tool.ts";
+import { createFileToolsExtension } from "../../src/harness/extensions/file-tools.ts";
+import { createPruneExtension } from "../../src/harness/extensions/prune.ts";
+import { createSkillContextExtension } from "../../src/harness/extensions/skill-context.ts";
+import { createSubagentExtension } from "../../src/harness/extensions/subagent.ts";
+import { createWebToolsExtension } from "../../src/harness/extensions/web-tools.ts";
 
 const bashRendererLoad = vi.hoisted(() => ({ count: 0 }));
-vi.mock("../../src/tui/chat/bash-tool/renderer.js", async (importOriginal) => {
+vi.mock("../../src/tui/chat/bash-tool/renderer.ts", async (importOriginal) => {
 	bashRendererLoad.count += 1;
-	return importOriginal<typeof import("../../src/tui/chat/bash-tool/renderer.js")>();
+	return importOriginal<typeof import("../../src/tui/chat/bash-tool/renderer.ts")>();
 });
 
 type ExtensionRegistration = (pi: ExtensionAPI) => void;
@@ -27,19 +27,19 @@ interface LoaderCase {
 }
 
 const cases: LoaderCase[] = [
-	loaderCase("prune", () => import("../../src/tui/chat/prune/index.js"), createPruneExtension),
-	loaderCase("file", () => import("../../src/tui/chat/file-tools/index.js"), (load) => createFileToolsExtension({ renderers: load })),
+	loaderCase("prune", () => import("../../src/tui/chat/prune/index.ts"), createPruneExtension),
+	loaderCase("file", () => import("../../src/tui/chat/file-tools/index.ts"), (load) => createFileToolsExtension({ renderers: load })),
 	loaderCase("web", async () => {
 		const [webfetch, websearch] = await Promise.all([
-			import("../../src/tui/chat/web-tools/webfetch.js"),
-			import("../../src/tui/chat/web-tools/websearch.js"),
+			import("../../src/tui/chat/web-tools/webfetch.ts"),
+			import("../../src/tui/chat/web-tools/websearch.ts"),
 		]);
 		return { ...webfetch, ...websearch };
 	}, (load) => createWebToolsExtension(async () => {
 		throw new Error("runtime must not load during session start");
 	}, load)),
-	loaderCase("skill", () => import("../../src/tui/chat/skill-context/renderer.js"), createSkillContextExtension),
-	loaderCase("subagent", () => import("../../src/tui/chat/subagent/adapter.js"), createSubagentExtension),
+	loaderCase("skill", () => import("../../src/tui/chat/skill-context/renderer.ts"), createSkillContextExtension),
+	loaderCase("subagent", () => import("../../src/tui/chat/subagent/adapter.ts"), createSubagentExtension),
 ];
 
 function loaderCase<Renderer>(

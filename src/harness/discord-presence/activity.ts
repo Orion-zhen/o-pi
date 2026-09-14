@@ -1,6 +1,6 @@
 import path from "node:path";
-import { stringProperty } from "./streaming.js";
-import type { PresenceActivity, PresenceActivityKind } from "./types.js";
+import { stringProperty } from "./streaming.ts";
+import type { PresenceActivity, PresenceActivityKind } from "./types.ts";
 
 const SEARCH_TOOLS = new Set([
 	"grep",

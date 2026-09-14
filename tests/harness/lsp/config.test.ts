@@ -3,10 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { defaultAgentConfigPath } from "../../../src/harness/config-loader.js";
-import { loadLspConfig, normalizeExcludePath } from "../../../src/harness/lsp/config/loader.js";
-import { LspServerRegistry } from "../../../src/harness/lsp/config/registry.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { defaultAgentConfigPath } from "../../../src/harness/config-loader.ts";
+import { loadLspConfig, normalizeExcludePath } from "../../../src/harness/lsp/config/loader.ts";
+import { LspServerRegistry } from "../../../src/harness/lsp/config/registry.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-lsp-config-");

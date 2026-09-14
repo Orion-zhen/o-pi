@@ -1,7 +1,7 @@
 import { availableParallelism } from "node:os";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_WORKER_CONCURRENCY } from "../../../src/harness/worker-runtime/concurrency.js";
+import { DEFAULT_WORKER_CONCURRENCY } from "../../../src/harness/worker-runtime/concurrency.ts";
 
 describe("worker runtime", () => {
 	it("uses a bounded non-zero default concurrency", () => {

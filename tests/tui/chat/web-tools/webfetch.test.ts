@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { formatWebFetchCall, formatWebFetchResult, renderWebFetchCall, renderWebFetchResult } from "../../../../src/tui/chat/web-tools/webfetch.js";
-import { expectRendererLifecycle, theme, webFetchDetails } from "./fixtures.js";
+import { formatWebFetchCall, formatWebFetchResult, renderWebFetchCall, renderWebFetchResult } from "../../../../src/tui/chat/web-tools/webfetch.ts";
+import { expectRendererLifecycle, theme, webFetchDetails } from "./fixtures.ts";
 
 
 describe("webfetch renderer", () => {

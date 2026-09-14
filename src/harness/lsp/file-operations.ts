@@ -1,5 +1,5 @@
-import type { LspManager } from "./manager/manager.js";
-import type { LspMutationBaseline, LspLineRange } from "./types.js";
+import type { LspManager } from "./manager/manager.ts";
+import type { LspMutationBaseline, LspLineRange } from "./types.ts";
 
 export interface LspReadInput {
 	readonly workspaceRoot: string;

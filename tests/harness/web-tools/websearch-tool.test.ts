@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.js";
-import type { SearchProviderContext, SearchProviderResult, WebSearchProvider } from "../../../src/harness/web-tools/search-providers/types.js";
-import { SearchFlights } from "../../../src/harness/web-tools/search/search-flights.js";
-import type { WebSearchProviderId } from "../../../src/harness/web-tools/core/types.js";
-import { executeWebSearch } from "../../../src/harness/web-tools/search/websearch-tool.js";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.ts";
+import type { SearchProviderContext, SearchProviderResult, WebSearchProvider } from "../../../src/harness/web-tools/search-providers/types.ts";
+import { SearchFlights } from "../../../src/harness/web-tools/search/search-flights.ts";
+import type { WebSearchProviderId } from "../../../src/harness/web-tools/core/types.ts";
+import { executeWebSearch } from "../../../src/harness/web-tools/search/websearch-tool.ts";
 
 function runtime(providers: WebSearchProvider[], now = () => Date.now()) {
 	const config = defaultWebToolsConfig();

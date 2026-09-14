@@ -1,10 +1,10 @@
 import type { Dispatcher } from "undici";
-import type { SearchRequestGate } from "../search/search-request-gate.js";
-import type { WebSearchFailureDetails } from "../core/types.js";
-import type { WebHttpFetch } from "../network/types.js";
-import type { WebToolsConfig } from "../config-types.js";
-import { filteredLexicalQuery } from "./query.js";
-import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.js";
+import type { SearchRequestGate } from "../search/search-request-gate.ts";
+import type { WebSearchFailureDetails } from "../core/types.ts";
+import type { WebHttpFetch } from "../network/types.ts";
+import type { WebToolsConfig } from "../config-types.ts";
+import { filteredLexicalQuery } from "./query.ts";
+import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
 export interface DuckDuckGoHtmlProviderOptions {
 	config: WebToolsConfig["websearch"]["duckduckgo_html"];
@@ -15,7 +15,7 @@ export interface DuckDuckGoHtmlProviderOptions {
 
 /** DDG 请求共用会话节流器，配置和回调只属于本次请求。 */
 export async function searchDuckDuckGoProvider(options: DuckDuckGoHtmlProviderOptions, params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchProviderResult> {
-	const backendPromise = import("../search/duckduckgo-html.js");
+	const backendPromise = import("../search/duckduckgo-html.ts");
 	void backendPromise.catch(() => undefined);
 	const gate = await options.requestGate.beforeRequest(context.signal, (waitMs) => {
 		context.onUpdate?.({

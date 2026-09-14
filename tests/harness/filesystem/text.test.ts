@@ -2,14 +2,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { TextContent } from "../../../src/harness/filesystem/contracts/content.js";
+import type { TextContent } from "../../../src/harness/filesystem/contracts/content.ts";
 import {
 	describeText,
 	sliceTextByLineRange,
 	utf8ByteOffset,
-} from "../../../src/harness/filesystem/services/text.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { buildTextBytes, expectFsOk, openReadonly, resolveFile } from "./fixtures.js";
+} from "../../../src/harness/filesystem/services/text.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { buildTextBytes, expectFsOk, openReadonly, resolveFile } from "./fixtures.ts";
 
 const temp = useTempDir("o-pi-readonly-fs-");
 let workspace: string;

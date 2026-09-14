@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { CacheStats, UsageStats } from "./types.js";
+import type { CacheStats, UsageStats } from "./types.ts";
 
 /** TUI 与 /stats 共用同一轮遍历和缓存命中率口径。 */
 export function summarizeUsage(messages: readonly AgentMessage[]): { usage: UsageStats; cache: CacheStats } {

@@ -1,9 +1,9 @@
 import type { SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { buildContextBreakdown, estimateTokens } from "../../../src/harness/stats/context-breakdown.js";
-import { assistantToolCall, toolResult, userMessage } from "./message-fixtures.js";
-import { SKILL_CONTEXT_MESSAGE } from "../../../src/harness/skill-context/types.js";
+import { buildContextBreakdown, estimateTokens } from "../../../src/harness/stats/context-breakdown.ts";
+import { assistantToolCall, toolResult, userMessage } from "./message-fixtures.ts";
+import { SKILL_CONTEXT_MESSAGE } from "../../../src/harness/skill-context/types.ts";
 
 describe("stats context breakdown", () => {
 	it("把 system、tools、project、history、tool output 和 delta 拆成估算项", async () => {

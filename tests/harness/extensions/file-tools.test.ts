@@ -3,19 +3,19 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { createFileToolsExtension, type FileToolsModuleImports } from "../../../src/harness/extensions/file-tools.js";
-import type { LspMutationInput } from "../../../src/harness/lsp/file-operations.js";
-import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.js";
-import { FILE_TOOLS_OBSERVATION_STATE } from "../../../src/harness/file-tools/runtime/session-observation-state.js";
-import { registerExtension, type ExtensionHandler } from "../../helpers/extension.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { lspOperations } from "../../helpers/lsp.js";
+import { createFileToolsExtension, type FileToolsModuleImports } from "../../../src/harness/extensions/file-tools.ts";
+import type { LspMutationInput } from "../../../src/harness/lsp/file-operations.ts";
+import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
+import { FILE_TOOLS_OBSERVATION_STATE } from "../../../src/harness/file-tools/runtime/session-observation-state.ts";
+import { registerExtension, type ExtensionHandler } from "../../helpers/extension.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { lspOperations } from "../../helpers/lsp.ts";
 import {
 	activateFileTools,
 	executeTool,
 	type ExecuteTool,
 	type ExecuteToolContext,
-} from "../file-tools/extension-fixture.js";
+} from "../file-tools/extension-fixture.ts";
 
 describe("file-tools extension lifecycle", () => {
 	const workspace = useTempDir("o-pi-extension-");
@@ -41,25 +41,25 @@ describe("file-tools extension lifecycle", () => {
 
 	it("注册阶段零预热，首次执行按工具加载，并发复用且失败可重试", async () => {
 		const disposeHost = vi.spyOn(FileToolsHost.prototype, "dispose");
-		let resolveLs: ((module: typeof import("../../../src/harness/file-tools/pi/adapters/ls.js")) => void) | undefined;
-		const pendingLs = new Promise<typeof import("../../../src/harness/file-tools/pi/adapters/ls.js")>((resolve) => {
+		let resolveLs: ((module: typeof import("../../../src/harness/file-tools/pi/adapters/ls.ts")) => void) | undefined;
+		const pendingLs = new Promise<typeof import("../../../src/harness/file-tools/pi/adapters/ls.ts")>((resolve) => {
 			resolveLs = resolve;
 		});
 		let findLoadAttempts = 0;
 		const imports = {
 			ls: vi.fn(() => pendingLs),
-			host: vi.fn(() => import("../../../src/harness/file-tools/runtime/host.js")),
+			host: vi.fn(() => import("../../../src/harness/file-tools/runtime/host.ts")),
 			find: vi.fn(() => {
 				findLoadAttempts += 1;
 				return findLoadAttempts === 1
 					? Promise.reject(new Error("simulated import failure"))
-					: import("../../../src/harness/file-tools/pi/adapters/find.js");
+					: import("../../../src/harness/file-tools/pi/adapters/find.ts");
 			}),
-			grep: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/grep.js")),
-			read: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/read.js")),
-			write: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/write.js")),
-			edit: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/edit.js")),
-			lsp: vi.fn(() => import("../../../src/harness/lsp/index.js")),
+			grep: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/grep.ts")),
+			read: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/read.ts")),
+			write: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/write.ts")),
+			edit: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/edit.ts")),
+			lsp: vi.fn(() => import("../../../src/harness/lsp/index.ts")),
 		} satisfies FileToolsModuleImports;
 		const { registered, handlers } = registerExtension(createFileToolsExtension(imports));
 
@@ -84,7 +84,7 @@ describe("file-tools extension lifecycle", () => {
 		expect(imports.ls).toHaveBeenCalledTimes(1);
 
 		if (resolveLs === undefined) throw new Error("missing ls module resolver");
-		resolveLs(await import("../../../src/harness/file-tools/pi/adapters/ls.js"));
+		resolveLs(await import("../../../src/harness/file-tools/pi/adapters/ls.ts"));
 		await expect(firstLs).resolves.toMatchObject({ details: { path: "." } });
 		await expect(secondLs).resolves.toMatchObject({ details: { path: "." } });
 		expect(imports.ls).toHaveBeenCalledTimes(1);
@@ -308,8 +308,8 @@ describe("file-tools extension lifecycle", () => {
 
 	it("同一 factory 创建新 session 时重建已释放的 find 和 grep adapter", async () => {
 		const imports = {
-			find: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/find.js")),
-			grep: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/grep.js")),
+			find: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/find.ts")),
+			grep: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/grep.ts")),
 		};
 		const extension = createFileToolsExtension(imports);
 		const createSession = () => registerExtension(extension);
@@ -349,7 +349,7 @@ describe("file-tools extension lifecycle", () => {
 		const { registered, handlers } = registerExtension(createFileToolsExtension({
 			async lsp() {
 				return {
-					...(await import("../../../src/harness/lsp/index.js")),
+					...(await import("../../../src/harness/lsp/index.ts")),
 					lspManager: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }),
 				};
 			},
@@ -407,7 +407,7 @@ describe("file-tools extension lifecycle", () => {
 		const batchLsp = vi.fn(async () => []);
 		const { registered, handlers } = registerExtension(createFileToolsExtension({
 			async lsp() {
-				return { ...(await import("../../../src/harness/lsp/index.js")), lspManager: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }) };
+				return { ...(await import("../../../src/harness/lsp/index.ts")), lspManager: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }) };
 			},
 		}));
 		const cwd = workspace.path;
@@ -435,8 +435,8 @@ describe("file-tools extension lifecycle", () => {
 			enclosing_symbol: { name: "value", kind: "declaration", line: 1, end_line: 3 },
 		}));
 		const imports = {
-			read: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/read.js")),
-			lsp: vi.fn(async () => ({ ...(await import("../../../src/harness/lsp/index.js")), lspManager: lspOperations({ read: enhanceRead }) })),
+			read: vi.fn(() => import("../../../src/harness/file-tools/pi/adapters/read.ts")),
+			lsp: vi.fn(async () => ({ ...(await import("../../../src/harness/lsp/index.ts")), lspManager: lspOperations({ read: enhanceRead }) })),
 		};
 		const getCommands = vi.fn(() => []);
 		const { registered, handlers } = registerExtension(createFileToolsExtension(imports), {

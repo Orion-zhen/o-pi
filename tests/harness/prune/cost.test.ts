@@ -5,8 +5,8 @@ import {
 	buildPruneCostPreview,
 	getLastUsage,
 	getUsageContextTokens,
-} from "../../../src/harness/prune/prune.js";
-import { assistant, solModel, ZERO_USAGE } from "./fixtures.js";
+} from "../../../src/harness/prune/prune.ts";
+import { assistant, solModel, ZERO_USAGE } from "./fixtures.ts";
 
 describe("prune cost", () => {
 	it("usage totalTokens 为 0 时回退到分项 token", () => {

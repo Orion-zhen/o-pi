@@ -4,12 +4,12 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { findVisibleToolCallIds } from "../prune/prune.js";
-import { executeSkillLoad } from "./executor.js";
-import { isValidSkillName } from "./frontmatter.js";
-import { collectSkillCandidates } from "./loader.js";
-import { querySkillStatus } from "./state.js";
-import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails } from "./types.js";
+import { findVisibleToolCallIds } from "../prune/prune.ts";
+import { executeSkillLoad } from "./executor.ts";
+import { isValidSkillName } from "./frontmatter.ts";
+import { collectSkillCandidates } from "./loader.ts";
+import { querySkillStatus } from "./state.ts";
+import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails } from "./types.ts";
 
 type CommandPi = Pick<ExtensionAPI, "appendEntry" | "getCommands" | "on" | "registerCommand" | "sendMessage">;
 

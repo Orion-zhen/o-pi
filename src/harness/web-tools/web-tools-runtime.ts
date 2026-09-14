@@ -4,18 +4,18 @@ import type {
 	WebFetchCapability,
 	WebSearchCapability,
 	WebCapabilityOptions,
-} from "./core/runtime-types.js";
-import type { WebHttpRequestInit, WebHttpResponse } from "./network/types.js";
-import type { WebToolsConfig } from "./config-types.js";
-import type { WebToolsRuntime } from "./core/types.js";
-import { createNetworkDispatcher, networkConfigSignature } from "./network/dispatcher.js";
-import type { PrivateNetworkGrant } from "./network/private-network-grant.js";
+} from "./core/runtime-types.ts";
+import type { WebHttpRequestInit, WebHttpResponse } from "./network/types.ts";
+import type { WebToolsConfig } from "./config-types.ts";
+import type { WebToolsRuntime } from "./core/types.ts";
+import { createNetworkDispatcher, networkConfigSignature } from "./network/dispatcher.ts";
+import type { PrivateNetworkGrant } from "./network/private-network-grant.ts";
 
 /** 按需初始化两条能力链，统一等待调用结束并释放共享 dispatcher。 */
 export function createWebToolsRuntime(): WebToolsRuntime {
 	const dispatcherPromises = new Map<string, Promise<Dispatcher>>();
 	const activeCalls = new Set<Promise<void>>();
-	let configModulePromise: Promise<typeof import("./config.js")> | undefined;
+	let configModulePromise: Promise<typeof import("./config.ts")> | undefined;
 	let closed = false;
 	let closePromise: Promise<void> | undefined;
 	const sharedOptions: WebCapabilityOptions = {
@@ -40,7 +40,7 @@ export function createWebToolsRuntime(): WebToolsRuntime {
 	}
 
 	async function loadConfig(): Promise<WebToolsConfig> {
-		configModulePromise ??= import("./config.js");
+		configModulePromise ??= import("./config.ts");
 		return (await configModulePromise).loadWebToolsConfig();
 	}
 
@@ -62,14 +62,14 @@ export function createWebToolsRuntime(): WebToolsRuntime {
 		search(params, context) {
 			assertOpen();
 			return trackCall(async () => {
-				searchRuntime ??= import("./search/websearch-runtime.js").then((module) => module.createWebSearchRuntime(sharedOptions));
+				searchRuntime ??= import("./search/websearch-runtime.ts").then((module) => module.createWebSearchRuntime(sharedOptions));
 				return (await searchRuntime).search(params, context);
 			});
 		},
 		fetch(params, context) {
 			assertOpen();
 			return trackCall(async () => {
-				fetchRuntime ??= import("./fetch/webfetch-runtime.js").then((module) => module.createWebFetchRuntime(sharedOptions));
+				fetchRuntime ??= import("./fetch/webfetch-runtime.ts").then((module) => module.createWebFetchRuntime(sharedOptions));
 				return (await fetchRuntime).fetch(params, context);
 			});
 		},

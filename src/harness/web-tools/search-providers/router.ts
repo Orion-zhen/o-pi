@@ -1,6 +1,6 @@
-import type { FormalWebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem, WebSearchProviderAttempt, WebSearchProviderId } from "../core/types.js";
-import { assessSearchQuality } from "./quality.js";
-import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult, WebSearchProvider } from "./types.js";
+import type { FormalWebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem, WebSearchProviderAttempt, WebSearchProviderId } from "../core/types.ts";
+import { assessSearchQuality } from "./quality.ts";
+import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult, WebSearchProvider } from "./types.ts";
 
 const TERMINAL_ERRORS = new Set<WebSearchErrorCode>(["ABORTED", "INVALID_ARGUMENT"]);
 type ProviderSuccess = Extract<SearchProviderResult, { status: "success" }>;
@@ -71,7 +71,7 @@ export class SearchProviderRouter {
 		const usable = batches.filter((batch) => batch.results.length > 0);
 		const first = usable[0];
 		if (first !== undefined) {
-			const { mergeSearchResults } = await import("./merge.js");
+			const { mergeSearchResults } = await import("./merge.ts");
 			return {
 				status: "success",
 				provider: first.provider,

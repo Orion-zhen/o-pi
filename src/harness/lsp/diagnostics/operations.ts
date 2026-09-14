@@ -1,22 +1,22 @@
 import path from "node:path";
 
-import { relatedDiagnostics } from "./related.js";
-import type { LspClient } from "../client/client.js";
+import { relatedDiagnostics } from "./related.ts";
+import type { LspClient } from "../client/client.ts";
 import {
 	diagnosticSourceKey,
 	emptySummary,
 	summarizeDiagnostics,
 	type DiagnosticSelection,
-} from "./ledger.js";
-import type { LspManagerRuntime } from "../manager/runtime.js";
+} from "./ledger.ts";
+import type { LspManagerRuntime } from "../manager/runtime.ts";
 import type {
 	LspDiagnosticSnapshot,
 	LspMutationBaseline,
 	LspDiagnosticsSummary,
 	LspErrorDiagnostic,
 	LspLineRange,
-} from "../types.js";
-import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "../protocol/uri.js";
+} from "../types.ts";
+import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "../protocol/uri.ts";
 
 export interface LspWriteInput {
 	readonly root: string;

@@ -1,4 +1,4 @@
-import { fail, type ToolOutcome } from "../shared/result.js";
+import { fail, type ToolOutcome } from "../shared/result.ts";
 
 export type FindTermType = "fuzzy" | "exact" | "boundary" | "prefix" | "suffix" | "equal";
 

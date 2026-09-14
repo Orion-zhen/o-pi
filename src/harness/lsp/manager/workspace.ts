@@ -1,9 +1,9 @@
-import { LspClient } from "../client/client.js";
-import { normalizeExcludePath } from "../config/loader.js";
-import { LspServerRegistry } from "../config/registry.js";
-import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.js";
-import { workspaceRelativePath } from "../protocol/uri.js";
-import type { LoadedLspConfig, LspConfig, LspFileRoute, LspServerConfig, LspStatus } from "../types.js";
+import { LspClient } from "../client/client.ts";
+import { normalizeExcludePath } from "../config/loader.ts";
+import { LspServerRegistry } from "../config/registry.ts";
+import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.ts";
+import { workspaceRelativePath } from "../protocol/uri.ts";
+import type { LoadedLspConfig, LspConfig, LspFileRoute, LspServerConfig, LspStatus } from "../types.ts";
 
 /** 同一工作区的配置、文件路由和客户端，只在 reload 时整体替换。 */
 export class LspWorkspace {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createQueryPlan } from "../../../src/harness/file-tools/grep/query-plan.js";
-import { classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "../../../src/harness/file-tools/grep/ranking.js";
-import { isFailed } from "../../../src/harness/file-tools/shared/result.js";
-import { queryPlan, rankingEvidence, semanticRegion, verifiedRegion } from "./grep-ranking-fixtures.js";
+import { createQueryPlan } from "../../../src/harness/file-tools/grep/query-plan.ts";
+import { classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "../../../src/harness/file-tools/grep/ranking.ts";
+import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
+import { queryPlan, rankingEvidence, semanticRegion, verifiedRegion } from "./grep-ranking-fixtures.ts";
 
 describe("grep query plan", () => {
 	it("建立统一逐行正则、机械词项和无操作符结构查询", () => {

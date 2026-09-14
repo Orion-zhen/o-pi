@@ -2,14 +2,14 @@ import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
-import { removeAvatarImages } from "./html-avatar-filter.js";
-import { selectHtmlAnchor } from "./html-anchor.js";
-import { removeHtmlOutputNoise, selectHtmlContent } from "./html-content-selector.js";
-import { extractDeferredContent } from "./html-deferred-content.js";
-import { analyzeHtmlPage, type PageAnalysis, type TextCandidate } from "./html-page-analyzer.js";
-import type { ContentConversion, HtmlReadabilityOptions } from "./types.js";
-import type { WebFetchFailureDetails, WebFetchTextSource } from "../core/types.js";
-import { selectedImageUrls, selectPrimaryImage } from "./html-image-selection.js";
+import { removeAvatarImages } from "./html-avatar-filter.ts";
+import { selectHtmlAnchor } from "./html-anchor.ts";
+import { removeHtmlOutputNoise, selectHtmlContent } from "./html-content-selector.ts";
+import { extractDeferredContent } from "./html-deferred-content.ts";
+import { analyzeHtmlPage, type PageAnalysis, type TextCandidate } from "./html-page-analyzer.ts";
+import type { ContentConversion, HtmlReadabilityOptions } from "./types.ts";
+import type { WebFetchFailureDetails, WebFetchTextSource } from "../core/types.ts";
+import { selectedImageUrls, selectPrimaryImage } from "./html-image-selection.ts";
 
 const UNSAFE_HTML_SELECTOR = [
 	"script", "style", "noscript", "template", "svg", "canvas", "iframe", "object", "embed",

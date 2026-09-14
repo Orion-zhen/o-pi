@@ -1,6 +1,6 @@
-import type { FileSnapshot } from "./metadata.js";
-import type { FileRef } from "./path.js";
-import type { FsResult } from "./result.js";
+import type { FileSnapshot } from "./metadata.ts";
+import type { FileRef } from "./path.ts";
+import type { FsResult } from "./result.ts";
 
 export type NewlineKind = "lf" | "crlf" | "mixed" | "none";
 

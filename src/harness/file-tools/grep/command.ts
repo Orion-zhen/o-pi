@@ -1,29 +1,29 @@
-import { languageFromPath } from "../../syntax-tree/grammars.js";
+import { languageFromPath } from "../../syntax-tree/grammars.ts";
 import type {
 	AnalyzeCode,
 	CodeAnalysisTarget,
 	PrepareCodeAnalysis,
-} from "../../code-index/types.js";
-import type { TextContent } from "../../filesystem/contracts/content.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { combineOperationContext } from "../shared/operation-context.js";
-import type { FileToolLimits } from "../../file-tool-limits.js";
-import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
-import { GrepContentCache, type GrepContentCacheLease } from "./content-cache.js";
-import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
-import { buildRankedRegions, semanticParsePriority } from "./local.js";
-import { packGrepResults, renderGrepSuccess } from "./packer.js";
-import { createQueryPlan, type QueryPlan } from "./query-plan.js";
-import { mergeGrepSkippedFiles } from "./skipped.js";
+} from "../../code-index/types.ts";
+import type { TextContent } from "../../filesystem/contracts/content.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import { combineOperationContext } from "../shared/operation-context.ts";
+import type { FileToolLimits } from "../../file-tool-limits.ts";
+import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.ts";
+import { GrepContentCache, type GrepContentCacheLease } from "./content-cache.ts";
+import { buildScopeInventory, type ScopeInventory } from "./inventory.ts";
+import { buildRankedRegions, semanticParsePriority } from "./local.ts";
+import { packGrepResults, renderGrepSuccess } from "./packer.ts";
+import { createQueryPlan, type QueryPlan } from "./query-plan.ts";
+import { mergeGrepSkippedFiles } from "./skipped.ts";
 import {
 	GrepRegionizer,
 	regionizeAnalyzedFiles,
 	type RegionizationResult,
 	type RegionizedFile,
-} from "./regionizer.js";
-import { scanInventoryText, type TextScanResult } from "./text-scanner.js";
-import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess } from "./types.js";
+} from "./regionizer.ts";
+import { scanInventoryText, type TextScanResult } from "./text-scanner.ts";
+import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess } from "./types.ts";
 
 type GrepSkippedStats = NonNullable<GrepSuccess["stats"]["skipped_files"]>;
 

@@ -1,6 +1,6 @@
 import { type ToolDefinition, type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type TSchema, Type } from "typebox";
-import { type SubagentProgressCallback } from "../subagent/types.js";
+import { type SubagentProgressCallback } from "../subagent/types.ts";
 
 import {
 	captureExecutorContext,
@@ -14,9 +14,9 @@ import {
 	SubagentExecutionRegistry,
 	type SubagentInteractionPort,
 	type SubagentToolParams,
-} from "../subagent/index.js";
-import { subagentTelemetry } from "../subagent/telemetry.js";
-import { registerTool } from "../register-tool.js";
+} from "../subagent/index.ts";
+import { subagentTelemetry } from "../subagent/telemetry.ts";
+import { registerTool } from "../register-tool.ts";
 
 interface SubagentTuiModule {
 	registerSubagentTui<TParams extends TSchema, TDetails, TState>(

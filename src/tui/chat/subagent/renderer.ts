@@ -2,11 +2,11 @@ import os from "node:os";
 import path from "node:path";
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { statusIcon } from "../../components/icons.js";
-import { formatToolCard } from "../../components/tool-card.js";
-import { cleanText, compactWhitespace, formatDuration, joinParts, truncateEnd } from "../../components/text.js";
-import { SUBAGENT_COMMAND_ENTRY } from "../../../harness/subagent/constants.js";
-import type { RenderEvent, SubagentCompletedResult, SubagentDetails, SubagentRunResult, SubagentTask, SubagentToolResult, UsageStats } from "../../../harness/subagent/types.js";
+import { statusIcon } from "../../components/icons.ts";
+import { formatToolCard } from "../../components/tool-card.ts";
+import { cleanText, compactWhitespace, formatDuration, joinParts, truncateEnd } from "../../components/text.ts";
+import { SUBAGENT_COMMAND_ENTRY } from "../../../harness/subagent/constants.ts";
+import type { RenderEvent, SubagentCompletedResult, SubagentDetails, SubagentRunResult, SubagentTask, SubagentToolResult, UsageStats } from "../../../harness/subagent/types.ts";
 
 export { SUBAGENT_COMMAND_ENTRY };
 

@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
-import { languageFromPath } from "../../../src/harness/syntax-tree/grammars.js";
-import { treeSitterModulePaths } from "../../helpers/tree-sitter-dependencies.js";
+import { languageFromPath } from "../../../src/harness/syntax-tree/grammars.ts";
+import { treeSitterModulePaths } from "../../helpers/tree-sitter-dependencies.ts";
 
 const require = createRequire(import.meta.url);
 

@@ -1,5 +1,5 @@
-import type { FsError } from "../../filesystem/contracts/result.js";
-import type { GrepSkippedFiles } from "./types.js";
+import type { FsError } from "../../filesystem/contracts/result.ts";
+import type { GrepSkippedFiles } from "./types.ts";
 
 export type MutableGrepSkippedFiles = Required<GrepSkippedFiles>;
 

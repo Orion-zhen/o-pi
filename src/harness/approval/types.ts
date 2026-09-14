@@ -46,7 +46,7 @@ export type ApprovalRequest = {
 		detail: {
 			url: string;
 			origin: string;
-			addresses: import("../web-tools/network/network-policy.js").ResolvedAddresses;
+			addresses: import("../web-tools/network/network-policy.ts").ResolvedAddresses;
 		};
 	}
 );

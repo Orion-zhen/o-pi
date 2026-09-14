@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { querySkillStatus } from "../../src/harness/skill-context/state.js";
-import { collectStatsSnapshot, type StatsQueryPort } from "../../src/harness/stats/collector.js";
-import { createLiveTelemetryReport } from "../../src/harness/telemetry-report/live.js";
-import { TelemetryService } from "../../src/harness/telemetry/service.js";
-import { UsageService } from "../../src/harness/usage/service.js";
+import { querySkillStatus } from "../../src/harness/skill-context/state.ts";
+import { collectStatsSnapshot, type StatsQueryPort } from "../../src/harness/stats/collector.ts";
+import { createLiveTelemetryReport } from "../../src/harness/telemetry-report/live.ts";
+import { TelemetryService } from "../../src/harness/telemetry/service.ts";
+import { UsageService } from "../../src/harness/usage/service.ts";
 
 describe("adapter-facing DTO serialization", () => {
 	it("stats 在无模型、空 session 和失败 prompt options 下仍为 JSON-safe", async () => {

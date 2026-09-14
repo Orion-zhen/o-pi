@@ -1,6 +1,6 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { RenderEvent, ToolProgressStatus, UsageStats } from "./types.js";
+import type { RenderEvent, ToolProgressStatus, UsageStats } from "./types.ts";
 
 export interface PiJsonProgressSnapshot {
 	output: string;

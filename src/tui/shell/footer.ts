@@ -1,9 +1,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { formatTokens, formatWorkspace } from "../components/format.js";
-import { tuiIcon } from "../components/icons.js";
-import { truncateMiddle } from "../components/text.js";
-import type { TuiFooterConfig, TuiSnapshot } from "./types.js";
+import { formatTokens, formatWorkspace } from "../components/format.ts";
+import { tuiIcon } from "../components/icons.ts";
+import { truncateMiddle } from "../components/text.ts";
+import type { TuiFooterConfig, TuiSnapshot } from "./types.ts";
 
 const NARROW_WIDTH = 80;
 

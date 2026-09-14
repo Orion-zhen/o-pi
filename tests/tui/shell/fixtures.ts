@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
-import { agentSchemaPath, defaultAgentConfigPath, readDefaultJsoncConfigSync } from "../../../src/harness/config-loader.js";
-import type { TuiConfig, TuiSnapshot } from "../../../src/tui/shell/types.js";
+import { agentSchemaPath, defaultAgentConfigPath, readDefaultJsoncConfigSync } from "../../../src/harness/config-loader.ts";
+import type { TuiConfig, TuiSnapshot } from "../../../src/tui/shell/types.ts";
 
 export function defaultTuiConfig(): TuiConfig {
 	const raw = readDefaultJsoncConfigSync({

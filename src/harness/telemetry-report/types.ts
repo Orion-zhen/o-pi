@@ -1,4 +1,4 @@
-import type { RunRecord } from "../telemetry/types.js";
+import type { RunRecord } from "../telemetry/types.ts";
 
 export interface TelemetryReportQuery {
 	tools?: string[];

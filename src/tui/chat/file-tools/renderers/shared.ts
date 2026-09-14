@@ -1,9 +1,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { formatToolCard } from "../../../components/tool-card.js";
-import { compactWhitespace } from "../../../components/text.js";
-import { isFailedDetails } from "../../../../harness/file-tools/pi/guards.js";
-import type { ToolTextResult } from "./contracts.js";
+import { formatToolCard } from "../../../components/tool-card.ts";
+import { compactWhitespace } from "../../../components/text.ts";
+import { isFailedDetails } from "../../../../harness/file-tools/pi/guards.ts";
+import type { ToolTextResult } from "./contracts.ts";
 
 export function textComponent(lastComponent: unknown): Text {
 	return lastComponent instanceof Text ? lastComponent : new Text("", 0, 0);

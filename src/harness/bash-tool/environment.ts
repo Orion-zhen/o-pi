@@ -3,7 +3,7 @@ import { access, stat } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-import type { BashEnvironmentConfig, BashSessionMetadata, BashToolConfig } from "./types.js";
+import type { BashEnvironmentConfig, BashSessionMetadata, BashToolConfig } from "./types.ts";
 
 interface PythonVirtualEnvironment {
 	root: string;

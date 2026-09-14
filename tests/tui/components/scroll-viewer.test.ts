@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { BorderedScrollViewer } from "../../../src/tui/components/scroll-viewer.js";
+import { BorderedScrollViewer } from "../../../src/tui/components/scroll-viewer.ts";
 
 class OverflowLineViewer extends BorderedScrollViewer {
 	constructor(content: string, getRows = () => 30, onClose: () => void = () => {}) {

@@ -1,5 +1,5 @@
-import type { RepairObservation, RepairOperation, RepairSeparator, ToolArgumentStatus } from "../tool-repair/types.js";
-import type { TelemetryFacts } from "./types.js";
+import type { RepairObservation, RepairOperation, RepairSeparator, ToolArgumentStatus } from "../tool-repair/types.ts";
+import type { TelemetryFacts } from "./types.ts";
 
 export const TELEMETRY_READY_CHANNEL = "o-pi.telemetry.ready";
 export const TELEMETRY_TOOL_CHANNEL = "o-pi.telemetry.tool";

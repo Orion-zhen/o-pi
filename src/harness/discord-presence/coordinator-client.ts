@@ -2,16 +2,16 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { cliInvocation } from "../runtime/invocation.js";
-import { defaultCoordinatorEndpoint, prepareCoordinatorEndpoint } from "./endpoint.js";
+import { cliInvocation } from "../runtime/invocation.ts";
+import { defaultCoordinatorEndpoint, prepareCoordinatorEndpoint } from "./endpoint.ts";
 import {
 	parseServerMessage,
 	readCoordinatorMessages,
 	writeCoordinatorMessage,
 	type CoordinatedActivity,
 	type CoordinatedPresenceConfig,
-} from "./coordinator-protocol.js";
-import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.js";
+} from "./coordinator-protocol.ts";
+import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.ts";
 
 const CONNECT_RETRY_MS = 50;
 const DAEMON_RETRY_MS = 2_000;

@@ -1,16 +1,16 @@
 import { chmod, mkdir, readFile, readdir, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listDirectory } from "../../../src/harness/file-tools/ls/command.js";
-import { isLsSuccess } from "../../../src/harness/file-tools/ls/guards.js";
-import { formatCompactLsResult } from "../../../src/harness/file-tools/ls/presenter.js";
-import { executeLs } from "../../../src/harness/file-tools/pi/adapters/ls.js";
-import type { LsParams, LsSuccess } from "../../../src/harness/file-tools/ls/types.js";
-import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.js";
-import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
-import { readWorkspaceFile } from "../../helpers/read-tool.js";
-import { expectFailure } from "./result-fixtures.js";
+import { listDirectory } from "../../../src/harness/file-tools/ls/command.ts";
+import { isLsSuccess } from "../../../src/harness/file-tools/ls/guards.ts";
+import { formatCompactLsResult } from "../../../src/harness/file-tools/ls/presenter.ts";
+import { executeLs } from "../../../src/harness/file-tools/pi/adapters/ls.ts";
+import type { LsParams, LsSuccess } from "../../../src/harness/file-tools/ls/types.ts";
+import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
+import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
+import { readWorkspaceFile } from "../../helpers/read-tool.ts";
+import { expectFailure } from "./result-fixtures.ts";
 
 let workspace: string;
 let outside: string;

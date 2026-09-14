@@ -1,4 +1,4 @@
-import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.js";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.ts";
 
 export type MutationLspProgressStatus = "pending" | "running" | DiagnosticsSummary["status"];
 

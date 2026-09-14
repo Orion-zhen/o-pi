@@ -2,9 +2,9 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Language, Parser, Tree } from "web-tree-sitter";
 
-import { TREE_SITTER_LANGUAGES } from "../../../src/harness/syntax-tree/grammars.js";
-import { decodeShellWord } from "../../../src/harness/syntax-tree/bash.js";
-import { parseSyntaxTree, SyntaxAnalysisAbortedError, SyntaxAnalysisTimeoutError } from "../../../src/harness/syntax-tree/parser.js";
+import { TREE_SITTER_LANGUAGES } from "../../../src/harness/syntax-tree/grammars.ts";
+import { decodeShellWord } from "../../../src/harness/syntax-tree/bash.ts";
+import { parseSyntaxTree, SyntaxAnalysisAbortedError, SyntaxAnalysisTimeoutError } from "../../../src/harness/syntax-tree/parser.ts";
 
 const require = createRequire(import.meta.url);
 const bashGrammar = TREE_SITTER_LANGUAGES.bash.grammar;

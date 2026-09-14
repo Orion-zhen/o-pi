@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { formatGrepCall, formatGrepResult } from "../../../../src/tui/chat/file-tools/grep-format.js";
-import type { GrepSuccess } from "../../../../src/harness/file-tools/grep/types.js";
+import { formatGrepCall, formatGrepResult } from "../../../../src/tui/chat/file-tools/grep-format.ts";
+import type { GrepSuccess } from "../../../../src/harness/file-tools/grep/types.ts";
 
 const theme = {
 	fg(_name: string, text: string) { return text; },

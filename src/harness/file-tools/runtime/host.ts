@@ -1,21 +1,21 @@
-import type { FilesystemPathAccess } from "../../filesystem/contracts/access.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
+import type { FilesystemPathAccess } from "../../filesystem/contracts/access.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
 import {
 	FileSystemRuntime,
 	type WorkspaceNativeBridge,
-} from "../../filesystem/runtime.js";
+} from "../../filesystem/runtime.ts";
 import {
 	FileToolsConfigProvider,
 	type FileToolsConfigLoader,
-} from "../config.js";
-import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { FileToolLimits } from "../../file-tool-limits.js";
-import { ObservationStore, type FileObservations, type ObservationEntry } from "./observation-store.js";
+} from "../config.ts";
+import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import type { FileToolLimits } from "../../file-tool-limits.ts";
+import { ObservationStore, type FileObservations, type ObservationEntry } from "./observation-store.ts";
 import {
 	createSessionMutationScope,
 	type SessionMutationScope,
-} from "./session-mutation.js";
+} from "./session-mutation.ts";
 
 export interface FileToolsHostOpenOptions {
 	readonly cwd: string;

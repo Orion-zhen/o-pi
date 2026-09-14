@@ -1,9 +1,9 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
-import type { Candidate } from "../../telemetry/types.js";
-import type { FailedResult } from "../shared/result.js";
-import { isFailed } from "../shared/result.js";
-import type { FindDetails, FindParams } from "../find/types.js";
-import { failureFields, failureScopeFields, projectFileInput } from "./common.js";
+import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
+import type { Candidate } from "../../telemetry/types.ts";
+import type { FailedResult } from "../shared/result.ts";
+import { isFailed } from "../shared/result.ts";
+import type { FindDetails, FindParams } from "../find/types.ts";
+import { failureFields, failureScopeFields, projectFileInput } from "./common.ts";
 
 export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | FailedResult>({
 	input: projectFileInput<FindParams>(["query", "path", "glob"], "directory", { pathList: true }),

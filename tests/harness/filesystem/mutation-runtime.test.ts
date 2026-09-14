@@ -2,12 +2,12 @@ import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { FileSystemRuntime } from "../../../src/harness/filesystem/runtime.js";
-import { NativeFileSystemError, NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { contentHash } from "../../../src/harness/filesystem/services/text.js";
-import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.js";
-import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
-import { wrapNative } from "./readonly-fixtures.js";
+import { FileSystemRuntime } from "../../../src/harness/filesystem/runtime.ts";
+import { NativeFileSystemError, NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { contentHash } from "../../../src/harness/filesystem/services/text.ts";
+import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.ts";
+import { commitBytes, useMutationFixture } from "./mutation-fixtures.ts";
+import { wrapNative } from "./readonly-fixtures.ts";
 
 const test = useMutationFixture("o-pi-mutation-runtime-");
 const { openMutation, openRuntime, policy, resolveTarget, track } = test;

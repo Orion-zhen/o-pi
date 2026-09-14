@@ -4,12 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, vi } from "vitest";
 
-import { LspClient } from "../../../../src/harness/lsp/client/client.js";
-import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.js";
-import { LspManager } from "../../../../src/harness/lsp/manager/manager.js";
-import type { LspConfig } from "../../../../src/harness/lsp/types.js";
-import { deferred } from "../../../helpers/async.js";
-import { preserveEnv, useTempDir } from "../../../helpers/lifecycle.js";
+import { LspClient } from "../../../../src/harness/lsp/client/client.ts";
+import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.ts";
+import { LspManager } from "../../../../src/harness/lsp/manager/manager.ts";
+import type { LspConfig } from "../../../../src/harness/lsp/types.ts";
+import { deferred } from "../../../helpers/async.ts";
+import { preserveEnv, useTempDir } from "../../../helpers/lifecycle.ts";
 
 export interface JsonRpcMessage {
 	method?: string;

@@ -1,7 +1,7 @@
-export { createWebToolsRuntime } from "./web-tools-runtime.js";
-export type { WebToolsRuntime } from "./core/types.js";
-export { loadWebToolsConfig } from "./config.js";
-export type { WebToolsConfig } from "./config-types.js";
+export { createWebToolsRuntime } from "./web-tools-runtime.ts";
+export type { WebToolsRuntime } from "./core/types.ts";
+export { loadWebToolsConfig } from "./config.ts";
+export type { WebToolsConfig } from "./config-types.ts";
 export type {
 	WebFetchParams,
 	WebFetchRange,
@@ -18,4 +18,4 @@ export type {
 	WebSearchSuccessDetails,
 	WebSearchFailureDetails,
 	WebSearchProgressDetails,
-} from "./core/types.js";
+} from "./core/types.ts";

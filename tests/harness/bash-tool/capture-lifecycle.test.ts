@@ -5,10 +5,10 @@ import path from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.js";
-import { bashToolConfig } from "./fixture.js";
-import { deferredVoid } from "../../helpers/async.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.ts";
+import { bashToolConfig } from "./fixture.ts";
+import { deferredVoid } from "../../helpers/async.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-bash-capture-");
 let logDirectory: string | undefined;

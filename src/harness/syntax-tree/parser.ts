@@ -1,6 +1,6 @@
 import type { Tree } from "web-tree-sitter";
-import { loadGrammar } from "./loader.js";
-import type { GrammarSpec, SyntaxTreeDocument } from "./types.js";
+import { loadGrammar } from "./loader.ts";
+import type { GrammarSpec, SyntaxTreeDocument } from "./types.ts";
 
 const PARSE_DEADLINE_MS = 250;
 

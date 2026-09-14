@@ -1,11 +1,11 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { FilesystemPathAccess } from "../../filesystem/contracts/access.js";
-import type { LoadLsp } from "../../lsp/file-operations.js";
-import type { FileToolsHost, FileToolsHostOpenOptions, FileToolsInvocation } from "../runtime/host.js";
-import { isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
-import { formatErrorModelResult } from "./model-output.js";
-import type { MutationBatchInvocation } from "./mutation-batch.js";
-import type { MutationProgressCallback } from "./progress.js";
+import type { FilesystemPathAccess } from "../../filesystem/contracts/access.ts";
+import type { LoadLsp } from "../../lsp/file-operations.ts";
+import type { FileToolsHost, FileToolsHostOpenOptions, FileToolsInvocation } from "../runtime/host.ts";
+import { isFailed, type FailedResult, type ToolOutcome } from "../shared/result.ts";
+import { formatErrorModelResult } from "./model-output.ts";
+import type { MutationBatchInvocation } from "./mutation-batch.ts";
+import type { MutationProgressCallback } from "./progress.ts";
 
 export interface FileToolRuntime extends FileToolsHostOpenOptions {
 	readonly host: FileToolsHost;

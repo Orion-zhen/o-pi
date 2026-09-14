@@ -2,17 +2,17 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AnalyzeCode, CodeAnalysis, CodeAuthority, CodeNavigation } from "../../../src/harness/code-index/types.js";
-import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.js";
-import { analyzeCodeFile } from "../../../src/harness/code-index/parser.js";
-import { deferredVoid } from "../../helpers/async.js";
-import { grepWorkspaceFiles } from "../../helpers/grep-tool.js";
+import type { AnalyzeCode, CodeAnalysis, CodeAuthority, CodeNavigation } from "../../../src/harness/code-index/types.ts";
+import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.ts";
+import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
+import { deferredVoid } from "../../helpers/async.ts";
+import { grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
 import {
 	createGrepTestContext,
 	expectGrepSuccess,
 	grepWithAnalyzer,
 	overrideContent,
-} from "./grep-fixtures.js";
+} from "./grep-fixtures.ts";
 
 const testContext = createGrepTestContext();
 

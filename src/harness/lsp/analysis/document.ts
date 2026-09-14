@@ -1,12 +1,12 @@
 import type { Position } from "vscode-languageserver-protocol";
 
-import { createFileIdentity, createSymbolId } from "../../code-index/identity.js";
-import { languageFromPath } from "../../syntax-tree/grammars.js";
-import { SourceIndex } from "../../code-index/source-index.js";
-import { compactDeclaration } from "../../code-index/text.js";
-import type { AnalyzedFileIndex, CodeDocument, IndexedCodeUnit } from "../../code-index/types.js";
-import { normalizeDocumentSymbols, symbolKindName, type NormalizedDocumentSymbol } from "./symbols.js";
-import type { LspDocumentSymbols } from "../types.js";
+import { createFileIdentity, createSymbolId } from "../../code-index/identity.ts";
+import { languageFromPath } from "../../syntax-tree/grammars.ts";
+import { SourceIndex } from "../../code-index/source-index.ts";
+import { compactDeclaration } from "../../code-index/text.ts";
+import type { AnalyzedFileIndex, CodeDocument, IndexedCodeUnit } from "../../code-index/types.ts";
+import { normalizeDocumentSymbols, symbolKindName, type NormalizedDocumentSymbol } from "./symbols.ts";
+import type { LspDocumentSymbols } from "../types.ts";
 
 export interface AnalyzedLspUnit {
 	readonly unit: IndexedCodeUnit;

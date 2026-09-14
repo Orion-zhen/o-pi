@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { Candidate, Fields, FieldValue, Resource, TelemetryFacts, ToolTelemetry } from "./types.js";
+import type { Candidate, Fields, FieldValue, Resource, TelemetryFacts, ToolTelemetry } from "./types.ts";
 
 const MAX_FIELDS = 48;
 const MAX_FIELD_STRING_CHARS = 256;

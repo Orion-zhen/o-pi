@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import pruneExtension from "../../../src/harness/extensions/prune.js";
+import pruneExtension from "../../../src/harness/extensions/prune.ts";
 
 describe("prune extension adapter", () => {
 	it("只注册 /prune，启动前不注册 TUI renderer，并保留 force 与 restore 补全", async () => {

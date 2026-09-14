@@ -1,8 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { loadSubagentConfig } from "../../../src/harness/subagent/config.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { loadSubagentConfig } from "../../../src/harness/subagent/config.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-subagent-config-");

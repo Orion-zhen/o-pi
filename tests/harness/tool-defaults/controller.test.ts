@@ -6,11 +6,11 @@ import {
 	TOOL_SELECTION_ENTRY,
 	ToolSelectionController,
 	type ToolSelectionEntryData,
-} from "../../../src/harness/tool-defaults/controller.js";
+} from "../../../src/harness/tool-defaults/controller.ts";
 import {
 	ToolDefaultsConfigError,
 	type ToolDefaultsConfig,
-} from "../../../src/harness/tool-defaults/config.js";
+} from "../../../src/harness/tool-defaults/config.ts";
 
 describe("ToolSelectionController", () => {
 	it("按 model-aware defaults 恢复并持久化选择", async () => {

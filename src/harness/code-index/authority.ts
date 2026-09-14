@@ -1,7 +1,7 @@
 import path from "node:path";
 
-import { normalizeIndexPath } from "./identity.js";
-import type { AnalyzedFileIndex, CodeAuthority, CodeLanguage, IndexedCodeUnit, ModuleImport } from "./types.js";
+import { normalizeIndexPath } from "./identity.ts";
+import type { AnalyzedFileIndex, CodeAuthority, CodeLanguage, IndexedCodeUnit, ModuleImport } from "./types.ts";
 
 interface Definition {
 	readonly path: string;

@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { DiscordPresenceService, type PresenceStartContext } from "../discord-presence/service.js";
+import { DiscordPresenceService, type PresenceStartContext } from "../discord-presence/service.ts";
 
 const COMMAND_NAME = "presence";
 const COMMAND_DESCRIPTION = "Control Discord rich presence.";

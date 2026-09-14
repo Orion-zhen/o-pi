@@ -4,8 +4,8 @@ import {
 	createCompleteSchemaValidator,
 	createSchemaValidator,
 	loadValidatedMergedConfig,
-} from "../config-loader.js";
-import type { BashToolConfig } from "./types.js";
+} from "../config-loader.ts";
+import type { BashToolConfig } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("bash-tool.schema.json");
 

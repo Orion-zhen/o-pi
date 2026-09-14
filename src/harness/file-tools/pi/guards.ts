@@ -1,5 +1,5 @@
-import type { GrepRegion, GrepSuccess, TruncationReason } from "../grep/types.js";
-import type { FailedResult } from "../shared/result.js";
+import type { GrepRegion, GrepSuccess, TruncationReason } from "../grep/types.ts";
+import type { FailedResult } from "../shared/result.ts";
 
 const GREP_MATCHED_BY = new Set([
 	"exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "related",

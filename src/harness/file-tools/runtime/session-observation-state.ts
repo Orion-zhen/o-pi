@@ -1,4 +1,4 @@
-import type { ObservationEntry } from "./observation-store.js";
+import type { ObservationEntry } from "./observation-store.ts";
 
 export const FILE_TOOLS_OBSERVATION_STATE = "o-pi.file-tools.observations.v1";
 

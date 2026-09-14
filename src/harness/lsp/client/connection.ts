@@ -16,11 +16,11 @@ import {
 	type InitializeParams, type ServerCapabilities,
 } from "vscode-languageserver-protocol";
 
-import type { LspTransportConnection } from "../protocol/transport.js";
-import type { LspFeatureSession } from "../protocol/features.js";
-import { withTimeout } from "../protocol/timeout.js";
-import { LspProtocolInfrastructure, LspProtocolValidationError } from "../protocol/infrastructure.js";
-import type { LspRequestOptions } from "../types.js";
+import type { LspTransportConnection } from "../protocol/transport.ts";
+import type { LspFeatureSession } from "../protocol/features.ts";
+import { withTimeout } from "../protocol/timeout.ts";
+import { LspProtocolInfrastructure, LspProtocolValidationError } from "../protocol/infrastructure.ts";
+import type { LspRequestOptions } from "../types.ts";
 
 const MIN_GRACEFUL_CLOSE_MS = 1000;
 const MAX_GRACEFUL_CLOSE_MS = 3000;

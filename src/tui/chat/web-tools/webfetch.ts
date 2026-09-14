@@ -1,10 +1,10 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
-import { formatToolCard } from "../../components/tool-card.js";
-import { formatBytes, formatChars, formatDuration, joinParts } from "../../components/text.js";
-import type { WebFetchDetails, WebFetchFailureDetails, WebFetchProgressDetails, WebFetchSuccessDetails } from "../../../harness/web-tools/core/types.js";
-import { compactUrl, shortUrlForCall, truncateMiddle } from "../../../harness/web-tools/network/url-utils.js";
+import { formatToolCard } from "../../components/tool-card.ts";
+import { formatBytes, formatChars, formatDuration, joinParts } from "../../components/text.ts";
+import type { WebFetchDetails, WebFetchFailureDetails, WebFetchProgressDetails, WebFetchSuccessDetails } from "../../../harness/web-tools/core/types.ts";
+import { compactUrl, shortUrlForCall, truncateMiddle } from "../../../harness/web-tools/network/url-utils.ts";
 
 interface WebFetchRenderState {
 	callComponent?: Text;

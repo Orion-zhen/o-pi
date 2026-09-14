@@ -1,11 +1,11 @@
-import { formatSearchNavigation, SearchScopeCounts } from "../shared/search-navigation.js";
-import { countTextTokensSync } from "../../token-counter.js";
-import type { RankedRegion } from "./candidates.js";
+import { formatSearchNavigation, SearchScopeCounts } from "../shared/search-navigation.ts";
+import { countTextTokensSync } from "../../token-counter.ts";
+import type { RankedRegion } from "./candidates.ts";
 import {
 	GREP_RANKING_ALGORITHM,
 	GREP_RELEVANCE_HEAD_SIZE,
 	selectRankedRegions,
-} from "./ranking.js";
+} from "./ranking.ts";
 import type {
 	GrepDisplayLine,
 	GrepRankingDiagnostics,
@@ -17,7 +17,7 @@ import type {
 	GrepSuccess,
 	GrepQueryMode,
 	TruncationReason,
-} from "./types.js";
+} from "./types.ts";
 
 const TRUNCATION_ORDER: readonly TruncationReason[] = [
 	"depth_limit",

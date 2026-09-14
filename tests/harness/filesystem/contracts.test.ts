@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { FsErrorCode } from "../../../src/harness/filesystem/contracts/result.js";
-import { mapFsError, type FileToolErrorCode } from "../../../src/harness/file-tools/shared/result.js";
+import type { FsErrorCode } from "../../../src/harness/filesystem/contracts/result.ts";
+import { mapFsError, type FileToolErrorCode } from "../../../src/harness/file-tools/shared/result.ts";
 
 const ERROR_MAPPINGS: ReadonlyArray<readonly [FsErrorCode, FileToolErrorCode]> = [
 	["invalid-path", "INVALID_PATH"],

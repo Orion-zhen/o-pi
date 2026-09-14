@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { statusIcon, type ToolCardStatus } from "./icons.js";
-import { compactWhitespace, truncateEnd, truncateMiddle } from "./text.js";
+import { statusIcon, type ToolCardStatus } from "./icons.ts";
+import { compactWhitespace, truncateEnd, truncateMiddle } from "./text.ts";
 
 const MAX_TARGET_CHARS = 72;
 const MAX_SUMMARY_CHARS = 96;

@@ -1,8 +1,8 @@
-import { listDirectory } from "../../ls/command.js";
-import { formatCompactLsResult } from "../../ls/presenter.js";
-import type { LsParams, LsSuccess } from "../../ls/types.js";
-import { isFailed } from "../../shared/result.js";
-import { withFileToolsInvocation, type FileToolRuntime } from "../invocation.js";
+import { listDirectory } from "../../ls/command.ts";
+import { formatCompactLsResult } from "../../ls/presenter.ts";
+import type { LsParams, LsSuccess } from "../../ls/types.ts";
+import { isFailed } from "../../shared/result.ts";
+import { withFileToolsInvocation, type FileToolRuntime } from "../invocation.ts";
 
 export async function executeLs(params: LsParams, runtime: FileToolRuntime) {
 	return withFileToolsInvocation(runtime, async (opened) => {

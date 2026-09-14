@@ -1,5 +1,5 @@
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
-import type { TextDiffGenerator } from "../../shared/text-diff.js";
+import type { TextDiffGenerator } from "../../shared/text-diff.ts";
 
 export const piTextDiffGenerator: TextDiffGenerator = {
 	generate(before, after) {

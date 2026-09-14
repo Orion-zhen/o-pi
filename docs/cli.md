@@ -21,7 +21,7 @@ bun run build
 
 `package.json` 中的依赖跟随 `latest`，不提交锁文件或固定 Bun 版本。`trustedDependencies` 只授权所需的安装脚本。`bun run build` 使用 PATH 中的 Bun。自动发行使用构建时最新的官方 Bun，避免引入系统发行版特有的动态库依赖。
 
-开发入口为 `bun src/cli.ts`。Bun 直接运行 TypeScript，`tsc` 只做类型检查，不再生成 Node.js 发行目录。常用脚本只有 `build`、`typecheck`、`test` 和 `bench`。专项基准和遥测报告直接用 Bun 运行对应文件。
+开发入口为 `bun src/cli.ts`。Bun 直接运行 TypeScript，`tsc` 只做类型检查，不再生成 Node.js 发行目录。本地 TS 模块引用统一写 `.ts` 后缀，第三方包和真实 JS 文件保留原路径。TypeScript 使用 `Preserve` / `Bundler` 模块配置，并启用 `allowImportingTsExtensions`、`verbatimModuleSyntax` 和 `noEmit`。常用脚本只有 `build`、`typecheck`、`test` 和 `bench`。专项基准和遥测报告直接用 Bun 运行对应文件。
 
 ## 单文件与资源
 

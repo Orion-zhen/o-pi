@@ -1,6 +1,6 @@
-import { escapeXmlAttribute, relatedDiagnosticLines } from "../shared/mutation-presenter.js";
-import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.js";
-import type { EditSuccess } from "./types.js";
+import { escapeXmlAttribute, relatedDiagnosticLines } from "../shared/mutation-presenter.ts";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.ts";
+import type { EditSuccess } from "./types.ts";
 
 export function formatEditModelResult(result: EditSuccess): string {
 	const diagnostics = [

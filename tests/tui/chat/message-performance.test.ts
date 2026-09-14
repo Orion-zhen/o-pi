@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createAssistantPerformanceTracker,
 	getAssistantPerformance,
-} from "../../../src/tui/chat/message-performance.js";
+} from "../../../src/tui/chat/message-performance.ts";
 
 beforeEach(() => {
 	createAssistantPerformanceTracker().reset();

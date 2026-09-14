@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { parsePruneState, PRUNE_STATE } from "../../../harness/prune/prune.js";
-import { PruneSummaryComponent } from "./renderer.js";
+import { parsePruneState, PRUNE_STATE } from "../../../harness/prune/prune.ts";
+import { PruneSummaryComponent } from "./renderer.ts";
 
-export { PruneSummaryComponent } from "./renderer.js";
+export { PruneSummaryComponent } from "./renderer.ts";
 export {
 	getPruneTuiState,
 	isToolCallHidden,
@@ -12,7 +12,7 @@ export {
 	syncPruneTuiState,
 	type PruneTuiOperation,
 	type PruneTuiState,
-} from "./state.js";
+} from "./state.ts";
 
 export function registerPruneEntryRenderer(pi: Pick<ExtensionAPI, "registerEntryRenderer">): void {
 	pi.registerEntryRenderer(PRUNE_STATE, (entry, _options, theme) => {

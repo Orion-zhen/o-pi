@@ -1,5 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { SKILL_CONTEXT_ENTRY, type SkillLoadEntry, type SkillStatusSnapshot } from "./types.js";
+import { SKILL_CONTEXT_ENTRY, type SkillLoadEntry, type SkillStatusSnapshot } from "./types.ts";
 
 export function extractSkillLoads(branchEntries: SessionEntry[]): SkillLoadEntry[] {
 	const loads: SkillLoadEntry[] = [];

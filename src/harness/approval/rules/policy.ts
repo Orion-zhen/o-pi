@@ -1,8 +1,8 @@
 import picomatch from "picomatch";
 
-import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalRule, ApprovalUnit, BashApprovalRequest } from "../types.js";
-import type { ApprovalRuleMatcher } from "./allow.js";
-import { collectBashFacts, type BashFactEvaluation } from "./bash-facts.js";
+import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalRule, ApprovalUnit, BashApprovalRequest } from "../types.ts";
+import type { ApprovalRuleMatcher } from "./allow.ts";
+import { collectBashFacts, type BashFactEvaluation } from "./bash-facts.ts";
 
 export function evaluateGatePolicy(request: ApprovalRequest, config: ApprovalGateConfig, store: ApprovalRuleMatcher): ApprovalDecision {
 	const bash = request.tool === "bash" ? collectBashFacts(request, config.tools.bash) : undefined;

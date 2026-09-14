@@ -18,7 +18,7 @@ import type {
 	SourceContributionStatistics,
 	TelemetryReport,
 	ToolStatistics,
-} from "./types.js";
+} from "./types.ts";
 
 export function renderTelemetryHtml(report: TelemetryReport): string {
 	const totalSuccess = report.tools.reduce((sum, tool) => sum + tool.success_rate.numerator, 0);

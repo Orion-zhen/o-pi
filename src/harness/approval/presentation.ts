@@ -1,5 +1,5 @@
-import { stripTerminalSequences } from "../terminal-text.js";
-import type { ApprovalDecision, ApprovalRequest } from "./types.js";
+import { stripTerminalSequences } from "../terminal-text.ts";
+import type { ApprovalDecision, ApprovalRequest } from "./types.ts";
 
 type AskDecision = Extract<ApprovalDecision, { kind: "ask" }>;
 export type ApprovalLineStyle = "text" | "dim" | "added" | "removed" | "warning";

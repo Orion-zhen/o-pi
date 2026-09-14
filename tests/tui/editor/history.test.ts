@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { userCachePath } from "../../../src/harness/cache-path.js";
-import { buildInitialHistory, UserHistoryStore, type UserHistoryRecord } from "../../../src/tui/editor/history.js";
-import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.js";
+import { userCachePath } from "../../../src/harness/cache-path.ts";
+import { buildInitialHistory, UserHistoryStore, type UserHistoryRecord } from "../../../src/tui/editor/history.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-user-history-");
 preserveEnv("HOME", "USERPROFILE");

@@ -1,5 +1,5 @@
 import type { TUI } from "@earendil-works/pi-tui";
-import { KittyFrameAdapter } from "./kitty-frame.js";
+import { KittyFrameAdapter } from "./kitty-frame.ts";
 
 /** 编辑器工厂提供 Pi 的活动 TUI 引用。只适配该终端实例，不改上游原型。 */
 export function installFullscreenImageFix(tui: TUI): () => void {

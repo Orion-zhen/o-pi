@@ -1,8 +1,8 @@
-import { analyzeCodeFile } from "../../code-index/parser.js";
-import type { AnalyzedFileIndex } from "../../code-index/types.js";
-import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
-import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
-import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";
+import { analyzeCodeFile } from "../../code-index/parser.ts";
+import type { AnalyzedFileIndex } from "../../code-index/types.ts";
+import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.ts";
+import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.ts";
+import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.ts";
 
 const GREP_CONCURRENCY = DEFAULT_WORKER_CONCURRENCY;
 const GREP_PARSER_BATCH_SIZE = 32;

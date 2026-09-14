@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
-import type { CallRecord, Candidate, Fields, Resource, RunRecord, TelemetryRecord } from "../telemetry/types.js";
+import type { CallRecord, Candidate, Fields, Resource, RunRecord, TelemetryRecord } from "../telemetry/types.ts";
 
 const MAX_JSONL_LINE_CHARS = 1_000_000;
 const RUN_REASONS = new Set<RunRecord["reason"]>(["startup", "reload", "new", "resume", "fork"]);

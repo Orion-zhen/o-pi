@@ -1,5 +1,5 @@
-import type { AnalysisControl } from "../syntax-tree/types.js";
-import type { SourceRange } from "./types.js";
+import type { AnalysisControl } from "../syntax-tree/types.ts";
+import type { SourceRange } from "./types.ts";
 
 /** 将 Tree-sitter/LSP 的 UTF-16 坐标转换为 UTF-8 范围，ASCII 文档无需偏移表。 */
 export class SourceIndex {

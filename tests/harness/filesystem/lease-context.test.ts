@@ -2,23 +2,23 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { FileRef, TargetRef } from "../../../src/harness/filesystem/contracts/path.js";
-import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.js";
-import { FileSystemRuntime, type WorkspaceFileSystemLease } from "../../../src/harness/filesystem/runtime.js";
+import type { FileRef, TargetRef } from "../../../src/harness/filesystem/contracts/path.ts";
+import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.ts";
+import { FileSystemRuntime, type WorkspaceFileSystemLease } from "../../../src/harness/filesystem/runtime.ts";
 import {
 	NativeFileSystemError,
 	NodeNativeFileSystem,
 	type NativeOpenFile,
-} from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.js";
-import { deferredVoid } from "../../helpers/async.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+} from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { deferredVoid } from "../../helpers/async.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 import {
 	collectAsync,
 	expectFsOk,
 	overrideNativeFileSystem,
 	textBytes,
-} from "./fixtures.js";
+} from "./fixtures.ts";
 
 const temp = useTempDir("o-pi-lease-context-");
 let workspace: string;

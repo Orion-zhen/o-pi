@@ -1,7 +1,7 @@
-import type { FileSnapshot } from "./metadata.js";
-import type { DirectoryRef, ExistingRef, FileRef } from "./path.js";
-import type { FsError, FsResult } from "./result.js";
-import type { VisibilityAnnotation } from "./visibility.js";
+import type { FileSnapshot } from "./metadata.ts";
+import type { DirectoryRef, ExistingRef, FileRef } from "./path.ts";
+import type { FsError, FsResult } from "./result.ts";
+import type { VisibilityAnnotation } from "./visibility.ts";
 
 export type DiscoveryRoot = FileRef | DirectoryRef;
 export type DiscoveryRef = FileRef | DirectoryRef;

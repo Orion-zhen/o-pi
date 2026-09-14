@@ -1,6 +1,6 @@
 import type { TUI } from "@earendil-works/pi-tui";
-import { HomePointerController, type HomePointerFrame } from "./pointer.js";
-import type { TuiHomeConfig } from "../../shell/types.js";
+import { HomePointerController, type HomePointerFrame } from "./pointer.ts";
+import type { TuiHomeConfig } from "../../shell/types.ts";
 
 const INTRO_FRAME_MS = 80;
 const SUBTLE_INTRO_MS = 640;

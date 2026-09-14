@@ -4,7 +4,7 @@ import type {
 	TelemetryPi,
 	TelemetryService,
 	TelemetrySessionContext,
-} from "./service.js";
+} from "./service.ts";
 
 /** 把 Pi 生命周期和上下文映射为 telemetry 的窄输入。 */
 export function attachTelemetryService(pi: Pick<TelemetryPi, "on">, service: TelemetryService): void {

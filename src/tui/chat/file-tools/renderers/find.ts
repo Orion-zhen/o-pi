@@ -1,12 +1,12 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { formatToolCard } from "../../../components/tool-card.js";
-import { joinParts } from "../../../components/text.js";
-import { isFindDetails } from "../../../../harness/file-tools/find/guards.js";
-import { formatSearchNavigation } from "../../../../harness/file-tools/shared/search-navigation.js";
-import type { FindDetails } from "../../../../harness/file-tools/find/types.js";
-import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.js";
-import type { PartialTextRenderContext, TextRenderContext, ToolTextResult } from "./contracts.js";
+import { formatToolCard } from "../../../components/tool-card.ts";
+import { joinParts } from "../../../components/text.ts";
+import { isFindDetails } from "../../../../harness/file-tools/find/guards.ts";
+import { formatSearchNavigation } from "../../../../harness/file-tools/shared/search-navigation.ts";
+import type { FindDetails } from "../../../../harness/file-tools/find/types.ts";
+import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.ts";
+import type { PartialTextRenderContext, TextRenderContext, ToolTextResult } from "./contracts.ts";
 import {
 	displayToolPath,
 	fallbackTextResult,
@@ -14,7 +14,7 @@ import {
 	pathArgs,
 	stringArg,
 	textComponent,
-} from "./shared.js";
+} from "./shared.ts";
 
 export function renderFindCall(
 	args: unknown,

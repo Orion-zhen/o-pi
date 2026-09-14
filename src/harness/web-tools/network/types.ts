@@ -1,5 +1,5 @@
 import type { Dispatcher } from "undici";
-import type { WebFetchFailureDetails } from "../core/types.js";
+import type { WebFetchFailureDetails } from "../core/types.ts";
 
 export interface ValidatedUrl {
 	url: URL;

@@ -17,7 +17,7 @@ import {
 	type Focusable,
 } from "@earendil-works/pi-tui";
 
-import type { ToolSelectionItem } from "../../../harness/tool-defaults/controller.js";
+import type { ToolSelectionItem } from "../../../harness/tool-defaults/controller.ts";
 
 export interface ToolSelectorOptions {
 	tools: readonly ToolSelectionItem[];

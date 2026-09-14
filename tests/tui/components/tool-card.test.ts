@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatToolCard } from "../../../src/tui/components/tool-card.js";
+import { formatToolCard } from "../../../src/tui/components/tool-card.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,

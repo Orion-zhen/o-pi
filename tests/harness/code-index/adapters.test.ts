@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { analyzeCodeFile } from "../../../src/harness/code-index/parser.js";
+import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
 
 describe("tree-sitter adapters", () => {
 describe.each([

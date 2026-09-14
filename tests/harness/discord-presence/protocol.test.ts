@@ -1,6 +1,6 @@
 import { Socket } from "node:net";
 import { describe, expect, it } from "vitest";
-import { readCoordinatorMessages } from "../../../src/harness/discord-presence/coordinator-protocol.js";
+import { readCoordinatorMessages } from "../../../src/harness/discord-presence/coordinator-protocol.ts";
 
 describe("协调协议消息边界", () => {
 	it("支持粘连消息、分片消息和跨分片的 Unicode", () => {

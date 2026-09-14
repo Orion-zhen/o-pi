@@ -1,4 +1,4 @@
-import { type ToolCallRenderer } from "../presentation.js";
+import { type ToolCallRenderer } from "../presentation.ts";
 import {
 	createLocalBashOperations,
 	type ExtensionAPI,
@@ -7,11 +7,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { executeBashCommand } from "../bash-tool/bash-tool.js";
-import { loadBashToolConfig } from "../bash-tool/config.js";
-import { type BashParams, type BashSessionMetadata, type BashToolDetails } from "../bash-tool/types.js";
-import { bashTelemetry } from "../bash-tool/telemetry.js";
-import { registerTool } from "../register-tool.js";
+import { executeBashCommand } from "../bash-tool/bash-tool.ts";
+import { loadBashToolConfig } from "../bash-tool/config.ts";
+import { type BashParams, type BashSessionMetadata, type BashToolDetails } from "../bash-tool/types.ts";
+import { bashTelemetry } from "../bash-tool/telemetry.ts";
+import { registerTool } from "../register-tool.ts";
 
 const bashParameters = Type.Object(
 	{

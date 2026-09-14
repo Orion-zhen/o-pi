@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 
-import { ToolSelectorComponent } from "../../../../src/tui/views/tool-defaults/tool-selector.js";
+import { ToolSelectorComponent } from "../../../../src/tui/views/tool-defaults/tool-selector.ts";
 
 const theme: Pick<Theme, "bold" | "fg"> = {
 	bold: (text) => text,

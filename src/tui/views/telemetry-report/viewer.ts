@@ -1,8 +1,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
-import { BorderedScrollViewer } from "../../components/scroll-viewer.js";
-import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live.js";
-import { renderLiveTelemetry } from "./render-live.js";
+import { BorderedScrollViewer } from "../../components/scroll-viewer.ts";
+import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live.ts";
+import { renderLiveTelemetry } from "./render-live.ts";
 
 const VIEWER_BODY_ROWS_RATIO = 0.8;
 const SECTION_HEADINGS = new Set([

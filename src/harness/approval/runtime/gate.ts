@@ -1,7 +1,7 @@
-import { evaluateGatePolicy } from "../rules/policy.js";
-import { FileApprovalStore, type ApprovalStore } from "../rules/store.js";
-import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.js";
-import { handleAskDecision, type ApprovalOutcome, type ApprovalInteractionPort } from "./interaction.js";
+import { evaluateGatePolicy } from "../rules/policy.ts";
+import { FileApprovalStore, type ApprovalStore } from "../rules/store.ts";
+import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
+import { handleAskDecision, type ApprovalOutcome, type ApprovalInteractionPort } from "./interaction.ts";
 
 interface ApprovalGate {
 	authorize(request: ApprovalRequest, config: ApprovalGateConfig, interaction?: ApprovalInteractionPort): Promise<ApprovalOutcome>;

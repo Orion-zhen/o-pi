@@ -2,8 +2,8 @@ import type { TSchema } from "typebox";
 import { Check } from "typebox/value";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
-import { createRepairSpec } from "./specs.js";
-import type { RepairFanout, RepairObserver, RepairOperation, RepairSeparator, RepairSpec, RepairSpecHints, ToolArgumentStatus } from "./types.js";
+import { createRepairSpec } from "./specs.ts";
+import type { RepairFanout, RepairObserver, RepairOperation, RepairSeparator, RepairSpec, RepairSpecHints, ToolArgumentStatus } from "./types.ts";
 
 export const DEFAULT_MAX_PATH_COUNT = 32;
 

@@ -2,22 +2,22 @@ import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEntry, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import fileTools from "../../../src/harness/extensions/file-tools.js";
-import type { FilesystemPathAccess } from "../../../src/harness/filesystem/contracts/access.js";
+import fileTools from "../../../src/harness/extensions/file-tools.ts";
+import type { FilesystemPathAccess } from "../../../src/harness/filesystem/contracts/access.ts";
 import {
 	buildSkillFilesystemAccess,
 	buildSkillPathIndex,
 	resolveSkillResourceLocator,
 	type SkillPathIndex,
-} from "../../../src/harness/skill-context/resources.js";
-import { executeRead } from "../../../src/harness/file-tools/pi/adapters/read.js";
-import { isFailed } from "../../../src/harness/file-tools/shared/result.js";
-import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.js";
-import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../../src/harness/skill-context/types.js";
-import { executeTool } from "../file-tools/extension-fixture.js";
-import { registerExtension } from "../../helpers/extension.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { lspOperations } from "../../helpers/lsp.js";
+} from "../../../src/harness/skill-context/resources.ts";
+import { executeRead } from "../../../src/harness/file-tools/pi/adapters/read.ts";
+import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
+import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
+import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../../src/harness/skill-context/types.ts";
+import { executeTool } from "../file-tools/extension-fixture.ts";
+import { registerExtension } from "../../helpers/extension.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { lspOperations } from "../../helpers/lsp.ts";
 
 const temp = useTempDir("o-pi-skill-resource-");
 let root: string;

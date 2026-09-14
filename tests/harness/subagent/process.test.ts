@@ -8,14 +8,14 @@ import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import type { JsonAgentSessionEvent, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runSubagentCommand } from "../../../src/harness/subagent/commands.js";
-import { executeSubagent, resolveMode } from "../../../src/harness/subagent/executor.js";
-import { PiJsonProgressAccumulator } from "../../../src/harness/subagent/json-progress.js";
-import { runPiProcess } from "../../../src/harness/subagent/process.js";
+import { runSubagentCommand } from "../../../src/harness/subagent/commands.ts";
+import { executeSubagent, resolveMode } from "../../../src/harness/subagent/executor.ts";
+import { PiJsonProgressAccumulator } from "../../../src/harness/subagent/json-progress.ts";
+import { runPiProcess } from "../../../src/harness/subagent/process.ts";
 import {
 	cleanupForkExecutionContext,
 	createForkExecutionContext,
-} from "../../../src/harness/subagent/session-context.js";
+} from "../../../src/harness/subagent/session-context.ts";
 import type {
 	AgentDefinition,
 	ExecutorContext,
@@ -24,9 +24,9 @@ import type {
 	ProcessRunProgress,
 	SubagentProgressEvent,
 	SubagentTask,
-} from "../../../src/harness/subagent/types.js";
-import { countTextTokensSync } from "../../../src/harness/token-counter.js";
-import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.js";
+} from "../../../src/harness/subagent/types.ts";
+import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 const childProcess = vi.hoisted(() => ({
 	spawn: vi.fn<(command: string, args: readonly string[], options: SpawnOptionsWithoutStdio) => FakeChildProcess>(),

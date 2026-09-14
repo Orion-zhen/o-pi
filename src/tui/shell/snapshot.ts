@@ -4,9 +4,9 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { collectSkillSummary } from "../../harness/skill-context/loader.js";
-import { summarizeUsage } from "../../harness/stats/usage.js";
-import type { TuiRunStatus, TuiSkillsSnapshot, TuiSnapshot, TuiToolsSnapshot } from "./types.js";
+import { collectSkillSummary } from "../../harness/skill-context/loader.ts";
+import { summarizeUsage } from "../../harness/stats/usage.ts";
+import type { TuiRunStatus, TuiSkillsSnapshot, TuiSnapshot, TuiToolsSnapshot } from "./types.ts";
 
 /** 在会话和轮次事件中采集用量，避免每次重绘都遍历会话记录。 */
 export function collectSessionState(ctx: ExtensionContext, status: TuiRunStatus) {

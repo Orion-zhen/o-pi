@@ -1,4 +1,4 @@
-import type { SyntaxNode } from "./types.js";
+import type { SyntaxNode } from "./types.ts";
 
 const DYNAMIC_NODE_TYPES = new Set([
 	"arithmetic_expansion",

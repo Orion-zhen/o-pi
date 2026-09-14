@@ -1,6 +1,6 @@
-import type { CoordinatedPresenceConfig } from "./coordinator-protocol.js";
-import { createDiscordRpcTransport, type DiscordPresenceTransport } from "./transport.js";
-import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.js";
+import type { CoordinatedPresenceConfig } from "./coordinator-protocol.ts";
+import { createDiscordRpcTransport, type DiscordPresenceTransport } from "./transport.ts";
+import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.ts";
 
 interface PresenceTarget {
 	config: CoordinatedPresenceConfig;

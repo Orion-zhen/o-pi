@@ -1,7 +1,7 @@
-import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
-import { loadSubagentConfig } from "./config.js";
-import { formatModelReference } from "./model.js";
-import { executeSubagent } from "./executor.js";
+import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.ts";
+import { loadSubagentConfig } from "./config.ts";
+import { formatModelReference } from "./model.ts";
+import { executeSubagent } from "./executor.ts";
 import type {
 	AgentDefinition,
 	ExecutorContext,
@@ -15,7 +15,7 @@ import type {
 	SubagentTask,
 	SubagentToolResult,
 	ToolInfo,
-} from "./types.js";
+} from "./types.ts";
 
 export interface AutocompleteItem {
 	value: string;

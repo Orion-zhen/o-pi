@@ -1,8 +1,8 @@
 import path from "node:path";
 import type { ExtensionContext, Theme, WorkingIndicatorOptions } from "@earendil-works/pi-coding-agent";
-import { statusIcon } from "../components/icons.js";
-import { joinParts } from "../components/text.js";
-import type { TuiConfig, TuiRunStatus, TuiSnapshot } from "./types.js";
+import { statusIcon } from "../components/icons.ts";
+import { joinParts } from "../components/text.ts";
+import type { TuiConfig, TuiRunStatus, TuiSnapshot } from "./types.ts";
 
 export const TUI_STATUS_KEY = "o-pi:tui";
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

@@ -1,6 +1,6 @@
-import { fields, isRecord, scalar, textFields } from "../../telemetry/projection.js";
-import type { Fields, Resource, TelemetryFacts } from "../../telemetry/types.js";
-import type { FailedResult } from "../shared/result.js";
+import { fields, isRecord, scalar, textFields } from "../../telemetry/projection.ts";
+import type { Fields, Resource, TelemetryFacts } from "../../telemetry/types.ts";
+import type { FailedResult } from "../shared/result.ts";
 
 interface FileTelemetryInput {
 	path?: string | string[];

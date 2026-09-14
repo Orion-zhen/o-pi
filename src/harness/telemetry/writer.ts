@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { finished } from "node:stream/promises";
 
-import type { TelemetryRecord } from "./types.js";
+import type { TelemetryRecord } from "./types.ts";
 
 export interface TelemetryWriter {
 	append(record: TelemetryRecord): boolean;

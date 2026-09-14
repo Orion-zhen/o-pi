@@ -3,11 +3,11 @@ import {
 	parseFrontmatter,
 	type BuildSystemPromptOptions,
 } from "@earendil-works/pi-coding-agent";
-import { discoverAgents } from "../subagent/agents.js";
-import { loadSubagentConfig } from "../subagent/config.js";
-import { loadForkSystemPrompt } from "../subagent/session-context.js";
-import type { AgentDefinition } from "../subagent/types.js";
-import { collectModelInvocableSkillIndex } from "../skill-context/loader.js";
+import { discoverAgents } from "../subagent/agents.ts";
+import { loadSubagentConfig } from "../subagent/config.ts";
+import { loadForkSystemPrompt } from "../subagent/session-context.ts";
+import type { AgentDefinition } from "../subagent/types.ts";
+import { collectModelInvocableSkillIndex } from "../skill-context/loader.ts";
 
 type PromptSections = {
 	/** Pi 传入的 appendSystemPrompt 会作为独立段落插入，避免和自定义 prompt 混写后边界不清。 */

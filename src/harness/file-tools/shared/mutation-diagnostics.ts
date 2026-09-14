@@ -1,5 +1,5 @@
-import type { TargetRef } from "../../filesystem/contracts/path.js";
-import type { LspMutationBaseline as DiagnosticSnapshot, LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.js";
+import type { TargetRef } from "../../filesystem/contracts/path.ts";
+import type { LspMutationBaseline as DiagnosticSnapshot, LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.ts";
 
 export interface MutationLineRange {
 	startLine: number;

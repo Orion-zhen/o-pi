@@ -11,7 +11,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 
-import type { RepairObservation } from "../tool-repair/types.js";
+import type { RepairObservation } from "../tool-repair/types.ts";
 import {
 	repairObservation,
 	TELEMETRY_READY_CHANNEL,
@@ -20,8 +20,8 @@ import {
 	telemetryToolRegistration,
 	type TelemetryToolDefinition,
 	type TelemetryToolRegistration,
-} from "./events.js";
-import { mergeFacts, safeProject, stableHash } from "./projection.js";
+} from "./events.ts";
+import { mergeFacts, safeProject, stableHash } from "./projection.ts";
 import type {
 	CallBatch,
 	CallRecord,
@@ -30,9 +30,9 @@ import type {
 	RunRecord,
 	TelemetryFacts,
 	TelemetryRecord,
-} from "./types.js";
-import type { TelemetryWriter } from "./writer.js";
-import { attachTelemetryService } from "./pi-adapter.js";
+} from "./types.ts";
+import type { TelemetryWriter } from "./writer.ts";
+import { attachTelemetryService } from "./pi-adapter.ts";
 
 export type TelemetryPi = Pick<ExtensionAPI, "events" | "getAllTools" | "getThinkingLevel" | "on">;
 
@@ -133,8 +133,8 @@ export class TelemetryService {
 		this.#now = options.now ?? (() => new Date());
 		this.#monotonicNow = options.monotonicNow ?? (() => performance.now());
 		this.#runId = options.runId ?? randomUUID;
-		this.#captureRevision = options.revision ?? (async (cwd) => (await import("./revision.js")).captureGitRevision(cwd));
-		this.#writerFactory = options.writerFactory ?? (async (runId, onError) => (await import("./writer.js")).JsonlTelemetryWriter.open(runId, { onError }));
+		this.#captureRevision = options.revision ?? (async (cwd) => (await import("./revision.ts")).captureGitRevision(cwd));
+		this.#writerFactory = options.writerFactory ?? (async (runId, onError) => (await import("./writer.ts")).JsonlTelemetryWriter.open(runId, { onError }));
 	}
 
 	registerTool(registration: TelemetryToolRegistration): void {

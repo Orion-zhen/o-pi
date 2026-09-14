@@ -1,7 +1,7 @@
-import type { LspWorkspace } from "../manager/workspace.js";
-import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
-import type { LspDiagnosticSnapshot, LspRelatedDiagnostics } from "../types.js";
-import { newDiagnosticItems } from "./ledger.js";
+import type { LspWorkspace } from "../manager/workspace.ts";
+import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.ts";
+import type { LspDiagnosticSnapshot, LspRelatedDiagnostics } from "../types.ts";
+import { newDiagnosticItems } from "./ledger.ts";
 
 /** 只消费本次拉取报告明确关联的文件，不推断全工作区因果关系。 */
 export function relatedDiagnostics(

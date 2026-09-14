@@ -6,9 +6,9 @@ import {
 	createSchemaValidator,
 	expandHomePath,
 	loadValidatedMergedConfig,
-} from "../config-loader.js";
-import { compileSchemaValidator, type SchemaValidateFunction } from "../schema-validator.js";
-import type { ApprovalGateConfig, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyConfig, BashPolicyFact } from "./types.js";
+} from "../config-loader.ts";
+import { compileSchemaValidator, type SchemaValidateFunction } from "../schema-validator.ts";
+import type { ApprovalGateConfig, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyConfig, BashPolicyFact } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("approval-gate.schema.json");
 const schemaOptions = { schemaPath: SCHEMA_PATH, label: "approval-gate", createError };

@@ -1,4 +1,4 @@
-import type { LiveTelemetryReport } from "../live.js";
+import type { LiveTelemetryReport } from "../live.ts";
 
 /** 非 TUI adapter 使用的紧凑文本摘要；不是结构化 API。 */
 export function formatLiveTelemetrySummary(value: LiveTelemetryReport): string {

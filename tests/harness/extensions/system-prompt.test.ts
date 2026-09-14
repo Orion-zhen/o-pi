@@ -2,15 +2,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
-import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.js";
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 import {
 	buildRuntimeSystemPrompt,
 	buildSubagentSystemPrompt,
 	buildSystemPrompt,
-} from "../../../src/harness/system-prompt/service.js";
-import { presentation } from "../../../src/tui/extensions.js";
-import { registerSystemCommand } from "../../../src/harness/extensions/system-prompt.js";
+} from "../../../src/harness/system-prompt/service.ts";
+import { presentation } from "../../../src/tui/extensions.ts";
+import { registerSystemCommand } from "../../../src/harness/extensions/system-prompt.ts";
 
 preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK", "PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE", "PI_CODING_AGENT_DIR", "HOME", "USERPROFILE");
 const temp = useTempDir("o-pi-fork-system-prompt-");

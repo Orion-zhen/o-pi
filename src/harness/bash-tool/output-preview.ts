@@ -1,5 +1,5 @@
-import type { BashOutputFormat } from "./types.js";
-import { takeHeadBytes, takeTailBytes } from "./utf8.js";
+import type { BashOutputFormat } from "./types.ts";
+import { takeHeadBytes, takeTailBytes } from "./utf8.ts";
 
 const ERROR_ANCHORS = /\b(error|fatal|failed|failure|panic|exception|traceback|assertion)\b/i;
 

@@ -1,8 +1,8 @@
-import type { TextContent } from "../../filesystem/contracts/content.js";
-import type { FileMetadata } from "../../filesystem/contracts/metadata.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import type { ScopedFile } from "./inventory.js";
+import type { TextContent } from "../../filesystem/contracts/content.ts";
+import type { FileMetadata } from "../../filesystem/contracts/metadata.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import type { ScopedFile } from "./inventory.ts";
 
 interface CachedTextContent {
 	readonly content: TextContent;

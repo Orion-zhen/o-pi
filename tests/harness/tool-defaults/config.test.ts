@@ -7,8 +7,8 @@ import {
 	loadToolDefaultsConfig,
 	resolveToolDefaults,
 	saveUserToolDefaults,
-} from "../../../src/harness/tool-defaults/config.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+} from "../../../src/harness/tool-defaults/config.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let workspace: string;
 const temp = useTempDir("o-pi-tool-defaults-");

@@ -2,7 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, AssistantMessage, Model, ToolResultMessage, Usage, UserMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.js";
+import { PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.ts";
 
 export const ZERO_USAGE: Usage = {
 	input: 0,

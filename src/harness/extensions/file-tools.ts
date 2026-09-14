@@ -1,34 +1,34 @@
-import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.js";
+import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { isFailedDetails, isFileToolName } from "../file-tools/pi/guards.js";
-import { type LsParams } from "../file-tools/ls/types.js";
-import { type FileToolRuntime } from "../file-tools/pi/invocation.js";
-import { type FileToolsHost, type SessionObservationSeed } from "../file-tools/runtime/host.js";
-import { type SessionMutationScope } from "../file-tools/runtime/session-mutation.js";
+import { isFailedDetails, isFileToolName } from "../file-tools/pi/guards.ts";
+import { type LsParams } from "../file-tools/ls/types.ts";
+import { type FileToolRuntime } from "../file-tools/pi/invocation.ts";
+import { type FileToolsHost, type SessionObservationSeed } from "../file-tools/runtime/host.ts";
+import { type SessionMutationScope } from "../file-tools/runtime/session-mutation.ts";
 import {
 	createPersistedObservationState,
 	FILE_TOOLS_OBSERVATION_STATE,
 	readPersistedObservationState,
-} from "../file-tools/runtime/session-observation-state.js";
-import { READ_RANGE_PATTERN } from "../file-tools/read/range.js";
-import { type ReadParams } from "../file-tools/read/types.js";
-import { type EditParams, type EditSuccess } from "../file-tools/edit/types.js";
-import { type FindParams } from "../file-tools/find/types.js";
-import { type GrepParams } from "../file-tools/grep/types.js";
-import { type WriteParams, type WriteSuccess } from "../file-tools/write/types.js";
-import { editTelemetry } from "../file-tools/telemetry/edit.js";
-import { findTelemetry } from "../file-tools/telemetry/find.js";
-import { grepTelemetry } from "../file-tools/telemetry/grep.js";
-import { lsTelemetry } from "../file-tools/telemetry/ls.js";
-import { readTelemetry } from "../file-tools/telemetry/read.js";
-import { writeTelemetry } from "../file-tools/telemetry/write.js";
-import { type ToolOutcome } from "../file-tools/shared/result.js";
-import { MutationBatchCoordinator } from "../file-tools/pi/mutation-batch.js";
-import { type MutationProgressDetails } from "../file-tools/pi/progress.js";
-import { registerTool } from "../register-tool.js";
-import { collectSkillCandidates } from "../skill-context/loader.js";
-import { buildSkillFilesystemAccess, buildSkillPathIndex } from "../skill-context/resources.js";
+} from "../file-tools/runtime/session-observation-state.ts";
+import { READ_RANGE_PATTERN } from "../file-tools/read/range.ts";
+import { type ReadParams } from "../file-tools/read/types.ts";
+import { type EditParams, type EditSuccess } from "../file-tools/edit/types.ts";
+import { type FindParams } from "../file-tools/find/types.ts";
+import { type GrepParams } from "../file-tools/grep/types.ts";
+import { type WriteParams, type WriteSuccess } from "../file-tools/write/types.ts";
+import { editTelemetry } from "../file-tools/telemetry/edit.ts";
+import { findTelemetry } from "../file-tools/telemetry/find.ts";
+import { grepTelemetry } from "../file-tools/telemetry/grep.ts";
+import { lsTelemetry } from "../file-tools/telemetry/ls.ts";
+import { readTelemetry } from "../file-tools/telemetry/read.ts";
+import { writeTelemetry } from "../file-tools/telemetry/write.ts";
+import { type ToolOutcome } from "../file-tools/shared/result.ts";
+import { MutationBatchCoordinator } from "../file-tools/pi/mutation-batch.ts";
+import { type MutationProgressDetails } from "../file-tools/pi/progress.ts";
+import { registerTool } from "../register-tool.ts";
+import { collectSkillCandidates } from "../skill-context/loader.ts";
+import { buildSkillFilesystemAccess, buildSkillPathIndex } from "../skill-context/resources.ts";
 
 const lsParameters = Type.Object(
 	{ path: Type.Optional(Type.String({ minLength: 1, description: "Directory; default workspace." })) },
@@ -142,31 +142,31 @@ export interface FileToolRenderers {
 }
 
 export interface FileToolsModuleImports {
-	ls(): Promise<typeof import("../file-tools/pi/adapters/ls.js")>;
-	host(): Promise<typeof import("../file-tools/runtime/host.js")>;
-	find(): Promise<typeof import("../file-tools/pi/adapters/find.js")>;
-	grep(): Promise<typeof import("../file-tools/pi/adapters/grep.js")>;
-	read(): Promise<typeof import("../file-tools/pi/adapters/read.js")>;
-	write(): Promise<typeof import("../file-tools/pi/adapters/write.js")>;
-	edit(): Promise<typeof import("../file-tools/pi/adapters/edit.js")>;
+	ls(): Promise<typeof import("../file-tools/pi/adapters/ls.ts")>;
+	host(): Promise<typeof import("../file-tools/runtime/host.ts")>;
+	find(): Promise<typeof import("../file-tools/pi/adapters/find.ts")>;
+	grep(): Promise<typeof import("../file-tools/pi/adapters/grep.ts")>;
+	read(): Promise<typeof import("../file-tools/pi/adapters/read.ts")>;
+	write(): Promise<typeof import("../file-tools/pi/adapters/write.ts")>;
+	edit(): Promise<typeof import("../file-tools/pi/adapters/edit.ts")>;
 	renderers?: () => Promise<FileToolRenderers>;
-	lsp(): Promise<{ lspManager: import("../lsp/file-operations.js").LspFileOperations }>;
+	lsp(): Promise<{ lspManager: import("../lsp/file-operations.ts").LspFileOperations }>;
 }
 
-type GrepAdapter = ReturnType<(typeof import("../file-tools/pi/adapters/grep.js"))["createGrepAdapter"]>;
+type GrepAdapter = ReturnType<(typeof import("../file-tools/pi/adapters/grep.ts"))["createGrepAdapter"]>;
 type FileToolsLoaders = Omit<FileToolsModuleImports, "grep" | "renderers"> & {
 	grep(): Promise<GrepAdapter>;
 };
 
 const defaultModuleImports: FileToolsModuleImports = {
-	ls: () => import("../file-tools/pi/adapters/ls.js"),
-	host: () => import("../file-tools/runtime/host.js"),
-	find: () => import("../file-tools/pi/adapters/find.js"),
-	grep: () => import("../file-tools/pi/adapters/grep.js"),
-	read: () => import("../file-tools/pi/adapters/read.js"),
-	write: () => import("../file-tools/pi/adapters/write.js"),
-	edit: () => import("../file-tools/pi/adapters/edit.js"),
-	lsp: () => import("../lsp/index.js"),
+	ls: () => import("../file-tools/pi/adapters/ls.ts"),
+	host: () => import("../file-tools/runtime/host.ts"),
+	find: () => import("../file-tools/pi/adapters/find.ts"),
+	grep: () => import("../file-tools/pi/adapters/grep.ts"),
+	read: () => import("../file-tools/pi/adapters/read.ts"),
+	write: () => import("../file-tools/pi/adapters/write.ts"),
+	edit: () => import("../file-tools/pi/adapters/edit.ts"),
+	lsp: () => import("../lsp/index.ts"),
 };
 
 export function createFileToolsExtension(
@@ -198,7 +198,7 @@ function registerFileTools(
 	pi: ExtensionAPI,
 	loaders: FileToolsLoaders,
 	loadedToolInstances: ReadonlySet<{ dispose(): void }>,
-	loadHost: () => Promise<typeof import("../file-tools/runtime/host.js")>,
+	loadHost: () => Promise<typeof import("../file-tools/runtime/host.ts")>,
 	loadRenderers: (() => Promise<FileToolRenderers>) | undefined,
 ): void {
 	let host: FileToolsHost | undefined;

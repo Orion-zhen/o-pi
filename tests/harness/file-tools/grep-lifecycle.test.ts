@@ -2,12 +2,12 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { TREE_SITTER_LANGUAGES } from "../../../src/harness/syntax-tree/grammars.js";
-import { parseSyntaxTree } from "../../../src/harness/syntax-tree/parser.js";
-import type { AnalyzeCode } from "../../../src/harness/code-index/types.js";
-import { AbortGrepParse, GrepParser } from "../../../src/harness/file-tools/grep/parser-pool.js";
-import { deferredVoid } from "../../helpers/async.js";
-import { countContentReads, createGrepTestContext, overrideContent, withGrepRuntime } from "./grep-fixtures.js";
+import { TREE_SITTER_LANGUAGES } from "../../../src/harness/syntax-tree/grammars.ts";
+import { parseSyntaxTree } from "../../../src/harness/syntax-tree/parser.ts";
+import type { AnalyzeCode } from "../../../src/harness/code-index/types.ts";
+import { AbortGrepParse, GrepParser } from "../../../src/harness/file-tools/grep/parser-pool.ts";
+import { deferredVoid } from "../../helpers/async.ts";
+import { countContentReads, createGrepTestContext, overrideContent, withGrepRuntime } from "./grep-fixtures.ts";
 
 const testContext = createGrepTestContext();
 

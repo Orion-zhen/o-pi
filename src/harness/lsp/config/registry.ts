@@ -1,5 +1,5 @@
-import { matchServerLanguage } from "./routing.js";
-import type { LspFileRoute, LspServerConfig } from "../types.js";
+import { matchServerLanguage } from "./routing.ts";
+import type { LspFileRoute, LspServerConfig } from "../types.ts";
 
 /** 运行时文件路由冲突。 */
 export class LspServerRegistryError extends Error {

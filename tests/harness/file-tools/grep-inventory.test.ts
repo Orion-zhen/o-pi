@@ -2,13 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { Discovery, DiscoveryEvent } from "../../../src/harness/filesystem/contracts/discovery.js";
-import { toFileSnapshot } from "../../../src/harness/filesystem/contracts/metadata.js";
-import { fsSuccess } from "../../../src/harness/filesystem/contracts/result.js";
-import { buildScopeInventory, type ScopeInventory } from "../../../src/harness/file-tools/grep/inventory.js";
-import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.js";
-import { isFailed } from "../../../src/harness/file-tools/shared/result.js";
-import { createGrepTestContext, expectInventorySuccess, inventoryWorkspace } from "./grep-fixtures.js";
+import type { Discovery, DiscoveryEvent } from "../../../src/harness/filesystem/contracts/discovery.ts";
+import { toFileSnapshot } from "../../../src/harness/filesystem/contracts/metadata.ts";
+import { fsSuccess } from "../../../src/harness/filesystem/contracts/result.ts";
+import { buildScopeInventory, type ScopeInventory } from "../../../src/harness/file-tools/grep/inventory.ts";
+import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
+import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
+import { createGrepTestContext, expectInventorySuccess, inventoryWorkspace } from "./grep-fixtures.ts";
 
 const testContext = createGrepTestContext();
 

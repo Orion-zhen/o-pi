@@ -1,20 +1,20 @@
 import { expect } from "vitest";
 
-import type { ByteContent, LineScan, ReadOptions, TextContent } from "../../../src/harness/filesystem/contracts/content.js";
-import type { DirectoryRef, ExistingRef, FileRef } from "../../../src/harness/filesystem/contracts/path.js";
-import type { FsResult } from "../../../src/harness/filesystem/contracts/result.js";
-import type { VisibilityPolicy } from "../../../src/harness/filesystem/contracts/visibility.js";
-import { createWorkspaceNamespace, type WorkspaceNamespaceKernel } from "../../../src/harness/filesystem/kernel/namespace.js";
+import type { ByteContent, LineScan, ReadOptions, TextContent } from "../../../src/harness/filesystem/contracts/content.ts";
+import type { DirectoryRef, ExistingRef, FileRef } from "../../../src/harness/filesystem/contracts/path.ts";
+import type { FsResult } from "../../../src/harness/filesystem/contracts/result.ts";
+import type { VisibilityPolicy } from "../../../src/harness/filesystem/contracts/visibility.ts";
+import { createWorkspaceNamespace, type WorkspaceNamespaceKernel } from "../../../src/harness/filesystem/kernel/namespace.ts";
 import {
 	NodeNativeFileSystem,
 	type NativeFileSystem,
-} from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import type { WorkspaceFileSystem } from "../../../src/harness/filesystem/contracts/workspace.js";
-import { WorkspaceContentService } from "../../../src/harness/filesystem/services/content.js";
-import { WorkspaceDiscoveryService } from "../../../src/harness/filesystem/services/discovery.js";
-import { WorkspaceMetadataService } from "../../../src/harness/filesystem/services/metadata.js";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.js";
-import { WorkspaceVisibilityService } from "../../../src/harness/filesystem/services/visibility/service.js";
+} from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import type { WorkspaceFileSystem } from "../../../src/harness/filesystem/contracts/workspace.ts";
+import { WorkspaceContentService } from "../../../src/harness/filesystem/services/content.ts";
+import { WorkspaceDiscoveryService } from "../../../src/harness/filesystem/services/discovery.ts";
+import { WorkspaceMetadataService } from "../../../src/harness/filesystem/services/metadata.ts";
+import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { WorkspaceVisibilityService } from "../../../src/harness/filesystem/services/visibility/service.ts";
 
 export interface OpenedReadonly {
 	readonly namespace: WorkspaceNamespaceKernel;

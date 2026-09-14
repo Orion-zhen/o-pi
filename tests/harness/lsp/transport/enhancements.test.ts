@@ -1,9 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { deferred } from "../../../helpers/async.js";
-import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.js";
-import { createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.js";
+import { deferred } from "../../../helpers/async.ts";
+import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
+import { createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 const capabilities = {

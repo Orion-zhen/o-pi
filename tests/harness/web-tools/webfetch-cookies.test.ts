@@ -2,14 +2,14 @@ import { chmod, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { matchesDomainRule } from "../../../src/harness/web-tools/network/url-utils.js";
-import { NetscapeCookieStore } from "../../../src/harness/web-tools/fetch/cookie-store.js";
+import { matchesDomainRule } from "../../../src/harness/web-tools/network/url-utils.ts";
+import { NetscapeCookieStore } from "../../../src/harness/web-tools/fetch/cookie-store.ts";
 import { Agent } from "undici";
-import * as configModule from "../../../src/harness/web-tools/config.js";
-import { createWebFetchRuntime } from "../../../src/harness/web-tools/fetch/webfetch-runtime.js";
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { httpResponse } from "../../helpers/http.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import * as configModule from "../../../src/harness/web-tools/config.ts";
+import { createWebFetchRuntime } from "../../../src/harness/web-tools/fetch/webfetch-runtime.ts";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { httpResponse } from "../../helpers/http.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-web-cookies-");

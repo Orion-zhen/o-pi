@@ -3,9 +3,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	loadDiscordPresenceConfig,
-} from "../../../src/harness/discord-presence/config.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
-import { configuredProfile } from "./fixtures.js";
+} from "../../../src/harness/discord-presence/config.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
+import { configuredProfile } from "./fixtures.ts";
 
 const temp = useTempDir("o-pi-discord-presence-config-");
 preserveEnv(

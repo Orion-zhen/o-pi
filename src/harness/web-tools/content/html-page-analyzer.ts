@@ -1,6 +1,6 @@
-import type { WebFetchPageKind } from "../core/types.js";
-import { isAvatarImage } from "./html-avatar-filter.js";
-import { parseImageSrcset, type ImageCandidate } from "./html-image-selection.js";
+import type { WebFetchPageKind } from "../core/types.ts";
+import { isAvatarImage } from "./html-avatar-filter.ts";
+import { parseImageSrcset, type ImageCandidate } from "./html-image-selection.ts";
 
 export type PageKind = WebFetchPageKind;
 

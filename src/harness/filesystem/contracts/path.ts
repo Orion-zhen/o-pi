@@ -1,4 +1,4 @@
-import type { FsResult } from "./result.js";
+import type { FsResult } from "./result.ts";
 
 export type ExistingPathKind = "file" | "directory" | "symlink" | "other";
 

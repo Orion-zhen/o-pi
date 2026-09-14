@@ -1,13 +1,13 @@
-import { editFile, previewEdit } from "../../edit/command.js";
-import type { EditParams, EditPreviewSuccess } from "../../edit/types.js";
-import { FileToolsHost } from "../../runtime/host.js";
-import { fail, isFailed } from "../../shared/result.js";
-import { isPlainRecord } from "../guards.js";
-import { formatEditModelResult } from "../../edit/presenter.js";
-import { withFileToolsInvocation, type MutationRuntime } from "../invocation.js";
-import { bindFileLsp } from "../lsp.js";
-import { piTextDiffGenerator } from "../ports/text-diff.js";
-import { createMutationPostProcessObserver, mutationProgress } from "../progress.js";
+import { editFile, previewEdit } from "../../edit/command.ts";
+import type { EditParams, EditPreviewSuccess } from "../../edit/types.ts";
+import { FileToolsHost } from "../../runtime/host.ts";
+import { fail, isFailed } from "../../shared/result.ts";
+import { isPlainRecord } from "../guards.ts";
+import { formatEditModelResult } from "../../edit/presenter.ts";
+import { withFileToolsInvocation, type MutationRuntime } from "../invocation.ts";
+import { bindFileLsp } from "../lsp.ts";
+import { piTextDiffGenerator } from "../ports/text-diff.ts";
+import { createMutationPostProcessObserver, mutationProgress } from "../progress.ts";
 
 export async function executeEdit(
 	params: EditParams,

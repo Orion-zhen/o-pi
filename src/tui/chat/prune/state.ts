@@ -1,6 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { parsePruneState, PRUNE_STATE, type PruneCheckpointState, type PruneState } from "../../../harness/prune/prune.js";
+import { parsePruneState, PRUNE_STATE, type PruneCheckpointState, type PruneState } from "../../../harness/prune/prune.ts";
 
 export type PruneTuiOperation = PruneState["operation"];
 

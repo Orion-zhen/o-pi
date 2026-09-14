@@ -1,11 +1,11 @@
 import { VERSION, type Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { WORDMARK_LINES } from "./brand.js";
-import { formatCapabilitySummary, summarizeCapabilityGroups } from "./capabilities.js";
-import { formatContext } from "../../shell/footer.js";
-import { formatModel, formatProject } from "../../components/format.js";
-import { joinParts } from "../../components/text.js";
-import type { TuiSnapshot, TuiHomeConfig } from "../../shell/types.js";
+import { WORDMARK_LINES } from "./brand.ts";
+import { formatCapabilitySummary, summarizeCapabilityGroups } from "./capabilities.ts";
+import { formatContext } from "../../shell/footer.ts";
+import { formatModel, formatProject } from "../../components/format.ts";
+import { joinParts } from "../../components/text.ts";
+import type { TuiSnapshot, TuiHomeConfig } from "../../shell/types.ts";
 
 const FULL_HINTS = "/ commands · /stats · /tools · /agents · ctrl+o details · esc cancel";
 const TINY_HINTS = "/ commands · ctrl+o details";

@@ -1,7 +1,7 @@
-import { findFiles } from "../../find/command.js";
-import type { FindParams } from "../../find/types.js";
-import { isFailed } from "../../shared/result.js";
-import { withFileToolsInvocation, type FileToolRuntime } from "../invocation.js";
+import { findFiles } from "../../find/command.ts";
+import type { FindParams } from "../../find/types.ts";
+import { isFailed } from "../../shared/result.ts";
+import { withFileToolsInvocation, type FileToolRuntime } from "../invocation.ts";
 
 export async function executeFind(params: FindParams, runtime: FileToolRuntime) {
 	return withFileToolsInvocation(runtime, async (opened) => {

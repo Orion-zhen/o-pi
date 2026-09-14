@@ -1,4 +1,4 @@
-import type { RepairFanout, RepairOperation, ToolArgumentStatus } from "../tool-repair/types.js";
+import type { RepairFanout, RepairOperation, ToolArgumentStatus } from "../tool-repair/types.ts";
 
 export type FieldValue = string | number | boolean | null | string[];
 export type Fields = Record<string, FieldValue>;

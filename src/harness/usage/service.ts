@@ -1,5 +1,5 @@
-import { collectUsageSnapshot, type UsageContext } from "./client.js";
-import type { UsageSnapshot } from "./types.js";
+import { collectUsageSnapshot, type UsageContext } from "./client.ts";
+import type { UsageSnapshot } from "./types.ts";
 
 const DEFAULT_CACHE_MS = 60_000;
 

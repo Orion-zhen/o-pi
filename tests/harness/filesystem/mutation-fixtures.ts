@@ -7,15 +7,15 @@ import type {
 	MutationRunResult,
 	MutationSnapshot,
 	MutationTransform,
-} from "../../../src/harness/filesystem/contracts/mutation.js";
-import type { TargetRef } from "../../../src/harness/filesystem/contracts/path.js";
-import type { FsResult } from "../../../src/harness/filesystem/contracts/result.js";
-import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.js";
-import { FileSystemRuntime, type WorkspaceFileSystemLease } from "../../../src/harness/filesystem/runtime.js";
-import type { NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { expectFsOk } from "./fixtures.js";
+} from "../../../src/harness/filesystem/contracts/mutation.ts";
+import type { TargetRef } from "../../../src/harness/filesystem/contracts/path.ts";
+import type { FsResult } from "../../../src/harness/filesystem/contracts/result.ts";
+import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.ts";
+import { FileSystemRuntime, type WorkspaceFileSystemLease } from "../../../src/harness/filesystem/runtime.ts";
+import type { NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { expectFsOk } from "./fixtures.ts";
 
 export function commitBytes(
 	opened: WorkspaceFileSystemLease,

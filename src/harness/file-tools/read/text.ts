@@ -1,10 +1,10 @@
-import type { TextContent, TextSlice } from "../../filesystem/contracts/content.js";
-import type { FileRef } from "../../filesystem/contracts/path.js";
-import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { ReadCommandContext } from "./command.js";
-import { formatReadSegment, formatReadStructureContext } from "./presenter.js";
-import { formatReadRanges, resolveReadRanges, type ReadRange, type ResolvedReadRange } from "./range.js";
-import type { ReadStructureContext, ReadSuccess, ReadTextSegment } from "./types.js";
+import type { TextContent, TextSlice } from "../../filesystem/contracts/content.ts";
+import type { FileRef } from "../../filesystem/contracts/path.ts";
+import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import type { ReadCommandContext } from "./command.ts";
+import { formatReadSegment, formatReadStructureContext } from "./presenter.ts";
+import { formatReadRanges, resolveReadRanges, type ReadRange, type ResolvedReadRange } from "./range.ts";
+import type { ReadStructureContext, ReadSuccess, ReadTextSegment } from "./types.ts";
 
 /** 从同一快照提取全部范围，正文与结构提示共享预算。 */
 export async function readTextRanges(

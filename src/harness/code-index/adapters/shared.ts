@@ -1,5 +1,5 @@
-import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.js";
-import type { RawUnit } from "./types.js";
+import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.ts";
+import type { RawUnit } from "./types.ts";
 
 export interface UnitRules {
 	extract(node: SyntaxNode, scope: string | undefined): RawUnit | undefined;

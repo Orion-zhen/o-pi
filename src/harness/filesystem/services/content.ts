@@ -7,19 +7,19 @@ import type {
 	TextContent,
 	TextSlice,
 	TextSliceOptions,
-} from "../contracts/content.js";
-import type { FileSnapshot } from "../contracts/metadata.js";
-import type { FileRef } from "../contracts/path.js";
-import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
-import { mapNativeError } from "../kernel/native-error.js";
-import type { NativePathIdentity, WorkspaceNamespaceBridge } from "../kernel/namespace.js";
+} from "../contracts/content.ts";
+import type { FileSnapshot } from "../contracts/metadata.ts";
+import type { FileRef } from "../contracts/path.ts";
+import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.ts";
+import { mapNativeError } from "../kernel/native-error.ts";
+import type { NativePathIdentity, WorkspaceNamespaceBridge } from "../kernel/namespace.ts";
 import type {
 	NativeFileSystem,
 	NativeMetadata,
 	NativeOpenFile,
-} from "../platform/node/native-filesystem.js";
-import { contentHash, decodeUtf8, describeText, hasUtf8Bom, sliceTextByLineRange } from "./text.js";
-import { nativeIdentity } from "./ref.js";
+} from "../platform/node/native-filesystem.ts";
+import { contentHash, decodeUtf8, describeText, hasUtf8Bom, sliceTextByLineRange } from "./text.ts";
+import { nativeIdentity } from "./ref.ts";
 
 const READ_CHUNK_BYTES = 64 * 1024;
 const UTF8_BOM_BYTES = 3;

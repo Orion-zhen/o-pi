@@ -12,7 +12,7 @@ import {
 	stripUtf8Bom,
 	userAgentPath,
 	validateConfigValue,
-} from "../config-loader.js";
+} from "../config-loader.ts";
 
 const TOOL_CONFIG_FORMAT = { insertSpaces: true, tabSize: 2, eol: "\n", insertFinalNewline: true } as const;
 

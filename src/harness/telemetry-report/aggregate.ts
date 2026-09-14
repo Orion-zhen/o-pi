@@ -1,11 +1,11 @@
-import type { CallRecord, RunRecord, TelemetryRecord } from "../telemetry/types.js";
-import { collectCandidateObservations } from "./analyzers/candidate-observations.js";
-import { summarizeCandidateRanking } from "./analyzers/candidate-ranking.js";
-import { analyzeEdits } from "./analyzers/edit.js";
-import { summarizeGrep } from "./analyzers/grep.js";
-import { summarizeSearchEffectiveness } from "./analyzers/search-effectiveness.js";
-import { compare, frequency, numericSummary, rateSummary } from "./shared.js";
-import type { TelemetryReport, TelemetryReportQuery, ToolStatistics } from "./types.js";
+import type { CallRecord, RunRecord, TelemetryRecord } from "../telemetry/types.ts";
+import { collectCandidateObservations } from "./analyzers/candidate-observations.ts";
+import { summarizeCandidateRanking } from "./analyzers/candidate-ranking.ts";
+import { analyzeEdits } from "./analyzers/edit.ts";
+import { summarizeGrep } from "./analyzers/grep.ts";
+import { summarizeSearchEffectiveness } from "./analyzers/search-effectiveness.ts";
+import { compare, frequency, numericSummary, rateSummary } from "./shared.ts";
+import type { TelemetryReport, TelemetryReportQuery, ToolStatistics } from "./types.ts";
 
 export interface AggregateTelemetryOptions {
 	generatedAt: string;

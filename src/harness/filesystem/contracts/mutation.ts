@@ -1,6 +1,6 @@
-import type { ContentVersion } from "./content.js";
-import type { TargetRef } from "./path.js";
-import type { FsResult } from "./result.js";
+import type { ContentVersion } from "./content.ts";
+import type { TargetRef } from "./path.ts";
+import type { FsResult } from "./result.ts";
 
 export type MutationSnapshot =
 	| { readonly exists: false }

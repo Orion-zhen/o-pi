@@ -1,6 +1,6 @@
-import { fields } from "../../telemetry/projection.js";
-import type { Fields } from "../../telemetry/types.js";
-import type { WebFetchDetails, WebSearchDetails } from "../core/types.js";
+import { fields } from "../../telemetry/projection.ts";
+import type { Fields } from "../../telemetry/types.ts";
+import type { WebFetchDetails, WebSearchDetails } from "../core/types.ts";
 
 type WebResultDetails = WebFetchDetails | WebSearchDetails;
 

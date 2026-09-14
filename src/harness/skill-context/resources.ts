@@ -1,10 +1,10 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { FilesystemPathAccess } from "../filesystem/contracts/access.js";
-import { isValidSkillName } from "./frontmatter.js";
-import { loadedSkillsByName } from "./state.js";
-import type { SkillCandidate } from "./types.js";
+import type { FilesystemPathAccess } from "../filesystem/contracts/access.ts";
+import { isValidSkillName } from "./frontmatter.ts";
+import { loadedSkillsByName } from "./state.ts";
+import type { SkillCandidate } from "./types.ts";
 
 export interface SkillPath {
 	kind: "skill";

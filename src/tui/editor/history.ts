@@ -1,6 +1,6 @@
 import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { userCachePath } from "../../harness/cache-path.js";
+import { userCachePath } from "../../harness/cache-path.ts";
 
 const USER_HISTORY_LIMIT = 100;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;

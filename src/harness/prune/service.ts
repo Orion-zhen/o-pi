@@ -19,7 +19,7 @@ import {
 	type PruneCostPreview,
 	type PruneRestoreState,
 	type PruneState,
-} from "./prune.js";
+} from "./prune.ts";
 
 export type PruneOperation = "prune" | "force" | "restore";
 

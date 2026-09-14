@@ -1,13 +1,13 @@
-import type { FsOperationContext } from "../../contracts/result.js";
-import type { VisibilityPolicy } from "../../contracts/visibility.js";
-import type { WorkspaceNamespaceKernel } from "../../kernel/namespace.js";
-import type { NativeFileSystem } from "../../platform/node/native-filesystem.js";
-import { GitTrackedFilesLoader } from "./git-tracked-files.js";
+import type { FsOperationContext } from "../../contracts/result.ts";
+import type { VisibilityPolicy } from "../../contracts/visibility.ts";
+import type { WorkspaceNamespaceKernel } from "../../kernel/namespace.ts";
+import type { NativeFileSystem } from "../../platform/node/native-filesystem.ts";
+import { GitTrackedFilesLoader } from "./git-tracked-files.ts";
 import {
 	compileBaseVisibilityRules,
 	resolveCaseInsensitive,
-} from "./rule-compiler.js";
-import { IncrementalVisibilityOperations } from "./incremental-operations.js";
+} from "./rule-compiler.ts";
+import { IncrementalVisibilityOperations } from "./incremental-operations.ts";
 
 /** Owns incremental runtime evaluators and shared Git state. */
 export class WorkspaceVisibilityService {

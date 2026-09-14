@@ -1,5 +1,5 @@
-import { normalizeSearchText, SEARCH_RESULT_MAX_SNIPPET_CHARS } from "../network/url-utils.js";
-import type { CompiledSearchQuery } from "./types.js";
+import { normalizeSearchText, SEARCH_RESULT_MAX_SNIPPET_CHARS } from "../network/url-utils.ts";
+import type { CompiledSearchQuery } from "./types.ts";
 
 const CONTEXT_CHARS = 72;
 const MAX_MATCHES_PER_TERM = 32;

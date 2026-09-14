@@ -5,7 +5,7 @@ import type {
 	BashPolicyCombination,
 	BashPolicyConfig,
 	BashPolicyFact,
-} from "../types.js";
+} from "../types.ts";
 
 interface BashFactMatch {
 	fact: string;

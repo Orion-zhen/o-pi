@@ -1,8 +1,8 @@
-import { compareCodeUnitNesting } from "../../code-index/units.js";
-import { createTextTokenMatcher, tokenizeText } from "../../code-index/text.js";
-import { languageFromPath } from "../../syntax-tree/grammars.js";
-import type { IndexedCodeUnit } from "../../code-index/types.js";
-import { compactDisplayLine, firstTermFocus } from "./display.js";
+import { compareCodeUnitNesting } from "../../code-index/units.ts";
+import { createTextTokenMatcher, tokenizeText } from "../../code-index/text.ts";
+import { languageFromPath } from "../../syntax-tree/grammars.ts";
+import type { IndexedCodeUnit } from "../../code-index/types.ts";
+import { compactDisplayLine, firstTermFocus } from "./display.ts";
 import {
 	createSemanticCodeRegion,
 	type CandidateSignal,
@@ -12,13 +12,13 @@ import {
 	type RegionEvidence,
 	type SemanticMainRegion,
 	type VerifiedCodeRegion,
-} from "./candidates.js";
-import type { ScopeInventory } from "./inventory.js";
-import type { QueryPlan } from "./query-plan.js";
-import { rankCodeRegions } from "./ranking.js";
-import type { RegionizationResult } from "./regionizer.js";
-import type { TextScanResult } from "./text-scanner.js";
-import type { GrepDisplayLine } from "./types.js";
+} from "./candidates.ts";
+import type { ScopeInventory } from "./inventory.ts";
+import type { QueryPlan } from "./query-plan.ts";
+import { rankCodeRegions } from "./ranking.ts";
+import type { RegionizationResult } from "./regionizer.ts";
+import type { TextScanResult } from "./text-scanner.ts";
+import type { GrepDisplayLine } from "./types.ts";
 
 interface LocalEntry {
 	readonly quality: number;

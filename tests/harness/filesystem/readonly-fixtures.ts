@@ -1,5 +1,5 @@
-import { NativeFileSystemError, type NativeFileSystem, type NativeMetadata, type NativeOpenFile } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { overrideNativeFileSystem } from "./fixtures.js";
+import { NativeFileSystemError, type NativeFileSystem, type NativeMetadata, type NativeOpenFile } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { overrideNativeFileSystem } from "./fixtures.ts";
 
 export interface NativeOverrides {
 	readonly tracker?: { opened: number; closed: number };

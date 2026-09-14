@@ -1,15 +1,15 @@
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 
-import type { DirectoryRef } from "../../filesystem/contracts/path.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import type { FileToolLimits } from "../../file-tool-limits.js";
-import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
-import { createFindQueryPlan } from "./query.js";
-import { createLimitedFindRanker } from "./ranker.js";
-import { recordIncomplete, SearchScopeCounts } from "../shared/search-navigation.js";
-import { renderFindResults } from "./renderer.js";
-import type { FindEntry, FindParams, FindScopeError, FindStats, FindSuccess } from "./types.js";
+import type { DirectoryRef } from "../../filesystem/contracts/path.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import type { FileToolLimits } from "../../file-tool-limits.ts";
+import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.ts";
+import { createFindQueryPlan } from "./query.ts";
+import { createLimitedFindRanker } from "./ranker.ts";
+import { recordIncomplete, SearchScopeCounts } from "../shared/search-navigation.ts";
+import { renderFindResults } from "./renderer.ts";
+import type { FindEntry, FindParams, FindScopeError, FindStats, FindSuccess } from "./types.ts";
 
 interface NormalizedFindParams {
 	readonly query: string;

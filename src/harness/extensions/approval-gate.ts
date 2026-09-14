@@ -1,15 +1,15 @@
 import { type ExtensionUIContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type ApprovalInteractionPort } from "../approval/runtime/interaction.js";
+import { type ApprovalInteractionPort } from "../approval/runtime/interaction.ts";
 
-import { loadApprovalGateConfig } from "../approval/config.js";
-import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../approval/events.js";
-import { createApprovalGate, type ApprovalOutcome } from "../approval/index.js";
-import { buildApprovalRequest, isApprovalToolCall } from "../approval/pi/request.js";
-import { buildBashApprovalRequest } from "../approval/request/bash/parse.js";
-import { formatBashPolicyEvaluation } from "../approval/rules/bash-facts.js";
-import { evaluateBashGatePolicy } from "../approval/rules/policy.js";
-import { formatApprovalPrompt } from "../approval/presentation.js";
-import { attachPrivateNetworkGrant, createPrivateNetworkGrantFor } from "../web-tools/network/private-network-grant.js";
+import { loadApprovalGateConfig } from "../approval/config.ts";
+import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../approval/events.ts";
+import { createApprovalGate, type ApprovalOutcome } from "../approval/index.ts";
+import { buildApprovalRequest, isApprovalToolCall } from "../approval/pi/request.ts";
+import { buildBashApprovalRequest } from "../approval/request/bash/parse.ts";
+import { formatBashPolicyEvaluation } from "../approval/rules/bash-facts.ts";
+import { evaluateBashGatePolicy } from "../approval/rules/policy.ts";
+import { formatApprovalPrompt } from "../approval/presentation.ts";
+import { attachPrivateNetworkGrant, createPrivateNetworkGrantFor } from "../web-tools/network/private-network-grant.ts";
 
 export type ApprovalPresenter = (
 	ui: ExtensionUIContext,

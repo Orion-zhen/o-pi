@@ -1,7 +1,7 @@
-import { findFiles } from "../../src/harness/file-tools/find/command.js";
-import type { FindParams, FindSuccess } from "../../src/harness/file-tools/find/types.js";
-import { FileToolsHost } from "../../src/harness/file-tools/runtime/host.js";
-import { isFailed, type ToolOutcome } from "../../src/harness/file-tools/shared/result.js";
+import { findFiles } from "../../src/harness/file-tools/find/command.ts";
+import type { FindParams, FindSuccess } from "../../src/harness/file-tools/find/types.ts";
+import { FileToolsHost } from "../../src/harness/file-tools/runtime/host.ts";
+import { isFailed, type ToolOutcome } from "../../src/harness/file-tools/shared/result.ts";
 
 export async function findWorkspaceFiles(
 	cwd: string,

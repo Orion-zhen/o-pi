@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
-import type { TelemetryReport, TelemetryReportQuery } from "./types.js";
+import type { TelemetryReport, TelemetryReportQuery } from "./types.ts";
 
 export interface GenerateTelemetryReportOptions {
 	inputDirectory?: string;
@@ -21,9 +21,9 @@ export async function generateTelemetryReport(options: GenerateTelemetryReportOp
 	const outputDirectory = path.resolve(options.outputDirectory ?? path.join(os.homedir(), ".pi", "telemetry", "reports", "latest"));
 	const [{ mkdir, stat, writeFile }, { readTelemetryDirectory }, { aggregateTelemetry }, { renderTelemetryHtml }] = await Promise.all([
 		import("node:fs/promises"),
-		import("./read.js"),
-		import("./aggregate.js"),
-		import("./html.js"),
+		import("./read.ts"),
+		import("./aggregate.ts"),
+		import("./html.ts"),
 	]);
 	let defaultInputMissing = false;
 	if (usesDefaultInput) {

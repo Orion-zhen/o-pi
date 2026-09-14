@@ -2,14 +2,14 @@ import { readFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { convertContent } from "../../../src/harness/web-tools/content/content-converter.js";
-import type { ContentConversion } from "../../../src/harness/web-tools/content/types.js";
-import type { WebFetchFailureDetails } from "../../../src/harness/web-tools/core/types.js";
+import { convertContent } from "../../../src/harness/web-tools/content/content-converter.ts";
+import type { ContentConversion } from "../../../src/harness/web-tools/content/types.ts";
+import type { WebFetchFailureDetails } from "../../../src/harness/web-tools/core/types.ts";
 
 const readability = { charThreshold: 500 };
 
 afterEach(() => {
-	vi.doUnmock("../../../src/harness/web-tools/content/html-content-converter.js");
+	vi.doUnmock("../../../src/harness/web-tools/content/html-content-converter.ts");
 	vi.resetModules();
 });
 
@@ -107,7 +107,7 @@ describe("webfetch content conversion", () => {
 		const loadHtml = vi.fn(() => {
 			throw new Error("HTML converter must remain unloaded");
 		});
-		vi.doMock("../../../src/harness/web-tools/content/html-content-converter.js", loadHtml);
+		vi.doMock("../../../src/harness/web-tools/content/html-content-converter.ts", loadHtml);
 		const result = expectConversionSuccess(
 			await convertContent(Buffer.from("<h1>A</h1>"), headers('text/html; charset="utf-8"'), "https://example.com/", "source", readability, true),
 		);
@@ -124,7 +124,7 @@ describe("webfetch content conversion", () => {
 		const loadHtml = vi.fn(() => {
 			throw new Error("HTML converter must remain unloaded");
 		});
-		vi.doMock("../../../src/harness/web-tools/content/html-content-converter.js", loadHtml);
+		vi.doMock("../../../src/harness/web-tools/content/html-content-converter.ts", loadHtml);
 		const result = await convertContent(
 			Buffer.from(body),
 			headers(contentType),
@@ -163,7 +163,7 @@ describe("webfetch content conversion", () => {
 				deferredFragments: { discovered: 0, resolved: 0, limited: false },
 			},
 		}));
-		vi.doMock("../../../src/harness/web-tools/content/html-content-converter.js", () => ({ htmlToMarkdown }));
+		vi.doMock("../../../src/harness/web-tools/content/html-content-converter.ts", () => ({ htmlToMarkdown }));
 		await convertContent(
 			Buffer.from("<main><p>Body</p></main>"),
 			headers("text/html"),

@@ -1,4 +1,4 @@
-import { formatReadRanges, mergeReadRanges } from "./range.js";
+import { formatReadRanges, mergeReadRanges } from "./range.ts";
 import type {
 	ReadEnclosingSymbol,
 	ReadPdfPage,
@@ -6,7 +6,7 @@ import type {
 	ReadRemainingSymbol,
 	ReadStructureContext,
 	ReadSuccess,
-} from "./types.js";
+} from "./types.ts";
 
 const PDF_METADATA_FIELD_CODE_POINTS = 256;
 const PDF_PAGE_LABEL_CODE_POINTS = 128;

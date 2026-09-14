@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { finished } from "node:stream/promises";
 
-import type { CapturedOutput, CapturedPreview } from "./types.js";
-import { decodeUtf8Prefix, takeTailBytes, trimLeadingUtf8Continuation } from "./utf8.js";
+import type { CapturedOutput, CapturedPreview } from "./types.ts";
+import { decodeUtf8Prefix, takeTailBytes, trimLeadingUtf8Continuation } from "./utf8.ts";
 
 interface CaptureOptions {
 	sessionId: string;

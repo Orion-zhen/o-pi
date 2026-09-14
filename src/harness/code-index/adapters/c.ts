@@ -1,6 +1,6 @@
-import { collectUnits, firstNamedChildText, rawUnit, type UnitRules } from "./shared.js";
-import { declaratorName, functionDeclaratorName, hasSimpleFunctionDeclarator, hasStorageClass, extractIncludes } from "./c-family.js";
-import type { LanguageExtractor } from "./types.js";
+import { collectUnits, firstNamedChildText, rawUnit, type UnitRules } from "./shared.ts";
+import { declaratorName, functionDeclaratorName, hasSimpleFunctionDeclarator, hasStorageClass, extractIncludes } from "./c-family.ts";
+import type { LanguageExtractor } from "./types.ts";
 
 const cRules: UnitRules = {
 	extract(node) {

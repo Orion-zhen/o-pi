@@ -9,9 +9,9 @@ import {
 	loadConfigLayers,
 	userAgentConfigPath,
 	validateConfigValue,
-} from "../../config-loader.js";
-import { validateServerRoutes } from "./routing.js";
-import type { LoadedLspConfig, LspConfig, LspJsonValue, LspLanguageRoute, LspServerConfig, LspTransport } from "../types.js";
+} from "../../config-loader.ts";
+import { validateServerRoutes } from "./routing.ts";
+import type { LoadedLspConfig, LspConfig, LspJsonValue, LspLanguageRoute, LspServerConfig, LspTransport } from "../types.ts";
 
 const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
 const SCHEMA_PATH = agentSchemaPath("lsp.schema.json");

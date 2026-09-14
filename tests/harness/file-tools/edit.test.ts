@@ -2,11 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { contentHash as sha256Version } from "../../../src/harness/filesystem/services/text.js";
-import { isPlainRecord } from "../../../src/harness/file-tools/pi/guards.js";
-import { formatErrorModelResult } from "../../../src/harness/file-tools/pi/model-output.js";
-import { createCrudTestContext } from "./crud-fixtures.js";
-import { expectFailure } from "./result-fixtures.js";
+import { contentHash as sha256Version } from "../../../src/harness/filesystem/services/text.ts";
+import { isPlainRecord } from "../../../src/harness/file-tools/pi/guards.ts";
+import { formatErrorModelResult } from "../../../src/harness/file-tools/pi/model-output.ts";
+import { createCrudTestContext } from "./crud-fixtures.ts";
+import { expectFailure } from "./result-fixtures.ts";
 
 const testContext = createCrudTestContext();
 let workspace: string;

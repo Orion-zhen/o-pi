@@ -1,7 +1,7 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { findSkillCandidate, loadSkill } from "./loader.js";
-import { hasCurrentDisclosure } from "./state.js";
-import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry, type SkillLoadResult } from "./types.js";
+import { findSkillCandidate, loadSkill } from "./loader.ts";
+import { hasCurrentDisclosure } from "./state.ts";
+import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry, type SkillLoadResult } from "./types.ts";
 
 interface ExecuteSkillLoadInputBase {
 	name: string;

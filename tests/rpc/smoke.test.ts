@@ -3,7 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { useTempDir } from "../helpers/lifecycle.js";
+import { useTempDir } from "../helpers/lifecycle.ts";
 
 const running = new Set<ChildProcessWithoutNullStreams>();
 const temp = useTempDir("opi-rpc-");

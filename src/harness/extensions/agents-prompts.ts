@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { discoverAgentsPromptPaths } from "../prompt-resources/discovery.js";
+import { discoverAgentsPromptPaths } from "../prompt-resources/discovery.ts";
 
 /** 让 Pi prompt templates 额外发现 ~/.agents/prompts 和受信任项目的 .agents/prompts。 */
 export default function agentsPromptsExtension(pi: Pick<ExtensionAPI, "on">): void {

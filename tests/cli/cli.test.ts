@@ -6,8 +6,8 @@ import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { useTempDir } from "../helpers/lifecycle.js";
-import { startModelServer, type ModelRequest, type ModelResponse } from "./model-server.js";
+import { useTempDir } from "../helpers/lifecycle.ts";
+import { startModelServer, type ModelRequest, type ModelResponse } from "./model-server.ts";
 
 const exec = promisify(execFile);
 const builtCli = path.resolve(process.platform === "win32" ? "dist/opi.exe" : "dist/opi");

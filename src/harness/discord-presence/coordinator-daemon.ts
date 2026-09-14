@@ -3,8 +3,8 @@ import { open, readFile, unlink, type FileHandle } from "node:fs/promises";
 import { createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { createPresenceCoordinatorServer, type PresenceCoordinatorServer } from "./coordinator-server.js";
-import { prepareCoordinatorEndpoint } from "./endpoint.js";
+import { createPresenceCoordinatorServer, type PresenceCoordinatorServer } from "./coordinator-server.ts";
+import { prepareCoordinatorEndpoint } from "./endpoint.ts";
 
 const STARTUP_IDLE_TIMEOUT_MS = 5_000;
 const endpoint = process.argv[2];

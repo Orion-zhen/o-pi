@@ -1,5 +1,5 @@
-import type { AnalysisControl, SyntaxNode } from "../syntax-tree/types.js";
-import type { RawUnit } from "./adapters/types.js";
+import type { AnalysisControl, SyntaxNode } from "../syntax-tree/types.ts";
+import type { RawUnit } from "./adapters/types.ts";
 
 const CALL_NODE_TYPES = new Set(["call", "call_expression", "command", "new_expression"]);
 const STATIC_CALLEE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u;

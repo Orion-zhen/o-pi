@@ -10,21 +10,21 @@ import {
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import { LspClientDiagnostics, type LspSaveDiagnosticsResult } from "./diagnostics.js";
-import { LspClientDocuments } from "./documents.js";
-import { LspClientLifecycle } from "./lifecycle.js";
-import type { LspClientConnection } from "./connection.js";
-import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.js";
+import { LspClientDiagnostics, type LspSaveDiagnosticsResult } from "./diagnostics.ts";
+import { LspClientDocuments } from "./documents.ts";
+import { LspClientLifecycle } from "./lifecycle.ts";
+import type { LspClientConnection } from "./connection.ts";
+import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.ts";
 import {
 	requestIncomingCalls,
 	requestReferences,
 	requestWorkspaceSymbols,
 	resolveWorkspaceSymbol,
-} from "../protocol/features.js";
-import { pathToFileUri } from "../protocol/uri.js";
-import { diagnosticHints } from "../diagnostics/hints.js";
-import { createOperationDeadline, waitUnlessAborted } from "../analysis/deadline.js";
-import type { LspConfig, LspErrorDiagnostic, LspDocumentSymbols, LspRequestOptions, LspServerConfig, LspServerStatus } from "../types.js";
+} from "../protocol/features.ts";
+import { pathToFileUri } from "../protocol/uri.ts";
+import { diagnosticHints } from "../diagnostics/hints.ts";
+import { createOperationDeadline, waitUnlessAborted } from "../analysis/deadline.ts";
+import type { LspConfig, LspErrorDiagnostic, LspDocumentSymbols, LspRequestOptions, LspServerConfig, LspServerStatus } from "../types.ts";
 
 interface ClientSession {
 	connection: LspClientConnection;

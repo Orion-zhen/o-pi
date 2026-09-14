@@ -1,19 +1,19 @@
-import type { FileToolLimits } from "../../file-tool-limits.js";
-import type { ContentVersion, TextContent } from "../../filesystem/contracts/content.js";
-import type { MutationSnapshot } from "../../filesystem/contracts/mutation.js";
-import type { FileRef, TargetRef } from "../../filesystem/contracts/path.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import type { LspMutationBaseline as DiagnosticSnapshot } from "../../lsp/types.js";
+import type { FileToolLimits } from "../../file-tool-limits.ts";
+import type { ContentVersion, TextContent } from "../../filesystem/contracts/content.ts";
+import type { MutationSnapshot } from "../../filesystem/contracts/mutation.ts";
+import type { FileRef, TargetRef } from "../../filesystem/contracts/path.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import type { LspMutationBaseline as DiagnosticSnapshot } from "../../lsp/types.ts";
 import {
 	captureMutationDiagnostics,
 	collectMutationDiagnostics,
 	type MutationDiagnosticsSource,
-} from "../shared/mutation-diagnostics.js";
-import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
-import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
-import { validateReplacements } from "./validation.js";
-import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.js";
+} from "../shared/mutation-diagnostics.ts";
+import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.ts";
+import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.ts";
+import { validateReplacements } from "./validation.ts";
+import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.ts";
 
 const encoder = new TextEncoder();
 const UTF8_BOM = new Uint8Array([0xef, 0xbb, 0xbf]);

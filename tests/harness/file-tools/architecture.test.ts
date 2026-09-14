@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { repositoryImportEdges, type ImportEdge } from "../../helpers/import-graph.js";
+import { repositoryImportEdges, type ImportEdge } from "../../helpers/import-graph.ts";
 
 const TOOL_NAMES = new Set(["ls", "read", "write", "edit", "find", "grep"]);
 

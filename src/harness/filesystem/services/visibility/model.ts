@@ -1,9 +1,9 @@
 import type ignoreFactory from "ignore";
 
-import type { ExistingPathKind } from "../../contracts/path.js";
-import type { VisibilityIntent } from "../../contracts/visibility.js";
-import type { PathIdentity } from "../../kernel/access-policy.js";
-import { NativeFileSystemError } from "../../platform/node/native-filesystem.js";
+import type { ExistingPathKind } from "../../contracts/path.ts";
+import type { VisibilityIntent } from "../../contracts/visibility.ts";
+import type { PathIdentity } from "../../kernel/access-policy.ts";
+import { NativeFileSystemError } from "../../platform/node/native-filesystem.ts";
 
 export type VisibilitySourceType = "builtin" | "gitignore" | "piignore" | "config";
 

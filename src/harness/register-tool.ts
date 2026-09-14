@@ -2,15 +2,15 @@ import type { ConstrainedSamplingConfig } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 
-import { repairableTool } from "./tool-repair/repair.js";
-import type { RepairSpecHints } from "./tool-repair/types.js";
+import { repairableTool } from "./tool-repair/repair.ts";
+import type { RepairSpecHints } from "./tool-repair/types.ts";
 import {
 	TELEMETRY_READY_CHANNEL,
 	TELEMETRY_REPAIR_CHANNEL,
 	TELEMETRY_TOOL_CHANNEL,
 	type TelemetryToolRegistration,
-} from "./telemetry/events.js";
-import type { ToolTelemetry } from "./telemetry/types.js";
+} from "./telemetry/events.ts";
+import type { ToolTelemetry } from "./telemetry/types.ts";
 
 type ExecutedParams<TParams extends TSchema, TDetails, TState> = Parameters<ToolDefinition<TParams, TDetails, TState>["execute"]>[1];
 

@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 
-import type { WebFetchSuccessDetails } from "../../../../src/harness/web-tools/core/types.js";
+import type { WebFetchSuccessDetails } from "../../../../src/harness/web-tools/core/types.ts";
 
 export const theme = {
 	fg: (_color: string, text: string) => text,

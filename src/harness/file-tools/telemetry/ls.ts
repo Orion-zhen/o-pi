@@ -1,7 +1,7 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
-import type { LsParams, LsSuccess } from "../ls/types.js";
-import { isFailed, type ToolOutcome } from "../shared/result.js";
-import { failureFields, projectFileInput } from "./common.js";
+import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
+import type { LsParams, LsSuccess } from "../ls/types.ts";
+import { isFailed, type ToolOutcome } from "../shared/result.ts";
+import { failureFields, projectFileInput } from "./common.ts";
 
 export const lsTelemetry = defineToolTelemetry<LsParams, ToolOutcome<LsSuccess>>({
 	input: projectFileInput<LsParams>(["path"], "directory"),

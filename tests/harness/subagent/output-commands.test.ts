@@ -1,11 +1,11 @@
 import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parsePipeline, tokenize } from "../../../src/harness/subagent/commands.js";
-import { exceedsTokenLimit, formatFileHandoff, formatResultForContext, getRunDir, persistResult, sanitizeFileName } from "../../../src/harness/subagent/output.js";
-import { countTextTokensSync } from "../../../src/harness/token-counter.js";
-import type { UnpersistedSubagentRunResult } from "../../../src/harness/subagent/types.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { parsePipeline, tokenize } from "../../../src/harness/subagent/commands.ts";
+import { exceedsTokenLimit, formatFileHandoff, formatResultForContext, getRunDir, persistResult, sanitizeFileName } from "../../../src/harness/subagent/output.ts";
+import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
+import type { UnpersistedSubagentRunResult } from "../../../src/harness/subagent/types.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-subagent-output-");
 const workspace = path.resolve("workspace");

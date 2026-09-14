@@ -10,11 +10,11 @@ import {
 // coding-agent 的扩展加载器通过 compat 入口共享内置 API registry。
 import { openAICompletionsApi, openAIResponsesApi } from "@earendil-works/pi-ai/compat";
 
-import { resolveProviderRequestHeaders } from "./auth.js";
-import { resolveHeadersOrThrow } from "./config-values.js";
-import type { ModelOverrides } from "./models.js";
-import { isModelThinkingLevel, type ProviderConfig } from "./schema.js";
-import { applyModelSuffixPayload, applyResponsesThinkingPreset } from "./thinking-presets.js";
+import { resolveProviderRequestHeaders } from "./auth.ts";
+import { resolveHeadersOrThrow } from "./config-values.ts";
+import type { ModelOverrides } from "./models.ts";
+import { isModelThinkingLevel, type ProviderConfig } from "./schema.ts";
+import { applyModelSuffixPayload, applyResponsesThinkingPreset } from "./thinking-presets.ts";
 
 /** 提供方配置只绑定一次，原生模型信息在请求时读取。 */
 export function createRuntimeStreams(

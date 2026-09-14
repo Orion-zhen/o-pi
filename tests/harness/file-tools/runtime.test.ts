@@ -2,24 +2,24 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { FileToolLimits } from "../../../src/harness/file-tool-limits.js";
-import type { FileRef, TargetRef } from "../../../src/harness/filesystem/contracts/path.js";
-import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.js";
-import type { FsResult } from "../../../src/harness/filesystem/contracts/result.js";
-import { NodeNativeFileSystem, type NativeAtomicReplaceOptions, type NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { FileSystemRuntime, type OpenWorkspaceOptions } from "../../../src/harness/filesystem/runtime.js";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.js";
-import { contentHash } from "../../../src/harness/filesystem/services/text.js";
+import type { FileToolLimits } from "../../../src/harness/file-tool-limits.ts";
+import type { FileRef, TargetRef } from "../../../src/harness/filesystem/contracts/path.ts";
+import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.ts";
+import type { FsResult } from "../../../src/harness/filesystem/contracts/result.ts";
+import { NodeNativeFileSystem, type NativeAtomicReplaceOptions, type NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { FileSystemRuntime, type OpenWorkspaceOptions } from "../../../src/harness/filesystem/runtime.ts";
+import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { contentHash } from "../../../src/harness/filesystem/services/text.ts";
 import {
 	FileToolsConfigProvider,
 	type FileToolsConfig,
 	type FileToolsConfigLoader,
 	type FileToolsConfigResult,
-} from "../../../src/harness/file-tools/config.js";
-import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.js";
-import { isFailed } from "../../../src/harness/file-tools/shared/result.js";
-import { deferred, deferredVoid } from "../../helpers/async.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+} from "../../../src/harness/file-tools/config.ts";
+import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.ts";
+import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
+import { deferred, deferredVoid } from "../../helpers/async.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-file-tools-host-");
 preserveEnv("PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT");

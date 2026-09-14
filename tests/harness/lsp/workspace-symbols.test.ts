@@ -4,9 +4,9 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
 
-import { LspClient } from "../../../src/harness/lsp/client/client.js";
-import { LspManager } from "../../../src/harness/lsp/manager/manager.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { LspClient } from "../../../src/harness/lsp/client/client.ts";
+import { LspManager } from "../../../src/harness/lsp/manager/manager.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let workspace: string;
 let configDir: string;

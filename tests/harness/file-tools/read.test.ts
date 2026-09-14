@@ -15,21 +15,21 @@ vi.mock("file-type", async (importOriginal) => {
 	};
 });
 
-import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.js";
-import { suggestPaths } from "../../../src/harness/file-tools/read/path-suggestions.js";
-import { expectFsOk, openReadonly } from "../filesystem/fixtures.js";
-import { contentHash as sha256Version } from "../../../src/harness/filesystem/services/text.js";
-import { createPdfDocumentSource } from "../../../src/harness/file-tools/pi/ports/read-pdf.js";
+import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
+import { suggestPaths } from "../../../src/harness/file-tools/read/path-suggestions.ts";
+import { expectFsOk, openReadonly } from "../filesystem/fixtures.ts";
+import { contentHash as sha256Version } from "../../../src/harness/filesystem/services/text.ts";
+import { createPdfDocumentSource } from "../../../src/harness/file-tools/pi/ports/read-pdf.ts";
 import type {
 	InlineImageProcessor,
 	PdfDocumentHandle,
 	PdfDocumentSource,
 	PdfPageRenderResult,
-} from "../../../src/harness/file-tools/read/ports.js";
-import { formatReadStructureContext } from "../../../src/harness/file-tools/read/presenter.js";
-import { readWorkspaceFile } from "../../helpers/read-tool.js";
-import { createCrudTestContext } from "./crud-fixtures.js";
-import { expectFailure } from "./result-fixtures.js";
+} from "../../../src/harness/file-tools/read/ports.ts";
+import { formatReadStructureContext } from "../../../src/harness/file-tools/read/presenter.ts";
+import { readWorkspaceFile } from "../../helpers/read-tool.ts";
+import { createCrudTestContext } from "./crud-fixtures.ts";
+import { expectFailure } from "./result-fixtures.ts";
 
 const testContext = createCrudTestContext();
 let workspace: string;

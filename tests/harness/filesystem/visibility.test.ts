@@ -8,20 +8,20 @@ import type {
 	PartialIgnoreConfig,
 	VisibilityAnnotation,
 	VisibilityIntent,
-} from "../../../src/harness/filesystem/contracts/visibility.js";
+} from "../../../src/harness/filesystem/contracts/visibility.ts";
 import {
 	NativeFileSystemError,
 	NodeNativeFileSystem,
-} from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+} from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 import {
 	expectFsOk,
 	openReadonly,
 	overrideNativeFileSystem,
 	type OpenedReadonly,
-} from "./fixtures.js";
-import { hasGit } from "./visibility-fixtures.js";
+} from "./fixtures.ts";
+import { hasGit } from "./visibility-fixtures.ts";
 
 const execFileAsync = promisify(execFile);
 const workspaceTemp = useTempDir("o-pi-ignore-");

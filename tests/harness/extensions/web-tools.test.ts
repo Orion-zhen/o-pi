@@ -3,12 +3,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import webTools, { createWebToolsExtension } from "../../../src/harness/extensions/web-tools.js";
-import { attachPrivateNetworkGrant, type PrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.js";
-import type { WebFetchExecutionContext, WebFetchParams, WebToolsRuntime } from "../../../src/harness/web-tools/core/types.js";
-import { registerExtension } from "../../helpers/extension.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
-import { webFetchDetails } from "../../tui/chat/web-tools/fixtures.js";
+import webTools, { createWebToolsExtension } from "../../../src/harness/extensions/web-tools.ts";
+import { attachPrivateNetworkGrant, type PrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.ts";
+import type { WebFetchExecutionContext, WebFetchParams, WebToolsRuntime } from "../../../src/harness/web-tools/core/types.ts";
+import { registerExtension } from "../../helpers/extension.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
+import { webFetchDetails } from "../../tui/chat/web-tools/fixtures.ts";
 
 const execFileAsync = promisify(execFile);
 const temp = useTempDir("o-pi-web-extension-");

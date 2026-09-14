@@ -1,9 +1,9 @@
 import path from "node:path";
 
-import { loadLspConfig, resolveLspConfigPath } from "../config/loader.js";
-import { DiagnosticsLedger } from "../diagnostics/ledger.js";
-import type { LspStatus } from "../types.js";
-import { LspWorkspace } from "./workspace.js";
+import { loadLspConfig, resolveLspConfigPath } from "../config/loader.ts";
+import { DiagnosticsLedger } from "../diagnostics/ledger.ts";
+import type { LspStatus } from "../types.ts";
+import { LspWorkspace } from "./workspace.ts";
 
 type WorkspaceLoad =
 	| { workspace: LspWorkspace }

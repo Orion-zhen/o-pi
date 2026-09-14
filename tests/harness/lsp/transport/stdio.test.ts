@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { stdioClient, useTransportFixture } from "./fixtures.js";
+import { stdioClient, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 

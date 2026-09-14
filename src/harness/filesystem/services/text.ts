@@ -6,8 +6,8 @@ import type {
 	TextContent,
 	TextSlice,
 	TextSliceOptions,
-} from "../contracts/content.js";
-import { fsFailure, fsSuccess, type FsResult } from "../contracts/result.js";
+} from "../contracts/content.ts";
+import { fsFailure, fsSuccess, type FsResult } from "../contracts/result.ts";
 
 const UTF8_BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
 const encoder = new TextEncoder();

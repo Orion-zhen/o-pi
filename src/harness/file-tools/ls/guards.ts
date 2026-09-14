@@ -1,4 +1,4 @@
-import type { LsSuccess } from "./types.js";
+import type { LsSuccess } from "./types.ts";
 
 export function isLsSuccess(value: unknown): value is LsSuccess {
 	if (!isRecord(value) || typeof value["path"] !== "string" || !Array.isArray(value["entries"])) return false;

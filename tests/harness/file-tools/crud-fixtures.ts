@@ -2,17 +2,17 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 
-import { editFile, previewEdit } from "../../../src/harness/file-tools/edit/command.js";
-import type { MutationDiagnosticsSource } from "../../../src/harness/file-tools/shared/mutation-diagnostics.js";
-import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.js";
-import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.js";
-import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.js";
-import type { ToolOutcome } from "../../../src/harness/file-tools/shared/result.js";
-import type { TextDiffGenerator } from "../../../src/harness/file-tools/shared/text-diff.js";
-import { writeFile as writeFileCommand } from "../../../src/harness/file-tools/write/command.js";
-import type { WriteParams, WriteSuccess } from "../../../src/harness/file-tools/write/types.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
-import { readWorkspaceFile, type ReadWorkspaceTestOptions } from "../../helpers/read-tool.js";
+import { editFile, previewEdit } from "../../../src/harness/file-tools/edit/command.ts";
+import type { MutationDiagnosticsSource } from "../../../src/harness/file-tools/shared/mutation-diagnostics.ts";
+import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.ts";
+import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.ts";
+import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.ts";
+import type { ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
+import type { TextDiffGenerator } from "../../../src/harness/file-tools/shared/text-diff.ts";
+import { writeFile as writeFileCommand } from "../../../src/harness/file-tools/write/command.ts";
+import type { WriteParams, WriteSuccess } from "../../../src/harness/file-tools/write/types.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
+import { readWorkspaceFile, type ReadWorkspaceTestOptions } from "../../helpers/read-tool.ts";
 
 export interface CrudTestContext {
 	readonly workspace: string;

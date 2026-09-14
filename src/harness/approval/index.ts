@@ -1,2 +1,2 @@
-export { createApprovalGate } from "./runtime/gate.js";
-export type { ApprovalOutcome } from "./runtime/interaction.js";
+export { createApprovalGate } from "./runtime/gate.ts";
+export type { ApprovalOutcome } from "./runtime/interaction.ts";

@@ -1,6 +1,6 @@
-import type { ContentVersion } from "../../filesystem/contracts/content.js";
-import type { AnyPathRef } from "../../filesystem/contracts/path.js";
-import type { WorkspaceFileSystemLease } from "../../filesystem/runtime.js";
+import type { ContentVersion } from "../../filesystem/contracts/content.ts";
+import type { AnyPathRef } from "../../filesystem/contracts/path.ts";
+import type { WorkspaceFileSystemLease } from "../../filesystem/runtime.ts";
 
 export interface ObservationEntry {
 	readonly canonicalPath: string;

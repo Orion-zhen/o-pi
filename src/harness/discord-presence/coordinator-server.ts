@@ -7,9 +7,9 @@ import {
 	type CoordinatedActivity,
 	type CoordinatedPresenceConfig,
 	writeCoordinatorMessage,
-} from "./coordinator-protocol.js";
-import { DiscordCoordinatorOutput } from "./output.js";
-import type { DiscordActivityPayload } from "./types.js";
+} from "./coordinator-protocol.ts";
+import { DiscordCoordinatorOutput } from "./output.ts";
+import type { DiscordActivityPayload } from "./types.ts";
 
 interface Participant {
 	config: CoordinatedPresenceConfig;

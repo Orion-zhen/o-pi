@@ -1,6 +1,6 @@
 import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { collectStatsSnapshot, type StatsPiApi } from "../stats/collector.js";
+import { collectStatsSnapshot, type StatsPiApi } from "../stats/collector.ts";
 
 const STATS_COMMAND_DESCRIPTION = "Show current session stats.";
 

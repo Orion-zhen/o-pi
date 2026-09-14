@@ -1,22 +1,22 @@
 import path from "node:path";
 
-import type { DirectoryRef, ExistingRef } from "../../contracts/path.js";
-import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../../contracts/result.js";
+import type { DirectoryRef, ExistingRef } from "../../contracts/path.ts";
+import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../../contracts/result.ts";
 import type {
 	VisibilityAnnotation,
 	VisibilityDirectoryEntry,
 	VisibilityIntent,
 	VisibilityOperations,
 	VisibilityPolicy,
-} from "../../contracts/visibility.js";
-import type { WorkspaceNamespaceKernel } from "../../kernel/namespace.js";
-import { mapNativeError } from "../../kernel/native-error.js";
-import type { NativeFileSystem } from "../../platform/node/native-filesystem.js";
-import { nativeIdentity } from "../ref.js";
-import { VisibilityEvaluator } from "./evaluator.js";
-import type { GitTrackedFiles } from "./git-tracked-files.js";
-import { rethrowVisibilityAbort, type VisibilityRuleFile } from "./model.js";
-import { compileVisibilityRuleFiles, type CompiledVisibilityRules } from "./rule-compiler.js";
+} from "../../contracts/visibility.ts";
+import type { WorkspaceNamespaceKernel } from "../../kernel/namespace.ts";
+import { mapNativeError } from "../../kernel/native-error.ts";
+import type { NativeFileSystem } from "../../platform/node/native-filesystem.ts";
+import { nativeIdentity } from "../ref.ts";
+import { VisibilityEvaluator } from "./evaluator.ts";
+import type { GitTrackedFiles } from "./git-tracked-files.ts";
+import { rethrowVisibilityAbort, type VisibilityRuleFile } from "./model.ts";
+import { compileVisibilityRuleFiles, type CompiledVisibilityRules } from "./rule-compiler.ts";
 
 interface IncrementalVisibilityOptions {
 	readonly policy: VisibilityPolicy;

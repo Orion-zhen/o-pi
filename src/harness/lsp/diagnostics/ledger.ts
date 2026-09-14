@@ -2,8 +2,8 @@ import path from "node:path";
 import type { Diagnostic, DiagnosticRelatedInformation } from "vscode-languageserver-protocol";
 import { DiagnosticSeverity } from "vscode-languageserver-protocol";
 
-import type { LspDiagnosticItem, LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSeverityName } from "../types.js";
-import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
+import type { LspDiagnosticItem, LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSeverityName } from "../types.ts";
+import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.ts";
 
 const severityOrder: Record<LspSeverityName, number> = {
 	error: 1,

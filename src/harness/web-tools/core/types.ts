@@ -180,7 +180,7 @@ export interface WebSearchResult {
 export interface WebFetchExecutionContext {
 	toolCallId: string;
 	/** approval-gate 在工具钩子中签发，仅供网络边界使用。 */
-	privateNetworkGrant?: import("../network/private-network-grant.js").PrivateNetworkGrant;
+	privateNetworkGrant?: import("../network/private-network-grant.ts").PrivateNetworkGrant;
 	signal?: AbortSignal;
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;
 	acceptsImages?: boolean;

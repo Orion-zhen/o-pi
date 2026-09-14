@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
 import path from "node:path";
-import { binaryResourceDir } from "../runtime/paths.js";
+import { binaryResourceDir } from "../runtime/paths.ts";
 import type { ParseOptions, Tree } from "web-tree-sitter";
-import type { GrammarSpec } from "./types.js";
+import type { GrammarSpec } from "./types.ts";
 
 type ParseGrammar = (text: string, options: ParseOptions) => Tree | null;
 const require = createRequire(import.meta.url);

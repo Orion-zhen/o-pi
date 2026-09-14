@@ -1,5 +1,5 @@
 import { convertToPng, formatDimensionNote, resizeImage } from "@earendil-works/pi-coding-agent";
-import type { InlineImageProcessor } from "../../read/ports.js";
+import type { InlineImageProcessor } from "../../read/ports.ts";
 
 export function createInlineImageProcessor(): InlineImageProcessor {
 	return {

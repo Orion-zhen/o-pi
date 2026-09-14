@@ -1,13 +1,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { notifyWaiting } from "../../harness/notification/native.js";
-import { clearChrome } from "./chrome.js";
-import { loadTuiConfig } from "./config.js";
-import { MathInitialization } from "../chat/math/initialization.js";
-import { createAssistantPerformanceTracker } from "../chat/message-performance.js";
-import { recordUserMessageTimestamp, resetUserMessageTimestamps } from "../chat/message-timestamp.js";
-import { TuiSession } from "./session.js";
-import { collectUserMessages } from "./snapshot.js";
-import { UserHistoryStore } from "../editor/history.js";
+import { notifyWaiting } from "../../harness/notification/native.ts";
+import { clearChrome } from "./chrome.ts";
+import { loadTuiConfig } from "./config.ts";
+import { MathInitialization } from "../chat/math/initialization.ts";
+import { createAssistantPerformanceTracker } from "../chat/message-performance.ts";
+import { recordUserMessageTimestamp, resetUserMessageTimestamps } from "../chat/message-timestamp.ts";
+import { TuiSession } from "./session.ts";
+import { collectUserMessages } from "./snapshot.ts";
+import { UserHistoryStore } from "../editor/history.ts";
 
 export interface TuiRuntime {
 	startSession(ctx: ExtensionContext, replaySessionMessages: boolean): Promise<void>;

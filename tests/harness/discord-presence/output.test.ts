@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DiscordCoordinatorOutput } from "../../../src/harness/discord-presence/output.js";
-import * as rpc from "../../../src/harness/discord-presence/transport.js";
-import type { DiscordActivityPayload } from "../../../src/harness/discord-presence/types.js";
-import { coordinatedConfig, FakeTransport } from "./fixtures.js";
+import { DiscordCoordinatorOutput } from "../../../src/harness/discord-presence/output.ts";
+import * as rpc from "../../../src/harness/discord-presence/transport.ts";
+import type { DiscordActivityPayload } from "../../../src/harness/discord-presence/types.ts";
+import { coordinatedConfig, FakeTransport } from "./fixtures.ts";
 
 const outputs: DiscordCoordinatorOutput[] = [];
 beforeEach(() => {

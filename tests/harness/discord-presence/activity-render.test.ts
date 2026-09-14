@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifyTool, stableExecutableFromCommand } from "../../../src/harness/discord-presence/activity.js";
-import { PresenceActivityTracker } from "../../../src/harness/discord-presence/activity-tracker.js";
-import { renderDiscordActivity } from "../../../src/harness/discord-presence/render.js";
-import { completedTopLevelStringProperty } from "../../../src/harness/discord-presence/streaming.js";
-import { configuredProfile, enabledConfig } from "./fixtures.js";
+import { classifyTool, stableExecutableFromCommand } from "../../../src/harness/discord-presence/activity.ts";
+import { PresenceActivityTracker } from "../../../src/harness/discord-presence/activity-tracker.ts";
+import { renderDiscordActivity } from "../../../src/harness/discord-presence/render.ts";
+import { completedTopLevelStringProperty } from "../../../src/harness/discord-presence/streaming.ts";
+import { configuredProfile, enabledConfig } from "./fixtures.ts";
 
 describe("Discord presence 活动与渲染", () => {
 	it.each([

@@ -1,8 +1,8 @@
 import { Markdown, allocateImageId, encodeITerm2, getCapabilities, getCellDimensions, renderImage } from "@earendil-works/pi-tui";
-import type { TuiMathConfig } from "../../shell/types.js";
+import type { TuiMathConfig } from "../../shell/types.ts";
 
 type MarkdownRender = (this: Markdown, width: number) => string[];
-type MathRendererModule = typeof import("./renderer.js");
+type MathRendererModule = typeof import("./renderer.ts");
 type SupportedImageProtocol = "kitty" | "iterm2";
 
 interface MarkdownInternals {
@@ -45,7 +45,7 @@ export function installMathMarkdownRenderer(config: TuiMathConfig): void {
 }
 
 export async function warmDisplayMathRenderer(): Promise<void> {
-	mathRendererImport ??= import("./renderer.js").then((module) => {
+	mathRendererImport ??= import("./renderer.ts").then((module) => {
 		mathRendererModule = module;
 		return module;
 	});

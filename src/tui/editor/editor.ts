@@ -1,8 +1,8 @@
 import { CustomEditor, type KeybindingsManager, type Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth, visibleWidth, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
-import { formatHomePage, HOME_CONTENT_WIDTH } from "../views/home/home.js";
-import { HomeAnimation } from "../views/home/animation.js";
-import type { TuiSnapshot, TuiHomeConfig } from "../shell/types.js";
+import { formatHomePage, HOME_CONTENT_WIDTH } from "../views/home/home.ts";
+import { HomeAnimation } from "../views/home/animation.ts";
+import type { TuiSnapshot, TuiHomeConfig } from "../shell/types.ts";
 
 const HOME_EXTERNAL_ROWS = 2;
 

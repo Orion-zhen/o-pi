@@ -1,4 +1,4 @@
-import { fail, type ToolOutcome } from "../shared/result.js";
+import { fail, type ToolOutcome } from "../shared/result.ts";
 
 const RANGE = "[1-9][0-9]*(?:-(?:[1-9][0-9]*)?)?";
 export const READ_RANGE_PATTERN = `^${RANGE}(?:,${RANGE})*$`;

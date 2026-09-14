@@ -4,7 +4,7 @@ import path from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createOPetEventHandlers, createOPetExtension } from "../../../src/harness/extensions/o-pet.js";
+import { createOPetEventHandlers, createOPetExtension } from "../../../src/harness/extensions/o-pet.ts";
 import {
 	connectOPetSocket,
 	OPetClient,
@@ -12,16 +12,16 @@ import {
 	type OPetEventClient,
 	type OPetSocket,
 	type OPetSocketCallbacks,
-} from "../../../src/harness/o-pet/client.js";
+} from "../../../src/harness/o-pet/client.ts";
 import {
 	defaultOPetEndpoint,
 	prepareOPetEndpoint,
 	resolveOPetEndpoint,
-} from "../../../src/harness/o-pet/endpoint.js";
-import { serializeOPetMessage, type OPetEvent } from "../../../src/harness/o-pet/protocol.js";
-import { OPetService } from "../../../src/harness/o-pet/service.js";
-import { deferredVoid } from "../../helpers/async.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+} from "../../../src/harness/o-pet/endpoint.ts";
+import { serializeOPetMessage, type OPetEvent } from "../../../src/harness/o-pet/protocol.ts";
+import { OPetService } from "../../../src/harness/o-pet/service.ts";
+import { deferredVoid } from "../../helpers/async.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-o-pet-");
 preserveEnv("O_PET_ENDPOINT", "XDG_RUNTIME_DIR");

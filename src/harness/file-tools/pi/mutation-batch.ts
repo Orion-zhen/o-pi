@@ -1,6 +1,6 @@
-import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.js";
-import type { LspDiagnosticsSummary } from "../../lsp/types.js";
-import type { MutationPostProcessObserver } from "./progress.js";
+import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.ts";
+import type { LspDiagnosticsSummary } from "../../lsp/types.ts";
+import type { MutationPostProcessObserver } from "./progress.ts";
 
 interface Deferred<T> {
 	promise: Promise<T>;

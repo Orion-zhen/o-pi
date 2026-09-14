@@ -1,9 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { loadTuiConfig } from "../../../src/tui/shell/config.js";
-import { defaultTuiConfig } from "./fixtures.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { loadTuiConfig } from "../../../src/tui/shell/config.ts";
+import { defaultTuiConfig } from "./fixtures.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-tui-config-");

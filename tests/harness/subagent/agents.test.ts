@@ -1,10 +1,10 @@
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { formatAgents } from "../../../src/harness/subagent/commands.js";
-import { discoverAgents, resolveSubagentTools } from "../../../src/harness/subagent/agents.js";
-import { loadSubagentConfig } from "../../../src/harness/subagent/config.js";
-import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.js";
+import { formatAgents } from "../../../src/harness/subagent/commands.ts";
+import { discoverAgents, resolveSubagentTools } from "../../../src/harness/subagent/agents.ts";
+import { loadSubagentConfig } from "../../../src/harness/subagent/config.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const agentDirEnv = "PI_CODING_AGENT_DIR";

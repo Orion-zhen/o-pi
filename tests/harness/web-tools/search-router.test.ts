@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.js";
-import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.js";
-import type { SearchProviderResult, WebSearchProvider } from "../../../src/harness/web-tools/search-providers/types.js";
-import type { WebSearchErrorCode, WebSearchProviderId } from "../../../src/harness/web-tools/core/types.js";
+import { normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.ts";
+import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.ts";
+import type { SearchProviderResult, WebSearchProvider } from "../../../src/harness/web-tools/search-providers/types.ts";
+import type { WebSearchErrorCode, WebSearchProviderId } from "../../../src/harness/web-tools/core/types.ts";
 
 function provider(id: WebSearchProviderId, result: SearchProviderResult, calls: string[]): WebSearchProvider {
 	return { id, async search() { calls.push(id); return result; } };

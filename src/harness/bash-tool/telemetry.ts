@@ -1,5 +1,5 @@
-import { defineToolTelemetry, fields, textFields } from "../telemetry/projection.js";
-import type { BashParams, BashToolDetails } from "./types.js";
+import { defineToolTelemetry, fields, textFields } from "../telemetry/projection.ts";
+import type { BashParams, BashToolDetails } from "./types.ts";
 
 export const bashTelemetry = defineToolTelemetry<BashParams, BashToolDetails>({
 	input(params) {

@@ -1,6 +1,6 @@
-import { defineToolTelemetry, fields, textFields } from "../../telemetry/projection.js";
-import type { WebFetchDetails, WebFetchParams } from "../core/types.js";
-import { webResultFields } from "./common.js";
+import { defineToolTelemetry, fields, textFields } from "../../telemetry/projection.ts";
+import type { WebFetchDetails, WebFetchParams } from "../core/types.ts";
+import { webResultFields } from "./common.ts";
 
 export const webFetchTelemetry = defineToolTelemetry<WebFetchParams, WebFetchDetails>({
 	input(params) {

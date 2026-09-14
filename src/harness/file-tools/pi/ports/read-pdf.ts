@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { binaryResourceDir } from "../../../runtime/paths.js";
+import { binaryResourceDir } from "../../../runtime/paths.ts";
 import type { Canvas } from "@napi-rs/canvas";
 import type {
 	PDFDocumentLoadingTask,
@@ -14,7 +14,7 @@ import type {
 	PdfDocumentSource,
 	PdfMetadata,
 	PdfPageRenderResult,
-} from "../../read/ports.js";
+} from "../../read/ports.ts";
 
 const TARGET_SCALE = 2;
 const MAX_PAGE_DIMENSION = 2_000;

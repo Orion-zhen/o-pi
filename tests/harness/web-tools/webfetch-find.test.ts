@@ -1,12 +1,12 @@
 import { Agent } from "undici";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { executeWebFetch, type ExecuteWebFetchRuntime } from "../../../src/harness/web-tools/fetch/webfetch-tool.js";
-import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.js";
-import type { WebFetchResult, WebFetchSuccessDetails } from "../../../src/harness/web-tools/core/types.js";
-import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.js";
-import { defaultWebToolsConfig } from "./config-fixture.js";
-import { httpResponse } from "../../helpers/http.js";
+import { executeWebFetch, type ExecuteWebFetchRuntime } from "../../../src/harness/web-tools/fetch/webfetch-tool.ts";
+import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.ts";
+import type { WebFetchResult, WebFetchSuccessDetails } from "../../../src/harness/web-tools/core/types.ts";
+import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.ts";
+import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { httpResponse } from "../../helpers/http.ts";
 
 const dispatchers: Agent[] = [];
 afterEach(async () => { await Promise.all(dispatchers.splice(0).map((dispatcher) => dispatcher.close())); });

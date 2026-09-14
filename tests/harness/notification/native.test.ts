@@ -15,7 +15,7 @@ afterEach(() => vi.doUnmock("node-notifier"));
 describe("native notification", () => {
 	it("通过默认后端发送固定的 o-pi 等待消息", async () => {
 		notify.mockImplementation((_notification, callback) => callback(null, "sent"));
-		const { notifyWaiting } = await import("../../../src/harness/notification/native.js");
+		const { notifyWaiting } = await import("../../../src/harness/notification/native.ts");
 		await notifyWaiting();
 		expect(notify).toHaveBeenCalledOnce();
 		expect(notify).toHaveBeenCalledWith(
@@ -25,14 +25,14 @@ describe("native notification", () => {
 
 	it("加载后端失败时静默降级", async () => {
 		vi.doMock("node-notifier", () => { throw new Error("load failed"); });
-		const { notifyWaiting } = await import("../../../src/harness/notification/native.js");
+		const { notifyWaiting } = await import("../../../src/harness/notification/native.ts");
 		await expect(notifyWaiting()).resolves.toBeUndefined();
 		expect(notify).not.toHaveBeenCalled();
 	});
 
 	it("后端发送失败时静默降级", async () => {
 		notify.mockImplementation(() => { throw new Error("send failed"); });
-		const { notifyWaiting } = await import("../../../src/harness/notification/native.js");
+		const { notifyWaiting } = await import("../../../src/harness/notification/native.ts");
 		await expect(notifyWaiting()).resolves.toBeUndefined();
 	});
 });

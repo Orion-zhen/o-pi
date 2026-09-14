@@ -1,10 +1,10 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { formatToolCard } from "../../../components/tool-card.js";
-import { formatGrepCall, formatGrepResult } from "../grep-format.js";
-import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.js";
-import type { ToolTextResult } from "./contracts.js";
-import { formatFailureCard, pathArgs, textComponent } from "./shared.js";
+import { formatToolCard } from "../../../components/tool-card.ts";
+import { formatGrepCall, formatGrepResult } from "../grep-format.ts";
+import { isPlainRecord } from "../../../../harness/file-tools/pi/guards.ts";
+import type { ToolTextResult } from "./contracts.ts";
+import { formatFailureCard, pathArgs, textComponent } from "./shared.ts";
 
 export function renderGrepCall(
 	args: unknown,

@@ -1,4 +1,4 @@
-import type { FsError } from "../../filesystem/contracts/result.js";
+import type { FsError } from "../../filesystem/contracts/result.ts";
 
 /** Stable model-visible file-tool error codes. */
 export type FileToolErrorCode =

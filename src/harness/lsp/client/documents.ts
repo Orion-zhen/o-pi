@@ -9,12 +9,12 @@ import {
 	type TextDocumentSyncOptions,
 } from "vscode-languageserver-protocol";
 
-import { incrementalContentChange } from "./text-change.js";
-import { languageIdForServerPath } from "../config/routing.js";
-import { requestDocumentSymbols } from "../protocol/features.js";
-import { pathToFileUri } from "../protocol/uri.js";
-import type { LspClientConnection } from "./connection.js";
-import type { LspClientDocumentContext, LspConfig, LspDocumentSymbols, LspRequestOptions, LspServerConfig } from "../types.js";
+import { incrementalContentChange } from "./text-change.ts";
+import { languageIdForServerPath } from "../config/routing.ts";
+import { requestDocumentSymbols } from "../protocol/features.ts";
+import { pathToFileUri } from "../protocol/uri.ts";
+import type { LspClientConnection } from "./connection.ts";
+import type { LspClientDocumentContext, LspConfig, LspDocumentSymbols, LspRequestOptions, LspServerConfig } from "../types.ts";
 
 interface DocumentState extends LspClientDocumentContext {
 	version: number;

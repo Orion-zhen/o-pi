@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { incrementalContentChange } from "../../../src/harness/lsp/client/text-change.js";
+import { incrementalContentChange } from "../../../src/harness/lsp/client/text-change.ts";
 
 describe("lsp documents", () => {
 	it.each([

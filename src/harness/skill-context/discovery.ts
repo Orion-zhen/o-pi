@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
-import { collectAncestorDirs } from "../resource-paths.js";
+import { collectAncestorDirs } from "../resource-paths.ts";
 
 export interface ProjectSkillDiscoveryOptions {
 	cwd: string;

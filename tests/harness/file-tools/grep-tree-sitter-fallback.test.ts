@@ -2,14 +2,14 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
-vi.mock("../../../src/harness/syntax-tree/loader.js", () => ({
+vi.mock("../../../src/harness/syntax-tree/loader.ts", () => ({
 	loadGrammar: async () => { throw new Error("runtime unavailable"); },
 }));
 
-import { clearGrepTestRuntime as clearGrepIndex } from "../../helpers/grep-tool.js";
-import { grepWorkspaceFiles } from "../../helpers/grep-tool.js";
+import { clearGrepTestRuntime as clearGrepIndex } from "../../helpers/grep-tool.ts";
+import { grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
 
 const workspaceTemp = useTempDir("o-pi-grep-no-tree-sitter-");
 const configTemp = useTempDir("o-pi-grep-no-tree-sitter-config-");

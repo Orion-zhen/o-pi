@@ -1,9 +1,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { TuiMathConfig } from "../../shell/types.js";
+import type { TuiMathConfig } from "../../shell/types.ts";
 
 const IDLE_DELAY_MS = 750;
 
-type MathMarkdownModule = typeof import("./markdown.js");
+type MathMarkdownModule = typeof import("./markdown.ts");
 
 interface MathSession {
 	ctx: ExtensionContext;
@@ -57,7 +57,7 @@ export class MathInitialization {
 
 	private async initialize(session: MathSession): Promise<void> {
 		try {
-			const module = this.module ??= await import("./markdown.js");
+			const module = this.module ??= await import("./markdown.ts");
 			if (!this.isIdle(session)) return;
 			module.installMathMarkdownRenderer(session.config);
 			if (module.supportsDisplayMathImages()) {

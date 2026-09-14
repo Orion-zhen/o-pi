@@ -2,8 +2,8 @@ export {
 	discoverAgents,
 	hasWriteCapability,
 	resolveSubagentTools,
-} from "./agents.js";
-export { loadSubagentConfig, SubagentConfigError } from "./config.js";
+} from "./agents.ts";
+export { loadSubagentConfig, SubagentConfigError } from "./config.ts";
 export {
 	captureExecutorContext,
 	completeAgents,
@@ -11,19 +11,19 @@ export {
 	queryAgentsSummary,
 	querySubagentConfigSummary,
 	runSubagentCommand,
-} from "./commands.js";
-export { SUBAGENT_COMMAND_ENTRY } from "./constants.js";
-export { formatModelReference } from "./model.js";
-export { executeSubagent, pendingSubagentResult, resolveMode, SubagentExecutionError } from "./executor.js";
-export { SubagentExecutionRegistry } from "./execution-lifecycle.js";
-export { exceedsTokenLimit, formatResultForContext, sanitizeFileName } from "./output.js";
-export { runPiProcess } from "./process.js";
+} from "./commands.ts";
+export { SUBAGENT_COMMAND_ENTRY } from "./constants.ts";
+export { formatModelReference } from "./model.ts";
+export { executeSubagent, pendingSubagentResult, resolveMode, SubagentExecutionError } from "./executor.ts";
+export { SubagentExecutionRegistry } from "./execution-lifecycle.ts";
+export { exceedsTokenLimit, formatResultForContext, sanitizeFileName } from "./output.ts";
+export { runPiProcess } from "./process.ts";
 export {
 	cleanupForkExecutionContext,
 	createForkExecutionContext,
 	formatForkAssignment,
 	loadForkSystemPrompt,
-} from "./session-context.js";
+} from "./session-context.ts";
 export type {
 	AgentDefinition,
 	AgentDiscovery,
@@ -46,4 +46,4 @@ export type {
 	SubagentToolParams,
 	SubagentToolResult,
 	UsageStats,
-} from "./types.js";
+} from "./types.ts";

@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { findNearestProjectRoot } from "../config-loader.js";
-import { countTextTokensSync, type TokenCounterScope } from "../token-counter.js";
-import type { SubagentCompletedResult, UnpersistedSubagentRunResult } from "./types.js";
+import { findNearestProjectRoot } from "../config-loader.ts";
+import { countTextTokensSync, type TokenCounterScope } from "../token-counter.ts";
+import type { SubagentCompletedResult, UnpersistedSubagentRunResult } from "./types.ts";
 
 const RUNS_DIR = path.join(".pi", "subagents", "runs");
 

@@ -5,11 +5,11 @@ import {
 	type FileChangeType,
 } from "vscode-languageserver-protocol";
 
-import { LspClientConnection } from "./connection.js";
-import { LspProtocolInfrastructure } from "../protocol/infrastructure.js";
-import { connectLspTransport } from "../protocol/transport.js";
-import type { LspConfig, LspServerConfig, LspServerStatus } from "../types.js";
-import { pathToFileUri } from "../protocol/uri.js";
+import { LspClientConnection } from "./connection.ts";
+import { LspProtocolInfrastructure } from "../protocol/infrastructure.ts";
+import { connectLspTransport } from "../protocol/transport.ts";
+import type { LspConfig, LspServerConfig, LspServerStatus } from "../types.ts";
+import { pathToFileUri } from "../protocol/uri.ts";
 
 const LAST_ERROR_MAX_CHARS = 1024;
 

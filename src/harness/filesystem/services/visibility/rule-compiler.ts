@@ -1,8 +1,8 @@
 import ignoreFactory from "ignore";
 
-import type { FsOperationContext } from "../../contracts/result.js";
-import type { IgnoreConfig } from "../../contracts/visibility.js";
-import type { NativeFileSystem } from "../../platform/node/native-filesystem.js";
+import type { FsOperationContext } from "../../contracts/result.ts";
+import type { IgnoreConfig } from "../../contracts/visibility.ts";
+import type { NativeFileSystem } from "../../platform/node/native-filesystem.ts";
 import {
 	SOURCE_PRIORITY,
 	rethrowVisibilityAbort,
@@ -11,7 +11,7 @@ import {
 	type MatchedIgnoreRule,
 	type VisibilityRuleFile,
 	type VisibilitySourceType,
-} from "./model.js";
+} from "./model.ts";
 
 const BUILTIN_RULES: Readonly<Record<IgnoreConfig["builtinProfile"], readonly string[]>> = {
 	none: [],

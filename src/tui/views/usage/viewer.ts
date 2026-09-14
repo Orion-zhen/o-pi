@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { BorderedScrollViewer } from "../../components/scroll-viewer.js";
-import { renderUsage, renderUsageCancelled } from "../../../harness/usage/presentation/render.js";
-import type { UsageSnapshot } from "../../../harness/usage/types.js";
+import { BorderedScrollViewer } from "../../components/scroll-viewer.ts";
+import { renderUsage, renderUsageCancelled } from "../../../harness/usage/presentation/render.ts";
+import type { UsageSnapshot } from "../../../harness/usage/types.ts";
 
 const BODY_ROWS_RATIO = 0.72;
 

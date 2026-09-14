@@ -9,12 +9,12 @@ import { type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createAssistantPerformanceTracker,
-} from "../../../src/tui/chat/message-performance.js";
+} from "../../../src/tui/chat/message-performance.ts";
 import {
 	configureMessageTimestampRenderer,
 	recordUserMessageTimestamp,
 	resetUserMessageTimestamps,
-} from "../../../src/tui/chat/message-timestamp.js";
+} from "../../../src/tui/chat/message-timestamp.ts";
 
 const markdownTheme: MarkdownTheme = {
 	heading: identity,

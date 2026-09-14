@@ -1,12 +1,12 @@
-import type { DiscoveryEvent } from "../../filesystem/contracts/discovery.js";
-import type { FileSnapshot } from "../../filesystem/contracts/metadata.js";
-import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
-import { recordIncomplete } from "../shared/search-navigation.js";
-import { compactGrepSkippedFiles, createGrepSkippedFiles, type MutableGrepSkippedFiles } from "./skipped.js";
-import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
+import type { DiscoveryEvent } from "../../filesystem/contracts/discovery.ts";
+import type { FileSnapshot } from "../../filesystem/contracts/metadata.ts";
+import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.ts";
+import { recordIncomplete } from "../shared/search-navigation.ts";
+import { compactGrepSkippedFiles, createGrepSkippedFiles, type MutableGrepSkippedFiles } from "./skipped.ts";
+import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.ts";
 
 export interface InventoryScope {
 	readonly input: string;

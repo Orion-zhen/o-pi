@@ -2,8 +2,8 @@ import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { expectFsOk, openReadonly } from "./fixtures.js";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { expectFsOk, openReadonly } from "./fixtures.ts";
 
 const temp = useTempDir("o-pi-metadata-fs-");
 let workspace: string;

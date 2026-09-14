@@ -1,11 +1,11 @@
 import { createProvider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { createProviderAuth } from "./auth.js";
-import { fetchProviderModelsFromEndpoint, mergeDiscoveredModelConfigs } from "./models-endpoint.js";
-import { buildModels, configuredModels, validateProviderPayload, type ModelOverrides } from "./models.js";
-import type { ModelsJsoncConfig } from "./schema.js";
-import { createRuntimeStreams } from "./streams.js";
+import { createProviderAuth } from "./auth.ts";
+import { fetchProviderModelsFromEndpoint, mergeDiscoveredModelConfigs } from "./models-endpoint.ts";
+import { buildModels, configuredModels, validateProviderPayload, type ModelOverrides } from "./models.ts";
+import type { ModelsJsoncConfig } from "./schema.ts";
+import { createRuntimeStreams } from "./streams.ts";
 
 /** 注册原生 Provider，目录持久化和并发刷新由 Pi 管理。 */
 export function registerOpenAICompatibleProviders(

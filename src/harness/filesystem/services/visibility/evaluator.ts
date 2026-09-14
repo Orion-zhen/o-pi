@@ -1,5 +1,5 @@
-import type { VisibilityPolicy } from "../../contracts/visibility.js";
-import { CompiledPathRuleMatcher } from "../../kernel/access-policy.js";
+import type { VisibilityPolicy } from "../../contracts/visibility.ts";
+import { CompiledPathRuleMatcher } from "../../kernel/access-policy.ts";
 import {
 	pathDepth,
 	type CompiledVisibilityRuleSet,
@@ -8,7 +8,7 @@ import {
 	type VisibilityEvaluateInput,
 	type VisibilitySourceMatch,
 	type VisibilitySourceType,
-} from "./model.js";
+} from "./model.ts";
 
 interface CompiledVisibilitySource {
 	readonly sourceType: VisibilitySourceType;

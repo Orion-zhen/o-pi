@@ -1,5 +1,5 @@
-import type { FsError } from "../contracts/result.js";
-import { NativeFileSystemError } from "../platform/node/native-filesystem.js";
+import type { FsError } from "../contracts/result.ts";
+import { NativeFileSystemError } from "../platform/node/native-filesystem.ts";
 
 /** Maps platform failures into stable filesystem-layer errors. */
 export function mapNativeError(error: unknown, displayPath: string): FsError {

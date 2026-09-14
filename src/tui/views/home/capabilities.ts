@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { TuiToolsSnapshot } from "../../shell/types.js";
+import type { TuiToolsSnapshot } from "../../shell/types.ts";
 
 /** Home 中展示的用户语义能力分组，避免暴露扩展文件名。 */
 interface CapabilityGroupDefinition {

@@ -1,4 +1,4 @@
-import type { WriteSuccess } from "./types.js";
+import type { WriteSuccess } from "./types.ts";
 
 export function isWriteSuccess(value: unknown): value is WriteSuccess {
 	return isRecord(value) && value["status"] === "written" && typeof value["path"] === "string" && typeof value["bytes"] === "number";

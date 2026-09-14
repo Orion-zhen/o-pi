@@ -1,11 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { cliInvocation } from "../runtime/invocation.js";
+import { cliInvocation } from "../runtime/invocation.ts";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { PiJsonProgressAccumulator } from "./json-progress.js";
-import { formatModelReference } from "./model.js";
-import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress } from "./types.js";
+import { PiJsonProgressAccumulator } from "./json-progress.ts";
+import { formatModelReference } from "./model.ts";
+import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress } from "./types.ts";
 
 export async function runPiProcess(input: ProcessRunInput, options: { signal?: AbortSignal; onUpdate?: (progress: ProcessRunProgress) => void } = {}): Promise<ProcessRunOutput> {
 	const start = Date.now();

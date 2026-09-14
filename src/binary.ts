@@ -1,6 +1,6 @@
 import path from "node:path";
 import { id, assets } from "opi:assets";
-import { extractAssets } from "./harness/runtime/extract-assets.js";
+import { extractAssets } from "./harness/runtime/extract-assets.ts";
 
 const resourceDir = extractAssets(id, assets);
 process.env.PI_OPI_RESOURCE_DIR = resourceDir;
@@ -8,7 +8,7 @@ process.env.PI_PACKAGE_DIR = path.join(resourceDir, "pi");
 
 if (process.argv[2] === "--opi-discord-daemon") {
 	process.argv.splice(2, 1);
-	await import("./harness/discord-presence/coordinator-daemon.js");
+	await import("./harness/discord-presence/coordinator-daemon.ts");
 } else {
-	await import("./cli.js");
+	await import("./cli.ts");
 }

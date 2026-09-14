@@ -1,6 +1,6 @@
 import { isProbablyReaderable, Readability } from "@mozilla/readability";
 
-import type { HtmlReadabilityOptions } from "./types.js";
+import type { HtmlReadabilityOptions } from "./types.ts";
 
 export type HtmlTextSource = "readability" | "semantic" | "body";
 

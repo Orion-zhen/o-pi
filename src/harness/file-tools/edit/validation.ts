@@ -1,7 +1,7 @@
-import { fail, type FileToolError, type ToolOutcome } from "../shared/result.js";
-import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.js";
-import { findAll } from "./matches.js";
-import type { EditReplacement } from "./types.js";
+import { fail, type FileToolError, type ToolOutcome } from "../shared/result.ts";
+import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.ts";
+import { findAll } from "./matches.ts";
+import type { EditReplacement } from "./types.ts";
 
 const MAX_REPORTED_ERRORS = 8;
 

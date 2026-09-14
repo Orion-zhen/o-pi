@@ -1,4 +1,4 @@
-import type { WebFetchRange, WebFetchTextSpan } from "../core/types.js";
+import type { WebFetchRange, WebFetchTextSpan } from "../core/types.ts";
 
 const MAX_PASSAGE_CHARS = 800;
 const CONTEXT_CHARS = 160;

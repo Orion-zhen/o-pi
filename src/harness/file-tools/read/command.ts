@@ -1,15 +1,15 @@
-import type { FileToolLimits } from "../../file-tool-limits.js";
-import type { ByteContent, ContentVersion } from "../../filesystem/contracts/content.js";
-import type { FileRef } from "../../filesystem/contracts/path.js";
-import type { FsOperationContext } from "../../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
-import { detectFileType } from "./media.js";
-import { suggestPaths } from "./path-suggestions.js";
-import type { InlineImageProcessor, PdfDocumentHandle, PdfDocumentSource, ReadStructureSource } from "./ports.js";
-import { formatReadRanges, parseReadRanges, resolveReadRanges, type ReadRange } from "./range.js";
-import { readTextRanges } from "./text.js";
-import type { ReadFileSuccess, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess } from "./types.js";
+import type { FileToolLimits } from "../../file-tool-limits.ts";
+import type { ByteContent, ContentVersion } from "../../filesystem/contracts/content.ts";
+import type { FileRef } from "../../filesystem/contracts/path.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import { detectFileType } from "./media.ts";
+import { suggestPaths } from "./path-suggestions.ts";
+import type { InlineImageProcessor, PdfDocumentHandle, PdfDocumentSource, ReadStructureSource } from "./ports.ts";
+import { formatReadRanges, parseReadRanges, resolveReadRanges, type ReadRange } from "./range.ts";
+import { readTextRanges } from "./text.ts";
+import type { ReadFileSuccess, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess } from "./types.ts";
 
 const PATH_SUGGESTION_ENTRY_LIMIT = 10_000;
 

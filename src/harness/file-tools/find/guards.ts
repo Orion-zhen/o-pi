@@ -1,4 +1,4 @@
-import type { FindDetails } from "./types.js";
+import type { FindDetails } from "./types.ts";
 
 export function isFindDetails(value: unknown): value is FindDetails {
 	return isPlainRecord(value)

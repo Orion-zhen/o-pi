@@ -8,9 +8,9 @@ import {
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { extensions } from "../../src/harness/extensions.js";
-import { startModelServer } from "../cli/model-server.js";
-import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
+import { extensions } from "../../src/harness/extensions.ts";
+import { startModelServer } from "../cli/model-server.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-sdk-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE");

@@ -1,13 +1,13 @@
-import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.js";
+import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.ts";
 import { sessionEntryToContextMessages, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { registerSkillCommands } from "../skill-context/commands.js";
-import { executeSkillLoad, SkillLoadError } from "../skill-context/executor.js";
-import { collectSkillCandidates } from "../skill-context/loader.js";
-import { findVisibleToolCallIds } from "../prune/prune.js";
-import { type SkillCandidate, type SkillLoadDetails, type SkillToolErrorDetails } from "../skill-context/types.js";
-import { defineToolTelemetry } from "../telemetry/projection.js";
-import { registerTool } from "../register-tool.js";
+import { registerSkillCommands } from "../skill-context/commands.ts";
+import { executeSkillLoad, SkillLoadError } from "../skill-context/executor.ts";
+import { collectSkillCandidates } from "../skill-context/loader.ts";
+import { findVisibleToolCallIds } from "../prune/prune.ts";
+import { type SkillCandidate, type SkillLoadDetails, type SkillToolErrorDetails } from "../skill-context/types.ts";
+import { defineToolTelemetry } from "../telemetry/projection.ts";
+import { registerTool } from "../register-tool.ts";
 
 interface SkillRendererModule {
 	registerSkillMessageRenderer(pi: Pick<ExtensionAPI, "registerMessageRenderer">): void;

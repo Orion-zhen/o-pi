@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { createFileToolsExtension } from "../../../../src/harness/extensions/file-tools.js";
-import { presentation } from "../../../../src/tui/extensions.js";
+import { createFileToolsExtension } from "../../../../src/harness/extensions/file-tools.ts";
+import { presentation } from "../../../../src/tui/extensions.ts";
 const fileTools = createFileToolsExtension(presentation.fileTools);
-import { registerExtension } from "../../../helpers/extension.js";
-import { useTempDir } from "../../../helpers/lifecycle.js";
-import { activateFileTools, renderToolResult, theme, type Renderable } from "../../../harness/file-tools/extension-fixture.js";
+import { registerExtension } from "../../../helpers/extension.ts";
+import { useTempDir } from "../../../helpers/lifecycle.ts";
+import { activateFileTools, renderToolResult, theme, type Renderable } from "../../../harness/file-tools/extension-fixture.ts";
 
 const editCardTemp = useTempDir("o-pi-edit-card-");
 
@@ -176,7 +176,7 @@ describe("file-tools extension renderers", () => {
 		await vi.waitFor(() => expect(invalidContext.invalidate).toHaveBeenCalledOnce());
 		const failedPreview = edit?.renderCall?.(invalidArgs, theme, { ...invalidContext, lastComponent: invalidCall });
 		expect(failedPreview?.render(80).join("\n")).toContain("INVALID_OPERATION");
-		await expect((await import("../../../../src/harness/file-tools/pi/adapters/edit.js")).previewEditWorkspace(cwd, {
+		await expect((await import("../../../../src/harness/file-tools/pi/adapters/edit.ts")).previewEditWorkspace(cwd, {
 			path: "app.ts",
 			edits: [{ old: "", new: "new" }],
 		})).resolves.toMatchObject({ status: "failed", error: { code: "INVALID_OPERATION" } });

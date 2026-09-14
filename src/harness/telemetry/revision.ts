@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { GitRevision } from "./types.js";
+import type { GitRevision } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 2_000;

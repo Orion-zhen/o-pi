@@ -1,7 +1,7 @@
 import { truncateToVisualLines, type Theme } from "@earendil-works/pi-coding-agent";
 import { Text, type Component } from "@earendil-works/pi-tui";
 
-import type { BashParams } from "../../../harness/bash-tool/types.js";
+import type { BashParams } from "../../../harness/bash-tool/types.ts";
 
 const COLLAPSED_COMMAND_LINES = 5;
 

@@ -1,5 +1,5 @@
-import { fail, type ToolOutcome } from "../shared/result.js";
-import type { GrepParams, GrepQueryMode } from "./types.js";
+import { fail, type ToolOutcome } from "../shared/result.ts";
+import type { GrepParams, GrepQueryMode } from "./types.ts";
 
 export interface QueryPlan {
 	readonly query: string;

@@ -2,12 +2,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import fileTools from "../../../src/harness/extensions/file-tools.js";
-import { lspManager as lspFileHooks } from "../../../src/harness/lsp/index.js";
-import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../../src/harness/lsp/types.js";
-import { registerExtension } from "../../helpers/extension.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { executeTool, type ExecuteResult } from "../file-tools/extension-fixture.js";
+import fileTools from "../../../src/harness/extensions/file-tools.ts";
+import { lspManager as lspFileHooks } from "../../../src/harness/lsp/index.ts";
+import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../../src/harness/lsp/types.ts";
+import { registerExtension } from "../../helpers/extension.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { executeTool, type ExecuteResult } from "../file-tools/extension-fixture.ts";
 
 const cleanDiagnostics: DiagnosticsSummary = {
 	status: "clean",

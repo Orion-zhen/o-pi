@@ -18,7 +18,7 @@ import "@mathjax/src/js/input/tex/physics/PhysicsConfiguration.js";
 import "@mathjax/src/js/input/tex/upgreek/UpgreekConfiguration.js";
 import { SVG } from "@mathjax/src/js/output/svg.js";
 import { Resvg } from "@resvg/resvg-js";
-import type { TuiMathConfig } from "../../shell/types.js";
+import type { TuiMathConfig } from "../../shell/types.ts";
 
 const SVG_VIEWBOX_PATTERN = /viewBox="([^"]+)"/;
 const SVG_WIDTH_EX_PATTERN = /width="([0-9.]+)ex"/;

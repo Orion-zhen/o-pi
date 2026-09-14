@@ -6,15 +6,15 @@ import type {
 	WebFetchParams,
 	WebFetchResult,
 	WebFetchSuccessDetails,
-} from "../core/types.js";
-import type { ContentConversion, WebFetchPage } from "../content/types.js";
-import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
-import { validateRequestUrl } from "../network/network-policy.js";
-import type { ValidatedUrl } from "../network/types.js";
-import { escapeXml, redactUrl } from "../network/url-utils.js";
-import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.js";
-import { selectText } from "./text-selection.js";
-import type { SnapshotCache } from "./snapshot-cache.js";
+} from "../core/types.ts";
+import type { ContentConversion, WebFetchPage } from "../content/types.ts";
+import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.ts";
+import { validateRequestUrl } from "../network/network-policy.ts";
+import type { ValidatedUrl } from "../network/types.ts";
+import { escapeXml, redactUrl } from "../network/url-utils.ts";
+import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.ts";
+import { selectText } from "./text-selection.ts";
+import type { SnapshotCache } from "./snapshot-cache.ts";
 
 const PREVIEW_MAX_LINES = 40;
 const PREVIEW_MAX_CHARS = 6000;
@@ -116,7 +116,7 @@ async function readPage(
 	options: HttpClientOptions,
 ): Promise<WebFetchPage | WebFetchFailureDetails> {
 	const mediaEnabled = options.config.webfetch.media.mode === "auto";
-	const converterPromise = import("../content/content-converter.js");
+	const converterPromise = import("../content/content-converter.ts");
 	const fetched = await fetchHttpUrl(requested, options, {
 		imageMaxBytes: options.config.webfetch.media.response_bytes,
 		preferHtmlForFragment: mode === "readable",

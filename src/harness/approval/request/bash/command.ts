@@ -1,5 +1,5 @@
-import type { SyntaxNode } from "../../../syntax-tree/types.js";
-import type { ApprovalUnit } from "../../types.js";
+import type { SyntaxNode } from "../../../syntax-tree/types.ts";
+import type { ApprovalUnit } from "../../types.ts";
 import {
 	TEMPORARY_DIRECTORY_PATH,
 	TEMPORARY_FILE_PATH,
@@ -13,8 +13,8 @@ import {
 	singleValue,
 	type BashAnalysisContext,
 	type ResolvedShellValue,
-} from "./state.js";
-import { commandWords, normalizeCommandNode, normalizeSource, walkNamedNodes } from "./syntax.js";
+} from "./state.ts";
+import { commandWords, normalizeCommandNode, normalizeSource, walkNamedNodes } from "./syntax.ts";
 
 const SHELL_PROGRAMS = new Set(["bash", "dash", "ksh", "sh", "zsh"]);
 const NO_OPTIONS_WITH_VALUE = new Set<string>();

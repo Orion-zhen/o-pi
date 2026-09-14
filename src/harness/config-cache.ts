@@ -1,4 +1,4 @@
-import { configLayerFingerprint, resolveConfigLayerPaths, type ConfigDefinition } from "./config-loader.js";
+import { configLayerFingerprint, resolveConfigLayerPaths, type ConfigDefinition } from "./config-loader.ts";
 
 export interface ConfigSnapshot<T> {
 	fingerprint: string;

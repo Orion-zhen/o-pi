@@ -1,10 +1,10 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 
-import { formatToolCard } from "../../components/tool-card.js";
-import { formatBytes, formatDuration, joinParts } from "../../components/text.js";
-import type { WebSearchDetails, WebSearchFailureDetails, WebSearchProgressDetails, WebSearchProviderAttempt, WebSearchProviderId, WebSearchSuccessDetails } from "../../../harness/web-tools/core/types.js";
-import { stripTerminalControls } from "../../../harness/web-tools/network/url-utils.js";
+import { formatToolCard } from "../../components/tool-card.ts";
+import { formatBytes, formatDuration, joinParts } from "../../components/text.ts";
+import type { WebSearchDetails, WebSearchFailureDetails, WebSearchProgressDetails, WebSearchProviderAttempt, WebSearchProviderId, WebSearchSuccessDetails } from "../../../harness/web-tools/core/types.ts";
+import { stripTerminalControls } from "../../../harness/web-tools/network/url-utils.ts";
 
 interface WebSearchRenderState {
 	callComponent?: Text;

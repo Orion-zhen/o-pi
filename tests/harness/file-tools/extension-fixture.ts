@@ -1,6 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import type { ExtensionHandler } from "../../helpers/extension.js";
+import type { ExtensionHandler } from "../../helpers/extension.ts";
 
 export interface ThemeStub {
 	fg(name: string, text: string): string;

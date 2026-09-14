@@ -1,8 +1,8 @@
-import { TREE_SITTER_LANGUAGES } from "../../../syntax-tree/grammars.js";
-import { parseSyntaxTree, SyntaxAnalysisTimeoutError } from "../../../syntax-tree/parser.js";
-import type { SyntaxNode } from "../../../syntax-tree/types.js";
-import type { ApprovalUnit } from "../../types.js";
-import { isSystemTemporaryDescendant, normalizeTargetPath } from "../path.js";
+import { TREE_SITTER_LANGUAGES } from "../../../syntax-tree/grammars.ts";
+import { parseSyntaxTree, SyntaxAnalysisTimeoutError } from "../../../syntax-tree/parser.ts";
+import type { SyntaxNode } from "../../../syntax-tree/types.ts";
+import type { ApprovalUnit } from "../../types.ts";
+import { isSystemTemporaryDescendant, normalizeTargetPath } from "../path.ts";
 import {
 	commandFacts,
 	commandUnit,
@@ -10,7 +10,7 @@ import {
 	resolveShellWord,
 	temporaryPathAssignment,
 	type CommandFacts,
-} from "./command.js";
+} from "./command.ts";
 import {
 	UNKNOWN_DIRECTORY_PATH,
 	allDefined,
@@ -21,8 +21,8 @@ import {
 	setPositionalVariables,
 	type BashAnalysisContext,
 	type ResolvedShellValue,
-} from "./state.js";
-import { walkNamedNodes, walkNamedNodesSkippingFunctions } from "./syntax.js";
+} from "./state.ts";
+import { walkNamedNodes, walkNamedNodesSkippingFunctions } from "./syntax.ts";
 
 const MAX_BASH_UNITS = 256;
 const MAX_NESTED_SHELL_DEPTH = 8;

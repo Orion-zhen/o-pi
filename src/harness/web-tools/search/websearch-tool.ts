@@ -1,10 +1,10 @@
-import type { SearchProviderRouter } from "../search-providers/router.js";
-import { normalizeSearchParams } from "../search-providers/query.js";
-import type { SearchFlights } from "./search-flights.js";
-import { searchFlightKey } from "./search-flights.js";
-import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails } from "../core/types.js";
-import type { WebToolsConfig } from "../config-types.js";
-import { escapeXml } from "../network/url-utils.js";
+import type { SearchProviderRouter } from "../search-providers/router.ts";
+import { normalizeSearchParams } from "../search-providers/query.ts";
+import type { SearchFlights } from "./search-flights.ts";
+import { searchFlightKey } from "./search-flights.ts";
+import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails } from "../core/types.ts";
+import type { WebToolsConfig } from "../config-types.ts";
+import { escapeXml } from "../network/url-utils.ts";
 
 /** 搜索执行层依赖；provider 由 router 隔离，便于测试 fallback 和 singleflight。 */
 export interface ExecuteWebSearchRuntime {

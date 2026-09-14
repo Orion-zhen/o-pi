@@ -2,8 +2,8 @@ import { chmod, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
+import { NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-native-fs-");
 let root: string;

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { FilesystemPathAccess } from "./contracts/access.js";
+import type { FilesystemPathAccess } from "./contracts/access.ts";
 import type {
 	MutationOperations,
 	MutationOptions,
@@ -8,21 +8,21 @@ import type {
 	MutationRunResult,
 	MutationSnapshot,
 	MutationTransform,
-} from "./contracts/mutation.js";
-import type { ExistingRef, TargetRef } from "./contracts/path.js";
-import type { FilesystemPolicy } from "./contracts/policy.js";
-import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "./contracts/result.js";
-import type { WorkspaceFileSystem, WorkspaceIdentity } from "./contracts/workspace.js";
-import { mapNativeError } from "./kernel/native-error.js";
+} from "./contracts/mutation.ts";
+import type { ExistingRef, TargetRef } from "./contracts/path.ts";
+import type { FilesystemPolicy } from "./contracts/policy.ts";
+import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "./contracts/result.ts";
+import type { WorkspaceFileSystem, WorkspaceIdentity } from "./contracts/workspace.ts";
+import { mapNativeError } from "./kernel/native-error.ts";
 import {
 	createWorkspaceNamespace,
 	type NativePathIdentity,
-} from "./kernel/namespace.js";
-import { NodeNativeFileSystem, type NativeFileSystem } from "./platform/node/native-filesystem.js";
-import { WorkspaceContentService } from "./services/content.js";
-import { WorkspaceDiscoveryService } from "./services/discovery.js";
-import { WorkspaceMetadataService } from "./services/metadata.js";
-import { WorkspaceVisibilityService } from "./services/visibility/service.js";
+} from "./kernel/namespace.ts";
+import { NodeNativeFileSystem, type NativeFileSystem } from "./platform/node/native-filesystem.ts";
+import { WorkspaceContentService } from "./services/content.ts";
+import { WorkspaceDiscoveryService } from "./services/discovery.ts";
+import { WorkspaceMetadataService } from "./services/metadata.ts";
+import { WorkspaceVisibilityService } from "./services/visibility/service.ts";
 
 export interface WorkspaceNativeBridge {
 	readonly root: NativePathIdentity;
@@ -142,8 +142,8 @@ export class FileSystemRuntime {
 
 	private loadMutationModule(): Promise<MutationModule> {
 		this.mutationModule ??= Promise.all([
-			import("./services/mutation.js"),
-			import("./platform/node/mutation-queue.js"),
+			import("./services/mutation.ts"),
+			import("./platform/node/mutation-queue.ts"),
 		]).then(([service, queue]) => ({ ...service, ...queue }));
 		return this.mutationModule;
 	}
@@ -176,7 +176,7 @@ function workspaceIdentity(canonicalRoot: string): WorkspaceIdentity {
 	return `workspace:${createHash("sha256").update(canonicalRoot).digest("hex")}` as WorkspaceIdentity;
 }
 
-type MutationModule = typeof import("./services/mutation.js") & typeof import("./platform/node/mutation-queue.js");
+type MutationModule = typeof import("./services/mutation.ts") & typeof import("./platform/node/mutation-queue.ts");
 
 function lazyMutationOperations(
 	context: FsOperationContext,

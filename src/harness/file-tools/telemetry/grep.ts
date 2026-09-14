@@ -1,8 +1,8 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.js";
-import type { Candidate, Fields } from "../../telemetry/types.js";
-import type { GrepParams, GrepRegionRanking, GrepSuccess } from "../grep/types.js";
-import { isFailed, type ToolOutcome } from "../shared/result.js";
-import { failureFields, failureScopeFields, projectFileInput } from "./common.js";
+import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
+import type { Candidate, Fields } from "../../telemetry/types.ts";
+import type { GrepParams, GrepRegionRanking, GrepSuccess } from "../grep/types.ts";
+import { isFailed, type ToolOutcome } from "../shared/result.ts";
+import { failureFields, failureScopeFields, projectFileInput } from "./common.ts";
 
 export const grepTelemetry = defineToolTelemetry<GrepParams, ToolOutcome<GrepSuccess>>({
 	input: projectFileInput<GrepParams>(["query", "mode", "path", "glob"], "path", { pathList: true }),

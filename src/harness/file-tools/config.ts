@@ -7,12 +7,12 @@ import {
 	loadConfigLayers,
 	resolveConfigLayerPaths,
 	validateConfigValue,
-} from "../config-loader.js";
-import { ConfigCache, type ConfigSnapshot } from "../config-cache.js";
-import type { FilesystemPolicy } from "../filesystem/contracts/policy.js";
-import type { BuiltinIgnoreProfile } from "../filesystem/contracts/visibility.js";
-import { createVisibilityPolicy } from "../filesystem/services/visibility/policy.js";
-import type { FileToolLimits } from "../file-tool-limits.js";
+} from "../config-loader.ts";
+import { ConfigCache, type ConfigSnapshot } from "../config-cache.ts";
+import type { FilesystemPolicy } from "../filesystem/contracts/policy.ts";
+import type { BuiltinIgnoreProfile } from "../filesystem/contracts/visibility.ts";
+import { createVisibilityPolicy } from "../filesystem/services/visibility/policy.ts";
+import type { FileToolLimits } from "../file-tool-limits.ts";
 
 const SCHEMA_PATH = agentSchemaPath("file-tools.schema.json");
 

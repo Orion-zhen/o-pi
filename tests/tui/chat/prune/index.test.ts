@@ -9,8 +9,8 @@ import type {
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createPruneExtension } from "../../../../src/harness/extensions/prune.js";
-import { presentation } from "../../../../src/tui/extensions.js";
+import { createPruneExtension } from "../../../../src/harness/extensions/prune.ts";
+import { presentation } from "../../../../src/tui/extensions.ts";
 const pruneExtension = createPruneExtension(presentation.prune);
 import {
 	getPruneTuiState,
@@ -19,8 +19,8 @@ import {
 	reducePruneTuiState,
 	resetPruneTuiState,
 	syncPruneTuiState,
-} from "../../../../src/tui/chat/prune/index.js";
-import { pruneEntry, pruneState, restoreState } from "../../../harness/prune/fixtures.js";
+} from "../../../../src/tui/chat/prune/index.ts";
+import { pruneEntry, pruneState, restoreState } from "../../../harness/prune/fixtures.ts";
 
 type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => Promise<void> | void;
 type SessionTreeHandler = (event: SessionTreeEvent, ctx: ExtensionContext) => Promise<void> | void;

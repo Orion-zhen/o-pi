@@ -1,12 +1,12 @@
 import path from "node:path";
-import type { AnalyzeCode, PrepareCodeAnalysis } from "../../code-index/types.js";
-import type { LspDiagnosticsSummary } from "../../lsp/types.js";
-import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.js";
-import type { ReadStructureSource } from "../read/ports.js";
-import type { FileToolsInvocation } from "../runtime/host.js";
-import type { MutationDiagnosticsSource } from "../shared/mutation-diagnostics.js";
-import type { MutationBatchInvocation } from "./mutation-batch.js";
-import type { MutationPostProcessObserver } from "./progress.js";
+import type { AnalyzeCode, PrepareCodeAnalysis } from "../../code-index/types.ts";
+import type { LspDiagnosticsSummary } from "../../lsp/types.ts";
+import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.ts";
+import type { ReadStructureSource } from "../read/ports.ts";
+import type { FileToolsInvocation } from "../runtime/host.ts";
+import type { MutationDiagnosticsSource } from "../shared/mutation-diagnostics.ts";
+import type { MutationBatchInvocation } from "./mutation-batch.ts";
+import type { MutationPostProcessObserver } from "./progress.ts";
 
 /** 每次调用只绑定一次路径边界。增强失败由命令的可选增强边界处理。 */
 export function bindFileLsp(invocation: FileToolsInvocation, load: LoadLsp) {

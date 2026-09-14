@@ -1,10 +1,10 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { takeHeadBytes, takeTailBytes } from "../../../src/harness/bash-tool/utf8.js";
-import { cleanForModel, createBashOutputView } from "../../../src/harness/bash-tool/output-view.js";
-import { bashToolConfig } from "./fixture.js";
-import type { BashOutputFormat, BashRunStatus } from "../../../src/harness/bash-tool/types.js";
+import { takeHeadBytes, takeTailBytes } from "../../../src/harness/bash-tool/utf8.ts";
+import { cleanForModel, createBashOutputView } from "../../../src/harness/bash-tool/output-view.ts";
+import { bashToolConfig } from "./fixture.ts";
+import type { BashOutputFormat, BashRunStatus } from "../../../src/harness/bash-tool/types.ts";
 
 const config = bashToolConfig();
 const fullOutputPath = path.join("o-pi", "bash", "s", "t.log");

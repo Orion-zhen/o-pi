@@ -1,8 +1,8 @@
 import { Markdown, resetCapabilitiesCache, setCapabilities, setCellDimensions } from "@earendil-works/pi-tui";
 import { getKittyImageMetadata } from "@earendil-works/pi-tui/dist/terminal-image.js";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { installMathMarkdownRenderer, supportsDisplayMathImages, warmDisplayMathRenderer } from "../../../../src/tui/chat/math/markdown.js";
-import type { TuiMathConfig } from "../../../../src/tui/shell/types.js";
+import { installMathMarkdownRenderer, supportsDisplayMathImages, warmDisplayMathRenderer } from "../../../../src/tui/chat/math/markdown.ts";
+import type { TuiMathConfig } from "../../../../src/tui/shell/types.ts";
 
 const mathConfig: TuiMathConfig = {
 	enabled: true,
@@ -38,11 +38,11 @@ describe("math markdown 后端初始化", () => {
 	it("后端加载失败时继续使用 Pi 原生 LaTeX", async () => {
 		vi.resetModules();
 		const error = new Error("renderer unavailable");
-		vi.doMock("../../../../src/tui/chat/math/renderer.js", () => { throw error; });
+		vi.doMock("../../../../src/tui/chat/math/renderer.ts", () => { throw error; });
 		const tui = await import("@earendil-works/pi-tui");
 		const originalRender = tui.Markdown.prototype.render;
 		try {
-			const math = await import("../../../../src/tui/chat/math/markdown.js");
+			const math = await import("../../../../src/tui/chat/math/markdown.ts");
 			tui.setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
 			tui.setCellDimensions({ widthPx: 9, heightPx: 18 });
 			math.installMathMarkdownRenderer(mathConfig);
@@ -54,7 +54,7 @@ describe("math markdown 后端初始化", () => {
 		} finally {
 			tui.Markdown.prototype.render = originalRender;
 			tui.resetCapabilitiesCache();
-			vi.doUnmock("../../../../src/tui/chat/math/renderer.js");
+			vi.doUnmock("../../../../src/tui/chat/math/renderer.ts");
 			vi.resetModules();
 		}
 	});

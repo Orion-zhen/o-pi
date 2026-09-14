@@ -1,4 +1,4 @@
-import type { LsEntry, LsSuccess } from "./types.js";
+import type { LsEntry, LsSuccess } from "./types.ts";
 
 /** Formats the model-visible compact shell-style result; full structure remains in details. */
 export function formatCompactLsResult(result: LsSuccess): string {

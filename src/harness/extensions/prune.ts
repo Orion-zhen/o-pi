@@ -6,9 +6,9 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { formatPruneOutcome } from "../prune/presentation/outcome.js";
-import { applyPersistedToolPruning } from "../prune/prune.js";
-import { PruneService, type PruneOperation, type PruneServicePort } from "../prune/service.js";
+import { formatPruneOutcome } from "../prune/presentation/outcome.ts";
+import { applyPersistedToolPruning } from "../prune/prune.ts";
+import { PruneService, type PruneOperation, type PruneServicePort } from "../prune/service.ts";
 
 const COMMAND_NAME = "prune";
 const COMMAND_DESCRIPTION = "Remove stale tool transactions from context.";

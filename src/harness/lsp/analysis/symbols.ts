@@ -7,8 +7,8 @@ import {
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import type { LspDocumentSymbols, LspEnclosingSymbol, LspRemainingSymbol } from "../types.js";
-import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
+import type { LspDocumentSymbols, LspEnclosingSymbol, LspRemainingSymbol } from "../types.ts";
+import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.ts";
 
 export interface WorkspaceSymbolSeed {
 	path: string;

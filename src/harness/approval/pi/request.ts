@@ -1,11 +1,11 @@
 import path from "node:path";
 import { isToolCallEventType, type ToolCallEvent } from "@earendil-works/pi-coding-agent";
-import { resolveNativeInputPath } from "../../filesystem/kernel/access-policy.js";
-import { loadWebToolsConfig } from "../../web-tools/config.js";
-import { inspectWebFetchTarget } from "../../web-tools/network/network-policy.js";
-import { buildBashApprovalRequest } from "../request/bash/parse.js";
-import { isSystemTemporaryDescendant } from "../request/path.js";
-import type { ApprovalEditReplacement, ApprovalRequest, ApprovalUnit } from "../types.js";
+import { resolveNativeInputPath } from "../../filesystem/kernel/access-policy.ts";
+import { loadWebToolsConfig } from "../../web-tools/config.ts";
+import { inspectWebFetchTarget } from "../../web-tools/network/network-policy.ts";
+import { buildBashApprovalRequest } from "../request/bash/parse.ts";
+import { isSystemTemporaryDescendant } from "../request/path.ts";
+import type { ApprovalEditReplacement, ApprovalRequest, ApprovalUnit } from "../types.ts";
 
 type WriteApprovalInput = Record<string, unknown> & { path: string; content: string };
 type EditApprovalInput = Record<string, unknown> & { path: string; edits: ApprovalEditReplacement[] };

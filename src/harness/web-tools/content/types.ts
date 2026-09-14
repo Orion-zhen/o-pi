@@ -1,5 +1,5 @@
-import type { WebFetchMedia, WebFetchOmission, WebFetchOutputFormat, WebFetchPageKind, WebFetchTextSource } from "../core/types.js";
-import type { HttpFetchSuccess } from "../network/types.js";
+import type { WebFetchMedia, WebFetchOmission, WebFetchOutputFormat, WebFetchPageKind, WebFetchTextSource } from "../core/types.ts";
+import type { HttpFetchSuccess } from "../network/types.ts";
 
 export interface ContentConversion {
 	text: string;

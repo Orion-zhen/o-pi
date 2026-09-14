@@ -1,6 +1,6 @@
 import type { TSchema } from "typebox";
 
-import type { RepairPath, RepairSpec, RepairSpecHints } from "./types.js";
+import type { RepairPath, RepairSpec, RepairSpecHints } from "./types.ts";
 
 interface SchemaNode {
 	type?: string;

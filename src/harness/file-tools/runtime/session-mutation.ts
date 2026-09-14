@@ -1,7 +1,7 @@
-import type { ContentVersion } from "../../filesystem/contracts/content.js";
-import type { FileRef } from "../../filesystem/contracts/path.js";
-import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import type { FileObservations, ObservationEntry } from "./observation-store.js";
+import type { ContentVersion } from "../../filesystem/contracts/content.ts";
+import type { FileRef } from "../../filesystem/contracts/path.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import type { FileObservations, ObservationEntry } from "./observation-store.ts";
 
 export interface SessionMutationScope {
 	finish(): Promise<void>;

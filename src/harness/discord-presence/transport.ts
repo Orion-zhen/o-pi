@@ -1,5 +1,5 @@
 import type { Client } from "@xhayper/discord-rpc";
-import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.js";
+import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.ts";
 
 const RPC_TIMEOUT_MS = 2_000;
 

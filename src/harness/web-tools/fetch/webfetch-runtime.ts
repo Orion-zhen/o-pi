@@ -1,9 +1,9 @@
-import { runtimeConfigFailure } from "../core/runtime-errors.js";
-import type { WebFetchCapability, WebCapabilityOptions } from "../core/runtime-types.js";
-import { SnapshotCache } from "./snapshot-cache.js";
-import type { CookieStore } from "../core/types.js";
-import type { WebToolsConfig } from "../config-types.js";
-import { executeWebFetch } from "./webfetch-tool.js";
+import { runtimeConfigFailure } from "../core/runtime-errors.ts";
+import type { WebFetchCapability, WebCapabilityOptions } from "../core/runtime-types.ts";
+import { SnapshotCache } from "./snapshot-cache.ts";
+import type { CookieStore } from "../core/types.ts";
+import type { WebToolsConfig } from "../config-types.ts";
+import { executeWebFetch } from "./webfetch-tool.ts";
 
 /** Fetch-only session state. Search-only sessions never import CookieJar or the fetch execution graph. */
 export function createWebFetchRuntime(options: WebCapabilityOptions): WebFetchCapability {
@@ -71,8 +71,8 @@ function createLazyCookieStore(): LazyCookieStore {
 }
 
 async function createCookieStore(): Promise<CookieStore> {
-	const storeModule = import("./cookie-store.js");
-	const resolvedPath = (await import("../config.js")).defaultCookiePath();
+	const storeModule = import("./cookie-store.ts");
+	const resolvedPath = (await import("../config.ts")).defaultCookiePath();
 	const { NetscapeCookieStore } = await storeModule;
 	return new NetscapeCookieStore(resolvedPath);
 }

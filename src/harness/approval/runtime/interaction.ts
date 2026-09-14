@@ -1,7 +1,7 @@
-import { notifyWaiting } from "../../notification/native.js";
-import { createExactAllowRules, createSimilarAllowRules, describeAllowRules } from "../rules/allow.js";
-import type { ApprovalStore } from "../rules/store.js";
-import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.js";
+import { notifyWaiting } from "../../notification/native.ts";
+import { createExactAllowRules, createSimilarAllowRules, describeAllowRules } from "../rules/allow.ts";
+import type { ApprovalStore } from "../rules/store.ts";
+import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
 
 export const ALLOW_ONCE = "Allow once";
 export const ALLOW_SESSION = "Allow for session";

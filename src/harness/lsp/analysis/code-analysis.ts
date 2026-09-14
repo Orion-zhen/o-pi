@@ -8,21 +8,21 @@ import type {
 	CodeAuthority,
 	CodeDocument,
 	IndexedCodeUnit,
-} from "../../code-index/types.js";
-import { compareCodeUnitNesting } from "../../code-index/units.js";
-import { LspClient } from "../client/client.js";
-import { analyzeLspDocument, type AnalyzedLspDocument, type AnalyzedLspUnit } from "./document.js";
-import { supportsCodeAnalysis } from "../protocol/features.js";
-import { createOperationDeadline, waitUnlessAborted, type OperationDeadline } from "./deadline.js";
+} from "../../code-index/types.ts";
+import { compareCodeUnitNesting } from "../../code-index/units.ts";
+import { LspClient } from "../client/client.ts";
+import { analyzeLspDocument, type AnalyzedLspDocument, type AnalyzedLspUnit } from "./document.ts";
+import { supportsCodeAnalysis } from "../protocol/features.ts";
+import { createOperationDeadline, waitUnlessAborted, type OperationDeadline } from "./deadline.ts";
 import {
 	resolveWorkspaceSymbolSeeds,
 	type ResolvedWorkspaceSymbol,
-} from "./workspace-symbols.js";
-import type { LspWorkspace } from "../manager/workspace.js";
-import type { LspFileRoute } from "../types.js";
-import { pathToFileUri } from "../protocol/uri.js";
-import { relationNavigation } from "./navigation.js";
-import { normalizeSymbolText, type WorkspaceSymbolSeed } from "./symbols.js";
+} from "./workspace-symbols.ts";
+import type { LspWorkspace } from "../manager/workspace.ts";
+import type { LspFileRoute } from "../types.ts";
+import { pathToFileUri } from "../protocol/uri.ts";
+import { relationNavigation } from "./navigation.ts";
+import { normalizeSymbolText, type WorkspaceSymbolSeed } from "./symbols.ts";
 
 const CODE_ANALYSIS_CONCURRENCY = 2;
 const CODE_ANALYSIS_SYMBOL_LIMIT = 3;

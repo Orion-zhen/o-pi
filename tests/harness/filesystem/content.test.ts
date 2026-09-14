@@ -2,12 +2,12 @@ import { mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { toFileSnapshot } from "../../../src/harness/filesystem/contracts/metadata.js";
-import { createWorkspaceNamespace } from "../../../src/harness/filesystem/kernel/namespace.js";
-import { NativeFileSystemError, NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.js";
-import { useTempDir } from "../../helpers/lifecycle.js";
-import { buildTextBytes, collectAsync, expectFsOk, openReadonly, resolveFile } from "./fixtures.js";
-import { wrapNative } from "./readonly-fixtures.js";
+import { toFileSnapshot } from "../../../src/harness/filesystem/contracts/metadata.ts";
+import { createWorkspaceNamespace } from "../../../src/harness/filesystem/kernel/namespace.ts";
+import { NativeFileSystemError, NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { buildTextBytes, collectAsync, expectFsOk, openReadonly, resolveFile } from "./fixtures.ts";
+import { wrapNative } from "./readonly-fixtures.ts";
 
 const temp = useTempDir("o-pi-readonly-fs-");
 let workspace: string;

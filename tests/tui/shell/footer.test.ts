@@ -1,10 +1,10 @@
 import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { formatFooter } from "../../../src/tui/shell/footer.js";
-import type { TuiFooterConfig, TuiSnapshot } from "../../../src/tui/shell/types.js";
+import { formatFooter } from "../../../src/tui/shell/footer.ts";
+import type { TuiFooterConfig, TuiSnapshot } from "../../../src/tui/shell/types.ts";
 
-import { tuiSnapshot } from "./fixtures.js";
+import { tuiSnapshot } from "./fixtures.ts";
 
 const cwd = path.resolve("repo", "o-pi");
 const config: TuiFooterConfig = {

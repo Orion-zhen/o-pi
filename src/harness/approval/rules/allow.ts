@@ -1,7 +1,7 @@
 import path from "node:path";
 import picomatch from "picomatch";
 
-import type { ApprovalAllowRule, ApprovalRequest, ApprovalUnit } from "../types.js";
+import type { ApprovalAllowRule, ApprovalRequest, ApprovalUnit } from "../types.ts";
 
 export interface ApprovalRuleMatcher {
 	matchesAllowRule(request: ApprovalRequest, unit: ApprovalUnit): boolean;

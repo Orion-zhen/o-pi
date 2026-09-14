@@ -1,6 +1,6 @@
-import type { TelemetryServiceSnapshot } from "../telemetry/service.js";
-import { aggregateTelemetry } from "./aggregate.js";
-import type { TelemetryReport } from "./types.js";
+import type { TelemetryServiceSnapshot } from "../telemetry/service.ts";
+import { aggregateTelemetry } from "./aggregate.ts";
+import type { TelemetryReport } from "./types.ts";
 
 export interface LiveTelemetryReport {
 	report: TelemetryReport;

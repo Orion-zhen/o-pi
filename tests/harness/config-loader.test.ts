@@ -12,8 +12,8 @@ import {
 	readOptionalJsoncConfig,
 	resolveConfigLayerPaths,
 	type ConfigDefinition,
-} from "../../src/harness/config-loader.js";
-import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
+} from "../../src/harness/config-loader.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-config-loader-");
 preserveEnv(

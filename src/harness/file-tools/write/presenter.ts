@@ -1,5 +1,5 @@
-import { escapeXmlAttribute, formatMutationResult, visibleDiagnostics } from "../shared/mutation-presenter.js";
-import type { WriteSuccess } from "./types.js";
+import { escapeXmlAttribute, formatMutationResult, visibleDiagnostics } from "../shared/mutation-presenter.ts";
+import type { WriteSuccess } from "./types.ts";
 
 export function formatWriteModelResult(result: WriteSuccess): string {
 	const diagnostics = visibleDiagnostics(result.lsp?.diagnostics);

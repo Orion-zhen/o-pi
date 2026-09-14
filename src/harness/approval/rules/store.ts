@@ -2,9 +2,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
-import { isNotFound } from "../../config-loader.js";
-import type { ApprovalAllowRule, ApprovalRequest, ApprovalUnit } from "../types.js";
-import { allowRuleMatches, dedupeRules, type ApprovalRuleMatcher } from "./allow.js";
+import { isNotFound } from "../../config-loader.ts";
+import type { ApprovalAllowRule, ApprovalRequest, ApprovalUnit } from "../types.ts";
+import { allowRuleMatches, dedupeRules, type ApprovalRuleMatcher } from "./allow.ts";
 
 export interface ApprovalStore extends ApprovalRuleMatcher {
 	addSessionAllowRules(rules: readonly ApprovalAllowRule[]): void;

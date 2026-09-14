@@ -1,7 +1,7 @@
 import path from "node:path";
-import { decodeShellWord } from "../../../syntax-tree/bash.js";
+import { decodeShellWord } from "../../../syntax-tree/bash.ts";
 
-import { isSystemTemporaryDescendant, normalizeTargetPath } from "../path.js";
+import { isSystemTemporaryDescendant, normalizeTargetPath } from "../path.ts";
 
 // NUL 不可能出现在 shell 参数中，用作不可由输入伪造的内部路径根。
 export const TEMPORARY_DIRECTORY_PATH = "\0temporary-directory";

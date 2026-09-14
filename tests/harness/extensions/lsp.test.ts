@@ -2,10 +2,10 @@ import path from "node:path";
 import type { ExtensionAPI, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import lspExtension from "../../../src/harness/extensions/lsp.js";
-import { registerLspCommands } from "../../../src/harness/lsp/adapters/commands.js";
-import { lspManager } from "../../../src/harness/lsp/index.js";
-import { LspManager } from "../../../src/harness/lsp/manager/manager.js";
+import lspExtension from "../../../src/harness/extensions/lsp.ts";
+import { registerLspCommands } from "../../../src/harness/lsp/adapters/commands.ts";
+import { lspManager } from "../../../src/harness/lsp/index.ts";
+import { LspManager } from "../../../src/harness/lsp/manager/manager.ts";
 
 const repositoryRoot = path.resolve("repo");
 const configPath = path.join(repositoryRoot, "config", "lsp.jsonc");

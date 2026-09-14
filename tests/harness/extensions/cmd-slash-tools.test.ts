@@ -10,8 +10,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import toolsExtension, { createToolsExtension } from "../../../src/harness/extensions/cmd-slash-tools.js";
-import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
+import toolsExtension, { createToolsExtension } from "../../../src/harness/extensions/cmd-slash-tools.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => Promise<void> | void;
 type SessionTreeHandler = (event: SessionTreeEvent, ctx: ExtensionContext) => Promise<void> | void;
@@ -41,7 +41,7 @@ describe("/tools extension defaults", () => {
 	it("/tools 通过选择器回调切换会话工具并写入用户默认值", async () => {
 		const userPath = path.join(workspace, "user-tools.jsonc");
 		process.env.PI_TOOLS_CONFIG = userPath;
-		const tuiModule = await import("../../../src/tui/views/tool-defaults/tool-selector.js");
+		const tuiModule = await import("../../../src/tui/views/tool-defaults/tool-selector.ts");
 		const extension = createToolsExtension(async () => ({
 			...tuiModule,
 			async openToolSelector(_ui, options) {

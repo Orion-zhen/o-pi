@@ -1,4 +1,4 @@
-import type { TreeSitterLanguage } from "../syntax-tree/grammars.js";
+import type { TreeSitterLanguage } from "../syntax-tree/grammars.ts";
 
 export type CodeLanguage = TreeSitterLanguage | "text";
 type ImportKind = "relative" | "external";

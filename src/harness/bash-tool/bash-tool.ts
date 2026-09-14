@@ -1,10 +1,10 @@
-import { createExecutionEnvironment } from "./environment.js";
-import { OutputCapture } from "./output-capture.js";
-import { cleanForModel, createBashOutputView } from "./output-view.js";
-import { resolveBashSkillPaths } from "./skill-paths.js";
-import { takeTailBytes } from "./utf8.js";
-import type { SkillResourceError } from "../skill-context/resources.js";
-import type { BashExecutionResult, BashParams, ExecuteBashRuntime } from "./types.js";
+import { createExecutionEnvironment } from "./environment.ts";
+import { OutputCapture } from "./output-capture.ts";
+import { cleanForModel, createBashOutputView } from "./output-view.ts";
+import { resolveBashSkillPaths } from "./skill-paths.ts";
+import { takeTailBytes } from "./utf8.ts";
+import type { SkillResourceError } from "../skill-context/resources.ts";
+import type { BashExecutionResult, BashParams, ExecuteBashRuntime } from "./types.ts";
 
 const UPDATE_THROTTLE_MS = 100;
 

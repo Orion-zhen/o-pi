@@ -2,8 +2,8 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { NativeFileSystemError, type NativeFileSystem } from "../../platform/node/native-filesystem.js";
-import { SharedBuild } from "./shared-build.js";
+import { NativeFileSystemError, type NativeFileSystem } from "../../platform/node/native-filesystem.ts";
+import { SharedBuild } from "./shared-build.ts";
 
 const execFileAsync = promisify(execFile);
 

@@ -1,5 +1,5 @@
-import type { PruneOperationOutcome, PruneResultSummary } from "../service.js";
-import type { PruneCostPreview } from "../prune.js";
+import type { PruneOperationOutcome, PruneResultSummary } from "../service.ts";
+import type { PruneCostPreview } from "../prune.ts";
 
 export interface PruneNotice {
 	message: string;

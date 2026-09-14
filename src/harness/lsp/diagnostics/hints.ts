@@ -1,6 +1,6 @@
 import { CodeAction, CodeActionRequest, type Diagnostic, type TextEdit } from "vscode-languageserver-protocol";
-import type { LspFeatureSession } from "../protocol/features.js";
-import type { LspErrorDiagnostic, LspRequestOptions } from "../types.js";
+import type { LspFeatureSession } from "../protocol/features.ts";
+import type { LspErrorDiagnostic, LspRequestOptions } from "../types.ts";
 
 /** 只展示唯一、已解析、单文件 quickfix 的标题，不执行编辑或命令。 */
 export async function diagnosticHints(
