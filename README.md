@@ -9,14 +9,14 @@ Orion's Pi Agent.
 ```bash
 git clone https://github.com/Orion-zhen/o-pi.git
 cd o-pi
-bun install --frozen-lockfile
+bun install --no-save
 bun run build
 ./dist/opi
 ```
 
 产物是包含 Bun 运行时和必需资源的单个可执行文件。Linux/macOS 使用 `dist/opi`，Windows 使用 `dist/opi.exe`。运行产物无需 Node.js、Bun 或仓库中的 `node_modules`，仍需平台基础库及 Bash、Git 等实际使用的外部工具。当前已在 Linux x64 验证，其他平台尚未实机验证。
 
-开发时可直接运行 `bun src/cli.ts`。`bun run build` 使用项目内固定的官方 Bun 编译器，避免系统发行版的 Bun 引入额外动态库依赖。
+开发时可直接运行 `bun src/cli.ts`。项目不固定 Bun 版本或提交锁文件。构建使用 PATH 中的 Bun，制作通用分发产物时使用官方 Bun，避免引入系统发行版特有的动态库依赖。
 
 `opi` 复用 Pi 的 CLI 和 TUI，静态集成本仓库的工具与界面增强。保留功能的参数和行为由 Pi 处理，`~/.pi/agent/` 下的个人配置、认证、本地资源及会话继续使用。不支持外部扩展或 Pi 包管理命令。`-ne/--no-extensions` 关闭本仓库的集成功能，`-e/--extension` 会报错。
 

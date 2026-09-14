@@ -5,14 +5,14 @@
 ## 构建与运行
 
 ```bash
-bun install --frozen-lockfile
+bun install --no-save
 bun run build
 ./dist/opi
 ```
 
-构建在当前系统与 CPU 架构上运行，Linux/macOS 产出 `dist/opi`，Windows 产出 `dist/opi.exe`。当前验证环境为 Linux x64。尚未提供安装脚本、自动更新或跨平台发行流水线。
+构建在当前系统与 CPU 架构上运行，Linux/macOS 产出 `dist/opi`，Windows 产出 `dist/opi.exe`。当前本地验证环境为 Linux x64。自动发行覆盖 Linux x64、macOS ARM64 和 Windows x64，不提供安装脚本或二进制自更新。
 
-`package.json` 是 Bun 的标准项目清单。`bun.lock` 锁定依赖，`trustedDependencies` 只授权所需的安装脚本。项目固定官方 Bun 编译器，`bun run build` 会优先使用本地编译器。不要用依赖发行版私有动态库的系统 Bun 直接执行构建脚本来制作分发产物。
+`package.json` 中的依赖跟随 `latest`，不提交锁文件或固定 Bun 版本。`trustedDependencies` 只授权所需的安装脚本。`bun run build` 使用 PATH 中的 Bun。自动发行使用构建时最新的官方 Bun，避免引入系统发行版特有的动态库依赖。
 
 开发入口为 `bun src/cli.ts`。Bun 直接运行 TypeScript，`tsc` 只做类型检查，不再生成 Node.js 发行目录。常用脚本只有 `build`、`typecheck`、`test` 和 `bench`。专项基准和遥测报告直接用 Bun 运行对应文件。
 
@@ -39,7 +39,7 @@ bun run build
 
 `install`、`remove`、`uninstall`、`update`、`list` 和 `config` 是 Pi 包管理入口，opi 不提供这些命令。上游帮助仍可能列出它们。既有 settings 中的 `packages` 不在支持范围，需由用户移除或改用不含该字段的配置目录，opi 不改写这些文件，也不适配上游的包解析与安装逻辑。
 
-上游更新提示表示有新的 Pi 版本，不会改写当前二进制。更新本仓库源码后执行 `bun install --frozen-lockfile && bun run build`。升级 SDK 时一起调整四个 Pi 依赖并更新 `bun.lock`，然后重新验证。
+上游更新提示表示有新的 Pi 版本，不会改写当前二进制。更新源码后，执行 `rm -f bun.lock && bun install --no-save --no-cache && bun run build`，重新解析最新依赖并构建。上游变更可能导致构建或测试失败，通过验证后再替换已安装的二进制。
 
 ## 验证
 

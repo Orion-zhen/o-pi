@@ -1,3 +1,4 @@
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import { createCanvas } from "@napi-rs/canvas";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
@@ -170,12 +171,12 @@ describe("standalone opi CLI", () => {
 		await writeFile(path.join(cwd, ".env"), "PI_PACKAGE_DIR=/missing-from-dotenv\n");
 		const result = await run(["--version"]);
 		expect(result.stderr).toBe("");
-		expect(result.stdout.trim()).toBe("0.85.1");
+		expect(result.stdout.trim()).toBe(VERSION);
 	});
 
 	it("并发首次启动原子发布同一个完整资源目录", async () => {
 		const results = await Promise.all(Array.from({ length: 4 }, () => run(["--version"])));
-		expect(results.every((result) => result.stdout.trim() === "0.85.1")).toBe(true);
+		expect(results.every((result) => result.stdout.trim() === VERSION)).toBe(true);
 		const directories = await readdir(path.join(temp.path, ".pi", "cache", "opi"));
 		expect(directories).toHaveLength(1);
 		expect(directories[0]).toMatch(/^[a-f0-9]{64}$/);
