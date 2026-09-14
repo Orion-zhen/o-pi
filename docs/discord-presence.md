@@ -1,6 +1,6 @@
 # Discord Rich Presence
 
-`agent/extensions/discord-presence.ts` 在交互式 TUI 会话中把 Pi 的当前活动发布到本机 Discord Desktop。`@xhayper/discord-rpc` 负责 Discord IPC，o-pi 负责配置、活动状态、模板、发送频率和生命周期。
+`src/extensions/discord-presence.ts` 在交互式 TUI 会话中把 Pi 的当前活动发布到本机 Discord Desktop。`@xhayper/discord-rpc` 负责 Discord IPC，o-pi 负责配置、活动状态、模板、发送频率和生命周期。
 
 该扩展只在 TUI 模式下发布活动，不支持打印、JSON 或 RPC 模式。Discord Desktop 必须正在运行，并允许分享当前活动。浏览器版 Discord 不提供本地 IPC。
 

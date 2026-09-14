@@ -95,6 +95,29 @@ afterEach(async () => {
 });
 
 describe("tui extension", () => {
+	it("编辑器工厂安装图片适配，离开 Home 时保留，会话重载与退出时恢复", async () => {
+		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
+		const terminal = new ProcessTerminal();
+		const originalWrite = terminal.write;
+		const ui = new TuiAltScreen(terminal);
+		const factory = calls.editor.at(-1);
+		if (factory === undefined) throw new Error("editor factory was not installed");
+		factory(ui, plainEditorTheme(), KeybindingsManager.create(dir));
+		const firstWrite = terminal.write;
+		expect(firstWrite).not.toBe(originalWrite);
+		await handlers.get("agent_start")?.({}, ctx);
+		expect(terminal.write).toBe(firstWrite);
+		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
+		expect(terminal.write).toBe(originalWrite);
+		const nextFactory = calls.editor.at(-1);
+		if (nextFactory === undefined) throw new Error("editor factory was not reinstalled");
+		nextFactory(ui, plainEditorTheme(), KeybindingsManager.create(dir));
+		expect(terminal.write).not.toBe(firstWrite);
+		expect(terminal.write).not.toBe(originalWrite);
+		await handlers.get("session_shutdown")?.({}, ctx);
+		expect(terminal.write).toBe(originalWrite);
+	});
+
 	it("聊天 footer 在渲染时读取当前工具启用状态", async () => {
 		const file = path.join(dir, "tui.jsonc");
 		await writeFile(file, '{ "home": { "enabled": false } }');
@@ -499,27 +522,25 @@ describe("tui extension", () => {
 		await runtime.dispose();
 	});
 
-	it("字体加载失败由 runtime 警告且不会标记为 warmed", async () => {
+	it("后端加载失败只警告一次，后续空闲和会话重载不再重试", async () => {
 		vi.useFakeTimers();
-		const error = new Error("font unavailable");
+		const error = new Error("renderer unavailable");
 		const math = createMathFixture(async () => { throw error; });
-		const { handlers, calls, ctx, runtime } = await startRuntime({
-			loadMathMarkdown: math.load,
-			notifyUser: async () => {},
-		});
+		vi.doMock("../../src/tui/math-markdown.js", math.load);
+		const { handlers, calls, ctx } = await startTui();
 		await vi.advanceTimersToNextTimerAsync();
 		expect(math.warm).toHaveBeenCalledOnce();
 		expect(calls.notifications.at(-1)).toMatchObject({
-			message: expect.stringContaining("font unavailable"),
+			message: expect.stringContaining("renderer unavailable"),
 			type: "warning",
 		});
 
 		await handlers.get("agent_settled")?.({}, ctx);
-		expect(vi.getTimerCount()).toBe(1);
-		await vi.advanceTimersToNextTimerAsync();
-		expect(math.warm).toHaveBeenCalledTimes(2);
-		expect(calls.notifications).toHaveLength(2);
-		await runtime.dispose();
+		expect(vi.getTimerCount()).toBe(0);
+		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
+		await vi.advanceTimersByTimeAsync(750);
+		expect(math.warm).toHaveBeenCalledOnce();
+		expect(calls.notifications).toHaveLength(1);
 	});
 
 	it("排队消息未处理时不加载数学后端", async () => {
@@ -558,7 +579,27 @@ describe("tui extension", () => {
 		await handlers.get("session_shutdown")?.({}, ctx);
 	});
 
-	it("字体预热期间开始 Agent，完成预热不能把 running 改回 ready", async () => {
+	it("旧会话的后端加载失败不通知新会话，也不重新加载", async () => {
+		vi.useFakeTimers();
+		const loaded = deferred<void>();
+		const math = createMathFixture(async () => {
+			await loaded.promise;
+			throw new Error("renderer unavailable");
+		});
+		vi.doMock("../../src/tui/math-markdown.js", math.load);
+		const { handlers, calls, ctx } = await startTui();
+		await vi.advanceTimersByTimeAsync(750);
+		expect(math.warm).toHaveBeenCalledOnce();
+		await handlers.get("session_start")?.({ type: "session_start", reason: "reload" }, ctx);
+		const statusCount = calls.status.length;
+		loaded.resolve();
+		await vi.advanceTimersByTimeAsync(750);
+		expect(math.warm).toHaveBeenCalledOnce();
+		expect(calls.notifications).toEqual([]);
+		expect(calls.status).toHaveLength(statusCount);
+	});
+
+	it("后端加载期间开始 Agent，完成加载不能把 running 改回 ready", async () => {
 		vi.useFakeTimers();
 		let idle = true;
 		const warmed = deferred<void>();
@@ -708,7 +749,7 @@ async function startTui(
 	options: Parameters<typeof createContext>[1] = {},
 	piOptions: Parameters<typeof createPi>[1] = {},
 ): Promise<{ handlers: Map<string, Handler>; calls: ReturnType<typeof createUiCalls>; ctx: ExtensionContextStub }> {
-	const { default: extension } = await import("../../agent/extensions/tui.js");
+	const { default: extension } = await import("../../src/extensions/tui.js");
 	const handlers = new Map<string, Handler>();
 	const calls = createUiCalls();
 	const ctx = createContext(calls, options);

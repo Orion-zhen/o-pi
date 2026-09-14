@@ -4,7 +4,7 @@ import path from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createOPetEventHandlers, createOPetExtension } from "../../agent/extensions/o-pet.js";
+import { createOPetEventHandlers, createOPetExtension } from "../../src/extensions/o-pet.js";
 import {
 	connectOPetSocket,
 	OPetClient,

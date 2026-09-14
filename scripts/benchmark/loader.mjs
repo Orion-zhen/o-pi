@@ -1,23 +1,14 @@
 import path from "node:path";
-import { createJiti } from "jiti/static";
+import { pathToFileURL } from "node:url";
 import { root } from "./runtime.mjs";
-
-const defaultLoader = createTypeScriptLoader();
 
 export function fromRoot(relativePath) {
 	return path.join(root, relativePath);
 }
 
-export function createTypeScriptLoader(options = {}) {
-	const jiti = createJiti(import.meta.url, { moduleCache: options.moduleCache ?? false });
-	return (relativePath, importOptions = {}) => jiti.import(
-		fromRoot(relativePath),
-		importOptions.defaultExport === undefined ? {} : { default: importOptions.defaultExport },
-	);
-}
-
-export function loadTypeScript(relativePath, options = {}) {
-	return defaultLoader(relativePath, options);
+export async function loadTypeScript(relativePath, options = {}) {
+	const module = await import(pathToFileURL(fromRoot(relativePath)).href);
+	return options.defaultExport ? module.default : module;
 }
 
 export function writeJson(value) {

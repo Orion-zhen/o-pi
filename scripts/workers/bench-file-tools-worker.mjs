@@ -11,7 +11,7 @@ async function runRegistrationBenchmark() {
 	const tools = new Map();
 	const handlers = new Map();
 	const started = performance.now();
-	const extension = await loadTypeScript("agent/extensions/file-tools.ts", { defaultExport: true });
+	const extension = await loadTypeScript("src/extensions/file-tools.ts", { defaultExport: true });
 	extension({
 		registerTool(tool) { tools.set(tool.name, tool); },
 		on(event, handler) { handlers.set(event, handler); },

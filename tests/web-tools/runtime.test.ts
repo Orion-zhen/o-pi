@@ -17,7 +17,7 @@ import { httpResponse } from "../helpers/http.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const network = vi.hoisted(() => ({ fetch: vi.fn<WebHttpFetch>() }));
-vi.mock("undici", async (importOriginal) => ({
+vi.mock("undici/index.js", async (importOriginal) => ({
 	...await importOriginal<typeof import("undici")>(),
 	fetch: network.fetch,
 }));

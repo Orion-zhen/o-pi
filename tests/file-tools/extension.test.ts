@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
+import { createFileToolsExtension, type FileToolsModuleImports } from "../../src/extensions/file-tools.js";
 import type { LspMutationInput } from "../../src/lsp/file-operations.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { FILE_TOOLS_OBSERVATION_STATE } from "../../src/file-tools/runtime/session-observation-state.js";
@@ -320,7 +320,7 @@ describe("file-tools extension lifecycle", () => {
 			});
 			await expect(executeTool(registered, "grep", {
 				query: "createFileToolsExtension",
-				path: ["agent/extensions/file-tools.ts"],
+				path: ["src/extensions/file-tools.ts"],
 							}, ctx)).resolves.toMatchObject({ details: { status: "success" } });
 		};
 

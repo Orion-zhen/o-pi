@@ -2,7 +2,7 @@ import path from "node:path";
 import type { ExtensionAPI, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import lspExtension from "../../agent/extensions/lsp.js";
+import lspExtension from "../../src/extensions/lsp.js";
 import { registerLspCommands } from "../../src/lsp/adapters/commands.js";
 import { lspManager } from "../../src/lsp/index.js";
 import { LspManager } from "../../src/lsp/manager/manager.js";

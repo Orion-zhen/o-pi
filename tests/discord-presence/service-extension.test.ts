@@ -3,7 +3,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import discordPresenceExtension from "../../agent/extensions/discord-presence.js";
+import discordPresenceExtension from "../../src/extensions/discord-presence.js";
 import * as configModule from "../../src/discord-presence/config.js";
 import * as endpointModule from "../../src/discord-presence/endpoint.js";
 import { DiscordPresenceCoordinatorClient } from "../../src/discord-presence/coordinator-client.js";

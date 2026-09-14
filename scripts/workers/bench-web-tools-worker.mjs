@@ -25,7 +25,7 @@ async function runToolBenchmark(toolMode) {
 	const tools = new Map();
 	const handlers = new Map();
 	let imageReads = 0;
-	const undici = createRequire(import.meta.url)("undici");
+	const undici = createRequire(import.meta.url)("undici/index.js");
 	const originalFetch = undici.fetch;
 	undici.fetch = async () => toolMode === "fetch-image-skip"
 		? skippedImageResponse(() => { imageReads += 1; })
@@ -34,7 +34,7 @@ async function runToolBenchmark(toolMode) {
 			: response("hello benchmark");
 	try {
 		const started = performance.now();
-		const { default: extension } = await loadTypeScript("agent/extensions/web-tools.ts");
+		const { default: extension } = await loadTypeScript("src/extensions/web-tools.ts");
 		extension({ events, registerTool(tool) { tools.set(tool.name, tool); }, on(name, handler) { handlers.set(name, handler); } });
 		const registered = performance.now();
 		const tool = tools.get(toolMode === "search" ? "websearch" : "webfetch");

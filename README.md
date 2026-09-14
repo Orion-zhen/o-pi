@@ -4,21 +4,25 @@ Orion's Pi Agent.
 
 ## 安装使用
 
-首先确保系统中安装了 [Pi](https://github.com/earendil-works/pi).
-
-克隆到 Pi 配置路径:
+`opi` 是具有定制工具和前端的 Pi 封装，沿用 Pi 的版本、身份和更新提示。构建需要 Bun >= 1.4.0，无需单独安装 Pi。仓库可放在任意目录。
 
 ```bash
-git clone https://github.com/Orion-zhen/o-pi.git ~/.pi
+git clone https://github.com/Orion-zhen/o-pi.git
+cd o-pi
+bun install --no-save
+bun run build
+./dist/opi
 ```
 
-安装依赖:
+产物是包含 Bun 运行时和必需资源的单个可执行文件。Linux/macOS 使用 `dist/opi`，Windows 使用 `dist/opi.exe`。运行产物无需 Node.js、Bun 或仓库中的 `node_modules`，仍需平台基础库及 Bash、Git 等实际使用的外部工具。当前已在 Linux x64 验证，其他平台尚未实机验证。
 
-```bash
-cd ~/.pi && npm install
-```
+开发时可直接运行 `bun src/cli.ts`。项目不固定 Bun 版本或提交锁文件。构建使用 PATH 中的 Bun，制作通用分发产物时使用官方 Bun，避免引入系统发行版特有的动态库依赖。
 
-可复用的 Pi 体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需将其中字段合并到本机 `agent/settings.json`；provider、model、thinking level 和模型轮换列表等个人设置不包含在示例中。
+`opi` 复用 Pi 的 CLI 和 TUI，静态集成本仓库的工具与界面增强。保留功能的参数和行为由 Pi 处理，`~/.pi/agent/` 下的个人配置、认证、本地资源及会话继续使用。不支持外部扩展或 Pi 包管理命令。`-ne/--no-extensions` 关闭本仓库的集成功能，`-e/--extension` 会报错。
+
+旧的 `agent/extensions/` 已迁至 `src/extensions/`，不再由原 `pi` 自动加载。已有用户切换命令为 `opi`，不要再通过 settings 或 `-e` 重复加载本仓库入口。
+
+可复用的体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需合并到 `~/.pi/agent/settings.json`，不要覆盖已有 provider、model 等个人设置。运行与升级边界见 [CLI](docs/cli.md)。
 
 ## 组合技
 
@@ -29,6 +33,7 @@ cd ~/.pi && npm install
 
 ## 文档
 
+* [CLI 入口](docs/cli.md)
 * [配置分层](docs/configuration.md)
 * [性能 Benchmark](docs/benchmark.md)
 * [文件工具设计](docs/file-tools/README.md)

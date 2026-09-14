@@ -128,13 +128,13 @@ repair 层不做语义推断：
 
 当前接入点：
 
-* `agent/extensions/file-tools.ts`
+* `src/extensions/file-tools.ts`
   * `ls`、`find`、`grep`、`read`、`write`、`edit`
-* `agent/extensions/bash-tool.ts`
+* `src/extensions/bash-tool.ts`
   * `bash`
-* `agent/extensions/web-tools.ts`
+* `src/extensions/web-tools.ts`
   * `websearch`、`webfetch`
-* `agent/extensions/subagent.ts`
+* `src/extensions/subagent.ts`
   * `subagent`
 
 仓库内的模型工具通过 `src/register-tool.ts` 组合 strict sampling、repair 和 telemetry。`registerTool` 默认为工具设置 `constrainedSampling: { type: "json_schema", strict: "prefer" }`。支持 strict tools 的 Provider 会进行 JSON Schema 约束采样，不支持的 Provider 自动降级，repair 继续作为本地兼容边界。工具显式设置其他 constrained sampling 配置或 `false` 时保留其选择。

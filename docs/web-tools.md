@@ -21,15 +21,15 @@
 
 需要向允许列表中的来源发送 Cookie 时，运行时只依赖 `WebFetchInteractionPort.confirmAuthentication()`，不依赖 Pi TUI。原生 TUI 与 RPC Extension UI 都能注入该端口。JSON 和打印模式没有端口时返回 `AUTH_CONFIRMATION_REQUIRED`。确认对话框只是适配器。抓取结果和错误结构不依赖组件或通知。
 
-使用 `npm run bench:web-tools` 运行进程冷启动、文件系统暖态的回归基准。脚本记录以下指标：
+使用 `bun scripts/bench-web-tools.mjs` 运行进程冷启动、文件系统暖态的回归基准。脚本记录以下指标：
 
-- Pi TUI 就绪和无 TUI 时的扩展加载耗时。
+- 网页工具模块的 Bun 导入与注册耗时。TUI 和完整 CLI 启动由统一基准的 `startup` 套件测量。
 - 首次及后续 `websearch` 和 `source` 模式 `webfetch` 的耗时。使用真实运行时和搜索提供方，仅在基准进程内替换 Undici 的 HTTP 响应。Undici 预加载不计入这两项耗时。
 - 模型不支持工具图片时，直接图片响应体的短路耗时。
 - DDG 解析器的耗时。
 - 四类合成 HTML 的转换耗时和进程最大常驻内存。这四类页面分别是 3–5 MB 的声明式延迟讨论页、无语义容器的视频元数据页、大型普通文章和包含大量无效模板或 JSON-LD 的恶意页面。
 
-基准不访问真实网络，也不保存真实站点页面或 Cookie。可用 `-- --runs=N` 调整采样次数。
+基准不访问真实网络，也不保存真实站点页面或 Cookie。可用 `--runs=N` 调整采样次数。
 
 ## `websearch`
 

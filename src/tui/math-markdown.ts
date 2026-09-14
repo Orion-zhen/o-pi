@@ -45,16 +45,11 @@ export function installMathMarkdownRenderer(config: TuiMathConfig): void {
 }
 
 export async function warmDisplayMathRenderer(): Promise<void> {
-	if (!supportsDisplayMathImages()) return;
 	mathRendererImport ??= import("./math-renderer.js").then((module) => {
 		mathRendererModule = module;
 		return module;
-	}).catch((error: unknown) => {
-		mathRendererImport = undefined;
-		throw error;
 	});
-	const module = await mathRendererImport;
-	await module.warmMathRenderer();
+	await mathRendererImport;
 }
 
 export function supportsDisplayMathImages(): boolean {

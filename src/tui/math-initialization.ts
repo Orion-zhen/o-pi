@@ -14,7 +14,7 @@ interface MathSession {
 /** 加载结果跨会话复用，延迟任务只属于安排它的会话。 */
 export class MathInitialization {
 	private module: MathMarkdownModule | undefined;
-	private warmed = false;
+	private backendSettled = false;
 	private session: MathSession | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -27,10 +27,10 @@ export class MathInitialization {
 	schedule(): void {
 		this.cancel();
 		const session = this.session;
-		if (session === undefined || this.isReady()) return;
+		if (session === undefined || this.isComplete()) return;
 		this.timer = setTimeout(() => {
 			this.timer = undefined;
-			if (this.isIdle(session) && !this.isReady()) void this.initialize(session);
+			if (this.isIdle(session) && !this.isComplete()) void this.initialize(session);
 		}, IDLE_DELAY_MS);
 		this.timer.unref();
 	}
@@ -47,8 +47,8 @@ export class MathInitialization {
 		if (previous !== undefined) this.module?.installMathMarkdownRenderer({ ...previous.config, enabled: false });
 	}
 
-	private isReady(): boolean {
-		return this.module !== undefined && (this.warmed || !this.module.supportsDisplayMathImages());
+	private isComplete(): boolean {
+		return this.backendSettled || (this.module !== undefined && !this.module.supportsDisplayMathImages());
 	}
 
 	private isIdle(session: MathSession): boolean {
@@ -62,10 +62,11 @@ export class MathInitialization {
 			module.installMathMarkdownRenderer(session.config);
 			if (module.supportsDisplayMathImages()) {
 				await module.warmDisplayMathRenderer();
-				this.warmed = true;
+				this.backendSettled = true;
 			}
 			if (this.isIdle(session)) session.onReady();
 		} catch (error) {
+			this.backendSettled = true;
 			if (this.session === session) {
 				const message = error instanceof Error ? error.message : String(error);
 				session.ctx.ui.notify(`Math renderer initialization failed: ${message}`, "warning");

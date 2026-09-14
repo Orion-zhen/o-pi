@@ -1,9 +1,9 @@
 # 性能基准
 
-统一入口：
+统一入口默认运行本仓库构建的 `opi`，可通过 `PI_BIN` 指定其他入口。统一入口会先构建二进制：
 
 ```bash
-npm run bench
+bun run bench
 ```
 
 默认执行 7 次正式采样。`startup`、`agent-loop` 和 `lazy` 各执行 2 次预热，专项套件使用各自的预热策略。默认范围包括 Pi 启动、模型工具回路、延迟加载组件，以及文件工具、文件搜索、代码索引和网页工具。
@@ -13,7 +13,7 @@ npm run bench
 快速冒烟：
 
 ```bash
-npm run bench -- --quick
+bun run bench --quick
 ```
 
 `--quick` 把正式采样设为 3 次，并把 `startup`、`agent-loop` 和 `lazy` 的预热设为 1 次。专项套件仍使用各自的预热策略。
@@ -22,18 +22,18 @@ npm run bench -- --quick
 
 | 套件 | 内容 |
 | --- | --- |
-| `startup` | 比较 Pi 核心、Pi 资源和全部扩展三种场景的非交互启动与 TUI 启动。全部扩展场景还汇总 Pi 内部主流程计时，以及每个扩展的 `module import` 和 `factory` 计时。 |
-| `agent-loop` | 启动真实的 `pi --print` 进程。本地 OpenAI-compatible 模拟模型依次触发两次 `ls`、两次 `find` 和两次 `grep`，并测量首次模型请求、每次工具回路和退出耗时。 |
-| `lazy` | 测量分词器模块导入、o200k 和 cl100k 的首次与后续计数，以及数学 Markdown 解析器、MathJax/Resvg、字体预热、首次渲染和缓存渲染。 |
-| `file-tools` | 测量裸 Pi 与文件工具扩展的非交互启动、TUI 就绪、扩展导入与注册，以及注册后的首次 `ls`。 |
+| `startup` | 比较 Pi 核心、Pi 资源和全部扩展三种场景的非交互启动与 TUI 启动。完整集成场景还汇总 Pi 内部主流程计时和静态模块工厂计时。 |
+| `agent-loop` | 启动真实的 `opi --print` 进程。本地 OpenAI-compatible 模拟模型依次触发两次 `ls`、两次 `find` 和两次 `grep`，并测量首次模型请求、每次工具回路和退出耗时。 |
+| `lazy` | 测量分词器模块导入、o200k 和 cl100k 的首次与后续计数，以及数学 Markdown 解析器、MathJax/Resvg、首次渲染和缓存渲染。 |
+| `file-tools` | 测量文件工具模块的 Bun 导入、注册和首次 `ls`。启动对比由 `startup` 套件负责。 |
 | `file-search` | 测量首次与后续 `find`、带模拟文件系统延迟的 `find`、首次与后续 `grep`、并发 `grep` 和宽范围 `grep`。 |
 | `code-index` | 使用生成的 TypeScript 内容测量首次与后续解析、本地并行批处理、工作线程批处理和内存占用。场景包括 ASCII、Unicode、密集声明、长行和大量导入。 |
-| `web-tools` | 测量裸 Pi 与网页工具扩展的启动、模拟 `websearch` 和 `webfetch`、跳过不支持的直接图片、DuckDuckGo 解析器，以及多种大型 HTML 场景的转换。 |
+| `web-tools` | 测量网页工具模块的 Bun 导入和注册、模拟 `websearch` 和 `webfetch`、跳过不支持的直接图片、DuckDuckGo 解析器，以及多种大型 HTML 场景的转换。 |
 
 选择套件：
 
 ```bash
-npm run bench -- --suites=startup,agent-loop,lazy
+bun run bench --suites=startup,agent-loop,lazy
 ```
 
 `code-index` 的批处理使用两个 `.ts` 文件和两个 `.tsx` 文件，四项都进入真实解析，不混入未注册的扩展名。输出摘要覆盖代码单元内容与范围、导入模块名及路径语义，不包含已删除的导入坐标。`counts` 报告首次、后续及两种批处理的解析状态，`completeRuns` 表示所有文件都完成解析的正式采样数。大样本可能触发固定解析截止时间，不完整采样的耗时不能作为完整解析的性能结论。
@@ -43,7 +43,7 @@ npm run bench -- --suites=startup,agent-loop,lazy
 可以通过 `--plugin` 加载外部套件。模块应通过 `default`、`suite` 或 `suites` 导出 `{ id, execute }` 对象或对象数组：
 
 ```bash
-npm run bench -- --plugin=./scripts/my-benchmark.mjs --suites=my-benchmark
+bun run bench --plugin=./scripts/my-benchmark.mjs --suites=my-benchmark
 ```
 
 `--plugin` 可以重复指定。套件 ID 不得与已有套件重复。
@@ -69,7 +69,7 @@ npm run bench -- --plugin=./scripts/my-benchmark.mjs --suites=my-benchmark
 多通道排序的独立 CPU 基准不属于统一套件。运行命令：
 
 ```bash
-npm run bench:file-tools:ranking -- --runs=15
+bun scripts/bench-file-tools-ranking.mjs --runs=15
 ```
 
 该基准使用 1,000、5,000 和 20,000 个合成候选，测量以下操作：
@@ -94,13 +94,13 @@ Pi 在进入交互模式的运行循环前输出这些计时表。因此，数�
 设置 `PI_TIMING=1` 后可以获得 Pi 内部计时：
 
 - 主流程计时展示运行时和会话创建等阶段。
-- 扩展计时分别记录每个扩展的 `module import` 和 `factory`。
+- 静态集成模块记录 `factory` 计时，导入开销计入进程墙钟时间。opi 不加载外部扩展。
 
-外部墙钟时间还包括 Node.js 进程启动、Pi 命令行入口、伪终端和基准观测开销，因此其范围大于 Pi 内部计时。
+外部墙钟时间还包括 Bun 运行时启动、Pi 命令行入口、伪终端和基准观测开销，因此其范围大于 Pi 内部计时。
 
 ## 模型工具回路
 
-`agent-loop` 会创建临时提供方扩展和本地 HTTP 服务器。模拟模型通过 OpenAI Chat Completions SSE 立即返回以下调用：
+`agent-loop` 会创建临时 `models.json` 和本地 HTTP 服务器，不通过外部扩展注册模型。模拟模型通过 OpenAI Chat Completions SSE 立即返回以下调用：
 
 1. 连续调用两次 `ls`，路径为 `scripts`。
 2. 连续调用两次 `find`，参数为 `query=bench`、`path=scripts` 和 `glob=*.mjs`。
@@ -120,7 +120,7 @@ Pi 在进入交互模式的运行循环前输出这些计时表。因此，数�
 建议在机器负载和依赖版本相同的条件下保存修改前后的结果：
 
 ```bash
-npm run bench -- --runs=9 --suites=startup,agent-loop,lazy --json=bench-before.json
+bun run bench --runs=9 --suites=startup,agent-loop,lazy --json=bench-before.json
 # 修改后再次运行，输出到 bench-after.json
 ```
 
@@ -132,4 +132,4 @@ npm run bench -- --runs=9 --suites=startup,agent-loop,lazy --json=bench-before.j
 - `file-search` 和 `code-index` 预热 1 次。
 - 独立排序基准固定预热 3 次。
 
-CPU 调频、杀毒或索引任务、首次磁盘读取，以及 Node.js 或 Pi 依赖升级都可能显著影响结果。
+CPU 调频、杀毒或索引任务、首次磁盘读取，以及 Bun 或 Pi 依赖升级都可能显著影响结果。

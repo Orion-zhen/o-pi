@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import fileTools from "../../agent/extensions/file-tools.js";
+import fileTools from "../../src/extensions/file-tools.js";
 import { lspManager as lspFileHooks } from "../../src/lsp/index.js";
 import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../src/lsp/types.js";
 import { registerExtension } from "../helpers/extension.js";

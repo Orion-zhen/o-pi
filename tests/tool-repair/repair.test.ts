@@ -3,8 +3,8 @@ import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
-import fileTools from "../../agent/extensions/file-tools.js";
-import subagentExtension from "../../agent/extensions/subagent.js";
+import fileTools from "../../src/extensions/file-tools.js";
+import subagentExtension from "../../src/extensions/subagent.js";
 import { repairableTool, type RepairObservation } from "../../src/tool-repair/index.js";
 import { registerExtension } from "../helpers/extension.js";
 

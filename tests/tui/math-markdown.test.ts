@@ -34,26 +34,27 @@ afterEach(() => {
 	setCellDimensions({ widthPx: 9, heightPx: 18 });
 });
 
-describe("math markdown 字体初始化", () => {
-	it("字体加载失败时继续使用 Pi 原生 LaTeX", async () => {
+describe("math markdown 后端初始化", () => {
+	it("后端加载失败时继续使用 Pi 原生 LaTeX", async () => {
 		vi.resetModules();
-		const error = new Error("font unavailable");
-		const { FontData } = await import("@mathjax/src/js/output/common/FontData.js");
-		const loadFonts = vi.spyOn(FontData.prototype, "loadDynamicFiles").mockRejectedValue(error);
+		const error = new Error("renderer unavailable");
+		vi.doMock("../../src/tui/math-renderer.js", () => { throw error; });
 		const tui = await import("@earendil-works/pi-tui");
+		const originalRender = tui.Markdown.prototype.render;
 		try {
 			const math = await import("../../src/tui/math-markdown.js");
 			tui.setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
 			tui.setCellDimensions({ widthPx: 9, heightPx: 18 });
 			math.installMathMarkdownRenderer(mathConfig);
 
-			await expect(math.warmDisplayMathRenderer()).rejects.toBe(error);
+			await expect(math.warmDisplayMathRenderer()).rejects.toThrow();
 			const output = new tui.Markdown("$$\nx_i^2\n$$", 0, 0, theme).render(120).join("\n");
 			expect(output).toContain("xᵢ²");
 			expect(output).not.toContain("\u001b_G");
 		} finally {
+			tui.Markdown.prototype.render = originalRender;
 			tui.resetCapabilitiesCache();
-			loadFonts.mockRestore();
+			vi.doUnmock("../../src/tui/math-renderer.js");
 			vi.resetModules();
 		}
 	});

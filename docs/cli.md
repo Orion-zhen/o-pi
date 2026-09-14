@@ -1,0 +1,65 @@
+# opi CLI
+
+`opi` 是具有定制工具和前端的 Pi 封装。它通过 `@earendil-works/pi-coding-agent` 的公开 `main(args, { extensionFactories })` 启动，不修改 Pi 源码或替换其原型。
+
+## 构建与运行
+
+```bash
+bun install --no-save
+bun run build
+./dist/opi
+```
+
+构建在当前系统与 CPU 架构上运行，Linux/macOS 产出 `dist/opi`，Windows 产出 `dist/opi.exe`。当前本地验证环境为 Linux x64。自动发行覆盖 Linux x64、macOS ARM64 和 Windows x64，不提供安装脚本或二进制自更新。
+
+`package.json` 中的依赖跟随 `latest`，不提交锁文件或固定 Bun 版本。`trustedDependencies` 只授权所需的安装脚本。`bun run build` 使用 PATH 中的 Bun。自动发行使用构建时最新的官方 Bun，避免引入系统发行版特有的动态库依赖。
+
+开发入口为 `bun src/cli.ts`。Bun 直接运行 TypeScript，`tsc` 只做类型检查，不再生成 Node.js 发行目录。常用脚本只有 `build`、`typecheck`、`test` 和 `bench`。专项基准和遥测报告直接用 Bun 运行对应文件。
+
+## 单文件与资源
+
+产物包含代码、Bun 运行时、默认 JSONC、schema、Pi 主题与文档、PDF 字体、WASM 和当前平台所需的工具原生模块。首次启动将资源写入 `~/.pi/cache/opi/<内容哈希>/`，之后复用。写入使用临时目录和原子重命名，支持并发首次启动。缓存可删除，下次运行会重建。
+
+执行产物不需要 Node.js、Bun 或项目的 `node_modules`。单文件不意味着静态链接所有系统库。Bash、Git、语言服务器、桌面通知后端等仍由对应功能按需使用。
+
+编译产物不自动加载当前目录的 `.env` 或 `bunfig.toml`，避免运行行为被待处理项目改变。认证和模型等用户进程环境仍传给 Pi，内嵌资源目录由二进制入口管理。
+
+## 保留的 Pi 行为
+
+- 版本号、帮助、身份和上游更新提示沿用 Pi，不维护独立的 opi 版本号。
+- CLI 参数、交互模式、JSON/RPC 协议、认证与会话生命周期由 Pi 处理。
+- `src/extensions.ts` 静态注册本仓库模块，重型工具和 TUI 组件仍按需加载。
+- `~/.pi/agent/` 中的认证、模型、配置、会话以及本地 Skills、提示词、主题继续使用，包括 `PI_CODING_AGENT_DIR`。
+- `/reload` 继续重载资源并重建模块状态。修改静态代码后必须重新构建并重启。
+- 子代理和 Discord 协调进程复用当前可执行文件。源码开发时使用 Bun 入口，不寻找系统 `pi` 或 Node.js 入口。
+
+## 不支持的行为
+
+不加载自动发现或显式指定的外部扩展。`-e/--extension` 会报错。`-ne/--no-extensions` 禁用本仓库的集成模块，Pi 自带内联模块仍由上游处理。
+
+`install`、`remove`、`uninstall`、`update`、`list` 和 `config` 是 Pi 包管理入口，opi 不提供这些命令。上游帮助仍可能列出它们。既有 settings 中的 `packages` 不在支持范围，需由用户移除或改用不含该字段的配置目录，opi 不改写这些文件，也不适配上游的包解析与安装逻辑。
+
+上游更新提示表示有新的 Pi 版本，不会改写当前二进制。更新源码后，执行 `rm -f bun.lock && bun install --no-save --no-cache && bun run build`，重新解析最新依赖并构建。上游变更可能导致构建或测试失败，通过验证后再替换已安装的二进制。
+
+## 验证
+
+测试运行器暂时保留 Vitest，需要 Node.js >= 22.19.0。产品和构建使用 Bun，这个 Node.js 依赖仅用于开发测试。
+
+```bash
+bun run typecheck
+bun run test
+bun run test tests/cli tests/rpc
+bun run test --coverage
+```
+
+`test` 显式先构建，避免二进制集成测试使用旧产物。只运行不依赖二进制的源码测试时，可用 `bun run vitest run tests/<目录>`。
+
+CLI 测试通过本地 HTTP 模型服务驱动真实二进制，覆盖参数输出对照、文件读写、解析 worker、PDF、子代理、提示词、并发资源提取、外部扩展拒绝和 Linux TUI。RPC 测试覆盖状态、静态命令、Bash 事件及退出。测试不调用付费模型。
+
+Linux 下可增加无 Node/Bun、无仓库挂载的容器验证：
+
+```bash
+OPI_CONTAINER_IMAGE=docker.io/library/eclipse-temurin:17-jdk bun run test tests/cli/container.test.ts
+```
+
+需要 Podman 和可运行该二进制的 glibc 镜像。容器只挂载临时测试目录，使用宿主网络访问本地模型服务。镜像中不得预装 Node/Bun。OAuth、真实桌面剪贴板与通知，以及其他系统的交互行为尚未实机验证。

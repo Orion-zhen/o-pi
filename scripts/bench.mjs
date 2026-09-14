@@ -13,7 +13,7 @@ import { benchmarkEnv, run, SCRIPT_BIN, spawnInteractive } from "./benchmark/run
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lazyWorker = fileURLToPath(new URL("./workers/bench-lazy-components-worker.mjs", import.meta.url));
-const pi = process.env.PI_BIN ?? "pi";
+const pi = process.env.PI_BIN ?? fileURLToPath(new URL(process.platform === "win32" ? "../dist/opi.exe" : "../dist/opi", import.meta.url));
 const MAIN_TIMING_HEADER = "--- Startup Timings: main ---";
 const MAIN_TIMING_FOOTER = "-----------------------------";
 const EXTENSION_TIMING_HEADER = "--- Startup Timings: extensions ---";
@@ -161,14 +161,13 @@ async function runAgentLoopSuite() {
 	await once(server, "listening");
 	const address = server.address();
 	if (address === null || typeof address === "string") throw new Error("benchmark server did not expose a TCP port");
-	const providerPath = path.join(temp, "benchmark-provider.mjs");
-	await writeFile(providerPath, benchmarkProviderSource(address.port));
+	await writeFile(path.join(temp, "models.json"), benchmarkModels(address.port));
 
 	const samples = [];
 	try {
 		for (let iteration = 0; iteration < options.warmups + options.runs; iteration += 1) {
 			activeRun = { requestTimes: [], responseTimes: [], toolCalls: AGENT_LOOP_TOOL_CALLS };
-			const measured = await measureAgentLoop(providerPath, activeRun);
+			const measured = await measureAgentLoop(temp, activeRun);
 			activeRun = undefined;
 			if (iteration >= options.warmups) samples.push(measured);
 		}
@@ -265,20 +264,20 @@ async function measureTuiStartup(flags, expectExtensionTimings) {
 	}
 }
 
-async function measureAgentLoop(providerPath, timing) {
+async function measureAgentLoop(agentDir, timing) {
 	const started = performance.now();
 	const child = spawn(pi, [
 		"--offline",
 		"--no-session",
 		"--thinking", "off",
-		"--extension", providerPath,
+		"--approve",
 		"--model", "__o_pi_benchmark__/bench",
 		"--tools", "ls,find,grep",
 		"--print",
 		"Execute the benchmark tool calls supplied by the model, then reply with only done.",
 	], {
 		cwd: root,
-		env: benchmarkEnv(),
+		env: benchmarkEnv({ PI_CODING_AGENT_DIR: agentDir }),
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let stdout = "";
@@ -354,27 +353,13 @@ function assertReplacementToolSchemas(tools) {
 	}
 }
 
-function benchmarkProviderSource(port) {
-	return `export default function benchmarkProvider(pi) {
-	pi.registerProvider("__o_pi_benchmark__", {
-		name: "Local benchmark model",
-		baseUrl: "http://127.0.0.1:${port}/v1",
-		apiKey: "EMPTY",
-		api: "openai-completions",
-		models: [{
-			id: "bench",
-			name: "Benchmark",
-			api: "openai-completions",
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: 4096,
-			compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false },
-		}],
-	});
-}
-`;
+function benchmarkModels(port) {
+	return JSON.stringify({ providers: { __o_pi_benchmark__: {
+		baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: "EMPTY", api: "openai-completions",
+		models: [{ id: "bench", name: "Benchmark", reasoning: false, input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 4096,
+			compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false } }],
+	} } });
 }
 
 function hasCompleteTimings(output, expectExtensionTimings) {
@@ -510,7 +495,7 @@ function readEnvironment() {
 		timestamp: new Date().toISOString(),
 		commit: run("git", ["rev-parse", "--short", "HEAD"], true),
 		pi: run(pi, ["--version"], true),
-		node: process.version,
+		bun: process.versions.bun,
 		platform: `${process.platform} ${os.release()} ${process.arch}`,
 		cpu: os.cpus()[0]?.model ?? "unknown",
 		logicalCpus: os.cpus().length,
@@ -522,7 +507,7 @@ function printEnvironment(environment, benchmarkOptions) {
 	console.table([{
 		commit: environment.commit,
 		pi: environment.pi,
-		node: environment.node,
+		bun: environment.bun,
 		platform: environment.platform,
 		cpu: environment.cpu,
 		"logical CPUs": environment.logicalCpus,
@@ -581,7 +566,7 @@ function serializableOptions(value) {
 }
 
 function printHelp() {
-	console.log(`Usage: npm run bench -- [options]
+	console.log(`Usage: bun run bench [options]
 
 Options:
   --quick                 Use 3 measured runs and 1 warmup.
@@ -594,8 +579,8 @@ Options:
   --help                  Show this help.
 
 Examples:
-  npm run bench
-  npm run bench -- --quick
-  npm run bench -- --runs=9 --suites=startup,agent-loop,lazy --json=bench.json
+  bun run bench
+  bun run bench --quick
+  bun run bench --runs=9 --suites=startup,agent-loop,lazy --json=bench.json
 `);
 }

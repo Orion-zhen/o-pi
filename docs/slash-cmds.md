@@ -1,12 +1,12 @@
 # Slash commands
 
-本页记录 `agent/extensions/` 提供的斜杠命令。除 `/skill:<name>` 外，命令都通过 `pi.registerCommand()` 注册。注册时命令名不含 `/`，在 Pi 输入框中以 `/命令名` 调用。`/skill:<name>` 的候选项来自 Pi 的技能发现，由本扩展的输入钩子接管。模型和思考级别分别使用 Pi 原生的 `/model` 与 `/thinking`。`thinking-preferences` 扩展会在当前会话分支内按模型记忆原生 `/thinking` 选择。
+本页记录 `src/extensions/` 提供的斜杠命令。除 `/skill:<name>` 外，命令都通过 `pi.registerCommand()` 注册。注册时命令名不含 `/`，在 Pi 输入框中以 `/命令名` 调用。`/skill:<name>` 的候选项来自 Pi 的技能发现，由本扩展的输入钩子接管。模型和思考级别分别使用 Pi 原生的 `/model` 与 `/thinking`。`thinking-preferences` 扩展会在当前会话分支内按模型记忆原生 `/thinking` 选择。
 
 斜杠命令处理器是展示适配器，不是图形用户界面 API。可复用逻辑位于对应功能的查询、服务或控制器。其他适配器应直接消费可安全序列化为 JSON 的快照、结果或进度，不要解析本页所列的通知文本。
 
 ## `/tools`
 
-来源：`agent/extensions/cmd-slash-tools.ts`
+来源：`src/extensions/cmd-slash-tools.ts`
 
 用途：在 TUI 中打开工具选择列表，启用或禁用当前会话可用的工具。
 
@@ -60,7 +60,7 @@
 
 ## `/system`
 
-来源：`agent/extensions/system-prompt.ts`
+来源：`src/extensions/system-prompt.ts`
 
 用途：在 TUI 中只读查看当前合成的系统提示词。
 
@@ -81,7 +81,7 @@
 
 ## `/skill:<name>`
 
-来源：`agent/extensions/skill-context.ts`
+来源：`src/extensions/skill-context.ts`
 
 用途：由宿主加载 Pi 技能，并把完整正文作为不触发推理的自定义消息写入上下文。
 
@@ -102,7 +102,7 @@
 
 ## `/skill`
 
-来源：`agent/extensions/skill-context.ts`
+来源：`src/extensions/skill-context.ts`
 
 用途：显示当前分支已披露的技能。
 
@@ -119,7 +119,7 @@
 
 ## `/stats`
 
-来源：`agent/extensions/stats.ts`
+来源：`src/extensions/stats.ts`
 
 用途：在 TUI 只读浮层查看当前会话统计。
 
@@ -143,7 +143,7 @@
 
 ## `/prune`
 
-来源：`agent/extensions/prune.ts`
+来源：`src/extensions/prune.ts`
 
 用途：在下一次请求成本不会明显升高时，从模型上下文中移除已完成的历史工具事务。
 
@@ -173,7 +173,7 @@
 
 ## `/telemetry`
 
-来源：`agent/extensions/telemetry.ts`
+来源：`src/extensions/telemetry.ts`
 
 用途：实时查看当前会话中采集器已经观测到的工具遥测分析。
 
@@ -197,7 +197,7 @@
 
 ## `/usage`
 
-来源：`agent/extensions/usage.ts`
+来源：`src/extensions/usage.ts`
 
 用途：查询已通过 Pi OAuth 登录的官方套餐当前消耗和额度窗口。
 
@@ -223,7 +223,7 @@
 
 ## `/presence`
 
-来源：`agent/extensions/discord-presence.ts`
+来源：`src/extensions/discord-presence.ts`
 
 用途：控制 Discord Rich Presence 活动状态。
 
@@ -249,7 +249,7 @@
 
 ## `/agents`
 
-来源：`agent/extensions/subagent.ts`
+来源：`src/extensions/subagent.ts`
 
 用途：列出当前可用的子代理，不经过主模型。
 
@@ -270,7 +270,7 @@
 
 ## `/run`
 
-来源：`agent/extensions/subagent.ts`
+来源：`src/extensions/subagent.ts`
 
 用途：按固定工作池运行一个或多个子代理任务，不先交给主模型决定。
 
@@ -302,7 +302,7 @@
 
 ## `/subagent-config`
 
-来源：`agent/extensions/subagent.ts`
+来源：`src/extensions/subagent.ts`
 
 用途：显示当前子代理运行配置摘要。
 

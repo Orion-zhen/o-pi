@@ -119,6 +119,7 @@ async function defaultFetch(input: URL, init: WebHttpRequestInit): Promise<WebHt
 let undiciModule: Promise<typeof import("undici")> | undefined;
 
 function loadUndici(): Promise<typeof import("undici")> {
-	undiciModule ??= import("undici");
+	// Bun 的内置 undici 替代实现缺少 DNS interceptor，必须加载完整依赖。
+	undiciModule ??= import("undici/index.js");
 	return undiciModule;
 }

@@ -1,19 +1,15 @@
 {
 	"name": "o-pi",
+	"engines": {
+		"bun": ">=1.4.0"
+	},
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"bench": "node scripts/bench.mjs",
-		"bench:file-tools": "node scripts/bench-file-tools.mjs",
-		"bench:file-tools:search": "node scripts/bench-file-tools-search.mjs",
-		"bench:file-tools:ranking": "node scripts/bench-file-tools-ranking.mjs",
-		"bench:code-index": "node scripts/bench-code-index.mjs",
-		"bench:web-tools": "node scripts/bench-web-tools.mjs",
-		"telemetry:report": "node scripts/generate-telemetry-report.mjs",
-		"refresh": "npm update && npm rebuild",
-		"test": "vitest --run",
-		"test:coverage": "vitest --run --coverage",
-		"typecheck": "tsc --noEmit"
+		"build": "bun scripts/build.mjs",
+		"typecheck": "tsc --noEmit",
+		"test": "bun run build && vitest run",
+		"bench": "bun run build && bun scripts/bench.mjs"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-server": "latest",
@@ -32,6 +28,7 @@
 		"@earendil-works/pi-ai": "latest",
 		"@earendil-works/pi-coding-agent": "latest",
 		"@earendil-works/pi-tui": "latest",
+		"@mathjax/mathjax-tex-font": "latest",
 		"@mathjax/src": "latest",
 		"@mozilla/readability": "latest",
 		"@napi-rs/canvas": "latest",
@@ -69,10 +66,7 @@
 		"vscode-languageserver-protocol": "latest",
 		"web-tree-sitter": "latest"
 	},
-	"allowScripts": {
-		"@google/genai": true,
-		"protobufjs": true
-	},
+	"trustedDependencies": ["@google/genai", "protobufjs"],
 	"overrides": {
 		"node-notifier": {
 			"uuid": "latest"

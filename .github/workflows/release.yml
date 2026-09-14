@@ -1,0 +1,125 @@
+name: Weekly binaries
+
+on:
+  push:
+    paths:
+      - "agent/**"
+      - "src/**"
+      - "scripts/**"
+      - "package.json"
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: macos-latest
+            target: darwin-arm64
+          - os: windows-latest
+            target: windows-x64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "latest"
+          package-manager-cache: false
+      - name: Install latest dependencies
+        run: bun install --no-save --no-cache
+      - name: Build
+        run: bun run build
+      - name: Test standalone binary
+        run: bun run vitest run tests/cli/cli.test.ts tests/rpc
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p artifacts
+          binary=opi
+          if [[ "$TARGET" == windows-* ]]; then
+            binary=opi.exe
+          fi
+          tar -cf - -C dist "$binary" -C "$GITHUB_WORKSPACE" LICENSE |
+            gzip -9 > "artifacts/opi-${TARGET}.tar.gz"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: opi-${{ matrix.target }}
+          path: artifacts/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  release:
+    name: Publish and prune releases
+    needs: build
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: weekly-${{ github.run_id }}-${{ github.run_attempt }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: artifacts
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: opi-*
+          path: artifacts
+          merge-multiple: true
+      - name: Publish complete release
+        run: |
+          sha256sum opi-*.tar.gz > SHA256SUMS
+          cat > release-notes.md <<EOF
+          每周自动构建，使用构建时最新的官方 Bun 和依赖。
+
+          源码：${GITHUB_SHA}
+          构建：${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          支持 Linux x64、macOS ARM64 和 Windows x64。解压后将 opi 放入 PATH，无需安装 Bun 或 Node.js。
+          EOF
+          gh release create "$RELEASE_TAG" opi-*.tar.gz SHA256SUMS \
+            --target "$GITHUB_SHA" \
+            --title "Weekly $(date -u +%Y-%m-%d) (${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT})" \
+            --notes-file release-notes.md --draft
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+      - name: Delete previous workflow releases and tags
+        run: |
+          gh api --paginate "repos/${GH_REPO}/releases?per_page=100" \
+            --jq '.[] | select(.tag_name | test("^weekly-[0-9]+-[0-9]+$")) | [.tag_name, .draft] | @tsv' \
+            > previous-releases.tsv
+          while IFS=$'\t' read -r tag draft; do
+            [[ "$tag" == "$RELEASE_TAG" ]] && continue
+            if [[ "$draft" == true ]]; then
+              gh release delete "$tag" --yes
+            else
+              gh release delete "$tag" --yes --cleanup-tag
+            fi
+          done < previous-releases.tsv

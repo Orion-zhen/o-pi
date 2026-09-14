@@ -12,7 +12,7 @@ const worker = fileURLToPath(new URL("../../scripts/workers/bench-file-tools-wor
 it("注册基准宿主支持真实扩展注册、首次 ls 和关闭", async () => {
 	const config = path.join(temp.path, "file-tools.jsonc");
 	await writeFile(config, "{}\n");
-	const { stdout } = await promisify(execFile)(process.execPath, [worker], {
+	const { stdout } = await promisify(execFile)("bun", [worker], {
 		cwd: temp.path,
 		timeout: 10_000,
 		env: { ...process.env, PI_FILE_TOOLS_CONFIG: config, PI_FILE_TOOLS_PROJECT_CONFIG: config },

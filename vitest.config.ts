@@ -3,10 +3,11 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
 	test: {
 		testTimeout: 15_000,
+		setupFiles: ["./tests/helpers/worker-setup.ts"],
 		exclude: ["**/node_modules/**", "**/.git/**", "o-pet/**"],
 		coverage: {
 			provider: "v8",
-			include: ["src/**/*.ts", "agent/extensions/**/*.ts"],
+			include: ["src/**/*.ts"],
 			reporter: ["text", "json-summary"],
 			thresholds: {
 				statements: 80,

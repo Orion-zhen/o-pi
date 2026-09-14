@@ -1,0 +1,138 @@
+import {
+	sessionEntryToContextMessages,
+	type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { registerSkillCommands } from "../skill-context/commands.js";
+import { executeSkillLoad, SkillLoadError } from "../skill-context/executor.js";
+import { collectSkillCandidates } from "../skill-context/loader.js";
+import { findVisibleToolCallIds } from "../prune/prune.js";
+import type { SkillCandidate, SkillLoadDetails, SkillToolErrorDetails } from "../skill-context/types.js";
+import { defineToolTelemetry } from "../telemetry/projection.js";
+import { registerTool } from "../register-tool.js";
+
+type SkillRendererModule = Pick<
+	typeof import("../skill-context/tui/renderer.js"),
+	"registerSkillMessageRenderer" | "renderSkillCall" | "renderSkillResult"
+>;
+
+const skillParameters = Type.Object({
+	name: Type.String({ minLength: 1, description: "Skill name from <model_invocable_skills>; use filesystem tools for skill:// paths." }),
+}, { additionalProperties: false });
+
+type SkillToolDetails = SkillLoadDetails | SkillToolErrorDetails;
+
+/** 注册模型与手动技能披露，并维护分支内的资源权限；native renderer 只在 TUI session 激活。 */
+export function createSkillContextExtension(
+	loadRenderers: () => Promise<SkillRendererModule> = loadSkillRenderers,
+): (pi: ExtensionAPI) => void {
+	return function skillContextExtension(pi: ExtensionAPI): void {
+		registerSkillCommands(pi);
+		const skillTool = registerSkillTool(pi);
+
+		let nativeRendererLoad: Promise<void> | undefined;
+		pi.on("session_start", async (_event, ctx) => {
+			if (ctx.mode !== "tui") return;
+			if (nativeRendererLoad === undefined) {
+				const pending = loadRenderers().then((renderers) => {
+					renderers.registerSkillMessageRenderer(pi);
+					pi.registerTool({
+						...skillTool,
+						renderCall: renderers.renderSkillCall,
+						renderResult(result, options, theme, context) {
+							return renderers.renderSkillResult(result.details, options, theme, context);
+						},
+					});
+				}, (error: unknown) => {
+					nativeRendererLoad = undefined;
+					ctx.ui.notify(`Skill renderer initialization failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+				});
+				nativeRendererLoad = pending;
+			}
+			await nativeRendererLoad;
+		});
+	};
+}
+
+const skillContextExtension = createSkillContextExtension();
+
+export default skillContextExtension;
+
+function registerSkillTool(pi: ExtensionAPI) {
+	let modelCandidates: SkillCandidate[] = [];
+	pi.on("before_agent_start", (event) => {
+		modelCandidates = collectSkillCandidates(event.systemPromptOptions, []);
+	});
+
+	const tool = registerTool(pi, {
+		tool: {
+			name: "skill",
+			label: "skill",
+			executionMode: "sequential",
+			description: "Load one model-invocable skill by name.",
+			promptSnippet: "load one indexed skill",
+			parameters: skillParameters,
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+				try {
+					if (params.name.startsWith("skill://")) {
+						throw new SkillLoadError(
+							"SKILL_PATH_USE_FILESYSTEM",
+							`Use a filesystem tool with path "${params.name}" instead.`,
+						);
+					}
+					const branch = ctx.sessionManager.getBranch();
+					const contextMessages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages);
+					const result = await executeSkillLoad(pi, {
+						name: params.name,
+						loadedBy: "agent",
+						candidates: modelCandidates,
+						branch,
+						toolCallId: _toolCallId,
+						visibleToolCallIds: findVisibleToolCallIds(contextMessages, branch),
+					});
+					return { content: [{ type: "text", text: result.content }], details: result.details };
+				} catch (error) {
+					const message = error instanceof Error ? error.message : "skill loading failed.";
+					const details: SkillToolErrorDetails = {
+						status: "failed",
+						error: {
+							code: error instanceof SkillLoadError ? error.code : "SKILL_INVALID",
+							message,
+						},
+					};
+					return { content: [{ type: "text", text: `<error tool="skill">${escapeXml(message)}</error>` }], details };
+				}
+			},
+		},
+		telemetry: defineToolTelemetry<{ name: string }, SkillToolDetails>({
+			input: ({ name }) => ({ fields: { skill: name } }),
+			result: (_params, details) => "deduplicated" in details
+				? { fields: {
+					skill: details.name,
+					scope: details.scope,
+					loaded_by: details.loadedBy,
+					content_hash: details.contentHash,
+					deduplicated: details.deduplicated,
+				} }
+				: { fields: { status: "failed" } },
+		}),
+	});
+
+	pi.on("tool_result", (event) => {
+		if (event.toolName !== "skill") return;
+		if (isFailedSkillDetails(event.details)) return { isError: true };
+	});
+	return tool;
+}
+
+async function loadSkillRenderers(): Promise<SkillRendererModule> {
+	return import("../skill-context/tui/renderer.js");
+}
+
+function isFailedSkillDetails(value: unknown): value is SkillToolErrorDetails {
+	return typeof value === "object" && value !== null && "status" in value && value.status === "failed";
+}
+
+function escapeXml(value: string): string {
+	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}

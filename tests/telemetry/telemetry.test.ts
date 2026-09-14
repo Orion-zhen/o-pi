@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import path from "node:path";
 import { loadExtensions } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
-import { registerTelemetryCommand } from "../../agent/extensions/telemetry.js";
+import { registerTelemetryCommand } from "../../src/extensions/telemetry.js";
 import { attachTelemetryService } from "../../src/telemetry/pi-adapter.js";
 import { defineToolTelemetry, fields } from "../../src/telemetry/projection.js";
 import { registerTelemetry, TelemetryService } from "../../src/telemetry/service.js";
@@ -70,9 +70,9 @@ describe("telemetry service", () => {
 
 	it("independently loaded extensions still attach one collector", async () => {
 		const loaded = await loadExtensions([
-			fileURLToPath(new URL("../../agent/extensions/bash-tool.ts", import.meta.url)),
-			fileURLToPath(new URL("../../agent/extensions/subagent.ts", import.meta.url)),
-			fileURLToPath(new URL("../../agent/extensions/telemetry.ts", import.meta.url)),
+			fileURLToPath(new URL("../../src/extensions/bash-tool.ts", import.meta.url)),
+			fileURLToPath(new URL("../../src/extensions/subagent.ts", import.meta.url)),
+			fileURLToPath(new URL("../../src/extensions/telemetry.ts", import.meta.url)),
 		], process.cwd(), createEventBus());
 		expect(loaded.errors).toEqual([]);
 		for (const event of ["session_start", "turn_start", "message_end", "tool_execution_start", "tool_result", "tool_execution_end", "session_shutdown"] as const) {
@@ -83,7 +83,7 @@ describe("telemetry service", () => {
 					: event === "session_shutdown" ? 2 : 1,
 			);
 		}
-		const telemetry = loaded.extensions.find((extension) => extension.path.endsWith(path.join("agent", "extensions", "telemetry.ts")));
+		const telemetry = loaded.extensions.find((extension) => extension.path.endsWith(path.join("src", "extensions", "telemetry.ts")));
 		expect(telemetry?.commands.has("telemetry")).toBe(true);
 	});
 

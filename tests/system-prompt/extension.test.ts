@@ -9,7 +9,7 @@ import {
 	buildSubagentSystemPrompt,
 	buildSystemPrompt,
 } from "../../src/system-prompt/service.js";
-import { registerSystemCommand } from "../../agent/extensions/system-prompt.js";
+import { registerSystemCommand } from "../../src/extensions/system-prompt.js";
 
 preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK", "PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE", "PI_CODING_AGENT_DIR", "HOME", "USERPROFILE");
 const temp = useTempDir("o-pi-fork-system-prompt-");

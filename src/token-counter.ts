@@ -128,8 +128,9 @@ function loadBpeCounter(method: BpeMethod): Promise<BpeCounter> {
 function loadBpeCounterSync(method: BpeMethod): BpeCounter {
 	const state = bpeStates[method];
 	if (state.counter !== undefined) return state.counter;
-	const moduleId = method === "o200k_base" ? "gpt-tokenizer/encoding/o200k_base" : "gpt-tokenizer/encoding/cl100k_base";
-	const counter = requireBpeCounter(require(moduleId));
+	const counter = requireBpeCounter(method === "o200k_base"
+		? require("gpt-tokenizer/encoding/o200k_base")
+		: require("gpt-tokenizer/encoding/cl100k_base"));
 	state.counter = counter;
 	return counter;
 }

@@ -94,9 +94,8 @@ grep 排序事实分为两层：
 离线报告：
 
 ```text
-npm run telemetry:report -- [--input DIR] [--output DIR]
-                           [--tool NAME] [--commit HASH]
-                           [--dirty true|false] [--from ISO] [--to ISO]
+bun scripts/generate-telemetry-report.mjs [--input DIR] [--output DIR]
+  [--tool NAME] [--commit HASH] [--dirty true|false] [--from ISO] [--to ISO]
 ```
 
 输出 `report.json` 与 `report.html`。报告只包含：

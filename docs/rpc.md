@@ -45,11 +45,10 @@ DTO、操作结果和进度事件不得包含 `Date`、TUI 组件、`Theme`、�
 
 ## 真实进程冒烟测试
 
-`tests/rpc/smoke.test.ts` 启动仓库实际安装的 Pi：
+`tests/rpc/smoke.test.ts` 启动编译后的 `opi`，验证原生协议和本仓库静态模块：
 
 ```text
-pi --mode rpc --no-session --offline --approve \
-  --extension tests/rpc/fixtures/dialog-extension.ts
+opi --mode rpc --no-session --offline --approve
 ```
 
 该测试不发送模型提示词，也不访问网络。测试覆盖以下行为：
@@ -57,8 +56,7 @@ pi --mode rpc --no-session --offline --approve \
 - 调用 `get_state` 和 `get_commands`
 - 直接执行 Bash 时接收 `bash_execution_update` 和最终结果
 - 执行工具后读取会话状态
-- 完成 `extension_ui_request` 和 `extension_ui_response` 的确认往返
-- 接收通知，并确认没有 `extension_error`
+- 发现静态集成的命令，并确认没有 `extension_error`
 - 解析仅使用 LF 换行的 JSONL
 - 关闭标准输入后以退出码 0 结束
 

@@ -1,5 +1,5 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
-import { renderDisplayMathImage, warmMathRenderer } from "../../src/tui/math-renderer.js";
+import { describe, expect, it, vi } from "vitest";
+import { renderDisplayMathImage } from "../../src/tui/math-renderer.js";
 import type { TuiMathConfig } from "../../src/tui/types.js";
 
 const mathConfig: TuiMathConfig = {
@@ -10,30 +10,7 @@ const mathConfig: TuiMathConfig = {
 	foreground: "#d4d4d4",
 };
 
-describe("math renderer 字体初始化", () => {
-	it("字体失败时保留文本回退，下一次初始化可恢复图片渲染", async () => {
-		vi.resetModules();
-		const error = new Error("font unavailable");
-		const { FontData } = await import("@mathjax/src/js/output/common/FontData.js");
-		const loadFonts = vi.spyOn(FontData.prototype, "loadDynamicFiles").mockRejectedValue(error);
-		try {
-			const renderer = await import("../../src/tui/math-renderer.js");
-
-			await expect(renderer.warmMathRenderer()).rejects.toBe(error);
-			expect(renderer.renderDisplayMathImage(String.raw`x^2`, mathConfig)).toBeUndefined();
-			loadFonts.mockRestore();
-			await expect(renderer.warmMathRenderer()).resolves.toBeUndefined();
-			expect(renderer.renderDisplayMathImage(String.raw`x^2`, mathConfig)?.base64).toBeTruthy();
-		} finally {
-			loadFonts.mockRestore();
-			vi.resetModules();
-		}
-	});
-});
-
 describe("math renderer", () => {
-	beforeAll(warmMathRenderer);
-
 	it.each([
 		["mathbb 与 aligned", String.raw`\begin{aligned}
 \mathbb{P}(A \cap B \mid C) &= \frac{\mathbb{P}(A \cap B \cap C)}{\mathbb{P}(C)} \\
@@ -72,13 +49,13 @@ q_\phi(\mathbf{z}|\mathbf{x}) &= \mathcal{N}(\mathbf{z}; \boldsymbol{\mu}, \bold
 		});
 	});
 
-	it("渲染 mathbb 不向终端输出 bboldx variant 警告", async () => {
+	it("渲染 mathbb 不向终端输出字体警告", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
 			const image = renderDisplayMathImage(String.raw`\mathbb{R}`, mathConfig);
 
 			expect(image?.base64.length).toBeGreaterThan(0);
-			expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("Invalid variant: -bboldx"));
+			expect(warn).not.toHaveBeenCalled();
 		} finally {
 			warn.mockRestore();
 		}

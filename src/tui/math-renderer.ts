@@ -1,4 +1,4 @@
-import "@mathjax/src/js/util/asyncLoad/esm.js";
+import { MathJaxTexFont } from "@mathjax/mathjax-tex-font/js/svg.js";
 import { mathjax } from "@mathjax/src/js/mathjax.js";
 import { liteAdaptor } from "@mathjax/src/js/adaptors/liteAdaptor.js";
 import { RegisterHTMLHandler } from "@mathjax/src/js/handlers/html.js";
@@ -53,27 +53,11 @@ interface RenderedMathImage {
 const adaptor = liteAdaptor();
 RegisterHTMLHandler(adaptor);
 const texInput = new TeX({ packages: [...TEX_PACKAGES] });
-const svgOutput = new SVG({ fontCache: "none" });
+const svgOutput = new SVG({ fontCache: "none", fontData: MathJaxTexFont });
 const mathDocument = mathjax.document("", { InputJax: texInput, OutputJax: svgOutput });
 const cache = new Map<string, RenderedMathImage>();
-let fontWarmup: Promise<void> | undefined;
-let fontsReady = false;
-
-export function warmMathRenderer(): Promise<void> {
-	if (fontWarmup !== undefined) return fontWarmup;
-	fontWarmup = svgOutput.font
-		.loadDynamicFiles()
-		.then(() => {
-			fontsReady = true;
-		}, (error: unknown) => {
-			fontWarmup = undefined;
-			throw error;
-		});
-	return fontWarmup;
-}
 
 export function renderDisplayMathImage(tex: string, config: TuiMathConfig): RenderedMathImage | undefined {
-	if (!fontsReady) return undefined;
 	const renderTex = stripUnsupportedCommands(tex);
 	const key = `${config.svg_scale}\0${config.foreground}\0${renderTex}`;
 	const cached = cache.get(key);
@@ -97,8 +81,7 @@ export function renderDisplayMathImage(tex: string, config: TuiMathConfig): Rend
 		};
 		setCachedImage(key, image);
 		return image;
-	} catch (error) {
-		silenceMathJaxRetry(error);
+	} catch {
 		return undefined;
 	}
 }
@@ -127,11 +110,6 @@ function extractSvg(value: string): string | undefined {
 	const closeStart = value.lastIndexOf("</svg>");
 	if (closeStart < start) return undefined;
 	return value.slice(start, closeStart + "</svg>".length);
-}
-
-function silenceMathJaxRetry(error: unknown): void {
-	const retry = (error as { retry?: unknown }).retry;
-	if (retry instanceof Promise) void retry.catch(() => {});
 }
 
 function addSvgPadding(svg: string): string {

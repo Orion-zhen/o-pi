@@ -4,7 +4,7 @@ import { loadTypeScript } from "./benchmark/loader.mjs";
 
 const options = parseOptions(process.argv.slice(2));
 if (options.help) {
-	process.stdout.write(`Usage: npm run telemetry:report -- [options]
+	process.stdout.write(`Usage: bun scripts/generate-telemetry-report.mjs [options]
 
   --input DIR       telemetry run JSONL directory
   --output DIR      report output directory

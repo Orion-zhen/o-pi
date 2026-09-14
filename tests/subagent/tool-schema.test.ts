@@ -1,7 +1,7 @@
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
-import subagentExtension from "../../agent/extensions/subagent.js";
+import subagentExtension from "../../src/extensions/subagent.js";
 import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/constants.js";
 import { preserveEnv } from "../helpers/lifecycle.js";
 

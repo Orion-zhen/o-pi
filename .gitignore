@@ -20,7 +20,7 @@ TASK.md
 subagents/
 .pi/
 
-package-lock.json
+bun.lock
 
 .DS_Store
 

@@ -2,7 +2,7 @@ import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEntry, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import fileTools from "../../agent/extensions/file-tools.js";
+import fileTools from "../../src/extensions/file-tools.js";
 import type { FilesystemPathAccess } from "../../src/filesystem/contracts/access.js";
 import {
 	buildSkillFilesystemAccess,
