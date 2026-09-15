@@ -35,28 +35,28 @@ export function ModelControls({ snapshot, send }: { snapshot: GuiSnapshot; send:
 		return model ? [model] : [];
 	});
 	const current = snapshot.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "";
-	const currentSelected = models.some((model) => `${model.provider}/${model.id}` === current);
-	const hint = models.length ? "未加入已选模型" : "请在侧栏选择模型";
+	if (snapshot.model && !models.some((model) => `${model.provider}/${model.id}` === current))
+		models.push(snapshot.model);
 	return (
 		<div className="model-controls">
 			<NativeSelect
 				aria-label="模型"
-				title={currentSelected ? current : hint}
-				value={currentSelected ? current : ""}
+				title={current || "请在侧栏选择模型"}
+				value={current}
 				disabled={snapshot.busy || snapshot.streaming || !models.length}
 				onChange={(event) => {
 					const model = available.get(event.target.value);
 					if (model) void send({ action: "model", provider: model.provider, id: model.id });
 				}}
 			>
-				{!currentSelected && (
+				{!snapshot.model && (
 					<option value="" disabled hidden>
-						{snapshot.model ? `${snapshot.model.name} · ${hint}` : models.length ? "选择模型" : hint}
+						{models.length ? "选择模型" : "请在侧栏选择模型"}
 					</option>
 				)}
 				{models.map((model) => (
 					<option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
-						{model.provider} / {model.name}
+						{model.name}
 					</option>
 				))}
 			</NativeSelect>

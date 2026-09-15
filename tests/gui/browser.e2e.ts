@@ -11,6 +11,7 @@ import { exerciseDeletion } from "./deletion-steps.ts";
 import { exerciseLiveTranscript, exerciseToolDetails } from "./transcript-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
 import { exerciseRichTools } from "./rich-tools-steps.ts";
+import { exerciseContextUsage, exerciseComposerRunning, expectComposerLayout } from "./composer-steps.ts";
 
 const root = process.cwd();
 let directory: string;
@@ -46,6 +47,10 @@ export default function (pi) {
 		if (rich) return rich;
 		if (JSON.stringify(request.messages.findLast((message) => message.role === "user")?.content)?.includes("只回复下一轮"))
 			return { text: "第二轮独立回复" };
+		if (JSON.stringify(request.messages.findLast((message) => message.role === "user")?.content)?.includes("验证停止输出"))
+			return request.messages.at(-1)?.role === "tool"
+				? { text: "停止验证已结束" }
+				: { tool: "bash", args: { command: "printf 'composer-ready\\n'; sleep 30" } };
 		const count = request.messages.filter((message) => message.role === "tool").length;
 		if (count === 0) return { text: "我先检查图片和源码。", thinking: "先检查图片和源码，再验证修改与命令输出。", tool: "read", args: { path: "image.png" } };
 		if (count === 1) return { tool: "grep", args: { query: "hello", path: ["input.ts"] } };
@@ -122,8 +127,6 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await editor.fill("");
 	await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
 	await page.keyboard.press("Tab");
-	await page.keyboard.press("Tab");
-	await page.keyboard.press("Tab");
 	await expect(page.getByRole("button", { name: "附件", exact: true })).toBeFocused();
 	await expect(page.getByRole("tooltip", { name: "附件", exact: true })).toBeVisible();
 	await page.keyboard.press("Escape");
@@ -135,11 +138,10 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
 	await page.getByRole("button", { name: "移除附件 1", exact: true }).click();
 	await expect(page.getByAltText("待发送图片")).toHaveCount(0);
-	await page.getByRole("button", { name: "排队方式" }).click();
-	await page.getByRole("menuitemradio", { name: "引导当前任务 · Steer" }).click();
-	await page.getByRole("button", { name: "排队方式" }).click();
-	await expect(page.getByRole("menuitemradio", { name: "引导当前任务 · Steer" })).toBeChecked();
-	await page.getByRole("menuitemradio", { name: "追加任务 · Follow-up" }).click();
+	await expect(page.getByRole("button", { name: "排队方式" })).toHaveCount(0);
+	await expect(page.getByRole("button", { name: "压缩上下文", exact: true })).toHaveCount(0);
+	await expectComposerLayout(page);
+	await exerciseContextUsage(page);
 
 	const phone = (page.viewportSize()?.width ?? 1200) < 768;
 	if (phone) {
@@ -236,6 +238,7 @@ async function exercise(page: Page, exportedPath?: string) {
 		expect(Buffer.from(data ?? "", "base64").toString("utf8")).toContain("GUI 验证完成");
 	}
 	await exerciseRichTools(page);
+	await exerciseComposerRunning(page, path.join(cwd, "image.png"));
 	expect(errors).toEqual([]);
 }
 
@@ -297,6 +300,8 @@ test("独立 opi-web：真实工具、刷新恢复与响应式布局", async ({ 
 					await expect(page.getByRole("dialog", { name: "工作空间导航", exact: true })).toHaveCount(0);
 				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeInViewport();
 				await expect(page.getByRole("button", { name: "发送", exact: true })).toBeInViewport();
+				await expectComposerLayout(page);
+				await exerciseContextUsage(page);
 				expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 				if (size.width === 640) {
 					await page.getByRole("button", { name: "菜单", exact: true }).click();

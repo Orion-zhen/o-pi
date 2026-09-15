@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ArrowUp, CornerUpLeft, History, ListPlus, Minimize2, Paperclip, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, History, Paperclip, Square, Trash2, X } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
@@ -8,14 +8,13 @@ import {
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuLabel,
-	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
 import type { GuiAction } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
 import { ModelControls } from "./model-controls.tsx";
 import { pretty } from "./content.tsx";
+import { ContextUsage } from "./context-usage.tsx";
 
 type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number];
 export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void }) {
@@ -34,16 +33,18 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 	} = gui;
 	const upload = useRef<HTMLInputElement>(null);
 	const [images, setImages] = useState<ImageAttachment[]>([]);
-	const [behavior, setBehavior] = useState<"steer" | "followUp">("followUp");
+	const hasContent = Boolean(draft.trim() || images.length);
+	const stopping = running && !hasContent;
+	const connected = Boolean(snapshot && status === "已连接");
 	const submit = () => {
-		if ((!draft.trim() && images.length === 0) || !snapshot || status !== "已连接") return;
+		if (!hasContent || !connected || snapshot?.busy) return;
 		const text = draft;
 		const attachments = images;
 		setDraft("");
 		setImages([]);
 		setFileChoices([]);
 		onSubmit();
-		void send({ action: "prompt", text, images: attachments, behavior }).then((ok) => {
+		void send({ action: "prompt", text, images: attachments, behavior: "followUp" }).then((ok) => {
 			if (!ok) {
 				setDraft((current) => current || text);
 				setImages((current) => (current.length ? current : attachments));
@@ -196,7 +197,6 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 					}}
 				/>
 				<div className="composer-bottom">
-					{snapshot && <ModelControls snapshot={snapshot} send={send} />}
 					<div className="composer-actions">
 						<IconButton label="附件" onClick={() => upload.current?.click()}>
 							<Paperclip />
@@ -236,55 +236,22 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 								</DropdownMenuContent>
 							</DropdownMenu>
 						)}
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<IconButton label="排队方式">{behavior === "steer" ? <CornerUpLeft /> : <ListPlus />}</IconButton>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end">
-								<DropdownMenuLabel>运行时发送消息</DropdownMenuLabel>
-								<DropdownMenuRadioGroup
-									value={behavior}
-									onValueChange={(value) => setBehavior(value === "steer" ? "steer" : "followUp")}
-								>
-									<DropdownMenuRadioItem value="followUp">追加任务 · Follow-up</DropdownMenuRadioItem>
-									<DropdownMenuRadioItem value="steer">引导当前任务 · Steer</DropdownMenuRadioItem>
-								</DropdownMenuRadioGroup>
-							</DropdownMenuContent>
-						</DropdownMenu>
-						<IconButton label="压缩上下文" onClick={() => gui.command("/compact")}>
-							<Minimize2 />
-						</IconButton>
-						<span className="spacer" />
-						{running && (
-							<IconButton label="停止" className="text-destructive" onClick={() => void send({ action: "abort" })}>
-								<Square />
-							</IconButton>
-						)}
+					</div>
+					<div className="composer-controls">
+						{snapshot && <ModelControls snapshot={snapshot} send={send} />}
+						{snapshot && <ContextUsage snapshot={snapshot} />}
 						<IconButton
-							label={running ? "加入队列" : "发送"}
+							label={stopping ? "停止" : "发送"}
 							variant="default"
 							className="send-button"
-							onClick={submit}
-							disabled={!snapshot || status !== "已连接" || snapshot.busy || (!draft.trim() && images.length === 0)}
+							onClick={stopping ? () => void send({ action: "abort" }) : submit}
+							disabled={!connected || (!stopping && (snapshot?.busy || !hasContent))}
 						>
-							<ArrowUp />
+							{stopping ? <Square fill="currentColor" /> : <ArrowUp />}
 						</IconButton>
 					</div>
 				</div>
 			</div>
-			{snapshot && (
-				<div className="metrics">
-					<span>
-						{snapshot.context?.tokens ?? 0} / {snapshot.context?.contextWindow ?? snapshot.model?.contextWindow ?? 0}{" "}
-						上下文
-					</span>
-					<span>
-						{snapshot.tools.filter((tool) => tool.enabled).length} 工具 · {snapshot.stats.tokens.total} tokens · $
-						{snapshot.stats.cost.toFixed(4)} 预估
-					</span>
-					<span>Ctrl/⌘ + Enter 发送</span>
-				</div>
-			)}
 		</footer>
 	);
 }
