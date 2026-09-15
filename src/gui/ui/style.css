@@ -101,11 +101,6 @@
 .list-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.875rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .list-row > span { flex: 1; min-width: 0; }
 .list-row small { display: block; font-weight: 400; color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.6; }
-.tree { list-style: none; padding-left: 0.75rem; }
-.tree li { border-left: 1px solid var(--border); padding: 0.5rem 0 0.5rem 0.75rem; }
-.tree pre { max-height: 16rem; overflow: auto; }
-.tree form { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.tree form input { flex: 1; min-width: 8rem; }
 .settings-grid { display: grid; gap: 1.25rem; margin: 1rem 0 1.5rem; }
 .settings-grid label { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; }
 .settings-grid label:has([role="checkbox"]) { flex-direction: row-reverse; }

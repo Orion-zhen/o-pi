@@ -13,6 +13,7 @@ import { runBuiltin } from "./commands.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
 import { persistModelScope, setModelScope } from "./models.ts";
 import { GuiSessionCatalog } from "./sessions.ts";
+import { filterSessionTreeNoTools } from "./session-tree.ts";
 import { prepareHistoryDeletion, type DeleteHistoryAction } from "./delete-history.ts";
 
 const validate = compileSchemaValidator(actionSchema);
@@ -338,7 +339,11 @@ export class GuiHost {
 				this.emit({ type: "files", paths: await completeFiles(runtime.cwd, action.prefix) });
 				return;
 			case "tree":
-				this.emit({ type: "panel", title: "会话树", value: session.sessionManager.getTree() });
+				this.emit({
+					type: "panel",
+					title: "会话树",
+					value: filterSessionTreeNoTools(session.sessionManager.getTree(), session.sessionManager.getLeafId()),
+				});
 				return;
 			case "clearQueue":
 				session.clearQueue();

@@ -10,6 +10,7 @@ import { NativeSelect } from "./components/ui/native-select";
 import { PanelSheet } from "./components/panel-sheet";
 import { ModelManager } from "./model-manager.tsx";
 import { isSubagentDetails, SubagentProgress } from "./subagent-progress.tsx";
+import { SessionTree } from "./session-tree.tsx";
 
 export interface PanelData {
 	title: string;
@@ -66,7 +67,7 @@ export function Panel({
 			body = sessionList;
 			break;
 		case "会话树":
-			body = <Tree value={panel.value} send={send} />;
+			body = <SessionTree value={panel.value} send={send} />;
 			break;
 		case "设置":
 			body = <Settings snapshot={snapshot} send={send} />;
@@ -161,60 +162,6 @@ export function Panel({
 		<PanelSheet ref={ref} title={panel.title} close={close} restoreFocus={restoreFocus}>
 			{body}
 		</PanelSheet>
-	);
-}
-
-function Tree({ value, send }: { value: unknown; send: Send }) {
-	return (
-		<ul className="tree">
-			{rows(value).map((node) => {
-				if (!record(node.entry)) return null;
-				const entry = node.entry;
-				const id = String(entry.id);
-				return (
-					<li key={id}>
-						<details open>
-							<summary>
-								{String(node.label ?? entry.type)} · {id}
-							</summary>
-							<pre>{pretty(entry).slice(0, 3000)}</pre>
-							<div className="toolbar">
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}
-								>
-									切换到此处
-								</Button>
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => void send({ action: "navigate", entryId: id, summarize: true })}
-								>
-									总结后切换
-								</Button>
-								<Button variant="outline" size="sm" onClick={() => void send({ action: "fork", entryId: id })}>
-									创建分支
-								</Button>
-							</div>
-							<form
-								onSubmit={(event) => {
-									event.preventDefault();
-									const label = new FormData(event.currentTarget).get("label");
-									if (typeof label === "string") void send({ action: "label", entryId: id, label });
-								}}
-							>
-								<Input name="label" aria-label="分支标签" defaultValue={String(node.label ?? "")} />
-								<Button variant="outline" size="sm">
-									保存标签
-								</Button>
-							</form>
-						</details>
-						<Tree value={node.children} send={send} />
-					</li>
-				);
-			})}
-		</ul>
 	);
 }
 
