@@ -15,6 +15,8 @@ process.title = "opi-web";
 if (process.argv[2] === "--opi-discord-daemon") {
 	process.argv.splice(2, 1);
 	await import("../harness/discord-presence/coordinator-daemon.ts");
+} else if (process.env.PI_SUBAGENT_CHILD === "1") {
+	await import("../cli.ts");
 } else {
 	const { values } = parseArgs({
 		options: {

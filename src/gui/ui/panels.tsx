@@ -9,6 +9,7 @@ import { Textarea } from "./components/ui/textarea";
 import { NativeSelect } from "./components/ui/native-select";
 import { PanelSheet } from "./components/panel-sheet";
 import { ModelManager } from "./model-manager.tsx";
+import { isSubagentDetails, SubagentProgress } from "./subagent-progress.tsx";
 
 export interface PanelData {
 	title: string;
@@ -113,6 +114,14 @@ export function Panel({
 				</>
 			);
 			break;
+		case "子代理任务": {
+			const result = record(panel.value) && record(panel.value.result) ? panel.value.result : panel.value;
+			body = record(result) && isSubagentDetails(result.details) ? <>
+				<SubagentProgress key={result.details.runId} details={result.details} state={snapshot.commandRunning ? "running" : "unavailable"} />
+				{snapshot.commandRunning && <Button variant="outline" size="sm" onClick={() => void send({ action: "abort" })}>停止子代理任务</Button>}
+			</> : <pre>{pretty(panel.value)}</pre>;
+			break;
+		}
 		case "导入会话":
 			body = (
 				<label>

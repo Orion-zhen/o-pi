@@ -1,0 +1,82 @@
+import { useState } from "react";
+import Markdown from "react-markdown";
+import { Bot, Check, ChevronRight, CircleDashed, CircleStop, LoaderCircle, X } from "lucide-react";
+import type { SubagentDetails, SubagentRunResult, SubagentTask } from "../../harness/subagent/types.ts";
+import { CodeBlock } from "./code-block.tsx";
+import { MarkdownText, clean, record } from "./content.tsx";
+import { ParameterValue } from "./tool-parameters.tsx";
+import { toolTarget } from "./tool-target.ts";
+import type { ToolState } from "./transcript-items.ts";
+
+type TaskState = ToolState | "skipped";
+const labels: Record<TaskState, string> = {
+	preparing: "生成参数", pending: "等待执行", running: "执行中", completed: "完成", failed: "失败", stopped: "已停止", unavailable: "无完整结果", skipped: "未执行",
+};
+
+export function isSubagentDetails(value: unknown): value is SubagentDetails {
+	return record(value) && (value.mode === "parallel" || value.mode === "chain")
+		&& Array.isArray(value.tasks) && value.tasks.length > 0 && Array.isArray(value.results) && Array.isArray(value.warnings);
+}
+function taskState(result: SubagentRunResult | undefined, parent: ToolState): TaskState {
+	if (result?.status === "completed") {
+		if (result.stopReason === "aborted" || result.error === "subagent aborted") return "stopped";
+		return result.error !== undefined || result.exitCode !== 0 ? "failed" : "completed";
+	}
+	if (parent === "stopped") return "stopped";
+	if (parent === "running" || parent === "pending" || parent === "preparing") return result ? "running" : "pending";
+	return result || parent === "unavailable" ? "unavailable" : "skipped";
+}
+export function subagentFacts(details: SubagentDetails): string {
+	const done = details.results.filter((result) => result.status === "completed").length;
+	const failed = details.results.filter((result) => taskState(result, "running") === "failed").length;
+	const stopped = details.results.filter((result) => taskState(result, "running") === "stopped").length;
+	return [`${done}/${details.tasks.length} 已结束`, failed > 0 ? `${failed} 失败` : "", stopped > 0 ? `${stopped} 已停止` : ""].filter(Boolean).join(" · ");
+}
+
+export function SubagentProgress({ details, state }: { details: SubagentDetails; state: ToolState }) {
+	const done = details.results.filter((result) => result.status === "completed").length;
+	const chainStopped = details.mode === "chain" && details.results.some((result) => result.status === "completed" && (result.error !== undefined || result.exitCode !== 0));
+	return <div className="subagent-progress">
+		<div className="subagent-overview"><Bot aria-hidden="true" /><span>{details.mode === "chain" ? "串行" : "并行"}</span><span>{subagentFacts(details)}</span></div>
+		<progress value={done} max={details.tasks.length} aria-label="已结束的子任务" />
+		<div className="subagent-tasks">{details.tasks.map((task, index) => {
+			// 执行器按任务顺序启动并保留结果顺序，未启动任务位于尾部。
+			const result = details.results[index];
+			return <Task key={index} task={task} result={result} state={taskState(result, chainStopped ? "failed" : state)} />;
+		})}</div>
+		{details.warnings.map((warning, index) => <p className="tool-note" key={index}>{clean(warning)}</p>)}
+	</div>;
+}
+
+function Task({ task, result, state }: { task: SubagentTask; result: SubagentRunResult | undefined; state: TaskState }) {
+	const [expanded, setExpanded] = useState<boolean | null>(null);
+	const open = expanded ?? state === "failed";
+	const active = state === "running";
+	const Icon = active ? LoaderCircle : state === "completed" ? Check : state === "failed" ? X : state === "stopped" ? CircleStop : CircleDashed;
+	const latest = result?.events.at(-1);
+	const current = latest?.type === "tool" ? `${latest.name} ${toolTarget(latest.name, latest.args)}` : result?.output;
+	return <section className="subagent-task" data-state={state}>
+		<button className="subagent-task-summary" type="button" aria-expanded={open} onClick={() => setExpanded(!open)}>
+			<span className="subagent-task-heading"><Icon className={active ? "animate-spin" : ""} aria-hidden="true" /><strong>{task.agent}</strong>
+				<span className="subagent-task-state">{labels[state]}</span><ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
+			</span>
+			<span className="subagent-task-description">{task.task}</span>
+			{current && !open && <span className="subagent-current">{latest?.type === "tool" ? clean(current)
+				: <Markdown allowedElements={["strong", "em", "del", "code"]} unwrapDisallowed>{clean(current)}</Markdown>}</span>}
+		</button>
+		{result?.error && <p className="subagent-error">{clean(result.error)}</p>}
+		{result && <div className="subagent-task-body" hidden={!open}>
+			<p className="tool-note">{[result.model, `${(result.durationMs / 1000).toFixed(1)}s`, `${result.usage.turns} 轮`, result.attempts > 1 ? `${result.attempts} 次尝试` : ""].filter(Boolean).join(" · ")}</p>
+			{result.output && <div className="message subagent-output"><MarkdownText text={result.output} /></div>}
+			{result.events.length > 0 && <details className="subagent-events"><summary>执行记录</summary>
+				{result.events.map((event, index) => event.type === "text"
+					? event.text.trim() === result.output.trim() ? null : <div className="message" key={index}><MarkdownText text={event.text} /></div>
+					: <details className="subagent-event" key={index}><summary><code>{event.name} {toolTarget(event.name, event.args)}</code>
+						<span>{event.status === "error" ? "失败" : event.status ? labels[event.status] : ""}</span>
+					</summary><ParameterValue value={event.args} /></details>)}
+			</details>}
+			{result.stderr && <CodeBlock label="错误日志" text={clean(result.stderr)} />}
+			{result.status === "completed" && <p className="tool-note">结果文件：<code>{result.outputFile}</code></p>}
+		</div>}
+	</section>;
+}

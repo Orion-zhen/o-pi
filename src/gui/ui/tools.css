@@ -1,0 +1,49 @@
+.tool-activity { min-width: 0; color: var(--muted-foreground); font-size: 0.8125rem; }
+.activity-summary { display: flex; align-items: center; gap: 0.5rem; width: 100%; min-width: 0; padding: 0.625rem 0.375rem; border-radius: 0.5rem; text-align: left; transition: background 120ms; }
+.activity-summary:hover { background: var(--secondary); }
+.activity-summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.activity-summary svg { width: 0.9375rem; height: 0.9375rem; flex-shrink: 0; }
+.activity-label { flex-shrink: 0; }
+.activity-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); font-size: 0.8125rem; min-width: 0; }
+.activity-facts { flex-shrink: 0; margin-left: auto; padding-left: 0.5rem; font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+.activity-state { display: flex; align-items: center; flex-shrink: 0; gap: 0.375rem; margin-left: auto; font-size: 0.6875rem; }
+.activity-facts + .activity-state { margin-left: 0.25rem; }
+.activity-state svg { width: 0.8125rem; height: 0.8125rem; }
+.tool-activity[data-state="completed"] .activity-state { color: var(--success); }
+.tool-activity[data-state="completed"] .activity-state > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.tool-activity[data-state="failed"] .activity-state, .activity-error { color: var(--destructive); }
+.tool-activity[data-state="stopped"] .activity-state { color: var(--warning); }
+.activity-chevron { opacity: 0.5; transition: transform 120ms; }
+.activity-chevron.expanded { transform: rotate(90deg); }
+.activity-body { min-width: 0; margin: 0.125rem 0 0.75rem 0.8125rem; padding: 0.25rem 0 0.25rem 1rem; border-left: 1px solid var(--border); color: var(--foreground); }
+.activity-error { margin: 0 0 0.5rem 1.8125rem; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 5rem; overflow: auto; font-size: 0.75rem; }
+.tool-parameters, .tool-raw { font-size: 0.75rem; margin-block: 0.5rem; }
+.tool-parameters > summary, .tool-raw > summary { color: var(--muted-foreground); width: fit-content; }
+.tool-raw pre { max-height: 24rem; overflow: auto; padding: 0.75rem; background: var(--secondary); border-radius: 0.5rem; }
+.parameter-fields { display: grid; gap: 0.5rem; margin-block: 0.625rem; }
+.parameter-fields > div { display: grid; grid-template-columns: minmax(4rem, 7rem) minmax(0, 1fr); gap: 0.75rem; align-items: baseline; }
+.parameter-fields dt, .parameter-empty { color: var(--muted-foreground); overflow-wrap: anywhere; }
+.parameter-fields dd { min-width: 0; overflow-wrap: anywhere; }
+.parameter-fields dd .parameter-fields { margin: 0; }
+.parameter-value { white-space: pre-wrap; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+.parameter-list { display: grid; gap: 0.375rem; }
+.parameter-list > li + li:has(.parameter-fields) { border-top: 1px solid var(--border); padding-top: 0.5rem; }
+.path-list { display: grid; gap: 0.375rem; margin-block: 0.75rem; }
+.path-list li, .result-path { display: flex; gap: 0.5rem; align-items: baseline; overflow-wrap: anywhere; }
+.path-list svg, .result-path svg { flex-shrink: 0; width: 0.8125rem; height: 0.8125rem; color: var(--muted-foreground); }
+.path-list code, .result-path code { font-size: 0.75rem; }
+.search-results { display: grid; gap: 1rem; margin-block: 0.75rem; }
+.search-result { min-width: 0; }
+.search-declaration { color: var(--muted-foreground); font-size: 0.75rem; margin-top: 0.25rem; overflow-wrap: anywhere; }
+.search-lines { overflow-x: auto; white-space: pre; overflow-wrap: normal; padding: 0.5rem; border-radius: 0.375rem; background: var(--secondary); }
+.search-match { background: color-mix(in srgb, var(--success) 12%, transparent); }
+.line-number { display: inline-block; min-width: 3rem; padding-right: 1rem; text-align: right; color: var(--muted-foreground); user-select: none; opacity: 0.6; }
+.tool-note { margin-block: 0.5rem; font-size: 0.75rem; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.tool-note.error { color: var(--destructive); }
+@media (max-width: 767px) {
+	.activity-summary { gap: 0.375rem; padding-inline: 0; }
+	.activity-facts { max-width: 5.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 0; }
+	.activity-state > span { max-width: 4rem; }
+	.activity-body { margin-left: 0.4375rem; padding-left: 0.75rem; }
+	.parameter-fields > div { grid-template-columns: minmax(3rem, 4.5rem) minmax(0, 1fr); gap: 0.5rem; }
+}

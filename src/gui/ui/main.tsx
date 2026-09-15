@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+	ArrowDown,
 	ArrowUpRight,
 	Code2,
 	ExternalLink,
@@ -12,7 +13,9 @@ import {
 	Terminal,
 	X,
 } from "lucide-react";
-import { Content, Message, clean, pretty, safeLink } from "./content.tsx";
+import { clean, pretty, safeLink } from "./content.tsx";
+import { Transcript } from "./transcript.tsx";
+import { useTranscriptScroll } from "./use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
 import { ConfigEditor, Panel } from "./panels.tsx";
 import { Composer } from "./composer.tsx";
@@ -27,6 +30,9 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import "./theme.css";
 import "./style.css";
 import "./transcript.css";
+import "./tools.css";
+import "./rich-tools.css";
+import "./code.css";
 
 const starters = [
 	{ icon: FolderSearch, title: "了解项目", text: "梳理这个项目的结构，介绍主要模块和运行方式。" },
@@ -39,8 +45,7 @@ function App() {
 	const { snapshot, dialogs, notices, status, error, panel, config, auth, send } = gui;
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
-	const scroll = useRef<HTMLDivElement>(null);
-	const follow = useRef(true);
+	const transcript = useTranscriptScroll(snapshot?.sessionId);
 	const panelContent = useRef<HTMLDivElement>(null);
 	const main = useRef<HTMLElement>(null);
 	const restoreFocus = () => (panelContent.current ?? gui.editor.current ?? main.current)?.focus();
@@ -52,9 +57,6 @@ function App() {
 		desktop.addEventListener("change", closeMobileSidebar);
 		return () => desktop.removeEventListener("change", closeMobileSidebar);
 	}, []);
-	useEffect(() => {
-		if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
-	}, [snapshot]);
 	const authUrl =
 		auth?.type === "auth_url" ? auth.url : auth?.type === "device_code" ? auth.verificationUri : undefined;
 	const state = status !== "已连接" ? status : dialogs.length ? "等待操作" : gui.running ? "运行中" : "就绪";
@@ -140,16 +142,9 @@ function App() {
 								</div>
 							</div>
 						)}
-						<div
-							className="transcript"
-							ref={scroll}
-							onScroll={() => {
-								if (scroll.current)
-									follow.current =
-										scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100;
-							}}
-						>
-							<div className="transcript-content">
+						<div className="transcript-shell">
+						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture}>
+							<div className="transcript-content" ref={transcript.content}>
 								{!snapshot && (
 									<section className="welcome workspace-welcome">
 										<div className="welcome-mark">
@@ -193,23 +188,7 @@ function App() {
 										)}
 									</section>
 								)}
-								{snapshot?.messages.map((message, index) => (
-									<Message key={`${snapshot.sessionId}-${index}`} value={message} />
-								))}
-								{snapshot?.streamingMessage && <Message value={snapshot.streamingMessage} streaming />}
-								{snapshot?.liveTools.map((event) => (
-									<details className="tool live-tool" open key={event.toolCallId}>
-										<summary>
-											<LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
-											执行中: {event.toolName}
-										</summary>
-										{event.type === "tool_execution_update" ? (
-											<Content value={event.partialResult.content} />
-										) : (
-											<pre>{pretty(event.args)}</pre>
-										)}
-									</details>
-								))}
+								{snapshot && <Transcript key={snapshot.sessionId} source={snapshot} />}
 								{snapshot?.status["bash"] && <pre className="live-output">{snapshot.status["bash"]}</pre>}
 								{notices.length > 0 && (
 									<details className="notices" open={notices.some((notice) => notice.type === "error")}>
@@ -223,14 +202,11 @@ function App() {
 								)}
 							</div>
 						</div>
-						{snapshot && (
-							<Composer
-								gui={gui}
-								onSubmit={() => {
-									follow.current = true;
-								}}
-							/>
-						)}
+						{transcript.showLatest && <Button variant="outline" size="sm" className="jump-latest" onClick={transcript.toLatest}>
+							<ArrowDown />回到最新
+						</Button>}
+						</div>
+						{snapshot && <Composer gui={gui} onSubmit={transcript.toLatest} />}
 					</main>
 				</div>
 			</Sheet>

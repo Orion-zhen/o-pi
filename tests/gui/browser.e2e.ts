@@ -8,6 +8,9 @@ import { startModelServer } from "../cli/model-server.ts";
 import { exerciseModels } from "./model-steps.ts";
 import { exerciseHistory, prepareHistory } from "./session-steps.ts";
 import { exerciseDeletion } from "./deletion-steps.ts";
+import { exerciseLiveTranscript, exerciseToolDetails } from "./transcript-steps.ts";
+import { prepareRichTools } from "./rich-tools-server.ts";
+import { exerciseRichTools } from "./rich-tools-steps.ts";
 
 const root = process.cwd();
 let directory: string;
@@ -15,6 +18,7 @@ let cwd: string;
 let env: Record<string, string>;
 let model: Awaited<ReturnType<typeof startModelServer>>;
 let history: Awaited<ReturnType<typeof prepareHistory>>;
+let richTools: Awaited<ReturnType<typeof prepareRichTools>>;
 
 test.beforeEach(async () => {
 	directory = await mkdtemp(path.join(os.tmpdir(), "opi-gui-browser-"));
@@ -36,11 +40,20 @@ export default function (pi) {
 	);
 	await writeFile(path.join(cwd, "input.ts"), "export function hello() { return 'GUI fixture'; }\n");
 	await writeFile(path.join(cwd, "image.png"), createCanvas(32, 32).toBuffer("image/png"));
+	richTools = await prepareRichTools(agentDir);
 	model = await startModelServer((request) => {
+		const rich = richTools.respond(request);
+		if (rich) return rich;
+		if (JSON.stringify(request.messages.findLast((message) => message.role === "user")?.content)?.includes("只回复下一轮"))
+			return { text: "第二轮独立回复" };
 		const count = request.messages.filter((message) => message.role === "tool").length;
-		if (count === 0) return { tool: "read", args: { path: "image.png" } };
+		if (count === 0) return { text: "我先检查图片和源码。", thinking: "先检查图片和源码，再验证修改与命令输出。", tool: "read", args: { path: "image.png" } };
 		if (count === 1) return { tool: "grep", args: { query: "hello", path: ["input.ts"] } };
 		if (count === 2) return { tool: "write", args: { path: "output.txt", content: "GUI bundled tools OK\n" } };
+		if (count === 3) return { tool: "read", args: { path: "input.ts", lines: "1" } };
+		if (count === 4) return { text: "文件已定位，接下来验证修改和命令输出。", tool: "edit", args: { path: "input.ts", edits: [{ old: "GUI fixture", new: "GUI updated" }] } };
+		if (count === 5) return { tool: "bash", args: { command: "printf 'GUI stream started\\n'; printf 'line %s\\n' {1..40}; sleep 2; printf 'GUI stream update\\n'; sleep 2; printf 'GUI shell complete\\n'" } };
+		if (count === 6) return { tool: "echo", args: { text: "扩展工具输出" } };
 		return { text: "GUI 验证完成：图片、代码搜索和文件写入。" };
 	});
 	await writeFile(
@@ -95,6 +108,7 @@ export default function (pi) {
 });
 test.afterEach(async () => {
 	await model.close();
+	await richTools.close();
 	await rm(directory, { recursive: true, force: true });
 });
 
@@ -168,7 +182,7 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await config.getByRole("textbox", { name: "设置 JSON" }).click();
 	await page.keyboard.press("Escape");
 	await expect(config).toHaveCount(0);
-	expect(await settings.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+	await expect.poll(() => settings.evaluate((element) => element.contains(document.activeElement))).toBe(true);
 	await page.keyboard.press("Escape");
 	await expect(settings).toHaveCount(0);
 	await expect(editor).toBeFocused();
@@ -189,7 +203,9 @@ async function exercise(page: Page, exportedPath?: string) {
 	expect((await page.locator(".notices .error").allTextContents()).map((text) => text.slice(0, 1000))).toEqual([]);
 	await page.getByRole("textbox", { name: "消息", exact: true }).fill("验证真实工具");
 	await page.keyboard.press("ControlOrMeta+Enter");
+	await exerciseLiveTranscript(page);
 	await expect(page.getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
+	await exerciseToolDetails(page);
 	expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI bundled tools OK\n");
 	await expect(page.getByText("执行失败", { exact: true })).toHaveCount(0);
 	await page.getByRole("textbox", { name: "消息", exact: true }).fill("/stats");
@@ -219,6 +235,7 @@ async function exercise(page: Page, exportedPath?: string) {
 		);
 		expect(Buffer.from(data ?? "", "base64").toString("utf8")).toContain("GUI 验证完成");
 	}
+	await exerciseRichTools(page);
 	expect(errors).toEqual([]);
 }
 
@@ -294,13 +311,14 @@ test("独立 opi-web：真实工具、刷新恢复与响应式布局", async ({ 
 	}
 });
 
-test("Electron：隔离渲染进程直接使用本地 SDK", async ({}, info) => {
+test("Electron：隔离渲染进程直接使用本地 SDK", async ({ viewport }, info) => {
 	test.skip(info.project.name !== "desktop", "桌面应用使用桌面窗口");
 	const standalone = path.join(directory, "desktop-app");
 	await cp(path.join(root, "dist/desktop/app"), standalone, { recursive: true });
 	const app = await electron.launch({ args: [standalone, "--no-sandbox"], cwd, env });
 	try {
 		const page = await app.firstWindow();
+		if (viewport) await page.setViewportSize(viewport);
 		const exportedPath = path.join(directory, "export.html");
 		await app.evaluate(({ dialog }, filePath) => {
 			dialog.showSaveDialog = async () => ({ canceled: false, filePath });

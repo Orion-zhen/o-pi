@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { LoaderCircle, Terminal, UserRound, Wrench } from "lucide-react";
+import { Children, isValidElement, memo, type ReactNode } from "react";
+import { CodeBlock } from "./code-block.tsx";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -20,36 +20,35 @@ export function safeLink(url: string): boolean {
 	}
 }
 
-export function MarkdownText({ text }: { text: string }) {
+export function ExternalLink({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
+	if (!safeLink(href)) return <span className={className}>{children}</span>;
+	return <a href={href} className={className} target="_blank" rel="noreferrer" onClick={(event) => {
+		if (window.opi) {
+			event.preventDefault();
+			void window.opi.openExternal(href);
+		}
+	}}>{children}</a>;
+}
+
+export const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
 	return (
 		<Markdown
 			remarkPlugins={[remarkGfm]}
 			components={{
-				a: ({ href, children }) =>
-					href && safeLink(href) ? (
-						<a
-							href={href}
-							target="_blank"
-							rel="noreferrer"
-							onClick={(event) => {
-								if (window.opi) {
-									event.preventDefault();
-									void window.opi.openExternal(href);
-								}
-							}}
-						>
-							{children}
-						</a>
-					) : (
-						<span>{children}</span>
-					),
+				pre: ({ children }) => {
+					const child = Children.only(children);
+					if (!isValidElement<{ children?: string; className?: string }>(child)) return <pre>{children}</pre>;
+					const language = child.props.className?.replace(/^language-/, "") ?? "text";
+					return <CodeBlock text={child.props.children ?? ""} label={language === "text" ? "代码" : language} language={language} />;
+				},
+				a: ({ href, children }) => href ? <ExternalLink href={href}>{children}</ExternalLink> : <span>{children}</span>,
 				img: ({ alt }) => <span>[图片链接: {alt}]</span>,
 			}}
 		>
 			{clean(text)}
 		</Markdown>
 	);
-}
+});
 
 export function Content({ value }: { value: unknown }): ReactNode {
 	if (typeof value === "string") return <MarkdownText text={value} />;
@@ -63,13 +62,6 @@ export function Content({ value }: { value: unknown }): ReactNode {
 				<MarkdownText text={value.thinking} />
 			</details>
 		);
-	if (value.type === "toolCall")
-		return (
-			<details className="tool" open>
-				<summary>调用 {String(value.name)}</summary>
-				<pre>{pretty(value.arguments)}</pre>
-			</details>
-		);
 	if (value.type === "image") {
 		const source = record(value.source) ? value.source : value;
 		const data = source.data;
@@ -81,48 +73,17 @@ export function Content({ value }: { value: unknown }): ReactNode {
 	return <pre>{pretty(value)}</pre>;
 }
 
-export function Message({ value, streaming = false }: { value: unknown; streaming?: boolean }) {
+export function Message({ value }: { value: unknown }) {
 	if (!record(value)) return <pre>{pretty(value)}</pre>;
 	const role = String(value.role ?? "message");
-	const tool = role === "toolResult" || role === "tool";
 	if (role === "custom" && value.display === false) return null;
 	return (
 		<article className={`message ${role}`}>
-			<header>
-				<span className="message-avatar" aria-hidden="true">
-					{role === "user" ? <UserRound /> : tool ? <Wrench /> : <Terminal />}
-				</span>
-				<strong>
-					{role === "user"
-						? "你"
-						: role === "assistant"
-							? "o-pi"
-							: tool
-								? `工具结果 ${String(value.toolName ?? "")}`
-								: String(value.customType ?? role)}
-				</strong>
-				{streaming && (
-					<span className="streaming-label">
-						<LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
-						生成中
-					</span>
-				)}
-				{typeof value.timestamp === "number" && <time>{new Date(value.timestamp).toLocaleTimeString()}</time>}
-			</header>
-			{tool ? (
-				<details open={value.isError === true}>
-					<summary>{value.isError ? "执行失败" : "查看结果"}</summary>
-					<Content value={value.content} />
-					{value.details !== undefined && (
-						<details>
-							<summary>结构化详情</summary>
-							<pre>{pretty(value.details)}</pre>
-						</details>
-					)}
-				</details>
-			) : (
-				<Content value={value.content ?? value.output ?? value} />
-			)}
+			{role !== "user" && <header><strong>{String(value.customType ?? role)}</strong></header>}
+			{role === "bashExecution" ? <>
+				{typeof value.command === "string" && <CodeBlock label="命令" language="bash" text={value.command} />}
+				{typeof value.output === "string" && <CodeBlock label="输出" text={clean(value.output)} />}
+			</> : <Content value={value.content ?? value.output ?? value} />}
 			{typeof value.errorMessage === "string" && <pre className="error">{value.errorMessage}</pre>}
 		</article>
 	);
