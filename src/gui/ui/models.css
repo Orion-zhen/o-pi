@@ -1,0 +1,24 @@
+.panel-body:has(.model-manager) { display: flex; overflow: hidden; }
+.model-manager { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; gap: 0.75rem; }
+.current-model { display: flex; align-items: center; gap: 0.75rem; padding: 0.875rem; background: var(--secondary); border-radius: 0.75rem; }
+.current-model > svg { width: 1.125rem; flex-shrink: 0; color: var(--muted-foreground); }
+.current-model > div:not([data-slot]) { flex: 1; min-width: 0; }
+.current-model strong { display: block; overflow-wrap: anywhere; font-size: 0.875rem; font-weight: 550; }
+.current-model small { color: var(--muted-foreground); font-size: 0.6875rem; }
+.model-search { display: flex; align-items: center; gap: 0.5rem; }
+.model-search > svg { flex-shrink: 0; width: 1rem; color: var(--muted-foreground); }
+.model-manager-toolbar { display: flex; align-items: center; gap: 0.25rem; }
+.model-manager-toolbar p { flex: 1; color: var(--muted-foreground); font-size: 0.75rem; }
+.model-save-status { color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.5; }
+.model-catalog { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.model-catalog h3 { margin: 0.75rem 0 0.25rem; font-size: 0.75rem; color: var(--muted-foreground); font-weight: 550; }
+.model-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; padding: 0.625rem 0.25rem; border-bottom: 1px solid var(--border); }
+.model-name strong { display: block; font-size: 0.875rem; font-weight: 500; overflow-wrap: anywhere; }
+.model-name small { display: block; color: var(--muted-foreground); font-size: 0.6875rem; overflow-wrap: anywhere; }
+.model-row-actions { display: flex; gap: 0.125rem; }
+.model-empty { padding: 1rem 0; font-size: 0.8125rem; color: var(--muted-foreground); }
+@media (max-width: 767px) {
+	.model-row { grid-template-columns: auto minmax(0, 1fr); gap: 0.5rem; }
+	.model-row-actions { grid-column: 2; justify-self: end; }
+	.model-row-actions > button, .model-manager-toolbar > button { width: 2.75rem; height: 2.75rem; }
+}

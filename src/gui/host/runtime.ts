@@ -24,6 +24,7 @@ export async function createGuiRuntime(
 	emit: (event: GuiEvent) => void,
 	bindTools: (controller: ToolSelectionController) => void,
 	commandSignal: () => AbortSignal,
+	sessionManager?: SessionManager,
 ) {
 	cwd = path.resolve(cwd);
 	if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
@@ -96,7 +97,11 @@ export async function createGuiRuntime(
 			dialogs.notify(`${error.path}: ${error.error}`, "error");
 		return { ...result, services, diagnostics: services.diagnostics };
 	};
-	return createAgentSessionRuntime(factory, { cwd, agentDir, sessionManager: SessionManager.create(cwd) });
+	return createAgentSessionRuntime(factory, {
+		cwd,
+		agentDir,
+		sessionManager: sessionManager ?? SessionManager.create(cwd),
+	});
 }
 
 export function guiModel(model: NonNullable<AgentSession["model"]>) {

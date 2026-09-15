@@ -1,7 +1,14 @@
-import { useState } from "react";
+import { useState, type ReactNode, type Ref } from "react";
 import type { GuiSnapshot } from "../contract.ts";
 import type { Send } from "./dialog.tsx";
 import { Content, pretty, record } from "./content.tsx";
+import { Button } from "./components/ui/button";
+import { Checkbox } from "./components/ui/checkbox";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { NativeSelect } from "./components/ui/native-select";
+import { PanelSheet } from "./components/panel-sheet";
+import { ModelManager } from "./model-manager.tsx";
 
 export interface PanelData {
 	title: string;
@@ -9,70 +16,41 @@ export interface PanelData {
 }
 const rows = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.filter(record) : []);
 
-export function ModelControls({ snapshot, send }: { snapshot: GuiSnapshot; send: Send }) {
-	return (
-		<div className="model-controls">
-			<select
-				aria-label="模型"
-				value={snapshot.model ? `${snapshot.model.provider}/${snapshot.model.id}` : ""}
-				disabled={snapshot.busy || snapshot.streaming}
-				onChange={(event) => {
-					const model = snapshot.models.find((model) => `${model.provider}/${model.id}` === event.target.value);
-					if (model) void send({ action: "model", provider: model.provider, id: model.id });
-				}}
-			>
-				<option value="">选择模型（先登录提供方）</option>
-				{snapshot.models.map((model) => (
-					<option key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
-						{model.provider} / {model.name}
-					</option>
-				))}
-			</select>
-			<select
-				aria-label="思考级别"
-				value={snapshot.thinking}
-				disabled={snapshot.busy || snapshot.streaming}
-				onChange={(event) => {
-					const level = snapshot.thinkingLevels.find((level) => level === event.target.value);
-					if (level) void send({ action: "thinking", level });
-				}}
-			>
-				{snapshot.thinkingLevels.map((level) => (
-					<option key={level}>{level}</option>
-				))}
-			</select>
-		</div>
-	);
-}
-
 export function Panel({
+	ref,
 	panel,
 	snapshot,
+	sessionList,
 	send,
 	close,
+	restoreFocus,
 }: {
+	ref: Ref<HTMLDivElement>;
 	panel: PanelData;
 	snapshot: GuiSnapshot;
+	sessionList: ReactNode;
 	send: Send;
 	close: () => void;
+	restoreFocus: () => void;
 }) {
 	let body;
 	switch (panel.title) {
 		case "模型":
-			body = <ModelControls snapshot={snapshot} send={send} />;
+			body = <ModelManager snapshot={snapshot} send={send} />;
 			break;
 		case "工具选择":
 			body = (
 				<>
 					<p>变更在当前会话分支生效。</p>
-					<button onClick={() => void send({ action: "persistTools" })}>保存为用户默认</button>
+					<Button variant="outline" size="sm" onClick={() => void send({ action: "persistTools" })}>
+						保存为用户默认
+					</Button>
 					{snapshot.tools.map((tool) => (
 						<label key={tool.name} className="list-row">
-							<input
-								type="checkbox"
+							<Checkbox
 								checked={tool.enabled}
 								disabled={!tool.available || snapshot.busy || snapshot.streaming}
-								onChange={(event) => void send({ action: "tool", name: tool.name, enabled: event.target.checked })}
+								onCheckedChange={(checked) => void send({ action: "tool", name: tool.name, enabled: checked === true })}
 							/>
 							<span>
 								<strong>{tool.name}</strong>
@@ -83,55 +61,8 @@ export function Panel({
 				</>
 			);
 			break;
-		case "模型范围":
-			body = (
-				<>
-					<p>不选择表示使用所有可用模型。</p>
-					{snapshot.models.map((model) => {
-						const id = `${model.provider}/${model.id}`;
-						return (
-							<label key={id} className="list-row">
-								<input
-									type="checkbox"
-									checked={snapshot.scopedModels.includes(id)}
-									onChange={(event) =>
-										void send({
-											action: "scopeModels",
-											models: event.target.checked
-												? [...snapshot.scopedModels, id]
-												: snapshot.scopedModels.filter((value) => value !== id),
-										})
-									}
-								/>
-								{id}
-							</label>
-						);
-					})}
-				</>
-			);
-			break;
 		case "会话列表":
-			body = (
-				<div>
-					{rows(panel.value).map((row) => (
-						<button
-							className="session-item"
-							key={String(row.path)}
-							onClick={() => {
-								if (typeof row.path === "string")
-									void send({ action: "switch", path: row.path }).then((ok) => {
-										if (ok) close();
-									});
-							}}
-						>
-							<strong>{String(row.name ?? row.firstMessage ?? row.id)}</strong>
-							<small>
-								{String(row.cwd)} · {String(row.modified)}
-							</small>
-						</button>
-					))}
-				</div>
-			);
+			body = sessionList;
 			break;
 		case "会话树":
 			body = <Tree value={panel.value} send={send} />;
@@ -143,23 +74,39 @@ export function Panel({
 			body = (
 				<>
 					<p>凭据由 SDK 保存在后端，不返回到界面。OAuth 回调在运行后端的电脑上接收。</p>
-					<button onClick={() => void send({ action: "cancelLogin" })}>取消登录</button>
+					<Button variant="outline" size="sm" onClick={() => void send({ action: "cancelLogin" })}>
+						取消登录
+					</Button>
 					{snapshot.providers.map((provider) => (
 						<div className="list-row" key={provider.id}>
 							<span>
 								{provider.name}
 								<small>{provider.authenticated ? "已配置" : "未配置"}</small>
 							</span>
-							<button onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}
+							>
 								API Key
-							</button>
+							</Button>
 							{provider.oauth && (
-								<button onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}
+								>
 									OAuth
-								</button>
+								</Button>
 							)}
 							{provider.authenticated && (
-								<button onClick={() => void send({ action: "logout", provider: provider.id })}>退出</button>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => void send({ action: "logout", provider: provider.id })}
+								>
+									退出
+								</Button>
 							)}
 						</div>
 					))}
@@ -170,7 +117,7 @@ export function Panel({
 			body = (
 				<label>
 					选择 JSONL 文件
-					<input
+					<Input
 						type="file"
 						accept=".jsonl"
 						onChange={(event) => {
@@ -202,17 +149,9 @@ export function Panel({
 			body = typeof panel.value === "string" ? <Content value={panel.value} /> : <pre>{pretty(panel.value)}</pre>;
 	}
 	return (
-		<div className="panel-backdrop">
-			<aside role="dialog" aria-label={panel.title} className="panel">
-				<header>
-					<h2>{panel.title}</h2>
-					<button onClick={close} aria-label="关闭面板">
-						关闭
-					</button>
-				</header>
-				{body}
-			</aside>
-		</div>
+		<PanelSheet ref={ref} title={panel.title} close={close} restoreFocus={restoreFocus}>
+			{body}
+		</PanelSheet>
 	);
 }
 
@@ -231,13 +170,23 @@ function Tree({ value, send }: { value: unknown; send: Send }) {
 							</summary>
 							<pre>{pretty(entry).slice(0, 3000)}</pre>
 							<div className="toolbar">
-								<button onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}
+								>
 									切换到此处
-								</button>
-								<button onClick={() => void send({ action: "navigate", entryId: id, summarize: true })}>
+								</Button>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => void send({ action: "navigate", entryId: id, summarize: true })}
+								>
 									总结后切换
-								</button>
-								<button onClick={() => void send({ action: "fork", entryId: id })}>创建分支</button>
+								</Button>
+								<Button variant="outline" size="sm" onClick={() => void send({ action: "fork", entryId: id })}>
+									创建分支
+								</Button>
 							</div>
 							<form
 								onSubmit={(event) => {
@@ -246,8 +195,10 @@ function Tree({ value, send }: { value: unknown; send: Send }) {
 									if (typeof label === "string") void send({ action: "label", entryId: id, label });
 								}}
 							>
-								<input name="label" aria-label="分支标签" defaultValue={String(node.label ?? "")} />
-								<button>保存标签</button>
+								<Input name="label" aria-label="分支标签" defaultValue={String(node.label ?? "")} />
+								<Button variant="outline" size="sm">
+									保存标签
+								</Button>
 							</form>
 						</details>
 						<Tree value={node.children} send={send} />
@@ -272,10 +223,9 @@ function Settings({ snapshot, send }: { snapshot: GuiSnapshot; send: Send }) {
 					] as const
 				).map(([key, label]) => (
 					<label key={key}>
-						<input
-							type="checkbox"
+						<Checkbox
 							checked={settings[key]}
-							onChange={(event) => void send({ action: "settings", ...settings, [key]: event.target.checked })}
+							onCheckedChange={(checked) => void send({ action: "settings", ...settings, [key]: checked === true })}
 						/>
 						{label}
 					</label>
@@ -288,7 +238,7 @@ function Settings({ snapshot, send }: { snapshot: GuiSnapshot; send: Send }) {
 				).map(([key, label]) => (
 					<label key={key}>
 						{label}
-						<select
+						<NativeSelect
 							value={settings[key]}
 							onChange={(event) =>
 								void send({
@@ -300,11 +250,13 @@ function Settings({ snapshot, send }: { snapshot: GuiSnapshot; send: Send }) {
 						>
 							<option value="one-at-a-time">逐条发送</option>
 							<option value="all">一起发送</option>
-						</select>
+						</NativeSelect>
 					</label>
 				))}
 			</div>
-			<button onClick={() => void send({ action: "config", file: "settings.json" })}>编辑完整 settings.json</button>
+			<Button variant="outline" size="sm" onClick={() => void send({ action: "config", file: "settings.json" })}>
+				编辑完整 settings.json
+			</Button>
 		</>
 	);
 }
@@ -314,37 +266,35 @@ export function ConfigEditor({
 	content,
 	send,
 	close,
+	restoreFocus,
 }: {
 	file: "settings.json";
 	content: string;
 	send: Send;
 	close: () => void;
+	restoreFocus: () => void;
 }) {
 	const [text, setText] = useState(content || "{}\n");
 	return (
-		<div className="panel-backdrop">
-			<aside className="panel">
-				<header>
-					<h2>{file}</h2>
-					<button onClick={close}>关闭</button>
-				</header>
-				<p>保存后重载。文件在编辑期间发生变更时会拒绝覆盖。</p>
-				<textarea
-					aria-label="设置 JSON"
-					className="config-editor"
-					value={text}
-					onChange={(event) => setText(event.target.value)}
-				/>
-				<button
-					onClick={() =>
-						void send({ action: "saveConfig", file, original: content, content: text }).then((ok) => {
-							if (ok) close();
-						})
-					}
-				>
-					保存并重载
-				</button>
-			</aside>
-		</div>
+		<PanelSheet title={file} close={close} restoreFocus={restoreFocus}>
+			<p>保存后重载。文件在编辑期间发生变更时会拒绝覆盖。</p>
+			<Textarea
+				aria-label="设置 JSON"
+				className="config-editor"
+				value={text}
+				onChange={(event) => setText(event.target.value)}
+			/>
+			<Button
+				variant="outline"
+				size="sm"
+				onClick={() =>
+					void send({ action: "saveConfig", file, original: content, content: text }).then((ok) => {
+						if (ok) close();
+					})
+				}
+			>
+				保存并重载
+			</Button>
+		</PanelSheet>
 	);
 }

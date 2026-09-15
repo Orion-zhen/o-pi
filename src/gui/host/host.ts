@@ -1,6 +1,6 @@
 import path from "node:path";
 import { stat } from "node:fs/promises";
-import { getAgentDir, SessionManager, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { UserHistoryStore, buildInitialHistory } from "../../harness/user-history.ts";
 import { compileSchemaValidator } from "../../harness/schema-validator.ts";
 import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
@@ -11,6 +11,9 @@ import { exportSession, importSession, completeFiles, expandAttachments, readCon
 import { runLogin } from "./login.ts";
 import { runBuiltin } from "./commands.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
+import { persistModelScope, setModelScope } from "./models.ts";
+import { GuiSessionCatalog } from "./sessions.ts";
+import { prepareHistoryDeletion, type DeleteHistoryAction } from "./delete-history.ts";
 
 const validate = compileSchemaValidator(actionSchema);
 
@@ -31,6 +34,7 @@ export class GuiHost {
 	private tasks = new Set<Promise<unknown>>();
 	private toolController: ToolSelectionController | undefined;
 	private loginController: AbortController | undefined;
+	private sessions = new GuiSessionCatalog((value) => this.emit({ type: "sessions", value }));
 	readonly dialogs = new GuiDialogs((event) => this.emit(event));
 
 	get runtime(): AgentSessionRuntime {
@@ -46,7 +50,8 @@ export class GuiHost {
 		this.listeners.add(listener);
 		listener({ type: "dialogs", value: this.dialogs.list() });
 		for (const value of this.dialogs.notices) listener({ type: "notice", value });
-		if (this.current) listener({ type: "snapshot", value: this.snapshot() });
+		listener({ type: "snapshot", value: this.current ? this.snapshot() : null });
+		if (this.sessions.value) listener({ type: "sessions", value: this.sessions.value });
 		return () => this.listeners.delete(listener);
 	}
 
@@ -56,7 +61,7 @@ export class GuiHost {
 		return task.finally(() => this.tasks.delete(task));
 	}
 
-	private async initialize(cwd: string): Promise<void> {
+	private async initialize(cwd: string, sessionManager?: SessionManager): Promise<void> {
 		this.changing = true;
 		try {
 			const runtime = await createGuiRuntime(
@@ -67,6 +72,7 @@ export class GuiHost {
 					this.toolController = controller;
 				},
 				() => this.commandController.signal,
+				sessionManager,
 			);
 			if (this.disposed) {
 				await runtime.dispose();
@@ -119,6 +125,7 @@ export class GuiHost {
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update")
 				this.liveTools.set(event.toolCallId, event);
 			if (event.type === "tool_execution_end") this.liveTools.delete(event.toolCallId);
+			if (event.type === "agent_end") this.refreshSessions();
 			this.schedule();
 		});
 		await session.bindExtensions({
@@ -137,6 +144,15 @@ export class GuiHost {
 			onError: (error) => this.dialogs.notify(`${error.extensionPath}: ${error.error}`, "error"),
 		});
 		this.publish();
+		this.refreshSessions();
+	}
+
+	private refreshSessions(): void {
+		if (this.disposed) return;
+		void this.sessions.refresh().catch((error: unknown) => {
+			if (!this.disposed)
+				this.dialogs.notify(`会话列表读取失败: ${error instanceof Error ? error.message : String(error)}`, "error");
+		});
 	}
 
 	snapshot(): GuiSnapshot {
@@ -160,7 +176,7 @@ export class GuiHost {
 	}
 
 	publish(): void {
-		if (this.current && !this.disposed) this.emit({ type: "snapshot", value: this.snapshot() });
+		if (!this.disposed) this.emit({ type: "snapshot", value: this.current ? this.snapshot() : null });
 	}
 
 	async dispatch(value: unknown): Promise<void> {
@@ -194,12 +210,15 @@ export class GuiHost {
 			this.publish();
 			return;
 		}
-		if (this.changing) throw new Error("正在切换会话，请稍后再试。");
-		if (action.action === "workspace" && !this.current) {
-			await this.start(action.path);
+		if (action.action === "sessions") {
+			await this.sessions.refresh();
 			return;
 		}
-		const task = this.execute(action);
+		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
+		const task =
+			action.action === "deleteSession" || action.action === "deleteWorkspace"
+				? this.deleteHistory(action)
+				: this.execute(action);
 		this.tasks.add(task);
 		try {
 			await task;
@@ -209,7 +228,58 @@ export class GuiHost {
 		}
 	}
 
+	private async deleteHistory(action: DeleteHistoryAction): Promise<void> {
+		this.assertIdle();
+		if (this.dialogs.list().length) throw new Error("请先完成或取消当前对话框。");
+		this.changing = true;
+		this.publish();
+		try {
+			const plan = await prepareHistoryDeletion(action, this.current ? this.snapshot() : undefined);
+			if ((await this.dialogs.ask("confirm", plan.title, plan.message)) !== "yes" || this.disposed) return;
+			await plan.verify();
+			if (plan.affectsCurrent && this.current) {
+				if (action.action === "deleteWorkspace") {
+					await this.current.dispose();
+					this.current = undefined;
+					this.historyTexts = [];
+					for (const key of Object.keys(this.dialogs.status)) delete this.dialogs.status[key];
+				} else if ((await this.current.newSession()).cancelled) {
+					this.dialogs.notify("会话切换被取消，未删除历史。");
+					return;
+				}
+				this.dialogs.context().setEditorText("");
+			}
+			await plan.remove();
+		} finally {
+			this.changing = false;
+			await this.sessions.refresh();
+		}
+	}
+
+	private assertIdle(): void {
+		if (
+			(this.current && (!this.current.session.isIdle || this.current.session.isBashRunning)) ||
+			this.loginController ||
+			this.preparing > 0
+		)
+			throw new Error("请先停止或等待当前操作结束。");
+	}
+
 	private async execute(action: Exclude<GuiAction, { action: "dialog" | "draft" }>): Promise<void> {
+		if (!this.current) {
+			this.changing = true;
+			try {
+				if (action.action === "workspace") await this.initialize(action.path);
+				else if (action.action === "switch") {
+					if (!(await stat(action.path)).isFile()) throw new Error("会话路径不是文件。");
+					const manager = SessionManager.open(action.path);
+					await this.initialize(manager.getCwd(), manager);
+				} else throw new Error("请先选择工作区。");
+			} finally {
+				this.changing = false;
+			}
+			return;
+		}
 		const runtime = this.runtime;
 		const session = runtime.session;
 		switch (action.action) {
@@ -231,8 +301,10 @@ export class GuiHost {
 						{ excludeFromContext: action.text.startsWith("!!") },
 					);
 					delete this.dialogs.status["bash"];
+					this.refreshSessions();
 					return;
 				}
+				const name = session.sessionName;
 				this.preparing++;
 				this.publish();
 				try {
@@ -247,6 +319,7 @@ export class GuiHost {
 					});
 				} finally {
 					this.preparing--;
+					if (session.sessionName !== name) this.refreshSessions();
 				}
 				return;
 			}
@@ -264,19 +337,6 @@ export class GuiHost {
 			case "files":
 				this.emit({ type: "files", paths: await completeFiles(runtime.cwd, action.prefix) });
 				return;
-			case "sessions": {
-				const sessions = await SessionManager.listAll(path.join(getAgentDir(), "sessions"));
-				this.emit({
-					type: "panel",
-					title: "会话列表",
-					value: sessions.map(({ allMessagesText: _text, created, modified, ...info }) => ({
-						...info,
-						created: created.toISOString(),
-						modified: modified.toISOString(),
-					})),
-				});
-				return;
-			}
 			case "tree":
 				this.emit({ type: "panel", title: "会话树", value: session.sessionManager.getTree() });
 				return;
@@ -315,8 +375,7 @@ export class GuiHost {
 				await exportSession(session, action.format, (event) => this.emit(event));
 				return;
 		}
-		if (!session.isIdle || session.isBashRunning || this.loginController || this.preparing > 0)
-			throw new Error("请先停止或等待当前操作结束。");
+		this.assertIdle();
 		this.changing = true;
 		this.publish();
 		try {
@@ -333,6 +392,7 @@ export class GuiHost {
 					break;
 				}
 				case "switch":
+					if (!(await stat(action.path)).isFile()) throw new Error("会话路径不是文件。");
 					await runtime.switchSession(action.path);
 					break;
 				case "fork": {
@@ -350,6 +410,7 @@ export class GuiHost {
 					break;
 				case "rename":
 					session.setSessionName(action.name);
+					this.refreshSessions();
 					break;
 				case "import":
 					await importSession(runtime, action.content);
@@ -361,21 +422,19 @@ export class GuiHost {
 				case "model": {
 					const model = runtime.services.modelRuntime.getModel(action.provider, action.id);
 					if (!model) throw new Error("模型不存在。");
-					await session.setModel(model, { persist: true });
+					await session.setModel(model, { persist: false });
 					break;
 				}
 				case "thinking":
 					session.setThinkingLevel(action.level);
 					runtime.services.settingsManager.setDefaultThinkingLevel(session.thinkingLevel);
 					break;
-				case "scopeModels": {
-					const scope = runtime.services.modelRuntime
-						.getAvailableSnapshot()
-						.filter((model) => action.models.includes(`${model.provider}/${model.id}`));
-					session.setScopedModels(scope.map((model) => ({ model })));
-					runtime.services.settingsManager.setEnabledModels(action.models);
+				case "scopeModels":
+					setModelScope(runtime, action.models);
 					break;
-				}
+				case "persistModels":
+					await persistModelScope(runtime);
+					break;
 				case "settings": {
 					session.setAutoCompactionEnabled(action.compaction);
 					session.setAutoRetryEnabled(action.retry);
@@ -414,6 +473,7 @@ export class GuiHost {
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
+		const sessionsClosed = this.sessions.dispose();
 		clearTimeout(this.timer);
 		this.loginController?.abort();
 		this.commandController.abort();
@@ -426,6 +486,7 @@ export class GuiHost {
 		this.unsubscribe?.();
 		await this.current?.dispose();
 		await this.history.flush();
+		await sessionsClosed;
 		this.listeners.clear();
 	}
 }

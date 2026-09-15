@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LoaderCircle, Terminal, UserRound, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -88,16 +89,24 @@ export function Message({ value, streaming = false }: { value: unknown; streamin
 	return (
 		<article className={`message ${role}`}>
 			<header>
+				<span className="message-avatar" aria-hidden="true">
+					{role === "user" ? <UserRound /> : tool ? <Wrench /> : <Terminal />}
+				</span>
 				<strong>
 					{role === "user"
 						? "你"
 						: role === "assistant"
-							? "助手"
+							? "o-pi"
 							: tool
 								? `工具结果 ${String(value.toolName ?? "")}`
 								: String(value.customType ?? role)}
 				</strong>
-				{streaming && <span>生成中</span>}
+				{streaming && (
+					<span className="streaming-label">
+						<LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+						生成中
+					</span>
+				)}
 				{typeof value.timestamp === "number" && <time>{new Date(value.timestamp).toLocaleTimeString()}</time>}
 			</header>
 			{tool ? (

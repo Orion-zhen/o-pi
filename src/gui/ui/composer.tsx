@@ -1,7 +1,20 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { ArrowUp, CornerUpLeft, History, ListPlus, Minimize2, Paperclip, Square, Trash2, X } from "lucide-react";
+import { IconButton } from "./components/icon-button";
+import { Button } from "./components/ui/button";
+import { Textarea } from "./components/ui/textarea";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
 import type { GuiAction } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
-import { ModelControls } from "./panels.tsx";
+import { ModelControls } from "./model-controls.tsx";
 import { pretty } from "./content.tsx";
 
 type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number];
@@ -19,6 +32,7 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 		completions,
 		setError,
 	} = gui;
+	const upload = useRef<HTMLInputElement>(null);
 	const [images, setImages] = useState<ImageAttachment[]>([]);
 	const [behavior, setBehavior] = useState<"steer" | "followUp">("followUp");
 	const submit = () => {
@@ -79,144 +93,194 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 			: [];
 	return (
 		<footer className="composer">
-			{snapshot && <ModelControls snapshot={snapshot} send={send} />}
-			{snapshot && snapshot.queue.steering.length + snapshot.queue.followUp.length > 0 && (
-				<details open className="queue">
-					<summary>
-						待发送消息 <button onClick={() => void send({ action: "clearQueue" })}>清空队列</button>
-					</summary>
-					<pre>{pretty(snapshot.queue)}</pre>
-				</details>
-			)}
-			{images.length > 0 && (
-				<div className="image-previews">
-					{images.map((image, index) => (
-						<button
-							key={index}
-							aria-label="移除附件"
-							onClick={() => setImages((images) => images.filter((_, current) => current !== index))}
+			<div className="composer-card">
+				{snapshot && snapshot.queue.steering.length + snapshot.queue.followUp.length > 0 && (
+					<details open className="queue">
+						<summary>
+							待发送消息{" "}
+							<IconButton
+								label="清空队列"
+								onClick={(event) => {
+									event.preventDefault();
+									void send({ action: "clearQueue" });
+								}}
+							>
+								<Trash2 />
+							</IconButton>
+						</summary>
+						<pre>{pretty(snapshot.queue)}</pre>
+					</details>
+				)}
+				{images.length > 0 && (
+					<div className="image-previews">
+						{images.map((image, index) => (
+							<div className="image-preview" key={index}>
+								<img src={`data:${image.mimeType};base64,${image.data}`} alt="待发送图片" />
+								<IconButton
+									label={`移除附件 ${index + 1}`}
+									size="icon-sm"
+									onClick={() => setImages((images) => images.filter((_, current) => current !== index))}
+								>
+									<X />
+								</IconButton>
+							</div>
+						))}
+					</div>
+				)}
+				<div className="suggestions">
+					{choices.map((choice) => (
+						<Button
+							variant="secondary"
+							size="sm"
+							key={choice.name}
+							onClick={() => {
+								setDraft(`/${choice.name} `);
+								editor.current?.focus();
+							}}
 						>
-							<img src={`data:${image.mimeType};base64,${image.data}`} alt="待发送图片" />
-							移除
-						</button>
+							/{choice.name}
+						</Button>
+					))}
+					{completions?.text === draft &&
+						completions.items.map((item) => (
+							<Button
+								variant="secondary"
+								size="sm"
+								key={item.value}
+								onClick={() => setDraft(`${draft.slice(0, draft.indexOf(" ") + 1)}${item.value}`)}
+							>
+								{item.label}
+							</Button>
+						))}
+					{fileChoices.map((file) => (
+						<Button
+							variant="secondary"
+							size="sm"
+							key={file}
+							onClick={() => {
+								setDraft((text) => text.replace(/@[^\s]*$/, () => `@"${file}" `));
+								setFileChoices([]);
+							}}
+						>
+							{file}
+						</Button>
 					))}
 				</div>
-			)}
-			<div className="suggestions">
-				{choices.map((choice) => (
-					<button
-						key={choice.name}
-						onClick={() => {
-							setDraft(`/${choice.name} `);
-							editor.current?.focus();
-						}}
-					>
-						{choice.name}
-					</button>
-				))}
-				{completions?.text === draft &&
-					completions.items.map((item) => (
-						<button key={item.value} onClick={() => setDraft(`${draft.slice(0, draft.indexOf(" ") + 1)}${item.value}`)}>
-							{item.label}
-						</button>
-					))}
-				{fileChoices.map((file) => (
-					<button
-						key={file}
-						onClick={() => {
-							setDraft((text) => text.replace(/@[^\s]*$/, () => `@"${file}" `));
-							setFileChoices([]);
-						}}
-					>
-						{file}
-					</button>
-				))}
-			</div>
-			<textarea
-				ref={editor}
-				aria-label="消息"
-				placeholder="输入任务、/命令、!Shell 或 @文件路径"
-				rows={3}
-				value={draft}
-				onChange={(event) => setDraft(event.target.value)}
-				onPaste={(event) => {
-					const files = [...event.clipboardData.files];
-					if (files.length) {
-						event.preventDefault();
-						void attach(files);
-					}
-				}}
-				onKeyDown={(event) => {
-					if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && !event.nativeEvent.isComposing) {
-						event.preventDefault();
-						submit();
-					}
-					if (event.key === "Tab") {
-						const match = /@([^\s]*)$/.exec(draft);
-						if (match) {
+				<Textarea
+					className="message-editor"
+					ref={editor}
+					aria-label="消息"
+					placeholder="描述你的任务，或输入 / 命令、@ 引用文件…"
+					rows={3}
+					value={draft}
+					onChange={(event) => setDraft(event.target.value)}
+					onPaste={(event) => {
+						const files = [...event.clipboardData.files];
+						if (files.length) {
 							event.preventDefault();
-							void send({ action: "files", prefix: match[1] ?? "" });
+							void attach(files);
 						}
-					}
-				}}
-			/>
-			<div className="toolbar">
-				{snapshot && (
-					<select
-						aria-label="输入历史"
-						value=""
-						onChange={(event) => {
-							setDraft(event.target.value);
-							editor.current?.focus();
-						}}
-					>
-						<option value="">输入历史</option>
-						{[...snapshot.history].reverse().map((text, index) => (
-							<option key={index} value={text}>
-								{text.slice(0, 80)}
-							</option>
-						))}
-					</select>
-				)}
-				<label className="file-button">
-					附件
-					<input
-						type="file"
-						multiple
-						onChange={(event) => {
-							void attach([...(event.target.files ?? [])]);
-							event.target.value = "";
-						}}
-					/>
-				</label>
-				<select
-					aria-label="排队方式"
-					value={behavior}
-					onChange={(event) => setBehavior(event.target.value === "steer" ? "steer" : "followUp")}
-				>
-					<option value="followUp">Follow-up</option>
-					<option value="steer">Steer</option>
-				</select>
-				<button onClick={() => gui.command("/compact")}>压缩</button>
-				<span className="spacer" />
-				{running && (
-					<button className="danger" onClick={() => void send({ action: "abort" })}>
-						停止
-					</button>
-				)}
-				<button className="primary" onClick={submit} disabled={!snapshot || status !== "已连接" || snapshot.busy}>
-					{running ? "加入队列" : "发送"}
-				</button>
+					}}
+					onKeyDown={(event) => {
+						if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && !event.nativeEvent.isComposing) {
+							event.preventDefault();
+							submit();
+						}
+						if (event.key === "Tab") {
+							const match = /@([^\s]*)$/.exec(draft);
+							if (match) {
+								event.preventDefault();
+								void send({ action: "files", prefix: match[1] ?? "" });
+							}
+						}
+					}}
+				/>
+				<div className="composer-bottom">
+					{snapshot && <ModelControls snapshot={snapshot} send={send} />}
+					<div className="composer-actions">
+						<IconButton label="附件" onClick={() => upload.current?.click()}>
+							<Paperclip />
+						</IconButton>
+						<input
+							ref={upload}
+							className="hidden"
+							aria-label="上传附件"
+							type="file"
+							multiple
+							onChange={(event) => {
+								void attach([...(event.target.files ?? [])]);
+								event.target.value = "";
+							}}
+						/>
+						{snapshot && (
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<IconButton label="输入历史" disabled={!snapshot.history.length}>
+										<History />
+									</IconButton>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent
+									align="end"
+									className="history-menu"
+									onCloseAutoFocus={(event) => {
+										event.preventDefault();
+										editor.current?.focus();
+									}}
+								>
+									<DropdownMenuLabel>输入历史</DropdownMenuLabel>
+									{[...snapshot.history].reverse().map((text, index) => (
+										<DropdownMenuItem key={index} onSelect={() => setDraft(text)}>
+											{text.slice(0, 120)}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						)}
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<IconButton label="排队方式">{behavior === "steer" ? <CornerUpLeft /> : <ListPlus />}</IconButton>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuLabel>运行时发送消息</DropdownMenuLabel>
+								<DropdownMenuRadioGroup
+									value={behavior}
+									onValueChange={(value) => setBehavior(value === "steer" ? "steer" : "followUp")}
+								>
+									<DropdownMenuRadioItem value="followUp">追加任务 · Follow-up</DropdownMenuRadioItem>
+									<DropdownMenuRadioItem value="steer">引导当前任务 · Steer</DropdownMenuRadioItem>
+								</DropdownMenuRadioGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
+						<IconButton label="压缩上下文" onClick={() => gui.command("/compact")}>
+							<Minimize2 />
+						</IconButton>
+						<span className="spacer" />
+						{running && (
+							<IconButton label="停止" className="text-destructive" onClick={() => void send({ action: "abort" })}>
+								<Square />
+							</IconButton>
+						)}
+						<IconButton
+							label={running ? "加入队列" : "发送"}
+							variant="default"
+							className="send-button"
+							onClick={submit}
+							disabled={!snapshot || status !== "已连接" || snapshot.busy || (!draft.trim() && images.length === 0)}
+						>
+							<ArrowUp />
+						</IconButton>
+					</div>
+				</div>
 			</div>
 			{snapshot && (
 				<div className="metrics">
 					<span>
 						{snapshot.context?.tokens ?? 0} / {snapshot.context?.contextWindow ?? snapshot.model?.contextWindow ?? 0}{" "}
-						context
+						上下文
 					</span>
 					<span>
-						{snapshot.tools.filter((tool) => tool.enabled).length} tools · {snapshot.stats.tokens.total} tokens · $
-						{snapshot.stats.cost.toFixed(4)} est
+						{snapshot.tools.filter((tool) => tool.enabled).length} 工具 · {snapshot.stats.tokens.total} tokens · $
+						{snapshot.stats.cost.toFixed(4)} 预估
 					</span>
 					<span>Ctrl/⌘ + Enter 发送</span>
 				</div>

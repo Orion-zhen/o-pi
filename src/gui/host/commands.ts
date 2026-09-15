@@ -8,8 +8,8 @@ export const builtinCommands = [
 	["tree", "会话树与分支"],
 	["fork", "从消息创建分支"],
 	["name", "重命名会话"],
-	["model", "选择模型"],
-	["scoped-models", "配置模型范围"],
+	["model", "管理模型"],
+	["scoped-models", "管理模型"],
 	["thinking", "思考级别"],
 	["settings", "设置"],
 	["login", "登录提供方"],
@@ -40,6 +40,7 @@ export async function runBuiltin(host: GuiHost, text: string): Promise<boolean> 
 			await host.dispatch(
 				args ? { action: "switch", path: path.resolve(host.runtime.cwd, args) } : { action: "sessions" },
 			);
+			if (!args) panel("会话列表");
 			break;
 		case "tree":
 		case "fork":
@@ -51,10 +52,8 @@ export async function runBuiltin(host: GuiHost, text: string): Promise<boolean> 
 			break;
 		}
 		case "model":
-			panel("模型");
-			break;
 		case "scoped-models":
-			panel("模型范围");
+			panel("模型");
 			break;
 		case "thinking":
 			if (args) await host.dispatch({ action: "thinking", level: args });

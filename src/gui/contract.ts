@@ -33,11 +33,14 @@ export const actionSchema = Type.Union([
 			Type.Literal("tree"),
 			Type.Literal("clearQueue"),
 			Type.Literal("persistTools"),
+			Type.Literal("persistModels"),
 			Type.Literal("cancelLogin"),
 		]),
 	}),
 	object({ action: Type.Literal("workspace"), path: short }),
 	object({ action: Type.Literal("switch"), path: short }),
+	object({ action: Type.Literal("deleteSession"), path: short }),
+	object({ action: Type.Literal("deleteWorkspace"), cwd: short }),
 	object({ action: Type.Literal("fork"), entryId: short }),
 	object({ action: Type.Literal("navigate"), entryId: short, summarize: Type.Boolean() }),
 	object({ action: Type.Literal("label"), entryId: short, label: short }),
@@ -57,7 +60,7 @@ export const actionSchema = Type.Union([
 			Type.Literal("max"),
 		]),
 	}),
-	object({ action: Type.Literal("scopeModels"), models: Type.Array(short, { maxItems: 1000 }) }),
+	object({ action: Type.Literal("scopeModels"), models: Type.Array(short, { maxItems: 1000, uniqueItems: true }) }),
 	object({
 		action: Type.Literal("settings"),
 		compaction: Type.Boolean(),
@@ -104,6 +107,12 @@ export interface GuiModel {
 	name: string;
 	contextWindow: number;
 }
+export interface GuiSessionInfo {
+	path: string;
+	cwd: string;
+	title: string;
+	modified: string;
+}
 export interface GuiSnapshot {
 	cwd: string;
 	sessionId: string;
@@ -144,7 +153,8 @@ export interface GuiSnapshot {
 	status: Record<string, string>;
 }
 export type GuiEvent =
-	| { type: "snapshot"; value: GuiSnapshot }
+	| { type: "snapshot"; value: GuiSnapshot | null }
+	| { type: "sessions"; value: GuiSessionInfo[] }
 	| { type: "dialogs"; value: GuiDialog[] }
 	| { type: "notice"; value: GuiNotice }
 	| { type: "panel"; title: string; value: unknown }

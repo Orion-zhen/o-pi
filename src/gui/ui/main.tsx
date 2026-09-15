@@ -1,129 +1,261 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+	ArrowUpRight,
+	Code2,
+	ExternalLink,
+	FolderSearch,
+	LoaderCircle,
+	PanelLeft,
+	RefreshCw,
+	ShieldCheck,
+	Terminal,
+	X,
+} from "lucide-react";
 import { Content, Message, clean, pretty, safeLink } from "./content.tsx";
 import { Dialog } from "./dialog.tsx";
 import { ConfigEditor, Panel } from "./panels.tsx";
 import { Composer } from "./composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
+import { SessionHistory } from "./session-history.tsx";
+import { WorkspacePicker } from "./workspace-picker.tsx";
 import { useGui } from "./use-gui.ts";
+import { IconButton } from "./components/icon-button";
+import { Button } from "./components/ui/button";
+import { Sheet, SheetTrigger } from "./components/ui/sheet";
+import { TooltipProvider } from "./components/ui/tooltip";
+import "./theme.css";
 import "./style.css";
+import "./transcript.css";
+
+const starters = [
+	{ icon: FolderSearch, title: "了解项目", text: "梳理这个项目的结构，介绍主要模块和运行方式。" },
+	{ icon: Code2, title: "审查代码", text: "审查当前工作区的代码变更，指出潜在问题和改进建议。" },
+	{ icon: Terminal, title: "开始构建", text: "我想实现一个新功能，请先了解项目并和我讨论实现方案。" },
+];
 
 function App() {
 	const gui = useGui();
 	const { snapshot, dialogs, notices, status, error, panel, config, auth, send } = gui;
-	const [sidebar, setSidebar] = useState(false);
+	const [mobileOpen, setMobileOpen] = useState(false);
+	const [collapsed, setCollapsed] = useState(false);
 	const scroll = useRef<HTMLDivElement>(null);
 	const follow = useRef(true);
+	const panelContent = useRef<HTMLDivElement>(null);
+	const main = useRef<HTMLElement>(null);
+	const restoreFocus = () => (panelContent.current ?? gui.editor.current ?? main.current)?.focus();
+	useEffect(() => {
+		const desktop = window.matchMedia("(min-width: 768px)");
+		const closeMobileSidebar = (event: MediaQueryListEvent) => {
+			if (event.matches) setMobileOpen(false);
+		};
+		desktop.addEventListener("change", closeMobileSidebar);
+		return () => desktop.removeEventListener("change", closeMobileSidebar);
+	}, []);
 	useEffect(() => {
 		if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
 	}, [snapshot]);
 	const authUrl =
 		auth?.type === "auth_url" ? auth.url : auth?.type === "device_code" ? auth.verificationUri : undefined;
+	const state = status !== "已连接" ? status : dialogs.length ? "等待操作" : gui.running ? "运行中" : "就绪";
 	return (
-		<div className="app">
-			<Sidebar gui={gui} visible={sidebar} close={() => setSidebar(false)} />
-			<main>
-				<header className="topbar">
-					<button className="mobile-menu" onClick={() => setSidebar(!sidebar)}>
-						菜单
-					</button>
-					<div>
-						<strong>{snapshot?.name ?? "正在启动 SDK"}</strong>
-						<small>{snapshot?.cwd}</small>
-					</div>
-					<span className={dialogs.length ? "waiting" : ""}>
-						{dialogs.length ? "等待操作" : gui.running ? "运行中" : "就绪"}
-					</span>
-				</header>
-				<div className="connection-status">
-					{status}
-					{status !== "已连接" && <button onClick={gui.reconnect}>重新连接</button>}
-				</div>
-				{error && (
-					<div role="alert" className="error-banner">
-						<pre>{error}</pre>
-						<button onClick={() => gui.setError("")}>关闭</button>
-					</div>
-				)}
-				{auth && (
-					<div className="auth-banner">
-						<button onClick={() => gui.setAuth(undefined)}>收起登录提示</button>
-						<pre>{pretty(auth)}</pre>
-						{authUrl && safeLink(authUrl) && (
-							<a
-								href={authUrl}
-								target="_blank"
-								rel="noreferrer"
-								onClick={(event) => {
-									if (window.opi) {
-										event.preventDefault();
-										void window.opi.openExternal(authUrl).catch((error: unknown) => gui.setError(String(error)));
-									}
-								}}
-							>
-								打开认证页面
-							</a>
-						)}
-						<button onClick={() => void send({ action: "cancelLogin" })}>取消登录</button>
-					</div>
-				)}
-				<div
-					className="transcript"
-					ref={scroll}
-					onScroll={() => {
-						if (scroll.current)
-							follow.current =
-								scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100;
-					}}
-				>
-					{!snapshot?.messages.length && (
-						<section className="welcome">
-							<h2>开始一个真实会话</h2>
-							<p>选择工作目录和模型，输入任务。工具在后端电脑上执行。</p>
-							<button onClick={() => gui.command("/login")}>配置模型认证</button>
-						</section>
-					)}
-					{snapshot?.messages.map((message, index) => (
-						<Message key={`${snapshot.sessionId}-${index}`} value={message} />
-					))}
-					{snapshot?.streamingMessage && <Message value={snapshot.streamingMessage} streaming />}
-					{snapshot?.liveTools.map((event) => (
-						<details className="tool" open key={event.toolCallId}>
-							<summary>执行中: {event.toolName}</summary>
-							{event.type === "tool_execution_update" ? (
-								<Content value={event.partialResult.content} />
-							) : (
-								<pre>{pretty(event.args)}</pre>
+		<TooltipProvider delayDuration={350}>
+			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+				<div className="app" data-collapsed={collapsed}>
+					<Sidebar
+						gui={gui}
+						collapsed={collapsed}
+						toggle={() => setCollapsed(!collapsed)}
+						close={() => setMobileOpen(false)}
+					/>
+					<main className="main-panel" ref={main} tabIndex={-1}>
+						<header className="topbar">
+							<SheetTrigger asChild>
+								<IconButton className="mobile-menu" label="菜单">
+									<PanelLeft />
+								</IconButton>
+							</SheetTrigger>
+							<div className="session-heading">
+								<strong>{snapshot ? snapshot.name || "新会话" : "选择工作区"}</strong>
+								<small title={snapshot?.cwd}>{snapshot?.cwd ?? "尚未选择工作区"}</small>
+							</div>
+							<div role="status" className="connection-status" data-state={state}>
+								{gui.running ? (
+									<LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+								) : (
+									<span className="status-dot" />
+								)}
+								<span>{state}</span>
+							</div>
+							{status !== "已连接" && (
+								<IconButton label="重新连接" onClick={gui.reconnect}>
+									<RefreshCw />
+								</IconButton>
 							)}
-						</details>
-					))}
-					{snapshot?.status["bash"] && <pre className="live-output">{snapshot.status["bash"]}</pre>}
-					{notices.length > 0 && (
-						<details className="notices" open={notices.some((notice) => notice.type === "error")}>
-							<summary>通知 ({notices.length})</summary>
-							{notices.map((notice) => (
-								<pre className={notice.type} key={notice.id}>
-									{clean(notice.text)}
-								</pre>
-							))}
-						</details>
-					)}
+						</header>
+						{error && (
+							<div role="alert" className="error-banner">
+								<pre>{error}</pre>
+								<IconButton label="关闭错误提示" onClick={() => gui.setError("")}>
+									<X />
+								</IconButton>
+							</div>
+						)}
+						{auth && (
+							<div className="auth-banner">
+								<div className="flex items-center justify-between">
+									<span className="flex items-center gap-2">
+										<ShieldCheck className="size-4" />
+										模型认证
+									</span>
+									<IconButton label="收起登录提示" onClick={() => gui.setAuth(undefined)}>
+										<X />
+									</IconButton>
+								</div>
+								<pre>{pretty(auth)}</pre>
+								<div className="toolbar">
+									{authUrl && safeLink(authUrl) && (
+										<Button variant="outline" size="sm" asChild>
+											<a
+												href={authUrl}
+												target="_blank"
+												rel="noreferrer"
+												onClick={(event) => {
+													if (window.opi) {
+														event.preventDefault();
+														void window.opi
+															.openExternal(authUrl)
+															.catch((error: unknown) => gui.setError(String(error)));
+													}
+												}}
+											>
+												<ExternalLink />
+												打开认证页面
+											</a>
+										</Button>
+									)}
+									<Button variant="ghost" size="sm" onClick={() => void send({ action: "cancelLogin" })}>
+										取消登录
+									</Button>
+								</div>
+							</div>
+						)}
+						<div
+							className="transcript"
+							ref={scroll}
+							onScroll={() => {
+								if (scroll.current)
+									follow.current =
+										scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100;
+							}}
+						>
+							<div className="transcript-content">
+								{!snapshot && (
+									<section className="welcome workspace-welcome">
+										<div className="welcome-mark">
+											<FolderSearch aria-hidden="true" />
+										</div>
+										<h1>选择工作区</h1>
+										<p>打开项目目录，或从侧栏恢复历史会话。</p>
+										<WorkspacePicker gui={gui} close={() => setMobileOpen(false)} />
+									</section>
+								)}
+								{snapshot && !snapshot.messages.length && (
+									<section className="welcome">
+										<div className="welcome-mark">
+											<Terminal aria-hidden="true" />
+										</div>
+										<p className="welcome-eyebrow">你的代码工作空间</p>
+										<h1>今天，想构建什么？</h1>
+										<p>从一个想法开始，一起把它变成现实。</p>
+										<div className="starter-grid">
+											{starters.map(({ icon: Icon, title, text }) => (
+												<Button
+													key={title}
+													variant="outline"
+													className="starter"
+													onClick={() => {
+														gui.setDraft(text);
+														gui.editor.current?.focus();
+													}}
+												>
+													<Icon />
+													<span>{title}</span>
+													<ArrowUpRight />
+												</Button>
+											))}
+										</div>
+										{snapshot && !snapshot.model && (
+											<Button variant="ghost" size="sm" onClick={() => gui.command("/login")}>
+												<ShieldCheck />
+												配置模型认证
+											</Button>
+										)}
+									</section>
+								)}
+								{snapshot?.messages.map((message, index) => (
+									<Message key={`${snapshot.sessionId}-${index}`} value={message} />
+								))}
+								{snapshot?.streamingMessage && <Message value={snapshot.streamingMessage} streaming />}
+								{snapshot?.liveTools.map((event) => (
+									<details className="tool live-tool" open key={event.toolCallId}>
+										<summary>
+											<LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+											执行中: {event.toolName}
+										</summary>
+										{event.type === "tool_execution_update" ? (
+											<Content value={event.partialResult.content} />
+										) : (
+											<pre>{pretty(event.args)}</pre>
+										)}
+									</details>
+								))}
+								{snapshot?.status["bash"] && <pre className="live-output">{snapshot.status["bash"]}</pre>}
+								{notices.length > 0 && (
+									<details className="notices" open={notices.some((notice) => notice.type === "error")}>
+										<summary>通知 ({notices.length})</summary>
+										{notices.map((notice) => (
+											<pre className={notice.type} key={notice.id}>
+												{clean(notice.text)}
+											</pre>
+										))}
+									</details>
+								)}
+							</div>
+						</div>
+						{snapshot && (
+							<Composer
+								gui={gui}
+								onSubmit={() => {
+									follow.current = true;
+								}}
+							/>
+						)}
+					</main>
 				</div>
-				<Composer
-					gui={gui}
-					onSubmit={() => {
-						follow.current = true;
-					}}
-				/>
-			</main>
+			</Sheet>
 			{panel && snapshot && (
-				<Panel panel={panel} snapshot={snapshot} send={send} close={() => gui.setPanel(undefined)} />
+				<Panel
+					ref={panelContent}
+					restoreFocus={restoreFocus}
+					panel={panel}
+					snapshot={snapshot}
+					sessionList={<SessionHistory gui={gui} close={() => gui.setPanel(undefined)} full />}
+					send={send}
+					close={() => gui.setPanel(undefined)}
+				/>
 			)}
 			{config && (
-				<ConfigEditor file={config.file} content={config.content} send={send} close={() => gui.setConfig(undefined)} />
+				<ConfigEditor
+					restoreFocus={restoreFocus}
+					file={config.file}
+					content={config.content}
+					send={send}
+					close={() => gui.setConfig(undefined)}
+				/>
 			)}
-			{dialogs[0] && <Dialog key={dialogs[0].id} dialog={dialogs[0]} send={send} />}
-		</div>
+			{dialogs[0] && <Dialog restoreFocus={restoreFocus} key={dialogs[0].id} dialog={dialogs[0]} send={send} />}
+		</TooltipProvider>
 	);
 }
 

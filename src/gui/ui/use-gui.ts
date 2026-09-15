@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiSnapshot } from "../contract.ts";
+import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiSessionInfo, GuiSnapshot } from "../contract.ts";
 import { connectGui } from "./connection.ts";
 import type { Send } from "./dialog.tsx";
 import type { PanelData } from "./panels.tsx";
 
 /** 只维护界面状态。重连使用后端快照，不重放操作。 */
 export function useGui() {
-	const [snapshot, setSnapshot] = useState<GuiSnapshot>();
+	const [snapshot, setSnapshot] = useState<GuiSnapshot | null>();
+	const [sessions, setSessions] = useState<GuiSessionInfo[]>();
+	const [sessionsLoading, setSessionsLoading] = useState(false);
 	const [dialogs, setDialogs] = useState<GuiDialog[]>([]);
 	const [notices, setNotices] = useState<GuiNotice[]>([]);
 	const [status, setStatus] = useState("连接中");
@@ -40,8 +42,18 @@ export function useGui() {
 					switch (event.type) {
 						case "snapshot":
 							setSnapshot(event.value);
-							setDialogs(event.value.dialogs);
-							setNotices(event.value.notices);
+							if (event.value) {
+								setDialogs(event.value.dialogs);
+								setNotices(event.value.notices);
+							} else {
+								setDraft("");
+								setFileChoices([]);
+								setCompletions(undefined);
+								setAuth(undefined);
+							}
+							break;
+						case "sessions":
+							setSessions(event.value);
 							break;
 						case "dialogs":
 							setDialogs(event.value);
@@ -110,6 +122,31 @@ export function useGui() {
 			return false;
 		}
 	}, []);
+	const refreshSessions = useCallback(async () => {
+		setSessionsLoading(true);
+		try {
+			await send({ action: "sessions" });
+		} finally {
+			setSessionsLoading(false);
+		}
+	}, [send]);
+	useEffect(() => {
+		if (status !== "已连接") return;
+		void refreshSessions();
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const refresh = () => {
+			if (document.visibilityState !== "visible") return;
+			clearTimeout(timer);
+			timer = setTimeout(() => void refreshSessions(), 150);
+		};
+		window.addEventListener("focus", refresh);
+		document.addEventListener("visibilitychange", refresh);
+		return () => {
+			clearTimeout(timer);
+			window.removeEventListener("focus", refresh);
+			document.removeEventListener("visibilitychange", refresh);
+		};
+	}, [status, revision, refreshSessions]);
 	useEffect(() => {
 		const timer = setTimeout(() => {
 			if (status === "已连接") {
@@ -131,6 +168,9 @@ export function useGui() {
 	};
 	return {
 		snapshot,
+		sessions,
+		sessionsLoading,
+		refreshSessions,
 		dialogs,
 		notices,
 		status,

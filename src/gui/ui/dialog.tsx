@@ -1,44 +1,80 @@
 import { useEffect, useState } from "react";
+import { Clock3, ShieldCheck } from "lucide-react";
 import type { GuiAction, GuiDialog } from "../contract.ts";
 import { clean } from "./content.tsx";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import {
+	Dialog as DialogRoot,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "./components/ui/dialog";
 export type Send = (action: GuiAction) => Promise<boolean>;
 
-export function Dialog({ dialog, send }: { dialog: GuiDialog; send: Send }) {
+export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send: Send; restoreFocus: () => void }) {
 	const [value, setValue] = useState(dialog.initial);
 	const [now, setNow] = useState(Date.now());
 	useEffect(() => {
+		if (dialog.deadline === null) return;
 		const timer = setInterval(() => setNow(Date.now()), 1000);
 		return () => clearInterval(timer);
-	}, []);
+	}, [dialog.deadline]);
 	const respond = (value: string | null) => {
 		void send({ action: "dialog", id: dialog.id, value });
 	};
 	return (
-		<div className="modal-backdrop">
-			<section role="dialog" aria-modal="true" aria-label={dialog.title} className="modal approval">
-				<h2>{dialog.kind === "select" ? "请选择" : dialog.kind === "confirm" ? "请确认" : "需要输入"}</h2>
-				<pre className="dialog-title">{clean(dialog.title)}</pre>
+		<DialogRoot
+			open
+			onOpenChange={(open) => {
+				if (!open) respond(null);
+			}}
+		>
+			<DialogContent
+				className="approval"
+				showCloseButton={false}
+				onPointerDownOutside={(event) => event.preventDefault()}
+				onCloseAutoFocus={(event) => {
+					event.preventDefault();
+					restoreFocus();
+				}}
+			>
+				<DialogHeader>
+					<DialogDescription className="flex items-center gap-2">
+						<ShieldCheck className="size-4" />
+						{dialog.kind === "select" ? "请选择" : dialog.kind === "confirm" ? "请确认" : "需要输入"}
+					</DialogDescription>
+					<DialogTitle className="dialog-title">{clean(dialog.title)}</DialogTitle>
+				</DialogHeader>
 				{dialog.message && <pre>{clean(dialog.message)}</pre>}
-				{dialog.deadline !== null && <p>剩余 {Math.max(0, Math.ceil((dialog.deadline - now) / 1000))} 秒</p>}
+				{dialog.deadline !== null && (
+					<p className="flex items-center gap-2 text-sm text-muted-foreground">
+						<Clock3 className="size-4" />
+						剩余 {Math.max(0, Math.ceil((dialog.deadline - now) / 1000))} 秒
+					</p>
+				)}
 				{dialog.kind === "select" ? (
 					<div className="choices">
 						{dialog.options.map((option) => (
-							<button key={option} onClick={() => respond(option)}>
+							<Button variant="outline" key={option} onClick={() => respond(option)}>
 								{clean(option)}
-							</button>
+							</Button>
 						))}
 					</div>
 				) : dialog.kind === "confirm" ? (
-					<button onClick={() => respond("yes")}>确认</button>
+					<Button onClick={() => respond("yes")}>确认</Button>
 				) : (
 					<form
+						className="dialog-form"
 						onSubmit={(event) => {
 							event.preventDefault();
 							respond(value);
 						}}
 					>
 						{dialog.kind === "editor" ? (
-							<textarea
+							<Textarea
 								aria-label="输入内容"
 								autoFocus
 								rows={10}
@@ -46,7 +82,7 @@ export function Dialog({ dialog, send }: { dialog: GuiDialog; send: Send }) {
 								onChange={(event) => setValue(event.target.value)}
 							/>
 						) : (
-							<input
+							<Input
 								aria-label="输入内容"
 								autoFocus
 								autoComplete="off"
@@ -55,13 +91,13 @@ export function Dialog({ dialog, send }: { dialog: GuiDialog; send: Send }) {
 								onChange={(event) => setValue(event.target.value)}
 							/>
 						)}
-						<button type="submit">提交</button>
+						<Button type="submit">提交</Button>
 					</form>
 				)}
-				<button className="secondary" onClick={() => respond(null)}>
+				<Button variant="ghost" onClick={() => respond(null)}>
 					取消 / 拒绝
-				</button>
-			</section>
-		</div>
+				</Button>
+			</DialogContent>
+		</DialogRoot>
 	);
 }

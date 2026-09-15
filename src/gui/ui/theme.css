@@ -1,0 +1,95 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--foreground);
+	--color-muted: var(--secondary);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--border);
+	--color-ring: var(--ring);
+	--radius-sm: 0.375rem;
+	--radius-md: 0.5rem;
+	--radius-lg: 0.75rem;
+	--radius-xl: 1rem;
+}
+
+:root {
+	font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	color-scheme: light;
+	--background: #fafaf8;
+	--foreground: #292b27;
+	--primary: #30352f;
+	--primary-foreground: #fafbf8;
+	--secondary: #efefeb;
+	--accent: #e5e7e0;
+	--popover: #fbfcf9;
+	--muted-foreground: #70756b;
+	--destructive: #b34444;
+	--border: #dcdfd6;
+	--ring: #969f8c;
+	--glass: #f0f1ebd9;
+	--surface: #ffffffdb;
+	--success: #4d7457;
+	--warning: #967127;
+	--shadow: 0 8px 32px #343b2910, 0 1px 3px #343b2908;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		color-scheme: dark;
+		--background: #191b19;
+		--foreground: #e5e8e1;
+		--primary: #dfe6d8;
+		--primary-foreground: #232820;
+		--secondary: #262a25;
+		--accent: #33392f;
+		--popover: #242823;
+		--muted-foreground: #a0a79b;
+		--destructive: #ef9494;
+		--border: #373d33;
+		--ring: #78876d;
+		--glass: #222720d9;
+		--surface: #252923de;
+		--success: #98b893;
+		--warning: #d6b773;
+		--shadow: 0 8px 32px #0003, 0 1px 3px #0002;
+	}
+}
+
+@layer base {
+	* { @apply border-border; }
+	body { @apply m-0 bg-background text-foreground antialiased; }
+	button:not(:disabled), summary, [role="menuitem"] { cursor: pointer; }
+	button, input, textarea, select { font: inherit; }
+	::selection { background: var(--accent); }
+}
+
+[data-slot="sheet-overlay"], [data-slot="dialog-overlay"] { backdrop-filter: blur(5px); }
+[data-slot="sheet-content"], [data-slot="dialog-content"], [data-slot="dropdown-menu-content"] {
+	background: var(--surface);
+	backdrop-filter: blur(24px);
+}
+[data-slot="dropdown-menu-content"] { min-width: 12rem; border-radius: 0.75rem; padding: 0.375rem; }
+[data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"] { min-height: 2.25rem; }
+[data-slot="tooltip-content"] { font-size: 0.75rem; }
+/* 关闭时立即释放浮层，避免焦点恢复晚于后续打开的面板。 */
+[data-state="closed"]:is([data-slot="dropdown-menu-content"], [data-slot="tooltip-content"], [data-slot="sheet-content"], [data-slot="sheet-overlay"]) { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation: none !important;
+		transition: none !important;
+		scroll-behavior: auto !important;
+	}
+}
