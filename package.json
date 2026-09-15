@@ -9,10 +9,22 @@
 		"build": "bun scripts/build.mjs",
 		"typecheck": "tsc",
 		"test": "bun run build && vitest run",
-		"bench": "bun run build && bun scripts/bench.mjs"
+		"bench": "bun run build && bun scripts/bench.mjs",
+		"dev:web": "bun run build:gui && bun src/web/cli.ts",
+		"build:gui": "vite build --config vite.gui.config.ts",
+		"build:web": "bun scripts/build-web.mjs",
+		"build:desktop": "bun scripts/build-desktop.mjs",
+		"desktop": "electron dist/desktop/app",
+		"test:gui": "bun run build:web && bun scripts/build-desktop.mjs --dir && playwright test --config playwright.gui.config.ts"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-server": "latest",
+		"@types/react": "latest",
+		"@types/react-dom": "latest",
+		"@types/ws": "latest",
+		"@playwright/test": "latest",
+		"electron": "latest",
+		"electron-builder": "latest",
 		"@types/node": "latest",
 		"@types/node-notifier": "latest",
 		"@types/picomatch": "latest",
@@ -46,6 +58,11 @@
 		"linkedom": "latest",
 		"node-notifier": "latest",
 		"p-limit": "latest",
+		"ws": "latest",
+		"react": "latest",
+		"react-dom": "latest",
+		"react-markdown": "latest",
+		"remark-gfm": "latest",
 		"pdfjs-dist": "latest",
 		"picomatch": "latest",
 		"tldts": "latest",
@@ -66,7 +83,7 @@
 		"vscode-languageserver-protocol": "latest",
 		"web-tree-sitter": "latest"
 	},
-	"trustedDependencies": ["@google/genai", "protobufjs"],
+	"trustedDependencies": ["@google/genai", "protobufjs", "electron"],
 	"overrides": {
 		"node-notifier": {
 			"uuid": "latest"

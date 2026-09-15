@@ -73,6 +73,8 @@ web_modules/
 # TypeScript cache
 *.tsbuildinfo
 .tmp-smoke/
+/test-results/
+/playwright-report/
 
 # Optional npm cache directory
 .npm

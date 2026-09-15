@@ -29,6 +29,12 @@ interface SubagentTuiModule {
 	};
 }
 
+export interface SubagentCommandPresentation {
+	signal(): AbortSignal;
+	onProgress: SubagentProgressCallback;
+	present(result: Awaited<ReturnType<typeof runSubagentCommand>>): void;
+}
+
 const taskItem = Type.Object(
 	{
 		agent: Type.String({ minLength: 1 }),
@@ -49,7 +55,7 @@ const subagentParams = Type.Object(
 );
 
 /** 注册轻量 subagent 工具和确定性命令；所有 component 仅由延迟加载的 TUI adapter 创建。 */
-export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModule>): (pi: ExtensionAPI) => void {
+export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModule>, presentation?: SubagentCommandPresentation): (pi: ExtensionAPI) => void {
 	return function subagentExtension(pi: ExtensionAPI): void {
 		const executions = new SubagentExecutionRegistry();
 		const subagentTool = registerTool(pi, {
@@ -103,7 +109,7 @@ export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModul
 						}
 						return tuiLoad;
 					};
-		registerCommandAdapters(pi, executions, requireTui);
+		registerCommandAdapters(pi, executions, requireTui, presentation);
 
 		pi.on("session_start", async (_event, ctx) => {
 			if (ctx.mode === "tui") await requireTui?.();
@@ -122,6 +128,7 @@ function registerCommandAdapters(
 	pi: ExtensionAPI,
 	executions: SubagentExecutionRegistry,
 	requireTui: (() => Promise<SubagentTuiModule>) | undefined,
+	presentation: SubagentCommandPresentation | undefined,
 ): void {
 	pi.registerCommand("agents", {
 		description: "List available subagents",
@@ -144,7 +151,8 @@ function registerCommandAdapters(
 				ctx.mode === "tui" && requireTui !== undefined
 					? (await requireTui()).createSubagentCommandProgressAdapter(ctx.ui)
 					: undefined;
-			const lease = executions.start(ctx.signal);
+			const signal = presentation?.signal();
+			const lease = executions.start(signal && ctx.signal ? AbortSignal.any([signal, ctx.signal]) : signal ?? ctx.signal);
 			try {
 				const interaction = createInteraction(ctx);
 				const result = await runSubagentCommand(
@@ -158,8 +166,12 @@ function registerCommandAdapters(
 						...(interaction === undefined ? {} : { interaction }),
 					},
 					parsed.tasks,
-					progressAdapter?.onProgress,
+					presentation?.onProgress ?? progressAdapter?.onProgress,
 				);
+				if (presentation !== undefined) {
+					presentation.present(result);
+					return;
+				}
 				if (ctx.mode === "tui") {
 					pi.appendEntry(SUBAGENT_COMMAND_ENTRY, result);
 					return;

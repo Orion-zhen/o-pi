@@ -7,7 +7,7 @@ import { createAssistantPerformanceTracker } from "../chat/message-performance.t
 import { recordUserMessageTimestamp, resetUserMessageTimestamps } from "../chat/message-timestamp.ts";
 import { TuiSession } from "./session.ts";
 import { collectUserMessages } from "./snapshot.ts";
-import { UserHistoryStore } from "../editor/history.ts";
+import { UserHistoryStore } from "../../harness/user-history.ts";
 
 export interface TuiRuntime {
 	startSession(ctx: ExtensionContext, replaySessionMessages: boolean): Promise<void>;

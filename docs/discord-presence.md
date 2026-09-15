@@ -2,7 +2,7 @@
 
 `src/harness/extensions/discord-presence.ts` 是各前端共用的业务扩展，把 Pi 的当前活动发布到运行 SDK 后端的本机 Discord Desktop。`@xhayper/discord-rpc` 负责 Discord IPC，o-pi 负责配置、活动状态、模板、发送频率和生命周期。
 
-启用条件为配置开启且 SDK 的 `ctx.hasUI` 为 `true`，不限定前端名称。TUI 和 RPC 交互会话均支持，未来 Desktop 可加载同一扩展。print、JSON 和无交互 UI 的子代理不自动发布活动。Discord Desktop 必须正在运行，并允许分享当前活动。浏览器版 Discord 不提供本地 IPC。
+启用条件为配置开启且 SDK 的 `ctx.hasUI` 为 `true`，不限定前端名称。TUI、RPC、Desktop 和 WebUI 的交互会话均支持。没有交互 UI 的 print、JSON 和子代理不自动发布活动。Discord Desktop 必须正在运行，并允许分享当前活动。浏览器版 Discord 不提供本地 IPC。
 
 ## 快速启用
 
@@ -334,7 +334,7 @@ JSONC 使用 `json`，JSX 使用 `javascript`，TSX 使用 `typescript`，YML �
 
 Desktop 后端加载 `src/harness/extensions.ts` 中的业务扩展，按 SDK 约定绑定交互 UI 并管理会话生命周期，即可复用 Presence 的活动、配置和协调逻辑，无需导入 TUI 模块。
 
-独立打包时还需提供协调进程的启动路径。当前 `coordinator-client.ts` 使用现有 `cliInvocation(["--opi-discord-daemon", endpoint])` 启动守护进程，Desktop 不能直接假定自己的可执行文件支持该参数。这项打包适配在实现 Desktop 入口时处理。
+`coordinator-client.ts` 通过 `cliInvocation(["--opi-discord-daemon", endpoint])` 启动守护进程。Desktop 使用内置后台入口，并仅给协调子进程设置 `ELECTRON_RUN_AS_NODE=1`。Web 使用自身的独立二进制入口。二者均不依赖用户安装的 `opi`。
 
 ## 内部职责
 

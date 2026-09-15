@@ -8,7 +8,7 @@ import { runtimePlugin } from "./plugins.mjs";
 
 const require = createRequire(import.meta.url);
 const piRoot = fileURLToPath(new URL("../", import.meta.resolve("@earendil-works/pi-coding-agent")));
-export async function collectAssets(root, staging) {
+export async function collectAssets(root, staging, { target = "bun", extra = [] } = {}) {
 	const files = [];
 	async function add(source, destination) {
 		const metadata = await stat(source);
@@ -25,9 +25,9 @@ export async function collectAssets(root, staging) {
 	for (const name of ["package.json", "README.md", "LICENSE"]) await add(path.join(root, name), name);
 	await add(path.join(root, "docs"), "docs");
 	for (const name of ["package.json", "README.md", "CHANGELOG.md", "docs", "examples"]) await add(path.join(piRoot, name), `pi/${name}`);
-	await add(path.join(piRoot, "dist/modes/interactive/theme"), "pi/theme");
-	await add(path.join(piRoot, "dist/modes/interactive/assets"), "pi/assets");
-	await add(path.join(piRoot, "dist/core/export-html"), "pi/export-html");
+	await add(path.join(piRoot, "dist/modes/interactive/theme"), target === "node" ? "pi/dist/modes/interactive/theme" : "pi/theme");
+	await add(path.join(piRoot, "dist/modes/interactive/assets"), target === "node" ? "pi/dist/modes/interactive/assets" : "pi/assets");
+	await add(path.join(piRoot, "dist/core/export-html"), target === "node" ? "pi/dist/core/export-html" : "pi/export-html");
 	const wasmSpecs = new Set(["web-tree-sitter/web-tree-sitter.wasm", ...Object.values(TREE_SITTER_LANGUAGES).map(({ grammar }) => grammar)]);
 	for (const spec of wasmSpecs) await add(require.resolve(spec), `wasm/${spec}`);
 	await add(require.resolve("@silvia-odwyer/photon-node/photon_rs_bg.wasm"), "wasm/photon_rs_bg.wasm");
@@ -46,12 +46,13 @@ export async function collectAssets(root, staging) {
 		["parser-worker", path.join(root, "src/harness/file-tools/grep/parser-worker.ts")],
 	]) {
 		const output = path.join(staging, "workers", `${name}.mjs`);
-		const result = await Bun.build({ entrypoints: [entry], target: "bun", format: "esm", minify: true, plugins: [runtimePlugin()] });
+		const result = await Bun.build({ entrypoints: [entry], target, format: "esm", minify: true, plugins: [runtimePlugin()] });
 		if (result.outputs.length !== 1) throw new Error(`Unexpected worker outputs: ${name}`);
 		await mkdir(path.dirname(output), { recursive: true });
 		await writeFile(output, await result.outputs[0].arrayBuffer());
 		files.push({ path: `workers/${name}.mjs`, source: output, executable: false });
 	}
+	for (const [source, destination] of extra) await add(source, destination);
 	files.sort((a, b) => a.path.localeCompare(b.path, "en"));
 	const hash = createHash("sha256");
 	for (const file of files) hash.update(file.path).update(String(file.executable)).update(await readFile(file.source));

@@ -1,6 +1,7 @@
 {
 	"compilerOptions": {
 		"target": "ESNext",
+		"jsx": "react-jsx",
 		"module": "Preserve",
 		"moduleResolution": "Bundler",
 		"allowImportingTsExtensions": true,
@@ -14,6 +15,6 @@
 		"skipLibCheck": true,
 		"types": ["node", "vitest"]
 	},
-	"include": ["src/**/*.ts", "tests/**/*.ts", "types/**/*.d.ts"],
+	"include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "types/**/*.d.ts"],
 	"exclude": ["o-pet"]
 }

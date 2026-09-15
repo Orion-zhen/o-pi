@@ -190,7 +190,7 @@ function findSavedTools(branchEntries: readonly ToolSelectionBranchEntry[]): str
 	return savedTools;
 }
 
-function toolAvailableOnCurrentPlatform(tool: ToolInfo): boolean {
+export function toolAvailableOnCurrentPlatform(tool: ToolInfo): boolean {
 	return tool.name !== "powershell" || process.platform === "win32";
 }
 

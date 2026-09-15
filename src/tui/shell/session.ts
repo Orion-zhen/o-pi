@@ -17,7 +17,7 @@ import {
 	userMessageText,
 } from "./snapshot.ts";
 import type { TuiConfig, TuiRunStatus, TuiSkillsSnapshot, TuiSnapshot } from "./types.ts";
-import { buildInitialHistory, normalizeHistoryCwd, type UserHistoryRecord, type UserHistoryStore } from "../editor/history.ts";
+import { buildInitialHistory, normalizeHistoryCwd, type UserHistoryRecord, type UserHistoryStore } from "../../harness/user-history.ts";
 
 type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
 

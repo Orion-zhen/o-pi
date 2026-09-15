@@ -18,11 +18,28 @@ bun run build
 
 开发时可直接运行 `bun src/cli.ts`。项目不固定 Bun 版本或提交锁文件。构建使用 PATH 中的 Bun，制作通用分发产物时使用官方 Bun，避免引入系统发行版特有的动态库依赖。
 
-`opi` 调用 `pi-coding-agent.main()`，复用上游 CLI、会话初始化和 TUI。`src/harness/` 保存本项目的业务扩展，`src/tui/` 保存终端呈现与增强。未来 Desktop 可直接使用 SDK 和业务扩展，不经过 CLI 或 TUI。`~/.pi/agent/` 下的个人配置、认证、本地资源及会话继续使用。支持 Pi 的外部 TS/JS 扩展发现、`-e/--extension` 和 `/reload`，无外部扩展时不初始化 Jiti/Babel。`-ne/--no-extensions` 关闭本仓库的集成功能和外部扩展自动加载，但保留显式 `-e`。不支持 Pi 包管理命令。
+`opi` 调用 `pi-coding-agent.main()`，复用上游 CLI、会话初始化和 TUI。`src/harness/` 保存本项目的业务扩展，`src/tui/` 保存终端呈现与增强。Desktop 和 `opi-web` 直接使用 SDK 和业务扩展，共用 React 界面，不经过 CLI、TUI 或 Pi stdio RPC。`~/.pi/agent/` 下的个人配置、认证、本地资源及会话继续使用。支持 Pi 的外部 TS/JS 扩展发现、`-e/--extension` 和 `/reload`，无外部扩展时不初始化 Jiti/Babel。`-ne/--no-extensions` 关闭本仓库的集成功能和外部扩展自动加载，但保留显式 `-e`。不支持 Pi 包管理命令。
 
 本仓库模块位于 `src/harness/extensions/`，界面装配位于 `src/tui/extensions.ts`，不再由原 `pi` 自动加载。已有用户切换命令为 `opi`，不要再通过 settings 或 `-e` 重复加载本仓库入口。
 
 可复用的体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需合并到 `~/.pi/agent/settings.json`，不要覆盖已有 provider、model 等个人设置。运行与升级边界见 [CLI](docs/cli.md)。
+
+## GUI MVP
+
+```bash
+# 独立网页版，打开终端打印的完整链接
+bun run build:web
+./dist/opi-web --cwd /path/to/project
+
+# 桌面预览
+bun scripts/build-desktop.mjs --dir
+bun run desktop
+
+# 当前平台的桌面分发包
+bun run build:desktop
+```
+
+GUI 沿用 `~/.pi`，提供真实会话、工具、审批、模型认证、会话树和业务面板。Web 默认只监听本机，远程访问需要 TLS。桌面产物在 `dist/desktop/release/`，MVP 尚未签名。功能边界、手机访问和验证方法见 [GUI MVP](docs/gui.md)。
 
 ## 组合技
 
@@ -34,6 +51,7 @@ bun run build
 ## 文档
 
 * [CLI 入口](docs/cli.md)
+* [GUI MVP](docs/gui.md)
 * [前端与 SDK 约定](docs/frontends.md)
 * [配置分层](docs/configuration.md)
 * [性能 Benchmark](docs/benchmark.md)

@@ -167,6 +167,7 @@ function spawnCoordinatorDaemon(endpoint: string): void {
 	const invocation = cliInvocation(["--opi-discord-daemon", endpoint]);
 	const child = spawn(invocation.command, invocation.args, {
 		cwd: process.cwd(),
+		...(invocation.env === undefined ? {} : { env: invocation.env }),
 		detached: true,
 		stdio: "ignore",
 		windowsHide: true,

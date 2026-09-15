@@ -12,10 +12,13 @@ import systemPrompt from "../harness/extensions/system-prompt.ts";
 import telemetry from "../harness/extensions/telemetry.ts";
 import usage from "../harness/extensions/usage.ts";
 import { createWebToolsExtension } from "../harness/extensions/web-tools.ts";
+import type { Presenter } from "../harness/presentation.ts";
 import type { StatsSnapshot } from "../harness/stats/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
 import type { UsageSnapshot } from "../harness/usage/types.ts";
 import tui from "./shell/extension.ts";
+
+function tuiPresenter<T>(show: T): Presenter<T> { return { mode: "tui", show }; }
 
 /** 终端入口装配呈现器，harness 不知道组件的路径和加载方式。 */
 export const presentation = {
@@ -34,7 +37,7 @@ export const presentation = {
 	},
 	approvalGate: async (...args: Parameters<(typeof import("./views/approval/dialog.ts"))["openApprovalDialog"]>) =>
 		(await import("./views/approval/dialog.ts")).openApprovalDialog(...args),
-	stats: async (ctx: ExtensionCommandContext, snapshot: StatsSnapshot) => {
+	stats: tuiPresenter(async (ctx: ExtensionCommandContext, snapshot: StatsSnapshot) => {
 		const { StatsViewer } = await import("./views/stats/stats-viewer.ts");
 		await ctx.ui.custom<void>(
 			(tui, theme, _keys, done) => new StatsViewer(snapshot, theme, () => tui.terminal.rows, done),
@@ -43,8 +46,8 @@ export const presentation = {
 				overlayOptions: { width: "90%", minWidth: 80 },
 			},
 		);
-	},
-	usage: async (ctx: ExtensionCommandContext, snapshot: UsageSnapshot | "aborted") => {
+	}),
+	usage: tuiPresenter(async (ctx: ExtensionCommandContext, snapshot: UsageSnapshot | "aborted") => {
 		const { UsageViewer } = await import("./views/usage/viewer.ts");
 		await ctx.ui.custom<void>(
 			(tui, theme, _keys, done) => new UsageViewer(snapshot, theme, () => tui.terminal.rows, done),
@@ -53,8 +56,8 @@ export const presentation = {
 				overlayOptions: { anchor: "center", width: "90%", minWidth: 110, margin: 1 },
 			},
 		);
-	},
-	systemPrompt: async (ctx: ExtensionCommandContext, prompt: string) => {
+	}),
+	systemPrompt: tuiPresenter(async (ctx: ExtensionCommandContext, prompt: string) => {
 		const { SystemPromptViewer } = await import("./views/system-prompt/viewer.ts");
 		const model = ctx.model;
 		const scope = model === undefined ? {} : { provider: model.provider, modelId: model.id, baseUrl: model.baseUrl };
@@ -65,8 +68,8 @@ export const presentation = {
 				overlayOptions: { width: "90%", minWidth: 80 },
 			},
 		);
-	},
-	telemetry: async (ctx: ExtensionCommandContext, report: LiveTelemetryReport) => {
+	}),
+	telemetry: tuiPresenter(async (ctx: ExtensionCommandContext, report: LiveTelemetryReport) => {
 		const { TelemetryViewer } = await import("./views/telemetry-report/viewer.ts");
 		await ctx.ui.custom<void>(
 			(tui, theme, _keys, done) => new TelemetryViewer(report, theme, () => tui.terminal.rows, done),
@@ -75,7 +78,7 @@ export const presentation = {
 				overlayOptions: { width: "90%", minWidth: 80 },
 			},
 		);
-	},
+	}),
 };
 
 export function createTuiExtensions(): InlineExtension[] {

@@ -3,6 +3,7 @@ import {
 	ToolSelectionController,
 	type ToolSelectionRestoreNotice,
 } from "../tool-defaults/controller.ts";
+import { canPresent, type Presenter } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 interface ToolSelectorModule {
@@ -18,7 +19,7 @@ interface ToolSelectorModule {
 type ToolSelectorLoader = () => Promise<ToolSelectorModule>;
 
 /** 注册工具选择生命周期；配置、恢复与持久化由 controller 负责。 */
-export function createToolsExtension(loadTui?: ToolSelectorLoader): (pi: ExtensionAPI) => void {
+export function createToolsExtension(loadTui?: ToolSelectorLoader, gui?: Presenter<(controller: ToolSelectionController) => void>): (pi: ExtensionAPI) => void {
 	return function toolsExtension(pi: ExtensionAPI): void {
 		const controller = new ToolSelectionController(pi);
 
@@ -35,6 +36,10 @@ export function createToolsExtension(loadTui?: ToolSelectorLoader): (pi: Extensi
 		pi.registerCommand("tools", {
 			description: "Enable/disable tools",
 			handler: async (_args, ctx) => {
+				if (gui !== undefined && canPresent(ctx, gui)) {
+					gui.show(controller);
+					return;
+				}
 				if (ctx.mode !== "tui" || loadTui === undefined) {
 					ctx.ui.notify("/tools requires TUI mode", "error");
 					return;
