@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { storeSession } from "./session-fixture.ts";
+import { exerciseSessionHeading } from "./session-heading-steps.ts";
 
 export async function prepareHistory(home: string, cwd: string) {
 	const agentDir = path.join(home, ".pi", "agent");
@@ -55,7 +56,8 @@ export async function exerciseHistory(
 			.filter({ has: page.getByRole("button", { name: `工作区 ${fixture.other}`, exact: true }) });
 	await page.getByRole("textbox", { name: "消息", exact: true }).fill("/name 当前 GUI 会话");
 	await page.getByRole("button", { name: "发送", exact: true }).click();
-	await expect(page.locator(".session-heading strong")).toHaveText("当前 GUI 会话");
+	await expect(page.locator(".session-heading button")).toHaveText("当前 GUI 会话");
+	await exerciseSessionHeading(page);
 	await openSidebar();
 	const navigation = page.getByRole("navigation", { name: "工作空间导航", exact: true });
 	for (const name of ["会话", "会话树", "工具", "模型", "技能"])
@@ -88,7 +90,7 @@ export async function exerciseHistory(
 		.click();
 	await otherGroup().getByRole("button", { name: "另一工作区会话", exact: true }).click();
 	if (phone) await expect(page.getByRole("dialog", { name: "工作空间导航", exact: true })).toHaveCount(0);
-	await expect(page.locator(".session-heading small")).toHaveText(fixture.other);
+	await expect(page.locator(".session-heading button")).toHaveText("另一工作区会话");
 	await expect(page.locator(".message.user")).toContainText("来自另一个工作区");
 	await openSidebar();
 	await expect(
@@ -106,7 +108,7 @@ export async function exerciseHistory(
 	const original = currentGroup().getByRole("button", { name: `工作区 ${fixture.cwd}`, exact: true });
 	if ((await original.getAttribute("aria-expanded")) === "false") await original.click();
 	await currentGroup().getByRole("button", { name: "当前 GUI 会话", exact: true }).click();
-	await expect(page.locator(".session-heading small")).toHaveText(fixture.cwd);
+	await expect(page.locator(".session-heading button")).toHaveText("当前 GUI 会话");
 	await expect(page.getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
 	await openSidebar();
 	const collapseHistory = currentGroup().getByRole("button", { name: "收起", exact: true });

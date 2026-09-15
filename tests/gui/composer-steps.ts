@@ -9,9 +9,10 @@ export async function exerciseContextUsage(page: Page) {
 	const details = page.getByRole("dialog", { name: "上下文详情", exact: true });
 	await expect(details).toBeVisible();
 	await expect(details).toContainText("128,000");
-	for (const label of ["已用 tokens", "上下文容量", "已启用工具", "累计 tokens", "预估费用"]) {
+	for (const label of ["已用 tokens", "上下文容量", "已启用工具", "累计 tokens", "预估费用", "最近命中率", "累计命中率", "缓存读取 tokens", "缓存写入 tokens"]) {
 		await expect(details.getByText(label, { exact: true })).toBeVisible();
 	}
+	expect(await details.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
 	await page.keyboard.press("Escape");
 	await expect(details).toHaveCount(0);
 	await expect(usage).toBeFocused();

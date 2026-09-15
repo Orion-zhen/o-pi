@@ -21,6 +21,7 @@ import { ConfigEditor, Panel } from "./panels.tsx";
 import { Composer } from "./composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import { SessionHistory } from "./session-history.tsx";
+import { SessionHeading } from "./session-heading.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
 import { useGui } from "./use-gui.ts";
 import { IconButton } from "./components/icon-button";
@@ -77,10 +78,11 @@ function App() {
 									<PanelLeft />
 								</IconButton>
 							</SheetTrigger>
-							<div className="session-heading">
-								<strong>{snapshot ? snapshot.name || "新会话" : "选择工作区"}</strong>
-								<small title={snapshot?.cwd}>{snapshot?.cwd ?? "尚未选择工作区"}</small>
-							</div>
+							{snapshot ? (
+								<SessionHeading key={snapshot.sessionId} name={snapshot.name} send={send} />
+							) : (
+								<div className="session-heading"><strong className="session-name">选择工作区</strong></div>
+							)}
 							<div role="status" className="connection-status" data-state={state}>
 								{gui.running ? (
 									<LoaderCircle className="size-3 animate-spin" aria-hidden="true" />

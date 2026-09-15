@@ -152,7 +152,13 @@ export interface GuiSnapshot {
 	notices: GuiNotice[];
 	status: Record<string, string>;
 }
+export type GuiReport =
+	| { title: "会话统计"; value: import("../harness/stats/types.ts").StatsSnapshot }
+	| { title: "套餐用量"; value: import("../harness/usage/types.ts").UsageSnapshot | "aborted" }
+	| { title: "遥测"; value: import("../harness/telemetry-report/live.ts").LiveTelemetryReport };
+
 export type GuiEvent =
+	| ({ type: "report" } & GuiReport)
 	| { type: "snapshot"; value: GuiSnapshot | null }
 	| { type: "sessions"; value: GuiSessionInfo[] }
 	| { type: "dialogs"; value: GuiDialog[] }

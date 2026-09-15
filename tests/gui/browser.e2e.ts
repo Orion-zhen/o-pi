@@ -7,6 +7,8 @@ import { createCanvas } from "@napi-rs/canvas";
 import { startModelServer } from "../cli/model-server.ts";
 import { exerciseModels } from "./model-steps.ts";
 import { exerciseHistory, prepareHistory } from "./session-steps.ts";
+import { exerciseSessionHeading } from "./session-heading-steps.ts";
+import { exerciseReports } from "./report-steps.ts";
 import { exerciseDeletion } from "./deletion-steps.ts";
 import { exerciseLiveTranscript, exerciseToolDetails } from "./transcript-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
@@ -210,11 +212,7 @@ async function exercise(page: Page, exportedPath?: string) {
 	await exerciseToolDetails(page);
 	expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI bundled tools OK\n");
 	await expect(page.getByText("执行失败", { exact: true })).toHaveCount(0);
-	await page.getByRole("textbox", { name: "消息", exact: true }).fill("/stats");
-	await page.getByRole("button", { name: "发送", exact: true }).click();
-	await expect(page.getByRole("dialog", { name: "会话统计", exact: true })).toBeVisible();
-	await page.getByRole("button", { name: "关闭面板" }).click();
-	await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeFocused();
+	await exerciseReports(page);
 	await page.getByRole("textbox", { name: "消息", exact: true }).fill("/gui-note");
 	await page.getByRole("button", { name: "发送", exact: true }).click();
 	await page.getByRole("dialog", { name: "备注" }).getByLabel("输入内容").fill("标准交互验证");
@@ -301,6 +299,7 @@ test("独立 opi-web：真实工具、刷新恢复与响应式布局", async ({ 
 				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeInViewport();
 				await expect(page.getByRole("button", { name: "发送", exact: true })).toBeInViewport();
 				await expectComposerLayout(page);
+				await exerciseSessionHeading(page);
 				await exerciseContextUsage(page);
 				expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 				if (size.width === 640) {

@@ -65,11 +65,11 @@ export async function exerciseDeletion(
 	expect(await readFile(second, "utf8")).toContain("待删除会话二");
 
 	await (await workspace(cwd)).getByRole("button", { name: "待删除会话二", exact: true }).click();
-	await expect(page.locator(".session-heading small")).toHaveText(cwd);
+	await expect(page.locator(".session-heading button")).toHaveText("待删除会话二");
 	dialog = await deleteMenu("会话 待删除会话二 的更多操作", "删除会话");
 	await dialog.getByRole("button", { name: "确认", exact: true }).click();
 	await removed(second);
-	await expect(page.locator(".session-heading small")).toHaveText(cwd);
+	await expect(page.locator(".session-heading button")).toHaveText("未命名会话");
 	await expect(page.getByRole("heading", { name: "今天，想构建什么？", exact: true })).toBeVisible();
 	await expect(page.locator(".message")).toHaveCount(0);
 	const third = await storeSession({ ...options, name: "批量删除一" });
@@ -94,14 +94,14 @@ export async function exerciseDeletion(
 	const picker = page.locator(".workspace-welcome");
 	await picker.getByRole("textbox", { name: "工作目录", exact: true }).fill(cwd);
 	await picker.getByRole("button", { name: "打开工作目录", exact: true }).click();
-	await expect(page.locator(".session-heading small")).toHaveText(cwd);
+	await expect(page.locator(".session-heading button")).toHaveText("未命名会话");
 	await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
 	dialog = await deleteMenu(`工作区 ${cwd} 的更多操作`, "删除工作区");
 	await expect(dialog).toContainText("0 个共享历史会话");
 	await dialog.getByRole("button", { name: "确认", exact: true }).click();
 	await expect(page.getByRole("heading", { name: "选择工作区", exact: true })).toBeVisible();
 	await (await workspace(fixture.cwd)).getByRole("button", { name: "当前 GUI 会话", exact: true }).click();
-	await expect(page.locator(".session-heading small")).toHaveText(fixture.cwd);
+	await expect(page.locator(".session-heading button")).toHaveText("当前 GUI 会话");
 	await expect(page.getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
 	expect(await readFile(source, "utf8")).toBe("export const retained = true;\n");
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

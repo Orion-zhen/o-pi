@@ -1,5 +1,5 @@
 import { useState, type ReactNode, type Ref } from "react";
-import type { GuiSnapshot } from "../contract.ts";
+import type { GuiEvent, GuiSnapshot } from "../contract.ts";
 import type { Send } from "./dialog.tsx";
 import { Content, pretty, record } from "./content.tsx";
 import { Button } from "./components/ui/button";
@@ -11,11 +11,9 @@ import { PanelSheet } from "./components/panel-sheet";
 import { ModelManager } from "./model-manager.tsx";
 import { isSubagentDetails, SubagentProgress } from "./subagent-progress.tsx";
 import { SessionTree } from "./session-tree.tsx";
+import { ReportPanel } from "./reports/report-panel.tsx";
 
-export interface PanelData {
-	title: string;
-	value: unknown;
-}
+export type PanelData = Extract<GuiEvent, { type: "panel" | "report" }>;
 const rows = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.filter(record) : []);
 
 export function Panel({
@@ -36,7 +34,8 @@ export function Panel({
 	restoreFocus: () => void;
 }) {
 	let body;
-	switch (panel.title) {
+	if (panel.type === "report") body = <ReportPanel report={panel} />;
+	else switch (panel.title) {
 		case "模型":
 			body = <ModelManager snapshot={snapshot} send={send} />;
 			break;
@@ -143,6 +142,9 @@ export function Panel({
 					/>
 				</label>
 			);
+			break;
+		case "系统提示词":
+			body = <pre className="system-prompt">{String(panel.value)}</pre>;
 			break;
 		case "命令帮助":
 			body = (

@@ -181,8 +181,9 @@ describe("GUI 直接使用 SDK", () => {
 		expect(file).not.toBeNull();
 		for (const command of ["/stats", "/system", "/tools", "/usage", "/telemetry"]) await host.dispatch(prompt(command));
 		expect(events.filter((event) => event.type === "panel").map((event) => event.title)).toEqual(
-			expect.arrayContaining(["会话统计", "系统提示词", "工具选择", "套餐用量", "遥测"]),
+			expect.arrayContaining(["系统提示词", "工具选择"]),
 		);
+		expect(events.filter((event) => event.type === "report").map((event) => event.title)).toEqual(["会话统计", "套餐用量", "遥测"]);
 		await host.dispatch({ action: "tool", name: "websearch", enabled: false });
 		expect(host.snapshot().tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
 		await host.dispatch({ action: "new" });

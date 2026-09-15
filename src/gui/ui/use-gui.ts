@@ -64,7 +64,8 @@ export function useGui() {
 							);
 							break;
 						case "panel":
-							setPanel({ title: event.title, value: event.value });
+						case "report":
+							setPanel(event);
 							break;
 						case "editor":
 							setDraft(event.text);

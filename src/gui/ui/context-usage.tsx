@@ -1,5 +1,6 @@
 import { Popover } from "radix-ui";
 import type { GuiSnapshot } from "../contract.ts";
+import { summarizeUsage } from "../../harness/stats/usage.ts";
 import { IconButton } from "./components/icon-button";
 
 export function ContextUsage({ snapshot }: { snapshot: GuiSnapshot }) {
@@ -37,8 +38,23 @@ export function ContextUsage({ snapshot }: { snapshot: GuiSnapshot }) {
 						<div><dt>累计 tokens</dt><dd>{snapshot.stats.tokens.total.toLocaleString()}</dd></div>
 						<div><dt>预估费用</dt><dd>${snapshot.stats.cost.toFixed(4)}</dd></div>
 					</dl>
+					<ContextCache messages={snapshot.messages} />
 				</Popover.Content>
 			</Popover.Portal>
 		</Popover.Root>
 	);
+}
+
+export function ContextCache({ messages }: Pick<GuiSnapshot, "messages">) {
+	const { usage, cache } = summarizeUsage(messages);
+	const hitRate = (value: number | undefined) => value === undefined ? "暂无数据" : `${value.toFixed(1)}%`;
+	return <>
+		<strong>缓存命中</strong>
+		<dl>
+			<div><dt>最近命中率</dt><dd>{hitRate(cache.latestHitRate)}</dd></div>
+			<div><dt>累计命中率</dt><dd>{hitRate(cache.totalHitRate)}</dd></div>
+			<div><dt>缓存读取 tokens</dt><dd>{usage.cacheReadTokens.toLocaleString()}</dd></div>
+			<div><dt>缓存写入 tokens</dt><dd>{usage.cacheWriteTokens.toLocaleString()}</dd></div>
+		</dl>
+	</>;
 }

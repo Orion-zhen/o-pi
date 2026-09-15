@@ -30,10 +30,10 @@ export function createGuiExtensions(
 				present: (value) => emit({ type: "panel", title: "子代理任务", value }),
 			}),
 		},
-		{ name: "stats", factory: (pi) => stats(pi, panel("会话统计")) },
+		{ name: "stats", factory: (pi) => stats(pi, { mode: "gui", show: async (_ctx, value) => emit({ type: "report", title: "会话统计", value }) }) },
 		{ name: "system-prompt", factory: (pi) => systemPrompt(pi, panel("系统提示词")) },
-		{ name: "usage", factory: (pi) => usage(pi, panel("套餐用量")) },
-		{ name: "telemetry", factory: (pi) => telemetry(pi, panel("遥测")) },
+		{ name: "usage", factory: (pi) => usage(pi, { mode: "gui", show: async (_ctx, value) => emit({ type: "report", title: "套餐用量", value }) }) },
+		{ name: "telemetry", factory: (pi) => telemetry(pi, { mode: "gui", show: async (_ctx, value) => emit({ type: "report", title: "遥测", value }) }) },
 		{
 			name: "cmd-slash-tools",
 			factory: createToolsExtension(undefined, {
