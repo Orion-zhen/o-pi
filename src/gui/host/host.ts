@@ -5,6 +5,7 @@ import { UserHistoryStore, buildInitialHistory } from "../../harness/user-histor
 import { compileSchemaValidator } from "../../harness/schema-validator.ts";
 import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
 import { actionSchema, type GuiAction, type GuiEvent, type GuiSnapshot } from "../contract.ts";
+import { MessageTiming } from "./message-timing.ts";
 import { GuiDialogs } from "./dialogs.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, importSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
@@ -37,6 +38,7 @@ export class GuiHost {
 	private changing = false;
 	private preparing = 0;
 	private commandController = new AbortController();
+	private messageTiming = new MessageTiming();
 	private liveTools = new Map<string, GuiSnapshot["liveTools"][number]>();
 	private disposed = false;
 	private tasks = new Set<Promise<unknown>>();
@@ -140,7 +142,9 @@ export class GuiHost {
 			this.historyError(error);
 		}
 		this.unsubscribe?.();
+		this.messageTiming = new MessageTiming();
 		this.unsubscribe = session.subscribe((event) => {
+			this.messageTiming.accept(event);
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update")
 				this.liveTools.set(event.toolCallId, event);
 			if (event.type === "tool_execution_end") this.liveTools.delete(event.toolCallId);
@@ -179,6 +183,7 @@ export class GuiHost {
 			busy: this.changing,
 			commandRunning: this.preparing > 0,
 			liveTools: [...this.liveTools.values()],
+			messageDurations: { ...this.messageTiming.durations },
 			history: this.historyTexts,
 			dialogs: this.dialogs.list(),
 			notices: [...this.dialogs.notices],

@@ -1,3 +1,4 @@
+import { replyMetrics } from "../message-metrics.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { transcriptItems, type TranscriptItem, type TranscriptSource } from "./transcript-items.ts";
 
@@ -6,6 +7,8 @@ export interface TranscriptReply {
 	kind: "reply";
 	key: string;
 	messageIndices: number[];
+	identity: { model: string; timestamp: number } | undefined;
+	metrics: ReturnType<typeof replyMetrics>;
 	state: ReplyState;
 	retrying: boolean;
 	final: boolean;
@@ -19,6 +22,7 @@ interface ReplyDraft {
 	key: string;
 	items: TranscriptItem[];
 	messageIndices: number[];
+	assistants: AssistantMessage[];
 	lastAssistant: { message: AssistantMessage; index: number } | undefined;
 }
 
@@ -34,7 +38,7 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 	const rows: (Extract<TranscriptItem, { kind: "message" }> | ReplyDraft)[] = [];
 	let current: ReplyDraft | undefined;
 	const begin = (key: string) => {
-		current = { kind: "reply", key: `reply:${key}`, items: [], messageIndices: [], lastAssistant: undefined };
+		current = { kind: "reply", key: `reply:${key}`, items: [], messageIndices: [], assistants: [], lastAssistant: undefined };
 		rows.push(current);
 		return current;
 	};
@@ -53,7 +57,10 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 		const reply = current ?? begin(`history:${index}:${message.timestamp}`);
 		reply.items.push(...items);
 		reply.messageIndices.push(index);
-		if (message.role === "assistant") reply.lastAssistant = { message, index };
+		if (message.role === "assistant") {
+			reply.lastAssistant = { message, index };
+			reply.assistants.push(message);
+		}
 	});
 	const live = byMessage.get(messages.length);
 	if (live) (current ?? begin("live")).items.push(...live);
@@ -83,7 +90,10 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		: message?.stopReason === "error" ? "failed"
 		: message?.stopReason === "stop" && answer.length > 0 ? "completed" : "incomplete";
 	const final = answer.length > 0 && (selection.explicit || (message?.stopReason === "stop" && !streamingMessage));
-	return { kind: "reply", key: draft.key, messageIndices: draft.messageIndices, state, retrying, final, process, answer, error };
+	const model = message && source.models.find((model) => model.provider === message.provider && model.id === message.model);
+	const identity = message ? { model: model?.name ?? message.model, timestamp: message.timestamp } : undefined;
+	const metrics = replyMetrics(draft.assistants, source.messageDurations);
+	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, final, process, answer, error };
 }
 
 function answerBlocks(message: AssistantMessage): { indices: Set<number>; explicit: boolean } {

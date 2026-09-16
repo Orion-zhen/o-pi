@@ -1,4 +1,5 @@
 import { Children, isValidElement, memo, type ReactNode } from "react";
+import { MessageIdentity } from "./message-meta.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -79,11 +80,13 @@ export function Message({ value, entryId }: { value: unknown; entryId?: string |
 	if (role === "custom" && value.display === false) return null;
 	return (
 		<article className={`message ${role}`} data-entry-id={entryId}>
+			{role === "user" && typeof value.timestamp === "number" && <MessageIdentity name="You" timestamp={value.timestamp} />}
 			{role !== "user" && <header><strong>{String(value.customType ?? role)}</strong></header>}
 			{role === "bashExecution" ? <>
 				{typeof value.command === "string" && <CodeBlock label="命令" language="bash" text={value.command} />}
 				{typeof value.output === "string" && <CodeBlock label="输出" text={clean(value.output)} />}
-			</> : <Content value={value.content ?? value.output ?? value.summary ?? value} />}
+			</> : role === "user" ? <div className="user-bubble"><Content value={value.content} /></div>
+				: <Content value={value.content ?? value.output ?? value.summary ?? value} />}
 			{typeof value.errorMessage === "string" && <pre className="error">{value.errorMessage}</pre>}
 		</article>
 	);

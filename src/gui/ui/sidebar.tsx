@@ -1,4 +1,4 @@
-import { Activity, KeyRound, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Settings2, SlidersHorizontal, Terminal } from "lucide-react";
+import { Activity, KeyRound, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Settings2, Cpu, Terminal } from "lucide-react";
 import type { GuiView } from "./use-gui.ts";
 import type { GuiAction } from "../contract.ts";
 import { SessionHistory } from "./session-history.tsx";
@@ -32,7 +32,7 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 		<div className="sidebar-footer">
 			<IconButton label="设置" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "settings" })}><Settings2 /></IconButton>
 			<IconButton label="认证" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "auth" })}><KeyRound /></IconButton>
-			<IconButton label="模型" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "model" })}><SlidersHorizontal /></IconButton>
+			<IconButton label="模型" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "model" })}><Cpu /></IconButton>
 			<IconButton label="套餐用量" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "usage" })}><Activity /></IconButton>
 			<IconButton label="重载资源" disabled={!gui.snapshot || gui.snapshot.busy || gui.running} onClick={() => act({ action: "reload" })}><RefreshCw /></IconButton>
 		</div>

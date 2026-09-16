@@ -6,7 +6,7 @@ import { builtinCommands } from "./commands.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
-	"busy" | "commandRunning" | "liveTools" | "history" | "dialogs" | "notices" | "status"
+	"busy" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "dialogs" | "notices" | "status"
 >;
 
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */

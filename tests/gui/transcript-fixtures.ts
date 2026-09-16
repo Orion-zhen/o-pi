@@ -10,5 +10,5 @@ export function assistant(content: AssistantMessage["content"], stopReason: Assi
 export const call = { type: "toolCall", id: "read-1", name: "read", arguments: { path: "app.ts", lines: "1-3" } } as const;
 export const result: ToolResultMessage<unknown> = { role: "toolResult", toolCallId: call.id, toolName: "read", isError: false, timestamp: 101, content: [{ type: "text", text: "file content" }] };
 export function source(value: Partial<TranscriptSource>): TranscriptSource {
-	return { messages: [], streamingMessage: null, liveTools: [], streaming: false, retrying: false, ...value };
+	return { messages: [], models: [], messageDurations: {}, streamingMessage: null, liveTools: [], streaming: false, retrying: false, ...value };
 }

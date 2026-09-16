@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { SlidersHorizontal } from "lucide-react";
+import { Cpu } from "lucide-react";
 import type { GuiSnapshot } from "../contract.ts";
 import type { Send } from "./dialog.tsx";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "./components/ui/select";
@@ -75,7 +75,7 @@ export function ModelControls({ snapshot, send }: { snapshot: GuiSnapshot; send:
 					))}
 					{models.length > 0 && <SelectSeparator className="my-1 h-px bg-border" />}
 					<SelectItem value={manageModels} textValue="管理模型">
-						<span className="flex items-center gap-2"><SlidersHorizontal className="size-[1em]" aria-hidden="true" />管理模型</span>
+						<span className="flex items-center gap-2"><Cpu className="size-[1em]" aria-hidden="true" />管理模型</span>
 					</SelectItem>
 				</SelectContent>
 			</Select>

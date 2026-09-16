@@ -17,7 +17,14 @@
 .message > header > strong { font-weight: 500; }
 .message.assistant { font-size: var(--text-body); }
 .message.assistant + .message.assistant { padding-top: 0; }
-.message.user { align-self: flex-end; width: fit-content; max-width: 90%; padding: var(--space-3) var(--space-5); margin-block: var(--space-3) var(--space-8); background: var(--secondary); border-radius: var(--radius-xl); }
+.message.user { display: flex; flex-direction: column; align-items: flex-end; align-self: flex-end; width: fit-content; max-width: 90%; padding: 0; margin-block: var(--space-3) var(--space-8); }
+.user-bubble { min-width: 0; max-width: 100%; padding: var(--space-3) var(--space-5); background: var(--secondary); border-radius: var(--radius-xl); }
+.message-identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1) var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); line-height: 1.6; overflow-wrap: anywhere; }
+.message-identity strong { font-weight: 500; min-width: 0; }
+.message-identity time { font-variant-numeric: tabular-nums; }
+.message.user > .message-identity { justify-content: flex-end; text-align: right; }
+.reply-metrics { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) var(--space-3); margin-block-start: var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); line-height: 1.6; font-variant-numeric: tabular-nums; }
+.reply-metrics span { overflow-wrap: anywhere; }
 .message.user:not(:first-child) { margin-top: 2.5rem; }
 .message.user p { margin-block: 0.25rem; }
 .message p { margin-block: 0.75rem; }

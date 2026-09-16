@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, LoaderCircle } from "lucide-react";
 import { Content, MarkdownText, Message } from "./content.tsx";
+import { MessageIdentity, ReplyMetrics } from "./message-meta.tsx";
 import { ToolActivity } from "./tool-activity.tsx";
 import type { TranscriptItem, TranscriptSource } from "./transcript-items.ts";
 import { transcriptReplies, type TranscriptReply } from "./transcript-replies.ts";
@@ -41,11 +42,13 @@ function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string 
 			</summary>
 			<div className="reply-process-content"><Items items={reply.process} entryIds={entryIds} /></div>
 		</details>
+		{reply.identity && (reply.answer.length > 0 || !running) && <MessageIdentity name={reply.identity.model} timestamp={reply.identity.timestamp} />}
 		<div className="reply-answer"><Items items={reply.answer} entryIds={entryIds} /></div>
 		{!running && reply.state !== "completed" && <div className="reply-outcome" role={reply.state === "failed" ? "alert" : "status"}>
 			<span>{outcome}</span>
 			{reply.error && <pre>{reply.error}</pre>}
 		</div>}
+		{!running && reply.identity && <ReplyMetrics metrics={reply.metrics} />}
 	</section>;
 }
 

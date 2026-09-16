@@ -41,7 +41,7 @@ export function locateTranscript(snapshot: GuiSnapshot, target: string | undefin
 		if (message) { messages.push(message); ids.push(entry.id); }
 	}
 	return {
-		source: { messages, streamingMessage: null, liveTools: [], streaming: false, retrying: false },
+		source: { messages, models: snapshot.models, messageDurations: snapshot.messageDurations, streamingMessage: null, liveTools: [], streaming: false, retrying: false },
 		entryIds: ids,
 		preview: true,
 	};

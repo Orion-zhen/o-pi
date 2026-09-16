@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { GuiSnapshot } from "../contract.ts";
 
-export type TranscriptSource = Pick<GuiSnapshot, "messages" | "streamingMessage" | "liveTools" | "streaming" | "retrying">;
+export type TranscriptSource = Pick<GuiSnapshot, "messages" | "models" | "messageDurations" | "streamingMessage" | "liveTools" | "streaming" | "retrying">;
 export type ToolState = "preparing" | "pending" | "running" | "completed" | "failed" | "stopped" | "unavailable";
 export interface ToolOutput {
 	content: unknown;

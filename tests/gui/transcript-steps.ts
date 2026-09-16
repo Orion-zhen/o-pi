@@ -93,10 +93,25 @@ export async function exerciseToolDetails(page: Page) {
 	await processGroup.locator(":scope > summary").click();
 	await expect(edit).not.toBeVisible();
 	await expect(page.locator(".reply-answer")).toBeVisible();
+	await expect(page.locator(".message.user > .message-identity").first()).toContainText("You");
+	await expect(page.locator(".message.user time").first()).toHaveText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+	await expect(page.locator(".assistant-reply > .message-identity").first()).toContainText("GUI Test Model");
+	const metrics = page.locator(".reply-metrics").first();
+	await expect(metrics).toContainText(/速度 \d+\.\d tok\/s/);
+	await expect(metrics).toContainText("缓存读取");
+	await expect(metrics).toContainText("缓存写入");
 	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-reply-${size}.png`) });
 	await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
 	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-reply-dark-${size}.png`) });
 	await page.emulateMedia({ colorScheme: "light" });
+	const identity = page.locator(".assistant-reply > .message-identity strong").first();
+	const modelName = await identity.textContent();
+	await identity.evaluate((element) => { element.textContent = "Very-Long-Model-Name-".repeat(12); });
+	await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+	expect(await page.locator(".transcript").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+	expect(await metrics.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+	await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
+	await identity.evaluate((element, text) => { element.textContent = text; }, modelName);
 	await processGroup.locator(":scope > summary").click();
 	await expect(edit.locator(".activity-summary")).toHaveAttribute("aria-expanded", "true");
 

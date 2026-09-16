@@ -145,6 +145,7 @@ export interface GuiSnapshot {
 	messages: AgentMessage[];
 	history: string[];
 	streamingMessage: AgentMessage | null;
+	messageDurations: Record<string, number>;
 	entries: SessionEntry[];
 	model: GuiModel | null;
 	models: GuiModel[];
