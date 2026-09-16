@@ -1,6 +1,6 @@
 # GUI MVP
 
-Desktop 和 `opi-web` 共用 React 界面及 SDK 装配。Desktop 在 Electron utility process 中直接调用 `pi-coding-agent`，不启动 Pi CLI、TUI 或 stdio RPC。Web 后端使用 Bun，浏览器通过带鉴权的 HTTP 操作和 WebSocket 状态订阅连接。
+Desktop 和 `opi-web` 共用 React 界面及 SDK 装配。Desktop 在 Electron utility process 中直接调用 `pi-coding-agent`，不启动 Pi CLI、TUI 或 stdio RPC。Web 后端使用 Bun，浏览器通过同源 HTTP 操作和 WebSocket 状态订阅连接。
 
 ## 启动
 
@@ -33,18 +33,20 @@ Web 内嵌资源使用与 CLI 相同的内容寻址缓存。输入历史与 TUI 
 
 ## Web 访问与手机
 
-默认监听 `127.0.0.1:3141`。启动时打印带访问密钥的完整链接。浏览器首次访问将密钥换成 HttpOnly、SameSite=Strict Cookie，并移除地址栏中的密钥。
+默认监听 `0.0.0.0:3141`，无需登录或访问密钥。本机打开 `http://127.0.0.1:3141/`，其他设备打开 `http://电脑的局域网IP:3141/`，并确保防火墙允许该端口。仅本机使用时可指定 `--host 127.0.0.1`。
 
-访问密钥允许控制后端电脑上的文件和进程，不要分享给其他人。浏览器刷新、断网或手机锁屏不结束后台任务。重连后读取 SDK 当前状态和尚未处理的审批，不自动重发操作。
+所有能连接该端口的设备都能控制后端电脑上的文件和进程。仅用于可信局域网，请勿暴露到公网。同源校验不代替身份认证。
 
-局域网访问必须配置 TLS：
+浏览器刷新、断网或手机锁屏不结束后台任务。重连后读取 SDK 当前状态和尚未处理的审批，不自动重发操作。
+
+TLS 可选：
 
 ```sh
 ./dist/opi-web --cwd /path/to/project --host 0.0.0.0 --port 3141 \
   --cert /path/to/cert.pem --key /path/to/key.pem
 ```
 
-手机使用电脑的局域网 IP 或证书对应的域名替换链接中的 `0.0.0.0`。证书需要被手机信任，并匹配访问地址。当前没有可信反向代理配置，不接受代理转发的协议头。
+使用 TLS 时，通过 `https://电脑的局域网IP:3141/` 或证书对应的域名访问。证书需要被设备信任，并匹配访问地址。当前没有可信反向代理配置，不接受代理转发的协议头。
 
 当前是单用户、单活动会话的宿主。多个页面操作同一会话，审批响应只消费一次。不是多用户服务，也不是每个浏览器各有一份独立会话。
 

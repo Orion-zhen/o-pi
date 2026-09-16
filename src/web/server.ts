@@ -1,13 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import type { GuiHost } from "../gui/host/host.ts";
 
 const MAX_BODY = 16 * 1024 * 1024;
-const COOKIE = "opi_gui";
 const CSP =
 	"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 
@@ -15,25 +13,8 @@ export async function startWebServer(
 	gui: GuiHost,
 	options: { host: string; port: number; assets: string; tls?: { cert: Buffer; key: Buffer } },
 ) {
-	const token = randomBytes(32).toString("base64url");
 	const secure = options.tls !== undefined;
-	if (!["127.0.0.1", "localhost", "::1"].includes(options.host) && !secure)
-		throw new Error("非回环监听需要 --cert 和 --key。");
 	const protocol = secure ? "https" : "http";
-	function equal(candidate: string): boolean {
-		const value = Buffer.from(candidate);
-		const expected = Buffer.from(token);
-		return value.length === expected.length && timingSafeEqual(value, expected);
-	}
-	function authenticated(request: IncomingMessage): boolean {
-		const bearer = request.headers.authorization?.replace(/^Bearer /, "");
-		if (bearer && equal(bearer)) return true;
-		const cookie = request.headers.cookie
-			?.split(";")
-			.map((value) => value.trim())
-			.find((value) => value.startsWith(`${COOKIE}=`));
-		return cookie !== undefined && equal(cookie.slice(COOKIE.length + 1));
-	}
 	function sameOrigin(request: IncomingMessage): boolean {
 		return request.headers.origin === `${protocol}://${request.headers.host}`;
 	}
@@ -48,20 +29,8 @@ export async function startWebServer(
 				response.end("ok");
 				return;
 			}
-			if (url.pathname === "/api/auth" && request.method === "POST") {
-				if (!sameOrigin(request) || !authenticated(request)) {
-					response.writeHead(403).end("Forbidden");
-					return;
-				}
-				response.setHeader(
-					"Set-Cookie",
-					`${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/${secure ? "; Secure" : ""}`,
-				);
-				response.writeHead(204).end();
-				return;
-			}
 			if (url.pathname === "/api/action" && request.method === "POST") {
-				if (!sameOrigin(request) || !authenticated(request)) {
+				if (!sameOrigin(request)) {
 					response.writeHead(403).end("Forbidden");
 					return;
 				}
@@ -124,7 +93,7 @@ export async function startWebServer(
 			});
 	const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
 	server.on("upgrade", (request, socket, head) => {
-		if (request.url !== "/api/events" || !sameOrigin(request) || !authenticated(request)) {
+		if (request.url !== "/api/events" || !sameOrigin(request)) {
 			socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
 			return;
 		}
@@ -154,7 +123,6 @@ export async function startWebServer(
 	const hostname = options.host.includes(":") ? `[${options.host}]` : options.host;
 	return {
 		url: `${protocol}://${hostname}:${address.port}`,
-		token,
 		async close() {
 			for (const socket of sockets.clients) socket.terminate();
 			sockets.close();

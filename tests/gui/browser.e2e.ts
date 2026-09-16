@@ -108,6 +108,7 @@ export default function (pi) {
 		...Object.fromEntries(
 			Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
 		),
+		NODE_ENV: "test",
 		HOME: directory,
 		USERPROFILE: directory,
 		PI_CODING_AGENT_DIR: agentDir,

@@ -22,16 +22,39 @@ afterEach(async () => {
 });
 const headers = () => ({
 	Origin: server.url,
-	Authorization: `Bearer ${server.token}`,
 	"Content-Type": "application/json",
 });
 
 describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
-	it("鉴权和来源检查先于执行，不向浏览器提供宽泛的文件服务器", async () => {
+	it("允许未加密的局域网监听", async () => {
+		const lan = await startWebServer(gui, { host: "0.0.0.0", port: 0, assets: temp.path });
+		try {
+			const url = lan.url.replace("0.0.0.0", "127.0.0.1");
+			expect((await fetch(url)).status).toBe(200);
+			const response = await fetch(`${url}/api/action`, {
+				method: "POST",
+				headers: { Origin: url, "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "draft", text: "LAN" }),
+			});
+			expect(response.status).toBe(204);
+			expect(gui.dialogs.draft).toBe("LAN");
+		} finally {
+			await lan.close();
+		}
+	});
+
+	it("WebSocket 拒绝跨站连接", async () => {
+		const ws = new WebSocket(`${server.url.replace("http", "ws")}/api/events`, {
+			headers: { Origin: "https://evil.example" },
+		});
+		const [error] = await once(ws, "error");
+		expect(error.message).toContain("403");
+	});
+	it("免登录执行同源操作，拒绝跨站请求和静态目录穿越", async () => {
 		const action = JSON.stringify({ action: "draft", text: "authorized" });
 		const denied = await fetch(`${server.url}/api/action`, {
 			method: "POST",
-			headers: { Origin: server.url, "Content-Type": "application/json" },
+			headers: { "Content-Type": "application/json" },
 			body: action,
 		});
 		expect(denied.status).toBe(403);
@@ -51,15 +74,11 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		expect((await fetch(`${server.url}/%2e%2e%2fpackage.json`)).status).toBe(403);
 	});
 
-	it("浏览器使用 HttpOnly Cookie，连接断开不取消审批", async () => {
-		const auth = await fetch(`${server.url}/api/auth`, { method: "POST", headers: headers() });
-		const cookie = auth.headers.get("set-cookie");
-		expect(cookie).toContain("HttpOnly");
-		expect(cookie).toContain("SameSite=Strict");
+	it("WebSocket 免登录连接，断开不取消审批", async () => {
 		const connect = async () => {
 			const events: GuiEvent[] = [];
 			const ws = new WebSocket(`${server.url.replace("http", "ws")}/api/events`, {
-				headers: { Origin: server.url, Cookie: cookie?.split(";")[0] ?? "" },
+				headers: { Origin: server.url },
 			});
 			ws.on("message", (value) => events.push(JSON.parse(value.toString()) as GuiEvent));
 			await once(ws, "open");
@@ -89,12 +108,12 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		await once(second.ws, "close");
 	});
 
-	it("目录浏览复用操作鉴权，只列出服务端子目录", async () => {
+	it("目录浏览检查来源，只列出服务端子目录", async () => {
 		await mkdir(path.join(temp.path, "project"));
 		const events: GuiEvent[] = [];
 		const unsubscribe = gui.subscribe((event) => events.push(event));
 		const body = JSON.stringify({ action: "directories", path: temp.path });
-		const denied = await fetch(`${server.url}/api/action`, { method: "POST", headers: { Origin: server.url, "Content-Type": "application/json" }, body });
+		const denied = await fetch(`${server.url}/api/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
 		expect(denied.status).toBe(403);
 		expect(events.some((event) => event.type === "directories")).toBe(false);
 		const accepted = await fetch(`${server.url}/api/action`, { method: "POST", headers: headers(), body });
@@ -103,13 +122,13 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		unsubscribe();
 	});
 
-	it("拒绝非法参数和未加密的非回环监听", async () => {
+	it("拒绝非法参数", async () => {
 		const response = await fetch(`${server.url}/api/action`, {
 			method: "POST",
 			headers: headers(),
 			body: '{"action":"shell","command":"unrecognized"}',
 		});
 		expect(response.status).toBe(400);
-		await expect(startWebServer(gui, { host: "0.0.0.0", port: 0, assets: temp.path })).rejects.toThrow("需要 --cert");
+
 	});
 });

@@ -20,7 +20,7 @@ if (process.argv[2] === "--opi-discord-daemon") {
 } else {
 	const { values } = parseArgs({
 		options: {
-			host: { type: "string", default: "127.0.0.1" },
+			host: { type: "string", default: "0.0.0.0" },
 			port: { type: "string", default: "3141" },
 			cwd: { type: "string", default: process.cwd() },
 			cert: { type: "string" },
@@ -31,7 +31,7 @@ if (process.argv[2] === "--opi-discord-daemon") {
 	});
 	if (values.help) {
 		console.log(
-			"opi-web [--cwd PATH] [--host IP] [--port PORT] [--cert FILE --key FILE]\n默认只监听本机。远程监听必须提供 TLS 证书。访问链接包含控制本机 Agent 的密钥，请勿分享给他人。",
+			"opi-web [--cwd PATH] [--host IP] [--port PORT] [--cert FILE --key FILE]\n默认监听 0.0.0.0:3141，免登录。仅用于可信局域网，请勿暴露到公网。TLS 证书可选。",
 		);
 	} else {
 		const port = Number(values.port);
@@ -49,7 +49,7 @@ if (process.argv[2] === "--opi-discord-daemon") {
 				: path.resolve("dist/gui"),
 			...(tls ? { tls } : {}),
 		});
-		console.log(`opi-web: ${server.url}/#${server.token}`);
+		console.log(`opi-web: ${server.url}/`);
 		let closing = false;
 		const unsubscribe = gui.subscribe((event) => {
 			if (event.type === "close") void close();

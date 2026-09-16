@@ -21,13 +21,14 @@ import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
-preserveEnv("PI_APPROVAL_GATE_CONFIG");
+preserveEnv("PI_APPROVAL_GATE_CONFIG", "NODE_ENV");
 
 const backend = vi.hoisted(() => ({ notify: vi.fn<() => void>() }));
 vi.mock("node-notifier", () => ({ default: backend }));
 afterEach(() => backend.notify.mockReset());
 
 beforeEach(async () => {
+	process.env.NODE_ENV = "production";
 	dir = temp.path;
 	process.env.PI_APPROVAL_GATE_CONFIG = path.join(dir, "approval.jsonc");
 	await setStorePath(path.join(dir, "rules.jsonc"));

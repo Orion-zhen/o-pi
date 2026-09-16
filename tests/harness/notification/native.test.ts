@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { preserveEnv } from "../../helpers/lifecycle.ts";
+
+preserveEnv("NODE_ENV");
 
 const notify = vi.fn<(
 	notification: { title: string; message: string },
@@ -6,6 +9,7 @@ const notify = vi.fn<(
 ) => unknown>();
 
 beforeEach(() => {
+	process.env.NODE_ENV = "production";
 	vi.resetModules();
 	notify.mockReset();
 	vi.doMock("node-notifier", () => ({ default: { notify } }));
@@ -13,6 +17,16 @@ beforeEach(() => {
 afterEach(() => vi.doUnmock("node-notifier"));
 
 describe("native notification", () => {
+	it("测试环境不加载或调用通知后端", async () => {
+		process.env.NODE_ENV = "test";
+		const load = vi.fn(() => ({ default: { notify } }));
+		vi.doMock("node-notifier", load);
+		const { notifyWaiting } = await import("../../../src/harness/notification/native.ts");
+		await notifyWaiting();
+		expect(load).not.toHaveBeenCalled();
+		expect(notify).not.toHaveBeenCalled();
+	});
+
 	it("通过默认后端发送固定的 o-pi 等待消息", async () => {
 		notify.mockImplementation((_notification, callback) => callback(null, "sent"));
 		const { notifyWaiting } = await import("../../../src/harness/notification/native.ts");

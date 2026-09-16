@@ -29,4 +29,4 @@ SDK 的 runtime 工厂负责在工作目录或会话变化后重建服务。界�
 
 业务可复用不等于终端交互可以直接显示。GUI 通过真实 `ExtensionUIContext` 适配审批、选择、输入等交互，工具结果使用图形呈现。保留项目信任和审批检查，不以默认批准代替交互。Discord Presence 属于共享业务，按 SDK 的 `hasUI` 和配置启用，不限定 TUI。Desktop 的协调进程打包要求见 [Discord Presence](discord-presence.md#desktop-接入)。
 
-SDK 的文件和进程能力运行在后端。Desktop 使用受限 preload 桥接连接 Electron utility process。Web 使用带鉴权的 HTTP 操作和 WebSocket 订阅连接 Bun 后端。两者均直接集成正式 SDK，当前不依赖实验性 `pi-server`、`pi-client`。
+SDK 的文件和进程能力运行在后端。Desktop 使用受限 preload 桥接连接 Electron utility process。Web 使用同源 HTTP 操作和 WebSocket 订阅连接 Bun 后端，免登录，仅用于可信局域网。两者均直接集成正式 SDK，当前不依赖实验性 `pi-server`、`pi-client`。

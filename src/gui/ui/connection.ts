@@ -11,12 +11,6 @@ export async function connectGui(onStatus: (status: string) => void): Promise<Gu
 		onStatus("已连接");
 		return window.opi;
 	}
-	const token = location.hash.slice(1);
-	if (token) {
-		const response = await fetch("/api/auth", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-		if (!response.ok) throw new Error("访问密钥无效，请使用 opi-web 启动时打印的完整链接。");
-		history.replaceState(null, "", location.pathname);
-	}
 	let closed = false;
 	let socket: WebSocket;
 	let timer: ReturnType<typeof setTimeout> | undefined;
