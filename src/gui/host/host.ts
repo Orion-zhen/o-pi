@@ -10,6 +10,7 @@ import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, importSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
 import { runBuiltin } from "./commands.ts";
+import { openView } from "./views.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
 import { persistModelScope, setModelScope } from "./models.ts";
 import { GuiSessionCatalog } from "./sessions.ts";
@@ -284,6 +285,9 @@ export class GuiHost {
 		const runtime = this.runtime;
 		const session = runtime.session;
 		switch (action.action) {
+			case "view":
+				await openView(this, action.view, this.commandController.signal);
+				return;
 			case "prompt": {
 				if (action.text.trim()) {
 					this.historyTexts = [...this.historyTexts, action.text.trim()].slice(-100);
@@ -452,7 +456,7 @@ export class GuiHost {
 				}
 				case "tool":
 				case "persistTools": {
-					if (!this.toolController) await session.prompt("/tools");
+					if (!this.toolController) await openView(this, "tools", this.commandController.signal);
 					if (!this.toolController) throw new Error("工具选择未绑定。");
 					if (action.action === "tool") this.toolController.set(action.name, action.enabled);
 					else this.dialogs.notify(`已保存: ${await this.toolController.persistUserDefaults()}`);

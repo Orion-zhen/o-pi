@@ -8,6 +8,7 @@ import {
 	FolderSearch,
 	LoaderCircle,
 	PanelLeft,
+	PanelRight,
 	RefreshCw,
 	ShieldCheck,
 	Terminal,
@@ -20,6 +21,8 @@ import { Dialog } from "./dialog.tsx";
 import { ConfigEditor, Panel } from "./panels.tsx";
 import { Composer } from "./composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
+import { SessionSidebar, sessionViews } from "./session-sidebar.tsx";
+import { SessionActions } from "./session-actions.tsx";
 import { SessionHistory } from "./session-history.tsx";
 import { SessionHeading } from "./session-heading.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
@@ -71,6 +74,7 @@ function App() {
 						toggle={() => setCollapsed(!collapsed)}
 						close={() => setMobileOpen(false)}
 					/>
+					<div className="chat-workspace">
 					<main className="main-panel" ref={main} tabIndex={-1}>
 						<header className="topbar">
 							<SheetTrigger asChild>
@@ -96,6 +100,16 @@ function App() {
 									<RefreshCw />
 								</IconButton>
 							)}
+							<SessionActions gui={gui} />
+							<IconButton
+								label={gui.sessionPanelOpen ? "收起会话信息" : "展开会话信息"}
+								aria-expanded={gui.sessionPanelOpen}
+								disabled={!snapshot || snapshot.busy || status !== "已连接"}
+								onClick={() => {
+									if (gui.sessionPanelOpen) gui.setSessionPanelOpen(false);
+									else void send(sessionViews[gui.sessionPanel?.title ?? "会话树"]);
+								}}
+							><PanelRight /></IconButton>
 						</header>
 						{error && (
 							<div role="alert" className="error-banner">
@@ -183,7 +197,7 @@ function App() {
 											))}
 										</div>
 										{snapshot && !snapshot.model && (
-											<Button variant="ghost" size="sm" onClick={() => gui.command("/login")}>
+											<Button variant="ghost" size="sm" onClick={() => void send({ action: "view", view: "auth" })}>
 												<ShieldCheck />
 												配置模型认证
 											</Button>
@@ -210,6 +224,8 @@ function App() {
 						</div>
 						{snapshot && <Composer gui={gui} onSubmit={transcript.toLatest} />}
 					</main>
+					{snapshot && gui.sessionPanelOpen && gui.sessionPanel && <SessionSidebar gui={gui} panel={gui.sessionPanel} />}
+					</div>
 				</div>
 			</Sheet>
 			{panel && snapshot && (

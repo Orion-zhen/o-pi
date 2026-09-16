@@ -79,6 +79,26 @@ const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior
 historyDeletionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("视图接口不提交提示、不写输入历史，重载后工具配置仍可直接调用", async () => {
+		const before = host.snapshot();
+		for (const view of ["stats", "usage", "telemetry", "system", "tools", "model", "settings", "auth", "help", "import"])
+			await host.dispatch({ action: "view", view });
+		await host.dispatch({ action: "tree" });
+		expect(events.filter((event) => event.type === "report").map((event) => event.title)).toEqual(["会话统计", "套餐用量", "遥测"]);
+		expect(events.filter((event) => event.type === "panel").map((event) => event.title)).toEqual([
+			"系统提示词", "工具选择", "模型", "设置", "认证", "命令帮助", "导入会话", "会话树",
+		]);
+		expect(host.snapshot().history).toEqual(before.history);
+		expect(host.snapshot().messages).toEqual(before.messages);
+		expect(host.snapshot().entries).toEqual(before.entries);
+		expect(server.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
+		await host.dispatch({ action: "reload" });
+		await host.dispatch({ action: "tool", name: "websearch", enabled: false });
+		expect(host.snapshot().tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
+		expect(host.snapshot().history).toEqual(before.history);
+		expect(server.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
+	});
+
 	it("读取共享目录中各工作区的已有历史，不需要导入", async () => {
 		delete process.env.PI_CODING_AGENT_DIR;
 		const file = await storeSession({

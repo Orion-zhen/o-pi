@@ -9,6 +9,7 @@ import { exerciseModels } from "./model-steps.ts";
 import { exerciseHistory, prepareHistory } from "./session-steps.ts";
 import { exerciseSessionHeading } from "./session-heading-steps.ts";
 import { exerciseReports } from "./report-steps.ts";
+import { exercisePanels, exerciseTree } from "./panel-steps.ts";
 import { exerciseDeletion } from "./deletion-steps.ts";
 import { exerciseLiveTranscript, exerciseToolDetails } from "./transcript-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
@@ -190,12 +191,7 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await page.keyboard.press("Escape");
 	await expect(settings).toHaveCount(0);
 	await expect(editor).toBeFocused();
-	if (phone) await page.getByRole("button", { name: "菜单", exact: true }).click();
-	await page.getByRole("button", { name: "更多操作", exact: true }).click();
-	await page.getByRole("menuitem", { name: "会话统计", exact: true }).click();
-	await expect(page.getByRole("dialog", { name: "会话统计", exact: true })).toBeVisible();
-	await page.keyboard.press("Escape");
-	await expect(editor).toBeFocused();
+	await exercisePanels(page, screenshotName);
 	if (!phone) await page.getByRole("button", { name: "展开侧栏" }).click();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
@@ -213,6 +209,7 @@ async function exercise(page: Page, exportedPath?: string) {
 	expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI bundled tools OK\n");
 	await expect(page.getByText("执行失败", { exact: true })).toHaveCount(0);
 	await exerciseReports(page);
+	await exerciseTree(page);
 	await page.getByRole("textbox", { name: "消息", exact: true }).fill("/gui-note");
 	await page.getByRole("button", { name: "发送", exact: true }).click();
 	await page.getByRole("dialog", { name: "备注" }).getByLabel("输入内容").fill("标准交互验证");

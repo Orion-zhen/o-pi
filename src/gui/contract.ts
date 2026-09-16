@@ -37,6 +37,15 @@ export const actionSchema = Type.Union([
 			Type.Literal("cancelLogin"),
 		]),
 	}),
+	object({
+		action: Type.Literal("view"),
+		view: Type.Union([
+			Type.Literal("stats"), Type.Literal("usage"), Type.Literal("telemetry"),
+			Type.Literal("system"), Type.Literal("tools"),
+			Type.Literal("model"), Type.Literal("settings"), Type.Literal("auth"),
+			Type.Literal("help"), Type.Literal("import"),
+		]),
+	}),
 	object({ action: Type.Literal("workspace"), path: short }),
 	object({ action: Type.Literal("switch"), path: short }),
 	object({ action: Type.Literal("deleteSession"), path: short }),

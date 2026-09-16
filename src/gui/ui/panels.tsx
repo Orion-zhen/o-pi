@@ -7,10 +7,9 @@ import { Checkbox } from "./components/ui/checkbox";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { NativeSelect } from "./components/ui/native-select";
-import { PanelSheet } from "./components/panel-sheet";
+import { PanelDialog } from "./components/panel-dialog";
 import { ModelManager } from "./model-manager.tsx";
 import { isSubagentDetails, SubagentProgress } from "./subagent-progress.tsx";
-import { SessionTree } from "./session-tree.tsx";
 import { ReportPanel } from "./reports/report-panel.tsx";
 
 export type PanelData = Extract<GuiEvent, { type: "panel" | "report" }>;
@@ -64,9 +63,6 @@ export function Panel({
 			break;
 		case "会话列表":
 			body = sessionList;
-			break;
-		case "会话树":
-			body = <SessionTree value={panel.value} send={send} />;
 			break;
 		case "设置":
 			body = <Settings snapshot={snapshot} send={send} />;
@@ -161,9 +157,9 @@ export function Panel({
 			body = typeof panel.value === "string" ? <Content value={panel.value} /> : <pre>{pretty(panel.value)}</pre>;
 	}
 	return (
-		<PanelSheet ref={ref} title={panel.title} close={close} restoreFocus={restoreFocus}>
+		<PanelDialog ref={ref} title={panel.title} close={close} restoreFocus={restoreFocus}>
 			{body}
-		</PanelSheet>
+		</PanelDialog>
 	);
 }
 
@@ -234,7 +230,7 @@ export function ConfigEditor({
 }) {
 	const [text, setText] = useState(content || "{}\n");
 	return (
-		<PanelSheet title={file} close={close} restoreFocus={restoreFocus}>
+		<PanelDialog title={file} close={close} restoreFocus={restoreFocus}>
 			<p>保存后重载。文件在编辑期间发生变更时会拒绝覆盖。</p>
 			<Textarea
 				aria-label="设置 JSON"
@@ -253,6 +249,6 @@ export function ConfigEditor({
 			>
 				保存并重载
 			</Button>
-		</PanelSheet>
+		</PanelDialog>
 	);
 }

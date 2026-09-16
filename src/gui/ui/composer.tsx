@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ArrowUp, History, Paperclip, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, History, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
@@ -236,6 +236,16 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 								</DropdownMenuContent>
 							</DropdownMenu>
 						)}
+						{snapshot && <Button
+							variant="ghost"
+							size="sm"
+							className="tool-count"
+							aria-label={`工具：已启用 ${snapshot.tools.filter((tool) => tool.enabled).length} 个`}
+							disabled={!connected || snapshot.busy}
+							onClick={() => void send({ action: "view", view: "tools" })}
+						>
+							<Wrench />{snapshot.tools.filter((tool) => tool.enabled).length}
+						</Button>}
 					</div>
 					<div className="composer-controls">
 						{snapshot && <ModelControls snapshot={snapshot} send={send} />}

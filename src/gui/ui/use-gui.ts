@@ -3,6 +3,7 @@ import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiSessionInfo, Gui
 import { connectGui } from "./connection.ts";
 import type { Send } from "./dialog.tsx";
 import type { PanelData } from "./panels.tsx";
+import { isSessionPanel, type SessionPanel } from "./session-sidebar.tsx";
 
 /** 只维护界面状态。重连使用后端快照，不重放操作。 */
 export function useGui() {
@@ -14,6 +15,8 @@ export function useGui() {
 	const [status, setStatus] = useState("连接中");
 	const [error, setError] = useState("");
 	const [panel, setPanel] = useState<PanelData>();
+	const [sessionPanel, setSessionPanel] = useState<SessionPanel>();
+	const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
 	const [config, setConfig] = useState<Extract<GuiEvent, { type: "config" }>>();
 	const [auth, setAuth] = useState<Extract<GuiEvent, { type: "auth" }>["value"]>();
 	const [draft, setDraft] = useState("");
@@ -65,7 +68,10 @@ export function useGui() {
 							break;
 						case "panel":
 						case "report":
-							setPanel(event);
+							if (isSessionPanel(event)) {
+								setSessionPanel(event);
+								setSessionPanelOpen(true);
+							} else setPanel(event);
 							break;
 						case "editor":
 							setDraft(event.text);
@@ -159,14 +165,13 @@ export function useGui() {
 	}, [draft, send, status]);
 	useEffect(() => {
 		setPanel(undefined);
+		setSessionPanel(undefined);
+		setSessionPanelOpen(false);
 		setConfig(undefined);
 	}, [snapshot?.sessionId]);
 	const running = Boolean(
 		snapshot?.streaming || snapshot?.compacting || snapshot?.bashRunning || snapshot?.commandRunning,
 	);
-	const command = (text: string) => {
-		void send({ action: "prompt", text, images: [], behavior: "followUp" });
-	};
 	return {
 		snapshot,
 		sessions,
@@ -179,6 +184,9 @@ export function useGui() {
 		setError,
 		panel,
 		setPanel,
+		sessionPanel,
+		sessionPanelOpen,
+		setSessionPanelOpen,
 		config,
 		setConfig,
 		auth,
@@ -190,7 +198,6 @@ export function useGui() {
 		completions,
 		editor,
 		send,
-		command,
 		running,
 		reconnect: () => setRevision((value) => value + 1),
 	};

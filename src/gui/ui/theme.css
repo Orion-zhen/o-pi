@@ -84,7 +84,7 @@
 [data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"] { min-height: 2.25rem; }
 [data-slot="tooltip-content"] { font-size: 0.75rem; }
 /* 关闭时立即释放浮层，避免焦点恢复晚于后续打开的面板。 */
-[data-state="closed"]:is([data-slot="dropdown-menu-content"], [data-slot="tooltip-content"], [data-slot="sheet-content"], [data-slot="sheet-overlay"]) { animation: none; }
+[data-state="closed"]:is([data-slot="dropdown-menu-content"], [data-slot="tooltip-content"], [data-slot="sheet-content"], [data-slot="sheet-overlay"], [data-slot="dialog-content"], [data-slot="dialog-overlay"]) { animation: none; }
 
 @media (prefers-reduced-motion: reduce) {
 	*, *::before, *::after {

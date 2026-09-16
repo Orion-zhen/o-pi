@@ -9,7 +9,8 @@ export async function exerciseReports(page: Page) {
 	] as const) {
 		await page.getByRole("textbox", { name: "消息", exact: true }).fill(command);
 		await page.getByRole("button", { name: "发送", exact: true }).click();
-		const panel = page.getByRole("dialog", { name: title, exact: true });
+		const docked = command === "/stats" || command === "/telemetry";
+		const panel = docked ? page.getByRole("complementary", { name: "会话信息", exact: true }) : page.getByRole("dialog", { name: title, exact: true });
 		await expect(panel.getByRole("heading", { name: heading, exact: true })).toBeVisible();
 		if (command === "/system") {
 			await expect(panel.locator("pre.system-prompt")).toContainText("<role>");
@@ -34,7 +35,7 @@ export async function exerciseReports(page: Page) {
 			await expect(grep).toContainText("直接命中");
 		}
 		expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-		await panel.getByRole("button", { name: "关闭面板", exact: true }).click();
+		await panel.getByRole("button", { name: docked ? "收起会话信息" : "关闭面板", exact: true }).click();
 		await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeFocused();
 	}
 }
