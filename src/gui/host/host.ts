@@ -9,7 +9,7 @@ import { GuiDialogs } from "./dialogs.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, importSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
-import { runBuiltin } from "./commands.ts";
+import { completeCommand, runBuiltin } from "./commands.ts";
 import { openView } from "./views.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
 import { persistModelScope, setModelScope } from "./models.ts";
@@ -370,13 +370,11 @@ export class GuiHost {
 				return;
 			}
 			case "complete": {
-				const match = /^\/(\S+)\s(.*)$/s.exec(action.text);
-				const command = match?.[1] ? session.extensionRunner.getCommand(match[1]) : undefined;
-				const items = await command?.getArgumentCompletions?.(match?.[2] ?? "");
+				const items = await completeCommand(session, action.text);
 				this.emit({
 					type: "completions",
 					text: action.text,
-					items: items?.map(({ value, label }) => ({ value, label })) ?? [],
+					items,
 				});
 				return;
 			}

@@ -15,7 +15,8 @@ import { exerciseWorkspaceRemoval } from "./workspace-steps.ts";
 import { exerciseLiveTranscript, exerciseToolDetails } from "./transcript-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
 import { exerciseRichTools } from "./rich-tools-steps.ts";
-import { exerciseContextUsage, exerciseComposerRunning, expectComposerLayout } from "./composer-steps.ts";
+import { exerciseContextUsage, exerciseComposerRunning, exerciseSuggestions, expectComposerLayout } from "./composer-steps.ts";
+import { exerciseSuggestionRefresh } from "./suggestion-keyboard-steps.ts";
 
 const root = process.cwd();
 let directory: string;
@@ -39,7 +40,7 @@ import { Type } from "typebox";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 export default function (pi) {
   pi.registerTool({ name: "echo", label: "Echo", description: "Return supplied text", parameters: Type.Object({ text: Type.String() }), async execute(_id, params) { return { content: [{ type: "text", text: params.text }], details: {} }; } });
-  pi.registerCommand("gui-note", { description: "Record a local note", async handler(_args, ctx) { const note = await ctx.ui.input("备注"); if (note) ctx.ui.notify(note + " (" + getAgentDir() + ")"); } });
+  pi.registerCommand("gui-note", { description: "Record a local note", getArgumentCompletions: (prefix) => ["todo", "done"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })), async handler(_args, ctx) { const note = await ctx.ui.input("备注"); if (note) ctx.ui.notify(note + " (" + getAgentDir() + ")"); } });
 }
 `,
 	);
@@ -145,6 +146,11 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await expect(page.getByRole("button", { name: "排队方式" })).toHaveCount(0);
 	await expect(page.getByRole("button", { name: "压缩上下文", exact: true })).toHaveCount(0);
 	await expectComposerLayout(page);
+	await exerciseSuggestions(page);
+	await exerciseSuggestionRefresh(page);
+	await editor.fill("/");
+	await page.screenshot({ animations: "disabled", path: path.join(root, "dist", `gui-suggestions-${screenshotName}.png`) });
+	await editor.fill("");
 	await exerciseContextUsage(page);
 
 	const phone = (page.viewportSize()?.width ?? 1200) < 768;
@@ -310,6 +316,7 @@ test("独立 opi-web：真实工具、刷新恢复与响应式布局", async ({ 
 				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeInViewport();
 				await expect(page.getByRole("button", { name: "发送", exact: true })).toBeInViewport();
 				await expectComposerLayout(page);
+				await exerciseSuggestions(page);
 				await exerciseSessionHeading(page);
 				await exerciseContextUsage(page);
 				expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

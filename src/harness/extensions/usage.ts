@@ -15,6 +15,9 @@ export default function usageExtension(
 	const service = new UsageService();
 	pi.registerCommand("usage", {
 		description: COMMAND_DESCRIPTION,
+		getArgumentCompletions: (prefix) => [
+			{ value: "--refresh", label: "--refresh", description: "跳过缓存，刷新套餐用量" },
+		].filter((item) => item.value.startsWith(prefix.trimStart())),
 		async handler(args, ctx) {
 			const argument = args.trim();
 			if (argument !== "" && argument !== "--refresh") {

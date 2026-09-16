@@ -15,6 +15,7 @@ import type { GuiView } from "./use-gui.ts";
 import { ModelControls } from "./model-controls.tsx";
 import { pretty } from "./content.tsx";
 import { ContextUsage } from "./context-usage.tsx";
+import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 
 type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number];
 export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void }) {
@@ -31,6 +32,7 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 		completions,
 		setError,
 	} = gui;
+	const suggestions = useSuggestionNavigation(editor);
 	const upload = useRef<HTMLInputElement>(null);
 	const [images, setImages] = useState<ImageAttachment[]>([]);
 	const hasContent = Boolean(draft.trim() || images.length);
@@ -88,9 +90,10 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 			setError(error instanceof Error ? error.message : String(error));
 		}
 	};
+	const argumentChoices = completions?.text === draft ? completions.items : [];
 	const choices =
-		draft.startsWith("/") && !draft.includes(" ")
-			? (snapshot?.commands.filter((command) => `/${command.name}`.startsWith(draft)).slice(0, 10) ?? [])
+		argumentChoices.length === 0 && /^\/\S*$/.test(draft)
+			? (snapshot?.commands.filter((command) => `/${command.name}`.startsWith(draft)) ?? [])
 			: [];
 	return (
 		<footer className="composer">
@@ -128,45 +131,58 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 						))}
 					</div>
 				)}
-				<div className="suggestions">
+				<ul {...suggestions} className="suggestions" aria-label="输入建议">
 					{choices.map((choice) => (
-						<Button
-							variant="secondary"
-							size="sm"
-							key={choice.name}
-							onClick={() => {
-								setDraft(`/${choice.name} `);
-								editor.current?.focus();
-							}}
-						>
-							/{choice.name}
-						</Button>
-					))}
-					{completions?.text === draft &&
-						completions.items.map((item) => (
+						<li key={choice.name}>
 							<Button
-								variant="secondary"
-								size="sm"
-								key={item.value}
-								onClick={() => setDraft(`${draft.slice(0, draft.indexOf(" ") + 1)}${item.value}`)}
+								variant="ghost"
+								tabIndex={-1}
+								className="suggestion-command"
+								title={`/${choice.name}: ${choice.description}`}
+								onClick={() => {
+									setDraft(`/${choice.name} `);
+									editor.current?.focus();
+								}}
 							>
-								{item.label}
+								<span className="suggestion-label">/{choice.name}</span>
+								<span className="suggestion-description">{choice.description}</span>
 							</Button>
-						))}
-					{fileChoices.map((file) => (
-						<Button
-							variant="secondary"
-							size="sm"
-							key={file}
-							onClick={() => {
-								setDraft((text) => text.replace(/@[^\s]*$/, () => `@"${file}" `));
-								setFileChoices([]);
-							}}
-						>
-							{file}
-						</Button>
+						</li>
 					))}
-				</div>
+					{argumentChoices.map((item) => (
+						<li key={item.value}>
+							<Button
+								variant="ghost"
+								tabIndex={-1}
+								className={item.description ? "suggestion-command" : undefined}
+								title={item.description ? `${item.label}: ${item.description}` : item.label}
+								onClick={() => {
+									setDraft(`${draft.replace(/\s.*$/s, "")} ${item.value}`);
+									editor.current?.focus();
+								}}
+							>
+								<span className="suggestion-label">{item.label}</span>
+								{item.description && <span className="suggestion-description">{item.description}</span>}
+							</Button>
+						</li>
+					))}
+					{fileChoices.map((file) => (
+						<li key={file}>
+							<Button
+								variant="ghost"
+								tabIndex={-1}
+								title={file}
+								onClick={() => {
+									setDraft((text) => text.replace(/@[^\s]*$/, () => `@"${file}" `));
+									setFileChoices([]);
+									editor.current?.focus();
+								}}
+							>
+								<span className="suggestion-label">{file}</span>
+							</Button>
+						</li>
+					))}
+				</ul>
 				<Textarea
 					className="message-editor"
 					ref={editor}
@@ -183,7 +199,8 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 						}
 					}}
 					onKeyDown={(event) => {
-						if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && !event.nativeEvent.isComposing) {
+						if (event.nativeEvent.isComposing || suggestions.onKeyDown(event)) return;
+						if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
 							event.preventDefault();
 							submit();
 						}

@@ -1,4 +1,93 @@
 import { expect, type Page } from "@playwright/test";
+import { exerciseSuggestionKeyboard } from "./suggestion-keyboard-steps.ts";
+
+export async function exerciseSuggestions(page: Page) {
+	const editor = page.getByRole("textbox", { name: "消息", exact: true });
+	const suggestions = page.getByRole("list", { name: "输入建议", exact: true });
+	const rows = suggestions.getByRole("listitem");
+	await editor.fill("/");
+	await expect.poll(() => rows.count()).toBeGreaterThan(10);
+	const layout = await rows.evaluateAll((nodes) => nodes.map((node) => {
+		const row = node.getBoundingClientRect();
+		const label = node.querySelector(".suggestion-label")?.getBoundingClientRect();
+		const description = node.querySelector(".suggestion-description")?.getBoundingClientRect();
+		return { x: row.x, y: row.y, width: row.width, bottom: row.bottom, labelY: label?.y, descriptionY: description?.y, descriptionX: description?.x };
+	}));
+	const [first, ...remaining] = layout;
+	if (!first) throw new Error("命令建议不可见");
+	let previousBottom = first.bottom;
+	for (const row of remaining) {
+		expect(row.x).toBeCloseTo(first.x);
+		expect(row.width).toBeCloseTo(first.width);
+		expect(row.labelY).toBe(row.descriptionY);
+		expect(row.descriptionX).toBe(first.descriptionX);
+		expect(row.y).toBeGreaterThanOrEqual(previousBottom);
+		previousBottom = row.bottom;
+	}
+	expect(await suggestions.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+	expect(await suggestions.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+	await expect(editor).toBeInViewport();
+	const last = suggestions.getByRole("button").last();
+	const lastCommand = await last.locator(".suggestion-label").innerText();
+	await last.click();
+	await expect(editor).toHaveValue(`${lastCommand} `);
+	await expect(editor).toBeFocused();
+	await editor.fill("/gui-n");
+	await expect(rows).toHaveCount(1);
+	const command = suggestions.getByRole("button", { name: "/gui-note Record a local note", exact: true });
+	await expect(command).toBeVisible();
+	await command.focus();
+	await page.keyboard.press("Enter");
+	await expect(editor).toHaveValue("/gui-note ");
+	await expect(editor).toBeFocused();
+	await expect(rows).toHaveCount(2);
+	await suggestions.getByRole("button", { name: "todo", exact: true }).click();
+	await expect(editor).toHaveValue("/gui-note todo");
+	await expect(editor).toBeFocused();
+	await editor.fill("@inp");
+	await editor.press("Tab");
+	await suggestions.getByRole("button", { name: "input.ts", exact: true }).click();
+	await expect(editor).toHaveValue('@"input.ts" ');
+	await expect(editor).toBeFocused();
+	await expect(rows).toHaveCount(0);
+	await editor.fill("/no-such-command");
+	await expect(rows).toHaveCount(0);
+	await exerciseArgumentSuggestions(page);
+	await exerciseSuggestionKeyboard(page);
+	await editor.fill("");
+}
+
+async function exerciseArgumentSuggestions(page: Page) {
+	const editor = page.getByRole("textbox", { name: "消息", exact: true });
+	const suggestions = page.getByRole("list", { name: "输入建议", exact: true });
+	for (const text of ["/lsp", "/lsp "]) {
+		await editor.fill(text);
+		await expect(suggestions.locator(".suggestion-label")).toHaveText(["status", "reload", "diagnostics"]);
+		await expect(suggestions.locator(".suggestion-description")).toHaveText([
+			"查看 LSP 状态", "重载 LSP 服务", "查看诊断，可追加文件路径",
+		]);
+		expect(await suggestions.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+		await suggestions.getByRole("button", { name: "diagnostics 查看诊断，可追加文件路径", exact: true }).click();
+		await expect(editor).toHaveValue("/lsp diagnostics");
+		await expect(editor).toBeFocused();
+	}
+	await editor.fill("/lsp\tre");
+	await expect(suggestions.locator(".suggestion-label")).toHaveText(["reload"]);
+	await suggestions.getByRole("button", { name: "reload 重载 LSP 服务", exact: true }).click();
+	await expect(editor).toHaveValue("/lsp reload");
+	await editor.fill("/lsp diagnostics src/");
+	await expect(suggestions.getByRole("listitem")).toHaveCount(0);
+	await editor.fill("/usage");
+	await suggestions.getByRole("button", { name: "--refresh 跳过缓存，刷新套餐用量", exact: true }).click();
+	await expect(editor).toHaveValue("/usage --refresh");
+	await editor.fill("/export j");
+	await suggestions.getByRole("button", { name: "jsonl 导出为会话数据", exact: true }).click();
+	await expect(editor).toHaveValue("/export jsonl");
+	await editor.fill("/thinking");
+	await suggestions.getByRole("button", { name: "off", exact: true }).click();
+	await expect(editor).toHaveValue("/thinking off");
+	await expect(editor).toBeFocused();
+}
 
 export async function exerciseContextUsage(page: Page) {
 	const usage = page.getByRole("button", { name: /^上下文占用 / });

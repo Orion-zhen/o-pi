@@ -199,7 +199,7 @@ export type GuiEvent =
 	| { type: "panel"; title: string; value: unknown }
 	| { type: "editor"; text: string }
 	| { type: "files"; paths: string[] }
-	| { type: "completions"; text: string; items: { value: string; label: string }[] }
+	| { type: "completions"; text: string; items: { value: string; label: string; description?: string }[] }
 	| { type: "download"; name: string; content: string; mimeType: string }
 	| { type: "config"; file: "settings.json"; content: string }
 	| { type: "auth"; value: import("@earendil-works/pi-ai").AuthEvent }

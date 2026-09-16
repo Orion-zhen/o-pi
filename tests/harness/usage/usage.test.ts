@@ -268,6 +268,16 @@ describe("usage extension", () => {
 			},
 		} satisfies Pick<ExtensionAPI, "registerCommand">;
 		usageExtension(pi, presentation.usage);
+		const complete = commandOptions?.getArgumentCompletions;
+		if (!complete) throw new Error("usage completions not registered");
+		for (const prefix of ["", "--re"]) {
+			expect(await complete(prefix)).toEqual([
+				{ value: "--refresh", label: "--refresh", description: expect.any(String) },
+			]);
+		}
+		expect(await complete("bad")).toEqual([]);
+		expect(await complete("--refresh ")).toEqual([]);
+		expect(notifications).toEqual([]);
 
 		const context = fixture<Parameters<CommandOptions["handler"]>[1]>({
 			mode: "tui",

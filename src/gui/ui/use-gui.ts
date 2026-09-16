@@ -168,7 +168,7 @@ export function useGui() {
 		const timer = setTimeout(() => {
 			if (status === "已连接") {
 				void send({ action: "draft", text: draft });
-				if (/^\/\S+\s/.test(draft)) void send({ action: "complete", text: draft });
+				if (/^\/\S+/.test(draft)) void send({ action: "complete", text: draft });
 			}
 		}, 250);
 		return () => clearTimeout(timer);

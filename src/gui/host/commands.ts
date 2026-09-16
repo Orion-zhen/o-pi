@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { GuiHost } from "./host.ts";
 
 export const builtinCommands = [
@@ -22,6 +24,30 @@ export const builtinCommands = [
 	["help", "命令帮助"],
 	["quit", "关闭界面"],
 ].map(([name = "", description = ""]) => ({ name, description }));
+
+export async function completeCommand(session: AgentSession, text: string): Promise<AutocompleteItem[]> {
+	const match = /^\/(\S+)(?:\s(.*))?$/s.exec(text);
+	const name = match?.[1];
+	if (!name) return [];
+	const prefix = match[2] ?? "";
+	const command = session.extensionRunner.getCommand(name);
+	if (command) return await command.getArgumentCompletions?.(prefix) ?? [];
+	let items: AutocompleteItem[];
+	switch (name) {
+		case "thinking":
+			items = session.getAvailableThinkingLevels().map((level) => ({ value: level, label: level }));
+			break;
+		case "export":
+			items = [
+				{ value: "html", label: "html", description: "导出为网页" },
+				{ value: "jsonl", label: "jsonl", description: "导出为会话数据" },
+			];
+			break;
+		default:
+			return [];
+	}
+	return items.filter((item) => item.value.startsWith(prefix.trimStart()));
+}
 
 /** 仅适配 InteractiveMode 的界面命令。扩展命令和模板继续交给 SDK prompt。 */
 export async function runBuiltin(host: GuiHost, text: string): Promise<boolean> {

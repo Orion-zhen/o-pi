@@ -81,6 +81,45 @@ historyDeletionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "
 sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("完整命令和参数前缀都能补全，保留描述且不执行命令", async () => {
+		const before = host.snapshot();
+		const cases: [string, string[]][] = [
+			["/lsp", ["status", "reload", "diagnostics"]],
+			["/lsp ", ["status", "reload", "diagnostics"]],
+			["/lsp re", ["reload"]],
+			["/lsp\tsta", ["status"]],
+			["/lsp diagnostics src/", []],
+			["/lsp invalid", []],
+			["/ls", []],
+			["/usage", ["--refresh"]],
+			["/usage --re", ["--refresh"]],
+			["/usage --refresh ", []],
+			["/export", ["html", "jsonl"]],
+			["/export j", ["jsonl"]],
+			["/thinking", before.thinkingLevels],
+			["/thinking unavailable", []],
+			["/presence re", ["reload"]],
+			["/prune", ["force", "restore"]],
+			["/tools ", []],
+			["/skill ", []],
+			["/approval-check ", []],
+			["/unknown ", []],
+		];
+		for (const [text, expected] of cases) {
+			await host.dispatch({ action: "complete", text });
+			const event = events.filter((event) => event.type === "completions").at(-1);
+			expect(event?.text).toBe(text);
+			expect(event?.items.map((item) => item.value)).toEqual(expected);
+			if (["/lsp", "/usage", "/export"].includes(text)) {
+				expect(event?.items).toEqual(expected.map((value) => ({ value, label: value, description: expect.any(String) })));
+			}
+		}
+		expect(host.snapshot().history).toEqual(before.history);
+		expect(host.snapshot().messages).toEqual(before.messages);
+		expect(host.snapshot().notices).toEqual(before.notices);
+		expect(server.requests).toHaveLength(0);
+	});
+
 	it("视图接口不提交提示、不写输入历史，重载后工具配置仍可直接调用", async () => {
 		const before = host.snapshot();
 		for (const view of ["stats", "usage", "telemetry", "system", "tools", "model", "settings", "auth", "help", "import"])
