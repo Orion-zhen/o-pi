@@ -1,4 +1,7 @@
 import { useRef, useState } from "react";
+import { AnimatePresence } from "motion/react";
+import { ListItem, Reveal } from "./components/animated";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
 import { ArrowUp, History, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
@@ -18,7 +21,7 @@ import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
 
-type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number];
+type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number] & { id: number };
 export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: GuiSnapshot; onSubmit: () => void }) {
 	const {
 		connected,
@@ -35,6 +38,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 		draft, sessionId: snapshot.sessionId, connected, send, query, setError,
 	});
 	const upload = useRef<HTMLInputElement>(null);
+	const attachmentId = useRef(0);
 	const [images, setImages] = useState<ImageAttachment[]>([]);
 	const hasContent = Boolean(draft.trim() || images.length);
 	const stopping = running && !hasContent;
@@ -46,7 +50,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 		setImages([]);
 		clearFiles();
 		onSubmit();
-		void send({ action: "prompt", text, images: attachments, behavior: "followUp" }).then((ok) => {
+		void send({ action: "prompt", text, images: attachments.map(({ data, mimeType }) => ({ data, mimeType })), behavior: "followUp" }).then((ok) => {
 			if (!ok) {
 				setDraft((current) => current || text);
 				setImages((current) => (current.length ? current : attachments));
@@ -74,7 +78,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 								: file.type === "image/gif"
 									? "image/gif"
 									: "image/png";
-					additions.push({ data, mimeType });
+					additions.push({ id: attachmentId.current++, data, mimeType });
 				} else {
 					const bytes = new Uint8Array(await file.arrayBuffer());
 					if (bytes.includes(0) || file.type === "application/pdf")
@@ -97,10 +101,11 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 	return (
 		<footer className="composer">
 			<div className="composer-card">
+				<AnimatePresence initial={false}>
 				{snapshot.queue.steering.length + snapshot.queue.followUp.length > 0 && (
-					<details open className="queue">
-						<summary>
-							待发送消息{" "}
+					<Reveal key="queue"><Collapsible defaultOpen className="queue">
+						<div className="queue-heading">
+							<CollapsibleTrigger>待发送消息</CollapsibleTrigger>
 							<IconButton
 								label="清空队列"
 								onClick={(event) => {
@@ -110,26 +115,31 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 							>
 								<Trash2 />
 							</IconButton>
-						</summary>
-						<pre>{pretty(snapshot.queue)}</pre>
-					</details>
+						</div>
+						<CollapsibleContent><pre>{pretty(snapshot.queue)}</pre></CollapsibleContent>
+					</Collapsible></Reveal>
 				)}
 				{images.length > 0 && (
-					<div className="image-previews">
+					<Reveal key="images"><ul className="image-previews">
+						<AnimatePresence initial={false}>
 						{images.map((image, index) => (
-							<div className="image-preview" key={index}>
+							<ListItem className="image-preview" key={image.id}>
 								<img src={`data:${image.mimeType};base64,${image.data}`} alt="待发送图片" />
 								<IconButton
 									label={`移除附件 ${index + 1}`}
 									size="icon-sm"
-									onClick={() => setImages((images) => images.filter((_, current) => current !== index))}
+									onClick={() => setImages((images) => images.filter((current) => current.id !== image.id))}
 								>
 									<X />
 								</IconButton>
-							</div>
+							</ListItem>
 						))}
-					</div>
+						</AnimatePresence>
+					</ul></Reveal>
 				)}
+				</AnimatePresence>
+				<AnimatePresence initial={false}>
+				{choices.length + argumentChoices.length + fileChoices.length > 0 && <Reveal>
 				<ul {...suggestions} className="suggestions" aria-label="输入建议">
 					{choices.map((choice) => (
 						<li key={choice.name}>
@@ -182,6 +192,8 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 						</li>
 					))}
 				</ul>
+				</Reveal>}
+				</AnimatePresence>
 				<Textarea
 					className="message-editor"
 					ref={editor}

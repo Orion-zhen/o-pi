@@ -4,9 +4,10 @@ export function useSuggestionNavigation(editor: RefObject<HTMLTextAreaElement | 
 	const ref = useRef<HTMLUListElement>(null);
 	const focused = useRef<HTMLButtonElement | null>(null);
 	useLayoutEffect(() => {
-		if (focused.current && !focused.current.isConnected) {
+		const button = focused.current;
+		if (button && (!button.isConnected || button.closest("[inert]"))) {
 			focused.current = null;
-			if (document.activeElement === document.body) editor.current?.focus();
+			if (document.activeElement === document.body || document.activeElement === button) editor.current?.focus();
 		}
 	});
 	return {
@@ -27,7 +28,7 @@ export function useSuggestionNavigation(editor: RefObject<HTMLTextAreaElement | 
 			}
 			if (event.key !== "Tab" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return false;
 			if (event.shiftKey && event.key !== "Tab") return false;
-			const buttons = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+			const buttons = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("button") ?? []).filter((button) => !button.closest("[inert]"));
 			const current = buttons.findIndex((button) => button === document.activeElement);
 			const direction = event.key === "ArrowUp" || (event.key === "Tab" && event.shiftKey) ? -1 : 1;
 			const index = current < 0

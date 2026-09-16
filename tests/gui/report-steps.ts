@@ -15,9 +15,9 @@ export async function exerciseReports(page: Page) {
 		if (command === "/usage") await expect(panel.locator("meter")).toHaveCount(0);
 		if (command === "/telemetry") {
 			await expect(panel.getByRole("meter", { name: "read", exact: true })).toHaveCount(1);
-			const grep = panel.locator("details").filter({ has: page.locator("summary", { hasText: /^Grep 管线$/ }) });
-			await grep.locator("summary").first().click();
-			await expect(grep).toHaveAttribute("open", "");
+			const grep = panel.locator(".report-section").filter({ has: page.getByRole("button", { name: "Grep 管线", exact: true }) });
+			await grep.getByRole("button", { name: "Grep 管线", exact: true }).click();
+			await expect(grep).toHaveAttribute("data-state", "open");
 			await expect(grep.getByRole("meter", { name: "直接命中", exact: true })).toBeVisible();
 		}
 		await (docked ? page : panel).getByRole("button", { name: docked ? "收起会话信息" : "关闭面板", exact: true }).click();

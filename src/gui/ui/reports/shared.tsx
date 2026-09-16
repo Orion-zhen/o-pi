@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Disclosure } from "../components/disclosure";
 
 export const number = (value: number | undefined) => value === undefined ? "暂无数据" : new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value);
 export const percent = (value: number | undefined | null) => value == null ? "暂无数据" : `${number(value)}%`;
@@ -14,7 +15,7 @@ export function Metrics({ items }: { items: { label: string; value: ReactNode; h
 }
 
 export function Section({ title, children, detail = false }: { title: string; children: ReactNode; detail?: boolean }) {
-	return detail ? <details className="report-section"><summary>{title}</summary><div className="report-section-body">{children}</div></details>
+	return detail ? <Disclosure className="report-section" summary={title}><div className="report-section-body">{children}</div></Disclosure>
 		: <section className="report-section" aria-label={title}><h3>{title}</h3><div className="report-section-body">{children}</div></section>;
 }
 

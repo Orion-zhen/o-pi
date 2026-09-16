@@ -2,6 +2,8 @@ import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live
 import type { AdoptionWindowStatistics, NumericSummary, RateSummary } from "../../../harness/telemetry-report/types.ts";
 import { Bar, duration, Empty, Facts, Metrics, number, percent, ReportStamp, Section } from "./shared.tsx";
 
+import { Disclosure } from "../components/disclosure";
+
 const ratePercent = (rate: RateSummary) => rate.value === undefined ? undefined : rate.value * 100;
 const rateText = (rate: RateSummary) => `${percent(ratePercent(rate))} · ${number(rate.numerator)} / ${number(rate.samples)}`;
 const distribution = (value: NumericSummary, format = number) => `平均 ${format(value.mean)} · P50 ${format(value.p50)} · P95 ${format(value.p95)} · ${number(value.samples)} 个样本`;
@@ -29,14 +31,14 @@ export function TelemetryReport({ value }: { value: LiveTelemetryReport }) {
 		<Section title="工具调用对比">
 			{tools.length === 0 ? <Empty>尚无已完成的工具调用。</Empty> : <div className="report-bars">{tools.map((tool) => <div className="report-tool" key={tool.tool}>
 				<Bar label={tool.tool} value={maxCalls > 0 ? tool.calls / maxCalls * 100 : undefined} text={`${number(tool.calls)} 次`} hint={`成功率 ${percent(ratePercent(tool.success_rate))} · P50 ${duration(tool.duration_ms.p50)} · P95 ${duration(tool.duration_ms.p95)}`} tone={tool.error_rate.numerator > 0 ? "warning" : "accent"} />
-				<details className="report-details"><summary>{tool.tool} 详细指标</summary><Facts items={[
+				<Disclosure className="report-details" summary={`${tool.tool} 详细指标`}><Facts items={[
 					["成功", rateText(tool.success_rate)], ["错误", rateText(tool.error_rate)], ["输出截断", rateText(tool.truncation_rate)],
 					["耗时", distribution(tool.duration_ms, duration)], ["输出字符", distribution(tool.output_chars)],
 					["多范围调用", number(tool.multi_scope_calls)], ["范围错误", number(tool.scope_errors)],
 					["参数修复", rateText(tool.repair.repaired_rate)], ["分发调用", number(tool.repair.fanout_calls)],
 					...Object.entries(tool.error_codes).map(([code, count]): [string, string] => [`错误 · ${code}`, number(count)]),
 					...Object.entries(tool.repair.operations).map(([operation, count]): [string, string] => [`修复 · ${operation}`, number(count)]),
-				]} /></details>
+				]} /></Disclosure>
 			</div>)}</div>}
 		</Section>
 		<Section title="搜索效果" detail>
@@ -57,9 +59,9 @@ export function TelemetryReport({ value }: { value: LiveTelemetryReport }) {
 					["结果上限触发", rateText(grep.limits.result)], ["深度上限触发", rateText(grep.limits.depth)], ["条目上限触发", rateText(grep.limits.entries)], ["字节上限触发", rateText(grep.limits.bytes)],
 					["丢弃文本命中", number(grep.capacity.dropped_text_hits.total)], ["丢弃关联结果", number(grep.capacity.dropped_related_results.total)], ["超大文件跳过", number(grep.capacity.ast_skipped_oversized_files.total)],
 				]} />
-				{Object.entries(grep.ranking.by_algorithm).map(([algorithm, stats]) => <details className="report-details" key={algorithm}><summary>{algorithm} 排名分析</summary><Facts items={[
+				{Object.entries(grep.ranking.by_algorithm).map(([algorithm, stats]) => <Disclosure className="report-details" key={algorithm} summary={`${algorithm} 排名分析`}><Facts items={[
 					["调用", number(stats.calls)], ["平均候选池", number(stats.candidate_pool.mean)], ["平均入选候选", number(stats.selected_candidates.mean)], ["平均替换数", number(stats.mmr_replacements.mean)], ["平均文件多样性增益", number(stats.file_diversity_gain.mean)],
-				]} /><Adoption label="即时采用" value={stats.immediate} /><Adoption label="有效采用" value={stats.productive} /></details>)}
+				]} /><Adoption label="即时采用" value={stats.immediate} /><Adoption label="有效采用" value={stats.productive} /></Disclosure>)}
 				{grep.findings.map((finding) => <p className="report-message" data-tone={finding.severity === "warning" ? "warning" : "accent"} key={finding.code}>{finding.summary}<small>{rateText(finding.evidence)}</small></p>)}
 			</>}
 		</Section>

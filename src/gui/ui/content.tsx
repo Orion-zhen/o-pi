@@ -1,6 +1,9 @@
 import { Children, isValidElement, memo, type ReactNode } from "react";
 import { MessageIdentity } from "./message-meta.tsx";
 import { CodeBlock } from "./code-block.tsx";
+import { motion } from "motion/react";
+import { fade } from "./lib/motion";
+import { Disclosure } from "./components/disclosure";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -58,10 +61,9 @@ export function Content({ value }: { value: unknown }): ReactNode {
 	if (value.type === "text" && typeof value.text === "string") return <MarkdownText text={value.text} />;
 	if (value.type === "thinking" && typeof value.thinking === "string")
 		return (
-			<details className="thinking">
-				<summary>思考</summary>
+			<Disclosure className="thinking" summary="思考">
 				<MarkdownText text={value.thinking} />
-			</details>
+			</Disclosure>
 		);
 	if (value.type === "image") {
 		const source = record(value.source) ? value.source : value;
@@ -79,7 +81,7 @@ export function Message({ value, entryId }: { value: unknown; entryId?: string |
 	const role = String(value.role ?? "message");
 	if (role === "custom" && value.display === false) return null;
 	return (
-		<article className={`message ${role}`} data-entry-id={entryId}>
+		<motion.article {...fade} className={`message ${role}`} data-entry-id={entryId}>
 			{role === "user" && typeof value.timestamp === "number" && <MessageIdentity name="You" timestamp={value.timestamp} />}
 			{role !== "user" && <header><strong>{String(value.customType ?? role)}</strong></header>}
 			{role === "bashExecution" ? <>
@@ -88,6 +90,6 @@ export function Message({ value, entryId }: { value: unknown; entryId?: string |
 			</> : role === "user" ? <div className="user-bubble"><Content value={value.content} /></div>
 				: <Content value={value.content ?? value.output ?? value.summary ?? value} />}
 			{typeof value.errorMessage === "string" && <pre className="error">{value.errorMessage}</pre>}
-		</article>
+		</motion.article>
 	);
 }

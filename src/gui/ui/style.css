@@ -18,11 +18,17 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 	background: var(--glass);
 	backdrop-filter: var(--glass-filter);
 }
-.sidebar { flex: 0 1 20%; min-inline-size: 0; border-inline-end: 1px solid var(--divider); }
-.sidebar[data-collapsed="true"] { flex: 0 0 auto; }
-.sidebar-brand { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-4) var(--space-3); }
-.brand { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-inline-start: var(--space-2); font-size: var(--text-heading); font-weight: 600; letter-spacing: -0.025em; }
-.brand > svg { inline-size: 1.15em; block-size: 1.15em; }
+.sidebar { flex: 0 0 20%; min-inline-size: 0; overflow: clip; border-inline-end: 1px solid var(--divider); transition: flex-basis var(--motion-layout) var(--motion-ease); }
+.sidebar[data-collapsed="true"] { flex-basis: calc(2.75rem + 2 * var(--space-3)); }
+.sidebar-navigation { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); flex: 1; min-block-size: 0; }
+.sidebar-navigation > * { grid-area: 1 / 1; min-block-size: 0; min-inline-size: 0; transition: opacity var(--motion-normal) var(--motion-ease), visibility var(--motion-layout); }
+.sidebar-expanded { display: flex; }
+.sidebar-compact { opacity: 0; visibility: hidden; }
+.sidebar[data-collapsed="true"] .sidebar-expanded { opacity: 0; visibility: hidden; }
+.sidebar[data-collapsed="true"] .sidebar-compact { opacity: 1; visibility: visible; }
+.sidebar-brand { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-4) var(--space-3); }
+.brand { display: flex; white-space: nowrap; min-inline-size: 0; overflow: clip; transition: opacity var(--motion-normal) var(--motion-ease); align-items: center; gap: var(--space-2); padding-inline-start: var(--space-2); font-size: var(--text-heading); font-weight: 600; letter-spacing: -0.025em; }
+.brand > svg { inline-size: 1.15em; block-size: 1.15em; flex-shrink: 0; }
 .brand small { font-size: var(--text-caption); color: var(--muted-foreground); letter-spacing: 0; font-weight: 400; }
 .sidebar-scroll { flex: 1; min-height: 0; overflow: auto; padding: var(--space-2) var(--space-3); }
 .workspace-controls { display: flex; gap: var(--space-2); min-inline-size: 0; }
@@ -54,7 +60,8 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .workspace-welcome > .workspace-select { max-inline-size: 100%; }
 .sidebar-footer { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-3); border-block-start: 1px solid var(--divider); color: var(--muted-foreground); }
 .sidebar-footer > button:last-child { margin-left: auto; }
-.sidebar[data-collapsed="true"] .sidebar-brand { justify-content: center; }
+.sidebar[data-collapsed="true"] .brand { inline-size: 0; padding: 0; opacity: 0; }
+.sidebar[data-collapsed="true"] .sidebar-brand { gap: 0; justify-content: center; }
 .sidebar[data-collapsed="true"] .new-session, .sidebar[data-collapsed="true"] .workspace-select { padding-inline: 0.75em; justify-content: center; }
 .sidebar[data-collapsed="true"] .sidebar-footer { flex-direction: column; align-items: center; }
 .sidebar[data-collapsed="true"] .sidebar-footer > button:last-child { margin-left: 0; }
@@ -105,8 +112,8 @@ input.session-name { flex: 1; background: var(--surface); }
 .context-details dt { color: var(--muted-foreground); }
 .context-details dd { margin: 0; font-variant-numeric: tabular-nums; }
 .queue { max-height: 8rem; overflow: auto; border-bottom: 1px solid var(--border); margin: 0 0.5rem 0.25rem; }
-.queue > summary { display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; }
-.image-previews { display: flex; gap: 0.5rem; padding: 0.5rem; overflow-x: auto; }
+.queue-heading { display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; }
+.image-previews { display: flex; gap: 0.5rem; margin: 0; padding: 0.5rem; overflow-x: auto; list-style: none; }
 .image-preview { display: grid; flex-shrink: 0; }
 .image-preview > * { grid-area: 1 / 1; }
 .image-preview img { width: 5rem; height: 4rem; object-fit: cover; border-radius: 0.5rem; border: 1px solid var(--border); }

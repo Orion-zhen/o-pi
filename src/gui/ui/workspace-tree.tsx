@@ -1,8 +1,16 @@
 import type { KeyboardEvent, ReactNode } from "react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
+import { settle } from "./lib/motion";
 import { AtSign, ChevronRight, FileCode2, FileText, FolderClosed, FolderOpen, Image, Link } from "lucide-react";
 import { fileGitState, gitStatusLabels, type WorkspaceEntry, type WorkspaceGit } from "../workbench.ts";
 import type { WorkbenchView } from "./use-workbench.ts";
 import { IconButton } from "./components/icon-button";
+
+function DirectoryGroup({ children }: { children: ReactNode }) {
+	const present = useIsPresent();
+	return <motion.ul role="group" inert={!present} aria-hidden={!present} style={{ overflow: "clip" }}
+		initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={settle}>{children}</motion.ul>;
+}
 
 interface TreeEntry extends WorkspaceEntry { virtual?: boolean }
 function directoryEntries(path: string, entries: WorkspaceEntry[], git: WorkspaceGit | null): TreeEntry[] {
@@ -56,7 +64,7 @@ export function WorkspaceTree({ workbench, openFile, referenceFile }: {
 }) {
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
 	const keyDown = (event: KeyboardEvent<HTMLUListElement>) => {
-		const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="treeitem"]')];
+		const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="treeitem"]')].filter((button) => !button.closest('[inert]'));
 		const current = buttons.findIndex((button) => button === event.target);
 		const button = buttons[current];
 		if (!button) return;
@@ -100,7 +108,9 @@ export function WorkspaceTree({ workbench, openFile, referenceFile }: {
 				</button>
 				{!entry.virtual && change?.status !== "D" && <FileReference path={entry.path} referenceFile={referenceFile} />}
 				</div>
-				{entry.kind === "directory" && open && <ul role="group">{renderDirectory(entry.path, depth + 1, entry.virtual)}</ul>}
+				<AnimatePresence initial={false}>
+				{entry.kind === "directory" && open && <DirectoryGroup key={entry.path}>{renderDirectory(entry.path, depth + 1, entry.virtual)}</DirectoryGroup>}
+				</AnimatePresence>
 			</li>;
 		});
 	};

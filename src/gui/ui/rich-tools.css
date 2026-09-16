@@ -12,7 +12,7 @@
 .web-card-snippet { padding: 0 0.75rem 0.75rem; color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.6; overflow-wrap: anywhere; }
 .web-fetch-result { margin-block: 0.75rem; min-width: 0; }
 .web-partial { margin-block: 0.625rem; padding: 0.5rem 0.625rem; border-radius: 0.375rem; background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--warning); font-size: 0.75rem; }
-.web-preview > summary { font-size: 0.75rem; color: var(--muted-foreground); width: fit-content; }
+.web-preview > .disclosure-trigger { font-size: 0.75rem; color: var(--muted-foreground); width: fit-content; }
 .web-preview-content { max-height: 28rem; overflow: auto; }
 .subagent-progress { min-width: 0; margin-block: 0.75rem; }
 .subagent-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; color: var(--muted-foreground); font-size: 0.75rem; }
@@ -20,7 +20,7 @@
 .subagent-overview > span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
 .subagent-progress > progress { appearance: none; display: block; width: 100%; height: 3px; border: 0; border-radius: 2px; overflow: hidden; margin: 0.625rem 0 0.875rem; background: var(--secondary); }
 .subagent-progress > progress::-webkit-progress-bar { background: var(--secondary); }
-.subagent-progress > progress::-webkit-progress-value { background: var(--muted-foreground); transition: width 160ms; }
+.subagent-progress > progress::-webkit-progress-value { background: var(--muted-foreground); transition: width var(--motion-layout) var(--motion-ease); }
 .subagent-progress > progress::-moz-progress-bar { background: var(--muted-foreground); }
 .subagent-tasks { display: grid; gap: 0.5rem; }
 .subagent-task { min-width: 0; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface); overflow: hidden; }
@@ -41,6 +41,6 @@
 .subagent-task-body { padding: 0 0.75rem 0.75rem; min-width: 0; }
 .subagent-events { font-size: 0.75rem; color: var(--muted-foreground); margin-block: 0.5rem; }
 .subagent-event { margin-block: 0.5rem; }
-.subagent-event > summary { display: flex; align-items: baseline; gap: 0.5rem; }
-.subagent-event > summary code { min-width: 0; overflow-wrap: anywhere; color: var(--foreground); }
-.subagent-event > summary span { margin-left: auto; flex-shrink: 0; }
+.subagent-event > .disclosure-trigger { display: flex; align-items: baseline; gap: 0.5rem; }
+.subagent-event > .disclosure-trigger code { min-width: 0; overflow-wrap: anywhere; color: var(--foreground); }
+.subagent-event > .disclosure-trigger span { margin-left: auto; flex-shrink: 0; }

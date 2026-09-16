@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { AnimatePresence } from "motion/react";
+import { Fade } from "./components/animated";
 import { AtSign, WrapText, X } from "lucide-react";
 import type { FilePreview as Preview } from "../workbench.ts";
 import type { Remote } from "./use-workbench.ts";
@@ -51,9 +53,11 @@ export function FilePreviewPanel({ preview: selection, referenceFile, close }: {
 			<IconButton label="关闭文件预览" size="icon-sm" onClick={close}><X /></IconButton>
 		</div>
 		<div className="file-preview-body" tabIndex={0} aria-label="文件正文">
+			<AnimatePresence initial={false} mode="wait"><Fade key={`${result.state}-${diff}`}>
 			{result.state === "loading" ? <p className="file-hint" role="status">正在读取文件…</p>
 				: result.state === "error" ? <p className="file-hint" role="alert">{result.message}</p>
 				: <FileDocument preview={result.value} diff={diff} wrap={wrap} />}
+			</Fade></AnimatePresence>
 		</div>
 	</div>;
 }

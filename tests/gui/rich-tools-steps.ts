@@ -14,20 +14,20 @@ export async function exerciseRichTools(page: Page) {
 	await expect(tasks.first()).toContainText("bash");
 	await expect(tasks.last().locator(".subagent-current")).toContainText("bash");
 	await tasks.first().locator(".subagent-task-summary").click();
-	await tasks.first().locator(".subagent-events > summary").click();
-	await expect(tasks.first().locator(".subagent-events")).toHaveAttribute("open", "");
+	await tasks.first().locator(".subagent-events > .disclosure-trigger").click();
+	await expect(tasks.first().locator(".subagent-events")).toHaveAttribute("data-state", "open");
 	await expect(agent.locator("progress")).toHaveAttribute("value", "1");
 	await expect(tasks.first()).toHaveAttribute("data-state", "running");
 	await expect(tasks.last()).toHaveAttribute("data-state", "completed");
 	await expect(tasks.last().locator(".subagent-current strong")).toHaveText("子代理检查完成");
 	await expect(page.getByRole("main").getByText("网页与子代理验证完成。", { exact: true })).toBeVisible();
 	const group = page.locator(".reply-process").last();
-	await expect(group).not.toHaveAttribute("open", "");
-	await group.locator(":scope > summary").click();
+	await expect(group).not.toHaveAttribute("data-state", "open");
+	await group.locator(":scope > .disclosure-trigger").click();
 	await agent.locator(".activity-summary").click();
 	await expect(agent.locator("progress")).toHaveAttribute("value", "2");
 	await expect(tasks.first().locator(".subagent-task-summary")).toHaveAttribute("aria-expanded", "true");
-	await expect(tasks.first().locator(".subagent-events")).toHaveAttribute("open", "");
+	await expect(tasks.first().locator(".subagent-events")).toHaveAttribute("data-state", "open");
 	await expect(tasks.first().locator(".subagent-output strong")).toHaveText("子代理检查完成");
 
 	const search = page.locator('.tool-activity[data-tool="websearch"]').last();
@@ -39,10 +39,10 @@ export async function exerciseRichTools(page: Page) {
 	await fetch.locator(".activity-summary").click();
 	await expect(fetch.locator(".web-card-title")).toHaveText("聊天界面设计");
 	await expect(fetch.locator(".web-partial")).toBeVisible();
-	await fetch.locator(".web-preview > summary").click();
+	await fetch.locator(".web-preview > .disclosure-trigger").click();
 	await expect(fetch.locator(".web-preview-content")).toContainText("让用户专注于最终回复");
 	await expect(fetch.locator("img, iframe")).toHaveCount(0);
-	await group.locator(":scope > summary").click();
+	await group.locator(":scope > .disclosure-trigger").click();
 
 	await editor.fill('/run gui-scout "GUI子任务：检查面板"');
 	await page.keyboard.press("ControlOrMeta+Enter");

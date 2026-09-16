@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { AnimatePresence } from "motion/react";
+import { Fade } from "./components/animated";
+import { fade, settle } from "./lib/motion";
 import { Check, ChevronsUpDown, FolderOpen } from "lucide-react";
 import type { GuiView } from "./use-gui.ts";
 import { Button } from "./components/ui/button";
@@ -34,8 +37,9 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: GuiView;
 			<PopoverContent className="workspace-options">
 				<Input aria-label="筛选工作区" placeholder="筛选工作区" value={filter} onChange={(event) => setFilter(event.target.value)} />
 				<div role="listbox" aria-label="工作区列表" className="workspace-list">
+					<AnimatePresence initial={false}>
 					{workspaces.filter(({ path }) => path.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map(({ path, exists }) =>
-						<div className="workspace-option-row overlay-list-row" key={path}>
+						<Fade layout="position" transition={{ ...fade.transition, layout: settle }} className="workspace-option-row overlay-list-row" key={path}>
 							<Button role="option" aria-label={path} aria-selected={path === gui.snapshot?.cwd} variant="ghost"
 								disabled={disabled || !exists} title={path} onClick={() => void open(path)}>
 								<span>{path}{!exists && <small>目录不存在</small>}</span>{path === gui.snapshot?.cwd && <Check />}
@@ -44,7 +48,8 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: GuiView;
 								<ConfirmAction label={`移除工作区 ${path}`} hint="仅从列表移除，保留目录和历史会话"
 									disabled={disabled} confirm={() => gui.send({ action: "removeWorkspace", path })} />
 							</div>}
-						</div>)}
+						</Fade>)}
+					</AnimatePresence>
 				</div>
 				<Button variant="outline" disabled={disabled} onClick={() => {
 					if (window.opi) {
@@ -54,6 +59,8 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: GuiView;
 				}}><FolderOpen />选择目录</Button>
 			</PopoverContent>
 		</Popover>
+		<AnimatePresence>
 		{browsing && <DirectoryBrowser gui={gui} initial={cwd} select={open} close={() => setBrowsing(false)} />}
+		</AnimatePresence>
 	</>;
 }

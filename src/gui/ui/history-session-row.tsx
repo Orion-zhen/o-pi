@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Fade } from "./components/animated";
+import { fade, settle } from "./lib/motion";
 import { MessageSquare, Pencil } from "lucide-react";
 import type { Send } from "./connection.ts";
 import { IconButton } from "./components/icon-button";
@@ -14,7 +16,7 @@ export function HistorySessionRow({ path, title, modified, selected, disabled, s
 }) {
 	const [editing, setEditing] = useState(false);
 	const [pending, setPending] = useState(false);
-	return <div className="history-session-row overlay-list-row" data-current={selected} data-editing={editing}>
+	return <Fade layout="position" transition={{ ...fade.transition, layout: settle }} className="history-session-row overlay-list-row" data-current={selected} data-editing={editing}>
 		{editing ? <SessionNameInput name={title} finish={(name) => {
 			setEditing(false);
 			if (name === title || !path) return;
@@ -32,5 +34,5 @@ export function HistorySessionRow({ path, title, modified, selected, disabled, s
 			<ConfirmAction label={`删除会话 ${title}`} hint="永久删除会话，再次点击确认。Ctrl+点击直接删除"
 				disabled={disabled || pending || editing} allowCtrl confirm={() => send({ action: "deleteSession", path })} />
 		</div>}
-	</div>;
+	</Fade>;
 }

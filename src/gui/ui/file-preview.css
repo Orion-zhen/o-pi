@@ -1,5 +1,5 @@
 .session-tab-body[data-file="true"] { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-.session-tab-body[hidden] { display: none; }
+.file-preview-frame { display: flex; flex-direction: column; flex: 1; min-block-size: 0; min-inline-size: 0; }
 .file-preview { display: flex; flex-direction: column; flex: 1; min-block-size: 0; min-inline-size: 0; background: var(--background); }
 .file-preview-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-block-end: 1px solid var(--divider); background: var(--glass); flex-shrink: 0; }
 .file-preview-path { flex: 1 1 6ch; min-inline-size: 0; font-size: var(--text-small); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

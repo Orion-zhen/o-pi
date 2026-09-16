@@ -13,22 +13,24 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
 	const content = (compact: boolean, mobile: boolean) => <>
 		<div className="sidebar-brand">
-			{!compact && <span className="brand"><Terminal aria-hidden="true" /><span>o-pi</span><small>workspace</small></span>}
+			<span className="brand" aria-hidden={compact}><Terminal aria-hidden="true" /><span>o-pi</span><small>workspace</small></span>
 			{mobile ? <SheetClose asChild><Button variant="ghost" size="icon" aria-label="关闭菜单" title="关闭菜单"><PanelLeftClose /></Button></SheetClose>
 				: <IconButton label={compact ? "展开侧栏" : "收起侧栏"} onClick={toggle} aria-expanded={!compact}>{compact ? <PanelLeftOpen /> : <PanelLeftClose />}</IconButton>}
 		</div>
-		{compact ? <div className="sidebar-scroll">
-			<div className="workspace-controls" data-compact={compact}>
-				<WorkspacePicker gui={gui} close={close} compact={compact} />
-				<Tooltip><TooltipTrigger asChild>
-					<Button variant="outline" className="new-session" aria-label="新建会话"
-						disabled={!gui.canChangeSession}
-						onClick={() => { void gui.send({ action: "new" }); close(); }}>
-						<Plus />
-					</Button>
-				</TooltipTrigger><TooltipContent side="right">新建会话</TooltipContent></Tooltip>
+		<div className="sidebar-navigation">
+			<div className="sidebar-expanded" inert={compact} aria-hidden={compact}>
+				<SidebarWorkbench key={gui.snapshot?.cwd ?? ""} gui={gui} close={close} />
 			</div>
-		</div> : <SidebarWorkbench key={gui.snapshot?.cwd ?? ""} gui={gui} close={close} />}
+			{!mobile && <div className="sidebar-compact sidebar-scroll" inert={!compact} aria-hidden={!compact}>
+				<div className="workspace-controls" data-compact="true">
+					<WorkspacePicker gui={gui} close={close} compact />
+					<Tooltip><TooltipTrigger asChild>
+						<Button variant="outline" className="new-session" aria-label="新建会话" disabled={!gui.canChangeSession}
+							onClick={() => { void gui.send({ action: "new" }); close(); }}><Plus /></Button>
+					</TooltipTrigger><TooltipContent side="right">新建会话</TooltipContent></Tooltip>
+				</div>
+			</div>}
+		</div>
 		<div className="sidebar-footer">
 			<IconButton label="设置" disabled={!gui.canSubmit} onClick={() => open("settings")}><Settings2 /></IconButton>
 			<IconButton label="认证" disabled={!gui.canSubmit} onClick={() => open("auth")}><KeyRound /></IconButton>

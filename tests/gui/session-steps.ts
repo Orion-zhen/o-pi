@@ -94,6 +94,7 @@ export async function exerciseHistory(
 	await history.getByRole("button", { name: "另一工作区会话", exact: true }).click();
 	if (phone) await expect(page.getByRole("dialog", { name: "工作空间导航", exact: true })).toHaveCount(0);
 	await expect(page.locator(".session-heading button")).toHaveText("另一工作区会话");
+	await expect(page.locator(".message.user")).toHaveCount(1);
 	await expect(page.locator(".message.user")).toContainText("来自另一个工作区");
 	await openSidebar();
 	await expect(page.getByRole("combobox", { name: "工作区", exact: true })).toHaveAttribute("title", fixture.other);

@@ -14,8 +14,9 @@
 .report-metric dd { color: var(--report-color, var(--foreground)); font-size: 1.75em; line-height: 1.2; font-weight: 600; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .report-metric small { color: var(--muted-foreground); font-size: 0.75em; }
 .report-section { min-inline-size: 0; background: var(--surface); border: 0.0625em solid var(--border); border-radius: 1em; overflow: clip; }
-.report-section > h3, .report-section > summary { padding: 1em 1.25em; font-weight: 550; }
-.report-section > summary:hover { background: var(--secondary); }
+.report-section > h3, .report-section > .disclosure-trigger { padding: 1em 1.25em; font-weight: 550; }
+.report-section > .disclosure-trigger { inline-size: 100%; }
+.report-section > .disclosure-trigger:hover { background: var(--secondary); }
 .report-section-body { display: flex; flex-direction: column; gap: 1em; padding: 0 1.25em 1.25em; }
 .report-bars { display: flex; flex-direction: column; gap: 1.1em; min-inline-size: 0; }
 .report-bar { display: flex; flex-direction: column; gap: 0.5em; min-inline-size: 0; }
@@ -40,8 +41,8 @@
 .report-message { padding: 0.875em; color: var(--report-color); background: color-mix(in srgb, var(--report-color) 8%, transparent); border-radius: 0.5em; line-height: 1.6; overflow-wrap: anywhere; }
 .report-message small { display: block; }
 .report-details { min-inline-size: 0; }
-.report-details > summary { color: var(--muted-foreground); font-size: 0.85em; padding-block: 0.5em; overflow-wrap: anywhere; }
-.report-details[open] { display: flex; flex-direction: column; gap: 0.75em; }
+.report-details > .disclosure-trigger { color: var(--muted-foreground); font-size: 0.85em; padding-block: 0.5em; overflow-wrap: anywhere; }
+.report-details > [data-slot="collapsible-content"] > .collapse-content > .collapse-inner { display: flex; flex-direction: column; gap: 0.75em; }
 .report-tool { display: flex; flex-direction: column; gap: 0.25em; }
 .reset-credits { display: flex; flex-direction: column; min-inline-size: 0; font-size: 1rem; }
 .reset-credits > header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5em 1em; padding-block: 0.75em; }

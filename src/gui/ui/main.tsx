@@ -1,5 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { AnimatePresence } from "motion/react";
+import { Fade, Reveal } from "./components/animated";
+import { Notices } from "./notices";
 import {
 	ArrowDown,
 	ArrowUpRight,
@@ -14,7 +17,7 @@ import {
 	Terminal,
 	X,
 } from "lucide-react";
-import { clean, pretty, safeLink } from "./content.tsx";
+import { pretty, safeLink } from "./content.tsx";
 import { locateTranscript } from "./transcript-location.ts";
 import { Transcript } from "./transcript.tsx";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
@@ -39,6 +42,7 @@ import "./transcript.css";
 import "./tools.css";
 import "./rich-tools.css";
 import "./code.css";
+import "./motion.css";
 
 const starters = [
 	{ icon: FolderSearch, title: "了解项目", text: "梳理这个项目的结构，介绍主要模块和运行方式。" },
@@ -120,15 +124,16 @@ function App() {
 								}}
 							><PanelRight /></IconButton>
 						</header>
-						{error && (
+						<AnimatePresence initial={false}>
+						{error && <Reveal key="error">
 							<div role="alert" className="error-banner">
 								<pre>{error}</pre>
 								<IconButton label="关闭错误提示" onClick={() => gui.setError("")}>
 									<X />
 								</IconButton>
 							</div>
-						)}
-						{auth && (
+						</Reveal>}
+						{auth && <Reveal key="auth">
 							<div className="auth-banner">
 								<div className="flex items-center justify-between">
 									<span className="flex items-center gap-2">
@@ -166,22 +171,24 @@ function App() {
 									</Button>
 								</div>
 							</div>
-						)}
+						</Reveal>}
+						</AnimatePresence>
 						<div className="transcript-shell">
-						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture}>
+						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
 							<div className="transcript-content" ref={transcript.content}>
+								<AnimatePresence initial={false} mode="wait">
 								{!snapshot && (
-									<section className="welcome workspace-welcome">
+									<Fade key="workspace-welcome" className="welcome workspace-welcome">
 										<div className="welcome-mark">
 											<FolderSearch aria-hidden="true" />
 										</div>
 										<h1>选择工作区</h1>
 										<p>打开项目目录，或从侧栏恢复历史会话。</p>
 										<WorkspacePicker gui={gui} close={() => setMobileOpen(false)} />
-									</section>
+									</Fade>
 								)}
-								{snapshot && !snapshot.messages.length && (
-									<section className="welcome">
+								{snapshot && !snapshot.messages.length && !located?.preview && (
+									<Fade key={`welcome-${snapshot.sessionId}`} className="welcome">
 										<div className="welcome-mark">
 											<Terminal aria-hidden="true" />
 										</div>
@@ -211,35 +218,33 @@ function App() {
 												配置模型认证
 											</Button>
 										)}
-									</section>
+									</Fade>
 								)}
-								{located?.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.toLatest); }}>返回当前会话</Button></div>}
-								{snapshot && located && <Transcript key={snapshot.sessionId} source={located.source} entryIds={located.entryIds} />}
-								{snapshot?.status["bash"] && <pre className="live-output">{snapshot.status["bash"]}</pre>}
-								{notices.length > 0 && (
-									<details className="notices" open={notices.some((notice) => notice.type === "error")}>
-										<summary>通知 ({notices.length})</summary>
-										{notices.map((notice) => (
-											<pre className={notice.type} key={notice.id}>
-												{clean(notice.text)}
-											</pre>
-										))}
-									</details>
-								)}
+								{snapshot && located && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
+									onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
+									{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
+									<Transcript source={located.source} entryIds={located.entryIds} />
+								</Fade>}
+								</AnimatePresence>
+								<AnimatePresence initial={false}>{snapshot?.status["bash"] && <Reveal><pre className="live-output">{snapshot.status["bash"]}</pre></Reveal>}</AnimatePresence>
+								<Notices notices={notices} />
 							</div>
 						</div>
-						{transcript.showLatest && <Button variant="outline" size="sm" className="jump-latest" onClick={transcript.toLatest}>
+						<AnimatePresence initial={false}>
+						{transcript.showLatest && <Fade className="jump-latest-region"><Button variant="outline" size="sm" className="jump-latest" onClick={transcript.toLatest}>
 							<ArrowDown />回到最新
-						</Button>}
+						</Button></Fade>}
+						</AnimatePresence>
 						</div>
-						{snapshot && <Composer gui={gui} snapshot={snapshot} onSubmit={transcript.toLatest} />}
+						{snapshot && <Composer gui={gui} snapshot={snapshot} onSubmit={transcript.followLatest} />}
 					</main>
 					{snapshot && <SessionSidebar gui={gui} locate={(entryId) => setLocation({ sessionId: snapshot.sessionId, entryId })} />}
 					</div>
 				</div>
 			</Sheet>
+			<AnimatePresence mode="wait">
 			{panel && snapshot && (
-				<Panel
+				<Panel key={panel.kind}
 					ref={panelContent}
 					restoreFocus={restoreFocus}
 					panel={panel}
@@ -251,7 +256,10 @@ function App() {
 					close={() => gui.setPanel(undefined)}
 				/>
 			)}
+			</AnimatePresence>
+			<AnimatePresence mode="wait">
 			{dialogs[0] && <Dialog restoreFocus={restoreFocus} key={dialogs[0].id} dialog={dialogs[0]} send={send} />}
+			</AnimatePresence>
 		</TooltipProvider>
 	);
 }

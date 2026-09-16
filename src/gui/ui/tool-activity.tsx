@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
+import { Disclosure } from "./components/disclosure";
 import { Bot, Check, ChevronRight, CircleDashed, CircleStop, FilePenLine, FileSearch, FolderSearch, Globe, LoaderCircle, Search, Terminal, Wrench, X } from "lucide-react";
 import { clean, pretty, record } from "./content.tsx";
 import { ToolResult } from "./tool-results.tsx";
@@ -31,7 +33,8 @@ export function ToolActivity({ tool }: { tool: Activity }) {
 	const error = tool.state === "failed" ? errorSummary(tool) : "";
 	return (
 		<section className="tool-activity" data-state={tool.state} data-tool={tool.name} data-tool-call-id={tool.id}>
-			<button className="activity-summary" type="button" aria-expanded={open} onClick={() => setExpanded(!open)}>
+			<Collapsible open={open} onOpenChange={setExpanded}>
+			<CollapsibleTrigger className="activity-summary">
 				<Icon className="activity-icon" aria-hidden="true" />
 				<span className="activity-label">{definition.label}</span>
 				<code className="activity-target" title={target}>{target}</code>
@@ -40,15 +43,14 @@ export function ToolActivity({ tool }: { tool: Activity }) {
 					<Status className={active ? "animate-spin" : ""} aria-hidden="true" /><span>{states[tool.state]}</span>
 				</span>
 				<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
-			</button>
+			</CollapsibleTrigger>
 			{error && <p className="activity-error">{error}</p>}
-			{(open || tool.name === "subagent" && tool.output) && <div className="activity-body" hidden={!open}>
-				{tool.args !== undefined && <details className="tool-parameters">
-					<summary>参数</summary><ParameterValue value={tool.args} />
-				</details>}
+			<CollapsibleContent lazy={tool.name !== "subagent"}><div className="activity-body">
+				{tool.args !== undefined && <Disclosure className="tool-parameters" summary="参数"><ParameterValue value={tool.args} /></Disclosure>}
 				<ToolResult tool={tool} />
-				<details className="tool-raw"><summary>原始数据</summary><pre>{pretty({ arguments: tool.args, result: tool.output })}</pre></details>
-			</div>}
+				<Disclosure className="tool-raw" summary="原始数据"><pre>{pretty({ arguments: tool.args, result: tool.output })}</pre></Disclosure>
+			</div></CollapsibleContent>
+			</Collapsible>
 		</section>
 	);
 }

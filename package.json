@@ -63,6 +63,7 @@
 		"jsonc-parser": "latest",
 		"linkedom": "latest",
 		"lucide-react": "^1.46.0",
+		"motion": "^13.4.0",
 		"node-notifier": "latest",
 		"p-limit": "latest",
 		"pdfjs-dist": "latest",

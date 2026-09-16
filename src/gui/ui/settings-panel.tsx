@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence } from "motion/react";
 import type { GuiSnapshot, Query } from "../contract.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
@@ -42,7 +43,9 @@ export function Settings({ snapshot, send, query, disabled, restoreFocus }: {
 		</div>
 		{error && <p role="alert">{error}</p>}
 		<Button variant="outline" size="sm" disabled={loading} onClick={() => void openConfig()}>编辑完整 settings.json</Button>
+		<AnimatePresence>
 		{config !== undefined && <ConfigEditor content={config} send={send} close={() => setConfig(undefined)} restoreFocus={restoreFocus} />}
+		</AnimatePresence>
 	</>;
 }
 

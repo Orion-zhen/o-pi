@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
+import { Disclosure } from "./components/disclosure";
 import Markdown from "react-markdown";
 import { Bot, Check, ChevronRight, CircleDashed, CircleStop, LoaderCircle, X } from "lucide-react";
 import type { SubagentDetails, SubagentRunResult, SubagentTask } from "../../harness/subagent/types.ts";
@@ -56,27 +58,29 @@ function Task({ task, result, state }: { task: SubagentTask; result: SubagentRun
 	const latest = result?.events.at(-1);
 	const current = latest?.type === "tool" ? `${latest.name} ${toolTarget(latest.name, latest.args)}` : result?.output;
 	return <section className="subagent-task" data-state={state}>
-		<button className="subagent-task-summary" type="button" aria-expanded={open} onClick={() => setExpanded(!open)}>
+		<Collapsible open={open} onOpenChange={setExpanded}>
+		<CollapsibleTrigger className="subagent-task-summary">
 			<span className="subagent-task-heading"><Icon className={active ? "animate-spin" : ""} aria-hidden="true" /><strong>{task.agent}</strong>
 				<span className="subagent-task-state">{labels[state]}</span><ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 			</span>
 			<span className="subagent-task-description">{task.task}</span>
 			{current && !open && <span className="subagent-current">{latest?.type === "tool" ? clean(current)
 				: <Markdown allowedElements={["strong", "em", "del", "code"]} unwrapDisallowed>{clean(current)}</Markdown>}</span>}
-		</button>
+		</CollapsibleTrigger>
 		{result?.error && <p className="subagent-error">{clean(result.error)}</p>}
-		{result && <div className="subagent-task-body" hidden={!open}>
+		{result && <CollapsibleContent><div className="subagent-task-body">
 			<p className="tool-note">{[result.model, `${(result.durationMs / 1000).toFixed(1)}s`, `${result.usage.turns} 轮`, result.attempts > 1 ? `${result.attempts} 次尝试` : ""].filter(Boolean).join(" · ")}</p>
 			{result.output && <div className="message subagent-output"><MarkdownText text={result.output} /></div>}
-			{result.events.length > 0 && <details className="subagent-events"><summary>执行记录</summary>
+			{result.events.length > 0 && <Disclosure className="subagent-events" summary="执行记录">
 				{result.events.map((event, index) => event.type === "text"
 					? event.text.trim() === result.output.trim() ? null : <div className="message" key={index}><MarkdownText text={event.text} /></div>
-					: <details className="subagent-event" key={index}><summary><code>{event.name} {toolTarget(event.name, event.args)}</code>
+					: <Disclosure className="subagent-event" key={index} summary={<><code>{event.name} {toolTarget(event.name, event.args)}</code>
 						<span>{event.status === "error" ? "失败" : event.status ? labels[event.status] : ""}</span>
-					</summary><ParameterValue value={event.args} /></details>)}
-			</details>}
+					</>}><ParameterValue value={event.args} /></Disclosure>)}
+			</Disclosure>}
 			{result.stderr && <CodeBlock label="错误日志" text={clean(result.stderr)} />}
 			{result.status === "completed" && <p className="tool-note">结果文件：<code>{result.outputFile}</code></p>}
-		</div>}
+		</div></CollapsibleContent>}
+		</Collapsible>
 	</section>;
 }

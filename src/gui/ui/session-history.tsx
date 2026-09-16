@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { AnimatePresence } from "motion/react";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
@@ -57,6 +58,7 @@ function SessionRows({ cwd, items, gui, close, search }: {
 	const visible = items.filter((item) => matches(titleOf(item)));
 	const unsaved = cwd === snapshot?.cwd && !active && matches(snapshot.name || "新会话");
 	return <div className="workspace-session-list">
+		<AnimatePresence initial={false}>
 		{unsaved && <HistorySessionRow key={snapshot.sessionId} title={snapshot.name || "新会话"}
 			path={snapshot.sessionFile} selected disabled={blocked} send={gui.send} open={close} />}
 		{visible.map((item) => <HistorySessionRow key={item.path} title={titleOf(item)} path={item.path} modified={item.modified}
@@ -66,6 +68,7 @@ function SessionRows({ cwd, items, gui, close, search }: {
 				setSwitching(true);
 				void gui.send({ action: "switch", path: item.path }).finally(() => setSwitching(false));
 			}} />)}
+		</AnimatePresence>
 		{!visible.length && !unsaved && gui.sessions && <p className="history-hint">{search.trim() ? "没有匹配的会话" : "暂无历史会话"}</p>}
 	</div>;
 }

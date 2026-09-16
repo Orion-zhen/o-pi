@@ -1,6 +1,7 @@
 import { ExternalLink as LinkIcon, Globe } from "lucide-react";
 import type { WebFetchSuccessDetails, WebSearchSuccessDetails } from "../../harness/web-tools/core/types.ts";
 import { CodeBlock } from "./code-block.tsx";
+import { Disclosure } from "./components/disclosure";
 import { Content, ExternalLink, MarkdownText, clean, record } from "./content.tsx";
 
 export function isWebSearchSuccess(value: unknown): value is WebSearchSuccessDetails {
@@ -40,12 +41,11 @@ export function WebFetchResult({ details, content }: { details: WebFetchSuccessD
 			{range.next_offset !== undefined && ` · 下一偏移 ${range.next_offset}`}
 		</p>
 		{details.completeness === "partial" && <p className="web-partial">仅取得部分静态内容，动态或嵌入内容可能未包含。</p>}
-		{details.preview && <details className="web-preview">
-			<summary>{range.kind === "find" ? "匹配片段预览" : "页面预览"}</summary>
+		{details.preview && <Disclosure className="web-preview" summary={range.kind === "find" ? "匹配片段预览" : "页面预览"}>
 			{details.format === "markdown" ? <div className="message web-preview-content"><MarkdownText text={details.preview} /></div>
 				: <CodeBlock label="网页预览" text={clean(details.preview)} language={details.format === "source" || details.format === "xml" ? "markup" : details.format} />}
 			<p className="tool-note">短预览，完整返回内容见原始数据。</p>
-		</details>}
+		</Disclosure>}
 		{images.length > 0 && <Content value={images} />}
 	</div>;
 }

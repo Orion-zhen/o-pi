@@ -62,6 +62,17 @@ test("工作台：会话搜索、文件树、Git 差异与路径引用", async (
 			await search.fill("没有这条会话");
 			await expect(navigation.locator(".history-session")).toHaveCount(0);
 			await search.fill("");
+			if (!phone) {
+				await search.fill("历史任务 0");
+				const toggle = navigation.locator(".sidebar-brand > button");
+				const top = await toggle.evaluate((element) => element.getBoundingClientRect().top);
+				await toggle.click();
+				await expect(toggle).toHaveAttribute("aria-expanded", "false");
+				expect(await toggle.evaluate((element) => element.getBoundingClientRect().top)).toBeCloseTo(top, 0);
+				await toggle.click();
+				await expect(search).toHaveValue("历史任务 0");
+				await search.fill("");
+			}
 			await openNavigation(true);
 			const tree = navigation.getByRole("tree", { name: "工作区文件", exact: true });
 			await tree.getByRole("treeitem", { name: "node_modules", exact: true }).click();
@@ -106,6 +117,7 @@ test("工作台：会话搜索、文件树、Git 差异与路径引用", async (
 			await expect(changes.getByRole("button", { name: "引用路径 deleted.txt", exact: true })).toHaveCount(0);
 			await navigation.getByRole("button", { name: "收起文件区", exact: true }).click();
 			await expect(changes).toHaveCount(0);
+			await expect.poll(() => navigation.locator(".workspace-files-content").evaluate((element) => element.clientHeight)).toBe(0);
 			await navigation.getByRole("button", { name: "展开文件区", exact: true }).click();
 			await changes.getByRole("button", { name: "引用 空格.md", exact: true }).click();
 			await right.getByRole("button", { name: "内容", exact: true }).click();

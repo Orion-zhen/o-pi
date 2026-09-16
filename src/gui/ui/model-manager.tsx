@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { AnimatePresence } from "motion/react";
+import { ListItem } from "./components/animated";
 import { ArrowDown, ArrowUp, Check, Cpu, ListX, LoaderCircle, Play, Save, Search } from "lucide-react";
 import type { GuiAction, GuiModel, GuiSnapshot } from "../contract.ts";
 import type { Send } from "./connection.ts";
@@ -52,7 +54,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 		const index = scope.indexOf(id);
 		const active = snapshot.model?.provider === model.provider && snapshot.model.id === model.id;
 		return (
-			<li className="model-row" key={id}>
+			<ListItem className="model-row" key={id}>
 				<Checkbox
 					aria-label={`已选模型 ${id}`}
 					checked={selected.has(id)}
@@ -96,7 +98,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 						{active ? <Check /> : <Play />}
 					</IconButton>
 				</div>
-			</li>
+			</ListItem>
 		);
 	};
 	return (
@@ -127,9 +129,8 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 			<div className="model-catalog">
 				<section aria-label="已选模型">
 					<h3>已选模型</h3>
-					{selectedModels.length ? (
-						<ul>{selectedModels.map(row)}</ul>
-					) : (
+					<ul><AnimatePresence initial={false}>{selectedModels.map(row)}</AnimatePresence></ul>
+					{selectedModels.length === 0 && (
 						<p className="model-empty">
 							{scope.length ? "没有匹配的已选模型。" : "添加常用模型后，可在输入框中快速切换。"}
 						</p>
@@ -137,9 +138,8 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 				</section>
 				<section aria-label="可用模型">
 					<h3>可用模型</h3>
-					{otherModels.length ? (
-						<ul>{otherModels.map(row)}</ul>
-					) : (
+					<ul><AnimatePresence initial={false}>{otherModels.map(row)}</AnimatePresence></ul>
+					{otherModels.length === 0 && (
 						<p className="model-empty">
 							{snapshot.models.length ? "没有其他匹配的模型。" : "暂无可用模型，请先配置认证。"}
 						</p>

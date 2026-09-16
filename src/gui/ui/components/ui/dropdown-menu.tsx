@@ -8,7 +8,7 @@ export const DropdownMenuTrigger = Menu.Trigger;
 export function DropdownMenuContent({ className, sideOffset = 4, ...props }: React.ComponentProps<typeof Menu.Content>) {
 	return <Menu.Portal>
 		<Menu.Content data-slot="dropdown-menu-content" sideOffset={sideOffset}
-			className={cn("floating-surface z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[12em] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border p-2 text-popover-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95", className)}
+			className={cn("floating-surface z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[12em] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border p-2 text-popover-foreground", className)}
 			{...props} />
 	</Menu.Portal>;
 }
