@@ -20,7 +20,7 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 }
 .sidebar { flex: 0 1 20%; min-inline-size: 0; border-inline-end: 1px solid var(--divider); }
 .sidebar[data-collapsed="true"] { flex: 0 0 auto; }
-.sidebar-brand { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-4) var(--space-3); }
+.sidebar-brand { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-4) var(--space-3); }
 .brand { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-inline-start: var(--space-2); font-size: var(--text-heading); font-weight: 600; letter-spacing: -0.025em; }
 .brand > svg { inline-size: 1.15em; block-size: 1.15em; }
 .brand small { font-size: var(--text-caption); color: var(--muted-foreground); letter-spacing: 0; font-weight: 400; }
@@ -43,6 +43,8 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 @media (hover: none) { .row-actions { opacity: 1; pointer-events: auto; } }
 .row-action-button { inline-size: auto; block-size: auto; padding: 1em; }
 .row-action-button > svg { inline-size: 1.25em; block-size: 1.25em; }
+.row-action-button:enabled:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--foreground) 14%, var(--accent)); color: var(--foreground); border-color: var(--border); }
+.row-action-button[data-confirming]:enabled:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--destructive) 16%, var(--accent)); color: var(--destructive); border-color: color-mix(in srgb, var(--destructive) 45%, var(--border)); }
 .workspace-option-row > button { justify-content: flex-start; min-inline-size: 0; }
 .workspace-option-row small { display: block; color: var(--muted-foreground); }
 .directory-list > button { flex-shrink: 0; justify-content: flex-start; min-inline-size: 0; }
@@ -56,7 +58,7 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .sidebar[data-collapsed="true"] .new-session, .sidebar[data-collapsed="true"] .workspace-select { padding-inline: 0.75em; justify-content: center; }
 .sidebar[data-collapsed="true"] .sidebar-footer { flex-direction: column; align-items: center; }
 .sidebar[data-collapsed="true"] .sidebar-footer > button:last-child { margin-left: 0; }
-.sheet-layer { align-items: stretch; }
+.modal-layer.sheet-layer { align-items: stretch; }
 .sheet-layer[data-side="left"] { justify-content: flex-start; }
 .sheet-layer[data-side="right"] { justify-content: flex-end; }
 .sheet-layer[data-side="top"], .sheet-layer[data-side="bottom"] { flex-direction: column; }

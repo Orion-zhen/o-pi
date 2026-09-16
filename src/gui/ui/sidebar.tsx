@@ -1,7 +1,7 @@
 import { Activity, KeyRound, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Settings2, Cpu, Terminal } from "lucide-react";
 import type { GuiView } from "./use-gui.ts";
 import type { GuiAction } from "../contract.ts";
-import { SessionHistory } from "./session-history.tsx";
+import { SidebarWorkbench } from "./sidebar-workbench.tsx";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { WorkspacePicker } from "./workspace-picker.tsx";
@@ -16,7 +16,7 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 			{mobile ? <SheetClose asChild><Button variant="ghost" size="icon" aria-label="关闭菜单" title="关闭菜单"><PanelLeftClose /></Button></SheetClose>
 				: <IconButton label={compact ? "展开侧栏" : "收起侧栏"} onClick={toggle} aria-expanded={!compact}>{compact ? <PanelLeftOpen /> : <PanelLeftClose />}</IconButton>}
 		</div>
-		<div className="sidebar-scroll">
+		{compact ? <div className="sidebar-scroll">
 			<div className="workspace-controls" data-compact={compact}>
 				<WorkspacePicker gui={gui} close={close} compact={compact} />
 				<Tooltip><TooltipTrigger asChild>
@@ -27,8 +27,7 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 					</Button>
 				</TooltipTrigger><TooltipContent side="right">新建会话</TooltipContent></Tooltip>
 			</div>
-			{!compact && <SessionHistory gui={gui} close={close} />}
-		</div>
+		</div> : <SidebarWorkbench key={gui.snapshot?.cwd ?? ""} gui={gui} close={close} />}
 		<div className="sidebar-footer">
 			<IconButton label="设置" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "settings" })}><Settings2 /></IconButton>
 			<IconButton label="认证" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "auth" })}><KeyRound /></IconButton>

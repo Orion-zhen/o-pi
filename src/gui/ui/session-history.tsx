@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, FolderClosed, FolderOpen, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
 import { IconButton } from "./components/icon-button";
@@ -9,144 +9,63 @@ import { HistorySessionRow } from "./history-session-row.tsx";
 import "./sessions.css";
 
 const workspaceName = (cwd: string) => cwd.split(/[/\\]/).filter(Boolean).at(-1) || cwd || "未记录工作区";
-const recentCount = 6;
+type HistoryGui = Pick<GuiView, "snapshot" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "running" | "status">;
 
-type HistoryGui = Pick<
-	GuiView,
-	"snapshot" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "running" | "status"
->;
-
-export function SessionHistory({ gui, close, full = false }: { gui: HistoryGui; close: () => void; full?: boolean }) {
-	const { snapshot, sessions } = gui;
+export function SessionHistory({ gui, close, full = false, search = "" }: {
+	gui: HistoryGui; close: () => void; full?: boolean; search?: string;
+}) {
 	const groups = useMemo(() => {
 		const result = new Map<string, GuiSessionInfo[]>();
-		if (snapshot) result.set(snapshot.cwd, []);
-		for (const session of sessions ?? []) {
+		if (gui.snapshot) result.set(gui.snapshot.cwd, []);
+		for (const session of [...gui.sessions ?? []].sort((a, b) => b.modified.localeCompare(a.modified))) {
 			const group = result.get(session.cwd);
-			if (group) group.push(session);
-			else result.set(session.cwd, [session]);
+			if (group) group.push(session); else result.set(session.cwd, [session]);
 		}
 		return [...result];
-	}, [sessions, snapshot?.cwd]);
-	const names = new Map<string, number>();
-	for (const [cwd] of groups) names.set(workspaceName(cwd), (names.get(workspaceName(cwd)) ?? 0) + 1);
-	const renderGroup = ([cwd, items]: [string, GuiSessionInfo[]]) => (
-		<WorkspaceSessions
-			key={cwd}
-			cwd={cwd}
-			items={items}
-			gui={gui}
-			close={close}
-			full={full}
-			duplicateName={(names.get(workspaceName(cwd)) ?? 0) > 1}
-		/>
-	);
-	const current = groups.filter(([cwd]) => cwd === snapshot?.cwd);
-		return (
-		<section className="session-history" aria-label="历史会话">
-			<div className="history-heading">
-				<h2>{full ? "全部会话" : "工作区"}</h2>
-				<IconButton
-					label="刷新会话"
-					disabled={gui.sessionsLoading || gui.status !== "已连接"}
-					onClick={() => void gui.refreshSessions()}
-				>
-					<RefreshCw className={gui.sessionsLoading ? "animate-spin" : undefined} />
-				</IconButton>
-			</div>
-			{!sessions && (
-				<p className="history-hint" role="status">
-					正在读取历史会话…
-				</p>
-			)}
-			{(full ? groups : current).map(renderGroup)}
-		</section>
-	);
+	}, [gui.sessions, gui.snapshot?.cwd]);
+	return <section className={`session-history${full ? "" : " session-history-flat"}`} aria-label="历史会话">
+		<div className="history-heading">
+			<h2>{full ? "全部会话" : "会话"}</h2>
+			<IconButton label="刷新会话" disabled={gui.sessionsLoading || gui.status !== "已连接"} onClick={() => void gui.refreshSessions()}>
+				<RefreshCw className={gui.sessionsLoading ? "animate-spin" : undefined} />
+			</IconButton>
+		</div>
+		<div className="history-scroll">
+			{!gui.sessions && <p className="history-hint" role="status">正在读取历史会话…</p>}
+			{groups.filter(([cwd]) => full || cwd === gui.snapshot?.cwd).map(([cwd, items]) => {
+				const rows = <SessionRows cwd={cwd} items={items} gui={gui} close={close} search={search} />;
+				return full ? <Collapsible key={cwd} defaultOpen className="workspace-sessions">
+					<CollapsibleTrigger asChild><Button variant="ghost" className="workspace-toggle" title={cwd}>
+						<ChevronRight className="workspace-chevron" /><FolderClosed /><span className="workspace-label">{workspaceName(cwd)}</span>
+					</Button></CollapsibleTrigger>
+					<CollapsibleContent>{rows}</CollapsibleContent>
+				</Collapsible> : <div key={cwd}>{rows}</div>;
+			})}
+		</div>
+	</section>;
 }
 
-function WorkspaceSessions({
-	cwd,
-	items,
-	gui,
-	close,
-	full,
-	duplicateName,
-}: {
-	cwd: string;
-	items: GuiSessionInfo[];
-	gui: HistoryGui;
-	close: () => void;
-	full: boolean;
-	duplicateName: boolean;
+function SessionRows({ cwd, items, gui, close, search }: {
+	cwd: string; items: GuiSessionInfo[]; gui: HistoryGui; close: () => void; search: string;
 }) {
-	const { snapshot } = gui;
-	const current = snapshot?.cwd === cwd;
-	const [open, setOpen] = useState(current || full);
-	const [showAll, setShowAll] = useState(full);
 	const [switching, setSwitching] = useState(false);
-	useEffect(() => {
-		if (current) setOpen(true);
-	}, [current]);
+	const { snapshot } = gui;
 	const active = items.find((item) => item.path === snapshot?.sessionFile);
-	let visible = showAll ? items : items.slice(0, recentCount);
-	if (!showAll && active && !visible.includes(active)) visible = [...visible.slice(0, recentCount - 1), active];
-	const blocked =
-		switching ||
-		gui.status !== "已连接" ||
-		snapshot === undefined ||
-		Boolean(snapshot?.busy) ||
-		gui.running ||
-		Boolean(snapshot?.retrying);
-	return (
-		<Collapsible open={open} onOpenChange={setOpen} className="workspace-sessions" data-current={current}>
-			<div className="workspace-heading">
-				<CollapsibleTrigger asChild>
-					<Button
-						variant="ghost"
-						className="workspace-toggle"
-						aria-label={`工作区 ${cwd || "未记录工作区"}`}
-						title={cwd}
-					>
-						<ChevronRight className="workspace-chevron" />
-						{open ? <FolderOpen /> : <FolderClosed />}
-						<span className="workspace-label">
-							<span>{workspaceName(cwd)}</span>
-							{duplicateName && (
-								<small>
-									<bdi dir="ltr">{cwd}</bdi>
-								</small>
-							)}
-						</span>
-					</Button>
-				</CollapsibleTrigger>
-			</div>
-			<CollapsibleContent>
-				<div className="workspace-session-list">
-					{current && !active && (
-						<HistorySessionRow key={snapshot?.sessionId} title={snapshot?.name || "新会话"}
-							path={snapshot?.sessionFile ?? null} selected disabled={blocked} send={gui.send} open={close} />
-					)}
-					{visible.map((item) => {
-						const selected = item === active;
-						const title = selected && snapshot?.name ? snapshot.name : item.title;
-						return (
-							<HistorySessionRow key={item.path} title={title} path={item.path} modified={item.modified}
-								selected={selected} disabled={blocked} send={gui.send} open={() => {
-									close();
-									if (selected) return;
-									setSwitching(true);
-									void gui.send({ action: "switch", path: item.path }).finally(() => setSwitching(false));
-								}} />
-						);
-					})}
-					{items.length === 0 && gui.sessions && <p className="history-hint">暂无历史会话</p>}
-					{items.length > recentCount && !full && (
-						<Button variant="ghost" size="sm" className="history-more" onClick={() => setShowAll(!showAll)}>
-							{showAll ? "收起" : `显示更多 (${items.length - visible.length})`}
-						</Button>
-					)}
-				</div>
-			</CollapsibleContent>
-		</Collapsible>
-	);
+	const blocked = switching || gui.status !== "已连接" || !snapshot || snapshot.busy || gui.running || snapshot.retrying;
+	const matches = (title: string) => title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
+	const titleOf = (item: GuiSessionInfo) => item === active && snapshot?.name ? snapshot.name : item.title;
+	const visible = items.filter((item) => matches(titleOf(item)));
+	const unsaved = cwd === snapshot?.cwd && !active && matches(snapshot.name || "新会话");
+	return <div className="workspace-session-list">
+		{unsaved && <HistorySessionRow key={snapshot.sessionId} title={snapshot.name || "新会话"}
+			path={snapshot.sessionFile} selected disabled={blocked} send={gui.send} open={close} />}
+		{visible.map((item) => <HistorySessionRow key={item.path} title={titleOf(item)} path={item.path} modified={item.modified}
+			selected={item === active} disabled={blocked} send={gui.send} open={() => {
+				close();
+				if (item === active) return;
+				setSwitching(true);
+				void gui.send({ action: "switch", path: item.path }).finally(() => setSwitching(false));
+			}} />)}
+		{!visible.length && !unsaved && gui.sessions && <p className="history-hint">{search.trim() ? "没有匹配的会话" : "暂无历史会话"}</p>}
+	</div>;
 }

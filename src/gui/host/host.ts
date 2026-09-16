@@ -21,6 +21,9 @@ import { prepareSessionDeletion } from "./delete-session.ts";
 import { listDirectories } from "./directories.ts";
 import { setWorkspaceRemoved } from "./workspaces.ts";
 import type { ReadSessionInfo } from "./extensions.ts";
+import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace-files.ts";
+import { readWorkspaceGit } from "./workspace-git.ts";
+import type { WorkbenchResult } from "../workbench.ts";
 
 const validate = compileSchemaValidator(actionSchema);
 
@@ -38,6 +41,8 @@ export class GuiHost {
 	private changing = false;
 	private preparing = 0;
 	private commandController = new AbortController();
+	private workbenchController = new AbortController();
+	private workbenchCwd = "";
 	private messageTiming = new MessageTiming();
 	private liveTools = new Map<string, GuiSnapshot["liveTools"][number]>();
 	private disposed = false;
@@ -116,6 +121,11 @@ export class GuiHost {
 	private async bindSession(): Promise<void> {
 		const runtime = this.runtime;
 		const session = runtime.session;
+		if (this.workbenchCwd !== runtime.cwd) {
+			this.workbenchController.abort();
+			this.workbenchController = new AbortController();
+			this.workbenchCwd = runtime.cwd;
+		}
 		await setWorkspaceRemoved(runtime.cwd, false);
 		this.historyWarned = false;
 		try {
@@ -238,6 +248,12 @@ export class GuiHost {
 			this.emit({ type: "directories", value: await listDirectories(path.resolve(this.workspaceRoot ?? process.cwd(), action.path)) });
 			return;
 		}
+		if (action.action === "workspaceFiles" || action.action === "workspaceGit" || action.action === "previewFile") {
+			const task = this.readWorkbench(action);
+			this.tasks.add(task);
+			try { await task; } finally { this.tasks.delete(task); }
+			return;
+		}
 		if (action.action === "sessionInfo") {
 			if (!this.current || this.changing) return;
 			if (!this.readSessionInfo) throw new Error("会话信息尚未绑定。");
@@ -267,6 +283,21 @@ export class GuiHost {
 			this.tasks.delete(task);
 			this.publish();
 		}
+	}
+
+	private async readWorkbench(action: Extract<GuiAction, { action: "workspaceFiles" | "workspaceGit" | "previewFile" }>): Promise<void> {
+		const signal = this.workbenchController.signal;
+		let result: WorkbenchResult;
+		try {
+			if (!this.current || this.changing || action.cwd !== this.current.cwd) throw new Error("工作区已切换，请刷新后重试。");
+			if (action.action === "workspaceFiles") result = { kind: "directory", path: action.path, entries: await listWorkspaceFiles(action.cwd, action.path) };
+			else if (action.action === "workspaceGit") result = { kind: "git", git: await readWorkspaceGit(action.cwd, signal) };
+			else result = { kind: "preview", preview: await previewWorkspaceFile(action.cwd, action.path, signal) };
+		} catch (error) {
+			result = { kind: "error", message: error instanceof Error ? error.message : String(error) };
+		}
+		if (!this.disposed && !signal.aborted)
+			this.emit({ type: "workbench", cwd: action.cwd, requestId: action.requestId, result });
 	}
 
 	private async removeWorkspace(cwd: string): Promise<void> {
@@ -536,6 +567,7 @@ export class GuiHost {
 		clearTimeout(this.timer);
 		this.loginController?.abort();
 		this.commandController.abort();
+		this.workbenchController.abort();
 		this.dialogs.cancel();
 		if (this.current) {
 			this.current.session.abortBash();

@@ -44,6 +44,9 @@
 	--overlay: #20293838;
 	--success: #487559;
 	--warning: #936b22;
+	--git-modified: #875800;
+	--git-added: #187341;
+	--git-deleted: #b52b3c;
 	--shadow: 0 0.25rem 1.5rem #20293808, 0 0.0625rem 0.25rem #20293806;
 	--shadow-floating: 0 1rem 4rem #20293820, 0 0.25rem 0.75rem #2029380a;
 	--surface-highlight: inset 0 0.0625rem 0 #ffffff80;
@@ -85,6 +88,9 @@
 		--overlay: #0b0e144d;
 		--success: #9bc5a5;
 		--warning: #dbbc7e;
+		--git-modified: #edc15e;
+		--git-added: #60d899;
+		--git-deleted: #ff9494;
 		--shadow: 0 0.25rem 1.5rem #0000001a, 0 0.0625rem 0.25rem #00000014;
 		--shadow-floating: 0 1rem 4rem #0000004d, 0 0.25rem 0.75rem #00000026;
 		--surface-highlight: inset 0 0.0625rem 0 #ffffff08;

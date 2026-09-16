@@ -7,6 +7,7 @@ import { startModelServer } from "../cli/model-server.ts";
 import { storeSession } from "./session-fixture.ts";
 import { historyDeletionTests } from "./deletion-cases.ts";
 import { sidebarTests } from "./sidebar-cases.ts";
+import { workbenchTests } from "./workbench-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-gui-");
@@ -79,6 +80,7 @@ const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior
 
 historyDeletionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
+workbenchTests(() => ({ host, cwd, events }));
 
 describe("GUI 直接使用 SDK", () => {
 	it("完整命令和参数前缀都能补全，保留描述且不执行命令", async () => {

@@ -1,0 +1,21 @@
+.session-tab-body[data-file="true"] { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.session-tab-body[hidden] { display: none; }
+.file-preview { display: flex; flex-direction: column; flex: 1; min-block-size: 0; min-inline-size: 0; background: var(--background); }
+.file-preview-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-block-end: 1px solid var(--divider); background: var(--glass); flex-shrink: 0; }
+.file-preview-path { flex: 1 1 6ch; min-inline-size: 0; font-size: var(--text-small); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-preview-modes { display: flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+.file-preview-modes button { padding-inline: 0.5em; }
+.file-preview-modes button[aria-pressed="true"] { background: var(--selected); color: var(--primary); }
+.file-preview-heading > button { font-size: var(--text-small); }
+.file-preview-heading > button[aria-pressed="true"] { background: var(--selected); color: var(--primary); }
+.file-preview-body { overflow: auto; min-block-size: 0; min-inline-size: 0; flex: 1; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.file-preview-body:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.file-preview-body .file-code { margin: 0; border: 0; border-radius: 0; background: var(--background); overflow: visible; inline-size: max-content; min-inline-size: 100%; }
+.file-preview-body .file-code pre { max-block-size: none; overflow: visible; }
+.file-preview-body .file-code code { font-size: var(--text-small); }
+.file-preview[data-wrap="true"] :is(.file-code, .file-diff) { inline-size: 100%; min-inline-size: 0; }
+.file-preview[data-wrap="true"] .file-code pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.file-preview[data-wrap="true"] .diff-line { min-inline-size: 0; }
+.file-diff { inline-size: max-content; min-inline-size: 100%; }
+.file-diff h3 { margin: 0; padding: var(--space-2) var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); font-weight: 500; border-block-end: 1px solid var(--divider); }
+.file-preview-image { display: block; max-inline-size: 100%; block-size: auto; margin-inline: auto; padding: var(--space-3); }

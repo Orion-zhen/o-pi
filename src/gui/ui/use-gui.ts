@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiSessionInfo, GuiSnapshot, GuiSessionDetails, GuiDirectories, GuiWorkspaceInfo } from "../contract.ts";
 import { useSessionInfoRefresh } from "./use-session-info.ts";
+import { useWorkbench } from "./use-workbench.ts";
 import { connectGui } from "./connection.ts";
 import type { Send } from "./dialog.tsx";
 import type { PanelData } from "./panels.tsx";
@@ -48,6 +49,7 @@ export function useGui() {
 				unsubscribe = value.subscribe((event) => {
 					if (!active) return;
 					switch (event.type) {
+						case "workbench": workbench.accept(event); break;
 						case "workspaceRoot": setWorkspaceRoot(event.path); break;
 						case "workspaces": setWorkspaces(event.value); break;
 						case "directories": setDirectories(event.value); break;
@@ -182,7 +184,19 @@ export function useGui() {
 	const running = Boolean(
 		snapshot?.streaming || snapshot?.compacting || snapshot?.bashRunning || snapshot?.commandRunning,
 	);
+	const workbench = useWorkbench(snapshot?.cwd, status === "已连接", running, send);
 	return {
+		workbench,
+		openFile: (path: string) => { workbench.openFile(path); setSessionPanelOpen(true); },
+		referenceFile: (path: string) => {
+			if (/[\r\n]/.test(path) || (path.includes('"') && path.includes("'"))) {
+				setError("此文件名不能表示为 @ 引用。");
+				return;
+			}
+			const quoted = /[\s'"]/.test(path) ? (path.includes('"') ? `'${path}'` : `"${path}"`) : path;
+			setDraft((draft) => `${draft}${draft && !/\s$/.test(draft) ? " " : ""}@${quoted} `);
+			editor.current?.focus();
+		},
 		snapshot,
 		sessions,
 		sessionsLoading,

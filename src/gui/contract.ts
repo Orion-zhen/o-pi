@@ -93,6 +93,9 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]) }),
 	object({ action: Type.Literal("draft"), text }),
 	object({ action: Type.Literal("files"), prefix: short }),
+	object({ action: Type.Literal("workspaceFiles"), cwd: short, path: short, requestId: short }),
+	object({ action: Type.Literal("workspaceGit"), cwd: short, requestId: short }),
+	object({ action: Type.Literal("previewFile"), cwd: short, path: short, requestId: short }),
 	object({ action: Type.Literal("complete"), text: short }),
 	object({ action: Type.Literal("config"), file: Type.Literal("settings.json") }),
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
@@ -188,6 +191,7 @@ export interface GuiDirectories {
 }
 
 export type GuiEvent =
+	| import("./workbench.ts").WorkbenchEvent
 	| { type: "workspaceRoot"; path: string }
 	| { type: "directories"; value: GuiDirectories }
 	| { type: "sessionInfo"; value: GuiSessionDetails }

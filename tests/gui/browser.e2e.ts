@@ -263,7 +263,7 @@ async function exercise(page: Page, exportedPath?: string) {
 
 test("独立 opi-web：真实工具、刷新恢复与响应式布局", async ({ viewport }, info) => {
 	const binary = path.join(root, "dist", process.platform === "win32" ? "opi-web.exe" : "opi-web");
-	const child = spawn(binary, ["--cwd", cwd, "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+	const child = spawn(binary, ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
 	let output = "";
 	child.stdout?.on("data", (chunk: Buffer) => {
 		output += chunk.toString();
