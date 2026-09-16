@@ -1,138 +1,77 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiSessionInfo, GuiSnapshot, GuiSessionDetails, GuiDirectories, GuiWorkspaceInfo } from "../contract.ts";
-import { useSessionInfoRefresh } from "./use-session-info.ts";
+import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiPanel, GuiSessionInfo, GuiSessionTab, GuiSnapshot, GuiSessionDetails, GuiWorkspaceInfo, Query } from "../contract.ts";
 import { useWorkbench } from "./use-workbench.ts";
-import { connectGui } from "./connection.ts";
-import type { Send } from "./dialog.tsx";
-import type { PanelData } from "./panels.tsx";
-import { isSessionPanel, type SessionPanel } from "./session-sidebar.tsx";
+import { useWindowRefresh } from "./use-window-refresh.ts";
+import { connectGui, type ConnectionStatus, type Send } from "./connection.ts";
 
-/** 只维护界面状态。重连使用后端快照，不重放操作。 */
+/** 共享宿主状态与跨区域导航，查询结果由使用它的组件持有。 */
 export function useGui() {
-	const [snapshot, setSnapshot] = useState<GuiSnapshot | null>();
+	const [snapshot, setSnapshot] = useState<GuiSnapshot | null>(null);
 	const [sessions, setSessions] = useState<GuiSessionInfo[]>();
 	const [sessionsLoading, setSessionsLoading] = useState(false);
 	const [dialogs, setDialogs] = useState<GuiDialog[]>([]);
 	const [notices, setNotices] = useState<GuiNotice[]>([]);
-	const [status, setStatus] = useState("连接中");
+	const [status, setStatus] = useState<ConnectionStatus>("connecting");
 	const [error, setError] = useState("");
-	const [panel, setPanel] = useState<PanelData>();
-	const [sessionPanel, setSessionPanel] = useState<SessionPanel>();
+	const [panel, setPanel] = useState<GuiPanel>();
+	const [sessionTab, setSessionTab] = useState<GuiSessionTab>("tree");
+	const [activeTab, setActiveTab] = useState<GuiSessionTab | "file">("tree");
 	const [sessionPanelOpen, setSessionPanelOpen] = useState(true);
 	const [sessionDetails, setSessionDetails] = useState<GuiSessionDetails>();
 	const [workspaceRoot, setWorkspaceRoot] = useState("");
 	const [workspaces, setWorkspaces] = useState<GuiWorkspaceInfo[]>([]);
-	const [directories, setDirectories] = useState<GuiDirectories>();
-	const [config, setConfig] = useState<Extract<GuiEvent, { type: "config" }>>();
 	const [auth, setAuth] = useState<Extract<GuiEvent, { type: "auth" }>["value"]>();
 	const [draft, setDraft] = useState("");
 	const [revision, setRevision] = useState(0);
-	const [fileChoices, setFileChoices] = useState<string[]>([]);
-	const [completions, setCompletions] = useState<Extract<GuiEvent, { type: "completions" }>>();
 	const connection = useRef<GuiConnection | undefined>(undefined);
 	const editor = useRef<HTMLTextAreaElement>(null);
+	const selectTab = useCallback((tab: GuiSessionTab | "file") => {
+		setActiveTab(tab);
+		if (tab !== "file") setSessionTab(tab);
+	}, []);
 
 	useEffect(() => {
-		let active = true;
-		let client: GuiConnection | undefined;
-		let unsubscribe: (() => void) | undefined;
-		void connectGui((status) => {
-			if (active) setStatus(status);
-		})
-			.then((value) => {
-				if (!active) {
-					value.close();
-					return;
+		const client = connectGui((status) => {
+			setStatus(status);
+			if (status === "connected") { setNotices([]); setDialogs([]); }
+		});
+		connection.current = client;
+		const unsubscribe = client.subscribe((event) => {
+			switch (event.type) {
+				case "workspaceRoot": setWorkspaceRoot(event.path); break;
+				case "workspaces": setWorkspaces(event.value); break;
+				case "sessionInfo": setSessionDetails(event.value); break;
+				case "snapshot":
+					setSnapshot(event.value);
+					if (!event.value) { setDraft(""); setAuth(undefined); }
+					break;
+				case "sessions": setSessions(event.value); break;
+				case "dialogs": setDialogs(event.value); break;
+				case "notice":
+					setNotices((current) => [...current.filter((notice) => notice.id !== event.value.id), event.value].slice(-100));
+					break;
+				case "sessionTab": selectTab(event.tab); setSessionPanelOpen(true); break;
+				case "panel": setPanel(event.panel); break;
+				case "editor": setDraft(event.text); editor.current?.focus(); break;
+				case "auth": setAuth(event.value); break;
+				case "download": {
+					const url = URL.createObjectURL(new Blob([event.content], { type: event.mimeType }));
+					const link = document.createElement("a");
+					link.href = url;
+					link.download = event.name;
+					link.click();
+					setTimeout(() => URL.revokeObjectURL(url), 1000);
+					break;
 				}
-				client = value;
-				connection.current = value;
-				unsubscribe = value.subscribe((event) => {
-					if (!active) return;
-					switch (event.type) {
-						case "workbench": workbench.accept(event); break;
-						case "workspaceRoot": setWorkspaceRoot(event.path); break;
-						case "workspaces": setWorkspaces(event.value); break;
-						case "directories": setDirectories(event.value); break;
-						case "sessionInfo": setSessionDetails(event.value); break;
-						case "snapshot":
-							setSnapshot(event.value);
-							if (event.value) {
-								setDialogs(event.value.dialogs);
-								setNotices(event.value.notices);
-							} else {
-								setDraft("");
-								setFileChoices([]);
-								setCompletions(undefined);
-								setAuth(undefined);
-							}
-							break;
-						case "sessions":
-							setSessions(event.value);
-							break;
-						case "dialogs":
-							setDialogs(event.value);
-							break;
-						case "notice":
-							setNotices((current) =>
-								[...current.filter((notice) => notice.id !== event.value.id), event.value].slice(-100),
-							);
-							break;
-						case "panel":
-						case "report":
-							if (isSessionPanel(event)) {
-								setSessionPanel(event);
-								setSessionPanelOpen(true);
-							} else setPanel(event);
-							break;
-						case "editor":
-							setDraft(event.text);
-							editor.current?.focus();
-							break;
-						case "files":
-							setFileChoices(event.paths);
-							break;
-						case "completions":
-							setCompletions(event);
-							break;
-						case "config":
-							setConfig(event);
-							break;
-						case "auth":
-							setAuth(event.value);
-							break;
-						case "download": {
-							const url = URL.createObjectURL(new Blob([event.content], { type: event.mimeType }));
-							const link = document.createElement("a");
-							link.href = url;
-							link.download = event.name;
-							link.click();
-							setTimeout(() => URL.revokeObjectURL(url), 1000);
-							break;
-						}
-						case "close":
-							value.close();
-							setStatus("会话已关闭");
-							break;
-					}
-				});
-			})
-			.catch((error: unknown) => {
-				if (active) setError(error instanceof Error ? error.message : String(error));
-			});
-		return () => {
-			active = false;
-			unsubscribe?.();
-			client?.close();
-			connection.current = undefined;
-		};
-	}, [revision]);
+				case "close": client.close(); setStatus("closed"); break;
+			}
+		});
+		return () => { unsubscribe(); client.close(); connection.current = undefined; };
+	}, [revision, selectTab]);
 
 	const send: Send = useCallback(async (action) => {
-		if (!connection.current) {
-			setError("连接尚未就绪。");
-			return false;
-		}
 		try {
+			if (!connection.current) throw new Error("连接尚未就绪。");
 			await connection.current.send(action);
 			return true;
 		} catch (error) {
@@ -140,54 +79,27 @@ export function useGui() {
 			return false;
 		}
 	}, []);
-	useSessionInfoRefresh(snapshot, status, send);
+	const query = useCallback<Query>((request) => {
+		if (!connection.current) return Promise.reject(new Error("连接尚未就绪。"));
+		return connection.current.query(request);
+	}, []);
+	const connected = status === "connected";
 	const refreshSessions = useCallback(async () => {
 		setSessionsLoading(true);
-		try {
-			await send({ action: "sessions" });
-		} finally {
-			setSessionsLoading(false);
-		}
+		try { await send({ action: "sessions" }); }
+		finally { setSessionsLoading(false); }
 	}, [send]);
-	useEffect(() => {
-		if (status !== "已连接") return;
-		void refreshSessions();
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const refresh = () => {
-			if (document.visibilityState !== "visible") return;
-			clearTimeout(timer);
-			timer = setTimeout(() => void refreshSessions(), 150);
-		};
-		window.addEventListener("focus", refresh);
-		document.addEventListener("visibilitychange", refresh);
-		return () => {
-			clearTimeout(timer);
-			window.removeEventListener("focus", refresh);
-			document.removeEventListener("visibilitychange", refresh);
-		};
-	}, [status, revision, refreshSessions]);
-	useEffect(() => {
-		const timer = setTimeout(() => {
-			if (status === "已连接") {
-				void send({ action: "draft", text: draft });
-				if (/^\/\S+/.test(draft)) void send({ action: "complete", text: draft });
-			}
-		}, 250);
-		return () => clearTimeout(timer);
-	}, [draft, send, status]);
+	useEffect(() => { if (connected) void refreshSessions(); }, [connected, revision, refreshSessions]);
+	useWindowRefresh(connected, refreshSessions);
 	useEffect(() => {
 		setPanel(undefined);
-		setSessionPanel(undefined);
 		setSessionPanelOpen(true);
-		setConfig(undefined);
 	}, [snapshot?.sessionId]);
-	const running = Boolean(
-		snapshot?.streaming || snapshot?.compacting || snapshot?.bashRunning || snapshot?.commandRunning,
-	);
-	const workbench = useWorkbench(snapshot?.cwd, status === "已连接", running, send);
+	const running = snapshot?.running ?? false;
+	const workbench = useWorkbench(snapshot?.cwd, connected, running, query);
 	return {
 		workbench,
-		openFile: (path: string) => { workbench.openFile(path); setSessionPanelOpen(true); },
+		openFile: (path: string) => { workbench.openFile(path); selectTab("file"); setSessionPanelOpen(true); },
 		referenceFile: (path: string) => {
 			if (/[\r\n]/.test(path) || (path.includes('"') && path.includes("'"))) {
 				setError("此文件名不能表示为 @ 引用。");
@@ -197,36 +109,13 @@ export function useGui() {
 			setDraft((draft) => `${draft}${draft && !/\s$/.test(draft) ? " " : ""}@${quoted} `);
 			editor.current?.focus();
 		},
-		snapshot,
-		sessions,
-		sessionsLoading,
-		refreshSessions,
-		dialogs,
-		notices,
-		status,
-		error,
-		setError,
-		panel,
-		setPanel,
-		sessionPanel,
+		snapshot, sessions, sessionsLoading, refreshSessions, dialogs, notices,
+		status, connected, error, setError, panel, setPanel,
+		sessionTab, activeTab, selectTab, sessionPanelOpen, setSessionPanelOpen,
 		sessionDetails: sessionDetails?.sessionId === snapshot?.sessionId ? sessionDetails : undefined,
-		workspaceRoot,
-		workspaces,
-		directories,
-		sessionPanelOpen,
-		setSessionPanelOpen,
-		config,
-		setConfig,
-		auth,
-		setAuth,
-		draft,
-		setDraft,
-		fileChoices,
-		setFileChoices,
-		completions,
-		editor,
-		send,
-		running,
+		workspaceRoot, workspaces, auth, setAuth, draft, setDraft, editor, send, query, running,
+		canSubmit: connected && snapshot?.canSubmit === true,
+		canChangeSession: connected && snapshot?.canChangeSession === true,
 		reconnect: () => setRevision((value) => value + 1),
 	};
 }

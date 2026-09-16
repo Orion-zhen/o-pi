@@ -45,7 +45,7 @@ export function ContextUsage({ snapshot }: { snapshot: GuiSnapshot }) {
 	);
 }
 
-export function ContextCache({ messages }: Pick<GuiSnapshot, "messages">) {
+function ContextCache({ messages }: Pick<GuiSnapshot, "messages">) {
 	const { usage, cache } = summarizeUsage(messages);
 	const hitRate = (value: number | undefined) => value === undefined ? "暂无数据" : `${value.toFixed(1)}%`;
 	return <>

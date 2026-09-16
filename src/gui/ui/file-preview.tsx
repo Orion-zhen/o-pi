@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AtSign, WrapText, X } from "lucide-react";
 import type { FilePreview as Preview } from "../workbench.ts";
-import type { GuiView } from "./use-gui.ts";
+import type { Remote } from "./use-workbench.ts";
 import { fileLanguage, SyntaxHighlighter } from "./code-highlight.ts";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
@@ -29,11 +29,11 @@ function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean
 	return <FileCode path={preview.path} text={content.text} wrap={wrap} />;
 }
 
-export function FilePreviewPanel({ gui, close }: { gui: GuiView; close: () => void }) {
+export function FilePreviewPanel({ preview: selection, referenceFile, close }: {
+	preview: { path: string; result: Remote<Preview> }; referenceFile: (path: string) => void; close: () => void;
+}) {
 	const [mode, setMode] = useState<"content" | "diff" | null>(null);
 	const [wrap, setWrap] = useState(true);
-	const selection = gui.workbench.preview;
-	if (!selection) return null;
 	const result = selection.result;
 	const preview = result.state === "ready" ? result.value : undefined;
 	const diff = mode !== "content" && Boolean(preview?.diffs.length);
@@ -47,7 +47,7 @@ export function FilePreviewPanel({ gui, close }: { gui: GuiView; close: () => vo
 			</div>}
 			<IconButton label="自动折行" size="icon-sm" aria-pressed={wrap} onClick={() => setWrap(!wrap)}><WrapText /></IconButton>
 			<IconButton label="引用文件" size="icon-sm" disabled={!preview || preview.content.kind === "deleted"}
-				onClick={() => gui.referenceFile(selection.path)}><AtSign /></IconButton>
+				onClick={() => referenceFile(selection.path)}><AtSign /></IconButton>
 			<IconButton label="关闭文件预览" size="icon-sm" onClick={close}><X /></IconButton>
 		</div>
 		<div className="file-preview-body" tabIndex={0} aria-label="文件正文">

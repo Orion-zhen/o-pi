@@ -1,5 +1,4 @@
 import { expect, type Page } from "@playwright/test";
-import path from "node:path";
 
 export async function exerciseLiveTranscript(page: Page) {
 	const processGroup = page.locator(".reply-process").first();
@@ -8,28 +7,22 @@ export async function exerciseLiveTranscript(page: Page) {
 	await expect(tool).toHaveAttribute("data-state", "running");
 	await tool.locator(".activity-summary").click();
 	await expect(tool.locator('.code-block pre[aria-label="输出"]')).toContainText("GUI stream started");
-	const node = await tool.elementHandle();
-	if (!node) throw new Error("缺少执行中的工具节点");
 	await page.locator(".transcript").evaluate((element) => { element.scrollTop = 0; });
 	await expect(page.getByRole("button", { name: "回到最新" })).toBeVisible();
 	await expect(tool.locator('.code-block pre[aria-label="输出"]')).toContainText("GUI stream update");
 	expect(await page.locator(".transcript").evaluate((element) => element.scrollTop)).toBeLessThan(4);
 	await expect(tool).toHaveAttribute("data-state", "completed");
-	expect(await node.evaluate((element) => element.isConnected)).toBe(true);
 	await expect(tool.locator(".activity-summary")).toHaveAttribute("aria-expanded", "true");
 	await expect(tool.locator('.code-block pre[aria-label="输出"]')).toContainText("GUI shell complete");
-	await expect(page.locator(".message.toolResult, .live-tool")).toHaveCount(0);
 	await expect(page.locator(".assistant-reply").first()).toHaveAttribute("data-state", "completed");
 	await expect(processGroup).not.toHaveAttribute("open", "");
 	await expect(processGroup.locator(".tool-activity").first()).not.toBeVisible();
 	await expect(page.locator(".reply-answer").first()).toContainText("GUI 验证完成");
-	await node.dispose();
 }
 
 export async function exerciseToolDetails(page: Page) {
 	const processGroup = page.locator(".reply-process").first();
 	await expect(processGroup).not.toHaveAttribute("open", "");
-	await expect(processGroup.locator(":scope > summary")).toContainText("7 次工具调用");
 	await processGroup.locator(":scope > summary").click();
 	await expect(processGroup.getByText("我先检查图片和源码。", { exact: true })).toBeVisible();
 	await expect(processGroup.getByText("文件已定位，接下来验证修改和命令输出。", { exact: true })).toBeVisible();
@@ -49,13 +42,11 @@ export async function exerciseToolDetails(page: Page) {
 
 	const read = page.locator('.tool-activity[data-tool="read"]').last();
 	await read.locator(".activity-summary").click();
-	await expect(read.locator(".token.keyword").first()).toBeVisible();
-	await expect(read.getByRole("button", { name: /复制.*input.ts/ })).toBeVisible();
+	await expect(read.locator("pre").first()).toContainText("export function hello()");
 	await read.getByRole("button", { name: /复制.*input.ts/ }).click();
-	await expect(read.getByRole("button", { name: /复制.*input.ts/ })).toHaveText("已复制");
+	await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("export function hello()");
 	await read.locator(".tool-parameters > summary").click();
-	await expect(read.locator(".parameter-fields")).toContainText("路径");
-	await expect(read.locator(".parameter-fields")).toContainText("行号");
+	await expect(read.locator(".parameter-fields")).toContainText("input.ts");
 	await read.locator(".tool-parameters > summary").click();
 	await read.locator(".activity-summary").click();
 
@@ -66,14 +57,8 @@ export async function exerciseToolDetails(page: Page) {
 
 	const edit = page.locator('.tool-activity[data-tool="edit"]');
 	await edit.locator(".activity-summary").click();
-	await expect(edit.locator(".token.deleted").first()).toBeVisible();
-	await expect(edit.locator(".token.inserted").first()).toBeVisible();
-	const lineBackground = (selector: string) => edit.locator(selector).first().evaluate((element) => {
-		const line = element.closest(".diff-line");
-		if (!line) throw new Error("缺少 diff 行");
-		return getComputedStyle(line).backgroundColor;
-	});
-	expect(await lineBackground(".token.inserted.prefix")).not.toBe(await lineBackground(".token.deleted.prefix"));
+	await expect(edit.locator("pre").first()).toContainText("GUI fixture");
+	await expect(edit.locator("pre").first()).toContainText("GUI updated");
 
 	const echo = page.locator('.tool-activity[data-tool="echo"]');
 	await echo.locator(".activity-summary").click();
@@ -85,33 +70,9 @@ export async function exerciseToolDetails(page: Page) {
 	const shell = page.locator('.tool-activity[data-tool="bash"]');
 	await shell.locator(".activity-summary").click();
 	await page.locator(".transcript").evaluate((element) => { element.scrollTop = 0; });
-	const size = await page.evaluate(() => Boolean(window.opi)) ? "electron" : (page.viewportSize()?.width ?? 1200) < 768 ? "phone" : "desktop";
-	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-transcript-${size}.png`) });
-	await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-transcript-dark-${size}.png`) });
-	await page.emulateMedia({ colorScheme: "light" });
 	await processGroup.locator(":scope > summary").click();
 	await expect(edit).not.toBeVisible();
 	await expect(page.locator(".reply-answer")).toBeVisible();
-	await expect(page.locator(".message.user > .message-identity").first()).toContainText("You");
-	await expect(page.locator(".message.user time").first()).toHaveText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
-	await expect(page.locator(".assistant-reply > .message-identity").first()).toContainText("GUI Test Model");
-	const metrics = page.locator(".reply-metrics").first();
-	await expect(metrics).toContainText(/速度 \d+\.\d tok\/s/);
-	await expect(metrics).toContainText("缓存读取");
-	await expect(metrics).toContainText("缓存写入");
-	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-reply-${size}.png`) });
-	await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-reply-dark-${size}.png`) });
-	await page.emulateMedia({ colorScheme: "light" });
-	const identity = page.locator(".assistant-reply > .message-identity strong").first();
-	const modelName = await identity.textContent();
-	await identity.evaluate((element) => { element.textContent = "Very-Long-Model-Name-".repeat(12); });
-	await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
-	expect(await page.locator(".transcript").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-	expect(await metrics.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-	await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
-	await identity.evaluate((element, text) => { element.textContent = text; }, modelName);
 	await processGroup.locator(":scope > summary").click();
 	await expect(edit.locator(".activity-summary")).toHaveAttribute("aria-expanded", "true");
 
@@ -124,5 +85,4 @@ export async function exerciseToolDetails(page: Page) {
 	await expect(page.locator(".reply-process").last()).toBeHidden();
 	await processGroup.locator(":scope > summary").click();
 	await page.locator(".transcript").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }

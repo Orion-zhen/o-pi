@@ -108,27 +108,35 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		await once(second.ws, "close");
 	});
 
-	it("目录浏览检查来源，只列出服务端子目录", async () => {
-		await mkdir(path.join(temp.path, "project"));
+	it("目录查询检查来源，并发请求各自返回对应目录而非广播", async () => {
+		const project = path.join(temp.path, "project");
+		await mkdir(project);
+		const body = JSON.stringify({ query: "directories", path: temp.path });
+		const denied = await fetch(`${server.url}/api/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+		expect(denied.status).toBe(403);
 		const events: GuiEvent[] = [];
 		const unsubscribe = gui.subscribe((event) => events.push(event));
-		const body = JSON.stringify({ action: "directories", path: temp.path });
-		const denied = await fetch(`${server.url}/api/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
-		expect(denied.status).toBe(403);
-		expect(events.some((event) => event.type === "directories")).toBe(false);
-		const accepted = await fetch(`${server.url}/api/action`, { method: "POST", headers: headers(), body });
-		expect(accepted.status).toBe(204);
-		expect(events.find((event) => event.type === "directories")?.value.children).toEqual([{ name: "project", path: path.join(temp.path, "project") }]);
-		unsubscribe();
+		events.length = 0;
+		try {
+			const responses = await Promise.all([temp.path, project].map((path) => fetch(`${server.url}/api/query`, {
+				method: "POST", headers: headers(), body: JSON.stringify({ query: "directories", path }),
+			})));
+			for (const response of responses) expect(response.status).toBe(200);
+			expect(await Promise.all(responses.map((response) => response.json()))).toEqual([
+				expect.objectContaining({ children: [{ name: "project", path: project }] }),
+				expect.objectContaining({ children: [] }),
+			]);
+			expect(events).toEqual([]);
+		} finally { unsubscribe(); }
 	});
 
-	it("拒绝非法参数", async () => {
-		const response = await fetch(`${server.url}/api/action`, {
-			method: "POST",
-			headers: headers(),
-			body: '{"action":"shell","command":"unrecognized"}',
+	it.each([
+		["action", { action: "prompt", text: "缺少必需参数" }],
+		["query", { query: "directories", path: 42 }],
+	])("%s 入口拒绝非法参数", async (endpoint, body) => {
+		const response = await fetch(`${server.url}/api/${endpoint}`, {
+			method: "POST", headers: headers(), body: JSON.stringify(body),
 		});
 		expect(response.status).toBe(400);
-
 	});
 });

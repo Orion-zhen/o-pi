@@ -29,7 +29,7 @@ export async function startWebServer(
 				response.end("ok");
 				return;
 			}
-			if (url.pathname === "/api/action" && request.method === "POST") {
+			if ((url.pathname === "/api/action" || url.pathname === "/api/query") && request.method === "POST") {
 				if (!sameOrigin(request)) {
 					response.writeHead(403).end("Forbidden");
 					return;
@@ -40,8 +40,13 @@ export async function startWebServer(
 				}
 				const body = await readBody(request);
 				const value: unknown = JSON.parse(body);
-				await gui.dispatch(value);
-				response.writeHead(204).end();
+				if (url.pathname === "/api/query") {
+					const result = await gui.query(value);
+					response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(result));
+				} else {
+					await gui.dispatch(value);
+					response.writeHead(204).end();
+				}
 				return;
 			}
 			if (url.pathname.startsWith("/api/")) {

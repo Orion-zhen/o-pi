@@ -2,7 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { GuiSnapshot } from "../contract.ts";
 
-function entryMessage(entry: SessionEntry): AgentMessage | undefined {
+export function entryMessage(entry: SessionEntry): AgentMessage | undefined {
 	const timestamp = Date.parse(entry.timestamp);
 	switch (entry.type) {
 		case "message": return entry.message;

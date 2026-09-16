@@ -20,7 +20,7 @@ export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => vo
 	const { onlyChanges, setOnlyChanges } = workbench;
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
 	const referenceFile = (path: string) => { close(); gui.referenceFile(path); };
-	const blocked = !gui.snapshot || gui.snapshot.busy || gui.running || gui.status !== "已连接";
+	const blocked = !gui.canChangeSession;
 	const resize = (value: number) => setRatio(Math.max(25, Math.min(75, value)));
 	const proportions: CSSProperties & { "--session-share": number; "--file-share": number } = { "--session-share": ratio, "--file-share": 100 - ratio };
 	return <div className="sidebar-workbench">
@@ -68,7 +68,7 @@ export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => vo
 					</span>
 					<IconButton label="显示文件变更" size="icon-sm" className="file-changes-toggle" aria-pressed={onlyChanges} disabled={!git}
 						onClick={() => { setOnlyChanges(!onlyChanges); setFilesOpen(true); setPane("files"); }}><FileDiff /><span>{git?.changes.length ?? 0}</span></IconButton>
-					<IconButton label="刷新文件" size="icon-sm" disabled={!gui.snapshot || gui.status !== "已连接"} onClick={workbench.refresh}><RefreshCw /></IconButton>
+					<IconButton label="刷新文件" size="icon-sm" disabled={!gui.snapshot || !gui.connected} onClick={workbench.refresh}><RefreshCw /></IconButton>
 					<IconButton label="折叠全部目录" size="icon-sm" disabled={onlyChanges || !workbench.expanded.size} onClick={workbench.collapseAll}><FoldVertical /></IconButton>
 				</div>
 				{filesOpen && <div className="workspace-files-content">

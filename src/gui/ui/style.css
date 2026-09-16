@@ -58,12 +58,7 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .sidebar[data-collapsed="true"] .new-session, .sidebar[data-collapsed="true"] .workspace-select { padding-inline: 0.75em; justify-content: center; }
 .sidebar[data-collapsed="true"] .sidebar-footer { flex-direction: column; align-items: center; }
 .sidebar[data-collapsed="true"] .sidebar-footer > button:last-child { margin-left: 0; }
-.modal-layer.sheet-layer { align-items: stretch; }
-.sheet-layer[data-side="left"] { justify-content: flex-start; }
-.sheet-layer[data-side="right"] { justify-content: flex-end; }
-.sheet-layer[data-side="top"], .sheet-layer[data-side="bottom"] { flex-direction: column; }
-.sheet-layer[data-side="top"] { justify-content: flex-start; }
-.sheet-layer[data-side="bottom"] { justify-content: flex-end; }
+.modal-layer.sheet-layer { align-items: stretch; justify-content: flex-start; }
 .mobile-sidebar { flex-basis: 88%; max-inline-size: 100%; }
 .main-panel { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .tool-count { font-variant-numeric: tabular-nums; }

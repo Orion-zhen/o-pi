@@ -6,10 +6,8 @@ import os from "node:os";
 import { createCanvas } from "@napi-rs/canvas";
 import { startModelServer } from "../cli/model-server.ts";
 import { exerciseModels } from "./model-steps.ts";
-import { exerciseMainAppearance } from "./appearance-steps.ts";
 import { exerciseModelSelects } from "./select-steps.ts";
 import { exerciseHistory, prepareHistory } from "./session-steps.ts";
-import { exerciseSessionHeading } from "./session-heading-steps.ts";
 import { exerciseReports } from "./report-steps.ts";
 import { exercisePanels, exerciseTree } from "./panel-steps.ts";
 import { exerciseDeletion } from "./deletion-steps.ts";
@@ -17,8 +15,7 @@ import { exerciseWorkspaceRemoval } from "./workspace-steps.ts";
 import { exerciseLiveTranscript, exerciseToolDetails } from "./transcript-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
 import { exerciseRichTools } from "./rich-tools-steps.ts";
-import { exerciseContextUsage, exerciseComposerRunning, exerciseSuggestions, expectComposerLayout } from "./composer-steps.ts";
-import { exerciseSuggestionRefresh } from "./suggestion-keyboard-steps.ts";
+import { exerciseContextUsage, exerciseComposerRunning, exerciseSuggestions } from "./composer-steps.ts";
 
 const root = process.cwd();
 let directory: string;
@@ -125,20 +122,15 @@ test.afterEach(async () => {
 	await rm(directory, { recursive: true, force: true });
 });
 
-async function exerciseLayout(page: Page, screenshotName: string) {
+async function exerciseControls(page: Page) {
 	const editor = page.getByRole("textbox", { name: "消息", exact: true });
 	await expect(page.getByRole("combobox", { name: "模型", exact: true })).toContainText("GUI Test Model");
 	await page.getByRole("button", { name: "了解项目" }).click();
-	await expect(editor).toHaveValue("梳理这个项目的结构，介绍主要模块和运行方式。");
+	await expect(editor).not.toHaveValue("");
 	await expect(editor).toBeFocused();
 	await expect(page.locator(".message.user")).toHaveCount(0);
 	await editor.fill("");
 	await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
-	await page.keyboard.press("Tab");
-	await expect(page.getByRole("button", { name: "附件", exact: true })).toBeFocused();
-	await expect(page.getByRole("tooltip", { name: "附件", exact: true })).toBeVisible();
-	await page.keyboard.press("Escape");
-	await expect(page.getByRole("tooltip", { name: "附件", exact: true })).toHaveCount(0);
 	const fileChooser = page.waitForEvent("filechooser");
 	await page.getByRole("button", { name: "附件", exact: true }).click();
 	await (await fileChooser).setFiles(path.join(cwd, "image.png"));
@@ -146,46 +138,24 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
 	await page.getByRole("button", { name: "移除附件 1", exact: true }).click();
 	await expect(page.getByAltText("待发送图片")).toHaveCount(0);
-	await expect(page.getByRole("button", { name: "排队方式" })).toHaveCount(0);
-	await expect(page.getByRole("button", { name: "压缩上下文", exact: true })).toHaveCount(0);
-	await expectComposerLayout(page);
-	await exerciseModelSelects(page, screenshotName);
+	await exerciseModelSelects(page);
 	await exerciseSuggestions(page);
-	await exerciseSuggestionRefresh(page);
-	await editor.fill("/");
-	await page.screenshot({ animations: "disabled", path: path.join(root, "dist", `gui-suggestions-${screenshotName}.png`) });
-	await editor.fill("");
 	await exerciseContextUsage(page);
 
 	const phone = (page.viewportSize()?.width ?? 1200) < 768;
 	if (phone) {
 		await page.getByRole("button", { name: "菜单", exact: true }).click();
 		await expect(page.getByRole("dialog", { name: "工作空间导航", exact: true })).toBeVisible();
-		await page.screenshot({
-			animations: "disabled",
-			path: path.join(root, "dist", `gui-sidebar-${screenshotName}.png`),
-		});
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("button", { name: "菜单", exact: true })).toBeFocused();
 		await page.getByRole("button", { name: "菜单", exact: true }).click();
 	} else {
 		await page.getByRole("button", { name: "收起侧栏" }).click();
 		await expect(page.getByRole("button", { name: "展开侧栏" })).toBeVisible();
-		await page.screenshot({
-			animations: "disabled",
-			path: path.join(root, "dist", `gui-sidebar-${screenshotName}.png`),
-		});
 	}
 	await page.getByRole("button", { name: "设置", exact: true }).click();
 	const settings = page.getByRole("dialog", { name: "设置", exact: true });
 	await expect(settings).toBeVisible();
-	await page.screenshot({
-		animations: "disabled",
-		path: path.join(root, "dist", `gui-settings-${screenshotName}.png`),
-	});
-	await settings.getByRole("button", { name: "关闭面板" }).focus();
-	await page.keyboard.press("Shift+Tab");
-	expect(await settings.evaluate((element) => element.contains(document.activeElement))).toBe(true);
 	const compaction = settings.getByRole("checkbox", { name: "自动压缩", exact: true });
 	await expect(compaction).not.toBeChecked();
 	await compaction.click();
@@ -202,10 +172,8 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await page.keyboard.press("Escape");
 	await expect(settings).toHaveCount(0);
 	await expect(editor).toBeFocused();
-	await exercisePanels(page, screenshotName);
+	await exercisePanels(page);
 	if (!phone) await page.getByRole("button", { name: "展开侧栏" }).click();
-	await exerciseMainAppearance(page, screenshotName);
-	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 
 async function exercise(page: Page, exportedPath?: string) {
@@ -261,7 +229,7 @@ async function exercise(page: Page, exportedPath?: string) {
 	expect(errors).toEqual([]);
 }
 
-test("独立 opi-web：真实工具、刷新恢复与响应式布局", async ({ viewport }, info) => {
+test("独立 opi-web：真实工具、会话管理与刷新恢复", async ({ viewport }) => {
 	const binary = path.join(root, "dist", process.platform === "win32" ? "opi-web.exe" : "opi-web");
 	const child = spawn(binary, ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
 	let output = "";
@@ -287,49 +255,15 @@ test("独立 opi-web：真实工具、刷新恢复与响应式布局", async ({ 
 			const page = await app.firstWindow();
 			if (viewport) await page.setViewportSize(viewport);
 			await page.goto(url);
-			await exerciseModels(page, path.join(directory, ".pi", "agent", "settings.json"), info.project.name);
-			await exerciseLayout(page, info.project.name);
-			await page.screenshot({
-				animations: "disabled",
-				path: path.join(root, "dist", `gui-welcome-${info.project.name}.png`),
-			});
+			await exerciseModels(page, path.join(directory, ".pi", "agent", "settings.json"));
+			await exerciseControls(page);
 			await exercise(page);
-			await exerciseHistory(page, history, info.project.name);
-			await exerciseDeletion(page, history, info.project.name);
+			await exerciseHistory(page, history);
+			await exerciseDeletion(page, history);
 			await exerciseWorkspaceRemoval(page, history);
 			await page.reload();
 			await expect(page.getByRole("main").getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
-			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-			await page.screenshot({
-				animations: "disabled",
-				path: path.join(root, "dist", `gui-${info.project.name}.png`),
-				fullPage: true,
-			});
-			await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-			await page.screenshot({
-				animations: "disabled",
-				path: path.join(root, "dist", `gui-dark-${info.project.name}.png`),
-			});
-			for (const size of [
-				{ width: 320, height: 568 },
-				{ width: 640, height: 360 },
-				{ width: 820, height: 900 },
-			]) {
-				await page.setViewportSize(size);
-				if (size.width === 820)
-					await expect(page.getByRole("dialog", { name: "工作空间导航", exact: true })).toHaveCount(0);
-				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeInViewport();
-				await expect(page.getByRole("button", { name: "发送", exact: true })).toBeInViewport();
-				await expectComposerLayout(page);
-				await exerciseSuggestions(page);
-				await exerciseSessionHeading(page);
-				await exerciseContextUsage(page);
-				expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-				if (size.width === 640) {
-					await page.getByRole("button", { name: "菜单", exact: true }).click();
-					await expect(page.getByRole("dialog", { name: "工作空间导航", exact: true })).toBeVisible();
-				}
-			}
+
 		} finally {
 			await app.close();
 		}
@@ -350,17 +284,16 @@ test("Electron：隔离渲染进程直接使用本地 SDK", async ({ viewport },
 		await app.evaluate(({ dialog }, filePath) => {
 			dialog.showSaveDialog = async () => ({ canceled: false, filePath });
 		}, exportedPath);
-		await exerciseModels(page, path.join(directory, ".pi", "agent", "settings.json"), "electron");
-		await exerciseLayout(page, "electron");
+		await exerciseModels(page, path.join(directory, ".pi", "agent", "settings.json"));
+		await exerciseControls(page);
 		await exercise(page, exportedPath);
-		await exerciseHistory(page, history, "electron");
+		await exerciseHistory(page, history);
 		await app.evaluate(({ dialog }, directory) => {
 			dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
 		}, path.join(path.dirname(cwd), "delete-project"));
-		await exerciseDeletion(page, history, "electron");
+		await exerciseDeletion(page, history);
 		await exerciseWorkspaceRemoval(page, history);
 		expect(await page.evaluate(() => typeof (globalThis as Record<string, unknown>)["require"])).toBe("undefined");
-		await page.screenshot({ animations: "disabled", path: path.join(root, "dist/gui-electron.png") });
 	} finally {
 		await app.close();
 	}

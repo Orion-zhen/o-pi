@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, Folder, X } from "lucide-react";
+import type { GuiDirectories } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
@@ -7,30 +8,30 @@ import { IconButton } from "./components/icon-button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
 
 export function DirectoryBrowser({ gui, initial, select, close }: {
-	gui: GuiView; initial: string; select: (path: string) => Promise<void>; close: () => void;
+	gui: Pick<GuiView, "query" | "error" | "setError">; initial: string; select: (path: string) => Promise<void>; close: () => void;
 }) {
 	const [path, setPath] = useState(initial);
 	const [filter, setFilter] = useState("");
 	const [pending, setPending] = useState(true);
-	const [loaded, setLoaded] = useState(false);
-	useEffect(() => {
-		let active = true;
-		gui.setError("");
-		void gui.send({ action: "directories", path: initial }).then((ok) => {
-			if (active) { setLoaded(ok); setPending(false); }
-		});
-		return () => { active = false; };
-	}, [initial, gui.send, gui.setError]);
-	useEffect(() => { if (loaded && gui.directories) setPath(gui.directories.path); }, [loaded, gui.directories]);
-	const browse = async (path: string) => {
+	const [listing, setListing] = useState<GuiDirectories>();
+	const version = useRef(0);
+	const browse = useCallback(async (path: string) => {
+		const request = ++version.current;
 		gui.setError("");
 		setPending(true);
-		try { if (await gui.send({ action: "directories", path })) { setLoaded(true); setFilter(""); } }
-		finally { setPending(false); }
-	};
-	const listing = loaded ? gui.directories : undefined;
+		try {
+			const listing = await gui.query({ query: "directories", path });
+			if (request === version.current) { setListing(listing); setPath(listing.path); setFilter(""); }
+		} catch (error) {
+			if (request === version.current) gui.setError(error instanceof Error ? error.message : String(error));
+		} finally { if (request === version.current) setPending(false); }
+	}, [gui.query, gui.setError]);
+	useEffect(() => {
+		void browse(initial);
+		return () => { version.current++; };
+	}, [initial, browse]);
 	return <Dialog open onOpenChange={(open) => { if (!open) close(); }}>
-		<DialogContent className="directory-browser" showCloseButton={false}>
+		<DialogContent className="directory-browser">
 			<header className="flex shrink-0 items-center justify-between gap-2">
 				<DialogTitle>选择工作目录</DialogTitle>
 				<DialogClose asChild><IconButton label="关闭目录选择"><X /></IconButton></DialogClose>

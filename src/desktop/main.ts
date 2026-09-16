@@ -20,7 +20,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const entryUrl = "opi://app/index.html";
-const pending = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 let window: BrowserWindow | undefined;
 let backend: ReturnType<typeof utilityProcess.fork> | undefined;
 let stopping = false;
@@ -115,7 +115,7 @@ void app
 				const operation = pending.get(message.id);
 				pending.delete(message.id);
 				if ("error" in message) operation?.reject(new Error(String(message.error)));
-				else operation?.resolve();
+				else operation?.resolve("value" in message ? message.value : undefined);
 			}
 		});
 		backend.on("exit", (code) => {
@@ -125,15 +125,16 @@ void app
 			if (!stopping) dialog.showErrorBox("SDK 后端已退出", `退出码 ${code}。请重启应用。`);
 			if (stopping) app.quit();
 		});
-		ipcMain.handle("gui:action", async (event, value: unknown) => {
-			trusted(event);
-			if (exited || !backend) throw new Error("SDK 后端不可用。");
-			const id = randomUUID();
-			await new Promise<void>((resolve, reject) => {
-				pending.set(id, { resolve, reject });
-				backend?.postMessage({ kind: "action", id, value });
+		for (const kind of ["action", "query"] as const) {
+			ipcMain.handle(`gui:${kind}`, (event, value: unknown) => {
+				trusted(event);
+				if (exited || !backend) throw new Error("SDK 后端不可用。");
+				const id = randomUUID();
+				const result = new Promise<unknown>((resolve, reject) => pending.set(id, { resolve, reject }));
+				backend.postMessage({ kind, id, value });
+				return result;
 			});
-		});
+		}
 		ipcMain.on("gui:subscribe", (event) => {
 			trusted(event);
 			backend?.postMessage({ kind: "subscribe" });

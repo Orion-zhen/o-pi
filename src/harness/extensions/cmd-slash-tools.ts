@@ -19,9 +19,14 @@ interface ToolSelectorModule {
 type ToolSelectorLoader = () => Promise<ToolSelectorModule>;
 
 /** 注册工具选择生命周期；配置、恢复与持久化由 controller 负责。 */
-export function createToolsExtension(loadTui?: ToolSelectorLoader, gui?: Presenter<(controller: ToolSelectionController) => void>): (pi: ExtensionAPI) => void {
+export function createToolsExtension(
+	loadTui?: ToolSelectorLoader,
+	gui?: Presenter<(controller: ToolSelectionController) => void>,
+	bindController?: (controller: ToolSelectionController) => void,
+): (pi: ExtensionAPI) => void {
 	return function toolsExtension(pi: ExtensionAPI): void {
 		const controller = new ToolSelectionController(pi);
+		bindController?.(controller);
 
 		const restore = async (ctx: ExtensionContext, model = ctx.model, refreshConfig = false): Promise<void> => {
 			const notice = await controller.restore({

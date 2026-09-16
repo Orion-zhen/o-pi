@@ -1,254 +1,78 @@
-import { useState, type ReactNode, type Ref } from "react";
-import type { GuiEvent, GuiSnapshot } from "../contract.ts";
-import type { Send } from "./dialog.tsx";
-import { Content, pretty, record } from "./content.tsx";
+import type { ReactNode, Ref } from "react";
+import type { GuiPanel, GuiSnapshot, Query } from "../contract.ts";
+import type { Send } from "./connection.ts";
+import { Content } from "./content.tsx";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
 import { Input } from "./components/ui/input";
-import { Textarea } from "./components/ui/textarea";
-import { NativeSelect } from "./components/ui/native-select";
 import { PanelDialog } from "./components/panel-dialog";
 import { ModelManager } from "./model-manager.tsx";
-import { isSubagentDetails, SubagentProgress } from "./subagent-progress.tsx";
-import { ReportPanel } from "./reports/report-panel.tsx";
+import { SubagentProgress } from "./subagent-progress.tsx";
+import { UsageReport } from "./reports/usage-report.tsx";
+import { Settings } from "./settings-panel.tsx";
+import "./reports/reports.css";
 
-export type PanelData = Extract<GuiEvent, { type: "panel" | "report" }>;
-const rows = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.filter(record) : []);
+const titles: Record<GuiPanel["kind"], string> = {
+	model: "模型", tools: "工具选择", sessions: "会话列表", settings: "设置", auth: "认证",
+	subagents: "子代理任务", import: "导入会话", system: "系统提示词", help: "命令帮助",
+	lastReply: "最后回复", usage: "套餐用量",
+};
 
-export function Panel({
-	ref,
-	panel,
-	snapshot,
-	sessionList,
-	send,
-	close,
-	restoreFocus,
-}: {
+export function Panel({ ref, panel, snapshot, sessionList, send, query, canChangeSession, close, restoreFocus }: {
 	ref: Ref<HTMLDivElement>;
-	panel: PanelData;
+	panel: GuiPanel;
 	snapshot: GuiSnapshot;
 	sessionList: ReactNode;
 	send: Send;
+	query: Query;
+	canChangeSession: boolean;
 	close: () => void;
 	restoreFocus: () => void;
 }) {
-	let body;
-	if (panel.type === "report") body = <ReportPanel report={panel} />;
-	else switch (panel.title) {
-		case "模型":
-			body = <ModelManager snapshot={snapshot} send={send} />;
+	let body: ReactNode;
+	switch (panel.kind) {
+		case "model": body = <ModelManager snapshot={snapshot} send={send} disabled={!canChangeSession} />; break;
+		case "tools":
+			body = <>
+				<p>变更在当前会话分支生效。</p>
+				<Button variant="outline" size="sm" disabled={!canChangeSession} onClick={() => void send({ action: "persistTools" })}>保存为用户默认</Button>
+				{snapshot.tools.map((tool) => <label key={tool.name} className="list-row">
+					<Checkbox checked={tool.enabled} disabled={!tool.available || !canChangeSession}
+						onCheckedChange={(checked) => void send({ action: "tool", name: tool.name, enabled: checked === true })} />
+					<span><strong>{tool.name}</strong><small>{tool.description}</small></span>
+				</label>)}
+			</>;
 			break;
-		case "工具选择":
-			body = (
-				<>
-					<p>变更在当前会话分支生效。</p>
-					<Button variant="outline" size="sm" onClick={() => void send({ action: "persistTools" })}>
-						保存为用户默认
-					</Button>
-					{snapshot.tools.map((tool) => (
-						<label key={tool.name} className="list-row">
-							<Checkbox
-								checked={tool.enabled}
-								disabled={!tool.available || snapshot.busy || snapshot.streaming}
-								onCheckedChange={(checked) => void send({ action: "tool", name: tool.name, enabled: checked === true })}
-							/>
-							<span>
-								<strong>{tool.name}</strong>
-								<small>{tool.description}</small>
-							</span>
-						</label>
-					))}
-				</>
-			);
+		case "sessions": body = sessionList; break;
+		case "settings": body = <Settings snapshot={snapshot} send={send} query={query} disabled={!canChangeSession} restoreFocus={restoreFocus} />; break;
+		case "auth":
+			body = <>
+				<p>凭据由 SDK 保存在后端，不返回到界面。OAuth 回调在运行后端的电脑上接收。</p>
+				<Button variant="outline" size="sm" onClick={() => void send({ action: "cancelLogin" })}>取消登录</Button>
+				{snapshot.providers.map((provider) => <div className="list-row" key={provider.id}>
+					<span>{provider.name}<small>{provider.authenticated ? "已配置" : "未配置"}</small></span>
+					<Button variant="outline" size="sm" onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}>API Key</Button>
+					{provider.oauth && <Button variant="outline" size="sm" onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}>OAuth</Button>}
+					{provider.authenticated && <Button variant="outline" size="sm" onClick={() => void send({ action: "logout", provider: provider.id })}>退出</Button>}
+				</div>)}
+			</>;
 			break;
-		case "会话列表":
-			body = sessionList;
-			break;
-		case "设置":
-			body = <Settings snapshot={snapshot} send={send} />;
-			break;
-		case "认证":
-			body = (
-				<>
-					<p>凭据由 SDK 保存在后端，不返回到界面。OAuth 回调在运行后端的电脑上接收。</p>
-					<Button variant="outline" size="sm" onClick={() => void send({ action: "cancelLogin" })}>
-						取消登录
-					</Button>
-					{snapshot.providers.map((provider) => (
-						<div className="list-row" key={provider.id}>
-							<span>
-								{provider.name}
-								<small>{provider.authenticated ? "已配置" : "未配置"}</small>
-							</span>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}
-							>
-								API Key
-							</Button>
-							{provider.oauth && (
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}
-								>
-									OAuth
-								</Button>
-							)}
-							{provider.authenticated && (
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => void send({ action: "logout", provider: provider.id })}
-								>
-									退出
-								</Button>
-							)}
-						</div>
-					))}
-				</>
-			);
-			break;
-		case "子代理任务": {
-			const result = record(panel.value) && record(panel.value.result) ? panel.value.result : panel.value;
-			body = record(result) && isSubagentDetails(result.details) ? <>
-				<SubagentProgress key={result.details.runId} details={result.details} state={snapshot.commandRunning ? "running" : "unavailable"} />
+		case "subagents":
+			body = <>
+				<SubagentProgress key={panel.details.runId} details={panel.details} state={snapshot.commandRunning ? "running" : "unavailable"} />
 				{snapshot.commandRunning && <Button variant="outline" size="sm" onClick={() => void send({ action: "abort" })}>停止子代理任务</Button>}
-			</> : <pre>{pretty(panel.value)}</pre>;
+			</>;
 			break;
-		}
-		case "导入会话":
-			body = (
-				<label>
-					选择 JSONL 文件
-					<Input
-						type="file"
-						accept=".jsonl"
-						onChange={(event) => {
-							const file = event.target.files?.[0];
-							if (file)
-								void file
-									.text()
-									.then((content) => send({ action: "import", content }))
-									.then((ok) => {
-										if (ok) close();
-									});
-						}}
-					/>
-				</label>
-			);
+		case "import":
+			body = <label>选择 JSONL 文件<Input type="file" accept=".jsonl" onChange={(event) => {
+				const file = event.target.files?.[0];
+				if (file) void file.text().then((content) => send({ action: "import", content })).then((ok) => { if (ok) close(); });
+			}} /></label>;
 			break;
-		case "系统提示词":
-			body = <pre className="system-prompt">{String(panel.value)}</pre>;
-			break;
-		case "命令帮助":
-			body = (
-				<>
-					{rows(panel.value).map((row) => (
-						<p key={String(row.name)}>
-							<code>/{String(row.name)}</code> {String(row.description)}
-						</p>
-					))}
-				</>
-			);
-			break;
-		default:
-			body = typeof panel.value === "string" ? <Content value={panel.value} /> : <pre>{pretty(panel.value)}</pre>;
+		case "system": body = <pre className="system-prompt">{panel.text}</pre>; break;
+		case "help": body = snapshot.commands.map((command) => <p key={command.name}><code>/{command.name}</code> {command.description}</p>); break;
+		case "lastReply": body = <Content value={panel.text} />; break;
+		case "usage": body = <UsageReport value={panel.value} />; break;
 	}
-	return (
-		<PanelDialog ref={ref} title={panel.title} close={close} restoreFocus={restoreFocus}>
-			{body}
-		</PanelDialog>
-	);
-}
-
-function Settings({ snapshot, send }: { snapshot: GuiSnapshot; send: Send }) {
-	const settings = snapshot.settings;
-	return (
-		<>
-			<div className="settings-grid">
-				{(
-					[
-						["compaction", "自动压缩"],
-						["retry", "自动重试"],
-						["autoResize", "自动缩放图片"],
-						["blockImages", "阻止图片发送"],
-					] as const
-				).map(([key, label]) => (
-					<label key={key}>
-						<Checkbox
-							checked={settings[key]}
-							onCheckedChange={(checked) => void send({ action: "settings", ...settings, [key]: checked === true })}
-						/>
-						{label}
-					</label>
-				))}
-				{(
-					[
-						["steering", "Steer 队列"],
-						["followUp", "Follow-up 队列"],
-					] as const
-				).map(([key, label]) => (
-					<label key={key}>
-						{label}
-						<NativeSelect
-							value={settings[key]}
-							onChange={(event) =>
-								void send({
-									action: "settings",
-									...settings,
-									[key]: event.target.value === "all" ? "all" : "one-at-a-time",
-								})
-							}
-						>
-							<option value="one-at-a-time">逐条发送</option>
-							<option value="all">一起发送</option>
-						</NativeSelect>
-					</label>
-				))}
-			</div>
-			<Button variant="outline" size="sm" onClick={() => void send({ action: "config", file: "settings.json" })}>
-				编辑完整 settings.json
-			</Button>
-		</>
-	);
-}
-
-export function ConfigEditor({
-	file,
-	content,
-	send,
-	close,
-	restoreFocus,
-}: {
-	file: "settings.json";
-	content: string;
-	send: Send;
-	close: () => void;
-	restoreFocus: () => void;
-}) {
-	const [text, setText] = useState(content || "{}\n");
-	return (
-		<PanelDialog title={file} close={close} restoreFocus={restoreFocus}>
-			<p>保存后重载。文件在编辑期间发生变更时会拒绝覆盖。</p>
-			<Textarea
-				aria-label="设置 JSON"
-				className="config-editor"
-				value={text}
-				onChange={(event) => setText(event.target.value)}
-			/>
-			<Button
-				variant="outline"
-				size="sm"
-				onClick={() =>
-					void send({ action: "saveConfig", file, original: content, content: text }).then((ok) => {
-						if (ok) close();
-					})
-				}
-			>
-				保存并重载
-			</Button>
-		</PanelDialog>
-	);
+	return <PanelDialog ref={ref} title={titles[panel.kind]} close={close} restoreFocus={restoreFocus}>{body}</PanelDialog>;
 }

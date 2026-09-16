@@ -13,20 +13,15 @@ import {
 	type AgentSession,
 	type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
-import type { GuiEvent } from "../contract.ts";
 import { GuiDialogs } from "./dialogs.ts";
-import { createGuiExtensions, type ReadSessionInfo } from "./extensions.ts";
+import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
 
 export async function createGuiRuntime(
 	cwd: string,
-	dialogs: GuiDialogs,
-	emit: (event: GuiEvent) => void,
-	bindTools: (controller: ToolSelectionController) => void,
-	commandSignal: () => AbortSignal,
-	bindSessionInfo: (read: ReadSessionInfo) => void,
+	bindings: GuiExtensionBindings & { dialogs: GuiDialogs },
 	sessionManager?: SessionManager,
 ) {
+	const { dialogs } = bindings;
 	cwd = path.resolve(cwd);
 	if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
 	const agentDir = getAgentDir();
@@ -38,7 +33,7 @@ export async function createGuiRuntime(
 			cwd,
 			agentDir,
 			settingsManager,
-			resourceLoaderOptions: { extensionFactories: createGuiExtensions(emit, bindTools, commandSignal, bindSessionInfo) },
+			resourceLoaderOptions: { extensionFactories: createGuiExtensions(bindings) },
 			resourceLoaderReloadOptions: {
 				resolveProjectTrust: async ({ extensionsResult }) => {
 					const cached = decisions.get(cwd);

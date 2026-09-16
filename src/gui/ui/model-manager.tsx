@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowDown, ArrowUp, Check, Cpu, ListX, LoaderCircle, Play, Save, Search } from "lucide-react";
 import type { GuiAction, GuiModel, GuiSnapshot } from "../contract.ts";
-import type { Send } from "./dialog.tsx";
+import type { Send } from "./connection.ts";
 import { ThinkingControl } from "./model-controls.tsx";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
@@ -9,7 +9,7 @@ import { Checkbox } from "./components/ui/checkbox";
 import { Input } from "./components/ui/input";
 import "./models.css";
 
-export function ModelManager({ snapshot, send }: { snapshot: GuiSnapshot; send: Send }) {
+export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: GuiSnapshot; send: Send; disabled: boolean }) {
 	const [query, setQuery] = useState("");
 	const [pending, setPending] = useState<GuiAction["action"] | null>(null);
 	const [saved, setSaved] = useState<string | null>(null);
@@ -28,13 +28,7 @@ export function ModelManager({ snapshot, send }: { snapshot: GuiSnapshot; send: 
 	const otherModels = snapshot.models.filter(
 		(model) => !selected.has(`${model.provider}/${model.id}`) && matches(model),
 	);
-	const disabled =
-		pending !== null ||
-		snapshot.busy ||
-		snapshot.streaming ||
-		snapshot.compacting ||
-		snapshot.bashRunning ||
-		snapshot.commandRunning;
+	const disabled = blocked || pending !== null;
 	const run = async (action: GuiAction) => {
 		setPending(action.action);
 		setFailed(false);

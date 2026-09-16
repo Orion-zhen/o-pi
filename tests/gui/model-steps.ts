@@ -1,9 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { exerciseModelAppearance } from "./appearance-steps.ts";
 
-export async function exerciseModels(page: Page, settingsFile: string, screenshotName: string) {
+export async function exerciseModels(page: Page, settingsFile: string) {
 	const modelSelect = page.getByRole("combobox", { name: "模型", exact: true });
 	const names = { test: "GUI Test Model", second: "GUI Second Model", third: "GUI Third Model" };
 	const expectChoices = async (ids: (keyof typeof names)[], current: keyof typeof names) => {
@@ -75,13 +73,10 @@ export async function exerciseModels(page: Page, settingsFile: string, screensho
 	await expect(checkbox("third")).toBeChecked();
 	await expect(checkbox("test")).not.toBeChecked();
 	await panel.getByRole("button", { name: "保存模型", exact: true }).click();
-	await expect(panel.getByText("已保存模型。", { exact: true })).toBeVisible();
-	expect(await savedSettings()).toMatchObject({
+	await expect.poll(savedSettings).toMatchObject({
 		enabledModels: ["gui-test/third", "gui-test/second"],
 		defaultModel: "test",
 	});
-	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-models-${screenshotName}.png`) });
-	await exerciseModelAppearance(page, screenshotName);
 	await close();
 	await choose("second");
 	expect(await savedSettings()).toMatchObject({ defaultModel: "test" });
@@ -99,7 +94,7 @@ export async function exerciseModels(page: Page, settingsFile: string, screensho
 	await panel.getByRole("button", { name: "清空已选模型", exact: true }).click();
 	await expect(panel.getByRole("checkbox", { checked: true })).toHaveCount(0);
 	await panel.getByRole("button", { name: "保存模型", exact: true }).click();
-	await expect(panel.getByText("已保存模型。", { exact: true })).toBeVisible();
+	await expect.poll(savedSettings).toMatchObject({ enabledModels: [] });
 	await close();
 	await expect(modelSelect).toBeEnabled();
 	await expectChoices(["second"], "second");
@@ -113,7 +108,7 @@ export async function exerciseModels(page: Page, settingsFile: string, screensho
 	await expect(checkbox("test")).toBeChecked();
 	await expect(panel.getByRole("button", { name: "当前模型 gui-test/test", exact: true })).toBeVisible();
 	await panel.getByRole("button", { name: "保存模型", exact: true }).click();
-	await expect(panel.getByText("已保存模型。", { exact: true })).toBeVisible();
+	await expect.poll(savedSettings).toMatchObject({ enabledModels: initial });
 	await close();
 	await expectChoices(["second", "test"], "test");
 }

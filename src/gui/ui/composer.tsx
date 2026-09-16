@@ -10,41 +10,41 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
-import type { GuiAction } from "../contract.ts";
+import type { GuiAction, GuiSnapshot } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
 import { ModelControls } from "./model-controls.tsx";
 import { pretty } from "./content.tsx";
 import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
+import { useComposerQueries } from "./use-composer-queries.ts";
 
 type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number];
-export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void }) {
+export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: GuiSnapshot; onSubmit: () => void }) {
 	const {
-		snapshot,
-		status,
+		connected,
+		query,
 		draft,
 		setDraft,
 		send,
 		running,
 		editor,
-		fileChoices,
-		setFileChoices,
-		completions,
 		setError,
 	} = gui;
 	const suggestions = useSuggestionNavigation(editor);
+	const { argumentChoices, fileChoices, completeFiles, clearFiles } = useComposerQueries({
+		draft, sessionId: snapshot.sessionId, connected, send, query, setError,
+	});
 	const upload = useRef<HTMLInputElement>(null);
 	const [images, setImages] = useState<ImageAttachment[]>([]);
 	const hasContent = Boolean(draft.trim() || images.length);
 	const stopping = running && !hasContent;
-	const connected = Boolean(snapshot && status === "已连接");
 	const submit = () => {
-		if (!hasContent || !connected || snapshot?.busy) return;
+		if (!hasContent || !gui.canSubmit) return;
 		const text = draft;
 		const attachments = images;
 		setDraft("");
 		setImages([]);
-		setFileChoices([]);
+		clearFiles();
 		onSubmit();
 		void send({ action: "prompt", text, images: attachments, behavior: "followUp" }).then((ok) => {
 			if (!ok) {
@@ -90,15 +90,14 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 			setError(error instanceof Error ? error.message : String(error));
 		}
 	};
-	const argumentChoices = completions?.text === draft ? completions.items : [];
 	const choices =
 		argumentChoices.length === 0 && /^\/\S*$/.test(draft)
-			? (snapshot?.commands.filter((command) => `/${command.name}`.startsWith(draft)) ?? [])
+			? snapshot.commands.filter((command) => `/${command.name}`.startsWith(draft))
 			: [];
 	return (
 		<footer className="composer">
 			<div className="composer-card">
-				{snapshot && snapshot.queue.steering.length + snapshot.queue.followUp.length > 0 && (
+				{snapshot.queue.steering.length + snapshot.queue.followUp.length > 0 && (
 					<details open className="queue">
 						<summary>
 							待发送消息{" "}
@@ -174,7 +173,7 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 								title={file}
 								onClick={() => {
 									setDraft((text) => text.replace(/@[^\s]*$/, () => `@"${file}" `));
-									setFileChoices([]);
+									clearFiles();
 									editor.current?.focus();
 								}}
 							>
@@ -208,7 +207,7 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 							const match = /@([^\s]*)$/.exec(draft);
 							if (match) {
 								event.preventDefault();
-								void send({ action: "files", prefix: match[1] ?? "" });
+								void completeFiles(match[1] ?? "");
 							}
 						}
 					}}
@@ -229,8 +228,7 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 								event.target.value = "";
 							}}
 						/>
-						{snapshot && (
-							<DropdownMenu>
+						<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<IconButton label="输入历史" disabled={!snapshot.history.length}>
 										<History />
@@ -251,28 +249,27 @@ export function Composer({ gui, onSubmit }: { gui: GuiView; onSubmit: () => void
 										</DropdownMenuItem>
 									))}
 								</DropdownMenuContent>
-							</DropdownMenu>
-						)}
-						{snapshot && <Button
+						</DropdownMenu>
+						<Button
 							variant="ghost"
 							size="sm"
 							className="tool-count"
 							aria-label={`工具：已启用 ${snapshot.tools.filter((tool) => tool.enabled).length} 个`}
-							disabled={!connected || snapshot.busy}
-							onClick={() => void send({ action: "view", view: "tools" })}
+							disabled={!gui.canSubmit}
+							onClick={() => gui.setPanel({ kind: "tools" })}
 						>
 							<Wrench />{snapshot.tools.filter((tool) => tool.enabled).length}
-						</Button>}
+						</Button>
 					</div>
 					<div className="composer-controls">
-						{snapshot && <ModelControls snapshot={snapshot} send={send} />}
-						{snapshot && <ContextUsage snapshot={snapshot} />}
+						<ModelControls snapshot={snapshot} send={send} disabled={!gui.canChangeSession} openManager={() => gui.setPanel({ kind: "model" })} />
+						<ContextUsage snapshot={snapshot} />
 						<IconButton
 							label={stopping ? "停止" : "发送"}
 							variant="default"
 							className="send-button"
 							onClick={stopping ? () => void send({ action: "abort" }) : submit}
-							disabled={!connected || (!stopping && (snapshot?.busy || !hasContent))}
+							disabled={!connected || (!stopping && (!gui.canSubmit || !hasContent))}
 						>
 							{stopping ? <Square fill="currentColor" /> : <ArrowUp />}
 						</IconButton>

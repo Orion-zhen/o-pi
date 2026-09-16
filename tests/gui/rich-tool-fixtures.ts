@@ -1,4 +1,4 @@
-import type { SubagentCompletedResult, SubagentDetails, SubagentRunResult } from "../../src/harness/subagent/types.ts";
+import type { SubagentCompletedResult, SubagentDetails } from "../../src/harness/subagent/types.ts";
 import type { WebFetchSuccessDetails, WebSearchSuccessDetails } from "../../src/harness/web-tools/core/types.ts";
 
 export const searchDetails: WebSearchSuccessDetails = {
@@ -25,14 +25,13 @@ export const agentDetails: SubagentDetails = {
 		{ agent: "reviewer", task: "检查回归测试" },
 	], results: [], warnings: [],
 };
-export function agentRun(index: number, changes: Partial<Omit<SubagentRunResult, "status">> & ({ status?: "running" } | Pick<SubagentCompletedResult, "status" | "exitCode" | "outputFile">) = {}): SubagentRunResult {
+export function agentRun(index: number, changes: Pick<SubagentCompletedResult, "exitCode" | "outputFile"> & Partial<SubagentCompletedResult>): SubagentCompletedResult {
 	const task = agentDetails.tasks[index];
 	if (!task) throw new Error("缺少测试任务");
 	return {
 		runId: agentDetails.runId, mode: agentDetails.mode, contextMode: "isolated", agent: task.agent, source: "user", task: task.task,
 		cwd: "/workspace", model: "test/model", tools: ["read"], attempts: 1, output: "", durationMs: 1200,
 		usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, contextTokens: 120, turns: 1 },
-		events: [{ type: "tool", name: "read", args: { path: "src/gui/ui/main.tsx" }, status: "running" }],
-		...(changes.status === "completed" ? changes : { ...changes, status: "running" }),
+		events: [], status: "completed", ...changes,
 	};
 }

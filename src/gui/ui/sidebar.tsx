@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip
 
 export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; collapsed: boolean; toggle: () => void; close: () => void }) {
 	const act = (action: GuiAction) => { close(); void gui.send(action); };
+	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
 	const content = (compact: boolean, mobile: boolean) => <>
 		<div className="sidebar-brand">
 			{!compact && <span className="brand"><Terminal aria-hidden="true" /><span>o-pi</span><small>workspace</small></span>}
@@ -21,7 +22,7 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 				<WorkspacePicker gui={gui} close={close} compact={compact} />
 				<Tooltip><TooltipTrigger asChild>
 					<Button variant="outline" className="new-session" aria-label="新建会话"
-						disabled={!gui.snapshot || gui.snapshot.busy || gui.running || gui.status !== "已连接"}
+						disabled={!gui.canChangeSession}
 						onClick={() => { void gui.send({ action: "new" }); close(); }}>
 						<Plus />
 					</Button>
@@ -29,16 +30,16 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 			</div>
 		</div> : <SidebarWorkbench key={gui.snapshot?.cwd ?? ""} gui={gui} close={close} />}
 		<div className="sidebar-footer">
-			<IconButton label="设置" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "settings" })}><Settings2 /></IconButton>
-			<IconButton label="认证" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "auth" })}><KeyRound /></IconButton>
-			<IconButton label="模型" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "model" })}><Cpu /></IconButton>
-			<IconButton label="套餐用量" disabled={!gui.snapshot || gui.snapshot.busy} onClick={() => act({ action: "view", view: "usage" })}><Activity /></IconButton>
-			<IconButton label="重载资源" disabled={!gui.snapshot || gui.snapshot.busy || gui.running} onClick={() => act({ action: "reload" })}><RefreshCw /></IconButton>
+			<IconButton label="设置" disabled={!gui.canSubmit} onClick={() => open("settings")}><Settings2 /></IconButton>
+			<IconButton label="认证" disabled={!gui.canSubmit} onClick={() => open("auth")}><KeyRound /></IconButton>
+			<IconButton label="模型" disabled={!gui.canSubmit} onClick={() => open("model")}><Cpu /></IconButton>
+			<IconButton label="套餐用量" disabled={!gui.canSubmit} onClick={() => act({ action: "view", view: "usage" })}><Activity /></IconButton>
+			<IconButton label="重载资源" disabled={!gui.canChangeSession} onClick={() => act({ action: "reload" })}><RefreshCw /></IconButton>
 		</div>
 	</>;
 	return <>
 		<aside className="sidebar" aria-label="侧栏" data-collapsed={collapsed}>{content(collapsed, false)}</aside>
-		<SheetContent side="left" className="mobile-sidebar" showCloseButton={false} aria-describedby={undefined}>
+		<SheetContent className="mobile-sidebar" aria-describedby={undefined}>
 			<SheetTitle className="sr-only">工作空间导航</SheetTitle>{content(false, true)}
 		</SheetContent>
 	</>;

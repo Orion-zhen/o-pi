@@ -56,7 +56,7 @@ function expiryDistance(expiresAt: string | undefined, generatedAt: string): str
 	return `${minutes} 分钟`;
 }
 
-export function ResetCredits({ value, timeZone, generatedAt }: { value: UsageResetCredits; timeZone: string; generatedAt: string }) {
+function ResetCredits({ value, timeZone, generatedAt }: { value: UsageResetCredits; timeZone: string; generatedAt: string }) {
 	return <section className="reset-credits" aria-label="重置额度">
 		<header><h4>重置额度</h4><span>{number(value.availableCount)} 次可用</span></header>
 		{value.credits === undefined ? <Empty>服务商未提供重置额度明细。</Empty>

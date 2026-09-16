@@ -105,18 +105,11 @@
 	::selection { background: color-mix(in srgb, var(--primary) 20%, transparent); }
 }
 
-[data-slot="sheet-overlay"], [data-slot="dialog-overlay"] { background: var(--overlay); backdrop-filter: blur(0.25rem); }
-[data-slot="sheet-content"], [data-slot="dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="popover-content"], [data-slot="select-content"] {
+.floating-surface {
 	background: var(--popover);
 	backdrop-filter: var(--glass-filter);
 	box-shadow: var(--surface-highlight), var(--shadow-floating);
 }
-[data-slot="dialog-content"] { border-radius: var(--radius-xl); }
-[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"] { min-width: 12em; border-radius: var(--radius-lg); padding: var(--space-2); }
-[data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"] { padding-block: 0.625em; }
-[data-slot="tooltip-content"] { font-size: var(--text-caption); }
-/* 关闭时立即释放浮层，避免焦点恢复晚于后续打开的面板。 */
-[data-state="closed"]:is([data-slot="dropdown-menu-content"], [data-slot="tooltip-content"], [data-slot="sheet-content"], [data-slot="sheet-overlay"], [data-slot="dialog-content"], [data-slot="dialog-overlay"]) { animation: none; }
 
 @media (prefers-reduced-motion: reduce) {
 	*, *::before, *::after {

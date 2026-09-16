@@ -23,18 +23,6 @@ export interface FilePreview {
 		| { kind: "deleted" };
 	diffs: { title: string; text: string }[];
 }
-export type WorkbenchResult =
-	| { kind: "directory"; path: string; entries: WorkspaceEntry[] }
-	| { kind: "git"; git: WorkspaceGit | null }
-	| { kind: "preview"; preview: FilePreview }
-	| { kind: "error"; message: string };
-export interface WorkbenchEvent {
-	type: "workbench";
-	cwd: string;
-	requestId: string;
-	result: WorkbenchResult;
-}
-
 export const gitStatusLabels: Record<GitStatus, string> = {
 	M: "已修改", A: "已添加", D: "已删除", R: "已重命名", C: "已复制", U: "冲突", "?": "未跟踪",
 };

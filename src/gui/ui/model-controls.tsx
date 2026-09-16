@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { Cpu } from "lucide-react";
 import type { GuiSnapshot } from "../contract.ts";
-import type { Send } from "./dialog.tsx";
+import type { Send } from "./connection.ts";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "./components/ui/select";
 
 const manageModels = "manage-models";
@@ -18,7 +18,7 @@ export function ThinkingControl({
 	return (
 		<Select
 			value={snapshot.thinking}
-			disabled={disabled || snapshot.busy || snapshot.streaming}
+			disabled={disabled}
 			onValueChange={(value) => {
 				const level = snapshot.thinkingLevels.find((level) => level === value);
 				if (level) void send({ action: "thinking", level });
@@ -34,8 +34,10 @@ export function ThinkingControl({
 	);
 }
 
-export function ModelControls({ snapshot, send }: { snapshot: GuiSnapshot; send: Send }) {
-	const openManager = useRef(false);
+export function ModelControls({ snapshot, send, disabled, openManager }: {
+	snapshot: GuiSnapshot; send: Send; disabled: boolean; openManager: () => void;
+}) {
+	const manageOnClose = useRef(false);
 	const available = new Map(snapshot.models.map((model) => [`${model.provider}/${model.id}`, model]));
 	const models = snapshot.scopedModels.flatMap((id) => {
 		const model = available.get(id);
@@ -48,10 +50,10 @@ export function ModelControls({ snapshot, send }: { snapshot: GuiSnapshot; send:
 		<div className="model-controls">
 			<Select
 				value={current}
-				disabled={snapshot.busy || snapshot.streaming}
+				disabled={disabled}
 				onValueChange={(value) => {
 					if (value === manageModels) {
-						openManager.current = true;
+						manageOnClose.current = true;
 						return;
 					}
 					const model = available.get(value);
@@ -62,11 +64,11 @@ export function ModelControls({ snapshot, send }: { snapshot: GuiSnapshot; send:
 					<SelectValue placeholder="选择模型" />
 				</SelectTrigger>
 				<SelectContent onCloseAutoFocus={(event) => {
-					if (!openManager.current) return;
-					openManager.current = false;
+					if (!manageOnClose.current) return;
+					manageOnClose.current = false;
 					event.preventDefault();
 					// 等下拉菜单释放焦点后再打开模型弹窗。
-					void send({ action: "view", view: "model" });
+					openManager();
 				}}>
 					{models.map((model) => (
 						<SelectItem key={`${model.provider}/${model.id}`} value={`${model.provider}/${model.id}`}>
@@ -79,7 +81,7 @@ export function ModelControls({ snapshot, send }: { snapshot: GuiSnapshot; send:
 					</SelectItem>
 				</SelectContent>
 			</Select>
-			<ThinkingControl snapshot={snapshot} send={send} />
+			<ThinkingControl snapshot={snapshot} send={send} disabled={disabled} />
 		</div>
 	);
 }

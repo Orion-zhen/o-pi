@@ -3,6 +3,7 @@ import type { DesktopBridge, GuiEvent } from "../gui/contract.ts";
 
 const bridge: DesktopBridge = {
 	send: (action) => ipcRenderer.invoke("gui:action", action),
+	query: (query) => ipcRenderer.invoke("gui:query", query),
 	subscribe(listener) {
 		const handle = (_event: Electron.IpcRendererEvent, value: GuiEvent) => listener(value);
 		ipcRenderer.on("gui:event", handle);

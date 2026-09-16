@@ -6,7 +6,7 @@ import { builtinCommands } from "./commands.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
-	"busy" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "dialogs" | "notices" | "status"
+	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "status"
 >;
 
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
@@ -33,9 +33,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		sessionFile: session.sessionFile ?? null,
 		name: session.sessionName ?? "未命名会话",
 		streaming: session.isStreaming,
-		compacting: session.isCompacting,
 		retrying: session.isRetrying,
-		bashRunning: session.isBashRunning,
+		running: !session.isIdle || session.isBashRunning || presentation.commandRunning,
 		messages: session.messages,
 		streamingMessage: session.state.streamingMessage ?? null,
 		entries: session.sessionManager.getEntries(),

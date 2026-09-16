@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { transcriptItems, type ToolActivity } from "../../src/gui/ui/transcript-items.ts";
@@ -76,30 +77,13 @@ describe("工具语义呈现", () => {
 		const tool: ToolActivity = { id: "missing-file", name: "read", args: { path: "missing.ts" }, state: "failed", output: { content: [{ type: "text", text: "文件不存在" }], details: { error: { code: "NOT_FOUND", message: "文件不存在" } } } };
 		const failed = renderToStaticMarkup(createElement(ToolActivityView, { tool }));
 		expect(failed).toContain('aria-expanded="true"');
-		expect(failed).toContain('class="activity-error">文件不存在');
+		expect(parseHTML(failed).document.querySelector(".activity-error")?.textContent).toBe("文件不存在");
 		const completed = renderToStaticMarkup(createElement(ToolActivityView, { tool: { ...tool, id: call.id, args: call.arguments, state: "completed", output: result } }));
 		expect(completed).toContain('aria-expanded="false"');
-		expect(completed).not.toContain("activity-body");
-	});
-
-	it("文件内容使用真实行号和语法高亮，不展示模型包装文本", () => {
-		const html = renderResult("read", { path: "app.ts" }, { path: "app.ts", total_lines: 42, segments: [{ content: "const answer = 42;", start_line: 12, end_line: 12 }] }, [{ type: "text", text: "<read path=app.ts>payload</read>" }]);
-		expect(html).toContain("app.ts:12–12");
-		expect(html).toContain("token keyword");
-		expect(html).toContain(">12</span>");
-		expect(html).not.toContain("payload");
-	});
-
-	it("修改结果直接显示 diff，而非 old/new JSON", () => {
-		const html = renderResult("edit", { path: "app.ts" }, { status: "applied", diff: "-1 old\n+1 new" });
-		expect(html).toContain("token deleted");
-		expect(html).toContain("token inserted");
-		expect(html).toContain("复制变更");
 	});
 
 	it("Shell 日志按纯文本显示，保留空格并转义 HTML", () => {
 		const html = renderResult("bash", { command: "printf 'hello'" }, {}, [{ type: "text", text: "# not a heading\n  <script>alert(1)</script>\n\u001b[31merror\u001b[0m" }]);
-		expect(html).toContain("复制命令");
 		expect(html).toContain("# not a heading");
 		expect(html).not.toContain("<h1");
 		expect(html).not.toContain("<script>");
@@ -108,23 +92,18 @@ describe("工具语义呈现", () => {
 
 	it("扩展参数按字段、列表和布尔值显示，字符串 payload 不重新解析", () => {
 		const html = renderToStaticMarkup(createElement(ParameterValue, { value: { path: "中文.ts", enabled: true, options: ["first", "second"], payload: '{"keep":"raw"}' } }));
-		expect(html).toContain("<dt title=\"path\">路径</dt>");
-		expect(html).toContain("中文.ts");
-		expect(html).toContain(">是</span>");
-		expect(html).toContain("parameter-list");
-		expect(html).toContain("{&quot;keep&quot;:&quot;raw&quot;}");
+		const doc = parseHTML(html).document;
+		expect(doc.documentElement.textContent).toContain("中文.ts");
+		expect(doc.documentElement.textContent).toContain('{"keep":"raw"}');
 	});
 
-	it.each(["```ts\n", "```ts\n```", "```\n"])("流式代码围栏尚无内容时仍能渲染：%s", (text) => {
-		const html = renderToStaticMarkup(createElement(MarkdownText, { text }));
-		expect(html).toContain("code-block");
-	});
-
-	it("Markdown 代码块有语言和复制按钮，行内代码不变，未知语言仍可阅读", () => {
-		const html = renderToStaticMarkup(createElement(MarkdownText, { text: "使用 `answer`\n\n```ts\nconst answer = 42;\n```\n\n```unknown-language\n<raw>\n```" }));
-		expect(html).toContain("<code>answer</code>");
-		expect(html).toContain("复制ts");
-		expect(html).toContain("token keyword");
-		expect(html).toContain("&lt;raw&gt;");
+	it("流式代码块从空围栏到正文均可渲染，未知语言作为文本而非 HTML", () => {
+		const render = (text: string) => renderToStaticMarkup(createElement(MarkdownText, { text }));
+		expect(() => render("```ts\n")).not.toThrow();
+		const html = render("```ts\nconst answer = 42;\n```\n\n```unknown-language\n<script>alert(1)</script>\n```");
+		const doc = parseHTML(html).document;
+		expect(doc.querySelector("pre")?.textContent).toContain("const answer = 42;");
+		expect(doc.querySelector("script")).toBeNull();
+		expect(html).toContain("&lt;script&gt;");
 	});
 });

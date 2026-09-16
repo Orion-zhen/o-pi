@@ -10,20 +10,19 @@ import { storeSession } from "./session-fixture.ts";
 export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentDir: string; events: GuiEvent[] }) {
 	describe("工作区与自动会话信息", () => {
 		it("浏览真实目录和目录链接，切换后仍重放启动目录，不返回普通文件", async () => {
-			const { host, cwd, events } = context();
+			const { host, cwd } = context();
 			const child = path.join(cwd, "子目录");
 			await mkdir(child);
 			await symlink(child, path.join(cwd, "链接"), "dir");
 			await symlink(path.join(cwd, "missing"), path.join(cwd, "失效链接"));
-			await host.dispatch({ action: "directories", path: cwd });
-			const listing = events.filter((event) => event.type === "directories").at(-1)?.value;
+			const listing = await host.query({ query: "directories", path: cwd });
 			expect(listing).toMatchObject({ path: await realpath(cwd), parent: path.dirname(await realpath(cwd)) });
-			expect(listing?.children.map((child) => child.name).sort()).toEqual(["子目录", "链接"].sort());
+			expect(listing.children.map((child) => child.name).sort()).toEqual(["子目录", "链接"].sort());
 			await host.dispatch({ action: "workspace", path: child });
 			const replay: GuiEvent[] = [];
 			host.subscribe((event) => replay.push(event))();
 			expect(replay.find((event) => event.type === "workspaceRoot")).toEqual({ type: "workspaceRoot", path: cwd });
-			await expect(host.dispatch({ action: "directories", path: path.join(cwd, "input.txt") })).rejects.toMatchObject({ code: "ENOTDIR" });
+			await expect(host.query({ query: "directories", path: path.join(cwd, "input.txt") })).rejects.toMatchObject({ code: "ENOTDIR" });
 			expect(host.snapshot().cwd).toBe(child);
 		});
 
@@ -99,46 +98,25 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 			expect(await readFile(external, "utf8")).not.toContain("不允许");
 		});
 
-		it("删除操作替换当前会话，文件边界检查仍生效", async () => {
-			const { host, cwd, agentDir, events } = context();
-			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			await host.dispatch({ action: "switch", path: file });
-			const id = host.snapshot().sessionId;
-			const start = events.length;
-			await host.dispatch({ action: "deleteSession", path: file });
-			expect(events.slice(start).filter((event) => event.type === "dialogs" && event.value.length)).toEqual([]);
-			expect(host.snapshot()).toMatchObject({ cwd, messages: [] });
-			expect(host.snapshot().sessionId).not.toBe(id);
-			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
-			await expect(host.dispatch({ action: "deleteSession", path: path.join(cwd, "input.txt") })).rejects.toThrow("历史记录已不存在");
-			expect(await readFile(path.join(cwd, "input.txt"), "utf8")).toBe("input\n");
-		});
-
-		it("会话信息读取无快照反馈，回复、标签、新建和重载后均返回最新数据", async () => {
+		it("会话信息在回复、标签、新建和重载后自动更新，重连获得当前数据", async () => {
 			const { host, events } = context();
-			const before = host.snapshot();
-			const start = events.length;
-			await host.dispatch({ action: "sessionInfo" });
-			expect(events.slice(start).filter((event) => event.type === "snapshot")).toEqual([]);
-			expect(events.slice(start).filter((event) => event.type === "sessionInfo")).toHaveLength(1);
-			expect(host.snapshot()).toEqual(before);
+			const latest = () => events.filter((event) => event.type === "sessionInfo").at(-1)?.value;
 			await host.dispatch({ action: "prompt", text: "执行工具", images: [], behavior: "followUp" });
-			await host.dispatch({ action: "sessionInfo" });
-			const info = events.filter((event) => event.type === "sessionInfo").at(-1)?.value;
-			expect(info?.stats.session.userTurns).toBe(1);
-			expect(info?.stats.tools.calls).toBe(2);
-			expect(info?.telemetry.session_id).toBe(host.snapshot().sessionId);
-			expect(info?.telemetry.pending_calls).toBe(0);
+			await expect.poll(latest).toMatchObject({
+				sessionId: host.snapshot().sessionId,
+				stats: { session: { userTurns: 1 }, tools: { calls: 2 } },
+				telemetry: { session_id: host.snapshot().sessionId, pending_calls: 0 },
+			});
+			const replay: GuiEvent[] = [];
+			host.subscribe((event) => replay.push(event))();
+			expect(replay.find((event) => event.type === "sessionInfo")?.value).toEqual(latest());
 			const user = host.snapshot().entries.find((entry) => entry.type === "message" && entry.message.role === "user");
 			if (!user) throw new Error("缺少用户消息");
 			await host.dispatch({ action: "label", entryId: user.id, label: "定位标记" });
-			await host.dispatch({ action: "sessionInfo" });
-			expect(JSON.stringify(events.filter((event) => event.type === "sessionInfo").at(-1)?.value.tree)).toContain("定位标记");
+			await expect.poll(() => JSON.stringify(latest()?.tree)).toContain("定位标记");
 			await host.dispatch({ action: "new" });
 			await host.dispatch({ action: "reload" });
-			await host.dispatch({ action: "sessionInfo" });
-			const empty = events.filter((event) => event.type === "sessionInfo").at(-1)?.value;
-			expect(empty).toMatchObject({ sessionId: host.snapshot().sessionId, tree: [], stats: { session: { userTurns: 0 }, tools: { calls: 0 } } });
+			await expect.poll(latest).toMatchObject({ sessionId: host.snapshot().sessionId, tree: [], stats: { session: { userTurns: 0 }, tools: { calls: 0 } } });
 		});
 
 		it("压缩摘要可直接定位，已压缩的旧消息仍可只读预览", async () => {

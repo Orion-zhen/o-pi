@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Send } from "./dialog.tsx";
+import type { Send } from "./connection.ts";
 import { SessionNameInput } from "./session-name-input.tsx";
 
 export function SessionHeading({ name, send }: { name: string; send: Send }) {

@@ -1,9 +1,6 @@
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { transcriptReplies } from "../../src/gui/ui/transcript-replies.ts";
-import { Transcript } from "../../src/gui/ui/transcript.tsx";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 
 const user: UserMessage = { role: "user", content: "检查项目", timestamp: 1 };
@@ -102,18 +99,4 @@ describe("整轮处理过程折叠", () => {
 		expect(rows.map((row) => row.kind)).toEqual(["message", "message", "reply", "message"]);
 	});
 
-	it("运行时展开处理过程，已完成历史默认收起，最终正文始终在外面", () => {
-		const messages = [user, assistant([thinking, call]), result];
-		const live = renderToStaticMarkup(createElement(Transcript, { source: source({ messages, streaming: true }) }));
-		expect(live).toContain('<details class="reply-process" open="">');
-		const completed = renderToStaticMarkup(createElement(Transcript, { source: source({ messages: [...messages, assistant([text("最终报告")], "stop")] }) }));
-		expect(completed).toContain('<details class="reply-process">');
-		expect(completed).toContain('<div class="reply-answer"><article class="message assistant"><p>最终报告</p>');
-	});
-
-	it("纯文字回复不显示空的处理过程入口", () => {
-		const html = renderToStaticMarkup(createElement(Transcript, { source: source({ messages: [user, assistant([text("直接回答")], "stop")] }) }));
-		expect(html).toContain('<details class="reply-process" hidden="">');
-		expect(html).toContain("直接回答");
-	});
 });

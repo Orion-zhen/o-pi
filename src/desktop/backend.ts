@@ -32,10 +32,11 @@ if (process.argv[2] === "--opi-discord-daemon") {
 					process.exit(1);
 				},
 			);
-		} else if (data.kind === "action" && "id" in data && typeof data.id === "string" && "value" in data) {
+		} else if ((data.kind === "action" || data.kind === "query") && "id" in data && typeof data.id === "string" && "value" in data) {
 			const id = data.id;
-			void gui.dispatch(data.value).then(
-				() => process.parentPort.postMessage({ kind: "result", id }),
+			const task = data.kind === "query" ? gui.query(data.value) : gui.dispatch(data.value);
+			void task.then(
+				(value) => process.parentPort.postMessage({ kind: "result", id, value }),
 				(error: unknown) =>
 					process.parentPort.postMessage({
 						kind: "result",

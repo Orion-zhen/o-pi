@@ -35,7 +35,7 @@ export function SelectContent({ className, children, align = "end", sideOffset =
 				sideOffset={sideOffset}
 				collisionPadding={8}
 				className={cn(
-					"z-50 max-h-(--radix-select-content-available-height) min-w-(--radix-select-trigger-width) max-w-(--radix-select-content-available-width) overflow-hidden rounded-lg border text-sm text-popover-foreground outline-none",
+					"floating-surface z-50 max-h-(--radix-select-content-available-height) min-w-(--radix-select-trigger-width) max-w-(--radix-select-content-available-width) overflow-hidden rounded-lg border text-sm text-popover-foreground outline-none",
 					className,
 				)}
 				{...props}

@@ -1,34 +1,29 @@
 import { useState } from "react";
 import { ArrowRight, Check, GitBranch, ListCollapse, Tag, X } from "lucide-react";
-import { clean, record } from "./content.tsx";
-import type { Send } from "./dialog.tsx";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
+import { clean } from "./content.tsx";
+import { entryMessage } from "./transcript-location.ts";
+import type { Send } from "./connection.ts";
 import { IconButton } from "./components/icon-button";
 import { Input } from "./components/ui/input";
 import "./session-tree.css";
 
-type TreeNode = Record<string, unknown> & { entry: Record<string, unknown> };
-
-function nodes(value: unknown): TreeNode[] {
-	return Array.isArray(value)
-		? value.filter((node): node is TreeNode => record(node) && record(node.entry))
-		: [];
-}
-
 interface GraphRow {
-	node: TreeNode;
+	node: SessionTreeNode;
 	lane: number;
 	rails: number[];
 	incoming: boolean;
 	outgoing: number[];
 }
 
-function graphRows(roots: TreeNode[]): GraphRow[] {
+function graphRows(roots: SessionTreeNode[]): GraphRow[] {
 	const pending: Omit<GraphRow, "outgoing">[] = roots.map((node) => ({ node, lane: 0, rails: [], incoming: false })).reverse();
 	const rows: GraphRow[] = [];
 	while (true) {
 		const row = pending.pop();
 		if (!row) break;
-		const children = nodes(row.node.children);
+		const children = row.node.children;
 		const outgoing = children.map((_, index) => row.lane + children.length - 1 - index);
 		rows.push({ ...row, outgoing });
 		for (const [index, node] of [...children.entries()].reverse()) {
@@ -43,13 +38,13 @@ function graphRows(roots: TreeNode[]): GraphRow[] {
 	return rows;
 }
 
-export function SessionTree({ value, send, locate }: { value: unknown; send: Send; locate: (id: string) => void }) {
-	const rows = graphRows(nodes(value));
+export function SessionTree({ value, send, locate }: { value: SessionTreeNode[]; send: Send; locate: (id: string) => void }) {
+	const rows = graphRows(value);
 	if (!rows.length) return <p className="tree-empty">暂无可展示的消息。</p>;
 	const width = (rows.reduce((max, row) => Math.max(max, row.lane), 0) + 1) * 14 + 4;
 	return (
 		<div className="session-tree" role="list" aria-label="会话消息树">
-			{rows.map((row) => <TreeMessage key={String(row.node.entry.id)} row={row} graphWidth={width} send={send} locate={locate} />)}
+			{rows.map((row) => <TreeMessage key={row.node.entry.id} row={row} graphWidth={width} send={send} locate={locate} />)}
 		</div>
 	);
 }
@@ -68,11 +63,11 @@ function Graph({ row, width }: { row: GraphRow; width: number }) {
 	);
 }
 
-function entryTitle(entry: Record<string, unknown>, message: Record<string, unknown>): string {
+function entryTitle(entry: SessionEntry, message: AgentMessage | undefined): string {
 	if (entry.type === "compaction") return "上下文摘要";
 	if (entry.type === "branch_summary") return "分支摘要";
 	if (entry.type === "custom_message") return "扩展消息";
-	switch (message.role) {
+	switch (message?.role) {
 		case "user": return "你";
 		case "assistant": return "助手";
 		case "bashExecution": return "终端命令";
@@ -83,15 +78,14 @@ function entryTitle(entry: Record<string, unknown>, message: Record<string, unkn
 	}
 }
 
-function MessagePreview({ message }: { message: Record<string, unknown> }) {
-	const value = message.role === "bashExecution" ? message.command : message.summary ?? message.content;
-	const content = typeof value === "string" ? value : Array.isArray(value)
-		? value.flatMap((block) => {
-			if (!record(block)) return [];
-			if (block.type === "text" && typeof block.text === "string") return [block.text];
-			return block.type === "image" ? ["[图片]"] : [];
-		}).join(" ") : "";
-	const text = clean(content || (typeof message.errorMessage === "string" ? message.errorMessage : ""))
+function MessagePreview({ message }: { message: AgentMessage | undefined }) {
+	const value = !message ? "" : message.role === "bashExecution" ? message.command
+		: message.role === "compactionSummary" || message.role === "branchSummary" ? message.summary : message.content;
+	const content = typeof value === "string" ? value : value.flatMap((block) => {
+		if (block.type === "text") return [block.text];
+		return block.type === "image" ? ["[图片]"] : [];
+	}).join(" ");
+	const text = clean(content || (message?.role === "assistant" ? message.errorMessage ?? "" : ""))
 		.replace(/\s+/g, " ").trim();
 	const preview = text.length > 160 ? `${text.slice(0, 160)}…` : text;
 	return <p className="tree-message-preview">{preview || "无消息正文"}</p>;
@@ -102,10 +96,10 @@ function TreeMessage({ row, graphWidth, send, locate }: { row: GraphRow; graphWi
 	const [saving, setSaving] = useState(false);
 	const { node } = row;
 	const entry = node.entry;
-	const id = String(entry.id);
-	const message = entry.type === "message" && record(entry.message) ? entry.message : entry;
+	const id = entry.id;
+	const message = entryMessage(entry);
 	return (
-		<div className="tree-row" role="listitem" data-role={typeof message.role === "string" ? message.role : undefined}>
+		<div className="tree-row" role="listitem" data-role={message?.role}>
 			<Graph row={row} width={graphWidth} />
 			<strong className="tree-role">{entryTitle(entry, message)}</strong>
 			{editing ? (
@@ -124,14 +118,14 @@ function TreeMessage({ row, graphWidth, send, locate }: { row: GraphRow; graphWi
 						if (ok) setEditing(false);
 					}).finally(() => setSaving(false));
 				}}>
-					<Input autoFocus name="label" aria-label="分支标签" placeholder="添加分支标签" disabled={saving} defaultValue={typeof node.label === "string" ? node.label : ""} />
+					<Input autoFocus name="label" aria-label="分支标签" placeholder="添加分支标签" disabled={saving} defaultValue={node.label ?? ""} />
 					<IconButton label="保存标签" size="icon-xs" type="submit" disabled={saving}><Check /></IconButton>
 					<IconButton label="取消编辑" size="icon-xs" disabled={saving} onClick={() => setEditing(false)}><X /></IconButton>
 				</form>
 			) : (
 				<>
 					<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}><MessagePreview message={message} /></button>
-					{typeof node.label === "string" && node.label && <span className="tree-label" title={node.label}>{node.label}</span>}
+					{node.label && <span className="tree-label" title={node.label}>{node.label}</span>}
 					<div className="tree-row-actions">
 						<IconButton label="切换到此处" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}><ArrowRight /></IconButton>
 						<IconButton label="总结后切换" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: true })}><ListCollapse /></IconButton>

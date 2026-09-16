@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { MessageSquare, Pencil } from "lucide-react";
-import type { Send } from "./dialog.tsx";
+import type { Send } from "./connection.ts";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { ConfirmAction } from "./confirm-action.tsx";

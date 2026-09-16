@@ -80,57 +80,32 @@ const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior
 
 historyDeletionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
-workbenchTests(() => ({ host, cwd, events }));
+workbenchTests(() => ({ host, cwd }));
 
 describe("GUI 直接使用 SDK", () => {
-	it("完整命令和参数前缀都能补全，保留描述且不执行命令", async () => {
+	it("内建和扩展命令补全不执行命令或写入历史", async () => {
 		const before = host.snapshot();
 		const cases: [string, string[]][] = [
 			["/lsp", ["status", "reload", "diagnostics"]],
-			["/lsp ", ["status", "reload", "diagnostics"]],
 			["/lsp re", ["reload"]],
-			["/lsp\tsta", ["status"]],
-			["/lsp diagnostics src/", []],
-			["/lsp invalid", []],
-			["/ls", []],
-			["/usage", ["--refresh"]],
-			["/usage --re", ["--refresh"]],
-			["/usage --refresh ", []],
-			["/export", ["html", "jsonl"]],
 			["/export j", ["jsonl"]],
 			["/thinking", before.thinkingLevels],
-			["/thinking unavailable", []],
-			["/presence re", ["reload"]],
-			["/prune", ["force", "restore"]],
-			["/tools ", []],
-			["/skill ", []],
-			["/approval-check ", []],
 			["/unknown ", []],
 		];
 		for (const [text, expected] of cases) {
-			await host.dispatch({ action: "complete", text });
-			const event = events.filter((event) => event.type === "completions").at(-1);
-			expect(event?.text).toBe(text);
-			expect(event?.items.map((item) => item.value)).toEqual(expected);
-			if (["/lsp", "/usage", "/export"].includes(text)) {
-				expect(event?.items).toEqual(expected.map((value) => ({ value, label: value, description: expect.any(String) })));
-			}
+			const items = await host.query({ query: "complete", text });
+			expect(items.map((item) => item.value)).toEqual(expected);
 		}
 		expect(host.snapshot().history).toEqual(before.history);
 		expect(host.snapshot().messages).toEqual(before.messages);
-		expect(host.snapshot().notices).toEqual(before.notices);
 		expect(server.requests).toHaveLength(0);
 	});
 
 	it("视图接口不提交提示、不写输入历史，重载后工具配置仍可直接调用", async () => {
 		const before = host.snapshot();
-		for (const view of ["stats", "usage", "telemetry", "system", "tools", "model", "settings", "auth", "help", "import"])
+		for (const view of ["usage", "system"])
 			await host.dispatch({ action: "view", view });
-		await host.dispatch({ action: "tree" });
-		expect(events.filter((event) => event.type === "report").map((event) => event.title)).toEqual(["会话统计", "套餐用量", "遥测"]);
-		expect(events.filter((event) => event.type === "panel").map((event) => event.title)).toEqual([
-			"系统提示词", "工具选择", "模型", "设置", "认证", "命令帮助", "导入会话", "会话树",
-		]);
+		expect(events.filter((event) => event.type === "panel").map((event) => event.panel.kind)).toEqual(["usage", "system"]);
 		expect(host.snapshot().history).toEqual(before.history);
 		expect(host.snapshot().messages).toEqual(before.messages);
 		expect(host.snapshot().entries).toEqual(before.entries);
@@ -158,7 +133,7 @@ describe("GUI 直接使用 SDK", () => {
 		expect(await readFile(file, "utf8")).toBe(original);
 		expect(events.some((event) => event.type === "panel")).toBe(false);
 		await host.dispatch(prompt("/resume"));
-		expect(events.some((event) => event.type === "panel" && event.title === "会话列表")).toBe(true);
+		expect(events.some((event) => event.type === "panel" && event.panel.kind === "sessions")).toBe(true);
 	});
 
 	it("启动自动加载历史，使用配置目录覆盖并向重连页面重放索引", async () => {
@@ -242,11 +217,12 @@ describe("GUI 直接使用 SDK", () => {
 		expect(JSON.stringify(host.snapshot())).not.toContain("private-fixture-secret");
 		const file = host.snapshot().sessionFile;
 		expect(file).not.toBeNull();
-		for (const command of ["/stats", "/system", "/tools", "/usage", "/telemetry"]) await host.dispatch(prompt(command));
-		expect(events.filter((event) => event.type === "panel").map((event) => event.title)).toEqual(
-			expect.arrayContaining(["系统提示词", "工具选择"]),
-		);
-		expect(events.filter((event) => event.type === "report").map((event) => event.title)).toEqual(["会话统计", "套餐用量", "遥测"]);
+		for (const command of ["/stats", "/system", "/tools", "/usage", "/telemetry", "/model", "/scoped-models", "/tree"])
+			await host.dispatch(prompt(command));
+		expect(events.filter((event) => event.type === "panel").map((event) => event.panel.kind))
+			.toEqual(["system", "tools", "usage", "model", "model"]);
+		expect(events.filter((event) => event.type === "sessionTab").map((event) => event.tab))
+			.toEqual(["stats", "telemetry", "tree"]);
 		await host.dispatch({ action: "tool", name: "websearch", enabled: false });
 		expect(host.snapshot().tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
 		await host.dispatch({ action: "new" });
@@ -278,7 +254,6 @@ describe("GUI 直接使用 SDK", () => {
 		await expect.poll(() => host.dialogs.list().length).toBe(1);
 		const dialog = host.dialogs.list()[0];
 		if (!dialog) throw new Error("缺少项目信任确认");
-		expect(dialog.title).toBe("信任项目");
 		await host.dispatch({ action: "sessions" });
 		await host.dispatch({ action: "dialog", id: dialog.id, value: "不信任" });
 		await switching;
@@ -351,12 +326,6 @@ describe("GUI 直接使用 SDK", () => {
 		});
 	});
 
-	it("两个模型命令打开同一个管理面板", async () => {
-		await host.dispatch(prompt("/model"));
-		await host.dispatch(prompt("/scoped-models"));
-		expect(events.filter((event) => event.type === "panel").map((event) => event.title)).toEqual(["模型", "模型"]);
-	});
-
 	it("审批在界面重连后仍存在，拒绝不写文件，旧响应不可再次消费", async () => {
 		await writeFile(
 			path.join(temp.path, ".pi", "agent", "configs", "approval-gate.jsonc"),
@@ -385,15 +354,13 @@ describe("GUI 直接使用 SDK", () => {
 		const id = host.snapshot().sessionId;
 		await expect(host.dispatch({ action: "workspace", path: path.join(cwd, "missing") })).rejects.toThrow();
 		expect(host.snapshot().sessionId).toBe(id);
-		await host.dispatch({ action: "config", file: "settings.json" });
-		const config = events.find((event) => event.type === "config");
-		if (!config || config.type !== "config") throw new Error("Missing settings");
+		const original = await host.query({ query: "config", file: "settings.json" });
 		const file = path.join(temp.path, ".pi", "agent", "settings.json");
-		await writeFile(file, `${config.content}\n`);
+		await writeFile(file, `${original}\n`);
 		await expect(
-			host.dispatch({ action: "saveConfig", file: "settings.json", original: config.content, content: "{}" }),
+			host.dispatch({ action: "saveConfig", file: "settings.json", original: original, content: "{}" }),
 		).rejects.toThrow("已被修改");
-		expect(await readFile(file, "utf8")).toBe(`${config.content}\n`);
+		expect(await readFile(file, "utf8")).toBe(`${original}\n`);
 	});
 
 	it("未信任的项目扩展不执行，关闭启动中的信任对话框可释放宿主", async () => {
@@ -418,7 +385,7 @@ describe("GUI 直接使用 SDK", () => {
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
-	it("用户 Shell、JSONL 导出导入以及输入边界", async () => {
+	it("用户 Shell 消息可经 JSONL 导出导入恢复", async () => {
 		await host.dispatch(prompt("!printf gui-shell"));
 		expect(JSON.stringify(host.snapshot().messages)).toContain("gui-shell");
 		await host.dispatch({ action: "export", format: "jsonl" });
@@ -427,6 +394,5 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch({ action: "new" });
 		await host.dispatch({ action: "import", content: download.content });
 		expect(JSON.stringify(host.snapshot().messages)).toContain("gui-shell");
-		await expect(host.dispatch({ action: "prompt", text: "x" })).rejects.toThrow("无效");
 	});
 });

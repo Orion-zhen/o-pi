@@ -9,7 +9,7 @@ import { HistorySessionRow } from "./history-session-row.tsx";
 import "./sessions.css";
 
 const workspaceName = (cwd: string) => cwd.split(/[/\\]/).filter(Boolean).at(-1) || cwd || "未记录工作区";
-type HistoryGui = Pick<GuiView, "snapshot" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "running" | "status">;
+type HistoryGui = Pick<GuiView, "snapshot" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "canChangeSession" | "connected">;
 
 export function SessionHistory({ gui, close, full = false, search = "" }: {
 	gui: HistoryGui; close: () => void; full?: boolean; search?: string;
@@ -26,7 +26,7 @@ export function SessionHistory({ gui, close, full = false, search = "" }: {
 	return <section className={`session-history${full ? "" : " session-history-flat"}`} aria-label="历史会话">
 		<div className="history-heading">
 			<h2>{full ? "全部会话" : "会话"}</h2>
-			<IconButton label="刷新会话" disabled={gui.sessionsLoading || gui.status !== "已连接"} onClick={() => void gui.refreshSessions()}>
+			<IconButton label="刷新会话" disabled={gui.sessionsLoading || !gui.connected} onClick={() => void gui.refreshSessions()}>
 				<RefreshCw className={gui.sessionsLoading ? "animate-spin" : undefined} />
 			</IconButton>
 		</div>
@@ -51,7 +51,7 @@ function SessionRows({ cwd, items, gui, close, search }: {
 	const [switching, setSwitching] = useState(false);
 	const { snapshot } = gui;
 	const active = items.find((item) => item.path === snapshot?.sessionFile);
-	const blocked = switching || gui.status !== "已连接" || !snapshot || snapshot.busy || gui.running || snapshot.retrying;
+	const blocked = switching || !gui.canChangeSession;
 	const matches = (title: string) => title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
 	const titleOf = (item: GuiSessionInfo) => item === active && snapshot?.name ? snapshot.name : item.title;
 	const visible = items.filter((item) => matches(titleOf(item)));

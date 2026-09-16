@@ -19,7 +19,8 @@ import { locateTranscript } from "./transcript-location.ts";
 import { Transcript } from "./transcript.tsx";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
-import { ConfigEditor, Panel } from "./panels.tsx";
+import { Panel } from "./panels.tsx";
+import { connectionLabels } from "./connection.ts";
 import { Composer } from "./composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import { SessionSidebar } from "./session-sidebar.tsx";
@@ -47,7 +48,7 @@ const starters = [
 
 function App() {
 	const gui = useGui();
-	const { snapshot, dialogs, notices, status, error, panel, config, auth, send } = gui;
+	const { snapshot, dialogs, notices, status, error, panel, auth, send } = gui;
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const transcript = useTranscriptScroll(snapshot?.sessionId);
@@ -68,7 +69,7 @@ function App() {
 	}, []);
 	const authUrl =
 		auth?.type === "auth_url" ? auth.url : auth?.type === "device_code" ? auth.verificationUri : undefined;
-	const state = status !== "已连接" ? status : dialogs.length ? "等待操作" : gui.running ? "运行中" : "就绪";
+	const state = !gui.connected ? connectionLabels[status] : dialogs.length ? "等待操作" : gui.running ? "运行中" : "就绪";
 	return (
 		<TooltipProvider delayDuration={350}>
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -100,7 +101,7 @@ function App() {
 								)}
 								<span>{state}</span>
 							</div>
-							{status !== "已连接" && (
+							{!gui.connected && (
 								<IconButton label="重新连接" onClick={gui.reconnect}>
 									<RefreshCw />
 								</IconButton>
@@ -109,7 +110,7 @@ function App() {
 							<IconButton
 								label={gui.sessionPanelOpen ? "收起会话信息" : "展开会话信息"}
 								aria-expanded={gui.sessionPanelOpen}
-								disabled={!snapshot || snapshot.busy || status !== "已连接"}
+								disabled={!gui.canSubmit}
 								onClick={() => {
 									if (gui.sessionPanelOpen) {
 										gui.setSessionPanelOpen(false);
@@ -204,8 +205,8 @@ function App() {
 												</Button>
 											))}
 										</div>
-										{snapshot && !snapshot.model && (
-											<Button variant="ghost" size="sm" onClick={() => void send({ action: "view", view: "auth" })}>
+										{!snapshot.model && (
+											<Button variant="ghost" size="sm" onClick={() => gui.setPanel({ kind: "auth" })}>
 												<ShieldCheck />
 												配置模型认证
 											</Button>
@@ -231,7 +232,7 @@ function App() {
 							<ArrowDown />回到最新
 						</Button>}
 						</div>
-						{snapshot && <Composer gui={gui} onSubmit={transcript.toLatest} />}
+						{snapshot && <Composer gui={gui} snapshot={snapshot} onSubmit={transcript.toLatest} />}
 					</main>
 					{snapshot && <SessionSidebar gui={gui} locate={(entryId) => setLocation({ sessionId: snapshot.sessionId, entryId })} />}
 					</div>
@@ -245,16 +246,9 @@ function App() {
 					snapshot={snapshot}
 					sessionList={<SessionHistory gui={gui} close={() => gui.setPanel(undefined)} full />}
 					send={send}
+					query={gui.query}
+					canChangeSession={gui.canChangeSession}
 					close={() => gui.setPanel(undefined)}
-				/>
-			)}
-			{config && (
-				<ConfigEditor
-					restoreFocus={restoreFocus}
-					file={config.file}
-					content={config.content}
-					send={send}
-					close={() => gui.setConfig(undefined)}
 				/>
 			)}
 			{dialogs[0] && <Dialog restoreFocus={restoreFocus} key={dialogs[0].id} dialog={dialogs[0]} send={send} />}

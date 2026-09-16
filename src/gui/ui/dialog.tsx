@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Clock3, ShieldCheck } from "lucide-react";
-import type { GuiAction, GuiDialog } from "../contract.ts";
+import type { GuiDialog } from "../contract.ts";
+import type { Send } from "./connection.ts";
 import { clean } from "./content.tsx";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
@@ -12,7 +13,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "./components/ui/dialog";
-export type Send = (action: GuiAction) => Promise<boolean>;
+
 
 export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send: Send; restoreFocus: () => void }) {
 	const [value, setValue] = useState(dialog.initial);
@@ -34,7 +35,6 @@ export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send
 		>
 			<DialogContent
 				className="approval"
-				showCloseButton={false}
 				onPointerDownOutside={(event) => event.preventDefault()}
 				onCloseAutoFocus={(event) => {
 					event.preventDefault();

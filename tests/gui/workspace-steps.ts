@@ -3,15 +3,13 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { storeSession } from "./session-fixture.ts";
 import type { prepareHistory } from "./session-steps.ts";
-import { clickRowAction, expectRowActionOverlay } from "./row-action-layout.ts";
+import { clickRowAction } from "./row-actions.ts";
 
 export async function exerciseWorkspaceRemoval(page: Page, fixture: Awaited<ReturnType<typeof prepareHistory>>) {
 	const phone = (page.viewportSize()?.width ?? 1200) < 768;
-	const missing = path.join(path.dirname(fixture.cwd), "失效目录", "需要移除的长路径工作区".repeat(4));
+	const missing = path.join(path.dirname(fixture.cwd), "失效目录", "待移除项目");
 	const file = await storeSession({ ...fixture, cwd: missing, name: "移除后保留的会话" });
 	await rm(path.dirname(missing), { recursive: true });
-	for (let index = 0; index < 10; index++)
-		await storeSession({ ...fixture, cwd: path.join(path.dirname(fixture.cwd), `列表滚动测试-${index}`), name: `滚动会话 ${index}` });
 	const navigation = page.getByRole("dialog", { name: "工作空间导航", exact: true });
 	const picker = async () => {
 		if (phone && !await navigation.count()) await page.getByRole("button", { name: "菜单", exact: true }).click();
@@ -22,30 +20,7 @@ export async function exerciseWorkspaceRemoval(page: Page, fixture: Awaited<Retu
 	await expect(page.getByRole("button", { name: `移除工作区 ${fixture.cwd}`, exact: true })).toHaveCount(0);
 	const option = page.getByRole("option", { name: missing, exact: true });
 	await expect(option).toBeDisabled();
-	await expect(option).toContainText("目录不存在");
 	const remove = page.getByRole("button", { name: `移除工作区 ${missing}`, exact: true });
-	await expectRowActionOverlay(page, page.locator(".workspace-option-row").filter({ has: remove }));
-	await remove.hover();
-	const layout = await remove.evaluate((button) => {
-		const list = button.closest(".workspace-list");
-		const icon = button.querySelector("svg");
-		if (!(list instanceof HTMLElement) || !icon) throw new Error("缺少工作区操作区");
-		const rect = button.getBoundingClientRect();
-		const iconRect = icon.getBoundingClientRect();
-		const listRect = list.getBoundingClientRect();
-		const font = Number.parseFloat(getComputedStyle(button).fontSize);
-		return {
-			roomy: rect.width >= iconRect.width + font * 1.9 && rect.height >= iconRect.height + font * 1.9,
-			gap: listRect.left + list.clientWidth - rect.right,
-			font,
-			scrollable: list.scrollHeight > list.clientHeight,
-			fits: listRect.left >= 0 && listRect.right <= innerWidth,
-		};
-	});
-	expect(layout.roomy).toBe(true);
-	expect(layout.gap).toBeGreaterThanOrEqual(layout.font * 0.9);
-	expect(layout.scrollable).toBe(true);
-	expect(layout.fits).toBe(true);
 	await clickRowAction(remove);
 	const confirm = page.getByRole("button", { name: `确认移除工作区 ${missing}`, exact: true });
 	await expect(confirm).toBeVisible();

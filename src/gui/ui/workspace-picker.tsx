@@ -24,7 +24,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: GuiView;
 			}
 		} finally { setPending(false); }
 	};
-	const disabled = pending || Boolean(gui.snapshot?.busy) || gui.running || gui.status !== "已连接";
+	const disabled = pending || !gui.connected || (gui.snapshot !== null && !gui.canChangeSession);
 	return <>
 		<Popover open={expanded} onOpenChange={(value) => { setExpanded(value); setFilter(""); }}>
 			<PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="工作区" aria-expanded={expanded}

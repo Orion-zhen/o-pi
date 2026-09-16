@@ -14,7 +14,6 @@ export function PanelDialog({ title, ref, children, close, restoreFocus }: {
 		<DialogContent
 			ref={ref}
 			className="panel"
-			showCloseButton={false}
 			aria-describedby={undefined}
 			onCloseAutoFocus={(event) => {
 				event.preventDefault();

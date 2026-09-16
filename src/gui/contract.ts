@@ -2,6 +2,11 @@ import { Type, type Static, type TProperties } from "typebox";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession, AgentSessionEvent, SessionEntry, SessionStats } from "@earendil-works/pi-coding-agent";
 import type { ToolSelectionItem } from "../harness/tool-defaults/controller.ts";
+import type { StatsSnapshot } from "../harness/stats/types.ts";
+import type { UsageSnapshot } from "../harness/usage/types.ts";
+import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
+import type { SubagentDetails } from "../harness/subagent/types.ts";
+import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "./workbench.ts";
 
 const text = Type.String({ maxLength: 4_000_000 });
 const short = Type.String({ maxLength: 4096 });
@@ -30,8 +35,6 @@ export const actionSchema = Type.Union([
 			Type.Literal("new"),
 			Type.Literal("reload"),
 			Type.Literal("sessions"),
-			Type.Literal("tree"),
-			Type.Literal("sessionInfo"),
 			Type.Literal("clearQueue"),
 			Type.Literal("persistTools"),
 			Type.Literal("persistModels"),
@@ -40,17 +43,11 @@ export const actionSchema = Type.Union([
 	}),
 	object({
 		action: Type.Literal("view"),
-		view: Type.Union([
-			Type.Literal("stats"), Type.Literal("usage"), Type.Literal("telemetry"),
-			Type.Literal("system"), Type.Literal("tools"),
-			Type.Literal("model"), Type.Literal("settings"), Type.Literal("auth"),
-			Type.Literal("help"), Type.Literal("import"),
-		]),
+		view: Type.Union([Type.Literal("usage"), Type.Literal("system")]),
 	}),
 	object({ action: Type.Literal("workspace"), path: short }),
 	object({ action: Type.Literal("removeWorkspace"), path: short }),
 	object({ action: Type.Literal("switch"), path: short }),
-	object({ action: Type.Literal("directories"), path: short }),
 	object({ action: Type.Literal("renameSession"), path: short, name: short }),
 	object({ action: Type.Literal("deleteSession"), path: short }),
 	object({ action: Type.Literal("fork"), entryId: short }),
@@ -92,15 +89,30 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("tool"), name: short, enabled: Type.Boolean() }),
 	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]) }),
 	object({ action: Type.Literal("draft"), text }),
-	object({ action: Type.Literal("files"), prefix: short }),
-	object({ action: Type.Literal("workspaceFiles"), cwd: short, path: short, requestId: short }),
-	object({ action: Type.Literal("workspaceGit"), cwd: short, requestId: short }),
-	object({ action: Type.Literal("previewFile"), cwd: short, path: short, requestId: short }),
-	object({ action: Type.Literal("complete"), text: short }),
-	object({ action: Type.Literal("config"), file: Type.Literal("settings.json") }),
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
+
+export const querySchema = Type.Union([
+	object({ query: Type.Literal("directories"), path: short }),
+	object({ query: Type.Literal("files"), prefix: short }),
+	object({ query: Type.Literal("workspaceFiles"), cwd: short, path: short }),
+	object({ query: Type.Literal("workspaceGit"), cwd: short }),
+	object({ query: Type.Literal("previewFile"), cwd: short, path: short }),
+	object({ query: Type.Literal("complete"), text: short }),
+	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
+]);
+export type GuiQuery = Static<typeof querySchema>;
+export interface GuiQueryResults {
+	directories: GuiDirectories;
+	files: string[];
+	workspaceFiles: WorkspaceEntry[];
+	workspaceGit: WorkspaceGit | null;
+	previewFile: FilePreview;
+	complete: { value: string; label: string; description?: string }[];
+	config: string;
+}
+export type Query = <Q extends GuiQuery>(query: Q) => Promise<GuiQueryResults[Q["query"]]>;
 
 export interface GuiDialog {
 	id: string;
@@ -138,13 +150,13 @@ export interface GuiSnapshot {
 	sessionId: string;
 	sessionFile: string | null;
 	name: string;
-	busy: boolean;
+	canSubmit: boolean;
+	canChangeSession: boolean;
+	running: boolean;
 	commandRunning: boolean;
 	liveTools: Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_update" }>[];
 	streaming: boolean;
-	compacting: boolean;
 	retrying: boolean;
-	bashRunning: boolean;
 	messages: AgentMessage[];
 	history: string[];
 	streamingMessage: AgentMessage | null;
@@ -169,20 +181,20 @@ export interface GuiSnapshot {
 	commands: { name: string; description: string }[];
 	tools: ToolSelectionItem[];
 	providers: { id: string; name: string; oauth: boolean; authenticated: boolean }[];
-	dialogs: GuiDialog[];
-	notices: GuiNotice[];
 	status: Record<string, string>;
 }
-export type GuiReport =
-	| { title: "会话统计"; value: import("../harness/stats/types.ts").StatsSnapshot }
-	| { title: "套餐用量"; value: import("../harness/usage/types.ts").UsageSnapshot | "aborted" }
-	| { title: "遥测"; value: import("../harness/telemetry-report/live.ts").LiveTelemetryReport };
+export type GuiSessionTab = "tree" | "stats" | "telemetry";
+export type GuiPanel =
+	| { kind: "model" | "tools" | "sessions" | "settings" | "auth" | "import" | "help" }
+	| { kind: "system" | "lastReply"; text: string }
+	| { kind: "usage"; value: UsageSnapshot | "aborted" }
+	| { kind: "subagents"; details: SubagentDetails };
 
 export interface GuiSessionDetails {
 	sessionId: string;
 	tree: import("@earendil-works/pi-coding-agent").SessionTreeNode[];
-	stats: import("../harness/stats/types.ts").StatsSnapshot;
-	telemetry: import("../harness/telemetry-report/live.ts").LiveTelemetryReport;
+	stats: StatsSnapshot;
+	telemetry: LiveTelemetryReport;
 }
 export interface GuiDirectories {
 	path: string;
@@ -191,27 +203,23 @@ export interface GuiDirectories {
 }
 
 export type GuiEvent =
-	| import("./workbench.ts").WorkbenchEvent
 	| { type: "workspaceRoot"; path: string }
-	| { type: "directories"; value: GuiDirectories }
 	| { type: "sessionInfo"; value: GuiSessionDetails }
-	| ({ type: "report" } & GuiReport)
+	| { type: "sessionTab"; tab: GuiSessionTab }
 	| { type: "snapshot"; value: GuiSnapshot | null }
 	| { type: "sessions"; value: GuiSessionInfo[] }
 	| { type: "workspaces"; value: GuiWorkspaceInfo[] }
 	| { type: "dialogs"; value: GuiDialog[] }
 	| { type: "notice"; value: GuiNotice }
-	| { type: "panel"; title: string; value: unknown }
+	| { type: "panel"; panel: GuiPanel }
 	| { type: "editor"; text: string }
-	| { type: "files"; paths: string[] }
-	| { type: "completions"; text: string; items: { value: string; label: string; description?: string }[] }
 	| { type: "download"; name: string; content: string; mimeType: string }
-	| { type: "config"; file: "settings.json"; content: string }
 	| { type: "auth"; value: import("@earendil-works/pi-ai").AuthEvent }
 	| { type: "close" };
 
 export interface GuiConnection {
 	send(action: GuiAction): Promise<void>;
+	query: Query;
 	subscribe(listener: (event: GuiEvent) => void): () => void;
 	close(): void;
 }

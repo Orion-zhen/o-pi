@@ -2,9 +2,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import type { GuiAction, GuiPanel } from "../contract.ts";
 import type { GuiHost } from "./host.ts";
 
-export const builtinCommands = [
+export const builtinCommands = ([
 	["new", "新建会话"],
 	["resume", "恢复会话"],
 	["tree", "会话树与分支"],
@@ -23,7 +24,7 @@ export const builtinCommands = [
 	["copy", "复制最后回复"],
 	["help", "命令帮助"],
 	["quit", "关闭界面"],
-].map(([name = "", description = ""]) => ({ name, description }));
+] as const).map(([name, description]) => ({ name, description }));
 
 export async function completeCommand(session: AgentSession, text: string): Promise<AutocompleteItem[]> {
 	const match = /^\/(\S+)(?:\s(.*))?$/s.exec(text);
@@ -43,83 +44,63 @@ export async function completeCommand(session: AgentSession, text: string): Prom
 				{ value: "jsonl", label: "jsonl", description: "导出为会话数据" },
 			];
 			break;
-		default:
-			return [];
+		default: return [];
 	}
 	return items.filter((item) => item.value.startsWith(prefix.trimStart()));
 }
 
-/** 仅适配 InteractiveMode 的界面命令。扩展命令和模板继续交给 SDK prompt。 */
-export async function runBuiltin(host: GuiHost, text: string): Promise<boolean> {
+/** 界面命令复用内部操作，扩展命令和模板继续交给 SDK prompt。 */
+export async function runBuiltin(host: GuiHost, text: string, execute: (action: GuiAction) => Promise<void>): Promise<boolean> {
 	const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
 	if (!match) return false;
 	const name = match[1];
 	const args = match[2]?.trim() ?? "";
 	const session = host.runtime.session;
 	if (!name || session.extensionRunner.getCommand(name)) return false;
-	const panel = (title: string, value: unknown = null) => host.emit({ type: "panel", title, value });
+	const panel = (panel: GuiPanel) => host.emit({ type: "panel", panel });
 	switch (name) {
 		case "new":
-			await host.dispatch({ action: "new" });
+			await execute({ action: "new" });
 			break;
 		case "resume":
-			await host.dispatch(
-				args ? { action: "switch", path: path.resolve(host.runtime.cwd, args) } : { action: "sessions" },
-			);
-			if (!args) panel("会话列表");
+			await execute(args ? { action: "switch", path: path.resolve(host.runtime.cwd, args) } : { action: "sessions" });
+			if (!args) panel({ kind: "sessions" });
 			break;
 		case "tree":
 		case "fork":
-			await host.dispatch(args ? { action: "fork", entryId: args } : { action: "tree" });
+			if (args) await execute({ action: "fork", entryId: args });
+			else host.emit({ type: "sessionTab", tab: "tree" });
 			break;
 		case "name": {
 			const value = args || (await host.dialogs.ask("input", "会话名称", "", [], session.sessionName ?? ""));
-			if (value) await host.dispatch({ action: "rename", name: value });
+			if (value) await execute({ action: "rename", name: value });
 			break;
 		}
 		case "model":
 		case "scoped-models":
-			panel("模型");
+			panel({ kind: "model" });
 			break;
 		case "thinking":
-			if (args) await host.dispatch({ action: "thinking", level: args });
-			else panel("模型");
+			if (args) {
+				const level = session.getAvailableThinkingLevels().find((level) => level === args);
+				if (!level) throw new Error("无效思考级别。");
+				await execute({ action: "thinking", level });
+			} else panel({ kind: "model" });
 			break;
-		case "settings":
-			panel("设置");
-			break;
+		case "settings": panel({ kind: "settings" }); break;
 		case "login":
-		case "logout":
-			panel("认证");
-			break;
-		case "compact":
-			await host.dispatch({ action: "compact", instructions: args });
-			break;
-		case "export":
-			await host.dispatch({ action: "export", format: args === "jsonl" ? "jsonl" : "html" });
-			break;
+		case "logout": panel({ kind: "auth" }); break;
+		case "compact": await execute({ action: "compact", instructions: args }); break;
+		case "export": await execute({ action: "export", format: args === "jsonl" ? "jsonl" : "html" }); break;
 		case "import":
-			if (args)
-				await host.dispatch({
-					action: "import",
-					content: await readFile(path.resolve(host.runtime.cwd, args), "utf8"),
-				});
-			else panel("导入会话");
+			if (args) await execute({ action: "import", content: await readFile(path.resolve(host.runtime.cwd, args), "utf8") });
+			else panel({ kind: "import" });
 			break;
-		case "reload":
-			await host.dispatch({ action: "reload" });
-			break;
-		case "copy":
-			panel("最后回复", session.getLastAssistantText() ?? "");
-			break;
-		case "help":
-			panel("命令帮助", host.snapshot().commands);
-			break;
-		case "quit":
-			host.emit({ type: "close" });
-			break;
-		default:
-			return false;
+		case "reload": await execute({ action: "reload" }); break;
+		case "copy": panel({ kind: "lastReply", text: session.getLastAssistantText() ?? "" }); break;
+		case "help": panel({ kind: "help" }); break;
+		case "quit": host.emit({ type: "close" }); break;
+		default: return false;
 	}
 	return true;
 }
