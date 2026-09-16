@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
 	ArrowDown,
@@ -15,13 +15,14 @@ import {
 	X,
 } from "lucide-react";
 import { clean, pretty, safeLink } from "./content.tsx";
+import { locateTranscript } from "./transcript-location.ts";
 import { Transcript } from "./transcript.tsx";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
 import { ConfigEditor, Panel } from "./panels.tsx";
 import { Composer } from "./composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
-import { SessionSidebar, sessionViews } from "./session-sidebar.tsx";
+import { SessionSidebar } from "./session-sidebar.tsx";
 import { SessionActions } from "./session-actions.tsx";
 import { SessionHistory } from "./session-history.tsx";
 import { SessionHeading } from "./session-heading.tsx";
@@ -50,6 +51,10 @@ function App() {
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const transcript = useTranscriptScroll(snapshot?.sessionId);
+	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
+	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
+	const located = snapshot ? locateTranscript(snapshot, target) : undefined;
+	useLayoutEffect(() => { if (target) transcript.toEntry(target); }, [location]);
 	const panelContent = useRef<HTMLDivElement>(null);
 	const main = useRef<HTMLElement>(null);
 	const restoreFocus = () => (panelContent.current ?? gui.editor.current ?? main.current)?.focus();
@@ -106,8 +111,11 @@ function App() {
 								aria-expanded={gui.sessionPanelOpen}
 								disabled={!snapshot || snapshot.busy || status !== "已连接"}
 								onClick={() => {
-									if (gui.sessionPanelOpen) gui.setSessionPanelOpen(false);
-									else void send(sessionViews[gui.sessionPanel?.title ?? "会话树"]);
+									if (gui.sessionPanelOpen) {
+										gui.setSessionPanelOpen(false);
+										gui.editor.current?.focus();
+									}
+									else gui.setSessionPanelOpen(true);
 								}}
 							><PanelRight /></IconButton>
 						</header>
@@ -204,7 +212,8 @@ function App() {
 										)}
 									</section>
 								)}
-								{snapshot && <Transcript key={snapshot.sessionId} source={snapshot} />}
+								{located?.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.toLatest); }}>返回当前会话</Button></div>}
+								{snapshot && located && <Transcript key={snapshot.sessionId} source={located.source} entryIds={located.entryIds} />}
 								{snapshot?.status["bash"] && <pre className="live-output">{snapshot.status["bash"]}</pre>}
 								{notices.length > 0 && (
 									<details className="notices" open={notices.some((notice) => notice.type === "error")}>
@@ -224,7 +233,7 @@ function App() {
 						</div>
 						{snapshot && <Composer gui={gui} onSubmit={transcript.toLatest} />}
 					</main>
-					{snapshot && gui.sessionPanelOpen && gui.sessionPanel && <SessionSidebar gui={gui} panel={gui.sessionPanel} />}
+					{snapshot && <SessionSidebar gui={gui} locate={(entryId) => setLocation({ sessionId: snapshot.sessionId, entryId })} />}
 					</div>
 				</div>
 			</Sheet>

@@ -4,6 +4,7 @@ import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { storeSession } from "./session-fixture.ts";
 import { exerciseSessionHeading } from "./session-heading-steps.ts";
+import { clickRowAction, expectRowActionOverlay } from "./row-action-layout.ts";
 
 export async function prepareHistory(home: string, cwd: string) {
 	const agentDir = path.join(home, ".pi", "agent");
@@ -36,6 +37,16 @@ export async function prepareHistory(home: string, cwd: string) {
 	return { cwd, other, agentDir, provider };
 }
 
+export async function chooseWorkspace(page: Page, directory: string) {
+	const phone = (page.viewportSize()?.width ?? 1200) < 768;
+	if (phone && !(await page.getByRole("dialog", { name: "工作空间导航", exact: true }).count()))
+		await page.getByRole("button", { name: "菜单", exact: true }).click();
+	await page.getByRole("combobox", { name: "工作区", exact: true }).first().click();
+	await page.getByRole("textbox", { name: "筛选工作区", exact: true }).fill(directory);
+	await page.getByRole("option", { name: directory, exact: true }).click();
+	if (phone) await page.getByRole("button", { name: "菜单", exact: true }).click();
+}
+
 export async function exerciseHistory(
 	page: Page,
 	fixture: Awaited<ReturnType<typeof prepareHistory>>,
@@ -59,12 +70,11 @@ export async function exerciseHistory(
 	await expect(page.locator(".session-heading button")).toHaveText("当前 GUI 会话");
 	await exerciseSessionHeading(page);
 	await openSidebar();
-	const navigation = page.getByRole("navigation", { name: "工作空间导航", exact: true });
-	await expect(navigation.getByRole("button", { name: "模型", exact: true })).toHaveText("模型");
-	for (const name of ["会话", "会话树", "工具", "技能"])
-		await expect(navigation.getByRole("button", { name, exact: true })).toHaveCount(0);
+	const footer = page.locator(phone ? ".mobile-sidebar .sidebar-footer" : ".sidebar .sidebar-footer");
+	await expect(footer.getByRole("button")).toHaveCount(5);
+	await expect(footer.getByRole("button").nth(2)).toHaveAttribute("aria-label", "模型");
 	await expect(otherGroup()).toHaveCount(0);
-	await expect(history.getByRole("button", { name: /^其他工作区/ })).toHaveAttribute("aria-expanded", "false");
+	await expect(history.getByRole("button", { name: /^其他工作区/ })).toHaveCount(0);
 	await expect(history.locator(".workspace-sessions").first()).toHaveAttribute("data-current", "true");
 	await expect(currentGroup().getByRole("button", { name: `工作区 ${fixture.cwd}`, exact: true })).toHaveAttribute(
 		"aria-expanded",
@@ -75,16 +85,34 @@ export async function exerciseHistory(
 		.getByRole("button", { name: /显示更多/ })
 		.click();
 	await expect(currentGroup().getByRole("button", { name: "历史会话 1", exact: true })).toBeVisible();
-	await history.getByRole("button", { name: /^其他工作区/ }).click();
-	await expect(otherGroup().getByRole("button", { name: `工作区 ${fixture.other}`, exact: true })).toHaveAttribute(
-		"aria-expanded",
-		"false",
-	);
-	await expect(currentGroup().locator(".workspace-label small")).toHaveText(fixture.cwd);
-	await expect(otherGroup().locator(".workspace-label small")).toHaveText(fixture.other);
-	await otherGroup()
-		.getByRole("button", { name: `工作区 ${fixture.other}`, exact: true })
-		.click();
+	const oldRow = currentGroup().locator(".history-session-row").filter({ has: page.getByRole("button", { name: "历史会话 1", exact: true }) });
+	await expectRowActionOverlay(page, oldRow);
+	await oldRow.getByRole("button", { name: "重命名会话 历史会话 1", exact: true }).click();
+	const rename = history.getByRole("textbox", { name: "会话名称", exact: true });
+	await expect(rename).toBeFocused();
+	await expect(page.getByRole("dialog", { name: "重命名会话", exact: true })).toHaveCount(0);
+	await rename.fill("取消历史改名");
+	await rename.press("Escape");
+	await expect(currentGroup().getByRole("button", { name: "历史会话 1", exact: true })).toBeVisible();
+	await oldRow.getByRole("button", { name: "重命名会话 历史会话 1", exact: true }).click();
+	await rename.fill("   ");
+	await rename.press("Enter");
+	await expect(currentGroup().getByRole("button", { name: "历史会话 1", exact: true })).toBeVisible();
+	await oldRow.getByRole("button", { name: "重命名会话 历史会话 1", exact: true }).click();
+	await rename.fill("重命名的历史会话");
+	await rename.press("Enter");
+	await expect(currentGroup().getByRole("button", { name: "重命名的历史会话", exact: true })).toBeVisible();
+	await expect(page.locator(".session-heading button")).toHaveText("当前 GUI 会话");
+	await clickRowAction(currentGroup().getByRole("button", { name: "重命名会话 当前 GUI 会话", exact: true }));
+	await rename.fill("侧栏当前名称");
+	await history.getByRole("heading").click();
+	await expect(page.locator(".session-heading button")).toHaveText("侧栏当前名称");
+	await clickRowAction(currentGroup().getByRole("button", { name: "重命名会话 侧栏当前名称", exact: true }));
+	await rename.fill("当前 GUI 会话");
+	await rename.press("Enter");
+	await expect(page.locator(".session-heading button")).toHaveText("当前 GUI 会话");
+	await chooseWorkspace(page, fixture.other);
+	await expect(currentGroup()).toHaveCount(0);
 	await otherGroup().getByRole("button", { name: "另一工作区会话", exact: true }).click();
 	if (phone) await expect(page.getByRole("dialog", { name: "工作空间导航", exact: true })).toHaveCount(0);
 	await expect(page.locator(".session-heading button")).toHaveText("另一工作区会话");
@@ -100,13 +128,11 @@ export async function exerciseHistory(
 		"aria-current",
 		"page",
 	);
-	await expect(history.getByRole("button", { name: /^其他工作区/ })).toHaveAttribute("aria-expanded", "false");
-	await history.getByRole("button", { name: /^其他工作区/ }).click();
-	const original = currentGroup().getByRole("button", { name: `工作区 ${fixture.cwd}`, exact: true });
-	if ((await original.getAttribute("aria-expanded")) === "false") await original.click();
+	await expect(history.getByRole("button", { name: /^其他工作区/ })).toHaveCount(0);
+	await chooseWorkspace(page, fixture.cwd);
 	await currentGroup().getByRole("button", { name: "当前 GUI 会话", exact: true }).click();
 	await expect(page.locator(".session-heading button")).toHaveText("当前 GUI 会话");
-	await expect(page.getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
+	await expect(page.getByRole("main").getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
 	await openSidebar();
 	const collapseHistory = currentGroup().getByRole("button", { name: "收起", exact: true });
 	if (await collapseHistory.isVisible()) await collapseHistory.click();
@@ -132,7 +158,7 @@ export async function exerciseHistory(
 	await page.getByRole("button", { name: "发送", exact: true }).click();
 	const panel = page.getByRole("dialog", { name: "会话列表", exact: true });
 	await expect(panel).toBeVisible();
-	await expect(panel.getByRole("button", { name: "历史会话 1", exact: true })).toBeVisible();
+	await expect(panel.getByRole("button", { name: "重命名的历史会话", exact: true })).toBeVisible();
 	await panel.getByRole("button", { name: "关闭面板", exact: true }).click();
 	await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeFocused();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

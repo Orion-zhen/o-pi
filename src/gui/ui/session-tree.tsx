@@ -43,13 +43,13 @@ function graphRows(roots: TreeNode[]): GraphRow[] {
 	return rows;
 }
 
-export function SessionTree({ value, send }: { value: unknown; send: Send }) {
+export function SessionTree({ value, send, locate }: { value: unknown; send: Send; locate: (id: string) => void }) {
 	const rows = graphRows(nodes(value));
 	if (!rows.length) return <p className="tree-empty">暂无可展示的消息。</p>;
 	const width = (rows.reduce((max, row) => Math.max(max, row.lane), 0) + 1) * 14 + 4;
 	return (
 		<div className="session-tree" role="list" aria-label="会话消息树">
-			{rows.map((row) => <TreeMessage key={String(row.node.entry.id)} row={row} graphWidth={width} send={send} />)}
+			{rows.map((row) => <TreeMessage key={String(row.node.entry.id)} row={row} graphWidth={width} send={send} locate={locate} />)}
 		</div>
 	);
 }
@@ -97,7 +97,7 @@ function MessagePreview({ message }: { message: Record<string, unknown> }) {
 	return <p className="tree-message-preview">{preview || "无消息正文"}</p>;
 }
 
-function TreeMessage({ row, graphWidth, send }: { row: GraphRow; graphWidth: number; send: Send }) {
+function TreeMessage({ row, graphWidth, send, locate }: { row: GraphRow; graphWidth: number; send: Send; locate: (id: string) => void }) {
 	const [editing, setEditing] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const { node } = row;
@@ -130,7 +130,7 @@ function TreeMessage({ row, graphWidth, send }: { row: GraphRow; graphWidth: num
 				</form>
 			) : (
 				<>
-					<MessagePreview message={message} />
+					<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}><MessagePreview message={message} /></button>
 					{typeof node.label === "string" && node.label && <span className="tree-label" title={node.label}>{node.label}</span>}
 					<div className="tree-row-actions">
 						<IconButton label="切换到此处" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}><ArrowRight /></IconButton>

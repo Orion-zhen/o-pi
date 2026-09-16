@@ -1,14 +1,15 @@
-#root { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); block-size: 100dvh; isolation: isolate; }
+html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
+#root { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); block-size: 100dvh; overflow: clip; isolation: isolate; }
 .app {
 	grid-area: 1 / 1;
 	display: flex;
 	min-block-size: 0;
 	min-inline-size: 0;
-	overflow: hidden;
+	overflow: clip;
 	font-size: 0.875rem;
 	background: radial-gradient(ellipse at top left, var(--secondary), transparent 55%);
 }
-.chat-workspace { display: flex; flex: 1; min-inline-size: 0; min-block-size: 0; overflow: hidden; }
+.chat-workspace { display: flex; flex: 1; min-inline-size: 0; min-block-size: 0; overflow: clip; }
 .sidebar, .mobile-sidebar {
 	display: flex;
 	flex-direction: column;
@@ -24,25 +25,44 @@
 .brand > svg { width: 1.2rem; }
 .brand small { font-size: 0.625rem; color: var(--muted-foreground); letter-spacing: 0.02em; font-weight: 450; }
 .sidebar-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0.25rem 0.75rem; }
-.new-session { width: 100%; justify-content: flex-start; background: var(--surface); box-shadow: 0 1px 2px #00000005; }
-.workspace-picker { margin-top: 1.5rem; }
-.workspace-picker > summary { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: 0.5rem; }
-.workspace-picker > summary:hover { background: var(--accent); }
-.workspace-picker > summary > svg { width: 1rem; flex-shrink: 0; color: var(--muted-foreground); }
-.workspace-picker > summary > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
-.workspace-form { display: grid; gap: 0.375rem; padding: 0.5rem 0; }
-.workspace-welcome .workspace-form { width: min(100%, 28rem); margin: 1.5rem auto; text-align: left; }
-.sidebar-nav { display: grid; gap: 0.25rem; margin-top: 0.75rem; }
-.sidebar-nav > button { width: 100%; justify-content: flex-start; color: var(--muted-foreground); font-weight: 450; }
-.sidebar[data-collapsed="true"] .sidebar-nav { grid-template-columns: minmax(0, 1fr); gap: 0.25rem; }
-.sidebar-nav > button:hover { color: var(--foreground); }
+.workspace-controls { display: flex; gap: var(--radius-sm); min-inline-size: 0; }
+.workspace-controls[data-compact="true"] { flex-direction: column; }
+.workspace-select { flex: 1; min-inline-size: 0; }
+.workspace-select > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.new-session { flex: 0 1 auto; min-inline-size: 0; padding-inline: var(--radius-md); background: var(--surface); }
+.workspace-options { display: flex; flex-direction: column; gap: var(--radius-md); inline-size: max-content; max-inline-size: var(--radix-popover-content-available-width); max-block-size: var(--radix-popover-content-available-height); }
+.workspace-list, .directory-list { display: flex; flex-direction: column; min-block-size: 0; overflow: auto; }
+.workspace-list { gap: var(--radius-sm); padding-inline-end: 1em; scrollbar-gutter: stable; }
+.overlay-list-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; min-inline-size: 0; border-radius: var(--radius-md); }
+.overlay-list-row > * { grid-area: 1 / 1; }
+.overlay-list-row > button { block-size: auto; }
+.overlay-list-row:is(:hover, :focus-within) { --row-action-background: var(--accent); background: var(--accent); }
+.row-actions { display: flex; align-items: center; justify-self: end; z-index: 1; border-radius: inherit; background: var(--row-action-background, var(--popover)); opacity: 0; pointer-events: none; }
+.overlay-list-row:is(:hover, :focus-within) > .row-actions { opacity: 1; pointer-events: auto; }
+.overlay-list-row[data-editing="true"] > .row-actions { visibility: hidden; pointer-events: none; }
+@media (hover: none) { .row-actions { opacity: 1; pointer-events: auto; } }
+.row-action-button { inline-size: auto; block-size: auto; padding: 1em; }
+.row-action-button > svg { inline-size: 1.25em; block-size: 1.25em; }
+.workspace-option-row > button { justify-content: flex-start; min-inline-size: 0; }
+.workspace-option-row small { display: block; color: var(--muted-foreground); }
+.directory-list > button { flex-shrink: 0; justify-content: flex-start; min-inline-size: 0; }
+.workspace-list span, .directory-list span { overflow-wrap: anywhere; white-space: normal; text-align: start; }
+.directory-browser { flex-basis: 70%; }
+.directory-list { flex: 1; }
+.workspace-welcome > .workspace-select { max-inline-size: 100%; }
 .sidebar-footer { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.75rem; border-top: 1px solid var(--border); color: var(--muted-foreground); }
 .sidebar-footer > button:last-child { margin-left: auto; }
 .sidebar[data-collapsed="true"] .sidebar-brand { justify-content: center; }
-.sidebar[data-collapsed="true"] .new-session, .sidebar[data-collapsed="true"] .sidebar-nav > button { padding-inline: 0; justify-content: center; }
+.sidebar[data-collapsed="true"] .new-session, .sidebar[data-collapsed="true"] .workspace-select { padding-inline: 0; justify-content: center; }
 .sidebar[data-collapsed="true"] .sidebar-footer { flex-direction: column; align-items: center; }
 .sidebar[data-collapsed="true"] .sidebar-footer > button:last-child { margin-left: 0; }
-.mobile-sidebar { width: min(20rem, 88vw); max-width: none; }
+.sheet-layer { align-items: stretch; }
+.sheet-layer[data-side="left"] { justify-content: flex-start; }
+.sheet-layer[data-side="right"] { justify-content: flex-end; }
+.sheet-layer[data-side="top"], .sheet-layer[data-side="bottom"] { flex-direction: column; }
+.sheet-layer[data-side="top"] { justify-content: flex-start; }
+.sheet-layer[data-side="bottom"] { justify-content: flex-end; }
+.mobile-sidebar { flex-basis: 88%; max-inline-size: 100%; }
 .main-panel { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .tool-count { font-variant-numeric: tabular-nums; }
 .topbar { display: flex; align-items: center; flex-shrink: 0; gap: 0.75rem; padding: 0.75rem clamp(1rem, 3vw, 2.5rem); border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); background: color-mix(in srgb, var(--background) 80%, transparent); backdrop-filter: blur(20px); }

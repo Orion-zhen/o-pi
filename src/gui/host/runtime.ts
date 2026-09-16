@@ -16,7 +16,7 @@ import {
 import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
 import type { GuiEvent } from "../contract.ts";
 import { GuiDialogs } from "./dialogs.ts";
-import { createGuiExtensions } from "./extensions.ts";
+import { createGuiExtensions, type ReadSessionInfo } from "./extensions.ts";
 
 export async function createGuiRuntime(
 	cwd: string,
@@ -24,6 +24,7 @@ export async function createGuiRuntime(
 	emit: (event: GuiEvent) => void,
 	bindTools: (controller: ToolSelectionController) => void,
 	commandSignal: () => AbortSignal,
+	bindSessionInfo: (read: ReadSessionInfo) => void,
 	sessionManager?: SessionManager,
 ) {
 	cwd = path.resolve(cwd);
@@ -37,7 +38,7 @@ export async function createGuiRuntime(
 			cwd,
 			agentDir,
 			settingsManager,
-			resourceLoaderOptions: { extensionFactories: createGuiExtensions(emit, bindTools, commandSignal) },
+			resourceLoaderOptions: { extensionFactories: createGuiExtensions(emit, bindTools, commandSignal, bindSessionInfo) },
 			resourceLoaderReloadOptions: {
 				resolveProjectTrust: async ({ extensionsResult }) => {
 					const cached = decisions.get(cwd);

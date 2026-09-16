@@ -8,9 +8,10 @@ function isVisible(entry: SessionEntry, leafId: string | null): boolean {
 		case "thinking_level_change":
 		case "session_info":
 			return false;
+		case "custom_message": return entry.display;
 		case "message": {
 			const message = entry.message;
-			if (message.role === "toolResult") return false;
+			if (message.role === "toolResult" || (message.role === "custom" && !message.display)) return false;
 			if (message.role !== "assistant" || entry.id === leafId) return true;
 			return (
 				message.content.some((block) => block.type === "text" && block.text.trim().length > 0) ||

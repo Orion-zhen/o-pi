@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, FolderClosed, FolderOpen, MessageSquare, RefreshCw } from "lucide-react";
+import { ChevronRight, FolderClosed, FolderOpen, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
-import { HistoryMenu } from "./history-menu.tsx";
+import { HistorySessionRow } from "./history-session-row.tsx";
 import "./sessions.css";
 
 const workspaceName = (cwd: string) => cwd.split(/[/\\]/).filter(Boolean).at(-1) || cwd || "未记录工作区";
-const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" });
 const recentCount = 6;
 
 type HistoryGui = Pick<
@@ -43,8 +42,7 @@ export function SessionHistory({ gui, close, full = false }: { gui: HistoryGui; 
 		/>
 	);
 	const current = groups.filter(([cwd]) => cwd === snapshot?.cwd);
-	const others = groups.filter(([cwd]) => cwd !== snapshot?.cwd);
-	return (
+		return (
 		<section className="session-history" aria-label="历史会话">
 			<div className="history-heading">
 				<h2>{full ? "全部会话" : "工作区"}</h2>
@@ -61,24 +59,7 @@ export function SessionHistory({ gui, close, full = false }: { gui: HistoryGui; 
 					正在读取历史会话…
 				</p>
 			)}
-			{full ? (
-				groups.map(renderGroup)
-			) : (
-				<>
-					{current.map(renderGroup)}
-					{others.length > 0 && (
-						<Collapsible key={snapshot?.cwd ?? "unselected"} className="other-workspaces">
-							<CollapsibleTrigger asChild>
-								<Button variant="ghost" className="other-workspaces-toggle">
-									<ChevronRight />
-									其他工作区 ({others.length})
-								</Button>
-							</CollapsibleTrigger>
-							<CollapsibleContent>{others.map(renderGroup)}</CollapsibleContent>
-						</Collapsible>
-					)}
-				</>
-			)}
+			{(full ? groups : current).map(renderGroup)}
 		</section>
 	);
 }
@@ -138,67 +119,24 @@ function WorkspaceSessions({
 						</span>
 					</Button>
 				</CollapsibleTrigger>
-				<HistoryMenu
-					label={`工作区 ${cwd} 的更多操作`}
-					action={{ action: "deleteWorkspace", cwd }}
-					disabled={blocked}
-					send={gui.send}
-					close={close}
-				/>
 			</div>
 			<CollapsibleContent>
 				<div className="workspace-session-list">
 					{current && !active && (
-						<div className="history-session-row" data-current="true">
-							<Button variant="ghost" className="history-session" aria-current="page" onClick={close}>
-								<MessageSquare />
-								<span className="history-session-title">{snapshot?.name || "新会话"}</span>
-							</Button>
-							{snapshot?.sessionFile && (
-								<HistoryMenu
-									label={`会话 ${snapshot.name || "新会话"} 的更多操作`}
-									action={{ action: "deleteSession", path: snapshot.sessionFile }}
-									disabled={blocked}
-									send={gui.send}
-									close={close}
-								/>
-							)}
-						</div>
+						<HistorySessionRow key={snapshot?.sessionId} title={snapshot?.name || "新会话"}
+							path={snapshot?.sessionFile ?? null} selected disabled={blocked} send={gui.send} open={close} />
 					)}
 					{visible.map((item) => {
 						const selected = item === active;
 						const title = selected && snapshot?.name ? snapshot.name : item.title;
 						return (
-							<div className="history-session-row" data-current={selected} key={item.path}>
-								<Button
-									variant="ghost"
-									className="history-session"
-									aria-label={title}
-									aria-current={selected ? "page" : undefined}
-									title={`${title}\n${new Date(item.modified).toLocaleString("zh-CN")}`}
-									disabled={blocked}
-									onClick={() => {
-										if (selected) {
-											close();
-											return;
-										}
-										setSwitching(true);
-										close();
-										void gui.send({ action: "switch", path: item.path }).finally(() => setSwitching(false));
-									}}
-								>
-									<MessageSquare />
-									<span className="history-session-title">{title}</span>
-									<time dateTime={item.modified}>{dateFormat.format(new Date(item.modified))}</time>
-								</Button>
-								<HistoryMenu
-									label={`会话 ${title} 的更多操作`}
-									action={{ action: "deleteSession", path: item.path }}
-									disabled={blocked}
-									send={gui.send}
-									close={close}
-								/>
-							</div>
+							<HistorySessionRow key={item.path} title={title} path={item.path} modified={item.modified}
+								selected={selected} disabled={blocked} send={gui.send} open={() => {
+									close();
+									if (selected) return;
+									setSwitching(true);
+									void gui.send({ action: "switch", path: item.path }).finally(() => setSwitching(false));
+								}} />
 						);
 					})}
 					{items.length === 0 && gui.sessions && <p className="history-hint">暂无历史会话</p>}

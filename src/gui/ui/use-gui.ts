@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiSessionInfo, GuiSnapshot } from "../contract.ts";
+import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiSessionInfo, GuiSnapshot, GuiSessionDetails, GuiDirectories, GuiWorkspaceInfo } from "../contract.ts";
+import { useSessionInfoRefresh } from "./use-session-info.ts";
 import { connectGui } from "./connection.ts";
 import type { Send } from "./dialog.tsx";
 import type { PanelData } from "./panels.tsx";
@@ -16,7 +17,11 @@ export function useGui() {
 	const [error, setError] = useState("");
 	const [panel, setPanel] = useState<PanelData>();
 	const [sessionPanel, setSessionPanel] = useState<SessionPanel>();
-	const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
+	const [sessionPanelOpen, setSessionPanelOpen] = useState(true);
+	const [sessionDetails, setSessionDetails] = useState<GuiSessionDetails>();
+	const [workspaceRoot, setWorkspaceRoot] = useState("");
+	const [workspaces, setWorkspaces] = useState<GuiWorkspaceInfo[]>([]);
+	const [directories, setDirectories] = useState<GuiDirectories>();
 	const [config, setConfig] = useState<Extract<GuiEvent, { type: "config" }>>();
 	const [auth, setAuth] = useState<Extract<GuiEvent, { type: "auth" }>["value"]>();
 	const [draft, setDraft] = useState("");
@@ -43,6 +48,10 @@ export function useGui() {
 				unsubscribe = value.subscribe((event) => {
 					if (!active) return;
 					switch (event.type) {
+						case "workspaceRoot": setWorkspaceRoot(event.path); break;
+						case "workspaces": setWorkspaces(event.value); break;
+						case "directories": setDirectories(event.value); break;
+						case "sessionInfo": setSessionDetails(event.value); break;
 						case "snapshot":
 							setSnapshot(event.value);
 							if (event.value) {
@@ -129,6 +138,7 @@ export function useGui() {
 			return false;
 		}
 	}, []);
+	useSessionInfoRefresh(snapshot, status, send);
 	const refreshSessions = useCallback(async () => {
 		setSessionsLoading(true);
 		try {
@@ -166,7 +176,7 @@ export function useGui() {
 	useEffect(() => {
 		setPanel(undefined);
 		setSessionPanel(undefined);
-		setSessionPanelOpen(false);
+		setSessionPanelOpen(true);
 		setConfig(undefined);
 	}, [snapshot?.sessionId]);
 	const running = Boolean(
@@ -185,6 +195,10 @@ export function useGui() {
 		panel,
 		setPanel,
 		sessionPanel,
+		sessionDetails: sessionDetails?.sessionId === snapshot?.sessionId ? sessionDetails : undefined,
+		workspaceRoot,
+		workspaces,
+		directories,
 		sessionPanelOpen,
 		setSessionPanelOpen,
 		config,

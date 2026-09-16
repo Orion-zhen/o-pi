@@ -3,6 +3,20 @@ import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works
 import { collectStatsSnapshot, type StatsPiApi } from "../stats/collector.ts";
 import { canPresent, type Presenter } from "../presentation.ts";
 
+export function collectContextStats(ctx: ExtensionCommandContext, pi: StatsPiApi) {
+	return collectStatsSnapshot({
+		cwd: ctx.cwd,
+		model: ctx.model,
+		getEntries: () => ctx.sessionManager.getEntries(),
+		getBranch: () => ctx.sessionManager.getBranch(),
+		isUsingSubscription: () => ctx.model !== undefined && ctx.modelRegistry.isUsingOAuth(ctx.model),
+		isIdle: () => ctx.isIdle(),
+		getContextUsage: () => ctx.getContextUsage(),
+		getSystemPrompt: () => ctx.getSystemPrompt(),
+		getSystemPromptOptions: () => ctx.getSystemPromptOptions(),
+	}, pi);
+}
+
 const STATS_COMMAND_DESCRIPTION = "Show current session stats.";
 
 /** 注册 /stats：TUI 只读浮层展示当前会话统计，不写入会话历史。 */
@@ -18,20 +32,7 @@ export default function statsExtension(
 				return;
 			}
 
-			const snapshot = await collectStatsSnapshot(
-				{
-					cwd: ctx.cwd,
-					model: ctx.model,
-					getEntries: () => ctx.sessionManager.getEntries(),
-					getBranch: () => ctx.sessionManager.getBranch(),
-					isUsingSubscription: () => ctx.model !== undefined && ctx.modelRegistry.isUsingOAuth(ctx.model),
-					isIdle: () => ctx.isIdle(),
-					getContextUsage: () => ctx.getContextUsage(),
-					getSystemPrompt: () => ctx.getSystemPrompt(),
-					getSystemPromptOptions: () => ctx.getSystemPromptOptions(),
-				},
-				pi,
-			);
+			const snapshot = await collectContextStats(ctx, pi);
 			await present.show(ctx, snapshot);
 		},
 	});

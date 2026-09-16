@@ -28,6 +28,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 	return {
 		...presentation,
 		cwd,
+		leafId: session.sessionManager.getLeafId(),
 		sessionId: session.sessionId,
 		sessionFile: session.sessionFile ?? null,
 		name: session.sessionName ?? "未命名会话",

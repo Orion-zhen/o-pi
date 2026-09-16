@@ -6,6 +6,7 @@ import type { GuiEvent } from "../../src/gui/contract.ts";
 import { startModelServer } from "../cli/model-server.ts";
 import { storeSession } from "./session-fixture.ts";
 import { historyDeletionTests } from "./deletion-cases.ts";
+import { sidebarTests } from "./sidebar-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-gui-");
@@ -77,6 +78,7 @@ afterEach(async () => {
 const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });
 
 historyDeletionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
+sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 
 describe("GUI 直接使用 SDK", () => {
 	it("视图接口不提交提示、不写输入历史，重载后工具配置仍可直接调用", async () => {

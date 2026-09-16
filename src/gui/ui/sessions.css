@@ -15,16 +15,12 @@
 .workspace-session-list { display: grid; gap: 0.125rem; margin: 0.125rem 0 0.5rem 0.75rem; padding-left: 0.375rem; border-left: 1px solid var(--border); }
 .history-session { width: 100%; min-width: 0; gap: 0.5rem; padding-inline: 0.5rem; justify-content: flex-start; font-size: 0.75rem; font-weight: 400; color: var(--muted-foreground); }
 .history-session[aria-current="page"] { color: var(--foreground); }
-.history-session-row[data-current="true"] { background: var(--accent); border-radius: 0.5rem; }
-.history-session-row, .workspace-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; }
+.history-session-row { --row-action-background: var(--background); }
+.history-session-row[data-current="true"] { --row-action-background: var(--accent); background: var(--accent); }
+.workspace-heading { display: flex; min-inline-size: 0; }
 .workspace-heading .workspace-toggle { min-width: 0; }
-.history-menu-trigger { color: var(--muted-foreground); opacity: 0; }
-.history-session-row:hover .history-menu-trigger, .workspace-heading:hover .history-menu-trigger,
-.history-session-row:focus-within .history-menu-trigger, .workspace-heading:focus-within .history-menu-trigger { opacity: 1; }
-.other-workspaces-toggle { width: 100%; justify-content: flex-start; color: var(--muted-foreground); font-size: 0.75rem; margin-top: 0.5rem; }
-.other-workspaces-toggle > svg { width: 0.75rem; transition: transform 150ms; }
-.other-workspaces-toggle[data-state="open"] > svg { transform: rotate(90deg); }
-@media (hover: none) { .history-menu-trigger { opacity: 1; } }
+.history-session-row > input.session-name { font: inherit; }
+button[data-confirming="true"] { color: var(--destructive); }
 .history-session > svg { width: 0.8125rem; flex-shrink: 0; opacity: 0.65; }
 .history-session-title { flex: 1; min-width: 0; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .history-session time { flex-shrink: 0; font-size: 0.625rem; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
@@ -32,6 +28,5 @@
 .history-hint { padding: 0.5rem 0.625rem; color: var(--muted-foreground); font-size: 0.6875rem; }
 @media (max-width: 767px) {
 	.history-session, .workspace-toggle { min-height: 2.75rem; }
-	.history-menu-trigger { opacity: 1; width: 2.75rem; height: 2.75rem; }
 	.history-heading > button { width: 2.75rem; height: 2.75rem; }
 }

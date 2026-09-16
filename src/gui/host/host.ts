@@ -13,15 +13,21 @@ import { runBuiltin } from "./commands.ts";
 import { openView } from "./views.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
 import { persistModelScope, setModelScope } from "./models.ts";
-import { GuiSessionCatalog } from "./sessions.ts";
+import { GuiSessionCatalog, renameSavedSession } from "./sessions.ts";
 import { filterSessionTreeNoTools } from "./session-tree.ts";
-import { prepareHistoryDeletion, type DeleteHistoryAction } from "./delete-history.ts";
+import { prepareSessionDeletion } from "./delete-session.ts";
+
+import { listDirectories } from "./directories.ts";
+import { setWorkspaceRemoved } from "./workspaces.ts";
+import type { ReadSessionInfo } from "./extensions.ts";
 
 const validate = compileSchemaValidator(actionSchema);
 
 /** 图形宿主仅负责生命周期、交互和边界校验。业务状态始终从 SDK 读取。 */
 export class GuiHost {
 	private current: AgentSessionRuntime | undefined;
+	private workspaceRoot: string | undefined;
+	private readSessionInfo: ReadSessionInfo | undefined;
 	private history = new UserHistoryStore();
 	private historyTexts: string[] = [];
 	private historyWarned = false;
@@ -36,7 +42,10 @@ export class GuiHost {
 	private tasks = new Set<Promise<unknown>>();
 	private toolController: ToolSelectionController | undefined;
 	private loginController: AbortController | undefined;
-	private sessions = new GuiSessionCatalog((value) => this.emit({ type: "sessions", value }));
+	private sessions = new GuiSessionCatalog((value, workspaces) => {
+		this.emit({ type: "sessions", value });
+		this.emit({ type: "workspaces", value: workspaces });
+	}, () => [this.workspaceRoot ?? "", this.current?.cwd ?? ""]);
 	readonly dialogs = new GuiDialogs((event) => this.emit(event));
 
 	get runtime(): AgentSessionRuntime {
@@ -50,14 +59,20 @@ export class GuiHost {
 
 	subscribe(listener: (event: GuiEvent) => void): () => void {
 		this.listeners.add(listener);
+		if (this.workspaceRoot) listener({ type: "workspaceRoot", path: this.workspaceRoot });
 		listener({ type: "dialogs", value: this.dialogs.list() });
 		for (const value of this.dialogs.notices) listener({ type: "notice", value });
 		listener({ type: "snapshot", value: this.current ? this.snapshot() : null });
 		if (this.sessions.value) listener({ type: "sessions", value: this.sessions.value });
+		if (this.sessions.workspaces) listener({ type: "workspaces", value: this.sessions.workspaces });
 		return () => this.listeners.delete(listener);
 	}
 
 	start(cwd: string): Promise<void> {
+		if (!this.workspaceRoot) {
+			this.workspaceRoot = path.resolve(cwd);
+			this.emit({ type: "workspaceRoot", path: this.workspaceRoot });
+		}
 		const task = this.initialize(cwd);
 		this.tasks.add(task);
 		return task.finally(() => this.tasks.delete(task));
@@ -74,6 +89,7 @@ export class GuiHost {
 					this.toolController = controller;
 				},
 				() => this.commandController.signal,
+				(read) => { this.readSessionInfo = read; },
 				sessionManager,
 			);
 			if (this.disposed) {
@@ -98,6 +114,7 @@ export class GuiHost {
 	private async bindSession(): Promise<void> {
 		const runtime = this.runtime;
 		const session = runtime.session;
+		await setWorkspaceRemoved(runtime.cwd, false);
 		this.historyWarned = false;
 		try {
 			const records = await this.history.load(runtime.cwd);
@@ -212,15 +229,32 @@ export class GuiHost {
 			this.publish();
 			return;
 		}
+		if (action.action === "directories") {
+			this.emit({ type: "directories", value: await listDirectories(path.resolve(this.workspaceRoot ?? process.cwd(), action.path)) });
+			return;
+		}
+		if (action.action === "sessionInfo") {
+			if (!this.current || this.changing) return;
+			if (!this.readSessionInfo) throw new Error("会话信息尚未绑定。");
+			const session = this.current.session;
+			const task = this.readSessionInfo(session.extensionRunner.createCommandContext());
+			this.tasks.add(task);
+			try {
+				const value = await task;
+				if (!this.disposed && this.current?.session === session && session.sessionId === value.sessionId)
+					this.emit({ type: "sessionInfo", value });
+			} finally { this.tasks.delete(task); }
+			return;
+		}
 		if (action.action === "sessions") {
 			await this.sessions.refresh();
 			return;
 		}
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
 		const task =
-			action.action === "deleteSession" || action.action === "deleteWorkspace"
-				? this.deleteHistory(action)
-				: this.execute(action);
+			action.action === "deleteSession"
+				? this.deleteSession(action.path)
+				: action.action === "removeWorkspace" ? this.removeWorkspace(action.path) : this.execute(action);
 		this.tasks.add(task);
 		try {
 			await task;
@@ -230,22 +264,29 @@ export class GuiHost {
 		}
 	}
 
-	private async deleteHistory(action: DeleteHistoryAction): Promise<void> {
+	private async removeWorkspace(cwd: string): Promise<void> {
+		this.assertIdle();
+		if (cwd === this.workspaceRoot || cwd === this.current?.cwd) throw new Error("不能移除启动目录或当前工作区。");
+		this.changing = true;
+		try {
+			await this.sessions.refresh();
+			if (!this.sessions.workspaces?.some((workspace) => workspace.path === cwd)) throw new Error("工作区已不在列表中。");
+			await setWorkspaceRemoved(cwd, true);
+			await this.sessions.refresh();
+		} finally { this.changing = false; }
+	}
+
+	private async deleteSession(file: string): Promise<void> {
 		this.assertIdle();
 		if (this.dialogs.list().length) throw new Error("请先完成或取消当前对话框。");
 		this.changing = true;
 		this.publish();
 		try {
-			const plan = await prepareHistoryDeletion(action, this.current ? this.snapshot() : undefined);
-			if ((await this.dialogs.ask("confirm", plan.title, plan.message)) !== "yes" || this.disposed) return;
+			const plan = await prepareSessionDeletion(file, this.current?.session.sessionFile ?? null);
+			if (this.disposed) return;
 			await plan.verify();
 			if (plan.affectsCurrent && this.current) {
-				if (action.action === "deleteWorkspace") {
-					await this.current.dispose();
-					this.current = undefined;
-					this.historyTexts = [];
-					for (const key of Object.keys(this.dialogs.status)) delete this.dialogs.status[key];
-				} else if ((await this.current.newSession()).cancelled) {
+				if ((await this.current.newSession()).cancelled) {
 					this.dialogs.notify("会话切换被取消，未删除历史。");
 					return;
 				}
@@ -417,6 +458,12 @@ export class GuiHost {
 				case "label":
 					session.sessionManager.appendLabelChange(action.entryId, action.label);
 					break;
+				case "renameSession": {
+					if (action.path === session.sessionFile) session.setSessionName(action.name);
+					else await renameSavedSession(action.path, action.name);
+					await this.sessions.refresh();
+					break;
+				}
 				case "rename":
 					session.setSessionName(action.name);
 					this.refreshSessions();

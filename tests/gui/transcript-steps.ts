@@ -103,7 +103,7 @@ export async function exerciseToolDetails(page: Page) {
 	const editor = page.getByRole("textbox", { name: "消息", exact: true });
 	await editor.fill("只回复下一轮");
 	await page.keyboard.press("ControlOrMeta+Enter");
-	await expect(page.getByText("第二轮独立回复", { exact: true })).toBeVisible();
+	await expect(page.getByRole("main").getByText("第二轮独立回复", { exact: true })).toBeVisible();
 	await expect(page.locator(".assistant-reply")).toHaveCount(2);
 	await expect(processGroup).toHaveAttribute("open", "");
 	await expect(page.locator(".reply-process").last()).toBeHidden();

@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { once } from "node:events";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -87,6 +87,20 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		expect(await answer).toBe("yes");
 		second.ws.close();
 		await once(second.ws, "close");
+	});
+
+	it("目录浏览复用操作鉴权，只列出服务端子目录", async () => {
+		await mkdir(path.join(temp.path, "project"));
+		const events: GuiEvent[] = [];
+		const unsubscribe = gui.subscribe((event) => events.push(event));
+		const body = JSON.stringify({ action: "directories", path: temp.path });
+		const denied = await fetch(`${server.url}/api/action`, { method: "POST", headers: { Origin: server.url, "Content-Type": "application/json" }, body });
+		expect(denied.status).toBe(403);
+		expect(events.some((event) => event.type === "directories")).toBe(false);
+		const accepted = await fetch(`${server.url}/api/action`, { method: "POST", headers: headers(), body });
+		expect(accepted.status).toBe(204);
+		expect(events.find((event) => event.type === "directories")?.value.children).toEqual([{ name: "project", path: path.join(temp.path, "project") }]);
+		unsubscribe();
 	});
 
 	it("拒绝非法参数和未加密的非回环监听", async () => {

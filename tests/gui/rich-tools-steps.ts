@@ -24,7 +24,7 @@ export async function exerciseRichTools(page: Page) {
 	const size = await page.evaluate(() => Boolean(window.opi)) ? "electron" : (page.viewportSize()?.width ?? 1200) < 768 ? "phone" : "desktop";
 	await agent.scrollIntoViewIfNeeded();
 	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-subagents-live-${size}.png`) });
-	await expect(page.getByText("网页与子代理验证完成。", { exact: true })).toBeVisible();
+	await expect(page.getByRole("main").getByText("网页与子代理验证完成。", { exact: true })).toBeVisible();
 	const group = page.locator(".reply-process").last();
 	await expect(group).not.toHaveAttribute("open", "");
 	await group.locator(":scope > summary").click();

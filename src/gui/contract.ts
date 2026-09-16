@@ -31,6 +31,7 @@ export const actionSchema = Type.Union([
 			Type.Literal("reload"),
 			Type.Literal("sessions"),
 			Type.Literal("tree"),
+			Type.Literal("sessionInfo"),
 			Type.Literal("clearQueue"),
 			Type.Literal("persistTools"),
 			Type.Literal("persistModels"),
@@ -47,9 +48,11 @@ export const actionSchema = Type.Union([
 		]),
 	}),
 	object({ action: Type.Literal("workspace"), path: short }),
+	object({ action: Type.Literal("removeWorkspace"), path: short }),
 	object({ action: Type.Literal("switch"), path: short }),
+	object({ action: Type.Literal("directories"), path: short }),
+	object({ action: Type.Literal("renameSession"), path: short, name: short }),
 	object({ action: Type.Literal("deleteSession"), path: short }),
-	object({ action: Type.Literal("deleteWorkspace"), cwd: short }),
 	object({ action: Type.Literal("fork"), entryId: short }),
 	object({ action: Type.Literal("navigate"), entryId: short, summarize: Type.Boolean() }),
 	object({ action: Type.Literal("label"), entryId: short, label: short }),
@@ -116,6 +119,10 @@ export interface GuiModel {
 	name: string;
 	contextWindow: number;
 }
+export interface GuiWorkspaceInfo {
+	path: string;
+	exists: boolean;
+}
 export interface GuiSessionInfo {
 	path: string;
 	cwd: string;
@@ -124,6 +131,7 @@ export interface GuiSessionInfo {
 }
 export interface GuiSnapshot {
 	cwd: string;
+	leafId: string | null;
 	sessionId: string;
 	sessionFile: string | null;
 	name: string;
@@ -166,10 +174,26 @@ export type GuiReport =
 	| { title: "套餐用量"; value: import("../harness/usage/types.ts").UsageSnapshot | "aborted" }
 	| { title: "遥测"; value: import("../harness/telemetry-report/live.ts").LiveTelemetryReport };
 
+export interface GuiSessionDetails {
+	sessionId: string;
+	tree: import("@earendil-works/pi-coding-agent").SessionTreeNode[];
+	stats: import("../harness/stats/types.ts").StatsSnapshot;
+	telemetry: import("../harness/telemetry-report/live.ts").LiveTelemetryReport;
+}
+export interface GuiDirectories {
+	path: string;
+	parent: string;
+	children: { name: string; path: string }[];
+}
+
 export type GuiEvent =
+	| { type: "workspaceRoot"; path: string }
+	| { type: "directories"; value: GuiDirectories }
+	| { type: "sessionInfo"; value: GuiSessionDetails }
 	| ({ type: "report" } & GuiReport)
 	| { type: "snapshot"; value: GuiSnapshot | null }
 	| { type: "sessions"; value: GuiSessionInfo[] }
+	| { type: "workspaces"; value: GuiWorkspaceInfo[] }
 	| { type: "dialogs"; value: GuiDialog[] }
 	| { type: "notice"; value: GuiNotice }
 	| { type: "panel"; title: string; value: unknown }

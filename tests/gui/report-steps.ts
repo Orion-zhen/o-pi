@@ -35,7 +35,7 @@ export async function exerciseReports(page: Page) {
 			await expect(grep).toContainText("直接命中");
 		}
 		expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-		await panel.getByRole("button", { name: docked ? "收起会话信息" : "关闭面板", exact: true }).click();
+		await (docked ? page : panel).getByRole("button", { name: docked ? "收起会话信息" : "关闭面板", exact: true }).click();
 		await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeFocused();
 	}
 }

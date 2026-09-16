@@ -4,6 +4,8 @@
 .tree-graph { display: block; flex-shrink: 0; max-width: 25%; height: 2lh; color: var(--muted-foreground); }
 .tree-row[data-role="user"] .tree-graph { color: var(--primary); }
 .tree-role { flex-shrink: 0; font-size: 0.6875rem; font-weight: 500; color: var(--muted-foreground); }
+.tree-jump { flex: 1; min-inline-size: 0; text-align: start; cursor: pointer; }
+.tree-jump:focus-visible { outline: thin solid var(--ring); }
 .tree-message-preview { flex: 1 1 0; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 2rem; }
 .tree-label { flex: 0 1 auto; min-width: 0; max-width: 20%; padding-inline: 0.25rem; border-radius: 0.25rem; background: var(--secondary); color: var(--muted-foreground); font-size: 0.625rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tree-row-actions { display: flex; align-items: center; flex-shrink: 0; margin-inline-start: auto; color: var(--muted-foreground); }

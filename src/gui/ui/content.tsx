@@ -73,17 +73,17 @@ export function Content({ value }: { value: unknown }): ReactNode {
 	return <pre>{pretty(value)}</pre>;
 }
 
-export function Message({ value }: { value: unknown }) {
+export function Message({ value, entryId }: { value: unknown; entryId?: string | undefined }) {
 	if (!record(value)) return <pre>{pretty(value)}</pre>;
 	const role = String(value.role ?? "message");
 	if (role === "custom" && value.display === false) return null;
 	return (
-		<article className={`message ${role}`}>
+		<article className={`message ${role}`} data-entry-id={entryId}>
 			{role !== "user" && <header><strong>{String(value.customType ?? role)}</strong></header>}
 			{role === "bashExecution" ? <>
 				{typeof value.command === "string" && <CodeBlock label="命令" language="bash" text={value.command} />}
 				{typeof value.output === "string" && <CodeBlock label="输出" text={clean(value.output)} />}
-			</> : <Content value={value.content ?? value.output ?? value} />}
+			</> : <Content value={value.content ?? value.output ?? value.summary ?? value} />}
 			{typeof value.errorMessage === "string" && <pre className="error">{value.errorMessage}</pre>}
 		</article>
 	);

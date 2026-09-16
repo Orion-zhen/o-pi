@@ -1,6 +1,6 @@
-.transcript-shell { position: relative; display: flex; flex: 1; min-height: 0; }
+.transcript-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .transcript { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable both-edges; }
-.jump-latest { position: absolute; bottom: 0.75rem; left: 50%; transform: translateX(-50%); border-radius: 2rem; background: var(--popover); box-shadow: var(--shadow); }
+.jump-latest { align-self: center; flex-shrink: 0; border-radius: var(--radius-xl); background: var(--popover); box-shadow: var(--shadow); }
 .transcript-content { display: flex; flex-direction: column; width: min(100%, 55rem); min-height: 100%; margin-inline: auto; padding: 1.5rem; }
 .welcome { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: clamp(2rem, 7dvh, 5rem) 0; text-align: center; }
 .welcome-mark { display: grid; place-items: center; width: 3.5rem; height: 3.5rem; margin-bottom: 1.5rem; border-radius: 1.125rem; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }

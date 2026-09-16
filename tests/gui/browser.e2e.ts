@@ -11,6 +11,7 @@ import { exerciseSessionHeading } from "./session-heading-steps.ts";
 import { exerciseReports } from "./report-steps.ts";
 import { exercisePanels, exerciseTree } from "./panel-steps.ts";
 import { exerciseDeletion } from "./deletion-steps.ts";
+import { exerciseWorkspaceRemoval } from "./workspace-steps.ts";
 import { exerciseLiveTranscript, exerciseToolDetails } from "./transcript-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
 import { exerciseRichTools } from "./rich-tools-steps.ts";
@@ -49,7 +50,7 @@ export default function (pi) {
 		const rich = richTools.respond(request);
 		if (rich) return rich;
 		if (JSON.stringify(request.messages.findLast((message) => message.role === "user")?.content)?.includes("只回复下一轮"))
-			return { text: "第二轮独立回复" };
+			return { text: `第二轮独立回复\n\n${Array.from({ length: 40 }, (_, index) => `第 ${index + 1} 项检查结果：确认界面在长消息下仍可正常定位与滚动。`).join("\n\n")}` };
 		if (JSON.stringify(request.messages.findLast((message) => message.role === "user")?.content)?.includes("验证停止输出"))
 			return request.messages.at(-1)?.role === "tool"
 				? { text: "停止验证已结束" }
@@ -201,10 +202,22 @@ async function exercise(page: Page, exportedPath?: string) {
 	page.on("pageerror", (error) => errors.push(error.message));
 	await expect(page.getByRole("combobox", { name: "模型", exact: true })).toContainText("GUI Test Model");
 	expect((await page.locator(".notices .error").allTextContents()).map((text) => text.slice(0, 1000))).toEqual([]);
+	await page.getByRole("button", { name: "展开会话信息", exact: true }).click();
+	const info = page.getByRole("complementary", { name: "会话信息", exact: true });
+	await info.getByRole("tab", { name: "会话统计", exact: true }).click();
+	const turns = info.locator(".report-metric").filter({ has: page.getByText("用户轮次", { exact: true }) }).locator("dd");
+	await expect(turns).toHaveText("0");
 	await page.getByRole("textbox", { name: "消息", exact: true }).fill("验证真实工具");
 	await page.keyboard.press("ControlOrMeta+Enter");
 	await exerciseLiveTranscript(page);
-	await expect(page.getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
+	await expect(page.getByRole("main").getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
+	await expect(turns).toHaveText("1");
+	await expect(info.getByRole("meter", { name: "read", exact: true })).toBeVisible();
+	await info.getByRole("tab", { name: "遥测", exact: true }).click();
+	await expect(info.getByRole("meter", { name: "read", exact: true })).toBeVisible();
+	await info.getByRole("tab", { name: "会话树", exact: true }).click();
+	await expect(info.getByText("验证真实工具", { exact: true })).toBeVisible();
+	await page.getByRole("button", { name: "收起会话信息", exact: true }).click();
 	await exerciseToolDetails(page);
 	expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI bundled tools OK\n");
 	await expect(page.getByText("执行失败", { exact: true })).toHaveCount(0);
@@ -272,8 +285,9 @@ test("独立 opi-web：真实工具、刷新恢复与响应式布局", async ({ 
 			await exercise(page);
 			await exerciseHistory(page, history, info.project.name);
 			await exerciseDeletion(page, history, info.project.name);
+			await exerciseWorkspaceRemoval(page, history);
 			await page.reload();
-			await expect(page.getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
+			await expect(page.getByRole("main").getByText("GUI 验证完成：图片、代码搜索和文件写入。", { exact: true })).toBeVisible();
 			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 			await page.screenshot({
 				animations: "disabled",
@@ -328,7 +342,11 @@ test("Electron：隔离渲染进程直接使用本地 SDK", async ({ viewport },
 		await exerciseLayout(page, "electron");
 		await exercise(page, exportedPath);
 		await exerciseHistory(page, history, "electron");
+		await app.evaluate(({ dialog }, directory) => {
+			dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+		}, path.join(path.dirname(cwd), "delete-project"));
 		await exerciseDeletion(page, history, "electron");
+		await exerciseWorkspaceRemoval(page, history);
 		expect(await page.evaluate(() => typeof (globalThis as Record<string, unknown>)["require"])).toBe("undefined");
 		await page.screenshot({ animations: "disabled", path: path.join(root, "dist/gui-electron.png") });
 	} finally {
