@@ -119,6 +119,8 @@ export async function exerciseComposerRunning(page: Page, imagePath: string) {
 	await send.click();
 	const tool = page.locator('.tool-activity[data-tool="bash"]').last();
 	await expect(tool).toHaveAttribute("data-state", "running");
+	await expect(page.getByRole("combobox", { name: "模型", exact: true })).toBeDisabled();
+	await expect(page.getByRole("combobox", { name: "思考级别", exact: true })).toBeDisabled();
 	await expect(stop).toBeEnabled();
 	await expect(send).toHaveCount(0);
 	await page.getByLabel("上传附件", { exact: true }).setInputFiles(imagePath);
@@ -156,9 +158,9 @@ export async function expectComposerLayout(page: Page) {
 	if (!left || !right || !container) throw new Error("输入框控件不可见");
 	expect(left.x).toBeCloseTo(container.x + await bottom.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft)), 0);
 	expect(right.x + right.width).toBeCloseTo(container.x + container.width - await bottom.evaluate((node) => parseFloat(getComputedStyle(node).paddingRight)), 0);
-	for (const wrapper of await page.locator('.composer [data-slot="native-select-wrapper"]').all()) {
-		const select = await wrapper.locator("select").boundingBox();
-		const icon = await wrapper.locator("svg").boundingBox();
+	for (const trigger of await page.locator('.composer [data-slot="select-trigger"]').all()) {
+		const select = await trigger.boundingBox();
+		const icon = await trigger.locator('[data-slot="select-icon"]').boundingBox();
 		if (!select || !icon) throw new Error("模型选择控件不可见");
 		expect(icon.y + icon.height / 2).toBeCloseTo(select.y + select.height / 2, 0);
 	}

@@ -18,71 +18,97 @@
 	--color-border: var(--border);
 	--color-input: var(--border);
 	--color-ring: var(--ring);
-	--radius-sm: 0.375rem;
-	--radius-md: 0.5rem;
-	--radius-lg: 0.75rem;
-	--radius-xl: 1rem;
+	--radius-sm: 0.5rem;
+	--radius-md: 0.75rem;
+	--radius-lg: 1rem;
+	--radius-xl: 1.5rem;
 }
 
 :root {
-	font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 	color-scheme: light;
-	--background: #fafaf8;
-	--foreground: #292b27;
-	--primary: #30352f;
-	--primary-foreground: #fafbf8;
-	--secondary: #efefeb;
-	--accent: #e5e7e0;
-	--popover: #fbfcf9;
-	--muted-foreground: #70756b;
-	--destructive: #b34444;
-	--border: #dcdfd6;
-	--ring: #969f8c;
-	--glass: #f0f1ebd9;
-	--surface: #ffffffdb;
-	--success: #4d7457;
-	--warning: #967127;
-	--shadow: 0 8px 32px #343b2910, 0 1px 3px #343b2908;
+	--background: #f8f9fb;
+	--foreground: #2b3039;
+	--primary: #3868c4;
+	--primary-foreground: #ffffff;
+	--secondary: #eef0f3;
+	--accent: #e5e8ed;
+	--popover: #fafbfced;
+	--muted-foreground: #68717f;
+	--destructive: #b54650;
+	--border: #d8dde5;
+	--ring: #6289d2;
+	--glass: #eef1f5c9;
+	--surface: #fffffff0;
+	--selected: #e4e8ee;
+	--overlay: #20293838;
+	--success: #487559;
+	--warning: #936b22;
+	--shadow: 0 0.25rem 1.5rem #20293808, 0 0.0625rem 0.25rem #20293806;
+	--shadow-floating: 0 1rem 4rem #20293820, 0 0.25rem 0.75rem #2029380a;
+	--surface-highlight: inset 0 0.0625rem 0 #ffffff80;
+	--glass-filter: blur(1.5rem) saturate(1.1);
+	--divider: color-mix(in srgb, var(--border) 65%, transparent);
+	--text-caption: 0.75rem;
+	--text-small: 0.8125rem;
+	--text-ui: 0.875rem;
+	--text-body: 0.9375rem;
+	--text-heading: 1.125rem;
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.25rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+	--content-inset: clamp(0.875rem, 2.5vw, 2rem);
+	--conversation-width: 100ch;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
 		color-scheme: dark;
-		--background: #191b19;
-		--foreground: #e5e8e1;
-		--primary: #dfe6d8;
-		--primary-foreground: #232820;
-		--secondary: #262a25;
-		--accent: #33392f;
-		--popover: #242823;
-		--muted-foreground: #a0a79b;
-		--destructive: #ef9494;
-		--border: #373d33;
-		--ring: #78876d;
-		--glass: #222720d9;
-		--surface: #252923de;
-		--success: #98b893;
-		--warning: #d6b773;
-		--shadow: 0 8px 32px #0003, 0 1px 3px #0002;
+		--background: #1b1d22;
+		--foreground: #e5e8ee;
+		--primary: #93b6f2;
+		--primary-foreground: #192b4b;
+		--secondary: #272b32;
+		--accent: #343943;
+		--popover: #2b2f38ed;
+		--muted-foreground: #a4adbc;
+		--destructive: #ee949e;
+		--border: #414752;
+		--ring: #88aceb;
+		--glass: #252930cf;
+		--surface: #292d35f0;
+		--selected: #353b46;
+		--overlay: #0b0e144d;
+		--success: #9bc5a5;
+		--warning: #dbbc7e;
+		--shadow: 0 0.25rem 1.5rem #0000001a, 0 0.0625rem 0.25rem #00000014;
+		--shadow-floating: 0 1rem 4rem #0000004d, 0 0.25rem 0.75rem #00000026;
+		--surface-highlight: inset 0 0.0625rem 0 #ffffff08;
 	}
 }
 
 @layer base {
 	* { @apply border-border; }
-	body { @apply m-0 bg-background text-foreground antialiased; }
+	body { @apply m-0 bg-background text-foreground antialiased; font-size: var(--text-ui); line-height: 1.5; }
 	button:not(:disabled), summary, [role="menuitem"] { cursor: pointer; }
 	button, input, textarea, select { font: inherit; }
-	::selection { background: var(--accent); }
+	::selection { background: color-mix(in srgb, var(--primary) 20%, transparent); }
 }
 
-[data-slot="sheet-overlay"], [data-slot="dialog-overlay"] { backdrop-filter: blur(5px); }
-[data-slot="sheet-content"], [data-slot="dialog-content"], [data-slot="dropdown-menu-content"] {
-	background: var(--surface);
-	backdrop-filter: blur(24px);
+[data-slot="sheet-overlay"], [data-slot="dialog-overlay"] { background: var(--overlay); backdrop-filter: blur(0.25rem); }
+[data-slot="sheet-content"], [data-slot="dialog-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="popover-content"], [data-slot="select-content"] {
+	background: var(--popover);
+	backdrop-filter: var(--glass-filter);
+	box-shadow: var(--surface-highlight), var(--shadow-floating);
 }
-[data-slot="dropdown-menu-content"] { min-width: 12rem; border-radius: 0.75rem; padding: 0.375rem; }
-[data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"] { min-height: 2.25rem; }
-[data-slot="tooltip-content"] { font-size: 0.75rem; }
+[data-slot="dialog-content"] { border-radius: var(--radius-xl); }
+[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"] { min-width: 12em; border-radius: var(--radius-lg); padding: var(--space-2); }
+[data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"] { padding-block: 0.625em; }
+[data-slot="tooltip-content"] { font-size: var(--text-caption); }
 /* 关闭时立即释放浮层，避免焦点恢复晚于后续打开的面板。 */
 [data-state="closed"]:is([data-slot="dropdown-menu-content"], [data-slot="tooltip-content"], [data-slot="sheet-content"], [data-slot="sheet-overlay"], [data-slot="dialog-content"], [data-slot="dialog-overlay"]) { animation: none; }
 

@@ -6,6 +6,8 @@ import os from "node:os";
 import { createCanvas } from "@napi-rs/canvas";
 import { startModelServer } from "../cli/model-server.ts";
 import { exerciseModels } from "./model-steps.ts";
+import { exerciseMainAppearance } from "./appearance-steps.ts";
+import { exerciseModelSelects } from "./select-steps.ts";
 import { exerciseHistory, prepareHistory } from "./session-steps.ts";
 import { exerciseSessionHeading } from "./session-heading-steps.ts";
 import { exerciseReports } from "./report-steps.ts";
@@ -91,7 +93,7 @@ export default function (pi) {
 						{ id: "third", name: "GUI Third Model" },
 					].map((model) => ({
 						...model,
-						reasoning: false,
+						reasoning: model.id === "test",
 						input: ["text", "image"],
 						contextWindow: 128000,
 						maxTokens: 4096,
@@ -146,6 +148,7 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await expect(page.getByRole("button", { name: "排队方式" })).toHaveCount(0);
 	await expect(page.getByRole("button", { name: "压缩上下文", exact: true })).toHaveCount(0);
 	await expectComposerLayout(page);
+	await exerciseModelSelects(page, screenshotName);
 	await exerciseSuggestions(page);
 	await exerciseSuggestionRefresh(page);
 	await editor.fill("/");
@@ -200,6 +203,7 @@ async function exerciseLayout(page: Page, screenshotName: string) {
 	await expect(editor).toBeFocused();
 	await exercisePanels(page, screenshotName);
 	if (!phone) await page.getByRole("button", { name: "展开侧栏" }).click();
+	await exerciseMainAppearance(page, screenshotName);
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 

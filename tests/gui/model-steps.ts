@@ -1,17 +1,27 @@
 import { expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { exerciseModelAppearance } from "./appearance-steps.ts";
 
 export async function exerciseModels(page: Page, settingsFile: string, screenshotName: string) {
-	const modelSelect = page.locator('.composer select[aria-label="模型"]');
-	const choices = () =>
-		modelSelect
-			.locator("option:not(:disabled)")
-			.evaluateAll((options) => options.map((option) => option.getAttribute("value")));
+	const modelSelect = page.getByRole("combobox", { name: "模型", exact: true });
+	const names = { test: "GUI Test Model", second: "GUI Second Model", third: "GUI Third Model" };
+	const expectChoices = async (ids: (keyof typeof names)[], current: keyof typeof names) => {
+		await expect(modelSelect).toHaveText(names[current]);
+		await modelSelect.click();
+		await expect(page.getByRole("option")).toHaveText([...ids.map((id) => names[id]), "管理模型"]);
+		await expect(page.getByRole("option", { name: names[current], exact: true })).toHaveAttribute("aria-selected", "true");
+		await page.keyboard.press("Escape");
+		await expect(modelSelect).toBeFocused();
+	};
+	const choose = async (id: keyof typeof names) => {
+		await modelSelect.click();
+		await page.getByRole("option", { name: names[id], exact: true }).click();
+		await expect(modelSelect).toHaveText(names[id]);
+	};
 	const savedSettings = async (): Promise<unknown> => JSON.parse(await readFile(settingsFile, "utf8"));
 	const initial = ["gui-test/second", "gui-test/test"];
-	await expect.poll(choices).toEqual(initial);
-	await expect(modelSelect).toHaveValue("gui-test/test");
+	await expectChoices(["second", "test"], "test");
 	const panel = page.getByRole("dialog", { name: "模型", exact: true });
 	const open = async () => {
 		if ((page.viewportSize()?.width ?? 1200) < 768)
@@ -19,39 +29,48 @@ export async function exerciseModels(page: Page, settingsFile: string, screensho
 		await page.getByRole("button", { name: "模型", exact: true }).click();
 		await panel.getByRole("textbox", { name: "搜索模型" }).click();
 	};
-	const close = () => panel.getByRole("button", { name: "关闭面板" }).click();
+	const close = async () => {
+		await panel.getByRole("button", { name: "关闭面板" }).click();
+		await expect(panel).toHaveCount(0);
+		await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeFocused();
+	};
 	const newSession = async () => {
 		if ((page.viewportSize()?.width ?? 1200) < 768)
 			await page.getByRole("button", { name: "菜单", exact: true }).click();
 		await page.getByRole("button", { name: "新建会话", exact: true }).click();
 	};
 	const checkbox = (id: string) => panel.getByRole("checkbox", { name: `已选模型 gui-test/${id}`, exact: true });
+	const selectedNames = panel.getByRole("region", { name: "已选模型", exact: true }).locator(".model-name strong");
 	await open();
+	const thinking = panel.getByRole("combobox", { name: "思考级别", exact: true });
+	await thinking.focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByRole("listbox")).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(panel).toBeVisible();
+	await expect(thinking).toBeFocused();
 	await panel.getByRole("textbox", { name: "搜索模型" }).fill("third");
 	await expect(panel.getByRole("checkbox")).toHaveCount(1);
 	await expect(checkbox("third")).not.toBeChecked();
 	await panel.getByRole("button", { name: "使用模型 gui-test/third", exact: true }).click();
 	await expect(panel.getByRole("button", { name: "当前模型 gui-test/third", exact: true })).toBeVisible();
-	await expect.poll(choices).toEqual([...initial, "gui-test/third"]);
 	await close();
-	await expect(modelSelect).toHaveValue("gui-test/third");
-	await expect(modelSelect.locator("option:checked")).toHaveText("GUI Third Model");
-	await expect(modelSelect.locator("option:checked")).toBeEnabled();
+	await expectChoices(["second", "test", "third"], "third");
 	expect(await savedSettings()).toMatchObject({ defaultModel: "test", enabledModels: initial });
 
 	await open();
 	await checkbox("third").click();
 	await expect(checkbox("third")).toBeChecked();
-	await expect.poll(choices).toEqual([...initial, "gui-test/third"]);
 	await panel.getByRole("button", { name: "上移 gui-test/third", exact: true }).click();
-	await expect.poll(choices).toEqual(["gui-test/second", "gui-test/third", "gui-test/test"]);
+	await expect(selectedNames).toHaveText([names.second, names.third, names.test]);
 	await panel.getByRole("button", { name: "上移 gui-test/third", exact: true }).click();
-	await expect.poll(choices).toEqual(["gui-test/third", ...initial]);
+	await expect(selectedNames).toHaveText([names.third, names.second, names.test]);
 	await checkbox("test").click();
 	await expect(checkbox("test")).not.toBeChecked();
-	await expect.poll(choices).toEqual(["gui-test/third", "gui-test/second"]);
+	await expect(selectedNames).toHaveText([names.third, names.second]);
 	expect(await savedSettings()).toMatchObject({ enabledModels: initial });
 	await close();
+	await expectChoices(["third", "second"], "third");
 	await open();
 	await expect(checkbox("third")).toBeChecked();
 	await expect(checkbox("test")).not.toBeChecked();
@@ -61,49 +80,40 @@ export async function exerciseModels(page: Page, settingsFile: string, screensho
 		enabledModels: ["gui-test/third", "gui-test/second"],
 		defaultModel: "test",
 	});
-	await page.screenshot({
-		animations: "disabled",
-		path: path.join(process.cwd(), "dist", `gui-models-${screenshotName}.png`),
-	});
+	await page.screenshot({ animations: "disabled", path: path.join(process.cwd(), "dist", `gui-models-${screenshotName}.png`) });
+	await exerciseModelAppearance(page, screenshotName);
 	await close();
-	await modelSelect.selectOption("gui-test/second");
-	await expect(modelSelect).toHaveValue("gui-test/second");
+	await choose("second");
 	expect(await savedSettings()).toMatchObject({ defaultModel: "test" });
 	await newSession();
-	await expect(modelSelect).toHaveValue("gui-test/test");
-	await expect(modelSelect.locator("option:checked")).toHaveText("GUI Test Model");
-	await expect.poll(choices).toEqual(["gui-test/third", "gui-test/second", "gui-test/test"]);
+	await expectChoices(["third", "second", "test"], "test");
 	expect(await savedSettings()).toMatchObject({
 		defaultProvider: "gui-test",
 		defaultModel: "test",
 		enabledModels: ["gui-test/third", "gui-test/second"],
 	});
-	await modelSelect.selectOption("gui-test/second");
-	await expect(modelSelect).toHaveValue("gui-test/second");
-	await expect.poll(choices).toEqual(["gui-test/third", "gui-test/second"]);
+	await choose("second");
+	await expectChoices(["third", "second"], "second");
 
 	await open();
 	await panel.getByRole("button", { name: "清空已选模型", exact: true }).click();
-	await expect.poll(choices).toEqual(["gui-test/second"]);
+	await expect(panel.getByRole("checkbox", { checked: true })).toHaveCount(0);
 	await panel.getByRole("button", { name: "保存模型", exact: true }).click();
 	await expect(panel.getByText("已保存模型。", { exact: true })).toBeVisible();
 	await close();
 	await expect(modelSelect).toBeEnabled();
-	await expect(modelSelect).toHaveValue("gui-test/second");
-	await expect(modelSelect.locator("option:checked")).toHaveText("GUI Second Model");
+	await expectChoices(["second"], "second");
 	await newSession();
-	await expect(modelSelect).toHaveValue("gui-test/test");
-	await expect.poll(choices).toEqual(["gui-test/test"]);
+	await expectChoices(["test"], "test");
 	expect(await savedSettings()).toMatchObject({ defaultModel: "test", enabledModels: [] });
 	await open();
 	await checkbox("second").click();
 	await expect(checkbox("second")).toBeChecked();
 	await checkbox("test").click();
 	await expect(checkbox("test")).toBeChecked();
-	await expect.poll(choices).toEqual(initial);
 	await expect(panel.getByRole("button", { name: "当前模型 gui-test/test", exact: true })).toBeVisible();
 	await panel.getByRole("button", { name: "保存模型", exact: true }).click();
 	await expect(panel.getByText("已保存模型。", { exact: true })).toBeVisible();
 	await close();
-	await expect(modelSelect).toHaveValue("gui-test/test");
+	await expectChoices(["second", "test"], "test");
 }

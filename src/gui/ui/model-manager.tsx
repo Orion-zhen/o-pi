@@ -4,6 +4,7 @@ import type { GuiAction, GuiModel, GuiSnapshot } from "../contract.ts";
 import type { Send } from "./dialog.tsx";
 import { ThinkingControl } from "./model-controls.tsx";
 import { IconButton } from "./components/icon-button";
+import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
 import { Input } from "./components/ui/input";
 import "./models.css";
@@ -114,7 +115,7 @@ export function ModelManager({ snapshot, send }: { snapshot: GuiSnapshot; send: 
 				</div>
 				<ThinkingControl snapshot={snapshot} send={send} disabled={disabled} />
 			</div>
-			<div className="model-search">
+			<label className="model-search">
 				<Search aria-hidden="true" />
 				<Input
 					aria-label="搜索模型"
@@ -122,28 +123,13 @@ export function ModelManager({ snapshot, send }: { snapshot: GuiSnapshot; send: 
 					value={query}
 					onChange={(event) => setQuery(event.target.value)}
 				/>
-			</div>
+			</label>
 			<div className="model-manager-toolbar">
 				<p>已选 {scope.length} 个模型</p>
 				<IconButton label="清空已选模型" disabled={disabled || !scope.length} onClick={() => update([])}>
 					<ListX />
 				</IconButton>
-				<IconButton
-					label="保存模型"
-					variant="outline"
-					disabled={disabled}
-					onClick={() => void run({ action: "persistModels" })}
-				>
-					{pending === "persistModels" ? <LoaderCircle className="animate-spin" /> : <Save />}
-				</IconButton>
 			</div>
-			<p className="model-save-status" role="status">
-				{failed
-					? "操作失败，请关闭面板查看错误后重试。"
-					: saved === signature
-						? "已保存模型。"
-						: "勾选和排序仅影响当前会话，保存后供下次启动使用。"}
-			</p>
 			<div className="model-catalog">
 				<section aria-label="已选模型">
 					<h3>已选模型</h3>
@@ -166,6 +152,19 @@ export function ModelManager({ snapshot, send }: { snapshot: GuiSnapshot; send: 
 					)}
 				</section>
 			</div>
+			<footer className="model-manager-footer">
+				<p className="model-save-status" role="status">
+					{failed
+						? "操作失败，请关闭面板查看错误后重试。"
+						: saved === signature
+							? "已保存模型。"
+							: "勾选和排序仅影响当前会话，保存后供下次启动使用。"}
+				</p>
+				<Button disabled={disabled} onClick={() => void run({ action: "persistModels" })}>
+					{pending === "persistModels" ? <LoaderCircle className="animate-spin" /> : <Save />}
+					保存模型
+				</Button>
+			</footer>
 		</section>
 	);
 }
