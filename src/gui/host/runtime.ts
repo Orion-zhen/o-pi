@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -15,6 +16,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { GuiDialogs } from "./dialogs.ts";
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
+
+EventEmitter.defaultMaxListeners = 20;
 
 export async function createGuiRuntime(
 	cwd: string,

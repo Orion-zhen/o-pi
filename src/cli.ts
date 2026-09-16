@@ -1,8 +1,11 @@
 #!/usr/bin/env bun
+import { EventEmitter } from "node:events";
 import { bedrockProviderModule } from "@earendil-works/pi-ai/bedrock-provider";
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { setBedrockProviderModule } from "@earendil-works/pi-ai/compat";
 import { main, parseArgs } from "@earendil-works/pi-coding-agent";
+
+EventEmitter.defaultMaxListeners = 20;
 
 process.title = "opi";
 process.env.PI_CODING_AGENT = "true";
