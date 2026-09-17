@@ -2,64 +2,45 @@
 import "../harness/runtime/environment.ts";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { parseArgs } from "node:util";
+import { parseWebArgs } from "./cli.ts";
 import { runChildProcess } from "../harness/runtime/invocation.ts";
 import { installationRoot } from "../harness/runtime/paths.ts";
 
 process.title = "opi-web";
 
 if (!(await runChildProcess())) {
-	const { values } = parseArgs({
-		options: {
-			host: { type: "string", default: "0.0.0.0" },
-			port: { type: "string", default: "19198" },
-			cwd: { type: "string", default: process.cwd() },
-			cert: { type: "string" },
-			key: { type: "string" },
-			help: { type: "boolean" },
-		},
-		strict: true,
+	const values = parseWebArgs(process.argv.slice(2));
+	const [{ GuiHost }, { startWebServer }] = await Promise.all([import("../gui/host/host.ts"), import("./server.ts")]);
+	const gui = new GuiHost();
+	const tls =
+		values.cert && values.key ? { cert: await readFile(values.cert), key: await readFile(values.key) } : undefined;
+	const server = await startWebServer(gui, {
+		host: values.host,
+		port: values.port,
+		assets: process.env.PI_OPI_RESOURCE_DIR
+			? path.join(process.env.PI_OPI_RESOURCE_DIR, "gui")
+			: path.join(installationRoot(), "dist/gui"),
+		...(tls ? { tls } : {}),
 	});
-	if (values.help) {
-		console.log(
-			"opi-web [--cwd PATH] [--host IP] [--port PORT] [--cert FILE --key FILE]\n默认监听 0.0.0.0:19198，免登录。仅用于可信局域网，请勿暴露到公网。TLS 证书可选。",
-		);
-	} else {
-		const port = Number(values.port);
-		if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("无效端口。");
-		if (Boolean(values.cert) !== Boolean(values.key)) throw new Error("--cert 和 --key 必须同时指定。");
-		const [{ GuiHost }, { startWebServer }] = await Promise.all([import("../gui/host/host.ts"), import("./server.ts")]);
-		const gui = new GuiHost();
-		const tls =
-			values.cert && values.key ? { cert: await readFile(values.cert), key: await readFile(values.key) } : undefined;
-		const server = await startWebServer(gui, {
-			host: values.host,
-			port,
-			assets: process.env.PI_OPI_RESOURCE_DIR
-				? path.join(process.env.PI_OPI_RESOURCE_DIR, "gui")
-				: path.join(installationRoot(), "dist/gui"),
-			...(tls ? { tls } : {}),
-		});
-		console.log(`opi-web: ${server.url}/`);
-		let closing = false;
-		const unsubscribe = gui.subscribe((event) => {
-			if (event.type === "close") void close();
-		});
-		const close = async () => {
-			if (closing) return;
-			closing = true;
-			unsubscribe();
-			await server.close();
-			await gui.dispose();
-		};
-		process.once("SIGINT", () => {
-			void close();
-		});
-		process.once("SIGTERM", () => {
-			void close();
-		});
-		void gui
-			.start(values.cwd)
-			.catch((error: unknown) => gui.dialogs.notify(error instanceof Error ? error.message : String(error), "error"));
-	}
+	console.log(`opi-web: ${server.url}/`);
+	let closing = false;
+	const unsubscribe = gui.subscribe((event) => {
+		if (event.type === "close") void close();
+	});
+	const close = async () => {
+		if (closing) return;
+		closing = true;
+		unsubscribe();
+		await server.close();
+		await gui.dispose();
+	};
+	process.once("SIGINT", () => {
+		void close();
+	});
+	process.once("SIGTERM", () => {
+		void close();
+	});
+	void gui
+		.start(values.cwd)
+		.catch((error: unknown) => gui.dialogs.notify(error instanceof Error ? error.message : String(error), "error"));
 }

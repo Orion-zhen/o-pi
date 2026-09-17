@@ -55,6 +55,7 @@
 		"ajv": "latest",
 		"class-variance-authority": "latest",
 		"clsx": "latest",
+		"commander": "latest",
 		"content-type": "latest",
 		"file-type": "latest",
 		"get-east-asian-width": "latest",
