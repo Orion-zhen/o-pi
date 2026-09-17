@@ -19,6 +19,8 @@ protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 const directory = path.dirname(fileURLToPath(import.meta.url));
+const icon = path.join(directory, "icons", process.platform === "win32" ? "icon.ico" : process.platform === "darwin" ? "icon-macos.png" : "icon.png");
+if (process.platform === "win32") app.setAppUserModelId("dev.orion.opi");
 const entryUrl = "opi://app/index.html";
 const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 let window: BrowserWindow | undefined;
@@ -56,6 +58,7 @@ async function saveDownload(event: Extract<GuiEvent, { type: "download" }>): Pro
 void app
 	.whenReady()
 	.then(async () => {
+		if (process.platform === "darwin") app.dock?.setIcon(icon);
 		protocol.handle("opi", async (request) => {
 			const url = new URL(request.url);
 			if (url.hostname !== "app") return new Response("Forbidden", { status: 403 });
@@ -78,6 +81,7 @@ void app
 			minWidth: 420,
 			minHeight: 500,
 			title: "o-pi",
+			icon,
 			backgroundColor: "#11161f",
 			webPreferences: {
 				preload: path.join(directory, "preload.cjs"),

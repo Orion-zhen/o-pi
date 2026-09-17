@@ -30,6 +30,7 @@ export async function buildDesktop({ root, ui, directoryOnly }) {
 		await writeFile(path.join(appDir, filename), await result.outputs[0].arrayBuffer());
 	}
 	await cp(ui, path.join(appDir, "ui"), { recursive: true });
+	await cp(path.join(root, "assets/icons"), path.join(appDir, "icons"), { recursive: true });
 	const { version } = JSON.parse(await readFile(new URL("package.json", piRoot), "utf8"));
 	await writeFile(
 		path.join(appDir, "package.json"),
@@ -37,6 +38,7 @@ export async function buildDesktop({ root, ui, directoryOnly }) {
 			{
 				name: "o-pi-desktop",
 				productName: "o-pi",
+				desktopName: "dev.orion.opi.desktop",
 				version,
 				type: "module",
 				main: "main.mjs",
@@ -64,9 +66,9 @@ export async function buildDesktop({ root, ui, directoryOnly }) {
 			npmRebuild: false,
 			directories: { output: path.join(output, "release") },
 			files: ["**/*"],
-			linux: { target: ["AppImage"], category: "Development" },
-			mac: { target: ["dmg"], category: "public.app-category.developer-tools", identity: null },
-			win: { target: ["nsis"] },
+			linux: { target: ["AppImage"], category: "Development", icon: "icons/linux", syncDesktopName: true },
+			mac: { target: ["dmg"], category: "public.app-category.developer-tools", identity: null, icon: "icons/icon.icns" },
+			win: { target: ["nsis"], icon: "icons/icon.ico" },
 		},
 	});
 }

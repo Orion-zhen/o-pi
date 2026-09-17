@@ -28,7 +28,7 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .sidebar[data-collapsed="true"] .sidebar-compact { opacity: 1; visibility: visible; }
 .sidebar-brand { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-4) var(--space-3); }
 .brand { display: flex; white-space: nowrap; min-inline-size: 0; overflow: clip; transition: opacity var(--motion-normal) var(--motion-ease); align-items: center; gap: var(--space-2); padding-inline-start: var(--space-2); font-size: var(--text-heading); font-weight: 600; letter-spacing: -0.025em; }
-.brand > svg { inline-size: 1.15em; block-size: 1.15em; flex-shrink: 0; }
+.app-logo { display: inline-block; inline-size: 1.4em; block-size: 1.4em; flex-shrink: 0; background: currentColor; mask: url("/logo.svg") center / contain no-repeat; }
 .brand small { font-size: var(--text-caption); color: var(--muted-foreground); letter-spacing: 0; font-weight: 400; }
 .sidebar-scroll { flex: 1; min-height: 0; overflow: auto; padding: var(--space-2) var(--space-3); }
 .workspace-controls { display: flex; gap: var(--space-2); min-inline-size: 0; }

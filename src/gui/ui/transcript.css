@@ -5,7 +5,7 @@
 .transcript-content { display: flex; flex-direction: column; inline-size: min(100%, var(--conversation-width)); min-height: 100%; margin-inline: auto; padding: var(--space-6) var(--content-inset); }
 .welcome { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: clamp(2rem, 7dvh, 5rem) 0; text-align: center; }
 .welcome-mark { display: grid; place-items: center; padding: 1em; margin-block-end: var(--space-6); border-radius: var(--radius-xl); border: 1px solid var(--divider); background: var(--surface); box-shadow: var(--surface-highlight), var(--shadow); color: var(--muted-foreground); font-size: var(--text-heading); }
-.welcome-mark svg { inline-size: 1.25em; block-size: 1.25em; }
+.welcome-mark .app-logo { inline-size: 2.5em; block-size: 2.5em; color: var(--foreground); }
 .welcome .welcome-eyebrow { font-size: var(--text-caption); letter-spacing: 0.08em; margin-block-end: var(--space-3); }
 .welcome h1 { font-size: clamp(calc(var(--text-ui) * 12 / 7), calc(var(--text-ui) * 9 / 7 + 1.25vw), calc(var(--text-ui) * 16 / 7)); letter-spacing: -0.025em; font-weight: 500; line-height: 1.5; }
 .welcome p { color: var(--muted-foreground); margin-block-start: var(--space-3); font-size: var(--text-ui); }

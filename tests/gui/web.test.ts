@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { once } from "node:events";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -26,6 +26,25 @@ const headers = () => ({
 });
 
 describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
+	it.each([
+		["logo.svg", "image/svg+xml"],
+		["favicon.svg", "image/svg+xml"],
+		["favicon.ico", "image/x-icon"],
+		["apple-touch-icon.png", "image/png"],
+		["site.webmanifest", "application/manifest+json"],
+	])("按正确类型提供品牌资源 %s", async (filename, contentType) => {
+		const source = new URL(`../../src/gui/ui/public/${filename}`, import.meta.url);
+		await copyFile(source, path.join(temp.path, filename));
+		const response = await fetch(`${server.url}/${filename}`);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe(contentType);
+		expect(Buffer.from(await response.arrayBuffer())).toEqual(await readFile(source));
+		const head = await fetch(`${server.url}/${filename}`, { method: "HEAD" });
+		expect(head.status).toBe(200);
+		expect(head.headers.get("content-type")).toBe(contentType);
+		expect(await head.text()).toBe("");
+	});
+
 	it("允许未加密的局域网监听", async () => {
 		const lan = await startWebServer(gui, { host: "0.0.0.0", port: 0, assets: temp.path });
 		try {

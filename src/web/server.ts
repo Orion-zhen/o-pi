@@ -80,6 +80,9 @@ export async function startWebServer(
 				".js": "text/javascript",
 				".css": "text/css",
 				".svg": "image/svg+xml",
+				".png": "image/png",
+				".ico": "image/x-icon",
+				".webmanifest": "application/manifest+json",
 			};
 			response.setHeader("Content-Type", types[path.extname(target)] ?? "application/octet-stream");
 			response.end(request.method === "HEAD" ? undefined : data);
