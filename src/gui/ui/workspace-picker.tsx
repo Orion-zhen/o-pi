@@ -47,7 +47,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: GuiView;
 								<span className="workspace-option-label"><span className="workspace-option-path"><bdi dir="ltr">{path}</bdi></span>{!exists && <small>目录不存在</small>}</span>{path === gui.snapshot?.cwd && <Check />}
 							</Button>
 							{path !== gui.workspaceRoot && path !== gui.snapshot?.cwd && <div className="row-actions">
-								<ConfirmAction label={`移除工作区 ${path}`} hint="仅从列表移除，保留目录和历史会话"
+								<ConfirmAction label={`移除工作区 ${path}`} hint="永久删除该工作区全部会话，保留项目目录和文件"
 									disabled={disabled} confirm={() => gui.send({ action: "removeWorkspace", path })} />
 							</div>}
 						</Fade>)}

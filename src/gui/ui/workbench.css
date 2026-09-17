@@ -2,7 +2,7 @@
 .sidebar-workbench, .workbench-sections, .workspace-files-content { flex: 1; }
 .sidebar-workbench { container: workbench / size; }
 .workbench-workspace { display: flex; min-inline-size: 0; padding: var(--space-2) var(--space-3); flex-shrink: 0; }
-.workbench-sections { display: grid; grid-template-rows: minmax(0, var(--session-share)) auto auto minmax(0, var(--file-share)); transition: grid-template-rows var(--motion-layout) var(--motion-ease); }
+.workbench-sections { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--session-share)) auto auto minmax(0, var(--file-share)); transition: grid-template-rows var(--motion-layout) var(--motion-ease); }
 .workbench-sections[data-files-open="false"] { grid-template-rows: minmax(0, 100fr) auto auto minmax(0, 0fr); }
 .workspace-files { display: contents; }
 .workbench-sessions { overflow: hidden; transition: opacity var(--motion-normal) var(--motion-ease), visibility var(--motion-layout); }
@@ -23,7 +23,7 @@
 .session-history-flat .workspace-session-list { margin: 0; padding: 0; border: 0; }
 .workbench-separator { flex: 0 0 auto; padding-block: var(--space-1); cursor: row-resize; touch-action: none; outline-offset: -2px; transition: padding-block var(--motion-layout) var(--motion-ease); }
 .workbench-sections[data-files-open="false"] .workbench-separator { padding-block: 0; visibility: hidden; }
-.workspace-files-heading { position: relative; isolation: isolate; display: flex; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-3); flex-shrink: 0; }
+.workspace-files-heading { position: relative; isolation: isolate; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-3); flex-shrink: 0; }
 .workspace-files-heading > button:not(.files-toggle) { position: relative; z-index: 1; pointer-events: auto; }
 .files-toggle { justify-content: flex-start; margin-inline-end: auto; font-size: var(--text-small); padding: 0.4em 0.25em; gap: var(--space-1); }
 .files-toggle::after { content: ""; position: absolute; inset: 0; }
@@ -64,9 +64,6 @@
 .git-status { font-weight: 600; }
 .file-hint { padding: var(--space-2) var(--space-3); color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }
 .workbench-pane-tabs { display: none; }
-@container workbench (max-width: 16em) {
-	.workspace-files-heading { flex-wrap: wrap; }
-}
 @container workbench (max-height: 24em) {
 	.workbench-sections { grid-template-rows: minmax(0, 0fr) auto auto minmax(0, 100fr); }
 	.workbench-sections:is([data-pane="sessions"], [data-files-open="false"]) { grid-template-rows: minmax(0, 100fr) auto auto minmax(0, 0fr); }

@@ -18,7 +18,6 @@ import { GuiSessionCatalog, renameSavedSession } from "./sessions.ts";
 import { GuiSessionInfo } from "./session-info.ts";
 import { prepareSessionDeletion } from "./delete-session.ts";
 import { listDirectories } from "./directories.ts";
-import { setWorkspaceRemoved } from "./workspaces.ts";
 import type { ReadSessionInfo } from "./extensions.ts";
 import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace-files.ts";
 import { readWorkspaceGit } from "./workspace-git.ts";
@@ -128,7 +127,6 @@ export class GuiHost {
 			this.workbenchController = new AbortController();
 			this.workbenchCwd = runtime.cwd;
 		}
-		await setWorkspaceRemoved(runtime.cwd, false);
 		this.historyWarned = false;
 		try {
 			const records = await this.history.load(runtime.cwd);
@@ -375,8 +373,14 @@ export class GuiHost {
 		if (cwd === this.workspaceRoot || cwd === this.current?.cwd) throw new Error("不能移除启动目录或当前工作区。");
 		await this.sessions.refresh();
 		if (!this.sessions.workspaces?.some((workspace) => workspace.path === cwd)) throw new Error("工作区已不在列表中。");
-		await setWorkspaceRemoved(cwd, true);
-		await this.sessions.refresh();
+		try {
+			const plans = [];
+			for (const session of this.sessions.value ?? []) {
+				if (session.cwd === cwd) plans.push(await prepareSessionDeletion(session.path, null));
+			}
+			for (const plan of plans) await plan.verify();
+			for (const plan of plans) await plan.remove();
+		} finally { await this.sessions.refresh(); }
 	}
 
 	private async deleteSession(file: string): Promise<void> {

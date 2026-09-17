@@ -26,17 +26,21 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 			expect(host.snapshot().cwd).toBe(child);
 		});
 
-		it("移除失效工作区保留历史，重启后仍隐藏，重新选择目录恢复", async () => {
+		it("移除失效工作区删除全部会话，重启后入口不再出现", async () => {
 			const { host, cwd, agentDir, events } = context();
 			const missing = path.join(cwd, "失效工作区");
-			const file = await storeSession({ cwd: missing, agentDir, provider: "gui-fixture", name: "保留历史" });
+			const file = await storeSession({ cwd: missing, agentDir, provider: "gui-fixture" });
+			const second = await storeSession({ cwd: missing, agentDir, provider: "gui-fixture" });
+			const retained = await storeSession({ cwd, agentDir, provider: "gui-fixture", name: "保留历史" });
 			await rm(missing, { recursive: true });
 			await host.dispatch({ action: "sessions" });
 			expect(events.filter((event) => event.type === "workspaces").at(-1)?.value).toContainEqual({ path: missing, exists: false });
 			await host.dispatch({ action: "removeWorkspace", path: missing });
 			expect(events.filter((event) => event.type === "workspaces").at(-1)?.value).not.toContainEqual(expect.objectContaining({ path: missing }));
-			expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toContainEqual(expect.objectContaining({ path: file }));
-			expect(await readFile(file, "utf8")).toContain("保留历史");
+			expect(events.filter((event) => event.type === "sessions").at(-1)?.value.map((session) => session.path)).toEqual([retained]);
+			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+			await expect(readFile(second)).rejects.toMatchObject({ code: "ENOENT" });
+			expect(await readFile(retained, "utf8")).toContain("保留历史");
 			await host.dispose();
 			const restarted = new GuiHost();
 			const replay: GuiEvent[] = [];
@@ -46,16 +50,10 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 				await restarted.dispatch({ action: "sessions" });
 				expect(replay.filter((event) => event.type === "workspaces").at(-1)?.value).not.toContainEqual(expect.objectContaining({ path: missing }));
 				await expect(restarted.dispatch({ action: "workspace", path: missing })).rejects.toMatchObject({ code: "ENOENT" });
-				await mkdir(missing);
-				await restarted.dispatch({ action: "workspace", path: missing });
-				await restarted.dispatch({ action: "sessions" });
-				expect(replay.filter((event) => event.type === "workspaces").at(-1)?.value).toContainEqual({ path: missing, exists: true });
-				await restarted.dispatch({ action: "switch", path: file });
-				expect(restarted.snapshot().name).toBe("保留历史");
 			} finally { await restarted.dispose(); }
 		});
 
-		it("工作区移除保护启动目录和当前目录，不删除磁盘文件", async () => {
+		it("工作区移除保护启动目录和当前目录，不删除项目文件", async () => {
 			const { host, cwd, agentDir, events } = context();
 			const other = path.join(cwd, "保留项目");
 			await storeSession({ cwd: other, agentDir, provider: "gui-fixture" });

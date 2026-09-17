@@ -1,4 +1,4 @@
-.web-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 0.625rem; margin-block: 0.75rem; }
+.web-results { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; margin-block: 0.75rem; }
 .web-card { min-width: 0; border: 1px solid var(--border); border-radius: 0.625rem; background: var(--surface); overflow: hidden; }
 .web-card-link { display: grid; gap: 0.5rem; padding: 0.75rem; color: var(--foreground); text-decoration: none; overflow-wrap: anywhere; }
 .web-card-link:is(a):hover { background: var(--secondary); }

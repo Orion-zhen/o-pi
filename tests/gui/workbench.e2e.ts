@@ -63,6 +63,28 @@ test("工作台：会话搜索、文件树、Git 差异与路径引用", async (
 			await expect(navigation.locator(".history-session")).toHaveCount(0);
 			await search.fill("");
 			if (!phone) {
+				await expect(navigation.locator(".git-branch")).toBeVisible();
+				const resize = page.locator(".sidebar-resize");
+				for (const width of [180, 224, 230, 240, 250, 260, 320]) {
+					const handle = await resize.boundingBox();
+					const sidebar = await navigation.boundingBox();
+					if (!handle || !sidebar) throw new Error("缺少侧栏尺寸");
+					const x = handle.x + handle.width / 2;
+					const y = handle.y + handle.height / 2;
+					await page.mouse.move(x, y);
+					await page.mouse.down();
+					await page.mouse.move(x + width - sidebar.width, y);
+					await page.mouse.up();
+					await expect.poll(() => navigation.evaluate((element) => {
+						const outer = element.getBoundingClientRect();
+						return [...element.querySelectorAll(".workbench-sections, .session-search, .session-search-controls > button, .workspace-files-heading > *")]
+							.filter((child) => {
+								const rect = child.getBoundingClientRect();
+								return rect.left < outer.left || rect.right > outer.right;
+							}).map((child) => child.className);
+					}), { message: `侧栏宽度 ${width}px 时控件不溢出` }).toEqual([]);
+				}
+				await resize.press("Home");
 				await search.fill("历史任务 0");
 				const toggle = navigation.locator(".sidebar-brand > button");
 				const top = await toggle.evaluate((element) => element.getBoundingClientRect().top);
