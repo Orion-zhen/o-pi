@@ -16,6 +16,7 @@ import {
 import type { GuiAction, GuiSnapshot } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
 import { ModelControls } from "./model-controls.tsx";
+import { modelSetup } from "./model-setup.ts";
 import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
@@ -40,6 +41,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 	const attachmentId = useRef(0);
 	const [images, setImages] = useState<ImageAttachment[]>([]);
 	const hasContent = Boolean(draft.trim() || images.length);
+	const setup = modelSetup(snapshot);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
 	const stopping = running && !hasContent;
 	const [behavior, setBehavior] = useState<"steer" | "followUp">("steer");
@@ -48,6 +50,10 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 	const behaviorLabel = steering ? "Steering" : "Follow-up";
 	const submit = () => {
 		if (!hasContent || !gui.canSubmit) return;
+		if (setup && !draft.startsWith("/") && !draft.startsWith("!")) {
+			gui.setPanel({ kind: setup.kind });
+			return;
+		}
 		const text = draft;
 		const attachments = images;
 		setDraft("");
@@ -104,6 +110,10 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 			: [];
 	return (
 		<footer className="composer">
+			{setup && snapshot.messages.length > 0 && <div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
+				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>
+				<Button variant="link" size="sm" disabled={!gui.canChangeSession} onClick={() => gui.setPanel({ kind: setup.kind })}>{setup.action}</Button>
+			</div>}
 			<div className="composer-card">
 				<AnimatePresence initial={false}>
 				{queuedCount > 0 && (

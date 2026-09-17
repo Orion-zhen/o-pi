@@ -6,6 +6,7 @@ import { connectGui, type ConnectionStatus, type Send } from "./connection.ts";
 import type { GuiConfigDocument } from "../preferences.ts";
 import { usePreferences } from "./use-preferences.ts";
 import { useLayout } from "./use-layout.ts";
+import { OAuthBrowser } from "./oauth-browser.ts";
 
 /** 共享宿主状态与跨区域导航，查询结果由使用它的组件持有。 */
 export function useGui() {
@@ -28,6 +29,10 @@ export function useGui() {
 	const [workspaceRoot, setWorkspaceRoot] = useState("");
 	const [workspaces, setWorkspaces] = useState<GuiWorkspaceInfo[]>([]);
 	const [auth, setAuth] = useState<Extract<GuiEvent, { type: "auth" }>["value"]>();
+	const [authUrl, setAuthUrl] = useState<string>();
+	const [deviceCode, setDeviceCode] = useState<string>();
+	const [oauthBrowser] = useState(() => new OAuthBrowser());
+	const loginPending = useRef(false);
 	const [draft, setDraft] = useState("");
 	const [revision, setRevision] = useState(0);
 	const connection = useRef<GuiConnection | undefined>(undefined);
@@ -54,14 +59,30 @@ export function useGui() {
 					if (!event.value) { setDraft(""); setAuth(undefined); }
 					break;
 				case "sessions": setSessions(event.value); break;
-				case "dialogs": setDialogs(event.value); break;
+				case "dialogs":
+					if (event.value.length) oauthBrowser.waitForInput();
+					setDialogs(event.value); break;
 				case "notice":
 					setNotices((current) => [...current.filter((notice) => notice.id !== event.value.id), event.value].slice(-100));
 					break;
 				case "sessionTab": selectTab(event.tab); setSessionPanelOpen(true); break;
 				case "panel": setPanel(event.panel); break;
 				case "editor": setDraft(event.text); editor.current?.focus(); break;
-				case "auth": setAuth(event.value); break;
+				case "auth": {
+					setAuth(event.value);
+					if (!event.value) {
+						oauthBrowser.finish(); setAuthUrl(undefined); setDeviceCode(undefined);
+						break;
+					}
+					const url = event.value.type === "auth_url" ? event.value.url
+						: event.value.type === "device_code" ? event.value.verificationUri : undefined;
+					if (event.value.type === "device_code") setDeviceCode(event.value.userCode);
+					if (url) {
+						setAuthUrl(url);
+						void oauthBrowser.open(url).catch((error: unknown) => setError(String(error)));
+					}
+					break;
+				}
 				case "download": {
 					const url = URL.createObjectURL(new Blob([event.content], { type: event.mimeType }));
 					const link = document.createElement("a");
@@ -74,19 +95,32 @@ export function useGui() {
 				case "close": client.close(); setStatus("closed"); break;
 			}
 		});
-		return () => { unsubscribe(); client.close(); connection.current = undefined; };
-	}, [revision, selectTab]);
+		return () => { unsubscribe(); client.close(); connection.current = undefined; oauthBrowser.finish(); };
+	}, [revision, selectTab, oauthBrowser]);
 
 	const send: Send = useCallback(async (action) => {
+		if (action.action === "login") {
+			if (loginPending.current) return false;
+			loginPending.current = true;
+		}
 		try {
 			if (!connection.current) throw new Error("连接尚未就绪。");
+			if (action.action === "login" && action.type === "oauth") {
+				setPanel(undefined);
+				setAuthUrl(undefined); setDeviceCode(undefined);
+				oauthBrowser.prepare();
+			}
+			if (action.action === "dialog" && action.value !== null) oauthBrowser.resume();
 			await connection.current.send(action);
 			return true;
 		} catch (error) {
+			if (action.action === "login") { oauthBrowser.finish(); setAuth(undefined); setAuthUrl(undefined); setDeviceCode(undefined); }
 			setError(error instanceof Error ? error.message : String(error));
 			return false;
+		} finally {
+			if (action.action === "login") loginPending.current = false;
 		}
-	}, []);
+	}, [oauthBrowser]);
 	const query = useCallback<Query>((request) => {
 		if (!connection.current) return Promise.reject(new Error("连接尚未就绪。"));
 		return connection.current.query(request);
@@ -132,7 +166,7 @@ export function useGui() {
 		status, connected, error, setError, panel, setPanel,
 		sessionTab, activeTab, selectTab, sessionPanelOpen, setSessionPanelOpen,
 		sessionDetails: sessionDetails?.sessionId === snapshot?.sessionId ? sessionDetails : undefined,
-		workspaceRoot, workspaces, auth, setAuth, draft, setDraft, editor, send, query, running,
+		workspaceRoot, workspaces, auth, authUrl, deviceCode, draft, setDraft, editor, send, query, running,
 		canSubmit: connected && snapshot?.canSubmit === true,
 		canChangeSession: connected && snapshot?.canChangeSession === true,
 		reconnect: () => setRevision((value) => value + 1),

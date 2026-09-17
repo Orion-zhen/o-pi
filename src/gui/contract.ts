@@ -220,7 +220,7 @@ export type GuiEvent =
 	| { type: "panel"; panel: GuiPanel }
 	| { type: "editor"; text: string }
 	| { type: "download"; name: string; content: string; mimeType: string }
-	| { type: "auth"; value: import("@earendil-works/pi-ai").AuthEvent }
+	| { type: "auth"; value: import("@earendil-works/pi-ai").AuthEvent | null }
 	| { type: "close" };
 
 export interface GuiConnection {

@@ -300,10 +300,17 @@ export class GuiHost {
 				if (this.loginController) throw new Error("已有登录流程正在进行。");
 				this.loginController = new AbortController();
 				this.publish();
+				this.emit({ type: "auth", value: { type: "progress", message: "正在准备登录…" } });
 				try {
 					await runLogin(services.modelRuntime, action.provider, action.type, this.dialogs,
 						(event) => this.emit(event), this.loginController.signal);
-				} finally { this.loginController = undefined; this.publish(); }
+				} catch (error) {
+					if (!this.loginController.signal.aborted) throw error;
+				} finally {
+					this.loginController = undefined;
+					this.emit({ type: "auth", value: null });
+					this.publish();
+				}
 				return;
 			case "logout":
 				try { await services.modelRuntime.logout(action.provider); }

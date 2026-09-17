@@ -44,12 +44,12 @@ export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSessio
 		case "sessions": body = sessionList; break;
 		case "auth":
 			body = <>
-				<p>凭据由 SDK 保存在后端，不返回到界面。OAuth 回调在运行后端的电脑上接收。</p>
+				<p>OAuth 会打开浏览器，完成认证后自动继续。凭据保存在后端，不返回到界面。</p>
 				<Button variant="outline" size="sm" onClick={() => void send({ action: "cancelLogin" })}>取消登录</Button>
 				{snapshot.providers.map((provider) => <div className="list-row" data-authenticated={provider.authenticated} key={provider.id}>
 					<span>{provider.name}<small>{provider.authenticated ? "已配置" : "未配置"}</small></span>
-					<Button variant="outline" size="sm" onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}>API Key</Button>
-					{provider.oauth && <Button variant="outline" size="sm" onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}>OAuth</Button>}
+					<Button variant="outline" size="sm" disabled={!canChangeSession} onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}>API Key</Button>
+					{provider.oauth && <Button variant="outline" size="sm" disabled={!canChangeSession} onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}>OAuth</Button>}
 					{provider.authenticated && <Button variant="outline" size="sm" onClick={() => void send({ action: "logout", provider: provider.id })}>退出</Button>}
 				</div>)}
 			</>;

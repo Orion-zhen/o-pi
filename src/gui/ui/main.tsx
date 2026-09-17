@@ -5,19 +5,15 @@ import { Fade, Reveal } from "./components/animated";
 import { Notices } from "./notices";
 import {
 	ArrowDown,
-	ArrowUpRight,
-	Code2,
 	ExternalLink,
-	FolderSearch,
 	LoaderCircle,
 	PanelLeft,
 	PanelRight,
 	RefreshCw,
 	ShieldCheck,
-	Terminal,
 	X,
 } from "lucide-react";
-import { pretty, safeLink } from "./content.tsx";
+import { safeLink } from "./content.tsx";
 import { locateTranscript } from "./transcript-location.ts";
 import { Transcript } from "./transcript.tsx";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
@@ -33,6 +29,7 @@ import { SessionActions } from "./session-actions.tsx";
 import { SessionHistory } from "./session-history.tsx";
 import { SessionHeading } from "./session-heading.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
+import { Welcome } from "./welcome.tsx";
 import { useGui } from "./use-gui.ts";
 import { IconButton } from "./components/icon-button";
 import { ResizeHandle } from "./components/resize-handle";
@@ -50,15 +47,9 @@ import "./code.css";
 import "./motion.css";
 import "./layout.css";
 
-const starters = [
-	{ icon: FolderSearch, title: "了解项目", text: "梳理这个项目的结构，介绍主要模块和运行方式。" },
-	{ icon: Code2, title: "审查代码", text: "审查当前工作区的代码变更，指出潜在问题和改进建议。" },
-	{ icon: Terminal, title: "开始构建", text: "我想实现一个新功能，请先了解项目并和我讨论实现方案。" },
-];
-
 function App() {
 	const gui = useGui();
-	const { snapshot, dialogs, notices, status, error, panel, auth, send } = gui;
+	const { snapshot, dialogs, notices, status, error, panel, auth, authUrl, deviceCode, send } = gui;
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const transcript = useTranscriptScroll(snapshot?.sessionId);
@@ -79,8 +70,6 @@ function App() {
 		desktop.addEventListener("change", closeMobileSidebar);
 		return () => desktop.removeEventListener("change", closeMobileSidebar);
 	}, []);
-	const authUrl =
-		auth?.type === "auth_url" ? auth.url : auth?.type === "device_code" ? auth.verificationUri : undefined;
 	const state = !gui.connected ? connectionLabels[status] : dialogs.length ? "等待操作" : gui.running ? "运行中" : "就绪";
 	return (
 		<TooltipProvider delayDuration={350}>
@@ -159,11 +148,12 @@ function App() {
 										<ShieldCheck className="size-4" />
 										模型认证
 									</span>
-									<IconButton label="收起登录提示" onClick={() => gui.setAuth(undefined)}>
-										<X />
-									</IconButton>
 								</div>
-								<pre>{pretty(auth)}</pre>
+								{authUrl && <p>请在认证页面完成登录，完成后会自动继续。未打开页面？点击下方按钮。</p>}
+								{deviceCode && <p>在认证页面输入设备码：<strong>{deviceCode}</strong></p>}
+								{(auth.type === "progress" || auth.type === "info") && <p role="status">{auth.message}</p>}
+								{auth.type === "info" && auth.links?.filter((link) => safeLink(link.url)).map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer">{link.label ?? link.url}</a>)}
+								{authUrl && !window.opi && <p className="text-sm text-muted-foreground">远程连接时，本地回调可能无法到达后端；请使用提供方支持的设备码登录。</p>}
 								<div className="toolbar">
 									{authUrl && safeLink(authUrl) && (
 										<Button variant="outline" size="sm" asChild>
@@ -208,35 +198,7 @@ function App() {
 								)}
 								{snapshot && !snapshot.messages.length && !located?.preview && (
 									<Fade key={`welcome-${snapshot.sessionId}`} className="welcome">
-										<div className="welcome-mark">
-											<span className="app-logo" role="img" aria-label="opi" />
-										</div>
-										<p className="welcome-eyebrow">你的代码工作空间</p>
-										<h1>今天，想构建什么？</h1>
-										<p>从一个想法开始，一起把它变成现实。</p>
-										<div className="starter-grid">
-											{starters.map(({ icon: Icon, title, text }) => (
-												<Button
-													key={title}
-													variant="outline"
-													className="starter"
-													onClick={() => {
-														gui.setDraft(text);
-														gui.editor.current?.focus();
-													}}
-												>
-													<Icon />
-													<span>{title}</span>
-													<ArrowUpRight />
-												</Button>
-											))}
-										</div>
-										{!snapshot.model && (
-											<Button variant="ghost" size="sm" onClick={() => gui.setPanel({ kind: "auth" })}>
-												<ShieldCheck />
-												配置模型认证
-											</Button>
-										)}
+										<Welcome snapshot={snapshot} gui={gui} />
 									</Fade>
 								)}
 								{snapshot && located && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
