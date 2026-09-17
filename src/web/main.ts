@@ -1,23 +1,14 @@
 #!/usr/bin/env bun
+import "../harness/runtime/environment.ts";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
-import { bedrockProviderModule } from "@earendil-works/pi-ai/bedrock-provider";
-import { setBedrockProviderModule } from "@earendil-works/pi-ai/compat";
+import { runChildProcess } from "../harness/runtime/invocation.ts";
+import { installationRoot } from "../harness/runtime/paths.ts";
 
-registerBunOAuthFlows();
-setBedrockProviderModule(bedrockProviderModule);
-process.env.PI_CODING_AGENT = "true";
-process.env.AI_AGENT = "pi";
 process.title = "opi-web";
 
-if (process.argv[2] === "--opi-discord-daemon") {
-	process.argv.splice(2, 1);
-	await import("../harness/discord-presence/coordinator-daemon.ts");
-} else if (process.env.PI_SUBAGENT_CHILD === "1") {
-	await import("../cli.ts");
-} else {
+if (!(await runChildProcess())) {
 	const { values } = parseArgs({
 		options: {
 			host: { type: "string", default: "0.0.0.0" },
@@ -46,7 +37,7 @@ if (process.argv[2] === "--opi-discord-daemon") {
 			port,
 			assets: process.env.PI_OPI_RESOURCE_DIR
 				? path.join(process.env.PI_OPI_RESOURCE_DIR, "gui")
-				: path.resolve("dist/gui"),
+				: path.join(installationRoot(), "dist/gui"),
 			...(tls ? { tls } : {}),
 		});
 		console.log(`opi-web: ${server.url}/`);

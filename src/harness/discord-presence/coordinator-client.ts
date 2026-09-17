@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
-import { cliInvocation } from "../runtime/invocation.ts";
+import { childInvocation } from "../runtime/invocation.ts";
 import { defaultCoordinatorEndpoint, prepareCoordinatorEndpoint } from "./endpoint.ts";
 import {
 	parseServerMessage,
@@ -164,7 +164,7 @@ export class DiscordPresenceCoordinatorClient {
 }
 
 function spawnCoordinatorDaemon(endpoint: string): void {
-	const invocation = cliInvocation(["--opi-discord-daemon", endpoint]);
+	const invocation = childInvocation(["--opi-discord-daemon", endpoint]);
 	const child = spawn(invocation.command, invocation.args, {
 		cwd: process.cwd(),
 		...(invocation.env === undefined ? {} : { env: invocation.env }),

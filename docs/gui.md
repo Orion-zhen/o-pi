@@ -11,21 +11,21 @@ bun install --no-save
 
 # 独立 Web 可执行文件
 bun run build:web
-./dist/opi-web --cwd /path/to/project
+./dist/web/opi-web --cwd /path/to/project
 
 # 只构建桌面应用目录，直接预览
-bun scripts/build-desktop.mjs --dir
+bun run build:desktop --dir
 bun run desktop
 
 # 当前系统的桌面分发包
 bun run build:desktop
 ```
 
-Windows 的 Web 产物为 `dist/opi-web.exe`。Desktop 分发文件位于 `dist/desktop/release/`，Linux 为 AppImage，macOS 为 DMG，Windows 为 NSIS 安装程序。MVP 未配置签名、macOS 公证或自动更新。三平台分别构建，不把 Linux 构建成功视为其他平台已经验证。
+Windows 的 Web 产物为 `dist/web/opi-web.exe`。Desktop 分发文件位于 `dist/desktop/release/`，Linux 为 AppImage，macOS 为 DMG，Windows 为 NSIS 安装程序。MVP 未配置签名、macOS 公证或自动更新。三平台分别构建，不把 Linux 构建成功视为其他平台已经验证。
 
 `bun run dev:web` 构建前端后从源码启动 Web 服务，不提供热更新。
 
-两个分发产物都包含 SDK 和所需运行资源，不要求用户安装 Bun、Node.js 或仓库依赖。Bash、Git、语言服务器等外部工具仍按使用场景由用户安装。Desktop 不需要另外安装 `opi-web` 或 `opi`。
+本仓库不提供预构建文件。两个本地构建产物都包含 SDK 和所需运行资源，不要求用户安装 Bun、Node.js 或仓库依赖。Bash、Git、语言服务器等外部工具仍按使用场景由用户安装。Desktop 不需要另外安装 `opi-web` 或 `opi`。
 
 沿用 `~/.pi/agent` 的配置、认证和会话，支持用 `PI_CODING_AGENT_DIR` 覆盖该目录。GUI 直接读取共享 `sessions/` 下各工作区的历史，无需导入或迁移。Web 读取的是后端电脑上的数据，不是访问网页的手机或电脑的本地目录。
 
@@ -77,7 +77,7 @@ Web 内嵌资源使用与 CLI 相同的内容寻址缓存。输入历史与 TUI 
 TLS 可选：
 
 ```sh
-./dist/opi-web --cwd /path/to/project --host 0.0.0.0 --port 3141 \
+./dist/web/opi-web --cwd /path/to/project --host 0.0.0.0 --port 3141 \
   --cert /path/to/cert.pem --key /path/to/key.pem
 ```
 
@@ -174,9 +174,9 @@ TLS 可选：
 - `src/gui/host/` 创建和绑定 SDK runtime，处理图形交互、生命周期及输入校验。会话、队列、压缩、重试和工具执行仍由 SDK 管理。
 - `src/gui/contract.ts` 只定义跨边界操作参数与可序列化的界面数据，不提供新的 Agent 或 Session 门面。
 - `src/gui/ui/` 不导入 Node、Bun 或 SDK 的运行时代码。消息中的 HTML 不执行，远程图片不自动加载。
-- GUI 产物启动的子代理通过 `PI_SUBAGENT_CHILD` 进入现有 CLI JSON 执行入口，不再启动 GUI 宿主。Desktop 子代理使用 Electron 的 Node 模式，仍沿用子进程环境变量白名单。
+- GUI 产物启动的子代理通过 `PI_SUBAGENT_CHILD` 进入 `src/harness/runtime/headless.ts`，复用上游 CLI JSON 执行能力并只装配业务扩展，不导入 TUI 入口。Desktop 子代理使用 Electron 的 Node 模式，仍沿用子进程环境变量白名单。
 - `src/desktop/` 提供隔离的 Electron 宿主、限定的 preload 桥接、目录选择和文件保存。渲染进程没有 Node 权限。
-- `src/web/` 提供静态资源、鉴权、来源校验和状态订阅。监听非回环地址时必须启用 TLS。
+- `src/web/` 提供静态资源、来源校验和状态订阅。免登录，仅用于可信局域网，TLS 可选。
 - `harness` 的呈现器由宿主注入。TUI 呈现器仍只在 TUI 模式使用，GUI 不加载它们。
 
 当前 SDK 没有 `gui` 模式标识。GUI 绑定 `mode: "print"` 和真实 `uiContext`，SDK 据此提供 `hasUI: true`。这不调用 `runPrintMode()`，也不使用 RPC。扩展应通过 `hasUI` 判断标准对话能力，通过 `mode === "tui"` 判断终端组件能力。
@@ -197,4 +197,4 @@ bun run test:gui
 
 GUI 测试复用项目已有的 Electron，Playwright 只作自动化驱动，不需要下载独立浏览器。Linux 需要显示环境，也可使用已安装的 `xvfb-run -a bun run test:gui`。缺少运行环境时先报告，不自动下载安装。测试使用隔离 HOME 和本地模型 HTTP 服务，不读取个人认证，不调用付费模型。
 
-覆盖真实 SDK 文件回路、审批拒绝与重连、会话恢复、Shell、结构化面板、项目扩展信任、配置并发修改、HTTP 鉴权及来源校验。GUI 测试用隔离的 Electron 窗口访问独立 `opi-web`，并把桌面应用目录复制到仓库外启动 Electron，验证图片处理、代码解析 worker、外部扩展、标准输入弹窗和导出。聊天测试覆盖工具流式输出原位更新、整轮过程自动折叠一次、手动展开保留、各轮独立分组、上翻与回到最新、思考折叠、参数布局、源码高亮、复制和 diff 配色。网页与子代理测试使用本地搜索服务、静态网页和真实子代理进程，覆盖网页卡片、部分内容提示、并行任务错序完成、展开状态保留、`/run` 进度与串行取消。过程详情截图位于 `dist/gui-transcript-*.png`，聚焦回复的截图位于 `dist/gui-reply-*.png`，网页与子代理截图位于 `dist/gui-web-cards-*.png` 和 `dist/gui-subagents-*.png`。另覆盖默认目录及配置目录覆盖、已有历史读取、同名工作区区分、历史排序、跨工作区恢复与文件工具执行、外部会话变更刷新、失效路径和信任确认。删除测试覆盖行内确认与取消、当前会话替换、项目文件保留、目录边界、符号链接、删除准备期间的外部修改及任务运行限制。工作区测试覆盖失效目录移除、隐藏状态持久化、历史保留和重新打开后恢复显示。界面测试包含侧栏折叠、移动抽屉、会话信息分屏与标签切换、工具数量、直接视图接口、图标菜单、设置控件、嵌套弹窗焦点和 320–1200 宽度的布局检查，截图保存在 `dist/gui-*.png`。主界面和模型弹窗另检查字体放大至 200% 时的控件可达性与横向溢出，深浅色样板截图为 `dist/gui-welcome-{light,dark}-*.png` 和 `dist/gui-models-{light,dark}-*.png`。手机布局仅用 Electron 窄屏验证，不包含触摸模拟，不等同于真实 iOS Safari 或 Android 实机验证。
+覆盖真实 SDK 文件回路、审批拒绝与重连、会话恢复、Shell、结构化面板、项目扩展信任、配置并发修改、HTTP 鉴权及来源校验。GUI 测试把 `opi-web` 和桌面应用目录复制到仓库外，再用隔离的 Electron 窗口访问 Web 或启动桌面应用，验证图片处理、代码解析 worker、外部扩展、标准输入弹窗和导出。聊天测试覆盖工具流式输出原位更新、整轮过程自动折叠一次、手动展开保留、各轮独立分组、上翻与回到最新、思考折叠、参数布局、源码高亮、复制和 diff 配色。网页与子代理测试使用本地搜索服务、静态网页和真实子代理进程，覆盖网页卡片、部分内容提示、并行任务错序完成、展开状态保留、`/run` 进度与串行取消。过程详情截图位于 `dist/gui-transcript-*.png`，聚焦回复的截图位于 `dist/gui-reply-*.png`，网页与子代理截图位于 `dist/gui-web-cards-*.png` 和 `dist/gui-subagents-*.png`。另覆盖默认目录及配置目录覆盖、已有历史读取、同名工作区区分、历史排序、跨工作区恢复与文件工具执行、外部会话变更刷新、失效路径和信任确认。删除测试覆盖行内确认与取消、当前会话替换、项目文件保留、目录边界、符号链接、删除准备期间的外部修改及任务运行限制。工作区测试覆盖失效目录移除、隐藏状态持久化、历史保留和重新打开后恢复显示。界面测试包含侧栏折叠、移动抽屉、会话信息分屏与标签切换、工具数量、直接视图接口、图标菜单、设置控件、嵌套弹窗焦点和 320–1200 宽度的布局检查，截图保存在 `dist/gui-*.png`。主界面和模型弹窗另检查字体放大至 200% 时的控件可达性与横向溢出，深浅色样板截图为 `dist/gui-welcome-{light,dark}-*.png` 和 `dist/gui-models-{light,dark}-*.png`。手机布局仅用 Electron 窄屏验证，不包含触摸模拟，不等同于真实 iOS Safari 或 Android 实机验证。

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { cliInvocation } from "../runtime/invocation.ts";
+import { childInvocation } from "../runtime/invocation.ts";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -18,7 +18,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	let aborted = false;
 
 	const launch = await buildLaunch(input);
-	const invocation = cliInvocation(launch.args);
+	const invocation = childInvocation(launch.args);
 	const exitCode = await new Promise<number>((resolve) => {
 		const proc = spawn(invocation.command, invocation.args, {
 			cwd: launch.cwd,

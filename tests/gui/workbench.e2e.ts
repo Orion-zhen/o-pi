@@ -32,7 +32,7 @@ test("工作台：会话搜索、文件树、Git 差异与路径引用", async (
 	await writeFile(path.join(cwd, "src", "helper.ts"), "export const helper = true;\n");
 	for (let index = 0; index < 2; index++) await storeSession({ cwd, agentDir, provider: "gui-test", name: `历史任务 ${index}`, timestamp: Date.UTC(2026, 0, index + 1) });
 	const env = { ...process.env, HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", NODE_ENV: "test" };
-	const child = spawn(path.resolve("dist", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+	const child = spawn(path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
 	let output = "";
 	child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
 	child.stderr.on("data", (chunk: Buffer) => { output += chunk.toString(); });

@@ -11,6 +11,7 @@ export default defineConfig({
 		outDir: "../../../dist/gui",
 		emptyOutDir: true,
 		rolldownOptions: {
+			checks: { moduleLevelDirective: false },
 			output: {
 				codeSplitting: {
 					groups: [

@@ -1,6 +1,6 @@
 import { test, expect, _electron as electron, type Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { createCanvas } from "@napi-rs/canvas";
@@ -233,8 +233,10 @@ async function exercise(page: Page, exportedPath?: string) {
 }
 
 test("独立 opi-web：真实工具、会话管理与刷新恢复", async ({ viewport }) => {
-	const binary = path.join(root, "dist", process.platform === "win32" ? "opi-web.exe" : "opi-web");
-	const child = spawn(binary, ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+	const name = process.platform === "win32" ? "opi-web.exe" : "opi-web";
+	const binary = path.join(directory, name);
+	await copyFile(path.join(root, "dist/web", name), binary);
+	const child = spawn(binary, ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
 	let output = "";
 	child.stdout?.on("data", (chunk: Buffer) => {
 		output += chunk.toString();
@@ -308,7 +310,7 @@ for (const mode of ["web", "desktop"] as const) test(`${mode}：处理阶段接�
 	try {
 		let url = "";
 		if (mode === "web") {
-			child = spawn(path.join(root, "dist", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+			child = spawn(path.join(root, "dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
 			let output = "";
 			child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
 			child.stderr?.on("data", (chunk: Buffer) => { output += chunk.toString(); });

@@ -334,7 +334,7 @@ JSONC 使用 `json`，JSX 使用 `javascript`，TSX 使用 `typescript`，YML �
 
 Desktop 后端加载 `src/harness/extensions.ts` 中的业务扩展，按 SDK 约定绑定交互 UI 并管理会话生命周期，即可复用 Presence 的活动、配置和协调逻辑，无需导入 TUI 模块。
 
-`coordinator-client.ts` 通过 `cliInvocation(["--opi-discord-daemon", endpoint])` 启动守护进程。Desktop 使用内置后台入口，并仅给协调子进程设置 `ELECTRON_RUN_AS_NODE=1`。Web 使用自身的独立二进制入口。二者均不依赖用户安装的 `opi`。
+`coordinator-client.ts` 通过 `childInvocation(["--opi-discord-daemon", endpoint])` 启动守护进程。Desktop 使用内置后台入口，并仅给协调子进程设置 `ELECTRON_RUN_AS_NODE=1`。Web 使用自身的独立二进制入口。二者均不依赖用户安装的 `opi`。
 
 ## 内部职责
 

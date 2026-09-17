@@ -1,8 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import type { GuiAction, GuiPanel } from "../contract.ts";
+import type { GuiAction, GuiPanel, GuiQueryResults } from "../contract.ts";
 import type { GuiHost } from "./host.ts";
 
 export const builtinCommands = ([
@@ -26,14 +25,14 @@ export const builtinCommands = ([
 	["quit", "关闭界面"],
 ] as const).map(([name, description]) => ({ name, description }));
 
-export async function completeCommand(session: AgentSession, text: string): Promise<AutocompleteItem[]> {
+export async function completeCommand(session: AgentSession, text: string): Promise<GuiQueryResults["complete"]> {
 	const match = /^\/(\S+)(?:\s(.*))?$/s.exec(text);
 	const name = match?.[1];
 	if (!name) return [];
 	const prefix = match[2] ?? "";
 	const command = session.extensionRunner.getCommand(name);
 	if (command) return await command.getArgumentCompletions?.(prefix) ?? [];
-	let items: AutocompleteItem[];
+	let items: GuiQueryResults["complete"];
 	switch (name) {
 		case "thinking":
 			items = session.getAvailableThinkingLevels().map((level) => ({ value: level, label: level }));

@@ -32,7 +32,7 @@ for (const mode of ["web", "desktop"] as const) test(`${mode}：GUI 偏好、系
 	try {
 		let url = "";
 		if (mode === "web") {
-			child = spawn(path.resolve("dist", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+			child = spawn(path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
 			let output = "";
 			child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
 			child.stderr?.on("data", (chunk: Buffer) => { output += chunk.toString(); });

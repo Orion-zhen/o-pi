@@ -13,7 +13,7 @@ import { benchmarkEnv, run, SCRIPT_BIN, spawnInteractive } from "./benchmark/run
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lazyWorker = fileURLToPath(new URL("./workers/bench-lazy-components-worker.mjs", import.meta.url));
-const pi = process.env.PI_BIN ?? fileURLToPath(new URL(process.platform === "win32" ? "../dist/opi.exe" : "../dist/opi", import.meta.url));
+const pi = process.env.PI_BIN ?? fileURLToPath(new URL(process.platform === "win32" ? "../dist/tui/opi.exe" : "../dist/tui/opi", import.meta.url));
 const MAIN_TIMING_HEADER = "--- Startup Timings: main ---";
 const MAIN_TIMING_FOOTER = "-----------------------------";
 const EXTENSION_TIMING_HEADER = "--- Startup Timings: extensions ---";

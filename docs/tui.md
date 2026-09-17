@@ -1,6 +1,6 @@
 # TUI
 
-`src/cli.ts` 调用 `pi-coding-agent.main()`，复用上游会话初始化、输入、命令、排队和终端生命周期。`src/tui/` 只维护本项目的终端呈现与增强，不复制启动或交互宿主实现。各前端的依赖边界见[前端边界](frontends.md)。
+`src/tui/main.ts` 调用 `pi-coding-agent.main()`，复用上游会话初始化、输入、命令、排队和终端生命周期。`src/tui/` 维护终端入口、呈现与增强，不复制启动或交互宿主实现。各前端的依赖边界见[前端边界](frontends.md)。
 
 `src/tui/extensions.ts` 装配本仓库的呈现器与界面增强，`src/tui/shell/extension.ts` 绑定会话事件。RPC、JSON 和 print 模式不加载本地工具呈现器或数学图片后端。工具执行和结构化结果不依赖 TUI。
 

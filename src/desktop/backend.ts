@@ -1,18 +1,16 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 process.env.PI_OPI_RESOURCE_DIR = path.join(directory, "resources");
 process.env.PI_PACKAGE_DIR = path.join(directory, "resources", "pi");
 process.env.PI_CODING_AGENT = "true";
 process.env.AI_AGENT = "pi";
+registerBunOAuthFlows();
 
-if (process.argv[2] === "--opi-discord-daemon") {
-	process.argv.splice(2, 1);
-	await import("../harness/discord-presence/coordinator-daemon.ts");
-} else if (process.env.PI_SUBAGENT_CHILD === "1") {
-	await import("../cli.ts");
-} else {
+const { runChildProcess } = await import("../harness/runtime/invocation.ts");
+if (!(await runChildProcess())) {
 	const { GuiHost } = await import("../gui/host/host.ts");
 	const gui = new GuiHost();
 	let unsubscribe: (() => void) | undefined;

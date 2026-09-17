@@ -10,7 +10,7 @@ import { useTempDir } from "../helpers/lifecycle.ts";
 import { startModelServer, type ModelRequest, type ModelResponse } from "./model-server.ts";
 
 const exec = promisify(execFile);
-const builtCli = path.resolve(process.platform === "win32" ? "dist/opi.exe" : "dist/opi");
+const builtCli = path.resolve(process.platform === "win32" ? "dist/tui/opi.exe" : "dist/tui/opi");
 const piCli = path.resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
 const temp = useTempDir("opi-cli-");
 let cli: string;
@@ -132,7 +132,12 @@ describe("standalone opi CLI", () => {
 		expect(JSON.stringify(results)).toContain('"image"');
 	});
 
-	it.each([false, true])("子代理重启当前 opi 并使用原配置，fork=%s", async (fork) => {
+	it.each([
+		{ fork: false, source: false },
+		{ fork: true, source: false },
+		{ fork: false, source: true },
+		{ fork: true, source: true },
+	])("子代理使用原配置，fork=$fork source=$source", async ({ fork, source }) => {
 		await writeFile(path.join(agentDir, "agents", "scout.md"), `---\nname: scout\ndescription: Read a file\ntools: read\nfork: ${fork}\n---\nInspect the file.\n`);
 		respond = (request) => {
 			const parent = !request.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("Read sample.ts"));
@@ -140,7 +145,17 @@ describe("standalone opi CLI", () => {
 			return parent ? { tool: "subagent", args: { tasks: [{ agent: "scout", task: "Read sample.ts" }] } }
 				: { tool: "read", args: { path: "sample.ts" } };
 		};
-		const results = toolResults(await runJson(["--tools", "read,subagent"]));
+		let events: Record<string, unknown>[];
+		if (source) {
+			const child = exec("bun", [path.resolve("src/tui/main.ts"), "--mode", "json", "-p", "--offline", "--approve", "--no-session", "--tools", "read,subagent", "Run the fixture"], { cwd, env, timeout: 25_000, maxBuffer: 8 * 1024 * 1024 });
+			child.child.stdin?.end();
+			const { stdout, stderr } = await child;
+			expect(stderr).toBe("");
+			events = stdout.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+		} else {
+			events = await runJson(["--tools", "read,subagent"]);
+		}
+		const results = toolResults(events);
 		expect(results).toHaveLength(1);
 		expect(results[0], JSON.stringify(results)).toMatchObject({ toolName: "subagent", isError: false });
 		expect(JSON.stringify(results)).toContain("value = 1");
