@@ -1,9 +1,9 @@
-import { createProvider } from "@earendil-works/pi-ai";
+import { createProvider, type Api, type Model, type Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createProviderAuth } from "./auth.ts";
 import { fetchProviderModelsFromEndpoint, mergeDiscoveredModelConfigs } from "./models-endpoint.ts";
-import { buildModels, configuredModels, validateProviderPayload, type ModelOverrides } from "./models.ts";
+import { buildModels, configuredModels, restoreCachedModels, validateProviderPayload, type ModelOverrides } from "./models.ts";
 import type { ModelsJsoncConfig } from "./schema.ts";
 import { createRuntimeStreams } from "./streams.ts";
 
@@ -14,30 +14,49 @@ export function registerOpenAICompatibleProviders(
 	configPath: string,
 ): void {
 	const overridesByProvider = new Map<string, ReadonlyMap<string, ModelOverrides>>();
-	const providers = Object.entries(config.providers).map(([id, provider]) => {
+	const providers = Object.entries(config.providers).map(([id, provider]): Provider => {
 		validateProviderPayload(id, provider, configPath);
 		const configured = configuredModels(provider.models);
-		const models = buildModels(id, provider, configured, configPath);
+		const baseline = buildModels(id, provider, configured, configPath);
+		let models: readonly Model<Api>[] = baseline;
 		const visibleIds = new Set(models.map((model) => model.id));
 		const overrides: ReadonlyMap<string, ModelOverrides> = new Map(
 			configured.filter((model) => visibleIds.has(model.id)).map((model) => [model.id, model]),
 		);
 		overridesByProvider.set(id, overrides);
-		return createProvider({
+		const runtime = createProvider({
 			id,
 			name: provider.name ?? id,
 			baseUrl: provider.baseUrl,
 			auth: { apiKey: createProviderAuth(id, provider) },
-			models,
-			fetchModels: async ({ credential, signal }) => {
+			models: baseline,
+			api: createRuntimeStreams(provider, overrides),
+		});
+		return {
+			...runtime,
+			getModels: () => models,
+			refreshModels: async ({ stored, publish, allowNetwork, credential, signal }) => {
+				if (stored) {
+					const cached = new Map<string, Model<Api>>(baseline.map((model) => [model.id, model]));
+					for (const model of stored.models) {
+						if (model.provider === id) cached.set(model.id, model);
+					}
+					const restored = restoreCachedModels(id, provider, [...cached.values()], configPath);
+					if (!await publish({ update: () => { models = restored; } })) return;
+				}
+				if (!allowNetwork || signal.aborted) return;
 				if (credential?.type !== "api_key") {
 					throw new TypeError(`Provider "${id}" model refresh requires an API key credential`);
 				}
 				const discovered = await fetchProviderModelsFromEndpoint(id, provider, configPath, credential, signal);
-				return buildModels(id, provider, mergeDiscoveredModelConfigs(configured, discovered), configPath);
+				if (signal.aborted) return;
+				const refreshed = buildModels(id, provider, mergeDiscoveredModelConfigs(configured, discovered), configPath);
+				await publish({
+					persist: { models: refreshed, checkedAt: Date.now() },
+					update: () => { models = refreshed; },
+				});
 			},
-			api: createRuntimeStreams(provider, overrides),
-		});
+		};
 	});
 	for (const provider of providers) pi.registerProvider(provider);
 	pi.on("model_select", (event) => {

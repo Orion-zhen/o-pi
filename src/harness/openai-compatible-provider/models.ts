@@ -1,4 +1,4 @@
-import { getSupportedThinkingLevels, type Model, type ModelThinkingLevel, type ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, type Api, type Model, type ModelThinkingLevel, type ThinkingLevelMap } from "@earendil-works/pi-ai";
 
 import { invalidModelsJsonc } from "./errors.ts";
 import {
@@ -63,6 +63,28 @@ export function buildModels(
 			throw invalidModelsJsonc(configPath, `${fieldPath}.defaultThinkingLevel "${model.defaultThinkingLevel}" is not supported by its Pi thinkingLevelMap`);
 		}
 		return native;
+	});
+}
+
+export function restoreCachedModels<TApi extends Api>(
+	providerId: string,
+	provider: ProviderConfig,
+	models: readonly Model<TApi>[],
+	configPath: string,
+): Model<TApi>[] {
+	const configured = new Map(configuredModels(provider.models).map((model) => [model.id, model]));
+	const entries = models.map((model) => ({
+		id: model.id,
+		thinkingPreset: configured.get(model.id)?.thinkingPreset ?? provider.thinkingPreset ?? "none",
+		...(model.thinkingLevelMap !== undefined ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
+	}));
+	const prepared = new Map(prepareModels(entries, provider.thinkingPreset ?? "none", providerId, configPath)
+		.map(({ model }) => [model.id, model]));
+	return models.flatMap((model) => {
+		const normalized = prepared.get(model.id);
+		if (!normalized) return [];
+		if (normalized.thinkingLevelMap === undefined || normalized.thinkingLevelMap === model.thinkingLevelMap) return [model];
+		return [{ ...model, reasoning: true, thinkingLevelMap: normalized.thinkingLevelMap }];
 	});
 }
 
