@@ -19,7 +19,7 @@
 .session-search > input:focus-visible { box-shadow: none; outline: none; }
 .session-history-flat { display: flex; flex-direction: column; flex: 1; min-block-size: 0; margin: 0; padding: 0 var(--space-3) var(--space-2); }
 .session-history-flat .history-heading { flex-shrink: 0; }
-.session-history-flat .history-scroll { overflow: auto; min-block-size: 0; overscroll-behavior: contain; }
+.session-history-flat .history-scroll { flex: 1; }
 .session-history-flat .workspace-session-list { margin: 0; padding: 0; border: 0; }
 .workbench-separator { flex: 0 0 auto; padding-block: var(--space-1); cursor: row-resize; touch-action: none; outline-offset: -2px; transition: padding-block var(--motion-layout) var(--motion-ease); }
 .workbench-sections[data-files-open="false"] .workbench-separator { padding-block: 0; visibility: hidden; }

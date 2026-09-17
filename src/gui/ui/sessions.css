@@ -14,7 +14,7 @@
 .workspace-session-list { display: grid; gap: var(--space-1); margin: var(--space-1) 0 var(--space-2) var(--space-3); padding-inline-start: var(--space-2); border-inline-start: 1px solid var(--divider); }
 .history-session { width: 100%; min-width: 0; gap: var(--space-2); padding: 0.75em; justify-content: flex-start; font-size: var(--text-small); font-weight: 400; color: var(--muted-foreground); }
 .history-session[aria-current="page"] { color: var(--foreground); font-weight: 500; }
-.history-session[aria-current="page"] > svg { color: var(--primary); }
+.history-session[aria-current="page"] > svg { color: var(--primary); fill: currentColor; }
 .history-session-row { --row-action-background: var(--background); }
 .history-session-row[data-current="true"] { --row-action-background: var(--selected); background: var(--selected); }
 .workspace-heading { display: flex; min-inline-size: 0; }

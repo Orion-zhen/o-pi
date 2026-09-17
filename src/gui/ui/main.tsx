@@ -116,10 +116,10 @@ function App() {
 								<div className="session-heading"><strong className="session-name">选择工作区</strong></div>
 							)}
 							<div role="status" className="connection-status" data-state={state}>
-								{gui.running ? (
-									<LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+								{state === "运行中" ? (
+									<LoaderCircle className="animate-spin" aria-hidden="true" />
 								) : (
-									<span className="status-dot" />
+									<span className="status-dot" aria-hidden="true" />
 								)}
 								<span>{state}</span>
 							</div>

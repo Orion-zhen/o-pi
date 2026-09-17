@@ -54,12 +54,13 @@ export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => vo
 						onClick={() => { setFilesOpen(!filesOpen); if (!filesOpen) setPane("files"); }}>
 						<ChevronRight data-open={filesOpen} /><span>文件</span>
 					</Button>
-					<span className="git-branch" title={git?.branch ?? (workbench.git.state === "error" ? workbench.git.message : undefined)}>
-						{git && <GitBranch aria-hidden="true" />}
-						<span>{git ? git.branch : workbench.git.state === "loading" ? "Git…" : workbench.git.state === "error" ? "Git 读取失败" : "无 Git"}</span>
-					</span>
-					<IconButton label="显示文件变更" size="icon-sm" className="file-changes-toggle" aria-pressed={onlyChanges} disabled={!git}
-						onClick={() => { setOnlyChanges(!onlyChanges); setFilesOpen(true); setPane("files"); }}><FileDiff /><span>{git?.changes.length ?? 0}</span></IconButton>
+					{git && <>
+						<span className="git-branch" title={git.branch}>
+							<GitBranch aria-hidden="true" /><span>{git.branch}</span>
+						</span>
+						<IconButton label="显示文件变更" size="icon-sm" className="file-changes-toggle" aria-pressed={onlyChanges}
+							onClick={() => { setOnlyChanges(!onlyChanges); setFilesOpen(true); setPane("files"); }}><FileDiff /><span>{git.changes.length}</span></IconButton>
+					</>}
 					<IconButton label="刷新文件" size="icon-sm" disabled={!gui.snapshot || !gui.connected} onClick={workbench.refresh}><RefreshCw /></IconButton>
 					<IconButton label="折叠全部目录" size="icon-sm" disabled={onlyChanges || !workbench.expanded.size} onClick={workbench.collapseAll}><FoldVertical /></IconButton>
 				</div>

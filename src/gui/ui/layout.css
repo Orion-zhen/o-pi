@@ -1,4 +1,4 @@
-.sidebar { flex-basis: var(--sidebar-width, 12%); flex-shrink: 1; min-inline-size: min(8rem, 25%); }
+.sidebar { flex-basis: var(--sidebar-width, 14%); flex-shrink: 1; min-inline-size: min(8rem, 25%); }
 .sidebar[data-collapsed="true"] { min-inline-size: 0; }
 .resize-handle { flex: 0 0 0.5rem; display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none; cursor: col-resize; outline-offset: -2px; z-index: 2; }
 .resize-handle::after { content: ""; inline-size: 1px; block-size: 100%; background: var(--divider); transition: background var(--motion-normal); }
@@ -21,7 +21,7 @@ body[data-gui-resizing] :is(.sidebar, .session-sidebar, .workbench-sections) { t
 	.chat-workspace { min-inline-size: min(20rem, 70%); }
 	.chat-workspace:has(.session-sidebar[data-open="true"]) { min-inline-size: min(33rem, 70%); }
 	.main-panel { min-inline-size: min(20rem, 45%); }
-	.session-sidebar[data-open="true"] { flex-basis: var(--info-width, 34%); min-inline-size: min(12rem, 40%); }
+	.session-sidebar[data-open="true"] { flex-basis: var(--info-width, 32%); min-inline-size: min(12rem, 40%); }
 }
 @media (max-width: 64em) { .chat-workspace > .info-resize { display: none !important; } }
 @media (max-width: 767px) {

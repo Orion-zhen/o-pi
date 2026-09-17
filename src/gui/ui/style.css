@@ -37,8 +37,12 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .workspace-select > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
 .new-session { flex: 0 1 auto; min-inline-size: 0; padding-inline: 0.75em; background: var(--surface); }
 .workspace-options { display: flex; flex-direction: column; gap: var(--space-3); inline-size: max-content; max-inline-size: var(--radix-popover-content-available-width); max-block-size: var(--radix-popover-content-available-height); }
-.workspace-list, .directory-list { display: flex; flex-direction: column; min-block-size: 0; overflow: auto; }
-.workspace-list { gap: var(--space-1); padding-inline-end: 1em; scrollbar-gutter: stable; }
+.workspace-list, .directory-list { display: flex; flex-direction: column; min-block-size: 0; }
+.directory-list { overflow: auto; }
+.workspace-list { gap: var(--space-1); }
+.workspace-option-row { flex-shrink: 0; }
+.workspace-option-label { flex: 1; min-inline-size: 0; }
+.workspace-option-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .overlay-list-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; min-inline-size: 0; border-radius: var(--radius-md); }
 .overlay-list-row > * { grid-area: 1 / 1; }
 .overlay-list-row > button { block-size: auto; }
@@ -51,10 +55,13 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .row-action-button > svg { inline-size: 1.25em; block-size: 1.25em; }
 .row-action-button:enabled:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--foreground) 14%, var(--accent)); color: var(--foreground); border-color: var(--border); }
 .row-action-button[data-confirming]:enabled:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--destructive) 16%, var(--accent)); color: var(--destructive); border-color: color-mix(in srgb, var(--destructive) 45%, var(--border)); }
+:is(.history-session-row, .workspace-option-row) > .row-actions { align-self: center; margin: var(--space-1); }
+:is(.history-session-row, .workspace-option-row) .row-action-button { padding: 0.5em; }
+:is(.history-session-row, .workspace-option-row) .row-action-button > svg { inline-size: 1em; block-size: 1em; }
 .workspace-option-row > button { justify-content: flex-start; min-inline-size: 0; }
 .workspace-option-row small { display: block; color: var(--muted-foreground); }
 .directory-list > button { flex-shrink: 0; justify-content: flex-start; min-inline-size: 0; }
-.workspace-list span, .directory-list span { overflow-wrap: anywhere; white-space: normal; text-align: start; }
+.directory-list span { overflow-wrap: anywhere; white-space: normal; text-align: start; }
 .directory-browser { flex-basis: 70%; }
 .directory-list { flex: 1; }
 .workspace-welcome > .workspace-select { max-inline-size: 100%; }
@@ -76,9 +83,12 @@ button.session-name, strong.session-name { overflow: hidden; text-overflow: elli
 button.session-name:hover { background: var(--accent); }
 input.session-name { flex: 1; background: var(--surface); }
 .session-name:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.connection-status { display: flex; align-items: center; gap: 0.5em; flex-shrink: 0; font-size: var(--text-caption); color: var(--muted-foreground); }
-.status-dot { display: inline-block; inline-size: 0.4em; block-size: 0.4em; flex-shrink: 0; border-radius: 50%; background: var(--muted-foreground); }
-.connection-status:not([data-state="就绪"]) .status-dot { background: var(--warning); }
+.connection-status { --status-color: var(--muted-foreground); display: flex; align-items: center; gap: 0.5em; flex-shrink: 0; font-size: var(--text-small); color: var(--muted-foreground); }
+.status-dot { display: inline-block; inline-size: 0.5em; block-size: 0.5em; flex-shrink: 0; border-radius: 50%; background: var(--status-color); }
+.connection-status > svg { inline-size: 1em; block-size: 1em; color: var(--status-color); }
+.connection-status[data-state="就绪"] { --status-color: var(--success); }
+.connection-status[data-state="运行中"] { --status-color: var(--link); }
+.connection-status:is([data-state="连接中"], [data-state="等待操作"]) { --status-color: var(--warning); }
 .error-banner, .auth-banner { margin: 0.5rem 1rem 0; padding: 0.625rem 0.875rem; max-height: 30dvh; flex-shrink: 0; overflow: auto; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--secondary); }
 .error-banner { display: flex; align-items: flex-start; gap: 0.5rem; color: var(--destructive); background: var(--danger-soft); border-color: color-mix(in srgb, var(--destructive) 30%, transparent); }
 .error-banner pre { flex: 1; min-width: 0; }

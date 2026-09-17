@@ -7,6 +7,7 @@ import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
 import { HistorySessionRow } from "./history-session-row.tsx";
+import { ListScroll } from "./components/list-scroll";
 import "./sessions.css";
 
 const workspaceName = (cwd: string) => cwd.split(/[/\\]/).filter(Boolean).at(-1) || cwd || "未记录工作区";
@@ -31,7 +32,7 @@ export function SessionHistory({ gui, close, full = false, search = "" }: {
 				<RefreshCw className={gui.sessionsLoading ? "animate-spin" : undefined} />
 			</IconButton>
 		</div>
-		<div className="history-scroll">
+		<ListScroll className="history-scroll">
 			{!gui.sessions && <p className="history-hint" role="status">正在读取历史会话…</p>}
 			{groups.filter(([cwd]) => full || cwd === gui.snapshot?.cwd).map(([cwd, items]) => {
 				const rows = <SessionRows cwd={cwd} items={items} gui={gui} close={close} search={search} />;
@@ -42,7 +43,7 @@ export function SessionHistory({ gui, close, full = false, search = "" }: {
 					<CollapsibleContent>{rows}</CollapsibleContent>
 				</Collapsible> : <div key={cwd}>{rows}</div>;
 			})}
-		</div>
+		</ListScroll>
 	</section>;
 }
 

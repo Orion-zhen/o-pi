@@ -3,7 +3,7 @@ import { Disclosure } from "../components/disclosure";
 
 export const number = (value: number | undefined) => value === undefined ? "暂无数据" : new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value);
 export const percent = (value: number | undefined | null) => value == null ? "暂无数据" : `${number(value)}%`;
-export const money = (value: number | undefined) => value === undefined ? "暂无数据" : new Intl.NumberFormat("zh-CN", { style: "currency", currency: "USD", maximumFractionDigits: 4 }).format(value);
+export const money = (value: number | undefined) => value === undefined ? "暂无数据" : new Intl.NumberFormat("zh-CN", { style: "currency", currency: "USD", currencyDisplay: "narrowSymbol", maximumFractionDigits: 4 }).format(value);
 export const duration = (ms: number | undefined) => ms === undefined ? "暂无数据" : ms < 1000 ? `${number(ms)} ms` : `${number(ms / 1000)} s`;
 export const dateTime = (value: string, timeZone?: string) => new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(value));
 export type Tone = "accent" | "success" | "warning" | "danger";
