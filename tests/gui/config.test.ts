@@ -22,15 +22,15 @@ afterEach(async () => { await host.dispose(); });
 it("未选择工作区也能读取默认值、保存 GUI 设置并广播，不创建会话", async () => {
 	const initial = await host.query({ query: "guiConfig" });
 	expect(initial).toMatchObject({ path: file, content: "", state: "ready", value: {
-		theme: "system", fonts: { ui: "system-ui", code: "monospace" }, fontSizes: { ui: 14, chat: 15, code: 13 }, sendShortcut: "mod-enter",
+		theme: "system", themeColor: "#007AFF", fonts: { ui: "system-ui", code: "monospace" }, fontSizes: { ui: 14, chat: 16, code: 14 }, sendShortcut: "mod-enter",
 	} });
 	const events: GuiEvent[] = [];
 	host.subscribe((event) => events.push(event));
-	const content = '{\n // 自定义主题\n "theme": "dark",\n "fontSizes": {"chat": 20},\n}\n';
+	const content = '{\n // 自定义主题\n "theme": "dark",\n "themeColor": "#AF52DE",\n "fontSizes": {"chat": 20},\n}\n';
 	await host.dispatch({ action: "saveGuiConfig", original: "", content });
 	expect(await readFile(file, "utf8")).toBe(content);
 	expect(events.filter((event) => event.type === "guiConfig").at(-1)).toMatchObject({ value: {
-		state: "ready", value: { theme: "dark", fontSizes: { ui: 14, chat: 20, code: 13 } },
+		state: "ready", value: { theme: "dark", themeColor: "#AF52DE", fontSizes: { ui: 14, chat: 20, code: 14 } },
 	} });
 	expect(events.filter((event) => event.type === "snapshot").map((event) => event.value)).toEqual([null]);
 });
@@ -43,7 +43,7 @@ it("外部变更后重新读取生效，旧编辑内容不能覆盖新文件", a
 	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { theme: "light" } });
 });
 
-it.each(['{"fontSizes":{"ui":0}}', '{"theme":"blue"}', '{"unknown":true}', '{"theme":'])
+it.each(['{"fontSizes":{"ui":0}}', '{"theme":"blue"}', '{"unknown":true}', '{"theme":', '{"themeColor":"red"}', '{"themeColor":"#abc"}', '{"themeColor":"#12345678"}', '{"themeColor":123}'])
 ("非法配置可在编辑器中读取和修复，但不能保存: %s", async (content) => {
 	await expect(host.dispatch({ action: "saveGuiConfig", original: "", content })).rejects.toThrow();
 	await writeFile(file, content);

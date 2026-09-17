@@ -19,7 +19,17 @@
 .message.assistant { font-size: var(--text-body); }
 .message.assistant + .message.assistant { padding-top: 0; }
 .message.user { font-size: var(--text-body); display: flex; flex-direction: column; align-items: flex-end; align-self: flex-end; width: fit-content; max-width: 90%; padding: 0; margin-block: var(--space-3) var(--space-8); }
-.user-bubble { min-width: 0; max-width: 100%; padding: var(--space-3) var(--space-5); background: var(--secondary); border-radius: var(--radius-xl); }
+.user-bubble {
+	--foreground: var(--user-foreground);
+	--muted-foreground: var(--user-muted-foreground);
+	--link: var(--user-link);
+	--emphasis: var(--user-emphasis);
+	--border: var(--user-border);
+	--secondary: var(--user-surface);
+	--selection: var(--user-selection);
+	min-width: 0; max-width: 100%; padding: var(--space-3) var(--space-5);
+	background: var(--user-background); color: var(--foreground); border: 1px solid var(--border); border-radius: var(--radius-xl);
+}
 .message-identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1) var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); line-height: 1.6; overflow-wrap: anywhere; }
 .message-identity strong { font-weight: 500; min-width: 0; }
 .message-identity time { font-variant-numeric: tabular-nums; }
@@ -38,7 +48,8 @@
 .message ul { list-style: disc; }
 .message ol { list-style: decimal; }
 .message li { margin-block: 0.25rem; }
-.message a { color: var(--primary); text-decoration: underline; text-underline-offset: 0.2em; }
+.message :is(strong, em) { color: var(--emphasis); }
+.message a { color: var(--link); text-decoration: underline; text-underline-offset: 0.2em; }
 .message blockquote { margin-block: 0.75rem; border-left: 2px solid var(--ring); padding-left: 1rem; color: var(--muted-foreground); }
 .message table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin-block: 1rem; font-size: 0.9em; }
 .message th, .message td { padding: 0.5rem 0.75rem; border: 1px solid var(--border); text-align: left; }

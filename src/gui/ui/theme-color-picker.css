@@ -1,0 +1,23 @@
+.theme-color-trigger { justify-content: space-between; }
+.theme-color-trigger > span:nth-child(2) { flex: 1; text-align: start; }
+.theme-color-swatch { display: inline-block; flex-shrink: 0; inline-size: 1.5em; block-size: 1.5em; border: 1px solid var(--border); border-radius: 50%; }
+.theme-color-picker { display: flex; flex-direction: column; gap: 0.875em; inline-size: min(22em, calc(100vw - 2rem)); max-block-size: var(--radix-popover-content-available-height); overflow: auto; font-size: var(--text-ui); }
+.theme-color-picker header, .theme-color-custom { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; }
+.theme-color-picker p { color: var(--muted-foreground); font-size: var(--text-caption); }
+.theme-color-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 3em), 1fr)); gap: 0.25em; }
+.theme-color-presets button { display: grid; place-items: center; min-inline-size: 0; padding: 0.5em; border: 2px solid transparent; border-radius: 50%; }
+.theme-color-presets button[aria-pressed="true"] { border-color: var(--foreground); }
+.theme-color-presets button:hover { background: var(--accent); }
+.theme-color-presets button:focus-visible { outline: 2px solid var(--ring); }
+.theme-color-picker button:disabled { opacity: 0.45; }
+.theme-color-custom { border-block-start: 1px solid var(--border); padding-block-start: 0.5em; }
+.theme-color-slider { display: flex; flex-direction: column; gap: 0.75em; padding-block-end: 0.5em; }
+.theme-color-slider > span { display: flex; justify-content: space-between; }
+.theme-color-slider output { color: var(--muted-foreground); }
+.theme-color-slider input { appearance: none; inline-size: 100%; block-size: 0.625em; border-radius: 1em; cursor: pointer; }
+.theme-color-slider input:focus-visible { outline: 2px solid var(--ring); outline-offset: 0.25em; }
+.theme-color-slider input:disabled { cursor: default; opacity: 0.45; }
+.theme-color-slider input::-webkit-slider-thumb { appearance: none; inline-size: 1.25em; block-size: 1.25em; border: 1px solid var(--muted-foreground); border-radius: 50%; background: var(--control-thumb); }
+.theme-color-slider input::-moz-range-thumb { inline-size: 1.25em; block-size: 1.25em; border: 1px solid var(--muted-foreground); border-radius: 50%; background: var(--control-thumb); }
+.theme-color-hex { display: flex; align-items: center; justify-content: space-between; gap: 1em; }
+.theme-color-hex input { inline-size: 8em; font-family: var(--gui-font-code); }

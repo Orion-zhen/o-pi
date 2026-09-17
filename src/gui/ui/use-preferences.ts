@@ -1,13 +1,17 @@
 import { useLayoutEffect } from "react";
 import type { GuiPreferences } from "../preferences.ts";
+import { applyThemeColor } from "./theme/apply.ts";
 
 export function fontFamily(font: string, kind: "ui" | "code"): string {
 	const fallback = kind === "ui" ? "system-ui, sans-serif" : "ui-monospace, monospace";
 	return font === "system-ui" || font === "monospace" ? fallback : `${JSON.stringify(font)}, ${fallback}`;
 }
 
-/** 应用于根节点，确保通过 Portal 打开的菜单、弹窗也使用同一套排版。 */
+/** 应用于根节点，Portal 菜单和弹窗也共享配色与排版。 */
 export function usePreferences(value: GuiPreferences | undefined): void {
+	useLayoutEffect(() => {
+		if (value) applyThemeColor(value.themeColor);
+	}, [value?.themeColor]);
 	useLayoutEffect(() => {
 		if (!value) return;
 		const root = document.documentElement;

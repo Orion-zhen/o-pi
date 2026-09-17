@@ -39,6 +39,8 @@ import { ResizeHandle } from "./components/resize-handle";
 import { Button } from "./components/ui/button";
 import { Sheet, SheetTrigger } from "./components/ui/sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { applyThemeColor } from "./theme/apply.ts";
+import { DEFAULT_THEME_COLOR } from "./theme/palette.ts";
 import "./theme.css";
 import "./style.css";
 import "./transcript.css";
@@ -299,6 +301,7 @@ function App() {
 	);
 }
 
+applyThemeColor(DEFAULT_THEME_COLOR);
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing application root");
 createRoot(root).render(<App />);

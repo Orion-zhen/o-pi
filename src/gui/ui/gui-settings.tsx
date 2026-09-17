@@ -8,10 +8,11 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { FontPicker } from "./font-picker.tsx";
+import { ThemeColorPicker } from "./theme-color-picker.tsx";
 import { ConfigEditor } from "./config-editor.tsx";
 import "./gui-settings.css";
 
-type PreferencePath = ["theme"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"];
+type PreferencePath = ["theme"] | ["themeColor"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"];
 
 export function GuiSettings({ document, send, disabled, refresh, restoreFocus }: {
 	document: GuiConfigDocument | undefined; send: Send; disabled: boolean; refresh: () => Promise<void>; restoreFocus: () => void;
@@ -22,16 +23,16 @@ export function GuiSettings({ document, send, disabled, refresh, restoreFocus }:
 	if (!document) return <p role="status">正在读取 GUI 设置…</p>;
 	const save = async (content: string) => {
 		setSaving(true);
-		try { await send({ action: "saveGuiConfig", original: document.content, content }); }
+		try { return await send({ action: "saveGuiConfig", original: document.content, content }); }
 		finally { setSaving(false); }
 	};
 	const change = (path: PreferencePath, value: string | number | undefined) => {
 		const content = document.content || "{}\n";
-		void save(applyEdits(content, modify(content, path, value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
+		return save(applyEdits(content, modify(content, path, value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
 	};
 	const reset = () => {
 		let content = document.content || "{}\n";
-		for (const key of ["theme", "fonts", "fontSizes", "sendShortcut"])
+		for (const key of ["theme", "themeColor", "fonts", "fontSizes", "sendShortcut"])
 			content = applyEdits(content, modify(content, [key], undefined, {}));
 		void save(content);
 	};
@@ -43,6 +44,10 @@ export function GuiSettings({ document, send, disabled, refresh, restoreFocus }:
 				<NativeSelect aria-label="主题" value={document.value.theme} disabled={blocked} onChange={(event) => change(["theme"], event.target.value === document.defaults.theme ? undefined : event.target.value)}>
 					<option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option>
 				</NativeSelect>
+			</PreferenceRow>
+			<PreferenceRow label="主题色" reset={() => change(["themeColor"], undefined)} disabled={blocked}>
+				<ThemeColorPicker value={document.value.themeColor} defaultValue={document.defaults.themeColor} disabled={blocked}
+					change={(color) => change(["themeColor"], color === document.defaults.themeColor ? undefined : color)} />
 			</PreferenceRow>
 			{(["ui", "code"] as const).map((kind) => <PreferenceRow key={kind} label={kind === "ui" ? "界面字体" : "代码字体"} reset={() => change(["fonts", kind], undefined)} disabled={blocked}>
 				<FontPicker kind={kind} value={document.value.fonts[kind]} disabled={blocked} onChange={(font) => change(["fonts", kind], font === document.defaults.fonts[kind] ? undefined : font)} />

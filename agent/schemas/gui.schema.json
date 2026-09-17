@@ -6,6 +6,7 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"theme": { "enum": ["system", "light", "dark"] },
+		"themeColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
 		"fonts": {
 			"type": "object",
 			"additionalProperties": false,

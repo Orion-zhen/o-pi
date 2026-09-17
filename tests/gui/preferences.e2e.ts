@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { checkThemeColor } from "./theme-steps.ts";
 
 async function drag(page: Page, handle: Locator, x: number, y = 0) {
 	const box = await handle.boundingBox();
@@ -54,13 +55,16 @@ for (const mode of ["web", "desktop"] as const) test(`${mode}：GUI 偏好、系
 			await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
 			await openSettings();
 			await expect(settings.getByRole("combobox", { name: "主题", exact: true })).toHaveValue("system");
+			await page.emulateMedia({ colorScheme: "light" });
+			const lightBackground = await page.locator("body").evaluate((node) => getComputedStyle(node).backgroundColor);
 			await settings.getByRole("combobox", { name: "主题", exact: true }).selectOption("dark");
 			await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 			await page.emulateMedia({ colorScheme: "light" });
-			await expect(page.locator("body")).toHaveCSS("background-color", "rgb(27, 29, 34)");
+			await expect(page.locator("body")).not.toHaveCSS("background-color", lightBackground);
 			await settings.getByRole("button", { name: "重置主题", exact: true }).click();
 			await expect(page.locator("html")).toHaveAttribute("data-theme", "system");
-			await expect(page.locator("body")).toHaveCSS("background-color", "rgb(248, 249, 251)");
+			await expect(page.locator("body")).toHaveCSS("background-color", lightBackground);
+			await checkThemeColor(page, settings, configFile, openSettings, `${mode}-${info.project.name}`);
 			for (const [label, size] of [["界面字号", "18"], ["对话字号", "22"], ["代码字号", "17"]] as const) {
 				const input = settings.getByRole("spinbutton", { name: label, exact: true });
 				await input.fill(size);
@@ -78,8 +82,15 @@ for (const mode of ["web", "desktop"] as const) test(`${mode}：GUI 偏好、系
 			await page.getByRole("option", { name: family, exact: true }).click();
 			await expect(settings.getByRole("combobox", { name: "界面字体", exact: true })).toContainText(family);
 			await expect.poll(() => page.locator("body").evaluate((element) => getComputedStyle(element).fontFamily)).toContain(family);
+			await settings.getByRole("button", { name: "主题色", exact: true }).click();
+			await page.getByRole("button", { name: "主题色 #FF2D55", exact: true }).click();
+			await expect(settings.getByRole("button", { name: "主题色", exact: true })).toContainText("#FF2D55");
+			await page.keyboard.press("Escape");
+			await expect(page.getByLabel("主题色调色板", { exact: true })).toHaveCount(0);
 			await settings.getByRole("button", { name: "恢复 GUI 默认设置", exact: true }).click();
 			await expect(settings.getByRole("spinbutton", { name: "界面字号", exact: true })).toHaveValue("14");
+			await expect(settings.getByRole("button", { name: "主题色", exact: true })).toContainText("#007AFF");
+			expect(await readFile(configFile, "utf8")).not.toContain("themeColor");
 			await settings.getByRole("button", { name: "编辑 gui.jsonc", exact: true }).click();
 			const json = page.getByRole("textbox", { name: "GUI 设置 JSONC", exact: true });
 			await json.fill('{\n // 保留我的注释\n "theme": "dark"\n}\n');

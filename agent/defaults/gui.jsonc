@@ -1,6 +1,7 @@
 {
 	"$schema": "../schemas/gui.schema.json",
 	"theme": "system",
+	"themeColor": "#007AFF",
 	"fonts": {
 		"ui": "system-ui",
 		"code": "monospace"
