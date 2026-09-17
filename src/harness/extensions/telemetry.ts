@@ -1,9 +1,10 @@
 import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type createLiveTelemetryReport } from "../telemetry-report/live.ts";
-type TelemetryPresenter = (
+import { canPresent, type Presenter } from "../presentation.ts";
+type TelemetryPresenter = Presenter<(
 	ctx: ExtensionCommandContext,
 	report: ReturnType<typeof createLiveTelemetryReport>,
-) => Promise<void>;
+) => Promise<void>>;
 
 import { registerTelemetry, type TelemetryService } from "../telemetry/service.ts";
 
@@ -28,11 +29,11 @@ export function registerTelemetryCommand(
 				import("../telemetry-report/presentation/summary.ts"),
 			]);
 			const report = createLiveTelemetryReport(service.snapshot());
-			if (ctx.mode !== "tui" || present === undefined) {
+			if (present === undefined || !canPresent(ctx, present)) {
 				ctx.ui.notify(formatLiveTelemetrySummary(report), "info");
 				return;
 			}
-			await present(ctx, report);
+			await present.show(ctx, report);
 		},
 	});
 }

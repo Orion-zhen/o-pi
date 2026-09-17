@@ -1,5 +1,5 @@
 {
-	"name": "o-pi",
+	"name": "opi",
 	"engines": {
 		"bun": ">=1.4.0"
 	},
@@ -7,18 +7,36 @@
 	"private": true,
 	"scripts": {
 		"build": "bun scripts/build.mjs",
+		"build:tui": "bun scripts/build.mjs tui",
 		"typecheck": "tsc",
-		"test": "bun run build && vitest run",
-		"bench": "bun run build && bun scripts/bench.mjs"
+		"test": "bun run build:tui && vitest run",
+		"bench": "bun run build:tui && bun scripts/bench.mjs",
+		"dev:tui": "bun src/tui/main.ts",
+		"dev:web": "bun run build:gui && bun src/web/main.ts",
+		"build:gui": "vite build --config vite.gui.config.ts",
+		"build:web": "bun scripts/build.mjs web",
+		"build:desktop": "bun scripts/build.mjs desktop",
+		"desktop": "electron dist/desktop/app",
+		"test:gui": "bun scripts/build.mjs web desktop --dir && playwright test --config playwright.gui.config.ts"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-server": "latest",
+		"@playwright/test": "latest",
+		"@tailwindcss/vite": "latest",
 		"@types/node": "latest",
 		"@types/node-notifier": "latest",
 		"@types/picomatch": "latest",
+		"@types/react": "latest",
+		"@types/react-dom": "latest",
+		"@types/react-syntax-highlighter": "latest",
 		"@types/turndown": "latest",
+		"@types/ws": "latest",
 		"@vitest/coverage-v8": "latest",
+		"electron": "latest",
+		"electron-builder": "latest",
 		"jiti": "latest",
+		"tailwindcss": "latest",
+		"tw-animate-css": "latest",
 		"typescript": "latest",
 		"vite": "latest",
 		"vitest": "latest"
@@ -35,6 +53,9 @@
 		"@resvg/resvg-js": "latest",
 		"@xhayper/discord-rpc": "latest",
 		"ajv": "latest",
+		"class-variance-authority": "latest",
+		"clsx": "latest",
+		"commander": "latest",
 		"content-type": "latest",
 		"file-type": "latest",
 		"get-east-asian-width": "latest",
@@ -44,10 +65,19 @@
 		"ipaddr.js": "latest",
 		"jsonc-parser": "latest",
 		"linkedom": "latest",
+		"lucide-react": "latest",
+		"motion": "latest",
 		"node-notifier": "latest",
 		"p-limit": "latest",
 		"pdfjs-dist": "latest",
 		"picomatch": "latest",
+		"radix-ui": "latest",
+		"react": "latest",
+		"react-dom": "latest",
+		"react-markdown": "latest",
+		"react-syntax-highlighter": "latest",
+		"remark-gfm": "latest",
+		"tailwind-merge": "latest",
 		"tldts": "latest",
 		"tough-cookie": "latest",
 		"tree-sitter-bash": "latest",
@@ -64,9 +94,10 @@
 		"undici": "latest",
 		"vscode-jsonrpc": "latest",
 		"vscode-languageserver-protocol": "latest",
-		"web-tree-sitter": "latest"
+		"web-tree-sitter": "latest",
+		"ws": "latest"
 	},
-	"trustedDependencies": ["@google/genai", "protobufjs"],
+	"trustedDependencies": ["@google/genai", "protobufjs", "electron"],
 	"overrides": {
 		"node-notifier": {
 			"uuid": "latest"

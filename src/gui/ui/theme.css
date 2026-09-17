@@ -1,0 +1,104 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary-hover: var(--primary-hover);
+	--color-primary-active: var(--primary-active);
+	--color-secondary-hover: var(--secondary-hover);
+	--color-secondary-active: var(--secondary-active);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--foreground);
+	--color-muted: var(--secondary);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-destructive-hover: var(--destructive-hover);
+	--color-destructive-active: var(--destructive-active);
+	--color-border: var(--border);
+	--color-input: var(--border);
+	--color-ring: var(--ring);
+	--radius-sm: 0.5rem;
+	--radius-md: 0.75rem;
+	--radius-lg: 1rem;
+	--radius-xl: 1.5rem;
+	--font-sans: var(--gui-font-ui);
+	--font-mono: var(--gui-font-code);
+	--text-xs: var(--text-caption);
+	--text-sm: var(--text-ui);
+	--text-base: calc(var(--text-ui) * 8 / 7);
+	--text-lg: var(--text-heading);
+	--text-xl: calc(var(--text-ui) * 10 / 7);
+	--text-2xl: calc(var(--text-ui) * 12 / 7);
+}
+
+:root {
+	--gui-font-ui: system-ui, sans-serif;
+	--gui-font-code: ui-monospace, monospace;
+	font-family: var(--gui-font-ui);
+	color-scheme: light dark;
+	--shadow: 0 0.25rem 1.5rem color-mix(in srgb, var(--floating-shadow) 25%, transparent), 0 0.0625rem 0.25rem color-mix(in srgb, var(--floating-shadow) 20%, transparent);
+	--shadow-floating: 0 1rem 4rem var(--floating-shadow), 0 0.25rem 0.75rem color-mix(in srgb, var(--floating-shadow) 50%, transparent);
+	--surface-highlight: inset 0 0.0625rem 0 var(--surface-shine);
+	--glass-filter: blur(1.5rem) saturate(1.1);
+	--divider: color-mix(in srgb, var(--border) 65%, transparent);
+	--text-ui: 0.875rem;
+	--text-body: 0.9375rem;
+	--text-code: 0.8125rem;
+	--text-caption: calc(var(--text-ui) * 6 / 7);
+	--text-small: calc(var(--text-ui) * 13 / 14);
+	--text-heading: calc(var(--text-ui) * 9 / 7);
+	--text-process: calc(var(--text-body) * 0.9);
+	--inline-code-scale: 0.8666667;
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.25rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+	--content-inset: clamp(0.875rem, 2.5vw, 2rem);
+	--conversation-width: 140ch;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+@layer base {
+	* { @apply border-border; }
+	body { @apply m-0 bg-background text-foreground antialiased; font-family: var(--gui-font-ui); font-size: var(--text-ui); line-height: 1.5; }
+	button:not(:disabled), summary, [role="menuitem"] { cursor: pointer; }
+	button, input, textarea, select { font: inherit; }
+	::selection { background: var(--selection); }
+	input, textarea { caret-color: var(--primary); }
+	* { scrollbar-color: var(--scrollbar-thumb) transparent; }
+	/* Chromium 的原生滚动条没有独立状态色，使用伪元素显示悬停和拖动反馈。 */
+	@supports selector(::-webkit-scrollbar) {
+		* { scrollbar-color: auto; }
+		::-webkit-scrollbar { width: 0.625rem; height: 0.625rem; }
+		::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border: 0.125rem solid transparent; background-clip: padding-box; border-radius: 1rem; }
+		::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+		::-webkit-scrollbar-thumb:active { background-color: var(--scrollbar-thumb-active); }
+		::-webkit-scrollbar-corner { background: transparent; }
+	}
+}
+
+.floating-surface {
+	background: var(--popover);
+	backdrop-filter: var(--glass-filter);
+	box-shadow: var(--surface-highlight), var(--shadow-floating);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation: none !important;
+		transition: none !important;
+		scroll-behavior: auto !important;
+	}
+}

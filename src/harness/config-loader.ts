@@ -73,6 +73,7 @@ export interface LoadedValidatedMergedConfig extends LoadedConfigLayers {
 /** 分层代理配置及其允许范围的中央注册中心。 */
 export const CONFIG_DEFINITIONS = {
 	approvalGate: globalConfig("approval-gate", "approval-gate.jsonc", "PI_APPROVAL_GATE_CONFIG"),
+	autoTitle: globalConfig("auto-title", "auto-title.jsonc", "PI_AUTO_TITLE_CONFIG"),
 	bashTool: globalConfig("bash-tool", "bash-tool.jsonc", "PI_BASH_TOOL_CONFIG"),
 	discordPresence: projectConfig(
 		"discord-presence",
@@ -84,6 +85,7 @@ export const CONFIG_DEFINITIONS = {
 	fileTools: projectConfig("file-tools", "file-tools.jsonc", "PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT"),
 	lsp: projectConfig("lsp", "lsp.jsonc", "PI_LSP_CONFIG", "PI_LSP_PROJECT_CONFIG", "PI_LSP_PROJECT_ROOT"),
 	subagent: projectConfig("subagent", "subagent.jsonc", "PI_SUBAGENT_USER_CONFIG", "PI_SUBAGENT_PROJECT_CONFIG", "PI_SUBAGENT_PROJECT_ROOT"),
+	gui: globalConfig("gui", "gui.jsonc", "PI_GUI_CONFIG"),
 	tui: globalConfig("tui", "tui.jsonc", "PI_TUI_CONFIG"),
 	webTools: globalConfig("web-tools", "web-tools.jsonc", "PI_WEB_TOOLS_CONFIG"),
 } as const satisfies Record<string, ConfigDefinition>;

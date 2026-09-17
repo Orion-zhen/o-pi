@@ -6,10 +6,10 @@ export interface ModelRequest {
 	tools?: Array<{ function: { name: string } }>;
 }
 
-export type ModelResponse = { text: string } | { tool: string; args: Record<string, unknown> };
+export type ModelResponse = ({ text: string } | { tool: string; args: Record<string, unknown>; text?: string }) & { thinking?: string };
 
 /** 模拟模型 HTTP 边界，CLI、Provider、工具和会话全部走正式实现。 */
-export async function startModelServer(respond: (request: ModelRequest) => ModelResponse) {
+export async function startModelServer(respond: (request: ModelRequest) => ModelResponse | Promise<ModelResponse>) {
 	const requests: ModelRequest[] = [];
 	const server = createServer(async (request, response) => {
 		try {
@@ -17,11 +17,12 @@ export async function startModelServer(respond: (request: ModelRequest) => Model
 			for await (const chunk of request) chunks.push(Buffer.from(chunk));
 			const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as ModelRequest;
 			requests.push(body);
-			const reply = respond(body);
+			const reply = await respond(body);
 			const delta = "tool" in reply
-				? { role: "assistant", tool_calls: [{ index: 0, id: `call-${requests.length}`, type: "function", function: { name: reply.tool, arguments: JSON.stringify(reply.args) } }] }
+				? { role: "assistant", content: reply.text, tool_calls: [{ index: 0, id: `call-${requests.length}`, type: "function", function: { name: reply.tool, arguments: JSON.stringify(reply.args) } }] }
 				: { role: "assistant", content: reply.text };
 			response.writeHead(200, { "content-type": "text/event-stream" });
+			if (reply.thinking) response.write(`data: ${JSON.stringify({ id: "chatcmpl-fixture", object: "chat.completion.chunk", created: 1, model: "test", choices: [{ index: 0, delta: { role: "assistant", reasoning_content: reply.thinking }, finish_reason: null }] })}\n\n`);
 			for (const [value, finish] of [[delta, null], [{}, "tool" in reply ? "tool_calls" : "stop"]] as const) {
 				response.write(`data: ${JSON.stringify({ id: "chatcmpl-fixture", object: "chat.completion.chunk", created: 1, model: "test", choices: [{ index: 0, delta: value, finish_reason: finish }] })}\n\n`);
 			}

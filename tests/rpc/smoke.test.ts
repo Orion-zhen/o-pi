@@ -20,7 +20,7 @@ describe("真实 opi 二进制 RPC", () => {
 	it("离线完成 state、静态 commands、工具事件和干净 shutdown", async () => {
 		const presenceConfig = path.join(temp.path, "discord-presence.jsonc");
 		await writeFile(presenceConfig, '{"enabled":false}');
-		const cliPath = path.resolve(process.platform === "win32" ? "dist/opi.exe" : "dist/opi");
+		const cliPath = path.resolve(process.platform === "win32" ? "dist/tui/opi.exe" : "dist/tui/opi");
 		const child = spawn(cliPath, [
 			"--mode",
 			"rpc",

@@ -95,6 +95,14 @@ afterEach(async () => {
 });
 
 describe("tui extension", () => {
+	it("后台名称变更立即刷新终端标题", async () => {
+		let name: string | undefined;
+		const { handlers, calls, ctx } = await startTui({}, { getSessionName: () => name });
+		name = "修复登录错误";
+		await handlers.get("session_info_changed")?.({ type: "session_info_changed", name }, ctx);
+		expect(calls.title.at(-1)).toContain("修复登录错误");
+	});
+
 	it("编辑器工厂安装图片适配，离开 Home 时保留，会话重载与退出时恢复", async () => {
 		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
 		const terminal = new ProcessTerminal();
@@ -183,6 +191,7 @@ describe("tui extension", () => {
 
 		expect(banner.render(120).join("\n")).toContain("main");
 		expect(editor.render(100).join("\n")).toContain("main");
+		expect(calls.title.at(-1)).toMatch(/^π opi · /u);
 		expect(calls.title.at(-1)).toContain("main");
 		expect(provider.subscriberCount()).toBe(1);
 
@@ -739,7 +748,7 @@ async function startTui(
 
 function createPi(
 	handlers: Map<string, Handler>,
-	options: { getActiveTools?: () => string[] } = {},
+	options: { getActiveTools?: () => string[]; getSessionName?: () => string | undefined } = {},
 ) {
 	return {
 		on(name: string, handler: Handler) {
@@ -748,9 +757,7 @@ function createPi(
 		getThinkingLevel() {
 			return "medium";
 		},
-		getSessionName() {
-			return undefined;
-		},
+		getSessionName: options.getSessionName ?? (() => undefined),
 		getAllTools() {
 			return [{ name: "read" }, { name: "grep" }, { name: "bash" }];
 		},

@@ -9,6 +9,11 @@ type LspCommandApi = Pick<ExtensionAPI, "registerCommand">;
 export function registerLspCommands(pi: LspCommandApi, manager: LspManager): void {
 	pi.registerCommand("lsp", {
 		description: "Show or reload internal LSP status",
+		getArgumentCompletions: (prefix) => [
+			{ value: "status", label: "status", description: "查看 LSP 状态" },
+			{ value: "reload", label: "reload", description: "重载 LSP 服务" },
+			{ value: "diagnostics", label: "diagnostics", description: "查看诊断，可追加文件路径" },
+		].filter((item) => item.value.startsWith(prefix.trimStart())),
 		async handler(args, ctx) {
 			await handleLspCommand(manager, args, ctx);
 		},

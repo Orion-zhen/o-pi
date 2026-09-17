@@ -1,5 +1,6 @@
 import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { canPresent, type Presenter } from "../presentation.ts";
 import { UsageService } from "../usage/service.ts";
 import { UsageRequestError, type UsageSnapshot } from "../usage/types.ts";
 
@@ -9,11 +10,14 @@ const COMMAND_USAGE = "Usage: /usage [--refresh]";
 /** 注册 /usage。查询 Pi OAuth plan 的当前消耗，并以只读浮层展示。 */
 export default function usageExtension(
 	pi: Pick<ExtensionAPI, "registerCommand">,
-	present?: (ctx: ExtensionCommandContext, result: UsageSnapshot | "aborted") => Promise<void>,
+	present?: Presenter<(ctx: ExtensionCommandContext, result: UsageSnapshot | "aborted") => Promise<void>>,
 ): void {
 	const service = new UsageService();
 	pi.registerCommand("usage", {
 		description: COMMAND_DESCRIPTION,
+		getArgumentCompletions: (prefix) => [
+			{ value: "--refresh", label: "--refresh", description: "跳过缓存，刷新套餐用量" },
+		].filter((item) => item.value.startsWith(prefix.trimStart())),
 		async handler(args, ctx) {
 			const argument = args.trim();
 			if (argument !== "" && argument !== "--refresh") {
@@ -32,8 +36,8 @@ export default function usageExtension(
 				result = "aborted";
 			}
 
-			if (ctx.mode === "tui" && present !== undefined) {
-				await present(ctx, result);
+			if (present !== undefined && canPresent(ctx, present)) {
+				await present.show(ctx, result);
 				return;
 			}
 

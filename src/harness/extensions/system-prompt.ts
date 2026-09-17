@@ -1,7 +1,8 @@
 import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { buildAgentSystemPrompt, buildRuntimeSystemPrompt } from "../system-prompt/service.ts";
-type SystemPresenter = (ctx: ExtensionCommandContext, prompt: string) => Promise<void>;
+import { canPresent, type Presenter } from "../presentation.ts";
+type SystemPresenter = Presenter<(ctx: ExtensionCommandContext, prompt: string) => Promise<void>>;
 
 const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt.";
 
@@ -23,9 +24,9 @@ export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand">,
 	pi.registerCommand("system", {
 		description: SYSTEM_COMMAND_DESCRIPTION,
 		async handler(_args, ctx) {
-			if (ctx.mode !== "tui" || present === undefined) return;
+			if (present === undefined || !canPresent(ctx, present)) return;
 			const prompt = await buildRuntimeSystemPrompt(ctx.getSystemPromptOptions(), ctx.cwd);
-			await present(ctx, prompt);
+			await present.show(ctx, prompt);
 		},
 	});
 }

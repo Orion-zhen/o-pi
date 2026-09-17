@@ -65,6 +65,19 @@ describe("lsp extension", () => {
 			},
 		}, manager);
 		if (options === undefined) throw new Error("lsp command not registered");
+		const complete = options.getArgumentCompletions;
+		if (!complete) throw new Error("lsp completions not registered");
+		expect(await complete("")).toEqual([
+			{ value: "status", label: "status", description: expect.any(String) },
+			{ value: "reload", label: "reload", description: expect.any(String) },
+			{ value: "diagnostics", label: "diagnostics", description: expect.any(String) },
+		]);
+		expect(await complete("re")).toEqual([{ value: "reload", label: "reload", description: expect.any(String) }]);
+		expect(await complete("diagnostics src/")).toEqual([]);
+		expect(await complete("bad")).toEqual([]);
+		expect(manager.status).not.toHaveBeenCalled();
+		expect(manager.reload).not.toHaveBeenCalled();
+		expect(manager.knownDiagnostics).not.toHaveBeenCalled();
 		const notifications: Array<{ message: string; level: string | undefined }> = [];
 		const ctx = {
 			cwd: repositoryRoot,

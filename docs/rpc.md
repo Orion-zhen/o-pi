@@ -1,6 +1,6 @@
 # RPC 支持矩阵
 
-o-pi 复用 Pi 原生的 `--mode rpc` JSONL 协议，不另行定义传输协议。RPC 客户端可以直接调用 Pi 的 `get_state`、`get_commands` 和 `prompt`，也可以处理工具事件和 Extension UI 子协议。仓库中的查询、服务、控制器和结构化数据传输对象（DTO）是未来 GUI、SDK 或 RPC 适配器的复用边界。斜杠命令的文本输出、通知文本和 TUI 组件属于前端实现，不是 GUI API。
+o-pi CLI 的 RPC 入口复用 Pi 原生的 `--mode rpc` JSONL 协议。Desktop 和 WebUI 直接集成 SDK，不使用此入口，见 [GUI MVP](gui.md)。RPC 客户端可以直接调用 Pi 的 `get_state`、`get_commands` 和 `prompt`，也可以处理工具事件和 Extension UI 子协议。仓库中的查询、服务、控制器和结构化数据传输对象（DTO）是未来 GUI、SDK 或 RPC 适配器的复用边界。斜杠命令的文本输出、通知文本和 TUI 组件属于前端实现，不是 GUI API。
 
 ## 分层
 

@@ -1,45 +1,43 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assetModule, collectAssets } from "./build/assets.mjs";
-import { runtimePlugin } from "./build/plugins.mjs";
+import { parseArgs } from "node:util";
+
+const { values, positionals } = parseArgs({
+	args: process.argv.slice(2),
+	options: { dir: { type: "boolean" }, help: { type: "boolean" } },
+	allowPositionals: true,
+});
+if (values.help) {
+	console.log("bun scripts/build.mjs [tui web desktop] [--dir]\n默认构建三端。--dir 只生成桌面应用目录，不制作安装包。");
+	process.exit(0);
+}
+const targets = positionals.length === 0 ? ["tui", "web", "desktop"] : [...new Set(positionals)];
+for (const target of targets) {
+	if (!["tui", "web", "desktop"].includes(target)) throw new Error(`未知构建目标: ${target}`);
+}
+if (values.dir && !targets.includes("desktop")) throw new Error("--dir 需要 desktop 目标。");
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const dist = path.join(root, "dist");
-await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 const staging = await mkdtemp(path.join(dist, ".build-"));
 try {
-	const resources = await collectAssets(root, staging);
-	const generated = path.join(staging, "assets.ts");
-	await writeFile(generated, assetModule(resources));
-	const entry = path.join(staging, "entry.ts");
-	await writeFile(entry, `import ${JSON.stringify(path.join(root, "src/binary.ts"))};\n`);
-	// Pi 的 Bun 发行入口约定此 worker 路径，不改写上游实现。
-	const worker = path.join(staging, "src/utils/image-resize-worker.ts");
-	await mkdir(path.dirname(worker), { recursive: true });
-	const piRoot = new URL("../", import.meta.resolve("@earendil-works/pi-coding-agent"));
-	await writeFile(worker, `import ${JSON.stringify(fileURLToPath(new URL("dist/utils/image-resize-worker.js", piRoot)))};\n`);
-	const result = await Bun.build({
-		entrypoints: [entry, worker],
-		root: staging,
-		compile: {
-			outfile: path.join(dist, process.platform === "win32" ? "opi.exe" : "opi"),
-			autoloadDotenv: false,
-			autoloadBunfig: false,
-		},
-		format: "esm",
-		minify: true,
-		bytecode: true,
-		sourcemap: "linked",
-		plugins: [runtimePlugin(), {
-			name: "opi-asset-manifest",
-			setup(build) {
-				build.onResolve({ filter: /^opi:assets$/ }, () => ({ path: generated }));
-			},
-		}],
-	});
-	console.log(`Built ${result.outputs[0].path} (${resources.files.length} embedded assets)`);
+	let ui;
+	for (const target of targets) {
+		if (target !== "tui" && ui === undefined) {
+			ui = path.join(staging, "gui");
+			const { build } = await import("vite");
+			await build({ configFile: path.join(root, "vite.gui.config.ts"), build: { outDir: ui } });
+		}
+		if (target === "desktop") {
+			const { buildDesktop } = await import("./build/desktop.mjs");
+			await buildDesktop({ root, ui, directoryOnly: values.dir === true });
+		} else {
+			const { buildBinary } = await import("./build/bun.mjs");
+			await buildBinary({ root, target, staging: path.join(staging, target), ui });
+		}
+	}
 } finally {
 	await rm(staging, { recursive: true, force: true });
 }

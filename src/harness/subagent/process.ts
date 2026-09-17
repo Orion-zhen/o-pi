@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { cliInvocation } from "../runtime/invocation.ts";
+import { childInvocation } from "../runtime/invocation.ts";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -18,13 +18,13 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	let aborted = false;
 
 	const launch = await buildLaunch(input);
-	const invocation = cliInvocation(launch.args);
+	const invocation = childInvocation(launch.args);
 	const exitCode = await new Promise<number>((resolve) => {
 		const proc = spawn(invocation.command, invocation.args, {
 			cwd: launch.cwd,
 			shell: false,
 			stdio: ["pipe", "pipe", "pipe"],
-			env: { ...buildChildEnv(), ...launch.env },
+			env: { ...buildChildEnv(invocation.env ?? process.env), ...launch.env },
 		});
 		proc.stdin.end();
 		let settled = false;
@@ -190,11 +190,11 @@ async function buildLaunch(input: ProcessRunInput): Promise<{ args: string[]; cw
 	};
 }
 
-function buildChildEnv(): NodeJS.ProcessEnv {
-	const allowed = new Set(["PATH", "PATHEXT", "HOME", "USERPROFILE", "SystemRoot", "TEMP", "TMP", "TERM", "COLORTERM", "LANG", "LC_ALL"]);
+function buildChildEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const allowed = new Set(["ELECTRON_RUN_AS_NODE", "PATH", "PATHEXT", "HOME", "USERPROFILE", "SystemRoot", "TEMP", "TMP", "TERM", "COLORTERM", "LANG", "LC_ALL"]);
 	const prefixes = ["OPENAI_", "ANTHROPIC_", "OLLAMA_", "PI_", "NO_PROXY", "HTTP_PROXY", "HTTPS_PROXY"];
 	const env: NodeJS.ProcessEnv = {};
-	for (const [key, value] of Object.entries(process.env)) {
+	for (const [key, value] of Object.entries(source)) {
 		if (value === undefined) continue;
 		if (allowed.has(key) || prefixes.some((prefix) => key.startsWith(prefix))) env[key] = value;
 	}

@@ -15,8 +15,8 @@ export function workingIndicatorOptions(config: TuiConfig, theme: Pick<Theme, "f
 	}
 }
 
-export function formatTitle(snapshot: Pick<TuiSnapshot, "cwd" | "git" | "modelId" | "status">): string {
-	return joinParts(["π o-pi", path.basename(snapshot.cwd), snapshot.git, snapshot.modelId, snapshot.status], " · ");
+export function formatTitle(snapshot: Pick<TuiSnapshot, "cwd" | "sessionName" | "git" | "modelId" | "status">): string {
+	return joinParts(["π opi", snapshot.sessionName, path.basename(snapshot.cwd), snapshot.git, snapshot.modelId, snapshot.status], " · ");
 }
 
 export function formatStatus(status: TuiRunStatus, theme: Pick<Theme, "fg">): string {

@@ -15,6 +15,8 @@ export function runtimePlugin() {
 		name: "opi-runtime-assets",
 		setup(build) {
 			build.onResolve({ filter: /^undici$/ }, () => ({ path: require.resolve("undici/index.js") }));
+			// UMD 工厂中的相对 require 无法在 Node 单文件产物中解析。
+			build.onResolve({ filter: /^jsonc-parser$/ }, () => ({ path: require.resolve("jsonc-parser/lib/esm/main.js") }));
 			build.onLoad({ filter: /[\\/]jiti[\\/]lib[\\/]jiti-static\.mjs$/ }, async ({ path }) => {
 				// 字面量 require 仍被 Bun 打包，但首次加载外部扩展时才执行模块。
 				let source = replaceOnce(await readFile(path, "utf8"),

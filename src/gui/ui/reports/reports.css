@@ -1,0 +1,58 @@
+.report-dashboard { display: flex; flex-direction: column; gap: 1.25em; min-inline-size: 0; font-size: var(--text-ui); }
+.report-dashboard :is(h2, h3, p, dl, dd) { margin: 0; }
+.report-dashboard [data-tone] { --report-color: var(--foreground); }
+.report-dashboard [data-tone="success"] { --report-color: var(--success); }
+.report-dashboard [data-tone="warning"] { --report-color: var(--warning); }
+.report-dashboard [data-tone="danger"] { --report-color: var(--destructive); }
+.report-intro { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5em; }
+.report-intro h2 { font-size: 1.5em; font-weight: 600; letter-spacing: -0.025em; overflow-wrap: anywhere; }
+.report-intro p, .report-note, .report-stamp { color: var(--muted-foreground); font-size: 0.85em; line-height: 1.6; overflow-wrap: anywhere; }
+.report-badge { display: inline-flex; align-items: center; padding: 0.3em 0.75em; border-radius: 2em; font-size: 0.8em; font-weight: 550; color: var(--report-color, var(--primary)); background: color-mix(in srgb, var(--report-color, var(--primary)) 9%, transparent); }
+.report-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10em), 1fr)); gap: 0.75em; }
+.report-metric { display: flex; flex-direction: column; gap: 0.4em; min-inline-size: 0; padding: 1em; background: var(--surface); border: 0.0625em solid var(--border); border-radius: 0.875em; }
+.report-metric dt { color: var(--muted-foreground); font-size: 0.85em; }
+.report-metric dd { color: var(--report-color, var(--foreground)); font-size: 1.75em; line-height: 1.2; font-weight: 600; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.report-metric small { color: var(--muted-foreground); font-size: 0.75em; }
+.report-section { min-inline-size: 0; background: var(--surface); border: 0.0625em solid var(--border); border-radius: 1em; overflow: clip; }
+.report-section > h3, .report-section > .disclosure-trigger { padding: 1em 1.25em; font-weight: 550; }
+.report-section > .disclosure-trigger { inline-size: 100%; }
+.report-section > .disclosure-trigger:hover { background: var(--secondary); }
+.report-section-body { display: flex; flex-direction: column; gap: 1em; padding: 0 1.25em 1.25em; }
+.report-bars { display: flex; flex-direction: column; gap: 1.1em; min-inline-size: 0; }
+.report-bar { display: flex; flex-direction: column; gap: 0.5em; min-inline-size: 0; }
+.report-bar-label { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0.25em 1em; overflow-wrap: anywhere; }
+.report-bar-label strong { color: var(--report-color); font-size: 0.85em; font-weight: 550; font-variant-numeric: tabular-nums; }
+.report-bar small { color: var(--muted-foreground); font-size: 0.8em; line-height: 1.5; overflow-wrap: anywhere; }
+.report-bar meter { display: block; appearance: none; inline-size: 100%; block-size: 0.5em; border: 0; border-radius: 1em; background: var(--secondary); }
+.report-bar meter::-webkit-meter-bar { border: 0; border-radius: 1em; background: var(--secondary); }
+.report-bar meter::-webkit-meter-optimum-value { border-radius: 1em; background: var(--report-color); }
+.report-bar meter::-moz-meter-bar { border-radius: 1em; background: var(--report-color); }
+.report-facts { display: grid; gap: 0.5em; }
+.report-facts > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.25em 1em; font-size: 0.85em; line-height: 1.5; }
+.report-facts dt { color: var(--muted-foreground); }
+.report-facts dd { min-inline-size: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.report-empty { padding-block: 0.75em; color: var(--muted-foreground); line-height: 1.65; }
+.report-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5em; overflow-wrap: anywhere; }
+.report-usage-window { display: flex; flex-direction: column; gap: 0.75em; }
+.report-usage-window + .report-usage-window { padding-block-start: 1em; border-block-start: 0.0625em solid var(--border); }
+.usage-reset { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5em 1em; font-size: calc(var(--text-ui) * 8 / 7); }
+.usage-reset dt { color: var(--muted-foreground); }
+.usage-reset dd { min-inline-size: 0; font-size: 1.125em; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.5; overflow-wrap: anywhere; }
+.report-message { padding: 0.875em; color: var(--report-color); background: color-mix(in srgb, var(--report-color) 8%, transparent); border-radius: 0.5em; line-height: 1.6; overflow-wrap: anywhere; }
+.report-message small { display: block; }
+.report-details { min-inline-size: 0; }
+.report-details > .disclosure-trigger { color: var(--muted-foreground); font-size: 0.85em; padding-block: 0.5em; overflow-wrap: anywhere; }
+.report-details > [data-slot="collapsible-content"] > .collapse-content > .collapse-inner { display: flex; flex-direction: column; gap: 0.75em; }
+.report-tool { display: flex; flex-direction: column; gap: 0.25em; }
+.reset-credits { display: flex; flex-direction: column; min-inline-size: 0; font-size: calc(var(--text-ui) * 8 / 7); }
+.reset-credits > header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5em 1em; padding-block: 0.75em; }
+.reset-credits h4 { margin: 0; font-size: 1em; font-weight: 600; }
+.reset-credits > header > span { color: var(--muted-foreground); }
+.reset-credits ol { list-style: none; margin: 0; padding: 0; }
+.reset-credits li { display: flex; flex-direction: column; gap: 0.5em; padding-block: 1em; border-block-start: 0.0625em solid var(--border); }
+.reset-credits dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10em), 1fr)); gap: 1em; }
+.reset-credits dl > div { display: flex; flex-direction: column; gap: 0.4em; min-inline-size: 0; }
+.reset-credits dt { color: var(--muted-foreground); }
+.reset-credits dd { font-weight: 500; line-height: 1.5; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.reset-credit-remaining dd { font-size: 1.125em; font-weight: 600; }
+.reset-credit-status { color: var(--muted-foreground); }

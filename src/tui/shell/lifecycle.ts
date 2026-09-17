@@ -7,7 +7,7 @@ import { createAssistantPerformanceTracker } from "../chat/message-performance.t
 import { recordUserMessageTimestamp, resetUserMessageTimestamps } from "../chat/message-timestamp.ts";
 import { TuiSession } from "./session.ts";
 import { collectUserMessages } from "./snapshot.ts";
-import { UserHistoryStore } from "../editor/history.ts";
+import { UserHistoryStore } from "../../harness/user-history.ts";
 
 export interface TuiRuntime {
 	startSession(ctx: ExtensionContext, replaySessionMessages: boolean): Promise<void>;
@@ -63,6 +63,7 @@ export function createTuiRuntime(pi: ExtensionAPI): TuiRuntime {
 	pi.on("session_tree", (_event, ctx) => {
 		if (session !== undefined) resetUserMessageTimestamps(collectUserMessages(ctx));
 	});
+	pi.on("session_info_changed", () => session?.refresh());
 	pi.on("model_select", () => session?.refresh());
 	pi.on("thinking_level_select", () => session?.refresh());
 	pi.on("session_shutdown", resetSession);

@@ -1,0 +1,7 @@
+.list-scroll { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); min-inline-size: 0; min-block-size: 0; margin-inline: calc(-1 * var(--space-1)) calc(-1 * var(--space-3)); }
+.list-scroll-viewport { min-inline-size: 0; min-block-size: 0; padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1); overscroll-behavior: contain; border-radius: inherit; }
+.list-scroll-viewport > div { display: block !important; }
+.list-scroll-track { display: flex; inline-size: var(--space-2); padding: 0.125rem; margin-block: var(--space-1); touch-action: none; user-select: none; }
+.list-scroll-thumb { flex: 1; min-block-size: 1.5rem; border-radius: 1rem; background: var(--scrollbar-thumb); }
+.list-scroll-thumb:hover { background: var(--scrollbar-thumb-hover); }
+.list-scroll-thumb:active { background: var(--scrollbar-thumb-active); }

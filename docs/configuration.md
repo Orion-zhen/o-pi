@@ -1,6 +1,6 @@
 # 配置分层
 
-本文说明 `approval-gate`、`bash-tool`、`discord-presence`、`file-tools`、`lsp`、`subagent`、`tui` 和 `web-tools` 共用的 JSONC 配置分层机制。
+本文说明 `approval-gate`、`auto-title`、`bash-tool`、`discord-presence`、`file-tools`、`lsp`、`subagent`、`tui` 和 `web-tools` 共用的 JSONC 配置分层机制。
 
 ## 配置层级
 
@@ -50,9 +50,10 @@
 | `lsp` | `PI_LSP_CONFIG` | `PI_LSP_PROJECT_CONFIG` | `PI_LSP_PROJECT_ROOT` |
 | `subagent` | `PI_SUBAGENT_USER_CONFIG` | `PI_SUBAGENT_PROJECT_CONFIG` | `PI_SUBAGENT_PROJECT_ROOT` |
 
-`approval-gate`、`bash-tool`、`tui` 和 `web-tools` 只读取默认层和用户层。它们对应的用户配置路径环境变量分别为：
+`approval-gate`、`auto-title`、`bash-tool`、`tui` 和 `web-tools` 只读取默认层和用户层。它们对应的用户配置路径环境变量分别为：
 
 - `PI_APPROVAL_GATE_CONFIG`
+- `PI_AUTO_TITLE_CONFIG`
 - `PI_BASH_TOOL_CONFIG`
 - `PI_TUI_CONFIG`
 - `PI_WEB_TOOLS_CONFIG`
@@ -68,9 +69,15 @@
 
 项目根目录由最近的 `.pi` 目录确定，不依赖 Git 仓库边界。
 
+## GUI 配置
+
+GUI 使用 `agent/defaults/gui.jsonc` 与用户目录的 `configs/gui.jsonc`，不读取项目层。用户目录默认是 `~/.pi/agent`，支持 `PI_CODING_AGENT_DIR`，也可用 `PI_GUI_CONFIG` 单独指定配置文件。对象递归合并、Schema 校验及完整默认层规则与上文一致。
+
+GUI 编辑器需要同时呈现原文和校验错误，因此从同一份用户文件原文生成界面数据。保存时校验 JSONC 和字段，再检查原文是否被其他操作修改，并原子替换文件。具体设置和客户端布局状态见 [GUI 设置](gui.md#gui-设置)。
+
 ## 独立的工具默认配置
 
-工具启用状态使用独立的配置机制，不属于上述八个模块的默认层体系。相关文件为：
+工具启用状态使用独立的配置机制，不属于上述模块的默认层体系。相关文件为：
 
 ```text
 ~/.pi/agent/tools.jsonc

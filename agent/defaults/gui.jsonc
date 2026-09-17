@@ -1,0 +1,15 @@
+{
+	"$schema": "../schemas/gui.schema.json",
+	"theme": "system",
+	"themeColor": "#007AFF",
+	"fonts": {
+		"ui": [],
+		"code": []
+	},
+	"fontSizes": {
+		"ui": 14,
+		"chat": 16,
+		"code": 14
+	},
+	"sendShortcut": "mod-enter"
+}

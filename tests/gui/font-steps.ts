@@ -1,0 +1,147 @@
+import { expect, type Locator, type Page } from "@playwright/test";
+import { readFile, writeFile } from "node:fs/promises";
+import { parse } from "jsonc-parser";
+
+export async function checkFontChains(page: Page, settings: Locator, configFile: string, openSettings: () => Promise<void>, artifact: string) {
+	const trigger = settings.getByRole("button", { name: "界面字体", exact: true });
+	const picker = page.getByRole("dialog", { name: "界面字体链", exact: true });
+	const input = picker.getByRole("combobox", { name: "添加界面字体", exact: true });
+	const chain = picker.getByRole("list", { name: "字体优先顺序" });
+	const stored = async (): Promise<unknown> => (parse(await readFile(configFile, "utf8")) as { fonts?: unknown }).fonts;
+	await trigger.click();
+	await expect(trigger).toContainText("系统默认");
+	await input.fill("尚未确认的字体");
+	expect(await stored()).toBeUndefined();
+	await input.press("Escape");
+	await expect(picker).toBeVisible();
+	await expect(trigger).toHaveAttribute("aria-expanded", "true");
+	await expect(input).toHaveValue("尚未确认的字体");
+	await expect(input).toHaveAttribute("aria-expanded", "false");
+	await input.press("Escape");
+	await expect(input).toHaveValue("");
+
+	await input.fill("OPI Custom Font");
+	await input.press("Enter");
+	await expect.poll(stored).toEqual({ ui: ["OPI Custom Font"] });
+	await expect(input).toHaveValue("");
+	await expect(input).toBeFocused();
+	await input.fill("OPI 中文 Font");
+	await expect(picker.getByRole("button", { name: "添加", exact: true })).toHaveText("");
+	await picker.getByRole("option", { name: "使用自定义字体名 “OPI 中文 Font”", exact: true }).click();
+	await expect.poll(stored).toEqual({ ui: ["OPI Custom Font", "OPI 中文 Font"] });
+	await expect(trigger).toContainText("+ 1 个后备字体");
+	await expect(chain.getByRole("listitem")).toHaveCount(2);
+	await expect(chain).not.toContainText("本机列表未找到");
+
+	await picker.getByRole("button", { name: "读取本机字体", exact: true }).click();
+	await expect(picker.getByRole("button", { name: "刷新本机字体", exact: true })).toBeEnabled();
+	await input.click();
+	const options = picker.getByRole("listbox", { name: "字体补全" }).getByRole("option");
+	await expect.poll(() => options.count()).toBeGreaterThan(1);
+	const family = await options.first().locator("span").innerText();
+	await input.fill(family);
+	await input.press("ArrowDown");
+	await input.press("Enter");
+	await expect.poll(stored).toEqual({ ui: ["OPI Custom Font", "OPI 中文 Font", family] });
+	await expect(chain).toContainText("本机列表未找到");
+	await expect.poll(() => page.locator("body").evaluate((element) => getComputedStyle(element).fontFamily)).toContain(family);
+	await input.fill(family.toUpperCase());
+	await expect(picker.getByRole("option", { name: `${family} 已添加`, exact: true })).toBeDisabled();
+	await expect(picker.getByRole("button", { name: "添加", exact: true })).toBeDisabled();
+	await input.press("Enter");
+	expect(await stored()).toEqual({ ui: ["OPI Custom Font", "OPI 中文 Font", family] });
+	await input.fill("");
+
+	await picker.getByRole("button", { name: "下移 OPI Custom Font", exact: true }).click();
+	await expect.poll(stored).toEqual({ ui: ["OPI 中文 Font", "OPI Custom Font", family] });
+	await picker.getByRole("button", { name: `上移 ${family}`, exact: true }).click();
+	await expect.poll(stored).toEqual({ ui: ["OPI 中文 Font", family, "OPI Custom Font"] });
+	await picker.getByRole("button", { name: "删除 OPI Custom Font", exact: true }).click();
+	await expect.poll(stored).toEqual({ ui: ["OPI 中文 Font", family] });
+	await picker.getByRole("button", { name: "修改字体 OPI 中文 Font", exact: true }).click();
+	const edit = picker.getByRole("combobox", { name: "修改界面字体", exact: true });
+	await edit.fill("OPI Replacement");
+	await edit.dispatchEvent("keydown", { key: "Enter", isComposing: true });
+	expect(await stored()).toEqual({ ui: ["OPI 中文 Font", family] });
+	await picker.getByRole("button", { name: "取消修改字体", exact: true }).click();
+	await expect(input).toBeVisible();
+	await picker.getByRole("button", { name: "修改字体 OPI 中文 Font", exact: true }).click();
+	await edit.fill("OPI Replacement");
+	await edit.press("Enter");
+	await expect.poll(stored).toEqual({ ui: ["OPI Replacement", family] });
+	await expect(input).toBeFocused();
+	await expect.poll(() => picker.evaluate((element) => {
+		const box = element.getBoundingClientRect();
+		return element.scrollWidth <= element.clientWidth + 1 && box.left >= 0 && box.right <= innerWidth;
+	})).toBe(true);
+	await page.screenshot({ path: `dist/gui-font-chain-${artifact}.png`, animations: "disabled" });
+	await picker.press("Escape");
+	await expect(picker).toHaveCount(0);
+
+	await settings.getByRole("button", { name: "代码字体", exact: true }).click();
+	const code = page.getByRole("dialog", { name: "代码字体链", exact: true });
+	await expect(code.getByRole("button", { name: "刷新本机字体", exact: true })).toBeVisible();
+	const codeInput = code.getByRole("combobox", { name: "添加代码字体", exact: true });
+	await codeInput.fill(family);
+	await codeInput.press("ArrowDown");
+	await codeInput.press("Enter");
+	await expect.poll(stored).toEqual({ ui: ["OPI Replacement", family], code: [family] });
+	await expect.poll(() => settings.locator(".typography-preview code").evaluate((element) => getComputedStyle(element).fontFamily)).toContain(family);
+	await code.press("Escape");
+	await page.reload();
+	await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
+	await openSettings();
+	await expect(trigger).toContainText("OPI Replacement + 1 个后备字体");
+	await settings.getByRole("button", { name: "重置代码字体", exact: true }).click();
+	await expect.poll(stored).toEqual({ ui: ["OPI Replacement", family] });
+
+	// 外部修改导致保存失败时，保留草稿，不改写字体链和磁盘文件。
+	await trigger.click();
+	const external = `${await readFile(configFile, "utf8")}\n// 字体编辑期间的外部修改\n`;
+	await writeFile(configFile, external);
+	await input.fill("OPI Unsaved Font");
+	await input.press("Enter");
+	await expect(picker.getByRole("alert")).toContainText("保存失败");
+	await expect(input).toHaveValue("OPI Unsaved Font");
+	await expect(chain.getByRole("listitem")).toHaveCount(2);
+	expect(await readFile(configFile, "utf8")).toBe(external);
+	await picker.press("Escape");
+	await expect(picker).toHaveCount(0);
+	await settings.press("Escape");
+	await expect(settings).toHaveCount(0);
+	await page.getByRole("button", { name: "关闭错误提示", exact: true }).click();
+	await page.reload();
+	await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
+
+	// 浏览器能力与权限是外部边界，失败不能阻止手写字体。
+	await page.evaluate(() => Object.defineProperty(window, "queryLocalFonts", { configurable: true, value: undefined }));
+	await openSettings();
+	await trigger.click();
+	await expect(picker.getByRole("status")).toContainText("仍可手写");
+	await expect(picker.getByRole("button", { name: "读取本机字体", exact: true })).toBeDisabled();
+	await input.fill("OPI Offline Font");
+	await picker.getByRole("button", { name: "添加", exact: true }).click();
+	await expect.poll(stored).toEqual({ ui: ["OPI Replacement", family, "OPI Offline Font"] });
+	await picker.press("Escape");
+	await expect(picker).toHaveCount(0);
+	await settings.press("Escape");
+	await expect(settings).toHaveCount(0);
+	await page.evaluate(() => Object.defineProperty(window, "queryLocalFonts", { configurable: true, value: async () => {
+		throw new DOMException("Permission denied", "NotAllowedError");
+	} }));
+	await openSettings();
+	await trigger.click();
+	await picker.getByRole("button", { name: "读取本机字体", exact: true }).click();
+	await expect(picker.getByRole("alert")).toContainText("未获字体访问权限");
+	await input.fill("OPI Denied Font");
+	await input.press("Enter");
+	await expect.poll(stored).toEqual({ ui: ["OPI Replacement", family, "OPI Offline Font", "OPI Denied Font"] });
+	await picker.press("Escape");
+	await settings.getByRole("button", { name: "重置界面字体", exact: true }).click();
+	await expect.poll(stored).toEqual({});
+	await expect(trigger).toContainText("系统默认");
+	await expect.poll(() => page.locator("body").evaluate((element) => getComputedStyle(element).fontFamily)).toBe("system-ui, sans-serif");
+	await page.reload();
+	await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
+	await openSettings();
+}

@@ -1,0 +1,156 @@
+import { test, expect, _electron as electron } from "@playwright/test";
+import { execFile, spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { storeSession } from "./session-fixture.ts";
+import { clickRowAction } from "./row-actions.ts";
+
+test("工作台：会话搜索、文件树、Git 差异与路径引用", async ({ viewport }, info) => {
+	const home = await mkdtemp(path.join(os.tmpdir(), "opi-workbench-e2e-"));
+	const cwd = path.join(home, "workspace");
+	const agentDir = path.join(home, ".pi", "agent");
+	await mkdir(path.join(cwd, "src"), { recursive: true });
+	await mkdir(path.join(agentDir, "configs"), { recursive: true });
+	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "never" }));
+	await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
+	const git = (...args: string[]) => promisify(execFile)("git", args, { cwd });
+	await git("init", "-b", "main");
+	await git("config", "user.name", "GUI Test");
+	await git("config", "user.email", "gui@example.invalid");
+	await writeFile(path.join(cwd, ".gitignore"), "node_modules/\n");
+	await writeFile(path.join(cwd, "src", "main.ts"), "export const answer = 1;\n");
+	await writeFile(path.join(cwd, "deleted.txt"), "deleted content\n");
+	await git("add", ".");
+	await git("commit", "-m", "initial");
+	await writeFile(path.join(cwd, "src", "main.ts"), "export const answer = 42;\n");
+	await rm(path.join(cwd, "deleted.txt"));
+	await mkdir(path.join(cwd, "node_modules", "pkg"), { recursive: true });
+	await writeFile(path.join(cwd, "node_modules", "pkg", "index.js"), "ignored but readable\n");
+	await writeFile(path.join(cwd, "引用 空格.md"), "# 项目\n");
+	await writeFile(path.join(cwd, "src", "helper.ts"), "export const helper = true;\n");
+	for (let index = 0; index < 2; index++) await storeSession({ cwd, agentDir, provider: "gui-test", name: `历史任务 ${index}`, timestamp: Date.UTC(2026, 0, index + 1) });
+	const env = { ...process.env, HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", NODE_ENV: "test" };
+	const child = spawn(path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+	let output = "";
+	child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+	child.stderr.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+	try {
+		await expect.poll(() => output.match(/opi-web: (http:\/\/[^\s]+)/)?.[1], { message: "工作台测试服务启动" }).toBeTruthy();
+		const url = output.match(/opi-web: (http:\/\/[^\s]+)/)?.[1];
+		if (!url) throw new Error(output);
+		const app = await electron.launch({ args: [path.resolve("tests/gui/web-browser.cjs"), "--no-sandbox"], env });
+		try {
+			const page = await app.firstWindow();
+			if (viewport) await page.setViewportSize(viewport);
+			const errors: string[] = [];
+			page.on("pageerror", (error) => errors.push(error.message));
+			await page.goto(url);
+			const phone = info.project.name === "phone";
+			const openNavigation = async (files = false) => {
+				if (phone && !await page.getByRole("dialog", { name: "工作空间导航", exact: true }).count()) await page.getByRole("button", { name: "菜单", exact: true }).click();
+				if (phone) await page.locator(".mobile-sidebar .workbench-pane-tabs").getByRole("button", { name: files ? "文件" : "会话", exact: true }).click();
+			};
+			await openNavigation();
+			const navigation = page.locator(phone ? ".mobile-sidebar" : ".sidebar");
+			const search = navigation.getByRole("textbox", { name: "搜索会话", exact: true });
+			await expect(navigation.locator(".history-session")).toHaveCount(3);
+			await search.fill("历史任务 0");
+			await expect(navigation.locator(".history-session")).toHaveCount(1);
+			await expect(navigation.getByRole("button", { name: "历史任务 0", exact: true })).toBeVisible();
+			await search.fill("没有这条会话");
+			await expect(navigation.locator(".history-session")).toHaveCount(0);
+			await search.fill("");
+			if (!phone) {
+				await expect(navigation.locator(".git-branch")).toBeVisible();
+				const resize = page.locator(".sidebar-resize");
+				for (const width of [180, 224, 230, 240, 250, 260, 320]) {
+					const handle = await resize.boundingBox();
+					const sidebar = await navigation.boundingBox();
+					if (!handle || !sidebar) throw new Error("缺少侧栏尺寸");
+					const x = handle.x + handle.width / 2;
+					const y = handle.y + handle.height / 2;
+					await page.mouse.move(x, y);
+					await page.mouse.down();
+					await page.mouse.move(x + width - sidebar.width, y);
+					await page.mouse.up();
+					await expect.poll(() => navigation.evaluate((element) => {
+						const outer = element.getBoundingClientRect();
+						return [...element.querySelectorAll(".workbench-sections, .session-search, .session-search-controls > button, .workspace-files-heading > *")]
+							.filter((child) => {
+								const rect = child.getBoundingClientRect();
+								return rect.left < outer.left || rect.right > outer.right;
+							}).map((child) => child.className);
+					}), { message: `侧栏宽度 ${width}px 时控件不溢出` }).toEqual([]);
+				}
+				await resize.press("Home");
+				await search.fill("历史任务 0");
+				const toggle = navigation.locator(".sidebar-brand > button");
+				const top = await toggle.evaluate((element) => element.getBoundingClientRect().top);
+				await toggle.click();
+				await expect(toggle).toHaveAttribute("aria-expanded", "false");
+				expect(await toggle.evaluate((element) => element.getBoundingClientRect().top)).toBeCloseTo(top, 0);
+				await toggle.click();
+				await expect(search).toHaveValue("历史任务 0");
+				await search.fill("");
+			}
+			await openNavigation(true);
+			const tree = navigation.getByRole("tree", { name: "工作区文件", exact: true });
+			await tree.getByRole("treeitem", { name: "node_modules", exact: true }).click();
+			await tree.getByRole("treeitem", { name: "node_modules/pkg", exact: true }).click();
+			await expect(tree.getByRole("treeitem", { name: "node_modules/pkg/index.js", exact: true })).toBeVisible();
+			await navigation.getByRole("button", { name: "折叠全部目录", exact: true }).click();
+			await expect(tree.getByRole("treeitem", { name: "node_modules/pkg", exact: true })).toHaveCount(0);
+			await clickRowAction(tree.getByRole("button", { name: "引用路径 src", exact: true }));
+			await expect(page.getByRole("textbox", { name: "消息", exact: true })).toHaveValue("@src ");
+			await page.getByRole("textbox", { name: "消息", exact: true }).fill("");
+			await openNavigation(true);
+			await tree.getByRole("treeitem", { name: "src", exact: true }).focus();
+			await page.keyboard.press("ArrowRight");
+			await expect(tree.getByRole("treeitem", { name: "src/main.ts", exact: true })).toBeVisible();
+			await clickRowAction(tree.getByRole("button", { name: "引用路径 src/main.ts", exact: true }));
+			await expect(page.getByRole("textbox", { name: "消息", exact: true })).toHaveValue("@src/main.ts ");
+			await expect(page.getByRole("tab", { name: "文件", exact: true })).toHaveCount(0);
+			await page.getByRole("textbox", { name: "消息", exact: true }).fill("");
+			await openNavigation(true);
+			await tree.getByRole("treeitem", { name: "src", exact: true }).focus();
+			await page.keyboard.press("ArrowRight");
+			await expect(tree.getByRole("treeitem", { name: "src/helper.ts", exact: true })).toBeFocused();
+			await page.keyboard.press("ArrowDown");
+			await expect(tree.getByRole("treeitem", { name: "src/main.ts", exact: true })).toBeFocused();
+			await page.keyboard.press("Enter");
+			const right = page.getByRole("complementary", { name: "会话信息", exact: true });
+			await expect(right.getByRole("tab", { name: "文件", exact: true })).toHaveAttribute("aria-selected", "true");
+			await expect(right.locator(".file-preview-body")).toContainText("export const answer = 42;");
+			await expect(right.locator(".file-preview-body")).toContainText("-export const answer = 1;");
+			await right.getByRole("button", { name: "内容", exact: true }).click();
+			await expect(right.locator(".file-preview-body")).not.toContainText("-export const answer = 1;");
+			await right.getByRole("button", { name: "差异", exact: true }).click();
+			await right.getByRole("tab", { name: "会话树", exact: true }).click();
+			await right.getByRole("tab", { name: "文件", exact: true }).click();
+			await expect(right.locator(".file-preview-body")).toContainText("-export const answer = 1;");
+			await openNavigation(true);
+			await navigation.getByRole("button", { name: "显示文件变更", exact: true }).click();
+			const changes = navigation.getByRole("list", { name: "工作区变更", exact: true });
+			await expect(tree).toHaveCount(0);
+			await expect(changes.getByRole("button", { name: "deleted.txt", exact: true })).toBeVisible();
+			await expect(changes.getByRole("button", { name: "node_modules", exact: true })).toHaveCount(0);
+			await expect(changes.getByRole("button", { name: "引用路径 deleted.txt", exact: true })).toHaveCount(0);
+			await navigation.getByRole("button", { name: "收起文件区", exact: true }).click();
+			await expect(changes).toHaveCount(0);
+			await expect.poll(() => navigation.locator(".workspace-files-content").evaluate((element) => element.clientHeight)).toBe(0);
+			await navigation.getByRole("button", { name: "展开文件区", exact: true }).click();
+			await changes.getByRole("button", { name: "引用 空格.md", exact: true }).click();
+			await right.getByRole("button", { name: "内容", exact: true }).click();
+			await expect(right.locator(".file-preview-body")).toContainText("# 项目");
+			await right.getByRole("button", { name: "引用文件", exact: true }).click();
+			await expect(page.getByRole("textbox", { name: "消息", exact: true })).toHaveValue('@"引用 空格.md" ');
+			await expect(page.locator(".message.user")).toHaveCount(0);
+			expect(errors).toEqual([]);
+		} finally { await app.close(); }
+	} finally {
+		await new Promise<void>((resolve) => { if (child.exitCode !== null) resolve(); else { child.once("exit", () => resolve()); child.kill("SIGTERM"); } });
+		await rm(home, { recursive: true, force: true });
+	}
+});

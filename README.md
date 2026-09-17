@@ -1,4 +1,4 @@
-# o-pi
+# opi
 
 Orion's Pi Agent.
 
@@ -10,17 +10,21 @@ Orion's Pi Agent.
 git clone https://github.com/Orion-zhen/o-pi.git
 cd o-pi
 bun install --no-save
-bun run build
-./dist/opi
+bun run build:tui
+./dist/tui/opi
 ```
 
-产物是包含 Bun 运行时和必需资源的单个可执行文件。Linux/macOS 使用 `dist/opi`，Windows 使用 `dist/opi.exe`。运行产物无需 Node.js、Bun 或仓库中的 `node_modules`，仍需平台基础库及 Bash、Git 等实际使用的外部工具。当前已在 Linux x64 验证，其他平台尚未实机验证。
+三端可独立构建，也可用 `bun run build` 一次构建全部目标：
 
-开发时可直接运行 `bun src/cli.ts`。项目不固定 Bun 版本或提交锁文件。构建使用 PATH 中的 Bun，制作通用分发产物时使用官方 Bun，避免引入系统发行版特有的动态库依赖。
+| 目标 | 入口 / 应用名 | 构建命令 | 产物 |
+| --- | --- | --- | --- |
+| TUI | `opi` | `bun run build:tui` | `dist/tui/opi`，Windows 为 `opi.exe` |
+| WebUI | `opi-web` | `bun run build:web` | `dist/web/opi-web`，Windows 为 `opi-web.exe` |
+| Desktop | `opi-desktop` | `bun run build:desktop` | `dist/desktop/release/opi-desktop.AppImage`、`.dmg` 或 `.exe` |
 
-`opi` 调用 `pi-coding-agent.main()`，复用上游 CLI、会话初始化和 TUI。`src/harness/` 保存本项目的业务扩展，`src/tui/` 保存终端呈现与增强。未来 Desktop 可直接使用 SDK 和业务扩展，不经过 CLI 或 TUI。`~/.pi/agent/` 下的个人配置、认证、本地资源及会话继续使用。支持 Pi 的外部 TS/JS 扩展发现、`-e/--extension` 和 `/reload`，无外部扩展时不初始化 Jiti/Babel。`-ne/--no-extensions` 关闭本仓库的集成功能和外部扩展自动加载，但保留显式 `-e`。不支持 Pi 包管理命令。
+TUI 和 WebUI 是包含 Bun 运行时及必需资源的单文件程序。Desktop 包含 Electron 及应用资源，不是裸单文件程序。三端互不依赖，运行产物无需另装 Node.js、Bun 或仓库中的 `node_modules`，仍需平台基础库及 Bash、Git 等实际使用的外部工具。构建面向当前系统与 CPU 架构。当前已在 Linux x64 验证，其他平台尚未实机验证。
 
-本仓库模块位于 `src/harness/extensions/`，界面装配位于 `src/tui/extensions.ts`，不再由原 `pi` 自动加载。已有用户切换命令为 `opi`，不要再通过 settings 或 `-e` 重复加载本仓库入口。
+TUI 开发使用 `bun run dev:tui`，Web 开发使用 `bun run dev:web`。项目不固定 Bun 版本或提交锁文件。构建使用 PATH 中的 Bun，制作通用分发产物时使用官方 Bun，避免引入系统发行版特有的动态库依赖。
 
 可复用的体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需合并到 `~/.pi/agent/settings.json`，不要覆盖已有 provider、model 等个人设置。运行与升级边界见 [CLI](docs/cli.md)。
 
@@ -34,8 +38,10 @@ bun run build
 ## 文档
 
 * [CLI 入口](docs/cli.md)
+* [GUI 入口](docs/gui.md)
 * [前端与 SDK 约定](docs/frontends.md)
 * [配置分层](docs/configuration.md)
+* [自动会话标题](docs/auto-title.md)
 * [性能 Benchmark](docs/benchmark.md)
 * [文件工具设计](docs/file-tools/README.md)
 * [Bash 工具](docs/bash-tool.md)
