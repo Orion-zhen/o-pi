@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
 import { Disclosure } from "./components/disclosure";
 import { Bot, Check, ChevronRight, CircleDashed, CircleStop, FilePenLine, FileSearch, FolderSearch, Globe, LoaderCircle, Search, Terminal, Wrench, X } from "lucide-react";
@@ -48,12 +48,16 @@ export function ToolActivity({ tool }: { tool: Activity }) {
 			<CollapsibleContent lazy={tool.name !== "subagent"}><div className="activity-body">
 				{tool.args !== undefined && <Disclosure className="tool-parameters" summary="参数"><ParameterValue value={tool.args} /></Disclosure>}
 				<ToolResult tool={tool} />
-				<Disclosure className="tool-raw" summary="原始数据"><pre>{pretty({ arguments: tool.args, result: tool.output })}</pre></Disclosure>
+				<Disclosure className="tool-raw" summary="原始数据" lazy><RawToolData args={tool.args} output={tool.output} /></Disclosure>
 			</div></CollapsibleContent>
 			</Collapsible>
 		</section>
 	);
 }
+
+const RawToolData = memo(function RawToolData({ args, output }: Pick<Activity, "args" | "output">) {
+	return <pre>{pretty({ arguments: args, result: output })}</pre>;
+});
 
 function toolFacts(tool: Activity): string {
 	const args = record(tool.args) ? tool.args : {};

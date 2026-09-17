@@ -78,7 +78,7 @@ describe("openai-compatible-provider model discovery", () => {
 		const { provider: third } = registerProvider(changedConfig, temp.path);
 		await refreshProvider(third, { stored, publish, allowNetwork: false });
 		expect(third.getModels().map((model) => [model.id, model.name, model.contextWindow])).toEqual([
-			["manual", "Manual", 200000],
+			["manual", "Changed Manual", 200000],
 			["dynamic", "dynamic", 128000],
 		]);
 		expect(fetch).toHaveBeenCalledTimes(3);
@@ -163,10 +163,24 @@ describe("openai-compatible-provider model discovery", () => {
 		if (!stored) throw new Error("model-suffix catalog was not stored");
 		expect(stored.models.map((model) => model.id)).toEqual(["deepseek-v4-flash"]);
 
-		const { provider: restored } = registerProvider(config, temp.path);
+		const renamedConfig = await loadConfigFromText(temp.path, providerConfigText({
+			baseUrl: "http://127.0.0.1:8000/v1",
+			apiKey: "sk-test",
+			models: [{ id: "deepseek-v4-flash", name: "DeepSeek Flash" }],
+			thinkingPreset: "model-suffix",
+		}, "llama-swap"));
+		const { provider: restored } = registerProvider(renamedConfig, temp.path);
 		await refreshProvider(restored, { stored, allowNetwork: false });
 		const model = restored.getModels()[0];
 		if (!model) throw new Error("restored model-suffix model missing");
+		expect(restored.getModels()).toHaveLength(1);
+		expect(model).toMatchObject({
+			name: "DeepSeek Flash",
+			contextWindow: 200000,
+			reasoning: true,
+			thinkingLevelMap: { off: "off", high: "high", max: "max" },
+		});
+		expect(stored.models[0]?.name).toBe("deepseek-v4-flash");
 		for await (const _event of restored.stream(model, {
 			messages: [{ role: "user", content: "test", timestamp: Date.now() }],
 		}, {

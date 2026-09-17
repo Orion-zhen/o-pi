@@ -80,7 +80,9 @@ export function restoreCachedModels<TApi extends Api>(
 	}));
 	const prepared = new Map(prepareModels(entries, provider.thinkingPreset ?? "none", providerId, configPath)
 		.map(({ model }) => [model.id, model]));
-	return models.flatMap((model) => {
+	return models.flatMap((cached) => {
+		const name = configured.get(cached.id)?.name;
+		const model = name !== undefined && name !== cached.name ? { ...cached, name } : cached;
 		const normalized = prepared.get(model.id);
 		if (!normalized) return [];
 		if (normalized.thinkingLevelMap === undefined || normalized.thinkingLevelMap === model.thinkingLevelMap) return [model];
