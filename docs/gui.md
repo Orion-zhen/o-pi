@@ -1,6 +1,4 @@
-# GUI MVP
-
-Desktop 和 `opi-web` 共用 React 界面及 SDK 装配。Desktop 在 Electron utility process 中直接调用 `pi-coding-agent`，不启动 Pi CLI、TUI 或 stdio RPC。Web 后端使用 Bun，浏览器通过同源 HTTP 操作和 WebSocket 状态订阅连接。
+# GUI
 
 ## 启动
 
@@ -21,7 +19,7 @@ bun run desktop
 bun run build:desktop
 ```
 
-Windows 的 Web 产物为 `dist/web/opi-web.exe`。Desktop 分发文件位于 `dist/desktop/release/`，Linux 为 AppImage，macOS 为 DMG，Windows 为 NSIS 安装程序。MVP 未配置签名、macOS 公证或自动更新。三平台分别构建，不把 Linux 构建成功视为其他平台已经验证。
+Windows 的 Web 产物为 `dist/web/opi-web.exe`。Desktop 应用名和可执行文件名为 `opi-desktop`。分发文件位于 `dist/desktop/release/`，Linux 为 `opi-desktop.AppImage`，macOS 为 `opi-desktop.dmg`，Windows 为 NSIS 安装程序 `opi-desktop.exe`。MVP 未配置签名、macOS 公证或自动更新。三平台分别构建，不把 Linux 构建成功视为其他平台已经验证。
 
 `bun run dev:web` 构建前端后从源码启动 Web 服务，不提供热更新。
 

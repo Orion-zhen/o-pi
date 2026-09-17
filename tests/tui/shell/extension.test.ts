@@ -191,6 +191,7 @@ describe("tui extension", () => {
 
 		expect(banner.render(120).join("\n")).toContain("main");
 		expect(editor.render(100).join("\n")).toContain("main");
+		expect(calls.title.at(-1)).toMatch(/^π opi · /u);
 		expect(calls.title.at(-1)).toContain("main");
 		expect(provider.subscriberCount()).toBe(1);
 

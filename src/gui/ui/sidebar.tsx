@@ -13,7 +13,7 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
 	const content = (compact: boolean, mobile: boolean) => <>
 		<div className="sidebar-brand">
-			<span className="brand" aria-hidden={compact}><span className="app-logo" aria-hidden="true" /><span>o-pi</span><small>workspace</small></span>
+			<span className="brand" aria-hidden={compact}><span className="app-logo" aria-hidden="true" /><span>opi</span><small>workspace</small></span>
 			{mobile ? <SheetClose asChild><Button variant="ghost" size="icon" aria-label="关闭菜单" title="关闭菜单"><PanelLeftClose /></Button></SheetClose>
 				: <IconButton label={compact ? "展开侧栏" : "收起侧栏"} onClick={toggle} aria-expanded={!compact}>{compact ? <PanelLeftOpen /> : <PanelLeftClose />}</IconButton>}
 		</div>

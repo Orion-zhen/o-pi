@@ -80,7 +80,7 @@ void app
 			height: 820,
 			minWidth: 420,
 			minHeight: 500,
-			title: "o-pi",
+			title: "opi-desktop",
 			icon,
 			backgroundColor: "#11161f",
 			webPreferences: {
@@ -98,7 +98,7 @@ void app
 		});
 		backend = utilityProcess.fork(path.join(directory, "backend.mjs"), [process.cwd()], {
 			stdio: "pipe",
-			serviceName: "o-pi SDK",
+			serviceName: "opi-desktop SDK",
 		});
 		backend.stdout?.on("data", (chunk: Buffer) => process.stdout.write(chunk));
 		backend.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));

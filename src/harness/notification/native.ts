@@ -1,7 +1,7 @@
 import { env } from "node:process";
 
-const TITLE = "o-pi";
-const MESSAGE = "o-pi is waiting for you.";
+const TITLE = "opi";
+const MESSAGE = "opi is waiting for you.";
 
 /** 尽力发送原生通知，加载或后端错误不会向外传播。 */
 export async function notifyWaiting(): Promise<void> {

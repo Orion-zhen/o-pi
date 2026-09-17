@@ -199,7 +199,7 @@ function App() {
 								{!snapshot && (
 									<Fade key="workspace-welcome" className="welcome workspace-welcome">
 										<div className="welcome-mark">
-											<span className="app-logo" role="img" aria-label="o-pi" />
+											<span className="app-logo" role="img" aria-label="opi" />
 										</div>
 										<h1>选择工作区</h1>
 										<p>打开项目目录，或从侧栏恢复历史会话。</p>
@@ -209,7 +209,7 @@ function App() {
 								{snapshot && !snapshot.messages.length && !located?.preview && (
 									<Fade key={`welcome-${snapshot.sessionId}`} className="welcome">
 										<div className="welcome-mark">
-											<span className="app-logo" role="img" aria-label="o-pi" />
+											<span className="app-logo" role="img" aria-label="opi" />
 										</div>
 										<p className="welcome-eyebrow">你的代码工作空间</p>
 										<h1>今天，想构建什么？</h1>
@@ -301,6 +301,7 @@ function App() {
 	);
 }
 
+document.title = window.opi ? "opi-desktop" : "opi-web";
 applyThemeColor(DEFAULT_THEME_COLOR);
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing application root");

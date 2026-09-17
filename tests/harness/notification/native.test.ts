@@ -27,13 +27,13 @@ describe("native notification", () => {
 		expect(notify).not.toHaveBeenCalled();
 	});
 
-	it("通过默认后端发送固定的 o-pi 等待消息", async () => {
+	it("通过默认后端发送固定的 opi 等待消息", async () => {
 		notify.mockImplementation((_notification, callback) => callback(null, "sent"));
 		const { notifyWaiting } = await import("../../../src/harness/notification/native.ts");
 		await notifyWaiting();
 		expect(notify).toHaveBeenCalledOnce();
 		expect(notify).toHaveBeenCalledWith(
-			{ title: "o-pi", message: "o-pi is waiting for you." }, expect.any(Function),
+			{ title: "opi", message: "opi is waiting for you." }, expect.any(Function),
 		);
 	});
 

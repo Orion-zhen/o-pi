@@ -1,6 +1,6 @@
 {
-	"name": "o-pi",
-	"short_name": "o-pi",
+	"name": "opi-web",
+	"short_name": "opi-web",
 	"start_url": "./",
 	"display": "standalone",
 	"background_color": "#f2f0ea",

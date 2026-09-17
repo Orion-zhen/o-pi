@@ -260,6 +260,9 @@ test("独立 opi-web：真实工具、会话管理与刷新恢复", async ({ vie
 			const page = await app.firstWindow();
 			if (viewport) await page.setViewportSize(viewport);
 			await page.goto(url);
+			await expect(page).toHaveTitle("opi-web");
+			const manifest = await page.request.get(new URL("site.webmanifest", url).href);
+			expect(await manifest.json()).toMatchObject({ name: "opi-web", short_name: "opi-web" });
 			await exerciseModels(page, path.join(directory, ".pi", "agent", "settings.json"));
 			await exerciseControls(page);
 			await exercise(page);
@@ -285,6 +288,8 @@ test("Electron：隔离渲染进程直接使用本地 SDK", async ({ viewport },
 	try {
 		const page = await app.firstWindow();
 		if (viewport) await page.setViewportSize(viewport);
+		await expect(page).toHaveTitle("opi-desktop");
+		expect(await app.evaluate(({ app }) => app.getName())).toBe("opi-desktop");
 		const exportedPath = path.join(directory, "export.html");
 		await app.evaluate(({ dialog }, filePath) => {
 			dialog.showSaveDialog = async () => ({ canceled: false, filePath });
