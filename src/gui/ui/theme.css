@@ -22,41 +22,54 @@
 	--radius-md: 0.75rem;
 	--radius-lg: 1rem;
 	--radius-xl: 1.5rem;
+	--font-sans: var(--gui-font-ui);
+	--font-mono: var(--gui-font-code);
+	--text-xs: var(--text-caption);
+	--text-sm: var(--text-ui);
+	--text-base: calc(var(--text-ui) * 8 / 7);
+	--text-lg: var(--text-heading);
+	--text-xl: calc(var(--text-ui) * 10 / 7);
+	--text-2xl: calc(var(--text-ui) * 12 / 7);
 }
 
 :root {
-	font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-	color-scheme: light;
-	--background: #f8f9fb;
-	--foreground: #2b3039;
-	--primary: #3868c4;
-	--primary-foreground: #ffffff;
-	--secondary: #eef0f3;
-	--accent: #e5e8ed;
-	--popover: #fafbfced;
-	--muted-foreground: #68717f;
-	--destructive: #b54650;
-	--border: #d8dde5;
-	--ring: #6289d2;
-	--glass: #eef1f5c9;
-	--surface: #fffffff0;
-	--selected: #e4e8ee;
-	--overlay: #20293838;
-	--success: #487559;
-	--warning: #936b22;
-	--git-modified: #875800;
-	--git-added: #187341;
-	--git-deleted: #b52b3c;
-	--shadow: 0 0.25rem 1.5rem #20293808, 0 0.0625rem 0.25rem #20293806;
-	--shadow-floating: 0 1rem 4rem #20293820, 0 0.25rem 0.75rem #2029380a;
-	--surface-highlight: inset 0 0.0625rem 0 #ffffff80;
+	--gui-font-ui: system-ui, sans-serif;
+	--gui-font-code: ui-monospace, monospace;
+	font-family: var(--gui-font-ui);
+	color-scheme: light dark;
+	--background: light-dark(#f8f9fb, #1b1d22);
+	--foreground: light-dark(#2b3039, #e5e8ee);
+	--primary: light-dark(#3868c4, #93b6f2);
+	--primary-foreground: light-dark(#ffffff, #192b4b);
+	--secondary: light-dark(#eef0f3, #272b32);
+	--accent: light-dark(#e5e8ed, #343943);
+	--popover: light-dark(#fafbfced, #2b2f38ed);
+	--muted-foreground: light-dark(#68717f, #a4adbc);
+	--destructive: light-dark(#b54650, #ee949e);
+	--border: light-dark(#d8dde5, #414752);
+	--ring: light-dark(#6289d2, #88aceb);
+	--glass: light-dark(#eef1f5c9, #252930cf);
+	--surface: light-dark(#fffffff0, #292d35f0);
+	--selected: light-dark(#e4e8ee, #353b46);
+	--overlay: light-dark(#20293838, #0b0e144d);
+	--success: light-dark(#487559, #9bc5a5);
+	--warning: light-dark(#936b22, #dbbc7e);
+	--git-modified: light-dark(#875800, #edc15e);
+	--git-added: light-dark(#187341, #60d899);
+	--git-deleted: light-dark(#b52b3c, #ff9494);
+	--shadow: 0 0.25rem 1.5rem light-dark(#20293808, #0000001a), 0 0.0625rem 0.25rem light-dark(#20293806, #00000014);
+	--shadow-floating: 0 1rem 4rem light-dark(#20293820, #0000004d), 0 0.25rem 0.75rem light-dark(#2029380a, #00000026);
+	--surface-highlight: inset 0 0.0625rem 0 light-dark(#ffffff80, #ffffff08);
 	--glass-filter: blur(1.5rem) saturate(1.1);
 	--divider: color-mix(in srgb, var(--border) 65%, transparent);
-	--text-caption: 0.75rem;
-	--text-small: 0.8125rem;
 	--text-ui: 0.875rem;
 	--text-body: 0.9375rem;
-	--text-heading: 1.125rem;
+	--text-code: 0.8125rem;
+	--text-caption: calc(var(--text-ui) * 6 / 7);
+	--text-small: calc(var(--text-ui) * 13 / 14);
+	--text-heading: calc(var(--text-ui) * 9 / 7);
+	--text-process: calc(var(--text-body) * 0.9);
+	--inline-code-scale: 0.8666667;
 	--space-1: 0.25rem;
 	--space-2: 0.5rem;
 	--space-3: 0.75rem;
@@ -67,39 +80,12 @@
 	--content-inset: clamp(0.875rem, 2.5vw, 2rem);
 	--conversation-width: 100ch;
 }
-
-@media (prefers-color-scheme: dark) {
-	:root {
-		color-scheme: dark;
-		--background: #1b1d22;
-		--foreground: #e5e8ee;
-		--primary: #93b6f2;
-		--primary-foreground: #192b4b;
-		--secondary: #272b32;
-		--accent: #343943;
-		--popover: #2b2f38ed;
-		--muted-foreground: #a4adbc;
-		--destructive: #ee949e;
-		--border: #414752;
-		--ring: #88aceb;
-		--glass: #252930cf;
-		--surface: #292d35f0;
-		--selected: #353b46;
-		--overlay: #0b0e144d;
-		--success: #9bc5a5;
-		--warning: #dbbc7e;
-		--git-modified: #edc15e;
-		--git-added: #60d899;
-		--git-deleted: #ff9494;
-		--shadow: 0 0.25rem 1.5rem #0000001a, 0 0.0625rem 0.25rem #00000014;
-		--shadow-floating: 0 1rem 4rem #0000004d, 0 0.25rem 0.75rem #00000026;
-		--surface-highlight: inset 0 0.0625rem 0 #ffffff08;
-	}
-}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 @layer base {
 	* { @apply border-border; }
-	body { @apply m-0 bg-background text-foreground antialiased; font-size: var(--text-ui); line-height: 1.5; }
+	body { @apply m-0 bg-background text-foreground antialiased; font-family: var(--gui-font-ui); font-size: var(--text-ui); line-height: 1.5; }
 	button:not(:disabled), summary, [role="menuitem"] { cursor: pointer; }
 	button, input, textarea, select { font: inherit; }
 	::selection { background: color-mix(in srgb, var(--primary) 20%, transparent); }

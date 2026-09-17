@@ -9,22 +9,20 @@ import { WorkspaceChanges, WorkspaceTree } from "./workspace-tree.tsx";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
+import { ResizeHandle } from "./components/resize-handle";
 import "./workbench.css";
 
 export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => void }) {
 	const [search, setSearch] = useState("");
 	const [filesOpen, setFilesOpen] = useState(true);
-	const [ratio, setRatio] = useState(55);
-	const [resizing, setResizing] = useState(false);
+	const ratio = gui.layout.values.files ?? 55;
 	const [pane, setPane] = useState("sessions");
 	const sections = useRef<HTMLDivElement>(null);
-	const drag = useRef<{ y: number; ratio: number } | null>(null);
 	const { workbench } = gui;
 	const { onlyChanges, setOnlyChanges } = workbench;
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
 	const referenceFile = (path: string) => { close(); gui.referenceFile(path); };
 	const blocked = !gui.canChangeSession;
-	const resize = (value: number) => setRatio(Math.max(25, Math.min(75, value)));
 	const proportions: CSSProperties & { "--session-share": string; "--file-share": string } = { "--session-share": `${ratio}fr`, "--file-share": `${100 - ratio}fr` };
 	return <div className="sidebar-workbench">
 		<div className="workbench-workspace"><WorkspacePicker gui={gui} close={close} /></div>
@@ -32,7 +30,7 @@ export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => vo
 			<Button variant="ghost" aria-pressed={pane === "sessions"} onClick={() => setPane("sessions")}>会话</Button>
 			<Button variant="ghost" aria-pressed={pane === "files"} onClick={() => { setPane("files"); setFilesOpen(true); }}>文件</Button>
 		</div>
-		<div className="workbench-sections" ref={sections} data-files-open={filesOpen} data-pane={pane} data-resizing={resizing} style={proportions}>
+		<div className="workbench-sections" ref={sections} data-files-open={filesOpen} data-pane={pane} style={proportions}>
 			<div className="workbench-sessions">
 				<div className="workbench-session-controls">
 					<div className="session-search-controls">
@@ -42,23 +40,13 @@ export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => vo
 				</div>
 				<SessionHistory gui={gui} close={close} search={search} />
 			</div>
-			<div className="workbench-separator" inert={!filesOpen} aria-hidden={!filesOpen} role="separator" aria-label="调整会话与文件区域" aria-orientation="horizontal"
-				tabIndex={0} aria-valuemin={25} aria-valuemax={75} aria-valuenow={Math.round(ratio)}
-				onPointerDown={(event) => {
-					setResizing(true);
-					drag.current = { y: event.clientY, ratio };
-					event.currentTarget.setPointerCapture(event.pointerId);
-				}}
-				onPointerMove={(event) => {
-					if (drag.current && sections.current) resize(drag.current.ratio + (event.clientY - drag.current.y) / sections.current.clientHeight * 100);
-				}}
-				onPointerUp={(event) => { drag.current = null; setResizing(false); event.currentTarget.releasePointerCapture(event.pointerId); }}
-				onPointerCancel={() => { drag.current = null; setResizing(false); }} onLostPointerCapture={() => { drag.current = null; setResizing(false); }}
-				onKeyDown={(event) => {
-					if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
-						event.preventDefault();
-						resize(event.key === "Home" ? 25 : event.key === "End" ? 75 : ratio + (event.key === "ArrowUp" ? -5 : 5));
-					}
+			<ResizeHandle className="workbench-separator" label="调整会话与文件区域" axis="y" value={gui.layout.values.files}
+				change={(value, persist) => gui.layout.set("files", value, persist)} measure={() => {
+					const sessions = sections.current?.querySelector<HTMLElement>(".workbench-sessions");
+					const files = sections.current?.querySelector<HTMLElement>(".workspace-files-content");
+					const height = (sessions?.clientHeight ?? 0) + (files?.clientHeight ?? 0);
+					const min = height > 0 ? Math.min(40, 8000 / height) : 0;
+					return { value: ratio, min, max: 100 - min, scale: height > 0 ? 100 / height : 0 };
 				}} />
 			<section className="workspace-files" aria-label="项目文件" data-open={filesOpen}>
 				<div className="workspace-files-heading">

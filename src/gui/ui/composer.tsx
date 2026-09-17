@@ -211,7 +211,8 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 					}}
 					onKeyDown={(event) => {
 						if (event.nativeEvent.isComposing || suggestions.onKeyDown(event)) return;
-						if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+						const enterSends = gui.guiConfig?.state === "ready" && gui.guiConfig.value.sendShortcut === "enter";
+						if (event.key === "Enter" && !event.shiftKey && !event.altKey && ((event.ctrlKey || event.metaKey) || enterSends)) {
 							event.preventDefault();
 							submit();
 						}

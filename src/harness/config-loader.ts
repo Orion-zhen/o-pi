@@ -84,6 +84,7 @@ export const CONFIG_DEFINITIONS = {
 	fileTools: projectConfig("file-tools", "file-tools.jsonc", "PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT"),
 	lsp: projectConfig("lsp", "lsp.jsonc", "PI_LSP_CONFIG", "PI_LSP_PROJECT_CONFIG", "PI_LSP_PROJECT_ROOT"),
 	subagent: projectConfig("subagent", "subagent.jsonc", "PI_SUBAGENT_USER_CONFIG", "PI_SUBAGENT_PROJECT_CONFIG", "PI_SUBAGENT_PROJECT_ROOT"),
+	gui: globalConfig("gui", "gui.jsonc", "PI_GUI_CONFIG"),
 	tui: globalConfig("tui", "tui.jsonc", "PI_TUI_CONFIG"),
 	webTools: globalConfig("web-tools", "web-tools.jsonc", "PI_WEB_TOOLS_CONFIG"),
 } as const satisfies Record<string, ConfigDefinition>;

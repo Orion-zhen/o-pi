@@ -1,4 +1,4 @@
-.report-dashboard { display: flex; flex-direction: column; gap: 1.25em; min-inline-size: 0; font-size: 0.875rem; }
+.report-dashboard { display: flex; flex-direction: column; gap: 1.25em; min-inline-size: 0; font-size: var(--text-ui); }
 .report-dashboard :is(h2, h3, p, dl, dd) { margin: 0; }
 .report-dashboard [data-tone] { --report-color: var(--foreground); }
 .report-dashboard [data-tone="success"] { --report-color: var(--success); }
@@ -35,7 +35,7 @@
 .report-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5em; overflow-wrap: anywhere; }
 .report-usage-window { display: flex; flex-direction: column; gap: 0.75em; }
 .report-usage-window + .report-usage-window { padding-block-start: 1em; border-block-start: 0.0625em solid var(--border); }
-.usage-reset { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5em 1em; font-size: 1rem; }
+.usage-reset { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5em 1em; font-size: calc(var(--text-ui) * 8 / 7); }
 .usage-reset dt { color: var(--muted-foreground); }
 .usage-reset dd { min-inline-size: 0; font-size: 1.125em; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.5; overflow-wrap: anywhere; }
 .report-message { padding: 0.875em; color: var(--report-color); background: color-mix(in srgb, var(--report-color) 8%, transparent); border-radius: 0.5em; line-height: 1.6; overflow-wrap: anywhere; }
@@ -44,7 +44,7 @@
 .report-details > .disclosure-trigger { color: var(--muted-foreground); font-size: 0.85em; padding-block: 0.5em; overflow-wrap: anywhere; }
 .report-details > [data-slot="collapsible-content"] > .collapse-content > .collapse-inner { display: flex; flex-direction: column; gap: 0.75em; }
 .report-tool { display: flex; flex-direction: column; gap: 0.25em; }
-.reset-credits { display: flex; flex-direction: column; min-inline-size: 0; font-size: 1rem; }
+.reset-credits { display: flex; flex-direction: column; min-inline-size: 0; font-size: calc(var(--text-ui) * 8 / 7); }
 .reset-credits > header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5em 1em; padding-block: 0.75em; }
 .reset-credits h4 { margin: 0; font-size: 1em; font-weight: 600; }
 .reset-credits > header > span { color: var(--muted-foreground); }

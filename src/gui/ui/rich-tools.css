@@ -3,19 +3,19 @@
 .web-card-link { display: grid; gap: 0.5rem; padding: 0.75rem; color: var(--foreground); text-decoration: none; overflow-wrap: anywhere; }
 .web-card-link:is(a):hover { background: var(--secondary); }
 .web-card-link:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.web-card-source { display: flex; gap: 0.375rem; align-items: center; color: var(--muted-foreground); font-size: 0.6875rem; }
+.web-card-source { display: flex; gap: 0.375rem; align-items: center; color: var(--muted-foreground); font-size: calc(var(--text-ui) * 11 / 14); }
 .web-card-source svg { width: 0.8125rem; height: 0.8125rem; flex-shrink: 0; }
 .web-card-source svg:last-child { margin-left: auto; opacity: 0.6; }
 .web-card-rank { margin-left: auto; font-variant-numeric: tabular-nums; }
 .web-card-rank + svg { margin-left: 0 !important; }
-.web-card-title { font-size: 0.875rem; font-weight: 550; line-height: 1.5; }
-.web-card-snippet { padding: 0 0.75rem 0.75rem; color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.6; overflow-wrap: anywhere; }
+.web-card-title { font-size: var(--text-ui); font-weight: 550; line-height: 1.5; }
+.web-card-snippet { padding: 0 0.75rem 0.75rem; color: var(--muted-foreground); font-size: var(--text-caption); line-height: 1.6; overflow-wrap: anywhere; }
 .web-fetch-result { margin-block: 0.75rem; min-width: 0; }
-.web-partial { margin-block: 0.625rem; padding: 0.5rem 0.625rem; border-radius: 0.375rem; background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--warning); font-size: 0.75rem; }
-.web-preview > .disclosure-trigger { font-size: 0.75rem; color: var(--muted-foreground); width: fit-content; }
+.web-partial { margin-block: 0.625rem; padding: 0.5rem 0.625rem; border-radius: 0.375rem; background: color-mix(in srgb, var(--warning) 8%, transparent); color: var(--warning); font-size: var(--text-caption); }
+.web-preview > .disclosure-trigger { font-size: var(--text-caption); color: var(--muted-foreground); width: fit-content; }
 .web-preview-content { max-height: 28rem; overflow: auto; }
 .subagent-progress { min-width: 0; margin-block: 0.75rem; }
-.subagent-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; color: var(--muted-foreground); font-size: 0.75rem; }
+.subagent-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; color: var(--muted-foreground); font-size: var(--text-caption); }
 .subagent-overview > svg { width: 1rem; height: 1rem; }
 .subagent-overview > span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
 .subagent-progress > progress { appearance: none; display: block; width: 100%; height: 3px; border: 0; border-radius: 2px; overflow: hidden; margin: 0.625rem 0 0.875rem; background: var(--secondary); }
@@ -24,22 +24,22 @@
 .subagent-progress > progress::-moz-progress-bar { background: var(--muted-foreground); }
 .subagent-tasks { display: grid; gap: 0.5rem; }
 .subagent-task { min-width: 0; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface); overflow: hidden; }
-.subagent-task-summary { display: grid; gap: 0.375rem; width: 100%; min-width: 0; text-align: left; padding: 0.75rem; font-size: 0.75rem; }
+.subagent-task-summary { display: grid; gap: 0.375rem; width: 100%; min-width: 0; text-align: left; padding: 0.75rem; font-size: var(--text-caption); }
 .subagent-task-summary:hover { background: var(--secondary); }
 .subagent-task-summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .subagent-task-heading { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .subagent-task-heading strong { overflow-wrap: anywhere; font-weight: 550; color: var(--foreground); }
 .subagent-task-heading svg { width: 0.875rem; height: 0.875rem; flex-shrink: 0; }
-.subagent-task-state { margin-left: auto; white-space: nowrap; color: var(--muted-foreground); font-size: 0.6875rem; }
+.subagent-task-state { margin-left: auto; white-space: nowrap; color: var(--muted-foreground); font-size: calc(var(--text-ui) * 11 / 14); }
 .subagent-task-description { color: var(--foreground); white-space: pre-wrap; overflow-wrap: anywhere; }
 .subagent-task-summary[aria-expanded="false"] .subagent-task-description, .subagent-current { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .subagent-current { color: var(--muted-foreground); overflow-wrap: anywhere; line-height: 1.6; }
 .subagent-task[data-state="completed"] .subagent-task-heading > svg { color: var(--success); }
 .subagent-task[data-state="failed"] .subagent-task-state, .subagent-task[data-state="failed"] .subagent-task-heading > svg, .subagent-error { color: var(--destructive); }
 .subagent-task[data-state="stopped"] .subagent-task-state { color: var(--warning); }
-.subagent-error { margin: 0 0.75rem 0.75rem; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; }
+.subagent-error { margin: 0 0.75rem 0.75rem; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-caption); }
 .subagent-task-body { padding: 0 0.75rem 0.75rem; min-width: 0; }
-.subagent-events { font-size: 0.75rem; color: var(--muted-foreground); margin-block: 0.5rem; }
+.subagent-events { font-size: var(--text-caption); color: var(--muted-foreground); margin-block: 0.5rem; }
 .subagent-event { margin-block: 0.5rem; }
 .subagent-event > .disclosure-trigger { display: flex; align-items: baseline; gap: 0.5rem; }
 .subagent-event > .disclosure-trigger code { min-width: 0; overflow-wrap: anywhere; color: var(--foreground); }

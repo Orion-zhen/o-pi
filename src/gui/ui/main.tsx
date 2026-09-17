@@ -23,6 +23,8 @@ import { Transcript } from "./transcript.tsx";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
 import { Panel } from "./panels.tsx";
+import { PanelDialog } from "./components/panel-dialog";
+import { Settings } from "./settings-panel.tsx";
 import { connectionLabels } from "./connection.ts";
 import { Composer } from "./composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
@@ -33,6 +35,7 @@ import { SessionHeading } from "./session-heading.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
 import { useGui } from "./use-gui.ts";
 import { IconButton } from "./components/icon-button";
+import { ResizeHandle } from "./components/resize-handle";
 import { Button } from "./components/ui/button";
 import { Sheet, SheetTrigger } from "./components/ui/sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -43,6 +46,7 @@ import "./tools.css";
 import "./rich-tools.css";
 import "./code.css";
 import "./motion.css";
+import "./layout.css";
 
 const starters = [
 	{ icon: FolderSearch, title: "了解项目", text: "梳理这个项目的结构，介绍主要模块和运行方式。" },
@@ -62,6 +66,8 @@ function App() {
 	useLayoutEffect(() => { if (target) transcript.toEntry(target); }, [location]);
 	const panelContent = useRef<HTMLDivElement>(null);
 	const main = useRef<HTMLElement>(null);
+	const app = useRef<HTMLDivElement>(null);
+	const workspace = useRef<HTMLDivElement>(null);
 	const restoreFocus = () => (panelContent.current ?? gui.editor.current ?? main.current)?.focus();
 	useEffect(() => {
 		const desktop = window.matchMedia("(min-width: 768px)");
@@ -77,14 +83,24 @@ function App() {
 	return (
 		<TooltipProvider delayDuration={350}>
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-				<div className="app" data-collapsed={collapsed}>
+				<div className="app" data-collapsed={collapsed} ref={app} style={gui.layout.style}>
 					<Sidebar
 						gui={gui}
 						collapsed={collapsed}
 						toggle={() => setCollapsed(!collapsed)}
 						close={() => setMobileOpen(false)}
 					/>
-					<div className="chat-workspace">
+					<ResizeHandle label="调整左侧栏宽度" className="sidebar-resize" value={gui.layout.values.left} change={(value, persist) => gui.layout.set("left", value, persist)} measure={() => {
+						const sidebar = app.current?.querySelector<HTMLElement>(".sidebar");
+						const available = app.current?.clientWidth ?? 0;
+						const right = workspace.current?.querySelector<HTMLElement>('.session-sidebar[data-open="true"]');
+						const beside = window.matchMedia("(min-width: 64.001em)").matches;
+						const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+						const min = Math.min(8 * rem, available * 0.25);
+						const mainMin = Math.min(20 * rem, (workspace.current?.clientWidth ?? available) * 0.45);
+						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - mainMin - (beside ? right?.getBoundingClientRect().width ?? 0 : 0) - 16) };
+					}} />
+					<div className="chat-workspace" ref={workspace}>
 					<main className="main-panel" ref={main} tabIndex={-1}>
 						<header className="topbar">
 							<SheetTrigger asChild>
@@ -125,6 +141,7 @@ function App() {
 							><PanelRight /></IconButton>
 						</header>
 						<AnimatePresence initial={false}>
+						{gui.guiConfig?.state === "error" && <Reveal key="gui-config-error"><div role="alert" className="error-banner">GUI 配置无效：{gui.guiConfig.message}<Button variant="outline" onClick={() => gui.setPanel({ kind: "settings" })}>打开设置</Button></div></Reveal>}
 						{error && <Reveal key="error">
 							<div role="alert" className="error-banner">
 								<pre>{error}</pre>
@@ -230,6 +247,16 @@ function App() {
 								<Notices notices={notices} />
 							</div>
 						</div>
+						<div className="conversation-resize-track" aria-label="对话宽度调整" onPointerMove={(event) => {
+							const track = event.currentTarget;
+							track.style.setProperty("--resize-y", `${event.clientY - track.getBoundingClientRect().top}px`);
+						}}>
+							{(["left", "right"] as const).map((edge) => <ResizeHandle key={edge} label={`调整对话宽度（${edge === "left" ? "左" : "右"}边缘）`} value={gui.layout.values.conversation}
+								change={(value, persist) => gui.layout.set("conversation", value, persist)} measure={() => {
+									const max = transcript.scroll.current?.clientWidth ?? 0;
+									return { value: transcript.content.current?.getBoundingClientRect().width ?? 0, min: Math.min(320, max), max, scale: edge === "left" ? -2 : 2 };
+								}} />)}
+						</div>
 						<AnimatePresence initial={false}>
 						{transcript.showLatest && <Fade className="jump-latest-region"><Button variant="outline" size="sm" className="jump-latest" onClick={transcript.toLatest}>
 							<ArrowDown />回到最新
@@ -238,12 +265,21 @@ function App() {
 						</div>
 						{snapshot && <Composer gui={gui} snapshot={snapshot} onSubmit={transcript.followLatest} />}
 					</main>
+					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
+						const sidebar = workspace.current?.querySelector<HTMLElement>(".session-sidebar");
+						const available = workspace.current?.clientWidth ?? 0;
+						const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+						const min = Math.min(12 * rem, available * 0.4);
+						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - Math.min(20 * rem, available * 0.45) - 8), scale: -1 };
+					}} />
 					{snapshot && <SessionSidebar gui={gui} locate={(entryId) => setLocation({ sessionId: snapshot.sessionId, entryId })} />}
 					</div>
 				</div>
 			</Sheet>
 			<AnimatePresence mode="wait">
-			{panel && snapshot && (
+			{panel?.kind === "settings" ? <PanelDialog key="settings" ref={panelContent} title="设置" close={() => gui.setPanel(undefined)} restoreFocus={restoreFocus}>
+				<Settings snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+			</PanelDialog> : panel && snapshot && (
 				<Panel key={panel.kind}
 					ref={panelContent}
 					restoreFocus={restoreFocus}
@@ -251,7 +287,6 @@ function App() {
 					snapshot={snapshot}
 					sessionList={<SessionHistory gui={gui} close={() => gui.setPanel(undefined)} full />}
 					send={send}
-					query={gui.query}
 					canChangeSession={gui.canChangeSession}
 					close={() => gui.setPanel(undefined)}
 				/>

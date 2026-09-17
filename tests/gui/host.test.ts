@@ -83,6 +83,19 @@ sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"),
 workbenchTests(() => ({ host, cwd }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("任务运行期间保存 GUI 设置不重载会话或中断 Shell", async () => {
+		const session = host.runtime.session;
+		const running = host.dispatch(prompt("!printf 'gui-settings-started\\n'; sleep 0.3; printf 'gui-settings-finished\\n'"));
+		await expect.poll(() => host.snapshot().canChangeSession).toBe(false);
+		const config = await host.query({ query: "guiConfig" });
+		await host.dispatch({ action: "saveGuiConfig", original: config.content, content: '{"theme":"dark"}' });
+		expect(host.runtime.session).toBe(session);
+		await running;
+		expect(JSON.stringify(host.snapshot().messages)).toContain("gui-settings-finished");
+		expect(host.snapshot().canChangeSession).toBe(true);
+		expect(server.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
+	});
+
 	it("内建和扩展命令补全不执行命令或写入历史", async () => {
 		const before = host.snapshot();
 		const cases: [string, string[]][] = [

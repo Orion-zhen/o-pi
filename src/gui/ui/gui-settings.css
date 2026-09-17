@@ -1,0 +1,25 @@
+.settings-tabs { display: flex; gap: var(--space-2); margin-block-end: var(--space-4); }
+.settings-tabs button[aria-selected="true"] { background: var(--selected); color: var(--primary); }
+.gui-settings { display: flex; flex-direction: column; gap: var(--space-4); }
+.gui-config-path { color: var(--muted-foreground); font-size: var(--text-caption); overflow-wrap: anywhere; }
+.preference-row { display: grid; grid-template-columns: minmax(6em, 1fr) minmax(0, 2fr) auto; align-items: center; gap: var(--space-2); }
+.preference-row > :nth-child(2) { min-inline-size: 0; inline-size: 100%; }
+.font-trigger { justify-content: space-between; }
+.font-trigger > span { overflow: hidden; text-overflow: ellipsis; }
+.font-size-control { display: flex; align-items: center; gap: var(--space-2); }
+.font-size-control input { max-inline-size: 8em; }
+.font-picker { display: flex; flex-direction: column; gap: var(--space-2); inline-size: min(24em, calc(100vw - 2rem)); max-block-size: var(--radix-popover-content-available-height); }
+.font-picker > p { font-size: var(--text-caption); overflow-wrap: anywhere; }
+.font-list { overflow: auto; min-block-size: 0; max-block-size: 40dvh; }
+.font-list > button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); inline-size: 100%; padding: 0.5em; border-radius: var(--radius-sm); text-align: start; overflow-wrap: anywhere; }
+.font-list > button:is(:hover, :focus-visible) { background: var(--accent); outline: none; }
+.font-list > button > svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; }
+.typography-preview { padding: var(--space-3); background: var(--secondary); border-radius: var(--radius-md); }
+.typography-preview strong, .typography-preview small { display: block; }
+.typography-preview small { font-size: var(--text-caption); color: var(--muted-foreground); }
+.typography-preview p { margin-block: var(--space-2); font-size: var(--text-body); }
+.typography-preview pre { margin: 0; }
+@media (max-width: 767px) {
+	.preference-row { grid-template-columns: minmax(0, 1fr) auto; }
+	.preference-row > span { grid-column: 1 / -1; }
+}

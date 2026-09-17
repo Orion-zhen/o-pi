@@ -1,0 +1,14 @@
+{
+	"$schema": "../schemas/gui.schema.json",
+	"theme": "system",
+	"fonts": {
+		"ui": "system-ui",
+		"code": "monospace"
+	},
+	"fontSizes": {
+		"ui": 14,
+		"chat": 16,
+		"code": 14
+	},
+	"sendShortcut": "mod-enter"
+}

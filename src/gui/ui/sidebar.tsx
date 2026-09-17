@@ -32,7 +32,7 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 			</div>}
 		</div>
 		<div className="sidebar-footer">
-			<IconButton label="设置" disabled={!gui.canSubmit} onClick={() => open("settings")}><Settings2 /></IconButton>
+			<IconButton label="设置" disabled={!gui.connected} onClick={() => open("settings")}><Settings2 /></IconButton>
 			<IconButton label="认证" disabled={!gui.canSubmit} onClick={() => open("auth")}><KeyRound /></IconButton>
 			<IconButton label="模型" disabled={!gui.canSubmit} onClick={() => open("model")}><Cpu /></IconButton>
 			<IconButton label="套餐用量" disabled={!gui.canSubmit} onClick={() => act({ action: "view", view: "usage" })}><Activity /></IconButton>

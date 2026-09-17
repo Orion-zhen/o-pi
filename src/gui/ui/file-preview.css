@@ -12,7 +12,7 @@
 .file-preview-body:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .file-preview-body .file-code { margin: 0; border: 0; border-radius: 0; background: var(--background); overflow: visible; inline-size: max-content; min-inline-size: 100%; }
 .file-preview-body .file-code pre { max-block-size: none; overflow: visible; }
-.file-preview-body .file-code code { font-size: var(--text-small); }
+.file-preview-body .file-code code { font-size: var(--text-code); }
 .file-preview[data-wrap="true"] :is(.file-code, .file-diff) { inline-size: 100%; min-inline-size: 0; }
 .file-preview[data-wrap="true"] .file-code pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .file-preview[data-wrap="true"] .diff-line { min-inline-size: 0; }

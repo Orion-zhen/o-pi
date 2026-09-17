@@ -94,7 +94,10 @@ export async function readConfig(file: "settings.json"): Promise<string> {
 export async function saveConfig(file: "settings.json", original: string, content: string): Promise<void> {
 	const parsed: unknown = JSON.parse(content);
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("设置必须是 JSON 对象。");
-	const target = path.join(getAgentDir(), file);
+	await replaceConfigFile(path.join(getAgentDir(), file), original, content);
+}
+
+export async function replaceConfigFile(target: string, original: string, content: string): Promise<void> {
 	await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
 	const temporary = `${target}.${randomUUID()}.tmp`;
 	try {

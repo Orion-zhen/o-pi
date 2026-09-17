@@ -1,14 +1,30 @@
 import { useEffect, useRef, useState } from "react";
+import { Tabs } from "radix-ui";
 import { AnimatePresence } from "motion/react";
 import type { GuiSnapshot, Query } from "../contract.ts";
+import type { GuiConfigDocument } from "../preferences.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
-import { Textarea } from "./components/ui/textarea";
 import { NativeSelect } from "./components/ui/native-select";
-import { PanelDialog } from "./components/panel-dialog";
+import { GuiSettings } from "./gui-settings.tsx";
+import { ConfigEditor } from "./config-editor.tsx";
 
-export function Settings({ snapshot, send, query, disabled, restoreFocus }: {
+export function Settings({ snapshot, guiConfig, send, query, disabled, connected, refreshGuiConfig, restoreFocus }: {
+	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; query: Query;
+	disabled: boolean; connected: boolean; refreshGuiConfig: () => Promise<void>; restoreFocus: () => void;
+}) {
+	return <Tabs.Root defaultValue={snapshot ? "agent" : "gui"}>
+		<Tabs.List className="settings-tabs" aria-label="设置分类">
+			<Tabs.Trigger value="agent" asChild><Button variant="ghost">Agent</Button></Tabs.Trigger>
+			<Tabs.Trigger value="gui" asChild><Button variant="ghost">GUI</Button></Tabs.Trigger>
+		</Tabs.List>
+		<Tabs.Content value="agent">{snapshot ? <AgentSettings snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} /> : <p>选择工作区后可修改 Agent 设置。</p>}</Tabs.Content>
+		<Tabs.Content value="gui"><GuiSettings document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} /></Tabs.Content>
+	</Tabs.Root>;
+}
+
+function AgentSettings({ snapshot, send, query, disabled, restoreFocus }: {
 	snapshot: GuiSnapshot; send: Send; query: Query; disabled: boolean; restoreFocus: () => void;
 }) {
 	const settings = snapshot.settings;
@@ -44,19 +60,7 @@ export function Settings({ snapshot, send, query, disabled, restoreFocus }: {
 		{error && <p role="alert">{error}</p>}
 		<Button variant="outline" size="sm" disabled={loading} onClick={() => void openConfig()}>编辑完整 settings.json</Button>
 		<AnimatePresence>
-		{config !== undefined && <ConfigEditor content={config} send={send} close={() => setConfig(undefined)} restoreFocus={restoreFocus} />}
+		{config !== undefined && <ConfigEditor file="settings.json" content={config} send={send} close={() => setConfig(undefined)} restoreFocus={restoreFocus} />}
 		</AnimatePresence>
 	</>;
-}
-
-function ConfigEditor({ content, send, close, restoreFocus }: {
-	content: string; send: Send; close: () => void; restoreFocus: () => void;
-}) {
-	const [text, setText] = useState(content || "{}\n");
-	return <PanelDialog title="settings.json" close={close} restoreFocus={restoreFocus}>
-		<p>保存后重载。文件在编辑期间发生变更时会拒绝覆盖。</p>
-		<Textarea aria-label="设置 JSON" className="config-editor" value={text} onChange={(event) => setText(event.target.value)} />
-		<Button variant="outline" size="sm" onClick={() => void send({ action: "saveConfig", file: "settings.json", original: content, content: text })
-			.then((ok) => { if (ok) close(); })}>保存并重载</Button>
-	</PanelDialog>;
 }

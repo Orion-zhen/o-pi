@@ -7,6 +7,7 @@ import type { UsageSnapshot } from "../harness/usage/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
 import type { SubagentDetails } from "../harness/subagent/types.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "./workbench.ts";
+import type { GuiConfigDocument } from "./preferences.ts";
 
 const text = Type.String({ maxLength: 4_000_000 });
 const short = Type.String({ maxLength: 4096 });
@@ -89,11 +90,13 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("tool"), name: short, enabled: Type.Boolean() }),
 	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]) }),
 	object({ action: Type.Literal("draft"), text }),
+	object({ action: Type.Literal("saveGuiConfig"), original: text, content: text }),
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
 
 export const querySchema = Type.Union([
+	object({ query: Type.Literal("guiConfig") }),
 	object({ query: Type.Literal("directories"), path: short }),
 	object({ query: Type.Literal("files"), prefix: short }),
 	object({ query: Type.Literal("workspaceFiles"), cwd: short, path: short }),
@@ -104,6 +107,7 @@ export const querySchema = Type.Union([
 ]);
 export type GuiQuery = Static<typeof querySchema>;
 export interface GuiQueryResults {
+	guiConfig: GuiConfigDocument;
 	directories: GuiDirectories;
 	files: string[];
 	workspaceFiles: WorkspaceEntry[];
@@ -185,7 +189,8 @@ export interface GuiSnapshot {
 }
 export type GuiSessionTab = "tree" | "stats" | "telemetry";
 export type GuiPanel =
-	| { kind: "model" | "tools" | "sessions" | "settings" | "auth" | "import" | "help" }
+	| { kind: "model" | "tools" | "sessions" | "auth" | "import" | "help" }
+	| { kind: "settings" }
 	| { kind: "system" | "lastReply"; text: string }
 	| { kind: "usage"; value: UsageSnapshot | "aborted" }
 	| { kind: "subagents"; details: SubagentDetails };
@@ -203,6 +208,7 @@ export interface GuiDirectories {
 }
 
 export type GuiEvent =
+	| { type: "guiConfig"; value: GuiConfigDocument }
 	| { type: "workspaceRoot"; path: string }
 	| { type: "sessionInfo"; value: GuiSessionDetails }
 	| { type: "sessionTab"; tab: GuiSessionTab }

@@ -22,6 +22,7 @@ import { setWorkspaceRemoved } from "./workspaces.ts";
 import type { ReadSessionInfo } from "./extensions.ts";
 import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace-files.ts";
 import { readWorkspaceGit } from "./workspace-git.ts";
+import { readGuiConfig, saveGuiConfig } from "./preferences.ts";
 
 const validateAction = compileSchemaValidator(actionSchema);
 const validateQuery = compileSchemaValidator(querySchema);
@@ -229,6 +230,7 @@ export class GuiHost {
 	}
 
 	private async readQuery(query: GuiQuery): Promise<QueryResult> {
+		if (query.query === "guiConfig") return readGuiConfig();
 		if (query.query === "directories")
 			return listDirectories(path.resolve(this.workspaceRoot ?? process.cwd(), query.path));
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
@@ -254,6 +256,9 @@ export class GuiHost {
 
 	private async perform(action: GuiAction): Promise<void> {
 		switch (action.action) {
+			case "saveGuiConfig":
+				this.emit({ type: "guiConfig", value: await saveGuiConfig(action.original, action.content) });
+				return;
 			case "dialog": this.dialogs.respond(action.id, action.value); return;
 			case "draft": this.dialogs.draft = action.text; return;
 			case "cancelLogin": this.loginController?.abort(); return;

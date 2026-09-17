@@ -1,5 +1,5 @@
 import type { ReactNode, Ref } from "react";
-import type { GuiPanel, GuiSnapshot, Query } from "../contract.ts";
+import type { GuiPanel, GuiSnapshot } from "../contract.ts";
 import type { Send } from "./connection.ts";
 import { Content } from "./content.tsx";
 import { Button } from "./components/ui/button";
@@ -9,7 +9,6 @@ import { PanelDialog } from "./components/panel-dialog";
 import { ModelManager } from "./model-manager.tsx";
 import { SubagentProgress } from "./subagent-progress.tsx";
 import { UsageReport } from "./reports/usage-report.tsx";
-import { Settings } from "./settings-panel.tsx";
 import "./reports/reports.css";
 
 const titles: Record<GuiPanel["kind"], string> = {
@@ -18,13 +17,12 @@ const titles: Record<GuiPanel["kind"], string> = {
 	lastReply: "最后回复", usage: "套餐用量",
 };
 
-export function Panel({ ref, panel, snapshot, sessionList, send, query, canChangeSession, close, restoreFocus }: {
+export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSession, close, restoreFocus }: {
 	ref: Ref<HTMLDivElement>;
-	panel: GuiPanel;
+	panel: Exclude<GuiPanel, { kind: "settings" }>;
 	snapshot: GuiSnapshot;
 	sessionList: ReactNode;
 	send: Send;
-	query: Query;
 	canChangeSession: boolean;
 	close: () => void;
 	restoreFocus: () => void;
@@ -44,7 +42,6 @@ export function Panel({ ref, panel, snapshot, sessionList, send, query, canChang
 			</>;
 			break;
 		case "sessions": body = sessionList; break;
-		case "settings": body = <Settings snapshot={snapshot} send={send} query={query} disabled={!canChangeSession} restoreFocus={restoreFocus} />; break;
 		case "auth":
 			body = <>
 				<p>凭据由 SDK 保存在后端，不返回到界面。OAuth 回调在运行后端的电脑上接收。</p>

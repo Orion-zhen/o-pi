@@ -3,16 +3,23 @@ import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiPanel, GuiSessio
 import { useWorkbench } from "./use-workbench.ts";
 import { useWindowRefresh } from "./use-window-refresh.ts";
 import { connectGui, type ConnectionStatus, type Send } from "./connection.ts";
+import type { GuiConfigDocument } from "../preferences.ts";
+import { usePreferences } from "./use-preferences.ts";
+import { useLayout } from "./use-layout.ts";
 
 /** 共享宿主状态与跨区域导航，查询结果由使用它的组件持有。 */
 export function useGui() {
 	const [snapshot, setSnapshot] = useState<GuiSnapshot | null>(null);
+	const [guiConfig, setGuiConfig] = useState<GuiConfigDocument>();
+	const configVersion = useRef(0);
+	usePreferences(guiConfig?.state === "ready" ? guiConfig.value : undefined);
 	const [sessions, setSessions] = useState<GuiSessionInfo[]>();
 	const [sessionsLoading, setSessionsLoading] = useState(false);
 	const [dialogs, setDialogs] = useState<GuiDialog[]>([]);
 	const [notices, setNotices] = useState<GuiNotice[]>([]);
 	const [status, setStatus] = useState<ConnectionStatus>("connecting");
 	const [error, setError] = useState("");
+	const layout = useLayout(setError);
 	const [panel, setPanel] = useState<GuiPanel>();
 	const [sessionTab, setSessionTab] = useState<GuiSessionTab>("tree");
 	const [activeTab, setActiveTab] = useState<GuiSessionTab | "file">("tree");
@@ -38,6 +45,7 @@ export function useGui() {
 		connection.current = client;
 		const unsubscribe = client.subscribe((event) => {
 			switch (event.type) {
+				case "guiConfig": configVersion.current++; setGuiConfig(event.value); break;
 				case "workspaceRoot": setWorkspaceRoot(event.path); break;
 				case "workspaces": setWorkspaces(event.value); break;
 				case "sessionInfo": setSessionDetails(event.value); break;
@@ -84,6 +92,17 @@ export function useGui() {
 		return connection.current.query(request);
 	}, []);
 	const connected = status === "connected";
+	const refreshGuiConfig = useCallback(async () => {
+		const version = ++configVersion.current;
+		try {
+			const value = await query({ query: "guiConfig" });
+			if (version === configVersion.current) setGuiConfig(value);
+		} catch (error) {
+			if (version === configVersion.current) setError(error instanceof Error ? error.message : String(error));
+		}
+	}, [query]);
+	useEffect(() => { if (connected) void refreshGuiConfig(); }, [connected, refreshGuiConfig]);
+	useWindowRefresh(connected, refreshGuiConfig);
 	const refreshSessions = useCallback(async () => {
 		setSessionsLoading(true);
 		try { await send({ action: "sessions" }); }
@@ -92,13 +111,13 @@ export function useGui() {
 	useEffect(() => { if (connected) void refreshSessions(); }, [connected, revision, refreshSessions]);
 	useWindowRefresh(connected, refreshSessions);
 	useEffect(() => {
-		setPanel(undefined);
+		setPanel((panel) => panel?.kind === "settings" ? panel : undefined);
 		setSessionPanelOpen(true);
 	}, [snapshot?.sessionId]);
 	const running = snapshot?.running ?? false;
 	const workbench = useWorkbench(snapshot?.cwd, connected, running, query);
 	return {
-		workbench,
+		workbench, guiConfig, refreshGuiConfig, layout,
 		openFile: (path: string) => { workbench.openFile(path); selectTab("file"); setSessionPanelOpen(true); },
 		referenceFile: (path: string) => {
 			if (/[\r\n]/.test(path) || (path.includes('"') && path.includes("'"))) {
