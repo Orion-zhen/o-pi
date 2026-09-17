@@ -14,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import type { GuiEvent } from "../gui/contract.ts";
+import { resolveShellEnvironment } from "./shell-environment.ts";
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -58,7 +59,19 @@ async function saveDownload(event: Extract<GuiEvent, { type: "download" }>): Pro
 void app
 	.whenReady()
 	.then(async () => {
-		if (process.platform === "darwin") app.dock?.setIcon(icon);
+		let environment = process.env;
+		if (process.platform === "darwin") {
+			app.dock?.setIcon(icon);
+			try {
+				environment = await resolveShellEnvironment(app.getPath("home"), process.env);
+			} catch {
+				await dialog.showMessageBox({
+					type: "warning",
+					message: "无法加载终端环境",
+					detail: "登录 shell 执行失败或超过 10 秒。将使用应用原有环境，部分命令可能不可用。请检查 shell 启动配置后重启应用。",
+				});
+			}
+		}
 		protocol.handle("opi", async (request) => {
 			const url = new URL(request.url);
 			if (url.hostname !== "app") return new Response("Forbidden", { status: 403 });
@@ -96,9 +109,10 @@ void app
 			void openExternal(url).catch((error: unknown) => dialog.showErrorBox("无法打开链接", String(error)));
 			return { action: "deny" };
 		});
-		backend = utilityProcess.fork(path.join(directory, "backend.mjs"), [process.cwd()], {
+		backend = utilityProcess.fork(path.join(directory, "backend.mjs"), [app.getPath("home")], {
 			stdio: "pipe",
 			serviceName: "opi-desktop SDK",
+			env: environment,
 		});
 		backend.stdout?.on("data", (chunk: Buffer) => process.stdout.write(chunk));
 		backend.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
