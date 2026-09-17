@@ -73,6 +73,7 @@ export interface LoadedValidatedMergedConfig extends LoadedConfigLayers {
 /** 分层代理配置及其允许范围的中央注册中心。 */
 export const CONFIG_DEFINITIONS = {
 	approvalGate: globalConfig("approval-gate", "approval-gate.jsonc", "PI_APPROVAL_GATE_CONFIG"),
+	autoTitle: globalConfig("auto-title", "auto-title.jsonc", "PI_AUTO_TITLE_CONFIG"),
 	bashTool: globalConfig("bash-tool", "bash-tool.jsonc", "PI_BASH_TOOL_CONFIG"),
 	discordPresence: projectConfig(
 		"discord-presence",

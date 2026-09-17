@@ -149,7 +149,7 @@ export class GuiHost {
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update")
 				this.liveTools.set(event.toolCallId, event);
 			if (event.type === "tool_execution_end") this.liveTools.delete(event.toolCallId);
-			if (event.type === "agent_end") this.refreshSessions();
+			if (event.type === "agent_end" || event.type === "session_info_changed") this.refreshSessions();
 			this.schedule();
 		});
 		await session.bindExtensions({

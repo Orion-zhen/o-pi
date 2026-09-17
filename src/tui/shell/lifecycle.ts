@@ -63,6 +63,7 @@ export function createTuiRuntime(pi: ExtensionAPI): TuiRuntime {
 	pi.on("session_tree", (_event, ctx) => {
 		if (session !== undefined) resetUserMessageTimestamps(collectUserMessages(ctx));
 	});
+	pi.on("session_info_changed", () => session?.refresh());
 	pi.on("model_select", () => session?.refresh());
 	pi.on("thinking_level_select", () => session?.refresh());
 	pi.on("session_shutdown", resetSession);

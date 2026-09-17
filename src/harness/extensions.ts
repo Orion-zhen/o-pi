@@ -1,6 +1,7 @@
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import agentsPrompts from "./extensions/agents-prompts.ts";
 import approvalGate from "./extensions/approval-gate.ts";
+import autoTitle from "./extensions/auto-title.ts";
 import bashTool from "./extensions/bash-tool.ts";
 import tools from "./extensions/cmd-slash-tools.ts";
 import discordPresence from "./extensions/discord-presence.ts";
@@ -23,6 +24,7 @@ import webTools from "./extensions/web-tools.ts";
 export const extensions: InlineExtension[] = [
 	{ name: "agents-prompts", factory: agentsPrompts },
 	{ name: "approval-gate", factory: approvalGate },
+	{ name: "auto-title", factory: autoTitle },
 	{ name: "bash-tool", factory: bashTool },
 	{ name: "cmd-slash-tools", factory: tools },
 	{ name: "discord-presence", factory: discordPresence },

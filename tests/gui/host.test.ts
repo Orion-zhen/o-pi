@@ -3,7 +3,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GuiHost } from "../../src/gui/host/host.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
-import { startModelServer } from "../cli/model-server.ts";
+import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
+import { deferred } from "../helpers/async.ts";
 import { storeSession } from "./session-fixture.ts";
 import { historyDeletionTests } from "./deletion-cases.ts";
 import { sidebarTests } from "./sidebar-cases.ts";
@@ -16,6 +17,7 @@ let host: GuiHost;
 let server: Awaited<ReturnType<typeof startModelServer>>;
 let cwd: string;
 let events: GuiEvent[];
+let titleReply: () => ModelResponse | Promise<ModelResponse>;
 
 beforeEach(async () => {
 	setTestHome(temp.path);
@@ -25,7 +27,9 @@ beforeEach(async () => {
 	process.env.PI_OFFLINE = "1";
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
 	await mkdir(cwd, { recursive: true });
+	titleReply = () => ({ text: "检查文件并写入结果" });
 	server = await startModelServer((request) => {
+		if (!request.tools) return titleReply();
 		const tools = request.messages.filter((message) => message.role === "tool").length;
 		if (tools === 0) return { tool: "read", args: { path: "input.txt" } };
 		if (tools === 1) return { tool: "write", args: { path: "output.txt", content: "GUI SDK result\n" } };
@@ -65,6 +69,7 @@ beforeEach(async () => {
 		}),
 	);
 	await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
+	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 	host = new GuiHost();
 	events = [];
 	host.subscribe((event) => events.push(event));
@@ -83,6 +88,20 @@ sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"),
 workbenchTests(() => ({ host, cwd }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("主任务结束后生成标题仍更新共享宿主快照与会话列表", async () => {
+		const reply = deferred<ModelResponse>();
+		titleReply = () => reply.promise;
+		await writeFile(path.join(temp.path, ".pi", "agent", "configs", "auto-title.jsonc"), '{"enabled":true}');
+		await host.dispatch({ action: "reload" });
+		await host.dispatch(prompt("检查 input.txt 并写入 output.txt"));
+		expect(host.runtime.session.sessionName).toBeUndefined();
+		reply.resolve({ text: "检查文件并写入结果" });
+		await expect.poll(() => events.filter((event) => event.type === "sessions").at(-1)?.value).toContainEqual(
+			expect.objectContaining({ path: host.runtime.session.sessionFile, title: "检查文件并写入结果" }),
+		);
+		await expect.poll(() => events.filter((event) => event.type === "snapshot").at(-1)?.value?.name).toBe("检查文件并写入结果");
+	});
+
 	it("任务运行期间保存 GUI 设置不重载会话或中断 Shell", async () => {
 		const session = host.runtime.session;
 		const running = host.dispatch(prompt("!printf 'gui-settings-started\\n'; sleep 0.3; printf 'gui-settings-finished\\n'"));

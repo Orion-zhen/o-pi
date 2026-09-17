@@ -1,0 +1,16 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": { "type": "string" },
+		"enabled": { "type": "boolean" },
+		"model": {
+			"anyOf": [
+				{ "type": "null" },
+				{ "type": "string", "pattern": "^[^/\\s]+/[^\\s]+$" }
+			]
+		},
+		"system_prompt": { "type": "string", "pattern": "\\S" }
+	}
+}

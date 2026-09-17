@@ -1,6 +1,6 @@
 # 配置分层
 
-本文说明 `approval-gate`、`bash-tool`、`discord-presence`、`file-tools`、`lsp`、`subagent`、`tui` 和 `web-tools` 共用的 JSONC 配置分层机制。
+本文说明 `approval-gate`、`auto-title`、`bash-tool`、`discord-presence`、`file-tools`、`lsp`、`subagent`、`tui` 和 `web-tools` 共用的 JSONC 配置分层机制。
 
 ## 配置层级
 
@@ -50,9 +50,10 @@
 | `lsp` | `PI_LSP_CONFIG` | `PI_LSP_PROJECT_CONFIG` | `PI_LSP_PROJECT_ROOT` |
 | `subagent` | `PI_SUBAGENT_USER_CONFIG` | `PI_SUBAGENT_PROJECT_CONFIG` | `PI_SUBAGENT_PROJECT_ROOT` |
 
-`approval-gate`、`bash-tool`、`tui` 和 `web-tools` 只读取默认层和用户层。它们对应的用户配置路径环境变量分别为：
+`approval-gate`、`auto-title`、`bash-tool`、`tui` 和 `web-tools` 只读取默认层和用户层。它们对应的用户配置路径环境变量分别为：
 
 - `PI_APPROVAL_GATE_CONFIG`
+- `PI_AUTO_TITLE_CONFIG`
 - `PI_BASH_TOOL_CONFIG`
 - `PI_TUI_CONFIG`
 - `PI_WEB_TOOLS_CONFIG`
@@ -76,7 +77,7 @@ GUI 编辑器需要同时呈现原文和校验错误，因此从同一份用户�
 
 ## 独立的工具默认配置
 
-工具启用状态使用独立的配置机制，不属于上述八个模块的默认层体系。相关文件为：
+工具启用状态使用独立的配置机制，不属于上述模块的默认层体系。相关文件为：
 
 ```text
 ~/.pi/agent/tools.jsonc

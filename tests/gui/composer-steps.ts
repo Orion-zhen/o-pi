@@ -38,6 +38,10 @@ export async function exerciseComposerRunning(page: Page, imagePath: string) {
 	const editor = page.getByRole("textbox", { name: "消息", exact: true });
 	const send = page.getByRole("button", { name: "发送", exact: true });
 	const stop = page.getByRole("button", { name: "停止", exact: true });
+	const steer = page.getByRole("button", { name: /^当前：Steering/ });
+	const followUp = page.getByRole("button", { name: /^当前：Follow-up/ });
+	await expect(steer.locator(".lucide-corner-up-right")).toBeVisible();
+	await expect(send.locator(".lucide-arrow-up")).toBeVisible();
 	await editor.fill("验证停止输出");
 	await send.click();
 	const tool = page.locator('.tool-activity[data-tool="bash"]').last();
@@ -51,16 +55,20 @@ export async function exerciseComposerRunning(page: Page, imagePath: string) {
 	await expect(stop).toHaveCount(0);
 	await page.getByRole("button", { name: "移除附件 1", exact: true }).click();
 	await expect(stop).toBeEnabled();
+	await expect(stop.locator(".lucide-square")).toBeVisible();
 	const messages = ["排队验证\n保留换行", "第二条排队消息", "第二条排队消息"];
-	for (const text of messages) {
+	for (const [index, text] of messages.entries()) {
 		await editor.fill(text);
-		await send.click();
+		if (index === 1) await steer.click();
+		await expect(send.locator(index === 0 ? ".lucide-corner-up-right" : ".lucide-list-end")).toBeVisible();
+		if (index === 2) await editor.press("ControlOrMeta+Enter");
+		else await send.click();
 		await expect(editor).toHaveValue("");
 	}
 	const queue = page.getByRole("list", { name: "待发送消息", exact: true });
 	await expect(queue.getByRole("listitem")).toHaveCount(3);
 	await expect(queue.locator(".queue-message")).toHaveText(messages, { useInnerText: true });
-	await expect(queue.locator(".queue-kind")).toHaveText(["跟进", "跟进", "跟进"]);
+	await expect(queue.locator(".queue-kind")).toHaveText(["引导", "跟进", "跟进"]);
 	await page.getByLabel("上传附件", { exact: true }).setInputFiles(imagePath);
 	await send.click();
 	await expect(queue.getByRole("listitem")).toHaveCount(4);
@@ -72,10 +80,19 @@ export async function exerciseComposerRunning(page: Page, imagePath: string) {
 	await toggle.click();
 	await expect(queue.getByRole("listitem")).toHaveCount(4);
 	await expect(stop).toBeEnabled();
+	await followUp.click();
+	await expect(steer).toBeVisible();
+	await expect(stop.locator(".lucide-square")).toBeVisible();
+	await expect(queue.locator(".queue-kind")).toHaveText(["引导", "跟进", "跟进", "跟进"]);
 	await page.getByRole("button", { name: "清空队列", exact: true }).click();
 	await expect(page.locator(".queue")).toHaveCount(0);
 	await stop.click();
 	await expect(stop).toHaveCount(0);
 	await expect(send).toBeDisabled();
 	await expect(tool).not.toHaveAttribute("data-state", "running");
+	await expect(send.locator(".lucide-arrow-up")).toBeVisible();
+	await steer.click();
+	await expect(followUp).toBeVisible();
+	await page.reload();
+	await expect(steer).toBeVisible();
 }

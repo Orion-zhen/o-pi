@@ -181,6 +181,7 @@ input.session-name { flex: 1; background: var(--surface); }
 	.mobile-menu, .sidebar-footer > button, .sidebar-brand > button { min-inline-size: 2.75rem; min-block-size: 2.75rem; }
 	[data-slot="input"], [data-slot="textarea"], .model-controls [data-slot="select-trigger"] { font-size: max(1rem, var(--text-ui)); }
 	.message-editor { font-size: max(1rem, var(--text-body)); }
+	.message-behavior-label { display: none; }
 	.panel-header { padding: var(--space-3) var(--space-4); }
 	.panel-body { padding: var(--space-4); }
 	.list-row { flex-wrap: wrap; }

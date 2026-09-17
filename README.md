@@ -64,6 +64,7 @@ GUI 沿用 `~/.pi`，提供真实会话、工具、审批、模型认证、会�
 * [GUI MVP](docs/gui.md)
 * [前端与 SDK 约定](docs/frontends.md)
 * [配置分层](docs/configuration.md)
+* [自动会话标题](docs/auto-title.md)
 * [性能 Benchmark](docs/benchmark.md)
 * [文件工具设计](docs/file-tools/README.md)
 * [Bash 工具](docs/bash-tool.md)

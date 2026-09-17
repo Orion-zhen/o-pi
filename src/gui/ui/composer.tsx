@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { ListItem, Reveal } from "./components/animated";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
-import { ArrowUp, History, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
+import { ArrowUp, CornerUpRight, History, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
@@ -42,6 +42,10 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 	const hasContent = Boolean(draft.trim() || images.length);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
 	const stopping = running && !hasContent;
+	const [behavior, setBehavior] = useState<"steer" | "followUp">("steer");
+	const steering = behavior === "steer";
+	const BehaviorIcon = steering ? CornerUpRight : ListEnd;
+	const behaviorLabel = steering ? "Steering" : "Follow-up";
 	const submit = () => {
 		if (!hasContent || !gui.canSubmit) return;
 		const text = draft;
@@ -50,7 +54,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 		setImages([]);
 		clearFiles();
 		onSubmit();
-		void send({ action: "prompt", text, images: attachments.map(({ data, mimeType }) => ({ data, mimeType })), behavior: "followUp" }).then((ok) => {
+		void send({ action: "prompt", text, images: attachments.map(({ data, mimeType }) => ({ data, mimeType })), behavior }).then((ok) => {
 			if (!ok) {
 				setDraft((current) => current || text);
 				setImages((current) => (current.length ? current : attachments));
@@ -284,6 +288,14 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 						>
 							<Wrench />{snapshot.tools.filter((tool) => tool.enabled).length}
 						</Button>
+						<IconButton
+							label={`当前：${behaviorLabel}（${steering ? "引导" : "跟进"}），点击切换为 ${steering ? "Follow-up" : "Steering"}`}
+							size="sm"
+							className="message-behavior"
+							onClick={() => setBehavior((current) => current === "steer" ? "followUp" : "steer")}
+						>
+							<BehaviorIcon /><span className="message-behavior-label">{behaviorLabel}</span>
+						</IconButton>
 					</div>
 					<div className="composer-controls">
 						<ModelControls snapshot={snapshot} send={send} disabled={!gui.canChangeSession} openManager={() => gui.setPanel({ kind: "model" })} />
@@ -295,7 +307,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 							onClick={stopping ? () => void send({ action: "abort" }) : submit}
 							disabled={!connected || (!stopping && (!gui.canSubmit || !hasContent))}
 						>
-							{stopping ? <Square fill="currentColor" /> : <ArrowUp />}
+							{stopping ? <Square fill="currentColor" /> : running ? <BehaviorIcon /> : <ArrowUp />}
 						</IconButton>
 					</div>
 				</div>
