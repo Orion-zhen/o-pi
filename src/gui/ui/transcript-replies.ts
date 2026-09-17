@@ -1,6 +1,6 @@
 import { replyMetrics } from "../message-metrics.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { transcriptItems, type TranscriptItem, type TranscriptSource } from "./transcript-items.ts";
+import type { TranscriptItem, TranscriptSource, ToolState } from "./transcript-items.ts";
 
 export type ReplyState = "running" | "completed" | "continued" | "stopped" | "failed" | "incomplete";
 export interface TranscriptReply {
@@ -11,7 +11,6 @@ export interface TranscriptReply {
 	metrics: ReturnType<typeof replyMetrics>;
 	state: ReplyState;
 	retrying: boolean;
-	final: boolean;
 	tracking: boolean;
 	process: TranscriptItem[];
 	answer: Extract<TranscriptItem, { kind: "text" }>[];
@@ -28,15 +27,18 @@ interface ReplyDraft {
 	lastAssistant: { message: AssistantMessage; index: number } | undefined;
 }
 
-/** 每条用户消息开启一组。用户 Shell 和上下文摘要保持独立，不藏进模型过程。 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 每条用户消息开启一组，直接按消息顺序投影。工具结果按调用 ID 关联。 */
 export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 	const messages = source.streamingMessage ? [...source.messages, source.streamingMessage] : source.messages;
-	const byMessage = new Map<number, TranscriptItem[]>();
-	for (const item of transcriptItems(source)) {
-		const items = byMessage.get(item.messageIndex);
-		if (items) items.push(item);
-		else byMessage.set(item.messageIndex, [item]);
-	}
+	const lastAssistant = messages.findLastIndex((message) => message.role === "assistant");
+	const results = new Map(messages.flatMap((message) => message.role === "toolResult" ? [[message.toolCallId, message] as const] : []));
+	const live = new Map(source.liveTools.map((event) => [event.toolCallId, event]));
+	const calls = new Set(messages.flatMap((message) => message.role === "assistant"
+		? message.content.flatMap((block) => block.type === "toolCall" ? [block.id] : []) : []));
 	const rows: (Extract<TranscriptItem, { kind: "message" }> | ReplyDraft)[] = [];
 	let current: ReplyDraft | undefined;
 	const begin = (key: string) => {
@@ -44,30 +46,65 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 		rows.push(current);
 		return current;
 	};
+	function activity(id: string, name: string, args: unknown, idle: ToolState, messageIndex: number): TranscriptItem {
+		const result = results.get(id);
+		const event = live.get(id);
+		const partial: unknown = event?.type === "tool_execution_update" ? event.partialResult : undefined;
+		const details: unknown = result?.details;
+		const state = result
+			? isRecord(details) && details.status === "aborted" ? "stopped" : result.isError ? "failed" : "completed"
+			: event ? "running" : idle;
+		return {
+			key: `tool:${id}`, kind: "tool", messageIndex,
+			tool: {
+				id, name, args, state,
+				output: result ?? (isRecord(partial) ? { content: partial.content, details: partial.details } : undefined),
+			},
+		};
+	}
 	messages.forEach((message, index) => {
-		const items = byMessage.get(index) ?? [];
+		const key = `message:${index}:${message.timestamp}`;
+		const standalone: TranscriptRow = { key, kind: "message", messageIndex: index, message };
 		if (message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary") {
 			if (current && message.role === "user") current.followedByUser = true;
-			for (const item of items) if (item.kind === "message") rows.push(item);
+			rows.push(standalone);
 			current = undefined;
 			if (message.role === "user") begin(`user:${index}:${message.timestamp}`);
 			return;
 		}
 		if (!current && message.role === "custom") {
-			for (const item of items) if (item.kind === "message") rows.push(item);
+			if (message.display !== false) rows.push(standalone);
 			return;
 		}
 		const reply = current ?? begin(`history:${index}:${message.timestamp}`);
-		reply.items.push(...items);
 		reply.messageIndices.push(index);
-		if (message.role === "assistant") {
+		if (message.role === "toolResult") {
+			// 压缩或导入的历史可能只保留结果，仍允许查看。
+			if (!calls.has(message.toolCallId)) reply.items.push(activity(message.toolCallId, message.toolName, undefined, "unavailable", index));
+		} else if (message.role === "assistant") {
 			reply.lastAssistant = { message, index };
 			reply.assistants.push(message);
-		}
+			const streaming = message === source.streamingMessage;
+			message.content.forEach((block, blockIndex) => {
+				const blockKey = `${key}:${blockIndex}`;
+				if (block.type === "toolCall") {
+					const idle = message.stopReason === "aborted" ? "stopped" : streaming ? "preparing"
+						: source.streaming && index === lastAssistant ? "pending" : "unavailable";
+					reply.items.push(activity(block.id, block.name, block.arguments, idle, index));
+				} else if (block.type === "thinking") {
+					if (block.thinking && !block.redacted) reply.items.push({
+						key: blockKey, messageIndex: index, kind: "thinking", text: block.thinking,
+						active: streaming && blockIndex === message.content.length - 1,
+					});
+				} else if (block.text) reply.items.push({ key: blockKey, messageIndex: index, blockIndex, kind: "text", text: block.text });
+			});
+			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex: index, kind: "error", text: message.errorMessage });
+		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);
 	});
-	const live = byMessage.get(messages.length);
-	if (live) (current ?? begin("live")).items.push(...live);
-
+	for (const event of source.liveTools) {
+		if (!calls.has(event.toolCallId) && !results.has(event.toolCallId))
+			(current ?? begin("live")).items.push(activity(event.toolCallId, event.toolName, event.args, "running", messages.length));
+	}
 	return rows.flatMap((row): TranscriptRow[] => {
 		if (row.kind === "message") return [row];
 		const active = row === current && (source.streaming || source.retrying);
@@ -103,7 +140,7 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 	const model = message && source.models.find((model) => model.provider === message.provider && model.id === message.model);
 	const identity = message ? { model: model?.name ?? message.model, timestamp: message.timestamp } : undefined;
 	const metrics = replyMetrics(draft.assistants, source.messageDurations);
-	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, final, tracking: active && !final, process, answer, error };
+	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, tracking: active && !final, process, answer, error };
 }
 
 function answerBlocks(message: AssistantMessage): { indices: Set<number>; explicit: boolean } {

@@ -12,9 +12,9 @@ beforeEach(() => {
 });
 
 describe("自动标题配置", () => {
-	it("默认启用，使用当前模型，提示词来自默认配置", async () => {
+	it("默认关闭，使用当前模型，提示词来自默认配置", async () => {
 		const config = await loadAutoTitleConfig(temp.path);
-		expect(config).toMatchObject({ enabled: true, model: null });
+		expect(config).toMatchObject({ enabled: false, model: null });
 		expect(config.system_prompt).toContain("session title");
 	});
 	it("用户可以稀疏覆盖开关、模型和提示词", async () => {
@@ -22,10 +22,10 @@ describe("自动标题配置", () => {
 			model: "local/small", system_prompt: "只输出标题。",
 		}));
 		expect(await loadAutoTitleConfig(temp.path)).toMatchObject({
-			enabled: true, model: "local/small", system_prompt: "只输出标题。",
+			enabled: false, model: "local/small", system_prompt: "只输出标题。",
 		});
-		await writeFile(path.join(temp.path, "auto-title.jsonc"), '{"enabled":false}');
-		expect(await loadAutoTitleConfig(temp.path)).toMatchObject({ enabled: false, model: null });
+		await writeFile(path.join(temp.path, "auto-title.jsonc"), '{"enabled":true}');
+		expect(await loadAutoTitleConfig(temp.path)).toMatchObject({ enabled: true, model: null });
 	});
 	it.each([
 		{ model: { provider: "local", id: "small" } }, { model: "small" },

@@ -229,7 +229,7 @@ export class GuiHost {
 	}
 
 	private async readQuery(query: GuiQuery): Promise<QueryResult> {
-		if (query.query === "moduleConfig") return readModuleConfig(query.id, this.current?.cwd ?? process.cwd());
+		if (query.query === "moduleConfig") return readModuleConfig(query.id);
 		if (query.query === "guiConfig") return readGuiConfig();
 		if (query.query === "directories")
 			return listDirectories(path.resolve(this.workspaceRoot ?? process.cwd(), query.path));
@@ -386,19 +386,17 @@ export class GuiHost {
 		await this.sessions.refresh();
 		if (!this.sessions.workspaces?.some((workspace) => workspace.path === cwd)) throw new Error("工作区已不在列表中。");
 		try {
-			const plans = [];
-			for (const session of this.sessions.value ?? []) {
-				if (session.cwd === cwd) plans.push(await prepareSessionDeletion(session.path, null));
-			}
-			for (const plan of plans) await plan.verify();
-			for (const plan of plans) await plan.remove();
+			const files = (this.sessions.value ?? []).filter((session) => session.cwd === cwd).map((session) => session.path);
+			const plan = await prepareSessionDeletion(files, null);
+			await plan.verify();
+			await plan.remove();
 		} finally { await this.sessions.refresh(); }
 	}
 
 	private async deleteSession(file: string): Promise<void> {
 		if (this.dialogs.list().length) throw new Error("请先完成或取消当前对话框。");
 		try {
-			const plan = await prepareSessionDeletion(file, this.current?.session.sessionFile ?? null);
+			const plan = await prepareSessionDeletion([file], this.current?.session.sessionFile ?? null);
 			if (this.disposed) return;
 			await plan.verify();
 			if (plan.affectsCurrent && this.current) {

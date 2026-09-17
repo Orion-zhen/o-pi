@@ -3,13 +3,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import { transcriptItems, type ToolActivity } from "../../src/gui/ui/transcript-items.ts";
+import type { ToolActivity, TranscriptSource, TranscriptItem } from "../../src/gui/ui/transcript-items.ts";
+import { transcriptReplies } from "../../src/gui/ui/transcript-replies.ts";
 import { ToolResult } from "../../src/gui/ui/tool-results.tsx";
 import { ToolActivity as ToolActivityView } from "../../src/gui/ui/tool-activity.tsx";
 import { ParameterValue } from "../../src/gui/ui/tool-parameters.tsx";
 import { MarkdownText } from "../../src/gui/ui/content.tsx";
 
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
+
+const transcriptItems = (source: TranscriptSource): TranscriptItem[] => transcriptReplies(source)
+	.flatMap((row) => row.kind === "message" ? [row] : [...row.process, ...row.answer]);
 
 describe("聊天活动投影", () => {
 	it("参数生成、执行更新和完成沿用一个节点，不重复展示结果", () => {

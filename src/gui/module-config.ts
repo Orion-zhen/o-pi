@@ -5,5 +5,4 @@ export interface ModuleConfigDocument {
 	path: string;
 	content: string;
 	defaults: string;
-	projectPath: string | undefined;
 }

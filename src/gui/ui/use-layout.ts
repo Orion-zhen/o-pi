@@ -37,4 +37,3 @@ export function useLayout(reportError: (message: string) => void) {
 	};
 	return { values, set, style };
 }
-export type GuiLayout = ReturnType<typeof useLayout>;

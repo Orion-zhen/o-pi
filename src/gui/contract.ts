@@ -9,12 +9,9 @@ import type { SubagentDetails } from "../harness/subagent/types.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "./workbench.ts";
 import type { GuiConfigDocument } from "./preferences.ts";
 
-import { type ModuleConfigDocument } from "./module-config.ts";
+import { moduleConfigIds, type ModuleConfigDocument } from "./module-config.ts";
 
-const moduleConfigId = Type.Union([
-	Type.Literal("autoTitle"), Type.Literal("bashTool"), Type.Literal("fileTools"), Type.Literal("webTools"),
-	Type.Literal("approvalGate"), Type.Literal("subagent"), Type.Literal("lsp"), Type.Literal("discordPresence"), Type.Literal("tui"), Type.Literal("tools"),
-]);
+const moduleConfigId = Type.Enum(moduleConfigIds);
 const text = Type.String({ maxLength: 4_000_000 });
 const short = Type.String({ maxLength: 4096 });
 const object = <T extends TProperties>(properties: T) => Type.Object(properties, { additionalProperties: false });

@@ -77,13 +77,15 @@ export function historyDeletionTests(context: () => { host: GuiHost; cwd: string
 			expect(await readFile(external, "utf8")).toContain("历史回复");
 		});
 
-		it("删除准备期间被其他进程修改的会话必须重新确认", async () => {
+		it("批量删除准备期间任一会话被修改，整批都必须重新确认", async () => {
 			const { cwd, agentDir } = context();
-			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			const plan = await prepareSessionDeletion(file, null);
-			SessionManager.open(file).appendSessionInfo("TUI 修改名称");
+			const first = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
+			const second = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
+			const plan = await prepareSessionDeletion([first, second], null);
+			SessionManager.open(second).appendSessionInfo("TUI 修改名称");
 			await expect(plan.verify()).rejects.toThrow("会话已被修改");
-			expect(await readFile(file, "utf8")).toContain("TUI 修改名称");
+			expect(await readFile(first, "utf8")).toContain("历史回复");
+			expect(await readFile(second, "utf8")).toContain("TUI 修改名称");
 		});
 
 		it("扩展取消当前会话切换时不删除该会话", async () => {

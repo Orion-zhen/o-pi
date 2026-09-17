@@ -6,7 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import autoTitle from "../../../src/harness/extensions/auto-title.ts";
-import { loadAutoTitleConfig } from "../../../src/harness/auto-title/config.ts";
+import { loadAutoTitleConfig, type AutoTitleConfig } from "../../../src/harness/auto-title/config.ts";
 import { startModelServer, type ModelRequest, type ModelResponse } from "../../cli/model-server.ts";
 import { deferred } from "../../helpers/async.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
@@ -32,6 +32,7 @@ beforeEach(async () => {
 	process.env.PI_AUTO_TITLE_CONFIG = path.join(agentDir, "configs", "auto-title.jsonc");
 	await mkdir(cwd, { recursive: true });
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
+	await config();
 	systemPrompt = (await loadAutoTitleConfig(cwd)).system_prompt;
 	titleRequests = [];
 	answerTitle = () => ({ text: "修复登录错误" });
@@ -82,8 +83,8 @@ async function start(manager = SessionManager.create(cwd, path.join(temp.path, "
 	return runtime.session;
 }
 
-async function config(value: object) {
-	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), JSON.stringify(value));
+async function config(value: Partial<AutoTitleConfig> = {}) {
+	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), JSON.stringify({ enabled: true, ...value }));
 }
 
 describe("共享 SDK 自动标题", () => {
