@@ -36,9 +36,9 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 	const toolbar = mix(hex(dark ? "#1D1D1FDC" : "#F7F7F8DC"), seed, tint * 0.7);
 	const foreground = hex(dark ? "#F5F5F7" : "#1D1D1F");
 	const secondary = composite(hex(dark ? "#FFFFFF10" : "#3C3C4324"), background);
-	const hover = composite(hex(dark ? "#FFFFFF18" : "#3C3C4330"), background);
-	const active = composite(hex(dark ? "#FFFFFF26" : "#3C3C4340"), background);
-	const surfaces = [background, panel, composite(sidebar, background), hover, secondary];
+	const hover = composite(hex(dark ? "#FFFFFF20" : "#3C3C4330"), dark ? panel : background);
+	const active = composite(hex(dark ? "#FFFFFF30" : "#3C3C4340"), dark ? panel : background);
+	const surfaces = [background, panel, composite(sidebar, background), hover, secondary, ...(dark ? [active] : [])];
 	const primary = readable(seed, surfaces, dark);
 	const primaryForeground = onColor(primary);
 	const userBackground = mix(panel, primary, dark ? 0.22 : 0.09);

@@ -29,6 +29,20 @@ it.each(["light", "dark"] as const)("%s：主题色派生的文字、按钮和�
 	}
 });
 
+it.each(seeds)("深色主题 %s 的按钮和菜单高亮在面板上清晰可见", (seed) => {
+	const p = generatePalette("dark", seed);
+	for (const surface of [p.background, composite(p.surface, p.background), composite(p.popover, p.background), composite(p.glass, p.background), p.secondary]) {
+		expect(contrast(p.accent, surface)).toBeGreaterThanOrEqual(1.4);
+		expect(contrast(p["secondary-active"], surface)).toBeGreaterThan(contrast(p.accent, surface));
+	}
+	expect(contrast(p["secondary-active"], p["secondary-hover"])).toBeGreaterThanOrEqual(1.2);
+	for (const surface of [p.accent, p["secondary-hover"], p["secondary-active"]]) {
+		for (const text of [p.foreground, p["muted-foreground"], p.link]) {
+			expect(contrast(text, surface)).toBeGreaterThanOrEqual(4.5);
+		}
+	}
+});
+
 it("改变主题色会改变表面和消息气泡，不把灰蓝主题变成高饱和色", () => {
 	for (const mode of ["light", "dark"] as const) {
 		const blue = generatePalette(mode, "#007AFF"), pink = generatePalette(mode, "#FF2D55");
