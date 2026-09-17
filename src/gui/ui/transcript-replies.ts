@@ -2,7 +2,7 @@ import { replyMetrics } from "../message-metrics.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { transcriptItems, type TranscriptItem, type TranscriptSource } from "./transcript-items.ts";
 
-export type ReplyState = "running" | "completed" | "stopped" | "failed" | "incomplete";
+export type ReplyState = "running" | "completed" | "continued" | "stopped" | "failed" | "incomplete";
 export interface TranscriptReply {
 	kind: "reply";
 	key: string;
@@ -12,6 +12,7 @@ export interface TranscriptReply {
 	state: ReplyState;
 	retrying: boolean;
 	final: boolean;
+	tracking: boolean;
 	process: TranscriptItem[];
 	answer: Extract<TranscriptItem, { kind: "text" }>[];
 	error: string | undefined;
@@ -23,6 +24,7 @@ interface ReplyDraft {
 	items: TranscriptItem[];
 	messageIndices: number[];
 	assistants: AssistantMessage[];
+	followedByUser: boolean;
 	lastAssistant: { message: AssistantMessage; index: number } | undefined;
 }
 
@@ -38,13 +40,14 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 	const rows: (Extract<TranscriptItem, { kind: "message" }> | ReplyDraft)[] = [];
 	let current: ReplyDraft | undefined;
 	const begin = (key: string) => {
-		current = { kind: "reply", key: `reply:${key}`, items: [], messageIndices: [], assistants: [], lastAssistant: undefined };
+		current = { kind: "reply", key: `reply:${key}`, items: [], messageIndices: [], assistants: [], followedByUser: false, lastAssistant: undefined };
 		rows.push(current);
 		return current;
 	};
 	messages.forEach((message, index) => {
 		const items = byMessage.get(index) ?? [];
 		if (message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary") {
+			if (current && message.role === "user") current.followedByUser = true;
 			for (const item of items) if (item.kind === "message") rows.push(item);
 			current = undefined;
 			if (message.role === "user") begin(`user:${index}:${message.timestamp}`);
@@ -85,15 +88,22 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 	const error = !active ? message?.errorMessage : undefined;
 	const process = draft.items.filter((item) => !answerKeys.has(item.key)
 		&& !(error && item.kind === "error" && item.messageIndex === last?.index));
+	// 接续只描述消息间的关系，不把截断、缺失结果或中止的工具阶段当成正常结束。
+	const continued = draft.followedByUser && !error
+		&& (message?.stopReason === "stop" || message?.stopReason === "toolUse" || message?.stopReason === "deferred")
+		&& message.content.length > 0
+		&& process.every((item) => item.kind !== "tool" || item.messageIndex !== last?.index
+			|| item.tool.state === "completed" || item.tool.state === "failed");
 	const state: ReplyState = active ? "running"
 		: message?.stopReason === "aborted" ? "stopped"
 		: message?.stopReason === "error" ? "failed"
-		: message?.stopReason === "stop" && answer.length > 0 ? "completed" : "incomplete";
+		: message?.stopReason === "stop" && answer.length > 0 ? "completed"
+		: continued ? "continued" : "incomplete";
 	const final = answer.length > 0 && (selection.explicit || (message?.stopReason === "stop" && !streamingMessage));
 	const model = message && source.models.find((model) => model.provider === message.provider && model.id === message.model);
 	const identity = message ? { model: model?.name ?? message.model, timestamp: message.timestamp } : undefined;
 	const metrics = replyMetrics(draft.assistants, source.messageDurations);
-	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, final, process, answer, error };
+	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, final, tracking: active && !final, process, answer, error };
 }
 
 function answerBlocks(message: AssistantMessage): { indices: Set<number>; explicit: boolean } {

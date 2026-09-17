@@ -13,6 +13,7 @@ import { exercisePanels, exerciseTree } from "./panel-steps.ts";
 import { exerciseDeletion } from "./deletion-steps.ts";
 import { exerciseWorkspaceRemoval } from "./workspace-steps.ts";
 import { exerciseLiveTranscript, exerciseToolDetails } from "./transcript-steps.ts";
+import { exerciseTranscriptPhases, transcriptPhaseResponse } from "./transcript-phase-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
 import { exerciseRichTools } from "./rich-tools-steps.ts";
 import { exerciseContextUsage, exerciseComposerRunning, exerciseSuggestions } from "./composer-steps.ts";
@@ -47,6 +48,8 @@ export default function (pi) {
 	await writeFile(path.join(cwd, "image.png"), createCanvas(32, 32).toBuffer("image/png"));
 	richTools = await prepareRichTools(agentDir);
 	model = await startModelServer((request) => {
+		const phase = transcriptPhaseResponse(request);
+		if (phase) return phase;
 		const rich = richTools.respond(request);
 		if (rich) return rich;
 		if (JSON.stringify(request.messages.findLast((message) => message.role === "user")?.content)?.includes("只回复下一轮"))
@@ -297,6 +300,31 @@ test("Electron：隔离渲染进程直接使用本地 SDK", async ({ viewport },
 	} finally {
 		await app.close();
 	}
+});
+
+for (const mode of ["web", "desktop"] as const) test(`${mode}：处理阶段接续、自动折叠与历史回看`, async ({ viewport }, info) => {
+	test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口");
+	let child: ChildProcess | undefined;
+	try {
+		let url = "";
+		if (mode === "web") {
+			child = spawn(path.join(root, "dist", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+			let output = "";
+			child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+			child.stderr?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+			await expect.poll(() => { url = output.match(/opi-web: (http:\/\/[^\s]+)/)?.[1] ?? ""; return url; }).toBeTruthy();
+		}
+		const app = await electron.launch({ args: [path.join(root, mode === "web" ? "tests/gui/web-browser.cjs" : "dist/desktop/app"), "--no-sandbox"], cwd, env });
+		try {
+			const page = await app.firstWindow();
+			if (viewport) await page.setViewportSize(viewport);
+			if (url) await page.goto(url);
+			const errors: string[] = [];
+			page.on("pageerror", (error) => errors.push(error.message));
+			await exerciseTranscriptPhases(page, cwd);
+			expect(errors).toEqual([]);
+		} finally { await app.close(); }
+	} finally { if (child) await terminate(child); }
 });
 
 async function terminate(child: ChildProcess) {

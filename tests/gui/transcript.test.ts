@@ -73,10 +73,10 @@ function renderResult(name: string, args: unknown, details: unknown, content: un
 }
 
 describe("工具语义呈现", () => {
-	it("失败默认展开错误，成功默认保持轻量操作行", () => {
+	it("成功和失败都默认折叠，失败仍展示错误摘要", () => {
 		const tool: ToolActivity = { id: "missing-file", name: "read", args: { path: "missing.ts" }, state: "failed", output: { content: [{ type: "text", text: "文件不存在" }], details: { error: { code: "NOT_FOUND", message: "文件不存在" } } } };
 		const failed = renderToStaticMarkup(createElement(ToolActivityView, { tool }));
-		expect(failed).toContain('aria-expanded="true"');
+		expect(failed).toContain('aria-expanded="false"');
 		expect(parseHTML(failed).document.querySelector(".activity-error")?.textContent).toBe("文件不存在");
 		const completed = renderToStaticMarkup(createElement(ToolActivityView, { tool: { ...tool, id: call.id, args: call.arguments, state: "completed", output: result } }));
 		expect(completed).toContain('aria-expanded="false"');

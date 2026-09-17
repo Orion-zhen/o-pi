@@ -16,14 +16,14 @@ export function Transcript({ source, entryIds = [] }: { source: TranscriptSource
 }
 
 function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string | undefined)[] }) {
-	const [open, setOpen] = useState(!reply.final);
-	const folded = useRef(reply.final);
+	const [open, setOpen] = useState(reply.tracking);
+	const folded = useRef(!reply.tracking);
 	useEffect(() => {
-		if (reply.final && !folded.current) {
+		if (!reply.tracking && !folded.current) {
 			folded.current = true;
 			setOpen(false);
 		}
-	}, [reply.final]);
+	}, [reply.tracking]);
 	const tools = reply.process.filter((item) => item.kind === "tool");
 	const thoughts = reply.process.filter((item) => item.kind === "thinking").length;
 	const failures = tools.filter((item) => item.tool.state === "failed").length;
@@ -34,7 +34,7 @@ function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string 
 	].filter(Boolean).join(" · ");
 	const running = reply.state === "running";
 	const showProcess = reply.process.length > 0 || (running && reply.answer.length === 0);
-	const outcome = reply.state === "failed" ? "回复失败" : reply.state === "stopped" ? "已停止" : "未收到完整回复";
+	const outcome = reply.state === "failed" ? "回复失败" : reply.state === "stopped" ? "已停止" : reply.state === "continued" ? "已接续" : "未收到完整回复";
 	return <motion.section {...fade} className="assistant-reply" data-state={reply.state} data-entry-ids={reply.messageIndices.map((index) => entryIds[index]).filter(Boolean).join(" ")}>
 		<Disclosure className="reply-process" hidden={!showProcess} open={open} onOpenChange={setOpen} summary={<>
 				{running && <LoaderCircle className="animate-spin" aria-hidden="true" />}

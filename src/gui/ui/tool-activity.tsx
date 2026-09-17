@@ -22,7 +22,7 @@ const tools = {
 
 export function ToolActivity({ tool }: { tool: Activity }) {
 	const [expanded, setExpanded] = useState<boolean | null>(null);
-	const open = expanded ?? (tool.state === "failed" || tool.name === "subagent" && tool.state === "running");
+	const open = expanded ?? (tool.name === "subagent" && tool.state === "running");
 	const definition = Object.hasOwn(tools, tool.name) ? tools[tool.name as keyof typeof tools] : { label: tool.name || "工具调用", icon: Wrench };
 	const Icon = definition.icon;
 	const active = tool.state === "running" || tool.state === "preparing";
