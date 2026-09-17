@@ -8,6 +8,7 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { FontPicker } from "./font-picker.tsx";
+import { useLocalFonts } from "./use-local-fonts.ts";
 import { ThemeColorPicker } from "./theme-color-picker.tsx";
 import { ConfigEditor } from "./config-editor.tsx";
 import "./gui-settings.css";
@@ -19,6 +20,7 @@ export function GuiSettings({ document, send, disabled, refresh, restoreFocus }:
 }) {
 	const [saving, setSaving] = useState(false);
 	const [editing, setEditing] = useState(false);
+	const localFonts = useLocalFonts();
 	useEffect(() => { void refresh(); }, [refresh]);
 	if (!document) return <p role="status">正在读取 GUI 设置…</p>;
 	const save = async (content: string) => {
@@ -26,7 +28,7 @@ export function GuiSettings({ document, send, disabled, refresh, restoreFocus }:
 		try { return await send({ action: "saveGuiConfig", original: document.content, content }); }
 		finally { setSaving(false); }
 	};
-	const change = (path: PreferencePath, value: string | number | undefined) => {
+	const change = (path: PreferencePath, value: string | string[] | number | undefined) => {
 		const content = document.content || "{}\n";
 		return save(applyEdits(content, modify(content, path, value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
 	};
@@ -50,7 +52,8 @@ export function GuiSettings({ document, send, disabled, refresh, restoreFocus }:
 					change={(color) => change(["themeColor"], color === document.defaults.themeColor ? undefined : color)} />
 			</PreferenceRow>
 			{(["ui", "code"] as const).map((kind) => <PreferenceRow key={kind} label={kind === "ui" ? "界面字体" : "代码字体"} reset={() => change(["fonts", kind], undefined)} disabled={blocked}>
-				<FontPicker kind={kind} value={document.value.fonts[kind]} disabled={blocked} onChange={(font) => change(["fonts", kind], font === document.defaults.fonts[kind] ? undefined : font)} />
+				<FontPicker kind={kind} value={document.value.fonts[kind]} disabled={blocked} local={localFonts}
+					onChange={(fonts) => change(["fonts", kind], fonts.length === 0 ? undefined : fonts)} />
 			</PreferenceRow>)}
 			{([ ["ui", "界面字号"], ["chat", "对话字号"], ["code", "代码字号"] ] as const).map(([kind, label]) => <PreferenceRow key={kind} label={label} reset={() => change(["fontSizes", kind], undefined)} disabled={blocked}>
 				<FontSize key={document.value.fontSizes[kind]} label={label} value={document.value.fontSizes[kind]} disabled={blocked} change={(size) => change(["fontSizes", kind], size === document.defaults.fontSizes[kind] ? undefined : size)} />
@@ -88,7 +91,7 @@ function FontSize({ label, value, disabled, change }: { label: string; value: nu
 function TypographyPreview() {
 	return <div className="typography-preview" aria-label="字体预览">
 		<strong>界面文字 Interface</strong><small>辅助信息、时间与状态</small>
-		<p>对话正文：你好，世界。Hello, world.</p>
+		<p>对话正文：你好，世界。Hello, world. 0123456789 → ≠ ✓ 😀</p>
 		<pre><code>{'const message = "你好，世界";\nconsole.log(message);'}</code></pre>
 	</div>;
 }

@@ -5,7 +5,7 @@
 .theme-color-picker header, .theme-color-custom { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; }
 .theme-color-picker p { color: var(--muted-foreground); font-size: var(--text-caption); }
 .theme-color-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 3em), 1fr)); gap: 0.25em; }
-.theme-color-presets button { display: grid; place-items: center; min-inline-size: 0; padding: 0.5em; border: 2px solid transparent; border-radius: 50%; }
+.theme-color-presets button { display: grid; place-items: center; min-inline-size: 0; aspect-ratio: 1; padding: 0.5em; border: 2px solid transparent; border-radius: 50%; }
 .theme-color-presets button[aria-pressed="true"] { border-color: var(--foreground); }
 .theme-color-presets button:hover { background: var(--accent); }
 .theme-color-presets button:focus-visible { outline: 2px solid var(--ring); }

@@ -46,7 +46,7 @@ export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSessio
 			body = <>
 				<p>凭据由 SDK 保存在后端，不返回到界面。OAuth 回调在运行后端的电脑上接收。</p>
 				<Button variant="outline" size="sm" onClick={() => void send({ action: "cancelLogin" })}>取消登录</Button>
-				{snapshot.providers.map((provider) => <div className="list-row" key={provider.id}>
+				{snapshot.providers.map((provider) => <div className="list-row" data-authenticated={provider.authenticated} key={provider.id}>
 					<span>{provider.name}<small>{provider.authenticated ? "已配置" : "未配置"}</small></span>
 					<Button variant="outline" size="sm" onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}>API Key</Button>
 					{provider.oauth && <Button variant="outline" size="sm" onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}>OAuth</Button>}

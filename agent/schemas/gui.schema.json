@@ -3,6 +3,13 @@
 	"title": "GUI preferences",
 	"type": "object",
 	"additionalProperties": false,
+	"$defs": {
+		"fontChain": {
+			"type": "array",
+			"uniqueItems": true,
+			"items": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" }
+		}
+	},
 	"properties": {
 		"$schema": { "type": "string" },
 		"theme": { "enum": ["system", "light", "dark"] },
@@ -11,8 +18,8 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"ui": { "type": "string", "minLength": 1, "maxLength": 256 },
-				"code": { "type": "string", "minLength": 1, "maxLength": 256 }
+				"ui": { "$ref": "#/$defs/fontChain" },
+				"code": { "$ref": "#/$defs/fontChain" }
 			}
 		},
 		"fontSizes": {

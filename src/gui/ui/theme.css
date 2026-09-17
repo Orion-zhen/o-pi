@@ -65,7 +65,7 @@
 	--space-6: 1.5rem;
 	--space-8: 2rem;
 	--content-inset: clamp(0.875rem, 2.5vw, 2rem);
-	--conversation-width: 100ch;
+	--conversation-width: 140ch;
 }
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }

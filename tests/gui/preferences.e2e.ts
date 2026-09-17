@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { checkThemeColor } from "./theme-steps.ts";
+import { checkFontChains } from "./font-steps.ts";
 
 async function drag(page: Page, handle: Locator, x: number, y = 0) {
 	const box = await handle.boundingBox();
@@ -74,14 +75,7 @@ for (const mode of ["web", "desktop"] as const) test(`${mode}：GUI 偏好、系
 			await expect(settings.locator(".typography-preview strong")).toHaveCSS("font-size", "18px");
 			await expect(settings.locator(".typography-preview p")).toHaveCSS("font-size", "22px");
 			await expect(settings.locator(".typography-preview code")).toHaveCSS("font-size", "17px");
-			await settings.getByRole("combobox", { name: "界面字体", exact: true }).click();
-			await page.getByRole("button", { name: "读取本机字体", exact: true }).click();
-			await expect.poll(async () => ({ ready: await page.getByRole("listbox", { name: "界面字体", exact: true }).getByRole("option").count() > 1, error: await page.locator(".font-picker [role=alert]").allTextContents() })).toEqual({ ready: true, error: [] });
-			const family = (await page.getByRole("listbox", { name: "界面字体", exact: true }).getByRole("option").nth(1).innerText()).trim();
-			await page.getByRole("textbox", { name: "搜索界面字体", exact: true }).fill(family);
-			await page.getByRole("option", { name: family, exact: true }).click();
-			await expect(settings.getByRole("combobox", { name: "界面字体", exact: true })).toContainText(family);
-			await expect.poll(() => page.locator("body").evaluate((element) => getComputedStyle(element).fontFamily)).toContain(family);
+			await checkFontChains(page, settings, configFile, openSettings, `${mode}-${info.project.name}`);
 			await settings.getByRole("button", { name: "主题色", exact: true }).click();
 			await page.getByRole("button", { name: "主题色 #FF2D55", exact: true }).click();
 			await expect(settings.getByRole("button", { name: "主题色", exact: true })).toContainText("#FF2D55");

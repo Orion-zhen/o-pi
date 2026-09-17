@@ -1,4 +1,4 @@
-.sidebar { flex-basis: var(--sidebar-width, 20%); flex-shrink: 1; min-inline-size: min(8rem, 25%); }
+.sidebar { flex-basis: var(--sidebar-width, 12%); flex-shrink: 1; min-inline-size: min(8rem, 25%); }
 .sidebar[data-collapsed="true"] { min-inline-size: 0; }
 .resize-handle { flex: 0 0 0.5rem; display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none; cursor: col-resize; outline-offset: -2px; z-index: 2; }
 .resize-handle::after { content: ""; inline-size: 1px; block-size: 100%; background: var(--divider); transition: background var(--motion-normal); }

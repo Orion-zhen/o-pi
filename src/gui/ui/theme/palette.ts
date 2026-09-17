@@ -39,7 +39,7 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 	const hover = composite(hex(dark ? "#FFFFFF20" : "#3C3C4330"), dark ? panel : background);
 	const active = composite(hex(dark ? "#FFFFFF30" : "#3C3C4340"), dark ? panel : background);
 	const surfaces = [background, panel, composite(sidebar, background), hover, secondary, ...(dark ? [active] : [])];
-	const primary = readable(seed, surfaces, dark);
+	const primary = readable(seed, [background], dark);
 	const primaryForeground = onColor(primary);
 	const userBackground = mix(panel, primary, dark ? 0.22 : 0.09);
 	const userLink = readable(seed, [userBackground], dark);

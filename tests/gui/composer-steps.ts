@@ -51,10 +51,27 @@ export async function exerciseComposerRunning(page: Page, imagePath: string) {
 	await expect(stop).toHaveCount(0);
 	await page.getByRole("button", { name: "移除附件 1", exact: true }).click();
 	await expect(stop).toBeEnabled();
-	await editor.fill("排队验证");
+	const messages = ["排队验证\n保留换行", "第二条排队消息", "第二条排队消息"];
+	for (const text of messages) {
+		await editor.fill(text);
+		await send.click();
+		await expect(editor).toHaveValue("");
+	}
+	const queue = page.getByRole("list", { name: "待发送消息", exact: true });
+	await expect(queue.getByRole("listitem")).toHaveCount(3);
+	await expect(queue.locator(".queue-message")).toHaveText(messages, { useInnerText: true });
+	await expect(queue.locator(".queue-kind")).toHaveText(["跟进", "跟进", "跟进"]);
+	await page.getByLabel("上传附件", { exact: true }).setInputFiles(imagePath);
 	await send.click();
-	await expect(editor).toHaveValue("");
-	await expect(page.locator(".queue")).toContainText("排队验证");
+	await expect(queue.getByRole("listitem")).toHaveCount(4);
+	await expect(queue.getByRole("listitem").last()).toContainText("（无文本）");
+	const toggle = page.getByRole("button", { name: "待发送消息 (4)", exact: true });
+	await toggle.click();
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	await expect(queue).toHaveCount(0);
+	await toggle.click();
+	await expect(queue.getByRole("listitem")).toHaveCount(4);
+	await expect(stop).toBeEnabled();
 	await page.getByRole("button", { name: "清空队列", exact: true }).click();
 	await expect(page.locator(".queue")).toHaveCount(0);
 	await stop.click();

@@ -1,4 +1,4 @@
-import { Activity, KeyRound, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Settings2, Cpu, Terminal } from "lucide-react";
+import { Gauge, KeyRound, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Settings, Cpu, Terminal } from "lucide-react";
 import type { GuiView } from "./use-gui.ts";
 import type { GuiAction } from "../contract.ts";
 import { SidebarWorkbench } from "./sidebar-workbench.tsx";
@@ -32,10 +32,10 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 			</div>}
 		</div>
 		<div className="sidebar-footer">
-			<IconButton label="设置" disabled={!gui.connected} onClick={() => open("settings")}><Settings2 /></IconButton>
+			<IconButton label="设置" disabled={!gui.connected} onClick={() => open("settings")}><Settings /></IconButton>
 			<IconButton label="认证" disabled={!gui.canSubmit} onClick={() => open("auth")}><KeyRound /></IconButton>
 			<IconButton label="模型" disabled={!gui.canSubmit} onClick={() => open("model")}><Cpu /></IconButton>
-			<IconButton label="套餐用量" disabled={!gui.canSubmit} onClick={() => act({ action: "view", view: "usage" })}><Activity /></IconButton>
+			<IconButton label="套餐用量" disabled={!gui.canSubmit} onClick={() => act({ action: "view", view: "usage" })}><Gauge /></IconButton>
 			<IconButton label="重载资源" disabled={!gui.canChangeSession} onClick={() => act({ action: "reload" })}><RefreshCw /></IconButton>
 		</div>
 	</>;

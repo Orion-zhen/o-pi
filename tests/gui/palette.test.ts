@@ -8,11 +8,12 @@ it.each(["light", "dark"] as const)("%s：主题色派生的文字、按钮和�
 	for (const seed of seeds) {
 		const p = generatePalette(mode, seed);
 		for (const surface of [p.background, composite(p.surface, p.background), composite(p.glass, p.background), p.secondary, p.accent]) {
-			for (const text of [p.foreground, p["muted-foreground"], p.link, p.success, p.warning, p.destructive]) {
+			for (const text of [p.foreground, p["muted-foreground"], p.success, p.warning, p.destructive]) {
 				expect(contrast(text, surface), `${mode} ${seed} 文字对比度`).toBeGreaterThanOrEqual(4.5);
 			}
 		}
 		for (const [text, surface] of [
+			[p.primary, p.background], [p.link, p.background], [p.emphasis, p.background],
 			[p["user-foreground"], p["user-background"]], [p["user-muted-foreground"], p["user-background"]], [p["user-link"], p["user-background"]],
 			[p["primary-foreground"], p.primary], [p["primary-foreground"], p["primary-hover"]], [p["primary-foreground"], p["primary-active"]],
 			[p["destructive-foreground"], p.destructive], [p["destructive-foreground"], p["destructive-hover"]], [p["destructive-foreground"], p["destructive-active"]],
@@ -29,6 +30,16 @@ it.each(["light", "dark"] as const)("%s：主题色派生的文字、按钮和�
 	}
 });
 
+it.each([
+	["light", "#0069DE", "#202E45"],
+	["dark", "#1F82FF", "#BAD5FD"],
+] as const)("%s：默认蓝色主色与消息配色与 OneChat 一致", (mode, link, emphasis) => {
+	const p = generatePalette(mode, "#007AFF");
+	expect(toHex(p.link)).toBe(link);
+	expect(toHex(p.emphasis)).toBe(emphasis);
+	expect(p.link).toEqual(p.primary);
+});
+
 it.each(seeds)("深色主题 %s 的按钮和菜单高亮在面板上清晰可见", (seed) => {
 	const p = generatePalette("dark", seed);
 	for (const surface of [p.background, composite(p.surface, p.background), composite(p.popover, p.background), composite(p.glass, p.background), p.secondary]) {
@@ -37,7 +48,7 @@ it.each(seeds)("深色主题 %s 的按钮和菜单高亮在面板上清晰可见
 	}
 	expect(contrast(p["secondary-active"], p["secondary-hover"])).toBeGreaterThanOrEqual(1.2);
 	for (const surface of [p.accent, p["secondary-hover"], p["secondary-active"]]) {
-		for (const text of [p.foreground, p["muted-foreground"], p.link]) {
+		for (const text of [p.foreground, p["muted-foreground"]]) {
 			expect(contrast(text, surface)).toBeGreaterThanOrEqual(4.5);
 		}
 	}

@@ -8,12 +8,27 @@
 .font-trigger > span { overflow: hidden; text-overflow: ellipsis; }
 .font-size-control { display: flex; align-items: center; gap: var(--space-2); }
 .font-size-control input { max-inline-size: 8em; }
-.font-picker { display: flex; flex-direction: column; gap: var(--space-2); inline-size: min(24em, calc(100vw - 2rem)); max-block-size: var(--radix-popover-content-available-height); }
-.font-picker > p { font-size: var(--text-caption); overflow-wrap: anywhere; }
-.font-list { overflow: auto; min-block-size: 0; max-block-size: 40dvh; }
+.font-picker { display: flex; flex-direction: column; gap: var(--space-3); inline-size: min(28em, calc(100vw - 2rem)); max-block-size: var(--radix-popover-content-available-height); overflow: auto; }
+.font-picker > *, .font-input > * { flex-shrink: 0; }
+.font-picker p, .font-local-controls, .font-chain small { font-size: var(--text-caption); overflow-wrap: anywhere; }
+.font-picker header p, .font-fallback, .font-chain small, .font-local-controls > span { color: var(--muted-foreground); }
+.font-local-controls, .font-input-controls { display: flex; align-items: center; gap: var(--space-2); }
+.font-input-controls > input { min-inline-size: 0; flex: 1; }
+.font-chain { display: flex; flex-direction: column; gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
+.font-chain:empty { display: none; }
+.font-chain > li { display: grid; grid-template-columns: auto minmax(0, 1fr) repeat(3, auto); align-items: center; gap: var(--space-1); }
+.font-chain-index { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.font-chain-name { text-align: start; padding: 0.25em; border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.font-chain-name > span, .font-chain small { display: block; }
+.font-chain-name:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.font-chain-name:hover:not(:disabled) { background: var(--accent); }
+.font-chain > li > .font-input { grid-column: 1 / -1; }
+.font-list { overflow: auto; max-block-size: min(14em, 30dvh); margin-block-start: var(--space-2); }
 .font-list > button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); inline-size: 100%; padding: 0.5em; border-radius: var(--radius-sm); text-align: start; overflow-wrap: anywhere; }
-.font-list > button:is(:hover, :focus-visible) { background: var(--accent); outline: none; }
-.font-list > button > svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; }
+.font-list > button:is(:hover, [aria-selected="true"]):not(:disabled) { background: var(--accent); }
+.font-list > button:disabled { opacity: 0.5; }
+.font-list small { flex-shrink: 0; color: var(--muted-foreground); }
+.font-fallback code { display: block; font-family: var(--font-mono); }
 .typography-preview { padding: var(--space-3); background: var(--secondary); border-radius: var(--radius-md); }
 .typography-preview strong, .typography-preview small { display: block; }
 .typography-preview small { font-size: var(--text-caption); color: var(--muted-foreground); }

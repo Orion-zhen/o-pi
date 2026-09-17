@@ -49,7 +49,7 @@ bun run desktop
 bun run build:desktop
 ```
 
-GUI 沿用 `~/.pi`，提供真实会话、工具、审批、模型认证、会话树和业务面板。Web 默认监听 `0.0.0.0:3141`，免登录，仅用于可信局域网。只在本机使用时加 `--host 127.0.0.1`。桌面产物在 `dist/desktop/release/`，MVP 尚未签名。功能边界、手机访问和验证方法见 [GUI MVP](docs/gui.md)。
+GUI 沿用 `~/.pi`，提供真实会话、工具、审批、模型认证、会话树和业务面板。Web 默认监听 `0.0.0.0:19198`，免登录，仅用于可信局域网。只在本机使用时加 `--host 127.0.0.1`。桌面产物在 `dist/desktop/release/`，MVP 尚未签名。功能边界、手机访问和验证方法见 [GUI MVP](docs/gui.md)。
 
 ## 组合技
 

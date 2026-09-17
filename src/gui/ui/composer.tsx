@@ -16,7 +16,6 @@ import {
 import type { GuiAction, GuiSnapshot } from "../contract.ts";
 import type { GuiView } from "./use-gui.ts";
 import { ModelControls } from "./model-controls.tsx";
-import { pretty } from "./content.tsx";
 import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
@@ -41,6 +40,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 	const attachmentId = useRef(0);
 	const [images, setImages] = useState<ImageAttachment[]>([]);
 	const hasContent = Boolean(draft.trim() || images.length);
+	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
 	const stopping = running && !hasContent;
 	const submit = () => {
 		if (!hasContent || !gui.canSubmit) return;
@@ -102,10 +102,10 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 		<footer className="composer">
 			<div className="composer-card">
 				<AnimatePresence initial={false}>
-				{snapshot.queue.steering.length + snapshot.queue.followUp.length > 0 && (
+				{queuedCount > 0 && (
 					<Reveal key="queue"><Collapsible defaultOpen className="queue">
 						<div className="queue-heading">
-							<CollapsibleTrigger>待发送消息</CollapsibleTrigger>
+							<CollapsibleTrigger>待发送消息 ({queuedCount})</CollapsibleTrigger>
 							<IconButton
 								label="清空队列"
 								onClick={(event) => {
@@ -116,7 +116,18 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 								<Trash2 />
 							</IconButton>
 						</div>
-						<CollapsibleContent><pre>{pretty(snapshot.queue)}</pre></CollapsibleContent>
+						<CollapsibleContent>
+							<ol className="queue-list" aria-label="待发送消息">
+								{(["steering", "followUp"] as const).flatMap((kind) => snapshot.queue[kind].map((text, index) => (
+									<li key={`${kind}-${index}`}>
+										<div className="queue-item">
+											<span className="queue-kind">{kind === "steering" ? "引导" : "跟进"}</span>
+											<span className="queue-message">{text || "（无文本）"}</span>
+										</div>
+									</li>
+								)))}
+							</ol>
+						</CollapsibleContent>
 					</Collapsible></Reveal>
 				)}
 				{images.length > 0 && (
@@ -199,7 +210,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 					ref={editor}
 					aria-label="消息"
 					placeholder="描述你的任务，或输入 / 命令、@ 引用文件…"
-					rows={3}
+					rows={1}
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}
 					onPaste={(event) => {

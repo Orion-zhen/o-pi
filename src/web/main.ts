@@ -12,7 +12,7 @@ if (!(await runChildProcess())) {
 	const { values } = parseArgs({
 		options: {
 			host: { type: "string", default: "0.0.0.0" },
-			port: { type: "string", default: "3141" },
+			port: { type: "string", default: "19198" },
 			cwd: { type: "string", default: process.cwd() },
 			cert: { type: "string" },
 			key: { type: "string" },
@@ -22,7 +22,7 @@ if (!(await runChildProcess())) {
 	});
 	if (values.help) {
 		console.log(
-			"opi-web [--cwd PATH] [--host IP] [--port PORT] [--cert FILE --key FILE]\n默认监听 0.0.0.0:3141，免登录。仅用于可信局域网，请勿暴露到公网。TLS 证书可选。",
+			"opi-web [--cwd PATH] [--host IP] [--port PORT] [--cert FILE --key FILE]\n默认监听 0.0.0.0:19198，免登录。仅用于可信局域网，请勿暴露到公网。TLS 证书可选。",
 		);
 	} else {
 		const port = Number(values.port);

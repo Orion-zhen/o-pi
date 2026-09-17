@@ -3,8 +3,8 @@
 	"theme": "system",
 	"themeColor": "#007AFF",
 	"fonts": {
-		"ui": "system-ui",
-		"code": "monospace"
+		"ui": [],
+		"code": []
 	},
 	"fontSizes": {
 		"ui": 14,
