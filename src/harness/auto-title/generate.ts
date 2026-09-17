@@ -19,7 +19,7 @@ export async function generateTitle(
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	signal.throwIfAborted();
 	if (!auth.ok) throw new Error(auth.error);
-	const reasoning = getSupportedThinkingLevels(model).find((level) => level !== "off");
+	const reasoning = getSupportedThinkingLevels(model)[0];
 	const response = await provider.streamSimple(
 		auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model,
 		{
@@ -31,7 +31,7 @@ export async function generateTitle(
 			...(auth.headers === undefined ? {} : { headers: auth.headers }),
 			...(auth.env === undefined ? {} : { env: auth.env }),
 			signal,
-			...(reasoning === undefined ? {} : { reasoning }),
+			...(reasoning === undefined || reasoning === "off" ? {} : { reasoning }),
 			maxTokens: 1024,
 			maxRetries: 0,
 		},

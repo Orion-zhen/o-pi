@@ -49,10 +49,12 @@ beforeEach(async () => {
 	}));
 	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "title-fixture": {
 		baseUrl: server.url, api: "openai-completions", apiKey: "fixture",
-		models: ["plain", "minimal", "low", "vendor/model"].map((id) => ({
+		models: ["plain", "off", "minimal", "low", "vendor/model"].map((id) => ({
 			id, name: id, reasoning: id !== "plain", input: ["text"], contextWindow: 128000, maxTokens: 4096,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			compat: { supportsReasoningEffort: true },
+			...(id === "off" ? { thinkingLevelMap: { off: "none" } } : {}),
+			...(id === "minimal" ? { thinkingLevelMap: { off: null } } : {}),
 			...(id === "low" ? { thinkingLevelMap: { off: null, minimal: null } } : {}),
 		})),
 	} } }));
@@ -114,13 +116,13 @@ describe("共享 SDK 自动标题", () => {
 		expect(titleRequests).toHaveLength(1);
 	});
 
-	it.each(["minimal", "low"])("所选模型使用最低思考等级 %s，保留主会话设置", async (id) => {
+	it.each(["off", "minimal", "low"])("所选模型使用最低思考等级 %s，保留主会话设置", async (id) => {
 		await config({ model: `title-fixture/${id}` });
 		const current = await start();
 		const thinking = current.thinkingLevel;
 		await current.prompt("处理登录问题");
 		await expect.poll(() => current.sessionName).toBe("修复登录错误");
-		expect(titleRequests[0]).toMatchObject({ model: id, reasoning_effort: id });
+		expect(titleRequests[0]).toMatchObject({ model: id, reasoning_effort: id === "off" ? "none" : id });
 		expect(current.model?.id).toBe("plain");
 		expect(current.thinkingLevel).toBe(thinking);
 	});
@@ -147,7 +149,8 @@ describe("共享 SDK 自动标题", () => {
 		});
 		await current.prompt("处理登录问题");
 		await expect.poll(() => current.sessionName).toBe("修复登录错误");
-		expect(titleRequests[0]).toMatchObject({ model: "plain", reasoning_effort: "minimal" });
+		expect(titleRequests[0]).toMatchObject({ model: "plain" });
+		expect(titleRequests[0]).not.toHaveProperty("reasoning_effort");
 		expect(current.model).toMatchObject({ provider: "title-fixture", id: "plain", reasoning: false });
 	});
 
