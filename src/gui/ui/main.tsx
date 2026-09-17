@@ -34,6 +34,7 @@ import { useGui } from "./use-gui.ts";
 import { IconButton } from "./components/icon-button";
 import { ResizeHandle } from "./components/resize-handle";
 import { Button } from "./components/ui/button";
+import { Dialog as ConfirmDialog, DialogContent, DialogTitle, DialogDescription } from "./components/ui/dialog";
 import { Sheet, SheetTrigger } from "./components/ui/sheet";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { applyThemeColor } from "./theme/apply.ts";
@@ -51,6 +52,14 @@ function App() {
 	const gui = useGui();
 	const { snapshot, dialogs, notices, status, error, panel, auth, authUrl, deviceCode, send } = gui;
 	const [mobileOpen, setMobileOpen] = useState(false);
+	const [settingsDirty, setSettingsDirty] = useState(false);
+	const [confirmSettingsClose, setConfirmSettingsClose] = useState(false);
+	useEffect(() => {
+		if (!settingsDirty) return;
+		const preventClose = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+		window.addEventListener("beforeunload", preventClose);
+		return () => window.removeEventListener("beforeunload", preventClose);
+	}, [settingsDirty]);
 	const [collapsed, setCollapsed] = useState(false);
 	const transcript = useTranscriptScroll(snapshot?.sessionId);
 	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
@@ -241,8 +250,8 @@ function App() {
 				</div>
 			</Sheet>
 			<AnimatePresence mode="wait">
-			{panel?.kind === "settings" ? <PanelDialog key="settings" ref={panelContent} title="设置" close={() => gui.setPanel(undefined)} restoreFocus={restoreFocus}>
-				<Settings snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+			{panel?.kind === "settings" ? <PanelDialog key="settings" ref={panelContent} title="设置" close={() => settingsDirty ? setConfirmSettingsClose(true) : gui.setPanel(undefined)} restoreFocus={restoreFocus}>
+				<Settings onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
 			</PanelDialog> : panel && snapshot && (
 				<Panel key={panel.kind}
 					ref={panelContent}
@@ -256,6 +265,13 @@ function App() {
 				/>
 			)}
 			</AnimatePresence>
+			{confirmSettingsClose && <ConfirmDialog open onOpenChange={setConfirmSettingsClose}>
+				<DialogContent><DialogTitle>放弃未保存的设置？</DialogTitle>
+					<DialogDescription>各分类中的未保存修改都会丢失。</DialogDescription>
+					<div className="toolbar"><Button variant="outline" onClick={() => setConfirmSettingsClose(false)}>继续编辑</Button>
+						<Button variant="destructive" onClick={() => { setConfirmSettingsClose(false); setSettingsDirty(false); gui.setPanel(undefined); }}>放弃并关闭</Button></div>
+				</DialogContent>
+			</ConfirmDialog>}
 			<AnimatePresence mode="wait">
 			{dialogs[0] && <Dialog restoreFocus={restoreFocus} key={dialogs[0].id} dialog={dialogs[0]} send={send} />}
 			</AnimatePresence>

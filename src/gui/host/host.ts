@@ -8,6 +8,7 @@ import { actionSchema, querySchema, type GuiAction, type GuiEvent, type GuiQuery
 import { MessageTiming } from "./message-timing.ts";
 import { GuiDialogs } from "./dialogs.ts";
 import { createGuiRuntime } from "./runtime.ts";
+import { readModuleConfig, saveModuleConfig } from "./module-config.ts";
 import { exportSession, importSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
 import { completeCommand, runBuiltin } from "./commands.ts";
@@ -228,6 +229,7 @@ export class GuiHost {
 	}
 
 	private async readQuery(query: GuiQuery): Promise<QueryResult> {
+		if (query.query === "moduleConfig") return readModuleConfig(query.id, this.current?.cwd ?? process.cwd());
 		if (query.query === "guiConfig") return readGuiConfig();
 		if (query.query === "directories")
 			return listDirectories(path.resolve(this.workspaceRoot ?? process.cwd(), query.path));
@@ -254,6 +256,9 @@ export class GuiHost {
 
 	private async perform(action: GuiAction): Promise<void> {
 		switch (action.action) {
+			case "saveModuleConfig":
+				await saveModuleConfig(action.id, action.original, action.content);
+				return;
 			case "saveGuiConfig":
 				this.emit({ type: "guiConfig", value: await saveGuiConfig(action.original, action.content) });
 				return;

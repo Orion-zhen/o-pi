@@ -3,8 +3,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { checkModuleSettings } from "./module-settings-steps.ts";
 import { checkThemeColor } from "./theme-steps.ts";
 import { checkFontChains } from "./font-steps.ts";
+import { checkSettingsLayout, selectSetting, selectSettingsCategory } from "./settings-steps.ts";
 
 async function drag(page: Page, handle: Locator, x: number, y = 0) {
 	const box = await handle.boundingBox();
@@ -50,15 +52,17 @@ for (const mode of ["web", "desktop"] as const) test(`${mode}：GUI 偏好、系
 			const openSettings = async () => {
 				if (phone) await page.getByRole("button", { name: "菜单", exact: true }).click();
 				await page.getByRole("button", { name: "设置", exact: true }).click();
-				await page.getByRole("tab", { name: "GUI", exact: true }).click();
+				await selectSettingsCategory(page, "外观");
 			};
 			const settings = page.getByRole("dialog", { name: "设置", exact: true });
 			await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
 			await openSettings();
-			await expect(settings.getByRole("combobox", { name: "主题", exact: true })).toHaveValue("system");
+			await expect(settings.getByRole("combobox", { name: "主题", exact: true })).toHaveText("跟随系统");
+			await checkSettingsLayout(page, settings, `${mode}-${info.project.name}`);
+			await checkModuleSettings(page, settings, path.dirname(configFile), `${mode}-${info.project.name}`);
 			await page.emulateMedia({ colorScheme: "light" });
 			const lightBackground = await page.locator("body").evaluate((node) => getComputedStyle(node).backgroundColor);
-			await settings.getByRole("combobox", { name: "主题", exact: true }).selectOption("dark");
+			await selectSetting(page, "主题", "深色");
 			await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 			await page.emulateMedia({ colorScheme: "light" });
 			await expect(page.locator("body")).not.toHaveCSS("background-color", lightBackground);
@@ -90,7 +94,7 @@ for (const mode of ["web", "desktop"] as const) test(`${mode}：GUI 偏好、系
 			await json.fill('{\n // 保留我的注释\n "theme": "dark"\n}\n');
 			await page.getByRole("button", { name: "保存并应用", exact: true }).click();
 			await expect(json).toHaveCount(0);
-			await settings.getByRole("combobox", { name: "主题", exact: true }).selectOption("light");
+			await selectSetting(page, "主题", "浅色");
 			await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 			expect(await readFile(configFile, "utf8")).toContain("保留我的注释");
 			await page.screenshot({ path: `dist/gui-settings-${mode}-${info.project.name}.png` });
@@ -101,8 +105,9 @@ for (const mode of ["web", "desktop"] as const) test(`${mode}：GUI 偏好、系
 			await expect(editor).toHaveValue("换行测试\n");
 			await editor.fill("");
 			await openSettings();
-			await settings.getByRole("combobox", { name: "发送快捷键", exact: true }).selectOption("enter");
-			await expect(settings.getByRole("combobox", { name: "发送快捷键", exact: true })).toHaveValue("enter");
+			await selectSettingsCategory(page, "交互");
+			await selectSetting(page, "发送快捷键", "Enter（Shift + Enter 换行）");
+			await expect(settings.getByRole("combobox", { name: "发送快捷键", exact: true })).toHaveText("Enter（Shift + Enter 换行）");
 			await page.keyboard.press("Escape");
 			await editor.fill("换行测试");
 			await editor.press("Shift+Enter");

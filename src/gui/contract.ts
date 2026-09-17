@@ -9,6 +9,12 @@ import type { SubagentDetails } from "../harness/subagent/types.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "./workbench.ts";
 import type { GuiConfigDocument } from "./preferences.ts";
 
+import { type ModuleConfigDocument } from "./module-config.ts";
+
+const moduleConfigId = Type.Union([
+	Type.Literal("autoTitle"), Type.Literal("bashTool"), Type.Literal("fileTools"), Type.Literal("webTools"),
+	Type.Literal("approvalGate"), Type.Literal("subagent"), Type.Literal("lsp"), Type.Literal("discordPresence"), Type.Literal("tui"), Type.Literal("tools"),
+]);
 const text = Type.String({ maxLength: 4_000_000 });
 const short = Type.String({ maxLength: 4096 });
 const object = <T extends TProperties>(properties: T) => Type.Object(properties, { additionalProperties: false });
@@ -90,12 +96,14 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("tool"), name: short, enabled: Type.Boolean() }),
 	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]) }),
 	object({ action: Type.Literal("draft"), text }),
+	object({ action: Type.Literal("saveModuleConfig"), id: moduleConfigId, original: text, content: text }),
 	object({ action: Type.Literal("saveGuiConfig"), original: text, content: text }),
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
 
 export const querySchema = Type.Union([
+	object({ query: Type.Literal("moduleConfig"), id: moduleConfigId }),
 	object({ query: Type.Literal("guiConfig") }),
 	object({ query: Type.Literal("directories"), path: short }),
 	object({ query: Type.Literal("files"), prefix: short }),
@@ -107,6 +115,7 @@ export const querySchema = Type.Union([
 ]);
 export type GuiQuery = Static<typeof querySchema>;
 export interface GuiQueryResults {
+	moduleConfig: ModuleConfigDocument;
 	guiConfig: GuiConfigDocument;
 	directories: GuiDirectories;
 	files: string[];

@@ -1,26 +1,69 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Tabs } from "radix-ui";
 import { AnimatePresence } from "motion/react";
+import { Keyboard, MessageSquare, Palette, Wrench, Globe, Shield, Bot, Code, Plug, Terminal, Type } from "lucide-react";
 import type { GuiSnapshot, Query } from "../contract.ts";
 import type { GuiConfigDocument } from "../preferences.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
-import { NativeSelect } from "./components/ui/native-select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { GuiSettings } from "./gui-settings.tsx";
 import { ConfigEditor } from "./config-editor.tsx";
+import { ModuleSettings } from "./module-settings.tsx";
+import type { ModuleConfigId } from "../module-config.ts";
 
-export function Settings({ snapshot, guiConfig, send, query, disabled, connected, refreshGuiConfig, restoreFocus }: {
+export function Settings({ snapshot, guiConfig, send, query, disabled, connected, refreshGuiConfig, restoreFocus, onDirty }: {
 	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; query: Query;
 	disabled: boolean; connected: boolean; refreshGuiConfig: () => Promise<void>; restoreFocus: () => void;
+	onDirty: (dirty: boolean) => void;
 }) {
-	return <Tabs.Root defaultValue={snapshot ? "agent" : "gui"}>
-		<Tabs.List className="settings-tabs" aria-label="设置分类">
-			<Tabs.Trigger value="agent" asChild><Button variant="ghost">Agent</Button></Tabs.Trigger>
-			<Tabs.Trigger value="gui" asChild><Button variant="ghost">GUI</Button></Tabs.Trigger>
-		</Tabs.List>
-		<Tabs.Content value="agent">{snapshot ? <AgentSettings snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} /> : <p>选择工作区后可修改 Agent 设置。</p>}</Tabs.Content>
-		<Tabs.Content value="gui"><GuiSettings document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} /></Tabs.Content>
+	const [category, setCategory] = useState("appearance");
+	const [visited, setVisited] = useState<Set<string>>(() => new Set(["appearance"]));
+	const dirtyModules = useRef(new Set<ModuleConfigId>());
+	const reportDirty = useCallback((id: ModuleConfigId, dirty: boolean) => {
+		if (dirty) dirtyModules.current.add(id); else dirtyModules.current.delete(id);
+		onDirty(dirtyModules.current.size > 0);
+	}, [onDirty]);
+	const selectCategory = (id: string) => { setCategory(id); setVisited((previous) => new Set([...previous, id])); };
+	const categories = [
+		{ id: "appearance", label: "外观", icon: Palette },
+		{ id: "interaction", label: "交互", icon: Keyboard },
+		{ id: "agent", label: "会话行为", icon: MessageSquare },
+		{ id: "autoTitle", label: "自动标题", icon: Type },
+		{ id: "bashTool", label: "终端工具", icon: Terminal },
+		{ id: "fileTools", label: "文件工具", icon: Wrench },
+		{ id: "tools", label: "默认工具", icon: Wrench },
+		{ id: "webTools", label: "网络与网页", icon: Globe },
+		{ id: "approvalGate", label: "权限与安全", icon: Shield },
+		{ id: "subagent", label: "子代理", icon: Bot },
+		{ id: "lsp", label: "代码智能", icon: Code },
+		{ id: "discordPresence", label: "集成", icon: Plug },
+		{ id: "tui", label: "终端界面", icon: Terminal },
+	] as const;
+	return <Tabs.Root className="settings-shell" orientation="vertical" value={category} onValueChange={selectCategory}>
+		<div className="settings-navigation">
+			<Tabs.List className="settings-tabs" aria-label="设置分类">
+				{categories.map(({ id, label, icon: Icon }) => <Tabs.Trigger key={id} value={id} asChild>
+					<Button variant="ghost"><Icon aria-hidden="true" />{label}</Button>
+				</Tabs.Trigger>)}
+			</Tabs.List>
+			<div className="settings-category-select"><span>设置分类</span>
+				<Select value={category} onValueChange={selectCategory}>
+					<SelectTrigger aria-label="设置分类"><SelectValue /></SelectTrigger>
+					<SelectContent>{categories.map(({ id, label }) => <SelectItem key={id} value={id}>{label}</SelectItem>)}</SelectContent>
+				</Select>
+			</div>
+		</div>
+		{categories.map(({ id, label }) => <Tabs.Content key={id} value={id} className="settings-content" forceMount>
+			<header className="settings-section-heading"><h2>{label}</h2></header>
+			{visited.has(id) && (id === "agent" ? snapshot
+				? <AgentSettings snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} />
+				: <p className="settings-empty">选择工作区后可修改会话设置。</p>
+				: id === "appearance" || id === "interaction"
+				? <GuiSettings section={id} document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} />
+				: <ModuleSettings id={id} query={query} send={send} disabled={!connected} onDirty={reportDirty} />)}
+		</Tabs.Content>)}
 	</Tabs.Root>;
 }
 
@@ -52,9 +95,12 @@ function AgentSettings({ snapshot, send, query, disabled, restoreFocus }: {
 					onCheckedChange={(checked) => void send({ action: "settings", ...settings, [key]: checked === true })} />{label}
 			</label>)}
 			{([["steering", "Steer 队列"], ["followUp", "Follow-up 队列"]] as const).map(([key, label]) => <label key={key}>
-				{label}<NativeSelect value={settings[key]} disabled={disabled} onChange={(event) => void send({
-					action: "settings", ...settings, [key]: event.target.value === "all" ? "all" : "one-at-a-time",
-				})}><option value="one-at-a-time">逐条发送</option><option value="all">一起发送</option></NativeSelect>
+				{label}<Select value={settings[key]} disabled={disabled} onValueChange={(value) => void send({
+					action: "settings", ...settings, [key]: value === "all" ? "all" : "one-at-a-time",
+				})}>
+					<SelectTrigger aria-label={label}><SelectValue /></SelectTrigger>
+					<SelectContent><SelectItem value="one-at-a-time">逐条发送</SelectItem><SelectItem value="all">一起发送</SelectItem></SelectContent>
+				</Select>
 			</label>)}
 		</div>
 		{error && <p role="alert">{error}</p>}

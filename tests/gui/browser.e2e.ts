@@ -159,6 +159,10 @@ async function exerciseControls(page: Page) {
 	await page.getByRole("button", { name: "设置", exact: true }).click();
 	const settings = page.getByRole("dialog", { name: "设置", exact: true });
 	await expect(settings).toBeVisible();
+	if (phone) {
+		await settings.getByRole("combobox", { name: "设置分类", exact: true }).click();
+		await page.getByRole("option", { name: "会话行为", exact: true }).click();
+	} else await settings.getByRole("tab", { name: "会话行为", exact: true }).click();
 	const compaction = settings.getByRole("checkbox", { name: "自动压缩", exact: true });
 	await expect(compaction).not.toBeChecked();
 	await compaction.click();

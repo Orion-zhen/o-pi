@@ -6,7 +6,7 @@ import type { GuiConfigDocument } from "../preferences.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import { NativeSelect } from "./components/ui/native-select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { FontPicker } from "./font-picker.tsx";
 import { useLocalFonts } from "./use-local-fonts.ts";
 import { ThemeColorPicker } from "./theme-color-picker.tsx";
@@ -15,7 +15,8 @@ import "./gui-settings.css";
 
 type PreferencePath = ["theme"] | ["themeColor"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"];
 
-export function GuiSettings({ document, send, disabled, refresh, restoreFocus }: {
+export function GuiSettings({ section, document, send, disabled, refresh, restoreFocus }: {
+	section: "appearance" | "interaction";
 	document: GuiConfigDocument | undefined; send: Send; disabled: boolean; refresh: () => Promise<void>; restoreFocus: () => void;
 }) {
 	const [saving, setSaving] = useState(false);
@@ -40,12 +41,13 @@ export function GuiSettings({ document, send, disabled, refresh, restoreFocus }:
 	};
 	const blocked = disabled || saving;
 	return <div className="gui-settings">
-		<p className="gui-config-path">配置文件（后端电脑）：<code>{document.path}</code></p>
 		{document.state === "error" ? <p role="alert">{document.message}</p> : <>
+			{section === "appearance" ? <>
 			<PreferenceRow label="主题" reset={() => change(["theme"], undefined)} disabled={blocked}>
-				<NativeSelect aria-label="主题" value={document.value.theme} disabled={blocked} onChange={(event) => change(["theme"], event.target.value === document.defaults.theme ? undefined : event.target.value)}>
-					<option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option>
-				</NativeSelect>
+				<Select value={document.value.theme} disabled={blocked} onValueChange={(value) => void change(["theme"], value === document.defaults.theme ? undefined : value)}>
+					<SelectTrigger aria-label="主题"><SelectValue /></SelectTrigger>
+					<SelectContent><SelectItem value="system">跟随系统</SelectItem><SelectItem value="light">浅色</SelectItem><SelectItem value="dark">深色</SelectItem></SelectContent>
+				</Select>
 			</PreferenceRow>
 			<PreferenceRow label="主题色" reset={() => change(["themeColor"], undefined)} disabled={blocked}>
 				<ThemeColorPicker value={document.value.themeColor} defaultValue={document.defaults.themeColor} disabled={blocked}
@@ -59,11 +61,12 @@ export function GuiSettings({ document, send, disabled, refresh, restoreFocus }:
 				<FontSize key={document.value.fontSizes[kind]} label={label} value={document.value.fontSizes[kind]} disabled={blocked} change={(size) => change(["fontSizes", kind], size === document.defaults.fontSizes[kind] ? undefined : size)} />
 			</PreferenceRow>)}
 			<TypographyPreview />
-			<PreferenceRow label="发送快捷键" reset={() => change(["sendShortcut"], undefined)} disabled={blocked}>
-				<NativeSelect aria-label="发送快捷键" value={document.value.sendShortcut} disabled={blocked} onChange={(event) => change(["sendShortcut"], event.target.value === document.defaults.sendShortcut ? undefined : event.target.value)}>
-					<option value="mod-enter">Ctrl / ⌘ + Enter</option><option value="enter">Enter（Shift + Enter 换行）</option>
-				</NativeSelect>
-			</PreferenceRow>
+			</> : <PreferenceRow label="发送快捷键" reset={() => change(["sendShortcut"], undefined)} disabled={blocked}>
+				<Select value={document.value.sendShortcut} disabled={blocked} onValueChange={(value) => void change(["sendShortcut"], value === document.defaults.sendShortcut ? undefined : value)}>
+					<SelectTrigger aria-label="发送快捷键"><SelectValue /></SelectTrigger>
+					<SelectContent><SelectItem value="mod-enter">Ctrl / ⌘ + Enter</SelectItem><SelectItem value="enter">Enter（Shift + Enter 换行）</SelectItem></SelectContent>
+				</Select>
+			</PreferenceRow>}
 		</>}
 		<div className="toolbar">
 			<Button variant="outline" size="sm" disabled={blocked} onClick={() => setEditing(true)}>编辑 gui.jsonc</Button>
