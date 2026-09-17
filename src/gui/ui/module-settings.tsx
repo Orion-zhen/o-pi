@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
-import type { Query } from "../contract.ts";
+import type { GuiModel, Query } from "../contract.ts";
 import type { ModuleConfigDocument, ModuleConfigId } from "../module-config.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
@@ -10,6 +10,7 @@ import { Textarea } from "./components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { RotateCcw } from "lucide-react";
 import { IconButton } from "./components/icon-button";
+import { ModelSelect } from "./model-select.tsx";
 import { moduleFields, type ConfigField } from "./module-fields.ts";
 
 function readObject(text: string): Record<string, unknown> {
@@ -26,8 +27,8 @@ function at(value: unknown, path: string): unknown {
 	return value;
 }
 
-export function ModuleSettings({ id, query, send, disabled, onDirty }: {
-	id: ModuleConfigId; query: Query; send: Send; disabled: boolean; onDirty: (id: ModuleConfigId, dirty: boolean) => void;
+export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
+	id: ModuleConfigId; query: Query; send: Send; disabled: boolean; onDirty: (id: ModuleConfigId, dirty: boolean) => void; models: GuiModel[];
 }) {
 	const [document, setDocument] = useState<ModuleConfigDocument>();
 	const [draft, setDraft] = useState("");
@@ -80,7 +81,7 @@ export function ModuleSettings({ id, query, send, disabled, onDirty }: {
 					const value = override === undefined ? at(defaults, field.path) : override;
 					return <div className="module-field" key={field.path}>
 						<div className="preference-row"><span>{field.label}</span>
-							<FieldControl field={field} value={value} nullable={at(defaults, field.path) === null} disabled={blocked} change={(value) => change(field, value)} />
+							<FieldControl field={field} value={value} nullable={at(defaults, field.path) === null} disabled={blocked} models={models} change={(value) => change(field, value)} />
 							<IconButton label={`重置${field.label}`} disabled={blocked || override === undefined} onClick={() => change(field, undefined)}><RotateCcw /></IconButton>
 						</div>
 					</div>;
@@ -105,8 +106,10 @@ function NumberField({ label, value, disabled, change }: { label: string; value:
 	}} onBlur={() => setText(String(value))} />;
 }
 
-function FieldControl({ field, value, nullable, disabled, change }: { field: ConfigField; value: unknown; nullable: boolean; disabled: boolean; change: (value: unknown) => void }) {
+function FieldControl({ field, value, nullable, disabled, models, change }: { field: ConfigField; value: unknown; nullable: boolean; disabled: boolean; models: GuiModel[]; change: (value: unknown) => void }) {
 	if (typeof value === "boolean") return <Checkbox aria-label={field.label} checked={value} disabled={disabled} onCheckedChange={(value) => change(value === true)} />;
+	if (field.type === "model") return <ModelSelect label={field.label} models={models} disabled={disabled}
+		value={typeof value === "string" && value !== "" ? value : null} change={change} />;
 	if (field.options) return <Select value={String(value)} disabled={disabled} onValueChange={change}>
 		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{field.options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
 	</Select>;

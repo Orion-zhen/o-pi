@@ -37,6 +37,15 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .workspace-select > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
 .new-session { flex: 0 1 auto; min-inline-size: 0; padding-inline: 0.75em; background: var(--surface); }
 .workspace-options { display: flex; flex-direction: column; gap: var(--space-3); inline-size: max-content; max-inline-size: var(--radix-popover-content-available-width); max-block-size: var(--radix-popover-content-available-height); }
+.model-select { justify-content: space-between; min-inline-size: 0; }
+.model-select-value { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-select-content { display: flex; flex-direction: column; gap: var(--space-3); inline-size: max-content; min-inline-size: min(20em, var(--radix-popover-content-available-width)); max-inline-size: var(--radix-popover-content-available-width); max-block-size: var(--radix-popover-content-available-height); }
+.model-select-list { display: flex; flex-direction: column; gap: var(--space-1); }
+.model-select-row { flex-shrink: 0; }
+.model-select-row > button { justify-content: flex-start; inline-size: 100%; min-inline-size: 0; white-space: normal; text-align: start; }
+.model-select-label { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.model-select-label small { display: block; color: var(--muted-foreground); font-size: var(--text-caption); }
+.model-select-empty { color: var(--muted-foreground); font-size: var(--text-small); }
 .workspace-list, .directory-list { display: flex; flex-direction: column; min-block-size: 0; }
 .directory-list { overflow: auto; }
 .workspace-list { gap: var(--space-1); }

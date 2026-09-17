@@ -4,11 +4,13 @@ export interface ConfigField {
 	path: string;
 	label: string;
 	options?: readonly string[];
+	type?: "model";
 }
-const field = (path: string, label: string, options?: readonly string[]): ConfigField => ({ path, label, ...(options ? { options } : {}) });
+const field = (path: string, label: string, options?: readonly string[], type?: "model"): ConfigField =>
+	({ path, label, ...(options ? { options } : {}), ...(type ? { type } : {}) });
 
 export const moduleFields: Record<ModuleConfigId, ConfigField[]> = {
-	autoTitle: [field("enabled", "自动生成标题"), field("model", "标题模型（留空使用当前模型）")],
+	autoTitle: [field("enabled", "自动生成标题"), field("model", "标题模型（留空使用当前模型）", undefined, "model")],
 	bashTool: [
 		field("default_timeout_seconds", "默认超时（秒）"), field("python_venv_paths", "Python 虚拟环境目录"),
 		field("environment.inherit", "继承进程环境变量"), field("environment.expose_pi_session_file", "暴露会话文件路径"),

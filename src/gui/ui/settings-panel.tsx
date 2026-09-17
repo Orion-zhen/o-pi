@@ -62,7 +62,7 @@ export function Settings({ snapshot, guiConfig, send, query, disabled, connected
 				: <p className="settings-empty">选择工作区后可修改会话设置。</p>
 				: id === "appearance" || id === "interaction"
 				? <GuiSettings section={id} document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} />
-				: <ModuleSettings id={id} query={query} send={send} disabled={!connected} onDirty={reportDirty} />)}
+				: <ModuleSettings id={id} query={query} send={send} disabled={!connected} onDirty={reportDirty} models={snapshot?.models ?? []} />)}
 		</Tabs.Content>)}
 	</Tabs.Root>;
 }
