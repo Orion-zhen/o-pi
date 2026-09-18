@@ -5,9 +5,9 @@
 .file-preview-path { flex: 1 1 6ch; min-inline-size: 0; font-size: var(--text-small); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-preview-modes { display: flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
 .file-preview-modes button { padding-inline: 0.5em; }
-.file-preview-modes button[aria-pressed="true"] { background: var(--selected); color: var(--primary); }
+.file-preview-modes button[aria-pressed="true"] { background: var(--selected); color: var(--selected-foreground); }
 .file-preview-heading > button { font-size: var(--text-small); }
-.file-preview-heading > button[aria-pressed="true"] { background: var(--selected); color: var(--primary); }
+.file-preview-heading > button[aria-pressed="true"] { background: var(--selected); color: var(--selected-foreground); }
 .file-preview-body { overflow: auto; min-block-size: 0; min-inline-size: 0; flex: 1; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .file-preview-body:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .file-preview-body .file-code { margin: 0; border: 0; border-radius: 0; background: var(--background); overflow: visible; inline-size: max-content; min-inline-size: 100%; }

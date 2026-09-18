@@ -4,7 +4,7 @@
 .settings-navigation { min-inline-size: 0; min-block-size: 0; overflow: auto; padding: var(--space-3); border-inline-end: 1px solid var(--divider); background: var(--secondary); }
 .settings-tabs { display: flex; flex-direction: column; gap: var(--space-2); }
 .settings-tabs button { justify-content: flex-start; white-space: normal; text-align: start; }
-.settings-tabs button[aria-selected="true"] { background: var(--selected); color: var(--primary); }
+.settings-tabs button[aria-selected="true"] { background: var(--selected); color: var(--selected-foreground); }
 .settings-category-select { display: none; }
 .settings-content { min-inline-size: 0; min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: var(--content-inset); }
 .settings-content[data-state="inactive"] { display: none; }

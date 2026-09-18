@@ -62,8 +62,8 @@ export function useGui() {
 				case "dialogs":
 					if (event.value.length) oauthBrowser.waitForInput();
 					setDialogs(event.value); break;
-				case "notice":
-					setNotices((current) => [...current.filter((notice) => notice.id !== event.value.id), event.value].slice(-100));
+				case "notices":
+					setNotices(event.value);
 					break;
 				case "sessionTab": selectTab(event.tab); setSessionPanelOpen(true); break;
 				case "panel": setPanel(event.panel); break;

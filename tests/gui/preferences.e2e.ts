@@ -16,10 +16,10 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		const stored = async (): Promise<unknown> => parse(await readFile(file, "utf8"));
 		await open();
 		await selectSetting(page, "主题", "深色");
-		await expect.poll(stored).toMatchObject({ theme: "dark" });
+		await expect(async () => expect(await stored()).toMatchObject({ theme: "dark" })).toPass();
 		await selectSettingsCategory(page, "交互");
 		await selectSetting(page, "发送快捷键", "Enter（Shift + Enter 换行）");
-		await expect.poll(stored).toMatchObject({ sendShortcut: "enter" });
+		await expect(async () => expect(await stored()).toMatchObject({ sendShortcut: "enter" })).toPass();
 		await page.reload();
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await editor.fill("/name 快捷键验证");
@@ -36,7 +36,7 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await page.getByRole("button", { name: "继续编辑", exact: true }).click();
 		await settings.getByRole("button", { name: "保存", exact: true }).click();
 		const moduleFile = path.join(agentDir, "configs", "subagent.jsonc");
-		await expect.poll(async () => parse(await readFile(moduleFile, "utf8"))).toMatchObject({ max_parallel_tasks: 6 });
+		await expect(async () => expect(parse(await readFile(moduleFile, "utf8"))).toMatchObject({ max_parallel_tasks: 6 })).toPass();
 		await expect(settings.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
 		await writeFile(moduleFile, '{"max_parallel_tasks":3}');
 		await parallel.fill("8");

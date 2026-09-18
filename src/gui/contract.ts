@@ -92,6 +92,7 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("logout"), provider: short }),
 	object({ action: Type.Literal("tool"), name: short, enabled: Type.Boolean() }),
 	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]) }),
+	object({ action: Type.Literal("clearNotices"), ids: Type.Array(short, { maxItems: 100, uniqueItems: true }) }),
 	object({ action: Type.Literal("draft"), text }),
 	object({ action: Type.Literal("saveModuleConfig"), id: moduleConfigId, original: text, content: text }),
 	object({ action: Type.Literal("saveGuiConfig"), original: text, content: text }),
@@ -141,6 +142,8 @@ export interface GuiNotice {
 	id: string;
 	type: "info" | "warning" | "error";
 	text: string;
+	/** 到达时时间线已有条目数，用于内联插入位置。 */
+	anchor: number;
 }
 export interface GuiModel {
 	provider: string;
@@ -227,7 +230,7 @@ export type GuiEvent =
 	| { type: "sessions"; value: GuiSessionInfo[] }
 	| { type: "workspaces"; value: GuiWorkspaceInfo[] }
 	| { type: "dialogs"; value: GuiDialog[] }
-	| { type: "notice"; value: GuiNotice }
+	| { type: "notices"; value: GuiNotice[] }
 	| { type: "panel"; panel: GuiPanel }
 	| { type: "editor"; text: string }
 	| { type: "download"; name: string; content: string; mimeType: string }

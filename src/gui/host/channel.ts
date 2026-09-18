@@ -25,7 +25,7 @@ export class GuiChannel {
 			this.current = { ...this.current, streamingMessage: this.payloads().stream(event.value) };
 			this.dirty = true;
 		} else {
-			if (["sessionInfo", "sessions", "workspaces", "dialogs", "guiConfig"].includes(event.type))
+			if (["sessionInfo", "sessions", "workspaces", "dialogs", "guiConfig", "notices"].includes(event.type))
 				this.pending = this.pending.filter((item) => item.type !== event.type);
 			this.pending.push(event.type === "sessionInfo" ? { ...event, value: this.payloads().project(event.value) } : event);
 		}

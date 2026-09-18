@@ -7,12 +7,36 @@ import { StreamingText, Message } from "./content.tsx";
 import { MessageIdentity, ReplyMetrics } from "./message-meta.tsx";
 import { ToolActivity } from "./tool-activity.tsx";
 import type { TranscriptItem, TranscriptSource } from "./transcript-items.ts";
-import { transcriptReplies, type TranscriptReply } from "./transcript-replies.ts";
+import { transcriptReplies, type TranscriptReply, type TranscriptRow } from "./transcript-replies.ts";
+import { NoticeGroupView, type NoticeGroup } from "./notices";
 
-export function Transcript({ source, entryIds = [] }: { source: TranscriptSource; entryIds?: (string | undefined)[] }) {
-	return <AnimatePresence initial={false}>{transcriptReplies(source).map((row) => row.kind === "message"
+export function Transcript({ source, entryIds = [], groups = [], tail = 0, clear }: {
+	source: TranscriptSource;
+	entryIds?: (string | undefined)[];
+	groups?: NoticeGroup[];
+	tail?: number;
+	clear: (ids: string[]) => void;
+}) {
+	const rows = transcriptReplies(source);
+	const children = rows.map((row) => row.kind === "message"
 		? <Message key={row.key} value={row.message} entryId={entryIds[row.messageIndex]} />
-		: <Reply key={row.key} reply={row} entryIds={entryIds} />)}</AnimatePresence>;
+		: <Reply key={row.key} reply={row} entryIds={entryIds} />);
+	let inserted = 0;
+	for (const group of groups) {
+		let index = 0;
+		for (const [i, row] of rows.entries()) {
+			if (rowLastIndex(row) <= group.anchor - 1) index = i + 1;
+			else break;
+		}
+		children.splice(index + inserted, 0,
+			<NoticeGroupView key={`notices:${group.anchor}`} group={group} live={group.anchor >= tail} clear={clear} />);
+		inserted++;
+	}
+	return <AnimatePresence initial={false}>{children}</AnimatePresence>;
+}
+
+function rowLastIndex(row: TranscriptRow): number {
+	return row.kind === "message" ? row.messageIndex : row.messageIndices[row.messageIndices.length - 1] ?? -1;
 }
 
 const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string | undefined)[] }) {

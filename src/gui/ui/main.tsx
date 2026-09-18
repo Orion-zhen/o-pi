@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createRoot } from "react-dom/client";
 import { AnimatePresence } from "motion/react";
 import { Fade, Reveal } from "./components/animated";
-import { Notices } from "./notices";
+import { NoticeGroupView, groupNotices } from "./notices";
 import {
 	ArrowDown,
 	ExternalLink,
@@ -70,6 +70,10 @@ function App() {
 	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
 	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
 	const located = snapshot ? locateTranscript(snapshot, target) : undefined;
+	const noticeGroups = groupNotices(notices);
+	const noticeTail = snapshot ? snapshot.messages.length + (snapshot.streamingMessage ? 1 : 0) : 0;
+	const clearNoticeGroup = useCallback((ids: string[]) => { void send({ action: "clearNotices", ids }); }, [send]);
+	const inlineNotices = Boolean(snapshot && located && !located.preview && snapshot.messages.length > 0);
 	useLayoutEffect(() => { if (target) transcript.toEntry(target); }, [location]);
 	const panelContent = useRef<HTMLDivElement>(null);
 	const main = useRef<HTMLElement>(null);
@@ -218,11 +222,13 @@ function App() {
 								{snapshot && located && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
 									onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 									{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
-									<Transcript source={located.source} entryIds={located.entryIds} />
+									<Transcript source={located.source} entryIds={located.entryIds}
+										groups={located.preview ? [] : noticeGroups} tail={noticeTail} clear={clearNoticeGroup} />
 								</Fade>}
 								</AnimatePresence>
 								<AnimatePresence initial={false}>{snapshot?.status["bash"] && <Reveal><pre className="live-output">{snapshot.status["bash"]}</pre></Reveal>}</AnimatePresence>
-								<Notices notices={notices} />
+								<AnimatePresence initial={false}>{!inlineNotices && noticeGroups.map((group) =>
+									<NoticeGroupView key={group.anchor} group={group} live={group.anchor >= noticeTail} clear={clearNoticeGroup} />)}</AnimatePresence>
 							</div>
 						</div>
 						<div className="conversation-resize-track" aria-label="对话宽度调整" onPointerMove={(event) => {

@@ -64,7 +64,9 @@ export class GuiHost {
 		(value) => this.emit({ type: "sessionInfo", value }),
 		(error) => this.dialogs.notify(`会话信息读取失败: ${error instanceof Error ? error.message : String(error)}`, "error"),
 	);
-	readonly dialogs = new GuiDialogs((event) => this.emit(event));
+	readonly dialogs = new GuiDialogs((event) => this.emit(event), () => this.current
+		? this.current.session.messages.length + (this.current.session.state.streamingMessage ? 1 : 0)
+		: 0);
 
 	get runtime(): AgentSessionRuntime {
 		if (!this.current) throw new Error("会话尚未就绪。");
@@ -79,7 +81,7 @@ export class GuiHost {
 		this.listeners.add(listener);
 		if (this.workspaceRoot) listener({ type: "workspaceRoot", path: this.workspaceRoot });
 		listener({ type: "dialogs", value: this.dialogs.list() });
-		for (const value of this.dialogs.notices) listener({ type: "notice", value });
+		listener({ type: "notices", value: [...this.dialogs.notices] });
 		listener({ type: "snapshot", value: this.current ? this.snapshot() : null });
 		if (this.info.value) listener({ type: "sessionInfo", value: this.info.value });
 		if (this.sessions.value) listener({ type: "sessions", value: this.sessions.value });
@@ -295,6 +297,7 @@ export class GuiHost {
 				this.emit({ type: "guiConfig", value: await saveGuiConfig(action.original, action.content) });
 				return;
 			case "dialog": this.dialogs.respond(action.id, action.value); return;
+			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
 			case "draft": this.dialogs.draft = action.text; return;
 			case "cancelLogin": this.loginController?.abort(); return;
 			case "sessions": await this.sessions.refresh(); return;

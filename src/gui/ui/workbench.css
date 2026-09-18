@@ -35,7 +35,7 @@
 .git-branch > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-files-heading > button { font-size: var(--text-small); }
 .file-changes-toggle { gap: var(--space-1); font-variant-numeric: tabular-nums; }
-.file-changes-toggle[aria-pressed="true"], .workbench-pane-tabs button[aria-pressed="true"] { background: var(--selected); color: var(--primary); }
+.file-changes-toggle[aria-pressed="true"], .workbench-pane-tabs button[aria-pressed="true"] { background: var(--selected); color: var(--selected-foreground); }
 .workspace-files-scroll { overflow: auto; flex: 1; min-block-size: 0; overscroll-behavior: contain; padding: 0 var(--space-3) var(--space-2); }
 .workspace-tree, .workspace-tree ul, .workspace-changes { list-style: none; margin: 0; padding: 0; }
 .workspace-tree { outline-offset: -2px; }
@@ -48,7 +48,7 @@
 .file-row[data-ignored="true"] { color: var(--muted-foreground); }
 .file-row:hover { background: var(--accent); }
 .file-row:is([aria-selected="true"], [aria-pressed="true"]) { background: var(--selected); color: var(--foreground); }
-.file-row:is([aria-selected="true"], [aria-pressed="true"]) > svg:not(.file-chevron) { color: var(--primary); }
+.file-row:is([aria-selected="true"], [aria-pressed="true"]) > svg:not(.file-chevron) { color: var(--selected-foreground); }
 .file-row:focus-visible, .workspace-tree:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .file-chevron[data-directory="false"] { visibility: hidden; }
 .file-chevron[data-open="true"] { transform: rotate(90deg); }

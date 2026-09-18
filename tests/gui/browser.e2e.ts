@@ -64,6 +64,20 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await dialog.getByLabel("输入内容").fill("标准交互验证");
 		await dialog.getByRole("button", { name: "提交", exact: true }).click();
 		await expect(page.locator(".notices")).toContainText("标准交互验证");
+		await expect(page.locator(".notices .disclosure-trigger")).toHaveAttribute("data-state", "open");
+		await page.getByRole("button", { name: "清除通知" }).click();
+		await expect(page.locator(".notices")).toHaveCount(0);
+		await editor.fill("/gui-note");
+		await editor.press("ControlOrMeta+Enter");
+		await dialog.getByLabel("输入内容").fill("时间线通知");
+		await dialog.getByRole("button", { name: "提交", exact: true }).click();
+		await expect(page.locator(".notices")).toContainText("时间线通知");
+		await editor.fill("验证时间线");
+		await editor.press("ControlOrMeta+Enter");
+		await expect(page.locator(".notices .disclosure-trigger")).toHaveAttribute("data-state", "closed");
+		const timeline = await page.locator(".transcript-content .message, .transcript-content .assistant-reply, .transcript-content .notices")
+			.evaluateAll((els) => els.map((el) => el.matches(".notices") ? "notice" : el.matches(".message.user") ? "user" : "reply"));
+		expect(timeline.join(",")).toContain("reply,notice,user");
 		const exported = path.join(cwd, "export.html");
 		if (mode === "desktop") await app.evaluate(({ dialog }, filePath) => {
 			dialog.showSaveDialog = async () => ({ canceled: false, filePath });
@@ -72,7 +86,8 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await editor.fill("/export");
 		await editor.press("ControlOrMeta+Enter");
 		if (download) await (await download).saveAs(exported);
-		await expect.poll(async () => readFile(exported, "utf8")).toContain("session-data");
+		// expect.poll 不重试谓函数抛出的错误, 文件由主进程异步落盘, 需用 toPass 重试整个读取断言块.
+		await expect(async () => expect(await readFile(exported, "utf8")).toContain("session-data")).toPass();
 		const data = await page.evaluate((html) => new DOMParser().parseFromString(html, "text/html").getElementById("session-data")?.textContent, await readFile(exported, "utf8"));
 		expect(Buffer.from(data ?? "", "base64").toString("utf8")).toContain("GUI 验证完成");
 		expect(await page.evaluate(() => typeof (globalThis as Record<string, unknown>)["require"])).toBe("undefined");

@@ -9,7 +9,7 @@ export class GuiDialogs {
 	readonly notices: GuiNotice[] = [];
 	readonly status: Record<string, string> = {};
 	draft = "";
-	constructor(private readonly emit: (event: GuiEvent) => void) {}
+	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number = () => 0) {}
 
 	list(): GuiDialog[] {
 		return [...this.pending.values()].map(({ dialog }) => dialog);
@@ -67,10 +67,16 @@ export class GuiDialogs {
 	}
 
 	notify(text: string, type: GuiNotice["type"] = "info"): void {
-		const value = { id: randomUUID(), type, text };
-		this.notices.push(value);
+		this.notices.push({ id: randomUUID(), type, text, anchor: this.tail() });
 		if (this.notices.length > 100) this.notices.shift();
-		this.emit({ type: "notice", value });
+		this.emit({ type: "notices", value: [...this.notices] });
+	}
+
+	clearNotices(ids: string[]): void {
+		const kept = this.notices.filter((notice) => !ids.includes(notice.id));
+		if (kept.length === this.notices.length) return;
+		this.notices.splice(0, this.notices.length, ...kept);
+		this.emit({ type: "notices", value: [...this.notices] });
 	}
 
 	context(): ExtensionUIContext {

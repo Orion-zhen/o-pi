@@ -12,7 +12,7 @@ export async function exerciseModels(page: Page, settingsFile: string) {
 	await panel.getByRole("button", { name: "上移 gui-test/third", exact: true }).click();
 	expect(await saved()).toMatchObject({ defaultModel: "test", enabledModels: ["gui-test/second", "gui-test/test"] });
 	await panel.getByRole("button", { name: "保存模型", exact: true }).click();
-	await expect.poll(saved).toMatchObject({ defaultModel: "test", enabledModels: ["gui-test/second", "gui-test/third", "gui-test/test"] });
+	await expect(async () => expect(await saved()).toMatchObject({ defaultModel: "test", enabledModels: ["gui-test/second", "gui-test/third", "gui-test/test"] })).toPass();
 	await panel.getByRole("button", { name: "关闭面板", exact: true }).click();
 	await select.click();
 	await page.getByRole("option", { name: "second", exact: true }).click();
