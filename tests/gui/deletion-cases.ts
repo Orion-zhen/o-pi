@@ -5,6 +5,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { GuiHost } from "../../src/gui/host/host.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
 import { prepareSessionDeletion } from "../../src/gui/host/delete-session.ts";
+import { GuiSessionIndex } from "../../src/gui/host/session-index.ts";
 import { storeSession } from "./session-fixture.ts";
 
 const prompt = { action: "prompt", text: "读取并写入文件", images: [], behavior: "followUp" };
@@ -81,7 +82,8 @@ export function historyDeletionTests(context: () => { host: GuiHost; cwd: string
 			const { cwd, agentDir } = context();
 			const first = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
 			const second = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			const plan = await prepareSessionDeletion([first, second], null);
+			const index = new GuiSessionIndex();
+			const plan = await prepareSessionDeletion([first, second], null, async () => new Set((await index.list()).map((session) => session.path)));
 			SessionManager.open(second).appendSessionInfo("TUI 修改名称");
 			await expect(plan.verify()).rejects.toThrow("会话已被修改");
 			expect(await readFile(first, "utf8")).toContain("历史回复");

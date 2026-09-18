@@ -16,7 +16,7 @@ export interface ToolActivity {
 }
 export type TranscriptItem = { key: string; messageIndex: number } & (
 	| { kind: "message"; message: AgentMessage }
-	| { kind: "text"; text: string; blockIndex: number }
+	| { kind: "text"; text: string; blockIndex: number; active: boolean }
 	| { kind: "thinking"; text: string; active: boolean }
 	| { kind: "tool"; tool: ToolActivity }
 	| { kind: "error"; text: string }

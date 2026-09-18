@@ -96,7 +96,7 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 						key: blockKey, messageIndex: index, kind: "thinking", text: block.thinking,
 						active: streaming && blockIndex === message.content.length - 1,
 					});
-				} else if (block.text) reply.items.push({ key: blockKey, messageIndex: index, blockIndex, kind: "text", text: block.text });
+				} else if (block.text) reply.items.push({ key: blockKey, messageIndex: index, blockIndex, kind: "text", text: block.text, active: streaming });
 			});
 			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex: index, kind: "error", text: message.errorMessage });
 		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);

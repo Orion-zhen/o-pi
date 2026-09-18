@@ -14,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import type { GuiEvent } from "../gui/contract.ts";
+import type { GuiDelivery } from "../gui/sync.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";
 
 protocol.registerSchemesAsPrivileged([
@@ -49,11 +50,7 @@ async function saveDownload(event: Extract<GuiEvent, { type: "download" }>): Pro
 	});
 	if (result.canceled || !result.filePath) return;
 	await writeFile(result.filePath, event.content, { mode: 0o600 });
-	if (window && !window.isDestroyed())
-		window.webContents.send("gui:event", {
-			type: "notice",
-			value: { id: randomUUID(), type: "info", text: `已导出: ${result.filePath}` },
-		} satisfies GuiEvent);
+	backend?.postMessage({ kind: "notice", text: `已导出: ${result.filePath}` });
 }
 
 void app
@@ -119,16 +116,14 @@ void app
 		backend.on("message", (message: unknown) => {
 			if (typeof message !== "object" || message === null || !("kind" in message)) return;
 			if (message.kind === "event" && "value" in message) {
-				const event = message.value as GuiEvent;
-				if (event.type === "close") {
-					app.quit();
-					return;
-				}
-				if (event.type === "download") {
+				const delivery = message.value as GuiDelivery;
+				const events = delivery.events.filter((event) => {
+					if (event.type === "close") { app.quit(); return false; }
+					if (event.type !== "download") return true;
 					void saveDownload(event).catch((error: unknown) => dialog.showErrorBox("导出失败", String(error)));
-					return;
-				}
-				if (window && !window.isDestroyed()) window.webContents.send("gui:event", event);
+					return false;
+				});
+				if (window && !window.isDestroyed()) window.webContents.send("gui:event", { ...delivery, events });
 			} else if (message.kind === "result" && "id" in message && typeof message.id === "string") {
 				const operation = pending.get(message.id);
 				pending.delete(message.id);
@@ -156,6 +151,11 @@ void app
 		ipcMain.on("gui:subscribe", (event) => {
 			trusted(event);
 			backend?.postMessage({ kind: "subscribe" });
+		});
+		ipcMain.on("gui:ack", (event, id: unknown) => {
+			trusted(event);
+			if (typeof id !== "number" || !Number.isSafeInteger(id)) throw new Error("无效确认序号");
+			backend?.postMessage({ kind: "ack", id });
 		});
 		ipcMain.on("gui:unsubscribe", (event) => {
 			trusted(event);

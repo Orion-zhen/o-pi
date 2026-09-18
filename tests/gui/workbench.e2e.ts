@@ -20,6 +20,42 @@ test.beforeEach(async ({ workspace: { cwd } }) => {
 	await writeFile(path.join(cwd, "引用 空格.md"), "# 项目\n");
 });
 
+test("折叠父目录后不刷新隐藏后代，重新展开读取外部修改", async ({ gui: { page }, workspace: { cwd } }, info) => {
+	await mkdir(path.join(cwd, "src", "deep"));
+	await writeFile(path.join(cwd, "src", "deep", "first.ts"), "first\n");
+	const phone = info.project.name === "phone";
+	if (phone) {
+		await page.getByRole("button", { name: "菜单", exact: true }).click();
+		await page.locator(".mobile-sidebar .workbench-pane-tabs").getByRole("button", { name: "文件", exact: true }).click();
+	}
+	const navigation = page.locator(phone ? ".mobile-sidebar" : ".sidebar");
+	const tree = navigation.getByRole("tree", { name: "工作区文件", exact: true });
+	const src = tree.getByRole("treeitem", { name: "src", exact: true });
+	await src.click();
+	await tree.getByRole("treeitem", { name: "src/deep", exact: true }).click();
+	await expect(tree.getByRole("treeitem", { name: "src/deep/first.ts", exact: true })).toBeVisible();
+	await src.click();
+	await expect(src).toHaveAttribute("aria-expanded", "false");
+	const paths: unknown[] = [];
+	await page.route("**/api/query", async (route) => {
+		const body: unknown = route.request().postDataJSON();
+		if (typeof body === "object" && body !== null && "query" in body && body.query === "workspaceFiles" && "path" in body) paths.push(body.path);
+		await route.continue();
+	});
+	const response = page.waitForResponse((response) => {
+		if (!response.url().endsWith("/api/query")) return false;
+		const body: unknown = response.request().postDataJSON();
+		return typeof body === "object" && body !== null && "query" in body && body.query === "workspaceFiles";
+	});
+	await navigation.getByRole("button", { name: "刷新文件", exact: true }).click();
+	await response;
+	expect(paths).toEqual([""]);
+	await writeFile(path.join(cwd, "src", "deep", "external.ts"), "external change\n");
+	await src.click();
+	await expect(tree.getByRole("treeitem", { name: "src/deep/external.ts", exact: true })).toBeVisible();
+	expect(paths).toContain("src/deep");
+});
+
 test("浏览文件、读取 Git 差异并引用路径", async ({ gui: { page } }, info) => {
 	const phone = info.project.name === "phone";
 	const openFiles = async () => {

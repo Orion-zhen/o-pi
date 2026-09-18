@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AnimatePresence } from "motion/react";
 import { Fade, Reveal } from "./components/animated";
@@ -31,6 +31,7 @@ import { SessionHeading } from "./session-heading.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
 import { Welcome } from "./welcome.tsx";
 import { useGui } from "./use-gui.ts";
+import { GuiQueryContext } from "./payload.tsx";
 import { IconButton } from "./components/icon-button";
 import { ResizeHandle } from "./components/resize-handle";
 import { Button } from "./components/ui/button";
@@ -61,8 +62,12 @@ function App() {
 		return () => window.removeEventListener("beforeunload", preventClose);
 	}, [settingsDirty]);
 	const [collapsed, setCollapsed] = useState(false);
+	const toggleSidebar = useCallback(() => setCollapsed((value) => !value), []);
+	const closeSidebar = useCallback(() => setMobileOpen(false), []);
 	const transcript = useTranscriptScroll(snapshot?.sessionId);
 	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
+	const sessionId = snapshot?.sessionId;
+	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
 	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
 	const located = snapshot ? locateTranscript(snapshot, target) : undefined;
 	useLayoutEffect(() => { if (target) transcript.toEntry(target); }, [location]);
@@ -81,14 +86,14 @@ function App() {
 	}, []);
 	const state = !gui.connected ? connectionLabels[status] : dialogs.length ? "等待操作" : gui.running ? "运行中" : "就绪";
 	return (
-		<TooltipProvider delayDuration={350}>
+		<GuiQueryContext value={gui.query}><TooltipProvider delayDuration={350}>
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
 				<div className="app" data-collapsed={collapsed} ref={app} style={gui.layout.style}>
 					<Sidebar
-						gui={gui}
+						gui={gui.sidebar}
 						collapsed={collapsed}
-						toggle={() => setCollapsed(!collapsed)}
-						close={() => setMobileOpen(false)}
+						toggle={toggleSidebar}
+						close={closeSidebar}
 					/>
 					<ResizeHandle label="调整左侧栏宽度" className="sidebar-resize" value={gui.layout.values.left} change={(value, persist) => gui.layout.set("left", value, persist)} measure={() => {
 						const sidebar = app.current?.querySelector<HTMLElement>(".sidebar");
@@ -245,7 +250,7 @@ function App() {
 						const min = Math.min(12 * rem, available * 0.4);
 						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - Math.min(20 * rem, available * 0.45) - 8), scale: -1 };
 					}} />
-					{snapshot && <SessionSidebar gui={gui} locate={(entryId) => setLocation({ sessionId: snapshot.sessionId, entryId })} />}
+					{snapshot && <SessionSidebar gui={gui} locate={locate} />}
 					</div>
 				</div>
 			</Sheet>
@@ -275,7 +280,7 @@ function App() {
 			<AnimatePresence mode="wait">
 			{dialogs[0] && <Dialog restoreFocus={restoreFocus} key={dialogs[0].id} dialog={dialogs[0]} send={send} />}
 			</AnimatePresence>
-		</TooltipProvider>
+		</TooltipProvider></GuiQueryContext>
 	);
 }
 

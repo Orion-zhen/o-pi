@@ -9,6 +9,7 @@ import { storeSession } from "./session-fixture.ts";
 import { historyDeletionTests } from "./deletion-cases.ts";
 import { sidebarTests } from "./sidebar-cases.ts";
 import { workbenchTests } from "./workbench-cases.ts";
+import { queueTests } from "./queue-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-gui-");
@@ -86,6 +87,7 @@ const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior
 historyDeletionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 workbenchTests(() => ({ host, cwd }));
+queueTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 
 describe("GUI 直接使用 SDK", () => {
 	it("主任务结束后生成标题仍更新共享宿主快照与会话列表", async () => {

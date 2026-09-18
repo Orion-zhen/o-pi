@@ -4,14 +4,6 @@ import { CodeBlock } from "./code-block.tsx";
 import { Disclosure } from "./components/disclosure";
 import { Content, ExternalLink, MarkdownText, clean, record } from "./content.tsx";
 
-export function isWebSearchSuccess(value: unknown): value is WebSearchSuccessDetails {
-	return record(value) && value.status === "success" && typeof value.query === "string" && Array.isArray(value.results);
-}
-export function isWebFetchSuccess(value: unknown): value is WebFetchSuccessDetails {
-	return record(value) && value.status === "success" && value.scope === "static_response"
-		&& typeof value.final_url === "string" && typeof value.preview === "string" && record(value.range);
-}
-
 function WebCard({ url, title, snippet, rank }: { url: string; title?: string; snippet?: string; rank?: number }) {
 	const domain = URL.canParse(url) ? new URL(url).hostname : "";
 	return <article className="web-card">
@@ -48,13 +40,4 @@ export function WebFetchResult({ details, content }: { details: WebFetchSuccessD
 		</Disclosure>}
 		{images.length > 0 && <Content value={images} />}
 	</div>;
-}
-
-export function webToolFacts(details: unknown): string {
-	if (isWebSearchSuccess(details)) return `${details.results.length} 个结果`;
-	if (isWebFetchSuccess(details)) return [details.http_status, details.format, details.completeness === "partial" ? "部分内容" : ""].filter(Boolean).join(" · ");
-	if (!record(details) || details.status !== "progress") return "";
-	const phases: Record<string, string> = { waiting: "等待搜索", requesting: "请求中", redirecting: "重定向中", downloading: "下载中", converting: "提取正文", parsing: "整理结果" };
-	if (typeof details.phase !== "string") return "";
-	return [phases[details.phase], typeof details.received_bytes === "number" ? `${(details.received_bytes / 1024).toFixed(1)} KB` : ""].filter(Boolean).join(" · ");
 }

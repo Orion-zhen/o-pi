@@ -2,12 +2,13 @@ import { memo, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { SyntaxHighlighter } from "./code-highlight.ts";
 
-export const CodeBlock = memo(function CodeBlock({ text, label = "代码", language = "text", startLine, diff = false }: {
+export const CodeBlock = memo(function CodeBlock({ text, label = "代码", language = "text", startLine, diff = false, highlight = true }: {
 	text: string;
 	label?: string;
 	language?: string;
 	startLine?: number;
 	diff?: boolean;
+	highlight?: boolean;
 }) {
 	const [copied, setCopied] = useState<string | null>(null);
 	const [error, setError] = useState(false);
@@ -28,13 +29,13 @@ export const CodeBlock = memo(function CodeBlock({ text, label = "代码", langu
 					{error ? "复制失败" : copied === text ? "已复制" : "复制"}
 				</button>
 			</div>
-			<SyntaxHighlighter language={diff ? "diff" : language} useInlineStyles={false}
+			{!highlight ? <pre tabIndex={0} aria-label={label}><code>{text.replace(/\n$/, "")}</code></pre> : <SyntaxHighlighter language={diff ? "diff" : language} useInlineStyles={false}
 				showLineNumbers={startLine !== undefined} startingLineNumber={startLine ?? 1}
 				wrapLines={diff} lineProps={{ className: "diff-line" }}
 				lineNumberStyle={{ color: "var(--muted-foreground)", opacity: 0.6, userSelect: "none" }}
 				tabIndex={0} aria-label={label}>
 				{text.replace(/\n$/, "")}
-			</SyntaxHighlighter>
+			</SyntaxHighlighter>}
 		</div>
 	);
 });

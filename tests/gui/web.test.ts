@@ -7,6 +7,7 @@ import { GuiHost } from "../../src/gui/host/host.ts";
 import { startWebServer } from "../../src/web/server.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
+import { GuiReceiver, type GuiDelivery } from "../../src/gui/sync.ts";
 
 const temp = useTempDir("opi-web-boundary-");
 let gui: GuiHost;
@@ -99,7 +100,12 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 			const ws = new WebSocket(`${server.url.replace("http", "ws")}/api/events`, {
 				headers: { Origin: server.url },
 			});
-			ws.on("message", (value) => events.push(JSON.parse(value.toString()) as GuiEvent));
+			const receiver = new GuiReceiver();
+			ws.on("message", (value) => {
+				const delivery = JSON.parse(value.toString()) as GuiDelivery;
+				events.push(...delivery.events.map((event) => receiver.accept(event)));
+				ws.send(JSON.stringify({ ack: delivery.id }));
+			});
 			await once(ws, "open");
 			return { ws, events };
 		};

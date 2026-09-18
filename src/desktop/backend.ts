@@ -13,15 +13,19 @@ const { runChildProcess } = await import("../harness/runtime/invocation.ts");
 if (!(await runChildProcess())) {
 	const { GuiHost } = await import("../gui/host/host.ts");
 	const gui = new GuiHost();
-	let unsubscribe: (() => void) | undefined;
+	let connection: ReturnType<InstanceType<typeof GuiHost>["connect"]> | undefined;
 	process.parentPort.on("message", ({ data }: { data: unknown }) => {
 		if (typeof data !== "object" || data === null || !("kind" in data)) return;
 		if (data.kind === "subscribe") {
-			unsubscribe?.();
-			unsubscribe = gui.subscribe((value) => process.parentPort.postMessage({ kind: "event", value }));
+			connection?.close();
+			connection = gui.connect((value) => process.parentPort.postMessage({ kind: "event", value }));
+		} else if (data.kind === "ack" && "id" in data && typeof data.id === "number") {
+			connection?.acknowledge(data.id);
 		} else if (data.kind === "unsubscribe") {
-			unsubscribe?.();
-			unsubscribe = undefined;
+			connection?.close();
+			connection = undefined;
+		} else if (data.kind === "notice" && "text" in data && typeof data.text === "string") {
+			gui.dialogs.notify(data.text);
 		} else if (data.kind === "dispose") {
 			void gui.dispose().then(
 				() => process.exit(0),

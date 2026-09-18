@@ -51,6 +51,7 @@
 		"@mozilla/readability": "latest",
 		"@napi-rs/canvas": "latest",
 		"@resvg/resvg-js": "latest",
+		"@tanstack/react-virtual": "latest",
 		"@xhayper/discord-rpc": "latest",
 		"ajv": "latest",
 		"class-variance-authority": "latest",

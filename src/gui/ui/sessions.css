@@ -1,4 +1,5 @@
 .session-history { margin-block: var(--space-6); min-width: 0; }
+.session-history:not(.session-history-flat) .history-scroll { max-block-size: 60vh; }
 .history-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding-inline-start: var(--space-3); color: var(--muted-foreground); }
 .history-heading h2 { font-size: var(--text-caption); font-weight: 500; }
 .history-heading svg { inline-size: 1em; block-size: 1em; }
@@ -16,6 +17,7 @@
 .history-session[aria-current="page"] { color: var(--foreground); font-weight: 500; }
 .history-session[aria-current="page"] > svg { color: var(--primary); fill: currentColor; }
 .history-session-row { --row-action-background: var(--background); }
+.history-virtual-row { padding-block-end: var(--space-1); }
 .history-session-row[data-current="true"] { --row-action-background: var(--selected); background: var(--selected); }
 .workspace-heading { display: flex; min-inline-size: 0; }
 .workspace-heading .workspace-toggle { min-width: 0; }

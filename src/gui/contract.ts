@@ -102,6 +102,8 @@ export type GuiAction = Static<typeof actionSchema>;
 export const querySchema = Type.Union([
 	object({ query: Type.Literal("moduleConfig"), id: moduleConfigId }),
 	object({ query: Type.Literal("guiConfig") }),
+	object({ query: Type.Literal("image"), id: short }),
+	object({ query: Type.Literal("toolOutput"), id: short }),
 	object({ query: Type.Literal("directories"), path: short }),
 	object({ query: Type.Literal("files"), prefix: short }),
 	object({ query: Type.Literal("workspaceFiles"), cwd: short, path: short }),
@@ -114,6 +116,8 @@ export type GuiQuery = Static<typeof querySchema>;
 export interface GuiQueryResults {
 	moduleConfig: ModuleConfigDocument;
 	guiConfig: GuiConfigDocument;
+	image: string;
+	toolOutput: { content: unknown; details?: unknown };
 	directories: GuiDirectories;
 	files: string[];
 	workspaceFiles: WorkspaceEntry[];
@@ -219,6 +223,7 @@ export type GuiEvent =
 	| { type: "sessionInfo"; value: GuiSessionDetails }
 	| { type: "sessionTab"; tab: GuiSessionTab }
 	| { type: "snapshot"; value: GuiSnapshot | null }
+	| { type: "stream"; sessionId: string; value: GuiSnapshot["streamingMessage"] }
 	| { type: "sessions"; value: GuiSessionInfo[] }
 	| { type: "workspaces"; value: GuiWorkspaceInfo[] }
 	| { type: "dialogs"; value: GuiDialog[] }
@@ -235,7 +240,9 @@ export interface GuiConnection {
 	subscribe(listener: (event: GuiEvent) => void): () => void;
 	close(): void;
 }
-export interface DesktopBridge extends GuiConnection {
+export interface DesktopBridge extends Omit<GuiConnection, "subscribe"> {
+	subscribe(listener: (delivery: import("./sync.ts").GuiDelivery) => void): () => void;
+	acknowledge(id: number): void;
 	chooseDirectory(): Promise<string | null>;
 	openExternal(url: string): Promise<void>;
 }

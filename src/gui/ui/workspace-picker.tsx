@@ -3,7 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { Fade } from "./components/animated";
 import { fade, settle } from "./lib/motion";
 import { Check, ChevronsUpDown, FolderOpen } from "lucide-react";
-import type { GuiView } from "./use-gui.ts";
+import type { SidebarView } from "./use-gui.ts";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
@@ -11,7 +11,7 @@ import { DirectoryBrowser } from "./directory-browser.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 import { ListScroll } from "./components/list-scroll";
 
-export function WorkspacePicker({ gui, close, compact = false }: { gui: GuiView; close: () => void; compact?: boolean }) {
+export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<SidebarView, "snapshot" | "workspaceRoot" | "workspaces" | "send" | "connected" | "canChangeSession" | "query" | "error" | "setError">; close: () => void; compact?: boolean }) {
 	const [expanded, setExpanded] = useState(false);
 	const [browsing, setBrowsing] = useState(false);
 	const [filter, setFilter] = useState("");

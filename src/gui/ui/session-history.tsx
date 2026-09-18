@@ -2,16 +2,17 @@ import { useMemo, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../contract.ts";
-import type { GuiView } from "./use-gui.ts";
+import type { SidebarView } from "./use-gui.ts";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
 import { HistorySessionRow } from "./history-session-row.tsx";
 import { ListScroll } from "./components/list-scroll";
+import { useVirtualRows } from "./use-virtual-rows.ts";
 import "./sessions.css";
 
 const workspaceName = (cwd: string) => cwd.split(/[/\\]/).filter(Boolean).at(-1) || cwd || "未记录工作区";
-type HistoryGui = Pick<GuiView, "snapshot" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "canChangeSession" | "connected">;
+type HistoryGui = Pick<SidebarView, "snapshot" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "canChangeSession" | "connected">;
 
 export function SessionHistory({ gui, close, full = false, search = "" }: {
 	gui: HistoryGui; close: () => void; full?: boolean; search?: string;
@@ -52,24 +53,30 @@ function SessionRows({ cwd, items, gui, close, search }: {
 }) {
 	const [switching, setSwitching] = useState(false);
 	const { snapshot } = gui;
-	const active = items.find((item) => item.path === snapshot?.sessionFile);
+	const active = useMemo(() => items.find((item) => item.path === snapshot?.sessionFile), [items, snapshot?.sessionFile]);
 	const blocked = switching || !gui.canChangeSession;
-	const matches = (title: string) => title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
-	const titleOf = (item: GuiSessionInfo) => item === active && snapshot?.name ? snapshot.name : item.title;
-	const visible = items.filter((item) => matches(titleOf(item)));
-	const unsaved = cwd === snapshot?.cwd && !active && matches(snapshot.name || "新会话");
-	return <div className="workspace-session-list">
-		<AnimatePresence initial={false}>
-		{unsaved && <HistorySessionRow key={snapshot.sessionId} title={snapshot.name || "新会话"}
-			path={snapshot.sessionFile} selected disabled={blocked} send={gui.send} open={close} />}
-		{visible.map((item) => <HistorySessionRow key={item.path} title={titleOf(item)} path={item.path} modified={item.modified}
-			selected={item === active} disabled={blocked} send={gui.send} open={() => {
+	const visible = useMemo(() => {
+		const needle = search.trim().toLocaleLowerCase();
+		const rows: { key: string; path: string | null; title: string; modified: string | undefined; selected: boolean }[] = items.map((item) => ({ key: item.path, path: item.path,
+			title: item === active && snapshot?.name ? snapshot.name : item.title, modified: item.modified, selected: item === active }));
+		if (cwd === snapshot?.cwd && !active) rows.unshift({ key: snapshot.sessionId, path: snapshot.sessionFile, title: snapshot.name || "新会话", modified: undefined, selected: true });
+		return rows.filter((row) => row.title.toLocaleLowerCase().includes(needle));
+	}, [items, active, cwd, snapshot, search]);
+	const list = useVirtualRows<HTMLDivElement>(visible.length, (index) => visible[index]?.key ?? "", 44);
+	const rows = list.rows.map((row) => {
+		const item = visible[row.index];
+		if (!item) return null;
+		const content = <HistorySessionRow key={item.key} title={item.title} path={item.path} modified={item.modified}
+			selected={item.selected} disabled={blocked} send={gui.send} animated={!list.windowed} open={() => {
 				close();
-				if (item === active) return;
+				if (item.selected || !item.path) return;
 				setSwitching(true);
 				void gui.send({ action: "switch", path: item.path }).finally(() => setSwitching(false));
-			}} />)}
-		</AnimatePresence>
-		{!visible.length && !unsaved && gui.sessions && <p className="history-hint">{search.trim() ? "没有匹配的会话" : "暂无历史会话"}</p>}
+			}} />;
+		return list.windowed ? <div key={row.key} data-index={row.index} className="history-virtual-row" ref={list.virtualizer.measureElement} style={list.rowStyle(row.start)}>{content}</div> : content;
+	});
+	return <div ref={list.root} style={list.style} className="workspace-session-list">
+		{list.windowed ? rows : <AnimatePresence initial={false}>{rows}</AnimatePresence>}
+		{!visible.length && gui.sessions && <p className="history-hint">{search.trim() ? "没有匹配的会话" : "暂无历史会话"}</p>}
 	</div>;
 }

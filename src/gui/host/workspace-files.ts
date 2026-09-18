@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileTypeFromBuffer } from "file-type";
-import type { FilePreview, WorkspaceEntry } from "../workbench.ts";
+import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "../workbench.ts";
 import { gitOutput, readWorkspaceGit } from "./workspace-git.ts";
 
 const MAX_PREVIEW = 512 * 1024;
@@ -65,9 +65,8 @@ async function previewContent(file: string, signal: AbortSignal): Promise<FilePr
 	} finally { await handle.close(); }
 }
 
-export async function previewWorkspaceFile(cwd: string, name: string, signal: AbortSignal): Promise<FilePreview> {
-	const file = await workspacePath(cwd, name, true);
-	const git = await readWorkspaceGit(cwd, signal);
+export async function previewWorkspaceFile(cwd: string, name: string, signal: AbortSignal, readGit = () => readWorkspaceGit(cwd, signal)): Promise<FilePreview> {
+	const [file, git]: [string, WorkspaceGit | null] = await Promise.all([workspacePath(cwd, name, true), readGit()]);
 	const change = git?.changes.find((item) => item.path === name);
 	let content: FilePreview["content"];
 	try { content = await previewContent(file, signal); }

@@ -1,31 +1,11 @@
-import type { KeyboardEvent, ReactNode } from "react";
-import { AnimatePresence, motion, useIsPresent } from "motion/react";
-import { settle } from "./lib/motion";
+import { memo, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import { AtSign, ChevronRight, FileCode2, FileText, FolderClosed, FolderOpen, Image, Link } from "lucide-react";
-import { fileGitState, gitStatusLabels, type WorkspaceEntry, type WorkspaceGit } from "../workbench.ts";
+import { gitStatusLabels, indexWorkspaceGit, type WorkspaceEntry, type WorkspaceGit } from "../workbench.ts";
 import type { WorkbenchView } from "./use-workbench.ts";
+import { workspaceTreeRows } from "./workspace-tree-rows.ts";
+import { useVirtualRows } from "./use-virtual-rows.ts";
 import { IconButton } from "./components/icon-button";
 
-function DirectoryGroup({ children }: { children: ReactNode }) {
-	const present = useIsPresent();
-	return <motion.ul role="group" inert={!present} aria-hidden={!present} style={{ overflow: "clip" }}
-		initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={settle}>{children}</motion.ul>;
-}
-
-interface TreeEntry extends WorkspaceEntry { virtual?: boolean }
-function directoryEntries(path: string, entries: WorkspaceEntry[], git: WorkspaceGit | null): TreeEntry[] {
-	const result = new Map<string, TreeEntry>(entries.map((entry) => [entry.path, entry]));
-	const prefix = path ? `${path}/` : "";
-	for (const change of git?.changes ?? []) {
-		if (!change.path.startsWith(prefix)) continue;
-		const parts = change.path.slice(prefix.length).split("/");
-		const name = parts[0];
-		if (!name) continue;
-		const child = `${prefix}${name}`;
-		if (!result.has(child)) result.set(child, { path: child, name, kind: parts.length > 1 ? "directory" : "file", virtual: true });
-	}
-	return [...result.values()].sort((a, b) => Number(b.kind === "directory") - Number(a.kind === "directory") || a.name.localeCompare(b.name));
-}
 function FileIcon({ entry, open }: { entry: WorkspaceEntry; open: boolean }) {
 	if (entry.kind === "directory") return open ? <FolderOpen /> : <FolderClosed />;
 	if (entry.kind === "symlink") return <Link />;
@@ -38,12 +18,18 @@ function FileReference({ path, referenceFile }: { path: string; referenceFile: (
 		onClick={() => referenceFile(path)}><AtSign /></IconButton></div>;
 }
 
-export function WorkspaceChanges({ git, selected, openFile, referenceFile }: {
-	git: WorkspaceGit; selected: string | undefined; openFile: (path: string) => void; referenceFile: (path: string) => void;
+type FileActions = { openFile: (path: string) => void; referenceFile: (path: string) => void };
+export const WorkspaceChanges = memo(function WorkspaceChanges({ git, selected, openFile, referenceFile }: FileActions & {
+	git: WorkspaceGit; selected: string | undefined;
 }) {
-	return <ul className="workspace-changes" aria-label="工作区变更">
-		{!git.changes.length && <li className="file-hint">没有文件变更</li>}
-		{[...git.changes].sort((a, b) => a.path.localeCompare(b.path)).map((change) => <li key={change.path}>
+	const changes = useMemo(() => [...git.changes].sort((a, b) => a.path.localeCompare(b.path)), [git]);
+	const list = useVirtualRows<HTMLUListElement>(changes.length, (index) => changes[index]?.path ?? "", 32);
+	return <ul ref={list.root} style={list.style} className="workspace-changes" aria-label="工作区变更">
+		{!changes.length && <li className="file-hint">没有文件变更</li>}
+		{list.rows.map((row) => {
+			const change = changes[row.index];
+			if (!change) return null;
+			return <li key={row.key} data-index={row.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(row.start)}>
 			<div className="file-entry-row overlay-list-row">
 			<button type="button" className="file-row file-change-row" data-status={change.status} aria-label={change.path}
 				aria-pressed={selected === change.path} aria-description={gitStatusLabels[change.status]}
@@ -55,67 +41,79 @@ export function WorkspaceChanges({ git, selected, openFile, referenceFile }: {
 			</button>
 			{change.status !== "D" && <FileReference path={change.path} referenceFile={referenceFile} />}
 			</div>
-		</li>)}
+		</li>;
+		})}
 	</ul>;
-}
+});
 
-export function WorkspaceTree({ workbench, openFile, referenceFile }: {
-	workbench: WorkbenchView; openFile: (path: string) => void; referenceFile: (path: string) => void;
-}) {
+export const WorkspaceTree = memo(function WorkspaceTree({ workbench, openFile, referenceFile }: FileActions & { workbench: WorkbenchView }) {
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
+	const index = useMemo(() => indexWorkspaceGit(git), [git]);
+	const rows = useMemo(() => workspaceTreeRows(workbench.directories, workbench.expanded, index), [workbench.directories, workbench.expanded, index]);
+	const list = useVirtualRows<HTMLUListElement>(rows.length, (index) => rows[index]?.key ?? "", 32);
+	const pendingFocus = useRef<string | undefined>(undefined);
+	useLayoutEffect(() => {
+		if (pendingFocus.current === undefined) return;
+		const index = rows.findIndex((row) => row.key === pendingFocus.current);
+		const button = list.root.current?.querySelector<HTMLButtonElement>(`[data-index="${index}"] [role="treeitem"]`);
+		if (button) { button.focus({ preventScroll: true }); pendingFocus.current = undefined; }
+	});
+	const focus = (index: number) => {
+		const row = rows[index];
+		if (!row) return;
+		const button = list.root.current?.querySelector<HTMLButtonElement>(`[data-index="${index}"] [role="treeitem"]`);
+		if (button) { button.focus(); return; }
+		pendingFocus.current = row.key;
+		list.virtualizer.scrollToIndex(index, { align: "auto" });
+	};
 	const keyDown = (event: KeyboardEvent<HTMLUListElement>) => {
-		const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="treeitem"]')].filter((button) => !button.closest('[inert]'));
-		const current = buttons.findIndex((button) => button === event.target);
-		const button = buttons[current];
-		if (!button) return;
-		let target: HTMLButtonElement | undefined;
-		if (event.key === "ArrowDown") target = buttons[Math.min(current + 1, buttons.length - 1)];
-		else if (event.key === "ArrowUp") target = buttons[Math.max(current - 1, 0)];
-		else if (event.key === "Home") target = buttons[0];
-		else if (event.key === "End") target = buttons.at(-1);
+		if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "treeitem") return;
+		const current = Number(event.target.closest<HTMLElement>("[data-index]")?.dataset.index);
+		const row = rows[current];
+		if (!row || row.kind !== "entry") return;
+		let target = current;
+		if (event.key === "ArrowDown") target = rows.findIndex((row, index) => index > current && row.kind === "entry");
+		else if (event.key === "ArrowUp") target = rows.findLastIndex((row, index) => index < current && row.kind === "entry");
+		else if (event.key === "Home") target = rows.findIndex((row) => row.kind === "entry");
+		else if (event.key === "End") target = rows.findLastIndex((row) => row.kind === "entry");
 		else if (event.key === "ArrowRight") {
-			if (button.getAttribute("aria-expanded") === "false") button.click();
-			else if (button.getAttribute("aria-expanded") === "true") target = buttons[current + 1];
+			if (row.entry.kind === "directory") {
+				if (!workbench.expanded.has(row.entry.path)) workbench.toggleDirectory(row.entry.path, row.entry.virtual);
+				else target = rows.findIndex((row, index) => index > current && row.kind === "entry");
+			}
 		} else if (event.key === "ArrowLeft") {
-			if (button.getAttribute("aria-expanded") === "true") button.click();
-			else target = buttons.slice(0, current).findLast((parent) => Number(parent.getAttribute("aria-level")) < Number(button.getAttribute("aria-level")));
+			if (row.entry.kind === "directory" && workbench.expanded.has(row.entry.path)) workbench.toggleDirectory(row.entry.path, row.entry.virtual);
+			else target = rows.findLastIndex((item, index) => index < current && item.kind === "entry" && item.depth < row.depth);
 		} else return;
 		event.preventDefault();
-		target?.focus();
+		if (target >= 0 && target !== current) focus(target);
 	};
-	const renderDirectory = (path: string, depth: number, virtual = false): ReactNode => {
-		const remote = workbench.directories[path];
-		if (!virtual && (!remote || remote.state === "loading")) return <li role="none" className="file-hint">正在读取…</li>;
-		if (!virtual && remote?.state === "error") return <li role="none" className="file-hint"><span role="alert">{remote.message}</span></li>;
-		const entries = directoryEntries(path, remote?.state === "ready" ? remote.value : [], git);
-		if (!entries.length) return <li role="none" className="file-hint">空目录</li>;
-		return entries.map((entry) => {
-			const { change, descendants, ignored } = fileGitState(entry.path, git);
-			const open = workbench.expanded.has(entry.path);
-			const state = change ? gitStatusLabels[change.status] : descendants ? `${descendants} 个文件变更` : ignored ? "Git 忽略项" : "";
-			return <li key={entry.path} role="none">
-				<div className="file-entry-row overlay-list-row">
-				<button type="button" role="treeitem" aria-label={entry.path} aria-level={depth + 1}
-					aria-expanded={entry.kind === "directory" ? open : undefined} aria-selected={workbench.preview?.path === entry.path}
-					tabIndex={-1} aria-description={state} title={`${entry.path}${state ? ` (${state})` : ""}`}
-					className="file-row" data-ignored={ignored} data-status={change?.status} style={{ paddingInlineStart: `${0.75 + depth}em` }}
-					onClick={() => entry.kind === "directory" ? workbench.toggleDirectory(entry.path, entry.virtual) : openFile(entry.path)}>
-					<ChevronRight className="file-chevron" data-directory={entry.kind === "directory"} data-open={open} />
-					<FileIcon entry={entry} open={open} /><span className="file-name">{entry.name}</span>
-					{state && <span className="sr-only">{state}</span>}
-					{change && <span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>}
-					{!change && descendants > 0 && <span className="git-descendants" aria-hidden="true">{descendants}</span>}
-				</button>
-				{!entry.virtual && change?.status !== "D" && <FileReference path={entry.path} referenceFile={referenceFile} />}
-				</div>
-				<AnimatePresence initial={false}>
-				{entry.kind === "directory" && open && <DirectoryGroup key={entry.path}>{renderDirectory(entry.path, depth + 1, entry.virtual)}</DirectoryGroup>}
-				</AnimatePresence>
-			</li>;
-		});
-	};
-	return <ul className="workspace-tree" role="tree" aria-label="工作区文件" onKeyDown={keyDown}
-		onFocus={(event) => {
-			if (event.target === event.currentTarget) event.currentTarget.querySelector<HTMLButtonElement>('[role="treeitem"]')?.focus();
-		}} tabIndex={0}>{renderDirectory("", 0)}</ul>;
-}
+	return <ul ref={list.root} style={list.style} className="workspace-tree" role="tree" aria-label="工作区文件" onKeyDown={keyDown}
+		onFocus={(event) => { if (event.target === event.currentTarget) focus(rows.findIndex((row) => row.kind === "entry")); }} tabIndex={0}>
+		{list.rows.map((item) => {
+			const row = rows[item.index];
+			if (!row) return null;
+			const content = () => {
+				if (row.kind === "hint") return <div className="file-hint" role={row.error ? "alert" : undefined}>{row.message}</div>;
+				const { entry, depth, state: { change, descendants, ignored } } = row;
+				const open = workbench.expanded.has(entry.path);
+				const state = change ? gitStatusLabels[change.status] : descendants ? `${descendants} 个文件变更` : ignored ? "Git 忽略项" : "";
+				return <div className="file-entry-row overlay-list-row">
+					<button type="button" role="treeitem" aria-label={entry.path} aria-level={depth + 1} aria-posinset={row.position} aria-setsize={row.siblings}
+						aria-expanded={entry.kind === "directory" ? open : undefined} aria-selected={workbench.preview?.path === entry.path}
+						tabIndex={-1} aria-description={state} title={`${entry.path}${state ? ` (${state})` : ""}`}
+						className="file-row" data-ignored={ignored} data-status={change?.status} style={{ paddingInlineStart: `${0.75 + depth}em` }}
+						onClick={() => entry.kind === "directory" ? workbench.toggleDirectory(entry.path, entry.virtual) : openFile(entry.path)}>
+						<ChevronRight className="file-chevron" data-directory={entry.kind === "directory"} data-open={open} />
+						<FileIcon entry={entry} open={open} /><span className="file-name">{entry.name}</span>
+						{state && <span className="sr-only">{state}</span>}
+						{change && <span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>}
+						{!change && descendants > 0 && <span className="git-descendants" aria-hidden="true">{descendants}</span>}
+					</button>
+					{!entry.virtual && change?.status !== "D" && <FileReference path={entry.path} referenceFile={referenceFile} />}
+				</div>;
+			};
+			return <li key={item.key} role="none" data-index={item.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(item.start)}>{content()}</li>;
+		})}
+	</ul>;
+});

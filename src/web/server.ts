@@ -106,17 +106,24 @@ export async function startWebServer(
 			return;
 		}
 		sockets.handleUpgrade(request, socket, head, (ws) => {
-			const unsubscribe = gui.subscribe((event) => {
+			const connection = gui.connect((delivery) => {
 				if (ws.readyState !== ws.OPEN) return;
 				if (ws.bufferedAmount > MAX_BODY) {
 					ws.close(1013, "Client too slow");
 					return;
 				}
-				ws.send(JSON.stringify(event));
+				ws.send(JSON.stringify(delivery));
 			});
-			ws.on("message", () => ws.close(1008, "Use HTTP actions"));
+			ws.on("message", (data) => {
+				try {
+					const value: unknown = JSON.parse(data.toString());
+					if (typeof value !== "object" || value === null || !("ack" in value) || typeof value.ack !== "number" || !Number.isSafeInteger(value.ack))
+						throw new Error("Invalid acknowledgement");
+					connection.acknowledge(value.ack);
+				} catch { ws.close(1008, "Expected acknowledgement"); }
+			});
 			ws.on("error", () => ws.terminate());
-			ws.on("close", unsubscribe);
+			ws.on("close", () => connection.close());
 		});
 	});
 	await new Promise<void>((resolve, reject) => {

@@ -7,8 +7,8 @@ import { ToolResult } from "./tool-results.tsx";
 import { ParameterValue } from "./tool-parameters.tsx";
 import type { ToolActivity as Activity, ToolState } from "./transcript-items.ts";
 import { toolTarget } from "./tool-target.ts";
-import { webToolFacts } from "./web-results.tsx";
-import { isSubagentDetails, subagentFacts } from "./subagent-progress.tsx";
+import { toolFacts } from "../tool-facts.ts";
+import { useToolOutput } from "./payload.tsx";
 
 const states: Record<ToolState, string> = {
 	preparing: "生成参数", pending: "等待执行", running: "执行中", completed: "完成", failed: "执行失败", stopped: "已停止", unavailable: "无执行结果",
@@ -20,7 +20,7 @@ const tools = {
 	bash: { label: "运行", icon: Terminal }, websearch: { label: "搜索网页", icon: Globe }, webfetch: { label: "读取网页", icon: Globe },
 };
 
-export function ToolActivity({ tool }: { tool: Activity }) {
+export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activity }) {
 	const [expanded, setExpanded] = useState<boolean | null>(null);
 	const open = expanded ?? (tool.name === "subagent" && tool.state === "running");
 	const definition = Object.hasOwn(tools, tool.name) ? tools[tool.name as keyof typeof tools] : { label: tool.name || "工具调用", icon: Wrench };
@@ -45,47 +45,29 @@ export function ToolActivity({ tool }: { tool: Activity }) {
 				<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 			</CollapsibleTrigger>
 			{error && <p className="activity-error">{error}</p>}
-			<CollapsibleContent lazy={tool.name !== "subagent"}><div className="activity-body">
-				{tool.args !== undefined && <Disclosure className="tool-parameters" summary="参数"><ParameterValue value={tool.args} /></Disclosure>}
-				<ToolResult tool={tool} />
-				<Disclosure className="tool-raw" summary="原始数据" lazy><RawToolData args={tool.args} output={tool.output} /></Disclosure>
-			</div></CollapsibleContent>
+			<CollapsibleContent lazy={tool.name !== "subagent"}><ToolBody tool={tool} /></CollapsibleContent>
 			</Collapsible>
 		</section>
 	);
+}, (before, after) => before.tool.id === after.tool.id && before.tool.name === after.tool.name && before.tool.state === after.tool.state
+	&& before.tool.args === after.tool.args && before.tool.output === after.tool.output);
+
+function ToolBody({ tool }: { tool: Activity }) {
+	const details = tool.output?.details;
+	const id = record(details) && typeof details.guiOutputId === "string" ? details.guiOutputId : undefined;
+	const loaded = useToolOutput(id);
+	if (id && !loaded.value) return <p className="tool-note" role={loaded.error ? "alert" : "status"}>{loaded.error || "正在读取工具结果…"}</p>;
+	const resolved = loaded.value ? { ...tool, output: loaded.value } : tool;
+	return <div className="activity-body">
+		{tool.args !== undefined && <Disclosure className="tool-parameters" summary="参数" lazy><ParameterValue value={tool.args} /></Disclosure>}
+		<ToolResult tool={resolved} />
+		<Disclosure className="tool-raw" summary="原始数据" lazy><RawToolData args={tool.args} output={resolved.output} /></Disclosure>
+	</div>;
 }
 
 const RawToolData = memo(function RawToolData({ args, output }: Pick<Activity, "args" | "output">) {
 	return <pre>{pretty({ arguments: args, result: output })}</pre>;
 });
-
-function toolFacts(tool: Activity): string {
-	const args = record(tool.args) ? tool.args : {};
-	const details = record(tool.output?.details) ? tool.output.details : {};
-	if (tool.name === "websearch" || tool.name === "webfetch") return webToolFacts(details);
-	if (tool.name === "subagent" && isSubagentDetails(details)) return subagentFacts(details);
-	if (tool.name === "read") {
-		if (typeof args.lines === "string") return `行 ${args.lines}`;
-		if (typeof args.pages === "string") return `页 ${args.pages}`;
-		if (typeof details.total_lines === "number") return `${details.total_lines} 行`;
-		if (typeof details.total_pages === "number") return `${details.total_pages} 页`;
-		if (details.media_type === "image") return "图片";
-	}
-	if (tool.name === "grep" && typeof details.returned_regions === "number") return `${details.returned_regions} 处结果`;
-	if (tool.name === "find" && typeof details.returned_matches === "number") return `${details.returned_matches} 项`;
-	if (tool.name === "ls" && Array.isArray(details.entries)) return `${details.entries.length} 项`;
-	if ((tool.name === "edit" || tool.name === "write") && typeof details.diff === "string") {
-		const lines = details.diff.split("\n");
-		return `+${lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length} -${lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length}`;
-	}
-	if (tool.name === "bash") {
-		const parts: string[] = [];
-		if (typeof details.exit_code === "number") parts.push(`退出 ${details.exit_code}`);
-		if (typeof details.duration_ms === "number") parts.push(`${(details.duration_ms / 1000).toFixed(1)}s`);
-		return parts.join(" · ");
-	}
-	return "";
-}
 
 function errorSummary(tool: Activity): string {
 	const details = tool.output?.details;

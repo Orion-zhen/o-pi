@@ -1,10 +1,32 @@
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { promisify } from "node:util";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { GuiHost } from "../../src/gui/host/host.ts";
 
 export function workbenchTests(context: () => { host: GuiHost; cwd: string }) {
 	describe("GUI 工作台读取边界", () => {
+		it("Git 状态与并发文件预览共享扫描，后续刷新仍读取外部变更", async () => {
+			const { host, cwd } = context();
+			await promisify(childProcess.execFile)("git", ["init", "-b", "main"], { cwd });
+			await writeFile(path.join(cwd, "other.txt"), "other\n");
+			const run = vi.spyOn(childProcess, "execFile");
+			syncBuiltinESMExports();
+			try {
+				await Promise.all([
+					host.query({ query: "workspaceGit", cwd }),
+					host.query({ query: "previewFile", cwd, path: "input.txt" }),
+					host.query({ query: "previewFile", cwd, path: "other.txt" }),
+				]);
+				const scans = () => run.mock.calls.filter(([command, args]) => command === "git" && Array.isArray(args) && args.includes("status"));
+				expect(scans()).toHaveLength(1);
+				await writeFile(path.join(cwd, "external.txt"), "external change\n");
+				expect((await host.query({ query: "workspaceGit", cwd }))?.changes).toContainEqual({ path: "external.txt", status: "?" });
+				expect(scans()).toHaveLength(2);
+			} finally { run.mockRestore(); syncBuiltinESMExports(); }
+		});
 		it("模型运行期间可并发浏览目录和预览不同文件", async () => {
 			const { host, cwd } = context();
 			await writeFile(path.join(cwd, "other.txt"), "other\n");

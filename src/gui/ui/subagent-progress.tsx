@@ -5,7 +5,8 @@ import Markdown from "react-markdown";
 import { Bot, Check, ChevronRight, CircleDashed, CircleStop, LoaderCircle, X } from "lucide-react";
 import type { SubagentDetails, SubagentRunResult, SubagentTask } from "../../harness/subagent/types.ts";
 import { CodeBlock } from "./code-block.tsx";
-import { MarkdownText, clean, record } from "./content.tsx";
+import { MarkdownText, clean } from "./content.tsx";
+import { subagentFacts, subagentTaskState as taskState } from "../tool-facts.ts";
 import { ParameterValue } from "./tool-parameters.tsx";
 import { toolTarget } from "./tool-target.ts";
 import type { ToolState } from "./transcript-items.ts";
@@ -14,26 +15,6 @@ type TaskState = ToolState | "skipped";
 const labels: Record<TaskState, string> = {
 	preparing: "生成参数", pending: "等待执行", running: "执行中", completed: "完成", failed: "失败", stopped: "已停止", unavailable: "无完整结果", skipped: "未执行",
 };
-
-export function isSubagentDetails(value: unknown): value is SubagentDetails {
-	return record(value) && (value.mode === "parallel" || value.mode === "chain")
-		&& Array.isArray(value.tasks) && value.tasks.length > 0 && Array.isArray(value.results) && Array.isArray(value.warnings);
-}
-function taskState(result: SubagentRunResult | undefined, parent: ToolState): TaskState {
-	if (result?.status === "completed") {
-		if (result.stopReason === "aborted" || result.error === "subagent aborted") return "stopped";
-		return result.error !== undefined || result.exitCode !== 0 ? "failed" : "completed";
-	}
-	if (parent === "stopped") return "stopped";
-	if (parent === "running" || parent === "pending" || parent === "preparing") return result ? "running" : "pending";
-	return result || parent === "unavailable" ? "unavailable" : "skipped";
-}
-export function subagentFacts(details: SubagentDetails): string {
-	const done = details.results.filter((result) => result.status === "completed").length;
-	const failed = details.results.filter((result) => taskState(result, "running") === "failed").length;
-	const stopped = details.results.filter((result) => taskState(result, "running") === "stopped").length;
-	return [`${done}/${details.tasks.length} 已结束`, failed > 0 ? `${failed} 失败` : "", stopped > 0 ? `${stopped} 已停止` : ""].filter(Boolean).join(" · ");
-}
 
 export function SubagentProgress({ details, state }: { details: SubagentDetails; state: ToolState }) {
 	const done = details.results.filter((result) => result.status === "completed").length;

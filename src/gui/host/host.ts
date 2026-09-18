@@ -15,14 +15,18 @@ import { completeCommand, runBuiltin } from "./commands.ts";
 import { openView } from "./views.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
 import { persistModelScope, setModelScope } from "./models.ts";
-import { GuiSessionCatalog, renameSavedSession } from "./sessions.ts";
+import { GuiSessionCatalog } from "./sessions.ts";
 import { GuiSessionInfo } from "./session-info.ts";
 import { prepareSessionDeletion } from "./delete-session.ts";
 import { listDirectories } from "./directories.ts";
 import type { ReadSessionInfo } from "./extensions.ts";
 import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace-files.ts";
 import { readWorkspaceGit } from "./workspace-git.ts";
+import type { WorkspaceGit } from "../workbench.ts";
 import { readGuiConfig, saveGuiConfig } from "./preferences.ts";
+import { GuiPayloads } from "./payloads.ts";
+import { GuiChannel } from "./channel.ts";
+import type { GuiDelivery } from "../sync.ts";
 
 const validateAction = compileSchemaValidator(actionSchema);
 const validateQuery = compileSchemaValidator(querySchema);
@@ -44,7 +48,9 @@ export class GuiHost {
 	private commandController = new AbortController();
 	private workbenchController = new AbortController();
 	private workbenchCwd = "";
+	private pendingGit: Promise<WorkspaceGit | null> | undefined;
 	private messageTiming = new MessageTiming();
+	private payloads = new GuiPayloads();
 	private liveTools = new Map<string, GuiSnapshot["liveTools"][number]>();
 	private disposed = false;
 	private tasks = new Set<Promise<unknown>>();
@@ -80,6 +86,15 @@ export class GuiHost {
 		if (this.sessions.workspaces) listener({ type: "workspaces", value: this.sessions.workspaces });
 		this.scheduleInfo();
 		return () => this.listeners.delete(listener);
+	}
+
+	connect(send: (delivery: GuiDelivery) => void) {
+		const channel = new GuiChannel(() => this.payloads, send);
+		const unsubscribe = this.subscribe((event) => channel.accept(event));
+		return {
+			acknowledge: (id: number) => channel.acknowledge(id),
+			close: () => { unsubscribe(); channel.close(); },
+		};
 	}
 
 	private track<T>(task: Promise<T>): Promise<T> {
@@ -125,6 +140,7 @@ export class GuiHost {
 		const session = runtime.session;
 		if (this.workbenchCwd !== runtime.cwd) {
 			this.workbenchController.abort();
+			this.pendingGit = undefined;
 			this.workbenchController = new AbortController();
 			this.workbenchCwd = runtime.cwd;
 		}
@@ -143,8 +159,13 @@ export class GuiHost {
 		}
 		this.unsubscribe?.();
 		this.messageTiming = new MessageTiming();
+		this.payloads = new GuiPayloads();
 		this.unsubscribe = session.subscribe((event) => {
 			this.messageTiming.accept(event);
+			if (event.type === "message_update") {
+				this.emit({ type: "stream", sessionId: session.sessionId, value: event.message });
+				return;
+			}
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update")
 				this.liveTools.set(event.toolCallId, event);
 			if (event.type === "tool_execution_end") this.liveTools.delete(event.toolCallId);
@@ -200,7 +221,7 @@ export class GuiHost {
 			this.timer = setTimeout(() => {
 				this.timer = undefined;
 				this.publish();
-			}, 50);
+			}, 0);
 	}
 
 	private scheduleInfo(): void {
@@ -228,7 +249,18 @@ export class GuiHost {
 		return this.track(this.readQuery(value as GuiQuery));
 	}
 
+	private readGit(cwd: string, signal: AbortSignal): Promise<WorkspaceGit | null> {
+		if (this.pendingGit) return this.pendingGit;
+		const pending = readWorkspaceGit(cwd, signal).finally(() => {
+			if (this.pendingGit === pending) this.pendingGit = undefined;
+		});
+		this.pendingGit = pending;
+		return pending;
+	}
+
 	private async readQuery(query: GuiQuery): Promise<QueryResult> {
+		if (query.query === "image") return this.payloads.image(query.id);
+		if (query.query === "toolOutput") return this.payloads.toolOutput(query.id);
 		if (query.query === "moduleConfig") return readModuleConfig(query.id);
 		if (query.query === "guiConfig") return readGuiConfig();
 		if (query.query === "directories")
@@ -247,8 +279,8 @@ export class GuiHost {
 		let result: QueryResult;
 		switch (query.query) {
 			case "workspaceFiles": result = await listWorkspaceFiles(query.cwd, query.path); break;
-			case "workspaceGit": result = await readWorkspaceGit(query.cwd, signal); break;
-			case "previewFile": result = await previewWorkspaceFile(query.cwd, query.path, signal); break;
+			case "workspaceGit": result = await this.readGit(query.cwd, signal); break;
+			case "previewFile": result = await previewWorkspaceFile(query.cwd, query.path, signal, () => this.readGit(query.cwd, signal)); break;
 		}
 		signal.throwIfAborted();
 		return result;
@@ -387,7 +419,7 @@ export class GuiHost {
 		if (!this.sessions.workspaces?.some((workspace) => workspace.path === cwd)) throw new Error("工作区已不在列表中。");
 		try {
 			const files = (this.sessions.value ?? []).filter((session) => session.cwd === cwd).map((session) => session.path);
-			const plan = await prepareSessionDeletion(files, null);
+			const plan = await prepareSessionDeletion(files, null, () => this.sessions.paths());
 			await plan.verify();
 			await plan.remove();
 		} finally { await this.sessions.refresh(); }
@@ -396,7 +428,7 @@ export class GuiHost {
 	private async deleteSession(file: string): Promise<void> {
 		if (this.dialogs.list().length) throw new Error("请先完成或取消当前对话框。");
 		try {
-			const plan = await prepareSessionDeletion([file], this.current?.session.sessionFile ?? null);
+			const plan = await prepareSessionDeletion([file], this.current?.session.sessionFile ?? null, () => this.sessions.paths());
 			if (this.disposed) return;
 			await plan.verify();
 			if (plan.affectsCurrent && this.current) {
@@ -440,7 +472,7 @@ export class GuiHost {
 			case "label": session.sessionManager.appendLabelChange(action.entryId, action.label); break;
 			case "renameSession":
 				if (action.path === session.sessionFile) session.setSessionName(action.name);
-				else await renameSavedSession(action.path, action.name);
+				else await this.sessions.rename(action.path, action.name);
 				await this.sessions.refresh();
 				break;
 			case "rename": session.setSessionName(action.name); this.refreshSessions(); break;

@@ -1,11 +1,8 @@
 import { lstat, unlink } from "node:fs/promises";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { inspectHistoryFile } from "./history-file.ts";
 
-const historyPaths = async () => new Set((await SessionManager.listAll()).map((session) => session.path));
-
 // 整批验证后再删除，未持久化的当前会话只需切换到新会话。
-export async function prepareSessionDeletion(files: string[], currentFile: string | null) {
+export async function prepareSessionDeletion(files: string[], currentFile: string | null, historyPaths: () => Promise<Set<string>>) {
 	const indexed = await historyPaths();
 	const targets: { file: string; stamp: Awaited<ReturnType<typeof inspectHistoryFile>> }[] = [];
 	for (const file of files) {

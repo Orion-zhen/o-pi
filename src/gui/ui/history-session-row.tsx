@@ -10,13 +10,13 @@ import { SessionNameInput } from "./session-name-input.tsx";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" });
 
-export function HistorySessionRow({ path, title, modified, selected, disabled, send, open }: {
-	path: string | null; title: string; modified?: string; selected: boolean; disabled: boolean;
-	send: Send; open: () => void;
+export function HistorySessionRow({ path, title, modified, selected, disabled, send, open, animated = true }: {
+	path: string | null; title: string; modified?: string | undefined; selected: boolean; disabled: boolean;
+	send: Send; open: () => void; animated?: boolean;
 }) {
 	const [editing, setEditing] = useState(false);
 	const [pending, setPending] = useState(false);
-	return <Fade layout="position" transition={{ ...fade.transition, layout: settle }} className="history-session-row overlay-list-row" data-current={selected} data-editing={editing}>
+	const content = <>
 		{editing ? <SessionNameInput name={title} finish={(name) => {
 			setEditing(false);
 			if (name === title || !path) return;
@@ -34,5 +34,7 @@ export function HistorySessionRow({ path, title, modified, selected, disabled, s
 			<ConfirmAction label={`删除会话 ${title}`} hint="永久删除会话，再次点击确认。Ctrl+点击直接删除"
 				disabled={disabled || pending || editing} allowCtrl confirm={() => send({ action: "deleteSession", path })} />
 		</div>}
-	</Fade>;
+	</>;
+	const props = { className: "history-session-row overlay-list-row", "data-current": selected, "data-editing": editing };
+	return animated ? <Fade layout="position" transition={{ ...fade.transition, layout: settle }} {...props}>{content}</Fade> : <div {...props}>{content}</div>;
 }

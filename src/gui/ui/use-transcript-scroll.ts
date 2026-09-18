@@ -1,17 +1,24 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type WheelEvent } from "react";
 
 export function useTranscriptScroll(sessionId: string | undefined) {
 	const scroll = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
 	const mode = useRef<"follow" | "paused" | "returning">("follow");
 	const locationVersion = useRef(0);
+	const lastScrollTop = useRef(0);
 	const [showLatest, setShowLatest] = useState(false);
+	const pinToBottom = () => {
+		const viewport = scroll.current;
+		if (!viewport) return;
+		viewport.scrollTop = viewport.scrollHeight;
+		lastScrollTop.current = viewport.scrollTop;
+	};
 	const cancelLocation = () => { locationVersion.current++; };
 	const followLatest = () => {
 		cancelLocation();
 		mode.current = "follow";
 		setShowLatest(false);
-		if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+		pinToBottom();
 	};
 	const toLatest = () => {
 		const viewport = scroll.current;
@@ -32,7 +39,7 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 	};
 	useLayoutEffect(() => {
 		mode.current = "follow";
-		if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+		pinToBottom();
 		return cancelLocation;
 	}, [sessionId]);
 	useLayoutEffect(() => {
@@ -42,7 +49,7 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 		const observer = new ResizeObserver(() => {
 			// 手动返回最新时，布局变化不能把平滑滚动改成瞬间置底。
 			if (mode.current === "returning") return;
-			if (mode.current === "follow") viewport.scrollTop = viewport.scrollHeight;
+			if (mode.current === "follow") pinToBottom();
 			setShowLatest(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 60);
 		});
 		const finishReturn = () => {
@@ -61,7 +68,13 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 	}, []);
 	return {
 		scroll, content, showLatest, toLatest, followLatest,
-		onWheel: interrupt,
+		onWheel: (event: WheelEvent<HTMLDivElement>) => {
+			interrupt();
+			if (event.deltaY < 0) {
+				mode.current = "paused";
+				if (scroll.current) lastScrollTop.current = scroll.current.scrollTop;
+			}
+		},
 		onTouchStart: interrupt,
 		onPointerDown: interrupt,
 		onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
@@ -101,6 +114,9 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 		onScroll: () => {
 			const viewport = scroll.current;
 			if (!viewport || mode.current === "returning") return;
+			const delta = viewport.scrollTop - lastScrollTop.current;
+			lastScrollTop.current = viewport.scrollTop;
+			if (delta === 0 || (mode.current === "follow" && delta > 0)) return;
 			const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 60;
 			mode.current = atBottom ? "follow" : "paused";
 			setShowLatest(!atBottom);

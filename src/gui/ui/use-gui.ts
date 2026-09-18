@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GuiConnection, GuiDialog, GuiEvent, GuiNotice, GuiPanel, GuiSessionInfo, GuiSessionTab, GuiSnapshot, GuiSessionDetails, GuiWorkspaceInfo, Query } from "../contract.ts";
 import { useWorkbench } from "./use-workbench.ts";
 import { useWindowRefresh } from "./use-window-refresh.ts";
@@ -150,26 +150,36 @@ export function useGui() {
 	}, [snapshot?.sessionId]);
 	const running = snapshot?.running ?? false;
 	const workbench = useWorkbench(snapshot?.cwd, connected, running, query);
+	const openFile = useCallback((path: string) => { workbench.openFile(path); selectTab("file"); setSessionPanelOpen(true); }, [workbench.openFile, selectTab]);
+	const referenceFile = useCallback((path: string) => {
+		if (/[\r\n]/.test(path) || (path.includes('"') && path.includes("'"))) {
+			setError("此文件名不能表示为 @ 引用。");
+			return;
+		}
+		const quoted = /[\s'"]/.test(path) ? (path.includes('"') ? `'${path}'` : `"${path}"`) : path;
+		setDraft((draft) => `${draft}${draft && !/\s$/.test(draft) ? " " : ""}@${quoted} `);
+		editor.current?.focus();
+	}, []);
+	const canSubmit = connected && snapshot?.canSubmit === true;
+	const canChangeSession = connected && snapshot?.canChangeSession === true;
+	const navigationSnapshot = useMemo(() => snapshot ? {
+		cwd: snapshot.cwd, sessionId: snapshot.sessionId, sessionFile: snapshot.sessionFile, name: snapshot.name,
+	} : null, [snapshot?.cwd, snapshot?.sessionId, snapshot?.sessionFile, snapshot?.name]);
+	const sidebar = useMemo(() => ({
+		snapshot: navigationSnapshot, sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession,
+		workbench, layout, openFile, referenceFile, send, query, setPanel, workspaceRoot, workspaces, error, setError,
+	}), [navigationSnapshot, sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession,
+		workbench, layout, openFile, referenceFile, send, query, workspaceRoot, workspaces, error]);
 	return {
-		workbench, guiConfig, refreshGuiConfig, layout,
-		openFile: (path: string) => { workbench.openFile(path); selectTab("file"); setSessionPanelOpen(true); },
-		referenceFile: (path: string) => {
-			if (/[\r\n]/.test(path) || (path.includes('"') && path.includes("'"))) {
-				setError("此文件名不能表示为 @ 引用。");
-				return;
-			}
-			const quoted = /[\s'"]/.test(path) ? (path.includes('"') ? `'${path}'` : `"${path}"`) : path;
-			setDraft((draft) => `${draft}${draft && !/\s$/.test(draft) ? " " : ""}@${quoted} `);
-			editor.current?.focus();
-		},
+		workbench, guiConfig, refreshGuiConfig, layout, openFile, referenceFile, sidebar,
 		snapshot, sessions, sessionsLoading, refreshSessions, dialogs, notices,
 		status, connected, error, setError, panel, setPanel,
 		sessionTab, activeTab, selectTab, sessionPanelOpen, setSessionPanelOpen,
 		sessionDetails: sessionDetails?.sessionId === snapshot?.sessionId ? sessionDetails : undefined,
 		workspaceRoot, workspaces, auth, authUrl, deviceCode, draft, setDraft, editor, send, query, running,
-		canSubmit: connected && snapshot?.canSubmit === true,
-		canChangeSession: connected && snapshot?.canChangeSession === true,
+		canSubmit, canChangeSession,
 		reconnect: () => setRevision((value) => value + 1),
 	};
 }
 export type GuiView = ReturnType<typeof useGui>;
+export type SidebarView = GuiView["sidebar"];

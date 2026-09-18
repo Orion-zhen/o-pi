@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { fade } from "./lib/motion";
 import { Disclosure } from "./components/disclosure";
-import { Content, MarkdownText, Message } from "./content.tsx";
+import { StreamingText, Message } from "./content.tsx";
 import { MessageIdentity, ReplyMetrics } from "./message-meta.tsx";
 import { ToolActivity } from "./tool-activity.tsx";
 import type { TranscriptItem, TranscriptSource } from "./transcript-items.ts";
@@ -15,7 +15,7 @@ export function Transcript({ source, entryIds = [] }: { source: TranscriptSource
 		: <Reply key={row.key} reply={row} entryIds={entryIds} />)}</AnimatePresence>;
 }
 
-function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string | undefined)[] }) {
+const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string | undefined)[] }) {
 	const [open, setOpen] = useState(reply.tracking);
 	const folded = useRef(!reply.tracking);
 	useEffect(() => {
@@ -51,23 +51,45 @@ function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string 
 		</div>}
 		{!running && reply.identity && <ReplyMetrics metrics={reply.metrics} />}
 	</motion.section>;
-}
+}, (before, after) => before.reply.state === after.reply.state && before.reply.tracking === after.reply.tracking
+	&& before.reply.retrying === after.reply.retrying && before.reply.error === after.reply.error
+	&& JSON.stringify(before.reply.identity) === JSON.stringify(after.reply.identity)
+	&& JSON.stringify(before.reply.metrics) === JSON.stringify(after.reply.metrics)
+	&& sameItems(before.reply.process, after.reply.process) && sameItems(before.reply.answer, after.reply.answer)
+	&& before.reply.messageIndices.length === after.reply.messageIndices.length
+	&& before.reply.messageIndices.every((index, i) => index === after.reply.messageIndices[i] && before.entryIds[index] === after.entryIds[index]));
 
 function Items({ items, entryIds }: { items: TranscriptItem[]; entryIds: (string | undefined)[] }) {
 	return <>{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</>;
 }
 
-function Item({ item, entryId }: { item: TranscriptItem; entryId: string | undefined }) {
+const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entryId: string | undefined }) {
 		switch (item.kind) {
 			case "message": return <Message value={item.message} entryId={entryId} />;
-			case "text": return <article data-entry-id={entryId} className="message assistant"><MarkdownText text={item.text} /></article>;
-			case "thinking": return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" summary={<>
+			case "text": return <article data-entry-id={entryId} className="message assistant"><StreamingText text={item.text} active={item.active} /></article>;
+			case "thinking": return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy summary={<>
 					{item.active && <LoaderCircle className="animate-spin" aria-hidden="true" />}
 					{item.active ? "思考中" : "思考"}
 				</>}>
-				<div className="thinking-content message"><Content value={item.text} /></div>
+				<div className="thinking-content message"><StreamingText text={item.text} active={item.active} /></div>
 			</Disclosure>;
 			case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} /></div>;
 			case "error": return <pre data-entry-id={entryId} className="message error">{item.text}</pre>;
 		}
+}, (before, after) => before.entryId === after.entryId && sameItem(before.item, after.item));
+
+function sameItems(before: TranscriptItem[], after: TranscriptItem[]): boolean {
+	return before.length === after.length && before.every((item, index) => sameItem(item, after[index]));
+}
+
+function sameItem(before: TranscriptItem, after: TranscriptItem | undefined): boolean {
+	if (!after || before.key !== after.key || before.kind !== after.kind) return false;
+	switch (before.kind) {
+		case "message": return after.kind === "message" && before.message === after.message;
+		case "tool": return after.kind === "tool" && before.tool.id === after.tool.id && before.tool.name === after.tool.name
+			&& before.tool.state === after.tool.state && before.tool.args === after.tool.args && before.tool.output === after.tool.output;
+		case "text": return after.kind === "text" && before.text === after.text && before.active === after.active;
+		case "thinking": return after.kind === "thinking" && before.text === after.text && before.active === after.active;
+		case "error": return after.kind === "error" && before.text === after.text;
+	}
 }

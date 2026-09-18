@@ -45,7 +45,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		thinkingLevels: session.getAvailableThinkingLevels(),
 		context: session.getContextUsage() ?? null,
 		stats: session.getSessionStats(),
-		queue: { steering: session.getSteeringMessages(), followUp: session.getFollowUpMessages() },
+		// SDK 原地追加队列，快照必须持有独立数组供增量比较。
+		queue: { steering: [...session.getSteeringMessages()], followUp: [...session.getFollowUpMessages()] },
 		settings: {
 			compaction: session.autoCompactionEnabled,
 			retry: session.autoRetryEnabled,

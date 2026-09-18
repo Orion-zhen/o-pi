@@ -2,13 +2,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { listWorkspaces } from "./workspaces.ts";
 import type { GuiSessionInfo, GuiWorkspaceInfo } from "../contract.ts";
 import { inspectHistoryFile } from "./history-file.ts";
-
-export async function renameSavedSession(path: string, name: string): Promise<void> {
-	const item = (await SessionManager.listAll()).find((item) => item.path === path);
-	if (!item) throw new Error("历史记录已不存在，请刷新列表。");
-	await inspectHistoryFile(item.path);
-	SessionManager.open(item.path).appendSessionInfo(name);
-}
+import { GuiSessionIndex } from "./session-index.ts";
 
 /** 会话索引独立于流式快照，合并并发读取并保留读取期间发生的刷新请求。 */
 export class GuiSessionCatalog {
@@ -17,6 +11,7 @@ export class GuiSessionCatalog {
 	private pending: Promise<void> | undefined;
 	private dirty = false;
 	private closed = false;
+	private index = new GuiSessionIndex();
 
 	constructor(
 		private publish: (sessions: GuiSessionInfo[], workspaces: GuiWorkspaceInfo[]) => void,
@@ -32,20 +27,27 @@ export class GuiSessionCatalog {
 		return this.pending;
 	}
 
+	async paths(): Promise<Set<string>> {
+		await this.refresh();
+		return new Set(this.value?.map((session) => session.path));
+	}
+
+	async rename(path: string, name: string): Promise<void> {
+		if (!(await this.paths()).has(path)) throw new Error("历史记录已不存在，请刷新列表。");
+		await inspectHistoryFile(path);
+		SessionManager.open(path).appendSessionInfo(name);
+	}
+
 	private async load(): Promise<void> {
 		while (this.dirty && !this.closed) {
 			this.dirty = false;
-			// 不传目录才能遍历共享 sessions 下的各工作区。
-			const sessions = await SessionManager.listAll();
+			const sessions = await this.index.list();
 			const workspaces = await listWorkspaces(sessions.map((session) => session.cwd), this.protectedPaths());
 			if (this.closed) return;
+			if (this.value?.length === sessions.length && sessions.every((session, index) => session === this.value?.[index])
+				&& this.workspaces?.length === workspaces.length && workspaces.every((workspace, index) => workspace.path === this.workspaces?.[index]?.path && workspace.exists === this.workspaces?.[index]?.exists)) continue;
 			this.workspaces = workspaces;
-			this.value = sessions.map(({ path, cwd, name, firstMessage, modified }) => ({
-				path,
-				cwd,
-				title: name || firstMessage.replace(/\s+/g, " ").slice(0, 160),
-				modified: modified.toISOString(),
-			}));
+			this.value = sessions;
 			this.publish(this.value, workspaces);
 		}
 	}

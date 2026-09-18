@@ -1,8 +1,8 @@
-import { useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useRef, useState, type CSSProperties } from "react";
 import { ChevronRight, FileDiff, FoldVertical, GitBranch, Plus, RefreshCw, Search } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "./components/animated";
-import type { GuiView } from "./use-gui.ts";
+import type { SidebarView } from "./use-gui.ts";
 import { SessionHistory } from "./session-history.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
 import { WorkspaceChanges, WorkspaceTree } from "./workspace-tree.tsx";
@@ -12,7 +12,7 @@ import { Input } from "./components/ui/input";
 import { ResizeHandle } from "./components/resize-handle";
 import "./workbench.css";
 
-export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => void }) {
+export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: { gui: SidebarView; close: () => void }) {
 	const [search, setSearch] = useState("");
 	const [filesOpen, setFilesOpen] = useState(true);
 	const ratio = gui.layout.values.files ?? 55;
@@ -21,7 +21,8 @@ export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => vo
 	const { workbench } = gui;
 	const { onlyChanges, setOnlyChanges } = workbench;
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
-	const referenceFile = (path: string) => { close(); gui.referenceFile(path); };
+	const referenceFile = useCallback((path: string) => { close(); gui.referenceFile(path); }, [close, gui.referenceFile]);
+	const openFile = useCallback((path: string) => { gui.openFile(path); close(); }, [close, gui.openFile]);
 	const blocked = !gui.canChangeSession;
 	const proportions: CSSProperties & { "--session-share": string; "--file-share": string } = { "--session-share": `${ratio}fr`, "--file-share": `${100 - ratio}fr` };
 	return <div className="sidebar-workbench">
@@ -66,15 +67,15 @@ export function SidebarWorkbench({ gui, close }: { gui: GuiView; close: () => vo
 				</div>
 				<div className="workspace-files-content" inert={!filesOpen} aria-hidden={!filesOpen}>
 					{workbench.git.state === "error" && <p className="file-hint" role="alert">Git: {workbench.git.message}</p>}
-					<div className="workspace-files-scroll">
+					<div className="workspace-files-scroll" data-list-scroll>
 						<AnimatePresence initial={false} mode="wait"><Fade key={onlyChanges ? "changes" : "tree"}>
 						{!gui.snapshot ? <p className="file-hint">请先选择工作区</p> : onlyChanges && git
-							? <WorkspaceChanges git={git} selected={workbench.preview?.path} referenceFile={referenceFile} openFile={(path) => { gui.openFile(path); close(); }} />
-							: <WorkspaceTree workbench={workbench} referenceFile={referenceFile} openFile={(path) => { gui.openFile(path); close(); }} />}
+							? <WorkspaceChanges git={git} selected={workbench.preview?.path} referenceFile={referenceFile} openFile={openFile} />
+							: <WorkspaceTree workbench={workbench} referenceFile={referenceFile} openFile={openFile} />}
 						</Fade></AnimatePresence>
 					</div>
 				</div>
 			</section>
 		</div>
 	</div>;
-}
+});

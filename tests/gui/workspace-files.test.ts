@@ -5,7 +5,8 @@ import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 import { listWorkspaceFiles, previewWorkspaceFile } from "../../src/gui/host/workspace-files.ts";
 import { readWorkspaceGit } from "../../src/gui/host/workspace-git.ts";
-import { fileGitState } from "../../src/gui/workbench.ts";
+import { fileGitState, indexWorkspaceGit } from "../../src/gui/workbench.ts";
+import { workspaceTreeRows } from "../../src/gui/ui/workspace-tree-rows.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-workspace-files-");
@@ -63,8 +64,8 @@ describe("工作台文件与 Git 只读流程", () => {
 			{ path: "docs/deleted.md", status: "D" },
 			{ path: "renamed name.txt", originalPath: "old name.txt", status: "R" },
 		]));
-		expect(fileGitState("node_modules/pkg/index.js", status).ignored).toBe(true);
-		expect(fileGitState("src", status).descendants).toBe(1);
+		expect(fileGitState("node_modules/pkg/index.js", indexWorkspaceGit(status)).ignored).toBe(true);
+		expect(fileGitState("src", indexWorkspaceGit(status)).descendants).toBe(1);
 		expect((await listWorkspaceFiles(cwd, "")).map((entry) => entry.name)).toContain("node_modules");
 		expect((await listWorkspaceFiles(cwd, "node_modules/pkg")).map((entry) => entry.name)).toEqual(["index.js"]);
 		expect(await previewWorkspaceFile(cwd, "node_modules/pkg/index.js", signal)).toMatchObject({ content: { kind: "text", text: "ignored dependency\n" }, diffs: [] });
@@ -75,6 +76,27 @@ describe("工作台文件与 Git 只读流程", () => {
 		expect(renamed.diffs[0]?.text).toContain("rename from old name.txt");
 		const untracked = await previewWorkspaceFile(cwd, "new 中文.txt", signal);
 		expect(untracked.diffs[0]?.text).toContain("+new file");
+	});
+
+	it("文件树索引保留删除目录、祖先计数和忽略状态，只展开可见分支", async () => {
+		await repository();
+		await rm(path.join(cwd, "docs"), { recursive: true });
+		await put("src/new/deep.ts", "new\n");
+		await put("src/修改.ts", "changed\n");
+		await put("node_modules/pkg/index.js", "ignored\n");
+		const index = indexWorkspaceGit(await readWorkspaceGit(cwd, signal));
+		const directories = {
+			"": { state: "ready" as const, value: await listWorkspaceFiles(cwd, "") },
+			src: { state: "ready" as const, value: await listWorkspaceFiles(cwd, "src") },
+			"src/new": { state: "ready" as const, value: await listWorkspaceFiles(cwd, "src/new") },
+		};
+		const rows = workspaceTreeRows(directories, new Set(["docs", "src", "src/new"]), index);
+		expect(rows.find((row) => row.key === "docs/deleted.md")).toMatchObject({ kind: "entry", depth: 1, entry: { virtual: true }, state: { change: { status: "D" } } });
+		expect(rows.find((row) => row.key === "src")).toMatchObject({ state: { descendants: 2 } });
+		expect(rows.find((row) => row.key === "src/new/deep.ts")).toMatchObject({ depth: 2, state: { change: { status: "?" } } });
+		expect(fileGitState("node_modules/pkg/index.js", index).ignored).toBe(true);
+		expect(fileGitState("node_modules-other/index.js", index).ignored).toBe(false);
+		expect(workspaceTreeRows(directories, new Set(["src/new"]), index).some((row) => row.key.startsWith("src/"))).toBe(false);
 	});
 
 	it("暂存和未暂存差异分别保留，预览不会修改索引", async () => {

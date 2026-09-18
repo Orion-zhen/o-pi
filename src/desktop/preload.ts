@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge, GuiEvent } from "../gui/contract.ts";
+import type { DesktopBridge } from "../gui/contract.ts";
+import type { GuiDelivery } from "../gui/sync.ts";
 
 const bridge: DesktopBridge = {
 	send: (action) => ipcRenderer.invoke("gui:action", action),
 	query: (query) => ipcRenderer.invoke("gui:query", query),
+	acknowledge: (id) => ipcRenderer.send("gui:ack", id),
 	subscribe(listener) {
-		const handle = (_event: Electron.IpcRendererEvent, value: GuiEvent) => listener(value);
+		const handle = (_event: Electron.IpcRendererEvent, value: GuiDelivery) => listener(value);
 		ipcRenderer.on("gui:event", handle);
 		ipcRenderer.send("gui:subscribe");
 		return () => ipcRenderer.removeListener("gui:event", handle);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { ArrowRight, Check, GitBranch, ListCollapse, Tag, X } from "lucide-react";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
@@ -38,7 +38,7 @@ function graphRows(roots: SessionTreeNode[]): GraphRow[] {
 	return rows;
 }
 
-export function SessionTree({ value, send, locate }: { value: SessionTreeNode[]; send: Send; locate: (id: string) => void }) {
+export const SessionTree = memo(function SessionTree({ value, send, locate }: { value: SessionTreeNode[]; send: Send; locate: (id: string) => void }) {
 	const rows = graphRows(value);
 	if (!rows.length) return <p className="tree-empty">暂无可展示的消息。</p>;
 	const width = (rows.reduce((max, row) => Math.max(max, row.lane), 0) + 1) * 14 + 4;
@@ -47,7 +47,7 @@ export function SessionTree({ value, send, locate }: { value: SessionTreeNode[];
 			{rows.map((row) => <TreeMessage key={row.node.entry.id} row={row} graphWidth={width} send={send} locate={locate} />)}
 		</div>
 	);
-}
+});
 
 function Graph({ row, width }: { row: GraphRow; width: number }) {
 	const x = row.lane * 14 + 9;

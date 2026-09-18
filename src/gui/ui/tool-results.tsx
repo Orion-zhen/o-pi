@@ -6,8 +6,9 @@ import { CodeBlock } from "./code-block.tsx";
 import { fileLanguage } from "./code-highlight.ts";
 import { Content, clean, record } from "./content.tsx";
 import type { ToolActivity } from "./transcript-items.ts";
-import { isWebFetchSuccess, isWebSearchSuccess, WebFetchResult, WebSearchResult, webToolFacts } from "./web-results.tsx";
-import { isSubagentDetails, SubagentProgress } from "./subagent-progress.tsx";
+import { WebFetchResult, WebSearchResult } from "./web-results.tsx";
+import { SubagentProgress } from "./subagent-progress.tsx";
+import { isWebFetchSuccess, isWebSearchSuccess, webToolFacts, isSubagentDetails } from "../tool-facts.ts";
 
 function text(value: unknown): string {
 	return typeof value === "string" ? value : "";

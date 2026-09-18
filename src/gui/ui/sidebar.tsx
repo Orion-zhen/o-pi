@@ -1,5 +1,6 @@
+import { memo } from "react";
 import { Gauge, KeyRound, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Settings, Cpu } from "lucide-react";
-import type { GuiView } from "./use-gui.ts";
+import type { SidebarView } from "./use-gui.ts";
 import type { GuiAction } from "../contract.ts";
 import { SidebarWorkbench } from "./sidebar-workbench.tsx";
 import { IconButton } from "./components/icon-button";
@@ -8,7 +9,7 @@ import { WorkspacePicker } from "./workspace-picker.tsx";
 import { SheetClose, SheetContent, SheetTitle } from "./components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
 
-export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; collapsed: boolean; toggle: () => void; close: () => void }) {
+export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: { gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void }) {
 	const act = (action: GuiAction) => { close(); void gui.send(action); };
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
 	const content = (compact: boolean, mobile: boolean) => <>
@@ -45,4 +46,4 @@ export function Sidebar({ gui, collapsed, toggle, close }: { gui: GuiView; colla
 			<SheetTitle className="sr-only">工作空间导航</SheetTitle>{content(false, true)}
 		</SheetContent>
 	</>;
-}
+});

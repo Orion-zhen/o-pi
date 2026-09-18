@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 export type LayoutDimension = "left" | "right" | "conversation" | "files";
 type LayoutValues = Partial<Record<LayoutDimension, number>>;
@@ -22,18 +22,20 @@ export function useLayout(reportError: (message: string) => void) {
 			setValues(values);
 		} catch (error) { reportError(`无法恢复本机布局：${String(error)}`); }
 	}, [reportError]);
-	const set = (dimension: LayoutDimension, value: number | undefined, persist: boolean) => {
+	const set = useCallback((dimension: LayoutDimension, value: number | undefined, persist: boolean) => {
 		setValues((current) => ({ ...current, [dimension]: value }));
 		if (!persist) return;
 		try {
 			if (value === undefined) localStorage.removeItem(storageKey(dimension));
 			else localStorage.setItem(storageKey(dimension), String(value));
 		} catch (error) { reportError(`无法保存本机布局：${String(error)}`); }
-	};
-	const style: CSSProperties & Record<`--${string}`, string | undefined> = {
-		"--sidebar-width": values.left === undefined ? undefined : `${values.left}px`,
-		"--info-width": values.right === undefined ? undefined : `${values.right}px`,
-		"--conversation-width": values.conversation === undefined ? undefined : `${values.conversation}px`,
-	};
-	return { values, set, style };
+	}, [reportError]);
+	return useMemo(() => {
+		const style: CSSProperties & Record<`--${string}`, string | undefined> = {
+			"--sidebar-width": values.left === undefined ? undefined : `${values.left}px`,
+			"--info-width": values.right === undefined ? undefined : `${values.right}px`,
+			"--conversation-width": values.conversation === undefined ? undefined : `${values.conversation}px`,
+		};
+		return { values, set, style };
+	}, [values, set]);
 }
