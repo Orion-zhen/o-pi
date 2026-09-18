@@ -71,7 +71,8 @@ pre:has(> code) { white-space: pre; overflow-wrap: normal; overflow-x: auto; pad
 .reply-process > .disclosure-trigger svg { flex-shrink: 0; width: 0.875rem; height: 0.875rem; }
 .reply-counts { font-size: var(--text-caption); }
 .reply-process-content { min-width: 0; margin: var(--space-1) 0 var(--space-2) 0.5em; padding-inline-start: var(--space-4); border-inline-start: 1px solid var(--divider); }
-.reply-process-content .message.assistant { font-size: var(--text-process); color: var(--muted-foreground); }
+.reply-turn-content { min-width: 0; }
+.reply-body { margin-block: var(--space-3) var(--space-6); }
 .reply-outcome { padding-block: 0.5rem; font-size: var(--text-small); color: var(--warning); }
 .reply-outcome pre { margin-top: 0.375rem; }
 .assistant-reply[data-state="failed"] > .reply-outcome { color: var(--destructive); }

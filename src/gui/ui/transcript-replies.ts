@@ -85,6 +85,9 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 			reply.lastAssistant = { message, index };
 			reply.assistants.push(message);
 			const streaming = message === source.streamingMessage;
+			const model = source.models.find((model) => model.provider === message.provider && model.id === message.model);
+			const identity = { model: model?.name ?? message.model, timestamp: message.timestamp };
+			const metrics = replyMetrics([message], source.messageDurations);
 			message.content.forEach((block, blockIndex) => {
 				const blockKey = `${key}:${blockIndex}`;
 				if (block.type === "toolCall") {
@@ -96,7 +99,7 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 						key: blockKey, messageIndex: index, kind: "thinking", text: block.thinking,
 						active: streaming && blockIndex === message.content.length - 1,
 					});
-				} else if (block.text) reply.items.push({ key: blockKey, messageIndex: index, blockIndex, kind: "text", text: block.text, active: streaming });
+				} else if (block.text) reply.items.push({ key: blockKey, messageIndex: index, blockIndex, kind: "text", text: block.text, active: streaming, identity, metrics });
 			});
 			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex: index, kind: "error", text: message.errorMessage });
 		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);
@@ -117,10 +120,9 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 	const last = draft.lastAssistant;
 	const message = last?.message;
 	const retrying = active && source.retrying;
-	const streamingMessage = message === source.streamingMessage;
-	const selection = message && !retrying ? answerBlocks(message) : { indices: new Set<number>(), explicit: false };
+	const selection = message && !retrying ? answerBlocks(message) : new Set<number>();
 	const answer = draft.items.filter((item): item is Extract<TranscriptItem, { kind: "text" }> =>
-		item.kind === "text" && item.messageIndex === last?.index && selection.indices.has(item.blockIndex));
+		item.kind === "text" && item.messageIndex === last?.index && selection.has(item.blockIndex));
 	const answerKeys = new Set(answer.map((item) => item.key));
 	const error = !active ? message?.errorMessage : undefined;
 	const process = draft.items.filter((item) => !answerKeys.has(item.key)
@@ -136,19 +138,18 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		: message?.stopReason === "error" ? "failed"
 		: message?.stopReason === "stop" && answer.length > 0 ? "completed"
 		: continued ? "continued" : "incomplete";
-	const final = answer.length > 0 && (selection.explicit || (message?.stopReason === "stop" && !streamingMessage));
 	const model = message && source.models.find((model) => model.provider === message.provider && model.id === message.model);
 	const identity = message ? { model: model?.name ?? message.model, timestamp: message.timestamp } : undefined;
 	const metrics = replyMetrics(draft.assistants, source.messageDurations);
-	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, tracking: active && !final, process, answer, error };
+	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, tracking: active, process, answer, error };
 }
 
-function answerBlocks(message: AssistantMessage): { indices: Set<number>; explicit: boolean } {
+function answerBlocks(message: AssistantMessage): Set<number> {
 	if (message.content.some((block) => block.type === "toolCall") || message.stopReason === "toolUse" || message.stopReason === "deferred")
-		return { indices: new Set(), explicit: false };
+		return new Set();
 	const phases = message.content.map((block) => block.type === "text" ? textPhase(block.textSignature) : undefined);
 	const explicit = phases.flatMap((phase, index) => phase === "final_answer" ? [index] : []);
-	if (explicit.length) return { indices: new Set(explicit), explicit: true };
+	if (explicit.length) return new Set(explicit);
 
 	// 没有阶段标记时，保留最后一条模型消息尾部的正文。后续出现工具或新消息时自动归回过程。
 	const indices = new Set<number>();
@@ -157,7 +158,7 @@ function answerBlocks(message: AssistantMessage): { indices: Set<number>; explic
 		if (block?.type !== "text" || phases[index] === "commentary") break;
 		indices.add(index);
 	}
-	return { indices, explicit: false };
+	return indices;
 }
 
 function textPhase(signature: string | undefined): "commentary" | "final_answer" | undefined {

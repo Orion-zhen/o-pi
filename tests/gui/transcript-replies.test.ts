@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { parseHTML } from "linkedom";
+import { Transcript } from "../../src/gui/ui/transcript.tsx";
 import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { transcriptReplies } from "../../src/gui/ui/transcript-replies.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
@@ -12,18 +16,28 @@ const thinking = { type: "thinking", thinking: "检查文件边界" } as const;
 const replies = (value: ReturnType<typeof source>) => transcriptReplies(value).filter((row) => row.kind === "reply");
 
 describe("整轮处理过程折叠", () => {
-	it("多轮思考、工具和中途正文归入同一组，只保留最后报告", () => {
+	it("完成后外层收起中途正文，内层仅折叠思考和工具，最终报告留在外面", () => {
 		const second = { ...call, id: "read-2" };
-		const rows = replies(source({ messages: [user,
+		const snapshot = source({ messages: [user,
 			assistant([text("先检查组件"), thinking, call]), result,
 			assistant([thinking, text("接下来检查样式"), second]), { ...result, toolCallId: second.id },
 			assistant([thinking, text("检查完成"), text("没有发现问题")], "stop"),
-		] }));
+		] });
+		const rows = replies(snapshot);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ state: "completed", answer: [{ text: "检查完成" }, { text: "没有发现问题" }] });
 		expect(rows[0]?.process.filter((item) => item.kind === "text").map((item) => item.text)).toEqual(["先检查组件", "接下来检查样式"]);
 		expect(rows[0]?.process.filter((item) => item.kind === "tool")).toHaveLength(2);
 		expect(rows[0]?.process.filter((item) => item.kind === "thinking")).toHaveLength(3);
+		const document = parseHTML(renderToStaticMarkup(createElement(Transcript, { source: snapshot, clear: () => {} }))).document;
+		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("closed");
+		expect([...document.querySelectorAll(".reply-turn-content > .reply-body")].map((body) => body.querySelector("article")?.textContent))
+			.toEqual(["先检查组件", "接下来检查样式"]);
+		expect(document.querySelectorAll(".reply-activity .reply-body")).toHaveLength(0);
+		expect([...document.querySelectorAll(".reply-activity")].every((activity) => activity.getAttribute("data-state") === "closed")).toBe(true);
+		expect(document.querySelectorAll(".reply-body > .message-identity")).toHaveLength(3);
+		expect(document.querySelectorAll('.reply-turn-content [aria-label="本条消息统计"]')).toHaveLength(2);
+		expect(document.querySelector(".reply-answer")?.textContent).toContain("检查完成没有发现问题");
 	});
 
 	it("阶段标记区分同一条消息中的 commentary 和 final_answer", () => {
@@ -32,24 +46,37 @@ describe("整轮处理过程折叠", () => {
 		expect(rows[0]?.process).toMatchObject([{ kind: "text", text: "已经找到原因" }]);
 		expect(rows[0]?.answer).toMatchObject([{ text: "最终报告" }]);
 		const live = replies(source({ messages: [user], streamingMessage: reply, streaming: true }));
-		expect(live[0]).toMatchObject({ state: "running", tracking: false });
+		expect(live[0]).toMatchObject({ state: "running", tracking: true });
 	});
 
-	it("没有阶段标记的正文先流式展示，不提前自动折叠", () => {
+	it("流式正文出现时仅折叠前面的思考和工具，后续工具不隐藏中途正文", () => {
 		const live = assistant([thinking, text("我先检查")], "pending");
 		const streaming = replies(source({ messages: [user], streamingMessage: live, streaming: true }));
 		expect(streaming[0]).toMatchObject({ answer: [{ text: "我先检查" }] });
+		const merged = parseHTML(renderToStaticMarkup(createElement(Transcript, {
+			source: source({ messages: [user], streamingMessage: live, streaming: true }), clear: () => {},
+		}))).document;
+		expect(merged.querySelectorAll(".reply-process")).toHaveLength(1);
+		expect(merged.querySelector(".reply-activity")?.getAttribute("data-state")).toBe("closed");
+		expect(merged.querySelector(".reply-answer")?.textContent).toContain("我先检查");
 		const calling = replies(source({ messages: [user], streamingMessage: assistant([...live.content, call]), streaming: true }));
 		expect(calling[0]).toMatchObject({ key: streaming[0]?.key, answer: [] });
 		expect(calling[0]?.process).toContainEqual(expect.objectContaining({ kind: "text", text: "我先检查" }));
+		const document = parseHTML(renderToStaticMarkup(createElement(Transcript, {
+			source: source({ messages: [user], streamingMessage: assistant([...live.content, call]), streaming: true }), clear: () => {},
+		}))).document;
+		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("open");
+		expect([...document.querySelectorAll(".reply-activity")].map((activity) => activity.getAttribute("data-state"))).toEqual(["closed", "open"]);
+		expect(document.querySelector(".reply-turn-content > .reply-body article")?.textContent).toBe("我先检查");
 		const completed = replies(source({ messages: [user, assistant([...live.content, call]), result, assistant([text("最终报告")], "stop")] }));
 		expect(completed[0]).toMatchObject({ key: streaming[0]?.key, answer: [{ text: "最终报告" }] });
 	});
 
-	it("普通回复结束才确认最终正文，旧字符串签名仍能显示", () => {
+	it("整轮结束才折叠外层，旧字符串签名仍能显示", () => {
 		const reply = assistant([{ ...text("最终正文"), textSignature: "msg_legacy" }], "stop");
 		expect(replies(source({ messages: [user], streamingMessage: reply, streaming: true }))[0]?.tracking).toBe(true);
-		expect(replies(source({ messages: [user, reply], streaming: true }))[0]?.tracking).toBe(false);
+		expect(replies(source({ messages: [user, reply], streaming: true }))[0]?.tracking).toBe(true);
+		expect(replies(source({ messages: [user, reply] }))[0]?.tracking).toBe(false);
 	});
 
 	it("每条用户消息独立分组，只有最后一组处于生成中", () => {
@@ -128,6 +155,11 @@ describe("整轮处理过程折叠", () => {
 		expect(noFinal[0]).toMatchObject({ state: "incomplete", tracking: false, answer: [] });
 		const orphan = replies(source({ messages: [result] }));
 		expect(orphan[0]?.process).toMatchObject([{ kind: "tool", tool: { output: result } }]);
+		const document = parseHTML(renderToStaticMarkup(createElement(Transcript, {
+			source: source({ messages: [result] }), clear: () => {},
+		}))).document;
+		expect(document.querySelectorAll(".reply-process")).toHaveLength(1);
+		expect(document.querySelector(".reply-activity")?.getAttribute("data-state")).toBe("closed");
 	});
 
 	it("仅有 commentary 的回复不会被标为最终报告", () => {
