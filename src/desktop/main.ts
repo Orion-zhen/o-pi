@@ -106,7 +106,8 @@ void app
 			void openExternal(url).catch((error: unknown) => dialog.showErrorBox("无法打开链接", String(error)));
 			return { action: "deny" };
 		});
-		backend = utilityProcess.fork(path.join(directory, "backend.mjs"), [app.getPath("home")], {
+		const backendDirectory = app.isPackaged ? path.join(process.resourcesPath, "app.asar.unpacked") : directory;
+		backend = utilityProcess.fork(path.join(backendDirectory, "backend.mjs"), [app.getPath("home")], {
 			stdio: "pipe",
 			serviceName: "opi-desktop SDK",
 			env: environment,

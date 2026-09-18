@@ -41,24 +41,24 @@ function graphRows(roots: SessionTreeNode[]): GraphRow[] {
 export const SessionTree = memo(function SessionTree({ value, send, locate }: { value: SessionTreeNode[]; send: Send; locate: (id: string) => void }) {
 	const rows = graphRows(value);
 	if (!rows.length) return <p className="tree-empty">暂无可展示的消息。</p>;
-	const width = (rows.reduce((max, row) => Math.max(max, row.lane), 0) + 1) * 14 + 4;
 	return (
 		<div className="session-tree" role="list" aria-label="会话消息树">
-			{rows.map((row) => <TreeMessage key={row.node.entry.id} row={row} graphWidth={width} send={send} locate={locate} />)}
+			{rows.map((row) => <TreeMessage key={row.node.entry.id} row={row} send={send} locate={locate} />)}
 		</div>
 	);
 });
 
-function Graph({ row, width }: { row: GraphRow; width: number }) {
+function Graph({ row }: { row: GraphRow }) {
+	const width = (row.lane + 1) * 14 + 4;
 	const x = row.lane * 14 + 9;
 	return (
 		<svg className="tree-graph" width={width} height="32" viewBox={`0 0 ${width} 32`} preserveAspectRatio="none" aria-hidden="true">
 			<g fill="none" stroke="currentColor" strokeWidth="1.5">
 				{row.rails.map((lane) => <path key={lane} d={`M${lane * 14 + 9} 0V32`} />)}
-				{row.incoming && <path d={`M${x} 0V16`} />}
-				{row.outgoing.map((lane) => <path key={lane} d={`M${x} 16L${lane * 14 + 9} 32`} />)}
+				{row.incoming && <path className="tree-node" d={`M${x} 0V16`} />}
+				{row.outgoing.map((lane) => <path className={lane === row.lane ? "tree-node" : undefined} key={lane} d={`M${x} 16L${lane * 14 + 9} 32`} />)}
 			</g>
-			<circle cx={x} cy="16" r="3" fill="currentColor" />
+			<circle className="tree-node" cx={x} cy="16" r="3" fill="currentColor" />
 		</svg>
 	);
 }
@@ -91,7 +91,7 @@ function MessagePreview({ message }: { message: AgentMessage | undefined }) {
 	return <p className="tree-message-preview">{preview || "无消息正文"}</p>;
 }
 
-function TreeMessage({ row, graphWidth, send, locate }: { row: GraphRow; graphWidth: number; send: Send; locate: (id: string) => void }) {
+function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate: (id: string) => void }) {
 	const [editing, setEditing] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const { node } = row;
@@ -100,7 +100,7 @@ function TreeMessage({ row, graphWidth, send, locate }: { row: GraphRow; graphWi
 	const message = entryMessage(entry);
 	return (
 		<div className="tree-row" role="listitem" data-role={message?.role}>
-			<Graph row={row} width={graphWidth} />
+			<Graph row={row} />
 			<strong className="tree-role">{entryTitle(entry, message)}</strong>
 			{editing ? (
 				<form className="tree-label-editor" onKeyDown={(event) => {

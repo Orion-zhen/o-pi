@@ -1,8 +1,8 @@
 .session-tree { display: flex; flex-direction: column; min-width: 0; }
 .tree-row { display: flex; align-items: center; gap: 0.375rem; min-width: 0; padding-block: 0.25em; padding-inline-end: 0.25rem; font-size: var(--text-caption); }
 .tree-row:hover, .tree-row:focus-within { background: var(--accent); }
-.tree-graph { display: block; flex-shrink: 0; max-width: 25%; height: 2lh; color: var(--muted-foreground); }
-.tree-row[data-role="user"] .tree-graph { color: var(--primary); }
+.tree-graph { display: block; flex-shrink: 0; max-width: 25%; height: 2lh; overflow: visible; color: var(--muted-foreground); }
+.tree-row[data-role="user"] .tree-node { color: var(--primary); }
 .tree-role { flex-shrink: 0; font-size: calc(var(--text-ui) * 11 / 14); font-weight: 500; color: var(--muted-foreground); }
 .tree-jump { flex: 1; min-inline-size: 0; text-align: start; cursor: pointer; }
 .tree-jump:focus-visible { outline: thin solid var(--ring); }

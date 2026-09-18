@@ -67,16 +67,22 @@ const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entry
 		switch (item.kind) {
 			case "message": return <Message value={item.message} entryId={entryId} />;
 			case "text": return <article data-entry-id={entryId} className="message assistant"><StreamingText text={item.text} active={item.active} /></article>;
-			case "thinking": return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy summary={<>
-					{item.active && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-					{item.active ? "思考中" : "思考"}
-				</>}>
-				<div className="thinking-content message"><StreamingText text={item.text} active={item.active} /></div>
-			</Disclosure>;
+			case "thinking": return <Thinking text={item.text} active={item.active} entryId={entryId} />;
 			case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} /></div>;
 			case "error": return <pre data-entry-id={entryId} className="message error">{item.text}</pre>;
 		}
 }, (before, after) => before.entryId === after.entryId && sameItem(before.item, after.item));
+
+function Thinking({ text, active, entryId }: { text: string; active: boolean; entryId: string | undefined }) {
+	const [open, setOpen] = useState(active);
+	useEffect(() => setOpen(active), [active]);
+	return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy open={open} onOpenChange={setOpen} summary={<>
+		{active && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+		{active ? "思考中" : "思考"}
+	</>}>
+		<div className="thinking-content message"><StreamingText text={text} active={active} /></div>
+	</Disclosure>;
+}
 
 function sameItems(before: TranscriptItem[], after: TranscriptItem[]): boolean {
 	return before.length === after.length && before.every((item, index) => sameItem(item, after[index]));
