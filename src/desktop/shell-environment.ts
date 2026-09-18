@@ -9,7 +9,7 @@ export async function resolveShellEnvironment(home: string, inherited: NodeJS.Pr
 	const shell = inherited.SHELL || userInfo().shell;
 	if (!shell) throw new Error("Cannot determine login shell");
 	const marker = randomUUID();
-	const { stdout } = await execute(shell, ["-ilc", `printf '\\0${marker}\\0'; /usr/bin/env -0; printf '\\0${marker}\\0'`], {
+	const { stdout } = await execute(shell, ["-ilc", `printf '\\000%s\\000' '${marker}'; /usr/bin/env -0; printf '\\000%s\\000' '${marker}'`], {
 		cwd: home,
 		env: inherited,
 		encoding: "utf8",
