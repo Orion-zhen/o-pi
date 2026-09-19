@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
+import { WorkspacePicker } from "../../src/gui/ui/workspace-picker.tsx";
 import { HistorySessionRow } from "../../src/gui/ui/history-session-row.tsx";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 import { workspaceActivity, type SessionActivity } from "../../src/gui/ui/use-session-activity.ts";
@@ -14,7 +15,7 @@ function row(busy: boolean, waiting: boolean, unread: boolean) {
 }
 
 function activity(sessionId: string, cwd: string, state: SessionActivity["state"], unread = false): SessionActivity {
-	return { sessionId, cwd, state, unread, path: `/sessions/${sessionId}.jsonl`, title: sessionId, completedAt: unread ? 1 : 0 };
+	return { sessionId, cwd, state, unread, path: `/sessions/${sessionId}.jsonl`, title: sessionId, completedAt: unread ? 1 : 0, modified: "2026-09-19T00:00:00.000Z" };
 }
 
 describe("会话列表状态", () => {
@@ -33,6 +34,30 @@ describe("会话列表状态", () => {
 		if (waiting) expect(document.querySelector(".approval-marker")?.getAttribute("fill")).toBe("currentColor");
 		expect(document.querySelector(".history-session")?.hasAttribute("disabled")).toBe(false);
 		expect(document.querySelector(".history-session")?.getAttribute("data-unread")).toBe(String(unread));
+	});
+});
+
+describe("工作区切换边框", () => {
+	it.each([
+		{ items: [], state: "idle" },
+		{ items: [activity("A", "/a", "running")], state: "idle" },
+		{ items: [activity("B", "/b", "running")], state: "running" },
+		{ items: [activity("B", "/b", "loading")], state: "running" },
+		{ items: [activity("A", "/a", "idle", true), activity("B", "/b", "running")], state: "unread" },
+		{ items: [activity("B", "/b", "idle", true), activity("C", "/c", "running")], state: "unread" },
+		{ items: [activity("A", "/a", "waiting"), activity("B", "/b", "running")], state: "waiting" },
+		{ items: [activity("B", "/b", "waiting"), activity("A", "/a", "idle", true)], state: "waiting" },
+		{ items: [activity("A", "/a", "idle"), activity("B", "/b", "idle")], state: "idle" },
+	])("$state: $items", ({ items, state }) => {
+		for (const compact of [false, true]) {
+			const document = parseHTML(renderToStaticMarkup(createElement(WorkspacePicker, {
+				gui: { cwd: "/a", activity: items, workspaceRoot: "/a", workspaces: [], connected: true,
+					canNavigate: true, send: async () => true, globalQuery: async () => { throw new Error("不应查询"); },
+					error: "", setError: () => {} },
+				close: () => {}, compact,
+			}))).document;
+			expect(document.querySelector(".workspace-select.activity-frame > .activity-border")?.getAttribute("data-activity")).toBe(state);
+		}
 	});
 });
 

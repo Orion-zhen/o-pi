@@ -24,7 +24,7 @@ export function sessionList(history: GuiSessionInfo[], activity: SessionActivity
 		rows.set(key, {
 			key, target: { id: item.sessionId }, path: item.path, cwd: item.cwd,
 			title: item.title || record?.title || "新会话",
-			modified: record?.modified ?? (item.completedAt ? new Date(item.completedAt).toISOString() : ""),
+			modified: record?.modified ?? item.modified,
 			selected: item.sessionId === selectedId, activity: item,
 		});
 	}

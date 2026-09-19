@@ -178,6 +178,7 @@ export interface GuiSessionActivity {
 	title: string;
 	state: "loading" | "running" | "waiting" | "idle";
 	completedAt: number;
+	modified: string;
 }
 export interface GuiSessionInfo {
 	path: string;

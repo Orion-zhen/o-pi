@@ -47,8 +47,8 @@ describe("统一会话列表", () => {
 			{ path: "/warm.jsonl", cwd: "/project", title: "旧标题", modified: "2026-09-19" },
 		];
 		const activity: SessionActivity[] = [
-			{ sessionId: "warm", path: "/warm.jsonl", cwd: "/project", title: "新标题", state: "idle", completedAt: 0, unread: false },
-			{ sessionId: "empty", path: null, cwd: "/project", title: "未落盘", state: "idle", completedAt: 0, unread: false },
+			{ sessionId: "warm", path: "/warm.jsonl", cwd: "/project", title: "新标题", state: "idle", completedAt: 0, modified: "2026-09-19T00:00:00.000Z", unread: false },
+			{ sessionId: "empty", path: null, cwd: "/project", title: "未落盘", state: "idle", completedAt: 0, modified: "2026-09-19T00:00:00.000Z", unread: false },
 		];
 		const rows = sessionList(history, activity, "empty");
 		expect(rows).toHaveLength(3);
@@ -61,8 +61,8 @@ describe("统一会话列表", () => {
 			{ path: "/old.jsonl", cwd: "/project", title: "旧会话首条消息", modified: "2026-09-18" },
 		];
 		const activity: SessionActivity[] = [
-			{ sessionId: "old", path: "/old.jsonl", cwd: "/project", title: "", state: "idle", completedAt: 0, unread: false },
-			{ sessionId: "fresh", path: "/fresh.jsonl", cwd: "/project", title: "", state: "idle", completedAt: 0, unread: false },
+			{ sessionId: "old", path: "/old.jsonl", cwd: "/project", title: "", state: "idle", completedAt: 0, modified: "2026-09-19T00:00:00.000Z", unread: false },
+			{ sessionId: "fresh", path: "/fresh.jsonl", cwd: "/project", title: "", state: "idle", completedAt: 0, modified: "2026-09-19T00:00:00.000Z", unread: false },
 		];
 		const rows = sessionList(history, activity, "old");
 		expect(rows.find((row) => row.path === "/old.jsonl")).toMatchObject({ title: "旧会话首条消息" });

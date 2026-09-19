@@ -42,7 +42,9 @@ export class GuiSession {
 		this.cwd = manager.getCwd();
 		this.file = manager.getSessionFile() ?? null;
 		this.stamp = this.fileStamp();
-		this.summary = { sessionId: this.id, path: this.file, cwd: this.cwd, title: manager.getSessionName() ?? "", state: "idle", completedAt: 0 };
+		const header = manager.getHeader();
+		if (!header) throw new Error("会话头不存在。");
+		this.summary = { sessionId: this.id, path: this.file, cwd: this.cwd, title: manager.getSessionName() ?? "", state: "idle", completedAt: 0, modified: header.timestamp };
 	}
 
 	get execution(): GuiExecution | undefined {
@@ -82,7 +84,8 @@ export class GuiSession {
 		const title = (execution?.ready ? execution.runtime.session.sessionName : undefined) ?? this.summary.title;
 		const state = execution?.dialogs.list().length ? "waiting" : this.resources.state === "starting" ? "loading" : running ? "running" : "idle";
 		if (title !== this.summary.title || state !== this.summary.state || completedAt !== this.summary.completedAt) {
-			this.summary = { ...this.summary, title, state, completedAt };
+			this.summary = { ...this.summary, title, state, completedAt,
+				modified: completedAt !== this.summary.completedAt ? new Date(completedAt).toISOString() : this.summary.modified };
 			this.notify(true);
 		}
 	}
