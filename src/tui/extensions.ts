@@ -35,8 +35,8 @@ export const presentation = {
 		]);
 		return { ...fetch, ...search };
 	},
-	approvalGate: async (...args: Parameters<(typeof import("./views/approval/dialog.ts"))["openApprovalDialog"]>) =>
-		(await import("./views/approval/dialog.ts")).openApprovalDialog(...args),
+	approvalGate: tuiPresenter(async (...args: Parameters<(typeof import("./views/approval/dialog.ts"))["openApprovalDialog"]>) =>
+		(await import("./views/approval/dialog.ts")).openApprovalDialog(...args)),
 	stats: tuiPresenter(async (ctx: ExtensionCommandContext, snapshot: StatsSnapshot) => {
 		const { StatsViewer } = await import("./views/stats/stats-viewer.ts");
 		await ctx.ui.custom<void>(

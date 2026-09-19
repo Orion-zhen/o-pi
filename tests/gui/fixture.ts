@@ -35,7 +35,7 @@ export const test = base.extend<{
 			if (mode === "web") {
 				const name = process.platform === "win32" ? "opi-web.exe" : "opi-web";
 				const binary = path.join(home, name);
-				await copyFile(path.resolve("dist/web", name), binary);
+				await copyFile(process.env.OPI_GUI_TEST_BINARY ?? path.resolve("dist/web", name), binary);
 				child = spawn(binary, ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
 				let output = "";
 				child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
@@ -56,7 +56,7 @@ export const test = base.extend<{
 				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
 				await page.evaluate(async (cwd) => {
 					if (!window.opi) throw new Error("缺少桌面连接");
-					await window.opi.send({ action: "workspace", path: cwd });
+					await window.opi.send({ action: "workspace", path: cwd }, null);
 				}, cwd);
 			}
 			await use({ app, page });

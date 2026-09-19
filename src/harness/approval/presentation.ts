@@ -8,7 +8,7 @@ export interface ApprovalDisplayLine {
 	style: ApprovalLineStyle;
 }
 
-/** TUI 和 RPC 共用审批内容，所有外部文本在此移除终端控制序列。 */
+/** 各前端共用审批内容，所有外部文本在此移除终端控制序列。 */
 export function buildApprovalContent(request: ApprovalRequest, decision: AskDecision): ApprovalDisplayLine[] {
 	const common = [
 		line(`Working directory: ${request.cwd}`, "dim"),
@@ -62,14 +62,14 @@ export function formatApprovalPrompt(request: ApprovalRequest, decision: AskDeci
 }
 
 function payloadLines(payload: string, style: ApprovalLineStyle, prefix = ""): ApprovalDisplayLine[] {
-	return safeText(payload).split("\n").map((text) => ({ text: `${prefix}${text}`, style }));
+	return approvalText(payload).split("\n").map((text) => ({ text: `${prefix}${text}`, style }));
 }
 
 function line(text: string, style: ApprovalLineStyle = "text"): ApprovalDisplayLine {
-	return { text: safeText(text), style };
+	return { text: approvalText(text), style };
 }
 
-function safeText(text: string): string {
+export function approvalText(text: string): string {
 	return stripTerminalSequences(text)
 		.replace(/\r\n?/gu, "\n")
 		.replace(/\t/gu, "    ")

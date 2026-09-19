@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import { ArrowRight, Check, GitBranch, ListCollapse, Tag, X } from "lucide-react";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
@@ -7,6 +7,7 @@ import { entryMessage } from "./transcript-location.ts";
 import type { Send } from "./connection.ts";
 import { IconButton } from "./components/icon-button";
 import { Input } from "./components/ui/input";
+import { useVirtualRows } from "./use-virtual-rows.ts";
 import "./session-tree.css";
 
 interface GraphRow {
@@ -39,11 +40,15 @@ function graphRows(roots: SessionTreeNode[]): GraphRow[] {
 }
 
 export const SessionTree = memo(function SessionTree({ value, send, locate }: { value: SessionTreeNode[]; send: Send; locate: (id: string) => void }) {
-	const rows = graphRows(value);
+	const rows = useMemo(() => graphRows(value), [value]);
+	const getKey = useCallback((index: number) => (rows[index] as GraphRow).node.entry.id, [rows]);
+	const list = useVirtualRows<HTMLDivElement>(rows.length, getKey, 32);
 	if (!rows.length) return <p className="tree-empty">暂无可展示的消息。</p>;
 	return (
-		<div className="session-tree" role="list" aria-label="会话消息树">
-			{rows.map((row) => <TreeMessage key={row.node.entry.id} row={row} send={send} locate={locate} />)}
+		<div ref={list.root} style={list.style} className="session-tree" role="list" aria-label="会话消息树">
+			{list.rows.map(({ index, key, start }) => <div key={key} data-index={index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(start)}>
+				<TreeMessage row={rows[index] as GraphRow} send={send} locate={locate} />
+			</div>)}
 		</div>
 	);
 });

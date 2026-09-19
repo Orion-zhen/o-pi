@@ -1,4 +1,5 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect } from "react";
+import { useDisclosureMemory } from "./disclosure-memory.ts";
 import { LoaderCircle } from "lucide-react";
 import { Disclosure } from "./components/disclosure";
 import { StreamingText, Message } from "./content.tsx";
@@ -29,7 +30,7 @@ export function ReplyItems({ items, entryIds, tracking = false, followedByBody =
 	}
 	return <>{sections.map((section, index) => {
 		if (section.kind === "item") return <Item key={section.key} item={section.item} entryId={entryIds[section.item.messageIndex]} />;
-		if (section.kind === "activity") return <Activity key={section.key} items={section.items} entryIds={entryIds}
+		if (section.kind === "activity") return <Activity key={section.key} id={section.key} items={section.items} entryIds={entryIds}
 			tracking={tracking && !followedByBody && !sections.slice(index + 1).some((next) => next.kind === "body")} />;
 		return <div key={section.key} className="reply-body">
 			<MessageIdentity name={section.first.identity.model} timestamp={section.first.identity.timestamp} />
@@ -39,20 +40,20 @@ export function ReplyItems({ items, entryIds, tracking = false, followedByBody =
 	})}</>;
 }
 
-export function useAutoFold(tracking: boolean) {
-	const [open, setOpen] = useState(tracking);
-	const folded = useRef(!tracking);
+export function useAutoFold(key: string, tracking: boolean) {
+	const [open, setOpen] = useDisclosureMemory(`${key}:open`, tracking);
+	const [folded, setFolded] = useDisclosureMemory(`${key}:folded`, !tracking);
 	useEffect(() => {
-		if (!tracking && !folded.current) {
-			folded.current = true;
+		if (!tracking && !folded) {
+			setFolded(true);
 			setOpen(false);
 		}
 	}, [tracking]);
 	return [open, setOpen] as const;
 }
 
-function Activity({ items, entryIds, tracking }: { items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking: boolean }) {
-	const [open, setOpen] = useAutoFold(tracking);
+function Activity({ id, items, entryIds, tracking }: { id: string; items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking: boolean }) {
+	const [open, setOpen] = useAutoFold(`activity:${id}`, tracking);
 	const thoughts = items.filter((item) => item.kind === "thinking").length;
 	const tools = items.filter((item) => item.kind === "tool");
 	const failures = tools.filter((item) => item.tool.state === "failed").length;
@@ -67,15 +68,16 @@ const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entry
 	switch (item.kind) {
 		case "message": return <Message value={item.message} entryId={entryId} />;
 		case "text": return <article data-entry-id={entryId} className="message assistant"><StreamingText text={item.text} active={item.active} /></article>;
-		case "thinking": return <Thinking text={item.text} active={item.active} entryId={entryId} />;
+		case "thinking": return <Thinking id={item.key} text={item.text} active={item.active} entryId={entryId} />;
 		case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} /></div>;
 		case "error": return <pre data-entry-id={entryId} className="message error">{item.text}</pre>;
 	}
 }, (before, after) => before.entryId === after.entryId && sameItem(before.item, after.item));
 
-function Thinking({ text, active, entryId }: { text: string; active: boolean; entryId: string | undefined }) {
-	const [open, setOpen] = useState(active);
-	useEffect(() => setOpen(active), [active]);
+function Thinking({ id, text, active, entryId }: { id: string; text: string; active: boolean; entryId: string | undefined }) {
+	const [open, setOpen] = useDisclosureMemory(`${id}:open`, active);
+	const [wasActive, setWasActive] = useDisclosureMemory(`${id}:active`, active);
+	useEffect(() => { if (wasActive !== active) { setWasActive(active); setOpen(active); } }, [active]);
 	return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy open={open} onOpenChange={setOpen} summary={<>
 		{active && <LoaderCircle className="animate-spin" aria-hidden="true" />}
 		{active ? "思考中" : "思考"}

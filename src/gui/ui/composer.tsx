@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { AnimatePresence } from "motion/react";
 import { ListItem, Reveal } from "./components/animated";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
@@ -13,7 +13,8 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
-import type { GuiAction, GuiSnapshot } from "../contract.ts";
+import type { GuiSnapshot } from "../contract.ts";
+import type { ImageAttachment } from "./use-session-draft.ts";
 import type { GuiView } from "./use-gui.ts";
 import { ModelControls } from "./model-controls.tsx";
 import { modelSetup } from "./model-setup.ts";
@@ -21,7 +22,9 @@ import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
 
-type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number] & { id: number };
+// 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
+let nextAttachmentId = 0;
+
 export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: GuiSnapshot; onSubmit: () => void }) {
 	const {
 		connected,
@@ -38,13 +41,11 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 		draft, sessionId: snapshot.sessionId, connected, send, query, setError,
 	});
 	const upload = useRef<HTMLInputElement>(null);
-	const attachmentId = useRef(0);
-	const [images, setImages] = useState<ImageAttachment[]>([]);
+	const { images, setImages, behavior, setBehavior } = gui.composer;
 	const hasContent = Boolean(draft.trim() || images.length);
 	const setup = modelSetup(snapshot);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
 	const stopping = running && !hasContent;
-	const [behavior, setBehavior] = useState<"steer" | "followUp">("steer");
 	const steering = behavior === "steer";
 	const BehaviorIcon = steering ? CornerUpRight : ListEnd;
 	const behaviorLabel = steering ? "Steering" : "Follow-up";
@@ -88,7 +89,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 								: file.type === "image/gif"
 									? "image/gif"
 									: "image/png";
-					additions.push({ id: attachmentId.current++, data, mimeType });
+					additions.push({ id: nextAttachmentId++, data, mimeType });
 				} else {
 					const bytes = new Uint8Array(await file.arrayBuffer());
 					if (bytes.includes(0) || file.type === "application/pdf")

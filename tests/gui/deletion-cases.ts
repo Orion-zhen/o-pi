@@ -2,7 +2,7 @@ import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { GuiHost } from "../../src/gui/host/host.ts";
+import type { GuiClient } from "../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
 import { prepareSessionDeletion } from "../../src/gui/host/delete-session.ts";
 import { GuiSessionIndex } from "../../src/gui/host/session-index.ts";
@@ -10,7 +10,7 @@ import { storeSession } from "./session-fixture.ts";
 
 const prompt = { action: "prompt", text: "读取并写入文件", images: [], behavior: "followUp" };
 
-export function historyDeletionTests(context: () => { host: GuiHost; cwd: string; agentDir: string; events: GuiEvent[] }) {
+export function historyDeletionTests(context: () => { host: GuiClient; cwd: string; agentDir: string; events: GuiEvent[] }) {
 	describe("GUI 会话删除", () => {
 		it("行内确认后直接删除共享会话，不弹窗、不删除项目文件", async () => {
 			const { host, cwd, agentDir, events } = context();
@@ -32,7 +32,7 @@ export function historyDeletionTests(context: () => { host: GuiHost; cwd: string
 		it("删除当前会话后进入同工作区的新会话，后续写入不会恢复已删除文件", async () => {
 			const { host, cwd, agentDir } = context();
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			await host.dispatch({ action: "switch", path: file });
+			await host.dispatch({ action: "openSession", path: file });
 			const id = host.snapshot().sessionId;
 			await host.dispatch({ action: "deleteSession", path: file });
 			expect(host.snapshot().sessionId).not.toBe(id);
@@ -41,6 +41,16 @@ export function historyDeletionTests(context: () => { host: GuiHost; cwd: string
 			await host.dispatch(prompt);
 			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 			expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI SDK result\n");
+		});
+
+		it("同一历史的重命名和删除串行完成，不产生相互覆盖", async () => {
+			const { host, cwd, agentDir } = context();
+			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture", name: "并发操作" });
+			await Promise.all([
+				host.dispatch({ action: "renameSession", path: file, name: "先改名" }),
+				host.dispatch({ action: "deleteSession", path: file }),
+			]);
+			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 		});
 
 		it("未持久化的新会话也可删除", async () => {
@@ -83,7 +93,7 @@ export function historyDeletionTests(context: () => { host: GuiHost; cwd: string
 			const first = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
 			const second = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
 			const index = new GuiSessionIndex();
-			const plan = await prepareSessionDeletion([first, second], null, async () => new Set((await index.list()).map((session) => session.path)));
+			const plan = await prepareSessionDeletion([first, second], new Set(), async () => new Set((await index.list()).map((session) => session.path)));
 			SessionManager.open(second).appendSessionInfo("TUI 修改名称");
 			await expect(plan.verify()).rejects.toThrow("会话已被修改");
 			expect(await readFile(first, "utf8")).toContain("历史回复");
@@ -91,19 +101,37 @@ export function historyDeletionTests(context: () => { host: GuiHost; cwd: string
 		});
 
 		it("扩展取消当前会话切换时不删除该会话", async () => {
-			const { host, cwd, agentDir } = context();
+			const { host, cwd, agentDir, events } = context();
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			await host.dispatch({ action: "switch", path: file });
+			await host.dispatch({ action: "openSession", path: file });
 			await mkdir(path.join(agentDir, "extensions"), { recursive: true });
 			await writeFile(path.join(agentDir, "extensions", "keep-session.ts"),
 				`export default function (pi) { pi.on("session_before_switch", () => ({ cancel: true })); }`);
 			await host.dispatch({ action: "reload" });
 			await host.dispatch({ action: "deleteSession", path: file });
 			expect(host.snapshot().sessionFile).toBe(file);
+			expect(events.filter((event) => event.type === "sessionsDeleted")).toEqual([]);
 			expect(await readFile(file, "utf8")).toContain("历史回复");
 		});
 
-		it("任务运行和审批期间拒绝删除历史", async () => {
+		it("批量删除部分失败时，只报告并注销已删除的会话", async () => {
+			const { host, cwd, agentDir, events } = context();
+			const first = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
+			const second = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
+			await mkdir(path.join(agentDir, "extensions"), { recursive: true });
+			await writeFile(path.join(agentDir, "extensions", "move-on-close.ts"),
+				`import { renameSync } from 'node:fs'; export default function(pi) { pi.on('session_shutdown', (_event, ctx) => { if (ctx.sessionManager.getSessionFile() === ${JSON.stringify(first)}) renameSync(${JSON.stringify(second)}, ${JSON.stringify(`${second}.moved`)}); }); }`);
+			await host.dispatch({ action: "openSession", path: first });
+			const id = host.snapshot().sessionId;
+			await expect(host.host.remove([first, second])).rejects.toMatchObject({ code: "ENOENT" });
+			expect(events.filter((event) => event.type === "sessionsDeleted")).toEqual([{ type: "sessionsDeleted", ids: [id], paths: [first] }]);
+			expect(host.host.sessions.has(id)).toBe(false);
+			expect(host.snapshot().sessionId).not.toBe(id);
+			await expect(readFile(first)).rejects.toMatchObject({ code: "ENOENT" });
+			expect(await readFile(`${second}.moved`, "utf8")).toContain("历史回复");
+		});
+
+		it("审批只保护所属会话，不阻止删除其他空闲历史", async () => {
 			const { host, cwd, agentDir } = context();
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
 			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
@@ -111,10 +139,11 @@ export function historyDeletionTests(context: () => { host: GuiHost; cwd: string
 			await expect.poll(() => host.dialogs.list().length).toBe(1);
 			const dialog = host.dialogs.list()[0];
 			if (!dialog) throw new Error("缺少工具审批");
-			await expect(host.dispatch({ action: "deleteSession", path: file })).rejects.toThrow("请先停止");
+			await expect(host.dispatch({ action: "deleteSession", path: host.snapshot().sessionFile })).rejects.toThrow("请先停止");
+			await host.dispatch({ action: "deleteSession", path: file });
 			await host.dispatch({ action: "dialog", id: dialog.id, value: null });
 			await task;
-			expect(await readFile(file, "utf8")).toContain("历史回复");
+			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 		});
 	});
 }

@@ -15,7 +15,8 @@ export function useTempDir(prefix: string): TempDir {
 		current = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
 	});
 	afterEach(async () => {
-		if (current !== undefined) await rm(current, { recursive: true, force: true });
+		// Windows 清理临时目录会短暂返回 ENOTEMPTY/EPERM，使用文件系统的有界重试。
+		if (current !== undefined) await rm(current, { recursive: true, force: true, maxRetries: 3 });
 		current = undefined;
 	});
 

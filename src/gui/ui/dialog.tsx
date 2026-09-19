@@ -3,6 +3,7 @@ import { Clock3, ShieldCheck } from "lucide-react";
 import type { GuiDialog } from "../contract.ts";
 import type { Send } from "./connection.ts";
 import { clean } from "./content.tsx";
+import { BashApproval } from "./bash-approval.tsx";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
@@ -48,6 +49,7 @@ export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send
 					</DialogDescription>
 					<DialogTitle className="dialog-title">{clean(dialog.title)}</DialogTitle>
 				</DialogHeader>
+				{dialog.bash && <BashApproval approval={dialog.bash} />}
 				{dialog.message && <pre>{clean(dialog.message)}</pre>}
 				{dialog.deadline !== null && (
 					<p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -94,9 +96,9 @@ export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send
 						<Button type="submit">提交</Button>
 					</form>
 				)}
-				<Button variant="ghost" onClick={() => respond(null)}>
+				{!dialog.bash && <Button variant="ghost" onClick={() => respond(null)}>
 					取消 / 拒绝
-				</Button>
+				</Button>}
 			</DialogContent>
 		</DialogRoot>
 	);

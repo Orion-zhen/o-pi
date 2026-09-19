@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useRef, type CSSProperties } from "react";
 import { ChevronRight, FileDiff, FoldVertical, GitBranch, Plus, RefreshCw, Search } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "./components/animated";
@@ -13,17 +13,14 @@ import { ResizeHandle } from "./components/resize-handle";
 import "./workbench.css";
 
 export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: { gui: SidebarView; close: () => void }) {
-	const [search, setSearch] = useState("");
-	const [filesOpen, setFilesOpen] = useState(true);
 	const ratio = gui.layout.values.files ?? 55;
-	const [pane, setPane] = useState("sessions");
 	const sections = useRef<HTMLDivElement>(null);
 	const { workbench } = gui;
-	const { onlyChanges, setOnlyChanges } = workbench;
+	const { onlyChanges, setOnlyChanges, search, setSearch, filesOpen, setFilesOpen, pane, setPane } = workbench;
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
 	const referenceFile = useCallback((path: string) => { close(); gui.referenceFile(path); }, [close, gui.referenceFile]);
 	const openFile = useCallback((path: string) => { gui.openFile(path); close(); }, [close, gui.openFile]);
-	const blocked = !gui.canChangeSession;
+	const blocked = !gui.canNavigate;
 	const proportions: CSSProperties & { "--session-share": string; "--file-share": string } = { "--session-share": `${ratio}fr`, "--file-share": `${100 - ratio}fr` };
 	return <div className="sidebar-workbench">
 		<div className="workbench-workspace"><WorkspacePicker gui={gui} close={close} /></div>
@@ -62,14 +59,14 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 						<IconButton label="显示文件变更" size="icon-sm" className="file-changes-toggle" aria-pressed={onlyChanges}
 							onClick={() => { setOnlyChanges(!onlyChanges); setFilesOpen(true); setPane("files"); }}><FileDiff /><span>{git.changes.length}</span></IconButton>
 					</>}
-					<IconButton label="刷新文件" size="icon-sm" disabled={!gui.snapshot || !gui.connected} onClick={workbench.refresh}><RefreshCw /></IconButton>
+					<IconButton label="刷新文件" size="icon-sm" disabled={!gui.cwd || !gui.connected} onClick={workbench.refresh}><RefreshCw /></IconButton>
 					<IconButton label="折叠全部目录" size="icon-sm" disabled={onlyChanges || !workbench.expanded.size} onClick={workbench.collapseAll}><FoldVertical /></IconButton>
 				</div>
 				<div className="workspace-files-content" inert={!filesOpen} aria-hidden={!filesOpen}>
 					{workbench.git.state === "error" && <p className="file-hint" role="alert">Git: {workbench.git.message}</p>}
 					<div className="workspace-files-scroll" data-list-scroll>
 						<AnimatePresence initial={false} mode="wait"><Fade key={onlyChanges ? "changes" : "tree"}>
-						{!gui.snapshot ? <p className="file-hint">请先选择工作区</p> : onlyChanges && git
+						{!gui.cwd ? <p className="file-hint">请先选择工作区</p> : onlyChanges && git
 							? <WorkspaceChanges git={git} selected={workbench.preview?.path} referenceFile={referenceFile} openFile={openFile} />
 							: <WorkspaceTree workbench={workbench} referenceFile={referenceFile} openFile={openFile} />}
 						</Fade></AnimatePresence>

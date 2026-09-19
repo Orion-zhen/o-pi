@@ -1,5 +1,6 @@
 import { type ExtensionUIContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type ApprovalInteractionPort } from "../approval/runtime/interaction.ts";
+import { canPresent, type Presenter } from "../presentation.ts";
 
 import { loadApprovalGateConfig } from "../approval/config.ts";
 import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../approval/events.ts";
@@ -11,12 +12,11 @@ import { evaluateBashGatePolicy } from "../approval/rules/policy.ts";
 import { formatApprovalPrompt } from "../approval/presentation.ts";
 import { attachPrivateNetworkGrant, createPrivateNetworkGrantFor } from "../web-tools/network/private-network-grant.ts";
 
-export type ApprovalPresenter = (
+export type ApprovalPresenter = Presenter<(
 	ui: ExtensionUIContext,
 	...args: Parameters<ApprovalInteractionPort["approve"]>
-) => ReturnType<ApprovalInteractionPort["approve"]>;
-export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter): void {
-	const gate = createApprovalGate();
+) => ReturnType<ApprovalInteractionPort["approve"]>>;
+export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter, gate = createApprovalGate()): void {
 	pi.registerCommand("approval-check", {
 		description: "Explain the Bash gate decision without executing the command.",
 		async handler(args, ctx) {
@@ -59,8 +59,8 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 									toolCallId: event.toolCallId,
 									toolName: event.toolName,
 								} satisfies ApprovalStatusEvent);
-								if (ctx.mode === "tui" && present !== undefined) {
-									return present(ctx.ui, request, decision, approvalOptions, dialogOptions);
+								if (present !== undefined && canPresent(ctx, present)) {
+									return present.show(ctx.ui, request, decision, approvalOptions, dialogOptions);
 								}
 								return ctx.ui.select(formatApprovalPrompt(request, decision), [...approvalOptions], dialogOptions);
 							},

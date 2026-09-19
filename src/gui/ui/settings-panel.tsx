@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Tabs } from "radix-ui";
 import { AnimatePresence } from "motion/react";
 import { Keyboard, MessageSquare, Palette, Wrench, Globe, Shield, Bot, Code, Plug, Terminal, Type } from "lucide-react";
-import type { GuiSnapshot, Query } from "../contract.ts";
+import type { GuiSnapshot, Query, GlobalQuery } from "../contract.ts";
 import type { GuiConfigDocument } from "../preferences.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
@@ -13,8 +13,8 @@ import { ConfigEditor } from "./config-editor.tsx";
 import { ModuleSettings } from "./module-settings.tsx";
 import type { ModuleConfigId } from "../module-config.ts";
 
-export function Settings({ snapshot, guiConfig, send, query, disabled, connected, refreshGuiConfig, restoreFocus, onDirty }: {
-	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; query: Query;
+export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabled, connected, refreshGuiConfig, restoreFocus, onDirty }: {
+	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; query: Query; globalQuery: Query<GlobalQuery>;
 	disabled: boolean; connected: boolean; refreshGuiConfig: () => Promise<void>; restoreFocus: () => void;
 	onDirty: (dirty: boolean) => void;
 }) {
@@ -62,7 +62,7 @@ export function Settings({ snapshot, guiConfig, send, query, disabled, connected
 				: <p className="settings-empty">选择工作区后可修改会话设置。</p>
 				: id === "appearance" || id === "interaction"
 				? <GuiSettings section={id} document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} />
-				: <ModuleSettings id={id} query={query} send={send} disabled={!connected} onDirty={reportDirty} models={snapshot?.models ?? []} />)}
+				: <ModuleSettings id={id} query={globalQuery} send={send} disabled={!connected} onDirty={reportDirty} models={snapshot?.models ?? []} />)}
 		</Tabs.Content>)}
 	</Tabs.Root>;
 }

@@ -20,13 +20,13 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 		</div>
 		<div className="sidebar-navigation">
 			<div className="sidebar-expanded" inert={compact} aria-hidden={compact}>
-				<SidebarWorkbench key={gui.snapshot?.cwd ?? ""} gui={gui} close={close} />
+				<SidebarWorkbench key={gui.cwd} gui={gui} close={close} />
 			</div>
 			{!mobile && <div className="sidebar-compact sidebar-scroll" inert={!compact} aria-hidden={!compact}>
 				<div className="workspace-controls" data-compact="true">
 					<WorkspacePicker gui={gui} close={close} compact />
 					<Tooltip><TooltipTrigger asChild>
-						<Button variant="outline" className="new-session" aria-label="新建会话" disabled={!gui.canChangeSession}
+						<Button variant="outline" className="new-session" aria-label="新建会话" disabled={!gui.canNavigate}
 							onClick={() => { void gui.send({ action: "new" }); close(); }}><Plus /></Button>
 					</TooltipTrigger><TooltipContent side="right">新建会话</TooltipContent></Tooltip>
 				</div>

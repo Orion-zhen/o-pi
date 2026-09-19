@@ -10,13 +10,13 @@ import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 const temp = useTempDir("opi-module-config-");
 const envs = moduleConfigIds.map((id) => id === "tools" ? "PI_TOOLS_CONFIG" : CONFIG_DEFINITIONS[id].userEnv);
 preserveEnv("HOME", "USERPROFILE", ...envs);
-let host: GuiHost;
+let host: ReturnType<GuiHost["createClient"]>;
 beforeEach(() => {
 	setTestHome(temp.path);
 	for (const env of envs) delete process.env[env];
-	host = new GuiHost();
+	host = new GuiHost().createClient();
 });
-afterEach(async () => { await host.dispose(); });
+afterEach(async () => { await host.host.dispose(); });
 
 it.each(moduleConfigIds)("无会话时读取和保存 %s 全局覆盖，不改默认配置", async (id) => {
 	const initial = await host.query({ query: "moduleConfig", id });

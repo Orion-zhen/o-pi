@@ -8,7 +8,7 @@ import { IconButton } from "./components/icon-button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
 
 export function DirectoryBrowser({ gui, initial, select, close }: {
-	gui: Pick<GuiView, "query" | "error" | "setError">; initial: string; select: (path: string) => Promise<void>; close: () => void;
+	gui: Pick<GuiView, "globalQuery" | "error" | "setError">; initial: string; select: (path: string) => Promise<void>; close: () => void;
 }) {
 	const [path, setPath] = useState(initial);
 	const [filter, setFilter] = useState("");
@@ -20,12 +20,12 @@ export function DirectoryBrowser({ gui, initial, select, close }: {
 		gui.setError("");
 		setPending(true);
 		try {
-			const listing = await gui.query({ query: "directories", path });
+			const listing = await gui.globalQuery({ query: "directories", path });
 			if (request === version.current) { setListing(listing); setPath(listing.path); setFilter(""); }
 		} catch (error) {
 			if (request === version.current) gui.setError(error instanceof Error ? error.message : String(error));
 		} finally { if (request === version.current) setPending(false); }
-	}, [gui.query, gui.setError]);
+	}, [gui.globalQuery, gui.setError]);
 	useEffect(() => {
 		void browse(initial);
 		return () => { version.current++; };

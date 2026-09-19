@@ -8,28 +8,29 @@ import {
 	getAgentDir,
 	hasTrustRequiringProjectResources,
 	ProjectTrustStore,
-	SessionManager,
+	type SessionManager,
 	SettingsManager,
 	resolveModelScopeWithDiagnostics,
 	type AgentSession,
+	type SessionStartEvent,
 	type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { GuiDialogs } from "./dialogs.ts";
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
 
 EventEmitter.defaultMaxListeners = 20;
 
 export async function createGuiRuntime(
 	cwd: string,
-	bindings: GuiExtensionBindings & { dialogs: GuiDialogs },
-	sessionManager?: SessionManager,
+	bindings: GuiExtensionBindings & { projectTrust: Map<string, boolean> },
+	sessionManager: SessionManager,
+	initialEvent: SessionStartEvent,
+	cachedScope: string[] | undefined,
 ) {
-	const { dialogs } = bindings;
+	const { dialogs, projectTrust: decisions } = bindings;
 	cwd = path.resolve(cwd);
 	if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
 	const agentDir = getAgentDir();
 	const trust = new ProjectTrustStore(agentDir);
-	const decisions = new Map<string, boolean>();
 	const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 		const services = await createAgentSessionServices({
@@ -81,9 +82,10 @@ export async function createGuiRuntime(
 			},
 		});
 		const scope = await resolveModelScopeWithDiagnostics(
-			settingsManager.getEnabledModels() ?? [],
+			cachedScope ?? settingsManager.getEnabledModels() ?? [],
 			services.modelRuntime,
 		);
+		for (const diagnostic of scope.diagnostics) dialogs.notify(diagnostic.message, "warning");
 		const result = await createAgentSessionFromServices({
 			services,
 			sessionManager,
@@ -99,7 +101,8 @@ export async function createGuiRuntime(
 	return createAgentSessionRuntime(factory, {
 		cwd,
 		agentDir,
-		sessionManager: sessionManager ?? SessionManager.create(cwd),
+		sessionManager,
+		sessionStartEvent: initialEvent,
 	});
 }
 

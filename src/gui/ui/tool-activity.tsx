@@ -1,4 +1,5 @@
-import { memo, useState } from "react";
+import { memo } from "react";
+import { useDisclosureMemory } from "./disclosure-memory.ts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
 import { Disclosure } from "./components/disclosure";
 import { Bot, Check, ChevronRight, CircleDashed, CircleStop, FilePenLine, FileSearch, FolderSearch, Globe, LoaderCircle, Search, Terminal, Wrench, X } from "lucide-react";
@@ -21,7 +22,7 @@ const tools = {
 };
 
 export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activity }) {
-	const [expanded, setExpanded] = useState<boolean | null>(null);
+	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);
 	const open = expanded ?? (tool.name === "subagent" && tool.state === "running");
 	const definition = Object.hasOwn(tools, tool.name) ? tools[tool.name as keyof typeof tools] : { label: tool.name || "工具调用", icon: Wrench };
 	const Icon = definition.icon;

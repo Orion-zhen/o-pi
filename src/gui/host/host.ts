@@ -1,546 +1,228 @@
 import path from "node:path";
 import { stat } from "node:fs/promises";
-import { SessionManager, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import { UserHistoryStore, buildInitialHistory } from "../../harness/user-history.ts";
-import { compileSchemaValidator } from "../../harness/schema-validator.ts";
-import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
-import { actionSchema, querySchema, type GuiAction, type GuiEvent, type GuiQuery, type GuiQueryResults, type GuiSnapshot } from "../contract.ts";
-import { MessageTiming } from "./message-timing.ts";
-import { GuiDialogs } from "./dialogs.ts";
-import { createGuiRuntime } from "./runtime.ts";
-import { readModuleConfig, saveModuleConfig } from "./module-config.ts";
-import { exportSession, importSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
-import { runLogin } from "./login.ts";
-import { completeCommand, runBuiltin } from "./commands.ts";
-import { openView } from "./views.ts";
-import { collectGuiSnapshot } from "./snapshot.ts";
-import { persistModelScope, setModelScope } from "./models.ts";
+import { SessionManager, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
+import type { GuiEvent, WorkspaceQuery } from "../contract.ts";
+import type { GuiConfigDocument } from "../preferences.ts";
+import { ApprovalStores } from "../../harness/approval/rules/store.ts";
+import { lspManager } from "../../harness/lsp/index.ts";
+import { GuiSession } from "./session.ts";
 import { GuiSessionCatalog } from "./sessions.ts";
-import { GuiSessionInfo } from "./session-info.ts";
+import { GuiClient } from "./client.ts";
 import { prepareSessionDeletion } from "./delete-session.ts";
-import { listDirectories } from "./directories.ts";
-import type { ReadSessionInfo } from "./extensions.ts";
 import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace-files.ts";
 import { readWorkspaceGit } from "./workspace-git.ts";
 import type { WorkspaceGit } from "../workbench.ts";
-import { readGuiConfig, saveGuiConfig } from "./preferences.ts";
-import { GuiPayloads } from "./payloads.ts";
-import { GuiChannel } from "./channel.ts";
-import type { GuiDelivery } from "../sync.ts";
+import { readGuiConfig, readGuiDefaults } from "./preferences.ts";
 
-const validateAction = compileSchemaValidator(actionSchema);
-const validateQuery = compileSchemaValidator(querySchema);
-type QueryResult = GuiQueryResults[GuiQuery["query"]];
-
-/** 图形宿主只维护交互与生命周期，业务状态从 SDK 读取。 */
+/** 共享服务与会话目录。执行资源的准入和收尾由逻辑会话管理。 */
 export class GuiHost {
-	private current: AgentSessionRuntime | undefined;
-	private workspaceRoot: string | undefined;
-	private readSessionInfo: ReadSessionInfo | undefined;
-	private history = new UserHistoryStore();
-	private historyTexts: string[] = [];
-	private historyWarned = false;
-	private listeners = new Set<(event: GuiEvent) => void>();
-	private unsubscribe: (() => void) | undefined;
-	private timer: ReturnType<typeof setTimeout> | undefined;
-	private changing = false;
-	private preparing = 0;
-	private commandController = new AbortController();
+	readonly sessions = new Map<string, GuiSession>();
+	readonly clients = new Set<GuiClient>();
+	private approvals = new ApprovalStores();
+	private projectTrust = new Map<string, boolean>();
 	private workbenchController = new AbortController();
-	private workbenchCwd = "";
-	private pendingGit: Promise<WorkspaceGit | null> | undefined;
-	private messageTiming = new MessageTiming();
-	private payloads = new GuiPayloads();
-	private liveTools = new Map<string, GuiSnapshot["liveTools"][number]>();
-	private disposed = false;
+	private pendingGit = new Map<string, Promise<WorkspaceGit | null>>();
+	readonly catalog = new GuiSessionCatalog((value, workspaces) => {
+		this.emit({ type: "sessions", value }); this.emit({ type: "workspaces", value: workspaces });
+	}, () => [this.workspaceRoot, ...[...this.sessions.values()].filter((session) => session.observed || session.activity.state !== "idle").map((session) => session.cwd)]);
+	workspaceRoot = "";
+	initial: GuiSession | undefined;
+	private listeners = new Set<(event: GuiEvent) => void>();
 	private tasks = new Set<Promise<unknown>>();
-	private toolController: ToolSelectionController | undefined;
-	private loginController: AbortController | undefined;
-	private sessions = new GuiSessionCatalog((value, workspaces) => {
-		this.emit({ type: "sessions", value });
-		this.emit({ type: "workspaces", value: workspaces });
-	}, () => [this.workspaceRoot ?? "", this.current?.cwd ?? ""]);
-	private info = new GuiSessionInfo(
-		(value) => this.emit({ type: "sessionInfo", value }),
-		(error) => this.dialogs.notify(`会话信息读取失败: ${error instanceof Error ? error.message : String(error)}`, "error"),
-	);
-	readonly dialogs = new GuiDialogs((event) => this.emit(event), () => this.current
-		? this.current.session.messages.length + (this.current.session.state.streamingMessage ? 1 : 0)
-		: 0);
+	private historyMutation: Promise<void> = Promise.resolve();
+	private closed = false;
+	private refreshPending = false;
+	private activityPending = false;
+	private timer: ReturnType<typeof setTimeout> | undefined;
+	private deleting = new Set<string>();
+	private cache = readGuiDefaults().sessionCache;
 
-	get runtime(): AgentSessionRuntime {
-		if (!this.current) throw new Error("会话尚未就绪。");
-		return this.current;
+	createClient(sessionId?: string): GuiClient {
+		if (this.closed) throw new Error("宿主已关闭。");
+		const client = new GuiClient(this);
+		this.clients.add(client);
+		const session = sessionId ? this.sessions.get(sessionId) : this.initial;
+		if (session) void client.select(session).catch((error: unknown) => client.reportError(error));
+		return client;
 	}
-
-	emit(event: GuiEvent): void {
-		for (const listener of this.listeners) listener(event);
+	async start(cwd: string): Promise<void> {
+		if (this.closed) throw new Error("宿主已关闭。");
+		this.workspaceRoot = path.resolve(cwd);
+		this.emit({ type: "workspaceRoot", path: this.workspaceRoot });
+		this.applyGuiConfig(await readGuiConfig());
+		const session = await this.newSession(this.workspaceRoot, { type: "session_start", reason: "startup" });
+		this.initial = session;
+		for (const client of this.clients) if (!client.selected) void client.select(session).catch((error: unknown) => client.reportError(error));
+		await session.ensure();
+		this.refresh();
 	}
-
-	subscribe(listener: (event: GuiEvent) => void): () => void {
-		this.listeners.add(listener);
-		if (this.workspaceRoot) listener({ type: "workspaceRoot", path: this.workspaceRoot });
-		listener({ type: "dialogs", value: this.dialogs.list() });
-		listener({ type: "notices", value: [...this.dialogs.notices] });
-		listener({ type: "snapshot", value: this.current ? this.snapshot() : null });
-		if (this.info.value) listener({ type: "sessionInfo", value: this.info.value });
-		if (this.sessions.value) listener({ type: "sessions", value: this.sessions.value });
-		if (this.sessions.workspaces) listener({ type: "workspaces", value: this.sessions.workspaces });
-		this.scheduleInfo();
-		return () => this.listeners.delete(listener);
-	}
-
-	connect(send: (delivery: GuiDelivery) => void) {
-		const channel = new GuiChannel(() => this.payloads, send);
-		const unsubscribe = this.subscribe((event) => channel.accept(event));
-		return {
-			acknowledge: (id: number) => channel.acknowledge(id),
-			close: () => { unsubscribe(); channel.close(); },
-		};
-	}
-
-	private track<T>(task: Promise<T>): Promise<T> {
-		this.tasks.add(task);
-		return task.finally(() => this.tasks.delete(task));
-	}
-
-	start(cwd: string): Promise<void> {
-		if (!this.workspaceRoot) {
-			this.workspaceRoot = path.resolve(cwd);
-			this.emit({ type: "workspaceRoot", path: this.workspaceRoot });
-		}
-		return this.track(this.change(() => this.initialize(cwd)));
-	}
-
-	private async initialize(cwd: string, sessionManager?: SessionManager): Promise<void> {
-		const runtime = await createGuiRuntime(cwd, {
-			dialogs: this.dialogs,
-			emit: (event) => this.emit(event),
-			bindTools: (controller) => { this.toolController = controller; },
-			commandSignal: () => this.commandController.signal,
-			bindSessionInfo: (read) => { this.readSessionInfo = read; },
-		}, sessionManager);
-		if (this.disposed) {
-			await runtime.dispose();
-			return;
-		}
-		this.current = runtime;
-		runtime.setBeforeSessionInvalidate(() => {
-			this.unsubscribe?.();
-			this.toolController = undefined;
-			this.readSessionInfo = undefined;
-			this.info.invalidate();
-			this.liveTools.clear();
-			this.dialogs.cancel();
-		});
-		runtime.setRebindSession(() => this.bindSession());
-		await this.bindSession();
-	}
-
-	private async bindSession(): Promise<void> {
-		const runtime = this.runtime;
-		const session = runtime.session;
-		if (this.workbenchCwd !== runtime.cwd) {
-			this.workbenchController.abort();
-			this.pendingGit = undefined;
-			this.workbenchController = new AbortController();
-			this.workbenchCwd = runtime.cwd;
-		}
-		this.historyWarned = false;
-		try {
-			const records = await this.history.load(runtime.cwd);
-			const messages = session.messages.flatMap((message) => message.role === "user" ? [{
-				timestamp: message.timestamp,
-				text: typeof message.content === "string" ? message.content : message.content
-					.filter((content) => content.type === "text").map((content) => content.text).join("\n"),
-			}] : []);
-			this.historyTexts = buildInitialHistory(records, messages, session.sessionId);
-		} catch (error) {
-			this.historyTexts = [];
-			this.historyError(error);
-		}
-		this.unsubscribe?.();
-		this.messageTiming = new MessageTiming();
-		this.payloads = new GuiPayloads();
-		this.unsubscribe = session.subscribe((event) => {
-			this.messageTiming.accept(event);
-			if (event.type === "message_update") {
-				this.emit({ type: "stream", sessionId: session.sessionId, value: event.message });
-				return;
-			}
-			if (event.type === "tool_execution_start" || event.type === "tool_execution_update")
-				this.liveTools.set(event.toolCallId, event);
-			if (event.type === "tool_execution_end") this.liveTools.delete(event.toolCallId);
-			if (event.type === "agent_end" || event.type === "session_info_changed") this.refreshSessions();
-			this.schedule();
-		});
-		await session.bindExtensions({
-			// SDK 尚无 gui 模式。print + 真实 uiContext 提供 hasUI，不启动任何运行模式。
-			mode: "print",
-			uiContext: this.dialogs.context(),
-			commandContextActions: {
-				waitForIdle: () => session.waitForIdle(),
-				newSession: (options) => runtime.newSession(options),
-				fork: (entryId, options) => runtime.fork(entryId, options),
-				navigateTree: (entryId, options) => session.navigateTree(entryId, options),
-				switchSession: (file, options) => runtime.switchSession(file, options),
-				reload: () => session.reload(),
-			},
-			shutdownHandler: () => this.emit({ type: "close" }),
-			onError: (error) => this.dialogs.notify(`${error.extensionPath}: ${error.error}`, "error"),
-		});
-		this.publish();
-		this.refreshSessions();
-	}
-
-	private refreshSessions(): void {
-		if (this.disposed) return;
-		void this.sessions.refresh().catch((error: unknown) => {
-			if (!this.disposed)
-				this.dialogs.notify(`会话列表读取失败: ${error instanceof Error ? error.message : String(error)}`, "error");
-		});
-	}
-
-	private get idle(): boolean {
-		return (!this.current || this.current.session.isIdle && !this.current.session.isBashRunning)
-			&& !this.loginController && this.preparing === 0;
-	}
-
-	snapshot(): GuiSnapshot {
-		return collectGuiSnapshot(this.runtime, {
-			canSubmit: !this.changing,
-			canChangeSession: !this.changing && this.idle,
-			commandRunning: this.preparing > 0,
-			liveTools: [...this.liveTools.values()],
-			messageDurations: { ...this.messageTiming.durations },
-			history: this.historyTexts,
-			status: { ...this.dialogs.status },
-		});
-	}
-
-	private schedule(): void {
-		if (!this.timer && !this.disposed)
-			this.timer = setTimeout(() => {
+	applyGuiConfig(document: GuiConfigDocument): void {
+		if (document.state === "ready") {
+			const cache = document.value.sessionCache;
+			if (cache.idleLimit !== this.cache.idleLimit || cache.idleMs !== this.cache.idleMs) {
+				this.cache = cache;
+				const scheduled = this.timer !== undefined;
+				clearTimeout(this.timer);
 				this.timer = undefined;
-				this.publish();
-			}, 0);
-	}
-
-	private scheduleInfo(): void {
-		if (!this.disposed && !this.changing && this.current && this.readSessionInfo)
-			this.info.schedule(this.current.session, this.readSessionInfo);
-	}
-
-	publish(): void {
-		if (this.disposed) return;
-		this.emit({ type: "snapshot", value: this.current ? this.snapshot() : null });
-		this.scheduleInfo();
-	}
-
-	async dispatch(value: unknown): Promise<void> {
-		if (!validateAction(value)) throw new Error("无效 GUI 操作参数。");
-		if (this.disposed) throw new Error("宿主已关闭。");
-		await this.track(this.perform(value as GuiAction));
-	}
-
-	query<Q extends GuiQuery>(value: Q): Promise<GuiQueryResults[Q["query"]]>;
-	query(value: unknown): Promise<QueryResult>;
-	async query(value: unknown): Promise<QueryResult> {
-		if (!validateQuery(value)) throw new Error("无效 GUI 查询参数。");
-		if (this.disposed) throw new Error("宿主已关闭。");
-		return this.track(this.readQuery(value as GuiQuery));
-	}
-
-	private readGit(cwd: string, signal: AbortSignal): Promise<WorkspaceGit | null> {
-		if (this.pendingGit) return this.pendingGit;
-		const pending = readWorkspaceGit(cwd, signal).finally(() => {
-			if (this.pendingGit === pending) this.pendingGit = undefined;
-		});
-		this.pendingGit = pending;
-		return pending;
-	}
-
-	private async readQuery(query: GuiQuery): Promise<QueryResult> {
-		if (query.query === "image") return this.payloads.image(query.id);
-		if (query.query === "toolOutput") return this.payloads.toolOutput(query.id);
-		if (query.query === "moduleConfig") return readModuleConfig(query.id);
-		if (query.query === "guiConfig") return readGuiConfig();
-		if (query.query === "directories")
-			return listDirectories(path.resolve(this.workspaceRoot ?? process.cwd(), query.path));
-		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
-		const runtime = this.runtime;
-		switch (query.query) {
-			case "complete": return completeCommand(runtime.session, query.text);
-			case "files": return completeFiles(runtime.cwd, query.prefix);
-			case "config":
-				await runtime.services.settingsManager.flush();
-				return readConfig(query.file);
+				if (scheduled) this.scheduleCollection();
+			}
 		}
-		if (query.cwd !== runtime.cwd) throw new Error("工作区已切换，请刷新后重试。");
+		this.emit({ type: "guiConfig", value: document });
+	}
+	async queryWorkspace(query: WorkspaceQuery) {
 		const signal = this.workbenchController.signal;
-		let result: QueryResult;
-		switch (query.query) {
-			case "workspaceFiles": result = await listWorkspaceFiles(query.cwd, query.path); break;
-			case "workspaceGit": result = await this.readGit(query.cwd, signal); break;
-			case "previewFile": result = await previewWorkspaceFile(query.cwd, query.path, signal, () => this.readGit(query.cwd, signal)); break;
-		}
+		const git = () => {
+			let pending = this.pendingGit.get(query.cwd);
+			if (!pending) {
+				pending = readWorkspaceGit(query.cwd, signal).finally(() => this.pendingGit.delete(query.cwd));
+				this.pendingGit.set(query.cwd, pending);
+			}
+			return pending;
+		};
+		const result = query.query === "workspaceFiles" ? await listWorkspaceFiles(query.cwd, query.path)
+			: query.query === "workspaceGit" ? await git()
+			: await previewWorkspaceFile(query.cwd, query.path, signal, git);
 		signal.throwIfAborted();
 		return result;
 	}
-
-	private async perform(action: GuiAction): Promise<void> {
-		switch (action.action) {
-			case "saveModuleConfig":
-				await saveModuleConfig(action.id, action.original, action.content);
-				return;
-			case "saveGuiConfig":
-				this.emit({ type: "guiConfig", value: await saveGuiConfig(action.original, action.content) });
-				return;
-			case "dialog": this.dialogs.respond(action.id, action.value); return;
-			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
-			case "draft": this.dialogs.draft = action.text; return;
-			case "cancelLogin": this.loginController?.abort(); return;
-			case "sessions": await this.sessions.refresh(); return;
-			case "abort":
-				this.dialogs.cancel();
-				this.commandController.abort();
-				this.commandController = new AbortController();
-				this.loginController?.abort();
-				if (this.current) {
-					const session = this.current.session;
-					session.abortBash();
-					session.abortCompaction();
-					session.abortBranchSummary();
-					session.abortRetry();
-					await session.abort();
-				}
-				this.publish();
-				return;
-		}
-		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
-		if (action.action === "deleteSession") return this.change(() => this.deleteSession(action.path));
-		if (action.action === "removeWorkspace") return this.change(() => this.removeWorkspace(action.path));
-		if (!this.current) {
-			return this.change(async () => {
-				if (action.action === "workspace") await this.initialize(action.path);
-				else if (action.action === "switch") {
-					if (!(await stat(action.path)).isFile()) throw new Error("会话路径不是文件。");
-					const manager = SessionManager.open(action.path);
-					await this.initialize(manager.getCwd(), manager);
-				} else throw new Error("请先选择工作区。");
-			});
-		}
-		const { session, services } = this.current;
-		switch (action.action) {
-			case "view": await openView(this, action.view, this.commandController.signal); return;
-			case "prompt": await this.prompt(action); return;
-			case "clearQueue": session.clearQueue(); this.publish(); return;
-			case "export": await exportSession(session, action.format, (event) => this.emit(event)); return;
-			case "login":
-				if (this.loginController) throw new Error("已有登录流程正在进行。");
-				this.loginController = new AbortController();
-				this.publish();
-				this.emit({ type: "auth", value: { type: "progress", message: "正在准备登录…" } });
-				try {
-					await runLogin(services.modelRuntime, action.provider, action.type, this.dialogs,
-						(event) => this.emit(event), this.loginController.signal);
-				} catch (error) {
-					if (!this.loginController.signal.aborted) throw error;
-				} finally {
-					this.loginController = undefined;
-					this.emit({ type: "auth", value: null });
-					this.publish();
-				}
-				return;
-			case "logout":
-				try { await services.modelRuntime.logout(action.provider); }
-				finally { this.publish(); }
-				return;
-			case "compact":
-				if (session.isCompacting) throw new Error("压缩已在进行。");
-				try { await session.compact(action.instructions || undefined); }
-				finally { this.publish(); }
-				return;
-		}
-		await this.change(() => this.mutate(action));
+	track<T>(task: Promise<T>): Promise<T> {
+		this.tasks.add(task);
+		return task.finally(() => this.tasks.delete(task));
 	}
-
-	private async prompt(action: Extract<GuiAction, { action: "prompt" }>): Promise<void> {
-		const runtime = this.runtime;
-		const session = runtime.session;
-		if (action.text.trim()) {
-			this.historyTexts = [...this.historyTexts, action.text.trim()].slice(-100);
-			void this.history.append({ cwd: runtime.cwd, session: session.sessionId, text: action.text })
-				.catch((error: unknown) => this.historyError(error));
+	emit(event: GuiEvent): void { for (const listener of this.listeners) listener(event); }
+	reportError(error: unknown): void { this.emit({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
+	subscribe(listener: (event: GuiEvent) => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+	replay(listener: (event: GuiEvent) => void): void {
+		if (this.workspaceRoot) listener({ type: "workspaceRoot", path: this.workspaceRoot });
+		if (this.catalog.value) listener({ type: "sessions", value: this.catalog.value });
+		if (this.catalog.workspaces) listener({ type: "workspaces", value: this.catalog.workspaces });
+		listener({ type: "activity", value: [...this.sessions.values()].map((session) => session.activity) });
+	}
+	refresh(): void {
+		if (this.closed || this.refreshPending) return;
+		this.refreshPending = true;
+		queueMicrotask(() => {
+			this.refreshPending = false;
+			void this.catalog.refresh().catch((error: unknown) => { if (!this.closed) this.reportError(error); });
+		});
+	}
+	private activityChanged(): void {
+		if (this.closed || this.activityPending) return;
+		this.activityPending = true;
+		queueMicrotask(() => {
+			this.activityPending = false;
+			if (!this.closed) this.emit({ type: "activity", value: [...this.sessions.values()].map((session) => session.activity) });
+		});
+	}
+	register(manager: SessionManager, event: SessionStartEvent = { type: "session_start", reason: "resume" }): GuiSession {
+		if (this.closed) throw new Error("宿主已关闭。");
+		const existing = this.sessions.get(manager.getSessionId());
+		if (existing) {
+			if (existing.file !== (manager.getSessionFile() ?? null)) throw new Error("会话标识重复，请导入为新会话。");
+			return existing;
 		}
-		this.publish();
-		if (await runBuiltin(this, action.text, (action) => this.perform(action))) return;
-		if (action.text.startsWith("!")) {
-			try {
-				await session.executeBash(action.text.replace(/^!!?/, ""), (chunk) => {
-					this.dialogs.status["bash"] = ((this.dialogs.status["bash"] ?? "") + chunk).slice(-64_000);
-					this.schedule();
-				}, { excludeFromContext: action.text.startsWith("!!") });
-			} finally {
-				delete this.dialogs.status["bash"];
-				this.refreshSessions();
-				this.publish();
-			}
-			return;
+		const session = new GuiSession(manager, { stores: this.approvals, trust: this.projectTrust }, event,
+			(changed) => { if (changed) this.activityChanged(); this.scheduleCollection(); }, () => this.refresh());
+		this.sessions.set(session.id, session);
+		this.activityChanged();
+		return session;
+	}
+	async newSession(cwd: string, event: SessionStartEvent = { type: "session_start", reason: "new" }): Promise<GuiSession> {
+		cwd = path.resolve(cwd);
+		if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
+		return this.register(SessionManager.create(cwd), event);
+	}
+	async openFile(file: string): Promise<GuiSession> {
+		file = path.resolve(file);
+		if (this.deleting.has(file)) throw new Error("会话正在删除。");
+		const existing = [...this.sessions.values()].find((session) => session.file === file);
+		if (existing) return existing;
+		if (!(await stat(file)).isFile()) throw new Error("会话路径不是文件。");
+		const manager = SessionManager.open(file);
+		if (!(await stat(manager.getCwd())).isDirectory()) throw new Error("工作目录不是文件夹。");
+		return this.register(manager);
+	}
+	scheduleCollection(): void {
+		if (this.closed || this.timer) return;
+		this.timer = setTimeout(() => {
+			this.timer = undefined;
+			void this.collect().catch((error: unknown) => this.reportError(error));
+		}, this.cache.idleMs);
+		this.timer.unref();
+	}
+	async collect(): Promise<void> {
+		const cutoff = Date.now() - this.cache.idleMs;
+		const idle = [...this.sessions.values()].filter((session) => session.lastUsed <= cutoff && session.canRelease)
+			.sort((a, b) => b.lastUsed - a.lastUsed);
+		for (const session of idle.slice(this.cache.idleLimit)) {
+			// 等待其他会话释放后，候选会话可能已经重新使用。
+			if (session.lastUsed <= cutoff) await session.release();
 		}
-		const name = session.sessionName;
-		this.preparing++;
-		this.publish();
+		if ([...this.sessions.values()].some((session) => session.needsCollection)) this.scheduleCollection();
+	}
+	private changeHistory<T>(operation: () => Promise<T>): Promise<T> {
+		const pending = this.historyMutation.then(operation);
+		this.historyMutation = pending.then(() => {}, () => {});
+		return pending;
+	}
+	rename(file: string, name: string, client: GuiClient): Promise<void> {
+		return this.changeHistory(async () => {
+			const target = [...this.sessions.values()].find((session) => session.file === file);
+			const rename = () => this.catalog.rename(file, name);
+			if (target) await target.rename(name, client.forSession(target), rename);
+			else await rename();
+			await this.catalog.refresh();
+		});
+	}
+	remove(files: string[]): Promise<void> { return this.changeHistory(() => this.removeFiles(files)); }
+	private async removeFiles(files: string[]): Promise<void> {
+		const normalized = [...new Set(files.map((file) => path.resolve(file)))];
+		const affected = [...this.sessions.values()].filter((session) => session.file && normalized.includes(session.file));
 		try {
-			const attachments = await expandAttachments(action.text, runtime.cwd);
-			await session.prompt(attachments.text, {
-				images: [...attachments.images, ...action.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }))],
-				streamingBehavior: action.behavior,
-				source: "interactive",
-			});
+			for (const session of affected) session.reserveDeletion();
+			for (const file of normalized) this.deleting.add(file);
+			for (const session of affected) if (!await session.confirmDeletion()) return;
+			const plan = await prepareSessionDeletion(normalized, new Set(affected.flatMap((session) => session.file ? [session.file] : [])), () => this.catalog.paths());
+			await plan.verify();
+			for (const session of affected) await session.prepareDeletion();
+			const removed = new Set<string>();
+			try { await plan.remove((file) => removed.add(file)); }
+			finally {
+				const deleted = affected.filter((session) => session.file && removed.has(session.file));
+				for (const session of deleted) { session.deleted(); this.sessions.delete(session.id); }
+				if (removed.size) this.emit({ type: "sessionsDeleted", ids: deleted.map((session) => session.id), paths: [...removed] });
+				this.activityChanged();
+				for (const session of deleted) {
+					const viewers = [...this.clients].filter((client) => client.selected === session);
+					const initial = this.initial === session;
+					if (initial) this.initial = undefined;
+					if (viewers.length || initial) {
+						const next = await this.newSession(session.cwd);
+						if (initial) this.initial = next;
+						await Promise.all(viewers.map((client) => client.select(next)));
+					}
+				}
+			}
 		} finally {
-			this.preparing--;
-			if (session.sessionName !== name) this.refreshSessions();
-			this.publish();
+			for (const file of normalized) this.deleting.delete(file);
+			for (const session of affected) session.cancelDeletion();
+			await this.catalog.refresh();
 		}
 	}
-
-	private async change(operation: () => Promise<void>): Promise<void> {
-		if (this.disposed) throw new Error("宿主已关闭。");
-		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
-		if (!this.idle) throw new Error("请先停止或等待当前操作结束。");
-		this.changing = true;
-		this.info.invalidate();
-		this.publish();
-		try { await operation(); }
-		finally { this.changing = false; this.publish(); }
-	}
-
-	private async removeWorkspace(cwd: string): Promise<void> {
-		if (cwd === this.workspaceRoot || cwd === this.current?.cwd) throw new Error("不能移除启动目录或当前工作区。");
-		await this.sessions.refresh();
-		if (!this.sessions.workspaces?.some((workspace) => workspace.path === cwd)) throw new Error("工作区已不在列表中。");
-		try {
-			const files = (this.sessions.value ?? []).filter((session) => session.cwd === cwd).map((session) => session.path);
-			const plan = await prepareSessionDeletion(files, null, () => this.sessions.paths());
-			await plan.verify();
-			await plan.remove();
-		} finally { await this.sessions.refresh(); }
-	}
-
-	private async deleteSession(file: string): Promise<void> {
-		if (this.dialogs.list().length) throw new Error("请先完成或取消当前对话框。");
-		try {
-			const plan = await prepareSessionDeletion([file], this.current?.session.sessionFile ?? null, () => this.sessions.paths());
-			if (this.disposed) return;
-			await plan.verify();
-			if (plan.affectsCurrent && this.current) {
-				if ((await this.current.newSession()).cancelled) {
-					this.dialogs.notify("会话切换被取消，未删除历史。");
-					return;
-				}
-				this.dialogs.context().setEditorText("");
-			}
-			await plan.remove();
-		} finally { await this.sessions.refresh(); }
-	}
-
-	private async mutate(action: GuiAction): Promise<void> {
-		const runtime = this.runtime;
-		const session = runtime.session;
-		switch (action.action) {
-			case "new": await runtime.newSession(); break;
-			case "workspace": {
-				const cwd = path.resolve(runtime.cwd, action.path);
-				if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
-				await runtime.dispose();
-				this.current = undefined;
-				await this.initialize(cwd);
-				break;
-			}
-			case "switch":
-				if (!(await stat(action.path)).isFile()) throw new Error("会话路径不是文件。");
-				await runtime.switchSession(action.path);
-				break;
-			case "fork": {
-				const result = await runtime.fork(action.entryId);
-				if (!result.cancelled && result.selectedText) this.dialogs.context().setEditorText(result.selectedText);
-				break;
-			}
-			case "navigate": {
-				const result = await session.navigateTree(action.entryId, { summarize: action.summarize });
-				if (result.editorText) this.dialogs.context().setEditorText(result.editorText);
-				break;
-			}
-			case "label": session.sessionManager.appendLabelChange(action.entryId, action.label); break;
-			case "renameSession":
-				if (action.path === session.sessionFile) session.setSessionName(action.name);
-				else await this.sessions.rename(action.path, action.name);
-				await this.sessions.refresh();
-				break;
-			case "rename": session.setSessionName(action.name); this.refreshSessions(); break;
-			case "import": await importSession(runtime, action.content); break;
-			case "reload": await session.reload(); break;
-			case "model": {
-				const model = runtime.services.modelRuntime.getModel(action.provider, action.id);
-				if (!model) throw new Error("模型不存在。");
-				await session.setModel(model, { persist: false });
-				break;
-			}
-			case "thinking":
-				session.setThinkingLevel(action.level);
-				runtime.services.settingsManager.setDefaultThinkingLevel(session.thinkingLevel);
-				break;
-			case "scopeModels": setModelScope(runtime, action.models); break;
-			case "persistModels": await persistModelScope(runtime); break;
-			case "settings":
-				session.setAutoCompactionEnabled(action.compaction);
-				session.setAutoRetryEnabled(action.retry);
-				session.setSteeringMode(action.steering);
-				session.setFollowUpMode(action.followUp);
-				runtime.services.settingsManager.setImageAutoResize(action.autoResize);
-				runtime.services.settingsManager.setBlockImages(action.blockImages);
-				await runtime.services.settingsManager.flush();
-				break;
-			case "tool":
-			case "persistTools":
-				if (!this.toolController) throw new Error("工具选择未绑定。");
-				if (action.action === "tool") this.toolController.set(action.name, action.enabled);
-				else this.dialogs.notify(`已保存: ${await this.toolController.persistUserDefaults()}`);
-				break;
-			case "saveConfig":
-				await runtime.services.settingsManager.flush();
-				await saveConfig(action.file, action.original, action.content);
-				await session.reload();
-				break;
-		}
-	}
-
-	private historyError(error: unknown): void {
-		if (this.historyWarned) return;
-		this.historyWarned = true;
-		this.dialogs.notify(`输入历史不可用: ${error instanceof Error ? error.message : String(error)}`, "warning");
-	}
-
 	async dispose(): Promise<void> {
-		if (this.disposed) return;
-		this.disposed = true;
-		const sessionsClosed = this.sessions.dispose();
-		const infoClosed = this.info.dispose();
-		clearTimeout(this.timer);
-		this.loginController?.abort();
-		this.commandController.abort();
+		if (this.closed) return;
+		this.closed = true;
 		this.workbenchController.abort();
-		this.dialogs.cancel();
-		if (this.current) {
-			this.current.session.abortBash();
-			await this.current.session.abort();
-		}
+		clearTimeout(this.timer);
+		for (const client of [...this.clients]) client.close();
+		const results = await Promise.allSettled([...this.sessions.values()].map((session) => session.close()));
 		await Promise.allSettled([...this.tasks]);
-		this.unsubscribe?.();
-		await this.current?.dispose();
-		await this.history.flush();
-		await Promise.all([sessionsClosed, infoClosed]);
-		this.listeners.clear();
+		results.push(...await Promise.allSettled([this.catalog.dispose(), lspManager.reload()]));
+		this.sessions.clear(); this.listeners.clear();
+		const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);
+		if (errors.length) throw new AggregateError(errors, "宿主资源释放失败。");
 	}
 }

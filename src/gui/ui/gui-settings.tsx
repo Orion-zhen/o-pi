@@ -35,7 +35,7 @@ export function GuiSettings({ section, document, send, disabled, refresh, restor
 	};
 	const reset = () => {
 		let content = document.content || "{}\n";
-		for (const key of ["theme", "themeColor", "fonts", "fontSizes", "sendShortcut"])
+		for (const key of ["theme", "themeColor", "fonts", "fontSizes", "sendShortcut", "sessionCache"])
 			content = applyEdits(content, modify(content, [key], undefined, {}));
 		void save(content);
 	};

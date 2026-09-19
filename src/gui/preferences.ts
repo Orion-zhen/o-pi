@@ -4,6 +4,7 @@ export interface GuiPreferences {
 	fonts: { ui: string[]; code: string[] };
 	fontSizes: { ui: number; chat: number; code: number };
 	sendShortcut: "mod-enter" | "enter";
+	sessionCache: { idleLimit: number; idleMs: number };
 }
 
 export type GuiConfigDocument = {

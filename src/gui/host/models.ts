@@ -15,14 +15,14 @@ export function setModelScope(runtime: AgentSessionRuntime, ids: string[]): void
 	runtime.session.setScopedModels(scope);
 }
 
+export function modelScope(runtime: AgentSessionRuntime): string[] {
+	return runtime.session.scopedModels.map(({ model, thinkingLevel }) =>
+		`${model.provider}/${model.id}${thinkingLevel === undefined ? "" : `:${thinkingLevel}`}`);
+}
+
 export async function persistModelScope(runtime: AgentSessionRuntime): Promise<void> {
 	const settings = runtime.services.settingsManager;
-	settings.setEnabledModels(
-		runtime.session.scopedModels.map(
-			({ model, thinkingLevel }) =>
-				`${model.provider}/${model.id}${thinkingLevel === undefined ? "" : `:${thinkingLevel}`}`,
-		),
-	);
+	settings.setEnabledModels(modelScope(runtime));
 	await settings.flush();
 	// SDK 把写入失败放入错误队列，flush 本身不会拒绝。
 	const errors = settings.drainErrors();

@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
 import dns from "node:dns/promises";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import path from "node:path";
@@ -147,13 +148,24 @@ describe("approval gate", () => {
 	});
 
 	it("持久规则保存失败仍批准本次调用，但下一次调用继续询问", async () => {
-		const ui = fakeUi(["Always allow similar", "Allow once"]);
+		const file = path.join(dir, "rules.jsonc");
+		const ui = fakeUi(["Always allow similar", "Allow once"], undefined, () => {
+			if (ui.selectCalls === 1) mkdirSync(file);
+		});
 		const gate = testGate();
-		await gate.handleToolCall(bash("echo ready"), ctx(ui));
-		await mkdir(path.join(dir, "rules.jsonc"));
 		expect(await gate.handleToolCall(bash("npm install lodash"), ctx(ui))).toBeUndefined();
+		await rm(file, { recursive: true });
 		expect(await gate.handleToolCall(bash("npm install lodash"), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(2);
+	});
+
+	it("外部撤销持久授权后，已加载的审批实例重新询问", async () => {
+		const gate = testGate();
+		expect(await gate.handleToolCall(bash("git push origin main"), ctx(fakeUi(["Always allow similar"])))).toBeUndefined();
+		await writeFile(path.join(dir, "rules.jsonc"), '{"rules":[]}');
+		const ui = fakeUi(["Deny"]);
+		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toMatchObject({ block: true });
+		expect(ui.selectCalls).toBe(1);
 	});
 
 	it("TUI 模式使用自定义面板而非 RPC 选择框", async () => {

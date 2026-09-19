@@ -38,13 +38,13 @@ test("折叠父目录后不刷新隐藏后代，重新展开读取外部修改",
 	await expect(src).toHaveAttribute("aria-expanded", "false");
 	const paths: unknown[] = [];
 	await page.route("**/api/query", async (route) => {
-		const body: unknown = route.request().postDataJSON();
+		const body: unknown = route.request().postDataJSON().value;
 		if (typeof body === "object" && body !== null && "query" in body && body.query === "workspaceFiles" && "path" in body) paths.push(body.path);
 		await route.continue();
 	});
 	const response = page.waitForResponse((response) => {
 		if (!response.url().endsWith("/api/query")) return false;
-		const body: unknown = response.request().postDataJSON();
+		const body: unknown = response.request().postDataJSON().value;
 		return typeof body === "object" && body !== null && "query" in body && body.query === "workspaceFiles";
 	});
 	await navigation.getByRole("button", { name: "刷新文件", exact: true }).click();

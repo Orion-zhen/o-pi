@@ -13,6 +13,8 @@ declare global {
 
 export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiConnection {
 	const listeners = new Set<(event: GuiEvent) => void>();
+	let clientId = "";
+	let selectedId = sessionStorage.getItem("opi.session");
 	const receiver = new GuiReceiver();
 	let frame: number | undefined;
 	let pending: { delivery: GuiDelivery; acknowledge: (id: number) => void }[] = [];
@@ -26,6 +28,12 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 			let snapshot: Extract<GuiEvent, { type: "snapshot" }> | undefined;
 			for (const { delivery } of batch) for (const event of delivery.events) {
 				const value = receiver.accept(event);
+				if (value.type === "client") { clientId = value.id; onStatus("connected"); continue; }
+				if (value.type === "selected") {
+					selectedId = value.session?.id ?? null;
+					if (selectedId) sessionStorage.setItem("opi.session", selectedId);
+					else sessionStorage.removeItem("opi.session");
+				}
 				if (value.type === "snapshot") snapshot = value;
 				else for (const listener of listeners) listener(value);
 			}
@@ -52,25 +60,27 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	const open = () => {
 		if (closed) return;
 		onStatus("connecting");
-		const client = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/events`);
+		const search = selectedId ? `?session=${encodeURIComponent(selectedId)}` : "";
+		const client = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/events${search}`);
 		socket = client;
-		client.onopen = () => { attempts = 0; onStatus("connected"); };
+		client.onopen = () => { attempts = 0; };
 		client.onmessage = (message: MessageEvent<string>) => receive(JSON.parse(message.data) as GuiDelivery, (id) => {
 			if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ ack: id }));
 		});
 		client.onclose = () => {
 			cancelFrame();
+			clientId = "";
 			if (closed) return;
 			onStatus("disconnected");
 			if (++attempts <= 6) timer = setTimeout(open, Math.min(1000 * attempts, 10_000));
 		};
 	};
 	const post = async (kind: "action" | "query", value: unknown): Promise<Response> => {
-		if (socket.readyState !== WebSocket.OPEN) throw new Error("连接尚未恢复，请稍后再试。");
+		if (socket.readyState !== WebSocket.OPEN || !clientId) throw new Error("连接尚未恢复，请稍后再试。");
 		let response: Response;
 		try {
 			response = await fetch(`/api/${kind}`, {
-				method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value),
+				method: "POST", headers: { "Content-Type": "application/json", "X-Opi-Client": clientId }, body: JSON.stringify(value),
 			});
 		} catch {
 			throw new Error(kind === "query" ? "查询连接中断，请恢复连接后重试。"
@@ -81,9 +91,9 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	};
 	open();
 	return {
-		async send(action) { await post("action", action); },
-		async query<Q extends GuiQuery>(query: Q): Promise<GuiQueryResults[Q["query"]]> {
-			const value: unknown = await (await post("query", query)).json();
+		async send(value, sessionId) { await post("action", { value, sessionId }); },
+		async query<Q extends GuiQuery>(query: Q, sessionId: string | null): Promise<GuiQueryResults[Q["query"]]> {
+			const value: unknown = await (await post("query", { value: query, sessionId })).json();
 			return value as GuiQueryResults[Q["query"]];
 		},
 		subscribe,

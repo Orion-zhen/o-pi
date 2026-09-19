@@ -1,11 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { GuiHost } from "../../src/gui/host/host.ts";
+import type { GuiClient } from "../../src/gui/host/client.ts";
 import type { GuiSnapshot } from "../../src/gui/contract.ts";
 import { GuiReceiver } from "../../src/gui/sync.ts";
 
-export function queueTests(context: () => { host: GuiHost; agentDir: string }) {
+export function queueTests(context: () => { host: GuiClient; agentDir: string }) {
 	describe("GUI 消息队列同步", () => {
 		it("运行中逐次入队和清空通过增量通道同步，旧快照保持不变", async () => {
 			const { host, agentDir } = context();

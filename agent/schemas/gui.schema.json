@@ -31,6 +31,14 @@
 				"code": { "type": "number", "minimum": 8, "maximum": 48 }
 			}
 		},
-		"sendShortcut": { "enum": ["mod-enter", "enter"] }
+		"sendShortcut": { "enum": ["mod-enter", "enter"] },
+		"sessionCache": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"idleLimit": { "type": "integer", "minimum": 0, "description": "已超时且可安全释放的实例最多保留数，按最近使用排序，0 表示不保留此类实例。" },
+				"idleMs": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "进入淘汰候选的空闲时长和回收扫描间隔，单位毫秒。" }
+			}
+		}
 	}
 }

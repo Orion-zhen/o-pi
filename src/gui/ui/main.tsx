@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AnimatePresence } from "motion/react";
 import { Fade, Reveal } from "./components/animated";
@@ -16,6 +16,7 @@ import {
 import { safeLink } from "./content.tsx";
 import { locateTranscript } from "./transcript-location.ts";
 import { Transcript } from "./transcript.tsx";
+import { DisclosureMemoryContext } from "./disclosure-memory.ts";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
 import { Panel } from "./panels.tsx";
@@ -64,17 +65,38 @@ function App() {
 	const [collapsed, setCollapsed] = useState(false);
 	const toggleSidebar = useCallback(() => setCollapsed((value) => !value), []);
 	const closeSidebar = useCallback(() => setMobileOpen(false), []);
-	const transcript = useTranscriptScroll(snapshot?.sessionId);
+	const transcript = useTranscriptScroll(snapshot?.sessionId, gui.view);
 	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
+	useEffect(() => setLocation(undefined), [gui.selectedId]);
 	const sessionId = snapshot?.sessionId;
 	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
 	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
-	const located = snapshot ? locateTranscript(snapshot, target) : undefined;
-	const noticeGroups = groupNotices(notices);
+	const located = useMemo(() => snapshot ? locateTranscript(snapshot, target) : undefined, [snapshot, target]);
+	const memory = gui.view?.disclosures;
+	const completedAt = gui.activity.find((item) => item.sessionId === sessionId)?.completedAt ?? 0;
+	useEffect(() => {
+		const check = () => {
+			if (sessionId && !snapshot?.running && !located?.preview && dialogs.length === 0 && document.visibilityState === "visible" && document.hasFocus() && transcript.atLatest())
+				gui.markRead(sessionId, completedAt);
+		};
+		const frame = requestAnimationFrame(check);
+		const viewport = transcript.scroll.current;
+		viewport?.addEventListener("scroll", check);
+		window.addEventListener("focus", check);
+		document.addEventListener("visibilitychange", check);
+		return () => {
+			cancelAnimationFrame(frame);
+			viewport?.removeEventListener("scroll", check);
+			window.removeEventListener("focus", check);
+			document.removeEventListener("visibilitychange", check);
+		};
+	}, [sessionId, snapshot?.running, located?.preview, dialogs.length, completedAt, gui.markRead, transcript.showLatest]);
+	const noticeGroups = useMemo(() => groupNotices(notices), [notices]);
+	const inlineGroups = useMemo(() => located?.preview ? [] : noticeGroups, [located?.preview, noticeGroups]);
 	const noticeTail = snapshot ? snapshot.messages.length + (snapshot.streamingMessage ? 1 : 0) : 0;
 	const clearNoticeGroup = useCallback((ids: string[]) => { void send({ action: "clearNotices", ids }); }, [send]);
 	const inlineNotices = Boolean(snapshot && located && !located.preview && snapshot.messages.length > 0);
-	useLayoutEffect(() => { if (target) transcript.toEntry(target); }, [location]);
+	useLayoutEffect(() => { transcript.restorePosition(); if (target) transcript.toEntry(target); }, [location, sessionId]);
 	const panelContent = useRef<HTMLDivElement>(null);
 	const main = useRef<HTMLElement>(null);
 	const app = useRef<HTMLDivElement>(null);
@@ -201,9 +223,9 @@ function App() {
 						</Reveal>}
 						</AnimatePresence>
 						<div className="transcript-shell">
-						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
-							<div className="transcript-content" ref={transcript.content}>
-								<AnimatePresence initial={false} mode="wait">
+						<div className="transcript" data-list-scroll ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
+							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
+								<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
 								{!snapshot && (
 									<Fade key="workspace-welcome" className="welcome workspace-welcome">
 										<div className="welcome-mark">
@@ -222,8 +244,8 @@ function App() {
 								{snapshot && located && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
 									onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 									{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
-									<Transcript source={located.source} entryIds={located.entryIds}
-										groups={located.preview ? [] : noticeGroups} tail={noticeTail} clear={clearNoticeGroup} />
+									<DisclosureMemoryContext value={memory}><Transcript source={located.source} entryIds={located.entryIds}
+										groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} windowRef={transcript.virtualizer} target={target} view={located.preview ? undefined : gui.view} /></DisclosureMemoryContext>
 								</Fade>}
 								</AnimatePresence>
 								<AnimatePresence initial={false}>{snapshot?.status["bash"] && <Reveal><pre className="live-output">{snapshot.status["bash"]}</pre></Reveal>}</AnimatePresence>
@@ -242,12 +264,12 @@ function App() {
 								}} />)}
 						</div>
 						<AnimatePresence initial={false}>
-						{transcript.showLatest && <Fade className="jump-latest-region"><Button variant="outline" size="sm" className="jump-latest" onClick={transcript.toLatest}>
+						{transcript.showLatest && <Fade className="jump-latest-region"><Button variant="outline" size="sm" className="jump-latest" onClick={() => { if (!located?.preview) setLocation(undefined); transcript.toLatest(); }}>
 							<ArrowDown />回到最新
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
-						{snapshot && <Composer gui={gui} snapshot={snapshot} onSubmit={transcript.followLatest} />}
+						{snapshot && <Composer key={snapshot.sessionId} gui={gui} snapshot={snapshot} onSubmit={transcript.followLatest} />}
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
 						const sidebar = workspace.current?.querySelector<HTMLElement>(".session-sidebar");
@@ -256,13 +278,13 @@ function App() {
 						const min = Math.min(12 * rem, available * 0.4);
 						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - Math.min(20 * rem, available * 0.45) - 8), scale: -1 };
 					}} />
-					{snapshot && <SessionSidebar gui={gui} locate={locate} />}
+					{gui.cwd && <SessionSidebar gui={gui} locate={locate} />}
 					</div>
 				</div>
 			</Sheet>
 			<AnimatePresence mode="wait">
 			{panel?.kind === "settings" ? <PanelDialog key="settings" ref={panelContent} title="设置" close={() => settingsDirty ? setConfirmSettingsClose(true) : gui.setPanel(undefined)} restoreFocus={restoreFocus}>
-				<Settings onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+				<Settings onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
 			</PanelDialog> : panel && snapshot && (
 				<Panel key={panel.kind}
 					ref={panelContent}

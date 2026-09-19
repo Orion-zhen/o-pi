@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Query } from "../contract.ts";
+import type { Query, WorkspaceQuery } from "../contract.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "../workbench.ts";
 import { useWindowRefresh } from "./use-window-refresh.ts";
 
@@ -12,12 +12,16 @@ function visibleExpanded(expanded: Set<string>) {
 	});
 }
 
-export function useWorkbench(cwd: string | undefined, connected: boolean, running: boolean, query: Query) {
+export function useWorkbench(cwd: string | undefined, connected: boolean, running: boolean, query: Query<WorkspaceQuery>) {
 	const [directories, setDirectories] = useState<Record<string, Remote<WorkspaceEntry[]>>>({});
 	const [git, setGit] = useState<Remote<WorkspaceGit | null>>({ state: "loading" });
 	const [preview, setPreview] = useState<{ path: string; result: Remote<FilePreview> }>();
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [onlyChanges, setOnlyChanges] = useState(false);
+	const [search, setSearch] = useState("");
+	const [filesOpen, setFilesOpen] = useState(true);
+	const [pane, setPane] = useState("sessions");
+	const workspace = useRef<string | undefined>(undefined);
 	const pending = useRef(new Map<string, { dirty: boolean }>());
 
 	// 同一路径串行读取，读取期间的刷新合并为一次后续读取。
@@ -63,13 +67,17 @@ export function useWorkbench(cwd: string | undefined, connected: boolean, runnin
 	refreshRef.current = refresh;
 	useEffect(() => {
 		pending.current.clear();
-		setDirectories({});
-		setGit({ state: "loading" });
-		setPreview(undefined);
-		setExpanded(new Set());
-		setOnlyChanges(false);
-		loadDirectory("");
-		loadGit();
+		if (workspace.current !== cwd) {
+			workspace.current = cwd;
+			setDirectories({});
+			setGit({ state: "loading" });
+			setPreview(undefined);
+			setExpanded(new Set());
+			setOnlyChanges(false);
+			setSearch(""); setFilesOpen(true); setPane("sessions");
+			loadDirectory("");
+			loadGit();
+		} else refreshRef.current();
 		return () => { pending.current.clear(); };
 	}, [loadDirectory, loadGit]);
 	useWindowRefresh(connected, refresh);
@@ -98,7 +106,8 @@ export function useWorkbench(cwd: string | undefined, connected: boolean, runnin
 	const collapseAll = useCallback(() => setExpanded(new Set<string>()), []);
 	return useMemo(() => ({
 		directories, git, preview, expanded, onlyChanges, setOnlyChanges, refresh,
+		search, setSearch, filesOpen, setFilesOpen, pane, setPane,
 		openFile: loadPreview, closePreview, toggleDirectory, collapseAll,
-	}), [directories, git, preview, expanded, onlyChanges, refresh, loadPreview, closePreview, toggleDirectory, collapseAll]);
+	}), [directories, git, preview, expanded, onlyChanges, search, filesOpen, pane, refresh, loadPreview, closePreview, toggleDirectory, collapseAll]);
 }
 export type WorkbenchView = ReturnType<typeof useWorkbench>;

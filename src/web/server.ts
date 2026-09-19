@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import type { GuiHost } from "../gui/host/host.ts";
+import type { GuiClient } from "../gui/host/client.ts";
+import { decodeGuiRequest } from "../gui/host/request.ts";
 
 const MAX_BODY = 16 * 1024 * 1024;
 const CSP =
@@ -13,6 +15,7 @@ export async function startWebServer(
 	gui: GuiHost,
 	options: { host: string; port: number; assets: string; tls?: { cert: Buffer; key: Buffer } },
 ) {
+	const clients = new Map<string, GuiClient>();
 	const secure = options.tls !== undefined;
 	const protocol = secure ? "https" : "http";
 	function sameOrigin(request: IncomingMessage): boolean {
@@ -39,12 +42,15 @@ export async function startWebServer(
 					return;
 				}
 				const body = await readBody(request);
-				const value: unknown = JSON.parse(body);
+				const id = request.headers["x-opi-client"];
+				const client = typeof id === "string" ? clients.get(id) : undefined;
+				if (!client) throw new Error("客户端连接已失效，请重连。");
+				const { value, sessionId } = decodeGuiRequest(JSON.parse(body));
 				if (url.pathname === "/api/query") {
-					const result = await gui.query(value);
+					const result = await client.query(value, sessionId);
 					response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(result));
 				} else {
-					await gui.dispatch(value);
+					await client.dispatch(value, sessionId);
 					response.writeHead(204).end();
 				}
 				return;
@@ -101,12 +107,15 @@ export async function startWebServer(
 			});
 	const sockets = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
 	server.on("upgrade", (request, socket, head) => {
-		if (request.url !== "/api/events" || !sameOrigin(request)) {
+		const url = new URL(request.url ?? "/", `${protocol}://localhost`);
+		if (url.pathname !== "/api/events" || !sameOrigin(request)) {
 			socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
 			return;
 		}
 		sockets.handleUpgrade(request, socket, head, (ws) => {
-			const connection = gui.connect((delivery) => {
+			const client = gui.createClient(url.searchParams.get("session") ?? undefined);
+			clients.set(client.id, client);
+			const connection = client.connect((delivery) => {
 				if (ws.readyState !== ws.OPEN) return;
 				if (ws.bufferedAmount > MAX_BODY) {
 					ws.close(1013, "Client too slow");
@@ -114,6 +123,7 @@ export async function startWebServer(
 				}
 				ws.send(JSON.stringify(delivery));
 			});
+			client.emit({ type: "client", id: client.id });
 			ws.on("message", (data) => {
 				try {
 					const value: unknown = JSON.parse(data.toString());
@@ -123,7 +133,7 @@ export async function startWebServer(
 				} catch { ws.close(1008, "Expected acknowledgement"); }
 			});
 			ws.on("error", () => ws.terminate());
-			ws.on("close", () => connection.close());
+			ws.on("close", () => { connection.close(); client.close(); clients.delete(client.id); });
 		});
 	});
 	await new Promise<void>((resolve, reject) => {

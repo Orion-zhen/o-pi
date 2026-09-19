@@ -11,5 +11,9 @@
 		"chat": 16,
 		"code": 14
 	},
-	"sendShortcut": "mod-enter"
+	"sendShortcut": "mod-enter",
+	"sessionCache": {
+		"idleLimit": 3,
+		"idleMs": 60000
+	}
 }

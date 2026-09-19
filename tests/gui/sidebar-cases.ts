@@ -3,11 +3,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHost } from "../../src/gui/host/host.ts";
+import type { GuiClient } from "../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
 import { locateTranscript } from "../../src/gui/ui/transcript-location.ts";
 import { storeSession } from "./session-fixture.ts";
 
-export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentDir: string; events: GuiEvent[] }) {
+export function sidebarTests(context: () => { host: GuiClient; cwd: string; agentDir: string; events: GuiEvent[] }) {
 	describe("工作区与自动会话信息", () => {
 		it("浏览真实目录和目录链接，切换后仍重放启动目录，不返回普通文件", async () => {
 			const { host, cwd } = context();
@@ -20,7 +21,7 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 			expect(listing.children.map((child) => child.name).sort()).toEqual(["子目录", "链接"].sort());
 			await host.dispatch({ action: "workspace", path: child });
 			const replay: GuiEvent[] = [];
-			host.subscribe((event) => replay.push(event))();
+			host.replay((event) => replay.push(event));
 			expect(replay.find((event) => event.type === "workspaceRoot")).toEqual({ type: "workspaceRoot", path: cwd });
 			await expect(host.query({ query: "directories", path: path.join(cwd, "input.txt") })).rejects.toMatchObject({ code: "ENOTDIR" });
 			expect(host.snapshot().cwd).toBe(child);
@@ -41,16 +42,16 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 			await expect(readFile(second)).rejects.toMatchObject({ code: "ENOENT" });
 			expect(await readFile(retained, "utf8")).toContain("保留历史");
-			await host.dispose();
-			const restarted = new GuiHost();
+			await host.host.dispose();
+			const restarted = new GuiHost().createClient();
 			const replay: GuiEvent[] = [];
 			restarted.subscribe((event) => replay.push(event));
 			try {
-				await restarted.start(cwd);
+				await restarted.host.start(cwd);
 				await restarted.dispatch({ action: "sessions" });
 				expect(replay.filter((event) => event.type === "workspaces").at(-1)?.value).not.toContainEqual(expect.objectContaining({ path: missing }));
 				await expect(restarted.dispatch({ action: "workspace", path: missing })).rejects.toMatchObject({ code: "ENOENT" });
-			} finally { await restarted.dispose(); }
+			} finally { await restarted.host.dispose(); }
 		});
 
 		it("工作区移除保护启动目录和当前目录，不删除项目文件", async () => {
@@ -70,7 +71,7 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 			expect(await readFile(source, "utf8")).toBe("project source\n");
 			await expect(host.dispatch({ action: "removeWorkspace", path: path.join(cwd, "unknown") })).rejects.toThrow("不在列表");
 			const replay: GuiEvent[] = [];
-			host.subscribe((event) => replay.push(event))();
+			host.replay((event) => replay.push(event));
 			expect(replay.find((event) => event.type === "workspaces")).toEqual({ type: "workspaces", value: [{ path: cwd, exists: true }] });
 		});
 
@@ -82,7 +83,7 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 			expect(host.snapshot().sessionId).toBe(before.sessionId);
 			expect(host.snapshot().messages).toEqual(before.messages);
 			expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toContainEqual(expect.objectContaining({ path: file, title: "历史新名称" }));
-			await host.dispatch({ action: "switch", path: file });
+			await host.dispatch({ action: "openSession", path: file });
 			await host.dispatch({ action: "renameSession", path: file, name: "当前新名称" });
 			expect(host.snapshot().name).toBe("当前新名称");
 			const source = path.join(cwd, "source.jsonl");
@@ -106,7 +107,7 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 				telemetry: { session_id: host.snapshot().sessionId, pending_calls: 0 },
 			});
 			const replay: GuiEvent[] = [];
-			host.subscribe((event) => replay.push(event))();
+			host.replay((event) => replay.push(event));
 			expect(replay.find((event) => event.type === "sessionInfo")?.value).toEqual(latest());
 			const user = host.snapshot().entries.find((entry) => entry.type === "message" && entry.message.role === "user");
 			if (!user) throw new Error("缺少用户消息");
@@ -127,7 +128,7 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 			await host.dispatch({ action: "new" });
 			const manager = SessionManager.open(before.sessionFile);
 			const summary = manager.appendCompaction("压缩摘要", answer.id, 100);
-			await host.dispatch({ action: "switch", path: before.sessionFile });
+			await host.dispatch({ action: "openSession", path: before.sessionFile });
 			const snapshot = host.snapshot();
 			const current = locateTranscript(snapshot, summary);
 			expect(current.preview).toBe(false);

@@ -35,7 +35,7 @@ test("大列表限制挂载数量，搜索、改名、键盘跨视口导航和�
 	await storeSession({ cwd, agentDir, provider: "gui-test", name: "外部新增历史" });
 	const refreshed = page.waitForResponse((response) => {
 		if (!response.url().endsWith("/api/action")) return false;
-		const body: unknown = response.request().postDataJSON();
+		const body: unknown = response.request().postDataJSON().value;
 		return typeof body === "object" && body !== null && "action" in body && body.action === "sessions";
 	});
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -112,7 +112,7 @@ test("输入草稿不重新渲染历史行，连续刷新合并读取", async ({
 	let requests = 0;
 	let completed = 0;
 	await page.route("**/api/query", async (route) => {
-		const body: unknown = route.request().postDataJSON();
+		const body: unknown = route.request().postDataJSON().value;
 		if (typeof body === "object" && body !== null && "query" in body && body.query === "workspaceFiles") {
 			requests++;
 			await gate;
