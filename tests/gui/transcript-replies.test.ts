@@ -18,22 +18,27 @@ const replies = (value: ReturnType<typeof source>) => transcriptReplies(value).f
 describe("整轮处理过程折叠", () => {
 	it("完成后外层收起中途正文，内层仅折叠思考和工具，最终报告留在外面", () => {
 		const second = { ...call, id: "read-2" };
+		const third = { ...call, id: "read-3" };
 		const snapshot = source({ messages: [user,
 			assistant([text("先检查组件"), thinking, call]), result,
-			assistant([thinking, text("接下来检查样式"), second]), { ...result, toolCallId: second.id },
-			assistant([thinking, text("检查完成"), text("没有发现问题")], "stop"),
+			assistant([thinking, text(" \n\t"), second]), { ...result, toolCallId: second.id },
+			assistant([text("\n"), thinking, text("接下来检查样式"), third]), { ...result, toolCallId: third.id },
+			assistant([thinking, text("检查完成"), text("没有发现问题"), text("\n\t")], "stop"),
 		] });
 		const rows = replies(snapshot);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ state: "completed", answer: [{ text: "检查完成" }, { text: "没有发现问题" }] });
 		expect(rows[0]?.process.filter((item) => item.kind === "text").map((item) => item.text)).toEqual(["先检查组件", "接下来检查样式"]);
-		expect(rows[0]?.process.filter((item) => item.kind === "tool")).toHaveLength(2);
-		expect(rows[0]?.process.filter((item) => item.kind === "thinking")).toHaveLength(3);
+		expect(rows[0]?.process.filter((item) => item.kind === "tool")).toHaveLength(3);
+		expect(rows[0]?.process.filter((item) => item.kind === "thinking")).toHaveLength(4);
+		expect(rows[0]?.answer).toHaveLength(2);
 		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear: () => {} }))).document;
 		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("closed");
 		expect([...document.querySelectorAll(".reply-turn-content > .reply-body")].map((body) => body.querySelector("article")?.textContent))
 			.toEqual(["先检查组件", "接下来检查样式"]);
 		expect(document.querySelectorAll(".reply-activity .reply-body")).toHaveLength(0);
+		expect([...document.querySelectorAll(".reply-activity .reply-counts")].map((counts) => counts.textContent))
+			.toEqual(["3 段思考 · 2 次工具调用", "1 段思考 · 1 次工具调用"]);
 		expect([...document.querySelectorAll(".reply-activity")].every((activity) => activity.getAttribute("data-state") === "closed")).toBe(true);
 		expect(document.querySelectorAll(".reply-body > .message-identity")).toHaveLength(3);
 		expect(document.querySelectorAll('.reply-turn-content [aria-label="本条消息统计"]')).toHaveLength(2);
@@ -50,6 +55,14 @@ describe("整轮处理过程折叠", () => {
 	});
 
 	it("流式正文出现时仅折叠前面的思考和工具，后续工具不隐藏中途正文", () => {
+		const snapshot = source({ messages: [user, assistant([thinking, text(" \n"), call]), result],
+			streamingMessage: assistant([thinking, text("\n\t")], "pending"), streaming: true });
+		const blank = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear: () => {} }))).document;
+		expect(replies(snapshot)[0]?.answer).toEqual([]);
+		expect(blank.querySelectorAll(".reply-process")).toHaveLength(1);
+		expect(blank.querySelector(".reply-activity")?.getAttribute("data-state")).toBe("open");
+		expect(blank.querySelector(".reply-counts")?.textContent).toBe("2 段思考 · 1 次工具调用");
+		expect(blank.querySelectorAll(".assistant-reply .reply-body, .assistant-reply .message-identity")).toHaveLength(0);
 		const live = assistant([thinking, text("我先检查")], "pending");
 		const streaming = replies(source({ messages: [user], streamingMessage: live, streaming: true }));
 		expect(streaming[0]).toMatchObject({ answer: [{ text: "我先检查" }] });
