@@ -80,7 +80,9 @@ export const BashApproval = memo(function BashApproval({ approval }: { approval:
 				<h3 className="text-sm font-medium">需要确认的操作</h3>
 				<ul className="approval-sensitive-list">
 					{approval.items.map((item, index) => <li className="approval-sensitive" key={index}>
-						{item.kind === "command" ? <BashCommand command={item.target} label={`${index + 1}. ${actionLabels[item.action]}`} />
+						{item.kind === "command" ? item.target === approval.command
+							? <p className="approval-target-label">{index + 1}. 整条命令需确认</p>
+							: <BashCommand command={item.target} label={`${index + 1}. ${actionLabels[item.action]}`} />
 							: <><p className="approval-target-label">{index + 1}. {actionLabels[item.action]}</p><code className="approval-target">{item.target}</code></>}
 						<p className="approval-reason text-sm text-muted-foreground">原因：{item.reason}</p>
 					</li>)}

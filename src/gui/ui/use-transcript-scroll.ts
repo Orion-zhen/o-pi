@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type WheelEvent } from "react";
 
-export function useTranscriptScroll(sessionId: string | undefined) {
+import type { SessionViewState } from "./session-views.ts";
+
+export function useTranscriptScroll(sessionId: string | undefined, view: SessionViewState | undefined) {
 	const scroll = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
 	const mode = useRef<"follow" | "paused" | "returning">("follow");
 	const locationVersion = useRef(0);
-	const positions = useRef(new Map<string, { top: number; follow: boolean }>());
 	const restoring = useRef<number | undefined>(undefined);
 	const lastScrollTop = useRef(0);
 	const [showLatest, setShowLatest] = useState(false);
@@ -41,7 +42,7 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 		if (viewport) viewport.scrollTo({ top: viewport.scrollTop, behavior: "instant" });
 	};
 	useLayoutEffect(() => {
-		const saved = sessionId ? positions.current.get(sessionId) : undefined;
+		const saved = view?.position;
 		mode.current = saved?.follow === false ? "paused" : "follow";
 		restoring.current = saved?.follow === false ? saved.top : undefined;
 		if (restoring.current !== undefined && scroll.current) scroll.current.scrollTop = restoring.current;
@@ -49,10 +50,10 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 		lastScrollTop.current = saved?.top ?? scroll.current?.scrollTop ?? 0;
 		setShowLatest(saved?.follow === false);
 		return () => {
-			if (sessionId) positions.current.set(sessionId, { top: lastScrollTop.current, follow: mode.current === "follow" });
+			if (sessionId && view) view.position = { top: lastScrollTop.current, follow: mode.current === "follow" };
 			cancelLocation();
 		};
-	}, [sessionId]);
+	}, [sessionId, view]);
 	useLayoutEffect(() => {
 		const viewport = scroll.current;
 		const body = content.current;
@@ -77,7 +78,7 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 			observer.disconnect();
 			viewport.removeEventListener("scrollend", finishReturn);
 		};
-	}, [sessionId]);
+	}, [sessionId, view]);
 	return {
 		scroll, content, showLatest, toLatest, followLatest,
 		restorePosition: () => {

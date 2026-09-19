@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithMemory } from "./render.ts";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
@@ -73,17 +73,28 @@ describe("聊天活动投影", () => {
 
 function renderResult(name: string, args: unknown, details: unknown, content: unknown = []) {
 	const tool: ToolActivity = { id: "tool-1", name, args, state: "completed", output: { content, details } };
-	return renderToStaticMarkup(createElement(ToolResult, { tool }));
+	return renderWithMemory(createElement(ToolResult, { tool }));
 }
 
 describe("工具语义呈现", () => {
 	it("成功和失败都默认折叠，失败仍展示错误摘要", () => {
 		const tool: ToolActivity = { id: "missing-file", name: "read", args: { path: "missing.ts" }, state: "failed", output: { content: [{ type: "text", text: "文件不存在" }], details: { error: { code: "NOT_FOUND", message: "文件不存在" } } } };
-		const failed = renderToStaticMarkup(createElement(ToolActivityView, { tool }));
+		const failed = renderWithMemory(createElement(ToolActivityView, { tool }));
 		expect(failed).toContain('aria-expanded="false"');
 		expect(parseHTML(failed).document.querySelector(".activity-error")?.textContent).toBe("文件不存在");
-		const completed = renderToStaticMarkup(createElement(ToolActivityView, { tool: { ...tool, id: call.id, args: call.arguments, state: "completed", output: result } }));
+		const completed = renderWithMemory(createElement(ToolActivityView, { tool: { ...tool, id: call.id, args: call.arguments, state: "completed", output: result } }));
 		expect(completed).toContain('aria-expanded="false"');
+	});
+
+	it("子代理保持自动展开模式，切回已完成任务时自动收起", () => {
+		const memory = new Map<string, boolean | null>();
+		const tool: ToolActivity = { id: "subagent-1", name: "subagent", args: { task: "检查项目" }, state: "running", output: undefined };
+		const running = parseHTML(renderWithMemory(createElement(ToolActivityView, { tool }), memory)).document;
+		expect(running.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("true");
+		const completed = parseHTML(renderWithMemory(createElement(ToolActivityView, {
+			tool: { ...tool, state: "completed", output: { content: [{ type: "text", text: "检查完成" }] } },
+		}), memory)).document;
+		expect(completed.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("false");
 	});
 
 	it("Shell 日志按纯文本显示，保留空格并转义 HTML", () => {
@@ -95,14 +106,14 @@ describe("工具语义呈现", () => {
 	});
 
 	it("扩展参数按字段、列表和布尔值显示，字符串 payload 不重新解析", () => {
-		const html = renderToStaticMarkup(createElement(ParameterValue, { value: { path: "中文.ts", enabled: true, options: ["first", "second"], payload: '{"keep":"raw"}' } }));
+		const html = renderWithMemory(createElement(ParameterValue, { value: { path: "中文.ts", enabled: true, options: ["first", "second"], payload: '{"keep":"raw"}' } }));
 		const doc = parseHTML(html).document;
 		expect(doc.documentElement.textContent).toContain("中文.ts");
 		expect(doc.documentElement.textContent).toContain('{"keep":"raw"}');
 	});
 
 	it("流式代码块从空围栏到正文均可渲染，未知语言作为文本而非 HTML", () => {
-		const render = (text: string) => renderToStaticMarkup(createElement(MarkdownText, { text }));
+		const render = (text: string) => renderWithMemory(createElement(MarkdownText, { text }));
 		expect(() => render("```ts\n")).not.toThrow();
 		const html = render("```ts\nconst answer = 42;\n```\n\n```unknown-language\n<script>alert(1)</script>\n```");
 		const doc = parseHTML(html).document;

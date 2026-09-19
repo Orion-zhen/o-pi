@@ -26,6 +26,8 @@ it("未选择工作区也能读取默认值、保存 GUI 设置并广播，不�
 	} });
 	const events: GuiEvent[] = [];
 	host.subscribe((event) => events.push(event));
+	expect(events).toEqual([]);
+	host.replay((event) => events.push(event));
 	const content = '{\n // 自定义主题\n "theme": "dark",\n "themeColor": "#AF52DE",\n "fontSizes": {"chat": 20},\n}\n';
 	await host.dispatch({ action: "saveGuiConfig", original: "", content });
 	expect(await readFile(file, "utf8")).toBe(content);

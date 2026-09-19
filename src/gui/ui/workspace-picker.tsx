@@ -10,15 +10,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover
 import { DirectoryBrowser } from "./directory-browser.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 import { ListScroll } from "./components/list-scroll";
-import { ActivityBorder } from "./activity-border.tsx";
 import { workspaceActivity } from "./use-session-activity.ts";
 
-export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<SidebarView, "snapshot" | "selectedId" | "activity" | "workspaceRoot" | "workspaces" | "send" | "connected" | "canNavigate" | "query" | "error" | "setError">; close: () => void; compact?: boolean }) {
+export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<SidebarView, "cwd" | "activity" | "workspaceRoot" | "workspaces" | "send" | "connected" | "canNavigate" | "globalQuery" | "error" | "setError">; close: () => void; compact?: boolean }) {
 	const [expanded, setExpanded] = useState(false);
 	const [browsing, setBrowsing] = useState(false);
 	const [filter, setFilter] = useState("");
 	const [pending, setPending] = useState(false);
-	const cwd = gui.snapshot?.cwd ?? gui.activity.find((item) => item.sessionId === gui.selectedId)?.cwd ?? gui.workspaceRoot;
+	const cwd = gui.cwd;
 	const elsewhere = gui.activity.some((item) => item.cwd !== cwd && (item.state !== "idle" || item.unread));
 	const elsewhereWaiting = gui.activity.some((item) => item.cwd !== cwd && item.state === "waiting");
 	const workspaces = gui.workspaces;
@@ -36,8 +35,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 	return <>
 		<Popover open={expanded} onOpenChange={(value) => { setExpanded(value); setFilter(""); }}>
 			<PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="工作区" aria-expanded={expanded}
-				className="workspace-select activity-frame" title={elsewhereWaiting ? `${cwd}\n其他工作区等待审批` : elsewhere ? `${cwd}\n其他工作区有运行或未读结果` : cwd} disabled={disabled}>
-				<ActivityBorder state={elsewhere ? "waiting" : "idle"} />
+				className="workspace-select" data-attention={elsewhere} title={elsewhereWaiting ? `${cwd}\n其他工作区等待审批` : elsewhere ? `${cwd}\n其他工作区有运行或未读结果` : cwd} disabled={disabled}>
 				{(!compact || !elsewhereWaiting) && <FolderOpen />}
 				{!compact && <span>{cwd.split(/[/\\]/).filter(Boolean).at(-1) || "选择工作区"}</span>}
 				{elsewhereWaiting && <Shield className="approval-marker" fill="currentColor" role="img" aria-label="其他工作区等待审批" />}

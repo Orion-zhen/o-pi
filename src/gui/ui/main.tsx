@@ -16,7 +16,7 @@ import {
 import { safeLink } from "./content.tsx";
 import { locateTranscript } from "./transcript-location.ts";
 import { Transcript } from "./transcript.tsx";
-import { DisclosureMemoryContext, type DisclosureMemory } from "./disclosure-memory.ts";
+import { DisclosureMemoryContext } from "./disclosure-memory.ts";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
 import { Panel } from "./panels.tsx";
@@ -65,15 +65,13 @@ function App() {
 	const [collapsed, setCollapsed] = useState(false);
 	const toggleSidebar = useCallback(() => setCollapsed((value) => !value), []);
 	const closeSidebar = useCallback(() => setMobileOpen(false), []);
-	const transcript = useTranscriptScroll(snapshot?.sessionId);
+	const transcript = useTranscriptScroll(snapshot?.sessionId, gui.view);
 	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
 	const sessionId = snapshot?.sessionId;
 	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
 	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
 	const located = snapshot ? locateTranscript(snapshot, target) : undefined;
-	const memories = useRef(new Map<string, DisclosureMemory>());
-	if (sessionId && !memories.current.has(sessionId)) memories.current.set(sessionId, new Map());
-	const memory = sessionId ? memories.current.get(sessionId) : undefined;
+	const memory = gui.view?.disclosures;
 	const completedAt = gui.activity.find((item) => item.sessionId === sessionId)?.completedAt ?? 0;
 	useEffect(() => {
 		const check = () => {
@@ -278,13 +276,13 @@ function App() {
 						const min = Math.min(12 * rem, available * 0.4);
 						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - Math.min(20 * rem, available * 0.45) - 8), scale: -1 };
 					}} />
-					{snapshot && <SessionSidebar gui={gui} locate={locate} />}
+					{gui.cwd && <SessionSidebar gui={gui} locate={locate} />}
 					</div>
 				</div>
 			</Sheet>
 			<AnimatePresence mode="wait">
 			{panel?.kind === "settings" ? <PanelDialog key="settings" ref={panelContent} title="设置" close={() => settingsDirty ? setConfirmSettingsClose(true) : gui.setPanel(undefined)} restoreFocus={restoreFocus}>
-				<Settings onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+				<Settings onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
 			</PanelDialog> : panel && snapshot && (
 				<Panel key={panel.kind}
 					ref={panelContent}

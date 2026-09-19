@@ -32,14 +32,16 @@ export async function prepareSessionDeletion(files: string[], registeredFiles: R
 					throw new Error("会话已被修改，请重新确认删除。");
 			}
 		},
-		async remove() {
+		async remove(removed: (file: string) => void) {
 			for (const { file, stamp } of targets) {
 				// 关闭当前会话可追加记录，此处只复核文件身份和目录边界。
 				const latest = await inspectHistoryFile(file);
 				if (latest.parent !== stamp.parent || latest.dev !== stamp.dev || latest.ino !== stamp.ino)
 					throw new Error("会话文件已被替换，删除已停止。");
 				await unlink(file);
+				removed(file);
 			}
+			for (const file of files) if (!indexed.has(file)) removed(file);
 		},
 	};
 }

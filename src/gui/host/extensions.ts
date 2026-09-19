@@ -22,7 +22,7 @@ export interface GuiExtensionBindings {
 	dialogs: GuiDialogs;
 	approvalStores: ApprovalStores;
 	approvalRules: SessionApprovalRules;
-	trackBackground(task: Promise<void>, cancel: () => void): void;
+	trackBackground(task: Promise<void>, cancel: () => void): Promise<void>;
 	emit(event: GuiEvent): void;
 	bindTools(controller: ToolSelectionController): void;
 	commandSignal(): AbortSignal;

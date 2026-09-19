@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
 import { createExactAllowRules, createSimilarAllowRules } from "../../../src/harness/approval/rules/allow.ts";
-import { ApprovalStores, FileApprovalStore, SessionApprovalRules } from "../../../src/harness/approval/rules/store.ts";
+import { ApprovalStores, FileApprovalStore } from "../../../src/harness/approval/rules/store.ts";
 import type { ApprovalRequest, ApprovalUnit } from "../../../src/harness/approval/types.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 
@@ -19,9 +19,9 @@ describe("approval store", () => {
 	it("同宿主的会话临时授权隔离，持久规则并发写入不丢失", async () => {
 		const stores = new ApprovalStores();
 		const file = path.join(dir, "shared.jsonc");
-		const aRules = new SessionApprovalRules();
+		const aRules = { rules: [] };
 		const a = (await stores.open(file)).forSession(aRules);
-		const b = (await stores.open(file)).forSession(new SessionApprovalRules());
+		const b = (await stores.open(file)).forSession({ rules: [] });
 		const first = await commandRequest("git push origin main");
 		const second = await commandRequest("npm install lodash");
 		a.addSessionAllowRules(createExactAllowRules(first, first.units));
@@ -177,7 +177,7 @@ describe("approval store", () => {
 });
 
 async function openStore(file: string) {
-	return (await FileApprovalStore.open(file)).forSession(new SessionApprovalRules());
+	return (await FileApprovalStore.open(file)).forSession({ rules: [] });
 }
 
 function systemPath(...segments: string[]): string {

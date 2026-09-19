@@ -30,7 +30,7 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 				const value = receiver.accept(event);
 				if (value.type === "client") { clientId = value.id; onStatus("connected"); continue; }
 				if (value.type === "selected") {
-					selectedId = value.sessionId;
+					selectedId = value.session?.id ?? null;
 					if (selectedId) sessionStorage.setItem("opi.session", selectedId);
 					else sessionStorage.removeItem("opi.session");
 				}

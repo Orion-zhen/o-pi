@@ -7,7 +7,7 @@ import { loadApprovalGateConfig } from "../../../src/harness/approval/config.ts"
 import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
 import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.ts";
 import { evaluateBashGatePolicy, evaluateGatePolicy } from "../../../src/harness/approval/rules/policy.ts";
-import { FileApprovalStore, SessionApprovalRules, type ApprovalStore } from "../../../src/harness/approval/rules/store.ts";
+import { FileApprovalStore, type ApprovalStore } from "../../../src/harness/approval/rules/store.ts";
 import { createExactAllowRules } from "../../../src/harness/approval/rules/allow.ts";
 import type { ApprovalGateConfig, ApprovalRequest, BashApprovalRequest } from "../../../src/harness/approval/types.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
@@ -462,7 +462,7 @@ function evaluateDefault(request: ApprovalRequest, approvalStore: ApprovalStore)
 }
 
 async function openStore(file: string): Promise<ApprovalStore> {
-	return (await FileApprovalStore.open(file)).forSession(new SessionApprovalRules());
+	return (await FileApprovalStore.open(file)).forSession({ rules: [] });
 }
 
 function withBashPolicy(bash: ApprovalGateConfig["tools"]["bash"]) {

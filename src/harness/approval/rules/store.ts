@@ -12,8 +12,8 @@ export interface ApprovalStore extends ApprovalRuleMatcher {
 }
 
 /** 临时授权属于逻辑会话，不随 SDK 实例回收。 */
-export class SessionApprovalRules {
-	rules: ApprovalAllowRule[] = [];
+export interface SessionApprovalRules {
+	rules: ApprovalAllowRule[];
 }
 
 /** 宿主共享持久规则及写入队列，会话授权仍分别保存。 */

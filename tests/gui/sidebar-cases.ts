@@ -21,7 +21,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			expect(listing.children.map((child) => child.name).sort()).toEqual(["子目录", "链接"].sort());
 			await host.dispatch({ action: "workspace", path: child });
 			const replay: GuiEvent[] = [];
-			host.subscribe((event) => replay.push(event))();
+			host.replay((event) => replay.push(event));
 			expect(replay.find((event) => event.type === "workspaceRoot")).toEqual({ type: "workspaceRoot", path: cwd });
 			await expect(host.query({ query: "directories", path: path.join(cwd, "input.txt") })).rejects.toMatchObject({ code: "ENOTDIR" });
 			expect(host.snapshot().cwd).toBe(child);
@@ -71,7 +71,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			expect(await readFile(source, "utf8")).toBe("project source\n");
 			await expect(host.dispatch({ action: "removeWorkspace", path: path.join(cwd, "unknown") })).rejects.toThrow("不在列表");
 			const replay: GuiEvent[] = [];
-			host.subscribe((event) => replay.push(event))();
+			host.replay((event) => replay.push(event));
 			expect(replay.find((event) => event.type === "workspaces")).toEqual({ type: "workspaces", value: [{ path: cwd, exists: true }] });
 		});
 
@@ -83,7 +83,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			expect(host.snapshot().sessionId).toBe(before.sessionId);
 			expect(host.snapshot().messages).toEqual(before.messages);
 			expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toContainEqual(expect.objectContaining({ path: file, title: "历史新名称" }));
-			await host.dispatch({ action: "switch", path: file });
+			await host.dispatch({ action: "openSession", path: file });
 			await host.dispatch({ action: "renameSession", path: file, name: "当前新名称" });
 			expect(host.snapshot().name).toBe("当前新名称");
 			const source = path.join(cwd, "source.jsonl");
@@ -107,7 +107,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 				telemetry: { session_id: host.snapshot().sessionId, pending_calls: 0 },
 			});
 			const replay: GuiEvent[] = [];
-			host.subscribe((event) => replay.push(event))();
+			host.replay((event) => replay.push(event));
 			expect(replay.find((event) => event.type === "sessionInfo")?.value).toEqual(latest());
 			const user = host.snapshot().entries.find((entry) => entry.type === "message" && entry.message.role === "user");
 			if (!user) throw new Error("缺少用户消息");
@@ -128,7 +128,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			await host.dispatch({ action: "new" });
 			const manager = SessionManager.open(before.sessionFile);
 			const summary = manager.appendCompaction("压缩摘要", answer.id, 100);
-			await host.dispatch({ action: "switch", path: before.sessionFile });
+			await host.dispatch({ action: "openSession", path: before.sessionFile });
 			const snapshot = host.snapshot();
 			const current = locateTranscript(snapshot, summary);
 			expect(current.preview).toBe(false);

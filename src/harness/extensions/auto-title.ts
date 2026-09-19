@@ -2,7 +2,7 @@ import type { ExtensionAPI, InputEvent } from "@earendil-works/pi-coding-agent";
 import { loadAutoTitleConfig, type AutoTitleConfig } from "../auto-title/config.ts";
 import { generateTitle } from "../auto-title/generate.ts";
 
-export default function autoTitle(pi: ExtensionAPI, track?: (task: Promise<void>, cancel: () => void) => void): void {
+export default function autoTitle(pi: ExtensionAPI, track?: (task: Promise<void>, cancel: () => void) => Promise<void>): void {
 	let config: AutoTitleConfig | undefined;
 	let eligible = false;
 	let input: InputEvent | undefined;
@@ -46,14 +46,15 @@ export default function autoTitle(pi: ExtensionAPI, track?: (task: Promise<void>
 			if (pending.signal.aborted || controller !== pending
 				|| ctx.sessionManager.getSessionId() !== sessionId || pi.getSessionName() !== undefined) return;
 			pi.setSessionName(title);
-		}).catch((error: unknown) => {
-			// 命名是可选后台任务，失败只通知宿主，不中断主会话。
-			if (!pending.signal.aborted) ctx.ui.notify(`Auto-title: ${error instanceof Error ? error.message : String(error)}`, "warning");
 		}).finally(() => {
 			clearTimeout(timeout);
 			if (controller === pending) controller = undefined;
 		});
-		track?.(task, () => pending.abort());
+		const tracked = track ? track(task, () => pending.abort()) : task;
+		void tracked.catch((error: unknown) => {
+			// 命名是可选后台任务，失败只通知宿主，不中断主会话。
+			if (!pending.signal.aborted) ctx.ui.notify(`Auto-title: ${error instanceof Error ? error.message : String(error)}`, "warning");
+		});
 	});
 	pi.on("session_info_changed", () => { eligible = false; cancel(); });
 	pi.on("session_shutdown", () => { eligible = false; cancel(); });

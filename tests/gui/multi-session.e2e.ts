@@ -20,6 +20,9 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 	const other = path.join(projects, "project-b");
 	const agentDir = path.join(home, ".pi", "agent");
 	const bashCommand = `printf '%s\\n' '${"中文 <script>不是网页脚本</script> ".repeat(30)}' > output.txt`;
+	const startup = deferred<ModelResponse>();
+	const startupEntered = deferred<void>();
+	const startupServer = await startModelServer(() => { startupEntered.resolve(); return startup.promise; });
 	const first = deferred<ModelResponse>();
 	const parallel = deferred<ModelResponse>();
 	const last = deferred<ModelResponse>();
@@ -49,6 +52,11 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
 		await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"bash":{"default_action":"ask"},"write":{"default_action":"ask"}}}');
 		await storeSession({ cwd, agentDir, provider: "gui-test", name: "项目 A 历史" });
+		await mkdir(path.join(cwd, "src"));
+		await writeFile(path.join(cwd, "src", "reading.ts"), "export const text = '保持文件阅读位置';\n".repeat(100));
+		await mkdir(path.join(agentDir, "extensions"));
+		await writeFile(path.join(agentDir, "extensions", "startup.ts"),
+			`export default function(pi) { pi.on('session_start', async (_event, ctx) => { if (ctx.sessionManager.getSessionName() === '项目 A 历史') await fetch(${JSON.stringify(startupServer.url)}, { method: 'POST', body: '{"messages":[]}' }); }); }`);
 		await storeSession({ cwd: other, agentDir, provider: "gui-test", name: "项目 B 历史" });
 		const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined
 			&& /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|DISPLAY|XAUTHORITY|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS)$/.test(entry[0])));
@@ -89,6 +97,45 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await expect(editor).toBeVisible();
 		await switchTo(page, cwd);
+		await menu(page);
+		if (phone) await navigation(page).locator(".workbench-pane-tabs").getByRole("button", { name: "文件", exact: true }).click();
+		const tree = navigation(page).getByRole("tree", { name: "工作区文件", exact: true, includeHidden: true });
+		await tree.getByRole("treeitem", { name: "src", exact: true }).click();
+		await tree.getByRole("treeitem", { name: "src/reading.ts", exact: true }).click();
+		const filePreview = page.locator(".file-preview");
+		await expect(filePreview.locator(".file-preview-body")).toContainText("保持文件阅读位置");
+		await filePreview.getByRole("button", { name: "自动折行", exact: true }).click();
+		await filePreview.locator(".file-preview-body").evaluate((element) => { element.scrollTop = 100; });
+		const body = await filePreview.locator(".file-preview-body").elementHandle();
+		if (!body) throw new Error("缺少文件阅读视图");
+		await menu(page);
+		if (phone) await navigation(page).locator(".workbench-pane-tabs").getByRole("button", { name: "会话", exact: true }).click();
+		const search = navigation(page).getByRole("textbox", { name: "搜索会话", exact: true });
+		await search.fill("项目 A");
+		const globalReads: string[] = [];
+		page.on("request", (request) => {
+			if (!request.url().match(/\/api\/(query|action)$/)) return;
+			const body: { value: { query?: string; action?: string } } = request.postDataJSON();
+			if (body.value.query === "guiConfig" || body.value.action === "sessions") globalReads.push(request.url());
+		});
+		await row("项目 A 历史").getByRole("button", { name: "项目 A 历史", exact: true }).click();
+		await startupEntered.promise;
+		await expect(page.locator(".composer")).toHaveCount(0);
+		await expect(filePreview).toHaveAttribute("data-wrap", "false");
+		expect(await body.evaluate((element) => element.isConnected && element.scrollTop === 100)).toBe(true);
+		await menu(page);
+		await expect(search).toHaveValue("项目 A");
+		await expect(tree.getByRole("treeitem", { name: "src", exact: true, includeHidden: true })).toHaveAttribute("aria-expanded", "true");
+		expect(globalReads).toEqual([]);
+		startup.resolve({ text: "ready" });
+		// 手机抽屉仍打开，此时编辑器已挂载但不在模态框的可访问区域内。
+		await expect(page.locator('.composer textarea[aria-label="消息"]')).toBeAttached();
+		await search.fill("");
+		await row("新会话").getByRole("button", { name: "新会话", exact: true }).click();
+		await expect(editor).toBeVisible();
+		expect(globalReads).toEqual([]);
+		await closeMenu();
+		await filePreview.getByRole("button", { name: "关闭文件预览", exact: true }).click();
 		await rename("任务 A");
 		await editor.fill("后台任务");
 		await editor.press("Control+Enter");
@@ -110,7 +157,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 			await expect(row(title).locator('.activity-border[data-activity="running"]')).toHaveCount(1);
 			await expect(row(title).getByRole("button", { name: `删除会话 ${title}`, exact: true })).toHaveCount(0);
 		}
-		await expect(navigation(page).getByRole("combobox", { name: "工作区", exact: true }).locator('.activity-border[data-activity="idle"]')).toHaveCount(1);
+		await expect(workspaceButton).toHaveAttribute("data-attention", "false");
 		await expectActivityTrail(row("任务 A").locator(".activity-border"));
 		await navigation(page).screenshot({ path: info.outputPath("sessions-running.png") });
 		await page.emulateMedia({ reducedMotion: "reduce" });
@@ -125,7 +172,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(workspaceButton.locator(".approval-marker")).toHaveCount(0);
 		await expect(aRow.locator(".activity-border")).toHaveCount(0);
 		await expect(aRow.getByRole("button", { name: `移除工作区 ${cwd}`, exact: true })).toHaveCount(0);
-		await expect(navigation(page).getByRole("combobox", { name: "工作区", exact: true }).locator('.activity-border[data-activity="waiting"]')).toHaveCount(1);
+		await expect(workspaceButton).toHaveAttribute("data-attention", "true");
 		await page.emulateMedia({ reducedMotion: "reduce" });
 		await expect.poll(() => aRow.locator(".workspace-option-status").evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("none");
 		await page.keyboard.press("Escape");
@@ -270,6 +317,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		if (page) await info.attach("failure", { body: await page.screenshot({ path: info.outputPath("failure.png") }), contentType: "image/png" });
 		throw error;
 	} finally {
+		startup.resolve({ text: "cancelled" });
 		first.resolve({ text: "cancelled" }); parallel.resolve({ text: "cancelled" }); last.resolve({ text: "cancelled" });
 		await context.close();
 		if (child && child.exitCode === null) {
@@ -281,6 +329,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 			});
 		}
 		await model.close();
+		await startupServer.close();
 		await rm(home, { recursive: true, force: true });
 		await rm(projects, { recursive: true, force: true });
 	}

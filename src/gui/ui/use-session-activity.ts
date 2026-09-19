@@ -33,5 +33,13 @@ export function useSessionActivity(items: GuiSessionActivity[], reportError: (me
 		});
 	}, [reportError]);
 	const activity = useMemo(() => items.map((item): SessionActivity => ({ ...item, unread: item.completedAt > (seen[item.sessionId] ?? 0) })), [items, seen]);
-	return { activity, markRead };
+	const forget = useCallback((ids: string[]) => {
+		setSeen((current) => {
+			const next = Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)));
+			try { sessionStorage.setItem("opi.read", JSON.stringify(next)); }
+			catch (error) { queueMicrotask(() => reportError(`已读记录保存失败: ${String(error)}`)); }
+			return next;
+		});
+	}, [reportError]);
+	return { activity, markRead, forget };
 }

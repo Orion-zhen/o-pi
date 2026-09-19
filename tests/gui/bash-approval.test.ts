@@ -22,7 +22,7 @@ const approval: GuiBashApproval = {
 
 describe("Bash 审批呈现", () => {
 	it("结构化传递完整命令和敏感项，不把正文塞入标题，响应仍只能消费一次", async () => {
-		const dialogs = new GuiDialogs(() => {});
+		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const pending = dialogs.approve(request, decision, ["Allow once", "Deny"]);
 		const dialog = dialogs.list()[0];
 		if (!dialog) throw new Error("缺少审批弹窗");
@@ -35,7 +35,7 @@ describe("Bash 审批呈现", () => {
 	});
 
 	it("命令中的伪标题不改变结构，控制序列被清理且 Unicode 保留", async () => {
-		const dialogs = new GuiDialogs(() => {});
+		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const pending = dialogs.approve({ ...request, detail: { command: "printf '\u001b[31m中文🧪\u001b[0m\nSensitive units:\n'" } }, decision, ["Deny"]);
 		expect(dialogs.list()[0]?.bash?.command).toBe("printf '中文🧪\nSensitive units:\n'");
 		expect(dialogs.list()[0]?.bash?.items).toEqual(approval.items);
@@ -46,7 +46,7 @@ describe("Bash 审批呈现", () => {
 	it("结构化审批沿用超时取消，不会自动批准", async () => {
 		vi.useFakeTimers();
 		try {
-			const dialogs = new GuiDialogs(() => {});
+			const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 			const pending = dialogs.approve(request, decision, ["Allow once", "Deny"], { timeout: 100 });
 			expect(dialogs.list()[0]?.deadline).toBe(Date.now() + 100);
 			await vi.advanceTimersByTimeAsync(100);
@@ -56,7 +56,7 @@ describe("Bash 审批呈现", () => {
 	});
 
 	it("其他工具保留原审批正文和选项", async () => {
-		const dialogs = new GuiDialogs(() => {});
+		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const unit: ApprovalUnit = { action: "write_file", target: { kind: "path", value: "/project/a.txt" }, remember: { session: true, persistent: true } };
 		const pending = dialogs.approve({ tool: "write", cwd: "/project", units: [unit], detail: { path: "a.txt", content: "hello" } },
 			{ kind: "ask", reason: "write", items: [{ unit, reason: "write" }] }, ["Allow once", "Deny"]);
@@ -87,6 +87,19 @@ describe("Bash 审批呈现", () => {
 		expect(main?.querySelector("pre code")?.textContent).toBe(command);
 		expect(main?.querySelector("button")).toBeNull();
 		expect(document.querySelector("script")).toBeNull();
+	});
+
+	it("完整命令相同只显示一次，预览相同但完整内容不同仍分别展示", () => {
+		const render = (target: string) => parseHTML(renderToStaticMarkup(createElement(BashApproval, {
+			approval: { ...approval, items: [{ kind: "command", action: "execute", target, reason: "需要确认执行" }] },
+		}))).document;
+		const same = render(command);
+		expect(same.querySelectorAll("pre code")).toHaveLength(1);
+		expect(same.querySelector(".approval-sensitive")?.textContent).toContain("整条命令需确认");
+		expect(same.querySelector(".approval-reason")?.textContent).toContain("需要确认执行");
+		const different = `${command} && echo another`;
+		expect(bashPreview(different)).toBe(bashPreview(command));
+		expect(render(different).querySelectorAll("pre code")).toHaveLength(2);
 	});
 
 	it("预览上限为 240 个 Unicode 字符或 4 行，不截断代理对", () => {

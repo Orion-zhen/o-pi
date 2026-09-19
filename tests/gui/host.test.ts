@@ -109,6 +109,22 @@ describe("GUI 直接使用 SDK", () => {
 		await expect.poll(() => events.filter((event) => event.type === "snapshot").at(-1)?.value?.name).toBe("检查文件并写入结果");
 	});
 
+	it("后台命名失败只通知一次，主会话仍可继续且不重复命名", async () => {
+		titleReply = () => ({ text: "" });
+		await writeFile(path.join(temp.path, ".pi", "agent", "configs", "auto-title.jsonc"), '{"enabled":true}');
+		await host.dispatch({ action: "reload" });
+		await host.dispatch(prompt("命名失败不应影响任务"));
+		await expect.poll(() => host.dialogs.notices.filter((notice) => notice.text.startsWith("Auto-title:"))).toEqual([
+			expect.objectContaining({ type: "warning" }),
+		]);
+		await host.dispatch(prompt("继续执行主任务"));
+		expect(host.runtime.session.sessionName).toBeUndefined();
+		expect(JSON.stringify(host.snapshot().messages)).toContain("GUI completed");
+		expect(server.requests.filter((request) => Array.isArray(request.messages) && !request.tools)).toHaveLength(1);
+		expect(host.dialogs.notices.filter((notice) => notice.text.startsWith("Auto-title:"))).toHaveLength(1);
+		expect(events.filter((event) => event.type === "error")).toEqual([]);
+	});
+
 	it("宿主退出取消尚未完成的后台命名，不等待命名超时", async () => {
 		const reply = deferred<ModelResponse>();
 		titleReply = () => reply.promise;
@@ -215,6 +231,7 @@ describe("GUI 直接使用 SDK", () => {
 		]);
 		const replay: GuiEvent[] = [];
 		const unsubscribe = host.subscribe((event) => replay.push(event));
+		host.replay((event) => replay.push(event));
 		expect(replay.filter((event) => event.type === "sessions").at(-1)?.value).toEqual([
 			expect.objectContaining({ path: file }),
 		]);
@@ -237,7 +254,7 @@ describe("GUI 直接使用 SDK", () => {
 		const other = path.join(cwd, "another-project");
 		const file = await storeSession({ cwd: other, agentDir: path.join(temp.path, ".pi", "agent"), provider: "gui-fixture", name: "待恢复" });
 		await writeFile(path.join(other, "input.txt"), "other workspace\n");
-		await host.dispatch({ action: "switch", path: file });
+		await host.dispatch({ action: "openSession", path: file });
 		expect(host.snapshot()).toMatchObject({ cwd: other, sessionFile: file, name: "待恢复" });
 		expect(JSON.stringify(host.snapshot().messages)).toContain("历史回复");
 		await host.dispatch(prompt("继续检查文件"));
@@ -264,10 +281,10 @@ describe("GUI 直接使用 SDK", () => {
 		await rm(other, { recursive: true });
 		await host.dispatch({ action: "sessions" });
 		expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toEqual([expect.objectContaining({ path: file })]);
-		await expect(host.dispatch({ action: "switch", path: file })).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(host.dispatch({ action: "openSession", path: file })).rejects.toMatchObject({ code: "ENOENT" });
 		expect(host.snapshot().sessionId).toBe(id);
 		await rm(file);
-		await expect(host.dispatch({ action: "switch", path: file })).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(host.dispatch({ action: "openSession", path: file })).rejects.toMatchObject({ code: "ENOENT" });
 		expect(host.snapshot().sessionId).toBe(id);
 		await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 		await host.dispatch({ action: "sessions" });
@@ -291,7 +308,7 @@ describe("GUI 直接使用 SDK", () => {
 		expect(host.snapshot().tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
 		await host.dispatch({ action: "new" });
 		expect(host.snapshot().messages).toHaveLength(0);
-		await host.dispatch({ action: "switch", path: file });
+		await host.dispatch({ action: "openSession", path: file });
 		expect(JSON.stringify(host.snapshot().messages)).toContain("GUI completed");
 		expect(host.snapshot().tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
 	});
@@ -314,7 +331,7 @@ describe("GUI 直接使用 SDK", () => {
 		await host.host.start(initial);
 		await host.dispatch({ action: "sessions" });
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
-		const switching = host.dispatch({ action: "switch", path: file });
+		const switching = host.dispatch({ action: "openSession", path: file });
 		await expect.poll(() => host.dialogs.list().length).toBe(1);
 		const dialog = host.dialogs.list()[0];
 		if (!dialog) throw new Error("缺少项目信任确认");
@@ -407,9 +424,10 @@ describe("GUI 直接使用 SDK", () => {
 		const waitingSession = host.snapshot().sessionId;
 		await host.dispatch({ action: "new" });
 		expect(host.dialogs.list()).toEqual([]);
-		await host.dispatch({ action: "selectSession", id: waitingSession });
+		await host.dispatch({ action: "openSession", id: waitingSession });
 		const replay: GuiEvent[] = [];
 		const unsubscribe = host.subscribe((event) => replay.push(event));
+		host.replay((event) => replay.push(event));
 		expect(replay.some((event) => event.type === "dialogs" && event.value.some((item) => item.id === dialog.id))).toBe(
 			true,
 		);

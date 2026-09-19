@@ -36,7 +36,7 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 | 扩展用户交互 | `bindExtensions`、`ExtensionUIContext` |
 | 切换和退出 | 切换客户端订阅，取消任务、取消订阅和 `dispose` |
 
-每个运行实例绑定一个逻辑会话及工作目录。页面切换只改变订阅，不调用 runtime 的替换方法去销毁原会话。新建和分支创建独立实例，导入分配新会话标识，避免与源会话产生双写。GUI 的持久审批规则共享写入队列，临时授权按逻辑会话隔离。共享 LSP 在宿主退出时统一释放，不随单个实例回收而重置。不复制 CLI 参数转换、重试、压缩或消息队列逻辑。直接使用 SDK 加载业务扩展的验证见 [`tests/harness/extensions.test.ts`](../tests/harness/extensions.test.ts)。
+`GuiHost` 管理共享服务和会话目录，`GuiClient` 管理导航与订阅，长期登记的 `GuiSession` 持有身份和授权，并管理可整体释放重建的 `GuiExecution`。每个运行实例绑定一个逻辑会话及工作目录。页面切换只改变订阅，不调用 runtime 的替换方法去销毁原会话。新建和分支创建独立实例，导入分配新会话标识，避免与源会话产生双写。GUI 的持久审批规则共享写入队列，临时授权按逻辑会话隔离。共享 LSP 在宿主退出时统一释放，不随单个实例回收而重置。不复制 CLI 参数转换、重试、压缩或消息队列逻辑。直接使用 SDK 加载业务扩展的验证见 [`tests/harness/extensions.test.ts`](../tests/harness/extensions.test.ts)。
 
 ## 图形界面的边界
 

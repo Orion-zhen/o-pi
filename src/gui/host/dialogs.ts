@@ -10,9 +10,8 @@ export class GuiDialogs {
 	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined) => void }>();
 	readonly notices: GuiNotice[] = [];
 	readonly status: Record<string, string> = {};
-	private draft = "";
-	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number = () => 0,
-		private readonly editor = { get: () => this.draft, set: (value: string) => { this.draft = value; } }) {}
+	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number,
+		private readonly editor: { get(): string; set(value: string): void }) {}
 
 	list(): GuiDialog[] {
 		return [...this.pending.values()].map(({ dialog }) => dialog);

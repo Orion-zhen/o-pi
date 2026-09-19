@@ -11,6 +11,8 @@
 .activity-border[data-activity="running"] { opacity: 0.75; animation-play-state: running; }
 .activity-border:is([data-activity="unread"], [data-activity="waiting"]) { opacity: 0.7; }
 .activity-border:not([data-activity="running"]) rect { stroke-dasharray: 0 0 100 0; }
+.workspace-select { transition: box-shadow 200ms ease-out; }
+.workspace-select[data-attention="true"] { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 57%, transparent); }
 .workspace-option-status { display: inline-grid; place-items: center; flex-shrink: 0; inline-size: 1.15em; block-size: 1.15em; color: var(--primary); }
 .workspace-option-status::before { content: ""; inline-size: 0.5em; block-size: 0.5em; border-radius: 50%; background: currentColor; }
 .workspace-option-status[data-activity="running"]::before { animation: activity-pulse 1.8s ease-in-out infinite; }
@@ -19,7 +21,7 @@
 @keyframes activity-orbit { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
 @keyframes activity-pulse { 50% { opacity: 0.4; transform: scale(0.75); } }
 @media (prefers-reduced-motion: reduce) {
-	.activity-frame > .activity-border, .activity-border rect, .workspace-option-status[data-activity="running"]::before { transition: none; animation: none; }
+	.workspace-select, .activity-frame > .activity-border, .activity-border rect, .workspace-option-status[data-activity="running"]::before { transition: none; animation: none; }
 	.activity-border[data-activity="running"] { opacity: 0.7; }
 	.activity-border[data-activity="running"] rect { stroke-dasharray: 0 0 100 0; }
 }

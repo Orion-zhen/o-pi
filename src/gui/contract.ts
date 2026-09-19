@@ -52,8 +52,8 @@ export const actionSchema = Type.Union([
 	}),
 	object({ action: Type.Literal("workspace"), path: short }),
 	object({ action: Type.Literal("removeWorkspace"), path: short }),
-	object({ action: Type.Literal("switch"), path: short }),
-	object({ action: Type.Literal("selectSession"), id: short }),
+	object({ action: Type.Literal("openSession"), path: short }),
+	object({ action: Type.Literal("openSession"), id: short }),
 	object({ action: Type.Literal("observe"), visible: Type.Boolean() }),
 	object({ action: Type.Literal("renameSession"), path: short, name: short }),
 	object({ action: Type.Literal("deleteSession"), path: short }),
@@ -102,6 +102,7 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
+export type SessionTarget = { id: string } | { path: string };
 export const requestSchema = object({ sessionId: Type.Union([short, Type.Null()]), value: Type.Unknown() });
 export type GuiRequest = Static<typeof requestSchema>;
 
@@ -119,6 +120,9 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
 ]);
 export type GuiQuery = Static<typeof querySchema>;
+export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "directories" }>;
+export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" }>;
+export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
 export interface GuiQueryResults {
 	moduleConfig: ModuleConfigDocument;
 	guiConfig: GuiConfigDocument;
@@ -132,7 +136,7 @@ export interface GuiQueryResults {
 	complete: { value: string; label: string; description?: string }[];
 	config: string;
 }
-export type Query = <Q extends GuiQuery>(query: Q) => Promise<GuiQueryResults[Q["query"]]>;
+export type Query<T extends GuiQuery = GuiQuery> = <Q extends T>(query: Q) => Promise<GuiQueryResults[Q["query"]]>;
 
 export interface GuiBashApproval {
 	cwd: string;
@@ -241,8 +245,9 @@ export interface GuiDirectories {
 
 export type GuiEvent =
 	| { type: "client"; id: string }
-	| { type: "selected"; sessionId: string | null }
+	| { type: "selected"; session: { id: string; cwd: string; path: string | null } | null }
 	| { type: "activity"; value: GuiSessionActivity[] }
+	| { type: "sessionsDeleted"; ids: string[]; paths: string[] }
 	| { type: "error"; message: string }
 	| { type: "guiConfig"; value: GuiConfigDocument }
 	| { type: "workspaceRoot"; path: string }

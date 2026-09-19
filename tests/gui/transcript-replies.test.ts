@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithMemory } from "./render.ts";
 import { parseHTML } from "linkedom";
 import { Transcript } from "../../src/gui/ui/transcript.tsx";
 import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
@@ -29,7 +29,7 @@ describe("整轮处理过程折叠", () => {
 		expect(rows[0]?.process.filter((item) => item.kind === "text").map((item) => item.text)).toEqual(["先检查组件", "接下来检查样式"]);
 		expect(rows[0]?.process.filter((item) => item.kind === "tool")).toHaveLength(2);
 		expect(rows[0]?.process.filter((item) => item.kind === "thinking")).toHaveLength(3);
-		const document = parseHTML(renderToStaticMarkup(createElement(Transcript, { source: snapshot, clear: () => {} }))).document;
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear: () => {} }))).document;
 		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("closed");
 		expect([...document.querySelectorAll(".reply-turn-content > .reply-body")].map((body) => body.querySelector("article")?.textContent))
 			.toEqual(["先检查组件", "接下来检查样式"]);
@@ -53,7 +53,7 @@ describe("整轮处理过程折叠", () => {
 		const live = assistant([thinking, text("我先检查")], "pending");
 		const streaming = replies(source({ messages: [user], streamingMessage: live, streaming: true }));
 		expect(streaming[0]).toMatchObject({ answer: [{ text: "我先检查" }] });
-		const merged = parseHTML(renderToStaticMarkup(createElement(Transcript, {
+		const merged = parseHTML(renderWithMemory(createElement(Transcript, {
 			source: source({ messages: [user], streamingMessage: live, streaming: true }), clear: () => {},
 		}))).document;
 		expect(merged.querySelectorAll(".reply-process")).toHaveLength(1);
@@ -62,7 +62,7 @@ describe("整轮处理过程折叠", () => {
 		const calling = replies(source({ messages: [user], streamingMessage: assistant([...live.content, call]), streaming: true }));
 		expect(calling[0]).toMatchObject({ key: streaming[0]?.key, answer: [] });
 		expect(calling[0]?.process).toContainEqual(expect.objectContaining({ kind: "text", text: "我先检查" }));
-		const document = parseHTML(renderToStaticMarkup(createElement(Transcript, {
+		const document = parseHTML(renderWithMemory(createElement(Transcript, {
 			source: source({ messages: [user], streamingMessage: assistant([...live.content, call]), streaming: true }), clear: () => {},
 		}))).document;
 		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("open");
@@ -155,7 +155,7 @@ describe("整轮处理过程折叠", () => {
 		expect(noFinal[0]).toMatchObject({ state: "incomplete", tracking: false, answer: [] });
 		const orphan = replies(source({ messages: [result] }));
 		expect(orphan[0]?.process).toMatchObject([{ kind: "tool", tool: { output: result } }]);
-		const document = parseHTML(renderToStaticMarkup(createElement(Transcript, {
+		const document = parseHTML(renderWithMemory(createElement(Transcript, {
 			source: source({ messages: [result] }), clear: () => {},
 		}))).document;
 		expect(document.querySelectorAll(".reply-process")).toHaveLength(1);

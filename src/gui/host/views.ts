@@ -1,9 +1,9 @@
 import type { GuiAction } from "../contract.ts";
-import type { GuiSession } from "./session.ts";
+import type { GuiExecution } from "./execution.ts";
 
 type View = Extract<GuiAction, { action: "view" }>["view"];
 
-export async function openView(host: GuiSession, view: View, signal: AbortSignal): Promise<void> {
+export async function openView(host: GuiExecution, view: View, signal: AbortSignal): Promise<void> {
 	const runner = host.runtime.session.extensionRunner;
 	const command = runner.getCommand(view);
 	if (!command) throw new Error(`视图不可用: ${view}`);

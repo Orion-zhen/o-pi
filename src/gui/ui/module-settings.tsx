@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
-import type { GuiModel, Query } from "../contract.ts";
+import type { GuiModel, Query, GlobalQuery } from "../contract.ts";
 import type { ModuleConfigDocument, ModuleConfigId } from "../module-config.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
@@ -28,7 +28,7 @@ function at(value: unknown, path: string): unknown {
 }
 
 export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
-	id: ModuleConfigId; query: Query; send: Send; disabled: boolean; onDirty: (id: ModuleConfigId, dirty: boolean) => void; models: GuiModel[];
+	id: ModuleConfigId; query: Query<GlobalQuery>; send: Send; disabled: boolean; onDirty: (id: ModuleConfigId, dirty: boolean) => void; models: GuiModel[];
 }) {
 	const [document, setDocument] = useState<ModuleConfigDocument>();
 	const [draft, setDraft] = useState("");

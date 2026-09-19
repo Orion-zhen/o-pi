@@ -1,6 +1,7 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHost } from "../../src/gui/host/host.ts";
 import type { GuiClient } from "../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
@@ -11,6 +12,46 @@ const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior
 export function multiSessionTests(context: () => { host: GuiClient; cwd: string; agentDir: string }) {
 	describe("多会话执行与客户端隔离", () => {
 		afterEach(() => { vi.useRealTimers(); });
+
+		it("重连时缓存失效也先重放目标导航，不回退到空工作区", async () => {
+			const { host } = context();
+			await host.dispatch(prompt("保存 A"));
+			const a = host.snapshot();
+			if (!a.sessionFile) throw new Error("缺少会话文件");
+			await host.dispatch({ action: "new" });
+			SessionManager.open(a.sessionFile).appendSessionInfo("来自 TUI 的标题");
+			const reconnect = host.host.createClient(a.sessionId);
+			try {
+				const events: GuiEvent[] = [];
+				reconnect.replay((event) => events.push(event));
+				expect(events.find((event) => event.type === "selected")).toEqual({ type: "selected", session: { id: a.sessionId, cwd: a.cwd, path: a.sessionFile } });
+				await reconnect.dispatch({ action: "openSession", id: a.sessionId });
+				expect(reconnect.snapshot().name).toBe("来自 TUI 的标题");
+			} finally { reconnect.close(); }
+		});
+
+		it("同一逻辑会话回收后身份和导航保留，文件查询不重新加载 SDK", async () => {
+			const { host, cwd } = context();
+			const logical = host.selected;
+			if (!logical) throw new Error("缺少逻辑会话");
+			const file = logical.file;
+			if (!file) throw new Error("缺少未落盘目标");
+			await host.dispatch({ action: "observe", visible: false });
+			await host.dispatch({ action: "saveGuiConfig", original: "", content: '{"sessionCache":{"idleLimit":0}}' });
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(Date.now() + 60_000);
+			await host.host.collect();
+			expect(logical.execution).toBeUndefined();
+			const replay: GuiEvent[] = [];
+			host.replay((event) => replay.push(event));
+			expect(replay).toContainEqual({ type: "selected", session: { id: logical.id, cwd, path: file } });
+			expect(replay).toContainEqual({ type: "snapshot", value: null });
+			expect(await host.query({ query: "workspaceFiles", cwd, path: "" }, null)).toContainEqual({ name: "input.txt", path: "input.txt", kind: "file" });
+			expect(logical.execution).toBeUndefined();
+			await host.dispatch({ action: "openSession", path: file });
+			expect(host.selected).toBe(logical);
+			expect(host.snapshot().sessionId).toBe(logical.id);
+		});
 
 		it("A 等待审批时 B 可完成 Shell，切回只显示 A 的审批并消费一次", async () => {
 			const { host: first, agentDir } = context();
@@ -31,7 +72,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				expect(JSON.stringify(second.snapshot().messages)).toContain("independent-B");
 				expect(JSON.stringify(first.snapshot().messages)).not.toContain("independent-B");
 				expect(first.dialogs.list()[0]?.id).toBe(approval.id);
-				await second.dispatch({ action: "selectSession", id: original });
+				await second.dispatch({ action: "openSession", id: original });
 				expect(second.runtime).toBe(first.runtime);
 				expect(second.dialogs.list()[0]?.id).toBe(approval.id);
 				await second.dispatch({ action: "dialog", id: approval.id, value: "Allow once" });
@@ -57,7 +98,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await expect.poll(() => host.snapshot().status["bash"]).toContain("running-B");
 				await host.dispatch({ action: "abort" }, b);
 				await second;
-				await host.dispatch({ action: "selectSession", id: a });
+				await host.dispatch({ action: "openSession", id: a });
 				expect(host.dialogs.list()[0]?.id).toBe(approval.id);
 				await host.dispatch({ action: "abort" }, a);
 				await first;
@@ -72,7 +113,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			const events: GuiEvent[] = [];
 			second.subscribe((event) => events.push(event));
 			try {
-				await Promise.all([host.dispatch({ action: "switch", path: file }), second.dispatch({ action: "switch", path: file })]);
+				await Promise.all([host.dispatch({ action: "openSession", path: file }), second.dispatch({ action: "openSession", path: file })]);
 				expect(host.runtime).toBe(second.runtime);
 				await host.dispatch({ action: "view", view: "system" });
 				expect(events.some((event) => event.type === "panel")).toBe(false);
@@ -89,7 +130,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			if (!user) throw new Error("缺少分支起点");
 			const second = host.host.createClient(snapshot.sessionId);
 			try {
-				await second.dispatch({ action: "selectSession", id: snapshot.sessionId });
+				await second.dispatch({ action: "openSession", id: snapshot.sessionId });
 				await host.dispatch({ action: "fork", entryId: user.id });
 				expect(host.snapshot().sessionId).not.toBe(snapshot.sessionId);
 				expect(second.snapshot().sessionId).toBe(snapshot.sessionId);
@@ -105,7 +146,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			await host.dispatch({ action: "new" });
 			const current = host.snapshot().sessionId;
 			await rm(original.sessionFile);
-			await expect(host.dispatch({ action: "selectSession", id: original.sessionId })).rejects.toMatchObject({ code: "ENOENT" });
+			await expect(host.dispatch({ action: "openSession", id: original.sessionId })).rejects.toMatchObject({ code: "ENOENT" });
 			expect(host.snapshot().sessionId).toBe(current);
 			await expect(readFile(original.sessionFile)).rejects.toMatchObject({ code: "ENOENT" });
 		});
@@ -113,37 +154,37 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 		it("未超时实例全部保留，超时实例按 LRU 最多保留三个且不受未超时实例挤占", async () => {
 			const { host } = context();
 			vi.useFakeTimers({ toFake: ["Date"] });
-			const cached: { id: string; instance: GuiClient["session"] }[] = [];
+			const cached: { id: string; instance: GuiClient["execution"] }[] = [];
 			for (let index = 0; index < 5; index++) {
-				cached.push({ id: host.snapshot().sessionId, instance: host.session });
+				cached.push({ id: host.snapshot().sessionId, instance: host.execution });
 				await host.dispatch({ action: "new" });
 				vi.setSystemTime(Date.now() + 1_000);
 			}
 			await host.host.collect();
-			for (const item of cached) expect(host.host.slots.get(item.id)?.instance).toBe(item.instance);
+			for (const item of cached) expect(host.host.sessions.get(item.id)?.execution).toBe(item.instance);
 			vi.setSystemTime(Date.now() + 60_000);
-			const recent = { id: host.snapshot().sessionId, instance: host.session };
+			const recent = { id: host.snapshot().sessionId, instance: host.execution };
 			await host.dispatch({ action: "new" });
 			const current = host.runtime;
 			await host.host.collect();
 			for (const [index, item] of cached.entries())
-				expect(host.host.slots.get(item.id)?.instance).toBe(index < 2 ? undefined : item.instance);
-			expect(host.host.slots.get(recent.id)?.instance).toBe(recent.instance);
+				expect(host.host.sessions.get(item.id)?.execution).toBe(index < 2 ? undefined : item.instance);
+			expect(host.host.sessions.get(recent.id)?.execution).toBe(recent.instance);
 			expect(host.runtime).toBe(current);
 		});
 
 		it("超时实例未超过保留额度时，多次扫描仍不释放", async () => {
 			const { host } = context();
 			vi.useFakeTimers({ toFake: ["Date"] });
-			const a = { id: host.snapshot().sessionId, instance: host.session };
+			const a = { id: host.snapshot().sessionId, instance: host.execution };
 			await host.dispatch({ action: "new" });
-			const b = { id: host.snapshot().sessionId, instance: host.session };
+			const b = { id: host.snapshot().sessionId, instance: host.execution };
 			await host.dispatch({ action: "new" });
 			for (const elapsed of [60_000, 600_000]) {
 				vi.setSystemTime(Date.now() + elapsed);
 				await host.host.collect();
-				expect(host.host.slots.get(a.id)?.instance).toBe(a.instance);
-				expect(host.host.slots.get(b.id)?.instance).toBe(b.instance);
+				expect(host.host.sessions.get(a.id)?.execution).toBe(a.instance);
+				expect(host.host.sessions.get(b.id)?.execution).toBe(b.instance);
 			}
 		});
 
@@ -188,16 +229,16 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			vi.setSystemTime(Date.now() + 60_000);
 			await host.host.collect();
 			expect(host.runtime).toBe(current);
-			await host.dispatch({ action: "selectSession", id: b.id });
+			await host.dispatch({ action: "openSession", id: b.id });
 			expect(host.runtime).toBe(b.runtime);
-			await host.dispatch({ action: "selectSession", id: a.id });
+			await host.dispatch({ action: "openSession", id: a.id });
 			expect(host.runtime).not.toBe(a.runtime);
 			const restored = host.runtime;
 			await host.dispatch({ action: "saveGuiConfig", original: content, content: "{}" });
 			await host.dispatch({ action: "new" });
 			vi.setSystemTime(Date.now() + 60_000);
 			await host.host.collect();
-			await host.dispatch({ action: "selectSession", id: a.id });
+			await host.dispatch({ action: "openSession", id: a.id });
 			expect(host.runtime).toBe(restored);
 		});
 
@@ -208,7 +249,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			const original = host.runtime;
 			await host.dispatch({ action: "observe", visible: false });
 			await host.dispatch({ action: "saveGuiConfig", original: "", content: '{"sessionCache":{"idleLimit":0,"idleMs":25}}' });
-			await expect.poll(() => slot.instance, { timeout: 3_000 }).toBeUndefined();
+			await expect.poll(() => slot.execution, { timeout: 3_000 }).toBeUndefined();
 			await host.dispatch({ action: "observe", visible: true });
 			expect(host.snapshot().sessionId).toBe(slot.id);
 			expect(host.runtime).not.toBe(original);
@@ -260,7 +301,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await client.dispatch({ action: "new" });
 				vi.setSystemTime(Date.now() + 60_000);
 				await service.collect();
-				await client.dispatch({ action: "selectSession", id: a });
+				await client.dispatch({ action: "openSession", id: a });
 				expect(client.runtime).toBe(original);
 				await client.dispatch({ action: "dialog", id: approval.id, value: "Allow for session" });
 				await task;
@@ -269,7 +310,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await client.dispatch({ action: "new" });
 				vi.setSystemTime(Date.now() + 60_000);
 				await service.collect();
-				await client.dispatch({ action: "selectSession", id: a });
+				await client.dispatch({ action: "openSession", id: a });
 				expect(client.runtime).not.toBe(original);
 				expect(client.snapshot().messages).toEqual(before);
 				expect(client.snapshot().scopedModels).toEqual(["gui-fixture/second", "gui-fixture/test"]);
@@ -285,7 +326,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				if (!provider) throw new Error("缺少测试提供方");
 				provider.models = provider.models.filter((model) => model.id !== "second");
 				await writeFile(modelsFile, JSON.stringify(modelConfig));
-				await client.dispatch({ action: "selectSession", id: a });
+				await client.dispatch({ action: "openSession", id: a });
 				expect(client.snapshot().scopedModels).toEqual(["gui-fixture/test"]);
 				expect(client.snapshot().messages.length).toBeGreaterThan(before.length);
 				await client.dispatch({ action: "new" });

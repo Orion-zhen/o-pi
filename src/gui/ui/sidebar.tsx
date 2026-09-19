@@ -20,7 +20,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 		</div>
 		<div className="sidebar-navigation">
 			<div className="sidebar-expanded" inert={compact} aria-hidden={compact}>
-				<SidebarWorkbench key={gui.snapshot?.cwd ?? ""} gui={gui} close={close} />
+				<SidebarWorkbench key={gui.cwd} gui={gui} close={close} />
 			</div>
 			{!mobile && <div className="sidebar-compact sidebar-scroll" inert={!compact} aria-hidden={!compact}>
 				<div className="workspace-controls" data-compact="true">

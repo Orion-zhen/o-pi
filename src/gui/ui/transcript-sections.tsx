@@ -49,7 +49,7 @@ export function useAutoFold(key: string, tracking: boolean) {
 			setOpen(false);
 		}
 	}, [tracking]);
-	return [open ?? false, setOpen] as const;
+	return [open, setOpen] as const;
 }
 
 function Activity({ id, items, entryIds, tracking }: { id: string; items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking: boolean }) {
@@ -78,7 +78,7 @@ function Thinking({ id, text, active, entryId }: { id: string; text: string; act
 	const [open, setOpen] = useDisclosureMemory(`${id}:open`, active);
 	const [wasActive, setWasActive] = useDisclosureMemory(`${id}:active`, active);
 	useEffect(() => { if (wasActive !== active) { setWasActive(active); setOpen(active); } }, [active]);
-	return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy open={open ?? false} onOpenChange={setOpen} summary={<>
+	return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy open={open} onOpenChange={setOpen} summary={<>
 		{active && <LoaderCircle className="animate-spin" aria-hidden="true" />}
 		{active ? "思考中" : "思考"}
 	</>}>

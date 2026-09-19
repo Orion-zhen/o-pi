@@ -1,5 +1,5 @@
 import { evaluateGatePolicy } from "../rules/policy.ts";
-import { ApprovalStores, SessionApprovalRules } from "../rules/store.ts";
+import { ApprovalStores, type SessionApprovalRules } from "../rules/store.ts";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
 import { handleAskDecision, type ApprovalOutcome, type ApprovalInteractionPort } from "./interaction.ts";
 
@@ -7,7 +7,7 @@ interface ApprovalGate {
 	authorize(request: ApprovalRequest, config: ApprovalGateConfig, interaction?: ApprovalInteractionPort): Promise<ApprovalOutcome>;
 }
 
-export function createApprovalGate(stores = new ApprovalStores(), sessionRules = new SessionApprovalRules()): ApprovalGate {
+export function createApprovalGate(stores = new ApprovalStores(), sessionRules: SessionApprovalRules = { rules: [] }): ApprovalGate {
 	return {
 		async authorize(request, config, interaction) {
 			const file = await stores.open(config.remember.persistent_store);

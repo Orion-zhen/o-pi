@@ -32,7 +32,7 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 		it("删除当前会话后进入同工作区的新会话，后续写入不会恢复已删除文件", async () => {
 			const { host, cwd, agentDir } = context();
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			await host.dispatch({ action: "switch", path: file });
+			await host.dispatch({ action: "openSession", path: file });
 			const id = host.snapshot().sessionId;
 			await host.dispatch({ action: "deleteSession", path: file });
 			expect(host.snapshot().sessionId).not.toBe(id);
@@ -101,16 +101,34 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 		});
 
 		it("扩展取消当前会话切换时不删除该会话", async () => {
-			const { host, cwd, agentDir } = context();
+			const { host, cwd, agentDir, events } = context();
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			await host.dispatch({ action: "switch", path: file });
+			await host.dispatch({ action: "openSession", path: file });
 			await mkdir(path.join(agentDir, "extensions"), { recursive: true });
 			await writeFile(path.join(agentDir, "extensions", "keep-session.ts"),
 				`export default function (pi) { pi.on("session_before_switch", () => ({ cancel: true })); }`);
 			await host.dispatch({ action: "reload" });
 			await host.dispatch({ action: "deleteSession", path: file });
 			expect(host.snapshot().sessionFile).toBe(file);
+			expect(events.filter((event) => event.type === "sessionsDeleted")).toEqual([]);
 			expect(await readFile(file, "utf8")).toContain("历史回复");
+		});
+
+		it("批量删除部分失败时，只报告并注销已删除的会话", async () => {
+			const { host, cwd, agentDir, events } = context();
+			const first = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
+			const second = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
+			await mkdir(path.join(agentDir, "extensions"), { recursive: true });
+			await writeFile(path.join(agentDir, "extensions", "move-on-close.ts"),
+				`import { renameSync } from 'node:fs'; export default function(pi) { pi.on('session_shutdown', (_event, ctx) => { if (ctx.sessionManager.getSessionFile() === ${JSON.stringify(first)}) renameSync(${JSON.stringify(second)}, ${JSON.stringify(`${second}.moved`)}); }); }`);
+			await host.dispatch({ action: "openSession", path: first });
+			const id = host.snapshot().sessionId;
+			await expect(host.host.remove([first, second])).rejects.toMatchObject({ code: "ENOENT" });
+			expect(events.filter((event) => event.type === "sessionsDeleted")).toEqual([{ type: "sessionsDeleted", ids: [id], paths: [first] }]);
+			expect(host.host.sessions.has(id)).toBe(false);
+			expect(host.snapshot().sessionId).not.toBe(id);
+			await expect(readFile(first)).rejects.toMatchObject({ code: "ENOENT" });
+			expect(await readFile(`${second}.moved`, "utf8")).toContain("历史回复");
 		});
 
 		it("审批只保护所属会话，不阻止删除其他空闲历史", async () => {

@@ -8,7 +8,7 @@ import { deferred } from "../helpers/async.ts";
 describe("GUI OAuth", () => {
 	it("回调等待不产生输入弹窗，回调完成后结束登录", async () => {
 		const events: GuiEvent[] = [];
-		const dialogs = new GuiDialogs((event) => events.push(event));
+		const dialogs = new GuiDialogs((event) => events.push(event), () => 0, { get: () => "", set: () => {} });
 		const callback = deferred<void>();
 		const ready = deferred<void>();
 		const controller = new AbortController();
@@ -32,7 +32,7 @@ describe("GUI OAuth", () => {
 
 	it("取消登录会终止隐藏的手动输入等待", async () => {
 		const controller = new AbortController();
-		const dialogs = new GuiDialogs(() => {});
+		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const ready = deferred<void>();
 		const login = runLogin({ login: async (_provider, _type, interaction) => {
 			const pending = interaction.prompt({ type: "manual_code", message: "Redirect URL" });
