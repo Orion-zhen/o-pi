@@ -58,8 +58,8 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 							<Button role="option" aria-label={path} aria-selected={path === cwd} variant="ghost"
 								disabled={disabled || !exists} title={state === "idle" ? path : `${path}\n${status}`} onClick={() => void open(path)}>
 								<span className="workspace-option-label"><span className="workspace-option-path"><bdi dir="ltr">{path}</bdi></span>{!exists && <small>目录不存在</small>}</span>
-								{state === "waiting" ? <Shield className="approval-marker" fill="currentColor" role="img" aria-label={status} />
-									: state !== "idle" ? <span className="workspace-option-status" data-activity={state} role="img" aria-label={status} /> : path === cwd && <Check />}
+								{path === cwd ? <Check /> : state === "waiting" ? <Shield className="approval-marker" fill="currentColor" role="img" aria-label={status} />
+									: state !== "idle" && <span className="workspace-option-status" data-activity={state} role="img" aria-label={status} />}
 							</Button>
 							{path !== gui.workspaceRoot && path !== cwd && state === "idle" && <div className="row-actions">
 								<ConfirmAction label={`移除工作区 ${path}`} hint="永久删除该工作区全部会话，保留项目目录和文件"

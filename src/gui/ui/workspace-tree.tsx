@@ -1,5 +1,6 @@
-import { memo, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from "react";
-import { AtSign, ChevronRight, FileCode2, FileText, FolderClosed, FolderOpen, Image, Link } from "lucide-react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { AtSign, Check, ChevronRight, Copy, Link } from "lucide-react";
+import { DefaultFolderIcon, DefaultFolderOpenedIcon, FileIcon as SymbolsFileIcon } from "@react-symbols/icons/utils";
 import { gitStatusLabels, indexWorkspaceGit, type WorkspaceEntry, type WorkspaceGit } from "../workbench.ts";
 import type { WorkbenchView } from "./use-workbench.ts";
 import { workspaceTreeRows } from "./workspace-tree-rows.ts";
@@ -7,15 +8,36 @@ import { useVirtualRows } from "./use-virtual-rows.ts";
 import { IconButton } from "./components/icon-button";
 
 function FileIcon({ entry, open }: { entry: WorkspaceEntry; open: boolean }) {
-	if (entry.kind === "directory") return open ? <FolderOpen /> : <FolderClosed />;
+	if (entry.kind === "directory") {
+		const Icon = open ? DefaultFolderOpenedIcon : DefaultFolderIcon;
+		return <Icon className="file-type-icon" aria-hidden="true" focusable="false" />;
+	}
 	if (entry.kind === "symlink") return <Link />;
-	if (/\.(png|jpe?g|gif|webp|svg)$/i.test(entry.name)) return <Image />;
-	return /\.(tsx?|jsx?|json[c]?|css|html|py|rs|go|sh|c|cpp)$/i.test(entry.name) ? <FileCode2 /> : <FileText />;
+	const name = entry.name.slice(entry.name.lastIndexOf("/") + 1);
+	return <SymbolsFileIcon fileName={name} autoAssign className="file-type-icon" aria-hidden="true" focusable="false" />;
 }
 
-function FileReference({ path, referenceFile }: { path: string; referenceFile: (path: string) => void }) {
-	return <div className="row-actions"><IconButton label={`引用路径 ${path}`} className="row-action-button file-reference-button"
-		onClick={() => referenceFile(path)}><AtSign /></IconButton></div>;
+function FileRowActions({ path, referenceFile }: { path: string; referenceFile: (path: string) => void }) {
+	const [copyState, setCopyState] = useState<{ status: "idle" | "copied" | "error" }>({ status: "idle" });
+	useEffect(() => {
+		if (copyState.status !== "copied") return;
+		const timer = setTimeout(() => setCopyState({ status: "idle" }), 1500);
+		return () => clearTimeout(timer);
+	}, [copyState]);
+	return <div className="row-actions">
+		<IconButton label={`${copyState.status === "error" ? "复制失败，重试" : copyState.status === "copied" ? "已复制路径" : "复制路径"} ${path}`} className="row-action-button"
+			onClick={async (event) => {
+				if (event.detail > 0) event.currentTarget.blur();
+				try {
+					await navigator.clipboard.writeText(path);
+					setCopyState({ status: "copied" });
+				} catch {
+					setCopyState({ status: "error" });
+				}
+			}}>{copyState.status === "copied" ? <Check /> : <Copy />}</IconButton>
+		<IconButton label={`引用路径 ${path}`} className="row-action-button"
+			onClick={() => referenceFile(path)}><AtSign /></IconButton>
+	</div>;
 }
 
 type FileActions = { openFile: (path: string) => void; referenceFile: (path: string) => void };
@@ -39,7 +61,7 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ git, selected, 
 				<FileIcon entry={{ path: change.path, name: change.path, kind: "file" }} open={false} />
 				<span className="file-name">{change.path}</span>
 			</button>
-			{change.status !== "D" && <FileReference path={change.path} referenceFile={referenceFile} />}
+			{change.status !== "D" && <FileRowActions path={change.path} referenceFile={referenceFile} />}
 			</div>
 		</li>;
 		})}
@@ -110,7 +132,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ workbench, openFile, 
 						{change && <span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>}
 						{!change && descendants > 0 && <span className="git-descendants" aria-hidden="true">{descendants}</span>}
 					</button>
-					{!entry.virtual && change?.status !== "D" && <FileReference path={entry.path} referenceFile={referenceFile} />}
+					{!entry.virtual && change?.status !== "D" && <FileRowActions path={entry.path} referenceFile={referenceFile} />}
 				</div>;
 			};
 			return <li key={item.key} role="none" data-index={item.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(item.start)}>{content()}</li>;

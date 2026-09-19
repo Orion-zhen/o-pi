@@ -6,16 +6,16 @@
 .code-toolbar button svg { width: 0.75rem; height: 0.75rem; }
 .code-block pre { margin: 0; padding: 0.875rem; max-height: 32rem; overflow: auto; border: 0; border-radius: 0; background: transparent; white-space: pre; overflow-wrap: normal; line-height: 1.65; tab-size: 4; }
 .code-block code { font-size: var(--text-code); }
-.code-block .token:is(.comment, .prolog, .doctype) { color: var(--muted-foreground); font-style: italic; }
-.code-block .token:is(.keyword, .tag, .atrule, .boolean) { color: var(--syntax-keyword); }
-.code-block .token:is(.string, .attr-value, .char, .builtin) { color: var(--syntax-string); }
-.code-block .token:is(.function, .class-name) { color: var(--syntax-function); }
-.code-block .token:is(.number, .constant, .symbol, .property, .attr-name) { color: var(--syntax-number); }
-.code-block .token:is(.operator, .punctuation) { color: var(--muted-foreground); }
-.code-block .token:is(.inserted, .prefix.inserted) { color: var(--success); }
-.code-block .token:is(.deleted, .prefix.deleted) { color: var(--destructive); }
-.code-block .token.coord { color: var(--syntax-function); }
-.diff-line { display: block; min-width: max-content; }
-.diff-line:has(.token.inserted.prefix) { background: color-mix(in srgb, var(--success) 11%, transparent); }
-.diff-line:has(.token.deleted.prefix) { background: color-mix(in srgb, var(--destructive) 9%, transparent); }
+:is(.code-block, .file-diff) .token:is(.comment, .prolog, .doctype) { color: var(--muted-foreground); font-style: italic; }
+:is(.code-block, .file-diff) .token:is(.keyword, .tag, .atrule, .boolean) { color: var(--syntax-keyword); }
+:is(.code-block, .file-diff) .token:is(.string, .attr-value, .char, .builtin) { color: var(--syntax-string); }
+:is(.code-block, .file-diff) .token:is(.function, .class-name) { color: var(--syntax-function); }
+:is(.code-block, .file-diff) .token:is(.number, .constant, .symbol, .property, .attr-name) { color: var(--syntax-number); }
+:is(.code-block, .file-diff) .token:is(.operator, .punctuation) { color: var(--muted-foreground); }
+:is(.code-block, .file-diff) .token:is(.inserted, .prefix.inserted) { color: var(--success); }
+:is(.code-block, .file-diff) .token:is(.deleted, .prefix.deleted) { color: var(--destructive); }
+:is(.code-block, .file-diff) .token.coord { color: var(--syntax-function); }
+.code-block .diff-line { display: block; min-width: max-content; }
+.code-block .diff-line:has(.token.inserted.prefix) { background: color-mix(in srgb, var(--success) 11%, transparent); }
+.code-block .diff-line:has(.token.deleted.prefix) { background: color-mix(in srgb, var(--destructive) 9%, transparent); }
 @media (max-width: 767px) { .code-block pre { padding: 0.625rem; max-height: 24rem; } }

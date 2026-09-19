@@ -1,0 +1,28 @@
+.file-diff {
+	--diff-font-family: var(--gui-font-code);
+	--diff-background-color: var(--background);
+	--diff-text-color: var(--foreground);
+	--diff-selection-background-color: var(--selected);
+	--diff-selection-text-color: var(--selected-foreground);
+	--diff-code-insert-background-color: color-mix(in srgb, var(--success) 11%, var(--background));
+	--diff-code-delete-background-color: color-mix(in srgb, var(--destructive) 9%, var(--background));
+	--diff-gutter-insert-background-color: color-mix(in srgb, var(--success) 18%, var(--background));
+	--diff-gutter-delete-background-color: color-mix(in srgb, var(--destructive) 16%, var(--background));
+	inline-size: 100%;
+	font-size: var(--text-code);
+	tab-size: 4;
+}
+.file-diff h3 { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); font-weight: 500; border-block-end: 1px solid var(--divider); }
+.file-diff h3 > :first-child { flex: 1; }
+.file-diff-added { color: var(--success); }
+.file-diff-deleted { color: var(--destructive); }
+.file-diff .diff-gutter-col { width: 5ch; }
+.file-diff .diff-gutter { cursor: default; color: var(--muted-foreground); }
+.file-diff .diff-code { padding-inline: 2ch 1ch; position: relative; word-break: normal; overflow-wrap: anywhere; }
+.file-diff .diff-code-insert::before, .file-diff .diff-code-delete::before { position: absolute; inset-inline-start: 0.5ch; user-select: none; }
+.file-diff .diff-code-insert::before { content: "+"; color: var(--success); }
+.file-diff .diff-code-delete::before { content: "-"; color: var(--destructive); }
+.file-diff .diff-decoration { background: var(--secondary); color: var(--muted-foreground); }
+.file-diff-location { display: block; padding: var(--space-1) var(--space-2); font-size: var(--text-caption); }
+.file-preview[data-wrap="false"] .file-diff .diff { table-layout: auto; inline-size: max-content; min-inline-size: 100%; }
+.file-preview[data-wrap="false"] .file-diff .diff-code { white-space: pre; overflow-wrap: normal; }

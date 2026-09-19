@@ -78,7 +78,9 @@ export async function previewWorkspaceFile(cwd: string, name: string, signal: Ab
 	if (change?.status === "?" && content.kind === "text") {
 		const lines = content.text.split("\n");
 		if (lines.at(-1) === "") lines.pop();
-		diffs.push({ title: "未跟踪", text: `--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n` });
+		const header = `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n`;
+		const hunk = lines.length ? `@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n` : "";
+		diffs.push({ title: "未跟踪", text: header + hunk });
 	} else if (change) {
 		const names = change.originalPath ? [name, change.originalPath] : [name];
 		const args = ["--no-ext-diff", "--no-textconv", "--no-color", "--", ...names];

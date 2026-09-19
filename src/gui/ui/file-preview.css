@@ -15,7 +15,4 @@
 .file-preview-body .file-code code { font-size: var(--text-code); }
 .file-preview[data-wrap="true"] :is(.file-code, .file-diff) { inline-size: 100%; min-inline-size: 0; }
 .file-preview[data-wrap="true"] .file-code pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.file-preview[data-wrap="true"] .diff-line { min-inline-size: 0; }
-.file-diff { inline-size: max-content; min-inline-size: 100%; }
-.file-diff h3 { margin: 0; padding: var(--space-2) var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); font-weight: 500; border-block-end: 1px solid var(--divider); }
 .file-preview-image { display: block; max-inline-size: 100%; block-size: auto; margin-inline: auto; padding: var(--space-3); }

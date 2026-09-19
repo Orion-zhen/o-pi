@@ -32,8 +32,8 @@ export function HistorySessionRow({ path, title, modified, selected, disabled, b
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
 		</Button>}
 		{path && <div className="row-actions">
-			<IconButton label={`重命名会话 ${title}`} className="row-action-button" disabled={disabled || busy || pending || editing}
-				onClick={() => setEditing(true)}><Pencil /></IconButton>
+			{!busy && <IconButton label={`重命名会话 ${title}`} className="row-action-button" disabled={disabled || pending || editing}
+				onClick={() => setEditing(true)}><Pencil /></IconButton>}
 			{!busy && !waiting && !unread && <ConfirmAction label={`删除会话 ${title}`} hint="永久删除会话，再次点击确认。Ctrl+点击直接删除"
 				disabled={disabled || pending || editing} allowCtrl confirm={() => send({ action: "deleteSession", path })} />}
 		</div>}

@@ -41,9 +41,13 @@
 .workspace-tree { outline-offset: -2px; }
 .file-entry-row { border-radius: var(--radius-sm); --row-action-background: var(--background); }
 .file-entry-row:has(> .file-row:is([aria-selected="true"], [aria-pressed="true"])) { --row-action-background: var(--selected); }
-.file-entry-row .file-reference-button { padding: 0.3em 0.4em; font-size: var(--text-small); border-radius: var(--radius-sm); }
+.file-entry-row .row-action-button { padding: 0.3em 0.4em; font-size: var(--text-small); border-radius: var(--radius-sm); }
 .file-row { display: flex; align-items: center; gap: var(--space-1); inline-size: 100%; min-inline-size: 0; padding: 0.375em var(--space-2); border-radius: var(--radius-sm); font-size: var(--text-small); text-align: left; color: var(--foreground); }
 .file-row svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; color: var(--muted-foreground); }
+.file-row > svg:not(.file-chevron) { inline-size: 1.5em; }
+.file-row > .file-type-icon { block-size: 1.5em; }
+.file-type-icon [fill]:not([fill="none"]) { fill: currentColor; }
+.file-type-icon [stroke]:not([stroke="none"]) { stroke: currentColor; }
 .file-name { min-inline-size: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .file-row[data-ignored="true"] { color: var(--muted-foreground); }
 .file-row:hover { background: var(--accent); }

@@ -7,23 +7,22 @@ import type { Remote } from "./use-workbench.ts";
 import { fileLanguage, SyntaxHighlighter } from "./code-highlight.ts";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
+import { FileDiff } from "./file-diff.tsx";
 import "./file-preview.css";
 
-function FileCode({ text, path, wrap, diff = false }: { text: string; path: string; wrap: boolean; diff?: boolean }) {
+function FileCode({ text, path, wrap }: { text: string; path: string; wrap: boolean }) {
 	const gutter = `${String(text.split("\n").length).length + 1}ch`;
 	return <div className="code-block file-code">
-		<SyntaxHighlighter language={diff ? "diff" : fileLanguage(path)} useInlineStyles={false} showLineNumbers={!diff}
+		<SyntaxHighlighter language={fileLanguage(path)} useInlineStyles={false} showLineNumbers
 			wrapLines wrapLongLines={wrap} lineProps={{
-				className: diff ? "diff-line" : "file-source-line",
-				style: { display: "block", ...(!diff && { paddingInlineStart: gutter, textIndent: `-${gutter}` }) },
-			}} aria-label={diff ? "文件差异" : "文件内容"}
+				className: "file-source-line",
+				style: { display: "block", paddingInlineStart: gutter, textIndent: `-${gutter}` },
+			}} aria-label="文件内容"
 			lineNumberStyle={{ minWidth: gutter, paddingRight: "1ch", textIndent: 0, color: "var(--muted-foreground)", userSelect: "none" }}>{text}</SyntaxHighlighter>
 	</div>;
 }
 function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean; wrap: boolean }) {
-	if (diff) return preview.diffs.map((part) => <section className="file-diff" key={part.title}>
-		<h3>{part.title}</h3><FileCode path={preview.path} text={part.text} wrap={wrap} diff />
-	</section>);
+	if (diff) return preview.diffs.map((part) => <FileDiff key={part.title} path={preview.path} text={part.text} title={part.title} />);
 	const content = preview.content;
 	if (content.kind === "deleted") return <p className="file-hint">文件已删除，可查看差异。</p>;
 	if (content.kind === "unavailable") return <p className="file-hint">{content.reason}</p>;
