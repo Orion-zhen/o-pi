@@ -50,6 +50,17 @@ import "./code.css";
 import "./motion.css";
 import "./layout.css";
 
+/** 条件持续满足 delay 毫秒后才转真; 正常启动时会话先于超时到达, 工作区欢迎页不再闪现. */
+function useDelayed(value: boolean, delay: number): boolean {
+	const [delayed, setDelayed] = useState(false);
+	useEffect(() => {
+		if (!value) { setDelayed(false); return; }
+		const timer = setTimeout(() => setDelayed(true), delay);
+		return () => clearTimeout(timer);
+	}, [value, delay]);
+	return delayed;
+}
+
 function App() {
 	const gui = useGui();
 	const { snapshot, dialogs, notices, status, error, panel, auth, authUrl, deviceCode, send } = gui;
@@ -69,6 +80,7 @@ function App() {
 	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
 	useEffect(() => setLocation(undefined), [gui.selectedId]);
 	const sessionId = snapshot?.sessionId;
+	const workspaceWelcome = useDelayed(!snapshot, 500);
 	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
 	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
 	const located = useMemo(() => snapshot ? locateTranscript(snapshot, target) : undefined, [snapshot, target]);
@@ -226,7 +238,7 @@ function App() {
 						<div className="transcript" data-list-scroll ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
 							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
 								<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
-								{!snapshot && (
+								{workspaceWelcome && (
 									<Fade key="workspace-welcome" className="welcome workspace-welcome">
 										<div className="welcome-mark">
 											<span className="app-logo" role="img" aria-label="opi" />

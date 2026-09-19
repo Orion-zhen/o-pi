@@ -73,7 +73,8 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .directory-list span { overflow-wrap: anywhere; white-space: normal; text-align: start; }
 .directory-browser { flex-basis: 70%; }
 .directory-list { flex: 1; }
-.workspace-welcome > .workspace-select { max-inline-size: 100%; }
+/* 欢迎页是纵向弹性容器, 基础规则的 flex:1 会纵向拉伸按钮; 这里恢复自然高度并居中. */
+.workspace-welcome > .workspace-select { flex: 0 1 auto; justify-content: center; min-inline-size: min(100%, 20rem); max-inline-size: 100%; margin-block-start: var(--space-6); }
 .sidebar-footer { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-3); border-block-start: 1px solid var(--divider); color: var(--muted-foreground); }
 .sidebar-footer > button:last-child { margin-left: auto; }
 .sidebar[data-collapsed="true"] .brand { inline-size: 0; padding: 0; opacity: 0; }
