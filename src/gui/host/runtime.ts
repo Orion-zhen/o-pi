@@ -14,14 +14,13 @@ import {
 	type AgentSession,
 	type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
-import { GuiDialogs } from "./dialogs.ts";
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
 
 EventEmitter.defaultMaxListeners = 20;
 
 export async function createGuiRuntime(
 	cwd: string,
-	bindings: GuiExtensionBindings & { dialogs: GuiDialogs },
+	bindings: GuiExtensionBindings,
 	sessionManager?: SessionManager,
 ) {
 	const { dialogs } = bindings;

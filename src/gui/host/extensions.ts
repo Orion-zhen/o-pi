@@ -9,18 +9,22 @@ import { filterSessionTreeNoTools } from "./session-tree.ts";
 import { createSubagentExtension } from "../../harness/extensions/subagent.ts";
 import { createToolsExtension } from "../../harness/extensions/cmd-slash-tools.ts";
 import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
+import type { GuiDialogs } from "./dialogs.ts";
+import approvalGate from "../../harness/extensions/approval-gate.ts";
 import type { GuiEvent, GuiSessionDetails } from "../contract.ts";
 
 export type ReadSessionInfo = (ctx: ExtensionCommandContext) => Promise<GuiSessionDetails>;
 export interface GuiExtensionBindings {
+	dialogs: GuiDialogs;
 	emit(event: GuiEvent): void;
 	bindTools(controller: ToolSelectionController): void;
 	commandSignal(): AbortSignal;
 	bindSessionInfo(read: ReadSessionInfo): void;
 }
 
-export function createGuiExtensions({ emit, bindTools, commandSignal, bindSessionInfo }: GuiExtensionBindings): InlineExtension[] {
+export function createGuiExtensions({ dialogs, emit, bindTools, commandSignal, bindSessionInfo }: GuiExtensionBindings): InlineExtension[] {
 	const views: InlineExtension[] = [
+		{ name: "approval-gate", factory: (pi) => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }) },
 		{
 			name: "subagent",
 			factory: createSubagentExtension(undefined, {

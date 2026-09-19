@@ -1,0 +1,15 @@
+.approval-details { max-block-size: 45dvh; min-inline-size: 0; }
+.approval-details .list-scroll-viewport { max-block-size: inherit; padding-inline-end: var(--space-2); }
+.approval-cwd, .approval-target, .approval-reason { overflow-wrap: anywhere; white-space: pre-wrap; }
+.approval-command { min-inline-size: 0; }
+.approval-command-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-small); color: var(--muted-foreground); }
+.approval-command-heading > button { flex-shrink: 0; }
+.approval .approval-command-code { margin-block: var(--space-2); }
+.approval .approval-command-code pre { max-block-size: 30dvh; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval .approval-command-code .token.operator { color: var(--syntax-keyword); font-weight: 600; }
+.approval-sensitive-list { display: grid; gap: var(--space-4); }
+.approval-sensitive { border-inline-start: 2px solid color-mix(in srgb, var(--destructive) 45%, var(--border)); padding-inline-start: var(--space-3); min-inline-size: 0; }
+.approval-sensitive .approval-command-heading > span, .approval-target-label, .approval-target { color: var(--destructive); font-weight: 500; }
+.approval-sensitive .approval-command-code .token:is(.function, .builtin) { color: var(--destructive); font-weight: 600; }
+.approval-target-label { font-size: var(--text-small); }
+.approval-reason { margin-block-start: var(--space-1); }

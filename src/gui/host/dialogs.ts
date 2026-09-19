@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { GuiDialog, GuiEvent, GuiNotice } from "../contract.ts";
+import type { GuiBashApproval, GuiDialog, GuiEvent, GuiNotice } from "../contract.ts";
+import type { ApprovalInteractionPort } from "../../harness/approval/runtime/interaction.ts";
+import { approvalText, formatApprovalPrompt } from "../../harness/approval/presentation.ts";
 import { plainTheme } from "./theme.ts";
 
 /** 对话框属于宿主，不随浏览器连接销毁。响应只能消费一次。 */
@@ -15,6 +17,16 @@ export class GuiDialogs {
 		return [...this.pending.values()].map(({ dialog }) => dialog);
 	}
 
+	approve(...[request, decision, options, opts]: Parameters<ApprovalInteractionPort["approve"]>): Promise<string | undefined> {
+		const bash: GuiBashApproval | undefined = request.tool === "bash" ? {
+			cwd: approvalText(request.cwd), command: approvalText(request.detail.command),
+			items: decision.items.map(({ unit, reason }) => ({
+				action: unit.action, kind: unit.target.kind, target: approvalText(unit.target.value), reason: approvalText(reason),
+			})),
+		} : undefined;
+		return this.ask("select", bash ? "执行 Bash 命令" : formatApprovalPrompt(request, decision), "", [...options], "", opts, bash);
+	}
+
 	ask(
 		kind: GuiDialog["kind"],
 		title: string,
@@ -22,6 +34,7 @@ export class GuiDialogs {
 		options: string[] = [],
 		initial = "",
 		opts?: ExtensionUIDialogOptions,
+		bash?: GuiBashApproval,
 	): Promise<string | undefined> {
 		if (opts?.signal?.aborted) return Promise.resolve(undefined);
 		const id = randomUUID();
@@ -44,6 +57,7 @@ export class GuiDialogs {
 					options,
 					initial,
 					deadline: opts?.timeout ? Date.now() + opts.timeout : null,
+					...(bash ? { bash } : {}),
 				},
 				finish,
 			});

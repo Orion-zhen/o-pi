@@ -6,6 +6,7 @@ import type { StatsSnapshot } from "../harness/stats/types.ts";
 import type { UsageSnapshot } from "../harness/usage/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
 import type { SubagentDetails } from "../harness/subagent/types.ts";
+import type { ApprovalUnit } from "../harness/approval/types.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "./workbench.ts";
 import type { GuiConfigDocument } from "./preferences.ts";
 
@@ -129,6 +130,11 @@ export interface GuiQueryResults {
 }
 export type Query = <Q extends GuiQuery>(query: Q) => Promise<GuiQueryResults[Q["query"]]>;
 
+export interface GuiBashApproval {
+	cwd: string;
+	command: string;
+	items: { action: ApprovalUnit["action"]; kind: ApprovalUnit["target"]["kind"]; target: string; reason: string }[];
+}
 export interface GuiDialog {
 	id: string;
 	kind: "select" | "confirm" | "input" | "editor" | "secret";
@@ -137,6 +143,7 @@ export interface GuiDialog {
 	options: string[];
 	initial: string;
 	deadline: number | null;
+	bash?: GuiBashApproval;
 }
 export interface GuiNotice {
 	id: string;
