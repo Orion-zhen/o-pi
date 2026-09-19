@@ -34,8 +34,8 @@ export function SessionSidebar({ gui, locate }: { gui: GuiView; locate: (entryId
 				</Tabs.List>
 			</div>
 			<Tabs.Content value={sessionTab} forceMount asChild>
-				<Fade initial={false} animate={{ opacity: active === "file" ? 0 : 1 }} className="session-tab-body" data-active={active !== "file"} inert={active === "file"} aria-hidden={active === "file"}>
-				<AnimatePresence initial={false} mode="wait"><Fade key={sessionTab}>
+				<Fade initial={false} animate={{ opacity: active === "file" ? 0 : 1 }} className="session-tab-body" data-list-scroll data-active={active !== "file"} inert={active === "file"} aria-hidden={active === "file"}>
+				<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}><Fade key={sessionTab}>
 				{!details ? <p role="status">正在读取会话信息…</p> : sessionTab === "tree"
 					? <SessionTree value={details.tree} send={gui.send} locate={locate} />
 					: sessionTab === "stats" ? <StatsReport value={details.stats} /> : <TelemetryReport value={details.telemetry} />}

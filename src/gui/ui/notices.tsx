@@ -29,8 +29,14 @@ export function NoticeGroupView({ group, live, clear }: { group: NoticeGroup; li
 	const [open, setOpen] = useState(live);
 	const latest = group.notices[group.notices.length - 1];
 	useEffect(() => { setOpen(live); }, [latest?.id, live]);
+	return <NoticeGroupContent group={group} clear={clear} open={open} onOpenChange={setOpen} />;
+}
+
+export function NoticeGroupContent({ group, clear, open, onOpenChange }: {
+	group: NoticeGroup; clear: (ids: string[]) => void; open: boolean; onOpenChange: (open: boolean) => void;
+}) {
 	return <Reveal>
-		<Collapsible className="notices" open={open} onOpenChange={setOpen}>
+		<Collapsible className="notices" open={open} onOpenChange={onOpenChange}>
 			<div className="notices-header">
 				<CollapsibleTrigger className="disclosure-trigger"><ChevronRight className="disclosure-chevron" aria-hidden="true" />通知 ({group.notices.length})</CollapsibleTrigger>
 				<IconButton label="清除通知" onClick={() => clear(group.notices.map((notice) => notice.id))}><X /></IconButton>

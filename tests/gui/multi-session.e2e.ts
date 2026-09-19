@@ -61,7 +61,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined
 			&& /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|DISPLAY|XAUTHORITY|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS)$/.test(entry[0])));
 		Object.assign(env, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", NODE_ENV: "test" });
-		child = spawn(path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", root, "--host", "127.0.0.1", "--port", "0"], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+		child = spawn(process.env.OPI_GUI_TEST_BINARY ?? path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", root, "--host", "127.0.0.1", "--port", "0"], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
 		child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
 		child.stderr?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
 		let url = "";

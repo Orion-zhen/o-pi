@@ -25,10 +25,14 @@ export function locateTranscript(snapshot: GuiSnapshot, target: string | undefin
 	});
 	let cursor = 0;
 	const entryIds = snapshot.messages.map((message) => {
-		const index = candidates.findIndex((item, index) => index >= cursor && item.message.role === message.role && item.message.timestamp === message.timestamp);
-		if (index < 0) return undefined;
-		cursor = index + 1;
-		return candidates[index]?.id;
+		for (let index = cursor; index < candidates.length; index++) {
+			const item = candidates[index];
+			if (item?.message.role === message.role && item.message.timestamp === message.timestamp) {
+				cursor = index + 1;
+				return item.id;
+			}
+		}
+		return undefined;
 	});
 	if (!target || entryIds.includes(target) || !byId.has(target)) return { source: snapshot, entryIds, preview: false };
 	const ancestors: SessionEntry[] = [];

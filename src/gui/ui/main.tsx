@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AnimatePresence } from "motion/react";
 import { Fade, Reveal } from "./components/animated";
@@ -67,10 +67,11 @@ function App() {
 	const closeSidebar = useCallback(() => setMobileOpen(false), []);
 	const transcript = useTranscriptScroll(snapshot?.sessionId, gui.view);
 	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
+	useEffect(() => setLocation(undefined), [gui.selectedId]);
 	const sessionId = snapshot?.sessionId;
 	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
 	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
-	const located = snapshot ? locateTranscript(snapshot, target) : undefined;
+	const located = useMemo(() => snapshot ? locateTranscript(snapshot, target) : undefined, [snapshot, target]);
 	const memory = gui.view?.disclosures;
 	const completedAt = gui.activity.find((item) => item.sessionId === sessionId)?.completedAt ?? 0;
 	useEffect(() => {
@@ -90,7 +91,8 @@ function App() {
 			document.removeEventListener("visibilitychange", check);
 		};
 	}, [sessionId, snapshot?.running, located?.preview, dialogs.length, completedAt, gui.markRead, transcript.showLatest]);
-	const noticeGroups = groupNotices(notices);
+	const noticeGroups = useMemo(() => groupNotices(notices), [notices]);
+	const inlineGroups = useMemo(() => located?.preview ? [] : noticeGroups, [located?.preview, noticeGroups]);
 	const noticeTail = snapshot ? snapshot.messages.length + (snapshot.streamingMessage ? 1 : 0) : 0;
 	const clearNoticeGroup = useCallback((ids: string[]) => { void send({ action: "clearNotices", ids }); }, [send]);
 	const inlineNotices = Boolean(snapshot && located && !located.preview && snapshot.messages.length > 0);
@@ -221,9 +223,9 @@ function App() {
 						</Reveal>}
 						</AnimatePresence>
 						<div className="transcript-shell">
-						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
+						<div className="transcript" data-list-scroll ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
 							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
-								<AnimatePresence initial={false} mode="wait">
+								<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
 								{!snapshot && (
 									<Fade key="workspace-welcome" className="welcome workspace-welcome">
 										<div className="welcome-mark">
@@ -243,7 +245,7 @@ function App() {
 									onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 									{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
 									<DisclosureMemoryContext value={memory}><Transcript source={located.source} entryIds={located.entryIds}
-										groups={located.preview ? [] : noticeGroups} tail={noticeTail} clear={clearNoticeGroup} /></DisclosureMemoryContext>
+										groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} windowRef={transcript.virtualizer} target={target} view={located.preview ? undefined : gui.view} /></DisclosureMemoryContext>
 								</Fade>}
 								</AnimatePresence>
 								<AnimatePresence initial={false}>{snapshot?.status["bash"] && <Reveal><pre className="live-output">{snapshot.status["bash"]}</pre></Reveal>}</AnimatePresence>
@@ -262,7 +264,7 @@ function App() {
 								}} />)}
 						</div>
 						<AnimatePresence initial={false}>
-						{transcript.showLatest && <Fade className="jump-latest-region"><Button variant="outline" size="sm" className="jump-latest" onClick={transcript.toLatest}>
+						{transcript.showLatest && <Fade className="jump-latest-region"><Button variant="outline" size="sm" className="jump-latest" onClick={() => { if (!located?.preview) setLocation(undefined); transcript.toLatest(); }}>
 							<ArrowDown />回到最新
 						</Button></Fade>}
 						</AnimatePresence>
