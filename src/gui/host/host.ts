@@ -55,6 +55,21 @@ export class GuiHost {
 		for (const client of this.clients) if (!client.selected) void client.select(session).catch((error: unknown) => client.reportError(error));
 		await session.ensure();
 		this.refresh();
+		this.refreshModelCatalog(session);
+	}
+	/** 启动时给 initial 会话补一次联网刷新，不阻塞启动；关闭或超时即取消，失败只落 notice。 */
+	private refreshModelCatalog(session: GuiSession): void {
+		if (this.closed || process.env.PI_OFFLINE !== undefined) return;
+		const execution = session.execution;
+		if (!execution) return;
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 15_000);
+		timeout.unref();
+		this.track(
+			execution
+				.refreshModelCatalog(AbortSignal.any([controller.signal, this.workbenchController.signal]))
+				.finally(() => clearTimeout(timeout)),
+		);
 	}
 	applyGuiConfig(document: GuiConfigDocument): void {
 		if (document.state === "ready") {

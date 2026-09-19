@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -86,9 +87,15 @@ export async function createGuiRuntime(
 			services.modelRuntime,
 		);
 		for (const diagnostic of scope.diagnostics) dialogs.notify(diagnostic.message, "warning");
+		const context = sessionManager.buildSessionContext();
+		const model = context.messages.length === 0 && context.model
+			? services.modelRuntime.getModel(context.model.provider, context.model.modelId)
+			: undefined;
+		const initialSelection = model ? { model, thinkingLevel: context.thinkingLevel as ThinkingLevel } : {};
 		const result = await createAgentSessionFromServices({
 			services,
 			sessionManager,
+			...initialSelection,
 			...(sessionStartEvent ? { sessionStartEvent } : {}),
 			scopedModels: scope.scopedModels,
 		});

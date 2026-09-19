@@ -198,6 +198,18 @@ export class GuiExecution {
 		}
 	}
 
+	/** 联网刷新模型目录：未中断则推新快照，provider 级失败合并成一条 notice。 */
+	refreshModelCatalog(signal: AbortSignal): Promise<void> {
+		const refresh = async () => {
+			const { aborted, errors } = await this.runtime.services.modelRuntime.refresh({ signal });
+			if (aborted) return;
+			this.publish();
+			if (errors.size)
+				this.dialogs.notify(`模型列表刷新失败，已使用缓存: ${[...errors.keys()].join(", ")}`, "warning");
+		};
+		return this.track(refresh());
+	}
+
 	dispatch(action: GuiAction, client: SessionClient): Promise<void> {
 		if (this.disposed) return Promise.reject(new Error("会话实例已释放。"));
 		return this.track(this.origin.run(client, () => this.perform(action, client)));

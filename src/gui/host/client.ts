@@ -122,6 +122,11 @@ export class GuiClient {
 		if (!source) throw new Error("请先选择工作区。");
 		const manager = SessionManager.create(source.cwd);
 		if (options?.parentSession) manager.newSession({ parentSession: options.parentSession });
+		await source.use(this.forSession(source), async (execution) => {
+			const { model, thinkingLevel } = execution.runtime.session;
+			if (model) manager.appendModelChange(model.provider, model.id);
+			manager.appendThinkingLevelChange(thinkingLevel);
+		});
 		if (options?.setup) await options.setup(manager);
 		const session = this.host.register(manager, { type: "session_start", reason: "new", ...(source.file ? { previousSessionFile: source.file } : {}) });
 		await this.select(session);
