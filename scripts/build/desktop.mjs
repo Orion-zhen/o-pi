@@ -52,6 +52,9 @@ export async function buildDesktop({ root, ui, directoryOnly }) {
 	);
 	console.log(`Built desktop app: ${appDir}`);
 	if (directoryOnly) return;
+	// GitHub release 直连易被重置 (ECONNRESET), 默认走 npmmirror 镜像, 环境变量可覆盖
+	process.env.ELECTRON_MIRROR ??= "https://npmmirror.com/mirrors/electron/";
+	process.env.ELECTRON_BUILDER_BINARIES_MIRROR ??= "https://npmmirror.com/mirrors/electron-builder-binaries/";
 	const { build } = await import("electron-builder");
 	const electronVersion = JSON.parse(
 		await readFile(path.join(root, "node_modules/electron/package.json"), "utf8"),
