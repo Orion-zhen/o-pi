@@ -56,4 +56,16 @@ describe("统一会话列表", () => {
 		expect(rows.find((row) => row.path === "/warm.jsonl")).toMatchObject({ target: { id: "warm" }, title: "新标题" });
 		expect(rows.find((row) => row.path === null)).toMatchObject({ target: { id: "empty" }, selected: true });
 	});
+	it("未命名旧会话保留历史派生标题，未落盘新会话显示新会话", () => {
+		const history = [
+			{ path: "/old.jsonl", cwd: "/project", title: "旧会话首条消息", modified: "2026-09-18" },
+		];
+		const activity: SessionActivity[] = [
+			{ sessionId: "old", path: "/old.jsonl", cwd: "/project", title: "", state: "idle", completedAt: 0, unread: false },
+			{ sessionId: "fresh", path: "/fresh.jsonl", cwd: "/project", title: "", state: "idle", completedAt: 0, unread: false },
+		];
+		const rows = sessionList(history, activity, "old");
+		expect(rows.find((row) => row.path === "/old.jsonl")).toMatchObject({ title: "旧会话首条消息" });
+		expect(rows.find((row) => row.path === "/fresh.jsonl")).toMatchObject({ title: "新会话" });
+	});
 });

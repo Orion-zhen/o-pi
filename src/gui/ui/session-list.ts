@@ -20,9 +20,11 @@ export function sessionList(history: GuiSessionInfo[], activity: SessionActivity
 	});
 	for (const item of activity) {
 		const key = item.path ?? item.sessionId;
+		const record = rows.get(key);
 		rows.set(key, {
-			key, target: { id: item.sessionId }, path: item.path, cwd: item.cwd, title: item.title,
-			modified: rows.get(key)?.modified ?? (item.completedAt ? new Date(item.completedAt).toISOString() : ""),
+			key, target: { id: item.sessionId }, path: item.path, cwd: item.cwd,
+			title: item.title || record?.title || "新会话",
+			modified: record?.modified ?? (item.completedAt ? new Date(item.completedAt).toISOString() : ""),
 			selected: item.sessionId === selectedId, activity: item,
 		});
 	}

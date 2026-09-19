@@ -174,6 +174,7 @@ export interface GuiSessionActivity {
 	sessionId: string;
 	path: string | null;
 	cwd: string;
+	/** 仅显式会话名；空串表示未命名，由列表回退到历史派生标题。 */
 	title: string;
 	state: "loading" | "running" | "waiting" | "idle";
 	completedAt: number;

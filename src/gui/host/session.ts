@@ -42,7 +42,7 @@ export class GuiSession {
 		this.cwd = manager.getCwd();
 		this.file = manager.getSessionFile() ?? null;
 		this.stamp = this.fileStamp();
-		this.summary = { sessionId: this.id, path: this.file, cwd: this.cwd, title: manager.getSessionName() || "新会话", state: "idle", completedAt: 0 };
+		this.summary = { sessionId: this.id, path: this.file, cwd: this.cwd, title: manager.getSessionName() ?? "", state: "idle", completedAt: 0 };
 	}
 
 	get execution(): GuiExecution | undefined {
@@ -79,7 +79,7 @@ export class GuiSession {
 		const running = execution?.running ?? false;
 		const completedAt = this.wasRunning && !running ? Math.max(Date.now(), this.summary.completedAt + 1) : this.summary.completedAt;
 		this.wasRunning = running;
-		const title = execution?.ready ? execution.runtime.session.sessionName || "新会话" : this.summary.title;
+		const title = (execution?.ready ? execution.runtime.session.sessionName : undefined) ?? this.summary.title;
 		const state = execution?.dialogs.list().length ? "waiting" : this.resources.state === "starting" ? "loading" : running ? "running" : "idle";
 		if (title !== this.summary.title || state !== this.summary.state || completedAt !== this.summary.completedAt) {
 			this.summary = { ...this.summary, title, state, completedAt };
