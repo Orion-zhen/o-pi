@@ -4,9 +4,9 @@ import { promisify } from "node:util";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { GuiHost } from "../../src/gui/host/host.ts";
+import type { GuiClient } from "../../src/gui/host/client.ts";
 
-export function workbenchTests(context: () => { host: GuiHost; cwd: string }) {
+export function workbenchTests(context: () => { host: GuiClient; cwd: string }) {
 	describe("GUI 工作台读取边界", () => {
 		it("Git 状态与并发文件预览共享扫描，后续刷新仍读取外部变更", async () => {
 			const { host, cwd } = context();

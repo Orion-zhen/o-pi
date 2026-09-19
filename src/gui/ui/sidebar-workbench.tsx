@@ -23,7 +23,7 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
 	const referenceFile = useCallback((path: string) => { close(); gui.referenceFile(path); }, [close, gui.referenceFile]);
 	const openFile = useCallback((path: string) => { gui.openFile(path); close(); }, [close, gui.openFile]);
-	const blocked = !gui.canChangeSession;
+	const blocked = !gui.canNavigate;
 	const proportions: CSSProperties & { "--session-share": string; "--file-share": string } = { "--session-share": `${ratio}fr`, "--file-share": `${100 - ratio}fr` };
 	return <div className="sidebar-workbench">
 		<div className="workbench-workspace"><WorkspacePicker gui={gui} close={close} /></div>

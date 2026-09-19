@@ -56,7 +56,7 @@ export const test = base.extend<{
 				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
 				await page.evaluate(async (cwd) => {
 					if (!window.opi) throw new Error("缺少桌面连接");
-					await window.opi.send({ action: "workspace", path: cwd });
+					await window.opi.send({ action: "workspace", path: cwd }, null);
 				}, cwd);
 			}
 			await use({ app, page });

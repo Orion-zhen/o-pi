@@ -16,8 +16,7 @@ export type ApprovalPresenter = Presenter<(
 	ui: ExtensionUIContext,
 	...args: Parameters<ApprovalInteractionPort["approve"]>
 ) => ReturnType<ApprovalInteractionPort["approve"]>>;
-export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter): void {
-	const gate = createApprovalGate();
+export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter, gate = createApprovalGate()): void {
 	pi.registerCommand("approval-check", {
 		description: "Explain the Bash gate decision without executing the command.",
 		async handler(args, ctx) {

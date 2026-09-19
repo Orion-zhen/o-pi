@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { GuiAction, GuiPanel, GuiQueryResults } from "../contract.ts";
-import type { GuiHost } from "./host.ts";
+import type { GuiSession } from "./session.ts";
 
 export const builtinCommands = ([
 	["new", "新建会话"],
@@ -49,7 +49,7 @@ export async function completeCommand(session: AgentSession, text: string): Prom
 }
 
 /** 界面命令复用内部操作，扩展命令和模板继续交给 SDK prompt。 */
-export async function runBuiltin(host: GuiHost, text: string, execute: (action: GuiAction) => Promise<void>): Promise<boolean> {
+export async function runBuiltin(host: GuiSession, text: string, execute: (action: GuiAction) => Promise<void>): Promise<boolean> {
 	const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
 	if (!match) return false;
 	const name = match[1];

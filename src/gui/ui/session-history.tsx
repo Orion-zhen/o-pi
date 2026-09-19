@@ -12,7 +12,7 @@ import { useVirtualRows } from "./use-virtual-rows.ts";
 import "./sessions.css";
 
 const workspaceName = (cwd: string) => cwd.split(/[/\\]/).filter(Boolean).at(-1) || cwd || "未记录工作区";
-type HistoryGui = Pick<SidebarView, "snapshot" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "canChangeSession" | "connected">;
+type HistoryGui = Pick<SidebarView, "snapshot" | "selectedId" | "activity" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "canNavigate" | "connected">;
 
 export function SessionHistory({ gui, close, full = false, search = "" }: {
 	gui: HistoryGui; close: () => void; full?: boolean; search?: string;
@@ -24,8 +24,14 @@ export function SessionHistory({ gui, close, full = false, search = "" }: {
 			const group = result.get(session.cwd);
 			if (group) group.push(session); else result.set(session.cwd, [session]);
 		}
+		for (const item of gui.activity) {
+			if (!item.path || gui.sessions?.some((session) => session.path === item.path)) continue;
+			const group = result.get(item.cwd) ?? [];
+			group.unshift({ path: item.path, cwd: item.cwd, title: item.title, modified: item.completedAt ? new Date(item.completedAt).toISOString() : "" });
+			result.set(item.cwd, group);
+		}
 		return [...result];
-	}, [gui.sessions, gui.snapshot?.cwd]);
+	}, [gui.sessions, gui.activity, gui.snapshot?.cwd]);
 	return <section className={`session-history${full ? "" : " session-history-flat"}`} aria-label="历史会话">
 		<div className="history-heading">
 			<h2>{full ? "全部会话" : "会话"}</h2>
@@ -35,7 +41,7 @@ export function SessionHistory({ gui, close, full = false, search = "" }: {
 		</div>
 		<ListScroll className="history-scroll">
 			{!gui.sessions && <p className="history-hint" role="status">正在读取历史会话…</p>}
-			{groups.filter(([cwd]) => full || cwd === gui.snapshot?.cwd).map(([cwd, items]) => {
+			{groups.filter(([cwd]) => full || cwd === (gui.snapshot?.cwd ?? gui.activity.find((item) => item.sessionId === gui.selectedId)?.cwd)).map(([cwd, items]) => {
 				const rows = <SessionRows cwd={cwd} items={items} gui={gui} close={close} search={search} />;
 				return full ? <Collapsible key={cwd} defaultOpen className="workspace-sessions">
 					<CollapsibleTrigger asChild><Button variant="ghost" className="workspace-toggle" title={cwd}>
@@ -54,11 +60,11 @@ function SessionRows({ cwd, items, gui, close, search }: {
 	const [switching, setSwitching] = useState(false);
 	const { snapshot } = gui;
 	const active = useMemo(() => items.find((item) => item.path === snapshot?.sessionFile), [items, snapshot?.sessionFile]);
-	const blocked = switching || !gui.canChangeSession;
+	const blocked = switching || !gui.canNavigate;
 	const visible = useMemo(() => {
 		const needle = search.trim().toLocaleLowerCase();
 		const rows: { key: string; path: string | null; title: string; modified: string | undefined; selected: boolean }[] = items.map((item) => ({ key: item.path, path: item.path,
-			title: item === active && snapshot?.name ? snapshot.name : item.title, modified: item.modified, selected: item === active }));
+			title: item === active && snapshot?.name ? snapshot.name : item.title, modified: item.modified || undefined, selected: item === active }));
 		if (cwd === snapshot?.cwd && !active) rows.unshift({ key: snapshot.sessionId, path: snapshot.sessionFile, title: snapshot.name || "新会话", modified: undefined, selected: true });
 		return rows.filter((row) => row.title.toLocaleLowerCase().includes(needle));
 	}, [items, active, cwd, snapshot, search]);
@@ -66,12 +72,14 @@ function SessionRows({ cwd, items, gui, close, search }: {
 	const rows = list.rows.map((row) => {
 		const item = visible[row.index];
 		if (!item) return null;
+		const activity = gui.activity.find((state) => state.path === item.path);
 		const content = <HistorySessionRow key={item.key} title={item.title} path={item.path} modified={item.modified}
-			selected={item.selected} disabled={blocked} send={gui.send} animated={!list.windowed} open={() => {
+			selected={item.selected} disabled={blocked} busy={activity !== undefined && activity.state !== "idle"}
+			waiting={activity?.state === "waiting"} unread={activity?.unread === true} send={gui.send} animated={!list.windowed} open={() => {
 				close();
 				if (item.selected || !item.path) return;
 				setSwitching(true);
-				void gui.send({ action: "switch", path: item.path }).finally(() => setSwitching(false));
+				void gui.send(activity ? { action: "selectSession", id: activity.sessionId } : { action: "switch", path: item.path }).finally(() => setSwitching(false));
 			}} />;
 		return list.windowed ? <div key={row.key} data-index={row.index} className="history-virtual-row" ref={list.virtualizer.measureElement} style={list.rowStyle(row.start)}>{content}</div> : content;
 	});

@@ -3,11 +3,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHost } from "../../src/gui/host/host.ts";
+import type { GuiClient } from "../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
 import { locateTranscript } from "../../src/gui/ui/transcript-location.ts";
 import { storeSession } from "./session-fixture.ts";
 
-export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentDir: string; events: GuiEvent[] }) {
+export function sidebarTests(context: () => { host: GuiClient; cwd: string; agentDir: string; events: GuiEvent[] }) {
 	describe("工作区与自动会话信息", () => {
 		it("浏览真实目录和目录链接，切换后仍重放启动目录，不返回普通文件", async () => {
 			const { host, cwd } = context();
@@ -41,16 +42,16 @@ export function sidebarTests(context: () => { host: GuiHost; cwd: string; agentD
 			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 			await expect(readFile(second)).rejects.toMatchObject({ code: "ENOENT" });
 			expect(await readFile(retained, "utf8")).toContain("保留历史");
-			await host.dispose();
-			const restarted = new GuiHost();
+			await host.host.dispose();
+			const restarted = new GuiHost().createClient();
 			const replay: GuiEvent[] = [];
 			restarted.subscribe((event) => replay.push(event));
 			try {
-				await restarted.start(cwd);
+				await restarted.host.start(cwd);
 				await restarted.dispatch({ action: "sessions" });
 				expect(replay.filter((event) => event.type === "workspaces").at(-1)?.value).not.toContainEqual(expect.objectContaining({ path: missing }));
 				await expect(restarted.dispatch({ action: "workspace", path: missing })).rejects.toMatchObject({ code: "ENOENT" });
-			} finally { await restarted.dispose(); }
+			} finally { await restarted.host.dispose(); }
 		});
 
 		it("工作区移除保护启动目录和当前目录，不删除项目文件", async () => {

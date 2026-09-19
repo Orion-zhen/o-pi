@@ -5,13 +5,14 @@ import type { ApprovalInteractionPort } from "../../harness/approval/runtime/int
 import { approvalText, formatApprovalPrompt } from "../../harness/approval/presentation.ts";
 import { plainTheme } from "./theme.ts";
 
-/** 对话框属于宿主，不随浏览器连接销毁。响应只能消费一次。 */
+/** 对话框属于会话，不随浏览器连接销毁。响应只能消费一次。 */
 export class GuiDialogs {
 	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined) => void }>();
 	readonly notices: GuiNotice[] = [];
 	readonly status: Record<string, string> = {};
-	draft = "";
-	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number = () => 0) {}
+	private draft = "";
+	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number = () => 0,
+		private readonly editor = { get: () => this.draft, set: (value: string) => { this.draft = value; } }) {}
 
 	list(): GuiDialog[] {
 		return [...this.pending.values()].map(({ dialog }) => dialog);
@@ -127,14 +128,13 @@ export class GuiDialogs {
 				else unsupported();
 			},
 			setEditorText: (text) => {
-				this.draft = text;
-				this.emit({ type: "editor", text });
+				this.editor.set(text);
 			},
 			pasteToEditor: (text) => {
-				this.draft += text;
-				this.emit({ type: "editor", text: this.draft });
+				const value = this.editor.get() + text;
+				this.editor.set(value);
 			},
-			getEditorText: () => this.draft,
+			getEditorText: () => this.editor.get(),
 			onTerminalInput: unsupported,
 			setFooter: unsupported,
 			setHeader: unsupported,

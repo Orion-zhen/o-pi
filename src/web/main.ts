@@ -24,13 +24,9 @@ if (!(await runChildProcess())) {
 	});
 	console.log(`opi-web: ${server.url}/`);
 	let closing = false;
-	const unsubscribe = gui.subscribe((event) => {
-		if (event.type === "close") void close();
-	});
 	const close = async () => {
 		if (closing) return;
 		closing = true;
-		unsubscribe();
 		await server.close();
 		await gui.dispose();
 	};
@@ -42,5 +38,5 @@ if (!(await runChildProcess())) {
 	});
 	void gui
 		.start(values.cwd)
-		.catch((error: unknown) => gui.dialogs.notify(error instanceof Error ? error.message : String(error), "error"));
+		.catch((error: unknown) => gui.reportError(error));
 }

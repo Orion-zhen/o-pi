@@ -16,6 +16,7 @@ import {
 import { safeLink } from "./content.tsx";
 import { locateTranscript } from "./transcript-location.ts";
 import { Transcript } from "./transcript.tsx";
+import { DisclosureMemoryContext, type DisclosureMemory } from "./disclosure-memory.ts";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
 import { Panel } from "./panels.tsx";
@@ -70,11 +71,32 @@ function App() {
 	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
 	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
 	const located = snapshot ? locateTranscript(snapshot, target) : undefined;
+	const memories = useRef(new Map<string, DisclosureMemory>());
+	if (sessionId && !memories.current.has(sessionId)) memories.current.set(sessionId, new Map());
+	const memory = sessionId ? memories.current.get(sessionId) : undefined;
+	const completedAt = gui.activity.find((item) => item.sessionId === sessionId)?.completedAt ?? 0;
+	useEffect(() => {
+		const check = () => {
+			if (sessionId && !snapshot?.running && !located?.preview && dialogs.length === 0 && document.visibilityState === "visible" && document.hasFocus() && transcript.atLatest())
+				gui.markRead(sessionId, completedAt);
+		};
+		const frame = requestAnimationFrame(check);
+		const viewport = transcript.scroll.current;
+		viewport?.addEventListener("scroll", check);
+		window.addEventListener("focus", check);
+		document.addEventListener("visibilitychange", check);
+		return () => {
+			cancelAnimationFrame(frame);
+			viewport?.removeEventListener("scroll", check);
+			window.removeEventListener("focus", check);
+			document.removeEventListener("visibilitychange", check);
+		};
+	}, [sessionId, snapshot?.running, located?.preview, dialogs.length, completedAt, gui.markRead, transcript.showLatest]);
 	const noticeGroups = groupNotices(notices);
 	const noticeTail = snapshot ? snapshot.messages.length + (snapshot.streamingMessage ? 1 : 0) : 0;
 	const clearNoticeGroup = useCallback((ids: string[]) => { void send({ action: "clearNotices", ids }); }, [send]);
 	const inlineNotices = Boolean(snapshot && located && !located.preview && snapshot.messages.length > 0);
-	useLayoutEffect(() => { if (target) transcript.toEntry(target); }, [location]);
+	useLayoutEffect(() => { transcript.restorePosition(); if (target) transcript.toEntry(target); }, [location, sessionId]);
 	const panelContent = useRef<HTMLDivElement>(null);
 	const main = useRef<HTMLElement>(null);
 	const app = useRef<HTMLDivElement>(null);
@@ -202,7 +224,7 @@ function App() {
 						</AnimatePresence>
 						<div className="transcript-shell">
 						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
-							<div className="transcript-content" ref={transcript.content}>
+							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
 								<AnimatePresence initial={false} mode="wait">
 								{!snapshot && (
 									<Fade key="workspace-welcome" className="welcome workspace-welcome">
@@ -222,8 +244,8 @@ function App() {
 								{snapshot && located && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
 									onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 									{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
-									<Transcript source={located.source} entryIds={located.entryIds}
-										groups={located.preview ? [] : noticeGroups} tail={noticeTail} clear={clearNoticeGroup} />
+									<DisclosureMemoryContext value={memory}><Transcript source={located.source} entryIds={located.entryIds}
+										groups={located.preview ? [] : noticeGroups} tail={noticeTail} clear={clearNoticeGroup} /></DisclosureMemoryContext>
 								</Fade>}
 								</AnimatePresence>
 								<AnimatePresence initial={false}>{snapshot?.status["bash"] && <Reveal><pre className="live-output">{snapshot.status["bash"]}</pre></Reveal>}</AnimatePresence>
@@ -247,7 +269,7 @@ function App() {
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
-						{snapshot && <Composer gui={gui} snapshot={snapshot} onSubmit={transcript.followLatest} />}
+						{snapshot && <Composer key={snapshot.sessionId} gui={gui} snapshot={snapshot} onSubmit={transcript.followLatest} />}
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
 						const sidebar = workspace.current?.querySelector<HTMLElement>(".session-sidebar");

@@ -26,7 +26,7 @@ const image = object({
 	]),
 });
 
-/** 只定义跨进程操作参数，不另建 Agent 或会话状态机。 */
+/** 跨进程操作参数，目标会话由请求外层明确指定。 */
 export const actionSchema = Type.Union([
 	object({
 		action: Type.Literal("prompt"),
@@ -53,6 +53,8 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("workspace"), path: short }),
 	object({ action: Type.Literal("removeWorkspace"), path: short }),
 	object({ action: Type.Literal("switch"), path: short }),
+	object({ action: Type.Literal("selectSession"), id: short }),
+	object({ action: Type.Literal("observe"), visible: Type.Boolean() }),
 	object({ action: Type.Literal("renameSession"), path: short, name: short }),
 	object({ action: Type.Literal("deleteSession"), path: short }),
 	object({ action: Type.Literal("fork"), entryId: short }),
@@ -100,6 +102,8 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
+export const requestSchema = object({ sessionId: Type.Union([short, Type.Null()]), value: Type.Unknown() });
+export type GuiRequest = Static<typeof requestSchema>;
 
 export const querySchema = Type.Union([
 	object({ query: Type.Literal("moduleConfig"), id: moduleConfigId }),
@@ -161,6 +165,14 @@ export interface GuiModel {
 export interface GuiWorkspaceInfo {
 	path: string;
 	exists: boolean;
+}
+export interface GuiSessionActivity {
+	sessionId: string;
+	path: string | null;
+	cwd: string;
+	title: string;
+	state: "loading" | "running" | "waiting" | "idle";
+	completedAt: number;
 }
 export interface GuiSessionInfo {
 	path: string;
@@ -228,6 +240,10 @@ export interface GuiDirectories {
 }
 
 export type GuiEvent =
+	| { type: "client"; id: string }
+	| { type: "selected"; sessionId: string | null }
+	| { type: "activity"; value: GuiSessionActivity[] }
+	| { type: "error"; message: string }
 	| { type: "guiConfig"; value: GuiConfigDocument }
 	| { type: "workspaceRoot"; path: string }
 	| { type: "sessionInfo"; value: GuiSessionDetails }
@@ -239,14 +255,14 @@ export type GuiEvent =
 	| { type: "dialogs"; value: GuiDialog[] }
 	| { type: "notices"; value: GuiNotice[] }
 	| { type: "panel"; panel: GuiPanel }
-	| { type: "editor"; text: string }
+	| { type: "editor"; sessionId: string; text: string }
 	| { type: "download"; name: string; content: string; mimeType: string }
 	| { type: "auth"; value: import("@earendil-works/pi-ai").AuthEvent | null }
 	| { type: "close" };
 
 export interface GuiConnection {
-	send(action: GuiAction): Promise<void>;
-	query: Query;
+	send(action: GuiAction, sessionId: string | null): Promise<void>;
+	query<Q extends GuiQuery>(query: Q, sessionId: string | null): Promise<GuiQueryResults[Q["query"]]>;
 	subscribe(listener: (event: GuiEvent) => void): () => void;
 	close(): void;
 }

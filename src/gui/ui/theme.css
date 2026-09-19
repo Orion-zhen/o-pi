@@ -97,8 +97,10 @@
 
 @media (prefers-reduced-motion: reduce) {
 	*, *::before, *::after {
-		animation: none !important;
-		transition: none !important;
+		/* 保留结束事件，让浮层在切换系统动画偏好时仍能完成卸载。 */
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
 		scroll-behavior: auto !important;
 	}
 }

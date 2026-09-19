@@ -18,7 +18,7 @@ function configPath(): string {
 	return process.env[definition.userEnv] ?? path.join(getAgentDir(), "configs", definition.fileName);
 }
 
-function defaults(): GuiPreferences {
+export function readGuiDefaults(): GuiPreferences {
 	const { $schema: _schema, ...value } = readDefaultJsoncConfigSync({
 		configPath: defaultAgentConfigPath(definition.fileName), schemaPath, label: "gui", createError,
 	}) as GuiPreferences & { $schema?: string };
@@ -39,7 +39,7 @@ async function parsePreferences(content: string, base: GuiPreferences): Promise<
 /** 原文和生效值来自同一次读取，非法用户配置仍可在界面中修复。 */
 export async function readGuiConfig(): Promise<GuiConfigDocument> {
 	const target = configPath();
-	const base = defaults();
+	const base = readGuiDefaults();
 	let content: string;
 	try { content = await readFile(target, "utf8"); }
 	catch (error) {
@@ -52,7 +52,7 @@ export async function readGuiConfig(): Promise<GuiConfigDocument> {
 }
 
 export async function saveGuiConfig(original: string, content: string): Promise<GuiConfigDocument> {
-	await parsePreferences(content, defaults());
+	await parsePreferences(content, readGuiDefaults());
 	await replaceConfigFile(configPath(), original, content);
 	return readGuiConfig();
 }

@@ -5,6 +5,8 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 	const content = useRef<HTMLDivElement>(null);
 	const mode = useRef<"follow" | "paused" | "returning">("follow");
 	const locationVersion = useRef(0);
+	const positions = useRef(new Map<string, { top: number; follow: boolean }>());
+	const restoring = useRef<number | undefined>(undefined);
 	const lastScrollTop = useRef(0);
 	const [showLatest, setShowLatest] = useState(false);
 	const pinToBottom = () => {
@@ -17,6 +19,7 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 	const followLatest = () => {
 		cancelLocation();
 		mode.current = "follow";
+		restoring.current = undefined;
 		setShowLatest(false);
 		pinToBottom();
 	};
@@ -38,9 +41,17 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 		if (viewport) viewport.scrollTo({ top: viewport.scrollTop, behavior: "instant" });
 	};
 	useLayoutEffect(() => {
-		mode.current = "follow";
-		pinToBottom();
-		return cancelLocation;
+		const saved = sessionId ? positions.current.get(sessionId) : undefined;
+		mode.current = saved?.follow === false ? "paused" : "follow";
+		restoring.current = saved?.follow === false ? saved.top : undefined;
+		if (restoring.current !== undefined && scroll.current) scroll.current.scrollTop = restoring.current;
+		else pinToBottom();
+		lastScrollTop.current = saved?.top ?? scroll.current?.scrollTop ?? 0;
+		setShowLatest(saved?.follow === false);
+		return () => {
+			if (sessionId) positions.current.set(sessionId, { top: lastScrollTop.current, follow: mode.current === "follow" });
+			cancelLocation();
+		};
 	}, [sessionId]);
 	useLayoutEffect(() => {
 		const viewport = scroll.current;
@@ -49,7 +60,8 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 		const observer = new ResizeObserver(() => {
 			// 手动返回最新时，布局变化不能把平滑滚动改成瞬间置底。
 			if (mode.current === "returning") return;
-			if (mode.current === "follow") pinToBottom();
+			if (restoring.current !== undefined) viewport.scrollTop = restoring.current;
+			else if (mode.current === "follow") pinToBottom();
 			setShowLatest(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 60);
 		});
 		const finishReturn = () => {
@@ -65,9 +77,17 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 			observer.disconnect();
 			viewport.removeEventListener("scrollend", finishReturn);
 		};
-	}, []);
+	}, [sessionId]);
 	return {
 		scroll, content, showLatest, toLatest, followLatest,
+		restorePosition: () => {
+			if (restoring.current !== undefined && scroll.current) {
+				scroll.current.scrollTop = restoring.current;
+				lastScrollTop.current = scroll.current.scrollTop;
+				restoring.current = undefined;
+			}
+		},
+		atLatest: () => Boolean(scroll.current && restoring.current === undefined && scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 60),
 		onWheel: (event: WheelEvent<HTMLDivElement>) => {
 			interrupt();
 			if (event.deltaY < 0) {
@@ -113,7 +133,7 @@ export function useTranscriptScroll(sessionId: string | undefined) {
 		},
 		onScroll: () => {
 			const viewport = scroll.current;
-			if (!viewport || mode.current === "returning") return;
+			if (!viewport || mode.current === "returning" || restoring.current !== undefined) return;
 			const delta = viewport.scrollTop - lastScrollTop.current;
 			lastScrollTop.current = viewport.scrollTop;
 			if (delta === 0 || (mode.current === "follow" && delta > 0)) return;

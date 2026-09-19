@@ -40,7 +40,7 @@ function rowLastIndex(row: TranscriptRow): number {
 }
 
 const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string | undefined)[] }) {
-	const [open, setOpen] = useAutoFold(reply.tracking);
+	const [open, setOpen] = useAutoFold(reply.key, reply.tracking);
 	const tools = reply.process.filter((item) => item.kind === "tool");
 	const thoughts = reply.process.filter((item) => item.kind === "thinking").length;
 	const failures = tools.filter((item) => item.tool.state === "failed").length;

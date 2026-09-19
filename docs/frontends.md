@@ -22,7 +22,7 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 
 ## SDK 边界
 
-不另设 Agent API、Session 门面或事件副本。会话、运行状态和消息队列以 SDK 为准。新增共享业务放入 harness，终端布局、快捷键和组件工厂留在 TUI。
+会话内容、运行状态和消息队列以 SDK 为准，不复制 Agent 执行逻辑。GUI 的 `GuiHost` 管理实例、索引和共享资源，`GuiSession` 持有单个 SDK runtime，`GuiClient` 管理客户端的查看位置和操作路由。新增共享业务放入 harness，终端布局、快捷键和组件工厂留在 TUI。
 
 ## Desktop 使用的 SDK 能力
 
@@ -31,15 +31,15 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 | 创建会话及工作目录服务 | `createAgentSessionServices`、`createAgentSessionFromServices`、`createAgentSessionRuntime` |
 | 提交、取消、排队 | `AgentSession.prompt`、`abort`、`steer`、`followUp` |
 | 读取状态和订阅事件 | 会话公开状态、`subscribe`、`AgentSessionEvent` |
-| 新建、恢复、分支、导入 | `AgentSessionRuntime.newSession`、`switchSession`、`fork`、`importFromJsonl` |
+| 新建、恢复、分支、导入 | `SessionManager.create`、`open`、`createBranchedSession`、`parseSessionEntries`，为目标会话创建独立 runtime |
 | 模型、思考级别、认证、配置 | `AgentSession` 对应操作及 `runtime.services` |
 | 扩展用户交互 | `bindExtensions`、`ExtensionUIContext` |
-| 会话替换和退出 | `setBeforeSessionInvalidate`、`setRebindSession`、取消订阅和 `dispose` |
+| 切换和退出 | 切换客户端订阅，取消任务、取消订阅和 `dispose` |
 
-SDK 的 runtime 工厂负责在工作目录或会话变化后重建服务。界面释放旧订阅，再绑定新会话。不复制 CLI 参数转换、会话管理、重试、压缩或队列逻辑。直接使用 SDK 加载业务扩展的验证见 [`tests/harness/extensions.test.ts`](../tests/harness/extensions.test.ts)。
+每个运行实例绑定一个逻辑会话及工作目录。页面切换只改变订阅，不调用 runtime 的替换方法去销毁原会话。新建和分支创建独立实例，导入分配新会话标识，避免与源会话产生双写。GUI 的持久审批规则共享写入队列，临时授权按逻辑会话隔离。共享 LSP 在宿主退出时统一释放，不随单个实例回收而重置。不复制 CLI 参数转换、重试、压缩或消息队列逻辑。直接使用 SDK 加载业务扩展的验证见 [`tests/harness/extensions.test.ts`](../tests/harness/extensions.test.ts)。
 
 ## 图形界面的边界
 
 业务可复用不等于终端交互可以直接显示。GUI 通过真实 `ExtensionUIContext` 适配审批、选择、输入等交互，工具结果使用图形呈现。保留项目信任和审批检查，不以默认批准代替交互。Discord Presence 属于共享业务，按 SDK 的 `hasUI` 和配置启用，不限定 TUI。Desktop 的协调进程打包要求见 [Discord Presence](discord-presence.md#desktop-接入)。
 
-SDK 的文件和进程能力运行在后端。Desktop 使用受限 preload 桥接连接 Electron utility process。Web 使用同源 HTTP 操作和 WebSocket 订阅连接 Bun 后端，免登录，仅用于可信局域网。两者均直接集成正式 SDK，当前不依赖实验性 `pi-server`、`pi-client`。
+SDK 的文件和进程能力运行在后端。Desktop 使用受限 preload 桥接连接 Electron utility process。Web 使用同源 HTTP 操作和 WebSocket 订阅连接 Bun 后端。WebSocket 分配连接标识，HTTP 请求通过 `X-Opi-Client` 关联连接，并用 `{ sessionId, value }` 明确操作或查询的目标。连接标识不是身份认证，服务仍免登录，仅用于可信局域网。两者均直接集成正式 SDK，当前不依赖实验性 `pi-server`、`pi-client`。

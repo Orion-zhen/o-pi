@@ -8,7 +8,7 @@ import {
 	getAgentDir,
 	parseSessionEntries,
 	type AgentSession,
-	type AgentSessionRuntime,
+	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import type { GuiEvent } from "../contract.ts";
@@ -68,17 +68,19 @@ export async function exportSession(
 	}
 }
 
-export async function importSession(runtime: AgentSessionRuntime, content: string): Promise<void> {
+export async function importSession(content: string): Promise<SessionManager> {
 	const entries = parseSessionEntries(content);
-	if (!entries.some((entry) => entry.type === "session")) throw new Error("无效会话 JSONL，缺少 session header。");
-	const directory = await mkdtemp(path.join(tmpdir(), "opi-import-"));
-	try {
-		const file = path.join(directory, `import-${randomUUID()}.jsonl`);
-		await writeFile(file, content, { mode: 0o600 });
-		await runtime.importFromJsonl(file);
-	} finally {
-		await rm(directory, { recursive: true, force: true });
-	}
+	const header = entries.find((entry) => entry.type === "session");
+	if (!header) throw new Error("无效会话 JSONL，缺少 session header。");
+	if (!(await stat(header.cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
+	const manager = SessionManager.create(header.cwd);
+	const file = manager.getSessionFile();
+	if (!file) throw new Error("未能创建导入会话。");
+	await mkdir(path.dirname(file), { recursive: true });
+	// 导入是独立会话，不能与仍在运行的源会话共用标识。
+	const imported = entries.map((entry) => entry.type === "session" ? { ...entry, id: manager.getSessionId() } : entry);
+	await writeFile(file, imported.map((entry) => JSON.stringify(entry)).join("\n") + "\n", { mode: 0o600, flag: "wx" });
+	return SessionManager.open(file);
 }
 
 export async function readConfig(file: "settings.json"): Promise<string> {

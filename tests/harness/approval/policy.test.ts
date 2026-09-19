@@ -7,13 +7,13 @@ import { loadApprovalGateConfig } from "../../../src/harness/approval/config.ts"
 import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
 import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.ts";
 import { evaluateBashGatePolicy, evaluateGatePolicy } from "../../../src/harness/approval/rules/policy.ts";
-import { FileApprovalStore } from "../../../src/harness/approval/rules/store.ts";
+import { FileApprovalStore, SessionApprovalRules, type ApprovalStore } from "../../../src/harness/approval/rules/store.ts";
 import { createExactAllowRules } from "../../../src/harness/approval/rules/allow.ts";
 import type { ApprovalGateConfig, ApprovalRequest, BashApprovalRequest } from "../../../src/harness/approval/types.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
-let approvalStore: FileApprovalStore;
+let approvalStore: ApprovalStore;
 let defaultConfig: ApprovalGateConfig;
 const temp = useTempDir("o-pi-approval-policy-");
 const commandCwd = path.join(path.parse(process.cwd()).root, "workspace", "project");
@@ -22,7 +22,7 @@ preserveEnv("PI_APPROVAL_GATE_CONFIG");
 
 beforeEach(async () => {
 	dir = temp.path;
-	approvalStore = await FileApprovalStore.open(path.join(dir, "rules.jsonc"));
+	approvalStore = await openStore(path.join(dir, "rules.jsonc"));
 	process.env.PI_APPROVAL_GATE_CONFIG = path.join(dir, "approval.jsonc");
 	defaultConfig = await loadApprovalGateConfig();
 });
@@ -214,14 +214,14 @@ describe("approval policy", () => {
 	it("persistent allow rule 命中时 allow", async () => {
 		const request = await bashRequest("git push origin main");
 		const storePath = path.join(dir, "rules.jsonc");
-		const approvalStore = await FileApprovalStore.open(storePath);
+		const approvalStore = await openStore(storePath);
 		await approvalStore.addPersistentAllowRules([{
 			tool: "bash",
 			kind: "exact_command",
 			value: "git push origin main",
 			cwd: request.cwd,
 		}]);
-		const reloaded = await FileApprovalStore.open(storePath);
+		const reloaded = await openStore(storePath);
 		expect(evaluateDefault(request, reloaded)).toEqual({ kind: "allow" });
 	});
 
@@ -457,8 +457,12 @@ done
 	});
 });
 
-function evaluateDefault(request: ApprovalRequest, approvalStore: FileApprovalStore) {
+function evaluateDefault(request: ApprovalRequest, approvalStore: ApprovalStore) {
 	return evaluateGatePolicy(request, defaultConfig, approvalStore);
+}
+
+async function openStore(file: string): Promise<ApprovalStore> {
+	return (await FileApprovalStore.open(file)).forSession(new SessionApprovalRules());
 }
 
 function withBashPolicy(bash: ApprovalGateConfig["tools"]["bash"]) {
@@ -466,7 +470,7 @@ function withBashPolicy(bash: ApprovalGateConfig["tools"]["bash"]) {
 	return { ...config, tools: { ...config.tools, bash } };
 }
 
-function store(): FileApprovalStore {
+function store(): ApprovalStore {
 	return approvalStore;
 }
 

@@ -1,5 +1,5 @@
 import { evaluateGatePolicy } from "../rules/policy.ts";
-import { FileApprovalStore, type ApprovalStore } from "../rules/store.ts";
+import { ApprovalStores, SessionApprovalRules } from "../rules/store.ts";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
 import { handleAskDecision, type ApprovalOutcome, type ApprovalInteractionPort } from "./interaction.ts";
 
@@ -7,23 +7,12 @@ interface ApprovalGate {
 	authorize(request: ApprovalRequest, config: ApprovalGateConfig, interaction?: ApprovalInteractionPort): Promise<ApprovalOutcome>;
 }
 
-export function createApprovalGate(): ApprovalGate {
-	let initialization: { path: string; ready: Promise<ApprovalStore> } | undefined;
-
-	async function resolveStore(path: string): Promise<ApprovalStore> {
-		if (initialization?.path !== path) initialization = { path, ready: FileApprovalStore.open(path) };
-		const pending = initialization;
-		try {
-			return await pending.ready;
-		} catch (error) {
-			if (initialization === pending) initialization = undefined;
-			throw error;
-		}
-	}
-
+export function createApprovalGate(stores = new ApprovalStores(), sessionRules = new SessionApprovalRules()): ApprovalGate {
 	return {
 		async authorize(request, config, interaction) {
-			const store = await resolveStore(config.remember.persistent_store);
+			const file = await stores.open(config.remember.persistent_store);
+			await file.refresh();
+			const store = file.forSession(sessionRules);
 			const decision = evaluateGatePolicy(request, config, store);
 			if (decision.kind === "allow") return { kind: "approved" };
 			if (decision.kind === "deny") return blockForDenyRule(decision);
