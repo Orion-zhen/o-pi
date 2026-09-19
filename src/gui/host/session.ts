@@ -30,6 +30,7 @@ export class GuiSession {
 	private summary: GuiSessionActivity;
 	private scopedModels: string[] | undefined;
 	private stamp: string | undefined;
+	private awaitingMessage: boolean;
 
 	constructor(manager: SessionManager,
 		private permissions: { stores: ApprovalStores; trust: Map<string, boolean> },
@@ -38,6 +39,8 @@ export class GuiSession {
 		private refreshHistory: () => void,
 	) {
 		this.manager = manager;
+		this.awaitingMessage = (startEvent.reason === "startup" || startEvent.reason === "new")
+			&& !manager.getEntries().some((entry) => entry.type === "message");
 		this.id = manager.getSessionId();
 		this.cwd = manager.getCwd();
 		this.file = manager.getSessionFile() ?? null;
@@ -51,6 +54,12 @@ export class GuiSession {
 		return this.resources.state === "starting" || this.resources.state === "ready" ? this.resources.execution : undefined;
 	}
 	get activity(): GuiSessionActivity { return this.summary; }
+	get pending(): boolean { return this.awaitingMessage; }
+	private submitted(): void {
+		if (!this.awaitingMessage) return;
+		this.awaitingMessage = false;
+		this.notify(true);
+	}
 	get lastUsed(): number { return this.used; }
 	get observed(): boolean { return this.listeners.size > 0; }
 	get removing(): boolean { return this.deleting; }
@@ -99,7 +108,7 @@ export class GuiSession {
 		if (this.resources.state === "ready") return this.resources.execution;
 		const execution = new GuiExecution(this.id, (event) => {
 			for (const listener of this.listeners) listener(event);
-		}, () => this.changed(), this.refreshHistory);
+		}, () => this.changed(), this.refreshHistory, () => this.submitted());
 		execution.observe(this.observed);
 		const initialize = async () => {
 			let manager = this.manager;

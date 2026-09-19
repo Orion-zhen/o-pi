@@ -131,7 +131,8 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		// 手机抽屉仍打开，此时编辑器已挂载但不在模态框的可访问区域内。
 		await expect(page.locator('.composer textarea[aria-label="消息"]')).toBeAttached();
 		await search.fill("");
-		await row("新会话").getByRole("button", { name: "新会话", exact: true }).click();
+		await expect(row("新会话")).toHaveCount(0);
+		await navigation(page).getByRole("button", { name: "新建会话", exact: true }).click();
 		await expect(editor).toBeVisible();
 		expect(globalReads).toEqual([]);
 		await closeMenu();

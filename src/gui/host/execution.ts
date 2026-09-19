@@ -62,7 +62,7 @@ export class GuiExecution {
 		},
 	});
 
-	constructor(readonly id: string, private receive: Listener, private changed: () => void, private refreshSessions: () => void) {}
+	constructor(readonly id: string, private receive: Listener, private changed: () => void, private refreshSessions: () => void, private submitted: () => void) {}
 
 	get runtime(): AgentSessionRuntime {
 		if (!this.current) throw new Error("会话尚未就绪。");
@@ -142,6 +142,7 @@ export class GuiExecution {
 		} catch (error) { this.historyError(error); }
 		this.unsubscribe = session.subscribe((event) => {
 			this.messageTiming.accept(event);
+			if (event.type === "message_start" && event.message.role === "user") this.submitted();
 			if (event.type === "message_update") {
 				this.emit({ type: "stream", sessionId: session.sessionId, value: event.message });
 				return;
@@ -294,6 +295,7 @@ export class GuiExecution {
 		this.publish();
 		try {
 			if (action.text.startsWith("!")) {
+				this.submitted();
 				await session.executeBash(action.text.replace(/^!!?/, ""), (chunk) => {
 					this.dialogs.status["bash"] = ((this.dialogs.status["bash"] ?? "") + chunk).slice(-64_000);
 					this.schedule();

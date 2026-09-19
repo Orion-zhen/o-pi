@@ -114,7 +114,7 @@ export class GuiHost {
 		if (this.workspaceRoot) listener({ type: "workspaceRoot", path: this.workspaceRoot });
 		if (this.catalog.value) listener({ type: "sessions", value: this.catalog.value });
 		if (this.catalog.workspaces) listener({ type: "workspaces", value: this.catalog.workspaces });
-		listener({ type: "activity", value: [...this.sessions.values()].map((session) => session.activity) });
+		listener({ type: "activity", value: this.activity });
 	}
 	refresh(): void {
 		if (this.closed || this.refreshPending) return;
@@ -124,12 +124,15 @@ export class GuiHost {
 			void this.catalog.refresh().catch((error: unknown) => { if (!this.closed) this.reportError(error); });
 		});
 	}
+	private get activity() {
+		return [...this.sessions.values()].filter((session) => !session.pending).map((session) => session.activity);
+	}
 	private activityChanged(): void {
 		if (this.closed || this.activityPending) return;
 		this.activityPending = true;
 		queueMicrotask(() => {
 			this.activityPending = false;
-			if (!this.closed) this.emit({ type: "activity", value: [...this.sessions.values()].map((session) => session.activity) });
+			if (!this.closed) this.emit({ type: "activity", value: this.activity });
 		});
 	}
 	register(manager: SessionManager, event: SessionStartEvent = { type: "session_start", reason: "resume" }): GuiSession {

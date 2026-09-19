@@ -29,11 +29,14 @@ export class GuiClient {
 	private selection = 0;
 	private drafts = new Map<string, string>();
 	private lastViewed = new Map<string, string>();
+	private pendingSessions = new Map<string, GuiSession>();
+	private creatingSessions = new Map<string, Promise<{ cancelled: boolean }>>();
 
 	constructor(readonly host: GuiHost) {
 		this.unsubscribeHost = host.subscribe((event) => {
 			if (event.type === "sessionsDeleted") {
 				for (const id of event.ids) this.drafts.delete(id);
+				for (const [cwd, session] of this.pendingSessions) if (event.ids.includes(session.id)) this.pendingSessions.delete(cwd);
 				for (const [cwd, id] of this.lastViewed) if (event.ids.includes(id)) this.lastViewed.delete(cwd);
 			}
 			this.emit(event);
@@ -85,6 +88,7 @@ export class GuiClient {
 		const refreshing = session.refreshCached();
 		this.unbind();
 		this.selected = session;
+		if (session.pending) this.pendingSessions.set(session.cwd, session);
 		this.emit(this.selectionEvent());
 		this.emit({ type: "dialogs", value: [] });
 		this.emit({ type: "notices", value: [] });
@@ -120,6 +124,22 @@ export class GuiClient {
 	}
 	async newSession(options?: Parameters<ExtensionCommandContext["newSession"]>[0], source = this.selected) {
 		if (!source) throw new Error("请先选择工作区。");
+		if (options === undefined) {
+			const creating = this.creatingSessions.get(source.cwd);
+			if (creating) return creating;
+			const pending = this.pendingSessions.get(source.cwd);
+			if (pending?.pending && !pending.removing) {
+				if (this.selected !== pending) await this.select(pending);
+				return { cancelled: false };
+			}
+			const task = this.createSession(source);
+			this.creatingSessions.set(source.cwd, task);
+			try { return await task; }
+			finally { this.creatingSessions.delete(source.cwd); }
+		}
+		return this.createSession(source, options);
+	}
+	private async createSession(source: GuiSession, options?: Parameters<ExtensionCommandContext["newSession"]>[0]) {
 		const manager = SessionManager.create(source.cwd);
 		if (options?.parentSession) manager.newSession({ parentSession: options.parentSession });
 		await source.use(this.forSession(source), async (execution) => {
