@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { GuiEvent, GuiSnapshot } from "./contract.ts";
+import { applyList, type ListPatch } from "./list-patch.ts";
+import type { GuiEvent, GuiSnapshot, GuiSessionInfo, GuiWorkspaceInfo } from "./contract.ts";
 
 type Block = AssistantMessage["content"][number];
 type BlockPatch = { index: number; value: Block } | { index: number; field: "text" | "thinking"; delta: string };
@@ -18,7 +19,9 @@ export interface GuiPatch {
 	entries?: Tail<GuiSnapshot["entries"][number]> | undefined;
 	streamingMessage?: StreamingPatch | undefined;
 }
-export type GuiWireEvent = Exclude<GuiEvent, { type: "stream" }> | GuiPatch;
+export type GuiWireEvent = Exclude<GuiEvent, { type: "stream" }> | GuiPatch
+	| { type: "sessionsPatch"; value: ListPatch<GuiSessionInfo> }
+	| { type: "workspacesPatch"; value: ListPatch<GuiWorkspaceInfo> };
 export interface GuiDelivery { id: number; events: GuiWireEvent[] }
 
 function tail<T>(before: T[], after: T[]): Tail<T> | undefined {
@@ -89,7 +92,21 @@ export function applyPatch(snapshot: GuiSnapshot, patch: GuiPatch): GuiSnapshot 
 
 export class GuiReceiver {
 	private snapshot: GuiSnapshot | null = null;
+	private sessions: GuiSessionInfo[] | undefined;
+	private workspaces: GuiWorkspaceInfo[] | undefined;
 	accept(event: GuiWireEvent): Exclude<GuiEvent, { type: "stream" }> {
+		if (event.type === "sessions") this.sessions = event.value;
+		if (event.type === "workspaces") this.workspaces = event.value;
+		if (event.type === "sessionsPatch") {
+			if (!this.sessions) throw new Error("会话目录增量缺少初始状态。");
+			this.sessions = applyList(this.sessions, event.value);
+			return { type: "sessions", value: this.sessions };
+		}
+		if (event.type === "workspacesPatch") {
+			if (!this.workspaces) throw new Error("工作区目录增量缺少初始状态。");
+			this.workspaces = applyList(this.workspaces, event.value);
+			return { type: "workspaces", value: this.workspaces };
+		}
 		if (event.type === "snapshot") this.snapshot = event.value;
 		if (event.type !== "patch") return event;
 		if (!this.snapshot || this.snapshot.sessionId !== event.sessionId) throw new Error("会话增量缺少初始状态。");

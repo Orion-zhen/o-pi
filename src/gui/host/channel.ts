@@ -1,4 +1,5 @@
-import type { GuiEvent, GuiSnapshot } from "../contract.ts";
+import { diffList } from "../list-patch.ts";
+import type { GuiEvent, GuiSnapshot, GuiSessionInfo, GuiWorkspaceInfo } from "../contract.ts";
 import { diffSnapshot, type GuiDelivery, type GuiWireEvent } from "../sync.ts";
 import type { GuiPayloads } from "./payloads.ts";
 
@@ -6,6 +7,8 @@ import type { GuiPayloads } from "./payloads.ts";
 export class GuiChannel {
 	private current: GuiSnapshot | null = null;
 	private sent: GuiSnapshot | null = null;
+	private sessions: GuiSessionInfo[] | undefined;
+	private workspaces: GuiWorkspaceInfo[] | undefined;
 	private dirty = false;
 	private pending: Exclude<GuiEvent, { type: "snapshot" | "stream" }>[] = [];
 	private sequence = 0;
@@ -44,7 +47,25 @@ export class GuiChannel {
 		queueMicrotask(() => {
 			this.scheduled = false;
 			if (this.closed) return;
-			const events: GuiWireEvent[] = this.pending;
+			const events = this.pending.flatMap((event): GuiWireEvent[] => {
+				if (event.type === "sessions") {
+					const before = this.sessions;
+					this.sessions = event.value;
+					if (before) {
+						const value = diffList(before, event.value);
+						return value ? [{ type: "sessionsPatch", value }] : [];
+					}
+				}
+				if (event.type === "workspaces") {
+					const before = this.workspaces;
+					this.workspaces = event.value;
+					if (before) {
+						const value = diffList(before, event.value);
+						return value ? [{ type: "workspacesPatch", value }] : [];
+					}
+				}
+				return [event];
+			});
 			this.pending = [];
 			if (this.dirty) {
 				const event = this.sent && this.current && this.sent.sessionId === this.current.sessionId
@@ -53,7 +74,7 @@ export class GuiChannel {
 				this.sent = this.current;
 				this.dirty = false;
 			}
-			this.send({ id: ++this.sequence, events });
+			if (events.length) this.send({ id: ++this.sequence, events });
 		});
 	}
 
@@ -61,5 +82,6 @@ export class GuiChannel {
 		this.closed = true;
 		this.pending = [];
 		this.current = this.sent = null;
+		this.sessions = this.workspaces = undefined;
 	}
 }
