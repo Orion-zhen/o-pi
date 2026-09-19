@@ -65,4 +65,4 @@ TUI 开发使用 `bun run dev:tui`，Web 开发使用 `bun run dev:web`。项目
 
 ## 致谢
 
-特别感谢 [lzhao013](https://github.com/lzhao013-web) 为本项目的开发和后续优化提供的优秀的测试反馈.
+特别感谢 [lzhao013](https://github.com/lzhao013-web) 在本项目开发过程中提供的测试反馈, 想法讨论和代码提交, 他为本项目做出了不可磨灭的贡献.
