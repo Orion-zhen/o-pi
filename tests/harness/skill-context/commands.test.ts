@@ -61,7 +61,10 @@ describe("技能命令", () => {
 			appendEntry<T>(_type: string, entry?: T) { if (isSkillLoadEntry(entry)) entries.push(entry); },
 			getCommands: () => [skillCommand("hidden", skillPath)],
 			sendMessage(message, options) { messages.push({ content: message.content, options }); },
-			on(event: string, handler: unknown) { if (event === "input") inputHandler = handler as typeof inputHandler; },
+			on(event: string, handler: unknown) {
+				if (event === "input") inputHandler = handler as typeof inputHandler;
+				return () => {};
+			},
 		});
 
 		const result = await inputHandler?.({ type: "input", text: "/skill:hidden", source: "interactive" }, fakeCtx([]));
@@ -129,7 +132,7 @@ describe("技能命令", () => {
 		registerSkillCommands({
 			registerCommand(_name, options) { handler = options.handler as typeof handler; },
 			appendEntry() { throw new Error("must not append"); },
-			getCommands: () => [], sendMessage() {}, on() {},
+			getCommands: () => [], sendMessage() {}, on() { return () => {}; },
 		});
 		await handler?.("clear", { ui: { notify }, sessionManager: { getBranch: () => [] } } as never);
 		expect(notify).toHaveBeenCalledWith("usage: /skill", "warning");

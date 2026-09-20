@@ -22,7 +22,7 @@ export interface SessionStats {
 	assistantTurns: number;
 }
 
-/** 从 assistant usage 累加的 token 与成本；成本只作为估算展示。 */
+/** 会话总用量包含后台请求，轮次指标只计 assistant。成本为估算值。 */
 export interface UsageStats {
 	inputTokens: number;
 	outputTokens: number;
@@ -33,9 +33,10 @@ export interface UsageStats {
 	averageTokensPerAssistantTurn?: number;
 	costUsd?: number;
 	lastCostUsd?: number;
+	cacheWarming?: { requests: number; tokens: number; costUsd: number };
 }
 
-/** Prompt cache 命中率统计；命中率单位为百分比。 */
+/** 对话请求的缓存命中率，单位为百分比。不包含后台保温。 */
 export interface CacheStats {
 	latestHitRate?: number;
 	totalHitRate?: number;

@@ -1,4 +1,4 @@
-import type { Message } from "@earendil-works/pi-ai";
+import type { JsonObject, Message } from "@earendil-works/pi-ai";
 
 export function userMessage(text: string): Message {
 	return { role: "user", content: text, timestamp: 1 };
@@ -6,7 +6,7 @@ export function userMessage(text: string): Message {
 
 export function assistantToolCall(
 	name: string,
-	args: Record<string, unknown>,
+	args: JsonObject,
 	text?: string,
 ): Message {
 	return {

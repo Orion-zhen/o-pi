@@ -84,7 +84,9 @@ Return relevant files, line ranges, symbols, architecture notes, and unresolved 
 
 ### Fork 模式
 
-父进程把主会话当前有效 system prompt 逐字写入权限受限的临时文件。子进程直接读取该文件，不重新合成日期、cwd、项目规则、skills 或 subagent 索引。Agent 正文与 task 合并成 snapshot 历史后的单个 user suffix：
+父进程把主会话当前有效 system prompt 逐字写入权限受限的临时文件。子进程直接读取该文件，不重新合成日期、cwd、项目规则、skills 或 subagent 索引。Pi 的会话历史虽保存结构化指令，但不保存请求时的 `forceSystemPrompt` 投影，因此不能仅靠历史恢复父请求的精确提示词。
+
+Agent 正文与 task 合并成 snapshot 历史后的单个 user suffix：
 
 ```xml
 <agent_instructions>

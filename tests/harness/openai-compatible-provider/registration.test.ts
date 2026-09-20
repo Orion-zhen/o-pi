@@ -7,12 +7,24 @@ import { describe, expect, it, vi } from "vitest";
 import openAICompatibleProvider from "../../../src/harness/extensions/openai-compatible-provider.ts";
 import { loadModelsJsoncConfig } from "../../../src/harness/openai-compatible-provider/config.ts";
 import { registerOpenAICompatibleProviders } from "../../../src/harness/openai-compatible-provider/register.ts";
-import { createExtensionHarness, createRegistryPi, loadConfigFromText, providerConfig } from "./fixtures.ts";
+import { createExtensionHarness, createRegistryPi, loadConfigFromText, loadProvider, providerConfig } from "./fixtures.ts";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 
 describe("openai-compatible-provider registration", () => {
+	it("将已知缓存寿命透传给原生模型，不为未配置模型猜测寿命", async () => {
+		const provider = await loadProvider(temp.path, { models: [
+			{ id: "warm", promptCache: { short: 300, long: 3600 } }, { id: "unknown" },
+		] });
+		expect(provider.getModels()[0]?.promptCache).toEqual({ short: 300, long: 3600 });
+		expect(provider.getModels()[1]).not.toHaveProperty("promptCache");
+	});
+
+	it.each([{ short: 0 }, { long: -1 }, { short: "300" }, { daily: 86400 }])("拒绝无效缓存寿命 %j", async (promptCache) => {
+		await expect(loadProvider(temp.path, { models: [{ id: "m", promptCache }] })).rejects.toThrow("Invalid");
+	});
+
 	it("仓库示例配置与当前 schema 同步", async () => {
 		const config = await loadModelsJsoncConfig(path.resolve("agent/models.example.jsonc"));
 		expect(config?.providers["llama-cpp"]?.api).toBe("openai-completions");

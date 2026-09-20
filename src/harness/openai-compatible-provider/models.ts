@@ -54,6 +54,7 @@ export function buildModels(
 			...(model.thinkingLevelMap !== undefined ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
 			input: model.input ?? ["text"],
 			cost: model.cost ?? { ...ZERO_COST },
+			...(model.promptCache !== undefined ? { promptCache: model.promptCache } : {}),
 			contextWindow: model.contextWindow ?? 128_000,
 			maxTokens: model.maxTokens ?? 16_384,
 			...(model.samplingParams !== undefined ? { samplingParams: model.samplingParams } : {}),
@@ -81,8 +82,13 @@ export function restoreCachedModels<TApi extends Api>(
 	const prepared = new Map(prepareModels(entries, provider.thinkingPreset ?? "none", providerId, configPath)
 		.map(({ model }) => [model.id, model]));
 	return models.flatMap((cached) => {
-		const name = configured.get(cached.id)?.name;
-		const model = name !== undefined && name !== cached.name ? { ...cached, name } : cached;
+		const config = configured.get(cached.id);
+		const { promptCache: _cachedLifetime, ...metadata } = cached;
+		const model = {
+			...metadata,
+			...(config?.name !== undefined ? { name: config.name } : {}),
+			...(config?.promptCache !== undefined ? { promptCache: config.promptCache } : {}),
+		};
 		const normalized = prepared.get(model.id);
 		if (!normalized) return [];
 		if (normalized.thinkingLevelMap === undefined || normalized.thinkingLevelMap === model.thinkingLevelMap) return [model];

@@ -64,6 +64,8 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 		};
 	}
 	messages.forEach((message, index) => {
+		const role: string = message.role;
+		if (role === "system") return;
 		const key = `message:${index}:${message.timestamp}`;
 		const standalone: TranscriptRow = { key, kind: "message", messageIndex: index, message };
 		if (message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary"

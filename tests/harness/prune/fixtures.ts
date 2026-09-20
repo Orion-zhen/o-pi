@@ -111,6 +111,7 @@ export function transactionEntries(): SessionEntry[] {
 		cost: { input: 0, output: 0, cacheRead: 0.005, cacheWrite: 0, total: 0.005 },
 	};
 	return [
+		messageEntry("system", { role: "system", content: "Inspect the repository.", timestamp: 0 }),
 		messageEntry("user", user("inspect")),
 		messageEntry("assistant", assistant(
 			[{ type: "toolCall", id: "done", name: "read", arguments: { path: "a.ts" } }],

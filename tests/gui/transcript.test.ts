@@ -63,7 +63,7 @@ describe("聊天活动投影", () => {
 	});
 
 	it("区分失败、取消和无结果，不把未执行的历史标为成功", () => {
-		const items = (message: AssistantMessage, output?: ToolResultMessage<unknown>) => transcriptItems(source({ messages: output ? [message, output] : [message] }));
+		const items = (message: AssistantMessage, output?: ToolResultMessage) => transcriptItems(source({ messages: output ? [message, output] : [message] }));
 		expect(items(assistant([call]), { ...result, isError: true })[0]).toMatchObject({ tool: { state: "failed" } });
 		expect(items(assistant([call], "aborted"))[0]).toMatchObject({ tool: { state: "stopped" } });
 		expect(items(assistant([call]), { ...result, isError: true, details: { status: "aborted" } })[0]).toMatchObject({ tool: { state: "stopped" } });

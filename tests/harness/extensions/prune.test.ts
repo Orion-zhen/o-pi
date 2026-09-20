@@ -42,6 +42,7 @@ function captureRegistrations(): {
 		getAllTools: () => [],
 		on(event) {
 			events.push(event);
+			return () => {};
 		},
 		registerCommand(name, options) {
 			commands.push(name);

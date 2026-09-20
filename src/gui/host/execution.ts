@@ -245,7 +245,7 @@ export class GuiExecution {
 				this.loginController?.abort();
 				if (this.current) {
 					const session = this.current.session;
-					session.abortBash(); session.abortCompaction(); session.abortBranchSummary(); session.abortRetry();
+					session.abortBash();
 					await session.abort();
 				}
 				this.publish(); return;
@@ -365,7 +365,7 @@ export class GuiExecution {
 		clearTimeout(this.timer);
 		this.loginController?.abort(); this.commandController.abort(); this.dialogs.cancel();
 		if (this.current) {
-			this.current.session.abortBash(); this.current.session.abortCompaction(); this.current.session.abortBranchSummary(); this.current.session.abortRetry();
+			this.current.session.abortBash();
 			await this.current.session.abort();
 		}
 		await Promise.allSettled([...this.tasks]);

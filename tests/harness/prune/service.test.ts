@@ -1,9 +1,10 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { SessionManager, sessionEntryToContextMessages, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
 import { formatPruneOutcome } from "../../../src/harness/prune/presentation/outcome.ts";
-import { PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.ts";
+import { estimateMessagesTokens, PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.ts";
 import {
 	PruneService,
 	type PruneServicePort,
@@ -18,9 +19,44 @@ import {
 	solModel,
 	toolResult,
 	transactionEntries,
+	user,
+	ZERO_USAGE,
 } from "./fixtures.ts";
 
 describe("PruneService", () => {
+	it.each([false, true])("按模型能力重放提示词和工具变化，估算不重复累计（增量：%s）", async (supportsMidConvoSystemMessages) => {
+		const read = { name: "read", description: "Read files", parameters: Type.Object({ path: Type.String() }) };
+		const grep = { ...read, name: "grep", description: "Search files" };
+		const first = { role: "system" as const, content: "Instructions", sections: { project: "OLD RULES" }, toolsAdded: [read], timestamp: 0 };
+		const patch = { role: "system" as const, content: "", sections: { project: "NEW RULES" }, toolsRemoved: [{ name: "read" }], toolsAdded: [grep], timestamp: 4 };
+		const conversation = [user("inspect"), assistant([{ type: "toolCall" as const, id: "done", name: "read", arguments: {} }], { ...ZERO_USAGE, cacheRead: 10000 }), toolResult("done", "output ".repeat(100))];
+		const messages = [first, ...conversation, patch];
+		const harness = createHarness(messages.map((message, index) => messageEntry(String(index), message)));
+		const model = { ...solModel(), compat: { supportsMidConvoSystemMessages } };
+		const result = await new PruneService().execute({ operation: "prune", model, port: harness.port });
+		if (!("preview" in result)) throw new Error(JSON.stringify(result));
+		const projected = supportsMidConvoSystemMessages ? messages : [
+			{ ...first, sections: { project: "NEW RULES" }, toolsAdded: [grep] }, ...conversation,
+		];
+		const scope = { provider: model.provider, modelId: model.id, baseUrl: model.baseUrl };
+		expect(result.preview.fullTokens).toBe(estimateMessagesTokens(projected, scope));
+		expect(result.preview.commonPrefixTokens).toBe(estimateMessagesTokens(projected.slice(0, 2), scope));
+		expect(messages).toEqual([first, ...conversation, patch]);
+	});
+
+	it("压缩后从 SDK 上下文恢复 system 快照，并允许裁剪保留的工具事务", async () => {
+		const manager = SessionManager.inMemory();
+		manager.appendMessage({ role: "system", content: "Keep instructions", timestamp: 0 });
+		const firstKept = manager.appendMessage(user("inspect"));
+		manager.appendMessage(assistant([{ type: "toolCall", id: "done", name: "read", arguments: {} }]));
+		manager.appendMessage(toolResult("done", "output ".repeat(100)));
+		manager.appendCompaction("earlier summary", firstKept, 10000);
+		const harness = createHarness(manager.getEntries());
+		harness.port.getMessages = () => manager.buildContextEntries().flatMap(sessionEntryToContextMessages);
+		const result = await new PruneService().execute({ operation: "prune", model: { ...solModel(), cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, port: harness.port });
+		expect(result).toMatchObject({ status: "applied", result: { removedToolCalls: 1, removedToolResults: 1 } });
+	});
+
 	it("成本允许时写入 checkpoint 并返回 JSON-safe 结果", async () => {
 		const harness = createHarness(transactionEntries());
 		const service = new PruneService();
@@ -46,17 +82,8 @@ describe("PruneService", () => {
 		expect(formatPruneOutcome(outcome).message).toContain("Next prompt:");
 	});
 
-	it("force 不读取模型、工具定义或成本输入", async () => {
+	it("force 无需模型或成本估算", async () => {
 		const harness = createHarness(transactionEntries());
-		harness.port.getActiveTools = () => {
-			throw new Error("force must not inspect active tools");
-		};
-		harness.port.getAllTools = () => {
-			throw new Error("force must not inspect tool definitions");
-		};
-		harness.port.getSystemPrompt = () => {
-			throw new Error("force must not inspect system prompt");
-		};
 
 		const outcome = await new PruneService().execute({
 			operation: "force",
@@ -209,9 +236,6 @@ function createHarness(entries: SessionEntry[], waitForIdle: () => Promise<void>
 			appended.push({ customType, state });
 			entries.push(customEntry(customType, state, `${customType}-appended-${appended.length}`));
 		},
-		getActiveTools: () => [],
-		getAllTools: () => [],
-		getSystemPrompt: () => "",
 	};
 	return { port, appended };
 }

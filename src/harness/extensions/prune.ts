@@ -1,3 +1,4 @@
+import { createInitialSystemMessage, toToolDeclaration } from "@earendil-works/pi-ai";
 import {
 	type SessionEntry,
 	sessionEntryToContextMessages,
@@ -94,14 +95,18 @@ function parseOperation(args: string): PruneOperation | undefined {
 function createServicePort(pi: PruneApi, ctx: ExtensionCommandContext): PruneServicePort {
 	return {
 		waitForIdle: () => ctx.waitForIdle(),
-		getMessages: () => ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages),
+		getMessages: () => {
+			const messages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages);
+			if (messages.some((message) => message.role === "system")) return messages;
+			// 旧会话在首次请求前尚未写入 system 消息。
+			const active = new Set(pi.getActiveTools());
+			const head = createInitialSystemMessage(ctx.getSystemPrompt(), pi.getAllTools().filter((tool) => active.has(tool.name)).map(toToolDeclaration));
+			return head ? [head, ...messages] : messages;
+		},
 		getBranch: () => ctx.sessionManager.getBranch(),
 		appendState: (customType, state) => {
 			pi.appendEntry(customType, state);
 		},
-		getActiveTools: () => pi.getActiveTools(),
-		getAllTools: () => pi.getAllTools(),
-		getSystemPrompt: () => ctx.getSystemPrompt(),
 	};
 }
 

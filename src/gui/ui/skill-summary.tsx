@@ -2,7 +2,7 @@ import { isSkillLoadDetails } from "../skill-facts.ts";
 import type { TranscriptItem } from "./transcript-items.ts";
 import { toolTarget } from "./tool-target.ts";
 
-export function SkillSummary({ items }: { items: TranscriptItem[] }) {
+export function skillCount(items: TranscriptItem[]): number {
 	const names = new Set<string>();
 	for (const item of items) {
 		if (item.kind === "tool" && item.tool.name === "skill") {
@@ -11,5 +11,5 @@ export function SkillSummary({ items }: { items: TranscriptItem[] }) {
 			if (name) names.add(name);
 		}
 	}
-	return names.size > 0 ? <span className="reply-skills">技能 {[...names].join("、")}</span> : null;
+	return names.size;
 }

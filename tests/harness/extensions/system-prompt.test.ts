@@ -6,8 +6,6 @@ import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts
 
 import {
 	buildRuntimeSystemPrompt,
-	buildSubagentSystemPrompt,
-	buildSystemPrompt,
 } from "../../../src/harness/system-prompt/service.ts";
 import { presentation } from "../../../src/tui/extensions.ts";
 import { registerSystemCommand } from "../../../src/harness/extensions/system-prompt.ts";
@@ -33,12 +31,7 @@ describe("system prompt extension", () => {
 			appendSystemPrompt: "Append this.",
 		};
 
-		expect(buildSystemPrompt(base)).toEqual(expect.any(String));
-		expect(buildSystemPrompt({ ...base, customPrompt: "Custom role." })).toEqual(expect.any(String));
-		expect(buildSubagentSystemPrompt({
-			...base,
-			customPrompt: "---\nname: scout\ndescription: Inspect code\ntools: read, grep\n---\nReturn evidence.",
-		})).toEqual(expect.any(String));
+		await expect(buildRuntimeSystemPrompt({ ...base, customPrompt: "Custom role." }, "/repo")).resolves.toContain("Custom role.");
 		await expect(buildRuntimeSystemPrompt(base, "/repo")).resolves.toEqual(expect.any(String));
 
 		process.env.PI_SUBAGENT_CHILD = "1";
@@ -78,6 +71,8 @@ describe("system prompt extension", () => {
 			mode: "tui",
 			hasUI: true,
 			getSystemPromptOptions: () => ({ cwd: "/repo", selectedTools: ["read"] }),
+			isIdle: () => true,
+			sessionManager: { buildContextEntries: () => [] },
 			ui: {
 				select: async () => undefined,
 				editor: async () => {

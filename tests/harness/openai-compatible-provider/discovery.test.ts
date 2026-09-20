@@ -1,4 +1,4 @@
-import { createModels, InMemoryCredentialStore, type ModelsStoreEntry, type Provider, type RefreshModelsContext } from "@earendil-works/pi-ai";
+import { normalizeContext, createModels, InMemoryCredentialStore, type ModelsStoreEntry, type Provider, type RefreshModelsContext } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { loadConfigFromText, providerConfigText, registerProvider } from "./fixtures.ts";
@@ -11,7 +11,7 @@ describe("openai-compatible-provider model discovery", () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({
 			baseUrl: "http://127.0.0.1:8000/v1",
 			apiKey: "sk-test",
-			models: [{ id: "manual", name: "Manual" }],
+			models: [{ id: "manual", name: "Manual", promptCache: { short: 300 } }],
 		}, "local"));
 		const fetch = vi.spyOn(globalThis, "fetch")
 			.mockResolvedValueOnce(jsonResponse({
@@ -39,6 +39,7 @@ describe("openai-compatible-provider model discovery", () => {
 			},
 			{ id: "dynamic", name: "dynamic" },
 		]);
+		expect(first.getModels()[0]?.promptCache).toEqual({ short: 300 });
 		expect(firstHarness.providers).toEqual([first]);
 
 		const stored = stores.get("local");
@@ -58,6 +59,7 @@ describe("openai-compatible-provider model discovery", () => {
 			},
 			{ id: "dynamic", name: "dynamic", baseUrl: "http://127.0.0.1:8000/v1" },
 		]);
+		expect(second.getModels()[0]?.promptCache).toEqual({ short: 300 });
 		expect(secondHarness.providers).toEqual([second]);
 		expect(fetch).toHaveBeenCalledOnce();
 
@@ -73,7 +75,7 @@ describe("openai-compatible-provider model discovery", () => {
 		const changedConfig = await loadConfigFromText(temp.path, providerConfigText({
 			baseUrl: "http://127.0.0.1:8000/v1",
 			apiKey: "sk-test",
-			models: [{ id: "manual", name: "Changed Manual" }],
+			models: [{ id: "manual", name: "Changed Manual", promptCache: { short: 120 } }],
 		}, "local"));
 		const { provider: third } = registerProvider(changedConfig, temp.path);
 		await refreshProvider(third, { stored, publish, allowNetwork: false });
@@ -81,6 +83,13 @@ describe("openai-compatible-provider model discovery", () => {
 			["manual", "Changed Manual", 200000],
 			["dynamic", "dynamic", 128000],
 		]);
+		expect(third.getModels()[0]?.promptCache).toEqual({ short: 120 });
+		const withoutLifetime = await loadConfigFromText(temp.path, providerConfigText({
+			baseUrl: "http://127.0.0.1:8000/v1", apiKey: "sk-test", models: ["manual"],
+		}, "local"));
+		const { provider: fourth } = registerProvider(withoutLifetime, temp.path);
+		await refreshProvider(fourth, { stored, publish, allowNetwork: false });
+		expect(fourth.getModels()[0]).not.toHaveProperty("promptCache");
 		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 
@@ -181,9 +190,9 @@ describe("openai-compatible-provider model discovery", () => {
 			thinkingLevelMap: { off: "off", high: "high", max: "max" },
 		});
 		expect(stored.models[0]?.name).toBe("deepseek-v4-flash");
-		for await (const _event of restored.stream(model, {
+		for await (const _event of restored.stream(model, normalizeContext({
 			messages: [{ role: "user", content: "test", timestamp: Date.now() }],
-		}, {
+		}), {
 			apiKey: "sk-test",
 			reasoningEffort: "max",
 		})) {
@@ -220,9 +229,9 @@ describe("openai-compatible-provider model discovery", () => {
 			payload = JSON.parse(String(init?.body));
 			return new Response('{"error":"stop"}', { status: 400 });
 		});
-		for await (const _event of provider.stream(restored, {
+		for await (const _event of provider.stream(restored, normalizeContext({
 			messages: [{ role: "user", content: "test", timestamp: 0 }],
-		}, { apiKey: "sk-test", reasoningEffort: "high" })) {}
+		}), { apiKey: "sk-test", reasoningEffort: "high" })) {}
 		expect(payload).toMatchObject({ thinking: { type: "enabled" }, reasoning_effort: "max" });
 		expect(payload).not.toHaveProperty("reasoning");
 	});
@@ -373,9 +382,9 @@ describe("openai-compatible-provider model discovery", () => {
 		for (const id of ["manual", "dynamic"]) {
 			const model = provider.getModels().find((entry) => entry.id === id);
 			if (!model) throw new Error(`model ${id} was not discovered`);
-			for await (const _event of provider.stream(model, {
+			for await (const _event of provider.stream(model, normalizeContext({
 				messages: [{ role: "user", content: "test", timestamp: Date.now() }],
-			}, {
+			}), {
 				apiKey: "sk-test",
 				reasoningEffort: "high",
 				onPayload: (payload) => {

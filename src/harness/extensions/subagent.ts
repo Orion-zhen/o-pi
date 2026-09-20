@@ -17,6 +17,7 @@ import {
 } from "../subagent/index.ts";
 import { subagentTelemetry } from "../subagent/telemetry.ts";
 import { registerTool } from "../register-tool.ts";
+import { readCurrentSystemPrompt } from "../system-prompt/current.ts";
 
 interface SubagentTuiModule {
 	registerSubagentTui<TParams extends TSchema, TDetails, TState>(
@@ -161,7 +162,7 @@ function registerCommandAdapters(
 						cwd: ctx.cwd,
 						model: ctx.model,
 						sessionManager: ctx.sessionManager,
-						systemPrompt: ctx.getSystemPrompt(),
+						systemPrompt: await readCurrentSystemPrompt(ctx),
 						signal: lease.signal,
 						...(interaction === undefined ? {} : { interaction }),
 					},

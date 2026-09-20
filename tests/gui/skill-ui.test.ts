@@ -73,20 +73,20 @@ describe("技能语义展示", () => {
 		expect(doc.toString()).not.toContain("test-hash");
 	});
 
-	it.each([false, true])("完成后折叠仍在最外层摘要显示技能名称（含过程文字：%s）", (commentary) => {
+	it.each([false, true])("完成后折叠在最外层摘要仅显示技能数量（含过程文字：%s）", (commentary) => {
 		const doc = document(createElement(Transcript, { clear() {}, source: source({ messages: [
 			assistant([...(commentary ? [{ type: "text" as const, text: "先加载技能" }] : []), call]), result,
 			assistant([{ type: "text", text: "任务已完成" }], "stop"),
 		] }) }));
 		const outer = doc.querySelector(commentary ? ".assistant-reply > .reply-process" : ".reply-activity");
 		expect(outer?.getAttribute("data-state")).toBe("closed");
-		expect(outer?.querySelector(":scope > .disclosure-trigger")?.textContent).toContain("技能 debugging");
+		expect(outer?.querySelector(":scope > .disclosure-trigger")?.textContent).toBe(`${commentary ? "本轮过程" : "思考与工具"}1 个技能 · 1 次工具调用`);
 	});
 
 	it("大体积结果的首屏保留技能状态，正文仍通过原有接口按需读取", () => {
 		const payloads = new GuiPayloads();
 		const full = { ...result, details: { ...details, chars: body.length * 10_000 }, content: [{ type: "text" as const, text: formatSkillDisclosure(details.name, body.repeat(10_000)) }] };
-		const projected = payloads.project<ToolResultMessage<unknown>>(full);
+		const projected = payloads.project<ToolResultMessage>(full);
 		expect(projected.details).toMatchObject({ name: "debugging", loadedBy: "agent", deduplicated: false, guiOutputId: expect.any(String) });
 		const doc = renderTool("completed", projected);
 		expect(doc.querySelector(".activity-summary")?.textContent).toContain("已加载");

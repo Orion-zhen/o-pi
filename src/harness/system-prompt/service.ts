@@ -1,273 +1,143 @@
 import * as os from "os";
-import {
-	parseFrontmatter,
-	type BuildSystemPromptOptions,
-} from "@earendil-works/pi-coding-agent";
+import { parseFrontmatter, type BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "../subagent/agents.ts";
 import { loadSubagentConfig } from "../subagent/config.ts";
 import { loadForkSystemPrompt } from "../subagent/session-context.ts";
-import type { AgentDefinition } from "../subagent/types.ts";
 import { collectModelInvocableSkillIndex } from "../skill-context/loader.ts";
 
-type PromptSections = {
-	/** Pi 传入的 appendSystemPrompt 会作为独立段落插入，避免和自定义 prompt 混写后边界不清。 */
-	appendSystemPrompt: string | undefined;
-	/** 工具策略来自 Pi 的 promptGuidelines，并追加本扩展固定的最小工具选择规则。 */
-	toolPolicy: string;
-	/** 只索引明确允许模型加载的技能，不披露路径和正文。 */
-	modelInvocableSkills: string | undefined;
-	skillPolicy: string | undefined;
-	/** AGENTS.md 等项目上下文由 Pi 预加载，本扩展只负责重新包成 XML 风格。 */
-	projectContext: string | undefined;
-	/** 运行时临时段落，例如主 Agent 可见的 subagent 索引。 */
-	extraSections: string[];
-	/** 当前日期按 Pi 默认 prompt 语义保留，但统一放到最后的 context 区。 */
-	date: string;
-	/** Windows 路径转为正斜杠，降低模型把反斜杠当转义符的概率。 */
-	cwd: string;
-};
+type SkillIndex = Array<{ name: string; description: string }>;
 
-/** 构建 system prompt；保留 Pi 默认信息来源，但用更短的 XML section 替代默认长文本并移除 skill 元数据。 */
-export function buildSystemPrompt(
+const ROLE = "<role>You are an interactive agent that helps users with coding tasks. You ALWAYS respond in user's language.</role>";
+const SKILL_POLICY = [
+	"Filesystem tools resolve paths mentioned by a loaded skill under skill://<skill-name>/.",
+	"Load the narrowest skill that clearly matches the user's requested outcome.",
+	"Classify by the requested outcome, not incidental steps such as reading or editing a repository.",
+	"Do NOT load the same skill repeatedly.",
+].map((rule) => `- ${rule}`).join("\n");
+
+/** 使用 Pi 的命名段落持久化提示词，避免每轮强制替换 leading prompt。 */
+function promptOptions(
 	options: BuildSystemPromptOptions,
-	extraSections: string[] = [],
-	modelInvocableSkills: Array<{ name: string; description: string }> = [],
-): string {
-	const sections = collectPromptSections(options, extraSections, modelInvocableSkills);
-	if (options.customPrompt) {
-		return formatCustomPrompt(normalizeLineEndings(options.customPrompt), sections);
-	}
-	return formatDefaultPrompt(sections);
-}
-
-/** 从 Pi 加载的原始 Agent Markdown 构建子 Agent system prompt，以独立角色取代默认 role。 */
-export function buildSubagentSystemPrompt(options: BuildSystemPromptOptions): string {
-	if (!options.customPrompt) throw new Error("Subagent Agent Markdown is required.");
-	const { body } = parseFrontmatter(normalizeLineEndings(options.customPrompt));
-	const sections = collectPromptSections(options, [], []);
-	return joinSections([
-		formatSubagentRole(body),
-		...formatSharedPromptSections(sections),
-	]);
-}
-
-/** 主 Agent 可见的精简 subagent 索引；只暴露选择所需信息，避免把子 Agent 系统提示泄露给主 Agent。 */
-export function formatAvailableSubagentsPrompt(agents: AgentDefinition[]): string {
-	if (agents.length === 0) return "";
-
-	const lines = ["<subagents>"];
-	for (const agent of agents) {
-		lines.push(`- ${agent.name}: ${agent.description}`);
-	}
-	lines.push("</subagents>");
-	return lines.join("\n");
-}
-
-function collectPromptSections(
-	options: BuildSystemPromptOptions,
-	extraSections: string[],
-	modelInvocableSkills: Array<{ name: string; description: string }>,
-): PromptSections {
-	const contextFiles = options.contextFiles ?? [];
+	preamble: string,
+	skills: SkillIndex,
+	extraSections: Record<string, string> = {},
+): BuildSystemPromptOptions {
 	const cwd = options.cwd.replace(/\\/g, "/");
-
+	const sections: Record<string, string> = {
+		...options.sections,
+		tool_policy: formatToolPolicy(options),
+	};
+	if (skills.length > 0) {
+		sections.skill_policy = SKILL_POLICY;
+		sections.model_invocable_skills = formatSkillIndex(skills);
+	}
+	const append = options.appendSystemPrompt?.trim();
+	if (append) sections.append_system_prompt = normalizeLineEndings(append);
+	if (options.contextFiles?.length) sections.project_context = formatProjectContext(options.contextFiles, cwd);
+	Object.assign(sections, extraSections);
+	// Pi 固定生成 cwd 段落，用同一段承载运行时信息，避免重复工作目录。
+	sections.cwd = `Date: ${formatLocalDate(new Date())}\nOS: ${escapeXml(getSystemInfo())}\nWorkspace: ${escapeXml(cwd)}`;
 	return {
-		appendSystemPrompt: formatAppendSystemPrompt(options.appendSystemPrompt),
-		toolPolicy: formatToolPolicy(options.promptGuidelines),
-		modelInvocableSkills: formatModelInvocableSkills(modelInvocableSkills),
-		skillPolicy: modelInvocableSkills.length > 0 ? formatSkillPolicy() : undefined,
-		projectContext: formatProjectContext(contextFiles, cwd),
-		extraSections,
-		date: formatLocalDate(new Date()),
-		cwd: options.cwd.replace(/\\/g, "/"),
+		...options,
+		customPrompt: preamble,
+		appendSystemPrompt: "",
+		contextFiles: [],
+		skills: [],
+		sections,
 	};
 }
 
-function formatDefaultPrompt(sections: PromptSections): string {
-	return joinSections([
-		`<role>You are an interactive agent that helps users with coding tasks. You ALWAYS respond in user's language.</role>`,
-		...formatSharedPromptSections(sections),
-	]);
+function mainRole(options: BuildSystemPromptOptions): string {
+	return options.customPrompt
+		? `<custom_prompt>\n${normalizeLineEndings(options.customPrompt)}\n</custom_prompt>`
+		: ROLE;
 }
 
-function formatSubagentRole(agentInstructions: string): string {
-	const instructions = normalizeLineEndings(agentInstructions).trim();
-	const lines = [
+function subagentRole(options: BuildSystemPromptOptions): string {
+	if (!options.customPrompt) throw new Error("Subagent Agent Markdown is required.");
+	const { body } = parseFrontmatter(normalizeLineEndings(options.customPrompt));
+	return [
 		"<subagent_role>",
 		"You are a subagent working for the primary agent. Complete the assigned task within its scope and return the result to the primary agent. You ALWAYS respond in user's language.",
-	];
-	if (instructions.length > 0) lines.push("", instructions);
-	lines.push("</subagent_role>");
-	return lines.join("\n");
+		...(body.trim() ? ["", body.trim()] : []),
+		"</subagent_role>",
+	].join("\n");
 }
 
-function formatCustomPrompt(customPrompt: string, sections: PromptSections): string {
-	return joinSections([
-		`<custom_prompt>
-${customPrompt}
-</custom_prompt>`,
-		...formatSharedPromptSections(sections),
-	]);
-}
-
-function formatSharedPromptSections(sections: PromptSections): Array<string | undefined> {
-	return [
-		sections.toolPolicy,
-		sections.skillPolicy,
-		sections.modelInvocableSkills,
-		sections.appendSystemPrompt,
-		sections.projectContext,
-		...sections.extraSections,
-		formatRuntimeContext(sections.date, sections.cwd),
-	];
-}
-
-function formatAppendSystemPrompt(value: string | undefined): string | undefined {
-	if (!value) return undefined;
-	const trimmed = normalizeLineEndings(value).trim();
-	if (trimmed.length === 0) return undefined;
-	return `<append_system_prompt>
-${trimmed}
-</append_system_prompt>`;
-}
-
-function formatToolPolicy(promptGuidelines: BuildSystemPromptOptions["promptGuidelines"]): string {
-	const rules = unique([
+function formatToolPolicy(options: BuildSystemPromptOptions): string {
+	const rules = [
 		"Use the narrowest active tool that directly matches the operation.",
 		"Minimize redundant tool calls; maximize evidence efficiency.",
 		"Issue independent tool calls together in one response; keep dependent operations sequential.",
 		"Do not retrieve unchanged content already in context unless omitted details, an intervening write, or a stale result requires it.",
-		...normalizeGuidelines(promptGuidelines),
-	]);
-
-	return `<tool_policy>
-${rules.map((rule) => `- ${rule}`).join("\n")}
-</tool_policy>`;
+		...(options.selectedTools ?? []).flatMap((name) => options.toolGuidelines?.[name] ?? []),
+		...(options.promptGuidelines ?? []),
+	].map((rule) => rule.trim()).filter(Boolean);
+	return [...new Set(rules)].map((rule) => `- ${rule}`).join("\n");
 }
 
-function formatSkillPolicy(): string {
-	return `<skill_policy>
-- Filesystem tools resolve paths mentioned by a loaded skill under skill://<skill-name>/.
-- Load the narrowest skill that clearly matches the user's requested outcome.
-- Classify by the requested outcome, not incidental steps such as reading or editing a repository.
-- Do NOT load the same skill repeatedly.
-</skill_policy>`;
+function formatSkillIndex(skills: SkillIndex): string {
+	return skills.map(({ name, description }) => `- ${name}: ${escapeXml(description.replace(/\s+/g, " ").trim())}`).join("\n");
 }
 
-export function formatModelInvocableSkills(skills: Array<{ name: string; description: string }>): string | undefined {
-	if (skills.length === 0) return undefined;
-	const lines = skills.map(({ name, description }) => `- ${name}: ${escapeXml(description.replace(/\s+/g, " ").trim())}`);
-	return `<model_invocable_skills>\n${lines.join("\n")}\n</model_invocable_skills>`;
+function formatProjectContext(files: NonNullable<BuildSystemPromptOptions["contextFiles"]>, cwd: string): string {
+	return files.map(({ path, content }) => {
+		const relative = path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
+		return `<project_instructions path="${escapeXml(relative.replace(/\\/g, "/"))}">\n${normalizeLineEndings(content).trim()}\n</project_instructions>`;
+	}).join("\n\n");
 }
 
-function normalizeGuidelines(promptGuidelines: BuildSystemPromptOptions["promptGuidelines"]): string[] {
-	return (promptGuidelines ?? []).map((guideline) => guideline.trim()).filter((guideline) => guideline.length > 0);
-}
-
-function formatProjectContext(contextFiles: NonNullable<BuildSystemPromptOptions["contextFiles"]>, cwd: string): string | undefined {
-	if (contextFiles.length === 0) return undefined;
-
-	const files = contextFiles
-		.map(
-			({ path, content }) => {
-				const relPath = path.startsWith(cwd)
-					? path.slice(cwd.length + 1).replace(/\\/g, "/")
-					: path;
-				return `<project_instructions path="${escapeXml(relPath)}">
-${normalizeLineEndings(content).trim()}
-</project_instructions>`;
-			},
-		)
-		.join("\n\n");
-
-	return `<project_context>
-${files}
-</project_context>`;
-}
-
-function formatRuntimeContext(date: string, cwd: string): string {
-	return `<context>
-Date: ${date}
-OS: ${escapeXml(getSystemInfo())}
-Workspace: ${escapeXml(cwd)}
-</context>`;
-}
-
-/** 构造人类可读的当前操作系统名称与版本字符串。 */
 function getSystemInfo(): string {
 	const type = os.type();
 	const release = os.release();
-
-	if (type === "Linux") return `Linux`;
+	if (type === "Linux") return "Linux";
 	if (type === "Darwin") return `macOS ${release.split(".")[0]}`;
 	if (type === "Windows_NT") return `Windows ${release}`;
 	return `${type} ${release}`;
 }
 
 function formatLocalDate(date: Date): string {
-	const year = date.getFullYear();
-	const month = String(date.getMonth() + 1).padStart(2, "0");
-	const day = String(date.getDate()).padStart(2, "0");
-	return `${year}-${month}-${day}`;
-}
-
-function unique(values: string[]): string[] {
-	return values.filter((value, index) => values.indexOf(value) === index);
+	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function escapeXml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
-}
-
-function joinSections(sections: Array<string | undefined>): string {
-	return sections.filter((section): section is string => section !== undefined && section.length > 0).join("\n\n");
+	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function normalizeLineEndings(value: string): string {
 	return value.replace(/\r\n?/g, "\n");
 }
 
-export async function buildRuntimeSystemPrompt(
-	options: BuildSystemPromptOptions,
-	cwd: string,
-	subagentToolAvailable = true,
-): Promise<string> {
+async function runtimePromptOptions(options: BuildSystemPromptOptions, cwd: string, subagentToolAvailable: boolean): Promise<BuildSystemPromptOptions> {
 	if (process.env.PI_SUBAGENT_FORK === "1") {
-		return loadForkSystemPrompt(requireForkEnv("PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE"));
+		const file = process.env.PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE;
+		if (!file) throw new Error("fork setup error: PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE is unavailable");
+		// fork 必须逐字继承父请求，不按子进程环境重建指令。
+		return { ...options, forceSystemPrompt: await loadForkSystemPrompt(file) };
 	}
-	if (process.env.PI_SUBAGENT_CHILD === "1") {
-		return buildSubagentSystemPrompt(options);
+	if (process.env.PI_SUBAGENT_CHILD === "1") return promptOptions(options, subagentRole(options), []);
+	const extraSections: Record<string, string> = {};
+	if (subagentToolAvailable) {
+		const config = await loadSubagentConfig(cwd);
+		const { agents } = discoverAgents(cwd, config);
+		if (agents.length > 0) extraSections.subagents = agents.map((agent) => `- ${agent.name}: ${agent.description}`).join("\n");
 	}
-	const extraSections = await getMainAgentExtraSystemPrompt(cwd, subagentToolAvailable);
-	const modelInvocableSkills = collectModelInvocableSkillIndex(options);
-	return buildSystemPrompt(options, extraSections, modelInvocableSkills);
+	return promptOptions(options, mainRole(options), collectModelInvocableSkillIndex(options), extraSections);
 }
 
-function requireForkEnv(name: string): string {
-	const value = process.env[name];
-	if (value === undefined || value === "") throw new Error(`fork setup error: ${name} is unavailable`);
-	return value;
+/** 首次输入前预览合成结果。段落顺序与 Pi 的 customPrompt + cwd + sections 一致。 */
+export async function buildRuntimeSystemPrompt(options: BuildSystemPromptOptions, cwd: string, subagentToolAvailable = true): Promise<string> {
+	const prepared = await runtimePromptOptions(options, cwd, subagentToolAvailable);
+	if (prepared.forceSystemPrompt !== undefined) return prepared.forceSystemPrompt;
+	const sections = { cwd: prepared.cwd, ...prepared.sections };
+	return [prepared.customPrompt, ...Object.entries(sections).filter(([, value]) => value.length > 0)
+		.map(([name, value]) => `<${name}>\n${value}\n</${name}>`)].filter(Boolean).join("\n\n");
 }
 
-async function getMainAgentExtraSystemPrompt(cwd: string, subagentToolAvailable: boolean): Promise<string[]> {
-	if (!subagentToolAvailable) return [];
-	const config = await loadSubagentConfig(cwd);
-	const discovery = discoverAgents(cwd, config);
-	const subagents = formatAvailableSubagentsPrompt(discovery.agents);
-	return subagents === "" ? [] : [subagents];
-}
-
-export interface AgentSystemPromptInput {
+export async function configureAgentSystemPrompt(input: {
 	options: BuildSystemPromptOptions;
 	cwd: string;
 	activeTools: readonly string[];
-}
-
-/** 构建当前轮次 prompt；fork 子进程直接读取父进程保存的精确 prompt。 */
-export function buildAgentSystemPrompt(input: AgentSystemPromptInput): Promise<string> {
-	return buildRuntimeSystemPrompt(input.options, input.cwd, input.activeTools.includes("subagent"));
+}): Promise<void> {
+	Object.assign(input.options, await runtimePromptOptions(input.options, input.cwd, input.activeTools.includes("subagent")));
 }

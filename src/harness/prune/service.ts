@@ -1,11 +1,10 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Api, Model } from "@earendil-works/pi-ai";
-import type { SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { normalizeContext, resolveTranscript, type Api, type Model } from "@earendil-works/pi-ai";
+import { convertToLlm, type SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import {
 	buildPruneCostPreview,
 	estimateMessagesTokensWithConfidence,
-	estimateStaticPrefixTokensWithConfidence,
 	findCommonPrefixTokens,
 	findCompletedToolCallIds,
 	findRestorablePruneState,
@@ -97,9 +96,6 @@ export interface PruneServicePort {
 	getMessages(): AgentMessage[];
 	getBranch(): SessionEntry[];
 	appendState(customType: typeof PRUNE_STATE, state: PruneState): void;
-	getActiveTools(): string[];
-	getAllTools(): ToolInfo[];
-	getSystemPrompt(): string;
 }
 
 export interface PruneExecutionInput {
@@ -150,7 +146,6 @@ function costAwarePrune(port: PruneServicePort, model: Model<Api>): PruneOperati
 	}
 
 	const preview = previewPruneCost(
-		port,
 		model,
 		selection.beforeMessages,
 		selection.afterResult.messages,
@@ -265,7 +260,6 @@ function createPruneState(
 }
 
 function previewPruneCost(
-	port: Pick<PruneServicePort, "getActiveTools" | "getAllTools" | "getSystemPrompt">,
 	model: Model<Api>,
 	beforeMessages: readonly AgentMessage[],
 	afterMessages: readonly AgentMessage[],
@@ -273,17 +267,17 @@ function previewPruneCost(
 	candidates: ReadonlySet<string>,
 ): PruneCostPreview {
 	const scope = { provider: model.provider, modelId: model.id, baseUrl: model.baseUrl };
-	const staticPrefix = estimateStaticPrefixTokensWithConfidence(
-		port.getSystemPrompt(),
-		port.getActiveTools(),
-		port.getAllTools(),
-		scope,
-	);
-	const beforeEstimate = estimateMessagesTokensWithConfidence(beforeMessages, scope);
-	const afterEstimate = estimateMessagesTokensWithConfidence(afterMessages, scope);
-	const staticPrefixTokens = staticPrefix.tokens;
-	const tokenConfidence = staticPrefix.confidence === "low"
-		|| beforeEstimate.confidence === "low"
+	const compat = model.compat;
+	const supportsPatches = compat !== undefined && "supportsMidConvoSystemMessages" in compat
+		&& compat.supportsMidConvoSystemMessages === true;
+	const project = (messages: readonly AgentMessage[]) => resolveTranscript(
+		normalizeContext({ messages: convertToLlm([...messages]) }), supportsPatches,
+	).messages;
+	const before = project(beforeMessages);
+	const after = project(afterMessages);
+	const beforeEstimate = estimateMessagesTokensWithConfidence(before, scope);
+	const afterEstimate = estimateMessagesTokensWithConfidence(after, scope);
+	const tokenConfidence = beforeEstimate.confidence === "low"
 		|| afterEstimate.confidence === "low"
 		? "low"
 		: "high";
@@ -293,9 +287,9 @@ function previewPruneCost(
 		: 0;
 	return buildPruneCostPreview({
 		model,
-		fullTokens: staticPrefixTokens + beforeEstimate.tokens,
-		prunedTokens: staticPrefixTokens + afterEstimate.tokens,
-		commonPrefixTokens: findCommonPrefixTokens(beforeMessages, candidates, staticPrefixTokens, scope),
+		fullTokens: beforeEstimate.tokens,
+		prunedTokens: afterEstimate.tokens,
+		commonPrefixTokens: findCommonPrefixTokens(before, candidates, scope),
 		cacheableFullTokens,
 		usesCacheWrite: hasObservedCacheWrite(cacheEvidenceMessages),
 		tokenConfidence,

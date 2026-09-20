@@ -1,9 +1,11 @@
 import { createElement } from "react";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import type { CustomMessageEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type CustomMessageEntry, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails } from "../../src/harness/skill-context/types.ts";
 import { formatSkillDisclosure } from "../../src/harness/skill-context/executor.ts";
+import { filterSessionTreeNoTools } from "../../src/gui/host/session-tree.ts";
+import { assistant } from "./transcript-fixtures.ts";
 import { SessionTree } from "../../src/gui/ui/session-tree.tsx";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 import { renderWithMemory } from "./render.ts";
@@ -22,6 +24,18 @@ function render(entry: SessionEntry) {
 }
 
 describe("会话树技能消息", () => {
+	it("隐藏 system 和 usage 节点，同时保留后续用户消息", () => {
+		const manager = SessionManager.inMemory();
+		manager.appendMessage({ role: "system", content: "private instructions", timestamp: 0 });
+		const usage = assistant([]).usage;
+		manager.appendUsage("cache_warm", "test", "test", usage);
+		const userId = manager.appendMessage({ role: "user", content: "继续", timestamp: 1 });
+		const tree = filterSessionTreeNoTools(manager.getTree(), manager.getLeafId());
+		expect(tree).toHaveLength(1);
+		expect(tree[0]?.entry.id).toBe(userId);
+		expect(tree[0]?.children).toEqual([]);
+	});
+
 	it("标题和图标表达技能，摘要只显示名称与引用方式", () => {
 		const doc = render(skill);
 		expect(doc.querySelector(".tree-role")?.textContent).toBe("技能");

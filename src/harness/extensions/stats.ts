@@ -1,9 +1,11 @@
 import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { collectStatsSnapshot, type StatsPiApi } from "../stats/collector.ts";
+import { readCurrentSystemPrompt } from "../system-prompt/current.ts";
 import { canPresent, type Presenter } from "../presentation.ts";
 
-export function collectContextStats(ctx: ExtensionCommandContext, pi: StatsPiApi) {
+export async function collectContextStats(ctx: ExtensionCommandContext, pi: StatsPiApi) {
+	const systemPrompt = await readCurrentSystemPrompt(ctx);
 	return collectStatsSnapshot({
 		cwd: ctx.cwd,
 		model: ctx.model,
@@ -12,7 +14,7 @@ export function collectContextStats(ctx: ExtensionCommandContext, pi: StatsPiApi
 		isUsingSubscription: () => ctx.model !== undefined && ctx.modelRegistry.isUsingOAuth(ctx.model),
 		isIdle: () => ctx.isIdle(),
 		getContextUsage: () => ctx.getContextUsage(),
-		getSystemPrompt: () => ctx.getSystemPrompt(),
+		getSystemPrompt: () => systemPrompt,
 		getSystemPromptOptions: () => ctx.getSystemPromptOptions(),
 	}, pi);
 }

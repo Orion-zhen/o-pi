@@ -14,22 +14,15 @@ export async function generateTitle(
 		model = ctx.modelRegistry.find(config.model.slice(0, separator), config.model.slice(separator + 1));
 	}
 	if (!model) throw new Error("Auto-title model is unavailable.");
-	const provider = ctx.modelRegistry.getProvider(model.provider);
-	if (!provider) throw new Error(`Auto-title provider is unavailable: ${model.provider}`);
-	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	signal.throwIfAborted();
-	if (!auth.ok) throw new Error(auth.error);
 	const reasoning = getSupportedThinkingLevels(model)[0];
-	const response = await provider.streamSimple(
-		auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model,
+	const response = await ctx.modelRegistry.streamSimple(
+		model,
 		{
 			systemPrompt: config.system_prompt,
 			messages: [{ role: "user", content: truncate(text.trim(), 2000), timestamp: Date.now() }],
 		},
 		{
-			...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
-			...(auth.headers === undefined ? {} : { headers: auth.headers }),
-			...(auth.env === undefined ? {} : { env: auth.env }),
 			signal,
 			...(reasoning === undefined || reasoning === "off" ? {} : { reasoning }),
 			maxTokens: 1024,

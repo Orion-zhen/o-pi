@@ -69,6 +69,10 @@ const ModelConfigSchema = Type.Object(
 		thinkingLevelMap: Type.Optional(ThinkingLevelMapSchema),
 		input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
 		cost: Type.Optional(ModelCostSchema),
+		promptCache: Type.Optional(Type.Object({
+			short: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+			long: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+		}, { additionalProperties: false })),
 		contextWindow: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
 		maxTokens: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
 		headers: Type.Optional(Type.Record(Type.String(), Type.String())),

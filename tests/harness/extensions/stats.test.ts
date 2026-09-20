@@ -55,10 +55,10 @@ describe("stats extension", () => {
 			cwd: "/repo",
 			model: undefined,
 			modelRegistry: { isUsingOAuth: () => false },
-			sessionManager: { getEntries: () => [], getBranch: () => [] },
+			sessionManager: { getEntries: () => [], getBranch: () => [], buildContextEntries: () => [] },
 			getContextUsage: () => undefined,
 			getSystemPrompt: () => "",
-			getSystemPromptOptions: () => undefined,
+			getSystemPromptOptions: () => ({ cwd: "/repo" }),
 			isIdle: () => true,
 			ui: {
 				async custom(_factory: unknown, options: unknown) {

@@ -25,6 +25,7 @@ describe("lsp extension", () => {
 			},
 			on(name, handler) {
 				if (name === "session_shutdown") shutdown = handler as (event: SessionShutdownEvent) => Promise<void>;
+				return () => {};
 			},
 		} as Pick<ExtensionAPI, "registerCommand" | "registerTool" | "on"> as ExtensionAPI);
 

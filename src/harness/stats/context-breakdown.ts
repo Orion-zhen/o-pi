@@ -23,7 +23,10 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 	const counter = input.tokenCounter ?? {};
 	const systemPromptTokens = await estimateTokens(input.systemPrompt ?? "", counter);
 	const toolDefinitionTokens = await estimateToolDefinitions(activeToolInfos, counter);
-	const projectContextTokens = await estimateProjectContext(input.systemPromptOptions, counter);
+	const projectContext = extractTaggedSection(input.systemPrompt ?? "", "project_context");
+	const projectContextTokens = projectContext
+		? await estimateTokens(projectContext, counter)
+		: await estimateProjectContext(input.systemPromptOptions, counter);
 	const subagentTokens = await estimateTokens(extractTaggedSection(input.systemPrompt ?? "", "subagents"), counter);
 	const systemTokens = clampKnown(systemPromptTokens - projectContextTokens - subagentTokens);
 	const skillStats = await estimateSkillContext(input.branchEntries, counter);

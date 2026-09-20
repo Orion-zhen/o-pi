@@ -29,9 +29,13 @@ export function StatsReport({ value }: { value: StatsSnapshot }) {
 			<div className="report-bars">{([
 				["输入", usage.inputTokens], ["输出", usage.outputTokens], ["缓存读取", usage.cacheReadTokens], ["缓存写入", usage.cacheWriteTokens],
 			] as const).map(([label, tokens]) => <Bar key={label} label={label} value={usage.totalObservedTokens > 0 ? tokens / usage.totalObservedTokens * 100 : undefined} text={`${number(tokens)} Token`} />)}</div>
-			<Bar label="累计缓存命中率" value={cache.totalHitRate} tone="success" />
+			<Bar label="对话累计缓存命中率" value={cache.totalHitRate} tone="success" />
 			<Facts items={[["最近缓存命中率", percent(cache.latestHitRate)], ["缓存读写比", number(cache.readWriteRatio)], ["最近一轮 Token", number(usage.lastTurnTokens)], ["每助手轮平均 Token", number(usage.averageTokensPerAssistantTurn)], ["最近一轮估算费用", money(usage.lastCostUsd)]]} />
 		</Section>
+		{usage.cacheWarming && <Section title="缓存保温" detail>
+			<Facts items={[["刷新次数", number(usage.cacheWarming.requests)], ["Token", number(usage.cacheWarming.tokens)], ["估算费用", money(usage.cacheWarming.costUsd)]]} />
+			<p className="report-note">已计入会话总用量，不参与对话轮次和缓存命中率统计。</p>
+		</Section>}
 		<Section title="工具调用排行">
 			<Facts items={[["调用次数", number(tools.calls)], ["成功", number(tools.successes)], ["失败", number(tools.failures)], ["启用 / 可用工具", `${number(tools.activeCount)} / ${number(tools.totalCount)}`]]} />
 			{ranked.length ? <div className="report-bars">{ranked.map((tool) => <Bar key={tool.name} label={tool.name} value={maxCalls > 0 ? tool.calls / maxCalls * 100 : undefined} text={`${number(tool.calls)} 次`} hint={[tool.failures === undefined ? undefined : `失败 ${number(tool.failures)}`, tool.durationMs === undefined ? undefined : `耗时 ${duration(tool.durationMs)}`, tool.outputChars === undefined ? undefined : `输出 ${number(tool.outputChars)} 字符`].filter(Boolean).join(" · ")} tone={tool.failures ? "warning" : "accent"} />)}</div> : <Empty>尚无工具调用。</Empty>}

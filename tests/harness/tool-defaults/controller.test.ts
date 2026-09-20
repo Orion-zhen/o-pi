@@ -68,6 +68,38 @@ describe("ToolSelectionController", () => {
 		expect(harness.entries).toEqual([]);
 	});
 
+	it("SDK 或其他扩展改变工具后，列表、切换和保存都读取实时状态", async () => {
+		const harness = createHarness(["read", "bash", "web"]);
+		let savedDefaults: Readonly<Record<string, boolean>> | undefined;
+		const controller = new ToolSelectionController(harness.port, {
+			loadConfig: async () => ({ layers: [] }),
+			saveUserDefaults: async (defaults) => { savedDefaults = defaults; return "tools.jsonc"; },
+		});
+		await controller.restore({ cwd: "/workspace", branchEntries: [], model: undefined, refreshConfig: false });
+
+		harness.port.setActiveTools(["bash"]);
+		expect(controller.listTools().filter((tool) => tool.enabled).map((tool) => tool.name)).toEqual(["bash"]);
+		controller.set("web", true);
+		expect(harness.activeTools).toEqual(["bash", "web"]);
+		expect(harness.entries.at(-1)?.data.enabledTools).toEqual(["bash", "web"]);
+
+		harness.port.setActiveTools(["read"]);
+		await controller.persistUserDefaults();
+		expect(savedDefaults).toEqual({ read: true, bash: false, web: false });
+	});
+
+	it("配置读取期间的手动选择不被旧恢复覆盖", async () => {
+		const harness = createHarness(["read", "bash"]);
+		const config = Promise.withResolvers<ToolDefaultsConfig>();
+		const controller = new ToolSelectionController(harness.port, { loadConfig: () => config.promise });
+		const restoring = controller.restore({ cwd: "/workspace", branchEntries: [], model: undefined, refreshConfig: false });
+		controller.set("read", false);
+		config.resolve({ layers: [] });
+		await restoring;
+		expect(harness.activeTools).toEqual(["bash"]);
+		expect(harness.entries.at(-1)?.data.enabledTools).toEqual(["bash"]);
+	});
+
 	it("报告 branch 中已删除的工具", async () => {
 		const harness = createHarness(["read"]);
 		const controller = new ToolSelectionController(harness.port);

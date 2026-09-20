@@ -145,6 +145,26 @@
 
 端点必须返回 `{ "data": [...] }`。每个条目是包含非空 `id` 的对象。端点可以通过 `context_length` 和 `architecture.input_modalities` 补充 `preferred` 缺少的上下文窗口和图片输入能力，并追加远端独有模型。手写配置中的 `name` 保持不变。
 
+## 缓存保温与压缩预算
+
+已确认服务端缓存寿命时，可在模型对象中声明 `"promptCache": { "short": 300, "long": 3600 }`，单位为秒。只填写实际支持的档位，并配置准确的 `cost`。未声明当前档位寿命的模型不会保温。
+
+Pi 在全局 `~/.pi/agent/settings.json` 中默认使用 `"cacheWarming": "streaming"`，仅在长工具执行期间按成本收益刷新。`"idle"` 额外考虑空闲刷新，`"off"` 禁用。刷新会产生费用，opi 将其计入会话总量并单独展示，不计入对话轮次或缓存命中率。
+
+压缩预算也使用 Pi 原生设置，无需在 `models.jsonc` 重复配置。例如：
+
+```json
+{
+  "compaction": {
+    "modelOverrides": {
+      "local/small-model": { "reserveTokens": 2048, "keepRecentTokens": 4096 }
+    }
+  }
+}
+```
+
+键必须精确匹配 `provider/modelId`。两个预算独立覆盖，未填写的字段沿用普通压缩设置。
+
 ## 通过命令获取密钥
 
 ```jsonc

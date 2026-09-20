@@ -184,6 +184,7 @@ describe("telemetry service", () => {
 		const pi = fakePi().api;
 		pi.on = (event, handler) => {
 			if (event === "session_start") start = fixture<(event: SessionStartEvent, ctx: ExtensionContext) => unknown>(handler);
+			return () => {};
 		};
 		const service = new TelemetryService(pi, {
 			runId: () => "run",

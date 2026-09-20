@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { fade } from "./lib/motion";
 import { Disclosure } from "./components/disclosure";
 import { Message } from "./content.tsx";
-import { SkillSummary } from "./skill-summary.tsx";
+import { skillCount } from "./skill-summary.tsx";
 import { MessageIdentity, ReplyMetrics } from "./message-meta.tsx";
 import { ReplyItems, sameItems, useAutoFold } from "./transcript-sections.tsx";
 import type { TranscriptSource } from "./transcript-items.ts";
@@ -87,8 +87,10 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 	const tools = reply.process.filter((item) => item.kind === "tool");
 	const thoughts = reply.process.filter((item) => item.kind === "thinking").length;
 	const failures = tools.filter((item) => item.tool.state === "failed").length;
+	const skills = skillCount(reply.process);
 	const counts = [
 		thoughts > 0 ? `${thoughts} 段思考` : "",
+		skills > 0 ? `${skills} 个技能` : "",
 		tools.length > 0 ? `${tools.length} 次工具调用` : "",
 		failures > 0 ? `${failures} 次失败` : "",
 	].filter(Boolean).join(" · ");
@@ -102,7 +104,6 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 				{running && <LoaderCircle className="animate-spin" aria-hidden="true" />}
 				<span>{reply.retrying ? "正在重试" : running ? "正在处理" : "本轮过程"}</span>
 				{counts && <span className="reply-counts">{counts}</span>}
-				<SkillSummary items={reply.process} />
 			</>}>
 			{processContent}
 		</Disclosure>}

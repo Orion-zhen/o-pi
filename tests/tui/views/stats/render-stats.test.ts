@@ -30,6 +30,8 @@ describe("stats renderer", () => {
 		expect(compactOutput).toContain("provider-model-with-a-very-long-name-and-large-context-window");
 		expect(compactOutput).toContain("provider overhead includes request serialization and tokenizer metadata");
 		expect(compactOutput).toContain("very-long-tool-name-for-regression");
+		expect(compactOutput).toContain("cache warming 2 requests");
+		expect(compactOutput).toContain("$0.010 (included)");
 		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 });
@@ -59,6 +61,7 @@ function snapshot(): StatsSnapshot {
 			averageTokensPerAssistantTurn: 13700,
 			costUsd: 0.084,
 			lastCostUsd: 0.006,
+			cacheWarming: { requests: 2, tokens: 40000, costUsd: 0.01 },
 		},
 		cache: { latestHitRate: 84.1, totalHitRate: 70.3, readWriteRatio: 7.0 },
 		context: {

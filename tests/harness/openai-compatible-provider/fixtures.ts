@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { Context, Provider, ProviderStreamOptions, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { normalizeContext, type Context, type Provider, type ProviderStreamOptions, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { vi } from "vitest";
 import type { ModelRegistry, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -54,8 +54,8 @@ export async function capturePayload(
 		return new Response('{"error":"stop after payload"}', { status: 400 });
 	});
 	const stream = simple
-		? provider.streamSimple(model, context, { apiKey: "sk-test", ...options })
-		: provider.stream(model, context, { apiKey: "sk-test", ...options });
+		? provider.streamSimple(model, normalizeContext(context), { apiKey: "sk-test", ...options })
+		: provider.stream(model, normalizeContext(context), { apiKey: "sk-test", ...options });
 	for await (const _event of stream) {}
 	if (payload === undefined) throw new Error("request was not sent");
 	return payload;

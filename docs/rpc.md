@@ -21,7 +21,7 @@ TUI 适配器 -> 数据/查询/服务/控制器
 | 会话和模型状态 | `get_state` | 统计模块的 `collectStatsSnapshot()` | 可以直接读取原生状态。RPC 未单独提供完整的 `StatsSnapshot` |
 | 命令发现 | `get_commands` | 各扩展的命令适配器 | 可以发现扩展、提示词和技能命令 |
 | Discord Presence | `prompt`、Extension UI 的 `notify` | `DiscordPresenceService` | 按配置启用，与 TUI 共用活动和生命周期。支持 `/presence` 命令，发布到 SDK 后端本机的 Discord |
-| 系统提示词 | 无专用的 o-pi RPC 方法 | `buildAgentSystemPrompt()`、`buildRuntimeSystemPrompt()` | `/system` 仅提供 TUI 查看器，不是 RPC API |
+| 系统提示词 | 无专用的 o-pi RPC 方法 | `configureAgentSystemPrompt()`、`buildRuntimeSystemPrompt()` | `/system` 仅提供 TUI 查看器，不是 RPC API |
 | 会话统计 | 无专用的 o-pi RPC 方法 | 可安全序列化为 JSON 的 `StatsSnapshot` | `/stats` 仅支持 TUI。在 RPC 模式下调用时会发送错误通知 |
 | 套餐用量 | 无专用的 o-pi RPC 方法 | `UsageService.load()` 返回可安全序列化为 JSON 的快照 | `/usage` 通过通知返回文本 |
 | 遥测 | 无专用的 o-pi RPC 方法 | 采集器快照和实时报告 DTO | `/telemetry` 通过通知返回文本 |

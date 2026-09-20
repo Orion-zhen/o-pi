@@ -327,7 +327,8 @@ describe("GUI 直接使用 SDK", () => {
 		const settingsFile = path.join(agentDir, "settings.json");
 		const settings = JSON.parse(await readFile(settingsFile, "utf8")) as Record<string, unknown>;
 		await writeFile(settingsFile, JSON.stringify({ ...settings, defaultProjectTrust: "ask" }));
-		const initial = path.join(cwd, "initial-workspace");
+		// 隔离初始工作区，避免仓库上级的技能触发额外信任确认。
+		const initial = path.join(temp.path, "initial-workspace");
 		await mkdir(initial);
 		host = new GuiHost().createClient();
 		await host.host.start(initial);
@@ -473,6 +474,39 @@ describe("GUI 直接使用 SDK", () => {
 		await host.host.dispose();
 		await start;
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it.each([
+		{ operation: "compact", shutdown: false },
+		{ operation: "compact", shutdown: true },
+		{ operation: "navigate", shutdown: false },
+		{ operation: "navigate", shutdown: true },
+	] as const)("$operation 等待模型时取消，shutdown=$shutdown", async ({ operation, shutdown }) => {
+		await host.dispatch(prompt("第一轮"));
+		const firstLeaf = host.runtime.session.sessionManager.getLeafId();
+		if (!firstLeaf) throw new Error("缺少分支起点");
+		await host.dispatch(prompt("第二轮"));
+		const session = host.runtime.session;
+		const entries = session.sessionManager.getEntries();
+		const summaryStarted = deferred<void>();
+		const summary = deferred<ModelResponse>();
+		titleReply = () => { summaryStarted.resolve(); return summary.promise; };
+		const task = host.dispatch(operation === "compact"
+			? { action: "compact" }
+			: { action: "navigate", entryId: firstLeaf, summarize: true })
+			.then(() => undefined, (error: unknown) => error);
+		try {
+			await summaryStarted.promise;
+			if (shutdown) await host.host.dispose();
+			else await host.dispatch({ action: "abort" });
+			await task;
+			expect(session.isIdle).toBe(true);
+			expect(session.isCompacting).toBe(false);
+			expect(session.sessionManager.getEntries()).toEqual(entries);
+		} finally {
+			summary.resolve({ text: "不应保存的摘要" });
+			await task;
+		}
 	});
 
 	it("用户 Shell 消息可经 JSONL 导出导入恢复", async () => {

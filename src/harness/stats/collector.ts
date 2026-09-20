@@ -2,7 +2,7 @@ import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } f
 import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { buildContextBreakdown } from "./context-breakdown.ts";
 import type { StatsSnapshot, ToolStats } from "./types.ts";
-import { summarizeUsage } from "./usage.ts";
+import { summarizeSessionUsage } from "./usage.ts";
 
 export interface StatsPiApi {
 	getAllTools(): ToolInfo[];
@@ -33,7 +33,7 @@ export async function collectStatsSnapshot(port: StatsQueryPort, pi: StatsPiApi)
 	const entries = port.getEntries();
 	const branchEntries = port.getBranch();
 	const messages = entries.map((entry) => (entry.type === "message" ? entry.message : undefined)).filter((message): message is Message => message !== undefined);
-	const { usage, cache } = summarizeUsage(messages);
+	const { usage, cache } = summarizeSessionUsage(entries);
 	const activeTools = pi.getActiveTools();
 	const allTools = pi.getAllTools();
 	const model = port.model;

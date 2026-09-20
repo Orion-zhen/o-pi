@@ -3,7 +3,6 @@ import { Text } from "@earendil-works/pi-tui";
 import { formatStartupBanner } from "../views/home/banner.ts";
 import { clearChrome, formatStatus, formatTitle, TUI_STATUS_KEY, workingIndicatorOptions } from "./chrome.ts";
 import { formatFooter } from "./footer.ts";
-import { installFullscreenImageFix } from "../terminal/fullscreen-images.ts";
 import { formatHomeFooter, selectHomeTip } from "../views/home/home.ts";
 import { configureTuiIconMode } from "../components/icons.ts";
 import { configureMessageTimestampRenderer, resetUserMessageTimestamps } from "../chat/message-timestamp.ts";
@@ -30,7 +29,6 @@ export class TuiSession {
 	private editor: SessionEditor | undefined;
 	private editorFactory: EditorFactory | undefined;
 	private previousEditorFactory: EditorFactory | undefined;
-	private restoreImageOutput: (() => void) | undefined;
 	private disposed = false;
 
 	constructor(
@@ -76,8 +74,6 @@ export class TuiSession {
 		const replayHistory = replaySessionMessages ? sessionMessages.map((message) => message.text) : [];
 		this.previousEditorFactory = ctx.ui.getEditorComponent();
 		this.editorFactory = (tui, theme, keybindings) => {
-			this.restoreImageOutput?.();
-			this.restoreImageOutput = installFullscreenImageFix(tui);
 			// 编辑器重建时释放旧实例的动画。
 			this.editor?.dispose();
 			this.editor = new SessionEditor(tui, theme, keybindings, {
@@ -129,8 +125,6 @@ export class TuiSession {
 		this.disposed = true;
 		this.homeVisible = false;
 		this.editor?.dispose();
-		this.restoreImageOutput?.();
-		this.restoreImageOutput = undefined;
 		if (this.editorFactory !== undefined && this.ctx.ui.getEditorComponent() === this.editorFactory) {
 			this.ctx.ui.setEditorComponent(this.previousEditorFactory);
 		}

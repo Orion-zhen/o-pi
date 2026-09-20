@@ -55,8 +55,6 @@ export interface ToolSelectionControllerOptions {
 }
 
 export class ToolSelectionController {
-	private enabledTools = new Set<string>();
-	private allTools: ToolInfo[] = [];
 	private baselineTools: ReadonlySet<string> | undefined;
 	private configCache: { cwd: string; value: Promise<ToolDefaultsConfig> } | undefined;
 	private restoreRevision = 0;
@@ -72,11 +70,11 @@ export class ToolSelectionController {
 	}
 
 	listTools(): ToolSelectionItem[] {
-		this.refreshTools();
-		return this.allTools.map((tool) => {
+		const enabledTools = new Set(this.port.getActiveTools());
+		return this.port.getAllTools().map((tool) => {
 			const item = { name: tool.name, description: tool.description };
 			return toolAvailableOnCurrentPlatform(tool)
-				? { ...item, available: true, enabled: this.enabledTools.has(tool.name) }
+				? { ...item, available: true, enabled: enabledTools.has(tool.name) }
 				: { ...item, available: false, enabled: false };
 		});
 	}
@@ -84,7 +82,6 @@ export class ToolSelectionController {
 	async restore(input: ToolSelectionRestoreInput): Promise<ToolSelectionRestoreNotice | undefined> {
 		const revision = ++this.restoreRevision;
 		if (input.refreshConfig) this.configCache = undefined;
-		this.refreshTools();
 		const baseline = this.captureBaseline();
 		const savedTools = findSavedTools(input.branchEntries);
 		if (savedTools !== undefined) {
@@ -99,7 +96,7 @@ export class ToolSelectionController {
 		const defaults = await this.resolveDefaults(input.cwd, input.model, baseline);
 		if (revision !== this.restoreRevision) return undefined;
 		if (defaults.status === "config-error") {
-			this.apply(this.namesFromSet(baseline));
+			this.apply([...baseline]);
 			return { type: "config-error", message: defaults.message };
 		}
 
@@ -109,10 +106,11 @@ export class ToolSelectionController {
 
 	set(toolName: string, enabled: boolean): void {
 		if (!this.availableTools().some((tool) => tool.name === toolName)) return;
-		if (enabled) this.enabledTools.add(toolName);
-		else this.enabledTools.delete(toolName);
-		const enabledTools = this.enabledToolNames();
-		this.port.setActiveTools(enabledTools);
+		this.restoreRevision++;
+		const names = new Set(this.port.getActiveTools());
+		if (enabled) names.add(toolName);
+		else names.delete(toolName);
+		const enabledTools = this.apply([...names]);
 		this.port.appendEntry(TOOL_SELECTION_ENTRY, { enabledTools });
 	}
 
@@ -123,14 +121,8 @@ export class ToolSelectionController {
 		return filePath;
 	}
 
-	private refreshTools(): void {
-		this.allTools = this.port.getAllTools();
-		const available = new Set(this.availableTools().map((tool) => tool.name));
-		this.enabledTools = new Set([...this.enabledTools].filter((name) => available.has(name)));
-	}
-
 	private availableTools(): ToolInfo[] {
-		return this.allTools.filter(toolAvailableOnCurrentPlatform);
+		return this.port.getAllTools().filter(toolAvailableOnCurrentPlatform);
 	}
 
 	private captureBaseline(): ReadonlySet<string> {
@@ -140,18 +132,14 @@ export class ToolSelectionController {
 		return this.baselineTools;
 	}
 
-	private namesFromSet(names: ReadonlySet<string>): string[] {
-		return this.allTools.filter((tool) => names.has(tool.name)).map((tool) => tool.name);
-	}
-
-	private enabledToolNames(): string[] {
-		return this.namesFromSet(this.enabledTools);
-	}
-
-	private apply(names: readonly string[]): void {
+	private apply(names: readonly string[]): string[] {
 		const available = new Set(this.availableTools().map((tool) => tool.name));
-		this.enabledTools = new Set(names.filter((name) => available.has(name)));
-		this.port.setActiveTools(this.enabledToolNames());
+		const enabledTools = [...new Set(names)].filter((name) => available.has(name));
+		const current = this.port.getActiveTools();
+		// SDK 已恢复相同选择时保留其声明顺序，避免重建提示词和工具前缀。
+		if (current.length === enabledTools.length && current.every((name) => enabledTools.includes(name))) return current;
+		this.port.setActiveTools(enabledTools);
+		return enabledTools;
 	}
 
 	private async resolveDefaults(
@@ -167,7 +155,7 @@ export class ToolSelectionController {
 			const defaults = resolveToolDefaults(config, model);
 			return {
 				status: "ready",
-				enabledTools: this.allTools
+				enabledTools: this.availableTools()
 					.filter((tool) => defaults[tool.name] ?? baseline.has(tool.name))
 					.map((tool) => tool.name),
 			};

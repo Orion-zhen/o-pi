@@ -28,7 +28,7 @@ function renderWide(snapshot: StatsSnapshot, width: number): string[] {
 		"Session usage",
 		formatUsage(snapshot),
 		"",
-		"Cache",
+		"Cache · conversation requests",
 		formatCache(snapshot),
 		"",
 		"Cost",
@@ -55,7 +55,7 @@ function renderMedium(snapshot: StatsSnapshot, width: number): string[] {
 		"Session usage",
 		formatUsage(snapshot),
 		"",
-		"Cache",
+		"Cache · conversation requests",
 		formatCache(snapshot),
 		"",
 		"Cost",
@@ -78,7 +78,7 @@ function renderNarrow(snapshot: StatsSnapshot, width: number): string[] {
 		"Usage",
 		formatUsage(snapshot),
 		"",
-		"Cache",
+		"Cache · conversation requests",
 		formatCache(snapshot),
 		"",
 		"Cost",
@@ -156,6 +156,7 @@ function formatCost(snapshot: StatsSnapshot): string {
 	return joinParts([
 		snapshot.usage.costUsd !== undefined ? `total $${snapshot.usage.costUsd.toFixed(3)} est` : undefined,
 		snapshot.usage.lastCostUsd !== undefined ? `last $${snapshot.usage.lastCostUsd.toFixed(3)} est` : undefined,
+		snapshot.usage.cacheWarming ? `cache warming ${snapshot.usage.cacheWarming.requests} requests / ${formatTokens(snapshot.usage.cacheWarming.tokens, false)} tokens / $${snapshot.usage.cacheWarming.costUsd.toFixed(3)} (included)` : undefined,
 	]) || "unknown";
 }
 

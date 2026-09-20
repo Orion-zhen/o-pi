@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Api, Model, ModelCostRates, Usage } from "@earendil-works/pi-ai";
-import type { SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { getSystemMessageText, type Api, type Model, type ModelCostRates, type Usage } from "@earendil-works/pi-ai";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { countTextTokensSync, type TokenCounterConfidence, type TokenCounterScope } from "../token-counter.ts";
 
@@ -186,39 +186,12 @@ export function estimateMessagesTokensWithConfidence(
 	);
 }
 
-export function estimateStaticPrefixTokens(
-	systemPrompt: string,
-	activeToolNames: readonly string[],
-	allTools: readonly ToolInfo[],
-	scope: TokenCounterScope,
-): number {
-	return estimateStaticPrefixTokensWithConfidence(systemPrompt, activeToolNames, allTools, scope).tokens;
-}
-
-export function estimateStaticPrefixTokensWithConfidence(
-	systemPrompt: string,
-	activeToolNames: readonly string[],
-	allTools: readonly ToolInfo[],
-	scope: TokenCounterScope,
-): PruneTokenEstimate {
-	const toolsByName = new Map(allTools.map((tool) => [tool.name, tool]));
-	const definitions = activeToolNames
-		.map((name) => toolsByName.get(name))
-		.filter((tool): tool is ToolInfo => tool !== undefined)
-		.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters }));
-	return combineEstimates(
-		countTextWithConfidence(systemPrompt, scope),
-		countTextWithConfidence(JSON.stringify(definitions), scope),
-	);
-}
-
 export function findCommonPrefixTokens(
 	messages: readonly AgentMessage[],
 	toolCallIds: ReadonlySet<string>,
-	staticPrefixTokens: number,
 	scope: TokenCounterScope,
 ): number {
-	let tokens = staticPrefixTokens;
+	let tokens = 0;
 	for (const message of messages) {
 		if (messageChanges(message, toolCallIds)) break;
 		tokens += estimateMessageTokens(message, scope);
@@ -319,6 +292,12 @@ function estimateMessageTokens(message: AgentMessage, scope: TokenCounterScope):
 
 function estimateMessageTokensWithConfidence(message: AgentMessage, scope: TokenCounterScope): PruneTokenEstimate {
 	switch (message.role) {
+		case "system": {
+			const text = countTextWithConfidence(getSystemMessageText(message), scope);
+			const tools = message.toolsAdded?.length ? countTextWithConfidence(JSON.stringify(message.toolsAdded), scope) : emptyEstimate();
+			const removals = message.toolsRemoved?.length ? countTextWithConfidence(JSON.stringify(message.toolsRemoved), scope) : emptyEstimate();
+			return combineEstimates(text, combineEstimates(tools, removals));
+		}
 		case "user":
 			return estimateContentTokensWithConfidence(message.content, scope);
 		case "assistant":

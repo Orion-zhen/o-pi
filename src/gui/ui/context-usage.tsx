@@ -47,7 +47,7 @@ function ContextCache({ messages }: Pick<GuiSnapshot, "messages">) {
 	const { usage, cache } = summarizeUsage(messages);
 	const hitRate = (value: number | undefined) => value === undefined ? "暂无数据" : `${value.toFixed(1)}%`;
 	return <>
-		<strong>缓存命中</strong>
+		<strong>对话缓存命中</strong>
 		<dl>
 			<div><dt>最近命中率</dt><dd>{hitRate(cache.latestHitRate)}</dd></div>
 			<div><dt>累计命中率</dt><dd>{hitRate(cache.totalHitRate)}</dd></div>

@@ -43,6 +43,7 @@ function createHarness(
 		},
 		on(event: string, handler: Handler) {
 			handlers.set(event, handler);
+			return () => { handlers.delete(event); };
 		},
 	};
 	thinkingPreferencesExtension(pi);

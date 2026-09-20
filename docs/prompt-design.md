@@ -22,16 +22,18 @@
 
 ```text
 custom_prompt 或 role
+cwd（日期、操作系统和工作目录）
 tool_policy
 skill_policy（仅存在允许模型调用的技能时）
 model_invocable_skills（仅存在允许模型调用的技能时）
 append_system_prompt
 project_context
 subagents
-context
 ```
 
-没有内容的可选段落会被省略。
+没有内容的可选段落会被省略。提示词通过 Pi 的命名段落写入会话，后续只追加发生变化的段落和工具声明。支持中途系统消息的模型保留原有缓存前缀，其他模型由 Pi 合并为当前提示词。fork 子代理仍逐字使用父请求保存的完整提示词。
+
+`/system` 在首次输入前预览合成结果。运行中读取 SDK 的请求投影，空闲时从当前分支重放已记录的指令。会话统计和手动子代理使用同一读取逻辑。
 
 `SYSTEM.md` 的内容进入 `custom_prompt`，替换默认角色、风格和通用行为。共享工具策略仍然保留。`APPEND_SYSTEM.md` 的内容进入 `append_system_prompt`。
 

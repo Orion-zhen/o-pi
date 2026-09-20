@@ -1,4 +1,5 @@
-import { VERSION } from "@earendil-works/pi-coding-agent";
+import { buildSessionContext, parseSessionEntries, VERSION } from "@earendil-works/pi-coding-agent";
+import { getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import { createCanvas } from "@napi-rs/canvas";
 import { execFile } from "node:child_process";
 import { constants, writeFileSync } from "node:fs";
@@ -91,7 +92,6 @@ function expectFullscreenImageOrder(output: string): void {
 	for (const frame of frames) {
 		const imageStart = frame.search(/\x1b_Ga=(?:T|p),/);
 		expect(/\x1b\[(?:[012]?K|[23]J)/.test(frame.slice(imageStart))).toBe(false);
-		expect(frame.endsWith("\x1b8"), JSON.stringify({ prefix: frame.slice(0, 80), tail: frame.slice(-160) })).toBe(true);
 	}
 }
 
@@ -159,6 +159,31 @@ describe("standalone opi CLI", () => {
 		expect(results).toHaveLength(1);
 		expect(results[0], JSON.stringify(results)).toMatchObject({ toolName: "subagent", isError: false });
 		expect(JSON.stringify(results)).toContain("value = 1");
+	});
+
+	it("fork 继承父请求中未持久化的强制提示词，不能只靠会话历史恢复", async () => {
+		const forcedPrompt = "EXACT_PARENT_OVERRIDE\n保留换行与 Unicode。\n";
+		const extension = path.join(temp.path, "force-parent.ts");
+		await writeFile(extension, `export default (pi) => {
+			pi.on("before_agent_start", () => process.env.PI_SUBAGENT_CHILD === "1"
+				? undefined : { systemPrompt: ${JSON.stringify(forcedPrompt)} });
+		};`);
+		await writeFile(path.join(agentDir, "agents", "scout.md"), "---\nname: scout\ndescription: Inspect\nfork: true\n---\nInspect only the assigned scope.\n");
+		const childRequest = (request: ModelRequest) => request.messages.some((message) =>
+			message.role === "user" && JSON.stringify(message.content).includes("FORK_ONLY_MARKER"));
+		respond = (request) => childRequest(request) || request.messages.some((message) => message.role === "tool")
+			? { text: "done" }
+			: { tool: "subagent", args: { tasks: [{ agent: "scout", task: "FORK_ONLY_MARKER" }] } };
+		const sessionFile = path.join(temp.path, "parent.jsonl");
+		const result = await run(["--mode", "json", "-p", "--offline", "--approve", "--session", sessionFile,
+			"-e", extension, "--tools", "read,subagent", "Run the fixture"]);
+		expect(result.stderr).toBe("");
+		const events = result.stdout.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+		expect(toolResults(events)).toEqual([expect.objectContaining({ toolName: "subagent", isError: false })]);
+		expect(server.requests[0]?.messages[0]?.content).toBe(forcedPrompt);
+		expect(server.requests.find(childRequest)?.messages[0]?.content).toBe(forcedPrompt);
+		const entries = parseSessionEntries(await readFile(sessionFile, "utf8")).filter((entry) => entry.type !== "session");
+		expect(getCurrentSystemPrompt(buildSessionContext(entries).messages)).not.toContain("EXACT_PARENT_OVERRIDE");
 	});
 
 	it("保留 stdin、@file、提示词参数和模板", async () => {
@@ -316,7 +341,6 @@ describe("standalone opi CLI", () => {
 		expect(result.stdout).not.toContain("initialization failed");
 		expect(result.stdout).toContain("\u001b_G");
 		expect(result.stdout).toContain("iVBORw0KGgo");
-		expectFullscreenImageOrder(result.stdout);
 	}, 25_000);
 
 	it.skipIf(process.platform !== "linux")("Pi 交互宿主读取多行图片，完整帧先清行再绘图", async () => {

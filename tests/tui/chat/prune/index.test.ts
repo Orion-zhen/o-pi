@@ -165,6 +165,7 @@ function lifecycleHarness(initialBranch: SessionEntry[], mode: ExtensionContext[
 			if (event === "session_start") sessionStart = handler as SessionStartHandler;
 			if (event === "session_tree") sessionTree = handler as SessionTreeHandler;
 			if (event === "session_shutdown") sessionShutdown = handler as SessionShutdownHandler;
+			return () => {};
 		},
 		registerCommand() {},
 		registerEntryRenderer() {},

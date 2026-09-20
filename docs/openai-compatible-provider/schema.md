@@ -90,6 +90,7 @@
 | `thinkingLevelMap` | 未设置 | Pi 思考级别到上游值的映射。值为 `null` 时隐藏对应级别。`model-suffix` 用它声明等级可用性，但始终使用 Pi 等级名作为模型后缀 |
 | `input` | `["text"]` | 输入类型列表，可包含 `text` 和 `image` |
 | `cost` | 各项为 `0` | 每百万个令牌的成本。可以包含 `tiers` |
+| `promptCache` | 未设置 | 已知缓存寿命，单位为秒。可选 `short`、`long`，值必须大于零。用于 Pi 原生缓存保温 |
 | `contextWindow` | `128000` | 上下文窗口大小 |
 | `maxTokens` | `16384` | 最大输出令牌数 |
 | `headers` | `{}` | 发送模型请求前解析的模型请求头 |
