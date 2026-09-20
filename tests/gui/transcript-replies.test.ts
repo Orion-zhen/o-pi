@@ -6,6 +6,7 @@ import { Transcript } from "../../src/gui/ui/transcript.tsx";
 import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { transcriptReplies } from "../../src/gui/ui/transcript-replies.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
+import { SKILL_CONTEXT_MESSAGE } from "../../src/harness/skill-context/types.ts";
 
 const user: UserMessage = { role: "user", content: "检查项目", timestamp: 1 };
 const text = (value: string): TextContent => ({ type: "text", text: value });
@@ -13,6 +14,10 @@ const phase = (value: string, phase: "commentary" | "final_answer"): TextContent
 	...text(value), textSignature: JSON.stringify({ v: 1, id: `msg-${phase}`, phase }),
 });
 const thinking = { type: "thinking", thinking: "检查文件边界" } as const;
+const manualSkill = {
+	role: "custom", customType: SKILL_CONTEXT_MESSAGE, content: '<invoked_skill root="skill://development"/>\n\n先检查任务范围。', display: true, timestamp: 200,
+	details: { name: "development", root: "skill://development", contentHash: "hash", scope: "user", loadedBy: "manual", deduplicated: false, chars: 8 },
+} as const;
 const replies = (value: ReturnType<typeof source>) => transcriptReplies(value).filter((row) => row.kind === "reply");
 
 describe("整轮处理过程折叠", () => {
@@ -178,6 +183,37 @@ describe("整轮处理过程折叠", () => {
 	it("仅有 commentary 的回复不会被标为最终报告", () => {
 		expect(replies(source({ messages: [user, assistant([phase("仍在检查", "commentary")], "stop")] }))[0])
 			.toMatchObject({ state: "incomplete", answer: [], process: [{ text: "仍在检查" }] });
+	});
+
+	it.each(["stop", "aborted", "error"] as const)("手动加载技能独立于上一轮 %s 回复，保留原回复状态和内容", (stopReason) => {
+		const history = [user, assistant([text("上一轮回复")], stopReason)];
+		const before = transcriptReplies(source({ messages: history }));
+		const after = transcriptReplies(source({ messages: [...history, manualSkill] }));
+		expect(after.slice(0, 2)).toEqual(before);
+		expect(after[2]).toMatchObject({ kind: "message", messageIndex: 2, message: manualSkill });
+	});
+
+	it("上一轮完成后手动加载，再开始下一轮，技能卡片保持在两轮之间", () => {
+		const snapshot = source({ messages: [user, assistant([text("上一轮完成")], "stop"), manualSkill,
+			{ ...user, content: "下一轮任务", timestamp: 300 }], streamingMessage: assistant([text("下一轮回复")], "pending"), streaming: true });
+		const rows = transcriptReplies(snapshot);
+		expect(rows.map((row) => row.kind)).toEqual(["message", "reply", "message", "message", "reply"]);
+		expect(rows[1]).toMatchObject({ state: "completed", tracking: false, process: [], messageIndices: [1] });
+		expect(rows[4]).toMatchObject({ state: "running", tracking: true, process: [], messageIndices: [4] });
+		const document = parseHTML(renderWithMemory(createElement(Transcript, {
+			source: snapshot, entryIds: ["user-1", "reply-1", "skill-1", "user-2", "reply-2"], clear() {},
+		}))).document;
+		expect(document.querySelectorAll(".assistant-reply .skill-message")).toHaveLength(0);
+		expect(document.querySelector(".transcript-row > .skill-message")?.getAttribute("data-entry-id")).toBe("skill-1");
+		expect(document.querySelector(".skill-message .activity-summary")?.textContent).toContain("手动引用");
+	});
+
+	it("连续手动加载分别显示，重复加载也不生成或修改模型回复", () => {
+		const duplicate = { ...manualSkill, timestamp: 201, content: '<invoked_skill root="skill://development"/>', details: { ...manualSkill.details, deduplicated: true, chars: 0 } };
+		const rows = transcriptReplies(source({ messages: [user, assistant([text("任务完成")], "stop"), manualSkill, duplicate] }));
+		expect(rows.map((row) => row.kind)).toEqual(["message", "reply", "message", "message"]);
+		expect(rows[1]).toMatchObject({ state: "completed", process: [], messageIndices: [1] });
+		expect(rows.slice(2)).toMatchObject([{ message: manualSkill }, { message: duplicate }]);
 	});
 
 	it("用户 Shell 和压缩摘要不折入上一份模型回复", () => {

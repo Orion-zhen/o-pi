@@ -1,4 +1,5 @@
 import { replyMetrics } from "../message-metrics.ts";
+import { SKILL_CONTEXT_MESSAGE } from "../../harness/skill-context/types.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TranscriptItem, TranscriptSource, ToolState } from "./transcript-items.ts";
 
@@ -65,7 +66,8 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 	messages.forEach((message, index) => {
 		const key = `message:${index}:${message.timestamp}`;
 		const standalone: TranscriptRow = { key, kind: "message", messageIndex: index, message };
-		if (message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary") {
+		if (message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary"
+			|| (message.role === "custom" && message.customType === SKILL_CONTEXT_MESSAGE && message.display !== false)) {
 			if (current && message.role === "user") current.followedByUser = true;
 			rows.push(standalone);
 			current = undefined;

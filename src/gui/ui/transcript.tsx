@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { fade } from "./lib/motion";
 import { Disclosure } from "./components/disclosure";
 import { Message } from "./content.tsx";
+import { SkillSummary } from "./skill-summary.tsx";
 import { MessageIdentity, ReplyMetrics } from "./message-meta.tsx";
 import { ReplyItems, sameItems, useAutoFold } from "./transcript-sections.tsx";
 import type { TranscriptSource } from "./transcript-items.ts";
@@ -101,6 +102,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 				{running && <LoaderCircle className="animate-spin" aria-hidden="true" />}
 				<span>{reply.retrying ? "正在重试" : running ? "正在处理" : "本轮过程"}</span>
 				{counts && <span className="reply-counts">{counts}</span>}
+				<SkillSummary items={reply.process} />
 			</>}>
 			{processContent}
 		</Disclosure>}
