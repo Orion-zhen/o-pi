@@ -36,7 +36,8 @@ export function runtimePlugin() {
 				loader: "js",
 			}));
 			build.onLoad({ filter: /[\\/]pdfjs-dist[\\/]legacy[\\/]build[\\/]pdf\.mjs$/ }, async ({ path }) => {
-				const source = await readFile(path, "utf8");
+				const source = replaceOnce(await readFile(path, "utf8"),
+					'process.type !== "browser"', 'process.type !== "browser" && process.type !== "utility"', path);
 				if (source.split('require("@napi-rs/canvas")').length !== 3) throw new Error(`PDF canvas adapter no longer matches: ${path}`);
 				return { contents: 'import * as opiCanvas from "@napi-rs/canvas";\n' + source.replaceAll('require("@napi-rs/canvas")', "opiCanvas"), loader: "js" };
 			});
