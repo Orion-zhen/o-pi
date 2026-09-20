@@ -23,6 +23,7 @@ describe("web-tools config", () => {
 		process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "missing.jsonc");
 		const config = await loadWebToolsConfig();
 		expect(config).toEqual(defaultWebToolsConfig());
+		expect(config.webfetch.media.mode).toBe("auto");
 		expect(Object.keys(config).sort()).toEqual(["network", "webfetch", "websearch"]);
 		expect(config.network.proxy).toEqual({
 			enabled: false,
@@ -98,6 +99,13 @@ describe("web-tools config", () => {
 		process.env.PI_WEB_TOOLS_CONFIG = file;
 		await writeFile(file, JSON.stringify({ webfetch: { limits: { find_max_passages: maxPassages } } }));
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
+	});
+
+	it.each(["auto", "on", "off"])("支持媒体策略 %s", async (mode) => {
+		const file = path.join(dir, "media.jsonc");
+		process.env.PI_WEB_TOOLS_CONFIG = file;
+		await writeFile(file, JSON.stringify({ webfetch: { media: { mode } } }));
+		expect((await loadWebToolsConfig()).webfetch.media.mode).toBe(mode);
 	});
 
 	it("复用未变化配置，返回隔离副本并在文件变更后失效", async () => {

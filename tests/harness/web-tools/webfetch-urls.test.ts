@@ -13,7 +13,7 @@ function runtime(fetchImpl: WebHttpFetch) {
 	const dispatcher = new Agent();
 	dispatchers.push(dispatcher);
 	const config = defaultWebToolsConfig();
-	config.webfetch.media.mode = "auto";
+	config.webfetch.media.mode = "on";
 	return {
 		dispatcher, fetchImpl, config,
 		cookieStore: { async getCookieAccess() { return {}; }, async storeFromResponse() { return undefined; } },

@@ -25,7 +25,7 @@ const HTML = `<html><head><title>Entire guide</title>
 	<meta property="og:image" content="https://example.com/unrelated.png">
 	<script type="application/ld+json">{"@type":"Article","articleBody":"Unrelated structured article body."}</script>
 	</head><body><main><h1>Entire guide</h1><p>Introduction outside the selection.</p>
-	<div><h2 id="authentication">Authentication</h2><p>${"Use a scoped access token. ".repeat(30)}</p></div>
+	<div><h2 id="authentication">Authentication</h2><p>${"Use a scoped access token. ".repeat(100)}</p></div>
 	<div><h3 id="refresh">Refresh</h3><p>Renew the access token before expiry.</p>
 	<pre><code>const token = await refresh();</code></pre></div>
 	<div><h2 id="errors">Errors</h2><p>Unrelated error reference.</p><iframe src="/player"></iframe></div>
@@ -36,7 +36,7 @@ function htmlResponse(html = HTML) { return httpResponse(200, html, { "content-t
 describe("webfetch 原生锚点", () => {
 	it("跨容器读取标题及其子章节，选区外元数据和遗漏不混入结果", async () => {
 		const requests: string[] = [];
-		const result = await executeWebFetch({ url: "https://example.com/docs#authentication", limit: 3000 }, runtime(async (url, init) => {
+		const result = await executeWebFetch({ url: "https://example.com/docs#authentication" }, runtime(async (url, init) => {
 			requests.push(url.toString());
 			expect(init.headers.Accept).toMatch(/^text\/html/);
 			return htmlResponse();
@@ -58,11 +58,13 @@ describe("webfetch 原生锚点", () => {
 	it("不同锚点和整页使用独立 snapshot，分页偏移相对所选章节", async () => {
 		let calls = 0;
 		const rt = runtime(async () => { calls += 1; return htmlResponse(); });
-		const whole = await executeWebFetch({ url: "https://example.com/docs", limit: 100 }, rt);
-		const first = await executeWebFetch({ url: "https://example.com/docs#authentication", limit: 100 }, rt);
-		const other = await executeWebFetch({ url: "https://example.com/docs#errors", limit: 10 }, rt);
+		rt.config.webfetch.limits.default_output_chars = 1000;
+		const whole = await executeWebFetch({ url: "https://example.com/docs" }, rt);
+		const first = await executeWebFetch({ url: "https://example.com/docs#authentication" }, rt);
+		const other = await executeWebFetch({ url: "https://example.com/docs#errors" }, rt);
 		if (first.details.status !== "success" || first.details.range.next_offset === undefined) throw new Error("missing range");
-		const next = await executeWebFetch({ url: "https://example.com/docs#authentication", offset: first.details.range.next_offset, limit: 3000 }, rt);
+		rt.config.webfetch.limits.default_output_chars = 20000;
+		const next = await executeWebFetch({ url: "https://example.com/docs#authentication", offset: first.details.range.next_offset }, rt);
 		expect(whole.content).toContain("Entire guide");
 		expect(other.content).not.toContain("Authentication");
 		expect(next.details).toMatchObject({ status: "success", snapshot: "hit", anchor: "authentication", completeness: "complete" });
@@ -97,7 +99,7 @@ describe("webfetch 原生锚点", () => {
 		["/final#", undefined],
 	])("重定向继承、替换或清空 fragment：%s", async (location, anchor) => {
 		const requests: string[] = [];
-		const result = await executeWebFetch({ url: "https://example.com/start#authentication", limit: 3000 }, runtime(async (url) => {
+		const result = await executeWebFetch({ url: "https://example.com/start#authentication" }, runtime(async (url) => {
 			requests.push(url.toString());
 			return requests.length === 1 ? redirectResponse(location) : htmlResponse();
 		}));
@@ -121,7 +123,9 @@ describe("webfetch 原生锚点", () => {
 	});
 
 	it("保留选区内的真实遗漏，不把选区外 iframe 带入结果", async () => {
-		const result = await executeWebFetch({ url: "https://example.com/docs#errors", limit: 10 }, runtime(async () => htmlResponse()));
+		const rt = runtime(async () => htmlResponse(HTML.replace("Unrelated error reference.", "Unrelated error reference. ".repeat(100))));
+		rt.config.webfetch.limits.default_output_chars = 1000;
+		const result = await executeWebFetch({ url: "https://example.com/docs#errors" }, rt);
 		expect(result.details).toMatchObject({ status: "success", completeness: "partial", omissions: [{ kind: "embedded_content", reason: "iframe_not_fetched" }] });
 		expect(result.content).toContain('partial="iframe_not_fetched"');
 		expect(result.content).toContain('next="');

@@ -81,7 +81,8 @@ test("技能卡片、按需正文、会话树与按需查询", async ({ webPage:
 	await send("/skill:gui-manual");
 	const manual = page.locator(".skill-message .skill-activity").first();
 	await expect(manual.locator(".activity-summary")).toContainText("手动引用");
-	await expect(manual.locator(".activity-state")).toHaveText("已加载");
+	await expect(manual.locator(".activity-state > svg")).toBeVisible();
+	await expect(manual.locator(".activity-state")).toHaveText("");
 	await expect(manual.locator(".skill-body")).toHaveCount(0);
 	expect(model.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
 	await manual.locator(".activity-summary").click();
@@ -89,7 +90,7 @@ test("技能卡片、按需正文、会话树与按需查询", async ({ webPage:
 	await expect(manual.locator(".skill-metadata")).toContainText("skill://gui-manual");
 	await manual.locator(".activity-summary").click();
 	await send("/skill:gui-manual");
-	await expect(page.locator(".skill-message .activity-summary").last()).toContainText("已加载过（未重复注入）");
+	await expect(page.locator(".skill-message .activity-summary").last()).toContainText("已加载过");
 	expect(model.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
 
 	await send("验证模型主动加载技能");
@@ -103,7 +104,7 @@ test("技能卡片、按需正文、会话树与按需查询", async ({ webPage:
 	await activity.locator(":scope > .disclosure-trigger").click();
 	const skill = activity.locator(".skill-activity");
 	await expect(skill.locator(".activity-summary")).toContainText("模型调用");
-	await expect(skill.locator(".activity-state > span")).toBeVisible();
+	await expect(skill.locator(".activity-state svg")).toBeVisible();
 	await expect(skill.locator(".skill-body")).toHaveCount(0);
 	await skill.locator(".activity-summary").click();
 	await expect(skill.getByRole("heading", { name: "模型技能" })).toBeVisible();

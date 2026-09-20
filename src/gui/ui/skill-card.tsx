@@ -11,7 +11,7 @@ import "./skills.css";
 
 type SkillCardProps = Pick<ToolActivity, "id" | "state" | "output"> & { name: string; loadedBy: SkillLoadDetails["loadedBy"] };
 const states: Record<ToolState, string> = {
-	preparing: "生成参数", pending: "等待加载", running: "加载中", completed: "已加载", failed: "加载失败", stopped: "已停止", unavailable: "无加载结果",
+	preparing: "生成参数", pending: "等待加载", running: "加载中", completed: "", failed: "加载失败", stopped: "已停止", unavailable: "无加载结果",
 };
 
 export function SkillCard({ id, name, loadedBy, state, output }: SkillCardProps) {
@@ -19,7 +19,7 @@ export function SkillCard({ id, name, loadedBy, state, output }: SkillCardProps)
 	const details = isSkillLoadDetails(output?.details) ? output.details : undefined;
 	const active = state === "running" || state === "preparing";
 	const Status = active ? LoaderCircle : state === "completed" ? Check : state === "failed" ? X : state === "stopped" ? CircleStop : CircleDashed;
-	const status = state === "completed" && details?.deduplicated ? "已加载过（未重复注入）" : states[state];
+	const status = state === "completed" && details?.deduplicated ? "已加载过" : states[state];
 	const error = state === "failed" && record(output?.details) && record(output.details.error) && typeof output.details.error.message === "string"
 		? clean(output.details.error.message) : "";
 	return <section className="tool-activity skill-activity" data-tool="skill" data-state={state} data-tool-call-id={loadedBy === "agent" ? id : undefined}>
@@ -29,7 +29,7 @@ export function SkillCard({ id, name, loadedBy, state, output }: SkillCardProps)
 				<span className="activity-label">技能</span>
 				<code className="activity-target" title={name}>{name}</code>
 				<span className="skill-loader">{skillLoaders[loadedBy]}</span>
-				<span className="activity-state"><Status className={active ? "animate-spin" : ""} aria-hidden="true" /><span>{status}</span></span>
+				<span className="activity-state"><Status className={active ? "animate-spin" : ""} aria-hidden="true" />{status && <span>{status}</span>}</span>
 				<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 			</CollapsibleTrigger>
 			{error && <p className="activity-error">{error}</p>}

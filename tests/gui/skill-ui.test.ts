@@ -37,7 +37,8 @@ describe("技能语义展示", () => {
 		for (const [doc, loader] of [[manual, "手动引用"], [renderTool(), "模型调用"]] as const) {
 			expect(doc.querySelector(".skill-activity .activity-summary")?.textContent).toContain(`技能${details.name}`);
 			expect(doc.querySelector(".activity-summary")?.textContent).toContain(loader);
-			expect(doc.querySelector(".activity-summary")?.textContent).toContain("已加载");
+			expect(doc.querySelector(".activity-summary")?.textContent).not.toContain("已加载");
+			expect(doc.querySelector(".activity-state > svg")).not.toBeNull();
 			expect(doc.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("false");
 			expect(doc.toString()).not.toContain("先收集证据");
 			expect(doc.toString()).not.toContain("test-hash");
@@ -57,7 +58,7 @@ describe("技能语义展示", () => {
 
 	it("重复加载明确说明未重复注入，失败摘要保留具体错误", () => {
 		const duplicate = renderTool("completed", { content: [{ type: "text", text: formatSkillDisclosure(details.name, "") }], details: { ...details, deduplicated: true, chars: 0 } });
-		expect(duplicate.querySelector(".activity-summary")?.textContent).toContain("已加载过（未重复注入）");
+		expect(duplicate.querySelector(".activity-summary")?.textContent).toContain("已加载过");
 		const failed = renderTool("failed", { content: [], details: { status: "failed", error: { code: "SKILL_NOT_FOUND", message: "skill not found" } } });
 		expect(failed.querySelector(".activity-summary")?.textContent).toContain("加载失败");
 		expect(failed.querySelector(".activity-error")?.textContent).toBe("skill not found");
@@ -89,7 +90,7 @@ describe("技能语义展示", () => {
 		const projected = payloads.project<ToolResultMessage>(full);
 		expect(projected.details).toMatchObject({ name: "debugging", loadedBy: "agent", deduplicated: false, guiOutputId: expect.any(String) });
 		const doc = renderTool("completed", projected);
-		expect(doc.querySelector(".activity-summary")?.textContent).toContain("已加载");
+		expect(doc.querySelector(".activity-state > svg")).not.toBeNull();
 		const preview = projected.details;
 		if (typeof preview !== "object" || preview === null || !("guiOutputId" in preview) || typeof preview.guiOutputId !== "string") throw new Error("缺少载荷 ID");
 		expect(payloads.toolOutput(preview.guiOutputId)).toEqual({ content: full.content, details: full.details });

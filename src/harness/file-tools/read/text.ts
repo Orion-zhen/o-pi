@@ -3,7 +3,8 @@ import type { FileRef } from "../../filesystem/contracts/path.ts";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
 import type { ReadCommandContext } from "./command.ts";
 import { formatReadSegment, formatReadStructureContext } from "./presenter.ts";
-import { formatReadRanges, resolveReadRanges, type ReadRange, type ResolvedReadRange } from "./range.ts";
+import { formatReadRanges, type ReadRange, type ResolvedReadRange } from "../../content-ranges.ts";
+import { resolveReadRanges } from "./range.ts";
 import type { ReadStructureContext, ReadSuccess, ReadTextSegment } from "./types.ts";
 
 /** 从同一快照提取全部范围，正文与结构提示共享预算。 */

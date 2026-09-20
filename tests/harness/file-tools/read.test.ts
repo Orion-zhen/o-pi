@@ -19,13 +19,13 @@ import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
 import { suggestPaths } from "../../../src/harness/file-tools/read/path-suggestions.ts";
 import { expectFsOk, openReadonly } from "../filesystem/fixtures.ts";
 import { contentHash as sha256Version } from "../../../src/harness/filesystem/services/text.ts";
-import { createPdfDocumentSource } from "../../../src/harness/file-tools/pi/ports/read-pdf.ts";
+import { createPdfDocumentSource } from "../../../src/harness/media/pdf.ts";
+import type { InlineImageProcessor } from "../../../src/harness/file-tools/read/ports.ts";
 import type {
-	InlineImageProcessor,
 	PdfDocumentHandle,
 	PdfDocumentSource,
 	PdfPageRenderResult,
-} from "../../../src/harness/file-tools/read/ports.ts";
+} from "../../../src/harness/media/pdf-types.ts";
 import { formatReadStructureContext } from "../../../src/harness/file-tools/read/presenter.ts";
 import { readWorkspaceFile } from "../../helpers/read-tool.ts";
 import { createCrudTestContext } from "./crud-fixtures.ts";
@@ -651,6 +651,7 @@ function fakePdfSource(options: FakePdfOptions): {
 					pageCount: options.pageCount,
 					metadata: { title: "Fake PDF", author: "Tests" },
 					pageLabels: Array.from({ length: options.pageCount }, (_, index) => String(index + 1)),
+					async readPageText() { throw new Error("File read renders PDF pages."); },
 					async renderPage({ pageNumber }) {
 						state.renderedPages.push(pageNumber);
 						return options.render?.(pageNumber) ?? renderedPdfPage(pageNumber);

@@ -7,17 +7,17 @@ import type {
 	WebFetchResult,
 	WebFetchSuccessDetails,
 } from "../core/types.ts";
-import type { ContentConversion, WebFetchPage } from "../content/types.ts";
+import type { ContentConversion, WebFetchPage, WebFetchPdf } from "../content/types.ts";
 import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.ts";
 import { validateRequestUrl } from "../network/network-policy.ts";
 import type { ValidatedUrl } from "../network/types.ts";
-import { escapeXml, redactUrl } from "../network/url-utils.ts";
+import { redactUrl } from "../network/url-utils.ts";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.ts";
 import { selectText } from "./text-selection.ts";
 import type { SnapshotCache } from "./snapshot-cache.ts";
 
-const PREVIEW_MAX_LINES = 40;
-const PREVIEW_MAX_CHARS = 6000;
+import { executePdfFetch, isPdfResponse } from "./webfetch-pdf.ts";
+import { failureResult, preview, successContent } from "./webfetch-result.ts";
 
 export interface ExecuteWebFetchRuntime extends Omit<HttpClientOptions, "startedAt"> {
 	snapshots: SnapshotCache;
@@ -27,24 +27,37 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	const options: HttpClientOptions = { ...runtime, startedAt: runtime.now() };
 	const mode = params.mode ?? "readable";
 	const offset = params.offset ?? 0;
-	const limit = params.limit ?? runtime.config.webfetch.limits.default_output_chars;
+	const limit = Math.max(runtime.config.webfetch.limits.default_output_chars, params.find?.length ?? 0);
 	const textOnly = params.find !== undefined;
 	if (runtime.context.signal?.aborted) return failureResult({ status: "failed", error: { code: "ABORTED", message: "webfetch was aborted." } });
-	if (params.find !== undefined && limit < params.find.length) {
-		return failureResult({ status: "failed", error: { code: "INVALID_ARGUMENT", message: "limit must fit the full find string." } });
+	if (mode === "image" && (params.find !== undefined || params.offset !== undefined)) {
+		return failureResult({ status: "failed", error: { code: "INVALID_ARGUMENT", message: "image mode does not accept find or offset." } });
 	}
 	const requested = validateRequestUrl(params.url, runtime.context.privateNetworkGrant?.origin);
 	if ("status" in requested) {
 		return failureResult({ ...requested, requested_url: safeRedact(params.url), duration_ms: runtime.now() - options.startedAt });
 	}
-	const mediaEnabled = runtime.config.webfetch.media.mode === "auto";
-	const canReturnImages = !textOnly && mode === "readable" && offset === 0 && mediaEnabled && runtime.context.acceptsImages === true;
-	const snapshotKey = snapshotKeyFor(requested, mode, mediaEnabled, runtime.context.privateNetworkGrant?.origin);
-	const useSnapshot = params.offset !== undefined || textOnly;
-	const cached = useSnapshot ? runtime.snapshots.get(snapshotKey) : undefined;
+	const mediaPolicy = runtime.config.webfetch.media.mode;
+	const mediaEnabled = mediaPolicy === "on" || mediaPolicy === "auto" && mode === "image";
+	if (mode === "image" && !mediaEnabled) {
+		return failureResult({ status: "failed", error: { code: "INVALID_ARGUMENT", message: "Image output is disabled by webfetch.media.mode." } });
+	}
+	if (mode === "image" && runtime.context.acceptsImages !== true) {
+		return failureResult({ status: "failed", error: { code: "UNSUPPORTED_CONTENT_TYPE", message: "Current model does not support images. Use readable mode for text." } });
+	}
+	const textMode = mode === "source" ? "source" : "readable";
+	const canReturnImages = !textOnly && textMode === "readable" && offset === 0 && mediaEnabled && runtime.context.acceptsImages === true;
+	const snapshotKey = snapshotKeyFor(requested, textMode, mediaEnabled, runtime.context.privateNetworkGrant?.origin);
+	const pdfKey = `pdf\0${snapshotKeyFor(requested, "readable", false, runtime.context.privateNetworkGrant?.origin)}`;
+	const useSnapshot = params.offset !== undefined || textOnly || params.pages !== undefined || mode === "image";
+	const cached = useSnapshot ? runtime.snapshots.get(snapshotKey) ?? runtime.snapshots.getPdf(pdfKey) : undefined;
 	let snapshotStatus: SnapshotStatus = !useSnapshot ? "not_needed" : cached === undefined ? "refetched" : "hit";
-	const page = cached ?? await readPage(requested, mode, canReturnImages, options);
+	const page = cached ?? await readPage(requested, textMode, mediaEnabled, canReturnImages, options);
 	if ("status" in page) return failureResult(page);
+	if ("bytes" in page) return executePdfFetch(params, page, options, runtime.snapshots, pdfKey, snapshotStatus);
+	if (params.pages !== undefined) {
+		return failureResult({ status: "failed", error: { code: "INVALID_ARGUMENT", message: "pages requires a PDF response." } });
+	}
 	if (textOnly && page.format === "image") {
 		return failureResult({
 			status: "failed", error: { code: "UNSUPPORTED_CONTENT_TYPE", message: "find requires text content, not an image response." },
@@ -52,7 +65,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		});
 	}
 
-	const selected = selectText(page.text, offset, limit, params.find === undefined
+	const selected = selectText(mode === "image" ? "" : page.text, offset, limit, params.find === undefined
 		? undefined
 		: { text: params.find, maxPassages: runtime.config.webfetch.limits.find_max_passages });
 	if (snapshotStatus !== "hit" && page.format !== "image") {
@@ -61,7 +74,13 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	}
 
 	const mediaResult = !textOnly && mediaEnabled ? await resolvePrimaryMedia(page, offset, options) : {};
-	const omissions = collectOmissions(page, mediaResult.omission, !textOnly);
+	if (mode === "image" && mediaResult.media === undefined) {
+		return failureResult({ status: "failed", error: {
+			code: mediaResult.omission === undefined ? "UNSUPPORTED_CONTENT_TYPE" : "CONVERSION_FAILED",
+			message: mediaResult.omission === undefined ? "No primary image found. Use readable mode for text." : `Image not returned: ${mediaResult.omission.reason}.`,
+		}, requested_url: page.response.requestedUrl, final_url: page.response.finalUrl, http_status: page.response.httpStatus });
+	}
+	const omissions = mode === "image" ? [] : collectOmissions(page, mediaResult.omission, !textOnly);
 	if (
 		!textOnly
 		&& page.analysis.pageKind === "image"
@@ -77,7 +96,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		status: "success",
 		scope: "static_response",
 		page_kind: page.analysis.pageKind,
-		text_source: page.analysis.textSource,
+		text_source: mode === "image" ? "metadata" : page.analysis.textSource,
 		completeness: omissions.length === 0 ? "complete" : "partial",
 		omissions,
 		requested_url: response.requestedUrl,
@@ -87,9 +106,9 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		...(page.anchor !== undefined ? { anchor: page.anchor } : {}),
 		...(page.contentType ? { content_type: page.contentType } : {}),
 		...(page.charset ? { charset: page.charset } : {}),
-		format: page.format,
+		format: mode === "image" ? "image" : page.format,
 		downloaded_bytes: response.downloadedBytes,
-		total_chars: page.text.length,
+		total_chars: selected.range.total,
 		range: selected.range,
 		authenticated: response.authenticated,
 		redirect_count: response.redirectCount,
@@ -100,7 +119,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 			returned: mediaResult.media !== undefined ? 1 : 0,
 		},
 		duration_ms: runtime.now() - options.startedAt,
-		preview: preview(textOnly ? selected.text : page.text),
+		preview: preview(textOnly || mode === "image" ? selected.text : page.text),
 	};
 	return {
 		content: successContent(details, selected.text),
@@ -111,11 +130,11 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 
 async function readPage(
 	requested: ValidatedUrl,
-	mode: WebFetchMode,
+	mode: Exclude<WebFetchMode, "image">,
+	mediaEnabled: boolean,
 	canReturnImages: boolean,
 	options: HttpClientOptions,
-): Promise<WebFetchPage | WebFetchFailureDetails> {
-	const mediaEnabled = options.config.webfetch.media.mode === "auto";
+): Promise<WebFetchPage | WebFetchPdf | WebFetchFailureDetails> {
 	const converterPromise = import("../content/content-converter.ts");
 	const fetched = await fetchHttpUrl(requested, options, {
 		imageMaxBytes: options.config.webfetch.media.response_bytes,
@@ -127,6 +146,18 @@ async function readPage(
 		return fetched.details;
 	}
 	options.context.onUpdate?.({ content: "Converting...", details: { status: "progress", phase: "converting", http_status: fetched.httpStatus } });
+	const response = {
+		requestedUrl: fetched.requestedUrl, finalUrl: fetched.finalUrl, httpStatus: fetched.httpStatus,
+		authenticated: fetched.authenticated, redirectCount: fetched.redirectCount, downloadedBytes: fetched.downloadedBytes,
+	};
+	if (isPdfResponse(fetched)) {
+		void converterPromise.catch(() => undefined);
+		if (fetched.fragment !== "" && mode !== "source") return {
+			status: "failed", error: { code: "ANCHOR_NOT_FOUND", message: "PDF selection uses pages, not URL fragments. Remove the fragment and set pages." },
+			requested_url: fetched.requestedUrl, final_url: fetched.finalUrl, http_status: fetched.httpStatus,
+		};
+		return { bytes: fetched.body, textPages: new Map(), response };
+	}
 	const direct = mode === "readable" && fetched.fragment !== ""
 		? undefined
 		: await directImageConversion(fetched, mode, options.config.webfetch.media.response_bytes, mediaEnabled);
@@ -150,17 +181,7 @@ async function readPage(
 			duration_ms: options.now() - options.startedAt,
 		};
 	}
-	return {
-		...converted,
-		response: {
-			requestedUrl: fetched.requestedUrl,
-			finalUrl: fetched.finalUrl,
-			httpStatus: fetched.httpStatus,
-			authenticated: fetched.authenticated,
-			redirectCount: fetched.redirectCount,
-			downloadedBytes: fetched.downloadedBytes,
-		},
-	};
+	return { ...converted, response };
 }
 
 function collectOmissions(
@@ -179,33 +200,11 @@ function collectOmissions(
 	return omissions;
 }
 
-function snapshotKeyFor(requested: ValidatedUrl, mode: WebFetchMode, mediaEnabled: boolean, privateNetworkOrigin: string | undefined): string {
+function snapshotKeyFor(requested: ValidatedUrl, mode: Exclude<WebFetchMode, "image">, mediaEnabled: boolean, privateNetworkOrigin: string | undefined): string {
 	const normalized = `${requested.url}${mode === "source" ? "" : requested.fragment}`;
 	return `${privateNetworkOrigin ?? "public"}\0${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
 }
 
 function safeRedact(value: string): string {
 	try { return redactUrl(value); } catch { return value; }
-}
-
-function successContent(details: WebFetchSuccessDetails, text: string): string {
-	const partialReasons = [...new Set(details.omissions.map((item) => item.reason))];
-	const attrs = [
-		`kind="${details.page_kind}"`,
-		details.range.kind === "find" ? `matches="${details.range.matches}"` : undefined,
-		details.anchor !== undefined ? `anchor="${escapeXml(details.anchor)}"` : undefined,
-		details.final_url !== details.requested_url ? `final="${escapeXml(details.final_url)}"` : undefined,
-		details.text_source === "metadata" ? `source="metadata"` : undefined,
-		partialReasons.length > 0 ? `partial="${partialReasons.join(",")}"` : undefined,
-		details.range.next_offset !== undefined ? `next="${details.range.next_offset}"` : undefined,
-	].filter((item): item is string => item !== undefined).join(" ");
-	return `<webfetch ${attrs}>\n${text}\n</webfetch>`;
-}
-
-function failureResult(details: WebFetchFailureDetails): WebFetchResult {
-	return { content: `<error tool="webfetch" code="${escapeXml(details.error.code)}">\n${escapeXml(details.error.message)}\n</error>`, details };
-}
-
-function preview(text: string): string {
-	return text.split("\n").slice(0, PREVIEW_MAX_LINES).join("\n").slice(0, PREVIEW_MAX_CHARS);
 }

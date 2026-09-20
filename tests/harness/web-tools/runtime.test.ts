@@ -258,9 +258,13 @@ describe("web-tools runtime", () => {
 	});
 
 	it("fetch 分页复用 snapshot，避免重复下载", async () => {
+		const config = defaultWebToolsConfig();
+		config.webfetch.limits.default_output_chars = 1000;
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		network.fetch.mockImplementation(async () => httpResponse(200, "x".repeat(2000)));
 		const runtime = trackRuntime();
-		await expect(runtime.fetch({ url: "https://example.com/a", limit: 5 }, { toolCallId: "first" })).resolves.toMatchObject({ details: { status: "success", snapshot: "created" } });
-		await expect(runtime.fetch({ url: "https://example.com/a", offset: 5, limit: 6 }, { toolCallId: "next" })).resolves.toMatchObject({ details: { status: "success", snapshot: "hit" } });
+		await expect(runtime.fetch({ url: "https://example.com/a" }, { toolCallId: "first" })).resolves.toMatchObject({ details: { status: "success", snapshot: "created", range: { next_offset: 1000 } } });
+		await expect(runtime.fetch({ url: "https://example.com/a", offset: 1000 }, { toolCallId: "next" })).resolves.toMatchObject({ details: { status: "success", snapshot: "hit" } });
 		expect(network.fetch).toHaveBeenCalledOnce();
 	});
 

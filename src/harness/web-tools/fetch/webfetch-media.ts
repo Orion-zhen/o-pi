@@ -21,7 +21,7 @@ export interface PrimaryMediaResult {
 /** 识别直接图片响应，非图片候选交给普通内容转换器。 */
 export async function directImageConversion(
 	http: HttpFetchSuccess,
-	mode: WebFetchMode,
+	mode: Exclude<WebFetchMode, "image">,
 	maxBytes: number,
 	mediaEnabled: boolean,
 ): Promise<ContentConversion | WebFetchFailureDetails | undefined> {

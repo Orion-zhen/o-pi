@@ -1,6 +1,6 @@
 import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
 import type { TelemetryFacts } from "../../telemetry/types.ts";
-import { parseReadRanges } from "../read/range.ts";
+import { parseReadRanges } from "../../content-ranges.ts";
 import type { ReadFileSuccess, ReadParams } from "../read/types.ts";
 import { isFailed, type ToolOutcome } from "../shared/result.ts";
 import { failureFields, pathTarget, projectFileInput } from "./common.ts";

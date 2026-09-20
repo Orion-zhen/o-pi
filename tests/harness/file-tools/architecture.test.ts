@@ -83,7 +83,7 @@ function bypassesFilesystemPlane(edge: ImportEdge): boolean {
 }
 
 function isExternalSubsystem(filePath: string): boolean {
-	return ["src/harness/lsp/", "src/harness/skill-context/", "src/harness/approval/", "src/harness/code-index/"]
+	return ["src/harness/lsp/", "src/harness/skill-context/", "src/harness/approval/", "src/harness/code-index/", "src/harness/web-tools/", "src/harness/media/", "src/harness/content-ranges.ts", "src/harness/extensions/web-tools.ts"]
 		.some((prefix) => filePath.startsWith(prefix));
 }
 

@@ -120,19 +120,27 @@ NO_PROVIDER_AVAILABLE, PROVIDER_BLOCKED, PARSE_FAILED
 ```ts
 webfetch({
   url: string,
-  mode?: "readable" | "source",
+  mode?: "readable" | "source" | "image",
+  pages?: string,
   find?: string,
   offset?: number,
-  limit?: number,
 })
 ```
 
 - `readable`：HTML 响应使用 LinkeDOM 解析。解析器先分析 `<title>`、唯一 `h1`、description、Open Graph、Twitter Card 和受限 JSON-LD，生成 Readability、`main`、`article`、`[role=main]`、`[itemprop=articleBody]`、JSON-LD 正文和 `body` 候选；不再生成标题祖先候选。Readability 只把聚焦的语义根或最终 body fallback 候选克隆到临时合成文档，并通过 `serializer` 返回正文节点，不再序列化后重新解析。最终选中候选直接清理，不为清理再克隆一次。只对最终主正文执行一次 Turndown，仍传入 HTML 字符串，以满足 GFM 插件对表格 DOM 的要求。候选质量只依据标题保留、有效文本、链接密度、短链接列表、结构元素、媒体与导航/推荐/表单占比，并按固定顺序选择。同一 DOM 根的质量只计算一次。标准 head 信号、媒体节点、页面类型信号和顶层延迟目标分别使用单次节点快照，不再为每类字段重复遍历 DOM。`<base href>` 只用于解析 HTTP(S) 候选 URL，不会触发请求。已确认的客户端空壳会直接使用结构化正文或 metadata，不再进入 Readability 和正文质量选择。JSON-LD 只读取已知字段，并受总字符数、脚本数、对象数、遍历节点数和递归深度硬上限保护；无效或超限数据只保留通用 `structured_data/invalid_or_limited` 遗漏。声明式内容支持整个静态文档内的 `template[for]`、`template[shadowrootmode]`，以及 body 内的 `noscript` fallback。成功替换的目标与声明从同一基础文档移除，展开片段单独清理并转成延迟 section，不复制整页 DOM。片段最多处理 64 个、嵌套最多 8 层，重复、缺失、歧义、循环和超限声明按边界处理；普通未匹配 `<template>` 继续删除。URL 路径以 `.html`/`.htm` 结尾时即使响应头误报也按 HTML 处理。source、JSON、XML、纯文本保持原有轻量路径，不加载 DOM、Readability 或 Turndown。
-- `source`：读取解码后的响应源码文本，支持 `find` 选片，不按锚点选读。
-- `offset`/`limit`：对转换后的文本切片。使用锚点时，偏移和总长度相对所选内容。`find` 将 offset 解释为查找起点，limit 是所有返回片段共用的原文字符预算，不含包装和位置标签。长内容或尚有命中时返回 `range.has_more` 和 `range.next_offset`，继续读取时保留相同 URL、mode、find，使用上次返回的 offset。
-- 文本响应保存在有时间和字节上限的内存 snapshot 中，不保存 DOM、响应头对象或图片字节。显式传入 `offset` 或 `find` 时复用 snapshot，不传这两项则重新请求。没有可用 snapshot 时重新下载转换。整页、不同模式和锚点分别缓存，查找词不参与缓存键。缓存命中与下载转换保留相同的正文、分析摘要和响应元数据。
+- `source`：读取解码后的响应源码文本，支持 `find` 选片，不按锚点选读。不支持 PDF 和图片二进制。
+- `image`：显式读取图片直链、网页主图或 PDF 页面图片，不返回网页正文，不接受 `find` 或 `offset`，不提供网页截图。网页没有主图时明确报错。
+- `pages`：仅 PDF，使用从 1 开始的物理页码，支持 `N`、`N-M`、`N-`，逗号分隔。默认选择全部页，受解析或渲染页数限制。
+- `offset`：对转换后的文本切片，默认从 0 开始。使用锚点或 PDF 页选区时，偏移和总长度相对所选内容。`find` 将 offset 解释为查找起点。工具不接受 `limit`，字符预算由 `webfetch.limits.default_output_chars` 控制，不含包装和位置标签。长内容或尚有命中时返回 `range.has_more` 和 `range.next_offset`，继续读取时保留相同 URL、mode、pages、find，原样传回模型输出中的 `next`。
+- 文本响应保存在有时间和字节上限的内存快照中，不保存 DOM、响应头对象或返回的图片。显式传入 `offset`、`find`、`pages` 或使用 `image` 模式时复用快照，否则重新请求。没有可用快照时重新下载转换。HTML 按文本模式、锚点和媒体解析开关分别缓存，查找词不参与缓存键。显式 `image` 可复用已启用媒体解析的 `readable` 快照。PDF 缓存原始字节和按页提取的文本，供不同页选区及文本、图片模式共用。缓存最多 32 项、64 MiB，每次写入后有效期为 10 分钟，不保留打开的 PDF 解析器或渲染图片。
 - `webfetch.readability.char_threshold`：Readability 接受正文结果的最少字符数。
-- `webfetch.media`：`auto` 模式从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中统一选出至多一张主图。正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。直接图片 URL 复用首次响应字节。当前模型支持图像且所选 API 支持工具结果图片时，页面主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 均以实际字节嗅探后作为原生图片内容返回。模型不支持图像时不会发起二次图片请求。若响应头已明确声明受支持图片，而 source 模式、后续 offset、模型能力或 API 类型已确定不可能返回图片，WebFetch 会在响应头阶段取消直接图片 body，不下载图片字节。`off` 时跳过 HTML 图片候选收集、排序和主图解析，不把用户主动关闭媒体视为遗漏，也不会因页面存在图片而变为 partial；`response_bytes` 控制独立图片响应上限。OpenAI Chat Completions 的 tool message 只支持文本，因此 `openai-completions` 模型即使支持普通图片输入也不会返回工具图片。Responses 不受影响。
+- `webfetch.media.mode` 默认 `auto`，只允许显式 `mode: "image"` 请求返回图片。普通读取不返回图片直链或网页主图。
+- `on` 在允许显式图片请求的基础上，普通 `readable` 读取也可自动返回图片直链和网页主图。PDF 仍默认提取文本。
+- `off` 禁止图片输出，显式 `image` 请求也在下载前被拒绝。当前模型不支持图片时，显式请求同样明确报错。
+
+启用媒体解析时，从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中选出至多一张主图。正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。图片直链复用首次响应字节。网页主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 按实际字节嗅探后作为原生图片返回，由模型适配层处理不同 API 的图片传输。`webfetch.media.response_bytes` 控制独立图片响应上限。
+
+策略不允许自动图片输出时，跳过 HTML 图片候选收集与主图下载，不把主动省略图片报告为遗漏。若响应头已声明受支持图片，但媒体策略、source 模式、find、后续 offset 或模型能力已确定不返回图片，则在响应头阶段取消图片正文。未声明类型时仍需读取受限字节来识别响应。
 
 ### 页内查找
 
@@ -142,11 +150,11 @@ webfetch({ url: "https://example.com/docs#cancellation", find: "AbortSignal" })
 
 - `find` 是 1–512 字符的字面子串，忽略大小写，不做词边界推断、语义匹配或查询语法解析。匹配不改写原文，不额外统一空白或解码内容。可以直接调用，不要求先读取网页。
 - HTML `readable` 查找已提取的 Markdown，先应用原生锚点选区。`source` 查找源码。Markdown、普通文本、CSV、JavaScript、JSON、XML、RSS 和 Atom 都查找当前文本表示。JSON 中的 `"\\u4e2d"` 不会因查询 `中` 而命中，也不支持字段路径。
-- `webfetch.limits.find_max_passages` 限制每次返回的上下文片段数，默认 `8`，接受正整数。邻近命中合并后计数，可在用户配置中覆盖。优先保留能放入预算的完整段落和短围栏代码块，否则在命中附近截取。默认单片段最多 800 字符，完整查找串更长时以其长度为下限，所有片段仍服从 limit。limit 放不下完整查找串时，在请求前返回 `INVALID_ARGUMENT`。
+- `webfetch.limits.find_max_passages` 限制每次返回的上下文片段数，默认 `8`，接受正整数。邻近命中合并后计数，可在用户配置中覆盖。优先保留能放入预算的完整段落和短围栏代码块，否则在命中附近截取。默认单片段最多 800 字符，完整查找串更长时以其长度为下限，所有片段共用运行时字符预算。若合法查找串的 UTF-16 长度超过配置预算，本次预算提高到该串长度，避免切断完整命中。
 - 每个片段用 `[start-end]` 标记原文的左闭右开字符范围，坐标单位为 UTF-16，与普通 offset 相同。没有命中时返回 `matches="0"`，不是工具错误，也不扩大范围或切换模式。
 - `matches` 只统计本次片段中完整返回的不重叠命中，不是整页总数。`next` 是下一处未完整返回命中的起点，使用同一个 find 继续查找。扩读时去掉 find，显式传入片段起点作为 offset，可复用同一 snapshot，包括 offset=0。
 - 查找只返回文本，不下载主图，主动省略媒体不产生 `primary_media` 遗漏。iframe、未解析声明和客户端空壳等真实遗漏仍保留。零命中不代表未返回的动态内容中不存在该字符串。
-- 不搜索直接图片、音视频流、PDF 或其他二进制，也不搜索图片响应的占位说明。视频和音频网页只查找已提取的静态文字或文字稿。
+- PDF 搜索提取的文本层，有 `pages` 时仅搜索选定页。没有文本层的页不会执行 OCR，会明确提示使用 `mode: "image"`。不搜索直接图片、音视频流或其他二进制，也不搜索图片响应的占位说明。视频和音频网页只查找已提取的静态文字或文字稿。
 
 ```xml
 <webfetch kind="article" matches="2" next="4200">
@@ -160,9 +168,28 @@ Second matching excerpt.
 
 `details.range.kind` 区分 `read` 和 `find`。普通读取保留 start/end，查找结果保留起点、命中数和 passages 数组，不把离散片段声明成连续范围。展开预览只展示查找片段，遥测记录查找词长度和返回命中数，不记录查找词原文。
 
+### PDF 和图片
+
+```ts
+webfetch({ url: "https://example.com/diagram.png", mode: "image" })
+webfetch({ url: "https://example.com/report.pdf", find: "Revenue" })
+webfetch({ url: "https://example.com/report.pdf", pages: "12-14" })
+webfetch({ url: "https://example.com/report.pdf", mode: "image", pages: "13" })
+```
+
+- PDF 根据 MIME 或 `%PDF-` 文件签名识别，不依赖 URL 扩展名。下载继续使用相同的认证、重定向、网络访问和响应大小限制。
+- 默认提取文本，每段附带 `[page N]`。查找片段同时标记字符位置和物理页码。页范围先排序、合并重叠与相邻范围，再裁剪结束页。起点越界或范围倒置报错。
+- 文本层不包含完整视觉内容，返回 `pdf_content/pdf_text_only`。所选页没有可提取文本时返回 `pdf_content/no_text_layer`，零命中不能代表图片中不存在该词。不做 OCR。
+- 每次文本选择最多 500 页、500 万 UTF-16 字符，超限需缩小 `pages`。PDF 处理单独受 `webfetch.timeout_seconds` 限制，并响应调用取消。
+- `image` 每次最多渲染 20 页，剩余范围由 `next_pages` 返回，下次传给 `pages`。页码标记与原生图片交替输出。页面最长边限制为 2000 像素，并经过模型图片大小处理。当前模型不支持图片时明确报错，可改用文本模式。
+- PDF 不解释 URL fragment，使用 `pages` 选页。密码保护和损坏文档返回解析错误。
+- `details.pdf` 保存总页数、选中页范围和后续页范围。模型标签使用 `pages="1-20/22"` 和 `next_pages="21-22"`，与文本续读的 `next` 区分。
+
+PDF 加载、文本提取和渲染位于共享的 `harness/media/`。范围语法位于 `harness/content-ranges.ts`。`web-tools` 与 `file-tools` 各自负责下载或本地读取、结果格式和错误转换，不相互依赖。
+
 ### 原生锚点选读
 
-`readable` 模式支持 `https://example.com/docs#authentication`：
+`readable` 和 `image` 模式支持 `https://example.com/docs#authentication`。`image` 仅返回选区内的主图：
 
 - 按解码后的 fragment 精确匹配静态 HTML 的 `id`，其次匹配 `<a name>`。标题内锚点和紧邻标题之前的空 `<a>` 也指向该标题。
 - 标题目标包含其子章节，到下一个同级或更高层级标题前结束，范围不越过所属 `main`、`article` 或 `[role=main]`。其他目标只读取目标子树。
@@ -181,7 +208,7 @@ Second matching excerpt.
 
 HTML 在转 Markdown 前会移除头像图片，但保留作者名称和个人页文本链接。判定组合使用 Schema.org、`rel=author`、microformats 等作者语义，严格的个人页路由结构、同目标文本链接、可解析尺寸和明确的 DOM 角色属性。不扫描图片 URL，也不让 alt 文案或单个模糊关键词独立触发删除。基础正文和声明式延迟正文使用同一过滤链。
 
-成功结果固定包含 `scope: "static_response"`，并用 `page_kind` 标记 article、image、video、audio 或 generic，用 `text_source` 标记 readability、semantic、body 或 metadata。`completeness` 只报告静态响应中已检测到的真实遗漏，锚点请求只判断所选内容。无已知遗漏时为 `complete`，不表示本次返回了整页。锚点选读、查找选片、字符切片和续读时主动省略主图都不产生遗漏，未读完的文本由 `range` 和模型侧 `next` 表示。
+成功结果固定包含 `scope: "static_response"`，并用 `page_kind` 标记 article、image、video、audio、pdf 或 generic，用 `text_source` 标记 readability、semantic、body、metadata 或 pdf。`completeness` 只报告静态响应中已检测到的真实遗漏，锚点请求只判断所选内容。无已知遗漏时为 `complete`，不表示本次返回了整页。锚点选读、查找选片、字符切片和续读时主动省略主图都不产生遗漏，未读完的文本由 `range` 和模型侧 `next` 表示。
 
 首段应返回的图片必须实际返回。视频和音频即使已有文字或缩略图仍为 `partial`。客户端空壳、未解析声明、iframe、受限结构化数据或主图失败也为 `partial`。普通脚本存在本身不构成遗漏。`complete` 不代表任意客户端状态、交互、登录后 API 或响应中无法检测的动态内容已返回。
 
@@ -193,6 +220,8 @@ primary_media/*
 embedded_content/iframe_not_fetched
 interactive_content/client_rendered
 structured_data/invalid_or_limited
+pdf_content/pdf_text_only
+pdf_content/no_text_layer
 ```
 
 模型侧使用紧凑 `<webfetch>` 包装：`kind` 始终存在，锚点选读时输出 `anchor`，查找时输出本次 `matches`。只有 metadata fallback 才输出 `source="metadata"`。真实遗漏原因去重后合并进 `partial`。有后续正文时只输出数字 `next`，不再输出 `partial="range"`。requested URL 已存在于工具调用中，因此仅在跳转后输出不同的 `final`。固定的静态响应范围和不可信内容规则由 prompt guideline 声明，不在每次结果中重复。

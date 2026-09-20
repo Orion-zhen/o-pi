@@ -4,6 +4,7 @@ import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { registerTool } from "../register-tool.ts";
+import { READ_RANGE_PATTERN } from "../content-ranges.ts";
 import { webFetchTelemetry } from "../web-tools/telemetry/webfetch.ts";
 import { webSearchTelemetry } from "../web-tools/telemetry/websearch.ts";
 import {
@@ -38,13 +39,17 @@ const webFetchParameters = Type.Object(
 		url: Type.String({
 			minLength: 1,
 			maxLength: 8192,
-			description: "HTTP(S) URL. #anchor selects static HTML content in readable mode.",
+			description: "HTTP(S) URL. #anchor selects static HTML content, except in source mode.",
 		}),
 		mode: Type.Optional(
-			StringEnum(["readable", "source"] as const, {
-				description: "Output mode; default readable.",
+			StringEnum(["readable", "source", "image"] as const, {
+				description: "Default readable. source: text source. image: image URL, web primary image, or PDF pages; no find/offset.",
 			}),
 		),
+		pages: Type.Optional(Type.String({
+			pattern: READ_RANGE_PATTERN,
+			description: "PDF pages: 1-based N, N-M, or N-, comma-separated. Default all, subject to page limits.",
+		})),
 		find: Type.Optional(
 			Type.String({
 				minLength: 1,
@@ -55,14 +60,7 @@ const webFetchParameters = Type.Object(
 		offset: Type.Optional(
 			Type.Integer({
 				minimum: 0,
-				description: "Character offset in selected content. Default 0. Explicit offset or find reuses snapshot.",
-			}),
-		),
-		limit: Type.Optional(
-			Type.Integer({
-				minimum: 1,
-				maximum: 100000,
-				description: "Character budget, shared across find excerpts.",
+				description: "Text offset, default 0. Copy next to continue; explicit offset reuses snapshot.",
 			}),
 		),
 	},
@@ -128,7 +126,7 @@ export function createWebToolsExtension(
 			tool: {
 				name: "webfetch",
 				label: "webfetch",
-				description: "Fetch one URL as readable text or source.",
+				description: "Read one HTTP(S) URL: web text, images, or PDF text/pages.",
 				promptSnippet: "read a known URL",
 				promptGuidelines: [
 					WEB_CONTENT_GUIDELINE,
@@ -164,11 +162,10 @@ export function createWebToolsExtension(
 					return {
 						content: [
 							{ type: "text" as const, text: result.content },
-							...media.map((item) => ({
-								type: "image" as const,
-								data: Buffer.from(item.data).toString("base64"),
-								mimeType: item.mimeType,
-							})),
+							...media.flatMap((item) => [
+								...(item.page === undefined ? [] : [{ type: "text" as const, text: `[page ${item.page}]` }]),
+								{ type: "image" as const, data: Buffer.from(item.data).toString("base64"), mimeType: item.mimeType },
+							]),
 						],
 						details: result.details,
 					};

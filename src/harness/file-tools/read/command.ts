@@ -6,8 +6,10 @@ import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.t
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
 import { detectFileType } from "./media.ts";
 import { suggestPaths } from "./path-suggestions.ts";
-import type { InlineImageProcessor, PdfDocumentHandle, PdfDocumentSource, ReadStructureSource } from "./ports.ts";
-import { formatReadRanges, parseReadRanges, resolveReadRanges, type ReadRange } from "./range.ts";
+import type { InlineImageProcessor, ReadStructureSource } from "./ports.ts";
+import type { PdfDocumentHandle, PdfDocumentSource } from "../../media/pdf-types.ts";
+import { formatReadRanges, parseReadRanges, type ReadRange } from "../../content-ranges.ts";
+import { resolveReadRanges } from "./range.ts";
 import { readTextRanges } from "./text.ts";
 import type { ReadFileSuccess, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess } from "./types.ts";
 

@@ -27,7 +27,9 @@ describe("web-tools extension", () => {
 		const { registered } = registerExtension(webTools);
 		const fetch = registered.find((tool) => tool.name === "webfetch");
 		if (fetch === undefined) throw new Error("missing webfetch");
-		expect(fetch.parameters).toMatchObject({ properties: { url: { minLength: 1, maxLength: 8192 } } });
+		expect(fetch.parameters).toMatchObject({ properties: { url: { minLength: 1, maxLength: 8192 }, pages: { type: "string" }, mode: { enum: ["readable", "source", "image"] } } });
+		expect(fetch.parameters).not.toHaveProperty("properties.limit");
+
 	});
 
 	it("find schema 只接受有界非空字符串，并传给 runtime", async () => {
@@ -37,8 +39,8 @@ describe("web-tools extension", () => {
 		const tool = registered.find((item) => item.name === "webfetch");
 		if (tool === undefined) throw new Error("missing webfetch");
 		expect(tool.parameters).toMatchObject({ properties: { find: { type: "string", minLength: 1, maxLength: 512 } } });
-		await tool.execute("find", { url: "https://example.com/", find: "foo()", offset: 0, limit: 500 }, undefined, undefined, { hasUI: false });
-		expect(fetch).toHaveBeenCalledWith({ url: "https://example.com/", find: "foo()", offset: 0, limit: 500 }, expect.anything());
+		await tool.execute("find", { url: "https://example.com/", find: "foo()", offset: 0 }, undefined, undefined, { hasUI: false });
+		expect(fetch).toHaveBeenCalledWith({ url: "https://example.com/", find: "foo()", offset: 0 }, expect.anything());
 	});
 
 	it("按顺序注册工具并标记结构化错误", async () => {
@@ -174,6 +176,25 @@ describe("web-tools extension", () => {
 			expect.objectContaining({ acceptsImages: false }),
 		);
 		expect(nonVisionResult.content).toEqual([{ type: "text", text: "page" }]);
+	});
+
+	it("PDF 页图按页码标记和图片交替返回，参数直接传给 runtime", async () => {
+		const fetch = vi.fn(async () => ({
+			content: "PDF pages", details: webFetchDetails({ page_kind: "pdf", format: "image", pdf: { pages: "2,4", total_pages: 5 } }),
+			media: [2, 4].map((page) => ({ page, data: Uint8Array.from([page]), mimeType: "image/png" })),
+		}));
+		const runtime: WebToolsRuntime = { fetch, async search() { return successfulSearch("q", "search"); }, async close() {} };
+		const { registered } = registerExtension(createWebToolsExtension(async () => runtime));
+		const tool = registered.find((item) => item.name === "webfetch");
+		if (tool === undefined) throw new Error("missing webfetch");
+		const params = { url: "https://example.com/report.pdf", mode: "image", pages: "2,4" };
+		const result = await tool.execute("pdf", params, undefined, undefined, { hasUI: false, model: { input: ["text", "image"] } });
+		expect(fetch).toHaveBeenCalledWith(params, expect.objectContaining({ acceptsImages: true }));
+		expect(result.content).toEqual([
+			{ type: "text", text: "PDF pages" },
+			{ type: "text", text: "[page 2]" }, { type: "image", data: "Ag==", mimeType: "image/png" },
+			{ type: "text", text: "[page 4]" }, { type: "image", data: "BA==", mimeType: "image/png" },
+		]);
 	});
 
 	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", { timeout: 30_000 }, async () => {

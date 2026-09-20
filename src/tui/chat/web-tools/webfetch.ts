@@ -43,15 +43,12 @@ export function formatWebFetchCall(args: unknown, theme: Pick<Theme, "fg" | "bol
 }
 
 function invocationSummary(args: unknown): string {
-	const mode = isRecord(args) && args["mode"] === "source" ? "source" : "readable";
+	const mode = isRecord(args) && (args["mode"] === "source" || args["mode"] === "image") ? args["mode"] : "readable";
 	const offset = isRecord(args) && typeof args["offset"] === "number" ? args["offset"] : undefined;
-	const limit = isRecord(args) && typeof args["limit"] === "number" ? args["limit"] : undefined;
+	const pages = isRecord(args) && typeof args["pages"] === "string" ? args["pages"] : undefined;
 	const finding = isRecord(args) && typeof args["find"] === "string";
-	const range = finding ? `from ${offset ?? 0}`
-		: offset !== undefined && offset > 0
-			? limit !== undefined ? `offset ${offset}-${offset + limit}` : `offset ${offset}+`
-			: "offset 0";
-	return joinParts([mode, finding ? "find" : undefined, range]);
+	const range = mode === "image" ? undefined : finding ? `from ${offset ?? 0}` : `offset ${offset ?? 0}`;
+	return joinParts([mode, pages === undefined ? undefined : `pages ${pages}`, finding ? "find" : undefined, range]);
 }
 
 export function formatWebFetchResult(
@@ -76,7 +73,7 @@ export function isWebFetchDetails(value: unknown): value is WebFetchDetails {
 function formatProgress(details: unknown): string {
 	if (!isProgressDetails(details)) return "requesting...";
 	if (details.phase === "redirecting") return "redirecting...";
-	if (details.phase === "converting") return "converting HTML -> Markdown...";
+	if (details.phase === "converting") return "converting...";
 	if (details.phase === "downloading") {
 		return details.received_bytes !== undefined ? `downloading ${formatBytes(details.received_bytes)}...` : "downloading...";
 	}
@@ -85,7 +82,9 @@ function formatProgress(details: unknown): string {
 
 function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
 	const format = labelFormat(details.format);
-	const range = details.range.kind === "find"
+	const range = details.pdf !== undefined && details.format === "image"
+		? `pages ${details.pdf.pages}/${details.pdf.total_pages}`
+		: details.range.kind === "find"
 		? `${details.range.matches} matches, ${details.range.passages.length} excerpts`
 		: details.range.next_offset !== undefined
 			? `${formatChars(details.range.start)}-${formatChars(details.range.end)} of ${formatChars(details.range.total)}`
@@ -100,7 +99,7 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 			details.page_kind,
 			details.text_source,
 			range,
-			details.range.next_offset !== undefined ? "more" : undefined,
+			details.range.next_offset !== undefined || details.pdf?.next_pages !== undefined ? "more" : undefined,
 			details.completeness === "partial" ? "partial" : undefined,
 			details.completeness === "partial" ? primaryOmission(details) : undefined,
 			details.media.returned > 0 ? `${details.media.returned} image` : undefined,
@@ -118,6 +117,7 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 		details.page_kind,
 		details.text_source,
 		details.anchor !== undefined ? `anchor #${details.anchor}` : undefined,
+		details.pdf !== undefined ? `pages ${details.pdf.pages}/${details.pdf.total_pages}` : undefined,
 		details.completeness,
 		details.range.kind === "find"
 			? `find from ${details.range.start} of ${details.range.total}, ${range}`
@@ -241,11 +241,11 @@ function isDeferredFragments(value: unknown): boolean {
 }
 
 function isPageKind(value: unknown): boolean {
-	return value === "article" || value === "image" || value === "video" || value === "audio" || value === "generic";
+	return value === "article" || value === "image" || value === "video" || value === "audio" || value === "pdf" || value === "generic";
 }
 
 function isTextSource(value: unknown): boolean {
-	return value === "readability" || value === "semantic" || value === "body" || value === "metadata";
+	return value === "readability" || value === "semantic" || value === "body" || value === "metadata" || value === "pdf";
 }
 
 function isFailureDetails(value: unknown): value is WebFetchFailureDetails {

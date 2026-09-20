@@ -7,8 +7,8 @@ import { expectRendererLifecycle, theme, webFetchDetails } from "./fixtures.ts";
 describe("webfetch renderer", () => {
 	it("残缺参数不崩溃，且 URL query 不泄漏", () => {
 		expect(formatWebFetchCall({}, theme).length).toBeGreaterThan(0);
-		const text = formatWebFetchCall({ url: "https://example.com/path?token=abc&q=x", mode: "source", offset: 20000, limit: 20000 }, theme);
-		for (const value of ["example.com/path", "source", "20000", "40000"]) expect(text).toContain(value);
+		const text = formatWebFetchCall({ url: "https://example.com/path?token=abc&q=x", mode: "source", offset: 20000 }, theme);
+		for (const value of ["example.com/path", "source", "20000"]) expect(text).toContain(value);
 		expect(text).not.toContain("abc");
 	});
 
@@ -44,7 +44,7 @@ describe("webfetch renderer", () => {
 			preview: "[110-160]\nMatching excerpt.",
 			media: { discovered: 1, returned: 0 },
 		});
-		const call = formatWebFetchCall({ url: "https://example.com/page", find: "lookup", offset: 100, limit: 50 }, theme);
+		const call = formatWebFetchCall({ url: "https://example.com/page", find: "lookup", offset: 100 }, theme);
 		expect(call).toContain("find");
 		expect(call).toContain("from 100");
 		expect(call).not.toContain("100-150");
@@ -55,6 +55,20 @@ describe("webfetch renderer", () => {
 		expect(expanded).toContain("find from 100 of 3000");
 		expect(expanded).toContain("[110-160]");
 		expect(expanded).toContain("Matching excerpt.");
+	});
+
+	it("PDF 调用和结果显示页范围与继续页，不将图片页显示成字符偏移", () => {
+		const call = formatWebFetchCall({ url: "https://example.com/report.pdf", mode: "image", pages: "2-4" }, theme);
+		expect(call).toContain("image");
+		expect(call).toContain("pages 2-4");
+		expect(call).not.toContain("offset");
+		const details = webFetchDetails({ page_kind: "pdf", text_source: "metadata", format: "image", completeness: "complete", omissions: [], pdf: { pages: "1-20", total_pages: 22, next_pages: "21-22" }, media: { discovered: 22, returned: 20 } });
+		const result = formatWebFetchResult(details, {}, theme);
+		expect(result).toContain("pages 1-20/22");
+		expect(result).toContain("more");
+		expect(result).toContain("20 image");
+		const textResult = formatWebFetchResult(webFetchDetails({ page_kind: "pdf", text_source: "pdf", format: "text", pdf: { pages: "2", total_pages: 22 } }), { expanded: true }, theme);
+		expect(textResult).toContain("pages 2/22");
 	});
 
 	it("progress 和最终结果接管调用阶段组件", () => {

@@ -128,7 +128,7 @@
 					"type": "object",
 					"additionalProperties": false,
 					"properties": {
-						"mode": { "enum": ["auto", "off"], "default": "auto" },
+						"mode": { "enum": ["auto", "on", "off"], "default": "auto" },
 						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 20971520, "default": 5242880 }
 					}
 				},

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { binaryResourceDir } from "../../../runtime/paths.ts";
+import { binaryResourceDir } from "../runtime/paths.ts";
 import type { Canvas } from "@napi-rs/canvas";
 import type {
 	PDFDocumentLoadingTask,
@@ -14,7 +14,7 @@ import type {
 	PdfDocumentSource,
 	PdfMetadata,
 	PdfPageRenderResult,
-} from "../../read/ports.ts";
+} from "./pdf-types.ts";
 
 const TARGET_SCALE = 2;
 const MAX_PAGE_DIMENSION = 2_000;
@@ -162,6 +162,26 @@ class PdfJsDocumentHandle implements PdfDocumentHandle {
 		}
 	}
 
+	async readPageText(input: { readonly pageNumber: number; readonly signal?: AbortSignal }): Promise<string> {
+		if (this.disposal !== undefined) throw new Error("PDF document has been disposed.");
+		input.signal?.throwIfAborted();
+		const removeAbortListener = cancelLoadingOnAbort(input.signal, this.loadingTask);
+		let page: PDFPageProxy | undefined;
+		try {
+			page = await this.document.getPage(input.pageNumber);
+			const content = await page.getTextContent();
+			input.signal?.throwIfAborted();
+			const parts: string[] = [];
+			for (const item of content.items) {
+				if ("str" in item) parts.push(item.str, item.hasEOL ? "\n" : "");
+			}
+			return parts.join("").replace(/[^\S\n]+\n/g, "\n").trim();
+		} finally {
+			removeAbortListener();
+			page?.cleanup();
+		}
+	}
+
 	dispose(): Promise<void> {
 		this.disposal ??= this.loadingTask.destroy();
 		return this.disposal;
@@ -196,7 +216,7 @@ async function loadPdfRuntime(): Promise<PdfRuntime> {
 
 function pdfAssetUrl(directory: string): string {
 	const directoryPath = binaryResourceDir === undefined
-		? fileURLToPath(import.meta.resolve(`pdfjs-dist/${directory}/`))
+		? path.join(path.dirname(fileURLToPath(import.meta.resolve("pdfjs-dist/package.json"))), directory)
 		: path.join(binaryResourceDir, "pdf", directory);
 	return directoryPath.replace(/[\\/]$/, "") + "/";
 }

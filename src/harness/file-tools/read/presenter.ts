@@ -1,4 +1,4 @@
-import { formatReadRanges, mergeReadRanges } from "./range.ts";
+import { formatReadRanges, mergeReadRanges } from "../../content-ranges.ts";
 import type {
 	ReadEnclosingSymbol,
 	ReadPdfPage,

@@ -13,7 +13,7 @@ export async function convertContent(
 	body: Uint8Array,
 	headers: WebHttpHeaders,
 	finalUrl: string,
-	mode: WebFetchMode,
+	mode: Exclude<WebFetchMode, "image">,
 	readability: HtmlReadabilityOptions,
 	mediaEnabled: boolean,
 ): Promise<ContentConversion | WebFetchFailureDetails> {
@@ -88,7 +88,7 @@ function classifyMime(mime: string): WebFetchOutputFormat | "html" | "binary" {
 }
 
 /** Some sites serve static HTML as text/plain or octet-stream. */
-function shouldTreatUrlAsHtml(finalUrl: string, mode: WebFetchMode): boolean {
+function shouldTreatUrlAsHtml(finalUrl: string, mode: Exclude<WebFetchMode, "image">): boolean {
 	if (mode !== "readable") return false;
 	try {
 		const pathname = new URL(finalUrl).pathname.toLowerCase();

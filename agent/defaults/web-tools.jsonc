@@ -75,8 +75,8 @@
 			"char_threshold": 500
 		},
 		"media": {
-			// auto: 向支持图像的模型附带统一排序后的单张主图；off: 只返回文本。
-			"mode": "off",
+			// auto: 仅显式 image 请求返回图片。on: 还自动返回图片直链和网页主图。off: 禁止图片。
+			"mode": "auto",
 			// 主图解压后响应上限。
 			"response_bytes": 5242880
 		},
@@ -85,9 +85,8 @@
 			"find_max_passages": 8,
 			// 解压后允许读取的最大响应正文。
 			"response_bytes": 10485760,
-			// 未传 limit 时返回给模型的字符数。
+			// 每次正文或 find 片段共用的原文字符预算。
 			"default_output_chars": 20000
-			// 模型单次调用可请求的最大字符数由工具 schema 固定为 100000。
 		},
 		"cookies": {
 			"enabled": true,

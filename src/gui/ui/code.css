@@ -15,7 +15,8 @@
 :is(.code-block, .file-diff) .token:is(.inserted, .prefix.inserted) { color: var(--success); }
 :is(.code-block, .file-diff) .token:is(.deleted, .prefix.deleted) { color: var(--destructive); }
 :is(.code-block, .file-diff) .token.coord { color: var(--syntax-function); }
-.code-block .diff-line { display: block; min-width: max-content; }
+/* react-diff-view 的 :root 把 --diff-font-family 固定为 Consolas, 聊天内的 diff-line 需要显式跟随 GUI 代码字体. */
+.code-block .diff-line { display: block; min-width: max-content; font-family: var(--gui-font-code); }
 .code-block .diff-line:has(.token.inserted.prefix) { background: color-mix(in srgb, var(--success) 11%, transparent); }
 .code-block .diff-line:has(.token.deleted.prefix) { background: color-mix(in srgb, var(--destructive) 9%, transparent); }
 @media (max-width: 767px) { .code-block pre { padding: 0.625rem; max-height: 24rem; } }

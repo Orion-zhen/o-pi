@@ -11,7 +11,7 @@ import {
 	FILE_TOOLS_OBSERVATION_STATE,
 	readPersistedObservationState,
 } from "../file-tools/runtime/session-observation-state.ts";
-import { READ_RANGE_PATTERN } from "../file-tools/read/range.ts";
+import { READ_RANGE_PATTERN } from "../content-ranges.ts";
 import { type ReadParams } from "../file-tools/read/types.ts";
 import { type EditParams, type EditSuccess } from "../file-tools/edit/types.ts";
 import { type FindParams } from "../file-tools/find/types.ts";

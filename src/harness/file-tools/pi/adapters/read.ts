@@ -1,6 +1,7 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { readFile } from "../../read/command.ts";
-import type { InlineImageProcessor, PdfDocumentSource } from "../../read/ports.ts";
+import type { InlineImageProcessor } from "../../read/ports.ts";
+import type { PdfDocumentSource } from "../../../media/pdf-types.ts";
 import { formatReadModelResult, formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../read/presenter.ts";
 import type { ReadFileSuccess, ReadParams } from "../../read/types.ts";
 import { isFailed, type FailedResult } from "../../shared/result.ts";
@@ -40,7 +41,7 @@ const lazyInlineImageProcessor: InlineImageProcessor = {
 
 const lazyPdfDocumentSource: PdfDocumentSource = {
 	async open(input) {
-		const { createPdfDocumentSource } = await import("../ports/read-pdf.ts");
+		const { createPdfDocumentSource } = await import("../../../media/pdf.ts");
 		return await createPdfDocumentSource().open(input);
 	},
 };

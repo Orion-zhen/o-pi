@@ -1,7 +1,7 @@
-export type WebFetchMode = "readable" | "source";
+export type WebFetchMode = "readable" | "source" | "image";
 export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "image" | "source";
-export type WebFetchPageKind = "article" | "image" | "video" | "audio" | "generic";
-export type WebFetchTextSource = "readability" | "semantic" | "body" | "metadata";
+export type WebFetchPageKind = "article" | "image" | "video" | "audio" | "pdf" | "generic";
+export type WebFetchTextSource = "readability" | "semantic" | "body" | "metadata" | "pdf";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
 export type FormalWebSearchProviderId = "brave_api" | "exa_api" | "tavily";
 export type WebSearchProviderId = FormalWebSearchProviderId | "duckduckgo_html";
@@ -9,9 +9,9 @@ export type WebSearchProviderId = FormalWebSearchProviderId | "duckduckgo_html";
 export interface WebFetchParams {
 	url: string;
 	mode?: WebFetchMode;
+	pages?: string;
 	find?: string;
 	offset?: number;
-	limit?: number;
 }
 
 export interface WebSearchParams {
@@ -83,6 +83,7 @@ export interface WebFetchSuccessDetails {
 	content_type?: string;
 	charset?: string;
 	format: WebFetchOutputFormat;
+	pdf?: { total_pages: number; pages: string; next_pages?: string };
 	downloaded_bytes: number;
 	total_chars: number;
 	range: WebFetchRange;
@@ -97,10 +98,11 @@ export interface WebFetchSuccessDetails {
 }
 
 export interface WebFetchOmission {
-	kind: "deferred_content" | "primary_media" | "embedded_content" | "structured_data" | "interactive_content";
+	kind: "deferred_content" | "primary_media" | "embedded_content" | "structured_data" | "interactive_content" | "pdf_content";
 	reason:
 		| "unresolved_declaration" | "model_no_image_input"
 		| "media_fetch_failed" | "media_too_large" | "unsupported_media_type"
+		| "pdf_text_only" | "no_text_layer"
 		| "video_not_returned" | "audio_not_returned" | "iframe_not_fetched" | "invalid_or_limited" | "client_rendered";
 }
 
@@ -123,6 +125,7 @@ export interface WebFetchResult {
 
 /** 仅在运行时与 Pi 适配层间传递，不写入 details、缓存或遥测。 */
 export interface WebFetchMedia {
+	page?: number;
 	data: Uint8Array;
 	mimeType: string;
 }

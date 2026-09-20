@@ -15,7 +15,7 @@ function runtime(fetchImpl: WebHttpFetch): ExecuteWebFetchRuntime {
 	const dispatcher = new Agent();
 	dispatchers.push(dispatcher);
 	const config = defaultWebToolsConfig();
-	config.webfetch.media.mode = "auto";
+	config.webfetch.media.mode = "on";
 	return {
 		dispatcher, fetchImpl, config,
 		cookieStore: { async getCookieAccess() { return {}; }, async storeFromResponse() { return undefined; } },
@@ -87,7 +87,7 @@ describe("webfetch find", () => {
 
 	it("按字面子串忽略大小写，合并邻近命中，保留原文及 Unicode 坐标", async () => {
 		const body = `İ 😀 中文前缀\n\nCall FOO() here, then foo() again. foooooo does not match.\n\n${GAP}`;
-		const result = await executeWebFetch({ url: URL, find: "foo()", limit: 300 }, runtime(async () => httpResponse(200, body)));
+		const result = await executeWebFetch({ url: URL, find: "foo()" }, runtime(async () => httpResponse(200, body)));
 		expect(found(result).range).toMatchObject({ matches: 2, has_more: false });
 		expect(found(result).range.passages).toHaveLength(1);
 		assertPassages(result, body, 300);
@@ -98,38 +98,42 @@ describe("webfetch find", () => {
 	it("尽量保留短代码块，代码中的空行不切断上下文", async () => {
 		const block = '```ts\nconst controller = new AbortController();\n\nawait request({ signal: controller.signal });\n```';
 		const body = `${GAP}\n\n${block}\n\n${GAP}`;
-		const result = await executeWebFetch({ url: URL, find: "controller.signal", limit: 400 }, runtime(async () => httpResponse(200, body, { "content-type": "text/markdown" })));
+		const result = await executeWebFetch({ url: URL, find: "controller.signal" }, runtime(async () => httpResponse(200, body, { "content-type": "text/markdown" })));
 		expect(result.content).toContain(block);
 		assertPassages(result, body, 400);
 	});
 
-	it("limit 是所有片段的原文预算，缩减上下文而不切断命中或字符", async () => {
-		const body = "😀😀 token 😀😀\n\nsecond TOKEN tail";
+	it("运行时字符预算由所有片段共享，缩减上下文而不切断命中或字符", async () => {
+		const body = Array.from({ length: 5 }, () => `${"😀".repeat(500)} token ${"😀".repeat(500)}`).join("\n\n");
 		const rt = runtime(async () => httpResponse(200, body));
-		const first = await executeWebFetch({ url: URL, find: "token", limit: 5 }, rt);
-		expect(found(first).range).toMatchObject({ matches: 1, has_more: true });
-		assertPassages(first, body, 5);
+		rt.config.webfetch.limits.default_output_chars = 1000;
+		const first = await executeWebFetch({ url: URL, find: "token" }, rt);
+		expect(found(first).range.has_more).toBe(true);
+		assertPassages(first, body, 1000);
 		const nextOffset = found(first).range.next_offset;
 		if (nextOffset === undefined) throw new Error("missing next offset");
-		const next = await executeWebFetch({ url: URL, find: "token", limit: 5, offset: nextOffset }, rt);
-		expect(found(next).range).toMatchObject({ matches: 1, has_more: false });
-		assertPassages(next, body, 5);
+		const next = await executeWebFetch({ url: URL, find: "token", offset: nextOffset }, rt);
+		expect(found(next).range.has_more).toBe(false);
+		expect(found(first).range.matches + found(next).range.matches).toBe(5);
+		assertPassages(next, body, 1000);
 	});
 
 	it("包含辅助平面字符的长查找串不会被上下文软上限切断", async () => {
 		const find = "𝒜".repeat(450);
 		const body = `Formula: ${find}.`;
-		const result = await executeWebFetch({ url: URL, find, limit: find.length }, runtime(async () => httpResponse(200, body)));
+		const result = await executeWebFetch({ url: URL, find }, runtime(async () => httpResponse(200, body)));
 		expect(found(result).range.matches).toBe(1);
 		expect(result.content).toContain(find);
-		assertPassages(result, body, find.length);
+		assertPassages(result, body, 1000);
 	});
 
-	it("预算不足以容纳一个完整命中时，在请求前明确拒绝", async () => {
-		let calls = 0;
-		const result = await executeWebFetch({ url: URL, find: "AbortSignal", limit: 2 }, runtime(async () => { calls += 1; return httpResponse(200, LONG); }));
-		expect(result.details).toMatchObject({ status: "failed", error: { code: "INVALID_ARGUMENT" } });
-		expect(calls).toBe(0);
+	it("最长辅助平面查找串不因 UTF-16 长度超过配置预算而遗漏", async () => {
+		const find = "𝒜".repeat(512);
+		const rt = runtime(async () => httpResponse(200, find));
+		rt.config.webfetch.limits.default_output_chars = 1000;
+		const result = await executeWebFetch({ url: URL, find }, rt);
+		expect(found(result).range).toMatchObject({ matches: 1, has_more: false });
+		expect(result.content).toContain(find);
 	});
 
 	it("没有命中是成功的空结果，offset 之后没有匹配时不回到开头", async () => {
@@ -204,7 +208,7 @@ describe("webfetch find", () => {
 		const range = found(result).range.passages[0];
 		if (range === undefined) throw new Error("missing passage");
 		await executeWebFetch({ url: URL, find: "AnotherName" }, rt);
-		const expanded = await executeWebFetch({ url: URL, offset: range.start, limit: 100 }, rt);
+		const expanded = await executeWebFetch({ url: URL, offset: range.start }, rt);
 		expect(expanded.details).toMatchObject({ snapshot: "hit", range: { kind: "read" } });
 		expect(expanded.content).toContain(body);
 		expect(calls).toBe(1);
@@ -237,7 +241,7 @@ describe("webfetch find", () => {
 		expect(cancelled).toBe(1);
 	});
 
-	it.each(["application/pdf", "audio/mpeg", "video/mp4"])("不为 find 增加 %s 解析", async (contentType) => {
+	it.each(["audio/mpeg", "video/mp4"])("不为 find 增加 %s 解析", async (contentType) => {
 		const result = await executeWebFetch({ url: URL, find: "target" }, runtime(async () => httpResponse(200, "target", { "content-type": contentType })));
 		expect(result.details).toMatchObject({ status: "failed", error: { code: "UNSUPPORTED_CONTENT_TYPE" } });
 	});

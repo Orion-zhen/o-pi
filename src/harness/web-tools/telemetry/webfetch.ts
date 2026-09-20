@@ -9,7 +9,7 @@ export const webFetchTelemetry = defineToolTelemetry<WebFetchParams, WebFetchDet
 				input_mode: params.mode,
 				...textFields("input_find", params.find),
 				input_offset: params.offset,
-				input_limit: params.limit,
+				input_pages: params.pages,
 			}),
 			targets: [{ kind: "url", value: params.url }],
 		};
