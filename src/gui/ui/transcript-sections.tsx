@@ -5,6 +5,7 @@ import { Disclosure } from "./components/disclosure";
 import { StreamingText, Message } from "./content.tsx";
 import { MessageIdentity, ReplyMetrics } from "./message-meta.tsx";
 import { ToolActivity } from "./tool-activity.tsx";
+import { SkillSummary } from "./skill-summary.tsx";
 import type { TranscriptItem } from "./transcript-items.ts";
 
 type TextItem = Extract<TranscriptItem, { kind: "text" }>;
@@ -60,7 +61,7 @@ function Activity({ id, items, entryIds, tracking }: { id: string; items: Transc
 	const counts = [thoughts ? `${thoughts} 段思考` : "", tools.length ? `${tools.length} 次工具调用` : "", failures ? `${failures} 次失败` : ""].filter(Boolean).join(" · ");
 	return <Disclosure className="reply-process reply-activity" open={open} onOpenChange={setOpen} summary={<>
 		{tracking && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-		<span>{tracking ? "正在处理" : "思考与工具"}</span><span className="reply-counts">{counts}</span>
+		<span>{tracking ? "正在处理" : "思考与工具"}</span><span className="reply-counts">{counts}</span><SkillSummary items={items} />
 	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div></Disclosure>;
 }
 

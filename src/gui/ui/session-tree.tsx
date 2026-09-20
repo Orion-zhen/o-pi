@@ -1,9 +1,11 @@
 import { memo, useMemo, useCallback, useState } from "react";
-import { ArrowRight, Check, GitBranch, ListCollapse, Tag, X } from "lucide-react";
+import { ArrowRight, BookOpen, Check, GitBranch, ListCollapse, Tag, X } from "lucide-react";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
 import { clean } from "./content.tsx";
 import { entryMessage } from "./transcript-location.ts";
+import { SKILL_CONTEXT_MESSAGE } from "../../harness/skill-context/types.ts";
+import { isSkillLoadDetails, skillLoaders } from "../skill-facts.ts";
 import type { Send } from "./connection.ts";
 import { IconButton } from "./components/icon-button";
 import { Input } from "./components/ui/input";
@@ -103,10 +105,12 @@ function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate:
 	const entry = node.entry;
 	const id = entry.id;
 	const message = entryMessage(entry);
+	const skill = message?.role === "custom" && message.customType === SKILL_CONTEXT_MESSAGE && isSkillLoadDetails(message.details) ? message.details : undefined;
+	const skillPreview = skill ? `${skill.name} · ${skill.deduplicated ? "已加载过，未重复注入" : skillLoaders[skill.loadedBy]}` : undefined;
 	return (
 		<div className="tree-row" role="listitem" data-role={message?.role}>
 			<Graph row={row} />
-			<strong className="tree-role">{entryTitle(entry, message)}</strong>
+			<strong className="tree-role">{skill && <BookOpen aria-hidden="true" />}{skill ? "技能" : entryTitle(entry, message)}</strong>
 			{editing ? (
 				<form className="tree-label-editor" onKeyDown={(event) => {
 					if (event.key === "Escape") {
@@ -129,7 +133,9 @@ function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate:
 				</form>
 			) : (
 				<>
-					<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}><MessagePreview message={message} /></button>
+					<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}>
+						{skill ? <p className="tree-message-preview" title={skillPreview}>{skillPreview}</p> : <MessagePreview message={message} />}
+					</button>
 					{node.label && <span className="tree-label" title={node.label}>{node.label}</span>}
 					<div className="tree-row-actions">
 						<IconButton label="切换到此处" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}><ArrowRight /></IconButton>

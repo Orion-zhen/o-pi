@@ -7,6 +7,9 @@ import { Disclosure } from "./components/disclosure";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { SessionImage } from "./payload.tsx";
+import { SKILL_CONTEXT_MESSAGE } from "../../harness/skill-context/types.ts";
+import { isSkillLoadDetails } from "../skill-facts.ts";
+import { SkillCard } from "./skill-card.tsx";
 
 export function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -86,6 +89,12 @@ export const Message = memo(function Message({ value, entryId }: { value: unknow
 	if (!record(value)) return <pre>{pretty(value)}</pre>;
 	const role = String(value.role ?? "message");
 	if (role === "custom" && value.display === false) return null;
+	if (role === "custom" && value.customType === SKILL_CONTEXT_MESSAGE && isSkillLoadDetails(value.details)) {
+		return <motion.article {...fade} className="message skill-message" data-entry-id={entryId}>
+			<SkillCard id={`message:${entryId ?? value.timestamp}`} name={value.details.name} loadedBy={value.details.loadedBy}
+				state="completed" output={{ content: value.content, details: value.details }} />
+		</motion.article>;
+	}
 	return (
 		<motion.article {...fade} className={`message ${role}`} data-entry-id={entryId}>
 			{role === "user" && typeof value.timestamp === "number" && <MessageIdentity name="You" timestamp={value.timestamp} />}

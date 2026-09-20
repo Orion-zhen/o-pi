@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { GuiQueryResults, GuiSnapshot } from "../contract.ts";
 import { toolFacts } from "../tool-facts.ts";
+import { isSkillLoadDetails } from "../skill-facts.ts";
 
 function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -56,6 +57,7 @@ export class GuiPayloads {
 			this.outputs.set(id, { content: value.content, details: value.details });
 			const details = record(value.details) ? value.details : {};
 			const preview = {
+				...(value.toolName === "skill" && isSkillLoadDetails(details) ? details : {}),
 				guiOutputId: id,
 				guiFacts: toolFacts({ name: String(value.toolName), args: undefined, output: { content: value.content, details } }),
 				status: details.status, error: details.error,

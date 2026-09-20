@@ -3,7 +3,8 @@
 .tree-row:hover, .tree-row:focus-within { background: var(--accent); }
 .tree-graph { display: block; flex-shrink: 0; max-width: 25%; height: 2lh; overflow: visible; color: var(--muted-foreground); }
 .tree-row[data-role="user"] .tree-node { color: var(--primary); }
-.tree-role { flex-shrink: 0; font-size: calc(var(--text-ui) * 11 / 14); font-weight: 500; color: var(--muted-foreground); }
+.tree-role { display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0; font-size: calc(var(--text-ui) * 11 / 14); font-weight: 500; color: var(--muted-foreground); }
+.tree-role svg { width: 1em; height: 1em; flex-shrink: 0; }
 .tree-jump { flex: 1; min-inline-size: 0; text-align: start; cursor: pointer; }
 .tree-jump:focus-visible { outline: thin solid var(--ring); }
 .tree-message-preview { flex: 1 1 0; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 2; }

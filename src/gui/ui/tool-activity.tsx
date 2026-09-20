@@ -10,6 +10,8 @@ import type { ToolActivity as Activity, ToolState } from "./transcript-items.ts"
 import { toolTarget } from "./tool-target.ts";
 import { toolFacts } from "../tool-facts.ts";
 import { useToolOutput } from "./payload.tsx";
+import { SkillCard } from "./skill-card.tsx";
+import { isSkillLoadDetails } from "../skill-facts.ts";
 
 const states: Record<ToolState, string> = {
 	preparing: "生成参数", pending: "等待执行", running: "执行中", completed: "完成", failed: "执行失败", stopped: "已停止", unavailable: "无执行结果",
@@ -23,6 +25,8 @@ const tools = {
 
 export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activity }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);
+	if (tool.name === "skill") return <SkillCard id={tool.id} name={isSkillLoadDetails(tool.output?.details) ? tool.output.details.name : toolTarget(tool.name, tool.args)}
+		loadedBy="agent" state={tool.state} output={tool.output} />;
 	const open = expanded ?? (tool.name === "subagent" && tool.state === "running");
 	const definition = Object.hasOwn(tools, tool.name) ? tools[tool.name as keyof typeof tools] : { label: tool.name || "工具调用", icon: Wrench };
 	const Icon = definition.icon;
