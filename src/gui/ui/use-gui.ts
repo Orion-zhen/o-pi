@@ -67,7 +67,7 @@ export function useGui() {
 				case "selected":
 					selected.current = event.session?.id ?? null;
 					setNavigation(event.session);
-					setView(event.session ? views.open(event.session) : undefined);
+					setView(event.session ? views.open(event.session, event.draftFrom) : undefined);
 					break;
 				case "sessionsDeleted": {
 					const ids = views.remove(event);

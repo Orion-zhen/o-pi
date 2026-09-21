@@ -4,6 +4,20 @@ import { sessionList } from "../../src/gui/ui/session-list.ts";
 import type { SessionActivity } from "../../src/gui/ui/use-session-activity.ts";
 
 describe("会话视图记忆", () => {
+	it("重置会话只转移最新草稿和附件，不继承旧视图状态", () => {
+		const views = new SessionViews();
+		const old = views.open({ id: "old", path: null });
+		const image = { id: 1, data: "image", mimeType: "image/png" as const };
+		views.update(old, (draft) => ({ ...draft, text: "尚未同步的草稿", images: [image] }));
+		old.disclosures.set("skill", true);
+		old.position = { top: 120, follow: false };
+		const fresh = views.open({ id: "fresh", path: null }, old.id);
+		views.remove({ type: "sessionsDeleted", ids: [old.id], paths: [] });
+		expect(fresh.draft).toMatchObject({ text: "尚未同步的草稿", images: [image] });
+		expect(fresh.disclosures.size).toBe(0);
+		expect(fresh.position).toBeUndefined();
+		expect(views.update(old, (draft) => ({ ...draft, text: "迟到更新" }))).toBe(false);
+	});
 	it("切换后复用草稿、附件、折叠状态和阅读位置", () => {
 		const views = new SessionViews();
 		const a = views.open({ id: "a", path: "/a.jsonl" });

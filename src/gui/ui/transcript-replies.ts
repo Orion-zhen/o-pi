@@ -3,6 +3,8 @@ import { SKILL_CONTEXT_MESSAGE } from "../../harness/skill-context/types.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TranscriptItem, TranscriptSource, ToolState } from "./transcript-items.ts";
 
+const noPrunedToolCallIds: ReadonlySet<string> = new Set();
+
 export type ReplyState = "running" | "completed" | "continued" | "stopped" | "failed" | "incomplete";
 export interface TranscriptReply {
 	kind: "reply";
@@ -33,7 +35,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** 每条用户消息开启一组，直接按消息顺序投影。工具结果按调用 ID 关联。 */
-export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
+export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: ReadonlySet<string> = noPrunedToolCallIds): TranscriptRow[] {
 	const messages = source.streamingMessage ? [...source.messages, source.streamingMessage] : source.messages;
 	const lastAssistant = messages.findLastIndex((message) => message.role === "assistant");
 	const results = new Map(messages.flatMap((message) => message.role === "toolResult" ? [[message.toolCallId, message] as const] : []));
@@ -56,7 +58,7 @@ export function transcriptReplies(source: TranscriptSource): TranscriptRow[] {
 			? isRecord(details) && details.status === "aborted" ? "stopped" : result.isError ? "failed" : "completed"
 			: event ? "running" : idle;
 		return {
-			key: `tool:${id}`, kind: "tool", messageIndex,
+			key: `tool:${id}`, kind: "tool", messageIndex, pruned: prunedToolCallIds.has(id),
 			tool: {
 				id, name, args, state,
 				output: result ?? (isRecord(partial) ? { content: partial.content, details: partial.details } : undefined),

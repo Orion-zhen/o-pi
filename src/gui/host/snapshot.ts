@@ -3,6 +3,7 @@ import { toolAvailableOnCurrentPlatform } from "../../harness/tool-defaults/cont
 import type { GuiSnapshot } from "../contract.ts";
 import { guiModel } from "./runtime.ts";
 import { builtinCommands } from "./commands.ts";
+import { PRUNE_STATE, parsePruneState } from "../../harness/prune/prune.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
@@ -12,6 +13,13 @@ type PresentationState = Pick<
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
 export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState): GuiSnapshot {
 	const { session, services, cwd } = runtime;
+	const entries = session.sessionManager.getEntries();
+	const prunedToolCallIdsByEntry: Record<string, string[]> = {};
+	for (const entry of entries) {
+		if (entry.type !== "custom" || entry.customType !== PRUNE_STATE) continue;
+		const state = parsePruneState(entry.data);
+		if (state) prunedToolCallIdsByEntry[entry.id] = state.toolCallIds;
+	}
 	const active = new Set(session.getActiveToolNames());
 	const commands = new Map<string, { name: string; description: string }>();
 	for (const command of [
@@ -37,7 +45,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		running: !session.isIdle || session.isBashRunning || presentation.commandRunning,
 		messages: session.messages,
 		streamingMessage: session.state.streamingMessage ?? null,
-		entries: session.sessionManager.getEntries(),
+		entries,
+		prunedToolCallIdsByEntry,
 		model: session.model ? guiModel(session.model) : null,
 		models: services.modelRuntime.getAvailableSnapshot().map(guiModel),
 		scopedModels: session.scopedModels.map(({ model }) => `${model.provider}/${model.id}`),

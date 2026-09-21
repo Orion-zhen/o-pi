@@ -20,6 +20,6 @@ export type TranscriptItem = { key: string; messageIndex: number } & (
 	| { kind: "text"; text: string; blockIndex: number; active: boolean;
 		identity: { model: string; timestamp: number }; metrics: ReturnType<typeof replyMetrics> }
 	| { kind: "thinking"; text: string; active: boolean }
-	| { kind: "tool"; tool: ToolActivity }
+	| { kind: "tool"; tool: ToolActivity; pruned: boolean }
 	| { kind: "error"; text: string }
 );

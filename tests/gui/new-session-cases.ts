@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { GuiClient } from "../../src/gui/host/client.ts";
@@ -17,14 +17,37 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 		return sessionList(history, activity.map((item) => ({ ...item, unread: false })), host.selected?.id ?? null);
 	};
 	describe("待发送会话", () => {
-		it("新建一万次仍复用启动会话，不增加列表项或文件", async () => {
+		it("手动加载技能后新建清除上下文和运行状态，保留未发送草稿", async () => {
+			const { host, agentDir } = context();
+			const skillDir = path.join(agentDir, "skills", "oops");
+			await mkdir(skillDir, { recursive: true });
+			await writeFile(path.join(skillDir, "SKILL.md"), "---\nname: oops\ndescription: Test skill\n---\nUNIQUE_SKILL_BODY\n");
+			await host.dispatch(prompt("/reload"));
+			await host.dispatch(prompt("/skill:oops"));
+			const previous = host.selected;
+			expect(previous?.pending).toBe(true);
+			expect(JSON.stringify(host.snapshot().messages)).toContain("UNIQUE_SKILL_BODY");
+			await host.dispatch({ action: "draft", text: "尚未发送" });
+			const events: GuiEvent[] = [];
+			const unsubscribe = host.subscribe((event) => events.push(event));
+			try { await host.dispatch({ action: "new" }); }
+			finally { unsubscribe(); }
+			expect(host.selected).not.toBe(previous);
+			expect(host.selected?.pending).toBe(true);
+			expect(host.snapshot().messages).toEqual([]);
+			expect(host.runtime.session.sessionManager.getBranch().some((entry) => JSON.stringify(entry).includes("oops"))).toBe(false);
+			expect(host.readDraft(host.snapshot().sessionId)).toBe("尚未发送");
+			expect(events).toContainEqual(expect.objectContaining({ type: "selected", draftFrom: previous?.id }));
+			expect(host.host.sessions.size).toBe(1);
+		});
+		it("并发新建一万次只重置一次，不增加列表项或文件", async () => {
 			const { host } = context();
 			const initial = host.selected;
 			const runtime = host.runtime;
 			await Promise.all(Array.from({ length: 10_000 }, () => host.dispatch({ action: "new" })));
 			await host.dispatch({ action: "sessions" });
-			expect(host.selected).toBe(initial);
-			expect(host.runtime).toBe(runtime);
+			expect(host.selected).not.toBe(initial);
+			expect(host.runtime).not.toBe(runtime);
 			expect(host.host.sessions.size).toBe(1);
 			expect(rows(host)).toEqual([]);
 			const file = host.snapshot().sessionFile;
@@ -39,25 +62,25 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			await host.dispatch({ action: "model", provider: "gui-fixture", id: "second" });
 			await host.dispatch(prompt("/model"));
 			await host.dispatch(prompt("/new"));
-			expect(host.snapshot().sessionId).toBe(id);
-			expect(host.readDraft(id)).toBe("尚未发送");
+			expect(host.snapshot().sessionId).not.toBe(id);
+			expect(host.readDraft(host.snapshot().sessionId)).toBe("尚未发送");
 			expect(host.snapshot().model?.id).toBe("second");
 			expect(rows(host)).toEqual([]);
 		});
 
-		it("从历史返回新建时复用待发送会话和已选模型", async () => {
+		it("从历史返回新建时重置待发送会话并保留已选模型", async () => {
 			const { host, cwd, agentDir } = context();
 			const pending = host.selected;
 			await host.dispatch({ action: "model", provider: "gui-fixture", id: "second" });
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture", name: "已有历史" });
 			await host.dispatch({ action: "openSession", path: file });
 			await host.dispatch({ action: "new" });
-			expect(host.selected).toBe(pending);
+			expect(host.selected).not.toBe(pending);
 			expect(host.snapshot().model?.id).toBe("second");
 			expect(host.host.sessions.size).toBe(2);
 		});
 
-		it("切换工作区后分别复用各自的待发送会话", async () => {
+		it("切换工作区后新建分别重置各自的待发送会话", async () => {
 			const { host, cwd } = context();
 			const first = host.selected;
 			const other = path.join(cwd, "other-workspace");
@@ -65,12 +88,13 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			await host.dispatch({ action: "workspace", path: other });
 			const second = host.selected;
 			await host.dispatch({ action: "new" });
-			expect(host.selected).toBe(second);
+			expect(host.selected).not.toBe(second);
+			const resetSecond = host.selected;
 			await host.dispatch({ action: "workspace", path: cwd });
 			await host.dispatch({ action: "new" });
-			expect(host.selected).toBe(first);
+			expect(host.selected).not.toBe(first);
 			await host.dispatch({ action: "workspace", path: other });
-			expect(host.selected).toBe(second);
+			expect(host.selected).toBe(resetSecond);
 			expect(host.host.sessions.size).toBe(2);
 			expect(rows(host)).toEqual([]);
 		});
@@ -107,7 +131,7 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			expect(rows(host)).toHaveLength(1);
 			await host.dispatch({ action: "openSession", id });
 			await host.dispatch({ action: "new" });
-			expect(host.selected).toBe(pending);
+			expect(host.selected).not.toBe(pending);
 			await host.dispatch(prompt("!printf shell-message"));
 			expect(rows(host)).toHaveLength(2);
 			await host.dispatch({ action: "new" });

@@ -81,7 +81,7 @@ export class GuiClient {
 			this.selected.replay((event) => this.emit(event));
 		}
 	}
-	async select(session: GuiSession): Promise<void> {
+	async select(session: GuiSession, draftFrom?: string): Promise<void> {
 		if (this.closed) throw new Error("客户端已断开。");
 		const previous = this.selected;
 		const version = ++this.selection;
@@ -89,7 +89,7 @@ export class GuiClient {
 		this.unbind();
 		this.selected = session;
 		if (session.pending) this.pendingSessions.set(session.cwd, session);
-		this.emit(this.selectionEvent());
+		this.emit({ ...this.selectionEvent(), ...(draftFrom ? { draftFrom } : {}) });
 		this.emit({ type: "dialogs", value: [] });
 		this.emit({ type: "notices", value: [] });
 		this.emit({ type: "auth", value: null });
@@ -128,11 +128,7 @@ export class GuiClient {
 			const creating = this.creatingSessions.get(source.cwd);
 			if (creating) return creating;
 			const pending = this.pendingSessions.get(source.cwd);
-			if (pending?.pending && !pending.removing) {
-				if (this.selected !== pending) await this.select(pending);
-				return { cancelled: false };
-			}
-			const task = this.createSession(source);
+			const task = this.createSession(pending?.pending && !pending.removing ? pending : source);
 			this.creatingSessions.set(source.cwd, task);
 			try { return await task; }
 			finally { this.creatingSessions.delete(source.cwd); }
@@ -149,7 +145,13 @@ export class GuiClient {
 		});
 		if (options?.setup) await options.setup(manager);
 		const session = this.host.register(manager, { type: "session_start", reason: "new", ...(source.file ? { previousSessionFile: source.file } : {}) });
-		await this.select(session);
+		const replacing = options === undefined && source.pending;
+		if (replacing) this.drafts.set(session.id, this.readDraft(source.id));
+		await this.select(session, replacing ? source.id : undefined);
+		if (replacing && !source.observed && source.canRelease && source.file) {
+			if (this.host.initial === source) this.host.initial = session;
+			await this.host.remove([source.file]);
+		}
 		if (options?.withSession) await options.withSession(this.runtime.session.createReplacedSessionContext());
 		return { cancelled: false };
 	}

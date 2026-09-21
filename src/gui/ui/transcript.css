@@ -71,6 +71,7 @@ pre:has(> code) { white-space: pre; overflow-wrap: normal; overflow-x: auto; pad
 .reply-process > .disclosure-trigger { align-items: center; flex-wrap: wrap; gap: 0.5rem; width: fit-content; padding-block: 0.5rem; color: var(--muted-foreground); font-size: var(--text-small); }
 .reply-process > .disclosure-trigger svg { flex-shrink: 0; width: 0.875rem; height: 0.875rem; }
 .reply-counts { font-size: var(--text-caption); }
+.pruned-text-active { text-decoration: line-through; }
 .reply-process-content { min-width: 0; margin: var(--space-1) 0 var(--space-2) 0.5em; padding-inline-start: var(--space-4); border-inline-start: 1px solid var(--divider); }
 .reply-turn-content { min-width: 0; }
 .reply-body { margin-block: var(--space-3) var(--space-6); }

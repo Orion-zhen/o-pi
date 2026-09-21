@@ -19,7 +19,8 @@ export function locateTranscript(snapshot: GuiSnapshot, target: string | undefin
 	const branch: SessionEntry[] = [];
 	let entry = snapshot.leafId ? byId.get(snapshot.leafId) : undefined;
 	while (entry) { branch.push(entry); entry = entry.parentId ? byId.get(entry.parentId) : undefined; }
-	const candidates = branch.reverse().flatMap((entry) => {
+	branch.reverse();
+	const candidates = branch.flatMap((entry) => {
 		const message = entryMessage(entry);
 		return message ? [{ id: entry.id, message }] : [];
 	});
@@ -34,13 +35,15 @@ export function locateTranscript(snapshot: GuiSnapshot, target: string | undefin
 		}
 		return undefined;
 	});
-	if (!target || entryIds.includes(target) || !byId.has(target)) return { source: snapshot, entryIds, preview: false };
+	const prunedToolCallIds = getPrunedToolCallIds(snapshot, branch);
+	if (!target || entryIds.includes(target) || !byId.has(target)) return { source: snapshot, entryIds, preview: false, prunedToolCallIds };
 	const ancestors: SessionEntry[] = [];
 	entry = byId.get(target);
 	while (entry) { ancestors.push(entry); entry = entry.parentId ? byId.get(entry.parentId) : undefined; }
+	ancestors.reverse();
 	const messages: AgentMessage[] = [];
 	const ids: string[] = [];
-	for (const entry of ancestors.reverse()) {
+	for (const entry of ancestors) {
 		const message = entryMessage(entry);
 		if (message) { messages.push(message); ids.push(entry.id); }
 	}
@@ -48,5 +51,11 @@ export function locateTranscript(snapshot: GuiSnapshot, target: string | undefin
 		source: { messages, models: snapshot.models, messageDurations: snapshot.messageDurations, streamingMessage: null, liveTools: [], streaming: false, retrying: false },
 		entryIds: ids,
 		preview: true,
+		prunedToolCallIds: getPrunedToolCallIds(snapshot, ancestors),
 	};
+}
+
+function getPrunedToolCallIds(snapshot: GuiSnapshot, entries: readonly SessionEntry[]): ReadonlySet<string> {
+	const latest = entries.findLast((entry) => Object.hasOwn(snapshot.prunedToolCallIdsByEntry, entry.id));
+	return new Set(latest ? snapshot.prunedToolCallIdsByEntry[latest.id] : []);
 }

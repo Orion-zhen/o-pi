@@ -204,6 +204,7 @@ export interface GuiSnapshot {
 	streamingMessage: AgentMessage | null;
 	messageDurations: Record<string, number>;
 	entries: SessionEntry[];
+	prunedToolCallIdsByEntry: Record<string, string[]>;
 	model: GuiModel | null;
 	models: GuiModel[];
 	scopedModels: string[];
@@ -247,7 +248,7 @@ export interface GuiDirectories {
 
 export type GuiEvent =
 	| { type: "client"; id: string }
-	| { type: "selected"; session: { id: string; cwd: string; path: string | null } | null }
+	| { type: "selected"; session: { id: string; cwd: string; path: string | null } | null; draftFrom?: string }
 	| { type: "activity"; value: GuiSessionActivity[] }
 	| { type: "sessionsDeleted"; ids: string[]; paths: string[] }
 	| { type: "error"; message: string }

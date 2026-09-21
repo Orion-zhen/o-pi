@@ -17,8 +17,9 @@ import type { SessionViewState } from "./session-views.ts";
 type Row = TranscriptRow | { kind: "notices"; key: string; group: NoticeGroup };
 const noIds: (string | undefined)[] = [];
 const noGroups: NoticeGroup[] = [];
+const noPrunedToolCallIds: ReadonlySet<string> = new Set();
 
-export const Transcript = memo(function Transcript({ source, entryIds = noIds, groups = noGroups, tail = 0, clear, target, view, windowRef }: {
+export const Transcript = memo(function Transcript({ source, entryIds = noIds, groups = noGroups, tail = 0, clear, target, view, windowRef, prunedToolCallIds = noPrunedToolCallIds }: {
 	source: TranscriptSource;
 	entryIds?: (string | undefined)[];
 	groups?: NoticeGroup[];
@@ -27,9 +28,10 @@ export const Transcript = memo(function Transcript({ source, entryIds = noIds, g
 	target?: string | undefined;
 	view?: SessionViewState | undefined;
 	windowRef?: RefObject<Virtualizer<HTMLElement, HTMLElement> | null>;
+	prunedToolCallIds?: ReadonlySet<string>;
 }) {
 	const rows = useMemo(() => {
-		const replies = transcriptReplies(source);
+		const replies = transcriptReplies(source, prunedToolCallIds);
 		const rows: Row[] = [...replies];
 		let inserted = 0;
 		for (const group of groups) {
@@ -41,7 +43,7 @@ export const Transcript = memo(function Transcript({ source, entryIds = noIds, g
 			rows.splice(index + inserted++, 0, { kind: "notices", key: `notices:${group.anchor}`, group });
 		}
 		return rows;
-	}, [source, groups]);
+	}, [source, groups, prunedToolCallIds]);
 	const targetIndex = useMemo(() => {
 		if (!target) return -1;
 		const index = entryIds.indexOf(target);
@@ -95,6 +97,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 		failures > 0 ? `${failures} 次失败` : "",
 	].filter(Boolean).join(" · ");
 	const running = reply.state === "running";
+	const pruned = reply.process.some((item) => item.kind === "tool" && item.pruned);
 	const showProcess = reply.process.length > 0 || (running && reply.answer.length === 0);
 	const activityOnly = reply.process.length > 0 && reply.process.every((item) => item.kind === "thinking" || item.kind === "tool");
 	const processContent = <div className="reply-turn-content"><ReplyItems items={reply.process} entryIds={entryIds} tracking={reply.tracking} followedByBody={reply.answer.length > 0} /></div>;
@@ -102,6 +105,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 	return <motion.section {...fade} className="assistant-reply" data-state={reply.state} data-entry-ids={reply.messageIndices.map((index) => entryIds[index]).filter(Boolean).join(" ")}>
 		{activityOnly ? processContent : <Disclosure className="reply-process" hidden={!showProcess} open={open} onOpenChange={setOpen} summary={<>
 				{running && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+				{pruned && <span className="reply-pruned-label">已裁剪</span>}
 				<span>{reply.retrying ? "正在重试" : running ? "正在处理" : "本轮过程"}</span>
 				{counts && <span className="reply-counts">{counts}</span>}
 			</>}>

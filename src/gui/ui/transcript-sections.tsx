@@ -59,6 +59,7 @@ function Activity({ id, items, entryIds, tracking }: { id: string; items: Transc
 	const tools = items.filter((item) => item.kind === "tool");
 	const failures = tools.filter((item) => item.tool.state === "failed").length;
 	const skills = skillCount(items);
+	const pruned = items.some((item) => item.kind === "tool" && item.pruned);
 	const counts = [
 		thoughts ? `${thoughts} 段思考` : "",
 		skills ? `${skills} 个技能` : "",
@@ -67,7 +68,8 @@ function Activity({ id, items, entryIds, tracking }: { id: string; items: Transc
 	].filter(Boolean).join(" · ");
 	return <Disclosure className="reply-process reply-activity" open={open} onOpenChange={setOpen} summary={<>
 		{tracking && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-		<span>{tracking ? "正在处理" : "思考与工具"}</span><span className="reply-counts">{counts}</span>
+		<span className={`pruned-text${pruned ? " pruned-text-active" : ""}`}>{tracking ? "正在处理" : "思考与工具"}</span>
+		<span className={`reply-counts pruned-text${pruned ? " pruned-text-active" : ""}`}>{counts}</span>
 	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div></Disclosure>;
 }
 
@@ -101,7 +103,7 @@ function sameItem(before: TranscriptItem, after: TranscriptItem | undefined): bo
 	if (!after || before.key !== after.key || before.kind !== after.kind) return false;
 	switch (before.kind) {
 		case "message": return after.kind === "message" && before.message === after.message;
-		case "tool": return after.kind === "tool" && before.tool.id === after.tool.id && before.tool.name === after.tool.name
+		case "tool": return after.kind === "tool" && before.pruned === after.pruned && before.tool.id === after.tool.id && before.tool.name === after.tool.name
 			&& before.tool.state === after.tool.state && before.tool.args === after.tool.args && before.tool.output === after.tool.output;
 		case "text": return after.kind === "text" && before.text === after.text && before.active === after.active
 			&& JSON.stringify(before.identity) === JSON.stringify(after.identity) && JSON.stringify(before.metrics) === JSON.stringify(after.metrics);

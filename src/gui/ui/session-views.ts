@@ -16,12 +16,14 @@ export interface SessionViewState {
 /** 只有显式打开创建记录。异步回调只能更新仍属于本次打开的记录。 */
 export class SessionViews {
 	private records = new Map<string, SessionViewState>();
-	open(session: { id: string; path: string | null }): SessionViewState {
+	open(session: { id: string; path: string | null }, draftFrom?: string): SessionViewState {
 		let record = this.records.get(session.id);
 		if (!record) {
 			record = { ...session, draft: { text: "", images: [], behavior: "steer" }, disclosures: new Map(), measurements: [], position: undefined };
 			this.records.set(session.id, record);
 		}
+		const previous = draftFrom ? this.records.get(draftFrom) : undefined;
+		if (previous) record.draft = { ...previous.draft, images: [...previous.draft.images] };
 		record.path = session.path;
 		return record;
 	}

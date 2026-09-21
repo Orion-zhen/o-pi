@@ -16,6 +16,8 @@ export default defineConfig({
 				codeSplitting: {
 					groups: [
 						{ name: "react", test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+						{ name: "file-icons", test: /node_modules[\\/]@react-symbols[\\/]icons[\\/]/ },
+						{ name: "ui", test: /node_modules[\\/](@radix-ui|@floating-ui)[\\/]/ },
 						{ name: "motion", test: /node_modules[\\/](motion|motion-dom|motion-utils|framer-motion)[\\/]/ },
 						{ name: "markdown", test: /node_modules[\\/](react-markdown|remark-gfm|react-syntax-highlighter)[\\/]/ },
 					],

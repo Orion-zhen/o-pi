@@ -21,6 +21,24 @@ const manualSkill = {
 const replies = (value: ReturnType<typeof source>) => transcriptReplies(value).filter((row) => row.kind === "reply");
 
 describe("整轮处理过程折叠", () => {
+	it("裁剪后立即标记过程和思考工具折叠栏，恢复后移除标记", () => {
+		const second = { ...call, id: "read-2" };
+		const secondResult = { ...result, toolCallId: second.id };
+		const snapshot = source({ messages: [user,
+			assistant([text("先检查"), thinking, call, second]), result, secondResult,
+			assistant([text("检查完成")], "stop"),
+		] });
+		const render = (prunedToolCallIds: ReadonlySet<string>) => parseHTML(renderWithMemory(createElement(Transcript, {
+			source: snapshot, prunedToolCallIds, clear: () => {},
+		}))).document;
+		const pruned = render(new Set([call.id, second.id]));
+		expect(pruned.querySelector(".assistant-reply > .reply-process > .disclosure-trigger")?.textContent).toContain("已裁剪本轮过程");
+		expect(pruned.querySelectorAll(".reply-activity .pruned-text-active")).toHaveLength(2);
+		const restored = render(new Set());
+		expect(restored.querySelector(".reply-pruned-label")).toBeNull();
+		expect(restored.querySelector(".pruned-text-active")).toBeNull();
+	});
+
 	it("完成后外层收起中途正文，内层仅折叠思考和工具，最终报告留在外面", () => {
 		const second = { ...call, id: "read-2" };
 		const third = { ...call, id: "read-3" };
