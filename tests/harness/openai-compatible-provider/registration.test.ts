@@ -13,6 +13,27 @@ import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 const temp = useOpenAICompatibleProviderTestSetup();
 
 describe("openai-compatible-provider registration", () => {
+	it("将模型图片配置及请求限制透传给 Pi，不为未配置模型添加策略", async () => {
+		const inputLimits = { maxRequestBytes: 8_000_000, images: {
+			maxPerMessage: 10, maxPerRequest: 20,
+			resize: { maxWidth: 2400, maxHeight: 1600, maxBytes: 524288, jpegQuality: 75 },
+		} };
+		const provider = await loadProvider(temp.path, { models: [
+			{ id: "vision", input: ["text", "image"], inputLimits }, { id: "default" },
+		] });
+		expect(provider.getModels()[0]?.inputLimits).toEqual(inputLimits);
+		expect(provider.getModels()[1]).not.toHaveProperty("inputLimits");
+	});
+
+	it.each([
+		{ maxRequestBytes: 0 }, { images: { maxPerMessage: -1 } }, { images: { maxPerRequest: 1.5 } },
+		{ images: { resize: { maxWidth: 0 } } }, { images: { resize: { maxHeight: "100" } } },
+		{ images: { resize: { maxBytes: -1 } } }, { images: { resize: { jpegQuality: 101 } } },
+		{ images: { resize: { unknown: true } } },
+	])("拒绝无效模型图片配置 %j", async (inputLimits) => {
+		await expect(loadProvider(temp.path, { models: [{ id: "m", inputLimits }] })).rejects.toThrow("Invalid");
+	});
+
 	it("将已知缓存寿命透传给原生模型，不为未配置模型猜测寿命", async () => {
 		const provider = await loadProvider(temp.path, { models: [
 			{ id: "warm", promptCache: { short: 300, long: 3600 } }, { id: "unknown" },

@@ -21,7 +21,7 @@ export interface ProcessedInlineImage {
 
 export type InlineImageProcessResult =
 	| { readonly ok: true; readonly value: ProcessedInlineImage }
-	| { readonly ok: false; readonly reason: "conversion" | "resize"; readonly mimeType: string };
+	| { readonly ok: false; readonly reason: "conversion"; readonly mimeType: string };
 
 export interface InlineImageProcessor {
 	process(input: {

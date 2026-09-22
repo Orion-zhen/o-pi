@@ -84,6 +84,8 @@ Return relevant files, line ranges, symbols, architecture notes, and unresolved 
 
 ### Fork 模式
 
+快照保留选定分支中的原始上下文条目和 `context_edit` 记录，由子会话的 SDK 应用删除与替换。工具调用从当前 assistant 之前分支，命令调用从当前 leaf 分支，不混入其他分支的编辑。
+
 父进程把主会话当前有效 system prompt 逐字写入权限受限的临时文件。子进程直接读取该文件，不重新合成日期、cwd、项目规则、skills 或 subagent 索引。Pi 的会话历史虽保存结构化指令，但不保存请求时的 `forceSystemPrompt` 投影，因此不能仅靠历史恢复父请求的精确提示词。
 
 Agent 正文与 task 合并成 snapshot 历史后的单个 user suffix：

@@ -89,6 +89,7 @@
 | `reasoning` | 自动推导 | 模型是否支持推理和思考级别 |
 | `thinkingLevelMap` | 未设置 | Pi 思考级别到上游值的映射。值为 `null` 时隐藏对应级别。`model-suffix` 用它声明等级可用性，但始终使用 Pi 等级名作为模型后缀 |
 | `input` | `["text"]` | 输入类型列表，可包含 `text` 和 `image` |
+| `inputLimits` | 未设置 | Pi 原生请求限制及图片缩放配置，见下文 |
 | `cost` | 各项为 `0` | 每百万个令牌的成本。可以包含 `tiers` |
 | `promptCache` | 未设置 | 已知缓存寿命，单位为秒。可选 `short`、`long`，值必须大于零。用于 Pi 原生缓存保温 |
 | `contextWindow` | `128000` | 上下文窗口大小 |
@@ -99,6 +100,31 @@
 | `defaultThinkingLevel` | 未设置 | 模型选择事件触发时设置的默认思考级别。恢复会话时除外 |
 | `samplingParams` | `{}` | Pi 模型的采样参数，使用上游请求体字段名 |
 | `dropParams` | `[]` | 追加到提供方 `dropParams` 的字段列表 |
+
+## `inputLimits`
+
+图片缩放使用模型级配置：
+
+```jsonc
+"inputLimits": {
+  "images": {
+    "resize": {
+      "maxWidth": 1568,
+      "maxHeight": 1568,
+      "maxBytes": 524288,
+      "jpegQuality": 75
+    }
+  }
+}
+```
+
+尺寸和字节上限必须为正整数，`jpegQuality` 为 1–100 的整数。`maxBytes` 限制 base64 编码后的大小。未设置的字段使用 Pi 默认值。
+
+SDK 在图片附件和工具结果进入历史前应用当前模型的配置。`images.autoResize: false` 关闭缩放，切换模型不改写历史图片。工具保留格式转换失败、文件大小和 PDF 渲染资源限制，不再自行应用默认缩放策略。SDK 对工具结果图片的处理失败时保留原图，不保证所有图片都满足目标上限。
+
+`maxRequestBytes`、`images.maxPerMessage` 和 `images.maxPerRequest` 接受正整数，当前仅作为 Pi 的模型元数据，不据此拒绝请求或裁剪历史。
+
+离线恢复模型目录时使用当前配置中的 `inputLimits`，不会恢复已经删除或覆盖的旧缩放配置。
 
 ## `cost.tiers`
 

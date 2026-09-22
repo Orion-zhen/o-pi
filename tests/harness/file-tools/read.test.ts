@@ -121,6 +121,13 @@ describe("read", () => {
 		if ("version" in result) expect(result.version).toBe(sha256Version(Buffer.from("one\ntwo\n")));
 	});
 
+	it.each(["GIF", "GIF is an image format, but this is text.", "GIF89 is not a GIF signature."])("将 GIF 开头的普通文本按文本读取: %s", async (text) => {
+		await writeFile(path.join(workspace, "gif.txt"), text);
+		expect(await testContext.read({ path: "gif.txt" })).toMatchObject({
+			segments: [{ content: text }], encoding: "utf-8",
+		});
+	});
+
 	it("读取图片文件并返回模型可内联图片数据", async () => {
 		const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
 		await writeFile(path.join(workspace, "pixel.gif"), imageBytes);
@@ -449,7 +456,7 @@ describe("read PDF 页面", () => {
 			image: {
 				async process(input) {
 					processedPages.push(input.path);
-					if (input.path.endsWith("=2")) return { ok: false, reason: "resize", mimeType: input.mimeType };
+					if (input.path.endsWith("=2")) return { ok: false, reason: "conversion", mimeType: input.mimeType };
 					return passthroughPdfImage.process(input);
 				},
 			},

@@ -1,5 +1,5 @@
 import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.ts";
-import { sessionEntryToContextMessages, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { registerSkillCommands } from "../skill-context/commands.ts";
 import { executeSkillLoad, SkillLoadError } from "../skill-context/executor.ts";
@@ -83,7 +83,7 @@ function registerSkillTool(pi: ExtensionAPI) {
 						);
 					}
 					const branch = ctx.sessionManager.getBranch();
-					const contextMessages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages);
+					const contextMessages = ctx.sessionManager.buildSessionProjection().messages;
 					const result = await executeSkillLoad(pi, {
 						name: params.name,
 						loadedBy: "agent",

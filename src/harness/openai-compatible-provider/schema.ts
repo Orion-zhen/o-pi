@@ -59,6 +59,20 @@ export type OpenAICompatConfig = OpenAICompletionsCompat & OpenAIResponsesCompat
 const CompatSchema = Type.Unsafe<OpenAICompatConfig>(Type.Object({}, { additionalProperties: Type.Unknown() }));
 const SamplingParamsSchema = Type.Record(Type.String({ minLength: 1 }), Type.Unknown());
 
+const InputLimitsSchema = Type.Object({
+	maxRequestBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+	images: Type.Optional(Type.Object({
+		maxPerMessage: Type.Optional(Type.Integer({ minimum: 1 })),
+		maxPerRequest: Type.Optional(Type.Integer({ minimum: 1 })),
+		resize: Type.Optional(Type.Object({
+			maxWidth: Type.Optional(Type.Integer({ minimum: 1 })),
+			maxHeight: Type.Optional(Type.Integer({ minimum: 1 })),
+			maxBytes: Type.Optional(Type.Integer({ minimum: 1 })),
+			jpegQuality: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+		}, { additionalProperties: false })),
+	}, { additionalProperties: false })),
+}, { additionalProperties: false });
+
 const ModelConfigSchema = Type.Object(
 	{
 		id: Type.String({ minLength: 1 }),
@@ -68,6 +82,7 @@ const ModelConfigSchema = Type.Object(
 		reasoning: Type.Optional(Type.Boolean()),
 		thinkingLevelMap: Type.Optional(ThinkingLevelMapSchema),
 		input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
+		inputLimits: Type.Optional(InputLimitsSchema),
 		cost: Type.Optional(ModelCostSchema),
 		promptCache: Type.Optional(Type.Object({
 			short: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),

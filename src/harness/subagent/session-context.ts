@@ -75,8 +75,9 @@ function selectSnapshotEntries(context: ExecutorContext): SessionEntry[] {
 	const leafId = context.invocation === "tool"
 		? toolForkBoundary(manager.getLeafEntry(), context.toolCallId, byId)
 		: manager.getLeafId();
+	// 保留原始消息及编辑记录，让子会话由 SDK 重建相同的模型上下文。
 	const selected = buildContextEntries(entries, leafId, byId)
-		.filter((entry) => sessionEntryToContextMessages(entry).length > 0)
+		.filter((entry) => entry.type === "context_edit" || sessionEntryToContextMessages(entry).length > 0)
 		.map((entry) => structuredClone(entry));
 	let parentId: string | null = null;
 	for (const entry of selected) {

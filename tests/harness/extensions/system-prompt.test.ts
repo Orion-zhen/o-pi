@@ -72,7 +72,7 @@ describe("system prompt extension", () => {
 			hasUI: true,
 			getSystemPromptOptions: () => ({ cwd: "/repo", selectedTools: ["read"] }),
 			isIdle: () => true,
-			sessionManager: { buildContextEntries: () => [] },
+			sessionManager: { buildSessionProjection: () => ({ messages: [] }) },
 			ui: {
 				select: async () => undefined,
 				editor: async () => {

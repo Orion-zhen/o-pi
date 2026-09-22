@@ -24,12 +24,13 @@ function render(entry: SessionEntry) {
 }
 
 describe("会话树技能消息", () => {
-	it("隐藏 system 和 usage 节点，同时保留后续用户消息", () => {
+	it("隐藏 system、usage 和 context_edit 节点，不隐藏被上下文删除的原始消息", () => {
 		const manager = SessionManager.inMemory();
 		manager.appendMessage({ role: "system", content: "private instructions", timestamp: 0 });
 		const usage = assistant([]).usage;
 		manager.appendUsage("cache_warm", "test", "test", usage);
 		const userId = manager.appendMessage({ role: "user", content: "继续", timestamp: 1 });
+		manager.appendContextEdit(userId, null);
 		const tree = filterSessionTreeNoTools(manager.getTree(), manager.getLeafId());
 		expect(tree).toHaveLength(1);
 		expect(tree[0]?.entry.id).toBe(userId);

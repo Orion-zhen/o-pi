@@ -1,4 +1,4 @@
-import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import { sessionEntryToContextMessages, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { toolAvailableOnCurrentPlatform } from "../../harness/tool-defaults/controller.ts";
 import type { GuiSnapshot } from "../contract.ts";
 import { guiModel } from "./runtime.ts";
@@ -43,7 +43,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		streaming: session.isStreaming,
 		retrying: session.isRetrying,
 		running: !session.isIdle || session.isBashRunning || presentation.commandRunning,
-		messages: session.messages,
+		// context_edit 只改变模型上下文，聊天区继续展示原始历史。
+		messages: session.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages),
 		streamingMessage: session.state.streamingMessage ?? null,
 		entries,
 		prunedToolCallIdsByEntry,

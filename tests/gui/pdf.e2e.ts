@@ -1,5 +1,6 @@
 import { copyFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { loadImage } from "@napi-rs/canvas";
 import { test, expect } from "./fixture.ts";
 import { startModelServer } from "../cli/model-server.ts";
 
@@ -16,6 +17,7 @@ test.beforeEach(async ({ workspace: { cwd, agentDir } }) => {
 	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "pdf-test": {
 		api: "openai-completions", baseUrl: model.url, apiKey: "fixture",
 		models: [{ id: "test", name: "test", input: ["text", "image"], contextWindow: 128000, maxTokens: 4096,
+			inputLimits: { images: { resize: { maxWidth: 96, maxHeight: 96 } } },
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
 	} } }));
 });
@@ -34,6 +36,10 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		expect(result).toBeDefined();
 		const payload = JSON.stringify(result?.messages);
 		expect(payload).not.toContain("<error>");
-		expect(payload.match(/data:image\/png;base64,/g)).toHaveLength(1);
+		const images = payload.match(/data:image\/png;base64,[^"\\]+/g);
+		expect(images).toHaveLength(1);
+		if (!images?.[0]) throw new Error("PDF image missing");
+		const image = await loadImage(images[0]);
+		expect(Math.max(image.width, image.height)).toBe(96);
 	});
 });

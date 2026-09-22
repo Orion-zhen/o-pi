@@ -2,6 +2,7 @@ import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-ag
 
 function isVisible(entry: SessionEntry, leafId: string | null): boolean {
 	switch (entry.type) {
+		case "context_edit":
 		case "usage":
 		case "label":
 		case "custom":

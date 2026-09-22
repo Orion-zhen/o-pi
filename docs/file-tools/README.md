@@ -117,6 +117,8 @@ LSP 只提供内部增强，不是额外的模型可见工具。LSP 未配置、
 
 `read` 读取 UTF-8 文本、可向模型内联返回的普通图片和 PDF 页面图片。文本使用 `lines` 范围，PDF 使用 `pages` 范围，均支持逗号分隔的多个区间。所有区间共享快照和预算。PDF 默认一次最多返回 20 页，并通过 `continuation.pages` 提供未读范围。它不提取 PDF 文字或执行 OCR。音频、视频及其他不支持的二进制文件会返回结构化错误。`read` 还为后续 `edit` 记录当前文件版本。
 
+图片格式转换失败仍由工具报错。尺寸和编码大小由 Pi 在工具结果进入历史前按当前模型的 `inputLimits.images.resize` 和 `images.autoResize` 统一处理，切换模型不改写历史图片。文件大小、PDF 页数和渲染资源限制独立保留。配置与 SDK 处理失败语义见[模型图片配置](../openai-compatible-provider/schema.md#inputlimits)。
+
 ### `write`
 
 `write` 创建新文件或完整覆盖已有文件，并自动创建缺失的父目录。它不要求先调用 `read`，也不提供事务或回滚。软忽略规则不阻止写入，受阻路径会拒绝写入。

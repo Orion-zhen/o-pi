@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { SessionManager, sessionEntryToContextMessages, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
@@ -52,7 +52,7 @@ describe("PruneService", () => {
 		manager.appendMessage(toolResult("done", "output ".repeat(100)));
 		manager.appendCompaction("earlier summary", firstKept, 10000);
 		const harness = createHarness(manager.getEntries());
-		harness.port.getMessages = () => manager.buildContextEntries().flatMap(sessionEntryToContextMessages);
+		harness.port.getMessages = () => manager.buildSessionContext().messages;
 		const result = await new PruneService().execute({ operation: "prune", model: { ...solModel(), cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, port: harness.port });
 		expect(result).toMatchObject({ status: "applied", result: { removedToolCalls: 1, removedToolResults: 1 } });
 	});

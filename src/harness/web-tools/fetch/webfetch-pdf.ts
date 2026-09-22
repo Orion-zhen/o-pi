@@ -72,11 +72,8 @@ export async function executePdfFetch(
 				const rendered = await document.renderPage({ pageNumber: number, signal });
 				signal.throwIfAborted();
 				if (!rendered.ok) return failure("CONVERSION_FAILED", rendered.message);
-				const { resizeImage } = await import("@earendil-works/pi-coding-agent");
-				const resized = await resizeImage(Buffer.from(rendered.value.bytes), rendered.value.mimeType);
-				signal.throwIfAborted();
-				if (resized === null) return failure("CONVERSION_FAILED", `PDF page ${number} exceeds the inline image size limit.`);
-				media.push({ page: number, data: Buffer.from(resized.data, "base64"), mimeType: resized.mimeType });
+				// 渲染器已限制页面资源，模型图片缩放由 SDK 在结果入历史前统一处理。
+				media.push({ page: number, data: rendered.value.bytes, mimeType: rendered.value.mimeType });
 			} else {
 				const text = textPages.get(number) ?? await document.readPageText({ pageNumber: number, signal });
 				textPages.set(number, text);

@@ -1,5 +1,4 @@
 import {
-	sessionEntryToContextMessages,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionContext,
@@ -40,7 +39,7 @@ export async function loadSkillCommand(
 ): Promise<void> {
 	try {
 		const branch = ctx.sessionManager.getBranch();
-		const contextMessages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages);
+		const contextMessages = ctx.sessionManager.buildSessionProjection().messages;
 		const result = await executeSkillLoad(pi, {
 			name,
 			loadedBy: "manual",

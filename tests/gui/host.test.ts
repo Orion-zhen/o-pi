@@ -7,6 +7,8 @@ import type { GuiEvent } from "../../src/gui/contract.ts";
 import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
 import { deferred } from "../helpers/async.ts";
 import { storeSession } from "./session-fixture.ts";
+import { assistant } from "./transcript-fixtures.ts";
+import { locateTranscript } from "../../src/gui/ui/transcript-location.ts";
 import { historyDeletionTests } from "./deletion-cases.ts";
 import { sidebarTests } from "./sidebar-cases.ts";
 import { workbenchTests } from "./workbench-cases.ts";
@@ -97,6 +99,46 @@ multiSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "age
 newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("上下文删除和替换不改写 GUI 历史，重载后仍能定位原始消息", async () => {
+		const { session } = host.runtime;
+		const manager = session.sessionManager;
+		const userId = manager.appendMessage({ role: "user", content: "原始问题", timestamp: 1 });
+		const replyId = manager.appendMessage(assistant([{ type: "text", text: "废弃尝试" }], "error"));
+		manager.appendContextEdit(userId, { content: "模型实际问题" });
+		manager.appendContextEdit(replyId, null);
+		session.refreshContext();
+		expect(JSON.stringify(session.messages)).toContain("模型实际问题");
+		expect(JSON.stringify(session.messages)).not.toContain("废弃尝试");
+		const check = () => {
+			const snapshot = host.snapshot();
+			expect(snapshot.messages).toContainEqual(expect.objectContaining({ role: "user", content: "原始问题" }));
+			expect(JSON.stringify(snapshot.messages)).toContain("废弃尝试");
+			expect(JSON.stringify(snapshot.messages)).not.toContain("模型实际问题");
+			expect(locateTranscript(snapshot, replyId)).toMatchObject({ preview: false, entryIds: [userId, replyId] });
+		};
+		check();
+		await host.dispatch({ action: "reload" });
+		check();
+	});
+
+	it("prune 不再选择已被 SDK 从模型上下文删除的工具事务", async () => {
+		await host.dispatch(prompt("检查 input.txt 并写入 output.txt"));
+		const { session } = host.runtime;
+		const manager = session.sessionManager;
+		const before = host.snapshot().messages;
+		for (const entry of manager.getBranch()) {
+			if (entry.type !== "message") continue;
+			const message = entry.message;
+			if (message.role === "toolResult" || (message.role === "assistant" && message.content.some((block) => block.type === "toolCall"))) {
+				manager.appendContextEdit(entry.id, null);
+			}
+		}
+		session.refreshContext();
+		await host.dispatch(prompt("/prune force"));
+		expect(manager.getBranch().some((entry) => entry.type === "custom" && entry.customType === "prune")).toBe(false);
+		expect(host.snapshot().messages).toEqual(before);
+	});
+
 	it("主任务结束后生成标题仍更新共享宿主快照与会话列表", async () => {
 		const reply = deferred<ModelResponse>();
 		titleReply = () => reply.promise;

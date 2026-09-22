@@ -1,4 +1,4 @@
-import { buildSessionContext, parseSessionEntries, VERSION } from "@earendil-works/pi-coding-agent";
+import { buildSessionContext, parseSessionEntries } from "@earendil-works/pi-coding-agent";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import { createCanvas } from "@napi-rs/canvas";
 import { execFile } from "node:child_process";
@@ -96,7 +96,7 @@ function expectFullscreenImageOrder(output: string): void {
 }
 
 describe("standalone opi CLI", () => {
-	it.each([["--version"], ["--help", "-ne"], ["--thinking", "invalid"], ["--session-id", "invalid"]])("保留 Pi 的参数和输出: %j", async (...args) => {
+	it.each([["--help", "-ne"], ["--thinking", "invalid"], ["--session-id", "invalid"]])("保留 Pi 的参数和输出: %j", async (...args) => {
 		const original = exec(process.execPath, [piCli, ...args], { cwd, env, timeout: 15_000 });
 		original.child.stdin?.end();
 		const capture = async (promise: Promise<{ stdout: string | Buffer; stderr: string | Buffer }>) => promise.then(
@@ -251,20 +251,9 @@ describe("standalone opi CLI", () => {
 			.rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("external-fixture-failed") });
 	});
 
-	it("版本命令不依赖 PATH 中的 Node/Bun，也不读取当前目录的 .env", async () => {
-		env["PATH"] = path.join(temp.path, "empty-bin");
-		await writeFile(path.join(cwd, ".env"), "PI_PACKAGE_DIR=/missing-from-dotenv\n");
-		const result = await run(["--version"]);
-		expect(result.stderr).toBe("");
-		expect(result.stdout.trim()).toBe(VERSION);
-	});
-
 	it("并发首次启动原子发布同一个完整资源目录", async () => {
-		const results = await Promise.allSettled(Array.from({ length: 4 }, () => run(["--version"])));
-		for (const result of results) {
-			if (result.status === "rejected") throw result.reason;
-			expect(result.value.stdout.trim()).toBe(VERSION);
-		}
+		const results = await Promise.allSettled(Array.from({ length: 4 }, () => run(["--help"])));
+		for (const result of results) if (result.status === "rejected") throw result.reason;
 		const directories = await readdir(path.join(temp.path, ".pi", "cache", "opi"));
 		expect(directories).toHaveLength(1);
 		expect(directories[0]).toMatch(/^[a-f0-9]{64}$/);

@@ -1,4 +1,4 @@
-import { convertToPng, formatDimensionNote, resizeImage } from "@earendil-works/pi-coding-agent";
+import { convertToPng } from "@earendil-works/pi-coding-agent";
 import type { InlineImageProcessor } from "../../read/ports.ts";
 
 export function createInlineImageProcessor(): InlineImageProcessor {
@@ -8,13 +8,10 @@ export function createInlineImageProcessor(): InlineImageProcessor {
 			const normalized = await normalizeInlineImage(input.bytes, input.mimeType);
 			if (normalized === undefined) return { ok: false, reason: "conversion", mimeType: input.mimeType };
 			if (isAborted(input.signal)) throw new Error("Operation aborted.");
-			const resized = await resizeImage(normalized.bytes, normalized.mimeType);
-			if (resized === null) return { ok: false, reason: "resize", mimeType: normalized.mimeType };
-			if (isAborted(input.signal)) throw new Error("Operation aborted.");
-			const hints = [...normalized.hints];
-			const dimensionNote = formatDimensionNote(resized);
-			if (dimensionNote !== undefined) hints.push(dimensionNote);
-			return { ok: true, value: { data: resized.data, mimeType: resized.mimeType, hints } };
+			// 尺寸策略由 SDK 在工具结果进入历史前按模型及 autoResize 设置执行。
+			return { ok: true, value: {
+				data: normalized.bytes.toString("base64"), mimeType: normalized.mimeType, hints: normalized.hints,
+			} };
 		},
 	};
 }

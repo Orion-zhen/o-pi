@@ -53,6 +53,7 @@ export function buildModels(
 			reasoning: model.reasoning ?? inferredReasoning,
 			...(model.thinkingLevelMap !== undefined ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
 			input: model.input ?? ["text"],
+			...(model.inputLimits !== undefined ? { inputLimits: model.inputLimits } : {}),
 			cost: model.cost ?? { ...ZERO_COST },
 			...(model.promptCache !== undefined ? { promptCache: model.promptCache } : {}),
 			contextWindow: model.contextWindow ?? 128_000,
@@ -83,11 +84,12 @@ export function restoreCachedModels<TApi extends Api>(
 		.map(({ model }) => [model.id, model]));
 	return models.flatMap((cached) => {
 		const config = configured.get(cached.id);
-		const { promptCache: _cachedLifetime, ...metadata } = cached;
+		const { promptCache: _cachedLifetime, inputLimits: _cachedLimits, ...metadata } = cached;
 		const model = {
 			...metadata,
 			...(config?.name !== undefined ? { name: config.name } : {}),
 			...(config?.promptCache !== undefined ? { promptCache: config.promptCache } : {}),
+			...(config?.inputLimits !== undefined ? { inputLimits: config.inputLimits } : {}),
 		};
 		const normalized = prepared.get(model.id);
 		if (!normalized) return [];

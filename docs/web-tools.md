@@ -181,7 +181,7 @@ webfetch({ url: "https://example.com/report.pdf", mode: "image", pages: "13" })
 - 默认提取文本，每段附带 `[page N]`。查找片段同时标记字符位置和物理页码。页范围先排序、合并重叠与相邻范围，再裁剪结束页。起点越界或范围倒置报错。
 - 文本层不包含完整视觉内容，返回 `pdf_content/pdf_text_only`。所选页没有可提取文本时返回 `pdf_content/no_text_layer`，零命中不能代表图片中不存在该词。不做 OCR。
 - 每次文本选择最多 500 页、500 万 UTF-16 字符，超限需缩小 `pages`。PDF 处理单独受 `webfetch.timeout_seconds` 限制，并响应调用取消。
-- `image` 每次最多渲染 20 页，剩余范围由 `next_pages` 返回，下次传给 `pages`。页码标记与原生图片交替输出。页面最长边限制为 2000 像素，并经过模型图片大小处理。当前模型不支持图片时明确报错，可改用文本模式。
+- `image` 每次最多渲染 20 页，剩余范围由 `next_pages` 返回，下次传给 `pages`。页码标记与原生图片交替输出。PDF 渲染最长边限制为 2000 像素，以限制内存占用。工具不再额外缩放图片，SDK 在结果进入历史前统一应用当前模型的 `inputLimits.images.resize` 和 `images.autoResize`。当前模型不支持图片时明确报错，可改用文本模式。
 - PDF 不解释 URL fragment，使用 `pages` 选页。密码保护和损坏文档返回解析错误。
 - `details.pdf` 保存总页数、选中页范围和后续页范围。模型标签使用 `pages="1-20/22"` 和 `next_pages="21-22"`，与文本续读的 `next` 区分。
 

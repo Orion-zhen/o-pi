@@ -50,12 +50,13 @@ describe("agents prompts extension", () => {
 		);
 		expect(result?.promptPaths).toEqual([prompt]);
 
-		const templates = loadPromptTemplates({
+		const { templates, diagnostics } = loadPromptTemplates({
 			cwd: dir,
 			agentDir: path.join(dir, "agent"),
 			promptPaths: result?.promptPaths ?? [],
 			includeDefaults: false,
 		});
+		expect(diagnostics).toEqual([]);
 		const slashCommands = templates.map((template) => ({
 			name: template.name,
 			description: template.description,

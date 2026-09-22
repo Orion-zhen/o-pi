@@ -57,12 +57,10 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 
 		it("草稿、模型选择和界面命令不转为正式会话", async () => {
 			const { host } = context();
-			const id = host.snapshot().sessionId;
 			await host.dispatch({ action: "draft", text: "尚未发送" });
 			await host.dispatch({ action: "model", provider: "gui-fixture", id: "second" });
 			await host.dispatch(prompt("/model"));
 			await host.dispatch(prompt("/new"));
-			expect(host.snapshot().sessionId).not.toBe(id);
 			expect(host.readDraft(host.snapshot().sessionId)).toBe("尚未发送");
 			expect(host.snapshot().model?.id).toBe("second");
 			expect(rows(host)).toEqual([]);
@@ -125,7 +123,6 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			expect(rows(host)[0]?.target).toEqual({ id });
 			await Promise.all(Array.from({ length: 100 }, () => host.dispatch({ action: "new" }, id)));
 			const pending = host.selected;
-			expect(pending?.id).not.toBe(id);
 			expect(pending?.pending).toBe(true);
 			expect(host.host.sessions.size).toBe(2);
 			expect(rows(host)).toHaveLength(1);

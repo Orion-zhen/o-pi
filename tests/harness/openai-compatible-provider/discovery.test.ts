@@ -11,7 +11,7 @@ describe("openai-compatible-provider model discovery", () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({
 			baseUrl: "http://127.0.0.1:8000/v1",
 			apiKey: "sk-test",
-			models: [{ id: "manual", name: "Manual", promptCache: { short: 300 } }],
+			models: [{ id: "manual", name: "Manual", promptCache: { short: 300 }, inputLimits: { images: { resize: { maxWidth: 2400 } } } }],
 		}, "local"));
 		const fetch = vi.spyOn(globalThis, "fetch")
 			.mockResolvedValueOnce(jsonResponse({
@@ -40,6 +40,7 @@ describe("openai-compatible-provider model discovery", () => {
 			{ id: "dynamic", name: "dynamic" },
 		]);
 		expect(first.getModels()[0]?.promptCache).toEqual({ short: 300 });
+		expect(first.getModels()[0]?.inputLimits).toEqual({ images: { resize: { maxWidth: 2400 } } });
 		expect(firstHarness.providers).toEqual([first]);
 
 		const stored = stores.get("local");
@@ -60,6 +61,7 @@ describe("openai-compatible-provider model discovery", () => {
 			{ id: "dynamic", name: "dynamic", baseUrl: "http://127.0.0.1:8000/v1" },
 		]);
 		expect(second.getModels()[0]?.promptCache).toEqual({ short: 300 });
+		expect(second.getModels()[0]?.inputLimits).toEqual({ images: { resize: { maxWidth: 2400 } } });
 		expect(secondHarness.providers).toEqual([second]);
 		expect(fetch).toHaveBeenCalledOnce();
 
@@ -75,7 +77,7 @@ describe("openai-compatible-provider model discovery", () => {
 		const changedConfig = await loadConfigFromText(temp.path, providerConfigText({
 			baseUrl: "http://127.0.0.1:8000/v1",
 			apiKey: "sk-test",
-			models: [{ id: "manual", name: "Changed Manual", promptCache: { short: 120 } }],
+			models: [{ id: "manual", name: "Changed Manual", promptCache: { short: 120 }, inputLimits: { images: { resize: { maxHeight: 100 } } } }],
 		}, "local"));
 		const { provider: third } = registerProvider(changedConfig, temp.path);
 		await refreshProvider(third, { stored, publish, allowNetwork: false });
@@ -84,12 +86,14 @@ describe("openai-compatible-provider model discovery", () => {
 			["dynamic", "dynamic", 128000],
 		]);
 		expect(third.getModels()[0]?.promptCache).toEqual({ short: 120 });
+		expect(third.getModels()[0]?.inputLimits).toEqual({ images: { resize: { maxHeight: 100 } } });
 		const withoutLifetime = await loadConfigFromText(temp.path, providerConfigText({
 			baseUrl: "http://127.0.0.1:8000/v1", apiKey: "sk-test", models: ["manual"],
 		}, "local"));
 		const { provider: fourth } = registerProvider(withoutLifetime, temp.path);
 		await refreshProvider(fourth, { stored, publish, allowNetwork: false });
 		expect(fourth.getModels()[0]).not.toHaveProperty("promptCache");
+		expect(fourth.getModels()[0]).not.toHaveProperty("inputLimits");
 		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 

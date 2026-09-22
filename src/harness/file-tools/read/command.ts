@@ -79,10 +79,7 @@ export async function readFile(
 		});
 		if (image === undefined || isAborted(context.operation)) return aborted(file.displayPath);
 		if (!image.ok) {
-			const resize = image.reason === "resize";
-			return fail("BINARY_FILE_UNSUPPORTED", resize
-				? "Image cannot be resized below the inline model size limit."
-				: "Image cannot be converted to an inline model-supported format.", {
+			return fail("BINARY_FILE_UNSUPPORTED", "Image cannot be converted to an inline model-supported format.", {
 				path: file.displayPath,
 				details: { mime_type: image.mimeType },
 			});
@@ -190,10 +187,7 @@ async function readPdf(
 			});
 			if (processed === undefined || isAborted(context.operation)) return aborted(path);
 			if (!processed.ok) {
-				const resize = processed.reason === "resize";
-				return fail("BINARY_FILE_UNSUPPORTED", resize
-					? `PDF page ${pageNumber} cannot be resized below the inline model size limit.`
-					: `PDF page ${pageNumber} cannot be converted to an inline model-supported format.`, {
+				return fail("BINARY_FILE_UNSUPPORTED", `PDF page ${pageNumber} cannot be converted to an inline model-supported format.`, {
 					path,
 					details: {
 						mime_type: processed.mimeType,

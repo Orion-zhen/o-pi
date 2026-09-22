@@ -1,7 +1,6 @@
 import { createInitialSystemMessage, toToolDeclaration } from "@earendil-works/pi-ai";
 import {
 	type SessionEntry,
-	sessionEntryToContextMessages,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionContext,
@@ -96,7 +95,7 @@ function createServicePort(pi: PruneApi, ctx: ExtensionCommandContext): PruneSer
 	return {
 		waitForIdle: () => ctx.waitForIdle(),
 		getMessages: () => {
-			const messages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages);
+			const messages = ctx.sessionManager.buildSessionProjection().messages;
 			if (messages.some((message) => message.role === "system")) return messages;
 			// 旧会话在首次请求前尚未写入 system 消息。
 			const active = new Set(pi.getActiveTools());

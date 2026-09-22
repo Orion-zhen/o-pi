@@ -24,6 +24,8 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 
 会话内容、运行状态和消息队列以 SDK 为准，不复制 Agent 执行逻辑。GUI 的 `GuiHost` 管理实例、索引和共享资源，`GuiSession` 持有单个 SDK runtime，`GuiClient` 管理客户端的查看位置和操作路由。新增共享业务放入 harness，终端布局、快捷键和组件工厂留在 TUI。
 
+模型上下文通过 `buildSessionProjection()` 读取，包含 `context_edit` 的删除和替换。GUI 聊天历史从 `buildContextEntries()` 中的原始条目生成，不用 `session.messages` 代替历史，因此上下文编辑不改变已展示的回复。上下文用量继续由 SDK 提供，会话树隐藏 `context_edit` 元数据节点。
+
 ## Desktop 使用的 SDK 能力
 
 | 需求 | SDK 接口 |

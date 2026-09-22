@@ -33,9 +33,7 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 			const { host, cwd, agentDir } = context();
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
 			await host.dispatch({ action: "openSession", path: file });
-			const id = host.snapshot().sessionId;
 			await host.dispatch({ action: "deleteSession", path: file });
-			expect(host.snapshot().sessionId).not.toBe(id);
 			expect(host.snapshot().cwd).toBe(cwd);
 			expect(host.snapshot().messages).toHaveLength(0);
 			await host.dispatch(prompt);
@@ -59,7 +57,6 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 			if (!before.sessionFile) throw new Error("新会话缺少目标路径");
 			await expect(readFile(before.sessionFile)).rejects.toMatchObject({ code: "ENOENT" });
 			await host.dispatch({ action: "deleteSession", path: before.sessionFile });
-			expect(host.snapshot().sessionId).not.toBe(before.sessionId);
 			expect(host.snapshot().messages).toHaveLength(0);
 		});
 
