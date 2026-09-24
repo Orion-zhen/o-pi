@@ -35,9 +35,13 @@
 		"electron": "latest",
 		"electron-builder": "latest",
 		"jiti": "latest",
+		"mdast-util-from-markdown": "latest",
+		"micromark-util-types": "latest",
+		"remark-parse": "latest",
 		"tailwindcss": "latest",
 		"tw-animate-css": "latest",
 		"typescript": "latest",
+		"unified": "latest",
 		"vite": "latest",
 		"vitest": "latest"
 	},

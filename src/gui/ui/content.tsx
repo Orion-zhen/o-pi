@@ -1,11 +1,13 @@
-import { Children, isValidElement, memo, useDeferredValue, type ReactNode } from "react";
+import { Children, isValidElement, lazy, memo, Suspense, useDeferredValue, type ComponentProps, type ReactNode } from "react";
 import { MessageIdentity } from "./message-meta.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import { motion } from "motion/react";
 import { fade } from "./lib/motion";
 import { Disclosure } from "./components/disclosure";
-import Markdown from "react-markdown";
+import Markdown, { type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkMath } from "./remark-math.ts";
+import "./math.css";
 import { SessionImage } from "./payload.tsx";
 import { SKILL_CONTEXT_MESSAGE } from "../../harness/skill-context/types.ts";
 import { isSkillLoadDetails } from "../skill-facts.ts";
@@ -43,11 +45,24 @@ export function StreamingText({ text, active }: { text: string; active: boolean 
 	return <MarkdownText text={active ? formatted : text} streaming={active} />;
 }
 
+const MathFormula = lazy(() => import("./math-formula.tsx"));
+
+function MarkdownSpan({ node, children, ...props }: ComponentProps<"span"> & ExtraProps) {
+	const source = node?.properties.dataMathSource;
+	const tex = node?.properties.dataMathTex;
+	if (typeof source !== "string" || typeof tex !== "string") return <span {...props}>{children}</span>;
+	const display = node?.properties.dataMathDisplay === true;
+	return <Suspense fallback={<span className={display ? "math-formula math-display" : "math-formula"}>{source}</span>}>
+		<MathFormula tex={tex} source={source} display={display} />
+	</Suspense>;
+}
+
 export const MarkdownText = memo(function MarkdownText({ text, streaming = false }: { text: string; streaming?: boolean }) {
 	return (
 		<Markdown
-			remarkPlugins={[remarkGfm]}
+			remarkPlugins={[remarkGfm, remarkMath]}
 			components={{
+				span: MarkdownSpan,
 				pre: ({ children }) => {
 					const child = Children.only(children);
 					if (!isValidElement<{ children?: string; className?: string }>(child)) return <pre>{children}</pre>;

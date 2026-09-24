@@ -1,0 +1,5 @@
+.math-formula { white-space: pre-wrap; overflow-wrap: normal; }
+.math-display { display: block; max-inline-size: 100%; overflow-x: auto; overflow-y: hidden; padding-block: 0.5em; margin-block: 0.75em; text-align: center; }
+.math-formula mjx-container { display: inline-block; direction: ltr; line-height: 0; text-indent: 0; white-space: nowrap; }
+.math-formula mjx-container > svg { display: inline-block; overflow: visible; min-inline-size: 1px; min-block-size: 1px; max-inline-size: none; }
+.math-formula mjx-container > svg a { fill: currentColor; stroke: none; }
