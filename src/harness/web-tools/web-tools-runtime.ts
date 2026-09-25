@@ -1,4 +1,6 @@
 import type { Dispatcher } from "undici";
+import { hostServices } from "../runtime/host-services.ts";
+import { systemProxyUrl } from "../runtime/system-proxy.ts";
 
 import type {
 	WebFetchCapability,
@@ -14,6 +16,7 @@ import type { PrivateNetworkGrant } from "./network/private-network-grant.ts";
 /** 按需初始化两条能力链，统一等待调用结束并释放共享 dispatcher。 */
 export function createWebToolsRuntime(): WebToolsRuntime {
 	const dispatcherPromises = new Map<string, Promise<Dispatcher>>();
+	const policies = new WeakMap<Dispatcher, { network: WebToolsConfig["network"]; grant: PrivateNetworkGrant | undefined }>();
 	const activeCalls = new Set<Promise<void>>();
 	let configModulePromise: Promise<typeof import("./config.ts")> | undefined;
 	let closed = false;
@@ -34,9 +37,26 @@ export function createWebToolsRuntime(): WebToolsRuntime {
 		const key = dispatcherKey(network, privateNetworkGrant);
 		const existing = dispatcherPromises.get(key);
 		if (existing !== undefined) return existing;
-		const pending = createDefaultDispatcher(structuredClone(network), privateNetworkGrant);
+		const snapshot = structuredClone(network);
+		const pending = createDefaultDispatcher(snapshot, privateNetworkGrant).then((dispatcher) => {
+			policies.set(dispatcher, { network: snapshot, grant: privateNetworkGrant });
+			return dispatcher;
+		});
 		dispatcherPromises.set(key, pending);
 		return pending;
+	}
+
+	async function defaultFetch(input: URL, init: WebHttpRequestInit): Promise<WebHttpResponse> {
+		const policy = init.dispatcher === undefined ? undefined : policies.get(init.dispatcher);
+		if (hostServices && policy && !policy.network.proxy.enabled) {
+			const proxy = systemProxyUrl(await hostServices.resolveProxy(input.href, init.signal));
+			init.signal.throwIfAborted();
+			if (proxy !== undefined) {
+				const network = { ...policy.network, proxy: { enabled: true, http_proxy: proxy, https_proxy: proxy, socks5_proxy: "" } };
+				init = { ...init, dispatcher: await getDispatcher(network, policy.grant) };
+			}
+		}
+		return (await loadUndici()).fetch(input, init);
 	}
 
 	async function loadConfig(): Promise<WebToolsConfig> {
@@ -110,10 +130,6 @@ function dispatcherKey(network: WebToolsConfig["network"], grant?: PrivateNetwor
 	const networkKey = networkConfigSignature(network);
 	if (grant === undefined) return networkKey;
 	return `${networkKey}\0${grant.origin}\0${grant.addresses.map((item) => `${item.family}:${item.address}`).join(",")}`;
-}
-
-async function defaultFetch(input: URL, init: WebHttpRequestInit): Promise<WebHttpResponse> {
-	return (await loadUndici()).fetch(input, init);
 }
 
 let undiciModule: Promise<typeof import("undici")> | undefined;

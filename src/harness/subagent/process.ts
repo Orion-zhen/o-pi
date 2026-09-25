@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
+import { hostServices, type AgentProcess } from "../runtime/host-services.ts";
 import { childInvocation } from "../runtime/invocation.ts";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
@@ -20,13 +21,12 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	const launch = await buildLaunch(input);
 	const invocation = childInvocation(launch.args);
 	const exitCode = await new Promise<number>((resolve) => {
-		const proc = spawn(invocation.command, invocation.args, {
-			cwd: launch.cwd,
-			shell: false,
-			stdio: ["pipe", "pipe", "pipe"],
-			env: { ...buildChildEnv(invocation.env ?? process.env), ...launch.env },
-		});
-		proc.stdin.end();
+		const env = { ...buildChildEnv(invocation.env ?? process.env), ...launch.env };
+		const proc: AgentProcess = hostServices
+			? hostServices.spawnAgent(launch.args, launch.cwd, env)
+			: spawn(invocation.command, invocation.args, {
+				cwd: launch.cwd, shell: false, stdio: ["ignore", "pipe", "pipe"], env,
+			});
 		let settled = false;
 		let terminating = false;
 		let graceTimer: NodeJS.Timeout | undefined;
@@ -92,7 +92,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			aborted = true;
 			terminateProcess(proc);
 		};
-		const terminateProcess = (procToKill: ChildProcessWithoutNullStreams) => {
+		const terminateProcess = (procToKill: AgentProcess) => {
 			if (terminating || settled) return;
 			terminating = true;
 			procToKill.kill("SIGTERM");

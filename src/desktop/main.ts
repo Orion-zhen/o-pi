@@ -16,6 +16,7 @@ import { writeFile } from "node:fs/promises";
 import type { GuiEvent } from "../gui/contract.ts";
 import type { GuiDelivery } from "../gui/sync.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";
+import { forkDesktopWorker } from "./worker-services.ts";
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -107,7 +108,7 @@ void app
 			return { action: "deny" };
 		});
 		const backendDirectory = path.basename(directory) === "app.asar" ? `${directory}.unpacked` : directory;
-		backend = utilityProcess.fork(path.join(backendDirectory, "backend.mjs"), [app.getPath("home")], {
+		backend = forkDesktopWorker(path.join(backendDirectory, "backend.mjs"), [app.getPath("home")], {
 			stdio: "pipe",
 			serviceName: "opi-desktop SDK",
 			env: environment,

@@ -1,14 +1,14 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { decodeGuiRequest } from "../gui/host/request.ts";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 process.env.PI_OPI_RESOURCE_DIR = path.join(directory, "resources");
 process.env.PI_PACKAGE_DIR = path.join(directory, "resources", "pi");
-process.env.PI_CODING_AGENT = "true";
-process.env.AI_AGENT = "pi";
-registerBunOAuthFlows();
+await import("../harness/runtime/environment.ts");
+
+const closeServices = process.type === "utility"
+	? await (await import("./worker-runtime.ts")).initializeDesktopWorker() : undefined;
 
 const { runChildProcess } = await import("../harness/runtime/invocation.ts");
 if (!(await runChildProcess())) {
@@ -58,4 +58,8 @@ if (!(await runChildProcess())) {
 	void gui
 		.start(process.argv[2] ?? process.cwd())
 		.catch((error: unknown) => gui.reportError(error));
+} else {
+	closeServices?.();
+	// SDK 已释放会话并排空输出，Utility Process 不再保留宿主消息循环。
+	if (process.type === "utility") process.exit(process.exitCode ?? 0);
 }
