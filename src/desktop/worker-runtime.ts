@@ -1,4 +1,3 @@
-import { net } from "electron";
 import { setHostServices } from "../harness/runtime/host-services.ts";
 import { openServiceChannel } from "./service-client.ts";
 import { createDesktopWebSocket } from "./websocket-client.ts";
@@ -14,6 +13,8 @@ export async function initializeDesktopWorker(): Promise<() => void> {
 		};
 		process.parentPort.on("message", ready);
 	});
+	// 协调进程复用打包入口但运行于 Node 模式，不能在模块加载时导入 Electron API。
+	const { net } = await import("electron");
 	// SDK 会记录加载时的 fetch。先加载，再注入，避免 CLI 初始化覆盖宿主网络栈。
 	await import("@earendil-works/pi-coding-agent");
 	const { open, host } = openServiceChannel(port);

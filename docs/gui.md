@@ -31,6 +31,22 @@ Windows 的 Web 产物为 `dist/web/opi-web.exe`。Desktop 应用名和可执行
 
 Web 内嵌资源使用与 CLI 相同的内容寻址缓存。输入历史与 TUI 共用 `~/.pi/cache/user-history/history.jsonl`，按工作目录隔离。
 
+## Desktop 卡顿诊断
+
+桌面应用自动将发送、新建、切换和列表刷新的时间线写入 Electron 日志目录中的 `gui-timing.jsonl`。macOS 默认为 `~/Library/Logs/opi-desktop/`，其他平台为应用用户数据目录下的 `logs/`。日志异步写入，单文件达到 2 MiB 后轮转为 `gui-timing.jsonl.1`，只保留这两份。正常退出会等待日志写完，写入失败不会阻止聊天。
+
+日志只包含操作名、会话和请求标识、推送批次、时间与成功/失败状态，不记录消息正文、附件、工作区路径或认证内容。时间字段为 Unix 毫秒。
+
+- `main_received`：主进程收到操作。`submittedAt` 是渲染进程调用发送桥接的时间，`requestId` 关联后续请求记录。
+- `backend_received`：SDK 后端收到请求。
+- `user_available`：后端首次观察到当前会话状态中的新用户消息，尚未经过推送队列。`userTimestamp` 是消息时间，`sessionId` 关联发送请求。这证明消息已进入会话状态，不代表文件已经落盘。
+- `user_snapshot`：主进程收到包含用户消息的会话状态。`backendSentAt` 是后端发出时间，`userTimestamp` 是其中最新用户消息的时间。`full: true` 也可能是打开旧会话时重放历史。
+- `renderer_received`：渲染进程收到推送。
+- `renderer_applied`：前端解码并通知状态订阅者后发出确认。`appliedAt` 是确认发出时间，不代表屏幕绘制完成。使用同一 `run`、`generation`、`deliveryId` 关联推送记录。
+- `request_settled`：操作完成或失败。对于聊天请求，此阶段通常在整轮回答结束后出现，不是首条用户消息出现的时间。
+
+发生延迟后保留这两份日志及大致发生时间，可区分桥接、后端准备、推送接收和前端处理阶段。排查首次发送时，应排除 `userTimestamp` 早于本次 `submittedAt` 的历史重放。时钟调整会影响跨进程时间差，日志不单独证明某段代码是根因。
+
 ## GUI 设置
 
 左栏“设置”按外观、交互、会话行为、自动标题、终端工具、文件工具、默认工具、网络与网页、权限与安全、子代理、代码智能、集成、终端界面分类。宽屏使用左侧纵向分类，窄屏使用顶部分类选择器。浮窗通过 Grid/Flex 和视口相对尺寸布局，切换分类时尺寸不变，长内容在右侧独立滚动。选择器复用 shadcn/ui Select，支持键盘导航。

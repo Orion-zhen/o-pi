@@ -336,6 +336,8 @@ Desktop 后端加载 `src/harness/extensions.ts` 中的业务扩展，按 SDK �
 
 `coordinator-client.ts` 通过 `childInvocation(["--opi-discord-daemon", endpoint])` 启动守护进程。Desktop 使用内置后台入口，并仅给协调子进程设置 `ELECTRON_RUN_AS_NODE=1`。Web 使用自身的独立二进制入口。二者均不依赖用户安装的 `opi`。
 
+后台入口的 Electron API 只在 Utility Process 初始化时动态加载。静态导入会被打包器提升到公共入口，使 Node 模式的协调进程在分流前报错退出，触发每个会话的重试。
+
 ## 内部职责
 
 - `service.ts` 管理配置、会话和命令状态，`activity-tracker.ts` 统一跟踪流式生成与实际执行的工具。

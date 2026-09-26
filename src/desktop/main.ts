@@ -17,6 +17,7 @@ import type { GuiEvent } from "../gui/contract.ts";
 import type { GuiDelivery } from "../gui/sync.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";
 import { forkDesktopWorker } from "./worker-services.ts";
+import { DesktopDiagnostics } from "./diagnostics.ts";
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -25,7 +26,7 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const icon = path.join(directory, "icons", process.platform === "win32" ? "icon.ico" : process.platform === "darwin" ? "icon-macos.png" : "icon.png");
 if (process.platform === "win32") app.setAppUserModelId("dev.orion.opi");
 const entryUrl = "opi://app/index.html";
-const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; traced: boolean }>();
 let window: BrowserWindow | undefined;
 let backend: ReturnType<typeof utilityProcess.fork> | undefined;
 let stopping = false;
@@ -57,6 +58,7 @@ async function saveDownload(event: Extract<GuiEvent, { type: "download" }>): Pro
 void app
 	.whenReady()
 	.then(async () => {
+		const diagnostics = new DesktopDiagnostics(path.join(app.getPath("logs"), "gui-timing.jsonl"));
 		let environment = process.env;
 		if (process.platform === "darwin") {
 			app.dock?.setIcon(icon);
@@ -125,42 +127,64 @@ void app
 					void saveDownload(event).catch((error: unknown) => dialog.showErrorBox("导出失败", String(error)));
 					return false;
 				});
-				if (window && !window.isDestroyed()) window.webContents.send("gui:event", { ...delivery, events });
+				if (window && !window.isDestroyed()) {
+					const traced = diagnostics.delivery(delivery, "at" in message ? message.at : undefined);
+					window.webContents.send("gui:event", { ...delivery, events }, traced);
+				}
 			} else if (message.kind === "result" && "id" in message && typeof message.id === "string") {
 				const operation = pending.get(message.id);
 				pending.delete(message.id);
+				if (operation?.traced) diagnostics.result(message.id, "error" in message);
 				if ("error" in message) operation?.reject(new Error(String(message.error)));
 				else operation?.resolve("value" in message ? message.value : undefined);
+			} else if (message.kind === "requestReceived" && "id" in message && typeof message.id === "string"
+				&& "at" in message && typeof message.at === "number" && pending.get(message.id)?.traced) {
+				diagnostics.backend(message.id, message.at);
+			} else if (message.kind === "userAvailable" && "sessionId" in message && typeof message.sessionId === "string"
+				&& "userTimestamp" in message && typeof message.userTimestamp === "number" && "at" in message && typeof message.at === "number") {
+				diagnostics.user(message.sessionId, message.userTimestamp, message.at);
 			}
 		});
 		backend.on("exit", (code) => {
 			exited = true;
-			for (const task of pending.values()) task.reject(new Error(`SDK 后端已退出 (${code})`));
+			for (const [id, task] of pending) {
+				if (task.traced) diagnostics.result(id, true);
+				task.reject(new Error(`SDK 后端已退出 (${code})`));
+			}
 			pending.clear();
 			if (!stopping) dialog.showErrorBox("SDK 后端已退出", `退出码 ${code}。请重启应用。`);
 			if (stopping) app.quit();
 		});
 		for (const kind of ["action", "query"] as const) {
-			ipcMain.handle(`gui:${kind}`, (event, value: unknown) => {
+			ipcMain.handle(`gui:${kind}`, (event, value: unknown, submittedAt: unknown) => {
 				trusted(event);
 				if (exited || !backend) throw new Error("SDK 后端不可用。");
 				const id = randomUUID();
-				const result = new Promise<unknown>((resolve, reject) => pending.set(id, { resolve, reject }));
-				backend.postMessage({ kind, id, value });
+				const traced = kind === "action" && diagnostics.request(id, value, submittedAt);
+				const result = new Promise<unknown>((resolve, reject) => pending.set(id, { resolve, reject, traced }));
+				backend.postMessage({ kind, id, value, traced });
 				return result;
 			});
 		}
 		ipcMain.on("gui:subscribe", (event) => {
 			trusted(event);
+			diagnostics.reset();
 			backend?.postMessage({ kind: "subscribe" });
 		});
-		ipcMain.on("gui:ack", (event, id: unknown) => {
+		ipcMain.on("gui:received", (event, id: unknown, at: unknown) => {
+			trusted(event);
+			if (typeof id !== "number" || !Number.isSafeInteger(id) || typeof at !== "number" || !Number.isFinite(at)) throw new Error("无效接收时间");
+			diagnostics.received(id, at);
+		});
+		ipcMain.on("gui:ack", (event, id: unknown, appliedAt: unknown) => {
 			trusted(event);
 			if (typeof id !== "number" || !Number.isSafeInteger(id)) throw new Error("无效确认序号");
+			diagnostics.acknowledge(id, appliedAt);
 			backend?.postMessage({ kind: "ack", id });
 		});
 		ipcMain.on("gui:unsubscribe", (event) => {
 			trusted(event);
+			diagnostics.reset();
 			backend?.postMessage({ kind: "unsubscribe" });
 		});
 		ipcMain.handle("gui:directory", async (event) => {
@@ -175,7 +199,13 @@ void app
 		});
 		app.on("window-all-closed", () => app.quit());
 		app.on("before-quit", (event) => {
-			if (exited || !backend) return;
+			if (exited || !backend) {
+				if (!diagnostics.closed) {
+					event.preventDefault();
+					void diagnostics.close().then(() => app.quit());
+				}
+				return;
+			}
 			event.preventDefault();
 			if (stopping) return;
 			stopping = true;

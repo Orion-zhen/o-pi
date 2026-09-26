@@ -58,6 +58,8 @@ export const test = base.extend<{
 					if (!window.opi) throw new Error("缺少桌面连接");
 					await window.opi.send({ action: "workspace", path: cwd }, null);
 				}, cwd);
+				await expect(page.locator(".workspace-select").first()).toContainText(path.basename(cwd));
+				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
 			}
 			await use({ app, page });
 			expect(errors).toEqual([]);
