@@ -14,8 +14,7 @@ interface Tail<T> { keep: number; items: T[] }
 export interface GuiPatch {
 	type: "patch";
 	sessionId: string;
-	value: Partial<Omit<GuiSnapshot, "messages" | "entries" | "streamingMessage">>;
-	messages?: Tail<GuiSnapshot["messages"][number]> | undefined;
+	value: Partial<Omit<GuiSnapshot, "entries" | "streamingMessage">>;
 	entries?: Tail<GuiSnapshot["entries"][number]> | undefined;
 	streamingMessage?: StreamingPatch | undefined;
 }
@@ -54,7 +53,7 @@ function streamPatch(before: GuiSnapshot["streamingMessage"], after: GuiSnapshot
 
 /** 已完成消息沿用引用，只传变化的尾部。流式正文和思考只传新增字符。 */
 export function diffSnapshot(before: GuiSnapshot, after: GuiSnapshot): GuiPatch {
-	const { messages, entries, streamingMessage, ...fields } = after;
+	const { entries, streamingMessage, ...fields } = after;
 	const value: GuiPatch["value"] = {};
 	for (const key of Object.keys(fields) as (keyof typeof fields)[]) {
 		if (fields[key] !== before[key] && JSON.stringify(fields[key]) !== JSON.stringify(before[key]))
@@ -62,7 +61,7 @@ export function diffSnapshot(before: GuiSnapshot, after: GuiSnapshot): GuiPatch 
 	}
 	return {
 		type: "patch", sessionId: after.sessionId, value,
-		messages: tail(before.messages, messages), entries: tail(before.entries, entries),
+		entries: tail(before.entries, entries),
 		streamingMessage: streamPatch(before.streamingMessage, streamingMessage),
 	};
 }
@@ -85,7 +84,6 @@ export function applyPatch(snapshot: GuiSnapshot, patch: GuiPatch): GuiSnapshot 
 	}
 	return {
 		...snapshot, ...patch.value, streamingMessage,
-		messages: patch.messages ? [...snapshot.messages.slice(0, patch.messages.keep), ...patch.messages.items] : snapshot.messages,
 		entries: patch.entries ? [...snapshot.entries.slice(0, patch.entries.keep), ...patch.entries.items] : snapshot.entries,
 	};
 }

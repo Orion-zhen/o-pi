@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { GuiEvent, GuiSessionInfo } from "../../src/gui/contract.ts";
 import { GuiChannel } from "../../src/gui/host/channel.ts";
-import { GuiPayloads } from "../../src/gui/host/payloads.ts";
 import { GuiReceiver, type GuiDelivery } from "../../src/gui/sync.ts";
 
 function connection() {
 	const deliveries: GuiDelivery[] = [];
 	const events: GuiEvent[] = [];
 	const receiver = new GuiReceiver();
-	const payloads = new GuiPayloads();
-	const channel = new GuiChannel(() => payloads, (delivery) => {
+	const channel = new GuiChannel((delivery) => {
 		const wire = JSON.parse(JSON.stringify(delivery)) as GuiDelivery;
 		deliveries.push(wire);
 		events.push(...wire.events.map((event) => receiver.accept(event)));

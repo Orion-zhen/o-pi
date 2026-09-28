@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Gauge, KeyRound, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Settings, Cpu } from "lucide-react";
-import type { SidebarView } from "./use-gui.ts";
+import type { SidebarView } from "./gui-controls.ts";
 import type { GuiAction } from "../contract.ts";
 import { SidebarWorkbench } from "./sidebar-workbench.tsx";
 import { IconButton } from "./components/icon-button";

@@ -1,3 +1,4 @@
+import { outputPreview } from "../messages.ts";
 import { memo } from "react";
 import { useDisclosureMemory } from "./disclosure-memory.ts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
@@ -25,7 +26,8 @@ const tools = {
 
 export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activity }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);
-	if (tool.name === "skill") return <SkillCard id={tool.id} name={isSkillLoadDetails(tool.output?.details) ? tool.output.details.name : toolTarget(tool.name, tool.args)}
+	const output = outputPreview(tool.output);
+	if (tool.name === "skill") return <SkillCard id={tool.id} name={isSkillLoadDetails(output?.details) ? output.details.name : toolTarget(tool.name, tool.args)}
 		loadedBy="agent" state={tool.state} output={tool.output} />;
 	const open = expanded ?? (tool.name === "subagent" && tool.state === "running");
 	const definition = Object.hasOwn(tools, tool.name) ? tools[tool.name as keyof typeof tools] : { label: tool.name || "工具调用", icon: Wrench };
@@ -34,7 +36,7 @@ export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activit
 	const Status = active ? LoaderCircle : tool.state === "completed" ? Check : tool.state === "failed" ? X
 		: tool.state === "stopped" ? CircleStop : CircleDashed;
 	const target = toolTarget(tool.name, tool.args);
-	const facts = toolFacts(tool);
+	const facts = tool.output?.kind === "reference" ? tool.output.facts : toolFacts({ ...tool, output });
 	const error = tool.state === "failed" ? errorSummary(tool) : "";
 	return (
 		<section className="tool-activity" data-state={tool.state} data-tool={tool.name} data-tool-call-id={tool.id}>
@@ -58,11 +60,10 @@ export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activit
 	&& before.tool.args === after.tool.args && before.tool.output === after.tool.output);
 
 function ToolBody({ tool }: { tool: Activity }) {
-	const details = tool.output?.details;
-	const id = record(details) && typeof details.guiOutputId === "string" ? details.guiOutputId : undefined;
+	const id = tool.output?.kind === "reference" ? tool.output.id : undefined;
 	const loaded = useToolOutput(id);
 	if (id && !loaded.value) return <p className="tool-note" role={loaded.error ? "alert" : "status"}>{loaded.error || "正在读取工具结果…"}</p>;
-	const resolved = loaded.value ? { ...tool, output: loaded.value } : tool;
+	const resolved = { ...tool, output: loaded.value ?? outputPreview(tool.output) };
 	return <div className="activity-body">
 		{tool.args !== undefined && <Disclosure className="tool-parameters" summary="参数" lazy><ParameterValue value={tool.args} /></Disclosure>}
 		<ToolResult tool={resolved} />
@@ -70,14 +71,15 @@ function ToolBody({ tool }: { tool: Activity }) {
 	</div>;
 }
 
-const RawToolData = memo(function RawToolData({ args, output }: Pick<Activity, "args" | "output">) {
+const RawToolData = memo(function RawToolData({ args, output }: { args: unknown; output: import("../messages.ts").ToolOutput | undefined }) {
 	return <pre>{pretty({ arguments: args, result: output })}</pre>;
 });
 
 function errorSummary(tool: Activity): string {
-	const details = tool.output?.details;
+	const output = outputPreview(tool.output);
+	const details = output?.details;
 	if (record(details) && record(details.error) && typeof details.error.message === "string") return clean(details.error.message);
-	const content = tool.output?.content;
+	const content = output?.content;
 	if (Array.isArray(content)) {
 		const first = content.find((block: unknown) => record(block) && block.type === "text");
 		if (record(first) && typeof first.text === "string") return clean(first.text).split("\n").find((line) => line.trim()) ?? "";

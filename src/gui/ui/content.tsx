@@ -1,3 +1,4 @@
+import type { GuiMessage } from "../messages.ts";
 import { Children, isValidElement, lazy, memo, Suspense, useDeferredValue, type ComponentProps, type ReactNode } from "react";
 import { MessageIdentity } from "./message-meta.tsx";
 import { CodeBlock } from "./code-block.tsx";
@@ -90,36 +91,34 @@ export function Content({ value }: { value: unknown }): ReactNode {
 			</Disclosure>
 		);
 	if (value.type === "image") {
-		const source = record(value.source) ? value.source : value;
-		const data = source.data;
-		const mime = source.mediaType ?? source.mimeType;
-		if (typeof data === "string" && typeof mime === "string" && /^image\/(png|jpeg|gif|webp)$/.test(mime))
-			return <SessionImage data={data} mime={mime} />;
+		if (typeof value.imageId === "string" && typeof value.mimeType === "string" && /^image\/(png|jpeg|gif|webp)$/.test(value.mimeType))
+			return <SessionImage id={value.imageId} mime={value.mimeType} />;
 		return <span>[无法显示的图片格式]</span>;
 	}
 	return <pre>{pretty(value)}</pre>;
 }
 
-export const Message = memo(function Message({ value, entryId }: { value: unknown; entryId?: string | undefined }) {
-	if (!record(value)) return <pre>{pretty(value)}</pre>;
-	const role = String(value.role ?? "message");
-	if (role === "custom" && value.display === false) return null;
-	if (role === "custom" && value.customType === SKILL_CONTEXT_MESSAGE && isSkillLoadDetails(value.details)) {
+export const Message = memo(function Message({ value, entryId }: { value: GuiMessage; entryId?: string | undefined }) {
+	const role = value.role;
+	if (value.role === "custom" && !value.display) return null;
+	if (value.role === "custom" && value.customType === SKILL_CONTEXT_MESSAGE && isSkillLoadDetails(value.details)) {
 		return <motion.article {...fade} className="message skill-message" data-entry-id={entryId}>
 			<SkillCard id={`message:${entryId ?? value.timestamp}`} name={value.details.name} loadedBy={value.details.loadedBy}
-				state="completed" output={{ content: value.content, details: value.details }} />
+				state="completed" output={{ kind: "inline", value: { content: value.content, details: value.details } }} />
 		</motion.article>;
 	}
 	return (
 		<motion.article {...fade} className={`message ${role}`} data-entry-id={entryId}>
 			{role === "user" && typeof value.timestamp === "number" && <MessageIdentity name="You" timestamp={value.timestamp} />}
-			{role !== "user" && <header><strong>{String(value.customType ?? role)}</strong></header>}
-			{role === "bashExecution" ? <>
-				{typeof value.command === "string" && <CodeBlock label="命令" language="bash" text={value.command} />}
-				{typeof value.output === "string" && <CodeBlock label="输出" text={clean(value.output)} />}
-			</> : role === "user" ? <div className="user-bubble"><Content value={value.content} /></div>
-				: <Content value={value.content ?? value.output ?? value.summary ?? value} />}
-			{typeof value.errorMessage === "string" && <pre className="error">{value.errorMessage}</pre>}
+			{role !== "user" && <header><strong>{value.role === "custom" ? value.customType : role}</strong></header>}
+			{value.role === "bashExecution" ? <>
+				<CodeBlock label="命令" language="bash" text={value.command} />
+				<CodeBlock label="输出" text={clean(value.output)} />
+			</> : value.role === "user" ? <div className="user-bubble"><Content value={value.content} /></div>
+				: value.role === "compactionSummary" || value.role === "branchSummary" ? <Content value={value.summary} />
+				: value.role === "toolResult" ? <Content value={value.output.kind === "inline" ? value.output.value.content : value.output.preview.content} />
+				: <Content value={value.content} />}
+			{value.role === "assistant" && value.errorMessage && <pre className="error">{value.errorMessage}</pre>}
 		</motion.article>
 	);
 });

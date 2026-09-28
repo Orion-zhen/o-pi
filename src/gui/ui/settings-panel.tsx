@@ -18,6 +18,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 	disabled: boolean; connected: boolean; refreshGuiConfig: () => Promise<void>; restoreFocus: () => void;
 	onDirty: (dirty: boolean) => void;
 }) {
+	useEffect(() => { void refreshGuiConfig(); }, [refreshGuiConfig]);
 	const [category, setCategory] = useState("appearance");
 	const [visited, setVisited] = useState<Set<string>>(() => new Set(["appearance"]));
 	const dirtyModules = useRef(new Set<ModuleConfigId>());
@@ -61,7 +62,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 				? <AgentSettings snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} />
 				: <p className="settings-empty">选择工作区后可修改会话设置。</p>
 				: id === "appearance" || id === "interaction"
-				? <GuiSettings section={id} document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} />
+				? <GuiSettings section={id} document={guiConfig} send={send} disabled={!connected} restoreFocus={restoreFocus} />
 				: <ModuleSettings id={id} query={globalQuery} send={send} disabled={!connected} onDirty={reportDirty} models={snapshot?.models ?? []} />)}
 		</Tabs.Content>)}
 	</Tabs.Root>;

@@ -43,13 +43,11 @@ export class GuiClient {
 		});
 	}
 	get runtime() { return this.execution.runtime; }
-	get dialogs() { return this.execution.dialogs; }
 	get execution(): GuiExecution {
 		const execution = this.selected?.execution;
 		if (!execution) throw new Error("会话尚未就绪。");
 		return execution;
 	}
-	snapshot() { return this.execution.snapshot(); }
 	emit(event: GuiEvent): void { for (const listener of this.listeners) listener(event); }
 	reportError(error: unknown): void { this.emit({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
 	subscribe(listener: (event: GuiEvent) => void): () => void {
@@ -63,7 +61,7 @@ export class GuiClient {
 		else listener({ type: "snapshot", value: null });
 	}
 	connect(send: (delivery: GuiDelivery) => void) {
-		const channel = new GuiChannel(() => this.execution.payloads, send);
+		const channel = new GuiChannel(send);
 		const receive = (event: GuiEvent) => channel.accept(event);
 		const unsubscribe = this.subscribe(receive);
 		this.replay(receive);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { applyEdits, modify } from "jsonc-parser";
@@ -15,14 +15,13 @@ import "./gui-settings.css";
 
 type PreferencePath = ["theme"] | ["themeColor"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"];
 
-export function GuiSettings({ section, document, send, disabled, refresh, restoreFocus }: {
+export function GuiSettings({ section, document, send, disabled, restoreFocus }: {
 	section: "appearance" | "interaction";
-	document: GuiConfigDocument | undefined; send: Send; disabled: boolean; refresh: () => Promise<void>; restoreFocus: () => void;
+	document: GuiConfigDocument | undefined; send: Send; disabled: boolean; restoreFocus: () => void;
 }) {
 	const [saving, setSaving] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const localFonts = useLocalFonts();
-	useEffect(() => { void refresh(); }, [refresh]);
 	if (!document) return <p role="status">正在读取 GUI 设置…</p>;
 	const save = async (content: string) => {
 		setSaving(true);

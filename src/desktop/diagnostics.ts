@@ -72,7 +72,7 @@ export class DesktopDiagnostics {
 			else {
 				const snapshot = event.type === "snapshot" ? event.value : undefined;
 				const patch = event.type === "patch" ? event : undefined;
-				const user = (snapshot?.messages ?? patch?.messages?.items)?.findLast((message) => message.role === "user");
+				const user = (snapshot?.entries ?? patch?.entries?.items)?.flatMap((entry) => entry.messages).findLast((message) => message.role === "user");
 				const sessionId = snapshot?.sessionId ?? patch?.sessionId;
 				if (!user || user.role !== "user" || !sessionId) continue;
 				fields = { phase: "user_snapshot", sessionId, userTimestamp: user.timestamp, full: event.type === "snapshot" };

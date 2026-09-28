@@ -1,25 +1,19 @@
-import { sessionEntryToContextMessages, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { toolAvailableOnCurrentPlatform } from "../../harness/tool-defaults/controller.ts";
 import type { GuiSnapshot } from "../contract.ts";
 import { guiModel } from "./runtime.ts";
 import { builtinCommands } from "./commands.ts";
-import { PRUNE_STATE, parsePruneState } from "../../harness/prune/prune.ts";
+import type { GuiHistory } from "./history.ts";
+import type { GuiPayloads } from "./payloads.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
-	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "status"
+	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "bashOutput"
 >;
 
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
-export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState): GuiSnapshot {
+export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads): GuiSnapshot {
 	const { session, services, cwd } = runtime;
-	const entries = session.sessionManager.getEntries();
-	const prunedToolCallIdsByEntry: Record<string, string[]> = {};
-	for (const entry of entries) {
-		if (entry.type !== "custom" || entry.customType !== PRUNE_STATE) continue;
-		const state = parsePruneState(entry.data);
-		if (state) prunedToolCallIdsByEntry[entry.id] = state.toolCallIds;
-	}
 	const active = new Set(session.getActiveToolNames());
 	const commands = new Map<string, { name: string; description: string }>();
 	for (const command of [
@@ -44,10 +38,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		retrying: session.isRetrying,
 		running: !session.isIdle || session.isBashRunning || presentation.commandRunning,
 		// context_edit 只改变模型上下文，聊天区继续展示原始历史。
-		messages: session.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages),
-		streamingMessage: session.state.streamingMessage ?? null,
-		entries,
-		prunedToolCallIdsByEntry,
+		...history.project(session.sessionManager),
+		streamingMessage: payloads.stream(session.state.streamingMessage ?? null),
 		model: session.model ? guiModel(session.model) : null,
 		models: services.modelRuntime.getAvailableSnapshot().map(guiModel),
 		scopedModels: session.scopedModels.map(({ model }) => `${model.provider}/${model.id}`),

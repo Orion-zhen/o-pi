@@ -1,9 +1,7 @@
 import { memo, useMemo, useCallback, useState } from "react";
 import { ArrowRight, BookOpen, Check, GitBranch, ListCollapse, Tag, X } from "lucide-react";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
+import { entryMessage, type GuiEntry, type GuiMessage, type GuiTreeNode } from "../messages.ts";
 import { clean } from "./content.tsx";
-import { entryMessage } from "./transcript-location.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../harness/skill-context/types.ts";
 import { isSkillLoadDetails, skillLoaders } from "../skill-facts.ts";
 import type { Send } from "./connection.ts";
@@ -13,14 +11,14 @@ import { useVirtualRows } from "./use-virtual-rows.ts";
 import "./session-tree.css";
 
 interface GraphRow {
-	node: SessionTreeNode;
+	node: GuiTreeNode;
 	lane: number;
 	rails: number[];
 	incoming: boolean;
 	outgoing: number[];
 }
 
-function graphRows(roots: SessionTreeNode[]): GraphRow[] {
+function graphRows(roots: GuiTreeNode[]): GraphRow[] {
 	const pending: Omit<GraphRow, "outgoing">[] = roots.map((node) => ({ node, lane: 0, rails: [], incoming: false })).reverse();
 	const rows: GraphRow[] = [];
 	while (true) {
@@ -41,7 +39,7 @@ function graphRows(roots: SessionTreeNode[]): GraphRow[] {
 	return rows;
 }
 
-export const SessionTree = memo(function SessionTree({ value, send, locate }: { value: SessionTreeNode[]; send: Send; locate: (id: string) => void }) {
+export const SessionTree = memo(function SessionTree({ value, send, locate }: { value: GuiTreeNode[]; send: Send; locate: (id: string) => void }) {
 	const rows = useMemo(() => graphRows(value), [value]);
 	const getKey = useCallback((index: number) => (rows[index] as GraphRow).node.entry.id, [rows]);
 	const list = useVirtualRows<HTMLDivElement>(rows.length, getKey, 32);
@@ -70,7 +68,7 @@ function Graph({ row }: { row: GraphRow }) {
 	);
 }
 
-function entryTitle(entry: SessionEntry, message: AgentMessage | undefined): string {
+function entryTitle(entry: GuiEntry, message: GuiMessage | undefined): string {
 	if (entry.type === "compaction") return "上下文摘要";
 	if (entry.type === "branch_summary") return "分支摘要";
 	if (entry.type === "custom_message") return "扩展消息";
@@ -85,9 +83,9 @@ function entryTitle(entry: SessionEntry, message: AgentMessage | undefined): str
 	}
 }
 
-function MessagePreview({ message }: { message: AgentMessage | undefined }) {
+function MessagePreview({ message }: { message: GuiMessage | undefined }) {
 	const value = !message ? "" : message.role === "bashExecution" ? message.command
-		: message.role === "compactionSummary" || message.role === "branchSummary" ? message.summary : message.content;
+		: message.role === "compactionSummary" || message.role === "branchSummary" ? message.summary : message.role === "toolResult" ? "" : message.content;
 	const content = typeof value === "string" ? value : value.flatMap((block) => {
 		if (block.type === "text") return [block.text];
 		return block.type === "image" ? ["[图片]"] : [];
@@ -127,7 +125,7 @@ function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate:
 						if (ok) setEditing(false);
 					}).finally(() => setSaving(false));
 				}}>
-					<Input autoFocus name="label" aria-label="分支标签" placeholder="添加分支标签" disabled={saving} defaultValue={node.label ?? ""} />
+					<Input autoFocus name="label" aria-label="分支标签" placeholder="添加分支标签" disabled={saving} defaultValue={entry.label ?? ""} />
 					<IconButton label="保存标签" size="icon-xs" type="submit" disabled={saving}><Check /></IconButton>
 					<IconButton label="取消编辑" size="icon-xs" disabled={saving} onClick={() => setEditing(false)}><X /></IconButton>
 				</form>
@@ -136,7 +134,7 @@ function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate:
 					<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}>
 						{skill ? <p className="tree-message-preview" title={skillPreview}>{skillPreview}</p> : <MessagePreview message={message} />}
 					</button>
-					{node.label && <span className="tree-label" title={node.label}>{node.label}</span>}
+					{entry.label && <span className="tree-label" title={entry.label}>{entry.label}</span>}
 					<div className="tree-row-actions">
 						<IconButton label="切换到此处" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}><ArrowRight /></IconButton>
 						<IconButton label="总结后切换" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: true })}><ListCollapse /></IconButton>

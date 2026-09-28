@@ -13,9 +13,9 @@ import { completeCommand, runBuiltin } from "./commands.ts";
 import { openView } from "./views.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
 import { persistModelScope, setModelScope } from "./models.ts";
-import { GuiSessionInfo } from "./session-info.ts";
-import type { ReadSessionInfo } from "./extensions.ts";
+import { GuiReports } from "./reports.ts";
 import { GuiPayloads } from "./payloads.ts";
+import { GuiHistory } from "./history.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -28,7 +28,6 @@ type Listener = (event: GuiEvent) => void;
 /** 可整体释放的 SDK 执行资源。导航和会话身份由 GuiSession 持有。 */
 export class GuiExecution {
 	private current: AgentSessionRuntime | undefined;
-	private readSessionInfo: ReadSessionInfo | undefined;
 	private history = new UserHistoryStore();
 	private historyTexts: string[] = [];
 	private historyWarned = false;
@@ -40,6 +39,8 @@ export class GuiExecution {
 	private commandController = new AbortController();
 	private messageTiming = new MessageTiming();
 	readonly payloads = new GuiPayloads();
+	private guiHistory = new GuiHistory(this.payloads);
+	private bashOutput = "";
 	private liveTools = new Map<string, GuiSnapshot["liveTools"][number]>();
 	private disposed = false;
 	private tasks = new Set<Promise<unknown>>();
@@ -47,8 +48,8 @@ export class GuiExecution {
 	private toolController: ToolSelectionController | undefined;
 	private loginController: AbortController | undefined;
 	private origin = new AsyncLocalStorage<SessionClient>();
-	private info = new GuiSessionInfo(
-		(value) => this.emit({ type: "sessionInfo", value }),
+	private reports = new GuiReports(
+		(event) => this.emit(event),
 		(error) => this.dialogs.notify(`会话信息读取失败: ${error instanceof Error ? error.message : String(error)}`, "error"),
 	);
 	readonly dialogs = new GuiDialogs((event) => {
@@ -89,14 +90,14 @@ export class GuiExecution {
 	observe(value: boolean): void {
 		if (value === this.observed) return;
 		this.observed = value;
-		if (value) this.scheduleInfo(); else this.info.invalidate();
+		if (value) this.scheduleReports(); else this.reports.invalidate();
 	}
 
 	replay(listener: Listener): void {
 		listener({ type: "dialogs", value: this.dialogs.list() });
 		listener({ type: "notices", value: [...this.dialogs.notices] });
 		listener({ type: "snapshot", value: this.current ? this.snapshot() : null });
-		if (this.info.value) listener({ type: "sessionInfo", value: this.info.value });
+		this.reports.replay(listener);
 	}
 
 	private track<T>(task: Promise<T>): Promise<T> {
@@ -113,7 +114,7 @@ export class GuiExecution {
 					emit: (event) => this.emit(event),
 					bindTools: (controller) => { this.toolController = controller; },
 					commandSignal: () => this.commandController.signal,
-					bindSessionInfo: (read) => { this.readSessionInfo = read; },
+					reports: this.reports,
 					approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
 					trackBackground: (task, cancel) => {
 						this.background.add(cancel);
@@ -144,10 +145,13 @@ export class GuiExecution {
 			this.messageTiming.accept(event);
 			if (event.type === "message_start" && event.message.role === "user") this.submitted();
 			if (event.type === "message_update") {
-				this.emit({ type: "stream", sessionId: session.sessionId, value: event.message });
+				this.emit({ type: "stream", sessionId: session.sessionId, value: this.payloads.stream(event.message) });
 				return;
 			}
-			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") this.liveTools.set(event.toolCallId, event);
+			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") this.liveTools.set(event.toolCallId, {
+				toolCallId: event.toolCallId, toolName: event.toolName, args: structuredClone(event.args),
+				output: event.type === "tool_execution_update" ? this.payloads.output(event.toolName, structuredClone(event.partialResult)) : undefined,
+			});
 			if (event.type === "tool_execution_end") this.liveTools.delete(event.toolCallId);
 			if (event.type === "agent_end" || event.type === "session_info_changed") this.refreshSessions();
 			this.schedule();
@@ -180,22 +184,22 @@ export class GuiExecution {
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
 			liveTools: [...this.liveTools.values()], messageDurations: { ...this.messageTiming.durations },
-			history: this.historyTexts, status: { ...this.dialogs.status },
-		});
+			history: this.historyTexts, bashOutput: this.bashOutput,
+		}, this.guiHistory, this.payloads);
 	}
 	private schedule(): void {
 		if (!this.timer && !this.disposed) this.timer = setTimeout(() => { this.timer = undefined; this.publish(); }, 0);
 	}
-	private scheduleInfo(): void {
-		if (!this.disposed && !this.changing && this.current && this.readSessionInfo && this.observed)
-			this.info.schedule(this.current.session, this.readSessionInfo);
+	private scheduleReports(): void {
+		if (!this.disposed && !this.changing && this.current && this.observed)
+			this.reports.schedule(this.current.session, this.liveTools.size);
 	}
 	publish(): void {
 		if (this.disposed) return;
 		this.changed();
 		if (this.observed) {
 			this.emit({ type: "snapshot", value: this.current ? this.snapshot() : null });
-			this.scheduleInfo();
+			this.scheduleReports();
 		}
 	}
 
@@ -277,7 +281,7 @@ export class GuiExecution {
 	async change<T>(operation: () => Promise<T>): Promise<T> {
 		if (this.changing || !this.idle) throw new Error("请先停止或等待当前操作结束。");
 		this.changing = true;
-		this.info.invalidate();
+		this.reports.invalidate();
 		this.publish();
 		try { return await operation(); } finally { this.changing = false; this.publish(); }
 	}
@@ -297,7 +301,7 @@ export class GuiExecution {
 			if (action.text.startsWith("!")) {
 				this.submitted();
 				await session.executeBash(action.text.replace(/^!!?/, ""), (chunk) => {
-					this.dialogs.status["bash"] = ((this.dialogs.status["bash"] ?? "") + chunk).slice(-64_000);
+					this.bashOutput = (this.bashOutput + chunk).slice(-64_000);
 					this.schedule();
 				}, { excludeFromContext: action.text.startsWith("!!") });
 			} else {
@@ -308,7 +312,7 @@ export class GuiExecution {
 				});
 			}
 		} finally {
-			delete this.dialogs.status["bash"];
+			this.bashOutput = "";
 			this.preparing--;
 			this.refreshSessions();
 			this.publish();
@@ -360,7 +364,7 @@ export class GuiExecution {
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
-		const infoClosed = this.info.dispose();
+		const infoClosed = this.reports.dispose();
 		for (const cancel of this.background) cancel();
 		clearTimeout(this.timer);
 		this.loginController?.abort(); this.commandController.abort(); this.dialogs.cancel();

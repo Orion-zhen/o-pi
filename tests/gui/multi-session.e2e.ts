@@ -158,7 +158,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 			await expect(row(title).locator('.activity-border[data-activity="running"]')).toHaveCount(1);
 			await expect(row(title).getByRole("button", { name: `删除会话 ${title}`, exact: true })).toHaveCount(0);
 		}
-		await expect(workspaceButton).toHaveAttribute("data-attention", "false");
+		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "idle");
 		await expectActivityTrail(row("任务 A").locator(".activity-border"));
 		await navigation(page).screenshot({ path: info.outputPath("sessions-running.png") });
 		await page.emulateMedia({ reducedMotion: "reduce" });
@@ -173,7 +173,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(workspaceButton.locator(".approval-marker")).toHaveCount(0);
 		await expect(aRow.locator(".activity-border")).toHaveCount(0);
 		await expect(aRow.getByRole("button", { name: `移除工作区 ${cwd}`, exact: true })).toHaveCount(0);
-		await expect(workspaceButton).toHaveAttribute("data-attention", "true");
+		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "running");
 		await page.emulateMedia({ reducedMotion: "reduce" });
 		await expect.poll(() => aRow.locator(".workspace-option-status").evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("none");
 		await page.keyboard.press("Escape");
@@ -270,7 +270,8 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(row("任务 A2").getByRole("button", { name: "删除会话 任务 A2", exact: true })).toHaveCount(1);
 		await navigation(page).screenshot({ path: info.outputPath("session-unread.png") });
 		await picker(page);
-		await expect(aRow.locator('.workspace-option-status[data-activity="unread"]')).toHaveCount(1);
+		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "unread");
+		await expect(aRow.locator(".lucide-check")).toHaveCount(1);
 		await expect(aRow.getByRole("option")).toHaveAttribute("aria-selected", "true");
 		await page.keyboard.press("Escape");
 		await row("任务 A").getByRole("button", { name: "任务 A", exact: true }).click();

@@ -1,3 +1,4 @@
+import { outputPreview } from "../messages.ts";
 import { replyMetrics } from "../message-metrics.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../harness/skill-context/types.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -35,7 +36,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** 每条用户消息开启一组，直接按消息顺序投影。工具结果按调用 ID 关联。 */
-export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: ReadonlySet<string> = noPrunedToolCallIds): TranscriptRow[] {
+export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: ReadonlySet<string> = noPrunedToolCallIds, offset = 0): TranscriptRow[] {
 	const messages = source.streamingMessage ? [...source.messages, source.streamingMessage] : source.messages;
 	const lastAssistant = messages.findLastIndex((message) => message.role === "assistant");
 	const results = new Map(messages.flatMap((message) => message.role === "toolResult" ? [[message.toolCallId, message] as const] : []));
@@ -52,8 +53,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 	function activity(id: string, name: string, args: unknown, idle: ToolState, messageIndex: number): TranscriptItem {
 		const result = results.get(id);
 		const event = live.get(id);
-		const partial: unknown = event?.type === "tool_execution_update" ? event.partialResult : undefined;
-		const details: unknown = result?.details;
+		const details = outputPreview(result?.output)?.details;
 		const state = result
 			? isRecord(details) && details.status === "aborted" ? "stopped" : result.isError ? "failed" : "completed"
 			: event ? "running" : idle;
@@ -61,34 +61,35 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			key: `tool:${id}`, kind: "tool", messageIndex, pruned: prunedToolCallIds.has(id),
 			tool: {
 				id, name, args, state,
-				output: result ?? (isRecord(partial) ? { content: partial.content, details: partial.details } : undefined),
+				output: result?.output ?? event?.output,
 			},
 		};
 	}
 	messages.forEach((message, index) => {
 		const role: string = message.role;
 		if (role === "system") return;
-		const key = `message:${index}:${message.timestamp}`;
-		const standalone: TranscriptRow = { key, kind: "message", messageIndex: index, message };
+		const messageIndex = index + offset;
+		const key = `message:${messageIndex}:${message.timestamp}`;
+		const standalone: TranscriptRow = { key, kind: "message", messageIndex, message };
 		if (message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary"
 			|| (message.role === "custom" && message.customType === SKILL_CONTEXT_MESSAGE && message.display !== false)) {
 			if (current && message.role === "user") current.followedByUser = true;
 			rows.push(standalone);
 			current = undefined;
-			if (message.role === "user") begin(`user:${index}:${message.timestamp}`);
+			if (message.role === "user") begin(`user:${messageIndex}:${message.timestamp}`);
 			return;
 		}
 		if (!current && message.role === "custom") {
 			if (message.display !== false) rows.push(standalone);
 			return;
 		}
-		const reply = current ?? begin(`history:${index}:${message.timestamp}`);
-		reply.messageIndices.push(index);
+		const reply = current ?? begin(`history:${messageIndex}:${message.timestamp}`);
+		reply.messageIndices.push(messageIndex);
 		if (message.role === "toolResult") {
 			// 压缩或导入的历史可能只保留结果，仍允许查看。
-			if (!calls.has(message.toolCallId)) reply.items.push(activity(message.toolCallId, message.toolName, undefined, "unavailable", index));
+			if (!calls.has(message.toolCallId)) reply.items.push(activity(message.toolCallId, message.toolName, undefined, "unavailable", messageIndex));
 		} else if (message.role === "assistant") {
-			reply.lastAssistant = { message, index };
+			reply.lastAssistant = { message, index: messageIndex };
 			reply.assistants.push(message);
 			const streaming = message === source.streamingMessage;
 			const model = source.models.find((model) => model.provider === message.provider && model.id === message.model);
@@ -99,20 +100,20 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 				if (block.type === "toolCall") {
 					const idle = message.stopReason === "aborted" ? "stopped" : streaming ? "preparing"
 						: source.streaming && index === lastAssistant ? "pending" : "unavailable";
-					reply.items.push(activity(block.id, block.name, block.arguments, idle, index));
+					reply.items.push(activity(block.id, block.name, block.arguments, idle, messageIndex));
 				} else if (block.type === "thinking") {
 					if (block.thinking && !block.redacted) reply.items.push({
-						key: blockKey, messageIndex: index, kind: "thinking", text: block.thinking,
+						key: blockKey, messageIndex, kind: "thinking", text: block.thinking,
 						active: streaming && blockIndex === message.content.length - 1,
 					});
-				} else if (block.text.trim()) reply.items.push({ key: blockKey, messageIndex: index, blockIndex, kind: "text", text: block.text, active: streaming, identity, metrics });
+				} else if (block.text.trim()) reply.items.push({ key: blockKey, messageIndex, blockIndex, kind: "text", text: block.text, active: streaming, identity, metrics });
 			});
-			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex: index, kind: "error", text: message.errorMessage });
+			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex, kind: "error", text: message.errorMessage });
 		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);
 	});
 	for (const event of source.liveTools) {
 		if (!calls.has(event.toolCallId) && !results.has(event.toolCallId))
-			(current ?? begin("live")).items.push(activity(event.toolCallId, event.toolName, event.args, "running", messages.length));
+			(current ?? begin("live")).items.push(activity(event.toolCallId, event.toolName, event.args, "running", messages.length + offset));
 	}
 	return rows.flatMap((row): TranscriptRow[] => {
 		if (row.kind === "message") return [row];

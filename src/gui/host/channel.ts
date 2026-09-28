@@ -1,7 +1,6 @@
 import { diffList } from "../list-patch.ts";
 import type { GuiEvent, GuiSnapshot, GuiSessionInfo, GuiWorkspaceInfo } from "../contract.ts";
 import { diffSnapshot, type GuiDelivery, type GuiWireEvent } from "../sync.ts";
-import type { GuiPayloads } from "./payloads.ts";
 
 /** 有界发送窗口允许连续推送。窗口满时保留最新状态，不积压 token 事件。 */
 export class GuiChannel {
@@ -16,21 +15,21 @@ export class GuiChannel {
 	private scheduled = false;
 	private closed = false;
 
-	constructor(private payloads: () => GuiPayloads, private send: (delivery: GuiDelivery) => void) {}
+	constructor(private send: (delivery: GuiDelivery) => void) {}
 
 	accept(event: GuiEvent): void {
 		if (this.closed) return;
 		if (event.type === "snapshot") {
-			this.current = event.value ? this.payloads().snapshot(event.value) : null;
+			this.current = event.value;
 			this.dirty = true;
 		} else if (event.type === "stream") {
 			if (!this.current || this.current.sessionId !== event.sessionId) return;
-			this.current = { ...this.current, streamingMessage: this.payloads().stream(event.value) };
+			this.current = { ...this.current, streamingMessage: event.value };
 			this.dirty = true;
 		} else {
-			if (["selected", "activity", "sessionInfo", "sessions", "workspaces", "dialogs", "guiConfig", "notices"].includes(event.type))
+			if (["selected", "activity", "sessionStats", "telemetry", "sessions", "workspaces", "dialogs", "guiConfig", "notices"].includes(event.type))
 				this.pending = this.pending.filter((item) => item.type !== event.type);
-			this.pending.push(event.type === "sessionInfo" ? { ...event, value: this.payloads().project(event.value) } : event);
+			this.pending.push(event);
 		}
 		this.schedule();
 	}

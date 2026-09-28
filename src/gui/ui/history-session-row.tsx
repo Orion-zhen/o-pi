@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Fade } from "./components/animated";
 import { fade, settle } from "./lib/motion";
 import { MessageSquare, Pencil, Shield } from "lucide-react";
 import type { Send } from "./connection.ts";
+import type { SessionListItem } from "./session-list.ts";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { ConfirmAction } from "./confirm-action.tsx";
@@ -11,10 +12,13 @@ import { ActivityBorder } from "./activity-border.tsx";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" });
 
-export function HistorySessionRow({ path, title, modified, selected, disabled, busy, waiting, unread, send, open, animated = true }: {
-	path: string | null; title: string; modified?: string | undefined; selected: boolean; disabled: boolean; busy: boolean; waiting: boolean; unread: boolean;
-	send: Send; open: () => void; animated?: boolean;
+export const HistorySessionRow = memo(function HistorySessionRow({ item, disabled, send, open, animated }: {
+	item: SessionListItem; disabled: boolean; send: Send; open: (item: SessionListItem) => void; animated: boolean;
 }) {
+	const { path, title, modified, selected, activity } = item;
+	const busy = activity !== undefined && activity.state !== "idle";
+	const waiting = activity?.state === "waiting";
+	const unread = activity?.unread === true;
 	const [editing, setEditing] = useState(false);
 	const [pending, setPending] = useState(false);
 	const state = waiting ? "waiting" : busy ? "running" : unread ? "unread" : "idle";
@@ -27,7 +31,7 @@ export function HistorySessionRow({ path, title, modified, selected, disabled, b
 			void send({ action: "renameSession", path, name }).finally(() => setPending(false));
 		}} /> : <Button variant="ghost" className="history-session" aria-label={title}
 			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || pending}
-			title={modified ? `${title}\n${new Date(modified).toLocaleString("zh-CN")}` : title} onClick={open}>
+			title={modified ? `${title}\n${new Date(modified).toLocaleString("zh-CN")}` : title} onClick={() => open(item)}>
 			{waiting ? <Shield className="approval-marker" fill="currentColor" role="img" aria-label="等待审批" /> : <MessageSquare />}<span className="history-session-title">{title}</span>
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
 		</Button>}
@@ -40,4 +44,4 @@ export function HistorySessionRow({ path, title, modified, selected, disabled, b
 	</>;
 	const props = { className: "history-session-row overlay-list-row activity-frame", "data-current": selected, "data-editing": editing };
 	return animated ? <Fade layout="position" transition={{ ...fade.transition, layout: settle }} {...props}>{content}</Fade> : <div {...props}>{content}</div>;
-}
+});

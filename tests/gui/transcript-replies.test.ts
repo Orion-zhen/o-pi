@@ -21,6 +21,13 @@ const manualSkill = {
 const replies = (value: ReturnType<typeof source>) => transcriptReplies(value).filter((row) => row.kind === "reply");
 
 describe("整轮处理过程折叠", () => {
+	it("扩展消息分隔调用和结果时，历史与当前分组仍只展示一个已完成工具", () => {
+		const snapshot = source({ messages: [user, assistant([call]), manualSkill, result, assistant([text("完成")], "stop")] });
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
+		const tools = document.querySelectorAll('[data-tool-call-id="read-1"]');
+		expect(tools).toHaveLength(1);
+		expect(tools[0]?.getAttribute("data-state")).toBe("completed");
+	});
 	it("裁剪后立即标记过程和思考工具折叠栏，恢复后移除标记", () => {
 		const second = { ...call, id: "read-2" };
 		const secondResult = { ...result, toolCallId: second.id };
@@ -190,7 +197,7 @@ describe("整轮处理过程折叠", () => {
 		const noFinal = replies(source({ messages: [user, assistant([text("开始检查"), call]), result, assistant([], "stop")] }));
 		expect(noFinal[0]).toMatchObject({ state: "incomplete", tracking: false, answer: [] });
 		const orphan = replies(source({ messages: [result] }));
-		expect(orphan[0]?.process).toMatchObject([{ kind: "tool", tool: { output: result } }]);
+		expect(orphan[0]?.process).toMatchObject([{ kind: "tool", tool: { output: { kind: "inline", value: { content: result.content, details: result.details } } } }]);
 		const document = parseHTML(renderWithMemory(createElement(Transcript, {
 			source: source({ messages: [result] }), clear: () => {},
 		}))).document;

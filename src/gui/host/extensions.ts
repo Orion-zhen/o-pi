@@ -1,23 +1,22 @@
-import type { ExtensionCommandContext, InlineExtension } from "@earendil-works/pi-coding-agent";
+import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import { extensions } from "../../harness/extensions.ts";
 import { collectContextStats } from "../../harness/extensions/stats.ts";
 import systemPrompt from "../../harness/extensions/system-prompt.ts";
 import usage from "../../harness/extensions/usage.ts";
 import { registerTelemetry } from "../../harness/telemetry/service.ts";
 import { createLiveTelemetryReport } from "../../harness/telemetry-report/live.ts";
-import { filterSessionTreeNoTools } from "./session-tree.ts";
 import { createSubagentExtension } from "../../harness/extensions/subagent.ts";
 import { createToolsExtension } from "../../harness/extensions/cmd-slash-tools.ts";
 import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
 import type { GuiDialogs } from "./dialogs.ts";
-import type { GuiEvent, GuiSessionDetails } from "../contract.ts";
+import type { GuiEvent } from "../contract.ts";
+import type { GuiReports } from "./reports.ts";
 import { createApprovalGate } from "../../harness/approval/runtime/gate.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../harness/approval/rules/store.ts";
 import approvalGate from "../../harness/extensions/approval-gate.ts";
 import autoTitle from "../../harness/extensions/auto-title.ts";
 import { lspManager, registerLspCommands } from "../../harness/lsp/index.ts";
 
-export type ReadSessionInfo = (ctx: ExtensionCommandContext) => Promise<GuiSessionDetails>;
 export interface GuiExtensionBindings {
 	dialogs: GuiDialogs;
 	approvalStores: ApprovalStores;
@@ -26,10 +25,10 @@ export interface GuiExtensionBindings {
 	emit(event: GuiEvent): void;
 	bindTools(controller: ToolSelectionController): void;
 	commandSignal(): AbortSignal;
-	bindSessionInfo(read: ReadSessionInfo): void;
+	reports: GuiReports;
 }
 
-export function createGuiExtensions({ dialogs, emit, bindTools, commandSignal, bindSessionInfo, approvalStores, approvalRules, trackBackground }: GuiExtensionBindings): InlineExtension[] {
+export function createGuiExtensions({ dialogs, emit, bindTools, commandSignal, reports, approvalStores, approvalRules, trackBackground }: GuiExtensionBindings): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "auto-title", factory: (pi) => autoTitle(pi, trackBackground) },
 		{ name: "approval-gate", factory: (pi) => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }, createApprovalGate(approvalStores, approvalRules)) },
@@ -48,10 +47,13 @@ export function createGuiExtensions({ dialogs, emit, bindTools, commandSignal, b
 		},
 		{
 			name: "stats",
-			factory: (pi) => pi.registerCommand("stats", {
-				description: "Show current session stats.",
-				handler: async () => emit({ type: "sessionTab", tab: "stats" }),
-			}),
+			factory: (pi) => {
+				reports.bindStats((ctx) => collectContextStats(ctx, pi));
+				pi.registerCommand("stats", {
+					description: "Show current session stats.",
+					handler: async () => emit({ type: "sessionTab", tab: "stats" }),
+				});
+			},
 		},
 		{
 			name: "system-prompt",
@@ -73,12 +75,7 @@ export function createGuiExtensions({ dialogs, emit, bindTools, commandSignal, b
 					description: "Show telemetry of current session.",
 					handler: async () => emit({ type: "sessionTab", tab: "telemetry" }),
 				});
-				bindSessionInfo(async (ctx) => ({
-					sessionId: ctx.sessionManager.getSessionId(),
-					tree: filterSessionTreeNoTools(ctx.sessionManager.getTree(), ctx.sessionManager.getLeafId()),
-					telemetry: createLiveTelemetryReport(service.snapshot()),
-					stats: await collectContextStats(ctx, pi),
-				}));
+				reports.bindTelemetry(() => createLiveTelemetryReport(service.snapshot()));
 			},
 		},
 		{

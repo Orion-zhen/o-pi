@@ -25,7 +25,7 @@ const document = (element: Parameters<typeof renderWithMemory>[0], memory?: Map<
 	parseHTML(renderWithMemory(element, memory)).document;
 
 function renderTool(state: ToolState = "completed", output: { content: unknown; details?: unknown } | undefined = state === "completed" ? result : undefined) {
-	return document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state, output } }));
+	return document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state, output: output ? { kind: "inline", value: output } : undefined } }));
 }
 
 describe("技能语义展示", () => {
@@ -65,7 +65,7 @@ describe("技能语义展示", () => {
 	});
 
 	it("展开显示来源、根路径和 Markdown 正文，不显示披露标签或默认展示哈希", () => {
-		const doc = document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state: "completed", output: result } }),
+		const doc = document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state: "completed", output: { kind: "inline", value: result } } }),
 			new Map([[`skill:${call.id}`, true]]));
 		expect(doc.querySelector(".skill-metadata")?.textContent).toContain("用户技能");
 		expect(doc.querySelector(".skill-metadata")?.textContent).toContain("skill://debugging");
@@ -87,12 +87,11 @@ describe("技能语义展示", () => {
 	it("大体积结果的首屏保留技能状态，正文仍通过原有接口按需读取", () => {
 		const payloads = new GuiPayloads();
 		const full = { ...result, details: { ...details, chars: body.length * 10_000 }, content: [{ type: "text" as const, text: formatSkillDisclosure(details.name, body.repeat(10_000)) }] };
-		const projected = payloads.project<ToolResultMessage>(full);
-		expect(projected.details).toMatchObject({ name: "debugging", loadedBy: "agent", deduplicated: false, guiOutputId: expect.any(String) });
-		const doc = renderTool("completed", projected);
+		const projected = payloads.message(full);
+		if (projected.role !== "toolResult" || projected.output.kind !== "reference") throw new Error("缺少载荷引用");
+		expect(projected.output.preview.details).toMatchObject({ name: "debugging", loadedBy: "agent", deduplicated: false });
+		const doc = document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state: "completed", output: projected.output } }));
 		expect(doc.querySelector(".activity-state > svg")).not.toBeNull();
-		const preview = projected.details;
-		if (typeof preview !== "object" || preview === null || !("guiOutputId" in preview) || typeof preview.guiOutputId !== "string") throw new Error("缺少载荷 ID");
-		expect(payloads.toolOutput(preview.guiOutputId)).toEqual({ content: full.content, details: full.details });
+		expect(payloads.toolOutput(projected.output.id)).toEqual({ content: full.content, details: full.details });
 	});
 });

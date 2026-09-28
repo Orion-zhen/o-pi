@@ -7,7 +7,7 @@ import type { ToolActivity } from "../../src/gui/ui/transcript-items.ts";
 import { agentDetails, agentRun, fetchDetails, searchDetails } from "./rich-tool-fixtures.ts";
 
 function render(name: string, details: unknown, state: ToolActivity["state"] = "completed") {
-	const tool: ToolActivity = { id: "rich-tool", name, args: {}, state, output: { content: [], details } };
+	const tool = { id: "rich-tool", name, args: {}, state, output: { content: [], details } };
 	return parseHTML(renderToStaticMarkup(createElement(ToolResult, { tool }))).document;
 }
 

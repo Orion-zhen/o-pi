@@ -21,16 +21,16 @@ export function queueTests(context: () => { host: GuiClient; agentDir: string })
 			});
 			const task = host.dispatch({ action: "prompt", text: "读取文件并写入结果", images: [], behavior: "followUp" });
 			try {
-				await expect.poll(() => host.dialogs.list().length).toBe(1);
-				const initial = host.snapshot();
+				await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+				const initial = host.execution.snapshot();
 				await host.dispatch({ action: "prompt", text: "第一条引导", images: [], behavior: "steer" });
 				await expect.poll(() => received.at(-1)?.queue).toEqual({ steering: ["第一条引导"], followUp: [] });
-				const first = host.snapshot();
+				const first = host.execution.snapshot();
 				await host.dispatch({ action: "prompt", text: "第二条引导", images: [], behavior: "steer" });
 				await host.dispatch({ action: "prompt", text: "跟进消息", images: [], behavior: "followUp" });
 				const queued = { steering: ["第一条引导", "第二条引导"], followUp: ["跟进消息"] };
 				await expect.poll(() => received.at(-1)?.queue).toEqual(queued);
-				const beforeClear = host.snapshot();
+				const beforeClear = host.execution.snapshot();
 				await host.dispatch({ action: "clearQueue" });
 				await expect.poll(() => received.at(-1)?.queue).toEqual({ steering: [], followUp: [] });
 				expect(initial.queue).toEqual({ steering: [], followUp: [] });

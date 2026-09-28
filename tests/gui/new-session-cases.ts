@@ -1,3 +1,4 @@
+import { readSnapshot } from "./read-snapshot.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -26,7 +27,7 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			await host.dispatch(prompt("/skill:oops"));
 			const previous = host.selected;
 			expect(previous?.pending).toBe(true);
-			expect(JSON.stringify(host.snapshot().messages)).toContain("UNIQUE_SKILL_BODY");
+			expect(JSON.stringify(readSnapshot(host).messages)).toContain("UNIQUE_SKILL_BODY");
 			await host.dispatch({ action: "draft", text: "尚未发送" });
 			const events: GuiEvent[] = [];
 			const unsubscribe = host.subscribe((event) => events.push(event));
@@ -34,9 +35,9 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			finally { unsubscribe(); }
 			expect(host.selected).not.toBe(previous);
 			expect(host.selected?.pending).toBe(true);
-			expect(host.snapshot().messages).toEqual([]);
+			expect(readSnapshot(host).messages).toEqual([]);
 			expect(host.runtime.session.sessionManager.getBranch().some((entry) => JSON.stringify(entry).includes("oops"))).toBe(false);
-			expect(host.readDraft(host.snapshot().sessionId)).toBe("尚未发送");
+			expect(host.readDraft(readSnapshot(host).sessionId)).toBe("尚未发送");
 			expect(events).toContainEqual(expect.objectContaining({ type: "selected", draftFrom: previous?.id }));
 			expect(host.host.sessions.size).toBe(1);
 		});
@@ -50,7 +51,7 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			expect(host.runtime).not.toBe(runtime);
 			expect(host.host.sessions.size).toBe(1);
 			expect(rows(host)).toEqual([]);
-			const file = host.snapshot().sessionFile;
+			const file = readSnapshot(host).sessionFile;
 			if (!file) throw new Error("缺少待发送会话路径");
 			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 		});
@@ -61,8 +62,8 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			await host.dispatch({ action: "model", provider: "gui-fixture", id: "second" });
 			await host.dispatch(prompt("/model"));
 			await host.dispatch(prompt("/new"));
-			expect(host.readDraft(host.snapshot().sessionId)).toBe("尚未发送");
-			expect(host.snapshot().model?.id).toBe("second");
+			expect(host.readDraft(readSnapshot(host).sessionId)).toBe("尚未发送");
+			expect(readSnapshot(host).model?.id).toBe("second");
 			expect(rows(host)).toEqual([]);
 		});
 
@@ -74,7 +75,7 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			await host.dispatch({ action: "openSession", path: file });
 			await host.dispatch({ action: "new" });
 			expect(host.selected).not.toBe(pending);
-			expect(host.snapshot().model?.id).toBe("second");
+			expect(readSnapshot(host).model?.id).toBe("second");
 			expect(host.host.sessions.size).toBe(2);
 		});
 
@@ -100,14 +101,14 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 		it("不同客户端从正式会话新建时不共享待发送配置", async () => {
 			const { host } = context();
 			await host.dispatch(prompt("!printf original"));
-			const id = host.snapshot().sessionId;
+			const id = readSnapshot(host).sessionId;
 			const second = host.host.createClient(id);
 			try {
 				await second.dispatch({ action: "openSession", id });
 				await Promise.all([host.dispatch({ action: "new" }), second.dispatch({ action: "new" })]);
 				expect(host.selected).not.toBe(second.selected);
 				await host.dispatch({ action: "model", provider: "gui-fixture", id: "second" });
-				expect(second.snapshot().model?.id).toBe("test");
+				expect(readSnapshot(second).model?.id).toBe("test");
 				await Promise.all([host.dispatch({ action: "new" }), second.dispatch({ action: "new" })]);
 				expect(host.host.sessions.size).toBe(3);
 				expect(rows(host)).toHaveLength(1);
@@ -116,7 +117,7 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 
 		it("首条消息进入列表，从正式会话并发新建只准备一个空白页", async () => {
 			const { host } = context();
-			const id = host.snapshot().sessionId;
+			const id = readSnapshot(host).sessionId;
 			await host.dispatch(prompt("第一条真实消息"));
 			await host.dispatch({ action: "sessions" });
 			expect(rows(host)).toHaveLength(1);

@@ -1,14 +1,14 @@
 import { useRef } from "react";
 import { BookOpen, Download, Ellipsis, FileJson, Terminal, Upload } from "lucide-react";
 import type { GuiPanel } from "../contract.ts";
-import type { GuiView } from "./use-gui.ts";
+import type { GuiControls } from "./gui-controls.ts";
 import { IconButton } from "./components/icon-button";
 import {
 	DropdownMenu, DropdownMenuContent, DropdownMenuItem,
 	DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
 
-export function SessionActions({ gui }: { gui: GuiView }) {
+export function SessionActions({ gui }: { gui: Pick<GuiControls, "canSubmit" | "canChangeSession" | "send" | "setPanel"> }) {
 	const panel = useRef<GuiPanel | undefined>(undefined);
 	return <DropdownMenu>
 		<DropdownMenuTrigger asChild>

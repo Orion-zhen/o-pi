@@ -1,3 +1,4 @@
+import { readSnapshot } from "./read-snapshot.ts";
 import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -24,7 +25,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			host.replay((event) => replay.push(event));
 			expect(replay.find((event) => event.type === "workspaceRoot")).toEqual({ type: "workspaceRoot", path: cwd });
 			await expect(host.query({ query: "directories", path: path.join(cwd, "input.txt") })).rejects.toMatchObject({ code: "ENOTDIR" });
-			expect(host.snapshot().cwd).toBe(child);
+			expect(readSnapshot(host).cwd).toBe(child);
 		});
 
 		it("移除失效工作区删除全部会话，重启后入口不再出现", async () => {
@@ -78,14 +79,14 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 		it("重命名未打开的历史不会切换会话，拒绝索引之外的文件", async () => {
 			const { host, cwd, agentDir, events } = context();
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture", name: "待改名" });
-			const before = host.snapshot();
+			const before = readSnapshot(host);
 			await host.dispatch({ action: "renameSession", path: file, name: "历史新名称" });
-			expect(host.snapshot().sessionId).toBe(before.sessionId);
-			expect(host.snapshot().messages).toEqual(before.messages);
+			expect(readSnapshot(host).sessionId).toBe(before.sessionId);
+			expect(readSnapshot(host).messages).toEqual(before.messages);
 			expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toContainEqual(expect.objectContaining({ path: file, title: "历史新名称" }));
 			await host.dispatch({ action: "openSession", path: file });
 			await host.dispatch({ action: "renameSession", path: file, name: "当前新名称" });
-			expect(host.snapshot().name).toBe("当前新名称");
+			expect(readSnapshot(host).name).toBe("当前新名称");
 			const source = path.join(cwd, "source.jsonl");
 			await writeFile(source, "project data\n");
 			await expect(host.dispatch({ action: "renameSession", path: source, name: "不允许" })).rejects.toThrow("历史记录已不存在");
@@ -101,69 +102,70 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			const { host } = context();
 			const action = (text: string) => ({ action: "prompt" as const, text, images: [], behavior: "followUp" as const });
 			await host.dispatch(action("执行工具"));
-			const calls = host.snapshot().messages.flatMap((message) => message.role === "assistant"
+			const calls = readSnapshot(host).messages.flatMap((message) => message.role === "assistant"
 				? message.content.flatMap((block) => block.type === "toolCall" ? [block.id] : []) : []);
 			if (calls.length === 0) throw new Error("测试会话没有工具调用");
 			await host.dispatch(action("/prune force"));
-			const pruned = host.snapshot();
+			const pruned = readSnapshot(host);
 			expect([...locateTranscript(pruned, undefined).prunedToolCallIds]).toEqual(calls.sort());
 			await host.dispatch(action("/prune restore"));
-			const restored = host.snapshot();
+			const restored = readSnapshot(host);
 			expect([...locateTranscript(restored, undefined).prunedToolCallIds]).toEqual([]);
-			const checkpoint = Object.keys(pruned.prunedToolCallIdsByEntry).at(-1);
+			const checkpoint = pruned.entries.findLast((entry) => entry.prunedToolCallIds !== undefined)?.id;
 			if (!checkpoint) throw new Error("缺少裁剪记录");
 			expect([...locateTranscript(restored, checkpoint).prunedToolCallIds]).toEqual(calls.sort());
 		});
 
 		it("会话信息在回复、标签、新建和重载后自动更新，重连获得当前数据", async () => {
 			const { host, events } = context();
-			const latest = () => events.filter((event) => event.type === "sessionInfo").at(-1)?.value;
+			const latest = () => events.findLast((event) => event.type === "sessionStats");
+			const telemetry = () => events.findLast((event) => event.type === "telemetry");
 			await host.dispatch({ action: "prompt", text: "执行工具", images: [], behavior: "followUp" });
 			await expect.poll(latest).toMatchObject({
-				sessionId: host.snapshot().sessionId,
-				stats: { session: { userTurns: 1 }, tools: { calls: 2 } },
-				telemetry: { session_id: host.snapshot().sessionId, pending_calls: 0 },
+				sessionId: readSnapshot(host).sessionId,
+				value: { session: { userTurns: 1 }, tools: { calls: 2 } },
 			});
+			await expect.poll(telemetry).toMatchObject({ sessionId: readSnapshot(host).sessionId, value: { session_id: readSnapshot(host).sessionId, pending_calls: 0 } });
 			const replay: GuiEvent[] = [];
 			host.replay((event) => replay.push(event));
-			expect(replay.find((event) => event.type === "sessionInfo")?.value).toEqual(latest());
-			const user = host.snapshot().entries.find((entry) => entry.type === "message" && entry.message.role === "user");
+			expect(replay.find((event) => event.type === "sessionStats")).toEqual(latest());
+			const user = readSnapshot(host).entries.find((entry) => entry.type === "message" && entry.messages[0]?.role === "user");
 			if (!user) throw new Error("缺少用户消息");
 			await host.dispatch({ action: "label", entryId: user.id, label: "定位标记" });
-			await expect.poll(() => JSON.stringify(latest()?.tree)).toContain("定位标记");
+			expect(readSnapshot(host).entries.find((entry) => entry.id === user.id)?.label).toBe("定位标记");
 			await host.dispatch({ action: "new" });
 			await host.dispatch({ action: "reload" });
-			await expect.poll(latest).toMatchObject({ sessionId: host.snapshot().sessionId, tree: [], stats: { session: { userTurns: 0 }, tools: { calls: 0 } } });
+			await expect.poll(latest).toMatchObject({ sessionId: readSnapshot(host).sessionId, value: { session: { userTurns: 0 }, tools: { calls: 0 } } });
 		});
 
 		it("压缩摘要可直接定位，已压缩的旧消息仍可只读预览", async () => {
 			const { host } = context();
 			await host.dispatch({ action: "prompt", text: "待压缩的旧消息", images: [], behavior: "followUp" });
-			const before = host.snapshot();
-			const user = before.entries.find((entry) => entry.type === "message" && entry.message.role === "user");
-			const answer = before.entries.findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
+			const before = readSnapshot(host);
+			const user = before.entries.find((entry) => entry.type === "message" && entry.messages[0]?.role === "user");
+			const answer = before.entries.findLast((entry) => entry.type === "message" && entry.messages[0]?.role === "assistant");
 			if (!before.sessionFile || !user || !answer) throw new Error("缺少持久化消息");
 			await host.dispatch({ action: "new" });
 			const manager = SessionManager.open(before.sessionFile);
 			const summary = manager.appendCompaction("压缩摘要", answer.id, 100);
 			await host.dispatch({ action: "openSession", path: before.sessionFile });
-			const snapshot = host.snapshot();
+			const snapshot = readSnapshot(host);
 			const current = locateTranscript(snapshot, summary);
 			expect(current.preview).toBe(false);
 			expect(current.entryIds).toContain(summary);
 			const old = locateTranscript(snapshot, user.id);
 			expect(old.preview).toBe(true);
 			expect(old.entryIds).toContain(user.id);
-			expect(JSON.stringify(old.source.messages)).toContain("待压缩的旧消息");
-			expect(host.snapshot().leafId).toBe(summary);
+			expect(JSON.stringify(old.messages)).toContain("待压缩的旧消息");
+			expect(readSnapshot(host).leafId).toBe(summary);
 		});
 
 		it("聊天定位使用持久化条目 ID，旧分支只读预览而不改变活动分支", async () => {
 			const { host } = context();
 			await host.dispatch({ action: "prompt", text: "第一条分支", images: [], behavior: "followUp" });
-			const snapshot = host.snapshot();
-			const user = snapshot.entries.find((entry) => entry.type === "message" && entry.message.role === "user");
-			const answer = snapshot.entries.findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
+			const snapshot = readSnapshot(host);
+			const user = snapshot.entries.find((entry) => entry.type === "message" && entry.messages[0]?.role === "user");
+			const answer = snapshot.entries.findLast((entry) => entry.type === "message" && entry.messages[0]?.role === "assistant");
 			if (!user || !answer) throw new Error("缺少消息条目");
 			const active = locateTranscript(snapshot, answer.id);
 			expect(active.preview).toBe(false);
@@ -171,14 +173,14 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			expect(active.entryIds).toContain(answer.id);
 			await host.dispatch({ action: "navigate", entryId: user.id, summarize: false });
 			await host.dispatch({ action: "prompt", text: "另一条分支", images: [], behavior: "followUp" });
-			const current = host.snapshot();
+			const current = readSnapshot(host);
 			const preview = locateTranscript(current, answer.id);
 			expect(preview.preview).toBe(true);
 			expect(preview.entryIds).toContain(answer.id);
-			expect(JSON.stringify(preview.source.messages)).toContain("第一条分支");
-			expect(JSON.stringify(preview.source.messages)).not.toContain("另一条分支");
-			expect(host.snapshot().leafId).toBe(current.leafId);
-			expect(locateTranscript(current, undefined).source.messages).toEqual(current.messages);
+			expect(JSON.stringify(preview.messages)).toContain("第一条分支");
+			expect(JSON.stringify(preview.messages)).not.toContain("另一条分支");
+			expect(readSnapshot(host).leafId).toBe(current.leafId);
+			expect(locateTranscript(current, undefined).messages).toEqual(current.messages);
 		});
 	});
 }

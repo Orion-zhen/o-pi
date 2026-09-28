@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, Folder, X } from "lucide-react";
 import type { GuiDirectories } from "../contract.ts";
-import type { GuiView } from "./use-gui.ts";
+import type { SidebarView } from "./gui-controls.ts";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { IconButton } from "./components/icon-button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
 
 export function DirectoryBrowser({ gui, initial, select, close }: {
-	gui: Pick<GuiView, "globalQuery" | "error" | "setError">; initial: string; select: (path: string) => Promise<void>; close: () => void;
+	gui: Pick<SidebarView, "globalQuery" | "error" | "setError">; initial: string; select: (path: string) => Promise<void>; close: () => void;
 }) {
 	const [path, setPath] = useState(initial);
 	const [filter, setFilter] = useState("");

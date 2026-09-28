@@ -1,6 +1,6 @@
 import { ArrowUpRight, Code2, FolderSearch, Terminal } from "lucide-react";
 import type { GuiSnapshot } from "../contract.ts";
-import type { GuiView } from "./use-gui.ts";
+import type { GuiControls, EditorControls } from "./gui-controls.ts";
 import { Button } from "./components/ui/button";
 import { modelSetup } from "./model-setup.ts";
 
@@ -10,7 +10,7 @@ const starters = [
 	{ icon: Terminal, title: "开始构建", text: "我想实现一个新功能，请先了解项目并和我讨论实现方案。" },
 ];
 
-export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: GuiView }) {
+export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: Pick<GuiControls, "canChangeSession" | "setPanel"> & EditorControls }) {
 	const setup = modelSetup(snapshot);
 	return <>
 		<div className="welcome-mark"><span className="app-logo" role="img" aria-label="opi" /></div>

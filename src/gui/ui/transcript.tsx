@@ -6,9 +6,10 @@ import { Disclosure } from "./components/disclosure";
 import { Message } from "./content.tsx";
 import { skillCount } from "./skill-summary.tsx";
 import { MessageIdentity, ReplyMetrics } from "./message-meta.tsx";
-import { ReplyItems, sameItems, useAutoFold } from "./transcript-sections.tsx";
+import { ReplyItems, useAutoFold } from "./transcript-sections.tsx";
 import type { TranscriptSource } from "./transcript-items.ts";
-import { transcriptReplies, type TranscriptReply, type TranscriptRow } from "./transcript-replies.ts";
+import type { TranscriptReply, TranscriptRow } from "./transcript-replies.ts";
+import { useTranscriptRows } from "./use-transcript-rows.ts";
 import { NoticeGroupContent, type NoticeGroup } from "./notices";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { useVirtualRows } from "./use-virtual-rows.ts";
@@ -30,8 +31,8 @@ export const Transcript = memo(function Transcript({ source, entryIds = noIds, g
 	windowRef?: RefObject<Virtualizer<HTMLElement, HTMLElement> | null>;
 	prunedToolCallIds?: ReadonlySet<string>;
 }) {
+	const replies = useTranscriptRows(source, prunedToolCallIds);
 	const rows = useMemo(() => {
-		const replies = transcriptReplies(source, prunedToolCallIds);
 		const rows: Row[] = [...replies];
 		let inserted = 0;
 		for (const group of groups) {
@@ -43,12 +44,11 @@ export const Transcript = memo(function Transcript({ source, entryIds = noIds, g
 			rows.splice(index + inserted++, 0, { kind: "notices", key: `notices:${group.anchor}`, group });
 		}
 		return rows;
-	}, [source, groups, prunedToolCallIds]);
+	}, [replies, groups]);
 	const targetIndex = useMemo(() => {
 		if (!target) return -1;
-		const index = entryIds.indexOf(target);
-		return index < 0 ? -1 : rows.findIndex((row) => row.kind === "message" ? row.messageIndex === index
-			: row.kind === "reply" && row.messageIndices.includes(index));
+		return rows.findIndex((row) => row.kind === "message" ? entryIds[row.messageIndex] === target
+			: row.kind === "reply" && row.messageIndices.some((index) => entryIds[index] === target));
 	}, [rows, entryIds, target]);
 	const getKey = useCallback((index: number) => (rows[index] as Row).key, [rows]);
 	const list = useVirtualRows<HTMLDivElement>(rows.length, getKey, 220, {
@@ -119,10 +119,4 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 		</div>}
 		{!running && reply.identity && <ReplyMetrics metrics={reply.metrics} />}
 	</motion.section>;
-}, (before, after) => before.reply.state === after.reply.state && before.reply.tracking === after.reply.tracking
-	&& before.reply.retrying === after.reply.retrying && before.reply.error === after.reply.error
-	&& JSON.stringify(before.reply.identity) === JSON.stringify(after.reply.identity)
-	&& JSON.stringify(before.reply.metrics) === JSON.stringify(after.reply.metrics)
-	&& sameItems(before.reply.process, after.reply.process) && sameItems(before.reply.answer, after.reply.answer)
-	&& before.reply.messageIndices.length === after.reply.messageIndices.length
-	&& before.reply.messageIndices.every((index, i) => index === after.reply.messageIndices[i] && before.entryIds[index] === after.entryIds[index]));
+});

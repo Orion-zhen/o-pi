@@ -1,3 +1,4 @@
+import { readSnapshot } from "./read-snapshot.ts";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +17,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 		it("重连时缓存失效也先重放目标导航，不回退到空工作区", async () => {
 			const { host } = context();
 			await host.dispatch(prompt("保存 A"));
-			const a = host.snapshot();
+			const a = readSnapshot(host);
 			if (!a.sessionFile) throw new Error("缺少会话文件");
 			await host.dispatch({ action: "new" });
 			SessionManager.open(a.sessionFile).appendSessionInfo("来自 TUI 的标题");
@@ -26,7 +27,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				reconnect.replay((event) => events.push(event));
 				expect(events.find((event) => event.type === "selected")).toEqual({ type: "selected", session: { id: a.sessionId, cwd: a.cwd, path: a.sessionFile } });
 				await reconnect.dispatch({ action: "openSession", id: a.sessionId });
-				expect(reconnect.snapshot().name).toBe("来自 TUI 的标题");
+				expect(readSnapshot(reconnect).name).toBe("来自 TUI 的标题");
 			} finally { reconnect.close(); }
 		});
 
@@ -50,31 +51,31 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			expect(logical.execution).toBeUndefined();
 			await host.dispatch({ action: "openSession", path: file });
 			expect(host.selected).toBe(logical);
-			expect(host.snapshot().sessionId).toBe(logical.id);
+			expect(readSnapshot(host).sessionId).toBe(logical.id);
 		});
 
 		it("A 等待审批时 B 可完成 Shell，切回只显示 A 的审批并消费一次", async () => {
 			const { host: first, agentDir } = context();
 			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
-			const original = first.snapshot().sessionId;
+			const original = readSnapshot(first).sessionId;
 			const task = first.dispatch(prompt("任务 A"));
-			await expect.poll(() => first.dialogs.list().length).toBe(1);
-			const approval = first.dialogs.list()[0];
+			await expect.poll(() => first.execution.dialogs.list().length).toBe(1);
+			const approval = first.execution.dialogs.list()[0];
 			if (!approval) throw new Error("缺少审批");
 			const second = first.host.createClient();
 			const events: GuiEvent[] = [];
 			second.subscribe((event) => events.push(event));
 			try {
 				await second.dispatch({ action: "new" });
-				expect(first.snapshot().sessionId).toBe(original);
-				expect(second.dialogs.list()).toEqual([]);
+				expect(readSnapshot(first).sessionId).toBe(original);
+				expect(second.execution.dialogs.list()).toEqual([]);
 				await second.dispatch(prompt("!printf independent-B"));
-				expect(JSON.stringify(second.snapshot().messages)).toContain("independent-B");
-				expect(JSON.stringify(first.snapshot().messages)).not.toContain("independent-B");
-				expect(first.dialogs.list()[0]?.id).toBe(approval.id);
+				expect(JSON.stringify(readSnapshot(second).messages)).toContain("independent-B");
+				expect(JSON.stringify(readSnapshot(first).messages)).not.toContain("independent-B");
+				expect(first.execution.dialogs.list()[0]?.id).toBe(approval.id);
 				await second.dispatch({ action: "openSession", id: original });
 				expect(second.runtime).toBe(first.runtime);
-				expect(second.dialogs.list()[0]?.id).toBe(approval.id);
+				expect(second.execution.dialogs.list()[0]?.id).toBe(approval.id);
 				await second.dispatch({ action: "dialog", id: approval.id, value: "Allow once" });
 				await task;
 				await expect(first.dispatch({ action: "dialog", id: approval.id, value: "Allow once" })).rejects.toThrow("已结束");
@@ -86,20 +87,20 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 		it("停止 B 不取消后台 A，停止后旧审批不能恢复任务", async () => {
 			const { host, agentDir } = context();
 			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
-			const a = host.snapshot().sessionId;
+			const a = readSnapshot(host).sessionId;
 			const first = host.dispatch(prompt("等待批准的 A"));
-			await expect.poll(() => host.dialogs.list().length).toBe(1);
-			const approval = host.dialogs.list()[0];
+			await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+			const approval = host.execution.dialogs.list()[0];
 			if (!approval) throw new Error("缺少审批");
 			await host.dispatch({ action: "new" });
-			const b = host.snapshot().sessionId;
+			const b = readSnapshot(host).sessionId;
 			const second = host.dispatch(prompt("!printf running-B; sleep 30"));
 			try {
-				await expect.poll(() => host.snapshot().status["bash"]).toContain("running-B");
+				await expect.poll(() => readSnapshot(host).bashOutput).toContain("running-B");
 				await host.dispatch({ action: "abort" }, b);
 				await second;
 				await host.dispatch({ action: "openSession", id: a });
-				expect(host.dialogs.list()[0]?.id).toBe(approval.id);
+				expect(host.execution.dialogs.list()[0]?.id).toBe(approval.id);
 				await host.dispatch({ action: "abort" }, a);
 				await first;
 				await expect(host.dispatch({ action: "dialog", id: approval.id, value: "Allow once" }, a)).rejects.toThrow("已结束");
@@ -118,36 +119,36 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await host.dispatch({ action: "view", view: "system" });
 				expect(events.some((event) => event.type === "panel")).toBe(false);
 				await host.dispatch({ action: "new" });
-				expect(second.snapshot().sessionFile).toBe(file);
+				expect(readSnapshot(second).sessionFile).toBe(file);
 			} finally { second.close(); }
 		});
 
 		it("创建分支不替换另一页面仍在查看的父会话", async () => {
 			const { host } = context();
 			await host.dispatch(prompt("父会话"));
-			const snapshot = host.snapshot();
-			const user = snapshot.entries.find((entry) => entry.type === "message" && entry.message.role === "user");
+			const snapshot = readSnapshot(host);
+			const user = snapshot.entries.find((entry) => entry.type === "message" && entry.messages[0]?.role === "user");
 			if (!user) throw new Error("缺少分支起点");
 			const second = host.host.createClient(snapshot.sessionId);
 			try {
 				await second.dispatch({ action: "openSession", id: snapshot.sessionId });
 				await host.dispatch({ action: "fork", entryId: user.id });
-				expect(host.snapshot().sessionId).not.toBe(snapshot.sessionId);
-				expect(second.snapshot().sessionId).toBe(snapshot.sessionId);
-				expect(second.snapshot().messages).toEqual(snapshot.messages);
+				expect(readSnapshot(host).sessionId).not.toBe(snapshot.sessionId);
+				expect(readSnapshot(second).sessionId).toBe(snapshot.sessionId);
+				expect(readSnapshot(second).messages).toEqual(snapshot.messages);
 			} finally { second.close(); }
 		});
 
 		it("后台缓存的会话文件被删除后不能创建替代会话", async () => {
 			const { host } = context();
 			await host.dispatch(prompt("保存待删除历史"));
-			const original = host.snapshot();
+			const original = readSnapshot(host);
 			if (!original.sessionFile) throw new Error("缺少会话文件");
 			await host.dispatch({ action: "new" });
-			const current = host.snapshot().sessionId;
+			const current = readSnapshot(host).sessionId;
 			await rm(original.sessionFile);
 			await expect(host.dispatch({ action: "openSession", id: original.sessionId })).rejects.toMatchObject({ code: "ENOENT" });
-			expect(host.snapshot().sessionId).toBe(current);
+			expect(readSnapshot(host).sessionId).toBe(current);
 			await expect(readFile(original.sessionFile)).rejects.toMatchObject({ code: "ENOENT" });
 		});
 
@@ -157,14 +158,14 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			const cached: { id: string; instance: GuiClient["execution"] }[] = [];
 			for (let index = 0; index < 5; index++) {
 				await host.dispatch(prompt(`!printf cached-${index}`));
-				cached.push({ id: host.snapshot().sessionId, instance: host.execution });
+				cached.push({ id: readSnapshot(host).sessionId, instance: host.execution });
 				await host.dispatch({ action: "new" });
 				vi.setSystemTime(Date.now() + 1_000);
 			}
 			await host.host.collect();
 			for (const item of cached) expect(host.host.sessions.get(item.id)?.execution).toBe(item.instance);
 			vi.setSystemTime(Date.now() + 60_000);
-			const recent = { id: host.snapshot().sessionId, instance: host.execution };
+			const recent = { id: readSnapshot(host).sessionId, instance: host.execution };
 			await host.dispatch(prompt("!printf recent"));
 			await host.dispatch({ action: "new" });
 			const current = host.runtime;
@@ -178,10 +179,10 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 		it("超时实例未超过保留额度时，多次扫描仍不释放", async () => {
 			const { host } = context();
 			vi.useFakeTimers({ toFake: ["Date"] });
-			const a = { id: host.snapshot().sessionId, instance: host.execution };
+			const a = { id: readSnapshot(host).sessionId, instance: host.execution };
 			await host.dispatch(prompt("!printf cached-a"));
 			await host.dispatch({ action: "new" });
-			const b = { id: host.snapshot().sessionId, instance: host.execution };
+			const b = { id: readSnapshot(host).sessionId, instance: host.execution };
 			await host.dispatch(prompt("!printf cached-b"));
 			await host.dispatch({ action: "new" });
 			for (const elapsed of [60_000, 600_000]) {
@@ -200,7 +201,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			try {
 				await service.start(cwd);
 				vi.useFakeTimers({ toFake: ["Date"] });
-				const id = client.snapshot().sessionId;
+				const id = readSnapshot(client).sessionId;
 				const original = client.runtime;
 				const events: GuiEvent[] = [];
 				client.subscribe((event) => events.push(event));
@@ -213,20 +214,20 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await service.collect();
 				expect(events.some((event) => event.type === "snapshot")).toBe(false);
 				await client.dispatch({ action: "observe", visible: true });
-				expect(client.snapshot().sessionId).toBe(id);
+				expect(readSnapshot(client).sessionId).toBe(id);
 				expect(client.runtime).not.toBe(original);
-				expect(client.snapshot().messages).toEqual([]);
+				expect(readSnapshot(client).messages).toEqual([]);
 			} finally { await service.dispose(); }
 		});
 
 		it("保存缓存数量后按最近使用回收，删除覆盖后恢复默认策略", async () => {
 			const { host } = context();
 			vi.useFakeTimers({ toFake: ["Date"] });
-			const a = { id: host.snapshot().sessionId, runtime: host.runtime };
+			const a = { id: readSnapshot(host).sessionId, runtime: host.runtime };
 			await host.dispatch(prompt("!printf cached-a"));
 			await host.dispatch({ action: "new" });
 			vi.setSystemTime(Date.now() + 1_000);
-			const b = { id: host.snapshot().sessionId, runtime: host.runtime };
+			const b = { id: readSnapshot(host).sessionId, runtime: host.runtime };
 			await host.dispatch(prompt("!printf cached-b"));
 			await host.dispatch({ action: "new" });
 			const current = host.runtime;
@@ -257,7 +258,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			await host.dispatch({ action: "saveGuiConfig", original: "", content: '{"sessionCache":{"idleLimit":0,"idleMs":25}}' });
 			await expect.poll(() => slot.execution, { timeout: 3_000 }).toBeUndefined();
 			await host.dispatch({ action: "observe", visible: true });
-			expect(host.snapshot().sessionId).toBe(slot.id);
+			expect(readSnapshot(host).sessionId).toBe(slot.id);
 			expect(host.runtime).not.toBe(original);
 		});
 
@@ -272,7 +273,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await service.start(cwd);
 				vi.useFakeTimers({ toFake: ["Date"] });
 				const original = client.runtime;
-				const id = client.snapshot().sessionId;
+				const id = readSnapshot(client).sessionId;
 				expect(await client.query({ query: "guiConfig" })).toMatchObject({ path: process.env.PI_GUI_CONFIG, state: "error" });
 				await client.dispatch({ action: "observe", visible: false });
 				vi.setSystemTime(Date.now() + 60_000);
@@ -284,7 +285,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				vi.setSystemTime(Date.now() + 60_000);
 				await service.collect();
 				await client.dispatch({ action: "observe", visible: true });
-				expect(client.snapshot().sessionId).toBe(id);
+				expect(readSnapshot(client).sessionId).toBe(id);
 				expect(client.runtime).not.toBe(original);
 			} finally { await service.dispose(); }
 		});
@@ -298,11 +299,11 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			try {
 				await service.start(cwd);
 				vi.useFakeTimers({ toFake: ["Date"] });
-				const a = client.snapshot().sessionId;
+				const a = readSnapshot(client).sessionId;
 				const original = client.runtime;
 				const task = client.dispatch(prompt("首次写入"));
-				await expect.poll(() => client.dialogs.list().length).toBe(1);
-				const approval = client.dialogs.list()[0];
+				await expect.poll(() => client.execution.dialogs.list().length).toBe(1);
+				const approval = client.execution.dialogs.list()[0];
 				if (!approval) throw new Error("缺少审批");
 				await client.dispatch({ action: "new" });
 				vi.setSystemTime(Date.now() + 60_000);
@@ -312,16 +313,16 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await client.dispatch({ action: "dialog", id: approval.id, value: "Allow for session" });
 				await task;
 				await client.dispatch({ action: "scopeModels", models: ["gui-fixture/second", "gui-fixture/test"] });
-				const before = client.snapshot().messages;
+				const before = readSnapshot(client).messages;
 				await client.dispatch({ action: "new" });
 				vi.setSystemTime(Date.now() + 60_000);
 				await service.collect();
 				await client.dispatch({ action: "openSession", id: a });
 				expect(client.runtime).not.toBe(original);
-				expect(client.snapshot().messages).toEqual(before);
-				expect(client.snapshot().scopedModels).toEqual(["gui-fixture/second", "gui-fixture/test"]);
+				expect(readSnapshot(client).messages).toEqual(before);
+				expect(readSnapshot(client).scopedModels).toEqual(["gui-fixture/second", "gui-fixture/test"]);
 				await client.dispatch(prompt("相同路径再次写入"));
-				expect(client.dialogs.list()).toEqual([]);
+				expect(client.execution.dialogs.list()).toEqual([]);
 				expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI SDK result\n");
 				await client.dispatch({ action: "new" });
 				vi.setSystemTime(Date.now() + 60_000);
@@ -333,11 +334,11 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				provider.models = provider.models.filter((model) => model.id !== "second");
 				await writeFile(modelsFile, JSON.stringify(modelConfig));
 				await client.dispatch({ action: "openSession", id: a });
-				expect(client.snapshot().scopedModels).toEqual(["gui-fixture/test"]);
-				expect(client.snapshot().messages.length).toBeGreaterThan(before.length);
+				expect(readSnapshot(client).scopedModels).toEqual(["gui-fixture/test"]);
+				expect(readSnapshot(client).messages.length).toBeGreaterThan(before.length);
 				await client.dispatch({ action: "new" });
 				const separate = client.dispatch(prompt("新会话不继承授权"));
-				await expect.poll(() => client.dialogs.list().length).toBe(1);
+				await expect.poll(() => client.execution.dialogs.list().length).toBe(1);
 				await client.dispatch({ action: "abort" });
 				await separate;
 			} finally { await service.dispose(); }

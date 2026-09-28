@@ -2,6 +2,7 @@ import { test, expect } from "./fixture.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { startModelServer } from "../cli/model-server.ts";
+import { createCanvas } from "@napi-rs/canvas";
 import { exerciseModels } from "./model-steps.ts";
 import { exerciseComposerRunning, exerciseSuggestions } from "./composer-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
@@ -102,6 +103,24 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		const data = await page.evaluate((html) => new DOMParser().parseFromString(html, "text/html").getElementById("session-data")?.textContent, await readFile(exported, "utf8"));
 		expect(Buffer.from(data ?? "", "base64").toString("utf8")).toContain("GUI 验证完成");
 		expect(await page.evaluate(() => typeof (globalThis as Record<string, unknown>)["require"])).toBe("undefined");
+	});
+
+	test("会话图片通过引用按需加载，刷新后仍可显示", async ({ gui: { page } }) => {
+		await page.locator('.composer input[type="file"]').setInputFiles({
+			name: "pixel.png", mimeType: "image/png", buffer: createCanvas(2, 2).toBuffer("image/png"),
+		});
+		await expect(page.locator(".image-previews img")).toHaveCount(1);
+		const editor = page.getByRole("textbox", { name: "消息", exact: true });
+		await editor.fill("验证图片正文");
+		await editor.press("ControlOrMeta+Enter");
+		const image = page.locator(".message.user .attachment");
+		await expect(page.locator(".reply-answer")).toContainText("GUI 验证完成");
+		await image.scrollIntoViewIfNeeded();
+		await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(2);
+		await page.reload();
+		await expect(page.locator(".reply-answer")).toContainText("GUI 验证完成");
+		await image.scrollIntoViewIfNeeded();
+		await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(2);
 	});
 
 	test("模型选择与范围持久化", async ({ gui: { page }, workspace: { agentDir } }) => {

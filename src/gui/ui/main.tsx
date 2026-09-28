@@ -16,6 +16,7 @@ import {
 import { safeLink } from "./content.tsx";
 import { locateTranscript } from "./transcript-location.ts";
 import { Transcript } from "./transcript.tsx";
+import type { TranscriptSource } from "./transcript-items.ts";
 import { DisclosureMemoryContext } from "./disclosure-memory.ts";
 import { useTranscriptScroll } from "./use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
@@ -83,7 +84,11 @@ function App() {
 	const workspaceWelcome = useDelayed(!snapshot, 500);
 	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
 	const target = location?.sessionId === snapshot?.sessionId ? location?.entryId : undefined;
-	const located = useMemo(() => snapshot ? locateTranscript(snapshot, target) : undefined, [snapshot, target]);
+	const located = useMemo(() => snapshot ? locateTranscript(snapshot, target) : undefined, [snapshot?.entries, snapshot?.contextEntryIds, snapshot?.leafId, target]);
+	const source = useMemo<TranscriptSource | undefined>(() => snapshot && located ? {
+		...snapshot, messages: located.messages,
+		...(located.preview ? { streamingMessage: null, liveTools: [], streaming: false, retrying: false } : {}),
+	} : undefined, [snapshot, located]);
 	const memory = gui.view?.disclosures;
 	const completedAt = gui.activity.find((item) => item.sessionId === sessionId)?.completedAt ?? 0;
 	useEffect(() => {
@@ -253,14 +258,14 @@ function App() {
 										<Welcome snapshot={snapshot} gui={gui} />
 									</Fade>
 								)}
-								{snapshot && located && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
+								{snapshot && located && source && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
 									onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 									{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
-									<DisclosureMemoryContext value={memory}><Transcript source={located.source} entryIds={located.entryIds}
+									<DisclosureMemoryContext value={memory}><Transcript source={source} entryIds={located.entryIds}
 										prunedToolCallIds={located.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} windowRef={transcript.virtualizer} target={target} view={located.preview ? undefined : gui.view} /></DisclosureMemoryContext>
 								</Fade>}
 								</AnimatePresence>
-								<AnimatePresence initial={false}>{snapshot?.status["bash"] && <Reveal><pre className="live-output">{snapshot.status["bash"]}</pre></Reveal>}</AnimatePresence>
+								<AnimatePresence initial={false}>{snapshot?.bashOutput && <Reveal><pre className="live-output">{snapshot.bashOutput}</pre></Reveal>}</AnimatePresence>
 								<AnimatePresence initial={false}>{!inlineNotices && noticeGroups.map((group) =>
 									<NoticeGroupView key={group.anchor} group={group} live={group.anchor >= noticeTail} clear={clearNoticeGroup} />)}</AnimatePresence>
 							</div>
@@ -281,7 +286,7 @@ function App() {
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
-						{snapshot && <Composer key={snapshot.sessionId} gui={gui} snapshot={snapshot} onSubmit={transcript.followLatest} />}
+						{snapshot && gui.view && <Composer key={snapshot.sessionId} gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} />}
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
 						const sidebar = workspace.current?.querySelector<HTMLElement>(".session-sidebar");
@@ -303,7 +308,8 @@ function App() {
 					restoreFocus={restoreFocus}
 					panel={panel}
 					snapshot={snapshot}
-					sessionList={<SessionHistory gui={gui} close={() => gui.setPanel(undefined)} full />}
+					sessionList={<SessionHistory cwd={gui.cwd} sessionRows={gui.sessionRows} sessions={gui.sessions} sessionsLoading={gui.sessionsLoading}
+						refreshSessions={gui.refreshSessions} send={gui.send} canNavigate={gui.canNavigate} connected={gui.connected} close={gui.closePanel} full />}
 					send={send}
 					canChangeSession={gui.canChangeSession}
 					close={() => gui.setPanel(undefined)}

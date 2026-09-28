@@ -9,8 +9,9 @@ import { workspaceActivity, type SessionActivity } from "../../src/gui/ui/use-se
 
 function row(busy: boolean, waiting: boolean, unread: boolean) {
 	return parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, createElement(HistorySessionRow, {
-		path: "/sessions/task.jsonl", title: "任务 A", selected: false, disabled: false, busy, waiting, unread,
-		send: async () => true, open: () => {}, animated: false,
+		item: { key: "task", target: { id: "task" }, path: "/sessions/task.jsonl", title: "任务 A", selected: false, cwd: "/workspace", modified: "",
+			activity: activity("task", "/workspace", waiting ? "waiting" : busy ? "running" : "idle", unread) },
+		disabled: false, send: async () => true, open: () => {}, animated: false,
 	})))).document;
 }
 

@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
-import type { SidebarView } from "./use-gui.ts";
+import type { SidebarView } from "./gui-controls.ts";
 import type { SessionListItem } from "./session-list.ts";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
@@ -14,8 +14,8 @@ import "./sessions.css";
 const workspaceName = (cwd: string) => cwd.split(/[/\\]/).filter(Boolean).at(-1) || cwd || "未记录工作区";
 type HistoryGui = Pick<SidebarView, "cwd" | "sessionRows" | "sessions" | "sessionsLoading" | "refreshSessions" | "send" | "canNavigate" | "connected">;
 
-export function SessionHistory({ gui, close, full = false, search = "" }: {
-	gui: HistoryGui; close: () => void; full?: boolean; search?: string;
+export const SessionHistory = memo(function SessionHistory({ close, full = false, search = "", ...gui }: HistoryGui & {
+	close: () => void; full?: boolean; search?: string;
 }) {
 	const groups = useMemo(() => {
 		const result = new Map<string, SessionListItem[]>();
@@ -46,7 +46,7 @@ export function SessionHistory({ gui, close, full = false, search = "" }: {
 			})}
 		</ListScroll>
 	</section>;
-}
+});
 
 function SessionRows({ items, gui, close, search }: {
 	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: string;
@@ -54,18 +54,17 @@ function SessionRows({ items, gui, close, search }: {
 	const [switching, setSwitching] = useState(false);
 	const visible = useMemo(() => items.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [items, search]);
 	const list = useVirtualRows<HTMLDivElement>(visible.length, (index) => visible[index]?.key ?? "", 44);
+	const open = useCallback((item: SessionListItem) => {
+		close();
+		if (item.selected) return;
+		setSwitching(true);
+		void gui.send({ action: "openSession", ...item.target }).finally(() => setSwitching(false));
+	}, [close, gui.send]);
 	const rows = list.rows.map((row) => {
 		const item = visible[row.index];
 		if (!item) return null;
-		const activity = item.activity;
-		const content = <HistorySessionRow key={item.key} title={item.title} path={item.path} modified={item.modified || undefined}
-			selected={item.selected} disabled={switching || !gui.canNavigate} busy={activity !== undefined && activity.state !== "idle"}
-			waiting={activity?.state === "waiting"} unread={activity?.unread === true} send={gui.send} animated={!list.windowed} open={() => {
-				close();
-				if (item.selected) return;
-				setSwitching(true);
-				void gui.send({ action: "openSession", ...item.target }).finally(() => setSwitching(false));
-			}} />;
+		const content = <HistorySessionRow key={item.key} item={item} disabled={switching || !gui.canNavigate}
+			send={gui.send} animated={!list.windowed} open={open} />;
 		return list.windowed ? <div key={row.key} data-index={row.index} className="history-virtual-row" ref={list.virtualizer.measureElement} style={list.rowStyle(row.start)}>{content}</div> : content;
 	});
 	return <div ref={list.root} style={list.style} className="workspace-session-list">

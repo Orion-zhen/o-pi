@@ -1,11 +1,14 @@
 import { setHostServices } from "../harness/runtime/host-services.ts";
 import { openServiceChannel } from "./service-client.ts";
 import { createDesktopWebSocket } from "./websocket-client.ts";
+import type { BackendCommand } from "./backend-contract.ts";
+import type { ServiceInit } from "./services-contract.ts";
 
 export async function initializeDesktopWorker(): Promise<() => void> {
 	const port = await new Promise<Electron.MessagePortMain>((resolve) => {
 		const ready = ({ data, ports }: Electron.MessageEvent) => {
-			if (typeof data !== "object" || data === null || !("kind" in data) || data.kind !== "desktop-services") return;
+			const message = data as ServiceInit | BackendCommand;
+			if (message.kind !== "desktop-services") return;
 			const port = ports[0];
 			if (!port) throw new Error("Desktop services missing");
 			process.parentPort.removeListener("message", ready);

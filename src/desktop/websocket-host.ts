@@ -1,5 +1,5 @@
 import { net, type MessagePortMain } from "electron";
-import type { SocketCommand, SocketOptions } from "./services-contract.ts";
+import type { SocketCommand, SocketEvent, SocketOptions } from "./services-contract.ts";
 
 /** Chromium 保管连接，消息通道关闭时释放连接和发送进度计时器。 */
 export function serveWebSocket(port: MessagePortMain, url: string, options: SocketOptions): () => void {
@@ -11,17 +11,17 @@ export function serveWebSocket(port: MessagePortMain, url: string, options: Sock
 	let timer: NodeJS.Timeout | undefined;
 	const drain = () => {
 		if (socket.bufferedAmount !== 0) return;
-		port.postMessage({ kind: "drain", bytes: pendingBytes });
+		port.postMessage({ kind: "drain", bytes: pendingBytes } satisfies SocketEvent);
 		pendingBytes = 0;
 		clearInterval(timer);
 		timer = undefined;
 	};
-	socket.onopen = () => port.postMessage({ kind: "open", protocol: socket.protocol, extensions: socket.extensions });
-	socket.onmessage = (event: MessageEvent<string | ArrayBuffer>) => port.postMessage({ kind: "message", data: event.data });
-	socket.onerror = () => port.postMessage({ kind: "error", message: "WebSocket connection failed" });
+	socket.onopen = () => port.postMessage({ kind: "open", protocol: socket.protocol, extensions: socket.extensions } satisfies SocketEvent);
+	socket.onmessage = (event: MessageEvent<string | ArrayBuffer>) => port.postMessage({ kind: "message", data: event.data } satisfies SocketEvent);
+	socket.onerror = () => port.postMessage({ kind: "error", message: "WebSocket connection failed" } satisfies SocketEvent);
 	socket.onclose = (event: CloseEvent) => {
 		clearInterval(timer);
-		port.postMessage({ kind: "close", code: event.code, reason: event.reason, wasClean: event.wasClean });
+		port.postMessage({ kind: "close", code: event.code, reason: event.reason, wasClean: event.wasClean } satisfies SocketEvent);
 		port.close();
 	};
 	port.on("message", ({ data }: { data: SocketCommand }) => {
@@ -29,12 +29,12 @@ export function serveWebSocket(port: MessagePortMain, url: string, options: Sock
 			if (data.kind === "close") socket.close(data.code, data.reason);
 			else {
 				socket.send(data.data);
-				pendingBytes += data.bytes;
+				pendingBytes += typeof data.data === "string" ? Buffer.byteLength(data.data) : data.data.byteLength;
 				drain();
 				if (pendingBytes > 0) timer ??= setInterval(drain, 20);
 			}
 		} catch (error) {
-			port.postMessage({ kind: "error", message: String(error) });
+			port.postMessage({ kind: "error", message: String(error) } satisfies SocketEvent);
 			socket.close();
 		}
 	});

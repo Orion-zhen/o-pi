@@ -53,7 +53,7 @@ describe("待发送会话误加载技能", () => {
 		expect(pending?.pending).toBe(true);
 		await host.dispatch(prompt("/skill:oops"));
 		// 技能已被披露到当前 pending 会话
-		expect(host.snapshot().sessionFile).toBeTruthy();
+		expect(host.execution.snapshot().sessionFile).toBeTruthy();
 		// 用户点击新建，期望刷新掉误加载
 		await host.dispatch({ action: "new" });
 		expect(host.selected).not.toBe(pending);

@@ -70,10 +70,11 @@ test("浏览文件、读取 Git 差异并引用路径", async ({ gui: { page } }
 	await tree.getByRole("treeitem", { name: "src", exact: true }).click();
 	await tree.getByRole("treeitem", { name: "src/main.ts", exact: true }).click();
 	const preview = page.getByRole("complementary", { name: "会话信息", exact: true });
-	await expect(preview.locator(".file-preview-body")).toContainText("-export const answer = 1;");
+	await expect(preview.locator(".diff-code-delete")).toContainText("export const answer = 1;");
+	await expect(preview.locator(".diff-code-insert")).toContainText("export const answer = 42;");
 	await preview.getByRole("button", { name: "内容", exact: true }).click();
 	await expect(preview.locator(".file-preview-body")).toContainText("export const answer = 42;");
-	await expect(preview.locator(".file-preview-body")).not.toContainText("-export const answer = 1;");
+	await expect(preview.locator(".diff-code-delete")).toHaveCount(0);
 	await openFiles();
 	await navigation.getByRole("button", { name: "显示文件变更", exact: true }).click();
 	const changes = navigation.getByRole("list", { name: "工作区变更", exact: true });

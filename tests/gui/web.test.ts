@@ -19,7 +19,7 @@ let server: Awaited<ReturnType<typeof startWebServer>>;
 
 async function connect(url: string) {
 	const events: GuiEvent[] = [];
-	const ws = new WebSocket(`${url.replace("http", "ws")}/api/events?session=${local.snapshot().sessionId}`, { headers: { Origin: url } });
+	const ws = new WebSocket(`${url.replace("http", "ws")}/api/events?session=${local.execution.snapshot().sessionId}`, { headers: { Origin: url } });
 	const receiver = new GuiReceiver();
 	ws.on("message", (value) => {
 		const delivery = JSON.parse(value.toString()) as GuiDelivery;
@@ -55,7 +55,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { await server?.close(); await gui?.dispose(); });
 const headers = () => ({ Origin: server.url, "Content-Type": "application/json", "X-Opi-Client": peer.id });
-const body = (value: unknown, sessionId: string | null = local.snapshot().sessionId) => JSON.stringify({ value, sessionId });
+const body = (value: unknown, sessionId: string | null = local.execution.snapshot().sessionId) => JSON.stringify({ value, sessionId });
 
 describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 	it.each([
@@ -84,8 +84,8 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 				method: "POST", headers: { ...headers(), Origin: url, "X-Opi-Client": client.id }, body: body({ action: "draft", text: "LAN" }),
 			});
 			expect(response.status).toBe(204);
-			expect([...gui.clients].find((entry) => entry.id === client.id)?.readDraft(local.snapshot().sessionId)).toBe("LAN");
-			expect(local.readDraft(local.snapshot().sessionId)).toBe("");
+			expect([...gui.clients].find((entry) => entry.id === client.id)?.readDraft(local.execution.snapshot().sessionId)).toBe("LAN");
+			expect(local.readDraft(local.execution.snapshot().sessionId)).toBe("");
 		} finally { await lan.close(); }
 	});
 	it("WebSocket 拒绝跨站连接", async () => {
@@ -99,10 +99,10 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		expect(denied.status).toBe(403);
 		const crossSite = await fetch(`${server.url}/api/action`, { method: "POST", headers: { ...headers(), Origin: "https://evil.example" }, body: action });
 		expect(crossSite.status).toBe(403);
-		expect([...gui.clients].find((entry) => entry.id === peer.id)?.readDraft(local.snapshot().sessionId)).toBe("");
+		expect([...gui.clients].find((entry) => entry.id === peer.id)?.readDraft(local.execution.snapshot().sessionId)).toBe("");
 		const accepted = await fetch(`${server.url}/api/action`, { method: "POST", headers: headers(), body: action });
 		expect(accepted.status).toBe(204);
-		expect([...gui.clients].find((entry) => entry.id === peer.id)?.readDraft(local.snapshot().sessionId)).toBe("authorized");
+		expect([...gui.clients].find((entry) => entry.id === peer.id)?.readDraft(local.execution.snapshot().sessionId)).toBe("authorized");
 		const unbound = await fetch(`${server.url}/api/action`, { method: "POST", headers: { ...headers(), "X-Opi-Client": "missing" }, body: action });
 		expect(unbound.status).toBe(400);
 		const page = await fetch(server.url);
@@ -112,14 +112,14 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 	});
 
 	it("WebSocket 断开不取消审批，重连只消费一次", async () => {
-		const answer = local.dialogs.ask("confirm", "允许操作吗？");
+		const answer = local.execution.dialogs.ask("confirm", "允许操作吗？");
 		await expect.poll(() => peer.events.some((event) => event.type === "dialogs" && event.value.length === 1)).toBe(true);
 		peer.ws.close();
 		await once(peer.ws, "close");
-		expect(local.dialogs.list()).toHaveLength(1);
+		expect(local.execution.dialogs.list()).toHaveLength(1);
 		peer = await connect(server.url);
 		expect(peer.events.some((event) => event.type === "dialogs" && event.value.length === 1)).toBe(true);
-		const id = local.dialogs.list()[0]?.id;
+		const id = local.execution.dialogs.list()[0]?.id;
 		const respond = () => fetch(`${server.url}/api/action`, { method: "POST", headers: headers(), body: body({ action: "dialog", id, value: "yes" }) });
 		expect((await respond()).status).toBe(204);
 		expect(await answer).toBe("yes");

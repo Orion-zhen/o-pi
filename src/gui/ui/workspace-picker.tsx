@@ -3,7 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { Fade } from "./components/animated";
 import { fade, settle } from "./lib/motion";
 import { Check, ChevronsUpDown, FolderOpen, Shield } from "lucide-react";
-import type { SidebarView } from "./use-gui.ts";
+import type { SidebarView } from "./gui-controls.ts";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";

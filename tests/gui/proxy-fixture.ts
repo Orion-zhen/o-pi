@@ -78,12 +78,28 @@ export function socketToolExtension(url: string): string {
 			parameters: { type: "object", properties: {} },
 			async execute(_id, _params, signal) {
 				const socket = new WebSocket(${JSON.stringify(url)}, { headers: { Authorization: "Bearer websocket-test" } });
+				socket.binaryType = "arraybuffer";
 				return new Promise((resolve, reject) => {
-					const cleanup = () => { signal?.removeEventListener("abort", abort); socket.close(); };
+					const messages = [];
+					const timer = setInterval(() => {
+						if (messages.length !== 3 || socket.bufferedAmount !== 0) return;
+						cleanup();
+						resolve({ content: [{ type: "text", text: "socket-ok" }] });
+					}, 10);
+					const cleanup = () => { clearInterval(timer); signal?.removeEventListener("abort", abort); socket.close(); };
 					const abort = () => { cleanup(); reject(new Error("aborted")); };
 					signal?.addEventListener("abort", abort, { once: true });
-					socket.onopen = () => socket.send("socket-ok");
-					socket.onmessage = (event) => { cleanup(); resolve({ content: [{ type: "text", text: event.data }] }); };
+					socket.onopen = () => {
+						socket.send("多字节文本");
+						socket.send(new Uint8Array([1, 2, 3]));
+						socket.send(new Blob(["二进制"]));
+					};
+					socket.onmessage = (event) => {
+						const value = typeof event.data === "string" ? event.data : Array.from(new Uint8Array(event.data)).join(",");
+						const expected = ["多字节文本", "1,2,3", Array.from(new TextEncoder().encode("二进制")).join(",")];
+						if (value !== expected[messages.length]) { cleanup(); reject(new Error("socket payload mismatch")); return; }
+						messages.push(value);
+					};
 					socket.onerror = () => { cleanup(); reject(new Error("socket failed")); };
 				});
 			}

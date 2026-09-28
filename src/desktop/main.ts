@@ -6,15 +6,13 @@ import {
 	net,
 	protocol,
 	shell,
-	utilityProcess,
 	type IpcMainInvokeEvent,
 } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import type { GuiEvent } from "../gui/contract.ts";
-import type { GuiDelivery } from "../gui/sync.ts";
+import { BackendClient } from "./backend-client.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";
 import { forkDesktopWorker } from "./worker-services.ts";
 import { DesktopDiagnostics } from "./diagnostics.ts";
@@ -26,11 +24,8 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const icon = path.join(directory, "icons", process.platform === "win32" ? "icon.ico" : process.platform === "darwin" ? "icon-macos.png" : "icon.png");
 if (process.platform === "win32") app.setAppUserModelId("dev.orion.opi");
 const entryUrl = "opi://app/index.html";
-const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; traced: boolean }>();
 let window: BrowserWindow | undefined;
-let backend: ReturnType<typeof utilityProcess.fork> | undefined;
-let stopping = false;
-let exited = false;
+let backend: BackendClient | undefined;
 
 function trusted(event: IpcMainInvokeEvent): void {
 	if (
@@ -52,7 +47,7 @@ async function saveDownload(event: Extract<GuiEvent, { type: "download" }>): Pro
 	});
 	if (result.canceled || !result.filePath) return;
 	await writeFile(result.filePath, event.content, { mode: 0o600 });
-	backend?.postMessage({ kind: "notice", text: `已导出: ${result.filePath}` });
+	backend?.send({ kind: "notice", text: `已导出: ${result.filePath}` });
 }
 
 void app
@@ -110,17 +105,11 @@ void app
 			return { action: "deny" };
 		});
 		const backendDirectory = path.basename(directory) === "app.asar" ? `${directory}.unpacked` : directory;
-		backend = forkDesktopWorker(path.join(backendDirectory, "backend.mjs"), [app.getPath("home")], {
-			stdio: "pipe",
-			serviceName: "opi-desktop SDK",
-			env: environment,
-		});
-		backend.stdout?.on("data", (chunk: Buffer) => process.stdout.write(chunk));
-		backend.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
-		backend.on("message", (message: unknown) => {
-			if (typeof message !== "object" || message === null || !("kind" in message)) return;
-			if (message.kind === "event" && "value" in message) {
-				const delivery = message.value as GuiDelivery;
+		const client = new BackendClient(
+			forkDesktopWorker(path.join(backendDirectory, "backend.mjs"), [app.getPath("home")], {
+				stdio: "pipe", serviceName: "opi-desktop SDK", env: environment,
+			}),
+			(delivery, at) => {
 				const events = delivery.events.filter((event) => {
 					if (event.type === "close") { app.quit(); return false; }
 					if (event.type !== "download") return true;
@@ -128,48 +117,27 @@ void app
 					return false;
 				});
 				if (window && !window.isDestroyed()) {
-					const traced = diagnostics.delivery(delivery, "at" in message ? message.at : undefined);
+					const traced = diagnostics.delivery(delivery, at);
 					window.webContents.send("gui:event", { ...delivery, events }, traced);
 				}
-			} else if (message.kind === "result" && "id" in message && typeof message.id === "string") {
-				const operation = pending.get(message.id);
-				pending.delete(message.id);
-				if (operation?.traced) diagnostics.result(message.id, "error" in message);
-				if ("error" in message) operation?.reject(new Error(String(message.error)));
-				else operation?.resolve("value" in message ? message.value : undefined);
-			} else if (message.kind === "requestReceived" && "id" in message && typeof message.id === "string"
-				&& "at" in message && typeof message.at === "number" && pending.get(message.id)?.traced) {
-				diagnostics.backend(message.id, message.at);
-			} else if (message.kind === "userAvailable" && "sessionId" in message && typeof message.sessionId === "string"
-				&& "userTimestamp" in message && typeof message.userTimestamp === "number" && "at" in message && typeof message.at === "number") {
-				diagnostics.user(message.sessionId, message.userTimestamp, message.at);
-			}
-		});
-		backend.on("exit", (code) => {
-			exited = true;
-			for (const [id, task] of pending) {
-				if (task.traced) diagnostics.result(id, true);
-				task.reject(new Error(`SDK 后端已退出 (${code})`));
-			}
-			pending.clear();
-			if (!stopping) dialog.showErrorBox("SDK 后端已退出", `退出码 ${code}。请重启应用。`);
-			if (stopping) app.quit();
-		});
+			},
+			(code, stopping) => {
+				if (stopping) app.quit();
+				else dialog.showErrorBox("SDK 后端已退出", `退出码 ${code}。请重启应用。`);
+			},
+			diagnostics,
+		);
+		backend = client;
 		for (const kind of ["action", "query"] as const) {
 			ipcMain.handle(`gui:${kind}`, (event, value: unknown, submittedAt: unknown) => {
 				trusted(event);
-				if (exited || !backend) throw new Error("SDK 后端不可用。");
-				const id = randomUUID();
-				const traced = kind === "action" && diagnostics.request(id, value, submittedAt);
-				const result = new Promise<unknown>((resolve, reject) => pending.set(id, { resolve, reject, traced }));
-				backend.postMessage({ kind, id, value, traced });
-				return result;
+				return client.request(kind, value, submittedAt);
 			});
 		}
 		ipcMain.on("gui:subscribe", (event) => {
 			trusted(event);
 			diagnostics.reset();
-			backend?.postMessage({ kind: "subscribe" });
+			client.send({ kind: "subscribe" });
 		});
 		ipcMain.on("gui:received", (event, id: unknown, at: unknown) => {
 			trusted(event);
@@ -180,12 +148,12 @@ void app
 			trusted(event);
 			if (typeof id !== "number" || !Number.isSafeInteger(id)) throw new Error("无效确认序号");
 			diagnostics.acknowledge(id, appliedAt);
-			backend?.postMessage({ kind: "ack", id });
+			client.send({ kind: "ack", id });
 		});
 		ipcMain.on("gui:unsubscribe", (event) => {
 			trusted(event);
 			diagnostics.reset();
-			backend?.postMessage({ kind: "unsubscribe" });
+			client.send({ kind: "unsubscribe" });
 		});
 		ipcMain.handle("gui:directory", async (event) => {
 			trusted(event);
@@ -199,20 +167,11 @@ void app
 		});
 		app.on("window-all-closed", () => app.quit());
 		app.on("before-quit", (event) => {
-			if (exited || !backend) {
-				if (!diagnostics.closed) {
-					event.preventDefault();
-					void diagnostics.close().then(() => app.quit());
-				}
-				return;
+			if (client.stop()) event.preventDefault();
+			else if (!diagnostics.closed) {
+				event.preventDefault();
+				void diagnostics.close().then(() => app.quit());
 			}
-			event.preventDefault();
-			if (stopping) return;
-			stopping = true;
-			backend.postMessage({ kind: "dispose" });
-			setTimeout(() => {
-				if (!exited) backend?.kill();
-			}, 10_000).unref();
 		});
 		await window.loadURL(entryUrl);
 	})

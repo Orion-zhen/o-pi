@@ -13,9 +13,12 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
-import type { GuiSnapshot } from "../contract.ts";
+import type { RefObject } from "react";
+import type { GuiPreferences } from "../preferences.ts";
+import type { GuiControls, SessionSnapshot } from "./gui-controls.ts";
+import type { SessionViews, SessionViewState } from "./session-views.ts";
+import { useSessionDraft } from "./use-session-draft.ts";
 import type { ImageAttachment } from "./use-session-draft.ts";
-import type { GuiView } from "./use-gui.ts";
 import { ModelControls } from "./model-controls.tsx";
 import { modelSetup } from "./model-setup.ts";
 import { ContextUsage } from "./context-usage.tsx";
@@ -25,14 +28,17 @@ import { useComposerQueries } from "./use-composer-queries.ts";
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
 let nextAttachmentId = 0;
 
-export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: GuiSnapshot; onSubmit: () => void }) {
+interface ComposerControls extends Pick<GuiControls, "connected" | "query" | "send" | "setError" | "canSubmit" | "canChangeSession" | "setPanel"> {
+	editor: RefObject<HTMLTextAreaElement | null>;
+	views: SessionViews;
+}
+export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: ComposerControls; view: SessionViewState; snapshot: SessionSnapshot; preferences: GuiPreferences | undefined; onSubmit: () => void }) {
+	const { draft, setDraft, images, setImages, behavior, setBehavior } = useSessionDraft(view, gui.views);
+	const running = snapshot.running;
 	const {
 		connected,
 		query,
-		draft,
-		setDraft,
 		send,
-		running,
 		editor,
 		setError,
 	} = gui;
@@ -41,7 +47,6 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 		draft, sessionId: snapshot.sessionId, connected, send, query, setError,
 	});
 	const upload = useRef<HTMLInputElement>(null);
-	const { images, setImages, behavior, setBehavior } = gui.composer;
 	const hasContent = Boolean(draft.trim() || images.length);
 	const setup = modelSetup(snapshot);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
@@ -237,7 +242,7 @@ export function Composer({ gui, snapshot, onSubmit }: { gui: GuiView; snapshot: 
 					}}
 					onKeyDown={(event) => {
 						if (event.nativeEvent.isComposing || suggestions.onKeyDown(event)) return;
-						const enterSends = gui.guiConfig?.state === "ready" && gui.guiConfig.value.sendShortcut === "enter";
+						const enterSends = preferences?.sendShortcut === "enter";
 						if (event.key === "Enter" && !event.shiftKey && !event.altKey && ((event.ctrlKey || event.metaKey) || enterSends)) {
 							event.preventDefault();
 							submit();

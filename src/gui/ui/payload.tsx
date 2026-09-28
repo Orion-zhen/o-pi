@@ -3,12 +3,18 @@ import type { GuiQueryResults, Query } from "../contract.ts";
 
 export const GuiQueryContext = createContext<Query | undefined>(undefined);
 
-export function useToolOutput(id: string | undefined) {
+function useGuiQuery(): Query {
 	const query = useContext(GuiQueryContext);
+	if (!query) throw new Error("缺少 GUI 查询上下文。");
+	return query;
+}
+
+export function useToolOutput(id: string | undefined) {
+	const query = useGuiQuery();
 	const [result, setResult] = useState<{ id: string; value: GuiQueryResults["toolOutput"] }>();
 	const [error, setError] = useState("");
 	useEffect(() => {
-		if (!id || !query) return;
+		if (!id) return;
 		let cancelled = false;
 		setError("");
 		void query({ query: "toolOutput", id }).then(
@@ -20,14 +26,13 @@ export function useToolOutput(id: string | undefined) {
 	return { value: result?.id === id ? result?.value : undefined, error };
 }
 
-export function SessionImage({ data, mime }: { data: string; mime: string }) {
-	const query = useContext(GuiQueryContext);
+export function SessionImage({ id, mime }: { id: string; mime: string }) {
+	const query = useGuiQuery();
 	const element = useRef<HTMLImageElement>(null);
 	const [loaded, setLoaded] = useState<{ id: string; data: string }>();
 	const [error, setError] = useState("");
-	const id = data.startsWith("opi-image:") ? data.slice("opi-image:".length) : undefined;
 	useEffect(() => {
-		if (!id || !query || !element.current) return;
+		if (!element.current) return;
 		let cancelled = false;
 		setError("");
 		const observer = new IntersectionObserver((entries) => {
@@ -41,6 +46,6 @@ export function SessionImage({ data, mime }: { data: string; mime: string }) {
 		observer.observe(element.current);
 		return () => { cancelled = true; observer.disconnect(); };
 	}, [id, query]);
-	const value = id ? loaded?.id === id ? loaded.data : undefined : data;
+	const value = loaded?.id === id ? loaded.data : undefined;
 	return <>{error && <span role="alert">{error}</span>}<img ref={element} className="attachment" src={value ? `data:${mime};base64,${value}` : undefined} alt="会话图片" loading="lazy" /></>;
 }

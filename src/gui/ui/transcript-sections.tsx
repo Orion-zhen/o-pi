@@ -81,7 +81,7 @@ const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entry
 		case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} /></div>;
 		case "error": return <pre data-entry-id={entryId} className="message error">{item.text}</pre>;
 	}
-}, (before, after) => before.entryId === after.entryId && sameItem(before.item, after.item));
+});
 
 function Thinking({ id, text, active, entryId }: { id: string; text: string; active: boolean; entryId: string | undefined }) {
 	const [open, setOpen] = useDisclosureMemory(`${id}:open`, active);
@@ -93,21 +93,4 @@ function Thinking({ id, text, active, entryId }: { id: string; text: string; act
 	</>}>
 		<div className="thinking-content message"><StreamingText text={text} active={active} /></div>
 	</Disclosure>;
-}
-
-export function sameItems(before: TranscriptItem[], after: TranscriptItem[]): boolean {
-	return before.length === after.length && before.every((item, index) => sameItem(item, after[index]));
-}
-
-function sameItem(before: TranscriptItem, after: TranscriptItem | undefined): boolean {
-	if (!after || before.key !== after.key || before.kind !== after.kind) return false;
-	switch (before.kind) {
-		case "message": return after.kind === "message" && before.message === after.message;
-		case "tool": return after.kind === "tool" && before.pruned === after.pruned && before.tool.id === after.tool.id && before.tool.name === after.tool.name
-			&& before.tool.state === after.tool.state && before.tool.args === after.tool.args && before.tool.output === after.tool.output;
-		case "text": return after.kind === "text" && before.text === after.text && before.active === after.active
-			&& JSON.stringify(before.identity) === JSON.stringify(after.identity) && JSON.stringify(before.metrics) === JSON.stringify(after.metrics);
-		case "thinking": return after.kind === "thinking" && before.text === after.text && before.active === after.active;
-		case "error": return after.kind === "error" && before.text === after.text;
-	}
 }

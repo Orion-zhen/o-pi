@@ -1,6 +1,7 @@
 import type { WebFetchSuccessDetails, WebSearchSuccessDetails } from "../harness/web-tools/core/types.ts";
 import type { SubagentDetails, SubagentRunResult } from "../harness/subagent/types.ts";
-import type { ToolActivity, ToolState } from "./ui/transcript-items.ts";
+import type { ToolState } from "./ui/transcript-items.ts";
+import type { ToolOutput } from "./messages.ts";
 
 function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -41,14 +42,13 @@ export function subagentFacts(details: SubagentDetails): string {
 	return [`${done}/${details.tasks.length} 已结束`, failed > 0 ? `${failed} 失败` : "", stopped > 0 ? `${stopped} 已停止` : ""].filter(Boolean).join(" · ");
 }
 
-export function toolFacts(tool: Pick<ToolActivity, "name" | "args" | "output">): string {
+export function toolFacts(tool: { name: string; args: unknown; output: ToolOutput | undefined }): string {
 	const args = record(tool.args) ? tool.args : {};
 	const details = record(tool.output?.details) ? tool.output.details : {};
 	if (tool.name === "read") {
 		if (typeof args.lines === "string") return `行 ${args.lines}`;
 		if (typeof args.pages === "string") return `页 ${args.pages}`;
 	}
-	if (typeof details.guiFacts === "string") return details.guiFacts;
 	if (tool.name === "websearch" || tool.name === "webfetch") return webToolFacts(details);
 	if (tool.name === "subagent" && isSubagentDetails(details)) return subagentFacts(details);
 	if (tool.name === "read") {

@@ -4,6 +4,19 @@ import { sessionList } from "../../src/gui/ui/session-list.ts";
 import type { SessionActivity } from "../../src/gui/ui/use-session-activity.ts";
 
 describe("会话视图记忆", () => {
+	it("编辑器只收到本会话草稿变更，关闭订阅后不再通知", () => {
+		const views = new SessionViews();
+		const a = views.open({ id: "a", path: null });
+		const b = views.open({ id: "b", path: null });
+		const changes: string[] = [];
+		const unsubscribe = views.subscribe(a, () => changes.push(a.draft.text));
+		views.writeText(b.id, "后台草稿");
+		views.writeText(a.id, "当前输入");
+		expect(changes).toEqual(["当前输入"]);
+		unsubscribe();
+		views.writeText(a.id, "新输入");
+		expect(changes).toEqual(["当前输入"]);
+	});
 	it("重置会话只转移最新草稿和附件，不继承旧视图状态", () => {
 		const views = new SessionViews();
 		const old = views.open({ id: "old", path: null });

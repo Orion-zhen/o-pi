@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import { SessionManager, type CustomMessageEntry, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails } from "../../src/harness/skill-context/types.ts";
 import { formatSkillDisclosure } from "../../src/harness/skill-context/executor.ts";
-import { filterSessionTreeNoTools } from "../../src/gui/host/session-tree.ts";
+import { sessionTree } from "../../src/gui/messages.ts";
+import { GuiPayloads } from "../../src/gui/host/payloads.ts";
+import { GuiHistory } from "../../src/gui/host/history.ts";
 import { assistant } from "./transcript-fixtures.ts";
 import { SessionTree } from "../../src/gui/ui/session-tree.tsx";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
@@ -18,8 +20,10 @@ const skill: CustomMessageEntry<SkillLoadDetails> = {
 };
 
 function render(entry: SessionEntry) {
+	const manager = SessionManager.inMemory("/workspace", undefined, [{ type: "session", id: "fixture", version: 3, cwd: "/workspace", timestamp: entry.timestamp }, entry]);
+	const history = new GuiHistory(new GuiPayloads()).project(manager);
 	return parseHTML(renderWithMemory(createElement(TooltipProvider, null, createElement(SessionTree, {
-		value: [{ entry, children: [] }], send: async () => true, locate() {},
+		value: sessionTree(history.entries, entry.id), send: async () => true, locate() {},
 	})))).document;
 }
 
@@ -31,7 +35,7 @@ describe("会话树技能消息", () => {
 		manager.appendUsage("cache_warm", "test", "test", usage);
 		const userId = manager.appendMessage({ role: "user", content: "继续", timestamp: 1 });
 		manager.appendContextEdit(userId, null);
-		const tree = filterSessionTreeNoTools(manager.getTree(), manager.getLeafId());
+		const tree = sessionTree(new GuiHistory(new GuiPayloads()).project(manager).entries, manager.getLeafId());
 		expect(tree).toHaveLength(1);
 		expect(tree[0]?.entry.id).toBe(userId);
 		expect(tree[0]?.children).toEqual([]);

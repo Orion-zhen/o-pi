@@ -3,6 +3,10 @@ export type ServiceRequest =
 	| { kind: "proxy"; url: string }
 	| { kind: "websocket"; url: string; options: SocketOptions };
 
+export type ServiceInit = { kind: "desktop-services" };
+
+export type ServiceCall = { id: number; request: ServiceRequest };
+
 export type ServiceReply =
 	| { id: number; kind: "port" }
 	| { id: number; kind: "proxy"; value: string }
@@ -21,8 +25,8 @@ export interface SocketOptions {
 }
 
 export type SocketCommand =
-	| { kind: "send"; data: string | Uint8Array; bytes: number }
-	| { kind: "close"; code?: number; reason?: string };
+	| { kind: "send"; data: string | Uint8Array }
+	| { kind: "close"; code: number | undefined; reason: string };
 
 export type SocketEvent =
 	| { kind: "open"; protocol: string; extensions: string }

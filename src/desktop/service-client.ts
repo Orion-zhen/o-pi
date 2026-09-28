@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { AgentProcess, HostServices } from "../harness/runtime/host-services.ts";
-import type { ProcessEvent, ServiceReply, ServiceRequest } from "./services-contract.ts";
+import type { ProcessCommand, ProcessEvent, ServiceCall, ServiceReply, ServiceRequest } from "./services-contract.ts";
 
 export type OpenService = (request: Exclude<ServiceRequest, { kind: "proxy" }>) => Promise<Electron.MessagePortMain>;
 
@@ -32,7 +32,7 @@ export function openServiceChannel(port: Electron.MessagePortMain): { open: Open
 			return await new Promise<string | Electron.MessagePortMain>((resolve, reject) => {
 				pending.set(id, { resolve, reject });
 				signal?.addEventListener("abort", abort, { once: true });
-				port.postMessage({ id, request });
+				port.postMessage({ id, request } satisfies ServiceCall);
 			});
 		} finally {
 			pending.delete(id);
@@ -78,7 +78,7 @@ class RemoteProcess extends EventEmitter implements AgentProcess {
 	}
 	kill(signal: NodeJS.Signals = "SIGTERM"): boolean {
 		if (this.exitCode !== null) return false;
-		void this.port.then((port) => port.postMessage({ kind: "kill", signal }), () => {});
+		void this.port.then((port) => port.postMessage({ kind: "kill", signal } satisfies ProcessCommand), () => {});
 		return true;
 	}
 	private finish(code: number): void {

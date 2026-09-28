@@ -2,7 +2,7 @@ import { memo, useCallback, useRef, type CSSProperties } from "react";
 import { ChevronRight, FileDiff, FoldVertical, GitBranch, Plus, RefreshCw, Search } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "./components/animated";
-import type { SidebarView } from "./use-gui.ts";
+import type { SidebarView } from "./gui-controls.ts";
 import { SessionHistory } from "./session-history.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
 import { WorkspaceChanges, WorkspaceTree } from "./workspace-tree.tsx";
@@ -36,7 +36,8 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 						<Button variant="outline" aria-label="新建会话" disabled={blocked} onClick={() => { void gui.send({ action: "new" }); close(); }}><Plus />新建</Button>
 					</div>
 				</div>
-				<SessionHistory gui={gui} close={close} search={search} />
+				<SessionHistory cwd={gui.cwd} sessionRows={gui.sessionRows} sessions={gui.sessions} sessionsLoading={gui.sessionsLoading}
+					refreshSessions={gui.refreshSessions} send={gui.send} canNavigate={gui.canNavigate} connected={gui.connected} close={close} search={search} />
 			</div>
 			<ResizeHandle className="workbench-separator" label="调整会话与文件区域" axis="y" value={gui.layout.values.files}
 				change={(value, persist) => gui.layout.set("files", value, persist)} measure={() => {

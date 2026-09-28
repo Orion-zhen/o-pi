@@ -1,6 +1,6 @@
 import { CloseEvent, ErrorEvent } from "undici";
 import type { OpenService } from "./service-client.ts";
-import type { SocketEvent, SocketOptions } from "./services-contract.ts";
+import type { SocketCommand, SocketEvent, SocketOptions } from "./services-contract.ts";
 
 /** SDK 继续使用标准 WebSocket 接口，连接由主进程的 Chromium 网络栈持有。 */
 export function createDesktopWebSocket(open: OpenService): typeof WebSocket {
@@ -50,7 +50,7 @@ export function createDesktopWebSocket(open: OpenService): typeof WebSocket {
 			this.sending = this.sending.then(async () => {
 				const payload = typeof data === "string" ? data : data instanceof Blob ? new Uint8Array(await data.arrayBuffer())
 					: ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data);
-				(await this.port).postMessage({ kind: "send", data: payload, bytes });
+				(await this.port).postMessage({ kind: "send", data: payload } satisfies SocketCommand);
 			}).catch((error: unknown) => {
 				this.receive({ kind: "error", message: String(error) });
 				void this.port.then((port) => port.close(), () => {});
@@ -61,7 +61,7 @@ export function createDesktopWebSocket(open: OpenService): typeof WebSocket {
 			if (Buffer.byteLength(reason) > 123) throw new DOMException("Close reason too long", "SyntaxError");
 			if (this.readyState === this.CLOSING || this.readyState === this.CLOSED) return;
 			this.readyState = this.CLOSING;
-			void this.sending.then(async () => (await this.port).postMessage({ kind: "close", code, reason })).catch(() => this.disconnected());
+			void this.sending.then(async () => (await this.port).postMessage({ kind: "close", code, reason } satisfies SocketCommand)).catch(() => this.disconnected());
 		}
 		private disconnected(): void {
 			if (this.readyState === this.CLOSED) return;

@@ -25,8 +25,8 @@ describe("聊天活动投影", () => {
 		expect(running).toHaveLength(1);
 		expect(finished).toHaveLength(1);
 		expect(preparing[0]).toMatchObject({ key: running[0]?.key, kind: "tool", tool: { state: "preparing" } });
-		expect(running[0]).toMatchObject({ key: finished[0]?.key, kind: "tool", tool: { state: "running", output: { content: [{ text: "partial" }] } } });
-		expect(finished[0]).toMatchObject({ kind: "tool", tool: { state: "completed", output: result } });
+		expect(running[0]).toMatchObject({ key: finished[0]?.key, kind: "tool", tool: { state: "running", output: { kind: "inline", value: { content: [{ text: "partial" }] } } } });
+		expect(finished[0]).toMatchObject({ kind: "tool", tool: { state: "completed", output: { kind: "inline", value: { content: result.content, details: result.details } } } });
 	});
 
 	it("并行结果按调用 ID 关联，不改变说明文字和调用的原始顺序", () => {
@@ -37,8 +37,8 @@ describe("聊天活动投影", () => {
 			assistant([{ type: "text", text: "检查完成" }], "stop"),
 		] }));
 		expect(items.map((item) => item.kind)).toEqual(["text", "tool", "tool", "text"]);
-		expect(items[1]).toMatchObject({ tool: { id: call.id, output: { content: [{ text: "file content" }] } } });
-		expect(items[2]).toMatchObject({ tool: { id: second.id, output: { content: [{ text: "second" }] } } });
+		expect(items[1]).toMatchObject({ tool: { id: call.id, output: { value: { content: [{ text: "file content" }] } } } });
+		expect(items[2]).toMatchObject({ tool: { id: second.id, output: { value: { content: [{ text: "second" }] } } } });
 	});
 
 	it("同批调用的部分结果返回后，剩余调用仍显示等待执行", () => {
@@ -59,7 +59,7 @@ describe("聊天活动投影", () => {
 
 	it("结果流式提交与历史缺少调用时仍各展示一次", () => {
 		expect(transcriptItems(source({ messages: [assistant([call])], streamingMessage: result }))).toHaveLength(1);
-		expect(transcriptItems(source({ messages: [result] }))).toMatchObject([{ kind: "tool", tool: { name: "read", state: "completed", output: result } }]);
+		expect(transcriptItems(source({ messages: [result] }))).toMatchObject([{ kind: "tool", tool: { name: "read", state: "completed", output: { kind: "inline", value: { content: result.content, details: result.details } } } }]);
 	});
 
 	it("区分失败、取消和无结果，不把未执行的历史标为成功", () => {
@@ -72,17 +72,17 @@ describe("聊天活动投影", () => {
 });
 
 function renderResult(name: string, args: unknown, details: unknown, content: unknown = []) {
-	const tool: ToolActivity = { id: "tool-1", name, args, state: "completed", output: { content, details } };
+	const tool = { id: "tool-1", name, args, state: "completed" as const, output: { content, details } };
 	return renderWithMemory(createElement(ToolResult, { tool }));
 }
 
 describe("工具语义呈现", () => {
 	it("成功和失败都默认折叠，失败仍展示错误摘要", () => {
-		const tool: ToolActivity = { id: "missing-file", name: "read", args: { path: "missing.ts" }, state: "failed", output: { content: [{ type: "text", text: "文件不存在" }], details: { error: { code: "NOT_FOUND", message: "文件不存在" } } } };
+		const tool: ToolActivity = { id: "missing-file", name: "read", args: { path: "missing.ts" }, state: "failed", output: { kind: "inline", value: { content: [{ type: "text", text: "文件不存在" }], details: { error: { code: "NOT_FOUND", message: "文件不存在" } } } } };
 		const failed = renderWithMemory(createElement(ToolActivityView, { tool }));
 		expect(failed).toContain('aria-expanded="false"');
 		expect(parseHTML(failed).document.querySelector(".activity-error")?.textContent).toBe("文件不存在");
-		const completed = renderWithMemory(createElement(ToolActivityView, { tool: { ...tool, id: call.id, args: call.arguments, state: "completed", output: result } }));
+		const completed = renderWithMemory(createElement(ToolActivityView, { tool: { ...tool, id: call.id, args: call.arguments, state: "completed", output: { kind: "inline", value: { content: result.content, details: result.details } } } }));
 		expect(completed).toContain('aria-expanded="false"');
 	});
 
@@ -92,7 +92,7 @@ describe("工具语义呈现", () => {
 		const running = parseHTML(renderWithMemory(createElement(ToolActivityView, { tool }), memory)).document;
 		expect(running.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("true");
 		const completed = parseHTML(renderWithMemory(createElement(ToolActivityView, {
-			tool: { ...tool, state: "completed", output: { content: [{ type: "text", text: "检查完成" }] } },
+			tool: { ...tool, state: "completed", output: { kind: "inline", value: { content: [{ type: "text", text: "检查完成" }] } } },
 		}), memory)).document;
 		expect(completed.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("false");
 	});

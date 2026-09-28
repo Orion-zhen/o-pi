@@ -1,3 +1,4 @@
+import { outputPreview } from "../messages.ts";
 import { BookOpen, Check, ChevronRight, CircleDashed, CircleStop, LoaderCircle, X } from "lucide-react";
 import type { SkillLoadDetails } from "../../harness/skill-context/types.ts";
 import { isSkillLoadDetails, skillLoaders, skillScopes } from "../skill-facts.ts";
@@ -16,12 +17,13 @@ const states: Record<ToolState, string> = {
 
 export function SkillCard({ id, name, loadedBy, state, output }: SkillCardProps) {
 	const [open, setOpen] = useDisclosureMemory(`skill:${id}`, false);
-	const details = isSkillLoadDetails(output?.details) ? output.details : undefined;
+	const preview = outputPreview(output);
+	const details = isSkillLoadDetails(preview?.details) ? preview.details : undefined;
 	const active = state === "running" || state === "preparing";
 	const Status = active ? LoaderCircle : state === "completed" ? Check : state === "failed" ? X : state === "stopped" ? CircleStop : CircleDashed;
 	const status = state === "completed" && details?.deduplicated ? "已加载过" : states[state];
-	const error = state === "failed" && record(output?.details) && record(output.details.error) && typeof output.details.error.message === "string"
-		? clean(output.details.error.message) : "";
+	const error = state === "failed" && record(preview?.details) && record(preview.details.error) && typeof preview.details.error.message === "string"
+		? clean(preview.details.error.message) : "";
 	return <section className="tool-activity skill-activity" data-tool="skill" data-state={state} data-tool-call-id={loadedBy === "agent" ? id : undefined}>
 		<Collapsible open={open} onOpenChange={setOpen}>
 			<CollapsibleTrigger className="activity-summary">
@@ -39,10 +41,10 @@ export function SkillCard({ id, name, loadedBy, state, output }: SkillCardProps)
 }
 
 function SkillBody({ output }: Pick<SkillCardProps, "output">) {
-	const id = record(output?.details) && typeof output.details.guiOutputId === "string" ? output.details.guiOutputId : undefined;
+	const id = output?.kind === "reference" ? output.id : undefined;
 	const loaded = useToolOutput(id);
 	if (id && !loaded.value) return <p className="tool-note" role={loaded.error ? "alert" : "status"}>{loaded.error || "正在读取技能正文…"}</p>;
-	const resolved = loaded.value ?? output;
+	const resolved = loaded.value ?? outputPreview(output);
 	const details = isSkillLoadDetails(resolved?.details) ? resolved.details : undefined;
 	const content = resolved?.content;
 	const text = typeof content === "string" ? content : Array.isArray(content)

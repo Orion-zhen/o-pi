@@ -17,7 +17,8 @@ describe("桌面耗时日志", () => {
 		log.user("session-1", 120, 120);
 		expect(log.delivery({ id: 1, events: [{ type: "selected", session: { id: "session-1", cwd: "/PRIVATE_PATH", path: null } }] }, 115)).toBe(true);
 		expect(log.delivery({ id: 2, events: [{ type: "patch", sessionId: "session-1", value: {},
-			messages: { keep: 0, items: [{ role: "user", content: "PRIVATE_INPUT", timestamp: 120 }] } }] }, 121)).toBe(true);
+			entries: { keep: 0, items: [{ id: "entry-1", parentId: null, type: "message", timestamp: new Date(120).toISOString(), label: undefined,
+				messages: [{ role: "user", content: "PRIVATE_INPUT", timestamp: 120 }] }] } }] }, 121)).toBe(true);
 		log.received(1, 130);
 		log.received(2, 131);
 		log.acknowledge(2, 140);

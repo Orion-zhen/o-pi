@@ -1,5 +1,5 @@
 import { session, MessageChannelMain, utilityProcess, type ForkOptions, type MessagePortMain, type UtilityProcess } from "electron";
-import type { ProcessCommand, ServiceReply, ServiceRequest } from "./services-contract.ts";
+import type { ProcessCommand, ProcessEvent, ServiceCall, ServiceInit, ServiceReply, ServiceRequest, SocketEvent } from "./services-contract.ts";
 import { serveWebSocket } from "./websocket-host.ts";
 
 /** 主进程创建所有 SDK 工作进程，并为每个进程绑定独立的服务通道。 */
@@ -10,7 +10,7 @@ export function forkDesktopWorker(entry: string, args: string[], options: ForkOp
 	let exited = false;
 	const reply = (value: ServiceReply) => { if (!exited) port1.postMessage(value); };
 	port1.on("message", ({ data }) => {
-		const { id, request } = data as { id: number; request: ServiceRequest };
+		const { id, request } = data as ServiceCall;
 		if (request.kind === "proxy") {
 			void session.defaultSession.resolveProxy(request.url).then(
 				(value) => reply({ id, kind: "proxy", value }),
@@ -27,12 +27,12 @@ export function forkDesktopWorker(entry: string, args: string[], options: ForkOp
 			resources.add(dispose);
 			port.once("close", () => { resources.delete(dispose); dispose(); });
 		} catch (error) {
-			port.postMessage({ kind: "error", message: String(error) });
+			port.postMessage({ kind: "error", message: String(error) } satisfies ProcessEvent & SocketEvent);
 			port.close();
 		}
 	});
 	port1.start();
-	child.postMessage({ kind: "desktop-services" }, [port2]);
+	child.postMessage({ kind: "desktop-services" } satisfies ServiceInit, [port2]);
 	child.once("exit", () => {
 		exited = true;
 		port1.close();
@@ -48,8 +48,8 @@ function serveProcess(entry: string, port: MessagePortMain, request: Extract<Ser
 	const child = forkDesktopWorker(entry, request.args, {
 		cwd: request.cwd, env, stdio: "pipe", serviceName: "opi-desktop subagent",
 	});
-	child.stdout?.on("data", (data: Buffer) => port.postMessage({ kind: "stdout", data }));
-	child.stderr?.on("data", (data: Buffer) => port.postMessage({ kind: "stderr", data }));
+	child.stdout?.on("data", (data: Buffer) => port.postMessage({ kind: "stdout", data } satisfies ProcessEvent));
+	child.stderr?.on("data", (data: Buffer) => port.postMessage({ kind: "stderr", data } satisfies ProcessEvent));
 	let exited = false;
 	const kill = (signal: NodeJS.Signals) => {
 		if (exited) return;
@@ -58,7 +58,7 @@ function serveProcess(entry: string, port: MessagePortMain, request: Extract<Ser
 	};
 	child.once("exit", (code) => {
 		exited = true;
-		port.postMessage({ kind: "exit", code });
+		port.postMessage({ kind: "exit", code } satisfies ProcessEvent);
 		port.close();
 	});
 	port.on("message", ({ data }: { data: ProcessCommand }) => kill(data.signal));

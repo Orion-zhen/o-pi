@@ -54,10 +54,15 @@ export const test = base.extend<{
 			else {
 				// 桌面从 HOME 启动，通过公开操作进入测试工作区。
 				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
-				await page.evaluate(async (cwd) => {
+				await expect.poll(() => page.evaluate(() => sessionStorage.getItem("opi.session"))).toBeTruthy();
+				const previous = await page.evaluate(async (cwd) => {
 					if (!window.opi) throw new Error("缺少桌面连接");
+					const id = sessionStorage.getItem("opi.session");
 					await window.opi.send({ action: "workspace", path: cwd }, null);
+					return id;
 				}, cwd);
+				// 请求响应先于界面消费 selected，等待会话切换后再输入。
+				await page.waitForFunction((id) => sessionStorage.getItem("opi.session") !== id, previous);
 				await expect(page.locator(".workspace-select").first()).toContainText(path.basename(cwd));
 				await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
 			}

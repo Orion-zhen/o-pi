@@ -1,9 +1,9 @@
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
-import type { GuiSnapshot } from "../contract.ts";
+import type { SessionSnapshot } from "./gui-controls.ts";
 import { summarizeUsage } from "../../harness/stats/usage.ts";
 import { IconButton } from "./components/icon-button";
 
-export function ContextUsage({ snapshot }: { snapshot: GuiSnapshot }) {
+export function ContextUsage({ snapshot }: { snapshot: SessionSnapshot }) {
 	const tokens = snapshot.context?.tokens;
 	const capacity = snapshot.context?.contextWindow ?? snapshot.model?.contextWindow;
 	const percent = snapshot.context?.percent;
@@ -43,8 +43,8 @@ export function ContextUsage({ snapshot }: { snapshot: GuiSnapshot }) {
 	);
 }
 
-function ContextCache({ messages }: Pick<GuiSnapshot, "messages">) {
-	const { usage, cache } = summarizeUsage(messages);
+function ContextCache({ messages }: Pick<SessionSnapshot, "messages">) {
+	const { usage, cache } = summarizeUsage(messages.filter((message) => message.role === "assistant"));
 	const hitRate = (value: number | undefined) => value === undefined ? "暂无数据" : `${value.toFixed(1)}%`;
 	return <>
 		<strong>对话缓存命中</strong>

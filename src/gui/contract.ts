@@ -1,6 +1,6 @@
 import { Type, type Static, type TProperties } from "typebox";
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { AgentSession, AgentSessionEvent, SessionEntry, SessionStats } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentSession, AgentSessionEvent, SessionStats } from "@earendil-works/pi-coding-agent";
 import type { ToolSelectionItem } from "../harness/tool-defaults/controller.ts";
 import type { StatsSnapshot } from "../harness/stats/types.ts";
 import type { UsageSnapshot } from "../harness/usage/types.ts";
@@ -9,6 +9,7 @@ import type { SubagentDetails } from "../harness/subagent/types.ts";
 import type { ApprovalUnit } from "../harness/approval/types.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "./workbench.ts";
 import type { GuiConfigDocument } from "./preferences.ts";
+import type { GuiEntry, GuiMessage, GuiToolOutput, ToolOutput } from "./messages.ts";
 
 import { moduleConfigIds, type ModuleConfigDocument } from "./module-config.ts";
 
@@ -127,7 +128,7 @@ export interface GuiQueryResults {
 	moduleConfig: ModuleConfigDocument;
 	guiConfig: GuiConfigDocument;
 	image: string;
-	toolOutput: { content: unknown; details?: unknown };
+	toolOutput: ToolOutput;
 	directories: GuiDirectories;
 	files: string[];
 	workspaceFiles: WorkspaceEntry[];
@@ -186,6 +187,8 @@ export interface GuiSessionInfo {
 	title: string;
 	modified: string;
 }
+export type GuiLiveTool = Omit<Extract<AgentSessionEvent, { type: "tool_execution_start" }>, "type"> & { output: GuiToolOutput | undefined };
+
 export interface GuiSnapshot {
 	cwd: string;
 	leafId: string | null;
@@ -196,15 +199,14 @@ export interface GuiSnapshot {
 	canChangeSession: boolean;
 	running: boolean;
 	commandRunning: boolean;
-	liveTools: Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_update" }>[];
+	liveTools: GuiLiveTool[];
 	streaming: boolean;
 	retrying: boolean;
-	messages: AgentMessage[];
+	contextEntryIds: string[];
 	history: string[];
-	streamingMessage: AgentMessage | null;
+	streamingMessage: GuiMessage | null;
 	messageDurations: Record<string, number>;
-	entries: SessionEntry[];
-	prunedToolCallIdsByEntry: Record<string, string[]>;
+	entries: GuiEntry[];
 	model: GuiModel | null;
 	models: GuiModel[];
 	scopedModels: string[];
@@ -224,7 +226,7 @@ export interface GuiSnapshot {
 	commands: { name: string; description: string }[];
 	tools: ToolSelectionItem[];
 	providers: { id: string; name: string; oauth: boolean; authenticated: boolean }[];
-	status: Record<string, string>;
+	bashOutput: string;
 }
 export type GuiSessionTab = "tree" | "stats" | "telemetry";
 export type GuiPanel =
@@ -234,12 +236,6 @@ export type GuiPanel =
 	| { kind: "usage"; value: UsageSnapshot | "aborted" }
 	| { kind: "subagents"; details: SubagentDetails };
 
-export interface GuiSessionDetails {
-	sessionId: string;
-	tree: import("@earendil-works/pi-coding-agent").SessionTreeNode[];
-	stats: StatsSnapshot;
-	telemetry: LiveTelemetryReport;
-}
 export interface GuiDirectories {
 	path: string;
 	parent: string;
@@ -254,7 +250,8 @@ export type GuiEvent =
 	| { type: "error"; message: string }
 	| { type: "guiConfig"; value: GuiConfigDocument }
 	| { type: "workspaceRoot"; path: string }
-	| { type: "sessionInfo"; value: GuiSessionDetails }
+	| { type: "sessionStats"; sessionId: string; value: StatsSnapshot }
+	| { type: "telemetry"; sessionId: string; value: LiveTelemetryReport }
 	| { type: "sessionTab"; tab: GuiSessionTab }
 	| { type: "snapshot"; value: GuiSnapshot | null }
 	| { type: "stream"; sessionId: string; value: GuiSnapshot["streamingMessage"] }

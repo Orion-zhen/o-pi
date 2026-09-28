@@ -21,7 +21,7 @@ export function RawToolContent({ value }: { value: unknown }) {
 	return <Content value={value} />;
 }
 
-export function ToolResult({ tool }: { tool: ToolActivity }) {
+export function ToolResult({ tool }: { tool: Omit<ToolActivity, "output"> & { output: import("../messages.ts").ToolOutput | undefined } }) {
 	const args = record(tool.args) ? tool.args : {};
 	const details = tool.output?.details;
 	if (tool.name === "subagent" && isSubagentDetails(details)) return <SubagentProgress details={details} state={tool.state} />;

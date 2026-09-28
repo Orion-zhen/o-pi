@@ -16,6 +16,13 @@ export interface SessionViewState {
 /** 只有显式打开创建记录。异步回调只能更新仍属于本次打开的记录。 */
 export class SessionViews {
 	private records = new Map<string, SessionViewState>();
+	private listeners = new Map<SessionViewState, Set<() => void>>();
+	subscribe(record: SessionViewState, listener: () => void): () => void {
+		let listeners = this.listeners.get(record);
+		if (!listeners) { listeners = new Set(); this.listeners.set(record, listeners); }
+		listeners.add(listener);
+		return () => { listeners.delete(listener); if (!listeners.size) this.listeners.delete(record); };
+	}
 	open(session: { id: string; path: string | null }, draftFrom?: string): SessionViewState {
 		let record = this.records.get(session.id);
 		if (!record) {
@@ -28,9 +35,14 @@ export class SessionViews {
 		return record;
 	}
 	get(id: string): SessionViewState | undefined { return this.records.get(id); }
+	writeText(id: string, text: string): void {
+		const record = this.records.get(id);
+		if (record) this.update(record, (draft) => ({ ...draft, text }));
+	}
 	update(record: SessionViewState, change: (draft: Draft) => Draft): boolean {
 		if (this.records.get(record.id) !== record) return false;
 		record.draft = change(record.draft);
+		for (const listener of this.listeners.get(record) ?? []) listener();
 		return true;
 	}
 	remove(event: Extract<GuiEvent, { type: "sessionsDeleted" }>): string[] {

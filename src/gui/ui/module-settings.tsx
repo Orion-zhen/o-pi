@@ -65,8 +65,7 @@ export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
 				setDocument({ ...document, content: draft });
 				setStatus("已保存");
 			} else setError("保存失败，请查看错误通知。草稿已保留。");
-		} catch (error) { setError(String(error)); }
-		finally { setSaving(false); }
+		} finally { setSaving(false); }
 	};
 	return <div className="gui-settings module-settings">
 		{id === "approvalGate" && <p className="settings-warning">关闭审批或允许非交互操作会减少安全限制。</p>}

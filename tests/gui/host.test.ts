@@ -1,3 +1,4 @@
+import { readSnapshot } from "./read-snapshot.ts";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -110,7 +111,7 @@ describe("GUI 直接使用 SDK", () => {
 		expect(JSON.stringify(session.messages)).toContain("模型实际问题");
 		expect(JSON.stringify(session.messages)).not.toContain("废弃尝试");
 		const check = () => {
-			const snapshot = host.snapshot();
+			const snapshot = readSnapshot(host);
 			expect(snapshot.messages).toContainEqual(expect.objectContaining({ role: "user", content: "原始问题" }));
 			expect(JSON.stringify(snapshot.messages)).toContain("废弃尝试");
 			expect(JSON.stringify(snapshot.messages)).not.toContain("模型实际问题");
@@ -125,7 +126,7 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch(prompt("检查 input.txt 并写入 output.txt"));
 		const { session } = host.runtime;
 		const manager = session.sessionManager;
-		const before = host.snapshot().messages;
+		const before = readSnapshot(host).messages;
 		for (const entry of manager.getBranch()) {
 			if (entry.type !== "message") continue;
 			const message = entry.message;
@@ -136,7 +137,7 @@ describe("GUI 直接使用 SDK", () => {
 		session.refreshContext();
 		await host.dispatch(prompt("/prune force"));
 		expect(manager.getBranch().some((entry) => entry.type === "custom" && entry.customType === "prune")).toBe(false);
-		expect(host.snapshot().messages).toEqual(before);
+		expect(readSnapshot(host).messages).toEqual(before);
 	});
 
 	it("主任务结束后生成标题仍更新共享宿主快照与会话列表", async () => {
@@ -158,14 +159,14 @@ describe("GUI 直接使用 SDK", () => {
 		await writeFile(path.join(temp.path, ".pi", "agent", "configs", "auto-title.jsonc"), '{"enabled":true}');
 		await host.dispatch({ action: "reload" });
 		await host.dispatch(prompt("命名失败不应影响任务"));
-		await expect.poll(() => host.dialogs.notices.filter((notice) => notice.text.startsWith("Auto-title:"))).toEqual([
+		await expect.poll(() => host.execution.dialogs.notices.filter((notice) => notice.text.startsWith("Auto-title:"))).toEqual([
 			expect.objectContaining({ type: "warning" }),
 		]);
 		await host.dispatch(prompt("继续执行主任务"));
 		expect(host.runtime.session.sessionName).toBeUndefined();
-		expect(JSON.stringify(host.snapshot().messages)).toContain("GUI completed");
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("GUI completed");
 		expect(server.requests.filter((request) => Array.isArray(request.messages) && !request.tools)).toHaveLength(1);
-		expect(host.dialogs.notices.filter((notice) => notice.text.startsWith("Auto-title:"))).toHaveLength(1);
+		expect(host.execution.dialogs.notices.filter((notice) => notice.text.startsWith("Auto-title:"))).toHaveLength(1);
 		expect(events.filter((event) => event.type === "error")).toEqual([]);
 	});
 
@@ -182,14 +183,14 @@ describe("GUI 直接使用 SDK", () => {
 
 	it("删除启动会话后新页面不会重新打开已删除实例", async () => {
 		await host.dispatch(prompt("启动会话"));
-		const file = host.snapshot().sessionFile;
+		const file = readSnapshot(host).sessionFile;
 		if (!file) throw new Error("缺少已保存的会话文件");
 		await host.dispatch({ action: "deleteSession", path: file });
 		const second = host.host.createClient();
 		try {
-			await expect.poll(() => second.selected?.id).toBe(host.snapshot().sessionId);
+			await expect.poll(() => second.selected?.id).toBe(readSnapshot(host).sessionId);
 			await second.dispatch({ action: "rename", name: "新页面" });
-			expect(second.snapshot().name).toBe("新页面");
+			expect(readSnapshot(second).name).toBe("新页面");
 			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 		} finally { second.close(); }
 	});
@@ -197,18 +198,18 @@ describe("GUI 直接使用 SDK", () => {
 	it("任务运行期间保存 GUI 设置不重载会话或中断 Shell", async () => {
 		const session = host.runtime.session;
 		const running = host.dispatch(prompt("!printf 'gui-settings-started\\n'; sleep 0.3; printf 'gui-settings-finished\\n'"));
-		await expect.poll(() => host.snapshot().canChangeSession).toBe(false);
+		await expect.poll(() => readSnapshot(host).canChangeSession).toBe(false);
 		const config = await host.query({ query: "guiConfig" });
 		await host.dispatch({ action: "saveGuiConfig", original: config.content, content: '{"theme":"dark","sessionCache":{"idleLimit":0,"idleMs":25}}' });
 		expect(host.runtime.session).toBe(session);
 		await running;
-		expect(JSON.stringify(host.snapshot().messages)).toContain("gui-settings-finished");
-		expect(host.snapshot().canChangeSession).toBe(true);
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("gui-settings-finished");
+		expect(readSnapshot(host).canChangeSession).toBe(true);
 		expect(server.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
 	});
 
 	it("内建和扩展命令补全不执行命令或写入历史", async () => {
-		const before = host.snapshot();
+		const before = readSnapshot(host);
 		const cases: [string, string[]][] = [
 			["/lsp", ["status", "reload", "diagnostics"]],
 			["/lsp re", ["reload"]],
@@ -220,24 +221,24 @@ describe("GUI 直接使用 SDK", () => {
 			const items = await host.query({ query: "complete", text });
 			expect(items.map((item) => item.value)).toEqual(expected);
 		}
-		expect(host.snapshot().history).toEqual(before.history);
-		expect(host.snapshot().messages).toEqual(before.messages);
+		expect(readSnapshot(host).history).toEqual(before.history);
+		expect(readSnapshot(host).messages).toEqual(before.messages);
 		expect(server.requests).toHaveLength(0);
 	});
 
 	it("视图接口不提交提示、不写输入历史，重载后工具配置仍可直接调用", async () => {
-		const before = host.snapshot();
+		const before = readSnapshot(host);
 		for (const view of ["usage", "system"])
 			await host.dispatch({ action: "view", view });
 		expect(events.filter((event) => event.type === "panel").map((event) => event.panel.kind)).toEqual(["usage", "system"]);
-		expect(host.snapshot().history).toEqual(before.history);
-		expect(host.snapshot().messages).toEqual(before.messages);
-		expect(host.snapshot().entries).toEqual(before.entries);
+		expect(readSnapshot(host).history).toEqual(before.history);
+		expect(readSnapshot(host).messages).toEqual(before.messages);
+		expect(readSnapshot(host).entries).toEqual(before.entries);
 		expect(server.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
 		await host.dispatch({ action: "reload" });
 		await host.dispatch({ action: "tool", name: "websearch", enabled: false });
-		expect(host.snapshot().tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
-		expect(host.snapshot().history).toEqual(before.history);
+		expect(readSnapshot(host).tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
+		expect(readSnapshot(host).history).toEqual(before.history);
 		expect(server.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
 	});
 
@@ -299,8 +300,8 @@ describe("GUI 直接使用 SDK", () => {
 		const file = await storeSession({ cwd: other, agentDir: path.join(temp.path, ".pi", "agent"), provider: "gui-fixture", name: "待恢复" });
 		await writeFile(path.join(other, "input.txt"), "other workspace\n");
 		await host.dispatch({ action: "openSession", path: file });
-		expect(host.snapshot()).toMatchObject({ cwd: other, sessionFile: file, name: "待恢复" });
-		expect(JSON.stringify(host.snapshot().messages)).toContain("历史回复");
+		expect(readSnapshot(host)).toMatchObject({ cwd: other, sessionFile: file, name: "待恢复" });
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("历史回复");
 		await host.dispatch(prompt("继续检查文件"));
 		expect(await readFile(path.join(other, "output.txt"), "utf8")).toBe("GUI SDK result\n");
 		await expect(readFile(path.join(cwd, "output.txt"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -312,8 +313,8 @@ describe("GUI 直接使用 SDK", () => {
 			expect.objectContaining({ path: file, title: "已重命名" }),
 		]);
 		await host.dispatch({ action: "new" });
-		expect(host.snapshot().cwd).toBe(other);
-		expect(host.snapshot().messages).toHaveLength(0);
+		expect(readSnapshot(host).cwd).toBe(other);
+		expect(readSnapshot(host).messages).toHaveLength(0);
 		await host.dispatch(prompt("新会话检查文件"));
 		await expect.poll(() => events.filter((event) => event.type === "sessions").at(-1)?.value.length).toBe(2);
 	});
@@ -321,15 +322,15 @@ describe("GUI 直接使用 SDK", () => {
 	it("工作区或会话文件已被删除时不破坏当前会话，刷新移除失效文件", async () => {
 		const other = path.join(cwd, "removed-workspace");
 		const file = await storeSession({ cwd: other, agentDir: path.join(temp.path, ".pi", "agent"), provider: "gui-fixture" });
-		const id = host.snapshot().sessionId;
+		const id = readSnapshot(host).sessionId;
 		await rm(other, { recursive: true });
 		await host.dispatch({ action: "sessions" });
 		expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toEqual([expect.objectContaining({ path: file })]);
 		await expect(host.dispatch({ action: "openSession", path: file })).rejects.toMatchObject({ code: "ENOENT" });
-		expect(host.snapshot().sessionId).toBe(id);
+		expect(readSnapshot(host).sessionId).toBe(id);
 		await rm(file);
 		await expect(host.dispatch({ action: "openSession", path: file })).rejects.toMatchObject({ code: "ENOENT" });
-		expect(host.snapshot().sessionId).toBe(id);
+		expect(readSnapshot(host).sessionId).toBe(id);
 		await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 		await host.dispatch({ action: "sessions" });
 		expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toEqual([]);
@@ -338,9 +339,9 @@ describe("GUI 直接使用 SDK", () => {
 	it("真实文件工具回路、会话恢复和结构化面板，不启动 CLI 或 RPC", async () => {
 		await host.dispatch(prompt("Read input, write output"));
 		expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI SDK result\n");
-		expect(JSON.stringify(host.snapshot().messages)).toContain("GUI completed");
-		expect(JSON.stringify(host.snapshot())).not.toContain("private-fixture-secret");
-		const file = host.snapshot().sessionFile;
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("GUI completed");
+		expect(JSON.stringify(readSnapshot(host))).not.toContain("private-fixture-secret");
+		const file = readSnapshot(host).sessionFile;
 		expect(file).not.toBeNull();
 		for (const command of ["/stats", "/system", "/tools", "/usage", "/telemetry", "/model", "/scoped-models", "/tree"])
 			await host.dispatch(prompt(command));
@@ -349,12 +350,12 @@ describe("GUI 直接使用 SDK", () => {
 		expect(events.filter((event) => event.type === "sessionTab").map((event) => event.tab))
 			.toEqual(["stats", "telemetry", "tree"]);
 		await host.dispatch({ action: "tool", name: "websearch", enabled: false });
-		expect(host.snapshot().tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
+		expect(readSnapshot(host).tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
 		await host.dispatch({ action: "new" });
-		expect(host.snapshot().messages).toHaveLength(0);
+		expect(readSnapshot(host).messages).toHaveLength(0);
 		await host.dispatch({ action: "openSession", path: file });
-		expect(JSON.stringify(host.snapshot().messages)).toContain("GUI completed");
-		expect(host.snapshot().tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("GUI completed");
+		expect(readSnapshot(host).tools.find((tool) => tool.name === "websearch")?.enabled).toBe(false);
 	});
 
 	it("读取历史不执行项目扩展，跨工作区恢复仍需确认项目信任", async () => {
@@ -377,17 +378,17 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch({ action: "sessions" });
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 		const switching = host.dispatch({ action: "openSession", path: file });
-		await expect.poll(() => host.dialogs.list().length).toBe(1);
-		const dialog = host.dialogs.list()[0];
+		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+		const dialog = host.execution.dialogs.list()[0];
 		if (!dialog) throw new Error("缺少项目信任确认");
 		await host.dispatch({ action: "sessions" });
 		await host.dispatch({ action: "dialog", id: dialog.id, value: "不信任" });
 		await switching;
-		expect(host.snapshot().cwd).toBe(other);
-		expect(JSON.stringify(host.snapshot().messages)).toContain("历史回复");
+		expect(readSnapshot(host).cwd).toBe(other);
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("历史回复");
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 		await host.dispatch({ action: "new" });
-		expect(host.dialogs.list()).toEqual([]);
+		expect(host.execution.dialogs.list()).toEqual([]);
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
@@ -395,25 +396,25 @@ describe("GUI 直接使用 SDK", () => {
 		const settingsFile = path.join(temp.path, ".pi", "agent", "settings.json");
 		const scope = ["gui-fixture/second", "gui-fixture/test"];
 		await host.dispatch({ action: "scopeModels", models: scope });
-		expect(host.snapshot().scopedModels).toEqual(scope);
+		expect(readSnapshot(host).scopedModels).toEqual(scope);
 		expect(JSON.parse(await readFile(settingsFile, "utf8"))).not.toHaveProperty("enabledModels");
 		await host.host.dispose();
 		host = new GuiHost().createClient();
 		await host.host.start(cwd);
-		expect(host.snapshot().scopedModels).toEqual([]);
+		expect(readSnapshot(host).scopedModels).toEqual([]);
 
 		await host.dispatch({ action: "scopeModels", models: scope });
 		await host.dispatch({ action: "persistModels" });
 		expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({ enabledModels: scope });
 		await host.dispatch({ action: "model", provider: "gui-fixture", id: "third" });
-		expect(host.snapshot().model?.id).toBe("third");
-		expect(host.snapshot().scopedModels).toEqual(scope);
+		expect(readSnapshot(host).model?.id).toBe("third");
+		expect(readSnapshot(host).scopedModels).toEqual(scope);
 		expect(host.runtime.services.settingsManager.getDefaultModel()).toBe("test");
 		await host.host.dispose();
 		host = new GuiHost().createClient();
 		await host.host.start(cwd);
-		expect(host.snapshot().scopedModels).toEqual(scope);
-		expect(host.snapshot().model?.id).toBe("test");
+		expect(readSnapshot(host).scopedModels).toEqual(scope);
+		expect(readSnapshot(host).model?.id).toBe("test");
 
 		await host.dispatch({ action: "scopeModels", models: [] });
 		await host.dispatch({ action: "persistModels" });
@@ -421,7 +422,7 @@ describe("GUI 直接使用 SDK", () => {
 		await host.host.dispose();
 		host = new GuiHost().createClient();
 		await host.host.start(cwd);
-		expect(host.snapshot().scopedModels).toEqual([]);
+		expect(readSnapshot(host).scopedModels).toEqual([]);
 	});
 
 	it("模型范围拒绝失效目录项，保存失败可见且可以重新保存", async () => {
@@ -430,7 +431,7 @@ describe("GUI 直接使用 SDK", () => {
 		await expect(host.dispatch({ action: "scopeModels", models: ["gui-fixture/unavailable"] })).rejects.toThrow(
 			"模型不可用",
 		);
-		expect(host.snapshot().scopedModels).toEqual(scope);
+		expect(readSnapshot(host).scopedModels).toEqual(scope);
 		const settingsFile = path.join(temp.path, ".pi", "agent", "settings.json");
 		const original = await readFile(settingsFile, "utf8");
 		await writeFile(settingsFile, "{ incomplete");
@@ -461,14 +462,14 @@ describe("GUI 直接使用 SDK", () => {
 			'{"tools":{"write":{"default_action":"ask"}}}',
 		);
 		const task = host.dispatch(prompt("Write output"));
-		await expect.poll(() => host.dialogs.list().length).toBe(1);
-		const dialog = host.dialogs.list()[0];
+		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+		const dialog = host.execution.dialogs.list()[0];
 		if (!dialog) throw new Error("Missing approval");
 		await host.dispatch({ action: "sessions" });
-		expect(host.dialogs.list()[0]?.id).toBe(dialog.id);
-		const waitingSession = host.snapshot().sessionId;
+		expect(host.execution.dialogs.list()[0]?.id).toBe(dialog.id);
+		const waitingSession = readSnapshot(host).sessionId;
 		await host.dispatch({ action: "new" });
-		expect(host.dialogs.list()).toEqual([]);
+		expect(host.execution.dialogs.list()).toEqual([]);
 		await host.dispatch({ action: "openSession", id: waitingSession });
 		const replay: GuiEvent[] = [];
 		const unsubscribe = host.subscribe((event) => replay.push(event));
@@ -484,9 +485,9 @@ describe("GUI 直接使用 SDK", () => {
 	});
 
 	it("无效工作目录不破坏当前会话，设置编辑拒绝覆盖外部修改", async () => {
-		const id = host.snapshot().sessionId;
+		const id = readSnapshot(host).sessionId;
 		await expect(host.dispatch({ action: "workspace", path: path.join(cwd, "missing") })).rejects.toThrow();
-		expect(host.snapshot().sessionId).toBe(id);
+		expect(readSnapshot(host).sessionId).toBe(id);
 		const original = await host.query({ query: "config", file: "settings.json" });
 		const file = path.join(temp.path, ".pi", "agent", "settings.json");
 		await writeFile(file, `${original}\n`);
@@ -511,7 +512,7 @@ describe("GUI 直接使用 SDK", () => {
 		);
 		host = new GuiHost().createClient();
 		const start = host.host.start(cwd);
-		await expect.poll(() => host.dialogs.list().length).toBe(1);
+		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 		await host.host.dispose();
 		await start;
@@ -553,12 +554,12 @@ describe("GUI 直接使用 SDK", () => {
 
 	it("用户 Shell 消息可经 JSONL 导出导入恢复", async () => {
 		await host.dispatch(prompt("!printf gui-shell"));
-		expect(JSON.stringify(host.snapshot().messages)).toContain("gui-shell");
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("gui-shell");
 		await host.dispatch({ action: "export", format: "jsonl" });
 		const download = events.find((event) => event.type === "download");
 		if (!download || download.type !== "download") throw new Error("Missing export");
 		await host.dispatch({ action: "new" });
 		await host.dispatch({ action: "import", content: download.content });
-		expect(JSON.stringify(host.snapshot().messages)).toContain("gui-shell");
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("gui-shell");
 	});
 });
