@@ -1,21 +1,11 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { AtSign, Check, ChevronRight, Copy, Link } from "lucide-react";
-import { DefaultFolderIcon, DefaultFolderOpenedIcon, FileIcon as SymbolsFileIcon } from "@react-symbols/icons/utils";
-import { gitStatusLabels, indexWorkspaceGit, type WorkspaceEntry, type WorkspaceGit } from "../workbench.ts";
+import { AtSign, Check, ChevronRight, Copy } from "lucide-react";
+import { FileIcon } from "./file-icon.tsx";
+import { gitStatusLabels, indexWorkspaceGit, type WorkspaceGit } from "../workbench.ts";
 import type { WorkbenchView } from "./use-workbench.ts";
 import { workspaceTreeRows } from "./workspace-tree-rows.ts";
 import { useVirtualRows } from "./use-virtual-rows.ts";
 import { IconButton } from "./components/icon-button";
-
-function FileIcon({ entry, open }: { entry: WorkspaceEntry; open: boolean }) {
-	if (entry.kind === "directory") {
-		const Icon = open ? DefaultFolderOpenedIcon : DefaultFolderIcon;
-		return <Icon className="file-type-icon" aria-hidden="true" focusable="false" />;
-	}
-	if (entry.kind === "symlink") return <Link />;
-	const name = entry.name.slice(entry.name.lastIndexOf("/") + 1);
-	return <SymbolsFileIcon fileName={name} autoAssign className="file-type-icon" aria-hidden="true" focusable="false" />;
-}
 
 function FileRowActions({ path, referenceFile }: { path: string; referenceFile: (path: string) => void }) {
 	const [copyState, setCopyState] = useState<{ status: "idle" | "copied" | "error" }>({ status: "idle" });
@@ -58,7 +48,7 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ git, selected, 
 				title={`${change.originalPath ? `${change.originalPath} -> ` : ""}${change.path} (${gitStatusLabels[change.status]})`}
 				onClick={() => openFile(change.path)}>
 				<span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>
-				<FileIcon entry={{ path: change.path, name: change.path, kind: "file" }} open={false} />
+				<FileIcon name={change.path} kind="file" />
 				<span className="file-name">{change.path}</span>
 			</button>
 			{change.status !== "D" && <FileRowActions path={change.path} referenceFile={referenceFile} />}
@@ -127,7 +117,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ workbench, openFile, 
 						className="file-row" data-ignored={ignored} data-status={change?.status} style={{ paddingInlineStart: `${0.75 + depth}em` }}
 						onClick={() => entry.kind === "directory" ? workbench.toggleDirectory(entry.path, entry.virtual) : openFile(entry.path)}>
 						<ChevronRight className="file-chevron" data-directory={entry.kind === "directory"} data-open={open} />
-						<FileIcon entry={entry} open={open} /><span className="file-name">{entry.name}</span>
+						<FileIcon name={entry.name} kind={entry.kind} open={open} /><span className="file-name">{entry.name}</span>
 						{state && <span className="sr-only">{state}</span>}
 						{change && <span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>}
 						{!change && descendants > 0 && <span className="git-descendants" aria-hidden="true">{descendants}</span>}

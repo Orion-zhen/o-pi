@@ -9,6 +9,7 @@ import { SessionViews, type SessionViewState } from "./session-views.ts";
 import { useHostState } from "./use-host-state.ts";
 import { useConnection } from "./use-connection.ts";
 import { useGuiConfig } from "./use-gui-config.ts";
+import { useStartupChangelog } from "./use-startup-changelog.ts";
 import { useGuiActions } from "./use-gui-actions.ts";
 import { usePanels } from "./use-panels.ts";
 import { locateTranscript } from "./transcript-location.ts";
@@ -75,6 +76,7 @@ export function useGui() {
 	const current = host.snapshot?.sessionId === selectedId ? host.snapshot : null;
 	const history = useMemo(() => current ? locateTranscript(current, undefined) : undefined, [current?.entries, current?.contextEntryIds, current?.leafId]);
 	const snapshot = useMemo<SessionSnapshot | null>(() => current && history ? { ...current, messages: history.messages } : null, [current, history]);
+	const changelog = useStartupChangelog(connected, snapshot, selectedId, globalQuery, dispatch, setError);
 	const cwd = host.navigation?.cwd ?? host.workspaceRoot;
 	const layout = useLayout(setError);
 	const workbench = useWorkbench(cwd, connected, activity.some((item) => item.cwd === cwd && item.state !== "idle"), sharedQuery);
@@ -95,7 +97,7 @@ export function useGui() {
 	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession,
 		workbench, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
 	return {
-		...panels, ...sidebar, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor,
+		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor,
 		guiConfig: config.document, refreshGuiConfig: config.refresh,
 		dialogs: host.dialogs, notices: host.notices, status, reconnect: connection.reconnect, running: snapshot?.running ?? false,
 		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode,

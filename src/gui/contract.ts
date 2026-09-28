@@ -100,6 +100,7 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("draft"), text }),
 	object({ action: Type.Literal("saveModuleConfig"), id: moduleConfigId, original: text, content: text }),
 	object({ action: Type.Literal("saveGuiConfig"), original: text, content: text }),
+	object({ action: Type.Literal("startupChangelog"), shown: Type.Boolean() }),
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
@@ -110,6 +111,7 @@ export type GuiRequest = Static<typeof requestSchema>;
 export const querySchema = Type.Union([
 	object({ query: Type.Literal("moduleConfig"), id: moduleConfigId }),
 	object({ query: Type.Literal("guiConfig") }),
+	object({ query: Type.Literal("startupChangelog") }),
 	object({ query: Type.Literal("image"), id: short }),
 	object({ query: Type.Literal("toolOutput"), id: short }),
 	object({ query: Type.Literal("directories"), path: short }),
@@ -121,12 +123,13 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
 ]);
 export type GuiQuery = Static<typeof querySchema>;
-export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "directories" }>;
+export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "directories" | "startupChangelog" }>;
 export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" }>;
 export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
 export interface GuiQueryResults {
 	moduleConfig: ModuleConfigDocument;
 	guiConfig: GuiConfigDocument;
+	startupChangelog: GuiChangelog | null;
 	image: string;
 	toolOutput: ToolOutput;
 	directories: GuiDirectories;
@@ -138,6 +141,12 @@ export interface GuiQueryResults {
 	config: string;
 }
 export type Query<T extends GuiQuery = GuiQuery> = <Q extends T>(query: Q) => Promise<GuiQueryResults[Q["query"]]>;
+
+export interface GuiChangelog {
+	version: string;
+	markdown: string;
+	collapsed: boolean;
+}
 
 export interface GuiBashApproval {
 	cwd: string;

@@ -32,6 +32,7 @@ import { SessionHistory } from "./session-history.tsx";
 import { SessionHeading } from "./session-heading.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
 import { Welcome } from "./welcome.tsx";
+import { StartupChangelog } from "./startup-changelog.tsx";
 import { useGui } from "./use-gui.ts";
 import { GuiQueryContext } from "./payload.tsx";
 import { IconButton } from "./components/icon-button";
@@ -78,6 +79,7 @@ function App() {
 	const toggleSidebar = useCallback(() => setCollapsed((value) => !value), []);
 	const closeSidebar = useCallback(() => setMobileOpen(false), []);
 	const transcript = useTranscriptScroll(snapshot?.sessionId, gui.view);
+	useLayoutEffect(() => { if (gui.changelog) transcript.readFromStart(); }, [gui.changelog]);
 	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
 	useEffect(() => setLocation(undefined), [gui.selectedId]);
 	const sessionId = snapshot?.sessionId;
@@ -242,6 +244,7 @@ function App() {
 						<div className="transcript-shell">
 						<div className="transcript" data-list-scroll ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
 							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
+								{snapshot && gui.changelog && !located?.preview && <StartupChangelog value={gui.changelog} shown={gui.changelogShown} />}
 								<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
 								{workspaceWelcome && (
 									<Fade key="workspace-welcome" className="welcome workspace-welcome">

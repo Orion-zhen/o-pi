@@ -105,6 +105,13 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 	}, [sessionId, view]);
 	return {
 		scroll, content, virtualizer, showLatest, toLatest, followLatest,
+		readFromStart: () => {
+			cancelLocation();
+			mode.current = "paused";
+			restoring.current = undefined;
+			if (scroll.current) scroll.current.scrollTop = 0;
+			lastScrollTop.current = 0;
+		},
 		restorePosition: () => {
 			if (restoring.current !== undefined && scroll.current) {
 				scroll.current.scrollTop = restoring.current;

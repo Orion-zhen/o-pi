@@ -13,11 +13,13 @@ import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace-files.ts";
 import { readWorkspaceGit } from "./workspace-git.ts";
 import type { WorkspaceGit } from "../workbench.ts";
 import { readGuiConfig, readGuiDefaults } from "./preferences.ts";
+import { StartupChangelog } from "./changelog.ts";
 
 /** 共享服务与会话目录。执行资源的准入和收尾由逻辑会话管理。 */
 export class GuiHost {
 	readonly sessions = new Map<string, GuiSession>();
 	readonly clients = new Set<GuiClient>();
+	readonly changelog = new StartupChangelog();
 	private approvals = new ApprovalStores();
 	private projectTrust = new Map<string, boolean>();
 	private workbenchController = new AbortController();

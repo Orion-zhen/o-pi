@@ -11,6 +11,31 @@ function render(name: string, details: unknown, state: ToolActivity["state"] = "
 	return parseHTML(renderToStaticMarkup(createElement(ToolResult, { tool }))).document;
 }
 
+describe("文件列表图标", () => {
+	it("ls 按文件名显示类型图标，并区分目录和符号链接", () => {
+		const names = ["src", "package.json", "index.ts", "current"];
+		const doc = render("ls", { path: "/workspace", truncated: false, entries: names.map((name, index) => ({
+			name, path: `/workspace/${name}`, type: index === 0 ? "directory" : index === 3 ? "symlink" : "file",
+		})) });
+		const icons = [...doc.querySelectorAll(".path-list .file-type-icon")];
+		expect(icons).toHaveLength(4);
+		expect(new Set(icons.map((icon) => icon.innerHTML)).size).toBe(4);
+		expect(icons.every((icon) => icon.getAttribute("aria-hidden") === "true")).toBe(true);
+		expect(icons[3]?.classList.contains("file-link-icon")).toBe(true);
+		expect([...doc.querySelectorAll(".path-list code")].map((code) => code.textContent)).toEqual(names);
+	});
+
+	it("find 用路径的文件名选择同款图标", () => {
+		const ls = render("ls", { path: "/workspace", truncated: false, entries: [{ name: "package.json", path: "/workspace/package.json", type: "file" }] });
+		const find = render("find", {
+			status: "success", query: "package", path: "/workspace", paths: ["/workspace"],
+			total_candidates: 1, total_matches: 1, returned_matches: 1, matches: [], stats: {}, truncated_by: [],
+			displayed_matches: [{ path: "nested/package.json", kind: "file" }],
+		});
+		expect(find.querySelector(".file-type-icon")?.outerHTML).toBe(ls.querySelector(".file-type-icon")?.outerHTML);
+	});
+});
+
 describe("外部工具内容", () => {
 	it("搜索结果允许网页链接，但标题不能注入 HTML，危险协议不可点击", () => {
 		const doc = render("websearch", { ...searchDetails, results: [

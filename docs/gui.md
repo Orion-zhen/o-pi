@@ -31,6 +31,14 @@ Windows 的 Web 产物为 `dist/web/opi-web.exe`。Desktop 应用名和可执行
 
 Web 内嵌资源使用与 CLI 相同的内容寻址缓存。输入历史与 TUI 共用 `~/.pi/cache/user-history/history.jsonl`，按工作目录隔离。
 
+## SDK 更新日志
+
+SDK 升级后，Desktop 和 Web 在首次打开空会话时，将新增版本日志放在聊天区顶部，不弹窗、不抢焦点。日志来自随应用打包的 SDK `CHANGELOG.md`，无需联网，不写入会话历史或模型上下文。
+
+沿用 `~/.pi/agent/settings.json` 的 `lastChangelogVersion`，与 TUI 共享已读状态。GUI 实际展示后才记录当前版本。首次使用只建立版本基线，恢复已有消息的会话和仅启动后端不消耗提示。展示后刷新、重连、新建或切换会话不重复插入。
+
+`collapseChangelog` 为 `true` 时只显示版本提示，点击可原地展开。默认 `false`，直接展示 Markdown 正文，也可手动收起。`quietStartup` 不隐藏更新日志。
+
 ## Desktop 卡顿诊断
 
 桌面应用自动将发送、新建、切换和列表刷新的时间线写入 Electron 日志目录中的 `gui-timing.jsonl`。macOS 默认为 `~/Library/Logs/opi-desktop/`，其他平台为应用用户数据目录下的 `logs/`。日志异步写入，单文件达到 2 MiB 后轮转为 `gui-timing.jsonl.1`，只保留这两份。正常退出会等待日志写完，写入失败不会阻止聊天。

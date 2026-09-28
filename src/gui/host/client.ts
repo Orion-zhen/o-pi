@@ -217,6 +217,7 @@ export class GuiClient {
 			}
 			case "saveModuleConfig": await saveModuleConfig(action.id, action.original, action.content); return;
 			case "saveGuiConfig": this.host.applyGuiConfig(await saveGuiConfig(action.original, action.content)); return;
+			case "startupChangelog": await this.host.changelog.finish(this.id, action.shown); return;
 			case "sessions": await this.host.catalog.refresh(); return;
 			case "openSession": await this.openSession(action); return;
 			case "workspace": {
@@ -262,6 +263,7 @@ export class GuiClient {
 		if (this.closed) throw new Error("客户端已断开。");
 		const query = value as GuiQuery;
 		if (query.query === "guiConfig") return readGuiConfig();
+		if (query.query === "startupChangelog") return this.host.changelog.read(this.id, this.host.workspaceRoot);
 		if (query.query === "moduleConfig") return readModuleConfig(query.id);
 		if (query.query === "directories") return listDirectories(path.resolve(this.host.workspaceRoot || process.cwd(), query.path));
 		if (query.query === "workspaceFiles" || query.query === "workspaceGit" || query.query === "previewFile") {
@@ -277,6 +279,7 @@ export class GuiClient {
 		this.closed = true;
 		this.selection++;
 		this.unbind(); this.unsubscribeHost();
+		this.host.changelog.release(this.id);
 		this.host.clients.delete(this);
 		this.listeners.clear();
 	}

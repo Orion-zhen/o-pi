@@ -30,7 +30,8 @@
 .parameter-list > li + li:has(.parameter-fields) { border-top: 1px solid var(--border); padding-top: 0.5rem; }
 .path-list { display: grid; gap: 0.375rem; margin-block: 0.75rem; }
 .path-list li, .result-path { display: flex; gap: 0.5rem; align-items: baseline; overflow-wrap: anywhere; }
-.path-list svg, .result-path svg { flex-shrink: 0; width: 0.8125rem; height: 0.8125rem; color: var(--muted-foreground); }
+.path-list li { align-items: center; }
+.result-path svg { flex-shrink: 0; width: 0.8125rem; height: 0.8125rem; color: var(--muted-foreground); }
 .path-list code, .result-path code { font-size: var(--text-caption); }
 .search-results { display: grid; gap: 1rem; margin-block: 0.75rem; }
 .search-result { min-width: 0; }

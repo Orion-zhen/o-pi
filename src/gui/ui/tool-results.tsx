@@ -1,4 +1,5 @@
-import { File, Folder } from "lucide-react";
+import { File } from "lucide-react";
+import { FileIcon } from "./file-icon.tsx";
 import { isReadSuccess } from "../../harness/file-tools/read/guards.ts";
 import { isFindDetails } from "../../harness/file-tools/find/guards.ts";
 import { isLsSuccess } from "../../harness/file-tools/ls/guards.ts";
@@ -63,11 +64,11 @@ export function ToolResult({ tool }: { tool: Omit<ToolActivity, "output"> & { ou
 			<SearchNotes details={details} />
 		</>;
 		if (tool.name === "find" && isFindDetails(details)) return <>
-			<PathList entries={details.displayed_matches.map((entry) => ({ path: entry.path, directory: entry.kind === "directory" }))} />
+			<PathList entries={details.displayed_matches.map((entry) => ({ path: entry.path, kind: entry.kind }))} />
 			<SearchNotes details={details} />
 		</>;
 		if (tool.name === "ls" && isLsSuccess(details)) return <>
-			<PathList entries={details.entries.map((entry) => ({ path: entry.name, directory: entry.type === "directory" }))} />
+			<PathList entries={details.entries.map((entry) => ({ path: entry.name, kind: entry.type }))} />
 			{details.truncated && <p className="tool-note">{details.continuation_hint}</p>}
 		</>;
 	}
@@ -82,9 +83,9 @@ export function ToolResult({ tool }: { tool: Omit<ToolActivity, "output"> & { ou
 	return null;
 }
 
-function PathList({ entries }: { entries: { path: string; directory: boolean }[] }) {
+function PathList({ entries }: { entries: { path: string; kind: "directory" | "file" | "symlink" | "other" }[] }) {
 	return entries.length ? <ul className="path-list">{entries.map((entry, index) => <li key={index}>
-		{entry.directory ? <Folder aria-hidden="true" /> : <File aria-hidden="true" />}<code>{entry.path}</code>
+		<FileIcon name={entry.path} kind={entry.kind} /><code>{entry.path}</code>
 	</li>)}</ul> : <p className="tool-note">没有条目</p>;
 }
 

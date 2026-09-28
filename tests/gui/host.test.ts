@@ -16,6 +16,7 @@ import { workbenchTests } from "./workbench-cases.ts";
 import { queueTests } from "./queue-cases.ts";
 import { multiSessionTests } from "./multi-session-cases.ts";
 import { newSessionTests } from "./new-session-cases.ts";
+import { changelogTests } from "./changelog-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-gui-");
@@ -98,6 +99,7 @@ workbenchTests(() => ({ host, cwd }));
 queueTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 multiSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
+changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 
 describe("GUI 直接使用 SDK", () => {
 	it("上下文删除和替换不改写 GUI 历史，重载后仍能定位原始消息", async () => {
