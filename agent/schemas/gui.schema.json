@@ -32,6 +32,16 @@
 			}
 		},
 		"sendShortcut": { "enum": ["mod-enter", "enter"] },
+		"desktopWeb": {
+			"type": "object",
+			"additionalProperties": false,
+			"description": "Desktop 的 Web 访问，重启 Desktop 后生效，不影响 opi-web。",
+			"properties": {
+				"enabled": { "type": "boolean" },
+				"host": { "type": "string", "minLength": 1, "pattern": "^\\S+$" },
+				"port": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "监听端口，0 表示自动分配。" }
+			}
+		},
 		"sessionCache": {
 			"type": "object",
 			"additionalProperties": false,

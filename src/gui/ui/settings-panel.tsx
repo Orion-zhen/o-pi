@@ -30,6 +30,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 	const categories = [
 		{ id: "appearance", label: "外观", icon: Palette },
 		{ id: "interaction", label: "交互", icon: Keyboard },
+		{ id: "desktopWeb", label: "桌面 Web 访问", icon: Globe },
 		{ id: "agent", label: "会话行为", icon: MessageSquare },
 		{ id: "autoTitle", label: "自动标题", icon: Type },
 		{ id: "bashTool", label: "终端工具", icon: Terminal },
@@ -61,8 +62,8 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 			{visited.has(id) && (id === "agent" ? snapshot
 				? <AgentSettings snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} />
 				: <p className="settings-empty">选择工作区后可修改会话设置。</p>
-				: id === "appearance" || id === "interaction"
-				? <GuiSettings section={id} document={guiConfig} send={send} disabled={!connected} restoreFocus={restoreFocus} />
+				: id === "appearance" || id === "interaction" || id === "desktopWeb"
+				? <GuiSettings section={id} document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} />
 				: <ModuleSettings id={id} query={globalQuery} send={send} disabled={!connected} onDirty={reportDirty} models={snapshot?.models ?? []} />)}
 		</Tabs.Content>)}
 	</Tabs.Root>;

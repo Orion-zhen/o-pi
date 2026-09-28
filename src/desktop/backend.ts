@@ -13,9 +13,29 @@ const closeServices = process.type === "utility"
 
 const { runChildProcess } = await import("../harness/runtime/invocation.ts");
 if (!(await runChildProcess())) {
-	const { GuiHost } = await import("../gui/host/host.ts");
+	const [{ GuiHost }, { readGuiConfig }, { startWebServer }] = await Promise.all([
+		import("../gui/host/host.ts"), import("../gui/host/preferences.ts"), import("../web/server.ts"),
+	]);
 	const gui = new GuiHost();
 	const client = gui.createClient();
+	const web = (async () => {
+		const config = await readGuiConfig();
+		if (config.state === "error") throw new Error(config.message);
+		const { enabled, host, port } = config.value.desktopWeb;
+		if (!enabled) return;
+		const server = await startWebServer(gui, { host, port, assets: path.join(directory, "ui") });
+		console.log(`opi-desktop web: ${server.url}/`);
+		return server;
+	})().catch((error: unknown) => {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`Desktop Web 启动失败: ${message}`);
+		process.parentPort.postMessage({ kind: "webError", message } satisfies BackendMessage);
+	});
+	async function dispose(): Promise<void> {
+		const server = await web;
+		try { await server?.close(); }
+		finally { await gui.dispose(); }
+	}
 	let latestUser: { sessionId: string; timestamp: number } | undefined;
 	client.subscribe((event) => {
 		if (event.type === "selected") latestUser = undefined;
@@ -43,7 +63,7 @@ if (!(await runChildProcess())) {
 				return;
 			case "notice": gui.reportError(data.text); return;
 			case "dispose":
-				void gui.dispose().then(
+				void dispose().then(
 					() => process.exit(0),
 					(error: unknown) => { console.error(error); process.exit(1); },
 				);

@@ -65,7 +65,7 @@ export async function buildDesktop({ root, ui, directoryOnly }) {
 			artifactName: "opi-desktop.${ext}",
 			electronVersion,
 			asar: true,
-			asarUnpack: ["backend.mjs", "image-resize-worker.js", "resources/**/*"],
+			asarUnpack: ["backend.mjs", "image-resize-worker.js", "resources/**/*", "ui/**/*"],
 			npmRebuild: false,
 			directories: { output: path.join(output, "release") },
 			files: ["**/*"],

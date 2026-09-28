@@ -12,6 +12,11 @@
 		"code": 14
 	},
 	"sendShortcut": "mod-enter",
+	"desktopWeb": {
+		"enabled": false,
+		"host": "127.0.0.1",
+		"port": 19198
+	},
 	"sessionCache": {
 		"idleLimit": 3,
 		"idleMs": 60000

@@ -126,6 +126,12 @@ void app
 				else dialog.showErrorBox("SDK 后端已退出", `退出码 ${code}。请重启应用。`);
 			},
 			diagnostics,
+			(message) => {
+				void dialog.showMessageBox({
+					type: "warning", message: "Web 访问未启动",
+					detail: `${message}\n桌面端可继续使用。请在设置中修正 Web 访问配置后重启 Desktop。`,
+				});
+			},
 		);
 		backend = client;
 		for (const kind of ["action", "query"] as const) {

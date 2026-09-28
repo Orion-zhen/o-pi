@@ -15,11 +15,13 @@ export class BackendClient {
 		onDelivery: (delivery: GuiDelivery, at: number) => void,
 		onExit: (code: number, stopping: boolean) => void,
 		private readonly diagnostics: DesktopDiagnostics,
+		onWebError: (message: string) => void,
 	) {
 		child.stdout?.on("data", (chunk: Buffer) => process.stdout.write(chunk));
 		child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
 		child.on("message", (message: BackendMessage) => {
 			switch (message.kind) {
+				case "webError": onWebError(message.message); return;
 				case "delivery": onDelivery(message.value, message.at); return;
 				case "requestReceived": this.diagnostics.backend(String(message.id), message.at); return;
 				case "userAvailable": this.diagnostics.user(message.sessionId, message.userTimestamp, message.at); return;

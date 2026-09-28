@@ -10,6 +10,7 @@ export type BackendControl =
 export type BackendCommand = BackendRequest | BackendControl | { kind: "dispose" };
 
 export type BackendMessage =
+	| { kind: "webError"; message: string }
 	| { kind: "delivery"; value: GuiDelivery; at: number }
 	| { kind: "requestReceived"; id: number; at: number }
 	| { kind: "userAvailable"; sessionId: string; userTimestamp: number; at: number }
