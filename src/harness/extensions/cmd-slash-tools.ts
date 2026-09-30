@@ -5,6 +5,8 @@ import {
 } from "../tool-defaults/controller.ts";
 import { canPresent, type Presenter } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { discoverAgents } from "../subagent/agents.ts";
+import { loadSubagentConfig } from "../subagent/config.ts";
 
 interface ToolSelectorModule {
 	openToolSelector(
@@ -28,7 +30,9 @@ export function createToolsExtension(
 		const controller = new ToolSelectionController(pi);
 		bindController?.(controller);
 
-		const restore = (ctx: ExtensionContext): void => {
+		const restore = async (ctx: ExtensionContext): Promise<void> => {
+			const config = await loadSubagentConfig(ctx.cwd);
+			controller.setSubagentAvailable(discoverAgents(ctx.cwd, config).agents.length > 0);
 			const notice = controller.restore({
 				branchEntries: ctx.sessionManager.getBranch(),
 			});
@@ -70,8 +74,8 @@ export function createToolsExtension(
 			},
 		});
 
-		pi.on("session_start", (_event, ctx) => restore(ctx));
-		pi.on("session_tree", (_event, ctx) => restore(ctx));
+		pi.on("session_start", async (_event, ctx) => restore(ctx));
+		pi.on("session_tree", async (_event, ctx) => restore(ctx));
 	};
 }
 

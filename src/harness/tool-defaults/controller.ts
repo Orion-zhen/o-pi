@@ -45,6 +45,7 @@ export interface ToolSelectionControllerOptions {
 
 export class ToolSelectionController {
 	private baselineTools: ReadonlySet<string> | undefined;
+	private subagentAvailable = false;
 	private readonly saveDefaults: (tools: readonly string[]) => Promise<string>;
 
 	constructor(
@@ -55,7 +56,11 @@ export class ToolSelectionController {
 	}
 
 	listTools(): ToolSelectionItem[] {
-		return toolSelectionItems(this.port.getAllTools(), this.port.getActiveTools());
+		return toolSelectionItems(this.port.getAllTools(), this.port.getActiveTools(), this.subagentAvailable);
+	}
+
+	setSubagentAvailable(available: boolean): void {
+		this.subagentAvailable = available;
 	}
 
 	restore(input: ToolSelectionRestoreInput): ToolSelectionRestoreNotice | undefined {
@@ -88,7 +93,7 @@ export class ToolSelectionController {
 	}
 
 	private availableTools(): ToolInfo[] {
-		return this.port.getAllTools().filter(toolAvailableOnCurrentPlatform);
+		return this.port.getAllTools().filter((tool) => toolAvailableOnCurrentPlatform(tool, this.subagentAvailable));
 	}
 
 	private captureBaseline(): ReadonlySet<string> {
@@ -130,16 +135,18 @@ function findSavedTools(branchEntries: readonly ToolSelectionBranchEntry[]): str
 	return savedTools;
 }
 
-export function toolAvailableOnCurrentPlatform(tool: ToolInfo): boolean {
-	return tool.exposure !== "hidden" && (tool.name !== "powershell" || process.platform === "win32");
+export function toolAvailableOnCurrentPlatform(tool: ToolInfo, subagentAvailable = false): boolean {
+	return tool.exposure !== "hidden"
+		&& (tool.name !== "powershell" || process.platform === "win32")
+		&& (tool.name !== "subagent" || subagentAvailable);
 }
 
 /** 开关控制声明集合，不表示权限。脚本专用和延迟工具在未勾选时仍可嵌套调用。 */
-export function toolSelectionItems(tools: readonly ToolInfo[], active: readonly string[]): ToolSelectionItem[] {
+export function toolSelectionItems(tools: readonly ToolInfo[], active: readonly string[], subagentAvailable = false): ToolSelectionItem[] {
 	const enabled = new Set(active);
 	return tools.filter((tool) => tool.exposure !== "hidden").map((tool) => {
 		const item = { name: tool.name, description: tool.description, exposure: tool.exposure };
-		return toolAvailableOnCurrentPlatform(tool)
+		return toolAvailableOnCurrentPlatform(tool, subagentAvailable)
 			? { ...item, available: true, enabled: enabled.has(tool.name) }
 			: { ...item, available: false, enabled: false };
 	});

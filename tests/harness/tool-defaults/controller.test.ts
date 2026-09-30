@@ -76,6 +76,27 @@ describe("ToolSelectionController", () => {
 		expect(harness.activeTools).toEqual([]);
 	});
 
+	it("没有可用 agent profile 时展示但无法启用 subagent，有 profile 后允许启用", () => {
+		const harness = createHarness(["read", "subagent"], ["read", "subagent"]);
+		const controller = new ToolSelectionController(harness.port);
+		controller.restore({ branchEntries: [] });
+		expect(controller.listTools()).toEqual([
+			{ name: "read", description: "read", exposure: "direct", enabled: true, available: true },
+			{ name: "subagent", description: "subagent", exposure: "direct", enabled: false, available: false },
+		]);
+		expect(harness.activeTools).toEqual(["read"]);
+		controller.set("subagent", true);
+		expect(harness.activeTools).toEqual(["read"]);
+		expect(harness.entries).toEqual([]);
+
+		controller.setSubagentAvailable(true);
+		controller.set("subagent", true);
+		expect(controller.listTools().at(-1)).toEqual({
+			name: "subagent", description: "subagent", exposure: "direct", enabled: true, available: true,
+		});
+		expect(harness.activeTools).toEqual(["read", "subagent"]);
+	});
+
 	it.skipIf(process.platform === "win32")("非 Windows 展示但无法启用 PowerShell", () => {
 		const harness = createHarness(["read", "powershell"], ["read"]);
 		const controller = new ToolSelectionController(harness.port);
