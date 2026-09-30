@@ -16,7 +16,7 @@ export function ThemeColorPicker(props: Props) {
 		<Button variant="outline" className="theme-color-trigger" aria-label="主题色" disabled={props.disabled}>
 			<span className="theme-color-swatch" style={{ background: props.value }} /><span>{props.value.toUpperCase()}</span><ChevronDown />
 		</Button>
-	</PopoverTrigger><PopoverContent className="theme-color-picker" align="end" aria-label="主题色调色板">
+	</PopoverTrigger><PopoverContent className="settings-popover theme-color-picker" align="end" aria-label="主题色调色板">
 		<ThemeColorEditor {...props} />
 	</PopoverContent></Popover>;
 }
@@ -56,7 +56,7 @@ function ThemeColorEditor({ savedValue, value, defaultValue, disabled, change }:
 			aria-label={`主题色 ${preset}`} aria-pressed={color === preset} onClick={() => select(preset)}>
 			<span className="theme-color-swatch" style={{ background: preset }} />
 		</button>)}</div>
-		<div className="theme-color-custom"><strong>自定义</strong><IconButton label="恢复默认主题色" disabled={disabled || color === defaultValue.toUpperCase()}
+		<div className="theme-color-custom"><strong>自定义</strong><IconButton size="icon-sm" label="重置主题色" disabled={disabled || color === defaultValue.toUpperCase()}
 			onClick={() => select(defaultValue.toUpperCase())}><RotateCcw /></IconButton></div>
 		{sliders.map(({ index, label, max, unit, background }) => <label className="theme-color-slider" key={label}>
 			<span>{label}<output>{Math.round(hsl[index])}{unit}</output></span>

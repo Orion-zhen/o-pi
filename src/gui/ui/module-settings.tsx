@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
-import type { GuiModel, Query, GlobalQuery } from "../contract.ts";
+import type { GuiModel, GuiSnapshot, Query, GlobalQuery } from "../contract.ts";
 import type { ModuleConfigId } from "../module-config.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
@@ -8,11 +8,12 @@ import { Checkbox } from "./components/ui/checkbox";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
-import { RotateCcw } from "lucide-react";
-import { IconButton } from "./components/icon-button";
 import { ModelSelect } from "./model-select.tsx";
 import { moduleFields, type ConfigField } from "./module-fields.ts";
-import { ConfigActions, useConfigDraft } from "./config-draft.tsx";
+import { useConfigDraft } from "./config-draft.tsx";
+import { SettingsActions, SettingsHeading, SettingsRow, SettingsSourceButton } from "./settings-controls.tsx";
+import { SettingsListField } from "./settings-list-field.tsx";
+import { SubagentToolPicker } from "./subagent-tool-picker.tsx";
 
 function readObject(text: string): Record<string, unknown> {
 	const errors: ParseError[] = [];
@@ -28,15 +29,18 @@ function at(value: unknown, path: string): unknown {
 	return value;
 }
 
-export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
-	id: ModuleConfigId; query: Query<GlobalQuery>; send: Send; disabled: boolean; onDirty: (id: ModuleConfigId, dirty: boolean) => void; models: GuiModel[];
+export function ModuleSettings({ title, id, query, send, disabled, onDirty, models, tools }: {
+	title: string; id: ModuleConfigId; query: Query<GlobalQuery>; send: Send; disabled: boolean; onDirty: (id: ModuleConfigId, dirty: boolean) => void; models: GuiModel[]; tools: GuiSnapshot["tools"] | null;
 }) {
 	const editor = useConfigDraft(useCallback(() => query({ query: "moduleConfig", id }), [id, query]));
 	const { document, draft, error, saving, dirty } = editor;
 	const [source, setSource] = useState(false);
 	useEffect(() => { onDirty(id, dirty); }, [id, dirty, onDirty]);
 	useEffect(() => () => onDirty(id, false), [id, onDirty]);
-	if (!document) return <div>{error ? <p role="alert">{error}</p> : <p role="status">正在读取配置…</p>}<Button variant="outline" onClick={editor.reload}>重新读取</Button></div>;
+	if (!document) return <div className="gui-settings"><SettingsHeading title={title} />
+		{error ? <p role="alert">{error}</p> : <p role="status">正在读取配置…</p>}
+		<div className="settings-action-buttons"><Button variant="ghost" onClick={editor.reload}>重新读取</Button></div>
+	</div>;
 	let values: Record<string, unknown> = {};
 	let parseError = "";
 	try { values = readObject(draft); } catch (error) { parseError = String(error); }
@@ -45,26 +49,27 @@ export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
 	const change = (field: ConfigField, value: unknown) => {
 		editor.change(applyEdits(draft || "{}\n", modify(draft || "{}\n", field.path.split("."), value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
 	};
-	return <div className="gui-settings module-settings">
+	return <div className="gui-settings">
+		<SettingsHeading title={title}>
+			<SettingsSourceButton file={document.path} source={source} onClick={() => setSource(!source)} />
+		</SettingsHeading>
 		{id === "approvalGate" && <p className="settings-warning">关闭审批或允许非交互操作会减少安全限制。</p>}
 		{id === "fileTools" && <p className="settings-warning">禁止访问列表应包含需要保护的凭据路径。</p>}
 		{id === "webTools" && <p className="settings-warning">Cookie 可能携带登录凭据。选择 never 将不再逐次确认。</p>}
 		{id === "discordPresence" && <p className="settings-warning">detailed 档案可能向 Discord 展示项目名和文件名。</p>}
-		<div className="toolbar"><Button variant="outline" onClick={() => setSource(!source)}>{source ? "返回表单" : "编辑 JSONC"}</Button></div>
-		{source ? <Textarea aria-label={`${id} 全局 JSONC`} className="module-source" value={draft} disabled={blocked} onChange={(event) => editor.change(event.target.value)} />
-			: parseError ? <p role="alert">{parseError}</p> : <>
+		{source ? <Textarea aria-label={`${id} 全局 JSONC`} className="settings-source" value={draft} disabled={blocked} onChange={(event) => editor.change(event.target.value)} />
+			: parseError ? <p role="alert">{parseError}</p> : <div className="settings-fields">
 				{moduleFields[id].map((field) => {
 					const override = at(values, field.path);
-					const value = override === undefined ? at(defaults, field.path) : override;
-					return <div className="module-field" key={field.path}>
-						<div className="preference-row"><span>{field.label}</span>
-							<FieldControl field={field} value={value} nullable={at(defaults, field.path) === null} disabled={blocked} models={models} change={(value) => change(field, value)} />
-							<IconButton label={`重置${field.label}`} disabled={blocked || override === undefined} onClick={() => change(field, undefined)}><RotateCcw /></IconButton>
-						</div>
-					</div>;
+					const defaultValue = at(defaults, field.path);
+					const value = override === undefined ? defaultValue : override;
+					return <SettingsRow key={field.path} label={field.label} description={field.description}
+						reset={{ value, defaultValue, apply: () => change(field, undefined) }} disabled={blocked}>
+						<FieldControl field={field} value={value} nullable={defaultValue === null} disabled={blocked} models={models} tools={tools} change={(value) => change(field, value)} />
+					</SettingsRow>;
 				})}
-			</>}
-		<ConfigActions editor={editor} disabled={disabled} invalid={!!parseError} save={() => void editor.save(async (document, content) =>
+			</div>}
+		<SettingsActions {...editor} disabled={disabled} invalid={!!parseError} save={() => void editor.save(async (document, content) =>
 			await send({ action: "saveModuleConfig", id, original: document.content, content }) ? { ...document, content } : undefined)} />
 	</div>;
 }
@@ -72,23 +77,22 @@ export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
 function NumberField({ label, value, disabled, change }: { label: string; value: number; disabled: boolean; change: (value: number) => void }) {
 	const [text, setText] = useState(String(value));
 	useEffect(() => setText(String(value)), [value]);
-	return <Input aria-label={label} type="number" value={text} disabled={disabled} onChange={(event) => {
+	return <Input className="settings-number" aria-label={label} type="number" value={text} disabled={disabled} onChange={(event) => {
 		setText(event.target.value);
 		if (event.target.value && Number.isFinite(event.target.valueAsNumber)) change(event.target.valueAsNumber);
 	}} onBlur={() => setText(String(value))} />;
 }
 
-function FieldControl({ field, value, nullable, disabled, models, change }: { field: ConfigField; value: unknown; nullable: boolean; disabled: boolean; models: GuiModel[]; change: (value: unknown) => void }) {
+function FieldControl({ field, value, nullable, disabled, models, tools, change }: { field: ConfigField; value: unknown; nullable: boolean; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; change: (value: unknown) => void }) {
 	if (typeof value === "boolean") return <Checkbox aria-label={field.label} checked={value} disabled={disabled} onCheckedChange={(value) => change(value === true)} />;
 	if (field.type === "model") return <ModelSelect label={field.label} models={models} disabled={disabled}
 		value={typeof value === "string" && value !== "" ? value : null} change={change} />;
 	if (field.options) return <Select value={String(value)} disabled={disabled} onValueChange={change}>
 		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{field.options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
 	</Select>;
-	if (Array.isArray(value)) return <Textarea aria-label={field.label} value={value.join("\n")} disabled={disabled} onChange={(event) => change(event.target.value === "" ? [] : event.target.value.split("\n"))} onBlur={(event) => {
-		const lines = event.target.value.split("\n").map((line) => line.trim()).filter(Boolean);
-		if (JSON.stringify(lines) !== JSON.stringify(value)) change(lines);
-	}} />;
+	if (Array.isArray(value)) return field.type === "tools"
+		? <SubagentToolPicker label={field.label} value={value} tools={tools} disabled={disabled} change={change} />
+		: <SettingsListField label={field.label} value={value} disabled={disabled} change={change} />;
 	if (typeof value === "number") return <NumberField label={field.label} value={value} disabled={disabled} change={change} />;
 	return <Input aria-label={field.label} value={value === null ? "" : String(value)} disabled={disabled}
 		onChange={(event) => change(event.target.value || (nullable ? null : ""))} />;

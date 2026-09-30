@@ -3,14 +3,15 @@ import type { ModuleConfigId } from "../module-config.ts";
 export interface ConfigField {
 	path: string;
 	label: string;
+	description?: string;
 	options?: readonly string[];
-	type?: "model";
+	type?: "model" | "tools";
 }
-const field = (path: string, label: string, options?: readonly string[], type?: "model"): ConfigField =>
+const field = (path: string, label: string, options?: readonly string[], type?: ConfigField["type"]): ConfigField =>
 	({ path, label, ...(options ? { options } : {}), ...(type ? { type } : {}) });
 
 export const moduleFields: Record<ModuleConfigId, ConfigField[]> = {
-	autoTitle: [field("enabled", "自动生成标题"), field("model", "标题模型（留空使用当前模型）", undefined, "model")],
+	autoTitle: [field("enabled", "自动生成标题"), { ...field("model", "标题模型", undefined, "model"), description: "留空使用当前模型" }],
 	bashTool: [
 		field("default_timeout_seconds", "默认超时（秒）"), field("python_venv_paths", "Python 虚拟环境目录"),
 		field("environment.inherit", "继承进程环境变量"), field("environment.expose_pi_session_file", "暴露会话文件路径"),
@@ -38,10 +39,10 @@ export const moduleFields: Record<ModuleConfigId, ConfigField[]> = {
 		...["write", "edit", "webfetch", "bash"].map((tool) => field(`tools.${tool}.default_action`, `${tool} 默认动作`, ["allow", "ask", "deny"])),
 	],
 	subagent: [
-		field("default_model", "默认模型（留空继承）"), field("max_parallel_tasks", "最大并行任务数"),
+		{ ...field("default_model", "默认模型"), description: "留空继承" }, field("max_parallel_tasks", "最大并行任务数"),
 		field("max_concurrency", "单个任务并发数"), field("timeout_ms", "超时（毫秒）"), field("retries", "重试次数"),
 		field("retry_on_empty_output", "空输出时重试"), field("retry_on_timeout", "超时时重试"),
-		field("default_tools", "默认工具"), field("allow_project_agents", "允许项目子代理"),
+		field("default_tools", "默认工具", undefined, "tools"), field("allow_project_agents", "允许项目子代理"),
 		field("project_agents_override_user", "项目子代理覆盖用户定义"), field("confirm_write_agents", "写入子代理前确认"),
 	],
 	lsp: [

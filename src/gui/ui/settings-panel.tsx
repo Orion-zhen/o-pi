@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Tabs } from "radix-ui";
 import { AnimatePresence } from "motion/react";
 import { Keyboard, MessageSquare, Palette, Wrench, Globe, Shield, Bot, Code, Plug, Terminal, Type } from "lucide-react";
@@ -14,6 +14,7 @@ import { ConfigEditor } from "./config-editor.tsx";
 import { ModuleSettings } from "./module-settings.tsx";
 import type { ModuleConfigId } from "../module-config.ts";
 import { McpSettings } from "./mcp-settings.tsx";
+import { SettingsActions, SettingsHeading, SettingsRow, SettingsSourceButton } from "./settings-controls.tsx";
 
 export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabled, connected, refreshGuiConfig, restoreFocus, onDirty, initialCategory }: {
 	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; query: Query; globalQuery: Query<GlobalQuery>;
@@ -61,22 +62,22 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 			</div>
 		</div>
 		{categories.map(({ id, label }) => <Tabs.Content key={id} value={id} className="settings-content" forceMount>
-			<header className="settings-section-heading"><h2>{label}</h2></header>
 			{visited.has(id) && (id === "agent" ? snapshot
-				? <AgentSettings key={snapshot.sessionId} snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} onDirty={reportDirty} />
-				: <p className="settings-empty">选择工作区后可修改会话设置。</p>
+				? <AgentSettings key={snapshot.sessionId} title={label} snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} onDirty={reportDirty} />
+				: <><SettingsHeading title={label} /><p className="settings-empty">选择工作区后可修改会话设置。</p></>
 				: id === "appearance" || id === "interaction" || id === "desktopWeb"
-				? <GuiSettings section={id} document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} onDirty={reportDirty} />
-				: id === "mcp" ? <McpSettings query={globalQuery} send={send} disabled={!connected} onDirty={reportDirty} />
-				: <ModuleSettings id={id} query={globalQuery} send={send} disabled={!connected} onDirty={reportDirty} models={snapshot?.models ?? []} />)}
+				? <GuiSettings title={label} section={id} document={guiConfig} send={send} disabled={!connected} refresh={refreshGuiConfig} restoreFocus={restoreFocus} onDirty={reportDirty} />
+				: id === "mcp" ? <McpSettings title={label} query={globalQuery} send={send} disabled={!connected} onDirty={reportDirty} />
+				: <ModuleSettings title={label} id={id} query={globalQuery} send={send} disabled={!connected} onDirty={reportDirty} models={snapshot?.models ?? []} tools={snapshot?.tools ?? null} />)}
 		</Tabs.Content>)}
 	</Tabs.Root>;
 }
 
-function AgentSettings({ snapshot, send, query, disabled, restoreFocus, onDirty }: {
-	snapshot: GuiSnapshot; send: Send; query: Query; disabled: boolean; restoreFocus: () => void;
+function AgentSettings({ title, snapshot, send, query, disabled, restoreFocus, onDirty }: {
+	title: string; snapshot: GuiSnapshot; send: Send; query: Query; disabled: boolean; restoreFocus: () => void;
 	onDirty: (id: "agent", dirty: boolean) => void;
 }) {
+	const controlId = useId();
 	const [draft, setDraft] = useState<GuiSnapshot["settings"]>();
 	const settings = draft ?? snapshot.settings;
 	const dirty = draft !== undefined && JSON.stringify(draft) !== JSON.stringify(snapshot.settings);
@@ -112,31 +113,28 @@ function AgentSettings({ snapshot, send, query, disabled, restoreFocus, onDirty 
 			if (active.current) setError(error instanceof Error ? error.message : String(error));
 		} finally { if (active.current) setLoading(false); }
 	};
-	return <div className="gui-settings module-settings">
-		<div className="settings-grid">
+	return <div className="gui-settings">
+		<SettingsHeading title={title}>
+			<SettingsSourceButton file="settings.json" disabled={loading || blocked || dirty} onClick={() => void openConfig()} />
+		</SettingsHeading>
+		<div className="settings-fields">
 			{([
 				["compaction", "自动压缩"], ["retry", "自动重试"], ["autoResize", "自动缩放图片"], ["blockImages", "阻止图片发送"],
-			] as const).map(([key, label]) => <label key={key}>
-				<Checkbox checked={settings[key]} disabled={blocked}
-					onCheckedChange={(checked) => change({ ...settings, [key]: checked === true })} />{label}
-			</label>)}
-			{([["steering", "Steer 队列"], ["followUp", "Follow-up 队列"]] as const).map(([key, label]) => <label key={key}>
-				{label}<Select value={settings[key]} disabled={blocked} onValueChange={(value) => change({
+			] as const).map(([key, label]) => <SettingsRow key={key} label={label} htmlFor={`${controlId}-${key}`}>
+				<Checkbox id={`${controlId}-${key}`} aria-label={label} checked={settings[key]} disabled={blocked}
+					onCheckedChange={(checked) => change({ ...settings, [key]: checked === true })} />
+			</SettingsRow>)}
+			{([["steering", "Steer 队列"], ["followUp", "Follow-up 队列"]] as const).map(([key, label]) => <SettingsRow key={key} label={label} htmlFor={`${controlId}-${key}`}>
+				<Select value={settings[key]} disabled={blocked} onValueChange={(value) => change({
 					...settings, [key]: value === "all" ? "all" : "one-at-a-time",
 				})}>
-					<SelectTrigger aria-label={label}><SelectValue /></SelectTrigger>
+					<SelectTrigger id={`${controlId}-${key}`} aria-label={label}><SelectValue /></SelectTrigger>
 					<SelectContent><SelectItem value="one-at-a-time">逐条发送</SelectItem><SelectItem value="all">一起发送</SelectItem></SelectContent>
 				</Select>
-			</label>)}
+			</SettingsRow>)}
 		</div>
-		{error && <p role="alert">{error}</p>}
-		<div className="toolbar"><Button variant="outline" size="sm" disabled={loading || blocked || dirty} onClick={() => void openConfig()}>编辑完整 settings.json</Button></div>
-		{status && <p role="status">{status}</p>}
-		<div className="toolbar module-actions">
-			<Button disabled={blocked || !dirty} onClick={() => void save()}>保存</Button>
-			<Button variant="outline" disabled={blocked || !dirty} onClick={() => { setDraft(undefined); setError(""); setStatus(""); }}>放弃修改</Button>
-			{dirty && <span role="status">有未保存修改</span>}
-		</div>
+		<SettingsActions dirty={dirty} saving={saving} disabled={disabled} error={error} status={status}
+			save={() => void save()} discard={() => { setDraft(undefined); setError(""); setStatus(""); }} />
 		<AnimatePresence>
 		{config !== undefined && <ConfigEditor file="settings.json" content={config} send={send} close={() => setConfig(undefined)} restoreFocus={restoreFocus} />}
 		</AnimatePresence>

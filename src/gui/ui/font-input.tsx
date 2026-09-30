@@ -64,9 +64,9 @@ export function FontInput({ kind, fonts, selected, disabled, initial = "", commi
 						}
 					}
 				}} />
-			{cancel ? <Button variant="outline" size="sm" disabled={disabled || !name || alreadySelected(name)} onClick={() => void save(name)}>保存</Button>
-				: <IconButton label="添加" disabled={disabled || !name || alreadySelected(name)} onClick={() => void save(name)}><Plus /></IconButton>}
-			{cancel && <IconButton label="取消修改字体" disabled={disabled} onClick={cancel}><X /></IconButton>}
+			{cancel ? <Button size="sm" disabled={disabled || !name || alreadySelected(name)} onClick={() => void save(name)}>保存</Button>
+				: <IconButton size="icon-sm" label="添加" disabled={disabled || !name || alreadySelected(name)} onClick={() => void save(name)}><Plus /></IconButton>}
+			{cancel && <IconButton size="icon-sm" label="取消修改字体" disabled={disabled} onClick={cancel}><X /></IconButton>}
 		</div>
 		{listOpen && <div id={id} className="font-list" role="listbox" aria-label="字体补全">
 			{options.map(({ font, custom }, index) => <button key={font} id={`${id}-${index}`} type="button" role="option" tabIndex={-1}

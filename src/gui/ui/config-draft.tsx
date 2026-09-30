@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Button } from "./components/ui/button";
 
 /** 编辑原文并保留打开时的版本，保存冲突仍交给后端检查。 */
 export function useConfigDraft<D extends { content: string }>(load: () => Promise<D>) {
@@ -34,20 +33,4 @@ export function useConfigDraft<D extends { content: string }>(load: () => Promis
 			} finally { setSaving(false); }
 		},
 	};
-}
-
-export function ConfigActions({ editor, disabled, invalid = false, save }: {
-	editor: Pick<ReturnType<typeof useConfigDraft>, "dirty" | "saving" | "error" | "status" | "discard" | "reload">;
-	disabled: boolean; invalid?: boolean; save: () => void;
-}) {
-	const blocked = disabled || editor.saving;
-	return <>
-		{editor.error && <p role="alert">{editor.error}</p>}{editor.status && <p role="status">{editor.status}</p>}
-		<div className="toolbar module-actions">
-			<Button disabled={blocked || invalid || !editor.dirty} onClick={save}>保存</Button>
-			<Button variant="outline" disabled={blocked || !editor.dirty} onClick={editor.discard}>放弃修改</Button>
-			<Button variant="ghost" disabled={blocked || editor.dirty} onClick={editor.reload}>重新读取</Button>
-			{editor.dirty && <span role="status">有未保存修改</span>}
-		</div>
-	</>;
 }

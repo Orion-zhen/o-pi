@@ -19,7 +19,7 @@ export function FontPicker(props: Props) {
 		<PopoverTrigger asChild><Button variant="outline" className="font-trigger" aria-label={label} disabled={props.disabled}>
 			<span>{first ? `${first}${rest.length ? ` + ${rest.length} 个后备字体` : ""}` : "系统默认"}</span><ChevronDown />
 		</Button></PopoverTrigger>
-		<PopoverContent className="font-picker" align="end" aria-label={`${label}链`} onEscapeKeyDown={(event) => {
+		<PopoverContent className="settings-popover font-picker" align="end" aria-label={`${label}链`} onEscapeKeyDown={(event) => {
 			// Radix 在捕获阶段关闭浮层，先让输入框消费补全和草稿的 Escape。
 			if (event.target instanceof Element && event.target.closest('[data-font-escape="true"]')) event.preventDefault();
 		}}>
@@ -73,9 +73,9 @@ function FontChainEditor({ kind, value, disabled, local, onChange }: Props) {
 						{local.fonts && local.fonts.length > 0 && !genericFamilies.has(font.toLowerCase()) && !local.fonts.some((family) => family.toLowerCase() === font.toLowerCase())
 							&& <small>本机列表未找到</small>}
 					</button>
-					<IconButton label={`上移 ${font}`} disabled={disabled || index === 0} onClick={() => move(font, index, -1)}><ArrowUp /></IconButton>
-					<IconButton label={`下移 ${font}`} disabled={disabled || index === value.length - 1} onClick={() => move(font, index, 1)}><ArrowDown /></IconButton>
-					<IconButton label={`删除 ${font}`} disabled={disabled} onClick={() => void save(value.filter((_, position) => position !== index))}><X /></IconButton>
+					<IconButton size="icon-sm" label={`上移 ${font}`} disabled={disabled || index === 0} onClick={() => move(font, index, -1)}><ArrowUp /></IconButton>
+					<IconButton size="icon-sm" label={`下移 ${font}`} disabled={disabled || index === value.length - 1} onClick={() => move(font, index, 1)}><ArrowDown /></IconButton>
+					<IconButton size="icon-sm" label={`删除 ${font}`} disabled={disabled} onClick={() => void save(value.filter((_, position) => position !== index))}><X /></IconButton>
 				</>}
 			</li>)}
 		</ol>

@@ -68,6 +68,7 @@ for (const mode of ["web", "desktop"] as const) test.describe(`MCP ${mode}`, () 
 		await config.fill("{}");
 		expect(await readFile(file, "utf8")).toBe(original);
 		await settings.getByRole("button", { name: "保存", exact: true }).click();
+		await expect(settings.getByRole("status")).toHaveText("已保存。新会话或 /reload 后生效。");
 		expect(await readFile(file, "utf8")).toBe("{}");
 		await settings.getByRole("button", { name: "关闭面板", exact: true }).click();
 		await page.locator(".tool-count").click();

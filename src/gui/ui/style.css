@@ -38,7 +38,9 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .new-session { flex: 0 1 auto; min-inline-size: 0; padding-inline: 0.75em; background: var(--surface); }
 .workspace-options { display: flex; flex-direction: column; gap: var(--space-3); inline-size: max-content; max-inline-size: var(--radix-popover-content-available-width); max-block-size: var(--radix-popover-content-available-height); }
 .model-select { justify-content: space-between; min-inline-size: 0; }
-.model-select-value { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-select-value { display: flex; flex: 1; align-items: center; gap: var(--space-2); min-inline-size: 0; }
+.model-select-name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-select-provider { flex-shrink: 0; max-inline-size: 50%; overflow: hidden; text-overflow: ellipsis; color: var(--muted-foreground); font-size: var(--text-small); }
 .model-select-content { display: flex; flex-direction: column; gap: var(--space-3); inline-size: max-content; min-inline-size: min(20em, var(--radix-popover-content-available-width)); max-inline-size: var(--radix-popover-content-available-width); max-block-size: var(--radix-popover-content-available-height); }
 .model-select-list { display: flex; flex-direction: column; gap: var(--space-1); }
 .model-select-row { flex-shrink: 0; }
@@ -169,11 +171,6 @@ input.session-name { flex: 1; background: var(--surface); }
 .list-row > span { flex: 1; min-width: 0; }
 .list-row small { display: block; font-weight: 400; color: var(--muted-foreground); font-size: var(--text-caption); line-height: 1.6; }
 .list-row[data-authenticated="true"] > span, .list-row[data-authenticated="true"] small { color: var(--primary); }
-.settings-grid { display: grid; gap: 1.25rem; margin: 1rem 0 1.5rem; }
-.settings-grid label { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; }
-.settings-grid label:has([role="checkbox"]) { flex-direction: row-reverse; }
-.panel-body:has(.config-editor) { display: flex; flex-direction: column; }
-.config-editor { flex: 1; min-block-size: 0; block-size: 50dvh; resize: vertical; font-family: var(--gui-font-code); margin: 1em 0; }
 .approval { overflow: auto; border-radius: 1em; }
 .approval pre { max-height: 40dvh; overflow: auto; }
 .dialog-title { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin-top: 0.5rem; }
