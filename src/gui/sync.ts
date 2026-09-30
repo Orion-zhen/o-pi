@@ -24,6 +24,7 @@ export type GuiWireEvent = Exclude<GuiEvent, { type: "stream" }> | GuiPatch
 export interface GuiDelivery { id: number; events: GuiWireEvent[] }
 
 function tail<T>(before: T[], after: T[]): Tail<T> | undefined {
+	if (before === after) return undefined;
 	let keep = 0;
 	while (keep < before.length && before[keep] === after[keep]) keep++;
 	return keep === before.length && keep === after.length ? undefined : { keep, items: after.slice(keep) };

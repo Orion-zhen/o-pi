@@ -1,14 +1,61 @@
-import { describe, expect, it } from "vitest";
+import { readFile, writeFile } from "node:fs/promises";
+import { describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHistory } from "../../src/gui/host/history.ts";
 import { GuiPayloads } from "../../src/gui/host/payloads.ts";
 import { sessionTree } from "../../src/gui/messages.ts";
 import { locateTranscript } from "../../src/gui/ui/transcript-location.ts";
 import { assistant } from "./transcript-fixtures.ts";
+import { useTempDir } from "../helpers/lifecycle.ts";
+
+const temp = useTempDir("opi-history-projection-");
 
 const user = (content: string) => ({ role: "user" as const, content, timestamp: 100 });
 
 describe("统一历史身份", () => {
+	it("连续快照复用未变化的历史，不重复遍历 SDK 条目或上下文", () => {
+		const manager = SessionManager.inMemory();
+		manager.appendMessage(user("历史消息"));
+		const history = new GuiHistory(new GuiPayloads());
+		const before = history.project(manager);
+		const entries = vi.spyOn(manager, "getEntries");
+		const context = vi.spyOn(manager, "buildContextEntries");
+		for (let index = 0; index < 20; index++) expect(history.project(manager)).toBe(before);
+		expect(entries).not.toHaveBeenCalled();
+		expect(context).not.toHaveBeenCalled();
+	});
+	it("只切换分支、重置叶节点或重建同 ID 会话也会更新投影", () => {
+		const manager = SessionManager.inMemory();
+		const first = manager.appendMessage(user("第一条"));
+		manager.appendMessage(user("第二条"));
+		const history = new GuiHistory(new GuiPayloads());
+		const before = history.project(manager);
+		manager.branch(first);
+		const branch = history.project(manager);
+		expect(branch.entries).toBe(before.entries);
+		expect(branch.contextEntryIds).toEqual([first]);
+		manager.resetLeaf();
+		expect(history.project(manager).contextEntryIds).toEqual([]);
+		manager.newSession({ id: manager.getSessionId() });
+		manager.appendMessage(user("新会话消息"));
+		manager.appendMessage(user("新会话回复"));
+		manager.resetLeaf();
+		expect(history.project(manager).entries.flatMap((entry) => entry.messages)).toEqual([user("新会话消息"), user("新会话回复")]);
+	});
+	it("重读同一文件后即使条目数和叶节点相同，也不复用旧正文", async () => {
+		const manager = SessionManager.create(temp.path, temp.path);
+		manager.appendMessage(user("旧正文"));
+		const file = manager.getSessionFile();
+		if (!file) throw new Error("缺少会话文件");
+		const history = new GuiHistory(new GuiPayloads());
+		const before = history.project(manager);
+		await writeFile(file, (await readFile(file, "utf8")).replace("旧正文", "新正文"));
+		manager.setSessionFile(file);
+		const after = history.project(manager);
+		expect(after.contextEntryIds).toEqual(before.contextEntryIds);
+		expect(after.entries.flatMap((entry) => entry.messages)).toEqual([user("新正文")]);
+		expect(before.entries.flatMap((entry) => entry.messages)).toEqual([user("旧正文")]);
+	});
 	it("压缩重排与相同时间戳不影响定位，正文只传一份", () => {
 		const manager = SessionManager.inMemory();
 		const old = manager.appendMessage(user("已压缩的问题"));
@@ -55,6 +102,39 @@ describe("统一历史身份", () => {
 });
 
 describe("载荷引用", () => {
+	it("判断大工具结果大小时不构造整份 JSON 字符串，完整结果仍可读取", () => {
+		const payloads = new GuiPayloads();
+		const text = "完整输出\\n".repeat(1_000_000);
+		const stringify = JSON.stringify;
+		let serialized = 0;
+		const encode = vi.spyOn(JSON, "stringify").mockImplementation((value, replacer, space) => {
+			const json = stringify(value, replacer, space);
+			serialized = Math.max(serialized, json.length);
+			return json;
+		});
+		try {
+			const output = payloads.output("extension", { content: [{ type: "text", text }] });
+			if (output.kind !== "reference") throw new Error("缺少工具结果引用");
+			expect(payloads.toolOutput(output.id).content).toEqual([{ type: "text", text }]);
+			expect(serialized).toBeLessThanOrEqual(64_000 * 6);
+		} finally { encode.mockRestore(); }
+	});
+	it("保留原有内联阈值，正确计算转义字符和嵌套详情", () => {
+		const payloads = new GuiPayloads();
+		const overhead = JSON.stringify({ content: [{ type: "text", text: "" }] }).length;
+		for (const value of [
+			{ content: [{ type: "text", text: "x".repeat(64_000 - overhead) }] },
+			{ content: [{ type: "text", text: "x".repeat(64_001 - overhead) }] },
+			{ content: [{ type: "text", text: "\n\"\\".repeat(12_000) }] },
+			{ content: [], details: { nested: { diff: "中文差异".repeat(20_000) } } },
+			{ content: [], details: { lines: Array.from({ length: 20_000 }, (_, index) => [index, null, true]) } },
+		]) {
+			const expected = JSON.stringify(value).length <= 64_000 ? "inline" : "reference";
+			const output = payloads.output("extension", value);
+			expect(output.kind).toBe(expected);
+			expect(output.kind === "inline" ? output.value : payloads.toolOutput(output.id)).toEqual(value);
+		}
+	});
 	it("只替换标准图片块，不改写扩展数据和工具参数中的同名字段", () => {
 		const payloads = new GuiPayloads();
 		const image = { type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" };

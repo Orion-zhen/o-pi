@@ -15,6 +15,7 @@ type PresentationState = Pick<
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
 export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads, selection: ToolSelectionController, mcpTools: ToolSelectionItem[]): GuiSnapshot {
 	const { session, services, cwd } = runtime;
+	const stats = session.getSessionStats();
 	const routed = session.routedModel;
 	const defaults = services.settingsManager.getGlobalSettings();
 	const allTools = session.getAllTools();
@@ -60,8 +61,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		},
 		thinking: session.thinkingLevel,
 		thinkingLevels: session.getAvailableThinkingLevels(),
-		context: session.getContextUsage() ?? null,
-		stats: session.getSessionStats(),
+		context: stats.contextUsage ?? null,
+		stats,
 		// SDK 原地追加队列，快照必须持有独立数组供增量比较。
 		queue: { steering: [...session.getSteeringMessages()], followUp: [...session.getFollowUpMessages()] },
 		settings: {

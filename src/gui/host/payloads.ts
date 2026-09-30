@@ -9,6 +9,29 @@ function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const INLINE_LIMIT = 64_000;
+const oversized = Symbol("oversized");
+
+/** 按 JSON 长度下界提前停止，避免为大小判断复制整份大正文。小结果仍按实际编码长度判断。 */
+function fitsInline(value: ToolOutput): boolean {
+	let remaining = INLINE_LIMIT;
+	try {
+		return JSON.stringify(value, function (this: unknown, key: string, item: unknown) {
+			if (typeof item === "string") remaining -= item.length + 2;
+			else if (typeof item === "number") remaining -= Number.isFinite(item) ? String(item).length : 4;
+			else if (typeof item === "boolean") remaining -= item ? 4 : 5;
+			else if (typeof item === "object") remaining -= item === null ? 4 : 2;
+			else return item;
+			if (key && !Array.isArray(this)) remaining -= key.length + 3;
+			if (remaining < 0) throw oversized;
+			return item;
+		}).length <= INLINE_LIMIT;
+	} catch (error) {
+		if (error === oversized) return false;
+		throw error;
+	}
+}
+
 /** 只投影协议定义的正文和图片，不递归改写扩展 details 或工具参数。 */
 export class GuiPayloads {
 	private images = new Map<string, string>();
@@ -38,7 +61,7 @@ export class GuiPayloads {
 			record(block) && block.type === "image" && typeof block.data === "string" && typeof block.mimeType === "string"
 				? this.imageReference({ type: "image", data: block.data, mimeType: block.mimeType }) : block) : output.content;
 		const value = { content, details: output.details };
-		if (JSON.stringify(value).length <= 64_000) return { kind: "inline", value };
+		if (fitsInline(value)) return { kind: "inline", value };
 		const id = randomUUID();
 		this.outputs.set(id, value);
 		const details = record(output.details) ? output.details : {};
