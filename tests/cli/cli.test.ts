@@ -133,7 +133,6 @@ describe("standalone opi CLI", () => {
 			expect(description).not.toContain(omitted);
 		}
 		expect(JSON.stringify(system)).not.toContain("instead of issuing many individual tool calls");
-		expect(JSON.stringify(system)).toContain("same script");
 	});
 
 	it("codemode 目录预算为零时仍可发现签名并调用未展示工具", async () => {

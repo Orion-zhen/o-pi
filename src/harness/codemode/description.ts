@@ -6,7 +6,7 @@ import { codemodeHiddenDeclarations } from "./loadout.ts";
 
 export const CODEMODE_DESCRIPTION = `Compose tool calls in a fresh QuickJS sandbox (256 MiB). No Node, filesystem, network or timers.
 - Call tools.<name>(args) using the signatures below. Results are objects or text as declared.
-- Nested results stay in the script. Emit with text(value) or top-level return (objects become JSON). Filter or aggregate before emitting.
+- Nested results stay in the script. Emit with text(value) or top-level return (objects become JSON).
 - Failed, blocked or invalid calls reject, except failures carrying structured results. Check their status fields.
 - Await needed calls. Script completion cancels pending calls. Failures keep partial output but do not undo tool side effects.
 - store(key, value) saves JSON across calls on this session branch, only on success. undefined deletes. load(key) returns the value or undefined.

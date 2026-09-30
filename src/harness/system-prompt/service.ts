@@ -68,9 +68,7 @@ function formatToolPolicy(options: BuildSystemPromptOptions): string {
 	const rules = [
 		"Use the narrowest active tool that directly matches the operation.",
 		"Minimize redundant tool calls; maximize evidence efficiency.",
-		(options.selectedTools ?? []).includes("codemode")
-			? "Run independent script-callable operations concurrently in the same script. Keep dependent operations sequential."
-			: "Issue independent tool calls together in one response; keep dependent operations sequential.",
+		"Run independent tool operations concurrently. Keep dependent operations sequential.",
 		"Do not retrieve unchanged content already in context unless omitted details, an intervening write, or a stale result requires it.",
 		...(options.selectedTools ?? []).flatMap((name) => options.toolGuidelines?.[name] ?? []),
 		...(options.promptGuidelines ?? []),

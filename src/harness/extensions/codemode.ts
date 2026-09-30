@@ -10,7 +10,9 @@ export default function codemode(pi: ExtensionAPI): void {
 				...tool,
 				description: CODEMODE_DESCRIPTION,
 				promptSnippet: "Compose tool calls with JavaScript.",
-				promptGuidelines: [],
+				promptGuidelines: [
+					"With codemode, complete known call chains in the same script. Filter/aggregate intermediate data. Emit only answer evidence or inputs needing model judgment.",
+				],
 				prepareLoadout(loadout) {
 					const budget = pi.getSettings().codemode?.inlineBudget;
 					return prepareCodemodeLoadout(loadout,
