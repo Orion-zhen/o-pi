@@ -196,7 +196,7 @@ export interface GuiSessionInfo {
 	title: string;
 	modified: string;
 }
-export type GuiLiveTool = Omit<Extract<AgentSessionEvent, { type: "tool_execution_start" }>, "type"> & { output: GuiToolOutput | undefined };
+export type GuiLiveTool = Omit<Extract<AgentSessionEvent, { type: "tool_execution_start" }>, "type"> & { output: GuiToolOutput | undefined; status: "running" | "ok" | "error" };
 
 export interface GuiSnapshot {
 	cwd: string;
@@ -234,7 +234,8 @@ export interface GuiSnapshot {
 		blockImages: boolean;
 	};
 	commands: { name: string; description: string }[];
-	tools: ToolSelectionItem[];
+	tools: (ToolSelectionItem & { callable: boolean })[];
+	modelTools: string[];
 	providers: { id: string; name: string; oauth: boolean; authenticated: boolean }[];
 	bashOutput: string;
 }

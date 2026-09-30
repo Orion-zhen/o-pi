@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { AnimatePresence } from "motion/react";
 import { ListItem, Reveal } from "./components/animated";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
-import { ArrowUp, CornerUpRight, History, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
+import { ArrowUp, CodeXml, CornerUpRight, History, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
@@ -35,6 +35,10 @@ interface ComposerControls extends Pick<GuiControls, "connected" | "query" | "se
 export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: ComposerControls; view: SessionViewState; snapshot: SessionSnapshot; preferences: GuiPreferences | undefined; onSubmit: () => void }) {
 	const { draft, setDraft, images, setImages, behavior, setBehavior } = useSessionDraft(view, gui.views);
 	const running = snapshot.running;
+	const codemode = snapshot.modelTools.includes("codemode");
+	const toolCount = codemode ? snapshot.tools.filter((tool) => tool.name !== "codemode"
+		&& (tool.callable || tool.exposure === "model-only" && tool.enabled)).length : snapshot.modelTools.length;
+	const ToolIcon = codemode ? CodeXml : Wrench;
 	const {
 		connected,
 		query,
@@ -298,11 +302,12 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 							variant="ghost"
 							size="sm"
 							className="tool-count"
-							aria-label={`工具：已启用 ${snapshot.tools.filter((tool) => tool.enabled).length} 个`}
+							aria-label={`工具：可用 ${toolCount} 个${codemode ? "，codemode 模式" : ""}`}
+							title={codemode ? "codemode 模式" : "普通模式"}
 							disabled={!gui.canSubmit}
 							onClick={() => gui.setPanel({ kind: "tools" })}
 						>
-							<Wrench />{snapshot.tools.filter((tool) => tool.enabled).length}
+							<ToolIcon />{toolCount}
 						</Button>
 						<IconButton
 							label={`当前：${behaviorLabel}（${steering ? "引导" : "跟进"}），点击切换为 ${steering ? "Follow-up" : "Steering"}`}

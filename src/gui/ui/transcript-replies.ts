@@ -1,5 +1,6 @@
 import { outputPreview } from "../messages.ts";
 import { replyMetrics } from "../message-metrics.ts";
+import { errorSummary } from "./tool-display.tsx";
 import { SKILL_CONTEXT_MESSAGE } from "../../harness/skill-context/types.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TranscriptItem, TranscriptSource, ToolState } from "./transcript-items.ts";
@@ -57,7 +58,11 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		const children = source.liveTools.filter((child) => child.parentToolCallId === id || child.parentToolCallId?.startsWith(`${id}/`));
 		const nestedCalls = result?.nestedCalls ?? (children.length ? {
 			complete: false,
-			calls: children.map((child) => ({ id: child.toolCallId, name: child.toolName, status: "unfinished" as const })),
+			calls: children.map((child) => ({
+				id: child.toolCallId, name: child.toolName, arguments: child.args,
+				status: child.status === "running" ? "unfinished" as const : child.status,
+				...(child.status === "error" ? { error: errorSummary(child) } : {}),
+			})),
 		} : undefined);
 		const state = result
 			? isRecord(details) && details.status === "aborted" ? "stopped" : result.isError ? "failed" : "completed"

@@ -53,7 +53,7 @@ describe("流式历史分组", () => {
 		const initial = source({ messages: [user, assistant([call]), skill], streaming: true });
 		await render(initial);
 		for (const text of ["读取中", "正在完成"]) {
-			await render({ ...initial, liveTools: [{ toolCallId: call.id, toolName: call.name, args: call.arguments,
+			await render({ ...initial, liveTools: [{ toolCallId: call.id, toolName: call.name, args: call.arguments, status: "running",
 				output: { kind: "inline", value: { content: [{ type: "text", text }] } } }] });
 			expect(tools()).toHaveLength(1);
 			expect(tools()[0]).toMatchObject({ tool: { id: call.id, state: "running", output: { value: { content: [{ text }] } } } });

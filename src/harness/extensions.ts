@@ -4,6 +4,7 @@ import approvalGate from "./extensions/approval-gate.ts";
 import autoTitle from "./extensions/auto-title.ts";
 import bashTool from "./extensions/bash-tool.ts";
 import tools from "./extensions/cmd-slash-tools.ts";
+import codemode from "./extensions/codemode.ts";
 import discordPresence from "./extensions/discord-presence.ts";
 import fileTools from "./extensions/file-tools.ts";
 import lsp from "./extensions/lsp.ts";
@@ -22,6 +23,7 @@ import webTools from "./extensions/web-tools.ts";
 
 /** SDK 原生扩展列表。每次加载时由 factory 创建会话状态。 */
 export const extensions: InlineExtension[] = [
+	{ name: "codemode", builtin: true, factory: codemode },
 	{ name: "agents-prompts", factory: agentsPrompts },
 	{ name: "approval-gate", factory: approvalGate },
 	{ name: "auto-title", factory: autoTitle },

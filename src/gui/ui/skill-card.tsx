@@ -31,7 +31,7 @@ export function SkillCard({ id, name, loadedBy, state, output }: SkillCardProps)
 				<span className="activity-label">技能</span>
 				<code className="activity-target" title={name}>{name}</code>
 				<span className="skill-loader">{skillLoaders[loadedBy]}</span>
-				<span className="activity-state"><Status className={active ? "animate-spin" : ""} aria-hidden="true" />{status && <span>{status}</span>}</span>
+				<span className="activity-state" data-state={state}><Status className={active ? "animate-spin" : ""} aria-hidden="true" />{status && <span>{status}</span>}</span>
 				<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 			</CollapsibleTrigger>
 			{error && <p className="activity-error">{error}</p>}

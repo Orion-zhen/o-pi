@@ -149,11 +149,24 @@ export class GuiExecution {
 				return;
 			}
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") this.liveTools.set(event.toolCallId, {
-				toolCallId: event.toolCallId, toolName: event.toolName, args: structuredClone(event.args),
+				toolCallId: event.toolCallId, toolName: event.toolName, args: structuredClone(event.args), status: "running",
 				...(event.parentToolCallId === undefined ? {} : { parentToolCallId: event.parentToolCallId }),
 				output: event.type === "tool_execution_update" ? this.payloads.output(event.toolName, structuredClone(event.partialResult)) : undefined,
 			});
-			if (event.type === "tool_execution_end") this.liveTools.delete(event.toolCallId);
+			if (event.type === "tool_execution_end") {
+				// 子调用完成后保留状态，父调用结束后由持久化嵌套记录接替。
+				const started = this.liveTools.get(event.toolCallId);
+				if (event.parentToolCallId && started) this.liveTools.set(event.toolCallId, {
+					...started, status: event.isError ? "error" : "ok",
+					output: event.isError ? this.payloads.output(event.toolName, structuredClone(event.result)) : undefined,
+				});
+				else {
+					this.liveTools.delete(event.toolCallId);
+					for (const [id, child] of this.liveTools) {
+						if (child.parentToolCallId === event.toolCallId || child.parentToolCallId?.startsWith(`${event.toolCallId}/`)) this.liveTools.delete(id);
+					}
+				}
+			}
 			if (event.type === "agent_end" || event.type === "session_info_changed") this.refreshSessions();
 			this.schedule();
 		});

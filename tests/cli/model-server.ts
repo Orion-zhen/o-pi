@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 export interface ModelRequest {
 	model: string;
 	messages: Array<{ role: string; content: unknown; tool_call_id?: string }>;
-	tools?: Array<{ function: { name: string } }>;
+	tools?: Array<{ function: { name: string; description?: string; parameters?: unknown } }>;
 }
 
 export type ModelResponse = ({ text: string } | { tool: string; args: Record<string, unknown>; text?: string }) & { thinking?: string; chunks?: string[]; intervalMs?: number };

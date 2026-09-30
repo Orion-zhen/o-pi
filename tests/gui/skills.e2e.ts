@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test as base, expect } from "./fixture.ts";
 import { startModelServer } from "../cli/model-server.ts";
 
@@ -29,6 +29,18 @@ const test = base.extend<{ webPage: Page }>({
 		}
 	},
 });
+
+async function expectSuccessIcon(card: Locator) {
+	const color = await card.evaluate((element) => {
+		const sample = document.createElement("span");
+		sample.style.color = "var(--success)";
+		element.append(sample);
+		const color = getComputedStyle(sample).color;
+		sample.remove();
+		return color;
+	});
+	await expect(card.locator(".activity-state > svg")).toHaveCSS("color", color);
+}
 
 let model: Awaited<ReturnType<typeof startModelServer>>;
 test.beforeEach(async ({ workspace: { agentDir } }) => {
@@ -82,6 +94,7 @@ test("技能卡片、按需正文、会话树与按需查询", async ({ webPage:
 	const manual = page.locator(".skill-message .skill-activity").first();
 	await expect(manual.locator(".activity-summary")).toContainText("手动引用");
 	await expect(manual.locator(".activity-state > svg")).toBeVisible();
+	await expectSuccessIcon(manual);
 	await expect(manual.locator(".activity-state")).toHaveText("");
 	await expect(manual.locator(".skill-body")).toHaveCount(0);
 	expect(model.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
@@ -105,6 +118,7 @@ test("技能卡片、按需正文、会话树与按需查询", async ({ webPage:
 	const skill = activity.locator(".skill-activity");
 	await expect(skill.locator(".activity-summary")).toContainText("模型调用");
 	await expect(skill.locator(".activity-state svg")).toBeVisible();
+	await expectSuccessIcon(skill);
 	await expect(skill.locator(".skill-body")).toHaveCount(0);
 	await skill.locator(".activity-summary").click();
 	await expect(skill.getByRole("heading", { name: "模型技能" })).toBeVisible();

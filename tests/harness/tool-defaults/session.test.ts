@@ -5,6 +5,7 @@ import {
 	SessionManager, type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { extensions } from "../../../src/harness/extensions.ts";
 import { createToolsExtension } from "../../../src/harness/extensions/cmd-slash-tools.ts";
 import type { ToolSelectionController } from "../../../src/harness/tool-defaults/controller.ts";
 import { startModelServer } from "../../cli/model-server.ts";
@@ -31,6 +32,7 @@ beforeEach(async () => {
 	server = await startModelServer(() => ({ text: "done" }));
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
 		defaultProvider: "fixture", defaultModel: "test", defaultThinkingLevel: "off",
+		defaultTools: ["read", "bash", "write"], codemode: { mode: "on" },
 		compaction: { enabled: false }, retry: { enabled: false },
 	}));
 	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
@@ -53,11 +55,15 @@ async function start(manager = SessionManager.create(cwd)) {
 			cwd, agentDir,
 			resourceLoaderOptions: {
 				noSkills: true, noThemes: true, noPromptTemplates: true, noContextFiles: true,
-				extensionFactories: [{ name: "tools", factory: createToolsExtension(undefined, undefined, (value) => { controller = value; }) }],
+				extensionFactories: [
+					...extensions.filter((extension) => extension.name === "codemode"),
+					{ name: "tools", factory: createToolsExtension(undefined, undefined, (value) => { controller = value; }) },
+				],
 			},
 		});
+		expect(services.resourceLoader.getExtensions().errors).toEqual([]);
 		return {
-			...await createAgentSessionFromServices({ services, sessionManager, tools: ["read", "bash", "write"], ...(sessionStartEvent ? { sessionStartEvent } : {}) }),
+			...await createAgentSessionFromServices({ services, sessionManager, ...(sessionStartEvent ? { sessionStartEvent } : {}) }),
 			services, diagnostics: services.diagnostics,
 		};
 	}, { cwd, agentDir, sessionManager: manager });
@@ -75,6 +81,50 @@ function requestedTools(): string[] {
 }
 
 describe("工具选择与 SDK 状态", () => {
+	it("切换 codemode 只隐藏或恢复普通声明，不改变已选工具", async () => {
+		const { session, controller } = await start();
+		await session.prompt("直接调用");
+		expect(requestedTools()).toEqual(["read", "bash", "write"]);
+		expect(controller.listTools().map((tool) => tool.name)).toContain("codemode");
+		controller.set("codemode", true);
+		await session.prompt("脚本调用");
+		expect(requestedTools()).toEqual(["codemode"]);
+		expect(selected(controller)).toEqual(expect.arrayContaining(["read", "bash", "write", "codemode"]));
+		const scriptDescription = server.requests.at(-1)?.tools?.[0]?.function.description;
+		expect(scriptDescription).toContain("read(args:");
+		expect(scriptDescription).not.toContain("Model API");
+		controller.set("read", false);
+		await session.prompt("更新脚本目录");
+		const updated = server.requests.at(-1)?.tools?.[0]?.function.description;
+		expect(updated).not.toContain("read(args:");
+		expect(updated).toContain("write(args:");
+		expect(updated).not.toContain("Model API");
+		controller.set("read", true);
+		controller.set("codemode", false);
+		await session.prompt("恢复直接调用");
+		expect(requestedTools()).toEqual(["bash", "write", "read"]);
+		expect(selected(controller)).toEqual(["read", "bash", "write"]);
+	});
+
+	it("恢复会话和导航分支后，codemode 仍只声明脚本入口", async () => {
+		let host = await start();
+		host.controller.set("codemode", true);
+		await host.session.prompt("脚本分支");
+		const leaf = host.session.sessionManager.getLeafId();
+		const file = host.session.sessionFile;
+		if (!leaf || !file) throw new Error("缺少分支或会话文件");
+		await runtime?.dispose();
+		host = await start(SessionManager.open(file));
+		await host.session.prompt("恢复脚本分支");
+		expect(requestedTools()).toEqual(["codemode"]);
+		host.controller.set("codemode", false);
+		await host.session.prompt("直接调用分支");
+		expect(requestedTools()).toEqual(["read", "bash", "write"]);
+		await host.session.navigateTree(leaf, { summarize: false });
+		await host.session.prompt("回到脚本分支");
+		expect(requestedTools()).toEqual(["codemode"]);
+	});
+
 	it("SDK 改变工具后，选择器与下一次请求使用同一状态", async () => {
 		const { session, controller } = await start();
 		session.setActiveToolsByName(["bash"]);

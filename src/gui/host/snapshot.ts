@@ -1,5 +1,6 @@
 import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { toolSelectionItems } from "../../harness/tool-defaults/controller.ts";
+import { codemodeHiddenDeclarations } from "../../harness/codemode/loadout.ts";
 import type { GuiSnapshot } from "../contract.ts";
 import { guiModel } from "./runtime.ts";
 import { builtinCommands } from "./commands.ts";
@@ -15,6 +16,10 @@ type PresentationState = Pick<
 export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads): GuiSnapshot {
 	const { session, services, cwd } = runtime;
 	const routed = session.routedModel;
+	const allTools = session.getAllTools();
+	const activeTools = session.getActiveToolNames();
+	const callableTools = new Set(session.getCallableToolNames());
+	const hidden = new Set(activeTools.includes("codemode") ? codemodeHiddenDeclarations(allTools) : []);
 	const commands = new Map<string, { name: string; description: string }>();
 	for (const command of [
 		...session.extensionRunner
@@ -59,7 +64,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 			blockImages: services.settingsManager.getBlockImages(),
 		},
 		commands: [...commands.values()],
-		tools: toolSelectionItems(session.getAllTools(), session.getActiveToolNames()),
+		tools: toolSelectionItems(allTools, activeTools).map((tool) => ({ ...tool, callable: callableTools.has(tool.name) })),
+		modelTools: activeTools.filter((name) => !hidden.has(name)),
 		providers: services.modelRuntime
 			.getProviders()
 			.map((provider) => ({

@@ -1,6 +1,6 @@
 # Codemode
 
-复用 Pi 的 `codemode` 和 `tool_search`，不维护脚本调度器。TUI 和无界面子进程由上游 CLI 加载，Web 与 Desktop 在 SDK 装配时显式注册内置工厂。默认不启用。
+复用 Pi 的 `codemode` 和 `tool_search`，不维护脚本调度器。TUI、无界面子进程、Web 和 Desktop 共用固定为 `only` 模式的 codemode 内置工厂。默认不启用。
 
 ## 启用
 
@@ -14,7 +14,20 @@
 
 单次 CLI 调用使用 `--tools read,find,grep,bash,codemode`。`--tools` 替换整个集合。已有 `tools.jsonc` 的默认值和按模型规则仍覆盖初始集合，当前分支的手动选择优先。`extensions: ["-builtin:codemode"]` 可禁用内置扩展。
 
-`codemode.mode` 默认 `on`，保留直接工具调用。`only` 会隐藏可由脚本调用的工具声明，但不会隐藏 `model-only` 工具。不要把 `/tools` 的未勾选理解为权限拒绝，`codemode`、`deferred` 曝光的工具仍可被脚本调用。
+opi 中启用 codemode 即使用 `only` 模式，忽略设置中的 `codemode.mode`，不提供原生 `on` 模式。所有非 `model-only` 工具不再单独向模型声明，包括已激活的脚本专用和延迟工具。其调用契约由 codemode 提供。`model-only` 工具仍直接向模型声明。关闭 codemode 后恢复普通工具声明，不改变其他工具的选择状态。
+
+不要把 `/tools` 的未勾选理解为权限拒绝，`codemode`、`deferred` 曝光的工具仍可被脚本调用。
+
+## 模型可见接口
+
+opi 复用上游执行器，通过公开扩展工厂替换工具描述和 `prepareLoadout`。保持原参数 schema、审批、取消、会话存储和结果格式，不修改上游生成的长字符串。
+
+- 关闭 `models` API，不提供模型目录或分类器调用。
+- 固定说明仅包含调用、输出、错误、副作用、存储和资源限制。并发与顺序规则只放在 `tool_policy`。
+- 工具签名使用上游 schema 渲染器生成，保留参数说明和返回类型，不重复包裹每个工具的声明。
+- 内联目录预算仍默认约 3000 tokens，可通过 `codemode.inlineBudget` 调整。按命名空间轮流选择短声明，`deferred` 工具不内联。
+- 有未展示的可调用工具时才介绍 `searchTools()`，搜索结果包含签名。有 MCP 结果时才附加共享类型和图片转交说明。
+- 主要介绍 `text()` 和顶层 `return`。`console.*`、`exit()`、`ALL_TOOLS`、`describeTool()` 等上游能力不删除，但不重复介绍。
 
 ## 结果与边界
 
@@ -35,7 +48,11 @@ Bash 脚本输出不折叠重复行、不移除终端控制符，最多 1 MiB，
 
 嵌套工具经过 SDK 参数校验、审批、执行和结果钩子。Bash 文件观察窗口在队列内的 `tool_call` / `tool_result` 边界建立和释放，被阻止的调用只释放资源、不采纳变化。现有文件写入锁保持不变，嵌套写入不使用依赖 assistant 预声明批次的 LSP 合并优化。
 
-GUI 实时子调用归入父工具，完成或恢复会话后读取 SDK 的 `nestedCalls`。该记录有上游大小限制，不包含结果正文，不完整时界面明确标注。遥测记录 `parent_call_id`，不把子调用伪造成 assistant 批次。费用只读取 SDK 已汇总的父结果，不重复累计子调用。
+GUI 输入栏在普通模式统计模型工具声明。codemode 模式使用代码图标，统计全部脚本可调用工具与已启用的 `model-only` 工具，不计 codemode 自身。工具面板把非 `model-only` 工具归入 codemode。未勾选但仍可被脚本调用的工具也在其中展示并计数。关闭模式恢复平级列表并保留选择。脚本专用和延迟子工具显示可调用状态，不提供误导性的禁用复选框。
+
+调用卡片按真实父子关系展示。codemode 执行中展开子调用，完成后自动收起，手动展开状态优先。脚本与输出给模型的内容分别折叠。父脚本和子调用各自显示状态，捕获子调用错误不会把已成功的父脚本标为失败。切换模式不重排历史调用。
+
+GUI 保留正在执行的父工具下已完成的子调用，父工具完成或恢复会话后读取 SDK 的 `nestedCalls`。该记录有上游大小限制，不包含结果正文，不完整时界面明确标注。遥测记录 `parent_call_id`，不把子调用伪造成 assistant 批次。费用只读取 SDK 已汇总的父结果，不重复累计子调用。
 
 QuickJS 只限制脚本环境，不隔离宿主工具的文件、进程或网络权限。本轮没有为 MCP 增加审批策略，现有 Approval Gate 只管理其明确支持的工具。
 
@@ -47,22 +64,24 @@ Bun 产物内嵌 QuickJS WASM，并按上游约定嵌入 codemode worker。Deskt
 
 `tests/cli/cli.test.ts` 使用本地模拟模型，通过真实独立二进制比较同一组“搜索 51 个候选后读取目标文件”任务。固定脚本不能代表真实模型编写脚本的成功率。
 
-在 Pi 0.99.1、默认 `codemode.mode: on` 下的样本：
+Pi 0.99.1 下，固定 `read/find/bash/codemode` 工具集合，实际请求中的 codemode 定义在精简前后分别估算为 1812 和 614 tokens。两者均使用 `only` 模式，减少约 66%。
+
+精简后的搜索读取场景样本：
 
 | 指标 | 直接调用 | Codemode |
 | --- | ---: | ---: |
 | 模型请求数 | 3 | 2 |
 | 最终请求中的工具结果估算 token | 362 | 60 |
-| 全部请求 JSON 累计估算 token | 2564 | 4745 |
+| 全部请求 JSON 累计估算 token | 2558 | 1605 |
 
-估算使用仓库本地计数器，不是提供方实际计费，不计算缓存折扣。脚本描述增加了小任务的输入成本，不能据此宣称总 token 一定下降。因此保持按需开启，不自动设置 `only` 或修改 `inlineBudget`。`/stats` 的工具定义拆分仍是注册定义估算，不能用它验证 `prepareLoadout` 后的实际声明成本，应比较真实请求。
+估算使用仓库本地计数器，不是提供方实际计费，不计算缓存折扣。请求中的临时路径等会导致小幅波动，固定场景不能证明所有任务都更省 tokens。本轮未做真实模型对比。codemode 仍按需开启，开启后固定使用 `only`，不降低默认目录或输出预算。`/stats` 的工具定义拆分仍是注册定义估算，不能用它验证 `prepareLoadout` 后的实际声明成本，应比较真实请求。
 
 验证命令：
 
 ```bash
 bun run typecheck
 bun run build:tui
-bun run vitest run tests/cli/cli.test.ts -t codemode --silent=false
+bun run vitest run tests/cli/cli.test.ts tests/cli/codemode-mcp.test.ts -t codemode --silent=false
 bun scripts/build.mjs web desktop --dir
 bun run playwright test --config playwright.gui.config.ts tests/gui/codemode.e2e.ts
 ```

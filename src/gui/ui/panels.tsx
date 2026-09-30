@@ -3,7 +3,7 @@ import type { GuiPanel, GuiSnapshot } from "../contract.ts";
 import type { Send } from "./connection.ts";
 import { Content } from "./content.tsx";
 import { Button } from "./components/ui/button";
-import { Checkbox } from "./components/ui/checkbox";
+import { ToolSelection } from "./tool-selection.tsx";
 import { Input } from "./components/ui/input";
 import { PanelDialog } from "./components/panel-dialog";
 import { ModelManager } from "./model-manager.tsx";
@@ -31,15 +31,7 @@ export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSessio
 	switch (panel.kind) {
 		case "model": body = <ModelManager snapshot={snapshot} send={send} disabled={!canChangeSession} />; break;
 		case "tools":
-			body = <>
-				<p>选择向模型开放的工具，在当前分支生效。codemode 可隐藏直接声明。未勾选的脚本专用和延迟工具仍可被脚本调用，此处不是权限开关。</p>
-				<Button variant="outline" size="sm" disabled={!canChangeSession} onClick={() => void send({ action: "persistTools" })}>保存为用户默认</Button>
-				{snapshot.tools.map((tool) => <label key={tool.name} className="list-row">
-					<Checkbox checked={tool.enabled} disabled={!tool.available || !canChangeSession}
-						onCheckedChange={(checked) => void send({ action: "tool", name: tool.name, enabled: checked === true })} />
-					<span><strong>{tool.name}</strong><small>{tool.exposure} · {tool.description}</small></span>
-				</label>)}
-			</>;
+			body = <ToolSelection snapshot={snapshot} send={send} disabled={!canChangeSession} />;
 			break;
 		case "sessions": body = sessionList; break;
 		case "auth":

@@ -108,8 +108,17 @@ describe("工具语义呈现", () => {
 	it("扩展参数按字段、列表和布尔值显示，字符串 payload 不重新解析", () => {
 		const html = renderWithMemory(createElement(ParameterValue, { value: { path: "中文.ts", enabled: true, options: ["first", "second"], payload: '{"keep":"raw"}' } }));
 		const doc = parseHTML(html).document;
+		expect([...doc.querySelectorAll("dt")].map((field) => field.textContent)).toEqual(["path", "enabled", "options", "payload"]);
 		expect(doc.documentElement.textContent).toContain("中文.ts");
 		expect(doc.documentElement.textContent).toContain('{"keep":"raw"}');
+	});
+
+	it("编辑参数和数组中的嵌套字段保留 schema 原名", () => {
+		const doc = parseHTML(renderWithMemory(createElement(ParameterValue, { value: {
+			path: "中文.ts", edits: [{ old: "原文", new: "新文", replace_all: true }],
+		} }))).document;
+		expect([...doc.querySelectorAll("dt")].map((field) => field.textContent)).toEqual(["path", "edits", "old", "new", "replace_all"]);
+		expect([...doc.querySelectorAll("dd > span")].map((value) => value.textContent)).toEqual(["中文.ts", "原文", "新文", "是"]);
 	});
 
 	it("流式代码块从空围栏到正文均可渲染，未知语言作为文本而非 HTML", () => {

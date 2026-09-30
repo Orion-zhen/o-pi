@@ -39,6 +39,7 @@ describe("技能语义展示", () => {
 			expect(doc.querySelector(".activity-summary")?.textContent).toContain(loader);
 			expect(doc.querySelector(".activity-summary")?.textContent).not.toContain("已加载");
 			expect(doc.querySelector(".activity-state > svg")).not.toBeNull();
+			expect(doc.querySelector(".activity-state")?.getAttribute("data-state")).toBe("completed");
 			expect(doc.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("false");
 			expect(doc.toString()).not.toContain("先收集证据");
 			expect(doc.toString()).not.toContain("test-hash");
@@ -51,7 +52,9 @@ describe("技能语义展示", () => {
 		["preparing", "生成参数"], ["pending", "等待加载"], ["running", "加载中"],
 		["stopped", "已停止"], ["unavailable", "无加载结果"],
 	] as const)("%s 不误报已加载", (state, label) => {
-		const summary = renderTool(state, undefined).querySelector(".activity-summary")?.textContent;
+		const doc = renderTool(state, undefined);
+		const summary = doc.querySelector(".activity-summary")?.textContent;
+		expect(doc.querySelector(".activity-state")?.getAttribute("data-state")).toBe(state);
 		expect(summary).toContain(label);
 		expect(summary).not.toContain("已加载");
 	});
@@ -61,6 +64,7 @@ describe("技能语义展示", () => {
 		expect(duplicate.querySelector(".activity-summary")?.textContent).toContain("已加载过");
 		const failed = renderTool("failed", { content: [], details: { status: "failed", error: { code: "SKILL_NOT_FOUND", message: "skill not found" } } });
 		expect(failed.querySelector(".activity-summary")?.textContent).toContain("加载失败");
+		expect(failed.querySelector(".activity-state")?.getAttribute("data-state")).toBe("failed");
 		expect(failed.querySelector(".activity-error")?.textContent).toBe("skill not found");
 	});
 

@@ -107,29 +107,93 @@ describe("standalone opi CLI", () => {
 		expect(await capture(run(args))).toEqual(await capture(original));
 	});
 
+	it.each([undefined, "on", "only"])("codemode 启用后只声明脚本入口和 model-only 工具，忽略 mode=%s", async (mode) => {
+		const settingsPath = path.join(agentDir, "settings.json");
+		const settings = JSON.parse(await readFile(settingsPath, "utf8"));
+		await writeFile(settingsPath, JSON.stringify({ ...settings, ...(mode ? { codemode: { mode } } : {}) }));
+		await runJson(["--tools", "read,bash,skill,subagent,codemode"]);
+		expect(server.requests[0]?.tools?.map((tool) => tool.function.name).sort()).toEqual(["codemode", "skill", "subagent"]);
+	});
+
+	it("codemode 请求只包含精简契约，完整目录不附带发现或 MCP 说明", async () => {
+		await runJson(["--tools", "read,find,bash,codemode"]);
+		const request = server.requests[0];
+		const definition = request?.tools?.find((tool) => tool.function.name === "codemode");
+		const description = definition?.function.description ?? "";
+		const system = request?.messages.filter((message) => message.role === "system" || message.role === "developer");
+		console.info("codemode prompt fixture (estimated tokens)", {
+			definition: countTextTokensSync(JSON.stringify(definition)).tokens,
+			system: countTextTokensSync(JSON.stringify(system)).tokens,
+		});
+		expect(description).toContain("read(args:");
+		expect(description).toContain("find(args:");
+		expect(description).toContain("bash(args:");
+		expect(description).toContain("exit_code");
+		for (const omitted of ["Model API", "models.", "searchTools", "ALL_TOOLS", "describeTool", "ImageContent", "console.", "exit()"]) {
+			expect(description).not.toContain(omitted);
+		}
+		expect(JSON.stringify(system)).not.toContain("instead of issuing many individual tool calls");
+		expect(JSON.stringify(system)).toContain("same script");
+	});
+
+	it("codemode 目录预算为零时仍可发现签名并调用未展示工具", async () => {
+		const settingsPath = path.join(agentDir, "settings.json");
+		const settings = JSON.parse(await readFile(settingsPath, "utf8"));
+		await writeFile(settingsPath, JSON.stringify({ ...settings, codemode: { inlineBudget: 0 } }));
+		sequence([
+			{ tool: "codemode", args: { code: 'text(await searchTools("Read one text image PDF file", {limit:1}));' } },
+			{ tool: "codemode", args: { code: 'text(await tools.read({path:"sample.ts"}));' } },
+		]);
+		const results = toolResults(await runJson(["--tools", "read,codemode"]));
+		const description = server.requests[0]?.tools?.find((tool) => tool.function.name === "codemode")?.function.description;
+		expect(description).toContain("searchTools");
+		expect(description).not.toContain("read(args:");
+		expect(description).not.toContain("ImageContent");
+		expect(results.every((result) => result.isError === false)).toBe(true);
+		expect(JSON.stringify(results[0]?.content)).toContain("read(args:");
+		expect(JSON.stringify(results[1]?.content)).toContain("export const value = 1");
+	});
+
+	it("codemode 关闭模型 API，跨调用存储只提交成功脚本的写入", async () => {
+		sequence([
+			{ tool: "codemode", args: { code: 'const r = await tools.find({query:"sample"}); store("files", r.matches); text(typeof models);' } },
+			{ tool: "codemode", args: { code: 'store("files", []); text("partial"); throw new Error("discard writes");' } },
+			{ tool: "codemode", args: { code: 'text(await tools.read({path:load("files")[0].path})); store("files", undefined);' } },
+			{ tool: "codemode", args: { code: 'return load("files") === undefined;' } },
+		]);
+		const results = toolResults(await runJson(["--tools", "find,read,codemode"]));
+		expect(results).toHaveLength(4);
+		expect(JSON.stringify(results[0]?.content)).toContain("undefined");
+		expect(results[1]?.isError).toBe(true);
+		expect(JSON.stringify(results[1]?.content)).toContain("partial");
+		expect(results[2]?.isError).toBe(false);
+		expect(JSON.stringify(results[2]?.content)).toContain("export const value = 1");
+		expect(JSON.stringify(results[3]?.content)).toContain("true");
+	});
+
 	it("codemode 在独立二进制中执行，嵌套 Bash 后可继续编辑且保留调用记录", async () => {
 		sequence([
-			{ tool: "read", args: { path: "sample.ts" } },
+			{ tool: "codemode", args: { code: 'text(await tools.read({path: "sample.ts"}));' } },
 			{ tool: "codemode", args: { code: `await Promise.all([
 				tools.bash({command: "printf 'one\\\\n' > sample.ts"}),
 				tools.bash({command: "sleep 0.2; printf 'two\\\\n' > sample.ts"})
 			]); text("nested done");` } },
-			{ tool: "edit", args: { path: "sample.ts", edits: [{ old: "two", new: "three" }] } },
+			{ tool: "codemode", args: { code: 'text(await tools.edit({path: "sample.ts", edits: [{old: "two", new: "three"}]}));' } },
 		]);
 		const events = await runJson(["--tools", "read,bash,edit,codemode"]);
 		const results = toolResults(events);
 		expect(results).toHaveLength(3);
 		expect(results.every((result) => result.isError === false)).toBe(true);
 		expect(results[1]).toMatchObject({ nestedCalls: { complete: true, calls: [{ name: "bash", status: "ok" }, { name: "bash", status: "ok" }] } });
-		expect(events.filter((event) => event.type === "tool_execution_start" && event.parentToolCallId)).toHaveLength(2);
+		expect(events.filter((event) => event.type === "tool_execution_start" && event.parentToolCallId)).toHaveLength(4);
 		expect(await readFile(path.join(cwd, "sample.ts"), "utf8")).toBe("three\n");
 	});
 
 	it("codemode 超时取消嵌套命令，释放文件观察窗口后可继续编辑", async () => {
 		sequence([
-			{ tool: "read", args: { path: "sample.ts" } },
+			{ tool: "codemode", args: { code: 'text(await tools.read({path: "sample.ts"}));' } },
 			{ tool: "codemode", args: { code: '// @options: {"timeout_ms": 1000}\nawait tools.bash({command: "printf changed > sample.ts; sleep 10"});' } },
-			{ tool: "edit", args: { path: "sample.ts", edits: [{ old: "changed", new: "after-abort" }] } },
+			{ tool: "codemode", args: { code: 'text(await tools.edit({path: "sample.ts", edits: [{old: "changed", new: "after-abort"}]}));' } },
 		]);
 		const events = await runJson(["--tools", "read,bash,edit,codemode"]);
 		const results = toolResults(events);
