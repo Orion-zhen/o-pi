@@ -267,6 +267,7 @@ export class GuiClient {
 		if (query.query === "mcpConfig") return readMcpConfig();
 		if (query.query === "guiConfig") return readGuiConfig();
 		if (query.query === "startupChangelog") return this.host.changelog.read(this.id, this.host.workspaceRoot);
+		if (query.query === "availableVersion") return this.host.checkVersion();
 		if (query.query === "moduleConfig") return readModuleConfig(query.id);
 		if (query.query === "directories") return listDirectories(path.resolve(this.host.workspaceRoot || process.cwd(), query.path));
 		if (query.query === "workspaceFiles" || query.query === "workspaceGit" || query.query === "previewFile") {

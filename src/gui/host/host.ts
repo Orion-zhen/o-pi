@@ -1,6 +1,7 @@
 import path from "node:path";
 import { stat } from "node:fs/promises";
-import { SessionManager, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
+import { SessionManager, VERSION, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
+import { checkForNewPiVersion } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/utils/version-check.js";
 import type { GuiEvent, WorkspaceQuery } from "../contract.ts";
 import type { GuiConfigDocument } from "../preferences.ts";
 import { ApprovalStores } from "../../harness/approval/rules/store.ts";
@@ -20,6 +21,7 @@ export class GuiHost {
 	readonly sessions = new Map<string, GuiSession>();
 	readonly clients = new Set<GuiClient>();
 	readonly changelog = new StartupChangelog();
+	private versionCheck: Promise<string | null> | undefined;
 	private approvals = new ApprovalStores();
 	private projectTrust = new Map<string, boolean>();
 	private workbenchController = new AbortController();
@@ -39,6 +41,9 @@ export class GuiHost {
 	private deleting = new Set<string>();
 	private cache = readGuiDefaults().sessionCache;
 
+	checkVersion(): Promise<string | null> {
+		return this.versionCheck ??= checkForNewPiVersion(VERSION).then((release) => release?.version ?? null);
+	}
 	createClient(sessionId?: string): GuiClient {
 		if (this.closed) throw new Error("宿主已关闭。");
 		const client = new GuiClient(this);

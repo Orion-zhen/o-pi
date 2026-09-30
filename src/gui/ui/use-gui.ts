@@ -61,6 +61,13 @@ export function useGui() {
 	const sharedQuery = useCallback<Query<GlobalQuery | WorkspaceQuery>>((request) => readQuery(request, null), [readQuery]);
 	const globalQuery: Query<GlobalQuery> = sharedQuery;
 	const config = useGuiConfig(connected, globalQuery, setError);
+	const versionChecked = useRef(false);
+	const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+	useEffect(() => {
+		if (!connected || versionChecked.current) return;
+		versionChecked.current = true;
+		void globalQuery({ query: "availableVersion" }).then(setAvailableVersion).catch((error: unknown) => setError(String(error)));
+	}, [connected, globalQuery]);
 	useEffect(() => {
 		if (!connected) return;
 		const observe = () => { void dispatch({ action: "observe", visible: document.visibilityState === "visible" }, selected.current).catch((error: unknown) => setError(String(error))); };
@@ -102,7 +109,7 @@ export function useGui() {
 		workbench, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
 	return {
 		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor,
-		guiConfig: config.document, refreshGuiConfig: config.refresh,
+		guiConfig: config.document, refreshGuiConfig: config.refresh, availableVersion,
 		dialogs: host.dialogs, notices: host.notices, status, reconnect: connection.reconnect, running: snapshot?.running ?? false,
 		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode,
 		sessionStats: host.stats?.sessionId === selectedId ? host.stats.value : undefined,

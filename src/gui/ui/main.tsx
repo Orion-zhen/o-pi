@@ -245,6 +245,7 @@ function App() {
 						<div className="transcript-shell">
 						<div className="transcript" data-list-scroll ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
 							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
+								{snapshot && gui.availableVersion && !located?.preview && <div className="startup-version" role="status">Pi v{gui.availableVersion} 版本可用</div>}
 								{snapshot && gui.changelog && !located?.preview && <StartupChangelog value={gui.changelog} shown={gui.changelogShown} />}
 								<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
 								{workspaceWelcome && (

@@ -116,6 +116,7 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("guiConfig") }),
 	object({ query: Type.Literal("mcpConfig") }),
 	object({ query: Type.Literal("startupChangelog") }),
+	object({ query: Type.Literal("availableVersion") }),
 	object({ query: Type.Literal("image"), id: short }),
 	object({ query: Type.Literal("toolOutput"), id: short }),
 	object({ query: Type.Literal("directories"), path: short }),
@@ -127,7 +128,7 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
 ]);
 export type GuiQuery = Static<typeof querySchema>;
-export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "directories" | "startupChangelog" | "mcpConfig" }>;
+export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" }>;
 export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" }>;
 export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
 export interface GuiQueryResults {
@@ -135,6 +136,7 @@ export interface GuiQueryResults {
 	moduleConfig: ModuleConfigDocument;
 	guiConfig: GuiConfigDocument;
 	startupChangelog: GuiChangelog | null;
+	availableVersion: string | null;
 	image: string;
 	toolOutput: ToolOutput;
 	directories: GuiDirectories;
