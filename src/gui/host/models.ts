@@ -23,6 +23,20 @@ export function modelScope(runtime: AgentSessionRuntime): string[] {
 export async function persistModelScope(runtime: AgentSessionRuntime): Promise<void> {
 	const settings = runtime.services.settingsManager;
 	settings.setEnabledModels(modelScope(runtime));
+	await flushModelSettings(runtime);
+}
+
+export async function persistDefaultModel(runtime: AgentSessionRuntime): Promise<void> {
+	const { model, thinkingLevel } = runtime.session;
+	if (!model) throw new Error("请先选择模型。");
+	const settings = runtime.services.settingsManager;
+	settings.setDefaultModelAndProvider(model.provider, model.id);
+	settings.setDefaultThinkingLevel(thinkingLevel);
+	await flushModelSettings(runtime);
+}
+
+async function flushModelSettings(runtime: AgentSessionRuntime): Promise<void> {
+	const settings = runtime.services.settingsManager;
 	await settings.flush();
 	// SDK 把写入失败放入错误队列，flush 本身不会拒绝。
 	const errors = settings.drainErrors();

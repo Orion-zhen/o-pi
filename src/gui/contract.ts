@@ -45,6 +45,7 @@ export const actionSchema = Type.Union([
 			Type.Literal("clearQueue"),
 			Type.Literal("persistTools"),
 			Type.Literal("persistModels"),
+			Type.Literal("persistDefaultModel"),
 			Type.Literal("cancelLogin"),
 		]),
 	}),
@@ -224,6 +225,7 @@ export interface GuiSnapshot {
 	routedModel: { model: GuiModel; thinkingLevel?: string } | null;
 	models: GuiModel[];
 	scopedModels: string[];
+	defaultModel: { provider: string | null; id: string | null; thinking: ThinkingLevel | null };
 	thinking: ThinkingLevel;
 	thinkingLevels: ThinkingLevel[];
 	context: ReturnType<AgentSession["getContextUsage"]> | null;

@@ -12,7 +12,7 @@ import { runLogin } from "./login.ts";
 import { completeCommand, runBuiltin } from "./commands.ts";
 import { openView } from "./views.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
-import { persistModelScope, setModelScope } from "./models.ts";
+import { persistDefaultModel, persistModelScope, setModelScope } from "./models.ts";
 import { GuiReports } from "./reports.ts";
 import { GuiPayloads } from "./payloads.ts";
 import { GuiHistory } from "./history.ts";
@@ -364,9 +364,10 @@ export class GuiExecution {
 				if (!model) throw new Error("模型不存在。");
 				await session.setModel(model, { persist: false }); break;
 			}
-			case "thinking": session.setThinkingLevel(action.level); runtime.services.settingsManager.setDefaultThinkingLevel(session.thinkingLevel); break;
+			case "thinking": session.setThinkingLevel(action.level); break;
 			case "scopeModels": setModelScope(runtime, action.models); break;
 			case "persistModels": await persistModelScope(runtime); break;
+			case "persistDefaultModel": await persistDefaultModel(runtime); break;
 			case "settings":
 				session.setAutoCompactionEnabled(action.compaction); session.setAutoRetryEnabled(action.retry);
 				session.setSteeringMode(action.steering); session.setFollowUpMode(action.followUp);

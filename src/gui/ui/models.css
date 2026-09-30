@@ -13,6 +13,7 @@
 .model-manager-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-2); color: var(--muted-foreground); }
 .model-manager-toolbar p { flex: 1; font-size: var(--text-caption); }
 .model-manager-footer { display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: center; justify-content: flex-end; gap: var(--space-3); padding-block-start: var(--space-4); border-block-start: 1px solid var(--divider); }
+.model-default-summary { color: var(--muted-foreground); font-size: var(--text-caption); overflow-wrap: anywhere; }
 .model-save-status { flex: 1 1 24ch; color: var(--muted-foreground); font-size: var(--text-caption); line-height: 1.6; }
 .model-catalog { min-block-size: 0; max-block-size: 45dvh; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .model-catalog section + section { margin-block-start: var(--space-5); }

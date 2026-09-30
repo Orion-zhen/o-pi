@@ -16,6 +16,8 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 	const [pending, setPending] = useState<GuiAction["action"] | null>(null);
 	const [saved, setSaved] = useState<string | null>(null);
 	const [failed, setFailed] = useState(false);
+	const [defaultSaved, setDefaultSaved] = useState(false);
+	const defaults = snapshot.defaultModel;
 	const scope = snapshot.scopedModels;
 	const signature = JSON.stringify(scope);
 	const selected = new Set(scope);
@@ -34,7 +36,9 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 	const run = async (action: GuiAction) => {
 		setPending(action.action);
 		setFailed(false);
+		setDefaultSaved(false);
 		const ok = await send(action);
+		if (ok && action.action === "persistDefaultModel") setDefaultSaved(true);
 		if (ok && action.action === "persistModels") setSaved(signature);
 		setFailed(!ok);
 		setPending(null);
@@ -110,7 +114,15 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 					<strong>{snapshot.model?.name ?? "尚未选择"}</strong>
 				</div>
 				<ThinkingControl snapshot={snapshot} send={send} disabled={disabled} />
+				<Button variant="outline" disabled={disabled || !snapshot.model}
+					onClick={() => void run({ action: "persistDefaultModel" })}>
+					{pending === "persistDefaultModel" && <LoaderCircle className="animate-spin" />}
+					设为默认
+				</Button>
 			</div>
+			<p className="model-default-summary">
+				全局默认：{defaults.provider ?? "未设置提供方"} / {defaults.id ?? "未设置模型"} · {defaults.thinking ?? "未设置思考等级"}
+			</p>
 			<label className="model-search">
 				<Search aria-hidden="true" />
 				<Input
@@ -150,13 +162,15 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 				<p className="model-save-status" role="status">
 					{failed
 						? "操作失败，请关闭面板查看错误后重试。"
-						: saved === signature
-							? "已保存模型。"
-							: "勾选和排序仅影响当前会话，保存后供下次启动使用。"}
+						: defaultSaved
+							? "已保存默认模型和思考等级。"
+							: saved === signature
+								? "已保存常用模型。"
+								: "切换仅影响当前会话；设为默认后供下次启动使用。"}
 				</p>
 				<Button disabled={disabled} onClick={() => void run({ action: "persistModels" })}>
 					{pending === "persistModels" ? <LoaderCircle className="animate-spin" /> : <Save />}
-					保存模型
+					保存常用模型
 				</Button>
 			</footer>
 		</section>

@@ -16,6 +16,7 @@ type PresentationState = Pick<
 export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads, selection: ToolSelectionController, mcpTools: ToolSelectionItem[]): GuiSnapshot {
 	const { session, services, cwd } = runtime;
 	const routed = session.routedModel;
+	const defaults = services.settingsManager.getGlobalSettings();
 	const allTools = session.getAllTools();
 	const activeTools = session.getActiveToolNames();
 	// 重载期间新的扩展 API 尚未绑定，工具列表直接取会话，controller 只投影可用性。
@@ -52,6 +53,11 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		routedModel: routed ? { model: guiModel(routed.model), ...(routed.thinkingLevel === undefined ? {} : { thinkingLevel: routed.thinkingLevel }) } : null,
 		models: services.modelRuntime.getAvailableSnapshot().map(guiModel),
 		scopedModels: session.scopedModels.map(({ model }) => `${model.provider}/${model.id}`),
+		defaultModel: {
+			provider: defaults.defaultProvider ?? null,
+			id: defaults.defaultModel ?? null,
+			thinking: defaults.defaultThinkingLevel ?? null,
+		},
 		thinking: session.thinkingLevel,
 		thinkingLevels: session.getAvailableThinkingLevels(),
 		context: session.getContextUsage() ?? null,
