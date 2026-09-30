@@ -2,8 +2,17 @@ import { expect, type Page } from "@playwright/test";
 
 export async function exerciseSuggestions(page: Page) {
 	const editor = page.getByRole("textbox", { name: "消息", exact: true });
-	const suggestions = page.getByRole("list", { name: "输入建议", exact: true });
+	const card = page.locator(".composer-card");
+	const suggestions = card.getByRole("list", { name: "输入建议", exact: true });
+	const height = await card.evaluate((element) => element.clientHeight);
 	await editor.fill("/gui-n");
+	await expect(suggestions).toBeVisible();
+	await expect.poll(() => card.evaluate((element) => element.clientHeight)).toBeGreaterThan(height);
+	await editor.press("ArrowDown");
+	await expect(suggestions.getByRole("button", { name: /^\/gui-note / })).toBeFocused();
+	await page.keyboard.press("Escape");
+	await expect(editor).toBeFocused();
+	await expect(suggestions).toBeVisible();
 	await suggestions.getByRole("button", { name: /^\/gui-note / }).click();
 	await suggestions.getByRole("button", { name: "todo", exact: true }).click();
 	await expect(editor).toHaveValue("/gui-note todo");

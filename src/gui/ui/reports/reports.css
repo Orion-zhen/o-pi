@@ -7,7 +7,7 @@
 .report-intro { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5em; }
 .report-intro h2 { font-size: 1.5em; font-weight: 600; letter-spacing: -0.025em; overflow-wrap: anywhere; }
 .report-intro p, .report-note, .report-stamp { color: var(--muted-foreground); font-size: 0.85em; line-height: 1.6; overflow-wrap: anywhere; }
-.report-badge { display: inline-flex; align-items: center; padding: 0.3em 0.75em; border-radius: 2em; font-size: 0.8em; font-weight: 550; color: var(--report-color, var(--primary)); background: color-mix(in srgb, var(--report-color, var(--primary)) 9%, transparent); }
+.report-badge { display: inline-flex; align-items: center; padding: 0.3em 0.75em; border-radius: 2em; font-size: 0.8em; font-weight: 550; color: var(--report-color, var(--link)); background: color-mix(in srgb, var(--report-color, var(--primary)) 9%, transparent); }
 .report-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10em), 1fr)); gap: 0.75em; }
 .report-metric { display: flex; flex-direction: column; gap: 0.4em; min-inline-size: 0; padding: 1em; background: var(--surface); border: 0.0625em solid var(--border); border-radius: 0.875em; }
 .report-metric dt { color: var(--muted-foreground); font-size: 0.85em; }
@@ -16,15 +16,15 @@
 .report-section { min-inline-size: 0; background: var(--surface); border: 0.0625em solid var(--border); border-radius: 1em; overflow: clip; }
 .report-section > h3, .report-section > .disclosure-trigger { padding: 1em 1.25em; font-weight: 550; }
 .report-section > .disclosure-trigger { inline-size: 100%; }
-.report-section > .disclosure-trigger:hover { background: var(--secondary); }
+.report-section > .disclosure-trigger:hover { background: var(--accent); }
 .report-section-body { display: flex; flex-direction: column; gap: 1em; padding: 0 1.25em 1.25em; }
 .report-bars { display: flex; flex-direction: column; gap: 1.1em; min-inline-size: 0; }
 .report-bar { display: flex; flex-direction: column; gap: 0.5em; min-inline-size: 0; }
 .report-bar-label { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0.25em 1em; overflow-wrap: anywhere; }
 .report-bar-label strong { color: var(--report-color); font-size: 0.85em; font-weight: 550; font-variant-numeric: tabular-nums; }
 .report-bar small { color: var(--muted-foreground); font-size: 0.8em; line-height: 1.5; overflow-wrap: anywhere; }
-.report-bar meter { display: block; appearance: none; inline-size: 100%; block-size: 0.5em; border: 0; border-radius: 1em; background: var(--secondary); }
-.report-bar meter::-webkit-meter-bar { border: 0; border-radius: 1em; background: var(--secondary); }
+.report-bar meter { display: block; appearance: none; inline-size: 100%; block-size: 0.5em; border: 0; border-radius: 1em; background: var(--meter-track); }
+.report-bar meter::-webkit-meter-bar { border: 0; border-radius: 1em; background: transparent; box-shadow: none; }
 .report-bar meter::-webkit-meter-optimum-value { border-radius: 1em; background: var(--report-color); }
 .report-bar meter::-moz-meter-bar { border-radius: 1em; background: var(--report-color); }
 .report-facts { display: grid; gap: 0.5em; }

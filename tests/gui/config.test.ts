@@ -37,6 +37,30 @@ it("未选择工作区也能读取默认值、保存 GUI 设置并广播，不�
 	expect(events.filter((event) => event.type === "snapshot").map((event) => event.value)).toEqual([null]);
 });
 
+it("材质参数按区域深度合并，保留零值与其它区域默认值", async () => {
+	const initial = await host.query({ query: "guiConfig" });
+	const materials = { desktop: false, canvas: { opacity: 82, darkOpacity: 97, saturation: 95 }, sidebar: { opacity: 0, darkOpacity: 0, blur: 64 }, floating: { saturation: 200 }, overlay: { blur: 0 } };
+	const content = JSON.stringify({ materials });
+	await host.dispatch({ action: "saveGuiConfig", original: "", content });
+	expect(await readFile(file, "utf8")).toBe(content);
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { materials: {
+		...initial.defaults.materials, desktop: false,
+		canvas: { ...initial.defaults.materials.canvas, opacity: 82, darkOpacity: 97, saturation: 95 },
+		sidebar: { ...initial.defaults.materials.sidebar, opacity: 0, darkOpacity: 0, blur: 64 },
+		floating: { ...initial.defaults.materials.floating, saturation: 200 },
+		overlay: { ...initial.defaults.materials.overlay, blur: 0 },
+	} } });
+});
+
+it.each([
+	{ canvas: { opacity: 101 } }, { sidebar: { darkOpacity: -1 } },
+	{ toolbar: { blur: 65 } }, { floating: { saturation: 201 } },
+	{ enabled: "true" }, { desktop: 1 }, { sidebar: null }, { overlay: { blur: "4" } },
+	{ sidebar: { unknown: 1 } }, { unknown: {} },
+])("非法材质参数不能保存: %j", async (materials) => {
+	await expect(host.dispatch({ action: "saveGuiConfig", original: "", content: JSON.stringify({ materials }) })).rejects.toThrow();
+});
+
 it("字体链保留顺序，空数组恢复系统字体，未覆盖的字体组保留默认值", async () => {
 	const content = JSON.stringify({ fonts: { ui: ["Inter", "Noto Sans SC", "Apple Color Emoji"] } });
 	await host.dispatch({ action: "saveGuiConfig", original: "", content });

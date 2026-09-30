@@ -20,6 +20,6 @@ export function useGuiConfig(connected: boolean, query: Query<GlobalQuery>, repo
 		return () => { version.current++; };
 	}, [connected, refresh]);
 	useWindowRefresh(connected, refresh);
-	usePreferences(document?.state === "ready" ? document.value : undefined);
+	usePreferences(document?.state === "ready" ? document.value : undefined, reportError);
 	return { document, accept, refresh };
 }

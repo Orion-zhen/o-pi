@@ -5,6 +5,7 @@ import path from "node:path";
 import { installationRoot } from "./runtime/paths.ts";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { compileSchemaValidator, type SchemaValidateFunction } from "./schema-validator.ts";
+import { mergeConfigValues } from "./config-values.ts";
 
 export { expandHomePath, userCachePath } from "./cache-path.ts";
 
@@ -200,16 +201,6 @@ export async function configLayerFingerprint(paths: readonly ConfigLayerPath[]):
 /** 移除解码文本开头的 UTF-8 BOM 标记。 */
 export function stripUtf8Bom(text: string): string {
 	return text.startsWith("\uFEFF") ? text.slice(1) : text;
-}
-
-/** 深度合并 JSON 对象；数组和标量值将被高层级的值覆盖。 */
-export function mergeConfigValues(base: unknown, overlay: unknown): unknown {
-	if (!isRecord(base) || !isRecord(overlay)) return structuredClone(overlay);
-	const merged: Record<string, unknown> = structuredClone(base);
-	for (const [key, value] of Object.entries(overlay)) {
-		merged[key] = key in merged ? mergeConfigValues(merged[key], value) : structuredClone(value);
-	}
-	return merged;
 }
 
 export function createSchemaValidator<E extends Error>(options: SchemaValidatorOptions<E>): () => Promise<SchemaValidateFunction> {

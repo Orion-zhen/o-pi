@@ -4,6 +4,16 @@
 	"type": "object",
 	"additionalProperties": false,
 	"$defs": {
+		"materialSurface": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"opacity": { "type": "number", "minimum": 0, "maximum": 100, "description": "浅色模式的表面不透明度，百分比。" },
+				"darkOpacity": { "type": "number", "minimum": 0, "maximum": 100, "description": "深色模式的表面不透明度，百分比。" },
+				"blur": { "type": "number", "minimum": 0, "maximum": 64, "description": "页面内背景模糊，单位 px，不控制系统材质。" },
+				"saturation": { "type": "number", "minimum": 0, "maximum": 200, "description": "页面内背景饱和度，百分比。" }
+			}
+		},
 		"fontChain": {
 			"type": "array",
 			"uniqueItems": true,
@@ -14,6 +24,22 @@
 		"$schema": { "type": "string" },
 		"theme": { "enum": ["system", "light", "dark"] },
 		"themeColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+		"materials": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"enabled": { "type": "boolean", "description": "启用半透明磨砂，关闭后使用实色表面。" },
+				"desktop": { "type": "boolean", "description": "允许 Desktop 背景透出系统材质，Web 不使用此项。" },
+				"canvas": { "$ref": "#/$defs/materialSurface" },
+				"sidebar": { "$ref": "#/$defs/materialSurface" },
+				"toolbar": { "$ref": "#/$defs/materialSurface" },
+				"inspector": { "$ref": "#/$defs/materialSurface" },
+				"composer": { "$ref": "#/$defs/materialSurface" },
+				"floating": { "$ref": "#/$defs/materialSurface" },
+				"dialog": { "$ref": "#/$defs/materialSurface" },
+				"overlay": { "$ref": "#/$defs/materialSurface" }
+			}
+		},
 		"fonts": {
 			"type": "object",
 			"additionalProperties": false,

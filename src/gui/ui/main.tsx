@@ -191,6 +191,7 @@ function App() {
 								}}
 							><PanelRight /></IconButton>
 						</header>
+						<div className="conversation-canvas">
 						<AnimatePresence initial={false}>
 						{gui.guiConfig?.state === "error" && <Reveal key="gui-config-error"><div role="alert" className="error-banner">GUI 配置无效：{gui.guiConfig.message}<Button variant="outline" onClick={() => gui.setPanel({ kind: "settings" })}>打开设置</Button></div></Reveal>}
 						{error && <Reveal key="error">
@@ -286,12 +287,13 @@ function App() {
 								}} />)}
 						</div>
 						<AnimatePresence initial={false}>
-						{transcript.showLatest && <Fade className="jump-latest-region"><Button variant="outline" size="sm" className="jump-latest" onClick={() => { if (!located?.preview) setLocation(undefined); transcript.toLatest(); }}>
+						{transcript.showLatest && <Fade className="jump-latest-region"><Button variant="outline" size="sm" className="jump-latest floating-surface" onClick={() => { if (!located?.preview) setLocation(undefined); transcript.toLatest(); }}>
 							<ArrowDown />回到最新
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
 						{snapshot && gui.view && <Composer key={snapshot.sessionId} gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} />}
+						</div>
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
 						const sidebar = workspace.current?.querySelector<HTMLElement>(".session-sidebar");

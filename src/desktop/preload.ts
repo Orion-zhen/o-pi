@@ -3,6 +3,7 @@ import type { DesktopBridge } from "../gui/contract.ts";
 import type { GuiDelivery } from "../gui/sync.ts";
 
 const bridge: DesktopBridge = {
+	setAppearance: (value) => ipcRenderer.invoke("gui:appearance", value),
 	send: (value, sessionId) => ipcRenderer.invoke("gui:action", { value, sessionId }, Date.now()),
 	query: (value, sessionId) => ipcRenderer.invoke("gui:query", { value, sessionId }),
 	acknowledge: (id) => ipcRenderer.send("gui:ack", id, Date.now()),

@@ -63,7 +63,7 @@ export function SelectItem({ className, children, ...props }: React.ComponentPro
 			{...props}
 		>
 			<SelectPrimitive.ItemText className="min-w-0 wrap-anywhere">{children}</SelectPrimitive.ItemText>
-			<span className="flex size-[1.15em] items-center justify-center text-primary">
+			<span className="flex size-[1.15em] items-center justify-center text-(--ring)">
 				<SelectPrimitive.ItemIndicator><CheckIcon className="size-[1em]" /></SelectPrimitive.ItemIndicator>
 			</span>
 		</SelectPrimitive.Item>

@@ -7,7 +7,8 @@
 .resize-handle[data-axis="y"] { cursor: row-resize; }
 .resize-handle[data-axis="y"]::after { inline-size: 100%; block-size: 1px; }
 .app[data-collapsed="true"] > .sidebar-resize { display: none; }
-.info-resize { display: none; }
+.sidebar-resize { background: var(--glass); backdrop-filter: var(--sidebar-filter); }
+.info-resize { display: none; background: var(--inspector); backdrop-filter: var(--inspector-filter); }
 .chat-workspace:has(.session-sidebar[data-open="true"]) > .info-resize { display: flex; }
 .conversation-resize-track { position: absolute; inset: 0; inline-size: min(100%, var(--conversation-width)); margin-inline: auto; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
 .conversation-resize-track > .resize-handle { position: relative; flex: 0 0 0.75rem; block-size: 100%; pointer-events: auto; overflow: clip; }

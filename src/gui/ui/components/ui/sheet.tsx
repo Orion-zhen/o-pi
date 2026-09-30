@@ -13,7 +13,7 @@ export const SheetClose = SheetPrimitive.Close;
 export function SheetContent({ className, children, ...props }: ComponentProps<typeof SheetPrimitive.Content>) {
 	const open = useContext(Expanded);
 	return <SheetPrimitive.Portal container={document.getElementById("root")}>
-		<SheetPrimitive.Overlay data-slot="sheet-overlay" className="modal-layer sheet-layer bg-(--overlay) backdrop-blur-xs">
+		<SheetPrimitive.Overlay data-slot="sheet-overlay" className="modal-layer sheet-layer">
 			<SheetPrimitive.Content data-slot="sheet-content"
 				className={cn("floating-surface flex min-h-0 min-w-0 basis-3/4 flex-col gap-4 border-r outline-none", className)}
 				{...props} inert={!open} aria-hidden={!open}>{children}</SheetPrimitive.Content>

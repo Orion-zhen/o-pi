@@ -1,7 +1,7 @@
 .web-results { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; margin-block: 0.75rem; }
 .web-card { min-width: 0; border: 1px solid var(--border); border-radius: 0.625rem; background: var(--surface); overflow: hidden; }
 .web-card-link { display: grid; gap: 0.5rem; padding: 0.75rem; color: var(--foreground); text-decoration: none; overflow-wrap: anywhere; }
-.web-card-link:is(a):hover { background: var(--secondary); }
+.web-card-link:is(a):hover { background: var(--accent); }
 .web-card-link:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .web-card-source { display: flex; gap: 0.375rem; align-items: center; color: var(--muted-foreground); font-size: calc(var(--text-ui) * 11 / 14); }
 .web-card-source svg { width: 0.8125rem; height: 0.8125rem; flex-shrink: 0; }
@@ -25,7 +25,7 @@
 .subagent-tasks { display: grid; gap: 0.5rem; }
 .subagent-task { min-width: 0; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface); overflow: hidden; }
 .subagent-task-summary { display: grid; gap: 0.375rem; width: 100%; min-width: 0; text-align: left; padding: 0.75rem; font-size: var(--text-caption); }
-.subagent-task-summary:hover { background: var(--secondary); }
+.subagent-task-summary:hover { background: var(--accent); }
 .subagent-task-summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .subagent-task-heading { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .subagent-task-heading strong { overflow-wrap: anywhere; font-weight: 550; color: var(--foreground); }

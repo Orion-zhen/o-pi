@@ -1,4 +1,5 @@
 import { alpha, composite, contrast, hex, mix, type Color } from "./color.ts";
+import { GUI_BACKGROUNDS } from "../../theme-base.ts";
 
 export const DEFAULT_THEME_COLOR = "#007AFF";
 const black = hex("#000000"), white = hex("#FFFFFF");
@@ -30,7 +31,7 @@ function interaction(color: Color, foreground: Color, target: Color, amount: num
 export function generatePalette(mode: "light" | "dark", themeColor: string) {
 	const dark = mode === "dark", seed = hex(themeColor);
 	const tint = dark ? 0.025 : 0.012;
-	const background = mix(hex(dark ? "#18181A" : "#F5F5F7"), seed, tint * 0.5);
+	const background = mix(hex(GUI_BACKGROUNDS[mode]), seed, tint * 0.5);
 	const panel = mix(hex(dark ? "#2C2C2E" : "#FFFFFF"), seed, tint);
 	const sidebar = mix(hex(dark ? "#242426DC" : "#EBEBF0DC"), seed, tint);
 	const toolbar = mix(hex(dark ? "#1D1D1FDC" : "#F7F7F8DC"), seed, tint * 0.7);
@@ -45,13 +46,14 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 	const primaryForeground = onColor(primary);
 	// 选中态上的主题色文字/图标需对 selected 底单独校正, 直接用 primary 对比度不足.
 	const selectedForeground = readable(seed, [selected], dark);
-	const userBackground = mix(panel, primary, dark ? 0.22 : 0.09);
+	const userBackground = mix(panel, primary, dark ? 0.22 : 0.16);
 	const userLink = readable(seed, [userBackground], dark);
 	const muted = readable(hex(dark ? "#A1A1AA" : "#48484A"), surfaces, dark);
 	const danger = readable(hex(dark ? "#FF453A" : "#D70015"), surfaces, dark);
 	const success = readable(hex(dark ? "#30D158" : "#248A3D"), surfaces, dark);
 	const warning = readable(hex(dark ? "#FFCC00" : "#936B22"), surfaces, dark);
 	const dangerForeground = onColor(danger);
+	const surfaceShine = hex(dark ? "#FFFFFF08" : "#FFFFFF80");
 	const scrollbarBackgrounds = [...surfaces, userBackground];
 	const scrollbar = (minimum: number) => readable(mix(background, primary, 0.04), scrollbarBackgrounds, dark, minimum);
 
@@ -60,9 +62,13 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 		primary, "primary-foreground": primaryForeground,
 		"primary-hover": interaction(primary, primaryForeground, white, 0.07),
 		"primary-active": interaction(primary, primaryForeground, black, 0.1),
-		secondary, "secondary-hover": hover, "secondary-active": active,
+		secondary, "secondary-active": active,
 		accent: hover, selected, "selected-foreground": selectedForeground,
-		popover: alpha(panel, 0.95), surface: alpha(panel, 0.96), glass: sidebar, toolbar,
+		surface: panel, "panel-base": panel,
+		"canvas-base": dark ? background : mix(background, alpha(sidebar, 1), 0.4),
+		"glass-base": alpha(sidebar, 1), "toolbar-base": alpha(toolbar, 1),
+		"control-base": dark ? hex("#444446") : panel,
+		"soft-base": dark ? panel : hex("#F2F2F4"),
 		"muted-foreground": muted,
 		border: hex(dark ? "#FFFFFF16" : "#3C3C4330"), ring: primary,
 		link: primary, emphasis: mix(foreground, primary, dark ? 0.3 : 0.22),
@@ -72,10 +78,12 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 		"destructive-active": interaction(danger, dangerForeground, black, 0.1),
 		"danger-soft": alpha(danger, dark ? 0.14 : 0.095), success, warning,
 		"git-added": success, "git-deleted": danger, "git-modified": warning,
-		overlay: hex(dark ? "#00000088" : "#00000066"),
 		"floating-shadow": hex(dark ? "#0000005C" : "#1D1D1F24"),
-		"surface-shine": hex(dark ? "#FFFFFF08" : "#FFFFFF80"),
+		"surface-shine": surfaceShine,
+		"soft-shine": dark ? surfaceShine : hex("#FFFFFF20"),
+		"surface-edge": hex(dark ? "#FFFFFF18" : "#1D1D1F1C"),
 		"control-thumb": white,
+		"meter-track": alpha(dark ? white : black, 0.1),
 		"scrollbar-thumb": scrollbar(3), "scrollbar-thumb-hover": scrollbar(4.5), "scrollbar-thumb-active": scrollbar(6),
 		"user-background": userBackground, "user-foreground": foreground,
 		"user-muted-foreground": readable(mix(muted, primary, dark ? 0.08 : 0.06), [userBackground], dark),

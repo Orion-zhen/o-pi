@@ -24,6 +24,8 @@ export default function (pi) {
 	model = await startModelServer((request) => {
 		const rich = richTools.respond(request);
 		if (rich) return rich;
+		if (JSON.stringify(request.messages.findLast((message) => message.role === "user")?.content)?.includes("验证长文阅读"))
+			return { text: Array.from({ length: 6 }, (_, index) => `### 阅读画布 ${index + 1}\n\n导航和操作浮在内容上方，正文与代码保持清晰。Surface, content and controls.\n\n\`\`\`ts\nconst message = "Hello, 世界";\nconsole.log(message);\n\`\`\``).join("\n\n") };
 		if (JSON.stringify(request.messages.findLast((message) => message.role === "user")?.content)?.includes("验证停止输出"))
 			return { tool: "bash", args: { command: "printf 'composer-ready\\n'; sleep 30" } };
 		const count = request.messages.filter((message) => message.role === "tool").length;
@@ -48,6 +50,62 @@ test.afterEach(async () => { await model?.close(); await richTools?.close(); });
 for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 	test.use({ mode });
 	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
+
+	test("深浅主题的普通悬停背景统一，选中态与按下态独立", async ({ gui: { page }, workspace: { agentDir } }, info) => {
+		test.skip(info.project.name !== "desktop", "鼠标悬停使用桌面视口");
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		const attachment = page.getByRole("button", { name: "附件", exact: true });
+		const editor = page.getByRole("textbox", { name: "消息", exact: true });
+		for (const theme of ["light", "dark"] as const) {
+			await writeFile(path.join(agentDir, "configs", "gui.jsonc"), JSON.stringify({ theme }));
+			await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+			await attachment.hover();
+			await expect(attachment).toHaveCSS("background-color", /^rgb\(/);
+			const background = await attachment.evaluate((element) => getComputedStyle(element).backgroundColor);
+			for (const target of [page.locator(".workspace-select").first(), page.locator(".files-toggle")]) {
+				await target.hover();
+				await expect(target).toHaveCSS("background-color", background);
+			}
+			if (theme === "light") {
+				const starter = page.locator(".starter").first();
+				await starter.hover();
+				await expect(starter).toHaveCSS("background-color", background);
+				await editor.fill("验证悬停颜色");
+				await editor.press("ControlOrMeta+Enter");
+				await expect(page.locator(".reply-answer")).toContainText("GUI 验证完成");
+				await page.locator(".assistant-reply > .reply-process > .disclosure-trigger").click();
+				await page.locator(".reply-activity:has(.activity-summary) > .disclosure-trigger").first().click();
+			}
+			const activity = page.locator(".activity-summary").first();
+			await activity.hover();
+			await expect(activity).toHaveCSS("background-color", background);
+			const rename = page.locator(".history-session-row .row-action-button").first();
+			await rename.locator("..").locator("..").hover();
+			await rename.hover();
+			await expect(rename).toHaveCSS("background-color", background);
+			const stats = page.getByRole("tab", { name: "会话统计", exact: true });
+			await stats.hover();
+			await expect(stats).toHaveCSS("background-color", background);
+			await stats.click();
+			await expect(stats).not.toHaveCSS("background-color", background);
+			const report = page.getByRole("tabpanel", { name: "会话统计", exact: true }).locator(".report-section > .disclosure-trigger").first();
+			await report.hover();
+			await expect(report).toHaveCSS("background-color", background);
+			await page.getByRole("tab", { name: "会话树", exact: true }).click();
+			await page.getByRole("button", { name: "模型", exact: true }).click();
+			const models = page.getByRole("dialog", { name: "模型", exact: true });
+			const model = models.locator(".model-row").first();
+			await model.hover();
+			await expect(model).toHaveCSS("background-color", background);
+			await models.getByRole("button", { name: "关闭面板", exact: true }).click();
+			await attachment.hover();
+			await page.mouse.down();
+			await expect(attachment).not.toHaveCSS("background-color", background);
+			await page.mouse.move(0, 0);
+			await page.mouse.up();
+		}
+	});
 
 	test("真实工具、扩展交互、导出和刷新恢复", async ({ gui: { page, app }, workspace: { cwd } }) => {
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
@@ -102,6 +160,33 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		const data = await page.evaluate((html) => new DOMParser().parseFromString(html, "text/html").getElementById("session-data")?.textContent, await readFile(exported, "utf8"));
 		expect(Buffer.from(data ?? "", "base64").toString("utf8")).toContain("GUI 验证完成");
 		expect(await page.evaluate(() => typeof (globalThis as Record<string, unknown>)["require"])).toBe("undefined");
+	});
+
+	test("键盘调整侧栏，长文上翻后返回最新消息", async ({ gui: { page } }) => {
+		const editor = page.getByRole("textbox", { name: "消息", exact: true });
+		await editor.fill("验证长文阅读");
+		await editor.press("ControlOrMeta+Enter");
+		await expect(page.locator(".reply-answer")).toContainText("阅读画布 6");
+		if ((page.viewportSize()?.width ?? 0) > 1024) {
+			for (const [label, selector, key] of [["调整左侧栏宽度", ".sidebar", "ArrowRight"], ["调整右侧栏宽度", ".session-sidebar", "ArrowLeft"]] as const) {
+				const panel = page.locator(selector);
+				const width = await panel.evaluate((element) => element.getBoundingClientRect().width);
+				const handle = page.getByRole("separator", { name: label, exact: true });
+				await handle.press(key);
+				await expect.poll(() => panel.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(width);
+				await expect(editor).toBeVisible();
+				await handle.press("Home");
+				await expect.poll(() => panel.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(width, 0);
+			}
+		}
+		await page.locator(".transcript").hover();
+		await page.mouse.wheel(0, -10000);
+		const latest = page.getByRole("button", { name: "回到最新", exact: true });
+		await expect(latest).toBeVisible();
+		await latest.click();
+		await expect(latest).toHaveCount(0);
+		await expect.poll(() => page.locator(".transcript").evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThan(60);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 	});
 
 	test("会话图片通过引用按需加载，刷新后仍可显示", async ({ gui: { page } }) => {

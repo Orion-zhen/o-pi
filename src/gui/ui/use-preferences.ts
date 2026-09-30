@@ -1,6 +1,7 @@
 import { useLayoutEffect } from "react";
 import type { GuiPreferences } from "../preferences.ts";
 import { applyThemeColor } from "./theme/apply.ts";
+import { applyMaterials } from "./theme/materials.ts";
 
 export const genericFamilies = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui", "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded", "emoji", "math", "fangsong"]);
 
@@ -12,7 +13,19 @@ export function fontFamily(fonts: readonly string[], kind: "ui" | "code"): strin
 }
 
 /** 应用于根节点，Portal 菜单和弹窗也共享配色与排版。 */
-export function usePreferences(value: GuiPreferences | undefined): void {
+export function usePreferences(value: GuiPreferences | undefined, reportError: (message: string) => void): void {
+	useLayoutEffect(() => {
+		if (value) applyMaterials(value.materials);
+	}, [value?.materials]);
+	useLayoutEffect(() => {
+		if (!value || !window.opi) return;
+		let active = true;
+		void window.opi.setAppearance({ theme: value.theme, transparent: value.materials.enabled && value.materials.desktop }).then(
+			(supported) => { if (active) document.documentElement.dataset.desktopTransparencySupported = String(supported); },
+			(error: unknown) => { if (active) reportError(error instanceof Error ? error.message : String(error)); },
+		);
+		return () => { active = false; };
+	}, [value?.theme, value?.materials.enabled, value?.materials.desktop, reportError]);
 	useLayoutEffect(() => {
 		if (value) applyThemeColor(value.themeColor);
 	}, [value?.themeColor]);

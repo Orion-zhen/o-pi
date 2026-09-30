@@ -1,10 +1,11 @@
 import { applyEdits, modify, parse } from "jsonc-parser";
+import { mergeConfigValues } from "../../harness/config-values.ts";
 import type { GuiConfigDocument, GuiPreferences } from "../preferences.ts";
 
 export type GuiSection = "appearance" | "interaction" | "desktopWeb";
 export type ReadyGuiConfig = Extract<GuiConfigDocument, { state: "ready" }>;
 const sectionKeys = {
-	appearance: ["theme", "themeColor", "fonts", "fontSizes"],
+	appearance: ["theme", "themeColor", "fonts", "fontSizes", "materials"],
 	interaction: ["sendShortcut"],
 	desktopWeb: ["desktopWeb"],
 } as const;
@@ -12,15 +13,8 @@ const sectionKeys = {
 export function editPreference(document: ReadyGuiConfig, path: string[], value: unknown): ReadyGuiConfig {
 	const content = document.content || "{}\n";
 	const next = applyEdits(content, modify(content, path, value, { formattingOptions: { insertSpaces: false, tabSize: 4 } }));
-	const overrides = parse(next) as Partial<GuiPreferences>;
-	const defaults = document.defaults;
-	return { ...document, content: next, value: {
-		...defaults, ...overrides,
-		fonts: { ...defaults.fonts, ...overrides.fonts },
-		fontSizes: { ...defaults.fontSizes, ...overrides.fontSizes },
-		desktopWeb: { ...defaults.desktopWeb, ...overrides.desktopWeb },
-		sessionCache: { ...defaults.sessionCache, ...overrides.sessionCache },
-	} };
+	const overrides: unknown = parse(next);
+	return { ...document, content: next, value: mergeConfigValues(document.defaults, overrides) as GuiPreferences };
 }
 
 export function resetSection(document: ReadyGuiConfig, section: GuiSection): ReadyGuiConfig {

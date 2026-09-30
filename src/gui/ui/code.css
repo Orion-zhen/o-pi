@@ -1,4 +1,4 @@
-.code-block { margin-block: 0.75rem; min-width: 0; border: 1px solid var(--border); border-radius: 0.625rem; overflow: hidden; background: color-mix(in srgb, var(--secondary) 55%, var(--background)); color: var(--foreground); }
+.code-block { margin-block: 0.75rem; min-width: 0; border: 1px solid var(--divider); border-radius: var(--radius-md); overflow: hidden; background: var(--content-surface); color: var(--foreground); }
 .code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.4375rem 0.75rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); font-size: calc(var(--text-ui) * 11 / 14); color: var(--muted-foreground); }
 .code-toolbar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .code-toolbar button { display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; padding: 0.125rem 0.25rem; border-radius: 0.25rem; }

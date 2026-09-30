@@ -2,6 +2,18 @@
 	"$schema": "../schemas/gui.schema.json",
 	"theme": "system",
 	"themeColor": "#007AFF",
+	"materials": {
+		"enabled": true,
+		"desktop": true,
+		"canvas": { "opacity": 88, "darkOpacity": 92, "blur": 32, "saturation": 100 },
+		"sidebar": { "opacity": 72, "darkOpacity": 86, "blur": 24, "saturation": 110 },
+		"toolbar": { "opacity": 80, "darkOpacity": 90, "blur": 24, "saturation": 110 },
+		"inspector": { "opacity": 86, "darkOpacity": 90, "blur": 24, "saturation": 110 },
+		"composer": { "opacity": 88, "darkOpacity": 92, "blur": 20, "saturation": 110 },
+		"floating": { "opacity": 86, "darkOpacity": 86, "blur": 24, "saturation": 110 },
+		"dialog": { "opacity": 94, "darkOpacity": 96, "blur": 32, "saturation": 110 },
+		"overlay": { "opacity": 32, "darkOpacity": 32, "blur": 4, "saturation": 100 }
+	},
 	"fonts": {
 		"ui": [],
 		"code": []

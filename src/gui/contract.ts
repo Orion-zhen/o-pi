@@ -290,7 +290,10 @@ export interface GuiConnection {
 	subscribe(listener: (event: GuiEvent) => void): () => void;
 	close(): void;
 }
+export interface DesktopAppearance { theme: "system" | "light" | "dark"; transparent: boolean }
 export interface DesktopBridge extends Omit<GuiConnection, "subscribe"> {
+	/** 返回平台是否支持透明背景，不受当前开关或辅助功能设置影响。 */
+	setAppearance(value: DesktopAppearance): Promise<boolean>;
 	subscribe(listener: (delivery: import("./sync.ts").GuiDelivery) => void): () => void;
 	acknowledge(id: number): void;
 	chooseDirectory(): Promise<string | null>;

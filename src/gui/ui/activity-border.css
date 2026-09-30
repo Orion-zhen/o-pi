@@ -1,6 +1,6 @@
 .activity-frame { position: relative; }
 .activity-frame > .activity-border {
-	position: absolute; inset: 0; inline-size: 100%; block-size: 100%; pointer-events: none; z-index: 2; color: var(--primary);
+	position: absolute; inset: 0; inline-size: 100%; block-size: 100%; pointer-events: none; z-index: 2; color: var(--ring);
 	opacity: 0; transition: opacity 200ms ease-out;
 	animation: activity-orbit 6s linear infinite paused;
 }
@@ -11,11 +11,11 @@
 .activity-border[data-activity="running"] { opacity: 0.75; animation-play-state: running; }
 .activity-border:is([data-activity="unread"], [data-activity="waiting"]) { opacity: 0.7; }
 .activity-border:not([data-activity="running"]) rect { stroke-dasharray: 0 0 100 0; }
-.workspace-option-status { display: inline-grid; place-items: center; flex-shrink: 0; inline-size: 1.15em; block-size: 1.15em; color: var(--primary); }
+.workspace-option-status { display: inline-grid; place-items: center; flex-shrink: 0; inline-size: 1.15em; block-size: 1.15em; color: var(--ring); }
 .workspace-option-status::before { content: ""; inline-size: 0.5em; block-size: 0.5em; border-radius: 50%; background: currentColor; }
 .workspace-option-status[data-activity="running"]::before { animation: activity-pulse 1.8s ease-in-out infinite; }
 .history-session[data-unread="true"] .history-session-title { color: var(--foreground); font-weight: 600; }
-.approval-marker { color: var(--primary); }
+.approval-marker { color: var(--ring); }
 @keyframes activity-orbit { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
 @keyframes activity-pulse { 50% { opacity: 0.4; transform: scale(0.75); } }
 @media (prefers-reduced-motion: reduce) {

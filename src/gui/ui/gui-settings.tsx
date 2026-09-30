@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { editPreference, resetSection, sectionSave, type GuiSection, type ReadyGuiConfig } from "./gui-settings-draft.ts";
-import type { GuiConfigDocument } from "../preferences.ts";
+import type { GuiConfigDocument, GuiPreferences } from "../preferences.ts";
 import type { Send } from "./connection.ts";
 import { Input } from "./components/ui/input";
 import { Checkbox } from "./components/ui/checkbox";
@@ -10,16 +10,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { FontPicker } from "./font-picker.tsx";
 import { useLocalFonts } from "./use-local-fonts.ts";
 import { ThemeColorPicker } from "./theme-color-picker.tsx";
+import { MaterialSettings, type MaterialPreferencePath } from "./material-settings.tsx";
 import { ConfigEditor } from "./config-editor.tsx";
 import { SettingsActions, SettingsHeading, SettingsRow, SettingsSourceButton } from "./settings-controls.tsx";
 
-type PreferencePath = ["theme"] | ["themeColor"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
+type PreferencePath = MaterialPreferencePath | ["theme"] | ["themeColor"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
 
 export function GuiSettings({ title, section, document: latest, send, disabled, refresh, restoreFocus, onDirty }: {
 	title: string; section: GuiSection;
 	document: GuiConfigDocument | undefined; send: Send; disabled: boolean; refresh: () => Promise<void>; restoreFocus: () => void;
 	onDirty: (id: GuiSection, dirty: boolean) => void;
 }) {
+	const [theme, setTheme] = useState<GuiPreferences["theme"]>("system");
+	// 外部配置无效时沿用最后生效的主题，未保存的主题不影响材质编辑。
+	if (latest?.state === "ready" && latest.value.theme !== theme) setTheme(latest.value.theme);
 	const [saving, setSaving] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const localFonts = useLocalFonts();
@@ -83,6 +87,9 @@ export function GuiSettings({ title, section, document: latest, send, disabled, 
 				<FontSize label={label} value={document.value.fontSizes[kind]} disabled={blocked} change={(size) => change(["fontSizes", kind], size === document.defaults.fontSizes[kind] ? undefined : size)} />
 			</SettingsRow>)}
 			<TypographyPreview />
+			<MaterialSettings value={document.value.materials} defaults={document.defaults.materials} theme={theme} disabled={blocked}
+				change={(path, value) => void change(path, value)}
+				reset={(region, keys) => update(keys.reduce((draft, key) => editPreference(draft, ["materials", region, key], undefined), document))} />
 			</> : section === "desktopWeb" ? <>
 				<p className="settings-warning">默认关闭。保存后需重启 Desktop，不影响独立的 opi-web。退出 Desktop 会停止 Web 服务和后台任务。</p>
 				<p className="settings-warning">免登录，能连接此端口的设备可操作后端文件和进程。建议保留 127.0.0.1 并通过 SSH 隧道访问，勿直接暴露到公网。</p>

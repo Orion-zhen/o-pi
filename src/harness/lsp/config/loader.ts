@@ -7,10 +7,10 @@ import {
 	createSchemaValidator,
 	expandHomePath,
 	loadConfigLayers,
-	mergeConfigValues,
 	userAgentConfigPath,
 	validateConfigValue,
 } from "../../config-loader.ts";
+import { mergeConfigValues } from "../../config-values.ts";
 import { validateServerRoutes } from "./routing.ts";
 import type { LoadedLspConfig, LspConfig, LspJsonValue, LspLanguageRoute, LspServerConfig, LspTransport } from "../types.ts";
 

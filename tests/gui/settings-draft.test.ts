@@ -17,6 +17,33 @@ it("表单修改只更新草稿，嵌套字段保留默认值", () => {
 	expect(editPreference(draft, ["fontSizes", "chat"], undefined).value.fontSizes).toEqual(base.defaults.fontSizes);
 });
 
+it("材质草稿保留同一区域默认字段，恢复默认只清除外观覆盖", () => {
+	const base = editPreference(initial(), ["sendShortcut"], "enter");
+	const canvas = editPreference(base, ["materials", "canvas", "opacity"], 82);
+	const draft = editPreference(editPreference(canvas, ["materials", "sidebar", "opacity"], 55), ["materials", "floating", "blur"], 0);
+	expect(draft.value.materials.canvas).toEqual({ ...base.defaults.materials.canvas, opacity: 82 });
+	expect(draft.value.materials.sidebar).toEqual({ ...base.defaults.materials.sidebar, opacity: 55 });
+	expect(draft.value.materials.floating).toEqual({ ...base.defaults.materials.floating, blur: 0 });
+	expect(draft.value.materials.dialog).toEqual(base.defaults.materials.dialog);
+	const reset = editPreference(draft, ["materials", "sidebar", "opacity"], undefined);
+	expect(reset.value.materials.sidebar).toEqual(base.defaults.materials.sidebar);
+	expect(reset.value.materials.floating.blur).toBe(0);
+	expect(parse(sectionSave(base, draft, base, "appearance").content)).toMatchObject({ materials: { canvas: { opacity: 82 }, sidebar: { opacity: 55 }, floating: { blur: 0 } }, sendShortcut: "enter" });
+	expect(resetSection(draft, "appearance").value.materials).toEqual(base.defaults.materials);
+	expect(parse(resetSection(draft, "appearance").content)).toEqual({ sendShortcut: "enter" });
+});
+
+it("深浅色不透明度独立修改和重置，不相互覆盖", () => {
+	const base = initial();
+	const light = editPreference(base, ["materials", "canvas", "opacity"], 80);
+	const dark = editPreference(light, ["materials", "canvas", "darkOpacity"], 98);
+	expect(dark.value.materials.canvas).toEqual({ ...base.defaults.materials.canvas, opacity: 80, darkOpacity: 98 });
+	expect(parse(dark.content)).toEqual({ materials: { canvas: { opacity: 80, darkOpacity: 98 } } });
+	const reset = editPreference(dark, ["materials", "canvas", "darkOpacity"], undefined);
+	expect(reset.value.materials.canvas).toEqual({ ...base.defaults.materials.canvas, opacity: 80 });
+	expect(parse(reset.content)).toEqual({ materials: { canvas: { opacity: 80 } } });
+});
+
 it("不同页面的草稿分别保存，不覆盖已经保存的其它页面", () => {
 	const base = initial();
 	const appearance = editPreference(base, ["theme"], "dark");

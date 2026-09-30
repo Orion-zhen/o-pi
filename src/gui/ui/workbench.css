@@ -12,7 +12,7 @@
 .workbench-workspace .workspace-select { flex: auto; justify-content: flex-start; }
 .workbench-workspace .workspace-select > span { flex: 1; text-align: left; }
 .session-search-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.session-search { display: flex; align-items: center; flex: 1 1 9em; min-inline-size: 0; border: 1px solid var(--border); border-radius: var(--radius-md); padding-inline-start: var(--space-2); background: var(--background); }
+.session-search { display: flex; align-items: center; flex: 1 1 9em; min-inline-size: 0; border: 1px solid var(--border); border-radius: var(--radius-md); padding-inline-start: var(--space-2); background: var(--control-surface); }
 .session-search > svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; color: var(--muted-foreground); }
 .session-search > input { min-inline-size: 0; inline-size: 100%; border: 0; box-shadow: none; background: transparent; }
 .session-search:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
@@ -27,7 +27,7 @@
 .workspace-files-heading > button:not(.files-toggle) { position: relative; z-index: 1; pointer-events: auto; }
 .files-toggle { justify-content: flex-start; margin-inline-end: auto; font-size: var(--text-small); padding: 0.4em 0.25em; gap: var(--space-1); }
 .files-toggle::after { content: ""; position: absolute; inset: 0; }
-.files-toggle:hover { background: transparent; color: inherit; }
+.files-toggle:hover { background: var(--accent); color: inherit; }
 .files-toggle > svg { inline-size: 1em; block-size: 1em; }
 .files-toggle > svg[data-open="true"] { transform: rotate(90deg); }
 .git-branch { display: flex; align-items: center; gap: var(--space-1); min-inline-size: 1em; max-inline-size: 35%; font-size: var(--text-caption); color: var(--muted-foreground); }

@@ -12,10 +12,12 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { writeFile } from "node:fs/promises";
 import type { GuiEvent } from "../gui/contract.ts";
+import { GUI_BACKGROUNDS } from "../gui/theme-base.ts";
 import { BackendClient } from "./backend-client.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";
 import { forkDesktopWorker } from "./worker-services.ts";
 import { DesktopDiagnostics } from "./diagnostics.ts";
+import { installDesktopAppearance } from "./appearance.ts";
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -90,13 +92,20 @@ void app
 			minHeight: 500,
 			title: "opi-desktop",
 			icon,
-			backgroundColor: "#11161f",
+			backgroundColor: GUI_BACKGROUNDS.dark,
+			transparent: process.platform === "linux",
+			visualEffectState: "followWindow",
 			webPreferences: {
 				preload: path.join(directory, "preload.cjs"),
 				sandbox: true,
 				contextIsolation: true,
 				nodeIntegration: false,
 			},
+		});
+		const setAppearance = installDesktopAppearance(window);
+		ipcMain.handle("gui:appearance", (event, value: unknown) => {
+			trusted(event);
+			return setAppearance(value);
 		});
 		window.removeMenu();
 		window.webContents.on("will-navigate", (event) => event.preventDefault());

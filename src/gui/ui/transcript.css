@@ -1,7 +1,8 @@
 .transcript-shell { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .transcript { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable both-edges; }
 .jump-latest-region { position: absolute; inset-inline: 0; inset-block-end: var(--space-3); z-index: 10; display: flex; justify-content: center; pointer-events: none; }
-.jump-latest { pointer-events: auto; border-radius: var(--radius-xl); background: var(--popover); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow); }
+.jump-latest { pointer-events: auto; border-radius: var(--radius-xl); box-shadow: var(--surface-highlight), var(--shadow); }
+.jump-latest:hover { background: var(--accent); }
 .transcript-content { display: flex; flex-direction: column; inline-size: min(100%, var(--conversation-width)); min-height: 100%; margin-inline: auto; padding: var(--space-6) var(--content-inset); }
 .welcome { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: clamp(2rem, 7dvh, 5rem) 0; text-align: center; }
 .welcome-mark { display: grid; place-items: center; padding: 1em; margin-block-end: var(--space-6); border-radius: var(--radius-xl); border: 1px solid var(--divider); background: var(--surface); box-shadow: var(--surface-highlight), var(--shadow); color: var(--muted-foreground); font-size: var(--text-heading); }
@@ -11,6 +12,7 @@
 .welcome p { color: var(--muted-foreground); margin-block-start: var(--space-3); font-size: var(--text-ui); }
 .starter-grid { display: flex; flex-wrap: wrap; gap: var(--space-3); inline-size: min(100%, 64ch); margin: var(--space-8) 0 var(--space-4); }
 .starter { flex: 1 1 14ch; gap: var(--space-2); padding: var(--space-4); background: var(--surface); border-color: var(--divider); border-radius: var(--radius-lg); font-size: var(--text-small); font-weight: 400; box-shadow: var(--shadow); }
+.starter:hover { background: var(--accent); }
 .starter > svg:first-child { color: var(--muted-foreground); }
 .starter > svg:last-child { margin-inline-start: auto; inline-size: 0.875em; block-size: 0.875em; color: var(--muted-foreground); }
 .message { padding-block: 0.625rem; overflow-wrap: anywhere; min-width: 0; line-height: 1.85; }

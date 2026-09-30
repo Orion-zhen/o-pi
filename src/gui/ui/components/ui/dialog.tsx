@@ -14,7 +14,7 @@ export function DialogContent({ className, children, ...props }: React.Component
 	const present = useIsPresent();
 	return <DialogPrimitive.Portal forceMount container={document.getElementById("root")}>
 		<DialogPrimitive.Overlay asChild>
-			<motion.div {...fade} data-slot="dialog-overlay" className="modal-layer bg-(--overlay) backdrop-blur-xs">
+			<motion.div {...fade} data-slot="dialog-overlay" className="modal-layer">
 				<DialogPrimitive.Content asChild {...props}>
 					<motion.div data-slot="dialog-content" inert={!present} aria-hidden={!present}
 						initial={{ y: 8, scale: 0.98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 4, scale: 0.98 }} transition={settle}

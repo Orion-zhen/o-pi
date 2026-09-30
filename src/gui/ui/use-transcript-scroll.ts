@@ -173,7 +173,8 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 			if (!viewport || mode.current === "returning" || restoring.current !== undefined) return;
 			const delta = viewport.scrollTop - lastScrollTop.current;
 			lastScrollTop.current = viewport.scrollTop;
-			if (delta === 0 || (mode.current === "follow" && delta > 0)) return;
+			// 被动 wheel 回调可能晚于合成器滚动，暂停状态仍需按当前位置更新返回按钮。
+			if (mode.current === "follow" && delta >= 0) return;
 			const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 60;
 			mode.current = atBottom ? "follow" : "paused";
 			setShowLatest(!atBottom);

@@ -1,12 +1,12 @@
 .panel:has(.settings-shell) { flex-basis: 88%; max-inline-size: none; block-size: 88%; }
-.panel-body:has(> .settings-shell) { display: flex; min-inline-size: 0; overflow: hidden; padding: 0; }
+.panel-body:has(> .settings-shell) { display: flex; min-inline-size: 0; overflow: hidden; padding: 0; background: transparent; }
 .settings-shell { flex: 1; display: flex; min-inline-size: 0; min-block-size: 0; }
-.settings-navigation { flex: 1; min-inline-size: 0; min-block-size: 0; overflow: auto; padding: var(--space-3); border-inline-end: 0.0625em solid var(--divider); background: var(--secondary); }
+.settings-navigation { flex: 1; min-inline-size: 0; min-block-size: 0; overflow: auto; padding: var(--space-3); border-inline-end: 0.0625em solid var(--divider); background: var(--control-surface); }
 .settings-tabs { display: flex; flex-direction: column; gap: var(--space-2); }
 .settings-tabs button { justify-content: flex-start; white-space: normal; text-align: start; }
 .settings-tabs button[aria-selected="true"] { background: var(--selected); color: var(--selected-foreground); }
 .settings-category-select { display: none; }
-.settings-content { flex: 4; min-inline-size: 0; min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: var(--content-inset); }
+.settings-content { flex: 4; min-inline-size: 0; min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: var(--content-inset); background: var(--background); }
 .settings-content[data-state="inactive"] { display: none; }
 .settings-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .settings-section-heading h2 { min-inline-size: 0; overflow-wrap: anywhere; font-size: var(--text-heading); font-weight: 600; }
