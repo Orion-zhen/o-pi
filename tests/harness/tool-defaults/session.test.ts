@@ -12,7 +12,7 @@ import { startModelServer } from "../../cli/model-server.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-tools-session-");
-preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE", "PI_TOOLS_CONFIG", "PI_TOOLS_PROJECT_CONFIG", "PI_TOOLS_PROJECT_ROOT");
+preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE");
 let cwd: string;
 let agentDir: string;
 let runtime: AgentSessionRuntime | undefined;
@@ -24,9 +24,6 @@ beforeEach(async () => {
 	agentDir = path.join(temp.path, "agent");
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	process.env.PI_OFFLINE = "1";
-	process.env.PI_TOOLS_CONFIG = path.join(agentDir, "tools.jsonc");
-	delete process.env.PI_TOOLS_PROJECT_CONFIG;
-	delete process.env.PI_TOOLS_PROJECT_ROOT;
 	await mkdir(cwd, { recursive: true });
 	await mkdir(agentDir, { recursive: true });
 	server = await startModelServer(() => ({ text: "done" }));
@@ -48,7 +45,7 @@ afterEach(async () => {
 	await server.close();
 });
 
-async function start(manager = SessionManager.create(cwd)) {
+async function start(manager = SessionManager.create(cwd), tools?: string[]) {
 	let controller: ToolSelectionController | undefined;
 	runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
 		const services = await createAgentSessionServices({
@@ -63,7 +60,7 @@ async function start(manager = SessionManager.create(cwd)) {
 		});
 		expect(services.resourceLoader.getExtensions().errors).toEqual([]);
 		return {
-			...await createAgentSessionFromServices({ services, sessionManager, ...(sessionStartEvent ? { sessionStartEvent } : {}) }),
+			...await createAgentSessionFromServices({ services, sessionManager, ...(tools ? { tools } : {}), ...(sessionStartEvent ? { sessionStartEvent } : {}) }),
 			services, diagnostics: services.diagnostics,
 		};
 	}, { cwd, agentDir, sessionManager: manager });
@@ -81,6 +78,46 @@ function requestedTools(): string[] {
 }
 
 describe("工具选择与 SDK 状态", () => {
+	it("SDK 显式工具选择优先于已保存的默认值", async () => {
+		let host = await start();
+		host.controller.set("bash", false);
+		await host.controller.persistUserDefaults();
+		await runtime?.dispose();
+		host = await start(SessionManager.create(cwd), ["bash"]);
+		expect(selected(host.controller)).toEqual(["bash"]);
+		await host.session.prompt("使用显式工具选择");
+		expect(requestedTools()).toEqual(["bash"]);
+	});
+
+	it("保存 codemode 后由 SDK 在新会话启用", async () => {
+		let host = await start();
+		host.controller.set("codemode", true);
+		await host.controller.persistUserDefaults();
+		await runtime?.dispose();
+		host = await start();
+		expect(selected(host.controller)).toContain("codemode");
+		await host.session.prompt("使用保存的脚本入口");
+		expect(requestedTools()).toEqual(["codemode"]);
+	});
+
+	it("保存全局默认值后，新会话使用保存的选择，旧会话仍使用分支选择", async () => {
+		let host = await start();
+		host.controller.set("bash", false);
+		await host.controller.persistUserDefaults();
+		host.controller.set("read", false);
+		await host.session.prompt("保存分支选择");
+		const file = host.session.sessionFile;
+		if (!file) throw new Error("缺少会话文件");
+		await runtime?.dispose();
+		host = await start();
+		expect(selected(host.controller)).toEqual(["read", "write"]);
+		await host.session.prompt("使用全局默认值");
+		expect(requestedTools()).toEqual(["read", "write"]);
+		await runtime?.dispose();
+		host = await start(SessionManager.open(file));
+		expect(selected(host.controller)).toEqual(["write"]);
+	});
+
 	it("切换 codemode 只隐藏或恢复普通声明，不改变已选工具", async () => {
 		const { session, controller } = await start();
 		await session.prompt("直接调用");

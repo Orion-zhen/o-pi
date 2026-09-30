@@ -2,6 +2,7 @@ import { sessionEntryToContextMessages, type SessionEntry, type SessionManager }
 import { PRUNE_STATE, parsePruneState } from "../../harness/prune/prune.ts";
 import type { GuiEntry } from "../messages.ts";
 import type { GuiPayloads } from "./payloads.ts";
+import { restoreNestedMutations } from "./nested-mutations.ts";
 
 /** SDK 条目不可变，标签单独更新。历史正文投影一次，所有客户端共用。 */
 export class GuiHistory {
@@ -18,7 +19,11 @@ export class GuiHistory {
 			if (!value) {
 				const pruned = entry.type === "custom" && entry.customType === PRUNE_STATE ? parsePruneState(entry.data) : undefined;
 				value = { id: entry.id, parentId: entry.parentId, type: entry.type, timestamp: entry.timestamp, label,
-					messages: sessionEntryToContextMessages(entry).map((message) => this.payloads.message(message)),
+					messages: sessionEntryToContextMessages(entry).map((message) => {
+						const projected = this.payloads.message(message);
+						return message.role === "toolResult" && message.nestedCalls
+							? restoreNestedMutations(projected, manager.getBranch(entry.id), this.payloads) : projected;
+					}),
 					...(pruned ? { prunedToolCallIds: pruned.toolCallIds } : {}),
 				};
 			} else if (value.label !== label) value = { ...value, label };

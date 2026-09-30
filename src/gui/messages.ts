@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { TextContent } from "@earendil-works/pi-ai";
+import type { NestedToolCallRecord, TextContent } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export interface GuiImage {
@@ -16,12 +16,17 @@ export function outputPreview(output: GuiToolOutput | undefined): ToolOutput | u
 	return output?.kind === "inline" ? output.value : output?.preview;
 }
 
+export interface GuiNestedCalls {
+	complete: boolean;
+	calls: (Omit<NestedToolCallRecord, "arguments"> & { arguments?: unknown; output?: GuiToolOutput })[];
+}
+
 type ContentMessage = Extract<AgentMessage, { role: "user" | "custom" }>;
 type WithContent<T> = T extends ContentMessage ? Omit<T, "content"> & { content: GuiContent } : never;
 export type GuiMessage =
 	| Exclude<AgentMessage, { role: "user" | "custom" | "toolResult" }>
 	| WithContent<ContentMessage>
-	| (Omit<Extract<AgentMessage, { role: "toolResult" }>, "content" | "details"> & { output: GuiToolOutput });
+	| (Omit<Extract<AgentMessage, { role: "toolResult" }>, "content" | "details" | "nestedCalls"> & { output: GuiToolOutput; nestedCalls?: GuiNestedCalls });
 
 /** 正文只存在于条目中。当前上下文和消息树均引用条目身份。 */
 export interface GuiEntry {

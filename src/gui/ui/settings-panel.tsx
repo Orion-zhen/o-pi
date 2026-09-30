@@ -35,7 +35,6 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 		{ id: "autoTitle", label: "自动标题", icon: Type },
 		{ id: "bashTool", label: "终端工具", icon: Terminal },
 		{ id: "fileTools", label: "文件工具", icon: Wrench },
-		{ id: "tools", label: "默认工具", icon: Wrench },
 		{ id: "webTools", label: "网络与网页", icon: Globe },
 		{ id: "approvalGate", label: "权限与安全", icon: Shield },
 		{ id: "subagent", label: "子代理", icon: Bot },

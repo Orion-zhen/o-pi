@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { replaceConfigFile } from "../../harness/config-file.ts";
+export { replaceConfigFile } from "../../harness/config-file.ts";
 import { fileTypeFromBuffer } from "file-type";
 import {
 	getAgentDir,
@@ -97,24 +97,4 @@ export async function saveConfig(file: "settings.json", original: string, conten
 	const parsed: unknown = JSON.parse(content);
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("设置必须是 JSON 对象。");
 	await replaceConfigFile(path.join(getAgentDir(), file), original, content);
-}
-
-export async function replaceConfigFile(target: string, original: string, content: string): Promise<void> {
-	await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-	const temporary = `${target}.${randomUUID()}.tmp`;
-	try {
-		// 在同一个同步片段中检查版本并原子替换，拒绝覆盖界面打开后的修改。
-		let current: string;
-		try {
-			current = readFileSync(target, "utf8");
-		} catch (error) {
-			if (error instanceof Error && "code" in error && error.code === "ENOENT") current = "";
-			else throw error;
-		}
-		if (current !== original) throw new Error("设置文件已被修改，请重新打开后编辑。");
-		writeFileSync(temporary, content, { mode: 0o600, flag: "wx" });
-		renameSync(temporary, target);
-	} finally {
-		await rm(temporary, { force: true });
-	}
 }

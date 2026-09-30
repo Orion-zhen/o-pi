@@ -8,7 +8,7 @@ import { moduleConfigIds } from "../../src/gui/module-config.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-module-config-");
-const envs = moduleConfigIds.map((id) => id === "tools" ? "PI_TOOLS_CONFIG" : CONFIG_DEFINITIONS[id].userEnv);
+const envs = moduleConfigIds.map((id) => CONFIG_DEFINITIONS[id].userEnv);
 preserveEnv("HOME", "USERPROFILE", ...envs);
 let host: ReturnType<GuiHost["createClient"]>;
 beforeEach(() => {

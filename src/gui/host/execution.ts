@@ -16,6 +16,7 @@ import { persistModelScope, setModelScope } from "./models.ts";
 import { GuiReports } from "./reports.ts";
 import { GuiPayloads } from "./payloads.ts";
 import { GuiHistory } from "./history.ts";
+import { nestedMutation, NESTED_MUTATION_ENTRY } from "./nested-mutations.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -154,11 +155,15 @@ export class GuiExecution {
 				output: event.type === "tool_execution_update" ? this.payloads.output(event.toolName, structuredClone(event.partialResult)) : undefined,
 			});
 			if (event.type === "tool_execution_end") {
-				// 子调用完成后保留状态，父调用结束后由持久化嵌套记录接替。
+				// 变更 diff 作为界面专用条目落盘，父结果完成后仍可恢复。
+				const mutation = event.parentToolCallId && !event.isError
+					? nestedMutation(event.parentToolCallId, event.toolCallId, event.toolName, event.result) : undefined;
+				if (mutation) session.sessionManager.appendCustomEntry(NESTED_MUTATION_ENTRY, mutation);
 				const started = this.liveTools.get(event.toolCallId);
 				if (event.parentToolCallId && started) this.liveTools.set(event.toolCallId, {
 					...started, status: event.isError ? "error" : "ok",
-					output: event.isError ? this.payloads.output(event.toolName, structuredClone(event.result)) : undefined,
+					output: mutation ? this.payloads.output(event.toolName, { content: [], details: { diff: mutation.diff } })
+						: event.isError ? this.payloads.output(event.toolName, structuredClone(event.result)) : undefined,
 				});
 				else {
 					this.liveTools.delete(event.toolCallId);

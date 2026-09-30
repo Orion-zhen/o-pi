@@ -1,182 +1,55 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
 
-import {
-	findNearestProjectRoot,
-	loadToolDefaultsConfig,
-	resolveToolDefaults,
-	saveUserToolDefaults,
-} from "../../../src/harness/tool-defaults/config.ts";
+import { saveUserToolDefaults } from "../../../src/harness/tool-defaults/config.ts";
+import { replaceConfigFile } from "../../../src/harness/config-file.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
-let workspace: string;
 const temp = useTempDir("o-pi-tool-defaults-");
-preserveEnv("PI_TOOLS_CONFIG", "PI_TOOLS_PROJECT_CONFIG", "PI_TOOLS_PROJECT_ROOT");
+preserveEnv("PI_CODING_AGENT_DIR");
+let agentDir: string;
+let settingsPath: string;
 
 beforeEach(() => {
-	workspace = temp.path;
-	process.env.PI_TOOLS_CONFIG = path.join(workspace, "missing-user.jsonc");
-	delete process.env.PI_TOOLS_PROJECT_CONFIG;
-	delete process.env.PI_TOOLS_PROJECT_ROOT;
+	agentDir = path.join(temp.path, "agent");
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	settingsPath = path.join(agentDir, "settings.json");
 });
 
-describe("tool defaults config", () => {
-	it("缺少配置时没有覆盖，所有工具由调用方默认启用", async () => {
-		const config = await loadToolDefaultsConfig(workspace);
-		expect(config).toEqual({ layers: [] });
-		expect(resolveToolDefaults(config, { provider: "local", id: "model" })).toEqual({});
+describe("原生 defaultTools 保存", () => {
+	it.each([{ tools: ["read", "codemode"] }, { tools: [] }])("保存选择 $tools，Pi 原生设置直接读取", async ({ tools }) => {
+		await expect(saveUserToolDefaults(tools)).resolves.toBe(settingsPath);
+		expect(JSON.parse(await readFile(settingsPath, "utf8"))).toEqual({ defaultTools: tools });
+		expect(SettingsManager.create(temp.path, agentDir).getDefaultTools()).toEqual(tools);
 	});
 
-	it("用户层与项目层分别应用 defaults 和模型规则，项目层整体覆盖用户层", async () => {
-		const userPath = path.join(workspace, "user.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(
-			userPath,
-			`{
-				"$schema": "tools.schema.json",
-				"defaults": { "bash": false, "read": true },
-				"rules": [
-					{ "match": "google/*", "tools": { "grep": false, "write": true } }
-				]
-			}`,
-		);
-
-		const projectRoot = path.join(workspace, "repo");
-		await mkdir(path.join(projectRoot, ".pi"), { recursive: true });
-		await writeFile(
-			path.join(projectRoot, ".pi", "tools.jsonc"),
-			`{
-				"defaults": { "bash": true },
-				"rules": [
-					{ "match": "*/*", "tools": { "grep": true } },
-					{ "match": "google/gemini-*", "tools": { "write": false } }
-				]
-			}`,
-		);
-
-		const config = await loadToolDefaultsConfig(path.join(projectRoot, "src"));
-		expect(resolveToolDefaults(config, { provider: "google", id: "gemini-3.5-flash" })).toEqual({
-			bash: true,
-			read: true,
-			grep: true,
-			write: false,
-		});
+	it("替换原有默认列表，保留其他设置及 SDK 后续写入", async () => {
+		await mkdir(agentDir);
+		await writeFile(settingsPath, JSON.stringify({ theme: "dark", defaultTools: ["+codemode"] }));
+		const sdk = SettingsManager.create(temp.path, agentDir);
+		await saveUserToolDefaults(["read", "bash"]);
+		expect(JSON.parse(await readFile(settingsPath, "utf8"))).toEqual({ theme: "dark", defaultTools: ["read", "bash"] });
+		sdk.setTheme("light");
+		await sdk.flush();
+		expect(sdk.drainErrors()).toEqual([]);
+		expect(SettingsManager.create(temp.path, agentDir).getDefaultTools()).toEqual(["read", "bash"]);
+		expect(JSON.parse(await readFile(settingsPath, "utf8")).theme).toBe("light");
 	});
 
-	it("匹配规则按最长静态前缀合并，不依赖声明顺序", async () => {
-		const userPath = path.join(workspace, "user.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(
-			userPath,
-			`{
-				"defaults": { "websearch": true, "webfetch": false },
-				"rules": [
-					{ "match": "local/qwen3-*", "tools": { "webfetch": false } },
-					{ "match": "*/*", "tools": { "websearch": false, "webfetch": true } },
-					{ "match": "local/*", "tools": { "websearch": true } }
-				]
-			}`,
-		);
-
-		const config = await loadToolDefaultsConfig(workspace);
-		expect(resolveToolDefaults(config, { provider: "local", id: "qwen3-coder" })).toEqual({
-			websearch: true,
-			webfetch: false,
-		});
+	it.each(["{ invalid", "[]", "null"])("拒绝覆盖损坏的设置 %s", async (content) => {
+		await mkdir(agentDir);
+		await writeFile(settingsPath, content);
+		await expect(saveUserToolDefaults(["read"])).rejects.toThrow();
+		expect(await readFile(settingsPath, "utf8")).toBe(content);
 	});
 
-	it("相同静态前缀后声明者优先，但精确匹配始终高于尾部通配符", async () => {
-		const userPath = path.join(workspace, "user.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(
-			userPath,
-			`{
-				"rules": [
-					{ "match": "local/qwen3-coder", "tools": { "exact": true } },
-					{ "match": "local/qwen3-*", "tools": { "tie": false } },
-					{ "match": "local/qwen3-**", "tools": { "tie": true } },
-					{ "match": "local/qwen3-coder*", "tools": { "exact": false } }
-				]
-			}`,
-		);
-
-		const config = await loadToolDefaultsConfig(workspace);
-		expect(resolveToolDefaults(config, { provider: "local", id: "qwen3-coder" })).toMatchObject({
-			tie: true,
-			exact: true,
-		});
-	});
-
-	it("星号可跨越 model id 中的斜杠", async () => {
-		const userPath = path.join(workspace, "user.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(userPath, '{ "rules": [{ "match": "openrouter/*", "tools": { "websearch": false } }] }');
-
-		const config = await loadToolDefaultsConfig(workspace);
-		expect(resolveToolDefaults(config, { provider: "openrouter", id: "google/gemini-3.5-flash" })).toEqual({ websearch: false });
-	});
-
-	it("拒绝旧版顶层工具映射和无效规则", async () => {
-		const userPath = path.join(workspace, "bad.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-
-		await writeFile(userPath, '{ "bash": false }');
-		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("does not match schema");
-
-		await writeFile(userPath, '{ "rules": [{ "match": "google/*", "tools": { "websearch": "off" } }] }');
-		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("does not match schema");
-
-		await writeFile(userPath, '{ "rules": [{ "match": "google", "tools": {} }] }');
-		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("does not match schema");
-	});
-
-	it("保存用户默认值时保留 JSONC 注释和模型规则", async () => {
-		const userPath = path.join(workspace, "nested", "tools.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await mkdir(path.dirname(userPath), { recursive: true });
-		await writeFile(userPath, `{
-			// keep this rule
-			"defaults": { "old": true },
-			"rules": [
-				{ "match": "google/*", "tools": { "websearch": false } }
-			]
-		}`);
-
-		await expect(saveUserToolDefaults({ read: true, bash: false })).resolves.toBe(userPath);
-
-		const text = await readFile(userPath, "utf8");
-		expect(text).toContain("// keep this rule");
-		expect(text).toContain('"match": "google/*"');
-		expect(resolveToolDefaults(await loadToolDefaultsConfig(workspace), undefined)).toEqual({
-			read: true,
-			bash: false,
-		});
-	});
-
-	it("保存用户默认值时创建缺失的父目录和配置文件", async () => {
-		const userPath = path.join(workspace, "new", "tools.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-
-		await expect(saveUserToolDefaults({ read: true })).resolves.toBe(userPath);
-		expect(resolveToolDefaults(await loadToolDefaultsConfig(workspace), undefined)).toEqual({ read: true });
-	});
-
-	it("拒绝覆盖无效的用户配置", async () => {
-		const userPath = path.join(workspace, "invalid.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(userPath, "{ invalid");
-
-		await expect(saveUserToolDefaults({ read: true })).rejects.toThrow("not valid JSONC");
-		expect(await readFile(userPath, "utf8")).toBe("{ invalid");
-	});
-
-	it("从当前目录向上查找最近的 .pi 项目根", async () => {
-		const projectRoot = path.join(workspace, "repo");
-		const child = path.join(projectRoot, "packages", "demo");
-		await mkdir(path.join(projectRoot, ".pi"), { recursive: true });
-		await mkdir(child, { recursive: true });
-
-		expect(findNearestProjectRoot(child)).toBe(projectRoot);
+	it("拒绝用旧版本覆盖并发更新的设置", async () => {
+		await saveUserToolDefaults(["read"]);
+		const original = await readFile(settingsPath, "utf8");
+		await saveUserToolDefaults(["bash"]);
+		await expect(replaceConfigFile(settingsPath, original, "{}")).rejects.toThrow("已被修改");
+		expect(SettingsManager.create(temp.path, agentDir).getDefaultTools()).toEqual(["bash"]);
 	});
 });

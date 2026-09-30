@@ -6,7 +6,7 @@ import type {
 	SessionTreeEvent,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -28,19 +28,16 @@ type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
 
 let workspace: string;
 const temp = useTempDir("o-pi-tool-defaults-extension-");
-preserveEnv("PI_TOOLS_CONFIG", "PI_TOOLS_PROJECT_CONFIG", "PI_TOOLS_PROJECT_ROOT");
+preserveEnv("PI_CODING_AGENT_DIR");
 
 beforeEach(() => {
 	workspace = temp.path;
-	process.env.PI_TOOLS_CONFIG = path.join(workspace, "missing-user.jsonc");
-	delete process.env.PI_TOOLS_PROJECT_CONFIG;
-	delete process.env.PI_TOOLS_PROJECT_ROOT;
+	process.env.PI_CODING_AGENT_DIR = workspace;
 });
 
 describe("/tools extension defaults", () => {
 	it("/tools 通过选择器回调切换会话工具并写入用户默认值", async () => {
-		const userPath = path.join(workspace, "user-tools.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
+		const userPath = path.join(workspace, "settings.json");
 		const tuiModule = await import("../../../src/tui/views/tool-defaults/tool-selector.ts");
 		const extension = createToolsExtension(async () => ({
 			...tuiModule,
@@ -55,15 +52,11 @@ describe("/tools extension defaults", () => {
 		await harness.command.handler("", harness.ctx as never);
 
 		expect(harness.activeTools).toEqual(["read", "bash"]);
-		expect(await readFile(userPath, "utf8")).toContain('"bash": true');
+		expect(JSON.parse(await readFile(userPath, "utf8"))).toEqual({ defaultTools: ["read", "bash"] });
 	});
 
-	it("没有 session 覆盖时按配置设置 active tools，缺省工具继承宿主状态", async () => {
-		const userPath = path.join(workspace, "user.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(userPath, '{ "defaults": { "bash": false, "write": false } }');
-
-		const harness = registerHarness(["read", "bash", "write", "grep"], []);
+	it("没有会话覆盖时保留 SDK 初始工具集合", async () => {
+		const harness = registerHarness(["read", "bash", "write", "grep"], [], undefined, ["read", "grep"]);
 		await harness.sessionStart({ type: "session_start", reason: "startup" }, harness.ctx);
 
 		expect(harness.activeTools).toEqual(["read", "grep"]);
@@ -77,14 +70,10 @@ describe("/tools extension defaults", () => {
 		expect(harness.activeTools).toEqual(["read"]);
 	});
 
-	it("session 中 /tools 写入的配置覆盖文件默认值", async () => {
-		const userPath = path.join(workspace, "user.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(userPath, '{ "defaults": { "bash": false, "write": false } }');
-
+	it("会话选择覆盖 SDK 初始工具集合", async () => {
 		const harness = registerHarness(["read", "bash", "write"], [
 			{ type: "custom", customType: "tools-config", data: { enabledTools: ["bash"] } },
-		]);
+		], undefined, ["read"]);
 		await harness.sessionStart({ type: "session_start", reason: "startup" }, harness.ctx);
 
 		expect(harness.activeTools).toEqual(["bash"]);
@@ -92,40 +81,18 @@ describe("/tools extension defaults", () => {
 		expect(harness.activeTools).toEqual(["bash"]);
 	});
 
-	it("没有 session 覆盖时在 model_select 后重新应用匹配规则", async () => {
-		const userPath = path.join(workspace, "user.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(
-			userPath,
-			`{
-				"rules": [
-					{
-						"match": "openai-codex/*",
-						"tools": { "websearch": false, "webfetch": false }
-					}
-				]
-			}`,
-		);
-
-		const harness = registerHarness(
-			["read", "websearch", "webfetch"],
-			[],
-			makeModel("local", "qwen3-coder"),
-		);
+	it("切换模型不重新应用默认值，也不覆盖 SDK 的实时工具选择", async () => {
+		const harness = registerHarness(["read", "websearch", "webfetch"], [], makeModel("local", "qwen3-coder"));
 		await harness.sessionStart({ type: "session_start", reason: "startup" }, harness.ctx);
-		expect(harness.activeTools).toEqual(["read", "websearch", "webfetch"]);
-
+		harness.setActiveTools(["webfetch"]);
 		await harness.selectModel("openai-codex", "gpt-5.3-codex");
-		expect(harness.activeTools).toEqual(["read"]);
+		expect(harness.activeTools).toEqual(["webfetch"]);
 	});
 
-	it("切换到没有 session 覆盖的分支时重新应用配置文件", async () => {
-		await mkdir(path.join(workspace, ".pi"), { recursive: true });
-		await writeFile(path.join(workspace, ".pi", "tools.jsonc"), '{ "defaults": { "grep": false } }');
-
+	it("切换到没有会话覆盖的分支时恢复 SDK 初始工具集合", async () => {
 		const harness = registerHarness(["read", "grep", "bash"], [
 			{ type: "custom", customType: "tools-config", data: { enabledTools: ["grep"] } },
-		]);
+		], undefined, ["read", "bash"]);
 		await harness.sessionStart({ type: "session_start", reason: "startup" }, harness.ctx);
 		expect(harness.activeTools).toEqual(["grep"]);
 
@@ -134,22 +101,19 @@ describe("/tools extension defaults", () => {
 		expect(harness.activeTools).toEqual(["read", "bash"]);
 	});
 
-	it("分支恢复即使命中 session 覆盖也会失效配置缓存", async () => {
-		const userPath = path.join(workspace, "user.jsonc");
-		process.env.PI_TOOLS_CONFIG = userPath;
-		await writeFile(userPath, '{ "defaults": { "grep": false } }');
-
-		const harness = registerHarness(["read", "grep"], []);
+	it("扩展不重复读取默认设置，避免覆盖 SDK 已解析的初始集合", async () => {
+		const userPath = path.join(workspace, "settings.json");
+		const harness = registerHarness(["read", "grep"], [], undefined, ["read"]);
 		await harness.sessionStart({ type: "session_start", reason: "startup" }, harness.ctx);
 		expect(harness.activeTools).toEqual(["read"]);
 
-		await writeFile(userPath, '{ "defaults": { "grep": true } }');
+		await writeFile(userPath, '{ "defaultTools": ["read", "grep"] }');
 		harness.branchEntries = [{ type: "custom", customType: "tools-config", data: { enabledTools: ["read"] } }];
 		await harness.sessionTree({ type: "session_tree", newLeafId: null, oldLeafId: null }, harness.ctx);
 
 		harness.branchEntries = [];
-		await harness.selectModel("local", "qwen3-coder");
-		expect(harness.activeTools).toEqual(["read", "grep"]);
+		await harness.sessionTree({ type: "session_tree", newLeafId: null, oldLeafId: null }, harness.ctx);
+		expect(harness.activeTools).toEqual(["read"]);
 	});
 });
 
@@ -187,7 +151,6 @@ function registerHarness(
 	extension(pi as unknown as ExtensionAPI);
 	if (sessionStart === undefined) throw new Error("session_start handler not registered");
 	if (sessionTree === undefined) throw new Error("session_tree handler not registered");
-	if (modelSelect === undefined) throw new Error("model_select handler not registered");
 	if (commandOptions === undefined) throw new Error("tools command not registered");
 	const handleModelSelect = modelSelect;
 
@@ -206,13 +169,14 @@ function registerHarness(
 	return {
 		ctx,
 		command: commandOptions,
+		setActiveTools: pi.setActiveTools,
 		sessionStart,
 		sessionTree,
 		async selectModel(provider: string, id: string) {
 			const previousModel = ctx.model;
 			const model = makeModel(provider, id);
 			ctx.model = model;
-			await handleModelSelect({ type: "model_select", model, previousModel, source: "set" }, ctx);
+			await handleModelSelect?.({ type: "model_select", model, previousModel, source: "set" }, ctx);
 		},
 		get activeTools() {
 			return activeTools;

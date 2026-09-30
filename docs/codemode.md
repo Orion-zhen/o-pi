@@ -12,15 +12,15 @@
 }
 ```
 
-单次 CLI 调用使用 `--tools read,find,grep,bash,codemode`。`--tools` 替换整个集合。已有 `tools.jsonc` 的默认值和按模型规则仍覆盖初始集合，当前分支的手动选择优先。`extensions: ["-builtin:codemode"]` 可禁用内置扩展。
+单次 CLI 调用使用 `--tools read,find,grep,bash,codemode`。`--tools` 优先于 `defaultTools`，替换整个集合。当前分支的手动选择优先。`extensions: ["-builtin:codemode"]` 可禁用内置扩展。
 
-opi 中启用 codemode 即使用 `only` 模式，忽略设置中的 `codemode.mode`，不提供原生 `on` 模式。所有非 `model-only` 工具不再单独向模型声明，包括已激活的脚本专用和延迟工具。其调用契约由 codemode 提供。`model-only` 工具仍直接向模型声明。关闭 codemode 后恢复普通工具声明，不改变其他工具的选择状态。
+opi 中启用 codemode 即使用 `only` 模式，忽略设置中的 `codemode.mode`，不提供原生 `on` 模式。所有非 `model-only` 工具不再单独向模型声明，包括已激活的脚本专用和延迟工具。其调用契约由 codemode 提供。`model-only` 工具仍直接向模型声明，但隐藏重复的 `tool_search` 入口，发现工具统一使用脚本内的 `searchTools()`。关闭 codemode 后恢复普通工具声明，不改变其他工具的选择状态。
 
 不要把 `/tools` 的未勾选理解为权限拒绝，`codemode`、`deferred` 曝光的工具仍可被脚本调用。
 
 ## 模型可见接口
 
-opi 复用上游执行器，通过公开扩展工厂替换工具描述和 `prepareLoadout`。保持原参数 schema、审批、取消、会话存储和结果格式，不修改上游生成的长字符串。
+codemode 复用上游执行器，通过公开扩展工厂替换工具描述和 `prepareLoadout`。保持原参数 schema、审批、取消、会话存储和结果格式，不修改上游生成的长字符串。
 
 - 关闭 `models` API，不提供模型目录或分类器调用。
 - 固定说明仅包含调用、输出、错误、副作用、存储和资源限制。并发与顺序规则只放在 `tool_policy`。
@@ -28,6 +28,14 @@ opi 复用上游执行器，通过公开扩展工厂替换工具描述和 `prepa
 - 内联目录预算仍默认约 3000 tokens，可通过 `codemode.inlineBudget` 调整。按命名空间轮流选择短声明，`deferred` 工具不内联。
 - 有未展示的可调用工具时才介绍 `searchTools()`，搜索结果包含签名。有 MCP 结果时才附加共享类型和图片转交说明。
 - 主要介绍 `text()` 和顶层 `return`。`console.*`、`exit()`、`ALL_TOOLS`、`describeTool()` 等上游能力不删除，但不重复介绍。
+
+## 普通模式的工具发现
+
+`tool_search` 默认不启用，可通过 `defaultTools` 或 `--tools` 启用。它搜索尚未激活的 `codemode` 和 `deferred` 工具，默认最多加载 3 个，`limit` 可指定正整数上限。查询精确匹配候选工具名时，只加载该工具，否则复用上游 BM25。查询使用工具名或英文关键词，上游分词不支持纯中文查询。
+
+结果仅返回 `Loaded: name, ...` 或 `No matches.`，完整契约由下一次请求的工具声明提供。激活状态沿用 SDK 的会话分支记录，不自动卸载。常驻描述只保留使用语义和来源目录，每个来源保留描述首行。
+
+codemode 下隐藏 `tool_search` 声明，不改变它的选择状态，关闭 codemode 后恢复。`searchTools()` 保留上游行为，默认返回最多 8 个含签名的结果，不改变工具激活状态，需要用 `text()` 或顶层 `return` 输出给模型。
 
 ## 结果与边界
 
@@ -52,7 +60,11 @@ GUI 输入栏在普通模式统计模型工具声明。codemode 模式使用代�
 
 调用卡片按真实父子关系展示。codemode 执行中展开子调用，完成后自动收起，手动展开状态优先。脚本与输出给模型的内容分别折叠。父脚本和子调用各自显示状态，捕获子调用错误不会把已成功的父脚本标为失败。切换模式不重排历史调用。
 
-GUI 保留正在执行的父工具下已完成的子调用，父工具完成或恢复会话后读取 SDK 的 `nestedCalls`。该记录有上游大小限制，不包含结果正文，不完整时界面明确标注。遥测记录 `parent_call_id`，不把子调用伪造成 assistant 批次。费用只读取 SDK 已汇总的父结果，不重复累计子调用。
+GUI 保留正在执行的父工具下已完成的子调用，父工具完成或恢复会话后读取 SDK 的 `nestedCalls`。该记录有上游大小限制，不包含结果正文，不完整时界面明确标注。
+
+GUI 另将成功的 `write` 和 `edit` 子调用的实际 diff 保存为会话中的界面专用 custom 条目，不进入模型上下文。子调用展开后复用普通工具的 diff 组件，支持执行中查看、刷新和重新打开会话，大 diff 按需读取。旧会话没有保存 diff 时明确提示，不从参数或当前文件重建历史变更。脚本输出仍单独展示。
+
+遥测记录 `parent_call_id`，不把子调用伪造成 assistant 批次。费用只读取 SDK 已汇总的父结果，不重复累计子调用。
 
 QuickJS 只限制脚本环境，不隔离宿主工具的文件、进程或网络权限。本轮没有为 MCP 增加审批策略，现有 Approval Gate 只管理其明确支持的工具。
 

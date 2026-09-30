@@ -51,6 +51,28 @@ describe("codemode 工具层级", () => {
 });
 
 describe("codemode 执行容器", () => {
+	it.each(["edit", "write"])("%s 子调用复用普通工具的 diff，不把参数当作执行结果", (name) => {
+		const value: Activity = { ...tool, state: "completed", nestedCalls: { complete: true, calls: [{
+			id: "code-1/1", name, status: "ok", arguments: { path: "a.ts" },
+			output: { kind: "inline", value: { content: [], details: { diff: "-1 old\n+1 new" } } },
+		}] } };
+		const doc = parseHTML(renderWithMemory(createElement(ToolActivity, { tool: value }),
+			new Map([["tool:code-1", true], ["nested:code-1/1", true]]))).document;
+		expect(doc.querySelector(".nested-call-details .diff-block")?.textContent).toContain("+1 new");
+		expect(doc.querySelector(".nested-call-details .tool-parameters")?.textContent).toContain("参数");
+		expect(doc.querySelector(".nested-call-details .tool-raw")).not.toBeNull();
+	});
+
+	it("旧会话没有实际 diff 时明确提示，不伪造变更结果", () => {
+		const value: Activity = { ...tool, state: "completed", nestedCalls: { complete: true, calls: [{
+			id: "code-1/1", name: "write", status: "ok", arguments: { path: "a.ts", content: "new" },
+		}] } };
+		const doc = parseHTML(renderWithMemory(createElement(ToolActivity, { tool: value }),
+			new Map([["tool:code-1", true], ["nested:code-1/1", true]]))).document;
+		expect(doc.querySelector(".diff-block")).toBeNull();
+		expect(doc.querySelector(".nested-call-details")?.textContent).toContain("历史记录未保存变更结果");
+	});
+
 	it("运行时展开，子调用复用工具摘要，脚本默认不展开", () => {
 		const doc = renderTool({ ...tool, output: { kind: "inline", value: { content: "Script running" } } });
 		expect(doc.querySelector(".codemode-output")).toBeNull();
@@ -72,7 +94,7 @@ describe("codemode 执行容器", () => {
 		expect(doc.querySelector(".nested-failures")?.textContent).toContain("1 次失败");
 		expect(doc.querySelector("[data-nested-tool-call-id] .activity-state")?.getAttribute("data-state")).toBe("failed");
 		expect(doc.querySelector('[role="alert"]')?.textContent).toBe("File not found");
-		expect(doc.querySelector("[data-nested-tool-call-id] dt")?.textContent).toBe("path");
+		expect(doc.querySelector("[data-nested-tool-call-id] .tool-parameters")?.getAttribute("data-state")).toBe("closed");
 		expect(doc.querySelector(".codemode-output > .disclosure-trigger")?.textContent).toContain("输出给模型");
 		expect(doc.querySelector(".tool-note")).toBeNull();
 	});

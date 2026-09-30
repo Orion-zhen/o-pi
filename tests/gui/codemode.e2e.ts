@@ -11,6 +11,8 @@ for (const mode of ["web", "desktop"] as const) {
 			test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面入口只需验证一次");
 			model = await startModelServer((request) => request.messages?.some((message) => message.role === "tool")
 				? { text: "嵌套验证完成" }
+				: JSON.stringify(request.messages).includes("验证变更")
+					? { tool: "codemode", args: { code: 'await tools.read({path:"sample.ts"}); await tools.edit({path:"sample.ts",edits:[{old:"value = 1",new:"value = 2"}]}); await tools.write({path:"created.ts",content:"export const created = 3;\\n"}); await tools.write({path:"sample.ts",content:"export const replaced = 4;\\n"}); await tools.script_probe({});' } }
 				: { tool: "codemode", args: { code: 'const r = await tools.find({query:"sample"}); try { await tools.read({path:"missing.ts"}); } catch {} await tools.script_probe({}); text(r.matches[0].path);' } });
 			await mkdir(path.join(agentDir, "extensions"), { recursive: true });
 			await writeFile(path.join(agentDir, "extensions", "probe.ts"), `export default (pi) => {
@@ -23,7 +25,7 @@ for (const mode of ["web", "desktop"] as const) {
 			await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 			await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
 				defaultProjectTrust: "never", defaultProvider: "fixture", defaultModel: "test",
-				defaultTools: ["read", "find", "skill", "subagent", "codemode", "script_probe", "deferred_probe"], codemode: { mode: "on" },
+				defaultTools: ["read", "find", "write", "edit", "skill", "subagent", "codemode", "script_probe", "deferred_probe"], codemode: { mode: "on" },
 				compaction: { enabled: false }, retry: { enabled: false },
 			}));
 			await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
@@ -33,6 +35,34 @@ for (const mode of ["web", "desktop"] as const) {
 			} } }));
 		});
 		test.afterEach(async () => { await model?.close(); });
+
+		test("write 和 edit 在执行中及刷新后展示真实 diff，不增加模型输出", async ({ gui: { page } }) => {
+			const editor = page.getByRole("textbox", { name: "消息", exact: true });
+			await editor.fill("验证变更");
+			await editor.press("ControlOrMeta+Enter");
+			const tool = page.locator('[data-tool="codemode"]');
+			await expect(tool.locator('[title="script_probe"]')).toBeVisible();
+			const edit = tool.locator('[data-nested-tool-call-id]:has([title="edit"])');
+			const writes = tool.locator('[data-nested-tool-call-id]:has([title="write"])');
+			await expect(edit).toHaveAttribute("data-state", "completed");
+			await expect(writes).toHaveCount(2);
+			await edit.locator(".activity-summary").click();
+			await expect(edit.locator(".diff-block")).toContainText("value = 2");
+			await expect(page.locator(".reply-answer")).toContainText("嵌套验证完成");
+			expect(JSON.stringify(model.requests.at(-1)?.messages.filter((message) => message.role === "tool")))
+				.not.toContain("export const");
+			await page.reload();
+			await expect(page.locator(".reply-answer")).toContainText("嵌套验证完成");
+			await page.locator(".assistant-reply .reply-activity > .disclosure-trigger").click();
+			await tool.locator(':scope > [data-slot="collapsible"] > .activity-summary').click();
+			await edit.locator(".activity-summary").click();
+			await expect(edit.locator(".diff-block")).toContainText("value = 1");
+			await expect(edit.locator(".diff-block")).toContainText("value = 2");
+			for (const row of await writes.all()) await row.locator(".activity-summary").click();
+			await expect(writes.nth(0).locator(".diff-block")).toContainText("created = 3");
+			await expect(writes.nth(1).locator(".diff-block")).toContainText("value = 2");
+			await expect(writes.nth(1).locator(".diff-block")).toContainText("replaced = 4");
+		});
 
 		test("可用工具计数、层级选择与实时调用在刷新后保持一致", async ({ gui: { page } }, info) => {
 			const counter = page.locator(".tool-count");

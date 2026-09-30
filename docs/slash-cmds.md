@@ -22,40 +22,17 @@
 - 从 `pi.getAllTools()` 返回的工具中列出非 `hidden` 工具，并标明曝光方式。
 - 选择器沿用 Pi 原生 `/scoped-models` 的交互样式。输入文字可搜索工具，`Enter` 或空格切换当前工具，`Esc` 退出。
 - 切换后立即调用 `pi.setActiveTools()` 生效，并写入当前会话分支的 `tools-config` 自定义条目。会话开始或切换分支时，按当前分支恢复。
-- 直接退出时，选择仅在当前会话分支中生效。按 `Ctrl+S` 会把当前完整选择写入用户级 `~/.pi/agent/tools.jsonc` 的 `defaults`。保存会保留 `defaults` 之外的字段和注释。
+- 直接退出时，选择仅在当前会话分支中生效。按 `Ctrl+S` 会把当前完整选择写入全局 `~/.pi/agent/settings.json` 的原生 `defaultTools` 数组，保留其他设置。
 - 恢复时过滤已经不存在或隐藏的工具名。手动选择之后的 SDK 工具声明变更也参与恢复，避免覆盖 `tool_search` 已发现的工具。
-- 当前分支没有覆盖项时，读取默认工具配置：用户级 `~/.pi/agent/tools.jsonc`，项目级 `.pi/tools.jsonc`。
-- Pi 的 `settings.json.defaultTools` 支持 `+name` / `-name`，作为初始集合。`tools.jsonc` 保留按模型策略以及已有用户、项目合并语义，不自动迁移配置。
-- `defaults` 设置所有模型的工具默认值。`rules[].match` 匹配 `${model.provider}/${model.id}`，`rules[].tools` 设置匹配模型的工具值。
-- 规则先按第一个 `*` 之前的静态前缀长度从短到长应用。`*` 可以匹配 `model.id` 中的 `/`。精确匹配优先。相同优先级时，后声明的规则覆盖先声明的规则。
-- 会话开始、切换分支或切换模型时重新计算配置。当前分支的 `/tools` 手动选择仍优先于文件配置。
-- 用户配置先应用，项目配置后应用。未声明的工具继承 Pi 会话启动时的启用状态，避免 Pi 新增的内置工具被自动启用。
-- 所有平台都会列出内置 `powershell` 工具，因此 `/tools` 与 Footer 使用相同的工具总数。非 Windows 平台会把该工具标记为不可用，并拒绝启用。Windows 用户可以在 `tools.jsonc` 中显式启用。该内置工具不使用本仓库为 `bash` 提供的审批解析、安全拒绝规则和输出管理。
-- 配置恢复、按模型解析默认值、分支覆盖、工具切换、用户默认值保存和 `tools-config` 持久化由 `ToolSelectionController` 负责。列表、切换和保存读取 SDK 当前启用的工具，不维护实时状态副本。相同选择不重复设置，保留 SDK 的工具声明顺序。选择组件只消费工具快照并调用控制器回调。
+- 默认工具由 Pi SDK 解析原生 `settings.json.defaultTools`，沿用 `+name` / `-name`、项目设置和 CLI `--tools` 语义，不另设默认值覆盖层。
+- 会话开始、切换分支时优先恢复会话选择，没有覆盖项时恢复 SDK 初始工具集合。切换模型不改变工具选择。保存默认值供新会话使用。
+- 不读取旧 `tools.jsonc`，不迁移旧配置。
+- 所有平台都会列出内置 `powershell` 工具，因此 `/tools` 与 Footer 使用相同的工具总数。非 Windows 平台会把该工具标记为不可用，并拒绝启用。Windows 用户可以通过 `/tools` 显式启用并保存为默认值。该内置工具不使用本仓库为 `bash` 提供的审批解析、安全拒绝规则和输出管理。
+- 分支恢复、工具切换、用户默认值保存和 `tools-config` 持久化由 `ToolSelectionController` 负责。列表、切换和保存读取 SDK 当前启用的工具，不维护实时状态副本。相同选择不重复设置，保留 SDK 的工具声明顺序。选择组件只消费工具快照并调用控制器回调。
 
 ```jsonc
 {
-  "$schema": "./schemas/tools.schema.json",
-  "defaults": {
-    "websearch": true,
-    "webfetch": true
-  },
-  "rules": [
-    {
-      "match": "openai-codex/*",
-      "tools": {
-        "websearch": false,
-        "webfetch": false
-      }
-    },
-    {
-      "match": "google/*",
-      "tools": {
-        "websearch": false,
-        "webfetch": false
-      }
-    }
-  ]
+  "defaultTools": ["read", "bash", "edit", "write", "websearch", "webfetch"]
 }
 ```
 

@@ -75,19 +75,16 @@ GUI 使用 `agent/defaults/gui.jsonc` 与用户目录的 `configs/gui.jsonc`，�
 
 GUI 编辑器需要同时呈现原文和校验错误，因此从同一份用户文件原文生成界面数据。保存时校验 JSONC 和字段，再检查原文是否被其他操作修改，并原子替换文件。具体设置和客户端布局状态见 [GUI 设置](gui.md#gui-设置)。
 
-## 独立的工具默认配置
+## 工具默认值
 
-工具启用状态使用独立的配置机制，不属于上述模块的默认层体系。相关文件为：
+默认工具直接使用 Pi 原生 `settings.json.defaultTools` 字段，由 SDK 解析工具名列表、`+name` / `-name`、项目设置及 CLI `--tools`。不增加自定义字段或默认值覆盖层。
 
-```text
-~/.pi/agent/tools.jsonc
-<project>/.pi/tools.jsonc
-```
+在 `/tools` 中按 `Ctrl+S` 将当前启用的工具名列表写入全局 `~/.pi/agent/settings.json.defaultTools`，保留其他设置，供新会话使用。路径遵循 `PI_CODING_AGENT_DIR`。直接退出只保留当前会话分支的选择。
 
-用户层和项目层按顺序叠加，但没有 `agent/defaults/tools.jsonc`。对应的环境变量是 `PI_TOOLS_CONFIG`、`PI_TOOLS_PROJECT_CONFIG` 和 `PI_TOOLS_PROJECT_ROOT`。项目根目录的查找方式与上述项目层相同。在 `/tools` 中按 `Ctrl+S` 会更新用户层配置的 `defaults`，并保留 `defaults` 之外的字段和注释。直接退出选择器只保留当前会话分支的选择。
+会话恢复优先使用分支选择，没有覆盖项时使用 SDK 初始工具集合。切换模型不改变工具选择。不读取旧 `tools.jsonc` 或 `PI_TOOLS_*` 环境变量，不迁移旧配置。
 
 ## Git 和升级
 
-仓库跟踪 `agent/defaults/` 和 `agent/schemas/`，但忽略 `agent/configs/`。因此，用户全局覆盖配置不会产生新的 o-pi Git 变更。项目中的 `.pi/configs/` 和 `.pi/tools.jsonc` 是否纳入版本控制由项目自行决定。
+仓库跟踪 `agent/defaults/` 和 `agent/schemas/`，但忽略 `agent/configs/`。因此，用户全局覆盖配置不会产生新的 o-pi Git 变更。项目中的 `.pi/configs/` 是否纳入版本控制由项目自行决定。
 
 如果从旧目录布局升级，并且修改过 Git 已跟踪的 `agent/configs/*.jsonc`，请在拉取更新前备份这些文件。升级后，只把需要保留的差异写入新的用户覆盖配置。不要复制整份默认配置，否则新增默认字段后难以区分用户覆盖与项目默认值。

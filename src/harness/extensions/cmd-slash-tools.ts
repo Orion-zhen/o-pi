@@ -28,12 +28,9 @@ export function createToolsExtension(
 		const controller = new ToolSelectionController(pi);
 		bindController?.(controller);
 
-		const restore = async (ctx: ExtensionContext, model = ctx.model, refreshConfig = false): Promise<void> => {
-			const notice = await controller.restore({
-				cwd: ctx.cwd,
+		const restore = (ctx: ExtensionContext): void => {
+			const notice = controller.restore({
 				branchEntries: ctx.sessionManager.getBranch(),
-				model,
-				refreshConfig,
 			});
 			notifyRestoreIssue(ctx, notice);
 		};
@@ -73,17 +70,12 @@ export function createToolsExtension(
 			},
 		});
 
-		pi.on("session_start", async (_event, ctx) => restore(ctx, ctx.model, true));
-		pi.on("session_tree", async (_event, ctx) => restore(ctx, ctx.model, true));
-		pi.on("model_select", async (event, ctx) => restore(ctx, event.model));
+		pi.on("session_start", (_event, ctx) => restore(ctx));
+		pi.on("session_tree", (_event, ctx) => restore(ctx));
 	};
 }
 
 function notifyRestoreIssue(ctx: ExtensionContext, notice: ToolSelectionRestoreNotice | undefined): void {
-	if (notice?.type === "config-error") {
-		ctx.ui.notify(`tools config ignored: ${notice.message}`, "warning");
-		return;
-	}
 	if (notice?.type === "removed-tools") {
 		ctx.ui.notify(`Removed unavailable tools from branch selection: ${notice.toolNames.join(", ")}`, "warning");
 	}

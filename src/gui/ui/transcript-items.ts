@@ -1,5 +1,4 @@
-import type { NestedToolCallRecord } from "@earendil-works/pi-ai";
-import type { GuiMessage, GuiToolOutput } from "../messages.ts";
+import type { GuiMessage, GuiNestedCalls, GuiToolOutput } from "../messages.ts";
 import type { GuiSnapshot } from "../contract.ts";
 import type { replyMetrics } from "../message-metrics.ts";
 
@@ -11,7 +10,7 @@ export interface ToolActivity {
 	args: unknown;
 	state: ToolState;
 	output: GuiToolOutput | undefined;
-	nestedCalls?: { complete: boolean; calls: (Omit<NestedToolCallRecord, "arguments"> & { arguments?: unknown })[] };
+	nestedCalls?: GuiNestedCalls;
 }
 export type TranscriptItem = { key: string; messageIndex: number } & (
 	| { kind: "message"; message: GuiMessage }

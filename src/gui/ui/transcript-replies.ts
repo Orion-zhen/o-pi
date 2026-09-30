@@ -60,6 +60,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			complete: false,
 			calls: children.map((child) => ({
 				id: child.toolCallId, name: child.toolName, arguments: child.args,
+				...(child.output ? { output: child.output } : {}),
 				status: child.status === "running" ? "unfinished" as const : child.status,
 				...(child.status === "error" ? { error: errorSummary(child) } : {}),
 			})),

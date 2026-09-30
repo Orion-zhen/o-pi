@@ -1,13 +1,6 @@
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 
-import {
-	loadToolDefaultsConfig,
-	resolveToolDefaults,
-	saveUserToolDefaults,
-	ToolDefaultsConfigError,
-	type ToolDefaultsConfig,
-	type ToolDefaultsModel,
-} from "./config.ts";
+import { saveUserToolDefaults } from "./config.ts";
 
 export const TOOL_SELECTION_ENTRY = "tools-config";
 
@@ -33,9 +26,7 @@ export type ToolSelectionItem = ToolSelectionItemBase & (
 	| { available: false; enabled: false }
 );
 
-export type ToolSelectionRestoreNotice =
-	| { type: "config-error"; message: string }
-	| { type: "removed-tools"; toolNames: string[] };
+export type ToolSelectionRestoreNotice = { type: "removed-tools"; toolNames: string[] };
 
 export interface ToolSelectionPort {
 	getAllTools(): ToolInfo[];
@@ -45,29 +36,21 @@ export interface ToolSelectionPort {
 }
 
 export interface ToolSelectionRestoreInput {
-	cwd: string;
 	branchEntries: readonly ToolSelectionBranchEntry[];
-	model: ToolDefaultsModel | undefined;
-	refreshConfig: boolean;
 }
 
 export interface ToolSelectionControllerOptions {
-	loadConfig?(cwd: string): Promise<ToolDefaultsConfig>;
-	saveUserDefaults?(defaults: Readonly<Record<string, boolean>>): Promise<string>;
+	saveUserDefaults?(tools: readonly string[]): Promise<string>;
 }
 
 export class ToolSelectionController {
 	private baselineTools: ReadonlySet<string> | undefined;
-	private configCache: { cwd: string; value: Promise<ToolDefaultsConfig> } | undefined;
-	private restoreRevision = 0;
-	private readonly loadConfig: (cwd: string) => Promise<ToolDefaultsConfig>;
-	private readonly saveDefaults: (defaults: Readonly<Record<string, boolean>>) => Promise<string>;
+	private readonly saveDefaults: (tools: readonly string[]) => Promise<string>;
 
 	constructor(
 		private readonly port: ToolSelectionPort,
 		options: ToolSelectionControllerOptions = {},
 	) {
-		this.loadConfig = options.loadConfig ?? loadToolDefaultsConfig;
 		this.saveDefaults = options.saveUserDefaults ?? saveUserToolDefaults;
 	}
 
@@ -75,9 +58,7 @@ export class ToolSelectionController {
 		return toolSelectionItems(this.port.getAllTools(), this.port.getActiveTools());
 	}
 
-	async restore(input: ToolSelectionRestoreInput): Promise<ToolSelectionRestoreNotice | undefined> {
-		const revision = ++this.restoreRevision;
-		if (input.refreshConfig) this.configCache = undefined;
+	restore(input: ToolSelectionRestoreInput): ToolSelectionRestoreNotice | undefined {
 		const baseline = this.captureBaseline();
 		const savedTools = findSavedTools(input.branchEntries);
 		if (savedTools !== undefined) {
@@ -89,20 +70,12 @@ export class ToolSelectionController {
 				: { type: "removed-tools", toolNames: removedTools };
 		}
 
-		const defaults = await this.resolveDefaults(input.cwd, input.model, baseline);
-		if (revision !== this.restoreRevision) return undefined;
-		if (defaults.status === "config-error") {
-			this.apply([...baseline]);
-			return { type: "config-error", message: defaults.message };
-		}
-
-		this.apply(defaults.enabledTools);
+		this.apply([...baseline]);
 		return undefined;
 	}
 
 	set(toolName: string, enabled: boolean): void {
 		if (!this.availableTools().some((tool) => tool.name === toolName)) return;
-		this.restoreRevision++;
 		const names = new Set(this.port.getActiveTools());
 		if (enabled) names.add(toolName);
 		else names.delete(toolName);
@@ -111,10 +84,7 @@ export class ToolSelectionController {
 	}
 
 	async persistUserDefaults(): Promise<string> {
-		const defaults = Object.fromEntries(this.listTools().map((tool) => [tool.name, tool.enabled]));
-		const filePath = await this.saveDefaults(defaults);
-		this.configCache = undefined;
-		return filePath;
+		return this.saveDefaults(this.listTools().filter((tool) => tool.enabled).map((tool) => tool.name));
 	}
 
 	private availableTools(): ToolInfo[] {
@@ -138,28 +108,6 @@ export class ToolSelectionController {
 		return enabledTools;
 	}
 
-	private async resolveDefaults(
-		cwd: string,
-		model: ToolDefaultsModel | undefined,
-		baseline: ReadonlySet<string>,
-	): Promise<{ status: "ready"; enabledTools: string[] } | { status: "config-error"; message: string }> {
-		try {
-			if (this.configCache?.cwd !== cwd) {
-				this.configCache = { cwd, value: this.loadConfig(cwd) };
-			}
-			const config = await this.configCache.value;
-			const defaults = resolveToolDefaults(config, model);
-			return {
-				status: "ready",
-				enabledTools: this.availableTools()
-					.filter((tool) => defaults[tool.name] ?? baseline.has(tool.name))
-					.map((tool) => tool.name),
-			};
-		} catch (error) {
-			if (!(error instanceof ToolDefaultsConfigError)) throw error;
-			return { status: "config-error", message: error.message };
-		}
-	}
 }
 
 function findSavedTools(branchEntries: readonly ToolSelectionBranchEntry[]): string[] | undefined {

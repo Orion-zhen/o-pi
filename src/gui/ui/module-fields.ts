@@ -59,5 +59,4 @@ export const moduleFields: Record<ModuleConfigId, ConfigField[]> = {
 		field("chrome.title", "终端标题"), field("chrome.header", "显示标题栏"), field("chrome.footer", "显示页脚"),
 		field("home.enabled", "显示首页"), field("home.show_tips", "显示提示"), field("math.enabled", "数学公式渲染"),
 	],
-	tools: [],
 };

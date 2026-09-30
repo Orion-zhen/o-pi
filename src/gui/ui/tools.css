@@ -54,13 +54,13 @@
 .codemode-body { padding-top: 0; }
 .codemode-activity > [data-slot="collapsible"] > .activity-summary .activity-facts { max-width: none; white-space: normal; flex-shrink: 1; }
 .nested-failures { color: var(--destructive); }
-.nested-call-details { margin: 0 0 0.5rem 1.5rem; }
-.nested-call-details > .activity-error { margin-left: 0; }
-.codemode-calls .activity-summary[aria-expanded="true"] .activity-chevron { transform: rotate(90deg); }
+.nested-call-details { min-width: 0; }
+.nested-call-duration { margin-left: 1.8125rem; }
 @media (max-width: 767px) {
 	.activity-summary { gap: 0.375rem; padding-inline: 0; }
 	.activity-facts { max-width: 5.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 0; }
 	.activity-state > span { max-width: 4rem; }
 	.activity-body { margin-left: 0.4375rem; padding-left: 0.75rem; }
+	.nested-call-duration { margin-left: 1.1875rem; }
 	.parameter-fields > div { grid-template-columns: minmax(3rem, 4.5rem) minmax(0, 1fr); gap: 0.5rem; }
 }
