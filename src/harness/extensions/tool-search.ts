@@ -1,5 +1,6 @@
-import { createToolSearchExtension, type ExtensionAPI, type ToolInfo } from "@earendil-works/pi-coding-agent";
+import { createToolSearchExtension, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { hasSearchableTools, isSearchableTool } from "../tool-search/loadout.ts";
 
 const DESCRIPTION = "Search unloaded tools and load matches for the next call.";
 const parameters = Type.Object({
@@ -7,10 +8,6 @@ const parameters = Type.Object({
 	// SDK 会截断 integer 输入，使用 multipleOf 在校验层拒绝小数。
 	limit: Type.Optional(Type.Number({ description: "Maximum matches. Default 3.", minimum: 1, multipleOf: 1 })),
 });
-
-function searchable(tool: Pick<ToolInfo, "exposure">): boolean {
-	return tool.exposure === "codemode" || tool.exposure === "deferred";
-}
 
 /** 保留上游检索与会话激活，只精简发现入口。 */
 export default function toolSearch(pi: ExtensionAPI): void {
@@ -27,9 +24,20 @@ export default function toolSearch(pi: ExtensionAPI): void {
 				promptSnippet: "Find and load tools.",
 				promptGuidelines: [],
 				prepareLoadout(loadout) {
+					const candidates = loadout.registered.map((tool) => ({ name: tool.name, exposure: loadout.getExposure(tool.name) }));
+					if (!hasSearchableTools(candidates, loadout.declared.map((tool) => tool.name))) {
+						// 装配完成后再停用，避免重入 SDK 的工具装配。先隐藏本轮声明。
+						queueMicrotask(() => {
+							const active = pi.getActiveTools();
+							if (active.includes("tool_search") && !hasSearchableTools(pi.getAllTools(), active)) {
+								pi.setActiveTools(active.filter((name) => name !== "tool_search"));
+							}
+						});
+						return { hiddenDeclarations: ["tool_search"] };
+					}
 					const sources = new Map<string, string>();
-					for (const candidate of loadout.registered) {
-						if (!searchable({ exposure: loadout.getExposure(candidate.name) })) continue;
+					for (const candidate of candidates) {
+						if (!isSearchableTool(candidate)) continue;
 						const source = loadout.getNamespace(candidate.name);
 						if (!source || sources.has(source.name)) continue;
 						const summary = source.description?.trim().split(/\r?\n/)[0];
@@ -44,7 +52,7 @@ export default function toolSearch(pi: ExtensionAPI): void {
 					const limit = args.limit ?? 3;
 					const active = pi.getActiveTools();
 					const exact = pi.getAllTools().find((candidate) =>
-						candidate.name === args.query.trim() && searchable(candidate) && !active.includes(candidate.name));
+						candidate.name === args.query.trim() && isSearchableTool(candidate) && !active.includes(candidate.name));
 					if (exact) {
 						pi.setActiveTools([...active, exact.name]);
 						return { content: [{ type: "text", text: `Loaded: ${exact.name}` }], details: { loaded: [exact.name] } };

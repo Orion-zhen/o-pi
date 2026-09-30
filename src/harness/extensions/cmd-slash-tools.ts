@@ -12,7 +12,7 @@ interface ToolSelectorModule {
 		ui: ExtensionContext["ui"],
 		options: {
 			tools: readonly ToolSelectionItem[];
-			onChange(toolName: string, enabled: boolean): void;
+			onChange(toolName: string, enabled: boolean): ToolSelectionItem[];
 			onPersist(): Promise<boolean>;
 		},
 	): Promise<void>;
@@ -52,6 +52,7 @@ export function createToolsExtension(
 					tools: controller.listTools(),
 					onChange(toolName, enabled) {
 						controller.set(toolName, enabled);
+						return controller.listTools();
 					},
 					async onPersist() {
 						try {

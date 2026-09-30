@@ -1,5 +1,6 @@
 import type { ExtensionAPI, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { saveUserToolDefaults } from "./config.ts";
+import { hasSearchableTools } from "../tool-search/loadout.ts";
 
 const TOOL_SELECTION_ENTRY = "tools-config";
 
@@ -17,9 +18,10 @@ export class ToolSelectionController {
 	/** 开关控制声明集合，不表示权限。脚本专用和延迟工具仍可嵌套调用。 */
 	listTools(tools = this.pi.getAllTools(), activeTools = this.pi.getActiveTools()): ToolSelectionItem[] {
 		const active = new Set(activeTools);
+		const searchAvailable = hasSearchableTools(tools, activeTools);
 		return tools.filter((tool) => tool.exposure !== "hidden").map(({ name, description, exposure }) => ({
 			name, description, exposure,
-			...(this.available({ name, exposure })
+			...(this.available({ name, exposure }, searchAvailable)
 				? { available: true as const, enabled: active.has(name) }
 				: { available: false as const, enabled: false as const }),
 		}));
@@ -46,18 +48,21 @@ export class ToolSelectionController {
 		return saveUserToolDefaults(this.listTools().filter((tool) => tool.enabled).map((tool) => tool.name));
 	}
 
-	private available(tool: Pick<ToolInfo, "name" | "exposure">): boolean {
+	private available(tool: Pick<ToolInfo, "name" | "exposure">, searchAvailable: boolean): boolean {
 		return tool.exposure !== "hidden"
 			&& (tool.name !== "powershell" || process.platform === "win32")
-			&& (tool.name !== "subagent" || this.subagentAvailable);
+			&& (tool.name !== "subagent" || this.subagentAvailable)
+			&& (tool.name !== "tool_search" || searchAvailable);
 	}
 
-	private availableNames(): Set<string> {
-		return new Set(this.pi.getAllTools().filter((tool) => this.available(tool)).map((tool) => tool.name));
+	private availableNames(activeTools: readonly string[] = this.pi.getActiveTools()): Set<string> {
+		const tools = this.pi.getAllTools();
+		const searchAvailable = hasSearchableTools(tools, activeTools);
+		return new Set(tools.filter((tool) => this.available(tool, searchAvailable)).map((tool) => tool.name));
 	}
 
 	private apply(names: readonly string[]): string[] {
-		const available = this.availableNames();
+		const available = this.availableNames(names);
 		const enabled = [...new Set(names)].filter((name) => available.has(name));
 		const current = this.pi.getActiveTools();
 		// SDK 已恢复相同选择时保留声明顺序，避免重建提示词和工具前缀。

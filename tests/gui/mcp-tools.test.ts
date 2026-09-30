@@ -72,9 +72,10 @@ it.each(["codemode", "codemode-deferred", "deferred", "direct"])("%s 工具关�
 	expect(JSON.stringify(result)).not.toContain(probe);
 	await host.dispatch({ action: "tool", name: "codemode", enabled: false });
 	await host.dispatch({ action: "tool", name: "tool_search", enabled: true });
-	response = { tool: "tool_search", args: { query: "MCP_VISIBILITY", limit: 8 } };
-	await host.dispatch(prompt("直接搜索已关闭的 MCP 工具"));
-	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).not.toContain(probe);
+	expect(readSnapshot(host).tools.find((tool) => tool.name === "tool_search")).toMatchObject({ available: false, enabled: false });
+	response = { text: "done" };
+	await host.dispatch(prompt("没有候选工具时不能启用搜索"));
+	expect(model.requests.at(-1)?.tools?.map((tool) => tool.function.name) ?? []).not.toContain("tool_search");
 	expect(tool()).toMatchObject({ enabled: false, callable: false });
 	await host.dispatch({ action: "tool", name: probe, enabled: true });
 	response = { tool: probe, args: {} };

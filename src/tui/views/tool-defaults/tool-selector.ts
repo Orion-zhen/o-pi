@@ -21,12 +21,12 @@ import type { ToolSelectionItem } from "../../../harness/tool-defaults/controlle
 
 export interface ToolSelectorOptions {
 	tools: readonly ToolSelectionItem[];
-	onChange(toolName: string, enabled: boolean): void;
+	onChange(toolName: string, enabled: boolean): ToolSelectionItem[];
 	onPersist(): Promise<boolean>;
 }
 
 interface ToolSelectorCallbacks {
-	onChange(toolName: string, enabled: boolean): void;
+	onChange(toolName: string, enabled: boolean): ToolSelectionItem[];
 	onPersist(): Promise<boolean>;
 	onCancel(): void;
 	requestRender(): void;
@@ -57,7 +57,7 @@ class ToolRow {
 		if (descriptionWidth <= 0) return [truncateToWidth(leading, width, "")];
 		const rawDescription = this.tool.available
 			? `[${this.tool.exposure}] ${this.tool.description}`
-			: `${this.tool.description} (unavailable on this platform)`;
+			: `${this.tool.description} (unavailable)`;
 		const description = truncateToWidth(rawDescription.replace(/[\r\n]+/gu, " ").trim(), descriptionWidth, "");
 		return [`${leading}  ${this.theme.fg("dim", description)}`];
 	}
@@ -84,7 +84,7 @@ export async function openToolSelector(
 
 /** 工具选择组件。切换立即影响会话，只有显式保存才写入用户配置。 */
 export class ToolSelectorComponent extends Container implements Focusable {
-	private readonly tools: ToolSelectionItem[];
+	private tools: ToolSelectionItem[];
 	private filteredTools: ToolSelectionItem[];
 	private selectedIndex = 0;
 	private readonly searchInput = new Input();
@@ -175,10 +175,9 @@ export class ToolSelectorComponent extends Container implements Focusable {
 	private toggleSelected(): void {
 		const tool = this.filteredTools[this.selectedIndex];
 		if (tool === undefined || !tool.available) return;
-		tool.enabled = !tool.enabled;
+		this.tools = this.callbacks.onChange(tool.name, !tool.enabled);
 		this.revision += 1;
-		this.callbacks.onChange(tool.name, tool.enabled);
-		this.updateList();
+		this.refresh();
 		this.footerText.setText(this.getFooterText());
 	}
 

@@ -83,6 +83,8 @@ it("tool_search 保留已加载工具，后续搜索只加载剩余工具", asyn
 	responses.push({ tool: "tool_search", args: { query: "fixture" } }, { tool: "tool_search", args: { query: "fixture" } });
 	const requests = await run();
 	expect(requests[2]?.tools?.filter((tool) => tool.function.name.startsWith("fixture_"))).toHaveLength(5);
+	expect(requests[1]?.tools?.map((tool) => tool.function.name)).toContain("tool_search");
+	expect(requests[2]?.tools?.map((tool) => tool.function.name)).not.toContain("tool_search");
 });
 
 it("codemode 隐藏 tool_search，searchTools 仍返回可执行签名", async () => {

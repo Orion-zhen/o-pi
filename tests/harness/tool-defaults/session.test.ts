@@ -2,9 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	createAgentSessionFromServices, createAgentSessionServices, createAgentSessionRuntime,
-	SessionManager, type AgentSessionRuntime,
+	SessionManager, type AgentSessionRuntime, type ExtensionAPI, type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Type } from "typebox";
 import { extensions } from "../../../src/harness/extensions.ts";
 import { createToolsExtension } from "../../../src/harness/extensions/cmd-slash-tools.ts";
 import type { ToolSelectionController } from "../../../src/harness/tool-defaults/controller.ts";
@@ -45,7 +46,7 @@ afterEach(async () => {
 	await server.close();
 });
 
-async function start(manager = SessionManager.create(cwd), tools?: string[]) {
+async function start(manager = SessionManager.create(cwd), tools?: string[], fixture?: ExtensionFactory) {
 	let controller: ToolSelectionController | undefined;
 	runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
 		const services = await createAgentSessionServices({
@@ -53,7 +54,8 @@ async function start(manager = SessionManager.create(cwd), tools?: string[]) {
 			resourceLoaderOptions: {
 				noSkills: true, noThemes: true, noPromptTemplates: true, noContextFiles: true,
 				extensionFactories: [
-					...extensions.filter((extension) => extension.name === "codemode"),
+					...extensions.filter((extension) => extension.name === "codemode" || extension.name === "tool-search"),
+					...(fixture ? [{ name: "fixture", factory: fixture }] : []),
 					{ name: "tools", factory: createToolsExtension(undefined, undefined, (value) => { controller = value; }) },
 				],
 			},
@@ -78,6 +80,55 @@ function requestedTools(): string[] {
 }
 
 describe("工具选择与 SDK 状态", () => {
+	it("没有候选工具时，显式配置和手动操作都不能启用 tool_search", async () => {
+		const { session, controller } = await start(SessionManager.create(cwd), ["tool_search"]);
+		expect(controller.listTools().find((tool) => tool.name === "tool_search")).toMatchObject({ available: false, enabled: false });
+		controller.set("tool_search", true);
+		expect(session.getActiveToolNames()).not.toContain("tool_search");
+		await session.prompt("没有可搜索工具");
+		expect(requestedTools()).not.toContain("tool_search");
+	});
+
+	it.each(["codemode", "deferred"] as const)("%s 候选全部激活或隐藏后关闭搜索，候选恢复后不自动启用", async (exposure) => {
+		let api: ExtensionAPI | undefined;
+		const candidate = {
+			name: "fixture", label: "Fixture", description: "Fixture records", exposure,
+			parameters: Type.Object({}),
+			async execute() { return { content: [{ type: "text" as const, text: "record" }], details: {} }; },
+		};
+		const { session, controller } = await start(SessionManager.create(cwd), undefined, (pi) => {
+			api = pi;
+			pi.registerTool(candidate);
+		});
+		if (!api) throw new Error("测试扩展未绑定");
+		const search = () => controller.listTools().find((tool) => tool.name === "tool_search");
+		controller.set("tool_search", true);
+		expect(search()).toMatchObject({ available: true, enabled: true });
+		session.setActiveToolsByName(["tool_search", "fixture"]);
+		await Promise.resolve();
+		expect(search()).toMatchObject({ available: false, enabled: false });
+		expect(session.getActiveToolNames()).toEqual(["fixture"]);
+		controller.set("tool_search", true);
+		expect(session.getActiveToolNames()).toEqual(["fixture"]);
+
+		controller.set("fixture", false);
+		expect(search()).toMatchObject({ available: true, enabled: false });
+		controller.set("tool_search", true);
+		api.registerTool({ ...candidate, exposure: "hidden" });
+		await Promise.resolve();
+		expect(search()).toMatchObject({ available: false, enabled: false });
+		expect(session.getActiveToolNames()).not.toContain("tool_search");
+
+		api.registerTool(candidate);
+		expect(search()).toMatchObject({ available: true, enabled: false });
+		controller.set("tool_search", true);
+		await session.prompt("候选恢复后重新启用搜索");
+		expect(requestedTools()).toContain("tool_search");
+		controller.set("fixture", true);
+		expect(search()).toMatchObject({ available: false, enabled: false });
+		expect(session.getActiveToolNames()).toEqual(["fixture"]);
+	});
+
 	it("SDK 显式工具选择优先于已保存的默认值", async () => {
 		let host = await start();
 		host.controller.set("bash", false);
