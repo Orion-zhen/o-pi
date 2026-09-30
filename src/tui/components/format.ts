@@ -26,7 +26,9 @@ export function formatModel(snapshot: TuiSnapshot): string | undefined {
 	if (snapshot.modelReasoning) {
 		label += snapshot.thinkingLevel === "off" ? " • thinking off" : ` • ${snapshot.thinkingLevel}`;
 	}
-	return snapshot.availableProviderCount > 1 && snapshot.modelProvider ? `(${snapshot.modelProvider}) ${label}` : label;
+	if (snapshot.availableProviderCount > 1 && snapshot.modelProvider) label = `(${snapshot.modelProvider}) ${label}`;
+	const routed = snapshot.routedModel;
+	return routed ? `${label} → ${routed.provider}/${routed.id}${routed.thinkingLevel === undefined ? "" : ` • ${routed.thinkingLevel}`}` : label;
 }
 
 export function formatTokens(count: number): string {

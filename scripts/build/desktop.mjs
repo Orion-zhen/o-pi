@@ -11,10 +11,17 @@ export async function buildDesktop({ root, ui, directoryOnly }) {
 	await mkdir(appDir, { recursive: true });
 	await collectAssets(root, path.join(appDir, "resources"), { target: "node" });
 	const piRoot = new URL("../", import.meta.resolve("@earendil-works/pi-coding-agent"));
+	const backendEntry = path.join(output, "backend-entry.ts");
+	await writeFile(backendEntry, `import { fileURLToPath } from "node:url";
+import ${JSON.stringify(path.join(root, "src/desktop/environment.ts"))};
+const { setEmbeddedQuickJSWasmPath } = await import(${JSON.stringify(fileURLToPath(new URL("dist/config.js", piRoot)))});
+setEmbeddedQuickJSWasmPath(fileURLToPath(new URL("./resources/wasm/quickjs.wasm", import.meta.url)));
+await import(${JSON.stringify(path.join(root, "src/desktop/backend.ts"))});\n`);
 	for (const [source, filename, format] of [
 		[path.join(root, "src/desktop/main.ts"), "main.mjs", "esm"],
 		[path.join(root, "src/desktop/preload.ts"), "preload.cjs", "cjs"],
-		[path.join(root, "src/desktop/backend.ts"), "backend.mjs", "esm"],
+		[backendEntry, "backend.mjs", "esm"],
+		[fileURLToPath(new URL("dist/extensions/codemode/worker.js", piRoot)), "codemode-worker.js", "esm"],
 		[fileURLToPath(new URL("dist/utils/image-resize-worker.js", piRoot)), "image-resize-worker.js", "esm"],
 	]) {
 		const result = await Bun.build({
@@ -29,6 +36,7 @@ export async function buildDesktop({ root, ui, directoryOnly }) {
 		if (result.outputs.length !== 1) throw new Error(`Unexpected desktop outputs: ${filename}`);
 		await writeFile(path.join(appDir, filename), await result.outputs[0].arrayBuffer());
 	}
+	await rm(backendEntry);
 	await cp(ui, path.join(appDir, "ui"), { recursive: true });
 	await cp(path.join(root, "assets/icons"), path.join(appDir, "icons"), { recursive: true });
 	const { version } = JSON.parse(await readFile(new URL("package.json", piRoot), "utf8"));
@@ -65,7 +73,7 @@ export async function buildDesktop({ root, ui, directoryOnly }) {
 			artifactName: "opi-desktop.${ext}",
 			electronVersion,
 			asar: true,
-			asarUnpack: ["backend.mjs", "image-resize-worker.js", "resources/**/*", "ui/**/*"],
+			asarUnpack: ["backend.mjs", "image-resize-worker.js", "codemode-worker.js", "resources/**/*", "ui/**/*"],
 			npmRebuild: false,
 			directories: { output: path.join(output, "release") },
 			files: ["**/*"],

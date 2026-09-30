@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { buildSessionProjection, createEventBus, type BuildSystemPromptOptions, type ExtensionAPI, type ExtensionContext, type InputEvent, type InputEventResult, type SessionEntry, type SlashCommandInfo, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { buildSessionProjection, createEventBus, type BuildSystemPromptOptions, type ExtensionAPI, type ExtensionContext, type ExtensionToolContext, type InputEvent, type InputEventResult, type SessionEntry, type SlashCommandInfo, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSkillContextExtension } from "../../../src/harness/extensions/skill-context.ts";
 import { presentation } from "../../../src/tui/extensions.ts";
@@ -46,7 +46,8 @@ describe("技能命令", () => {
 		expect(JSON.stringify(tools[0]?.parameters)).not.toContain("enum");
 		expect(commands).toEqual(["skill"]);
 		expect(renderers).toEqual([SKILL_CONTEXT_MESSAGE]);
-		expect(events).toEqual(expect.arrayContaining(["input", "tool_result"]));
+		expect(events).toContain("input");
+		expect(events).not.toContain("tool_result");
 		expect(events).not.toContain("context");
 		expect(events).not.toContain("tool_call");
 	});
@@ -80,7 +81,6 @@ describe("技能命令", () => {
 		const hiddenPath = await writeSkill("hidden", true);
 		const branch: SessionEntry[] = [];
 		let tool: ToolDefinition | undefined;
-		const toolResultHandlers: Array<(event: { toolName: string; details: unknown }) => unknown> = [];
 		let beforeAgentStart: ((event: { systemPromptOptions: BuildSystemPromptOptions }) => void) | undefined;
 		const pi = {
 			registerTool(value: ToolDefinition) { tool = value; },
@@ -95,7 +95,6 @@ describe("技能命令", () => {
 			getThinkingLevel: () => "off",
 			events: createEventBus(),
 			on(name: string, handler: unknown) {
-				if (name === "tool_result" && isToolResultHandler(handler)) toolResultHandlers.push(handler);
 				if (name === "before_agent_start" && typeof handler === "function") beforeAgentStart = handler as typeof beforeAgentStart;
 			},
 		};
@@ -114,10 +113,8 @@ describe("技能命令", () => {
 
 		const hidden = await tool.execute("skill-2", { name: "hidden" }, undefined, undefined, fakeCtx(branch));
 		expect(hidden.details).toMatchObject({ status: "failed", error: { code: "SKILL_NOT_LOADABLE" } });
-		expect(toolResultHandlers.some((handler) => {
-			const result = handler({ toolName: "skill", details: hidden.details });
-			return typeof result === "object" && result !== null && "isError" in result && result.isError === true;
-		})).toBe(true);
+		expect(hidden.isError).toBe(true);
+		expect(tool.exposure).toBe("model-only");
 
 		const resourcePath = "skill://allowed/references/testing.md";
 		const resource = await tool.execute("skill-3", { name: resourcePath }, undefined, undefined, fakeCtx(branch));
@@ -162,8 +159,10 @@ function piSkill(name: string, filePath: string, disableModelInvocation: boolean
 	};
 }
 
-function fakeCtx(branch: SessionEntry[]): ExtensionContext {
+function fakeCtx(branch: SessionEntry[]): ExtensionToolContext {
 	return {
+		tools: [],
+		executeTool: async () => { throw new Error("No nested tools registered"); },
 		sessionManager: {
 			getBranch: () => branch,
 			buildSessionProjection: () => buildSessionProjection(branch),
@@ -174,8 +173,4 @@ function fakeCtx(branch: SessionEntry[]): ExtensionContext {
 
 function isSkillLoadEntry(value: unknown): value is SkillLoadEntry {
 	return typeof value === "object" && value !== null && "loadedBy" in value;
-}
-
-function isToolResultHandler(value: unknown): value is (event: { toolName: string; details: unknown }) => unknown {
-	return typeof value === "function";
 }

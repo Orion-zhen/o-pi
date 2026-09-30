@@ -97,6 +97,23 @@ describe("openai-compatible-provider model discovery", () => {
 		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 
+	it("聊天 Provider 恢复混合目录时忽略同名图片和分类模型", async () => {
+		const config = await loadConfigFromText(temp.path, providerConfigText({ models: ["chat"] }, "local"));
+		const { provider } = registerProvider(config, temp.path);
+		const chat = provider.getModels()[0];
+		if (!chat) throw new Error("chat model missing");
+		await refreshProvider(provider, {
+			allowNetwork: false,
+			stored: { checkedAt: 1, models: [
+				{ ...chat, contextWindow: 64000 },
+				{ ...chat, type: "image", output: ["image"], api: "openrouter-image" },
+				{ ...chat, type: "classifier", api: "typesafe-classifier" },
+			] },
+		});
+		expect(provider.getModels()).toHaveLength(1);
+		expect(provider.getModels()[0]).toMatchObject({ id: "chat", contextWindow: 64000 });
+	});
+
 	it("models: auto 使用当前 data 响应发现模型及其上下文窗口和图片输入能力", async () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({
 			name: "Gateway",

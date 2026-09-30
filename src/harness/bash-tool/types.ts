@@ -1,3 +1,4 @@
+import type { BashStructuredOutput } from "./structured-output.ts";
 import type { BashOperations, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export interface BashParams {
@@ -47,6 +48,7 @@ export interface BashToolDetails {
 export interface BashExecutionResult {
 	content: string;
 	details: BashToolDetails;
+	structuredContent: BashStructuredOutput;
 }
 
 export interface BashSessionMetadata {

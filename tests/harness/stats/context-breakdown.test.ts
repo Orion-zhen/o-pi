@@ -127,6 +127,7 @@ function skillMessage(id: string, content: string): SessionEntry {
 function toolInfo(name: string, description: string, properties: Record<string, unknown>): ToolInfo {
 	return {
 		name,
+		exposure: "direct",
 		description,
 		parameters: {
 			type: "object",

@@ -14,7 +14,7 @@
 7. 扩展调用后续注册的 `onPayload`
 ```
 
-Pi 的 `streamSimple` 负责第 1 步。直接使用低层 `stream` 时，调用方应提供所需的 `samplingParams`，扩展不会额外合并模型默认值。
+Pi 的 `stream` 和 `streamSimple` 都应用模型默认采样参数，扩展不重复合并。优先级为普通请求字段 < 模型 `samplingParams` < 单次请求 `samplingParams`。需要覆盖模型的 `temperature` 时，写入单次请求的 `samplingParams.temperature`。
 
 单次请求的 `samplingParams` 会覆盖模型配置中的同名字段。调用方的 `onPayload` 可以继续修改结果。如果 `onPayload` 返回 `undefined`，扩展使用第 6 步产生的请求体。核心字段保护只适用于扩展自己的 `extraBody` 和 `dropParams`，不会限制扩展内部的 `model-suffix` 路由或调用方后续的 `onPayload`。
 

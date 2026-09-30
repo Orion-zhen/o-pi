@@ -1,3 +1,4 @@
+import { grepStructuredOutput } from "../search-output.ts";
 import type { LoadLsp } from "../../../lsp/file-operations.ts";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.ts";
 import type { GrepParams } from "../../grep/types.ts";
@@ -19,7 +20,7 @@ export function createGrepAdapter() {
 					...bindFileLsp(opened, options.lsp),
 				});
 				if (isFailed(result)) return result;
-				return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result };
+				return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result, structuredContent: grepStructuredOutput(result) };
 			});
 		},
 		dispose() {

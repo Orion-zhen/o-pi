@@ -34,5 +34,5 @@ export async function withFileToolsInvocation<T>(
 }
 
 export function failedToolResult(result: FailedResult): AgentToolResult<FailedResult> {
-	return { content: [{ type: "text", text: formatErrorModelResult(result) }], details: result };
+	return { content: [{ type: "text", text: formatErrorModelResult(result) }], details: result, isError: true };
 }

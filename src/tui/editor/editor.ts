@@ -164,8 +164,10 @@ function fitBorderLabels(innerWidth: number, left: string | undefined, right: st
 function formatEngine(snapshot: TuiSnapshot): string | undefined {
 	const model = cleanLabel(snapshot.modelId);
 	if (model === undefined) return undefined;
-	const thinking = snapshot.modelReasoning ? cleanLabel(snapshot.thinkingLevel) : undefined;
-	return thinking === undefined ? model : `${model} · ${thinking}`;
+	const routed = snapshot.routedModel;
+	const label = routed ? `${model} → ${cleanLabel(`${routed.provider}/${routed.id}`)}` : model;
+	const thinking = routed ? cleanLabel(routed.thinkingLevel) : snapshot.modelReasoning ? cleanLabel(snapshot.thinkingLevel) : undefined;
+	return thinking === undefined ? label : `${label} · ${thinking}`;
 }
 
 function cleanLabel(value: string | undefined): string | undefined {

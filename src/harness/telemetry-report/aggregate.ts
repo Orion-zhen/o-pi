@@ -23,7 +23,9 @@ export function aggregateTelemetry(records: readonly TelemetryRecord[], options:
 	const calls = allCalls.filter((call) => runIds.has(call.run_id) && matchesCall(call, query));
 	const cwdByRun = new Map(runs.map((run) => [run.run_id, run.cwd]));
 	const toolNames = [...new Set(calls.map((call) => call.tool))].sort(compare);
-	const candidateObservations = collectCandidateObservations(calls, cwdByRun);
+	// 脚本接收的候选不等于模型看到的候选，模型决策分析只使用直接调用。
+	const modelCalls = calls.filter((call) => call.parent_call_id === undefined);
+	const candidateObservations = collectCandidateObservations(modelCalls, cwdByRun);
 	return {
 		metadata: {
 			generated_at: options.generatedAt,
@@ -40,9 +42,9 @@ export function aggregateTelemetry(records: readonly TelemetryRecord[], options:
 		},
 		runs,
 		tools: toolNames.map((tool) => summarizeTool(tool, calls.filter((call) => call.tool === tool))),
-		edit: analyzeEdits(calls, cwdByRun),
-		grep: summarizeGrep(calls, candidateObservations),
-		search_effectiveness: summarizeSearchEffectiveness(calls, candidateObservations),
+		edit: analyzeEdits(modelCalls, cwdByRun),
+		grep: summarizeGrep(modelCalls, candidateObservations),
+		search_effectiveness: summarizeSearchEffectiveness(modelCalls, candidateObservations),
 		candidate_ranking: summarizeCandidateRanking(candidateObservations),
 	};
 }

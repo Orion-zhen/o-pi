@@ -1,11 +1,8 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { directory } from "./environment.ts";
 import { decodeGuiRequest } from "../gui/host/request.ts";
 import type { BackendCommand, BackendMessage, BackendRequest } from "./backend-contract.ts";
 
-const directory = path.dirname(fileURLToPath(import.meta.url));
-process.env.PI_OPI_RESOURCE_DIR = path.join(directory, "resources");
-process.env.PI_PACKAGE_DIR = path.join(directory, "resources", "pi");
 await import("../harness/runtime/environment.ts");
 
 const closeServices = process.type === "utility"

@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 
 export interface ModelRequest {
+	model: string;
 	messages: Array<{ role: string; content: unknown; tool_call_id?: string }>;
 	tools?: Array<{ function: { name: string } }>;
 }

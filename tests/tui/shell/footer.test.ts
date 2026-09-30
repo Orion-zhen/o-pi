@@ -1,7 +1,7 @@
 import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { formatFooter } from "../../../src/tui/shell/footer.ts";
+import { formatContext, formatFooter } from "../../../src/tui/shell/footer.ts";
 import type { TuiFooterConfig, TuiSnapshot } from "../../../src/tui/shell/types.ts";
 
 import { tuiSnapshot } from "./fixtures.ts";
@@ -32,6 +32,14 @@ const snapshot: TuiSnapshot = {
 };
 
 describe("tui footer", () => {
+	it.each([[0, "success"], [69.9, "success"], [70, "warning"], [89.9, "warning"], [90, "error"], [105, "error"]] as const)("用量 %s 使用主题 %s 色", (percent, color) => {
+		const output = formatContext({ ...snapshot, context: { tokens: 0, contextWindow: 128000, percent } }, {
+			fg: (name, text) => `<${name}>${text}</${name}>`,
+		});
+		expect(output).toContain(`<${color}>${percent.toFixed(1)}%/128k</${color}>`);
+		expect(output).not.toContain("\x1b");
+	});
+
 	it.each([200, 80, 60, 12])("宽度 %i 下最多两行且不越界", (width) => {
 		const lines = formatFooter(snapshot, config, width, theme);
 		expect(lines.length).toBeLessThanOrEqual(2);

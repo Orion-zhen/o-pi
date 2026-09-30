@@ -2,11 +2,11 @@ import { type ToolCallRenderer } from "../presentation.ts";
 import {
 	createLocalBashOperations,
 	type ExtensionAPI,
-	type ToolResultEvent,
 	type TruncationResult,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { bashOutputSchema } from "../bash-tool/structured-output.ts";
 import { executeBashCommand } from "../bash-tool/bash-tool.ts";
 import { loadBashToolConfig } from "../bash-tool/config.ts";
 import { type BashParams, type BashSessionMetadata, type BashToolDetails } from "../bash-tool/types.ts";
@@ -41,6 +41,7 @@ export default function bashTool(
 			promptSnippet: "run commands in bash",
 			promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
 			parameters: bashParameters,
+			outputSchema: bashOutputSchema,
 			executionMode: "sequential",
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const config = await loadBashToolConfig();
@@ -68,7 +69,12 @@ export default function bashTool(
 						: {}),
 				};
 				const result = await executeBashCommand(params, runtime);
-				return { content: [{ type: "text", text: result.content }], details: withNativeBashDetails(result.details) };
+				return {
+					content: [{ type: "text", text: result.content }],
+					details: withNativeBashDetails(result.details),
+					structuredContent: result.structuredContent,
+					isError: result.details.status !== "exited" || result.details.exit_code !== 0,
+				};
 			},
 		},
 		repair: { singleStringField: "command" },
@@ -83,25 +89,6 @@ export default function bashTool(
 		});
 		await rendererLoad;
 	});
-
-	pi.on("tool_result", (event) => {
-		if (event.toolName !== "bash" || !isBashDetails(event.details)) return undefined;
-		if (event.details.status !== "exited" || event.details.exit_code !== 0) {
-			return { isError: true };
-		}
-		return undefined;
-	});
-}
-
-function isBashDetails(value: ToolResultEvent["details"]): value is BashToolDetails {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"status" in value &&
-		"duration_ms" in value &&
-		"output_state" in value &&
-		"capture_complete" in value
-	);
 }
 
 type NativeBashDetails = BashToolDetails & {

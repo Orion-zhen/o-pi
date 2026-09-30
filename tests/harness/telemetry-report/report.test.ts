@@ -71,6 +71,19 @@ describe("telemetry report", () => {
 		expect(filtered.inventory).toEqual({ runs: 1, sessions: 1, calls: 1, tools: 1 });
 	});
 
+	it("嵌套搜索保留执行统计，但不冒充模型可见候选或下游决策", () => {
+		const report = aggregateTelemetry([
+			run("run-a", "commit-a"),
+			call("code", 0, "codemode"),
+			{ ...call("code/1", 1, "find", { candidates: [{ kind: "file", value: "src/a.ts", rank: 1, sources: ["lexical"] }] }), parent_call_id: "code" },
+			{ ...call("code/2", 2, "read", { targets: [file("src/a.ts")] }), parent_call_id: "code" },
+		]);
+		expect(report.inventory.calls).toBe(3);
+		expect(report.tools.find((tool) => tool.tool === "find")?.calls).toBe(1);
+		expect(report.candidate_ranking.producer_calls).toBe(0);
+		expect(report.search_effectiveness.calls).toBe(0);
+	});
+
 	it("不会把未知 Git 状态归入干净工作区", () => {
 		const withoutGit = { ...run("run-a", "commit-a") };
 		delete withoutGit.git;

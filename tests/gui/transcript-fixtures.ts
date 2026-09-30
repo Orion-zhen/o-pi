@@ -21,6 +21,7 @@ export function source(value: Partial<Omit<TranscriptSource, "messages" | "strea
 		messages: (value.messages ?? []).map((message) => payloads.message(message)),
 		streamingMessage: payloads.stream(value.streamingMessage ?? null),
 		liveTools: (value.liveTools ?? []).map((event) => ({ toolCallId: event.toolCallId, toolName: event.toolName, args: event.args,
+			...(event.parentToolCallId === undefined ? {} : { parentToolCallId: event.parentToolCallId }),
 			output: event.type === "tool_execution_update" ? payloads.output(event.toolName, event.partialResult) : undefined })),
 	};
 }

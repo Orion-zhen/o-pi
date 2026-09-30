@@ -31,6 +31,7 @@ export async function collectAssets(root, staging, { target = "bun", extra = [] 
 	const wasmSpecs = new Set(["web-tree-sitter/web-tree-sitter.wasm", ...Object.values(TREE_SITTER_LANGUAGES).map(({ grammar }) => grammar)]);
 	for (const spec of wasmSpecs) await add(require.resolve(spec), `wasm/${spec}`);
 	await add(require.resolve("@silvia-odwyer/photon-node/photon_rs_bg.wasm"), "wasm/photon_rs_bg.wasm");
+	if (target === "node") await add(require.resolve("quickjs-wasi/quickjs.wasm"), "wasm/quickjs.wasm");
 	for (const directory of ["cmaps", "standard_fonts", "wasm"]) await add(path.join(path.dirname(require.resolve("pdfjs-dist/package.json")), directory), `pdf/${directory}`);
 	await add(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs"), "pdf/pdf.worker.mjs");
 	await add(path.join(path.dirname(require.resolve("node-notifier")), "vendor"), "notifier/vendor");

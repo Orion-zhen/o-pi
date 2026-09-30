@@ -1,4 +1,4 @@
-import { createProvider, type Api, type Model, type Provider } from "@earendil-works/pi-ai";
+import { createProvider, isModelType, type Api, type Model, type Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createProviderAuth } from "./auth.ts";
@@ -39,7 +39,7 @@ export function registerOpenAICompatibleProviders(
 				if (stored) {
 					const cached = new Map<string, Model<Api>>(baseline.map((model) => [model.id, model]));
 					for (const model of stored.models) {
-						if (model.provider === id) cached.set(model.id, model);
+						if (model.provider === id && isModelType(model, "chat")) cached.set(model.id, model);
 					}
 					const restored = restoreCachedModels(id, provider, [...cached.values()], configPath);
 					if (!await publish({ update: () => { models = restored; } })) return;

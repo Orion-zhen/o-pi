@@ -12,15 +12,23 @@ export async function buildBinary({ root, target, staging, ui }) {
 	const generated = path.join(staging, "assets.ts");
 	await writeFile(generated, assetModule(resources));
 	const entry = path.join(staging, "entry.ts");
-	await writeFile(entry, `import ${JSON.stringify(path.join(root, "src", target, "binary.ts"))};\n`);
-	// Pi 的 Bun 发行入口约定此 worker 路径，不改写上游实现。
-	const worker = path.join(staging, "src/utils/image-resize-worker.ts");
-	await mkdir(path.dirname(worker), { recursive: true });
 	const piRoot = new URL("../", import.meta.resolve("@earendil-works/pi-coding-agent"));
-	await writeFile(worker, `import ${JSON.stringify(fileURLToPath(new URL("dist/utils/image-resize-worker.js", piRoot)))};\n`);
+	await writeFile(entry, `import ${JSON.stringify(path.join(root, "src/harness/runtime/binary.ts"))};
+import wasm from ${JSON.stringify(fileURLToPath(import.meta.resolve("quickjs-wasi/quickjs.wasm")))} with { type: "file" };
+const { setEmbeddedQuickJSWasmPath } = await import(${JSON.stringify(fileURLToPath(new URL("dist/config.js", piRoot)))});
+setEmbeddedQuickJSWasmPath(wasm);
+await import(${JSON.stringify(path.join(root, "src", target, "binary.ts"))});\n`);
+	// Pi 的 Bun 发行入口约定这些 worker 路径，不改写上游实现。
+	const workers = [];
+	for (const relative of ["utils/image-resize-worker", "extensions/codemode/worker"]) {
+		const worker = path.join(staging, `src/${relative}.ts`);
+		await mkdir(path.dirname(worker), { recursive: true });
+		await writeFile(worker, `import ${JSON.stringify(fileURLToPath(new URL(`dist/${relative}.js`, piRoot)))};\n`);
+		workers.push(worker);
+	}
 	const name = target === "tui" ? "opi" : "opi-web";
 	const result = await Bun.build({
-		entrypoints: [entry, worker],
+		entrypoints: [entry, ...workers],
 		root: staging,
 		compile: {
 			outfile: path.join(output, process.platform === "win32" ? `${name}.exe` : name),

@@ -1,7 +1,6 @@
 import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { isFailedDetails, isFileToolName } from "../file-tools/pi/guards.ts";
 import { type LsParams } from "../file-tools/ls/types.ts";
 import { type FileToolRuntime } from "../file-tools/pi/invocation.ts";
 import { type FileToolsHost, type SessionObservationSeed } from "../file-tools/runtime/host.ts";
@@ -24,6 +23,7 @@ import { lsTelemetry } from "../file-tools/telemetry/ls.ts";
 import { readTelemetry } from "../file-tools/telemetry/read.ts";
 import { writeTelemetry } from "../file-tools/telemetry/write.ts";
 import { type ToolOutcome } from "../file-tools/shared/result.ts";
+import { findOutputSchema, grepOutputSchema } from "../file-tools/pi/search-output.ts";
 import { MutationBatchCoordinator } from "../file-tools/pi/mutation-batch.ts";
 import { type MutationProgressDetails } from "../file-tools/pi/progress.ts";
 import { registerTool } from "../register-tool.ts";
@@ -215,7 +215,7 @@ function registerFileTools(
 	};
 	const lsp = async () => (await loaders.lsp()).lspManager;
 	const mutationBatches = new MutationBatchCoordinator();
-	let sessionMutation: SessionMutationScope | undefined;
+	const sessionMutations = new Map<string, SessionMutationScope>();
 	const skillPathIndex = createRetryableLoader(async () =>
 		buildSkillPathIndex(
 			collectSkillCandidates(undefined, pi.getCommands()),
@@ -259,6 +259,8 @@ function registerFileTools(
 			description: "Fuzzy-search file and directory paths.",
 			promptSnippet: "fuzzy-search paths",
 			parameters: findParameters,
+			outputSchema: findOutputSchema,
+			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [module, runtime] = await Promise.all([loaders.find(), runtimeForInvocation(ctx, signal)]);
 				return module.executeFind(params as FindParams, runtime);
@@ -275,6 +277,8 @@ function registerFileTools(
 			description: "Search texts in the codebase.",
 			promptSnippet: "locate relevant code",
 			parameters: grepParameters,
+			outputSchema: grepOutputSchema,
+			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [adapter, runtime] = await Promise.all([loaders.grep(), runtimeForInvocation(ctx, signal)]);
 				return adapter.execute(params as GrepParams, { ...runtime, lsp });
@@ -402,27 +406,29 @@ function registerFileTools(
 			event.message.content.flatMap((item) => (item.type === "toolCall" ? [{ id: item.id, name: item.name }] : [])),
 		);
 	});
-	pi.on("tool_execution_start", async (event, ctx) => {
-		mutationBatches.started(event.toolCallId);
+	pi.on("tool_execution_start", (event) => mutationBatches.started(event.toolCallId));
+	// 嵌套调用在入队前发出 execution_start，参数校验和审批钩子才位于执行队列内。
+	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "bash" || host === undefined) return;
 		const index = await skillPathIndex();
 		const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
-		sessionMutation = await host.beginSessionMutation({
+		const scope = await host.beginSessionMutation({
 			cwd: ctx.cwd,
 			sessionId: ctx.sessionManager.getSessionId(),
 			pathAccess,
 		});
+		if (scope) sessionMutations.set(event.toolCallId, scope);
 	});
-	pi.on("tool_execution_end", async (event) => {
-		mutationBatches.ended(event.toolCallId);
-		if (event.toolName !== "bash") return;
-		const scope = sessionMutation;
-		sessionMutation = undefined;
+	pi.on("tool_result", async (event) => {
+		const scope = sessionMutations.get(event.toolCallId);
+		sessionMutations.delete(event.toolCallId);
 		await scope?.finish();
 	});
-	pi.on("tool_result", (event) => {
-		if (isFileToolName(event.toolName) && isFailedDetails(event.details)) return { isError: true };
-		return undefined;
+	pi.on("tool_execution_end", (event) => {
+		mutationBatches.ended(event.toolCallId);
+		// 校验后被其他钩子阻止或取消的调用没有 tool_result，不采纳文件变化。
+		sessionMutations.get(event.toolCallId)?.dispose();
+		sessionMutations.delete(event.toolCallId);
 	});
 	pi.on("session_shutdown", (event, ctx) => {
 		if (event.reason === "reload" && host !== undefined) {
@@ -434,8 +440,8 @@ function registerFileTools(
 		shuttingDown = true;
 		restoredSession = undefined;
 		mutationBatches.dispose();
-		sessionMutation?.dispose();
-		sessionMutation = undefined;
+		for (const scope of sessionMutations.values()) scope.dispose();
+		sessionMutations.clear();
 		host?.stop();
 		for (const instance of loadedToolInstances) instance.dispose();
 		host?.dispose();

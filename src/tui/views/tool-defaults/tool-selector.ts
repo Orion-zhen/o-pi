@@ -56,7 +56,7 @@ class ToolRow {
 		const descriptionWidth = width - visibleWidth(leading) - 2;
 		if (descriptionWidth <= 0) return [truncateToWidth(leading, width, "")];
 		const rawDescription = this.tool.available
-			? this.tool.description
+			? `[${this.tool.exposure}] ${this.tool.description}`
 			: `${this.tool.description} (unavailable on this platform)`;
 		const description = truncateToWidth(rawDescription.replace(/[\r\n]+/gu, " ").trim(), descriptionWidth, "");
 		return [`${leading}  ${this.theme.fg("dim", description)}`];
@@ -117,7 +117,7 @@ export class ToolSelectorComponent extends Container implements Focusable {
 		this.addChild(new DynamicBorder((text) => theme.fg("accent", text)));
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(theme.fg("accent", theme.bold("Tool Configuration")), 0, 0));
-		this.addChild(new Text(theme.fg("muted", "Session-only. Ctrl+S saves user defaults."), 0, 0));
+		this.addChild(new Text(theme.fg("muted", "Model tool selection, not permissions. Codemode/deferred stay callable. Ctrl+S saves defaults."), 0, 0));
 		this.addChild(new Spacer(1));
 		this.addChild(this.searchInput);
 		this.addChild(new Spacer(1));

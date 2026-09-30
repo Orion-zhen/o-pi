@@ -65,6 +65,29 @@ describe("stats collector", () => {
 		}
 	});
 
+	it("嵌套记录不重复计费，父工具聚合用量在恢复后只计入一次", () => {
+		const manager = SessionManager.inMemory();
+		const reply = assistant("summary", { input: 100, output: 10, cacheRead: 50, cacheWrite: 0, total: 160, cost: 1 });
+		manager.appendMessage(reply);
+		manager.appendMessage({
+			role: "toolResult", toolCallId: "code", toolName: "codemode", isError: false, timestamp: 3,
+			content: [{ type: "text", text: "2 generated images" }],
+			usage: { input: 200, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 220,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 2 } },
+			nestedCalls: { complete: true, calls: [
+				{ id: "code/1", name: "image", status: "ok", arguments: { prompt: "first" } },
+				{ id: "code/2", name: "image", status: "ok", arguments: { prompt: "second" } },
+			] },
+		});
+		for (const session of [manager, SessionManager.inMemory(manager.getCwd(), undefined, manager.getEntries())]) {
+			expect(summarizeSessionUsage(session.getEntries())).toMatchObject({
+				usage: { inputTokens: 300, outputTokens: 30, cacheReadTokens: 50, totalObservedTokens: 380,
+					costUsd: 3, lastCostUsd: 1, averageTokensPerAssistantTurn: 160 },
+				cache: { latestHitRate: 50 / 150 * 100, totalHitRate: 50 / 150 * 100 },
+			});
+		}
+	});
+
 	it("从公开 message 内容统计工具调用和失败", () => {
 		const messages: Message[] = [
 			assistantToolCall("read", { path: "a.ts" }),

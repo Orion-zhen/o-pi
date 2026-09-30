@@ -38,6 +38,41 @@ async function execute(output: Buffer, options: { successBudget?: number; failur
 }
 
 describe("bash 输出链路", () => {
+	it("脚本收到未压缩原文，即使模型只看到头尾摘要", async () => {
+		const text = "same\n".repeat(2_000);
+		const result = await execute(Buffer.from(text), { successBudget: 1_024 });
+		expect(result.structuredContent).toMatchObject({ output: text, truncated: false, exit_code: 0 });
+		expect(result.content.length).toBeLessThan(text.length);
+	});
+
+	it("脚本输出独立限制为 1 MiB，保留头尾及原始日志", async () => {
+		const text = `HEAD${"😀".repeat(300_000)}TAIL`;
+		const result = await execute(Buffer.from(text));
+		const output = result.structuredContent;
+		expect(output.truncated).toBe(true);
+		expect(Buffer.byteLength(output.output)).toBeLessThanOrEqual(1024 * 1024);
+		expect(output.output.startsWith("HEAD")).toBe(true);
+		expect(output.output.endsWith("TAIL")).toBe(true);
+		expect(output.output).not.toContain("�");
+		if (!output.full_output_path) throw new Error("missing log path");
+		expect(await readFile(output.full_output_path, "utf8")).toBe(text);
+	});
+
+	it("解码膨胀触发脚本截断时，即使模型预算充足仍保留日志", async () => {
+		const bytes = Buffer.alloc(400_000, 0xff);
+		const result = await execute(bytes, { successBudget: 2 * 1024 * 1024 });
+		expect(result.details.output_state).toBe("complete");
+		expect(result.structuredContent.truncated).toBe(true);
+		expect(Buffer.byteLength(result.structuredContent.output)).toBeLessThanOrEqual(1024 * 1024);
+		if (!result.structuredContent.full_output_path) throw new Error("missing log path");
+		expect(await readFile(result.structuredContent.full_output_path)).toEqual(bytes);
+	});
+
+	it("脚本空输出为空字符串，失败保留退出码", async () => {
+		const result = await execute(Buffer.alloc(0), { exitCode: 9 });
+		expect(result.structuredContent).toMatchObject({ output: "", exit_code: 9, truncated: false });
+	});
+
 	it("成功预算大于失败预算时，不提前裁剪预算内输出", async () => {
 		const text = `${"a".repeat(3_000)}MID${"z".repeat(3_000)}`;
 		const result = await execute(Buffer.from(text));

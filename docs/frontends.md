@@ -8,6 +8,7 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 - `src/harness/extensions.ts` 导出 SDK 原生 `InlineExtension[]`，可通过 `createAgentSessionServices()` 的 `resourceLoaderOptions.extensionFactories` 加载。各工厂创建独立的会话状态。
 - 三端入口平级：`src/tui/main.ts`、`src/web/main.ts` 和 `src/desktop/main.ts`。TUI 和 Web 的 `binary.ts` 仅负责单文件启动适配，共享资源初始化位于 `src/harness/runtime/binary.ts`。
 - `src/tui/` 保存终端入口、呈现与增强。`extensions.ts` 为业务扩展提供呈现器、弹窗和只读视图，再交给上游 `main()`。
+- GUI SDK 装配显式注册 Pi 的 `codemode` 和 `tool-search` 内置扩展，遵循 settings 启用状态。TUI 和无界面 CLI 使用上游装配，不重复注册。打包与工具边界见 [Codemode](codemode.md)。
 - `src/gui/` 保存共享图形界面与 SDK 装配，`src/desktop/` 和 `src/web/` 分别负责 Electron 与网络宿主。输入历史位于 `src/harness/user-history.ts`，由三个前端共用。
 
 子代理与 Discord 协调进程统一使用 `src/harness/runtime/headless.ts`。子代理复用上游 CLI JSON 流程，只加载 `src/harness/extensions.ts`，不引用任何应用入口。Bun 产物重启自身，Desktop 使用 Electron 的 Node 模式，源码开发由 Bun 运行共享入口。
@@ -25,6 +26,14 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 会话内容、运行状态和消息队列以 SDK 为准，不复制 Agent 执行逻辑。GUI 的 `GuiHost` 管理实例、索引和共享资源，`GuiSession` 持有单个 SDK runtime，`GuiClient` 管理客户端的查看位置和操作路由。新增共享业务放入 harness，终端布局、快捷键和组件工厂留在 TUI。
 
 模型上下文通过 `buildSessionProjection()` 读取，包含 `context_edit` 的删除和替换。GUI 聊天历史从 `buildContextEntries()` 中的原始条目生成，不用 `session.messages` 代替历史，因此上下文编辑不改变已展示的回复。上下文用量继续由 SDK 提供，会话树隐藏 `context_edit` 元数据节点。
+
+### 虚拟模型与非聊天模型
+
+外部扩展可通过 `pi.registerVirtualModel()` 注册虚拟模型，由 Pi 按请求调用路由函数并持久化分支状态。三端不维护另一套路由器。模型默认工具规则仍匹配所选模型，不因每次实际路由结果而切换。
+
+GUI 模型选择器保留所选虚拟模型，旁边展示 `AgentSession.routedModel` 提供的最近成功响应模型及思考级别。TUI 从有效上下文提取相同的响应信息。遥测分别记录所选模型与实际模型，费用读取真实响应和父工具聚合用量，不重复累计嵌套记录。
+
+图片生成与分类是独立模型类型，不加入聊天模型选择器。需要这些能力的 SDK 业务直接使用 `ModelRuntime.getAvailableOfType()`、`generateImages()` 或 `classify()`，复用现有认证和取消机制。当前没有新增图片生成工具或自动分类策略。
 
 ## Desktop 使用的 SDK 能力
 

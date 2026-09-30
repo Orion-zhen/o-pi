@@ -74,11 +74,13 @@ export interface CallError {
 export interface CallRecord extends TelemetryBaseRecord, TelemetryFacts {
 	type: "call";
 	call_id: string;
+	parent_call_id?: string;
 	call_index: number;
 	turn_index?: number;
 	tool: string;
 	definition_hash?: string;
 	model?: { provider: string; id: string };
+	selected_model?: { provider: string; id: string };
 	thinking?: string;
 	started_at: string;
 	ended_at: string;

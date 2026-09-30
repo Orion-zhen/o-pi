@@ -47,15 +47,9 @@ describe("web-tools extension", () => {
 		const { registered, handlers } = registerExtension(webTools);
 		expect(registered.map((tool) => tool.name)).toEqual(["websearch", "webfetch"]);
 
-		const eventResult = handlers.get("tool_result")?.({
-			toolName: "webfetch",
-			details: { status: "failed", error: { code: "INVALID_URL", message: "bad" } },
-		});
-		expect(eventResult).toEqual({ isError: true });
-		expect(handlers.get("tool_result")?.({
-			toolName: "websearch",
-			details: { status: "failed", provider: "duckduckgo_html", error: { code: "PROVIDER_BLOCKED", message: "blocked" } },
-		})).toEqual({ isError: true });
+		const fetch = registered.find((tool) => tool.name === "webfetch");
+		if (!fetch) throw new Error("missing webfetch");
+		await expect(fetch.execute("invalid", { url: "not-a-url" }, undefined, undefined, { hasUI: false })).resolves.toMatchObject({ isError: true });
 		await handlers.get("session_shutdown")?.({});
 	});
 
@@ -99,10 +93,26 @@ describe("web-tools extension", () => {
 		expect(loadRuntime).toHaveBeenCalledTimes(1);
 		if (resolveRuntime === undefined) throw new Error("missing runtime resolver");
 		resolveRuntime(runtime);
-		await expect(searchExecution).resolves.toMatchObject({ content: [{ type: "text", text: "search" }] });
+		await expect(searchExecution).resolves.toMatchObject({ content: [{ type: "text", text: "search" }], structuredContent: { results: [] } });
 		await expect(fetchExecution).resolves.toMatchObject({ content: [{ type: "text", text: "fetch" }] });
 		await handlers.get("session_shutdown")?.({});
 		expect(close).toHaveBeenCalledTimes(1);
+	});
+
+	it("网页搜索脚本结果只包含检索证据，不泄露来源合并诊断", async () => {
+		const result = successfulSearch("pi", "compact output");
+		const runtime: WebToolsRuntime = {
+			async search() { return { ...result, details: { ...result.details, results: [
+				{ rank: 1, title: "Pi", url: "https://pi.dev", snippet: "SDK", provenance: [{ provider: "exa_api" as const, rank: 3 }] },
+			] } }; },
+			async fetch() { return { content: "", details: webFetchDetails() }; }, async close() {},
+		};
+		const { registered } = registerExtension(createWebToolsExtension(async () => runtime));
+		const tool = registered.find((item) => item.name === "websearch");
+		if (!tool) throw new Error("missing websearch");
+		const actual = await tool.execute("search", { query: "pi" }, undefined, undefined, {});
+		expect(actual.content).toEqual([{ type: "text", text: "compact output" }]);
+		expect(actual.structuredContent).toEqual({ results: [{ title: "Pi", url: "https://pi.dev", snippet: "SDK" }] });
 	});
 
 	it("将 tool hook 附加的私网授权传给 webfetch runtime", async () => {

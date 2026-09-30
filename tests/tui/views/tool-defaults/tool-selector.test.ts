@@ -14,8 +14,8 @@ describe("ToolSelectorComponent", () => {
 		const changes: Array<{ name: string; enabled: boolean }> = [];
 		let cancelled = false;
 		const component = new ToolSelectorComponent([
-			{ name: "read", description: "Read files", enabled: true, available: true },
-			{ name: "bash", description: "Run commands", enabled: false, available: true },
+			{ name: "read", description: "Read files", exposure: "direct", enabled: true, available: true },
+			{ name: "bash", description: "Run commands", exposure: "direct", enabled: false, available: true },
 		], theme, {
 			onChange: (name, enabled) => changes.push({ name, enabled }),
 			onPersist: async () => true,
@@ -35,7 +35,7 @@ describe("ToolSelectorComponent", () => {
 
 	it("窄终端中不会产生超宽行", () => {
 		const component = new ToolSelectorComponent([
-			{ name: "a-very-long-tool-name", description: "A long tool description", enabled: false, available: true },
+			{ name: "a-very-long-tool-name", description: "A long tool description", exposure: "direct", enabled: false, available: true },
 		], theme, {
 			onChange: () => {},
 			onPersist: async () => true,
@@ -49,7 +49,7 @@ describe("ToolSelectorComponent", () => {
 	it("不可用工具无法切换", () => {
 		const onChange = vi.fn();
 		const component = new ToolSelectorComponent([
-			{ name: "powershell", description: "Run PowerShell commands", enabled: false, available: false },
+			{ name: "powershell", description: "Run PowerShell commands", exposure: "direct", enabled: false, available: false },
 		], theme, {
 			onChange,
 			onPersist: async () => true,
@@ -69,7 +69,7 @@ describe("ToolSelectorComponent", () => {
 		let attempts = 0;
 		const requestRender = vi.fn();
 		const component = new ToolSelectorComponent([
-			{ name: "read", description: "Read files", enabled: true, available: true },
+			{ name: "read", description: "Read files", exposure: "direct", enabled: true, available: true },
 		], theme, {
 			onChange: () => {},
 			onPersist: async () => {
@@ -95,7 +95,7 @@ describe("ToolSelectorComponent", () => {
 		let cancelled = false;
 		const requestRender = vi.fn();
 		const component = new ToolSelectorComponent([
-			{ name: "read", description: "Read files", enabled: true, available: true },
+			{ name: "read", description: "Read files", exposure: "direct", enabled: true, available: true },
 		], theme, {
 			onChange: () => {},
 			onPersist: async () => {

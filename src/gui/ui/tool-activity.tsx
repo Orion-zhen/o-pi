@@ -52,12 +52,21 @@ export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activit
 				<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 			</CollapsibleTrigger>
 			{error && <p className="activity-error">{error}</p>}
+			{tool.nestedCalls && <Disclosure className="tool-nested" summary={`${tool.nestedCalls.calls.length} 次嵌套调用`} lazy>
+				{tool.nestedCalls.calls.map((call) => <div key={call.id} data-nested-tool-call-id={call.id}>
+					<strong>{call.name}</strong> · {call.status === "ok" ? "完成" : call.status === "error" ? "失败" : active ? "执行中" : "未完成"}
+					{call.durationMs !== undefined && <span> · {call.durationMs} ms</span>}
+					{call.arguments && <ParameterValue value={call.arguments} />}
+					{call.error && <p role="alert">{clean(call.error)}</p>}
+				</div>)}
+				{!active && !tool.nestedCalls.complete && <p className="tool-note">嵌套记录不完整，部分参数、调用或完成状态未保留。</p>}
+			</Disclosure>}
 			<CollapsibleContent lazy={tool.name !== "subagent"}><ToolBody tool={tool} /></CollapsibleContent>
 			</Collapsible>
 		</section>
 	);
 }, (before, after) => before.tool.id === after.tool.id && before.tool.name === after.tool.name && before.tool.state === after.tool.state
-	&& before.tool.args === after.tool.args && before.tool.output === after.tool.output);
+	&& before.tool.args === after.tool.args && before.tool.output === after.tool.output && before.tool.nestedCalls === after.tool.nestedCalls);
 
 function ToolBody({ tool }: { tool: Activity }) {
 	const id = tool.output?.kind === "reference" ? tool.output.id : undefined;

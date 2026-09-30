@@ -82,6 +82,10 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 				</SelectContent>
 			</Select>
 			<ThinkingControl snapshot={snapshot} send={send} disabled={disabled} />
+			{snapshot.routedModel && <span className="truncate text-xs text-muted-foreground" aria-label="最近响应模型"
+				title={`${snapshot.routedModel.model.provider}/${snapshot.routedModel.model.id}`}>
+				→ {snapshot.routedModel.model.name}{snapshot.routedModel.thinkingLevel === undefined ? "" : ` · ${snapshot.routedModel.thinkingLevel}`}
+			</span>}
 		</div>
 	);
 }

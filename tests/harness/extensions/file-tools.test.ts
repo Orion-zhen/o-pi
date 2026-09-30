@@ -469,10 +469,10 @@ async function announceBash(
 	toolCallId: string,
 	ctx: ExecuteToolContext,
 ): Promise<void> {
-	await Promise.resolve(handlers.get("tool_execution_start")?.({
+	await Promise.resolve(handlers.get("tool_call")?.({
 		toolCallId,
 		toolName: "bash",
-		args: { command: "custom-formatter" },
+		input: { command: "custom-formatter" },
 	}, ctx));
 }
 
@@ -482,7 +482,7 @@ async function endBash(
 	ctx: ExecuteToolContext,
 	isError: boolean,
 ): Promise<void> {
-	await Promise.resolve(handlers.get("tool_execution_end")?.({
+	await Promise.resolve(handlers.get("tool_result")?.({
 		toolCallId,
 		toolName: "bash",
 		result: {},

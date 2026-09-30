@@ -146,6 +146,19 @@ export class OutputCapture {
 	}
 }
 
+/** 从共享原始窗口投影更小的模型窗口，不改变原来的截断与压缩语义。 */
+export function limitCapturedPreview(preview: CapturedPreview, maxBytes: number): CapturedPreview {
+	if (preview.kind === "complete" && preview.bytes.byteLength <= maxBytes) return preview;
+	const headBytes = Math.floor(maxBytes / 2);
+	const tailBytes = maxBytes - headBytes;
+	const sourceHead = preview.kind === "complete" ? preview.bytes : preview.head;
+	const sourceTail = preview.kind === "complete" ? preview.bytes : preview.tail;
+	const total = preview.kind === "complete" ? preview.bytes.byteLength : preview.head.byteLength + preview.tail.byteLength + preview.omittedBytes;
+	const head = sourceHead.subarray(0, headBytes);
+	const tail = sourceTail.subarray(-tailBytes);
+	return { kind: "split", head, tail, omittedBytes: total - head.byteLength - tail.byteLength };
+}
+
 function sanitizePathPart(value: string): string {
 	const sanitized = value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 	return sanitized.length > 0 ? sanitized.slice(0, 96) : "unknown";

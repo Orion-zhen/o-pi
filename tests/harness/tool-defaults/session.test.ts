@@ -102,6 +102,22 @@ describe("工具选择与 SDK 状态", () => {
 		expect(host.session.messages.filter((message) => message.role === "system")).toEqual(systems);
 	});
 
+	it("恢复手动选择后新增的原生工具声明", async () => {
+		let host = await start();
+		host.controller.set("bash", false);
+		await host.session.prompt("保存手动选择");
+		host.session.setActiveToolsByName(["read", "write", "bash"]);
+		expect(host.session.getActiveToolNames()).toEqual(["read", "write", "bash"]);
+		await host.session.prompt("使用新发现的工具");
+		const file = host.session.sessionFile;
+		if (!file) throw new Error("缺少会话文件");
+		await runtime?.dispose();
+		host = await start(SessionManager.open(file));
+		expect(selected(host.controller)).toEqual(["read", "bash", "write"]);
+		await host.session.prompt("恢复后继续");
+		expect(requestedTools()).toEqual(["read", "write", "bash"]);
+	});
+
 	it("手动切换后尚未发送请求也能恢复，导航回旧分支恢复旧选择", async () => {
 		let host = await start();
 		host.controller.set("bash", false);

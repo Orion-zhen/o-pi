@@ -1,4 +1,5 @@
 import { readSnapshot } from "./read-snapshot.ts";
+import { collectSessionState } from "../../src/tui/shell/snapshot.ts";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -102,6 +103,50 @@ newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("虚拟模型保留选择，响应模型随路由变化并在重载后恢复", async () => {
+		const directory = path.join(temp.path, ".pi", "agent", "extensions");
+		await mkdir(directory, { recursive: true });
+		await writeFile(path.join(directory, "router.ts"), `export default (pi) => pi.registerVirtualModel({
+			provider: "router", id: "auto", name: "Auto",
+			route: (request, ctx) => ({ model: ctx.modelRegistry.find("gui-fixture", request.reason === "user" ? "test" : "second"), thinkingLevel: "off" }),
+		});`);
+		await host.dispatch({ action: "reload" });
+		await host.dispatch({ action: "model", provider: "router", id: "auto" });
+		expect(readSnapshot(host)).toMatchObject({ model: { provider: "router", id: "auto" }, routedModel: null });
+		await host.dispatch(prompt("检查 input.txt 并写入 output.txt"));
+		const check = () => {
+			expect(readSnapshot(host)).toMatchObject({
+				model: { provider: "router", id: "auto" },
+				routedModel: { model: { provider: "gui-fixture", id: "second" }, thinkingLevel: "off" },
+			});
+			expect(collectSessionState(host.runtime.session.extensionRunner.createContext(), "ready")).toMatchObject({
+				modelId: "auto", modelProvider: "router",
+				routedModel: { provider: "gui-fixture", id: "second", thinkingLevel: "off" },
+			});
+		};
+		check();
+		expect(server.requests.filter((request) => request.tools).map((request) => request.model)).toEqual(["test", "second", "second"]);
+		await host.dispatch({ action: "reload" });
+		check();
+		for (const stopReason of ["error", "aborted"] as const) {
+			host.runtime.session.sessionManager.appendMessage({
+				...assistant([{ type: "text", text: "未完成响应" }], stopReason), provider: "gui-fixture", model: "third",
+			});
+		}
+		host.runtime.session.refreshContext();
+		check();
+		for (const entry of host.runtime.session.sessionManager.getBranch()) {
+			if (entry.type === "message" && entry.message.role === "assistant" && entry.message.model === "second")
+				host.runtime.session.sessionManager.appendContextEdit(entry.id, null);
+		}
+		host.runtime.session.refreshContext();
+		expect(readSnapshot(host).routedModel?.model.id).toBe("test");
+		expect(collectSessionState(host.runtime.session.extensionRunner.createContext(), "ready").routedModel?.id).toBe("test");
+		await host.dispatch({ action: "model", provider: "gui-fixture", id: "test" });
+		expect(readSnapshot(host).routedModel).toBeNull();
+		expect(collectSessionState(host.runtime.session.extensionRunner.createContext(), "ready")).not.toHaveProperty("routedModel");
+	});
+
 	it("上下文删除和替换不改写 GUI 历史，重载后仍能定位原始消息", async () => {
 		const { session } = host.runtime;
 		const manager = session.sessionManager;

@@ -47,6 +47,7 @@ TUI 开发使用 `bun run dev:tui`，Web 开发使用 `bun run dev:web`。项目
 * [Bash 工具](docs/bash-tool.md)
 * [LSP 内部增强](docs/lsp.md)
 * [Web 工具](docs/web-tools.md)
+* [Codemode](docs/codemode.md)
 * [Tool Input Repair](docs/tool-repair.md)
 * [Approval Gate](docs/approval-gate.md)
 * [本地遥测](docs/telemetry.md)

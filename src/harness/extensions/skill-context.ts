@@ -69,6 +69,7 @@ function registerSkillTool(pi: ExtensionAPI) {
 	const tool = registerTool(pi, {
 		tool: {
 			name: "skill",
+			exposure: "model-only",
 			label: "skill",
 			executionMode: "sequential",
 			description: "Load one model-invocable skill by name.",
@@ -102,7 +103,7 @@ function registerSkillTool(pi: ExtensionAPI) {
 							message,
 						},
 					};
-					return { content: [{ type: "text", text: `<error tool="skill">${escapeXml(message)}</error>` }], details };
+					return { content: [{ type: "text", text: `<error tool="skill">${escapeXml(message)}</error>` }], details, isError: true };
 				}
 			},
 		},
@@ -123,16 +124,9 @@ function registerSkillTool(pi: ExtensionAPI) {
 		}),
 	});
 
-	pi.on("tool_result", (event) => {
-		if (event.toolName !== "skill") return;
-		if (isFailedSkillDetails(event.details)) return { isError: true };
-	});
 	return tool;
 }
 
-function isFailedSkillDetails(value: unknown): value is SkillToolErrorDetails {
-	return typeof value === "object" && value !== null && "status" in value && value.status === "failed";
-}
 
 function escapeXml(value: string): string {
 	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

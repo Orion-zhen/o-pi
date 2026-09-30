@@ -5,6 +5,8 @@ export type ExtensionHandler = (...args: unknown[]) => unknown;
 export interface CapturedExtensionResult {
 	content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
 	details?: unknown;
+	structuredContent?: unknown;
+	isError?: boolean;
 }
 
 export interface CapturedExtensionTool {

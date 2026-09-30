@@ -80,10 +80,10 @@ describe("bash tool execution", () => {
 		await handlers.get("session_start")?.({}, { mode: "tui", ui: { notify() {} } });
 		expect(tools).toHaveLength(2);
 		expect(tools.at(-1)?.renderCall).toBeTypeOf("function");
-		const base = { duration_ms: 1, output_state: "complete", capture_complete: true };
-		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "timed_out" } })).toEqual({ isError: true });
-		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "exited", exit_code: 0 } })).toBeUndefined();
-		expect(handlers.get("tool_result")?.({ toolName: "read", details: base })).toBeUndefined();
+		if (!tool) throw new Error("missing bash tool");
+		const ctx = { cwd: workspace, sessionManager: { getSessionId: () => "bash-test", getSessionFile: () => undefined, getBranch: () => [] } };
+		await expect(tool.execute("failed", { command: "exit 7" }, undefined, undefined, ctx)).resolves.toMatchObject({ isError: true });
+		await expect(tool.execute("ok", { command: "printf ok" }, undefined, undefined, ctx)).resolves.toMatchObject({ isError: false });
 	});
 
 	it("参数 schema 在执行前拒绝越界 timeout", () => {

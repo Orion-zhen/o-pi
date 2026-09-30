@@ -19,11 +19,13 @@ export interface ToolSelectionBranchEntry {
 	type: string;
 	customType?: string;
 	data?: unknown;
+	message?: unknown;
 }
 
 interface ToolSelectionItemBase {
 	name: string;
 	description: string;
+	exposure: ToolInfo["exposure"];
 }
 
 export type ToolSelectionItem = ToolSelectionItemBase & (
@@ -70,13 +72,7 @@ export class ToolSelectionController {
 	}
 
 	listTools(): ToolSelectionItem[] {
-		const enabledTools = new Set(this.port.getActiveTools());
-		return this.port.getAllTools().map((tool) => {
-			const item = { name: tool.name, description: tool.description };
-			return toolAvailableOnCurrentPlatform(tool)
-				? { ...item, available: true, enabled: enabledTools.has(tool.name) }
-				: { ...item, available: false, enabled: false };
-		});
+		return toolSelectionItems(this.port.getAllTools(), this.port.getActiveTools());
 	}
 
 	async restore(input: ToolSelectionRestoreInput): Promise<ToolSelectionRestoreNotice | undefined> {
@@ -169,6 +165,14 @@ export class ToolSelectionController {
 function findSavedTools(branchEntries: readonly ToolSelectionBranchEntry[]): string[] | undefined {
 	let savedTools: string[] | undefined;
 	for (const entry of branchEntries) {
+		// 用户选择后的 SDK 工具变更（如 tool_search）优先，避免恢复旧手动快照覆盖已发现工具。
+		if (savedTools !== undefined && entry.type === "message" && isRecord(entry.message) && entry.message["role"] === "system") {
+			const added = entry.message["toolsAdded"], removed = entry.message["toolsRemoved"];
+			const names = new Set(savedTools);
+			if (Array.isArray(removed)) for (const tool of removed) if (isRecord(tool) && typeof tool["name"] === "string") names.delete(tool["name"]);
+			if (Array.isArray(added)) for (const tool of added) if (isRecord(tool) && typeof tool["name"] === "string") names.add(tool["name"]);
+			savedTools = [...names];
+		}
 		if (entry.type !== "custom" || entry.customType !== TOOL_SELECTION_ENTRY) continue;
 		const data = entry.data;
 		if (!isRecord(data) || !Array.isArray(data["enabledTools"])) continue;
@@ -179,7 +183,18 @@ function findSavedTools(branchEntries: readonly ToolSelectionBranchEntry[]): str
 }
 
 export function toolAvailableOnCurrentPlatform(tool: ToolInfo): boolean {
-	return tool.name !== "powershell" || process.platform === "win32";
+	return tool.exposure !== "hidden" && (tool.name !== "powershell" || process.platform === "win32");
+}
+
+/** 开关控制声明集合，不表示权限。脚本专用和延迟工具在未勾选时仍可嵌套调用。 */
+export function toolSelectionItems(tools: readonly ToolInfo[], active: readonly string[]): ToolSelectionItem[] {
+	const enabled = new Set(active);
+	return tools.filter((tool) => tool.exposure !== "hidden").map((tool) => {
+		const item = { name: tool.name, description: tool.description, exposure: tool.exposure };
+		return toolAvailableOnCurrentPlatform(tool)
+			? { ...item, available: true, enabled: enabled.has(tool.name) }
+			: { ...item, available: false, enabled: false };
+	});
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

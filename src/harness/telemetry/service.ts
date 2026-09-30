@@ -55,11 +55,13 @@ interface ToolState extends TelemetryToolRegistration {
 interface TurnContext {
 	index: number;
 	model?: { provider: string; id: string };
+	selectedModel?: { provider: string; id: string };
 	thinking: string;
 }
 
 interface PendingCall {
 	id: string;
+	parentId?: string;
 	index: number;
 	tool: string;
 	definitionHash?: string;
@@ -182,7 +184,7 @@ export class TelemetryService {
 			index: event.turnIndex,
 			...(context.model === undefined
 				? {}
-				: { model: { provider: context.model.provider, id: context.model.id } }),
+				: { selectedModel: { provider: context.model.provider, id: context.model.id } }),
 			thinking: this.pi.getThinkingLevel(),
 		};
 	}
@@ -190,6 +192,13 @@ export class TelemetryService {
 	onMessageEnd(event: MessageEndEvent): void {
 		const message = event.message;
 		if (message.role !== "assistant") return;
+		if (this.#turn !== undefined) {
+			this.#turn = {
+				...this.#turn,
+				model: { provider: message.provider, id: message.model },
+				thinking: message.thinkingLevel ?? this.#turn.thinking,
+			};
+		}
 		const size = message.content.filter((part) => part.type === "toolCall").length;
 		if (size === 0) return;
 		const id = randomUUID();
@@ -207,6 +216,7 @@ export class TelemetryService {
 		const batch = this.#declaredBatches.get(event.toolCallId);
 		const pending: PendingCall = {
 			id: event.toolCallId,
+			...(event.parentToolCallId === undefined ? {} : { parentId: event.parentToolCallId }),
 			index: this.#nextCallIndex++,
 			tool: event.toolName,
 			...(tool?.definitionHash === undefined ? {} : { definitionHash: tool.definitionHash }),
@@ -277,10 +287,12 @@ export class TelemetryService {
 			run_id: run.id,
 			at: ended.toISOString(),
 			call_id: call.id,
+			...(call.parentId === undefined ? {} : { parent_call_id: call.parentId }),
 			call_index: call.index,
 			...(call.turn === undefined ? {} : {
 				turn_index: call.turn.index,
 				...(call.turn.model === undefined ? {} : { model: call.turn.model }),
+				...(call.turn.selectedModel === undefined ? {} : { selected_model: call.turn.selectedModel }),
 				thinking: call.turn.thinking,
 			}),
 			tool: call.tool,

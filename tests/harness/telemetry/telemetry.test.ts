@@ -3,6 +3,7 @@ import {
 	type AgentToolResult,
 	type ExtensionAPI,
 	type ExtensionContext,
+	type ExtensionToolContext,
 	type SessionStartEvent,
 	type ToolDefinition,
 	type ToolResultEvent,
@@ -79,7 +80,7 @@ describe("telemetry service", () => {
 		for (const event of ["session_start", "turn_start", "message_end", "tool_execution_start", "tool_result", "tool_execution_end", "session_shutdown"] as const) {
 			const handlers = loaded.extensions.reduce((count, extension) => count + (extension.handlers.get(event)?.length ?? 0), 0);
 			expect(handlers, event).toBe(
-				event === "tool_result" || event === "session_start"
+				event === "session_start"
 					? 3
 					: event === "session_shutdown" ? 2 : 1,
 			);
@@ -155,6 +156,40 @@ describe("telemetry service", () => {
 		});
 		snapshot.records.length = 0;
 		expect(service.snapshot().records).toHaveLength(2);
+	});
+
+	it("路由后按响应模型归因，保留选择模型，下一轮不沿用旧路由", async () => {
+		const service = new TelemetryService(fakePi().api, {
+			writerFactory: async () => new MemoryWriter(), revision: async () => undefined,
+		});
+		service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
+		for (const [index, id] of ["fast", "precise"].entries()) {
+			service.onTurnStart({ type: "turn_start", turnIndex: index, timestamp: index }, { model: { provider: "router", id: "auto" } });
+			service.onMessageEnd(fixture({ type: "message_end", message: {
+				role: "assistant", provider: "physical", model: id, thinkingLevel: "off",
+				content: [{ type: "toolCall", id, name: "codemode", arguments: {} }], stopReason: "toolUse",
+			} }));
+			for (const call of [id, `${id}/1`]) {
+				const parent = call === id ? {} : { parentToolCallId: id };
+				service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: call, toolName: "external", args: {}, ...parent });
+				service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: call, toolName: "external", result: result({ status: "ok" }), isError: false, ...parent });
+			}
+		}
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
+		const calls = service.snapshot().records.filter((record) => record.type === "call");
+		expect(calls.map((call) => call.model?.id)).toEqual(["fast", "fast", "precise", "precise"]);
+		for (const call of calls) expect(call).toMatchObject({ selected_model: { provider: "router", id: "auto" }, thinking: "off" });
+	});
+
+	it("嵌套调用保存 SDK 父 ID，不伪造 assistant 批次", async () => {
+		const writer = new MemoryWriter();
+		const service = new TelemetryService(fakePi().api, { runId: () => "nested", writerFactory: async () => writer, revision: async () => undefined });
+		service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
+		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "code/1", parentToolCallId: "code", toolName: "external", args: {} });
+		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "code/1", parentToolCallId: "code", toolName: "external", result: result({ status: "ok" }), isError: false });
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
+		expect(writer.records[1]).toMatchObject({ call_id: "code/1", parent_call_id: "code" });
+		expect(writer.records[1]).not.toHaveProperty("batch");
 	});
 
 	it("buffers calls in order while startup resources initialize", async () => {
@@ -416,13 +451,16 @@ function result(details: TestDetails): AgentToolResult<TestDetails> {
 function assistantCalls(ids: readonly string[]): unknown {
 	return {
 		role: "assistant",
+		provider: "test-provider", model: "test-model",
 		content: ids.map((id) => ({ type: "toolCall", id, name: "test", arguments: { path: "a" } })),
 		stopReason: "toolUse",
 	};
 }
 
-function extensionContext(notifications: string[] = []): ExtensionContext {
-	return fixture<ExtensionContext>({
+function extensionContext(notifications: string[] = []): ExtensionToolContext {
+	return fixture<ExtensionToolContext>({
+		tools: [],
+		executeTool: async () => { throw new Error("No nested tools registered"); },
 		cwd: "/repo",
 		mode: "interactive",
 		model: { provider: "test-provider", id: "test-model" },

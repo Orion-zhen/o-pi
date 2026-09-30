@@ -47,6 +47,16 @@ describe("会话编辑器", () => {
 		expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
 	});
 
+	it.each([120, 40, 12])("路由模型在宽度 %i 显示选择与实际响应，且不越界", (width) => {
+		const editor = createEditor({ getSnapshot: () => tuiSnapshot({
+			modelId: "auto", modelReasoning: true, thinkingLevel: "high",
+			routedModel: { provider: "openai", id: "fast", thinkingLevel: "off" },
+		}) });
+		const lines = editor.render(width).map(stripTerminalSequences);
+		if (width === 120) expect(lines[0]).toContain("auto → openai/fast · off");
+		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+	});
+
 	it("fullscreen Home 共享输入框快照，隐藏后恢复普通高度", () => {
 		let visible = true;
 		const editor = createEditor({

@@ -48,7 +48,8 @@ type RunIdentity = Pick<SubagentRunningResult, "runId" | "mode" | "contextMode" 
 /** 工具与 slash command 共用的执行入口。 */
 export async function executeSubagent(params: SubagentToolParams, context: ExecutorContext): Promise<SubagentToolResult> {
 	context.onProgress?.({ phase: "starting", result: pendingSubagentResult(params.tasks) });
-	const result = await executeTasks(params, context);
+	const executed = await executeTasks(params, context);
+	const result = { ...executed, isError: executed.details.results.some((item) => item.error !== undefined) };
 	context.onProgress?.({ phase: "completed", result });
 	return result;
 }

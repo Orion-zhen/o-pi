@@ -605,6 +605,7 @@ function forkExecutorContext(overrides: Partial<Omit<ToolExecutorContext, "invoc
 function toolInfo(name: string): NonNullable<Parameters<typeof executeSubagent>[1]["allTools"]>[number] {
 	return {
 		name,
+		exposure: "direct",
 		description: `${name} tool`,
 		parameters: Type.Object({}),
 		sourceInfo: { path: "test", source: "test", scope: "temporary", origin: "top-level" },

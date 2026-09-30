@@ -1,5 +1,5 @@
 import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import { toolAvailableOnCurrentPlatform } from "../../harness/tool-defaults/controller.ts";
+import { toolSelectionItems } from "../../harness/tool-defaults/controller.ts";
 import type { GuiSnapshot } from "../contract.ts";
 import { guiModel } from "./runtime.ts";
 import { builtinCommands } from "./commands.ts";
@@ -14,7 +14,7 @@ type PresentationState = Pick<
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
 export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads): GuiSnapshot {
 	const { session, services, cwd } = runtime;
-	const active = new Set(session.getActiveToolNames());
+	const routed = session.routedModel;
 	const commands = new Map<string, { name: string; description: string }>();
 	for (const command of [
 		...session.extensionRunner
@@ -41,6 +41,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		...history.project(session.sessionManager),
 		streamingMessage: payloads.stream(session.state.streamingMessage ?? null),
 		model: session.model ? guiModel(session.model) : null,
+		routedModel: routed ? { model: guiModel(routed.model), ...(routed.thinkingLevel === undefined ? {} : { thinkingLevel: routed.thinkingLevel }) } : null,
 		models: services.modelRuntime.getAvailableSnapshot().map(guiModel),
 		scopedModels: session.scopedModels.map(({ model }) => `${model.provider}/${model.id}`),
 		thinking: session.thinkingLevel,
@@ -58,12 +59,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 			blockImages: services.settingsManager.getBlockImages(),
 		},
 		commands: [...commands.values()],
-		tools: session.getAllTools().map((tool) => {
-			const { name, description } = tool;
-			return toolAvailableOnCurrentPlatform(tool)
-				? { name, description, available: true, enabled: active.has(name) }
-				: { name, description, available: false, enabled: false };
-		}),
+		tools: toolSelectionItems(session.getAllTools(), session.getActiveToolNames()),
 		providers: services.modelRuntime
 			.getProviders()
 			.map((provider) => ({

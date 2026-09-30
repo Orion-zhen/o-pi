@@ -1,5 +1,6 @@
 import { createExecutionEnvironment } from "./environment.ts";
-import { OutputCapture } from "./output-capture.ts";
+import { BASH_STRUCTURED_BYTES, bashStructuredOutput } from "./structured-output.ts";
+import { OutputCapture, limitCapturedPreview } from "./output-capture.ts";
 import { cleanForModel, createBashOutputView } from "./output-view.ts";
 import { resolveBashSkillPaths } from "./skill-paths.ts";
 import { takeTailBytes } from "./utf8.ts";
@@ -15,12 +16,13 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	const env = await createExecutionEnvironment(runtime.cwd, runtime.session, runtime.config);
 	const { limits } = runtime.config;
 	const outputBudget = Math.max(limits.success_output_bytes, limits.failure_output_bytes);
+	const modelPreviewBytes = Math.max(outputBudget * 4, limits.live_output_bytes * 2);
 	const startedAt = Date.now();
 	const capture = await OutputCapture.create({
 		sessionId: runtime.session.sessionId,
 		toolCallId: runtime.toolCallId,
 		maxCaptureBytes: limits.max_capture_bytes,
-		previewBytes: Math.max(outputBudget * 4, limits.live_output_bytes * 2),
+		previewBytes: Math.max(BASH_STRUCTURED_BYTES, modelPreviewBytes),
 	});
 	const controller = new AbortController();
 	let stopReason: "timeout" | "aborted" | undefined;
@@ -85,13 +87,20 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 		const captured = await capture.finish();
 		const view = createBashOutputView({
 			...captured,
+			preview: limitCapturedPreview(captured.preview, modelPreviewBytes),
 			status: stopReason === "timeout" ? "timed_out" : stopReason === "aborted" ? "aborted" : "exited",
 			...(exitCode !== undefined ? { exitCode } : {}),
 			durationMs: Date.now() - startedAt,
 			limits,
 		});
-		if (!view.keepLog) await capture.deleteLog();
-		return { content: view.content, details: view.details };
+		const structuredContent = bashStructuredOutput(captured, view.details);
+		const keepLog = view.keepLog || structuredContent.truncated;
+		if (!keepLog) await capture.deleteLog();
+		return {
+			content: view.content,
+			details: keepLog ? { ...view.details, full_output_path: captured.logPath } : view.details,
+			structuredContent: keepLog ? { ...structuredContent, full_output_path: captured.logPath } : structuredContent,
+		};
 	} catch (error) {
 		await capture.discard().catch(() => undefined);
 		throw error;
@@ -107,6 +116,10 @@ function skillResourceErrorResult(error: SkillResourceError): BashExecutionResul
 			`Path: ${escapeXmlText(error.path)}`,
 			"</error>",
 		].join("\n"),
+		structuredContent: {
+			output: error.message, status: "exited", exit_code: 126,
+			wall_time_seconds: 0, truncated: false, capture_complete: true,
+		},
 		details: {
 			status: "exited",
 			exit_code: 126,

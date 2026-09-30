@@ -54,6 +54,11 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		const result = results.get(id);
 		const event = live.get(id);
 		const details = outputPreview(result?.output)?.details;
+		const children = source.liveTools.filter((child) => child.parentToolCallId === id || child.parentToolCallId?.startsWith(`${id}/`));
+		const nestedCalls = result?.nestedCalls ?? (children.length ? {
+			complete: false,
+			calls: children.map((child) => ({ id: child.toolCallId, name: child.toolName, status: "unfinished" as const })),
+		} : undefined);
 		const state = result
 			? isRecord(details) && details.status === "aborted" ? "stopped" : result.isError ? "failed" : "completed"
 			: event ? "running" : idle;
@@ -62,6 +67,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			tool: {
 				id, name, args, state,
 				output: result?.output ?? event?.output,
+				...(nestedCalls === undefined ? {} : { nestedCalls }),
 			},
 		};
 	}
@@ -112,7 +118,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);
 	});
 	for (const event of source.liveTools) {
-		if (!calls.has(event.toolCallId) && !results.has(event.toolCallId))
+		if (!event.parentToolCallId && !calls.has(event.toolCallId) && !results.has(event.toolCallId))
 			(current ?? begin("live")).items.push(activity(event.toolCallId, event.toolName, event.args, "running", messages.length + offset));
 	}
 	return rows.flatMap((row): TranscriptRow[] => {

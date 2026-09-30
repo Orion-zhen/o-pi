@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useTempDir } from "../helpers/lifecycle.ts";
+import { deferred } from "../helpers/async.ts";
+import { startModelServer } from "../cli/model-server.ts";
 
 const running = new Set<ChildProcessWithoutNullStreams>();
 const temp = useTempDir("opi-rpc-");
@@ -17,6 +19,51 @@ afterEach(() => {
 });
 
 describe("真实 opi 二进制 RPC", () => {
+	it("区分启动和排队的 prompt，取消后恢复空闲", async () => {
+		const gate = deferred<void>();
+		const server = await startModelServer(async () => { await gate.promise; return { text: "done" }; });
+		try {
+			const agentDir = path.join(temp.path, "agent");
+			await mkdir(agentDir);
+			await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
+				defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false },
+			}));
+			await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
+				baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{
+					id: "test", name: "test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				}],
+			} } }));
+			const child = spawn(path.resolve(process.platform === "win32" ? "dist/tui/opi.exe" : "dist/tui/opi"),
+				["--mode", "rpc", "--no-session", "--offline", "-ne"], {
+					cwd: temp.path,
+					env: { PATH: process.env.PATH, HOME: temp.path, USERPROFILE: temp.path, SystemRoot: process.env.SystemRoot,
+						PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
+					stdio: ["pipe", "pipe", "pipe"],
+				});
+			running.add(child);
+			const client = createRpcClient(child);
+			client.send({ id: "start", type: "prompt", message: "wait" });
+			expect(await client.waitFor((message) => isResponse(message, "start", "prompt"))).toMatchObject({ success: true, data: { disposition: "started" } });
+			await expect.poll(() => server.requests.length).toBe(1);
+			client.send({ id: "queued", type: "prompt", message: "next", streamingBehavior: "followUp" });
+			expect(await client.waitFor((message) => isResponse(message, "queued", "prompt"))).toMatchObject({ success: true, data: { disposition: "queued" } });
+			client.send({ id: "clear", type: "clear_queue" });
+			expect(await client.waitFor((message) => isResponse(message, "clear", "clear_queue"))).toMatchObject({ success: true });
+			client.send({ id: "abort", type: "abort" });
+			expect(await client.waitFor((message) => isResponse(message, "abort", "abort"))).toMatchObject({ success: true });
+			client.send({ id: "state", type: "get_state" });
+			expect(await client.waitFor((message) => isResponse(message, "state", "get_state"))).toMatchObject({ data: { isStreaming: false } });
+			child.stdin.end();
+			expect(await client.waitForExit()).toEqual({ code: 0, signal: null });
+			running.delete(child);
+			expect(client.protocolErrors).toEqual([]);
+		} finally {
+			gate.resolve();
+			await server.close();
+		}
+	}, 30_000);
+
 	it("离线完成 state、静态 commands、工具事件和干净 shutdown", async () => {
 		const presenceConfig = path.join(temp.path, "discord-presence.jsonc");
 		await writeFile(presenceConfig, '{"enabled":false}');
@@ -56,6 +103,8 @@ describe("真实 opi 二进制 RPC", () => {
 		expect(presence["message"]).toContain("Discord presence: off");
 		const presenceResponse = await client.waitFor((message) => isResponse(message, "presence", "prompt"));
 		expect(presenceResponse["success"]).toBe(true);
+		expect(presenceResponse["data"]).toEqual({ disposition: "handled" });
+		expect(client.messages.some((message) => message["type"] === "agent_start")).toBe(false);
 
 		client.send({ id: "bash", type: "bash", command: "printf rpc-tool-smoke" });
 		const bashUpdate = await client.waitFor((message) => (

@@ -8,7 +8,7 @@
 
 来源：`src/harness/extensions/cmd-slash-tools.ts`
 
-用途：在 TUI 中打开工具选择列表，启用或禁用当前会话可用的工具。
+用途：在 TUI 中选择向模型开放的工具。开关不是权限控制，codemode 可以隐藏直接声明。`codemode` 和 `deferred` 曝光的工具未勾选时仍可被脚本调用。
 
 用法：
 
@@ -19,12 +19,13 @@
 行为：
 
 - 仅支持 TUI 模式。非 TUI 模式会提示错误。
-- 从 `pi.getAllTools()` 返回的工具中列出当前平台可用的工具。
+- 从 `pi.getAllTools()` 返回的工具中列出非 `hidden` 工具，并标明曝光方式。
 - 选择器沿用 Pi 原生 `/scoped-models` 的交互样式。输入文字可搜索工具，`Enter` 或空格切换当前工具，`Esc` 退出。
 - 切换后立即调用 `pi.setActiveTools()` 生效，并写入当前会话分支的 `tools-config` 自定义条目。会话开始或切换分支时，按当前分支恢复。
 - 直接退出时，选择仅在当前会话分支中生效。按 `Ctrl+S` 会把当前完整选择写入用户级 `~/.pi/agent/tools.jsonc` 的 `defaults`。保存会保留 `defaults` 之外的字段和注释。
-- 恢复时过滤已经不存在的工具名。
+- 恢复时过滤已经不存在或隐藏的工具名。手动选择之后的 SDK 工具声明变更也参与恢复，避免覆盖 `tool_search` 已发现的工具。
 - 当前分支没有覆盖项时，读取默认工具配置：用户级 `~/.pi/agent/tools.jsonc`，项目级 `.pi/tools.jsonc`。
+- Pi 的 `settings.json.defaultTools` 支持 `+name` / `-name`，作为初始集合。`tools.jsonc` 保留按模型策略以及已有用户、项目合并语义，不自动迁移配置。
 - `defaults` 设置所有模型的工具默认值。`rules[].match` 匹配 `${model.provider}/${model.id}`，`rules[].tools` 设置匹配模型的工具值。
 - 规则先按第一个 `*` 之前的静态前缀长度从短到长应用。`*` 可以匹配 `model.id` 中的 `/`。精确匹配优先。相同优先级时，后声明的规则覆盖先声明的规则。
 - 会话开始、切换分支或切换模型时重新计算配置。当前分支的 `/tools` 手动选择仍优先于文件配置。

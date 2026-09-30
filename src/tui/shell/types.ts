@@ -77,6 +77,7 @@ export interface TuiSnapshot {
 	modelId?: string;
 	modelProvider?: string;
 	modelReasoning?: boolean;
+	routedModel?: { provider: string; id: string; thinkingLevel?: string };
 	thinkingLevel: string;
 	availableProviderCount: number;
 	context?: ContextUsage;

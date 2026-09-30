@@ -12,6 +12,12 @@ import type { TuiRunStatus, TuiSkillsSnapshot, TuiSnapshot, TuiToolsSnapshot } f
 export function collectSessionState(ctx: ExtensionContext, status: TuiRunStatus) {
 	const model = ctx.model;
 	const context = ctx.getContextUsage();
+	const response = model?.api === "pi-virtual"
+		? ctx.sessionManager.buildSessionProjection().messages
+			.findLast((message) => message.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted")
+		: undefined;
+	const routed = response?.role === "assistant" ? response : undefined;
+	const billingModel = routed ? ctx.modelRegistry.find(routed.provider, routed.model) : model;
 	return {
 		cwd: ctx.cwd,
 		status,
@@ -19,8 +25,12 @@ export function collectSessionState(ctx: ExtensionContext, status: TuiRunStatus)
 			modelId: model.id,
 			modelProvider: model.provider,
 			modelReasoning: model.reasoning,
-			usingSubscription: ctx.modelRegistry.isUsingOAuth(model),
+			usingSubscription: billingModel !== undefined && ctx.modelRegistry.isUsingOAuth(billingModel),
 		}),
+		...(routed === undefined ? {} : { routedModel: {
+			provider: routed.provider, id: routed.model,
+			...(routed.thinkingLevel === undefined ? {} : { thinkingLevel: routed.thinkingLevel }),
+		} }),
 		...(context === undefined ? {} : { context }),
 		...collectUsage(ctx),
 	};
@@ -32,7 +42,7 @@ export function countAvailableProviders(ctx: ExtensionContext): number {
 
 /** 启用子集沿用注册顺序，避免 /tools 切换后列表抖动。 */
 export function collectTools(pi: ExtensionAPI): TuiToolsSnapshot {
-	const allNames = pi.getAllTools().map((tool) => tool.name);
+	const allNames = pi.getAllTools().filter((tool) => tool.exposure !== "hidden").map((tool) => tool.name);
 	const active = new Set(pi.getActiveTools());
 	return { allNames, activeNames: allNames.filter((name) => active.has(name)) };
 }

@@ -40,6 +40,8 @@ bun run build:tui
 - `/reload` 重新发现外部扩展，读取修改后的入口和依赖，并重建模块状态。修改静态代码后必须重新构建并重启。
 - 子代理和 Discord 协调进程复用当前可执行文件，通过 `src/harness/runtime/headless.ts` 执行，不装配 TUI 扩展。源码开发时由 Bun 运行该共享入口，不寻找系统 `pi`。
 
+RPC 的 `prompt` 响应包含 `data.disposition`：`handled` 表示命令或扩展已处理且没有启动运行，`queued` 表示已排队，`started` 表示已启动。客户端不能对 `handled` 等待 `agent_settled`。GUI 继续使用 SDK，不转换为 RPC 宿主。
+
 ## 外部扩展
 
 编译产物沿用 Pi 的扩展发现与加载规则：
@@ -47,7 +49,7 @@ bun run build:tui
 - 自动发现 `~/.pi/agent/extensions/` 和项目 `.pi/extensions/` 中的 TS/JS 扩展，包括目录入口和 `package.json` 中的 `pi.extensions`。
 - 支持全局及项目 settings 的 `extensions` 字段，以及 `-e/--extension <本地路径>`。
 - 项目扩展受 Pi 的项目信任规则控制。`--approve` 信任当前项目，`--no-approve` 忽略项目资源。
-- `-ne/--no-extensions` 禁用自动发现、settings 扩展和本仓库的集成模块，但仍加载显式 `-e` 和 Pi 自带内联模块。终端宿主不属于扩展，关闭扩展后仍可使用基础 TUI。
+- `-ne/--no-extensions` 禁用自动发现、settings 扩展和本仓库的集成模块，以及 Pi 自带扩展，但仍加载显式 `-e`。可用 `-e builtin:codemode` 单独加载内置扩展。终端宿主不属于扩展，关闭扩展后仍可使用基础 TUI。
 
 ```bash
 opi -e ./my-extension.ts

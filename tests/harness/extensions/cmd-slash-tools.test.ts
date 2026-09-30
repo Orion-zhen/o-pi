@@ -241,6 +241,7 @@ function makeModel(provider: string, id: string): Model<Api> {
 function makeToolInfo(name: string): ToolInfo {
 	return {
 		name,
+		exposure: "direct",
 		description: name,
 		parameters: { type: "object", properties: {} } as never,
 		sourceInfo: {

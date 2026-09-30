@@ -19,14 +19,12 @@ describe("file-tools extension renderers", () => {
 		vi.restoreAllMocks();
 	});
 
-	rendererTest("失败和部分结果保持正确状态且不丢失错误信息", async ({ registered, handlers }) => {
+	rendererTest("失败和部分结果保持正确状态且不丢失错误信息", async ({ registered }) => {
 		const failure = {
 			status: "failed" as const,
 			error: { code: "INVALID_PATH", message: "path must be workspace-relative.", path: "src/missing" },
 		};
 
-		expect(handlers.get("tool_result")?.({ toolName: "find", details: failure })).toEqual({ isError: true });
-		expect(handlers.get("tool_result")?.({ toolName: "find", details: { status: "success" } })).toBeUndefined();
 		for (const toolName of ["ls", "find", "grep", "read"]) {
 			const output = renderToolResult(registered, toolName, failure, { expanded: true });
 			for (const value of ["INVALID_PATH", "src/missing"]) expect(output).toContain(value);

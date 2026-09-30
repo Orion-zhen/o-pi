@@ -13,6 +13,21 @@ import {
 } from "../../../src/harness/tool-defaults/config.ts";
 
 describe("ToolSelectionController", () => {
+	it("隐藏工具不展示也不激活，脚本和延迟工具标明曝光方式", () => {
+		const harness = createHarness(["read", "hidden", "deferred", "script"]);
+		harness.port.getAllTools = () => [
+			makeToolInfo("read"), { ...makeToolInfo("hidden"), exposure: "hidden" },
+			{ ...makeToolInfo("deferred"), exposure: "deferred" },
+			{ ...makeToolInfo("script"), exposure: "codemode" },
+		];
+		const controller = new ToolSelectionController(harness.port);
+		controller.set("hidden", true);
+		expect(harness.entries).toEqual([]);
+		expect(controller.listTools().map(({ name, exposure }) => ({ name, exposure }))).toEqual([
+			{ name: "read", exposure: "direct" }, { name: "deferred", exposure: "deferred" }, { name: "script", exposure: "codemode" },
+		]);
+	});
+
 	it("按 model-aware defaults 恢复并持久化选择", async () => {
 		const harness = createHarness(["read", "bash", "web"]);
 		const config: ToolDefaultsConfig = {
@@ -100,6 +115,16 @@ describe("ToolSelectionController", () => {
 		expect(harness.entries.at(-1)?.data.enabledTools).toEqual(["bash"]);
 	});
 
+	it("恢复手动选择后由 SDK 发现的工具，不覆盖原生声明变更", async () => {
+		const harness = createHarness(["read", "bash", "search"]);
+		const controller = new ToolSelectionController(harness.port);
+		await controller.restore({ cwd: "/workspace", model: undefined, refreshConfig: false, branchEntries: [
+			{ type: "custom", customType: TOOL_SELECTION_ENTRY, data: { enabledTools: ["read", "bash"] } },
+			{ type: "message", message: { role: "system", toolsRemoved: [{ name: "bash" }], toolsAdded: [{ name: "search" }] } },
+		] });
+		expect(harness.activeTools).toEqual(["read", "search"]);
+	});
+
 	it("报告 branch 中已删除的工具", async () => {
 		const harness = createHarness(["read"]);
 		const controller = new ToolSelectionController(harness.port);
@@ -131,8 +156,8 @@ describe("ToolSelectionController", () => {
 		});
 
 		expect(controller.listTools()).toEqual([
-			{ name: "read", description: "read", enabled: true, available: true },
-			{ name: "powershell", description: "powershell", enabled: false, available: false },
+			{ name: "read", description: "read", exposure: "direct", enabled: true, available: true },
+			{ name: "powershell", description: "powershell", exposure: "direct", enabled: false, available: false },
 		]);
 		controller.set("powershell", true);
 		expect(harness.activeTools).toEqual(["read"]);
@@ -244,6 +269,7 @@ function createHarness(toolNames: string[], initialActiveTools: string[] = toolN
 function makeToolInfo(name: string): ToolInfo {
 	return {
 		name,
+		exposure: "direct",
 		description: name,
 		parameters: { type: "object", properties: {} } as never,
 		sourceInfo: {

@@ -150,6 +150,7 @@ export class GuiExecution {
 			}
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") this.liveTools.set(event.toolCallId, {
 				toolCallId: event.toolCallId, toolName: event.toolName, args: structuredClone(event.args),
+				...(event.parentToolCallId === undefined ? {} : { parentToolCallId: event.parentToolCallId }),
 				output: event.type === "tool_execution_update" ? this.payloads.output(event.toolName, structuredClone(event.partialResult)) : undefined,
 			});
 			if (event.type === "tool_execution_end") this.liveTools.delete(event.toolCallId);

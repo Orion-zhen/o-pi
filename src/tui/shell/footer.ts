@@ -61,7 +61,8 @@ export function formatContext(snapshot: TuiSnapshot, theme: Pick<Theme, "fg">): 
 	const label = theme.fg("dim", "ctx ");
 	const window = formatTokens(usage.contextWindow);
 	if (usage.percent === null) return `${label}${theme.fg("muted", `?/${window}`)}`;
-	return `${label}${applyContextGradient(`${usage.percent.toFixed(1)}%/${window}`, usage.percent)}`;
+	const color = usage.percent >= 90 ? "error" : usage.percent >= 70 ? "warning" : "success";
+	return `${label}${theme.fg(color, `${usage.percent.toFixed(1)}%/${window}`)}`;
 }
 
 function formatTokenStats(snapshot: TuiSnapshot, width: number): string | undefined {
@@ -85,20 +86,4 @@ function formatCacheStats(snapshot: TuiSnapshot, width: number): string | undefi
 	if (width < 44 && rates.length > 0) return `cache ${rates.join(" ")}`;
 	if (width < 64 && counts.length > 0) return `cache ${counts.join("/")} ${rates.join(" ")}`.trimEnd();
 	return `cache ${[...counts, ...rates].join(" ")}`;
-}
-
-function applyContextGradient(text: string, percent: number): string {
-	const clamped = Math.max(0, Math.min(100, percent));
-	const [red, green, blue] = clamped <= 50
-		? interpolateRgb([46, 204, 113], [241, 196, 15], clamped / 50)
-		: interpolateRgb([241, 196, 15], [231, 76, 60], (clamped - 50) / 50);
-	return `\x1b[38;2;${red};${green};${blue}m${text}\x1b[39m`;
-}
-
-function interpolateRgb(from: [number, number, number], to: [number, number, number], ratio: number): [number, number, number] {
-	return [
-		Math.round(from[0] + (to[0] - from[0]) * ratio),
-		Math.round(from[1] + (to[1] - from[1]) * ratio),
-		Math.round(from[2] + (to[2] - from[2]) * ratio),
-	];
 }

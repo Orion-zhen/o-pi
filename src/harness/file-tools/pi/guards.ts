@@ -34,10 +34,6 @@ export function isGrepSuccessDetails(value: unknown): value is GrepSuccess {
 			&& isGrepRegions(value["regions"]);
 }
 
-export function isFileToolName(value: string): boolean {
-	return value === "ls" || value === "find" || value === "grep" || value === "read" || value === "write" || value === "edit";
-}
-
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

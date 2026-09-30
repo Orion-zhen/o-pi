@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useTempDir } from "../helpers/lifecycle.ts";
 import { startModelServer, type ModelRequest, type ModelResponse } from "./model-server.ts";
+import { countTextTokensSync } from "../../src/harness/token-counter.ts";
 
 const exec = promisify(execFile);
 const builtCli = path.resolve(process.platform === "win32" ? "dist/tui/opi.exe" : "dist/tui/opi");
@@ -96,7 +97,7 @@ function expectFullscreenImageOrder(output: string): void {
 }
 
 describe("standalone opi CLI", () => {
-	it.each([["--help", "-ne"], ["--thinking", "invalid"], ["--session-id", "invalid"]])("保留 Pi 的参数和输出: %j", async (...args) => {
+	it.each([["--version"], ["--help", "-ne"], ["--thinking", "invalid"], ["--session-id", "invalid"]])("保留 Pi 的参数和输出: %j", async (...args) => {
 		const original = exec(process.execPath, [piCli, ...args], { cwd, env, timeout: 15_000 });
 		original.child.stdin?.end();
 		const capture = async (promise: Promise<{ stdout: string | Buffer; stderr: string | Buffer }>) => promise.then(
@@ -104,6 +105,92 @@ describe("standalone opi CLI", () => {
 			(error: { stdout: string; stderr: string; code: number }) => ({ stdout: error.stdout, stderr: error.stderr, code: error.code }),
 		);
 		expect(await capture(run(args))).toEqual(await capture(original));
+	});
+
+	it("codemode 在独立二进制中执行，嵌套 Bash 后可继续编辑且保留调用记录", async () => {
+		sequence([
+			{ tool: "read", args: { path: "sample.ts" } },
+			{ tool: "codemode", args: { code: `await Promise.all([
+				tools.bash({command: "printf 'one\\\\n' > sample.ts"}),
+				tools.bash({command: "sleep 0.2; printf 'two\\\\n' > sample.ts"})
+			]); text("nested done");` } },
+			{ tool: "edit", args: { path: "sample.ts", edits: [{ old: "two", new: "three" }] } },
+		]);
+		const events = await runJson(["--tools", "read,bash,edit,codemode"]);
+		const results = toolResults(events);
+		expect(results).toHaveLength(3);
+		expect(results.every((result) => result.isError === false)).toBe(true);
+		expect(results[1]).toMatchObject({ nestedCalls: { complete: true, calls: [{ name: "bash", status: "ok" }, { name: "bash", status: "ok" }] } });
+		expect(events.filter((event) => event.type === "tool_execution_start" && event.parentToolCallId)).toHaveLength(2);
+		expect(await readFile(path.join(cwd, "sample.ts"), "utf8")).toBe("three\n");
+	});
+
+	it("codemode 超时取消嵌套命令，释放文件观察窗口后可继续编辑", async () => {
+		sequence([
+			{ tool: "read", args: { path: "sample.ts" } },
+			{ tool: "codemode", args: { code: '// @options: {"timeout_ms": 1000}\nawait tools.bash({command: "printf changed > sample.ts; sleep 10"});' } },
+			{ tool: "edit", args: { path: "sample.ts", edits: [{ old: "changed", new: "after-abort" }] } },
+		]);
+		const events = await runJson(["--tools", "read,bash,edit,codemode"]);
+		const results = toolResults(events);
+		expect(results[1]?.isError).toBe(true);
+		expect(results[2]?.isError).toBe(false);
+		expect(events.find((event) => event.type === "tool_execution_end" && event.toolName === "bash")).toMatchObject({ isError: true });
+		expect(await readFile(path.join(cwd, "sample.ts"), "utf8")).toBe("after-abort");
+	});
+
+	it("codemode 嵌套调用仍执行审批，并拒绝调用仅向模型开放的工具", async () => {
+		sequence([{ tool: "codemode", args: { code: `
+			const blocked = await Promise.allSettled([tools.bash({command: "sudo true"})]);
+			text(blocked[0].status);
+			text(typeof tools.skill);
+			text(typeof tools.subagent);
+		` } }]);
+		const events = await runJson(["--tools", "bash,skill,subagent,codemode"]);
+		expect(JSON.stringify(toolResults(events))).toContain("rejected");
+		expect(JSON.stringify(toolResults(events))).toContain("undefined");
+		expect(events.find((event) => event.type === "tool_execution_end" && event.toolName === "bash")).toMatchObject({ isError: true });
+	});
+
+	it("codemode 用结构化搜索完成依赖读取，减少模型往返和中间输出", async () => {
+		for (let i = 0; i < 50; i++) await writeFile(path.join(cwd, `sample-unused-${i}.ts`), "unused\n");
+		sequence([{ tool: "find", args: { query: "sample", glob: "*.ts" } }, { tool: "read", args: { path: "sample.ts" } }]);
+		await runJson(["--tools", "find,read"]);
+		const direct = [...server.requests];
+		sequence([{ tool: "codemode", args: { code: `
+			const found = await tools.find({query: "sample", glob: "*.ts"});
+			const target = found.matches.find(m => m.path === "sample.ts");
+			text(await tools.read({path: target.path}));
+		` } }]);
+		const events = await runJson(["--tools", "find,read,codemode"]);
+		const scripted = server.requests.slice(direct.length);
+		expect(toolResults(events)[0]?.isError).toBe(false);
+		expect(JSON.stringify(scripted.at(-1)?.messages)).toContain("export const value = 1");
+		const measure = (requests: ModelRequest[]) => ({
+			requests: requests.length,
+			toolOutputTokens: countTextTokensSync(JSON.stringify(requests.at(-1)?.messages.filter((message) => message.role === "tool"))).tokens,
+			requestTokens: requests.reduce((sum, request) => sum + countTextTokensSync(JSON.stringify(request)).tokens, 0),
+		});
+		const baseline = measure(direct), codemode = measure(scripted);
+		expect(codemode.requests).toBe(2);
+		expect(baseline.requests).toBe(3);
+		expect(codemode.toolOutputTokens).toBeLessThan(baseline.toolOutputTokens);
+		console.info("codemode fixture (estimated tokens)", { baseline, codemode });
+	});
+
+	it("codemode 的 grep 和 Bash 返回结构化数据，非零退出码仍可读取", async () => {
+		sequence([{ tool: "codemode", args: { code: `
+			const found = await tools.grep({query: "value", path: ["sample.ts"]});
+			text(found.regions.map(r => ({path:r.path, line:r.start_line})));
+			const failed = await tools.bash({command: "printf payload; exit 3"});
+			text({output:failed.output, exit_code:failed.exit_code});
+		` } }]);
+		const events = await runJson(["--tools", "grep,bash,codemode"]);
+		const results = toolResults(events);
+		expect(results[0]?.isError).toBe(false);
+		expect(JSON.stringify(results)).toContain("payload");
+		expect(JSON.stringify(results)).toContain("sample.ts");
+		expect(results[0]).toMatchObject({ nestedCalls: { calls: [{ name: "grep", status: "ok" }, { name: "bash", status: "error" }] } });
 	});
 
 	it("JSON 工具回路覆盖读写、WASM 解析 worker 和 Bash", async () => {
@@ -267,6 +354,7 @@ describe("standalone opi CLI", () => {
 		});
 		let output = "";
 		let requestedReload = false;
+		let requestedProbe = false;
 		let requestedExit = false;
 		pending.child.stdout?.on("data", (chunk) => {
 			output += String(chunk);
@@ -274,18 +362,24 @@ describe("standalone opi CLI", () => {
 				requestedReload = true;
 				writeFileSync(path.join(directory, "added.ts"), `
 					import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-					export default (pi: ExtensionAPI) => pi.on('session_start', (_event, ctx) => {
-						ctx.ui.notify('external-reloaded-marker', 'info');
+					export default (pi: ExtensionAPI) => pi.registerCommand('probe-reloaded', {
+						handler: async (_args, ctx) => ctx.ui.notify('external-reloaded-marker', 'info')
 					});
 				`);
 				pending.child.stdin?.write("/reload\r");
+			}
+			if (!requestedProbe && output.includes("Reloaded keybindings")) {
+				requestedProbe = true;
+				pending.child.stdin?.write("/probe-reloaded\r");
 			}
 			if (!requestedExit && output.includes("external-reloaded-marker")) {
 				requestedExit = true;
 				setTimeout(() => pending.child.stdin?.write("\u0004"), 100);
 			}
 		});
-		const result = await pending;
+		const result = await pending.catch((error: unknown) => {
+			throw new Error(`Reload probe: requested=${requestedReload}, exited=${requestedExit}, output=${JSON.stringify(output.slice(0, 1500))}: ${String(error)}`);
+		});
 		expect(result.stdout).toContain("external-reloaded-marker");
 		expect(result.stdout).not.toContain("Failed to load extension");
 		expect(result.stderr).toBe("");

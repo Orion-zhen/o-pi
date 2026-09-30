@@ -25,7 +25,9 @@ collector 同时保留当前 `session_start` 以来的 record 内存视图，供
 
 collector 查询和 live report 构建不依赖 UI。报告 DTO 可直接 `structuredClone` 和 JSON stringify/parse。未启用 telemetry、空 session 和失败投影都使用结构化降级状态。TUI viewer 与非 TUI summary formatter 消费同一 DTO，extension 只选择 presentation。
 
-`message_end` 只用于识别同一 assistant message 中的并行 batch。`turn_start` 只给后续 call 附加模型和 thinking，不单独落盘。
+嵌套调用保存 SDK 的 `parentToolCallId` 为 `parent_call_id`，仍计入工具执行数量和耗时。模型候选采用、grep 专项和 edit 批次分析排除嵌套调用，因为脚本接收或消费结果不代表模型看到了原始候选。
+
+`turn_start` 记录所选模型为 `selected_model`。`message_end` 从 assistant 响应记录实际 `model` 和 thinking，并识别同一消息中的并行 batch。嵌套调用沿用发起轮次的模型归因，下一轮重新采集。两种事件均不单独落盘。
 
 系统没有 telemetry schema version、behavior version、report version 或 manifest。格式发生破坏性变化时直接丢弃旧的本地观测数据，不提供迁移或兼容层。Git 和 definition hash 都是自动观测值，不需要人工维护。
 

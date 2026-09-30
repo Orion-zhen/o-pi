@@ -21,6 +21,23 @@ const manualSkill = {
 const replies = (value: ReturnType<typeof source>) => transcriptReplies(value).filter((row) => row.kind === "reply");
 
 describe("整轮处理过程折叠", () => {
+	it("嵌套调用附着父工具，完成后从 SDK 记录恢复而不伪造工具结果", () => {
+		const parent = { ...call, name: "codemode", id: "code-1" };
+		const pending = replies(source({ messages: [user, assistant([parent])], streaming: true,
+			liveTools: [{ type: "tool_execution_start", toolCallId: "code-1/1", parentToolCallId: "code-1", toolName: "read", args: { path: "a.ts" } }],
+		}));
+		expect(pending[0]?.process.filter((item) => item.kind === "tool")).toMatchObject([
+			{ tool: { id: "code-1", nestedCalls: { calls: [{ id: "code-1/1", name: "read", status: "unfinished" }] } } },
+		]);
+		const history = source({ messages: [user, assistant([parent]), {
+			...result, toolCallId: "code-1", toolName: "codemode",
+			nestedCalls: { complete: false, calls: [{ id: "code-1/1", name: "read", status: "error", error: "File not found", durationMs: 12 }] },
+		}, assistant([text("完成")], "stop")] });
+		expect(replies(history)[0]?.process.filter((item) => item.kind === "tool")).toMatchObject([
+			{ tool: { nestedCalls: { complete: false, calls: [{ status: "error" }] } } },
+		]);
+	});
+
 	it("扩展消息分隔调用和结果时，历史与当前分组仍只展示一个已完成工具", () => {
 		const snapshot = source({ messages: [user, assistant([call]), manualSkill, result, assistant([text("完成")], "stop")] });
 		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;

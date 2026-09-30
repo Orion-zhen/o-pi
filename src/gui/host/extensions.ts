@@ -1,4 +1,4 @@
-import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, createToolSearchExtension, type InlineExtension } from "@earendil-works/pi-coding-agent";
 import { extensions } from "../../harness/extensions.ts";
 import { collectContextStats } from "../../harness/extensions/stats.ts";
 import systemPrompt from "../../harness/extensions/system-prompt.ts";
@@ -85,5 +85,9 @@ export function createGuiExtensions({ dialogs, emit, bindTools, commandSignal, r
 			}, bindTools),
 		},
 	];
-	return extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension);
+	return [
+		{ name: "codemode", builtin: true, factory: createCodemodeExtension() },
+		{ name: "tool-search", builtin: true, factory: createToolSearchExtension() },
+		...extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension),
+	];
 }

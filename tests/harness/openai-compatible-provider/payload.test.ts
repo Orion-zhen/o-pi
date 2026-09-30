@@ -31,7 +31,9 @@ describe("openai-compatible-provider payload", () => {
 			expect(request).not.toHaveProperty("reasoning");
 			expect(request).not.toHaveProperty("store");
 		}
-		expect(low).toMatchObject({ temperature: 0.3, top_k: 41 });
+		expect(low).toMatchObject({ temperature: 0.2, top_k: 41 });
+		const override = await capturePayload(provider, { temperature: 0.3, samplingParams: { temperature: 0.6 } });
+		expect(override).toHaveProperty("temperature", 0.6);
 		expect(simple).toMatchObject({ temperature: 0.7, top_k: 40, max_output_tokens: 8192 });
 	});
 

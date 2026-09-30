@@ -217,6 +217,7 @@ export interface GuiSnapshot {
 	messageDurations: Record<string, number>;
 	entries: GuiEntry[];
 	model: GuiModel | null;
+	routedModel: { model: GuiModel; thinkingLevel?: string } | null;
 	models: GuiModel[];
 	scopedModels: string[];
 	thinking: ThinkingLevel;

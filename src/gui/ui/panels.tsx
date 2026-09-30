@@ -32,12 +32,12 @@ export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSessio
 		case "model": body = <ModelManager snapshot={snapshot} send={send} disabled={!canChangeSession} />; break;
 		case "tools":
 			body = <>
-				<p>变更在当前会话分支生效。</p>
+				<p>选择向模型开放的工具，在当前分支生效。codemode 可隐藏直接声明。未勾选的脚本专用和延迟工具仍可被脚本调用，此处不是权限开关。</p>
 				<Button variant="outline" size="sm" disabled={!canChangeSession} onClick={() => void send({ action: "persistTools" })}>保存为用户默认</Button>
 				{snapshot.tools.map((tool) => <label key={tool.name} className="list-row">
 					<Checkbox checked={tool.enabled} disabled={!tool.available || !canChangeSession}
 						onCheckedChange={(checked) => void send({ action: "tool", name: tool.name, enabled: checked === true })} />
-					<span><strong>{tool.name}</strong><small>{tool.description}</small></span>
+					<span><strong>{tool.name}</strong><small>{tool.exposure} · {tool.description}</small></span>
 				</label>)}
 			</>;
 			break;

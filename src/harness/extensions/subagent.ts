@@ -62,6 +62,7 @@ export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModul
 		const subagentTool = registerTool(pi, {
 			tool: {
 				name: "subagent",
+				exposure: "model-only",
 				label: "subagent",
 				description: "Delegate bounded tasks to configured agents.",
 				promptSnippet: "delegate bounded tasks",
@@ -114,10 +115,6 @@ export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModul
 
 		pi.on("session_start", async (_event, ctx) => {
 			if (ctx.mode === "tui") await requireTui?.();
-		});
-		pi.on("tool_result", (event) => {
-			if (event.toolName !== "subagent" || !isSubagentDetails(event.details)) return undefined;
-			return event.details.results.some((result) => result.error !== undefined) ? { isError: true } : undefined;
 		});
 		pi.on("session_shutdown", () => {
 			executions.abortAll();
@@ -202,9 +199,5 @@ function createInteraction(ctx: {
 	return { confirmWrite: (title, message) => ctx.ui.confirm(title, message) };
 }
 
-function isSubagentDetails(value: unknown): value is { results: Array<{ error?: string }> } {
-	if (typeof value !== "object" || value === null) return false;
-	return Array.isArray(Reflect.get(value, "results"));
-}
 
 export default createSubagentExtension();
