@@ -112,15 +112,6 @@ export async function readOptionalJsoncConfig<E extends Error>(options: ReadJson
 	return value;
 }
 
-export async function readOptionalJsoncConfigWithSchema<T = unknown, E extends Error = Error>(
-	options: ReadJsoncConfigWithSchemaOptions<E>,
-): Promise<T | undefined> {
-	const value = await readOptionalJsoncConfig(options);
-	if (value === undefined) return undefined;
-	await validateConfigValue({ ...options, value });
-	return value as T;
-}
-
 export async function validateConfigValue<E extends Error>(
 	options: ReadJsoncConfigWithSchemaOptions<E> & { value: unknown; layer?: ConfigLayerKind },
 ): Promise<void> {
@@ -340,12 +331,6 @@ export function projectAgentConfigPath(cwd: string, fileName: string, configEnvN
 	if (process.env[configEnvName]) return process.env[configEnvName];
 	const root = process.env[rootEnvName] ?? findNearestProjectRoot(cwd);
 	return root === undefined ? undefined : path.join(root, ".pi", "configs", fileName);
-}
-
-export function projectPiPath(cwd: string, fileName: string, configEnvName: string, rootEnvName: string): string | undefined {
-	if (process.env[configEnvName]) return process.env[configEnvName];
-	const root = process.env[rootEnvName] ?? findNearestProjectRoot(cwd);
-	return root === undefined ? undefined : path.join(root, ".pi", fileName);
 }
 
 export function findNearestProjectRoot(cwd: string): string | undefined {

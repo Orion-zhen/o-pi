@@ -3,7 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 
 import { formatToolCard } from "../../components/tool-card.ts";
 import { formatBytes, formatChars, formatDuration, joinParts } from "../../components/text.ts";
-import type { WebFetchDetails, WebFetchFailureDetails, WebFetchProgressDetails, WebFetchSuccessDetails } from "../../../harness/web-tools/core/types.ts";
+import type { WebFetchFailureDetails, WebFetchProgressDetails, WebFetchSuccessDetails } from "../../../harness/web-tools/core/types.ts";
 import { compactUrl, shortUrlForCall, truncateMiddle } from "../../../harness/web-tools/network/url-utils.ts";
 
 interface WebFetchRenderState {
@@ -64,10 +64,6 @@ export function formatWebFetchResult(
 	if (isSuccessDetails(details)) return formatSuccess(details, options.expanded === true, theme);
 	if (isFailureDetails(details)) return formatFailure(details, options.expanded === true, theme);
 	return formatToolCard({ tool: "webfetch", status: "neutral", target, summary: "waiting" }, theme);
-}
-
-export function isWebFetchDetails(value: unknown): value is WebFetchDetails {
-	return isSuccessDetails(value) || isFailureDetails(value) || isProgressDetails(value);
 }
 
 function formatProgress(details: unknown): string {

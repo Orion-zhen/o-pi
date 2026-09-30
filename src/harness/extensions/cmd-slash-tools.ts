@@ -1,7 +1,6 @@
 import {
 	type ToolSelectionItem,
 	ToolSelectionController,
-	type ToolSelectionRestoreNotice,
 } from "../tool-defaults/controller.ts";
 import { canPresent, type Presenter } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -32,11 +31,8 @@ export function createToolsExtension(
 
 		const restore = async (ctx: ExtensionContext): Promise<void> => {
 			const config = await loadSubagentConfig(ctx.cwd);
-			controller.setSubagentAvailable(discoverAgents(ctx.cwd, config).agents.length > 0);
-			const notice = controller.restore({
-				branchEntries: ctx.sessionManager.getBranch(),
-			});
-			notifyRestoreIssue(ctx, notice);
+			const removed = controller.restore(ctx.sessionManager.getBranch(), discoverAgents(ctx.cwd, config).agents.length > 0);
+			if (removed.length > 0) ctx.ui.notify(`Removed unavailable tools from branch selection: ${removed.join(", ")}`, "warning");
 		};
 
 		pi.registerCommand("tools", {
@@ -77,12 +73,6 @@ export function createToolsExtension(
 		pi.on("session_start", async (_event, ctx) => restore(ctx));
 		pi.on("session_tree", async (_event, ctx) => restore(ctx));
 	};
-}
-
-function notifyRestoreIssue(ctx: ExtensionContext, notice: ToolSelectionRestoreNotice | undefined): void {
-	if (notice?.type === "removed-tools") {
-		ctx.ui.notify(`Removed unavailable tools from branch selection: ${notice.toolNames.join(", ")}`, "warning");
-	}
 }
 
 export default createToolsExtension();

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
 import type { GuiModel, Query, GlobalQuery } from "../contract.ts";
-import type { ModuleConfigDocument, ModuleConfigId } from "../module-config.ts";
+import type { ModuleConfigId } from "../module-config.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
@@ -12,6 +12,7 @@ import { RotateCcw } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { ModelSelect } from "./model-select.tsx";
 import { moduleFields, type ConfigField } from "./module-fields.ts";
+import { ConfigActions, useConfigDraft } from "./config-draft.tsx";
 
 function readObject(text: string): Record<string, unknown> {
 	const errors: ParseError[] = [];
@@ -30,42 +31,19 @@ function at(value: unknown, path: string): unknown {
 export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
 	id: ModuleConfigId; query: Query<GlobalQuery>; send: Send; disabled: boolean; onDirty: (id: ModuleConfigId, dirty: boolean) => void; models: GuiModel[];
 }) {
-	const [document, setDocument] = useState<ModuleConfigDocument>();
-	const [draft, setDraft] = useState("");
-	const [error, setError] = useState("");
-	const [status, setStatus] = useState("");
-	const [saving, setSaving] = useState(false);
+	const editor = useConfigDraft(useCallback(() => query({ query: "moduleConfig", id }), [id, query]));
+	const { document, draft, error, saving, dirty } = editor;
 	const [source, setSource] = useState(false);
-	const [revision, setRevision] = useState(0);
-	const dirty = document !== undefined && draft !== document.content;
 	useEffect(() => { onDirty(id, dirty); }, [id, dirty, onDirty]);
-	useEffect(() => {
-		let active = true;
-		setDocument(undefined);
-		setError("");
-		void query({ query: "moduleConfig", id }).then((result) => {
-			if (active) { setDocument(result); setDraft(result.content); }
-		}, (error: unknown) => { if (active) setError(String(error)); });
-		return () => { active = false; };
-	}, [id, query, revision]);
-	if (!document) return <div>{error ? <p role="alert">{error}</p> : <p role="status">正在读取配置…</p>}<Button variant="outline" onClick={() => setRevision(revision + 1)}>重新读取</Button></div>;
+	useEffect(() => () => onDirty(id, false), [id, onDirty]);
+	if (!document) return <div>{error ? <p role="alert">{error}</p> : <p role="status">正在读取配置…</p>}<Button variant="outline" onClick={editor.reload}>重新读取</Button></div>;
 	let values: Record<string, unknown> = {};
 	let parseError = "";
 	try { values = readObject(draft); } catch (error) { parseError = String(error); }
 	const defaults = readObject(document.defaults);
 	const blocked = disabled || saving;
 	const change = (field: ConfigField, value: unknown) => {
-		setDraft(applyEdits(draft || "{}\n", modify(draft || "{}\n", field.path.split("."), value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
-		setStatus("");
-	};
-	const save = async () => {
-		setSaving(true); setError(""); setStatus("");
-		try {
-			if (await send({ action: "saveModuleConfig", id, original: document.content, content: draft })) {
-				setDocument({ ...document, content: draft });
-				setStatus("已保存");
-			} else setError("保存失败，请查看错误通知。草稿已保留。");
-		} finally { setSaving(false); }
+		editor.change(applyEdits(draft || "{}\n", modify(draft || "{}\n", field.path.split("."), value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
 	};
 	return <div className="gui-settings module-settings">
 		{id === "approvalGate" && <p className="settings-warning">关闭审批或允许非交互操作会减少安全限制。</p>}
@@ -73,7 +51,7 @@ export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
 		{id === "webTools" && <p className="settings-warning">Cookie 可能携带登录凭据。选择 never 将不再逐次确认。</p>}
 		{id === "discordPresence" && <p className="settings-warning">detailed 档案可能向 Discord 展示项目名和文件名。</p>}
 		<div className="toolbar"><Button variant="outline" onClick={() => setSource(!source)}>{source ? "返回表单" : "编辑 JSONC"}</Button></div>
-		{source ? <Textarea aria-label={`${id} 全局 JSONC`} className="module-source" value={draft} disabled={blocked} onChange={(event) => { setDraft(event.target.value); setStatus(""); }} />
+		{source ? <Textarea aria-label={`${id} 全局 JSONC`} className="module-source" value={draft} disabled={blocked} onChange={(event) => editor.change(event.target.value)} />
 			: parseError ? <p role="alert">{parseError}</p> : <>
 				{moduleFields[id].map((field) => {
 					const override = at(values, field.path);
@@ -86,13 +64,8 @@ export function ModuleSettings({ id, query, send, disabled, onDirty, models }: {
 					</div>;
 				})}
 			</>}
-		{error && <p role="alert">{error}</p>}{status && <p role="status">{status}</p>}
-		<div className="toolbar module-actions">
-			<Button disabled={blocked || !dirty || !!parseError} onClick={() => void save()}>保存</Button>
-			<Button variant="outline" disabled={blocked || !dirty} onClick={() => { setDraft(document.content); setError(""); setStatus(""); }}>放弃修改</Button>
-			<Button variant="ghost" disabled={blocked || dirty} onClick={() => setRevision(revision + 1)}>重新读取</Button>
-			{dirty && <span role="status">有未保存修改</span>}
-		</div>
+		<ConfigActions editor={editor} disabled={disabled} invalid={!!parseError} save={() => void editor.save(async (document, content) =>
+			await send({ action: "saveModuleConfig", id, original: document.content, content }) ? { ...document, content } : undefined)} />
 	</div>;
 }
 

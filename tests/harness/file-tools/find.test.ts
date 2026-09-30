@@ -79,6 +79,16 @@ function track<T extends { dispose(): void }>(resource: T): T {
 }
 
 describe("find", () => {
+	it("glob 前缀不扩大范围或重置深度，显式忽略目录仍可搜索", async () => {
+		await writeFixtures("src/one.ts", "src/nested/two.ts", "other/three.ts", "ignored/deep/four.ts");
+		await useConfig("prefix", {
+			ignored_path: ["ignored/"], limits: { find_max_depth: 2 },
+			ignore: { builtin_profile: "none", gitignore: false },
+		});
+		expect(await findPaths({ query: ".ts$", glob: "src/**/*.ts" })).toEqual(["src/one.ts"]);
+		expect(await findPaths({ query: ".ts$", path: ["ignored"], glob: "deep/*.ts" })).toEqual(["ignored/deep/four.ts"]);
+		expect(await findPaths({ query: "src", glob: "src/*/" })).toEqual(["src/nested"]);
+	});
 	it("截断导航统计全部已扫描命中，排除忽略与非命中路径", async () => {
 		await writeFixtures("root/alpha/a.ts", "root/alpha/b.ts", "root/beta/c.ts", "root/hidden/secret.ts", "root/docs/readme.md");
 		await useConfig("navigation", { ignored_path: ["root/hidden/"], limits: { find_result_limit: 1 } });

@@ -1,5 +1,5 @@
 import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import { toolSelectionItems, type ToolSelectionItem } from "../../harness/tool-defaults/controller.ts";
+import type { ToolSelectionController, ToolSelectionItem } from "../../harness/tool-defaults/controller.ts";
 import { codemodeHiddenDeclarations } from "../../harness/codemode/loadout.ts";
 import type { GuiSnapshot } from "../contract.ts";
 import { guiModel } from "./runtime.ts";
@@ -13,12 +13,13 @@ type PresentationState = Pick<
 >;
 
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
-export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads, mcpTools: ToolSelectionItem[] = []): GuiSnapshot {
+export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads, selection: ToolSelectionController, mcpTools: ToolSelectionItem[]): GuiSnapshot {
 	const { session, services, cwd } = runtime;
 	const routed = session.routedModel;
 	const allTools = session.getAllTools();
 	const activeTools = session.getActiveToolNames();
-	const tools = new Map<string, ToolSelectionItem & { mcp?: true }>(toolSelectionItems(allTools, activeTools).map((tool) => [tool.name, tool]));
+	// 重载期间新的扩展 API 尚未绑定，工具列表直接取会话，controller 只投影可用性。
+	const tools = new Map<string, ToolSelectionItem & { mcp?: true }>(selection.listTools(allTools, activeTools).map((tool) => [tool.name, tool]));
 	for (const tool of mcpTools) tools.set(tool.name, { ...tool, mcp: true });
 	const callableTools = new Set(session.getCallableToolNames());
 	const hidden = new Set(activeTools.includes("codemode") ? codemodeHiddenDeclarations(allTools) : []);

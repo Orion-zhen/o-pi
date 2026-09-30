@@ -63,6 +63,9 @@ test("默认不监听，在设置中开启后必须重启，关闭后也在重�
 		const document = await window.opi?.query({ query: "guiConfig" }, null);
 		return document?.state === "ready" && document.value.desktopWeb.enabled;
 	})).toBe(true);
+	await expect(desktop.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+	await desktop.getByRole("button", { name: "关闭面板", exact: true }).click();
+	await expect(desktop.getByRole("dialog", { name: "设置", exact: true })).not.toBeVisible();
 	expect(await health()).toBe(0);
 	await stopDesktop();
 	const restarted = await startDesktop(home, env);
@@ -79,6 +82,9 @@ test("默认不监听，在设置中开启后必须重启，关闭后也在重�
 		const document = await window.opi?.query({ query: "guiConfig" }, null);
 		return document?.state === "ready" && document.value.desktopWeb.enabled;
 	})).toBe(false);
+	await expect(restarted.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+	await restarted.getByRole("button", { name: "关闭面板", exact: true }).click();
+	await expect(restarted.getByRole("dialog", { name: "设置", exact: true })).not.toBeVisible();
 	expect(await health()).toBe(200);
 	await stopDesktop();
 	await startDesktop(home, env);

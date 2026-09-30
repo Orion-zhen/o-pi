@@ -3,7 +3,7 @@ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 
 import { formatToolCard } from "../../components/tool-card.ts";
 import { formatBytes, formatDuration, joinParts } from "../../components/text.ts";
-import type { WebSearchDetails, WebSearchFailureDetails, WebSearchProgressDetails, WebSearchProviderAttempt, WebSearchProviderId, WebSearchSuccessDetails } from "../../../harness/web-tools/core/types.ts";
+import type { WebSearchFailureDetails, WebSearchProgressDetails, WebSearchProviderAttempt, WebSearchProviderId, WebSearchSuccessDetails } from "../../../harness/web-tools/core/types.ts";
 import { stripTerminalControls } from "../../../harness/web-tools/network/url-utils.ts";
 
 interface WebSearchRenderState {
@@ -65,10 +65,6 @@ export function formatWebSearchResult(
 	if (isSuccessDetails(details)) return formatSuccess(details, options.expanded === true, theme);
 	if (isFailureDetails(details)) return formatFailure(details, options.expanded === true, theme);
 	return formatWebSearchCall(args, theme);
-}
-
-export function isWebSearchDetails(value: unknown): value is WebSearchDetails {
-	return isSuccessDetails(value) || isFailureDetails(value) || isProgressDetails(value);
 }
 
 function formatProgress(details: unknown): string {

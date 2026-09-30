@@ -172,10 +172,6 @@ export function findRestorablePruneState(entries: readonly SessionEntry[]): Rest
 	return undefined;
 }
 
-export function estimateMessagesTokens(messages: readonly AgentMessage[], scope: TokenCounterScope): number {
-	return estimateMessagesTokensWithConfidence(messages, scope).tokens;
-}
-
 export function estimateMessagesTokensWithConfidence(
 	messages: readonly AgentMessage[],
 	scope: TokenCounterScope,

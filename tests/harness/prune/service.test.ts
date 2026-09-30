@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
 import { formatPruneOutcome } from "../../../src/harness/prune/presentation/outcome.ts";
-import { estimateMessagesTokens, PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.ts";
+import { estimateMessagesTokensWithConfidence, PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.ts";
 import {
 	PruneService,
 	type PruneServicePort,
@@ -39,8 +39,8 @@ describe("PruneService", () => {
 			{ ...first, sections: { project: "NEW RULES" }, toolsAdded: [grep] }, ...conversation,
 		];
 		const scope = { provider: model.provider, modelId: model.id, baseUrl: model.baseUrl };
-		expect(result.preview.fullTokens).toBe(estimateMessagesTokens(projected, scope));
-		expect(result.preview.commonPrefixTokens).toBe(estimateMessagesTokens(projected.slice(0, 2), scope));
+		expect(result.preview.fullTokens).toBe(estimateMessagesTokensWithConfidence(projected, scope).tokens);
+		expect(result.preview.commonPrefixTokens).toBe(estimateMessagesTokensWithConfidence(projected.slice(0, 2), scope).tokens);
 		expect(messages).toEqual([first, ...conversation, patch]);
 	});
 

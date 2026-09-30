@@ -1,5 +1,8 @@
 import { vi } from "vitest";
 
+// 原生通知是外部副作用，测试侧隔离，不让生产代码识别测试环境。
+vi.mock("node-notifier", () => ({ default: { notify() {} } }));
+
 // 测试从源码运行，不继承桌面版或打包 CLI 的资源目录。
 delete process.env.PI_OPI_RESOURCE_DIR;
 delete process.env.PI_PACKAGE_DIR;

@@ -22,7 +22,7 @@ function tuiPresenter<T>(show: T): Presenter<T> { return { mode: "tui", show }; 
 
 /** 终端入口装配呈现器，harness 不知道组件的路径和加载方式。 */
 export const presentation = {
-	fileTools: { renderers: () => import("./chat/file-tools/index.ts") },
+	fileTools: () => import("./chat/file-tools/index.ts"),
 	bashTool: () => import("./chat/bash-tool/renderer.ts"),
 	tools: () => import("./views/tool-defaults/tool-selector.ts"),
 	prune: () => import("./chat/prune/index.ts"),
@@ -94,7 +94,7 @@ export function createTuiExtensions(): InlineExtension[] {
 		{ name: "system-prompt", factory: (pi) => systemPrompt(pi, presentation.systemPrompt) },
 		{ name: "telemetry", factory: (pi) => telemetry(pi, presentation.telemetry) },
 		{ name: "usage", factory: (pi) => usage(pi, presentation.usage) },
-		{ name: "web-tools", factory: createWebToolsExtension(undefined, presentation.webTools) },
+		{ name: "web-tools", factory: createWebToolsExtension(presentation.webTools) },
 	];
 	const extensions = harnessExtensions.map(
 		(extension) => views.find((view) => view.name === extension.name) ?? extension,

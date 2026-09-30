@@ -68,7 +68,6 @@ const webFetchParameters = Type.Object(
 	{ additionalProperties: false },
 );
 
-export type WebToolsRuntimeLoader = () => Promise<WebToolsRuntime>;
 export type WebToolsRendererLoader = () => Promise<{
 	renderWebFetchCall: ToolCallRenderer;
 	renderWebFetchResult: ToolResultRenderer;
@@ -78,7 +77,6 @@ export type WebToolsRendererLoader = () => Promise<{
 
 /** 创建轻量工具壳；runtime 和 native renderer 均按需加载。 */
 export function createWebToolsExtension(
-	loadRuntime: WebToolsRuntimeLoader = loadDefaultRuntime,
 	loadRenderers?: WebToolsRendererLoader,
 ): (pi: ExtensionAPI) => void {
 	return function webTools(pi: ExtensionAPI): void {
@@ -87,7 +85,7 @@ export function createWebToolsExtension(
 		const getRuntime = (): Promise<WebToolsRuntime> => {
 			if (shuttingDown) return Promise.reject(new Error("web-tools runtime is shutting down"));
 			if (runtimePromise !== undefined) return runtimePromise;
-			const pending = loadRuntime();
+			const pending = loadDefaultRuntime();
 			runtimePromise = pending;
 			void pending.catch(() => {
 				if (runtimePromise === pending) runtimePromise = undefined;

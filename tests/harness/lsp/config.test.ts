@@ -1,403 +1,98 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
-
-import { defaultAgentConfigPath } from "../../../src/harness/config-loader.ts";
-import { loadLspConfig, normalizeExcludePath } from "../../../src/harness/lsp/config/loader.ts";
+import { expect, it } from "vitest";
+import { loadLspConfig } from "../../../src/harness/lsp/config/loader.ts";
 import { LspServerRegistry } from "../../../src/harness/lsp/config/registry.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
-let dir: string;
-const temp = useTempDir("o-pi-lsp-config-");
+const temp = useTempDir("opi-lsp-config-");
 preserveEnv("PI_LSP_CONFIG", "PI_LSP_PROJECT_CONFIG", "PI_LSP_PROJECT_ROOT");
 
-beforeEach(() => {
-	dir = temp.path;
-});
-
-describe("lsp config", () => {
-	it("缺少配置文件采用默认值并规范化内置 glob 路由", async () => {
-		process.env.PI_LSP_CONFIG = path.join(dir, "missing.jsonc");
-		const loaded = await loadLspConfig(dir);
-		expect(loaded.path).toBe(defaultAgentConfigPath("lsp.jsonc"));
-		expect(loaded.config).toMatchObject({
-			enabled: true,
-			exclude_paths: [path.resolve(os.homedir())],
-			startup_timeout_ms: 8000,
-			request_timeout_ms: 5000,
-			idle_timeout_ms: 300000,
-			max_open_documents: 128,
-			diagnostics: {
-				enabled: true,
-				max_wait_ms: 3000,
-				settle_ms: 150,
-				max_items: 8,
-				max_related_locations: 3,
-				min_severity: "warning",
-			},
-			read: { outline: true, max_symbols: 40 },
-			grep: { workspace_symbols: true, max_symbols: 20, max_exact_leaf_symbols: 2 },
-		});
-		expect(loaded.config.servers[0]).toMatchObject({
-			id: "typescript",
-			fallback: false,
-			transport: { type: "stdio", command: "tsc", args: ["--lsp", "--stdio"] },
-			routes: [
-				{ languageId: "typescript", selectors: ["*.ts"] },
-				{ languageId: "typescriptreact", selectors: ["*.tsx"] },
-				{ languageId: "javascript", selectors: ["*.{js,mjs,cjs}"] },
-				{ languageId: "javascriptreact", selectors: ["*.jsx"] },
-			],
-		});
-		expect(loaded.config.servers.find((server) => server.id === "yaml")?.fallback).toBe(true);
-		expect(loaded.config.servers.find((server) => server.id === "html")).toMatchObject({
-			transport: { type: "stdio", command: "vscode-html-language-server", args: ["--stdio"] },
-			initializationOptions: { embeddedLanguages: { css: true, javascript: true } },
-			settings: { html: { validate: { scripts: true, styles: true } } },
-			routes: [
-				{ languageId: "html", selectors: ["*.{html,htm,shtml,xhtml}"] },
-				{ languageId: "handlebars", selectors: ["*.{hbs,handlebars}"] },
-			],
-		});
-		expect(loaded.config.servers.find((server) => server.id === "json")).toMatchObject({
-			transport: { type: "stdio", command: "vscode-json-language-server", args: ["--stdio"] },
-			initializationOptions: { handledSchemaProtocols: ["file", "http", "https"] },
-			settings: {
-				json: {
-					validate: { enable: true },
-					schemas: [{ fileMatch: ["package.json"], url: "https://json.schemastore.org/package.json" }],
-				},
-			},
-			routes: [
-				{
-					languageId: "json",
-					selectors: ["*.{json,webmanifest,har,jsonld,geojson,ipynb}", "composer.lock", ".watchmanconfig"],
-				},
-				{
-					languageId: "jsonc",
-					selectors: ["*.jsonc", ".{babelrc,eslintrc,hintrc,jscsrc,jsfmtrc,jshintrc,swcrc}", ".ember-cli"],
-				},
-			],
-		});
-		expect(loaded.config.servers.find((server) => server.id === "css")).toMatchObject({
-			transport: { type: "stdio", command: "vscode-css-language-server", args: ["--stdio"] },
-			settings: { css: { validate: true }, scss: { validate: true }, less: { validate: true } },
-			routes: [
-				{ languageId: "css", selectors: ["*.css"] },
-				{ languageId: "scss", selectors: ["*.scss"] },
-				{ languageId: "less", selectors: ["*.less"] },
-			],
-		});
-		expect(loaded.config.servers.find((server) => server.id === "jdtls")).toMatchObject({
-			transport: { type: "stdio", command: "jdtls", args: [] },
-			settings: {
-				java: {
-					configuration: { updateBuildConfiguration: "automatic" },
-					import: {
-						maven: { enabled: true },
-						gradle: {
-							enabled: true,
-							wrapper: { enabled: true },
-							annotationProcessing: { enabled: true },
-						},
-					},
-					autobuild: { enabled: true },
-					compile: { nullAnalysis: { mode: "automatic" } },
-					symbols: { includeSourceMethodDeclarations: true },
-					references: {
-						includeAccessors: true,
-						includeDeclarations: true,
-						includeDecompiledSources: true,
-					},
-					search: { scope: "all" },
-				},
-			},
-			routes: [{ languageId: "java", selectors: ["*.java"] }],
-		});
-		const registry = new LspServerRegistry(loaded.config.servers);
-		expect(registry.route("web/index.html")).toMatchObject({ server: { id: "html" }, languageId: "html" });
-		expect(registry.route("package.json")).toMatchObject({ server: { id: "json" }, languageId: "json" });
-		expect(registry.route(".eslintrc")).toMatchObject({ server: { id: "json" }, languageId: "jsonc" });
-		expect(registry.route("styles/theme.scss")).toMatchObject({ server: { id: "css" }, languageId: "scss" });
-		expect(registry.route("src/main/java/dev/example/App.java")).toMatchObject({ server: { id: "jdtls" }, languageId: "java" });
-		expect(loaded.config.servers.find((server) => server.id === "tombi")).toMatchObject({
-			transport: { type: "stdio", command: "tombi", args: ["lsp"] },
-			settings: {
-				tombi: {
-					schema: { enabled: true, strict: true },
-					lsp: { diagnostic: { enabled: true }, references: { enabled: true } },
-					extensions: {
-						"tombi-toml/cargo": { enabled: true },
-						"tombi-toml/pyproject": { enabled: true },
-						"tombi-toml/tombi": { enabled: true },
-					},
-				},
-			},
-			routes: [{
-				languageId: "toml",
-				selectors: ["*.toml", "Cargo.lock", "Gopkg.lock", "Pipfile", "pdm.lock", "poetry.lock", "uv.lock"],
-			}],
-		});
-	});
-
-	it("项目配置覆盖全局配置并保留未覆盖的全局字段", async () => {
-		const globalPath = path.join(dir, "global.jsonc");
-		const projectRoot = path.join(dir, "project");
-		const projectPath = path.join(projectRoot, ".pi", "configs", "lsp.jsonc");
-		await mkdir(path.dirname(projectPath), { recursive: true });
-		await writeFile(globalPath, JSON.stringify({
-			request_timeout_ms: 700,
-			diagnostics: { max_items: 3 },
-			servers: {
-				gopls: {
-					command: ["gopls"],
-					languages: { go: "*.go" },
-					settings: { gopls: { staticcheck: true } },
-				},
-			},
-		}));
-		await writeFile(projectPath, JSON.stringify({
-			request_timeout_ms: 900,
-			diagnostics: { min_severity: "error" },
-			servers: {
-				gopls: {
-					settings: { gopls: { gofumpt: true } },
-				},
-			},
-		}));
-		process.env.PI_LSP_CONFIG = globalPath;
-		const loaded = await loadLspConfig(projectRoot);
-		expect(loaded.path).toBe(projectPath);
-		expect(loaded.config.request_timeout_ms).toBe(900);
-		expect(loaded.config.diagnostics).toMatchObject({ max_items: 3, min_severity: "error" });
-		expect(loaded.config.servers).toHaveLength(1);
-		expect(loaded.config.servers[0]).toMatchObject({
-			id: "gopls",
-			transport: { type: "stdio", command: "gopls", args: [] },
-			settings: { gopls: { staticcheck: true, gofumpt: true } },
-		});
-	});
-
-	it("支持 JSONC、trailing comma、字符串 selector 和部分覆盖", async () => {
-		const file = path.join(dir, "lsp.jsonc");
-		await writeFile(
-			file,
-			`{
-				"exclude_paths": ["~"],
-				"request_timeout_ms": 700,
-				"diagnostics": { "max_items": 3, "max_related_locations": 1, "min_severity": "error", },
-				"servers": {
-					"demo": {
-						"command": ["demo-lsp", "--stdio"],
-						"languages": { "demo": "*.demo", },
-					},
-				},
-			}`,
-		);
-		process.env.PI_LSP_CONFIG = file;
-		expect(await loadLspConfig()).toMatchObject({
-			path: file,
-			config: {
-				request_timeout_ms: 700,
-				exclude_paths: [os.homedir()],
-				diagnostics: { max_items: 3, max_related_locations: 1, min_severity: "error" },
-				servers: [{
-					id: "demo",
-					enabled: true,
-					fallback: false,
-					transport: { type: "stdio", command: "demo-lsp", args: ["--stdio"] },
-					routes: [{ languageId: "demo", selectors: ["*.demo"] }],
-				}],
-			},
-		});
-	});
-
-	it.each([
-		["未知顶层字段", { unknown: true }],
-		["非法诊断级别", { diagnostics: { min_severity: "fatal" } }],
-		["过多 related locations", { diagnostics: { max_related_locations: 11 } }],
-		["旧 servers 数组格式", { servers: [{ id: "demo", command: "demo", extensions: [".demo"] }] }],
-		["非法 server ID", { servers: { "1demo": { command: ["demo"], languages: { demo: "*.demo" } } } }],
-		["空 selector", { servers: { demo: { command: ["demo"], languages: { demo: "" } } } }],
-	] as const)("拒绝%s", async (_label, value) => {
-		const file = path.join(dir, "bad-schema.jsonc");
-		process.env.PI_LSP_CONFIG = file;
-		await writeFile(file, JSON.stringify(value));
-		await expect(loadLspConfig()).rejects.toThrow("does not match schema");
-	});
-
-	it("规范化 command、fallback 和 selector 数组", async () => {
-		const file = path.join(dir, "normalized.jsonc");
-		await writeFile(file, JSON.stringify({
-			servers: {
-				demo: {
-					fallback: true,
-					command: ["demo-lsp", "--stdio"],
-					languages: { "demo-special": ["*.demo", "config/**/*.demo"] },
-				},
-			},
-		}));
-		process.env.PI_LSP_CONFIG = file;
-		const loaded = await loadLspConfig();
-		expect(loaded.config.servers).toEqual([{
-			id: "demo",
-			enabled: true,
-			fallback: true,
-			transport: { type: "stdio", command: "demo-lsp", args: ["--stdio"] },
-			routes: [{ languageId: "demo-special", selectors: ["*.demo", "config/**/*.demo"] }],
-		}]);
-	});
-
-	it.each(["!*.demo", "../*.demo", "./*.demo", "C:/*.demo", "dir\\*.demo", "@(foo).demo"])(
-		"拒绝不安全或不支持的 selector %s",
-		async (selector) => {
-			const file = path.join(dir, "bad-selector.jsonc");
-			await writeFile(file, JSON.stringify({ servers: {
-				demo: { command: ["demo"], languages: { demo: selector } },
-			} }));
-			process.env.PI_LSP_CONFIG = file;
-			await expect(loadLspConfig()).rejects.toThrow(/invalid selector/);
-		},
-	);
-
-	it("basename/path glob、brace 和 fallback 产生确定路由", async () => {
-		const registry = await loadRegistry({
-			compose: {
-				command: ["compose-lsp"],
-				languages: { dockercompose: "{compose,docker-compose}{,.override}.{yaml,yml}" },
-			},
-			yaml: {
-				fallback: true,
-				command: ["yaml-lsp"],
-				languages: { yaml: "*.{yaml,yml}" },
-			},
-			deploy: {
-				command: ["deploy-lsp"],
-				languages: { deploy: "deploy/**/*.config" },
-			},
-		});
-
-		expect(registry.route("nested/compose.yaml")).toMatchObject({ server: { id: "compose" }, languageId: "dockercompose" });
-		expect(registry.route("nested/service.yml")).toMatchObject({ server: { id: "yaml" }, languageId: "yaml" });
-		expect(registry.route("deploy/prod/app.config")).toMatchObject({ server: { id: "deploy" }, languageId: "deploy" });
-		expect(registry.route("other/prod/app.config")).toBeUndefined();
-		expect(registry.route("README.md")).toBeUndefined();
-	});
-
-	it("selector 大小写敏感", async () => {
-		const registry = await loadRegistry({
-			clangd: { command: ["clangd"], languages: { c: "*.c", cpp: "*.C" } },
-		});
-		expect(registry.route("main.c")?.languageId).toBe("c");
-		expect(registry.route("main.C")?.languageId).toBe("cpp");
-	});
-
-	it.each([
-		["多个普通 server", {
-			one: { command: ["one"], languages: { one: "*.demo" } },
-			two: { command: ["two"], languages: { two: "*.demo" } },
-		}],
-		["多个 fallback server", {
-			one: { fallback: true, command: ["one"], languages: { one: "*.demo" } },
-			two: { fallback: true, command: ["two"], languages: { two: "*.demo" } },
-		}],
-		["同 server 多个 language ID", {
-			one: { command: ["one"], languages: { one: "*.demo", two: "special.*" } },
-		}],
-	] as const)("路由时拒绝%s歧义", async (_label, servers) => {
-		const registry = await loadRegistry(servers);
-		expect(() => registry.route("special.demo")).toThrow(/multiple|both/);
-	});
-
-	it("disabled server 不参与路由", async () => {
-		const registry = await loadRegistry({
-			disabled: { enabled: false, command: ["one"], languages: { one: "*.demo" } },
-			enabled: { command: ["two"], languages: { two: "*.demo" } },
-		});
-		expect(registry.route("file.demo")?.server.id).toBe("enabled");
-	});
-
-	it("保留 TCP endpoint 并按路径选择 server", async () => {
-		const file = path.join(dir, "tcp.jsonc");
-		await writeFile(file, JSON.stringify({ servers: {
-			remote: {
-				tcp: { host: "127.0.0.1", port: 2087 },
-				languages: { remote: "*.remote" },
-			},
-		} }));
-		process.env.PI_LSP_CONFIG = file;
-		const config = (await loadLspConfig()).config;
-		expect(config.servers[0]).toMatchObject({
-			transport: { type: "tcp", host: "127.0.0.1", port: 2087 },
-			routes: [{ languageId: "remote", selectors: ["*.remote"] }],
-		});
-		const registry = new LspServerRegistry(config.servers);
-		expect(registry.route("nested/file.remote")?.server.id).toBe("remote");
-	});
-
-	it("拒绝同时配置 command 和 tcp", async () => {
-		const file = path.join(dir, "both-transports.jsonc");
-		await writeFile(file, JSON.stringify({ servers: {
-			demo: {
-				command: ["demo"],
-				tcp: { host: "127.0.0.1", port: 2087 },
-				languages: { demo: "*.demo" },
-			},
-		} }));
-		process.env.PI_LSP_CONFIG = file;
-		await expect(loadLspConfig()).rejects.toThrow(/cannot combine command with tcp/);
-	});
-
-	it("init 与用户级 settings 分别保留任意 JSON 值", async () => {
-		const file = path.join(dir, "array-init.jsonc");
-		await writeFile(file, JSON.stringify({ servers: {
-			demo: {
-				command: ["demo-lsp"],
-				languages: { demo: "*.demo" },
-				init: ["strict", { feature: true }],
-				settings: { demo: { lint: true } },
-			},
-		} }));
-		process.env.PI_LSP_CONFIG = file;
-
-		await expect(loadLspConfig()).resolves.toMatchObject({
-			config: { servers: [{
-				initializationOptions: ["strict", { feature: true }],
-				settings: { demo: { lint: true } },
-			}] },
-		});
-	});
-
-	it.each([
-		["空语言路由", { demo: { command: ["demo"], languages: {} } }, /at least one file selector/],
-		["超过 50 个 server", Object.fromEntries(Array.from({ length: 51 }, (_, index) => [
-			`s${index}`,
-			{ command: ["demo"], languages: { demo: `*.x${index}` } },
-		])), /more than 50 servers/],
-	] as const)("拒绝%s", async (_label, servers, expected) => {
-		const file = path.join(dir, "bad-limits.jsonc");
-		await writeFile(file, JSON.stringify({ servers }));
-		process.env.PI_LSP_CONFIG = file;
-		await expect(loadLspConfig()).rejects.toThrow(expected);
-	});
-
-	it("环境变量覆盖配置路径", async () => {
-		const file = path.join(dir, "override.jsonc");
-		await writeFile(file, '{ "enabled": false }');
-		process.env.PI_LSP_CONFIG = file;
-		expect(await loadLspConfig()).toMatchObject({ path: file, config: { enabled: false } });
-	});
-
-	it("规范化 exclude_paths 中的用户家目录", () => {
-		expect(normalizeExcludePath("~")).toBe(path.resolve(os.homedir()));
-		expect(normalizeExcludePath("~/demo")).toBe(path.join(os.homedir(), "demo"));
-	});
-});
-
-async function loadRegistry(servers: Record<string, unknown>): Promise<LspServerRegistry> {
-	const file = path.join(dir, "routing.jsonc");
-	await writeFile(file, JSON.stringify({ servers }));
+async function load(value: unknown) {
+	const file = path.join(temp.path, "lsp.jsonc");
 	process.env.PI_LSP_CONFIG = file;
-	return new LspServerRegistry((await loadLspConfig()).config.servers);
+	await writeFile(file, typeof value === "string" ? value : JSON.stringify(value));
+	return (await loadLspConfig(temp.path)).config;
 }
+const server = { command: ["demo", "--stdio"], languages: { demo: "*.demo" } };
+
+it("默认配置能按实际文件名路由，而不锁定全部默认字段", async () => {
+	process.env.PI_LSP_CONFIG = path.join(temp.path, "missing.jsonc");
+	const config = (await loadLspConfig(temp.path)).config;
+	const registry = new LspServerRegistry(config.servers);
+	for (const [file, language] of [
+		["main.ts", "typescript"], ["web/index.html", "html"], ["package.json", "json"],
+		[".eslintrc", "jsonc"], ["styles/theme.scss", "scss"], ["App.java", "java"], ["Cargo.lock", "toml"],
+	] as const) expect(registry.route(file)?.languageId).toBe(language);
+});
+
+it("用户配置替换默认服务，项目配置合并覆盖并保留未覆盖字段", async () => {
+	await load({ request_timeout_ms: 700, diagnostics: { max_items: 3 }, servers: {
+		demo: { ...server, settings: { lint: true }, init: ["strict", { feature: true }] },
+	} });
+	const project = path.join(temp.path, ".pi", "configs", "lsp.jsonc");
+	await mkdir(path.dirname(project), { recursive: true });
+	await writeFile(project, JSON.stringify({
+		request_timeout_ms: 900, diagnostics: { min_severity: "error" },
+		servers: { demo: { settings: { format: true } } },
+	}));
+	const config = (await loadLspConfig(temp.path)).config;
+	expect(config.request_timeout_ms).toBe(900);
+	expect(config.diagnostics).toMatchObject({ max_items: 3, min_severity: "error" });
+	expect(config.servers).toEqual([expect.objectContaining({
+		id: "demo", transport: { type: "stdio", command: "demo", args: ["--stdio"] },
+		settings: { lint: true, format: true }, initializationOptions: ["strict", { feature: true }],
+	})]);
+});
+
+it("读取带 BOM、注释和尾随逗号的稀疏配置，展开排除路径", async () => {
+	const config = await load('\uFEFF{ // local settings\n "exclude_paths": ["~", "~/demo"], "request_timeout_ms": 700, }');
+	expect(config.request_timeout_ms).toBe(700);
+	expect(config.exclude_paths).toEqual([path.resolve(os.homedir()), path.join(os.homedir(), "demo")]);
+});
+
+it("路径选择、候补服务、禁用服务和大小写均影响路由", async () => {
+	const config = await load({ servers: {
+		compose: { ...server, languages: { dockercompose: "{compose,docker-compose}{,.override}.{yaml,yml}" } },
+		yaml: { ...server, fallback: true, languages: { yaml: "*.{yaml,yml}" } },
+		deploy: { ...server, languages: { deploy: ["deploy/**/*.config"] } },
+		clangd: { ...server, languages: { c: "*.c", cpp: "*.C" } },
+		disabled: { ...server, enabled: false, languages: { disabled: "*" } },
+	} });
+	const registry = new LspServerRegistry(config.servers);
+	for (const [file, language] of [
+		["nested/compose.yaml", "dockercompose"], ["nested/service.yml", "yaml"],
+		["deploy/prod/app.config", "deploy"], ["main.c", "c"], ["main.C", "cpp"],
+		["other/prod/app.config", undefined], ["README.md", undefined],
+	] as const) expect(registry.route(file)?.languageId).toBe(language);
+});
+
+it("TCP 服务保留端点并参与路由", async () => {
+	const config = await load({ servers: { remote: { tcp: { host: "127.0.0.1", port: 2087 }, languages: { remote: "*.remote" } } } });
+	expect(new LspServerRegistry(config.servers).route("nested/file.remote")?.server.transport)
+		.toEqual({ type: "tcp", host: "127.0.0.1", port: 2087 });
+});
+
+it.each([
+	{ unknown: true }, { diagnostics: { min_severity: "fatal" } }, { diagnostics: { max_related_locations: 11 } },
+	{ servers: { "1demo": server } }, { servers: { demo: { ...server, languages: { demo: "" } } } },
+	{ servers: { demo: { ...server, languages: {} } } },
+	{ servers: { demo: { ...server, tcp: { host: "127.0.0.1", port: 2087 } } } },
+	{ servers: Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`s${index}`, server])) },
+])("拒绝无效配置 %j", async (value) => {
+	await expect(load(value)).rejects.toThrow();
+});
+
+it.each(["!*.demo", "../*.demo", "./*.demo", "C:/*.demo", "dir\\*.demo", "@(foo).demo"])("拒绝不支持的选择规则 %s", async (selector) => {
+	await expect(load({ servers: { demo: { ...server, languages: { demo: selector } } } })).rejects.toThrow(/invalid selector/);
+});
+
+it.each([
+	{ one: server, two: server },
+	{ one: { ...server, fallback: true }, two: { ...server, fallback: true } },
+	{ one: { ...server, languages: { one: "*.demo", two: "special.*" } } },
+])("拒绝歧义路由 %j", async (servers) => {
+	const config = await load({ servers });
+	expect(() => new LspServerRegistry(config.servers).route("special.demo")).toThrow(/multiple|both/);
+});

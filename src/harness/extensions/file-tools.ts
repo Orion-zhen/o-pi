@@ -141,71 +141,24 @@ export interface FileToolRenderers {
 	renderEditResult: ToolResultRenderer;
 }
 
-export interface FileToolsModuleImports {
-	ls(): Promise<typeof import("../file-tools/pi/adapters/ls.ts")>;
-	host(): Promise<typeof import("../file-tools/runtime/host.ts")>;
-	find(): Promise<typeof import("../file-tools/pi/adapters/find.ts")>;
-	grep(): Promise<typeof import("../file-tools/pi/adapters/grep.ts")>;
-	read(): Promise<typeof import("../file-tools/pi/adapters/read.ts")>;
-	write(): Promise<typeof import("../file-tools/pi/adapters/write.ts")>;
-	edit(): Promise<typeof import("../file-tools/pi/adapters/edit.ts")>;
-	renderers?: () => Promise<FileToolRenderers>;
-	lsp(): Promise<{ lspManager: import("../lsp/file-operations.ts").LspFileOperations }>;
+export function createFileToolsExtension(loadRenderers?: () => Promise<FileToolRenderers>): (pi: ExtensionAPI) => void {
+	return (pi) => registerFileTools(pi, loadRenderers);
 }
 
-type GrepAdapter = ReturnType<(typeof import("../file-tools/pi/adapters/grep.ts"))["createGrepAdapter"]>;
-type FileToolsLoaders = Omit<FileToolsModuleImports, "grep" | "renderers"> & {
-	grep(): Promise<GrepAdapter>;
-};
-
-const defaultModuleImports: FileToolsModuleImports = {
-	ls: () => import("../file-tools/pi/adapters/ls.ts"),
-	host: () => import("../file-tools/runtime/host.ts"),
-	find: () => import("../file-tools/pi/adapters/find.ts"),
-	grep: () => import("../file-tools/pi/adapters/grep.ts"),
-	read: () => import("../file-tools/pi/adapters/read.ts"),
-	write: () => import("../file-tools/pi/adapters/write.ts"),
-	edit: () => import("../file-tools/pi/adapters/edit.ts"),
-	lsp: () => import("../lsp/index.ts"),
-};
-
-export function createFileToolsExtension(
-	importOverrides: Partial<FileToolsModuleImports> = {},
-): (pi: ExtensionAPI) => void {
-	const imports: FileToolsModuleImports = { ...defaultModuleImports, ...importOverrides };
-	return (pi) => {
-		const loadedToolInstances = new Set<{ dispose(): void }>();
-		const loaders: FileToolsLoaders = {
-			ls: createRetryableLoader(imports.ls),
-			host: createRetryableLoader(imports.host),
-			find: createRetryableLoader(imports.find),
-			grep: createRetryableLoader(async () => {
-				const adapter = (await imports.grep()).createGrepAdapter();
-				loadedToolInstances.add(adapter);
-				return adapter;
-			}),
-			read: createRetryableLoader(imports.read),
-			write: createRetryableLoader(imports.write),
-			edit: createRetryableLoader(imports.edit),
-			lsp: createRetryableLoader(imports.lsp),
-		};
-		registerFileTools(pi, loaders, loadedToolInstances, loaders.host, imports.renderers);
-	};
-}
-
-/** 注册覆盖版 ls/find/grep/read/write/edit；扩展层只适配 Pi，工具实现和渲染细节在 src/file-tools。 */
-function registerFileTools(
-	pi: ExtensionAPI,
-	loaders: FileToolsLoaders,
-	loadedToolInstances: ReadonlySet<{ dispose(): void }>,
-	loadHost: () => Promise<typeof import("../file-tools/runtime/host.ts")>,
-	loadRenderers: (() => Promise<FileToolRenderers>) | undefined,
-): void {
+function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileToolRenderers>): void {
+	type GrepAdapter = ReturnType<(typeof import("../file-tools/pi/adapters/grep.ts"))["createGrepAdapter"]>;
+	let grep: Promise<GrepAdapter> | undefined;
+	let grepAdapter: GrepAdapter | undefined;
+	const loadGrep = () => grep ??= import("../file-tools/pi/adapters/grep.ts").then(({ createGrepAdapter }) => {
+		grepAdapter = createGrepAdapter();
+		if (shuttingDown) grepAdapter.dispose();
+		return grepAdapter;
+	});
 	let host: FileToolsHost | undefined;
 	let restoredSession: SessionObservationSeed | undefined;
 	let shuttingDown = false;
 	const hostForInvocation = async (): Promise<FileToolsHost> => {
-		const { FileToolsHost: Host } = await loadHost();
+		const { FileToolsHost: Host } = await import("../file-tools/runtime/host.ts");
 		if (host === undefined) {
 			host = new Host(restoredSession === undefined ? {} : { initialSession: restoredSession });
 			restoredSession = undefined;
@@ -213,7 +166,7 @@ function registerFileTools(
 		if (shuttingDown) host.stop();
 		return host;
 	};
-	const lsp = async () => (await loaders.lsp()).lspManager;
+	const lsp = async () => (await import("../lsp/index.ts")).lspManager;
 	const mutationBatches = new MutationBatchCoordinator();
 	const sessionMutations = new Map<string, SessionMutationScope>();
 	const skillPathIndex = createRetryableLoader(async () =>
@@ -244,7 +197,7 @@ function registerFileTools(
 			promptSnippet: "list one directory",
 			parameters: lsParameters,
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [module, runtime] = await Promise.all([loaders.ls(), runtimeForInvocation(ctx, signal)]);
+				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/ls.ts"), runtimeForInvocation(ctx, signal)]);
 				return module.executeLs(params as LsParams, runtime);
 			},
 		},
@@ -262,7 +215,7 @@ function registerFileTools(
 			outputSchema: findOutputSchema,
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [module, runtime] = await Promise.all([loaders.find(), runtimeForInvocation(ctx, signal)]);
+				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/find.ts"), runtimeForInvocation(ctx, signal)]);
 				return module.executeFind(params as FindParams, runtime);
 			},
 		},
@@ -280,7 +233,7 @@ function registerFileTools(
 			outputSchema: grepOutputSchema,
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [adapter, runtime] = await Promise.all([loaders.grep(), runtimeForInvocation(ctx, signal)]);
+				const [adapter, runtime] = await Promise.all([loadGrep(), runtimeForInvocation(ctx, signal)]);
 				return adapter.execute(params as GrepParams, { ...runtime, lsp });
 			},
 		},
@@ -296,7 +249,7 @@ function registerFileTools(
 			promptSnippet: "read one file",
 			parameters: readParameters,
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [module, runtime] = await Promise.all([loaders.read(), runtimeForInvocation(ctx, signal)]);
+				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/read.ts"), runtimeForInvocation(ctx, signal)]);
 				return module.executeRead(params as ReadParams, { ...runtime, model: ctx.model, lsp });
 			},
 		},
@@ -317,7 +270,7 @@ function registerFileTools(
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const batch = mutationBatches.invocation(toolCallId);
 				try {
-					const [module, runtime] = await Promise.all([loaders.write(), runtimeForInvocation(ctx, signal)]);
+					const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/write.ts"), runtimeForInvocation(ctx, signal)]);
 					return await module.executeWrite(params as WriteParams, {
 						...runtime,
 						lsp,
@@ -350,7 +303,7 @@ function registerFileTools(
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const batch = mutationBatches.invocation(toolCallId);
 				try {
-					const [module, runtime] = await Promise.all([loaders.edit(), runtimeForInvocation(ctx, signal)]);
+					const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/edit.ts"), runtimeForInvocation(ctx, signal)]);
 					return await module.executeEdit(params as EditParams, {
 						...runtime,
 						lsp,
@@ -443,7 +396,7 @@ function registerFileTools(
 		for (const scope of sessionMutations.values()) scope.dispose();
 		sessionMutations.clear();
 		host?.stop();
-		for (const instance of loadedToolInstances) instance.dispose();
+		grepAdapter?.dispose();
 		host?.dispose();
 	});
 }

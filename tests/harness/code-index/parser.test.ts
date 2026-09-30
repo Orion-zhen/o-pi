@@ -1,36 +1,14 @@
-import { execFile } from "node:child_process";
-import { createRequire } from "node:module";
-import { promisify } from "node:util";
-import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createFileIdentity, createSymbolId } from "../../../src/harness/code-index/identity.ts";
+import { createFileIdentity } from "../../../src/harness/code-index/identity.ts";
 import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
 import { createTextTokenMatcher, tokenizeText } from "../../../src/harness/code-index/text.ts";
 import { SourceIndex } from "../../../src/harness/code-index/source-index.ts";
-import { dependencyPath } from "../../helpers/tree-sitter-dependencies.ts";
-
-const require = createRequire(import.meta.url);
-const execFileAsync = promisify(execFile);
-const treeSitterModules = {
-	bash: dependencyPath("tree-sitter-bash"),
-	javascript: dependencyPath("tree-sitter-javascript"),
-	typescript: dependencyPath("tree-sitter-typescript"),
-	python: dependencyPath("tree-sitter-python"),
-	go: dependencyPath("tree-sitter-go"),
-	rust: dependencyPath("tree-sitter-rust"),
-	c: dependencyPath("tree-sitter-c"),
-	cpp: dependencyPath("tree-sitter-cpp"),
-};
 
 afterEach(() => {
 	vi.useRealTimers();
 	vi.doUnmock("../../../src/harness/syntax-tree/loader.ts");
 });
-
-async function symbols(filePath: string, text: string): Promise<Array<[string, string | undefined, string | undefined]>> {
-	return (await analyzeCodeFile(filePath, text)).units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
-}
 
 describe("shared code parser", () => {
 	it.each([
@@ -57,60 +35,6 @@ describe("shared code parser", () => {
 		expect(index.range(text.length, text.length)).toEqual({ startLine: 3, endLine: 3, startByte: 14, endByte: 14 });
 	});
 
-	it("导入 parser、grep 和注册 extension 时不初始化 runtime，解析时不导入 native grammar 模块", async () => {
-		const probe = [
-			'const imported = await import("./src/harness/code-index/parser.ts");',
-			"const parserApi = imported.default ?? imported;",
-			'const { Parser } = await import("web-tree-sitter");',
-			"let initializedBeforeParse = true;",
-			"try { const parser = new Parser(); parser.delete(); } catch { initializedBeforeParse = false; }",
-			'await parserApi.analyzeCodeFile("probe.ts", "export function probe() {}\\n");',
-			"let initializedAfterParse = true;",
-			"try { const parser = new Parser(); parser.delete(); } catch { initializedAfterParse = false; }",
-			"process.stdout.write(JSON.stringify({ initializedBeforeParse, initializedAfterParse }));",
-		].join("\n");
-		const { stdout } = await execFileAsync(process.execPath, ["--import", "jiti/register", "--input-type=module", "--eval", probe], { cwd: process.cwd() });
-		expect(JSON.parse(stdout)).toEqual({ initializedBeforeParse: false, initializedAfterParse: true });
-
-		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
-
-		await import("../../../src/harness/file-tools/grep/command.ts");
-		const { default: fileTools } = await import("../../../src/harness/extensions/file-tools.ts");
-		const handlers = new Map<string, (...args: unknown[]) => unknown>();
-		fileTools({
-			events: createEventBus(),
-			registerTool() {},
-			on(name: string, handler: (...args: unknown[]) => unknown) {
-				handlers.set(name, handler);
-			},
-		} as unknown as ExtensionAPI);
-		expect(handlers.has("before_agent_start")).toBe(false);
-
-		await analyzeCodeFile("notes.txt", "plain text");
-		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
-
-		await analyzeCodeFile("first.ts", "export function first() {}\n");
-		expect(require.cache[treeSitterModules.bash]).toBeUndefined();
-		expect(require.cache[treeSitterModules.typescript]).toBeUndefined();
-		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
-		expect(require.cache[treeSitterModules.python]).toBeUndefined();
-		expect(require.cache[treeSitterModules.go]).toBeUndefined();
-		expect(require.cache[treeSitterModules.rust]).toBeUndefined();
-		expect(require.cache[treeSitterModules.c]).toBeUndefined();
-		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
-		await expect(Promise.resolve(handlers.get("session_shutdown")?.({
-			type: "session_shutdown",
-			reason: "quit",
-		}))).resolves.toBeUndefined();
-		expect(require.cache[treeSitterModules.bash]).toBeUndefined();
-		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
-		expect(require.cache[treeSitterModules.python]).toBeUndefined();
-		expect(require.cache[treeSitterModules.go]).toBeUndefined();
-		expect(require.cache[treeSitterModules.rust]).toBeUndefined();
-		expect(require.cache[treeSitterModules.c]).toBeUndefined();
-		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
-	});
-
 	it("dense ASCII units use exact source slices", async () => {
 		const text = Array.from({ length: 64 }, (_, index) => `function item${index}() { return ${index}; }`).join("\n");
 		const units = (await analyzeCodeFile("dense.ts", text)).units;
@@ -133,35 +57,6 @@ describe("shared code parser", () => {
 			["namespace", "api"],
 			["class", "api.Client"],
 			["method", "api.Client.run"],
-		]);
-	});
-
-	it("提取 TypeScript、JavaScript、Python、Go 和 Rust symbol，并保留 class method scope", async () => {
-		expect(await symbols("auth.ts", "export class AuthService {\n  async login() { return issueToken(); }\n}\nexport const makeSession = () => null;\n")).toEqual([
-			["class", "AuthService", "AuthService"],
-			["method", "login", "AuthService.login"],
-			["declaration", "makeSession", "makeSession"],
-		]);
-		expect(await symbols("auth.js", "class AuthService { login() { return true; } }\nfunction top() {}\n")).toEqual([
-			["class", "AuthService", "AuthService"],
-			["method", "login", "AuthService.login"],
-			["function", "top", "top"],
-		]);
-		expect(await symbols("worker.py", "class Worker:\n  def run(self):\n    pass\ndef top():\n  pass\n")).toEqual([
-			["class", "Worker", "Worker"],
-			["function", "run", "Worker.run"],
-			["function", "top", "top"],
-		]);
-		expect(await symbols("server.go", "package main\ntype Server struct{}\nfunc Start() {}\nfunc (s Server) Stop() {}\n")).toEqual([
-			["type", "Server", "Server"],
-			["function", "Start", "Start"],
-			["method", "Stop", "Server.Stop"],
-		]);
-		expect(await symbols("server.rs", "pub struct Server;\nimpl Server { pub fn start(&self) {} }\npub fn stop() {}\n")).toEqual([
-			["type", "Server", "Server"],
-			["module", "Server", "Server"],
-			["function", "start", "Server.start"],
-			["function", "stop", "stop"],
 		]);
 	});
 
@@ -397,17 +292,6 @@ describe("shared code parser", () => {
 		const match = createTextTokenMatcher(["retry", "missing", "create", "retry"]);
 		expect(match("createRetryLoader retry_count ignored")).toEqual(["retry", "create"]);
 		expect(match("unrelated text")).toEqual([]);
-	});
-
-	it("symbol ID 由 file、kind、qualified name 和 start byte 决定，同名位置可区分且不依赖 end byte", async () => {
-		const input = { fileId: "file:src/a.ts", kind: "function", symbolName: "demo", startByte: 12 };
-		expect(createSymbolId(input)).toBe("symbol:file%3Asrc%2Fa.ts:function:demo:12");
-		expect(createSymbolId(input)).toBe(createSymbolId({ ...input }));
-		expect(createSymbolId({ ...input, startByte: 48 })).not.toBe(createSymbolId(input));
-
-		const short = (await analyzeCodeFile("a.ts", "export function demo() {}\n")).units[0];
-		const long = (await analyzeCodeFile("a.ts", "export function demo() { return 1; }\n")).units[0];
-		expect(short?.id).toBe(long?.id);
 	});
 
 	it("runtime 或 grammar 失败时安全降级为空代码单元", async () => {

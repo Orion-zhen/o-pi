@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect } from "vitest";
 import type { ContentOperations } from "../../../src/harness/filesystem/contracts/content.ts";
 import type { WorkspaceFileSystem } from "../../../src/harness/filesystem/contracts/workspace.ts";
 import { clearGrepTestRuntime as clearGrepIndex } from "../../helpers/grep-tool.ts";
-import { buildScopeInventory, type ScopeInventory } from "../../../src/harness/file-tools/grep/inventory.ts";
+import type { ScopeInventory } from "../../../src/harness/file-tools/grep/inventory.ts";
 import { GrepTool } from "../../../src/harness/file-tools/grep/command.ts";
 import type { AnalyzeCode, PrepareCodeAnalysis } from "../../../src/harness/code-index/types.ts";
 import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.ts";
@@ -195,33 +195,6 @@ export async function grepWithAnalyzer(
 		});
 	} finally {
 		tool.dispose();
-		opened.dispose();
-		host.dispose();
-	}
-}
-
-export async function inventoryWorkspace(
-	workspace: string,
-	params: { readonly paths: readonly string[]; readonly glob?: string },
-	maxDepth = 12,
-	mapFilesystem: (filesystem: WorkspaceFileSystem) => WorkspaceFileSystem = (filesystem) => filesystem,
-	maxSearchBytes = Number.MAX_SAFE_INTEGER,
-): Promise<ToolOutcome<ScopeInventory>> {
-	const host = new FileToolsHost();
-	const opened = await host.open({ cwd: workspace, sessionId: "grep-inventory" });
-	if (isFailed(opened)) {
-		host.dispose();
-		return opened;
-	}
-	try {
-		return await buildScopeInventory(params, {
-			filesystem: mapFilesystem(opened.filesystem),
-			operation: opened.operation,
-			maxDepth,
-			maxEntries: 100_000,
-			maxSearchBytes,
-		});
-	} finally {
 		opened.dispose();
 		host.dispose();
 	}

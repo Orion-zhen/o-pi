@@ -71,6 +71,7 @@ for (const mode of ["web", "desktop"] as const) {
 			const panel = page.getByRole("dialog");
 			await expect(panel.locator('.tool-selection-children [data-tool-option="find"]')).toBeVisible();
 			await expect(panel.locator('.tool-selection > [data-tool-option="skill"]')).toBeVisible();
+			await expect(panel.getByRole("checkbox", { name: "subagent", exact: true })).toBeDisabled();
 			await expect(panel.locator('[data-tool-option="script_probe"] [role="checkbox"]')).toHaveCount(0);
 			const codemodeCount = await panel.locator('[role="checkbox"][aria-checked="true"]:not([aria-label="codemode"])').count()
 				+ await panel.locator(".tool-callable-state").count();
@@ -119,7 +120,7 @@ for (const mode of ["web", "desktop"] as const) {
 			await page.screenshot({ path: info.outputPath("codemode-running.png") });
 			await expect(page.locator(".reply-answer")).toContainText("嵌套验证完成");
 			const request = model.requests.find((request) => Array.isArray(request.messages));
-			expect(request?.tools?.map((tool) => tool.function.name).sort()).toEqual(["codemode", "skill", "subagent"]);
+			expect(request?.tools?.map((tool) => tool.function.name).sort()).toEqual(["codemode", "skill"]);
 			const description = request?.tools?.find((tool) => tool.function.name === "codemode")?.function.description;
 			expect(description).toContain("find(args:");
 			expect(description).not.toContain("Model API");

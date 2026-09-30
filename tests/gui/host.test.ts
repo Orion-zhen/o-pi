@@ -103,6 +103,23 @@ newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("子代理可用状态随 profile 重载更新，选择器与实际声明一致", async () => {
+		const subagent = () => readSnapshot(host).tools.find((tool) => tool.name === "subagent");
+		expect(subagent()).toMatchObject({ available: false, enabled: false });
+		const directory = path.join(temp.path, ".pi", "agent", "agents");
+		await mkdir(directory, { recursive: true });
+		const file = path.join(directory, "reviewer.md");
+		await writeFile(file, "---\nname: reviewer\ndescription: Review code\ntools: read\n---\nReview the requested file.\n");
+		await host.dispatch({ action: "reload" });
+		expect(subagent()).toMatchObject({ available: true });
+		await host.dispatch({ action: "tool", name: "subagent", enabled: true });
+		expect(subagent()).toMatchObject({ available: true, enabled: true });
+		expect(host.runtime.session.getActiveToolNames()).toContain("subagent");
+		await rm(file);
+		await host.dispatch({ action: "reload" });
+		expect(subagent()).toMatchObject({ available: false, enabled: false });
+		expect(host.runtime.session.getActiveToolNames()).not.toContain("subagent");
+	});
 	it("虚拟模型保留选择，响应模型随路由变化并在重载后恢复", async () => {
 		const directory = path.join(temp.path, ".pi", "agent", "extensions");
 		await mkdir(directory, { recursive: true });

@@ -203,13 +203,14 @@ export class GuiExecution {
 	}
 
 	snapshot(): GuiSnapshot {
+		if (!this.toolController) throw new Error("工具选择未绑定。");
 		return collectGuiSnapshot(this.runtime, {
 			canSubmit: !this.changing,
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
 			liveTools: [...this.liveTools.values()], messageDurations: { ...this.messageTiming.durations },
 			history: this.historyTexts, bashOutput: this.bashOutput,
-		}, this.guiHistory, this.payloads, this.mcpTools?.list(this.runtime.session.getActiveToolNames()) ?? []);
+		}, this.guiHistory, this.payloads, this.toolController, this.mcpTools?.list(this.runtime.session.getActiveToolNames()) ?? []);
 	}
 	private schedule(): void {
 		if (!this.timer && !this.disposed) this.timer = setTimeout(() => { this.timer = undefined; this.publish(); }, 0);

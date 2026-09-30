@@ -106,11 +106,59 @@ async function createRuntime(noSkills = true) {
 			diagnostics: services.diagnostics,
 		};
 	}, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
-	await runtime.session.bindExtensions({ mode: "print" });
+	await runtime.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });
 	return runtime;
 }
 
 describe("通过原生 SDK 复用 harness 业务扩展", () => {
+	async function call(host: AgentSessionRuntime, response: ModelResponse) {
+		let next: ModelResponse | undefined = response;
+		reply = () => { const result = next ?? { text: "done" }; next = undefined; return result; };
+		await host.session.prompt("执行文件操作");
+		const result = host.session.messages.findLast((message) => message.role === "toolResult");
+		if (result?.role !== "toolResult") throw new Error("缺少工具结果");
+		return result;
+	}
+
+	it.each([
+		{ tool: "edit", args: { path: "input.txt", edits: [] } },
+		{ tool: "edit", args: { path: "input.txt", edits: [{ old: "SDK fixture" }] } },
+		{ tool: "write", args: { path: "input.txt", content: { value: 1 } } },
+		{ tool: "read", args: { path: "input.txt", lines: "1", pages: "1" } },
+	])("模型传入非法文件参数时拒绝执行：$tool $args", async (response) => {
+		const host = await createRuntime();
+		expect((await call(host, response)).isError).toBe(true);
+		expect(await readFile(path.join(cwd, "input.txt"), "utf8")).toBe("SDK fixture\n");
+	});
+
+	it.each([false, true])("重载后保留已读版本，但拒绝覆盖重载期间的外部修改：%s", async (changed) => {
+		const host = await createRuntime();
+		await call(host, { tool: "read", args: { path: "input.txt" } });
+		if (changed) await writeFile(path.join(cwd, "input.txt"), "external\n");
+		await host.session.reload();
+		const result = await call(host, { tool: "edit", args: {
+			path: "input.txt", edits: [{ old: changed ? "external" : "SDK fixture", new: "updated" }],
+		} });
+		expect(result.isError, JSON.stringify(result.content)).toBe(changed);
+		expect(await readFile(path.join(cwd, "input.txt"), "utf8")).toBe(changed ? "external\n" : "updated\n");
+	});
+
+	it.each(["during", "before", "after"])("只采纳自身 Bash 执行期间的已读文件变化：%s", async (phase) => {
+		const host = await createRuntime();
+		await call(host, { tool: "read", args: { path: "input.txt" } });
+		if (phase === "before") await writeFile(path.join(cwd, "input.txt"), "external\n");
+		await call(host, { tool: "bash", args: { command: "printf 'formatted\\n' > input.txt; printf 'new\\n' > created.txt; exit 3" } });
+		if (phase === "after") await writeFile(path.join(cwd, "input.txt"), "external\n");
+		const result = await call(host, { tool: "edit", args: {
+			path: "input.txt", edits: [{ old: phase === "after" ? "external" : "formatted", new: "updated" }],
+		} });
+		expect(result.isError).toBe(phase !== "during");
+		expect(await readFile(path.join(cwd, "input.txt"), "utf8")).toBe(phase === "during" ? "updated\n" : phase === "after" ? "external\n" : "formatted\n");
+		const unobserved = await call(host, { tool: "edit", args: { path: "created.txt", edits: [{ old: "new", new: "changed" }] } });
+		expect(unobserved.isError).toBe(true);
+		expect(await readFile(path.join(cwd, "created.txt"), "utf8")).toBe("new\n");
+	});
+
 	it.each([true, false])("图片附件及 read 结果统一按模型处理，切换模型不改历史（autoResize：%s）", async (autoResize) => {
 		const canvas = createCanvas(2400, 1200);
 		canvas.getContext("2d").fillRect(0, 0, 2400, 1200);
