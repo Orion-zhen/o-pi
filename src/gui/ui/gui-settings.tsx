@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { IconButton } from "./components/icon-button";
-import { applyEdits, modify } from "jsonc-parser";
+import { editPreference, resetSection, sectionSave, type GuiSection, type ReadyGuiConfig } from "./gui-settings-draft.ts";
 import type { GuiConfigDocument } from "../preferences.ts";
 import type { Send } from "./connection.ts";
 import { Button } from "./components/ui/button";
@@ -16,35 +16,49 @@ import "./gui-settings.css";
 
 type PreferencePath = ["theme"] | ["themeColor"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
 
-export function GuiSettings({ section, document, send, disabled, refresh, restoreFocus }: {
-	section: "appearance" | "interaction" | "desktopWeb";
+export function GuiSettings({ section, document: latest, send, disabled, refresh, restoreFocus, onDirty }: {
+	section: GuiSection;
 	document: GuiConfigDocument | undefined; send: Send; disabled: boolean; refresh: () => Promise<void>; restoreFocus: () => void;
+	onDirty: (id: GuiSection, dirty: boolean) => void;
 }) {
 	const [saving, setSaving] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const localFonts = useLocalFonts();
-	if (!document) return <p role="status">正在读取 GUI 设置…</p>;
-	const save = async (content: string) => {
-		setSaving(true);
+	const [draft, setDraft] = useState<{ base: ReadyGuiConfig; document: ReadyGuiConfig }>();
+	const [error, setError] = useState("");
+	const [status, setStatus] = useState("");
+	const dirty = draft !== undefined && draft.document.content !== draft.base.content;
+	useEffect(() => { onDirty(section, dirty); }, [section, dirty, onDirty]);
+	useEffect(() => () => onDirty(section, false), [section, onDirty]);
+	const document = draft?.document ?? latest;
+	if (!document || !latest) return <p role="status">正在读取 GUI 设置…</p>;
+	const update = (next: ReadyGuiConfig) => {
+		if (document.state !== "ready") return;
+		const base = draft?.base ?? document;
+		setDraft(next.content === base.content ? undefined : { base, document: next });
+		setStatus("");
+	};
+	const save = async () => {
+		if (!draft) return;
+		setSaving(true); setError(""); setStatus("");
 		try {
-			const saved = await send({ action: "saveGuiConfig", original: document.content, content });
-			// HTTP 响应可能早于状态推送，恢复编辑前读回配置，避免下一次保存使用旧原文。
-			if (saved) await refresh();
-			return saved;
+			if (await send({ action: "saveGuiConfig", ...sectionSave(draft.base, draft.document, latest, section) })) {
+				await refresh();
+				setDraft(undefined);
+				setStatus("已保存");
+			} else setError("保存失败，请查看错误通知。草稿已保留。");
 		} finally { setSaving(false); }
 	};
-	const change = (path: PreferencePath, value: string | string[] | number | boolean | undefined) => {
-		const content = document.content || "{}\n";
-		return save(applyEdits(content, modify(content, path, value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
+	const change = async (path: PreferencePath, value: string | string[] | number | boolean | undefined) => {
+		if (document.state !== "ready") return false;
+		update(editPreference(document, path, value));
+		return true;
 	};
 	const reset = () => {
-		let content = document.content || "{}\n";
-		for (const key of ["theme", "themeColor", "fonts", "fontSizes", "sendShortcut", "sessionCache", "desktopWeb"])
-			content = applyEdits(content, modify(content, [key], undefined, {}));
-		void save(content);
+		if (document.state === "ready") update(resetSection(document, section));
 	};
 	const blocked = disabled || saving;
-	return <div className="gui-settings">
+	return <div className="gui-settings module-settings">
 		{document.state === "error" ? <p role="alert">{document.message}</p> : <>
 			{section === "appearance" ? <>
 			<PreferenceRow label="主题" reset={() => change(["theme"], undefined)} disabled={blocked}>
@@ -54,7 +68,7 @@ export function GuiSettings({ section, document, send, disabled, refresh, restor
 				</Select>
 			</PreferenceRow>
 			<PreferenceRow label="主题色" reset={() => change(["themeColor"], undefined)} disabled={blocked}>
-				<ThemeColorPicker value={document.value.themeColor} defaultValue={document.defaults.themeColor} disabled={blocked}
+				<ThemeColorPicker savedValue={latest.state === "ready" ? latest.value.themeColor : document.defaults.themeColor} value={document.value.themeColor} defaultValue={document.defaults.themeColor} disabled={blocked}
 					change={(color) => change(["themeColor"], color === document.defaults.themeColor ? undefined : color)} />
 			</PreferenceRow>
 			{(["ui", "code"] as const).map((kind) => <PreferenceRow key={kind} label={kind === "ui" ? "界面字体" : "代码字体"} reset={() => change(["fonts", kind], undefined)} disabled={blocked}>
@@ -62,7 +76,7 @@ export function GuiSettings({ section, document, send, disabled, refresh, restor
 					onChange={(fonts) => change(["fonts", kind], fonts.length === 0 ? undefined : fonts)} />
 			</PreferenceRow>)}
 			{([ ["ui", "界面字号"], ["chat", "对话字号"], ["code", "代码字号"] ] as const).map(([kind, label]) => <PreferenceRow key={kind} label={label} reset={() => change(["fontSizes", kind], undefined)} disabled={blocked}>
-				<FontSize key={document.value.fontSizes[kind]} label={label} value={document.value.fontSizes[kind]} disabled={blocked} change={(size) => change(["fontSizes", kind], size === document.defaults.fontSizes[kind] ? undefined : size)} />
+				<FontSize label={label} value={document.value.fontSizes[kind]} disabled={blocked} change={(size) => change(["fontSizes", kind], size === document.defaults.fontSizes[kind] ? undefined : size)} />
 			</PreferenceRow>)}
 			<TypographyPreview />
 			</> : section === "desktopWeb" ? <>
@@ -73,11 +87,11 @@ export function GuiSettings({ section, document, send, disabled, refresh, restor
 						onCheckedChange={(value) => void change(["desktopWeb", "enabled"], value === true)} />
 				</PreferenceRow>
 				<PreferenceRow label="监听地址" reset={() => change(["desktopWeb", "host"], undefined)} disabled={blocked}>
-					<WebAddressField key={document.value.desktopWeb.host} label="监听地址" value={document.value.desktopWeb.host} disabled={blocked}
+					<WebAddressField label="监听地址" value={document.value.desktopWeb.host} disabled={blocked}
 						change={(value) => change(["desktopWeb", "host"], value)} />
 				</PreferenceRow>
 				<PreferenceRow label="监听端口" reset={() => change(["desktopWeb", "port"], undefined)} disabled={blocked}>
-					<WebAddressField key={document.value.desktopWeb.port} label="监听端口" value={document.value.desktopWeb.port} disabled={blocked}
+					<WebAddressField label="监听端口" value={document.value.desktopWeb.port} disabled={blocked}
 						change={(value) => change(["desktopWeb", "port"], value)} />
 				</PreferenceRow>
 				<p className="settings-warning">端口范围 0–65535，0 表示自动分配。实际监听地址输出到 Desktop 启动日志。</p>
@@ -89,8 +103,15 @@ export function GuiSettings({ section, document, send, disabled, refresh, restor
 			</PreferenceRow>}
 		</>}
 		<div className="toolbar">
-			<Button variant="outline" size="sm" disabled={blocked} onClick={() => setEditing(true)}>编辑 gui.jsonc</Button>
-			<IconButton label="恢复 GUI 默认设置" disabled={blocked || document.state !== "ready"} onClick={reset}><RotateCcw /></IconButton>
+			<Button variant="outline" size="sm" disabled={blocked || dirty} onClick={() => setEditing(true)}>编辑 gui.jsonc</Button>
+			<IconButton label="恢复本页默认设置" disabled={blocked || document.state !== "ready"} onClick={reset}><RotateCcw /></IconButton>
+		</div>
+		{error && <p role="alert">{error}</p>}{status && <p role="status">{status}</p>}
+		<div className="toolbar module-actions">
+			<Button disabled={blocked || !dirty} onClick={() => void save()}>保存</Button>
+			<Button variant="outline" disabled={blocked || !dirty} onClick={() => { setDraft(undefined); setError(""); setStatus(""); }}>放弃修改</Button>
+			<Button variant="ghost" disabled={blocked || dirty} onClick={() => { setDraft(undefined); setError(""); setStatus(""); void refresh(); }}>重新读取</Button>
+			{dirty && <span role="status">有未保存修改</span>}
 		</div>
 		{editing && <ConfigEditor key={document.path} file="gui.jsonc" content={document.content} send={send} close={() => setEditing(false)} restoreFocus={restoreFocus} />}
 	</div>;
@@ -102,27 +123,29 @@ function PreferenceRow({ label, children, reset, disabled }: { label: string; ch
 
 function FontSize({ label, value, disabled, change }: { label: string; value: number; disabled: boolean; change: (value: number) => void }) {
 	const [draft, setDraft] = useState(String(value));
+	useEffect(() => setDraft(String(value)), [value]);
 	return <div className="font-size-control"><Input aria-label={label} type="number" min={8} max={48} step={0.5} value={draft} disabled={disabled}
-		onChange={(event) => setDraft(event.target.value)} onBlur={(event) => {
-			if (event.target.value && event.target.validity.valid) {
-				const next = Number(event.target.value);
-				if (next !== value) change(next);
-			} else setDraft(String(value));
-		}} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><span>px</span></div>;
+		onChange={(event) => {
+			setDraft(event.target.value);
+			if (event.target.value && event.target.validity.valid) change(Number(event.target.value));
+		}} onBlur={() => setDraft(String(value))} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><span>px</span></div>;
 }
 
 function WebAddressField({ label, value, disabled, change }: {
-	label: string; value: string | number; disabled: boolean; change: (value: string | number) => Promise<boolean>;
+	label: string; value: string | number; disabled: boolean; change: (value: string | number) => void;
 }) {
 	const [text, setText] = useState(String(value));
+	useEffect(() => setText(String(value)), [value]);
 	const numeric = typeof value === "number";
 	return <Input aria-label={label} type={numeric ? "number" : "text"} required
 		min={numeric ? 0 : undefined} max={numeric ? 65535 : undefined} step={numeric ? 1 : undefined}
-		pattern={numeric ? undefined : "\\S+"} value={text} disabled={disabled} onChange={(event) => setText(event.target.value)}
+		pattern={numeric ? undefined : "\\S+"} value={text} disabled={disabled} onChange={(event) => {
+			setText(event.target.value);
+			if (event.target.validity.valid) change(numeric ? Number(event.target.value) : event.target.value);
+		}}
 		onBlur={(event) => {
-			if (!event.target.reportValidity()) { setText(String(value)); return; }
-			const next = numeric ? Number(event.target.value) : event.target.value;
-			if (next !== value) void change(next).then((saved) => { if (!saved) setText(String(value)); });
+			event.target.reportValidity();
+			setText(String(value));
 		}} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />;
 }
 

@@ -41,7 +41,7 @@
 	transition: grid-template-rows var(--motion-layout) var(--motion-ease), opacity var(--motion-normal) var(--motion-ease), visibility var(--motion-layout);
 }
 .collapse-content[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
-.collapse-inner { min-block-size: 0; min-inline-size: 0; overflow: hidden; }
+.collapse-inner { min-block-size: 0; min-inline-size: 0; overflow: clip; }
 .disclosure-trigger { display: flex; align-items: baseline; gap: 0.375rem; max-inline-size: 100%; text-align: start; outline-offset: 0.25rem; }
 .disclosure-chevron { inline-size: 0.875em; block-size: 0.875em; flex-shrink: 0; align-self: center; }
 .disclosure-trigger[data-state="open"] > .disclosure-chevron { transform: rotate(90deg); }

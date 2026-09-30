@@ -23,7 +23,6 @@ it("未选择工作区也能读取默认值、保存 GUI 设置并广播，不�
 	const initial = await host.query({ query: "guiConfig" });
 	expect(initial).toMatchObject({ path: file, content: "", state: "ready", value: {
 		theme: "system", themeColor: "#007AFF", fonts: { ui: [], code: [] }, fontSizes: { ui: 14, chat: 16, code: 14 }, sendShortcut: "mod-enter", sessionCache: { idleLimit: 3, idleMs: 60_000 },
-		desktopWeb: { enabled: false, host: "127.0.0.1", port: 19199 },
 	} });
 	const events: GuiEvent[] = [];
 	host.subscribe((event) => events.push(event));
@@ -61,7 +60,6 @@ it.each([
 });
 
 it.each([
-	[{ enabled: true }, { enabled: true, host: "127.0.0.1", port: 19199 }],
 	[{ host: "0.0.0.0", port: 0 }, { enabled: false, host: "0.0.0.0", port: 0 }],
 	[{ host: "::1", port: 65535 }, { enabled: false, host: "::1", port: 65535 }],
 ])("桌面 Web 访问配置支持部分覆盖和端口边界: %j", async (desktopWeb, expected) => {

@@ -304,7 +304,7 @@ function App() {
 			</Sheet>
 			<AnimatePresence mode="wait">
 			{panel?.kind === "settings" ? <PanelDialog key="settings" ref={panelContent} title="设置" close={() => settingsDirty ? setConfirmSettingsClose(true) : gui.setPanel(undefined)} restoreFocus={restoreFocus}>
-				<Settings onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+				<Settings initialCategory={panel.category} onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
 			</PanelDialog> : panel && snapshot && (
 				<Panel key={panel.kind}
 					ref={panelContent}

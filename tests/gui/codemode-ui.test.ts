@@ -38,6 +38,19 @@ describe("codemode 工具层级", () => {
 		expect(doc.querySelector(".tool-mode-toggle")?.textContent).toContain("2 个可用子工具");
 	});
 
+	it("MCP 脚本工具和延迟工具始终提供会话可见性开关", () => {
+		const mcp: GuiSnapshot["tools"] = [
+			{ name: "mcp__demo__on", description: "Probe", exposure: "codemode", mcp: true, available: true, enabled: true, callable: true },
+			{ name: "mcp__demo__off", description: "Probe", exposure: "deferred", mcp: true, available: true, enabled: false, callable: false },
+		];
+		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
+			snapshot: { tools: [...tools, ...mcp], modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
+		}))).document;
+		expect(doc.querySelector('[aria-label="mcp__demo__on"]')?.getAttribute("aria-checked")).toBe("true");
+		expect(doc.querySelector('[aria-label="mcp__demo__off"]')?.getAttribute("aria-checked")).toBe("false");
+		expect(doc.querySelector('[data-tool-option="mcp__demo__off"]')?.textContent).toContain("当前分支可见性");
+	});
+
 	it("关闭模式恢复平级选择，保留普通工具的勾选", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
 			snapshot: { tools: tools.map((item) => item.name === "codemode" ? { ...item, enabled: false as const } : item), modelTools: ["skill", "read"] },

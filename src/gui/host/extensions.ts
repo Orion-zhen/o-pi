@@ -1,4 +1,5 @@
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import { createGuiMcpExtension, type GuiMcpTools } from "./mcp-tools.ts";
 import { extensions } from "../../harness/extensions.ts";
 import { collectContextStats } from "../../harness/extensions/stats.ts";
 import systemPrompt from "../../harness/extensions/system-prompt.ts";
@@ -24,11 +25,13 @@ export interface GuiExtensionBindings {
 	trackBackground(task: Promise<void>, cancel: () => void): Promise<void>;
 	emit(event: GuiEvent): void;
 	bindTools(controller: ToolSelectionController): void;
+	bindMcp(tools: GuiMcpTools): void;
+	toolsChanged(): void;
 	commandSignal(): AbortSignal;
 	reports: GuiReports;
 }
 
-export function createGuiExtensions({ dialogs, emit, bindTools, commandSignal, reports, approvalStores, approvalRules, trackBackground }: GuiExtensionBindings): InlineExtension[] {
+export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, toolsChanged, commandSignal, reports, approvalStores, approvalRules, trackBackground }: GuiExtensionBindings): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "auto-title", factory: (pi) => autoTitle(pi, trackBackground) },
 		{ name: "approval-gate", factory: (pi) => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }, createApprovalGate(approvalStores, approvalRules)) },
@@ -85,5 +88,12 @@ export function createGuiExtensions({ dialogs, emit, bindTools, commandSignal, r
 			}, bindTools),
 		},
 	];
-	return extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension);
+	return [
+		...extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension),
+		{ name: "mcp", builtin: true, factory: createGuiMcpExtension({
+			bind: bindMcp, changed: toolsChanged,
+			openUrl: (url) => emit({ type: "auth", value: { type: "auth_url", url } }),
+			showConfig: () => emit({ type: "panel", panel: { kind: "settings", category: "mcp" } }),
+		}) },
+	];
 }

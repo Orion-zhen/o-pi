@@ -17,6 +17,7 @@ import { GuiReports } from "./reports.ts";
 import { GuiPayloads } from "./payloads.ts";
 import { GuiHistory } from "./history.ts";
 import { nestedMutation, NESTED_MUTATION_ENTRY } from "./nested-mutations.ts";
+import type { GuiMcpTools } from "./mcp-tools.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -47,7 +48,9 @@ export class GuiExecution {
 	private tasks = new Set<Promise<unknown>>();
 	private background = new Set<() => void>();
 	private toolController: ToolSelectionController | undefined;
+	private mcpTools: GuiMcpTools | undefined;
 	private loginController: AbortController | undefined;
+	private mcpLoggingIn = false;
 	private origin = new AsyncLocalStorage<SessionClient>();
 	private reports = new GuiReports(
 		(event) => this.emit(event),
@@ -114,6 +117,8 @@ export class GuiExecution {
 					dialogs: this.dialogs,
 					emit: (event) => this.emit(event),
 					bindTools: (controller) => { this.toolController = controller; },
+					bindMcp: (tools) => { this.mcpTools = tools; },
+					toolsChanged: () => this.schedule(),
 					commandSignal: () => this.commandController.signal,
 					reports: this.reports,
 					approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
@@ -204,7 +209,7 @@ export class GuiExecution {
 			commandRunning: this.preparing > 0,
 			liveTools: [...this.liveTools.values()], messageDurations: { ...this.messageTiming.durations },
 			history: this.historyTexts, bashOutput: this.bashOutput,
-		}, this.guiHistory, this.payloads);
+		}, this.guiHistory, this.payloads, this.mcpTools?.list(this.runtime.session.getActiveToolNames()) ?? []);
 	}
 	private schedule(): void {
 		if (!this.timer && !this.disposed) this.timer = setTimeout(() => { this.timer = undefined; this.publish(); }, 0);
@@ -260,7 +265,7 @@ export class GuiExecution {
 			case "dialog": this.dialogs.respond(action.id, action.value); return;
 			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
 			case "draft": client.writeDraft(action.text); return;
-			case "cancelLogin": this.loginController?.abort(); return;
+			case "cancelLogin": this.loginController?.abort(); if (this.mcpLoggingIn) this.dialogs.cancel(); return;
 			case "abort":
 				this.dialogs.cancel();
 				this.commandController.abort();
@@ -315,6 +320,8 @@ export class GuiExecution {
 		this.publish();
 		if (await runBuiltin(this, action.text, (next) => client.dispatch(next))) return;
 		this.preparing++;
+		const mcpLogin = /^\/mcp\s+login(?:\s|$)/.test(action.text);
+		if (mcpLogin) this.mcpLoggingIn = true;
 		this.publish();
 		try {
 			if (action.text.startsWith("!")) {
@@ -331,6 +338,7 @@ export class GuiExecution {
 				});
 			}
 		} finally {
+			if (mcpLogin) { this.mcpLoggingIn = false; this.emit({ type: "auth", value: null }); }
 			this.bashOutput = "";
 			this.preparing--;
 			this.refreshSessions();
@@ -366,7 +374,9 @@ export class GuiExecution {
 			case "tool":
 			case "persistTools":
 				if (!this.toolController) throw new Error("工具选择未绑定。");
-				if (action.action === "tool") this.toolController.set(action.name, action.enabled);
+				if (action.action === "tool") {
+					if (!this.mcpTools?.set(action.name, action.enabled)) this.toolController.set(action.name, action.enabled);
+				}
 				else this.dialogs.notify(`已保存: ${await this.toolController.persistUserDefaults()}`);
 				break;
 			case "saveConfig":

@@ -23,22 +23,24 @@ export function useGuiActions(dispatch: (action: GuiAction) => Promise<void>, re
 		if (url) { setAuthUrl(url); void browser.open(url).catch((error: unknown) => reportError(String(error))); }
 	};
 	const send: Send = useCallback(async (action) => {
-		if (action.action === "login") {
+		const mcpLogin = action.action === "prompt" && /^\/mcp\s+login(?:\s|$)/.test(action.text);
+		const login = action.action === "login" || mcpLogin;
+		if (login) {
 			if (pending.current) return false;
 			pending.current = true;
 		}
 		try {
-			if (action.action === "login" && action.type === "oauth") {
+			if (mcpLogin || action.action === "login" && action.type === "oauth") {
 				closePanel(); setAuthUrl(undefined); setDeviceCode(undefined); browser.prepare();
 			}
 			if (action.action === "dialog" && action.value !== null) browser.resume();
 			await dispatch(action);
 			return true;
 		} catch (error) {
-			if (action.action === "login") finish();
+			if (login) finish();
 			reportError(error instanceof Error ? error.message : String(error));
 			return false;
-		} finally { if (action.action === "login") pending.current = false; }
+		} finally { if (login) { pending.current = false; finish(); } }
 	}, [dispatch, browser, finish, closePanel, reportError]);
 	return { auth, authUrl, deviceCode, receive, send, finish };
 }

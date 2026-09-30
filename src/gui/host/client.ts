@@ -11,6 +11,7 @@ import type { GuiExecution, SessionClient } from "./execution.ts";
 import { GuiChannel } from "./channel.ts";
 import { readGuiConfig, saveGuiConfig } from "./preferences.ts";
 import { readModuleConfig, saveModuleConfig } from "./module-config.ts";
+import { readMcpConfig, saveMcpConfig } from "./mcp-config.ts";
 import { listDirectories } from "./directories.ts";
 import { importSession } from "./files.ts";
 
@@ -215,6 +216,7 @@ export class GuiClient {
 				}
 				return;
 			}
+			case "saveMcpConfig": await saveMcpConfig(action.original, action.content); return;
 			case "saveModuleConfig": await saveModuleConfig(action.id, action.original, action.content); return;
 			case "saveGuiConfig": this.host.applyGuiConfig(await saveGuiConfig(action.original, action.content)); return;
 			case "startupChangelog": await this.host.changelog.finish(this.id, action.shown); return;
@@ -262,6 +264,7 @@ export class GuiClient {
 		if (!validateQuery(value)) throw new Error("无效 GUI 查询参数。");
 		if (this.closed) throw new Error("客户端已断开。");
 		const query = value as GuiQuery;
+		if (query.query === "mcpConfig") return readMcpConfig();
 		if (query.query === "guiConfig") return readGuiConfig();
 		if (query.query === "startupChangelog") return this.host.changelog.read(this.id, this.host.workspaceRoot);
 		if (query.query === "moduleConfig") return readModuleConfig(query.id);

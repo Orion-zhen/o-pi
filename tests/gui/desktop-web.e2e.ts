@@ -58,6 +58,7 @@ test("默认不监听，在设置中开启后必须重启，关闭后也在重�
 	await expect(enabled).not.toBeChecked();
 	await enabled.click();
 	await expect(enabled).toBeChecked();
+	await desktop.getByRole("button", { name: "保存", exact: true }).click();
 	await expect.poll(() => desktop.evaluate(async () => {
 		const document = await window.opi?.query({ query: "guiConfig" }, null);
 		return document?.state === "ready" && document.value.desktopWeb.enabled;
@@ -73,6 +74,7 @@ test("默认不监听，在设置中开启后必须重启，关闭后也在重�
 	const restartedEnabled = restarted.getByRole("checkbox", { name: "启用 Web 访问", exact: true });
 	await restartedEnabled.click();
 	await expect(restartedEnabled).not.toBeChecked();
+	await restarted.getByRole("button", { name: "保存", exact: true }).click();
 	await expect.poll(() => restarted.evaluate(async () => {
 		const document = await window.opi?.query({ query: "guiConfig" }, null);
 		return document?.state === "ready" && document.value.desktopWeb.enabled;

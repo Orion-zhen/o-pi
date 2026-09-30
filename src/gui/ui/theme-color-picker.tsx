@@ -9,7 +9,7 @@ import { fromHsl, hex, toHex, toHsl, type Hsl } from "./theme/color.ts";
 import "./theme-color-picker.css";
 
 const presets = ["#8E8E93", "#FF3B30", "#FF9500", "#FFCC00", "#34C759", "#00C7BE", "#30B0C7", "#32ADE6", "#007AFF", "#5856D6", "#AF52DE", "#FF2D55"];
-type Props = { value: string; defaultValue: string; disabled: boolean; change: (color: string) => Promise<boolean> };
+type Props = { savedValue: string; value: string; defaultValue: string; disabled: boolean; change: (color: string) => Promise<boolean> };
 
 export function ThemeColorPicker(props: Props) {
 	return <Popover><PopoverTrigger asChild>
@@ -21,7 +21,7 @@ export function ThemeColorPicker(props: Props) {
 	</PopoverContent></Popover>;
 }
 
-function ThemeColorEditor({ value, defaultValue, disabled, change }: Props) {
+function ThemeColorEditor({ savedValue, value, defaultValue, disabled, change }: Props) {
 	const [hsl, setHsl] = useState<Hsl>(() => toHsl(hex(value)));
 	const [draft, setDraft] = useState(value.toUpperCase());
 	const saving = useRef(false);
@@ -32,8 +32,8 @@ function ThemeColorEditor({ value, defaultValue, disabled, change }: Props) {
 	}, [value]);
 	useLayoutEffect(() => {
 		applyThemeColor(color);
-		return () => applyThemeColor(value);
-	}, [color, value]);
+		return () => applyThemeColor(savedValue);
+	}, [color, savedValue]);
 	const preview = (next: Hsl) => { setHsl(next); setDraft(toHex(fromHsl(next))); };
 	const save = async (next: string) => {
 		if (disabled || saving.current || next === value.toUpperCase()) return;

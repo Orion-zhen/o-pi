@@ -36,8 +36,8 @@ export function ToolSelection({ snapshot, send, disabled }: { snapshot: Pick<Gui
 }
 
 function ToolChoice({ tool, send, disabled, nested }: { tool: Tool; send: Send; disabled: boolean; nested: boolean }) {
-	const alwaysCallable = nested && (tool.exposure === "codemode" || tool.exposure === "deferred");
-	const description = <span><strong>{tool.name}</strong><small>{tool.description}</small></span>;
+	const alwaysCallable = nested && !tool.mcp && (tool.exposure === "codemode" || tool.exposure === "deferred");
+	const description = <span><strong>{tool.name}</strong><small>{tool.mcp ? `MCP · 当前分支可见性。${tool.description}` : tool.description}</small></span>;
 	if (alwaysCallable) return <div className="list-row" data-tool-option={tool.name}>
 		<Check className="tool-callable-icon" aria-hidden="true" />{description}
 		<small className="tool-callable-state">{tool.callable ? "可调用" : "不可调用"}{tool.exposure === "deferred" && " · 按需发现"}</small>
