@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createWorkspaceNamespace } from "../../../src/harness/filesystem/kernel/namespace.ts";
 import { GitTrackedFilesLoader } from "../../../src/harness/filesystem/services/visibility/git-tracked-files.ts";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { createVisibilityPolicy } from "./policy-fixture.ts";
 import { WorkspaceVisibilityService } from "../../../src/harness/filesystem/services/visibility/service.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 import { expectFsOk } from "./fixtures.ts";

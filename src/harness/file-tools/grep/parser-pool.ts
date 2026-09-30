@@ -2,20 +2,10 @@ import { analyzeCodeFile } from "../../code-index/parser.ts";
 import type { AnalyzedFileIndex } from "../../code-index/types.ts";
 import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.ts";
 import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.ts";
-import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.ts";
+import { WorkerTaskAbortedError, WorkerTaskPool } from "../../worker-runtime/worker-task-pool.ts";
 
 const GREP_CONCURRENCY = DEFAULT_WORKER_CONCURRENCY;
 const GREP_PARSER_BATCH_SIZE = 32;
-
-interface GrepParseWorkload {
-	fileCount: number;
-	totalBytes: number;
-	maxFileBytes: number;
-}
-
-interface OffloadDecisionOptions {
-	workerWarm?: boolean;
-}
 
 export interface GrepParseFile {
 	readonly path: string;
@@ -31,14 +21,19 @@ const TRANSFER_BYTES_PER_MS = 100_000;
 const COLD_WORKER_START_MS = 105;
 const WARM_WORKER_START_MS = 3;
 
-function shouldOffloadGrepParsing(workload: GrepParseWorkload, options: OffloadDecisionOptions = {}): boolean {
-	if (workload.fileCount <= 0 || workload.totalBytes <= 0) return false;
-	if (workload.maxFileBytes >= MAIN_THREAD_MAX_PARSE_BYTES) return true;
-	const workers = Math.min(GREP_CONCURRENCY, Math.ceil(workload.fileCount / GREP_PARSER_BATCH_SIZE));
+function shouldOffloadGrepParsing(files: readonly GrepParseFile[], workerWarm: boolean): boolean {
+	let totalBytes = 0;
+	for (const file of files) {
+		const bytes = Buffer.byteLength(file.text);
+		if (bytes >= MAIN_THREAD_MAX_PARSE_BYTES) return true;
+		totalBytes += bytes;
+	}
+	if (totalBytes === 0) return false;
+	const workers = Math.min(GREP_CONCURRENCY, Math.ceil(files.length / GREP_PARSER_BATCH_SIZE));
 	if (workers <= 1) return false;
-	const localMs = workload.fileCount * LOCAL_FILE_COST_MS + workload.totalBytes / LOCAL_BYTES_PER_MS;
-	const transferMs = workload.fileCount * TRANSFER_FILE_COST_MS + workload.totalBytes / TRANSFER_BYTES_PER_MS;
-	const startupMs = options.workerWarm === true ? WARM_WORKER_START_MS : COLD_WORKER_START_MS;
+	const localMs = files.length * LOCAL_FILE_COST_MS + totalBytes / LOCAL_BYTES_PER_MS;
+	const transferMs = files.length * TRANSFER_FILE_COST_MS + totalBytes / TRANSFER_BYTES_PER_MS;
+	const startupMs = workerWarm ? WARM_WORKER_START_MS : COLD_WORKER_START_MS;
 	return startupMs + localMs / workers + transferMs < localMs;
 }
 
@@ -49,11 +44,13 @@ export class GrepParser {
 
 	async analyzeFiles(files: readonly GrepParseFile[], signal: AbortSignal | undefined): Promise<AnalyzedFileIndex[]> {
 		if (this.disposed || signal?.aborted === true) throw new AbortGrepParse();
-		const workload = parseWorkload(files);
-		const offload = shouldOffloadGrepParsing(workload, { workerWarm: this.pool !== undefined });
-		if (!offload) return await analyzeLocally(files, signal);
+		if (!shouldOffloadGrepParsing(files, this.pool !== undefined)) return await analyzeLocally(files, signal);
 		try {
-			this.pool ??= createGrepParserPool();
+			this.pool ??= new WorkerTaskPool({
+				workerLimit: GREP_CONCURRENCY,
+				createWorker: () => createTypeScriptWorker(new URL("./parser-worker.ts", import.meta.url)),
+				workerName: "grep parser",
+			});
 			const pool = this.pool;
 			const batches = chunk(files, GREP_PARSER_BATCH_SIZE);
 			return (await Promise.all(batches.map((batch) => pool.run(batch, signal)))).flat();
@@ -93,39 +90,8 @@ async function analyzeLocally(files: readonly GrepParseFile[], signal?: AbortSig
 	}
 }
 
-function createGrepParserPool(): GrepParserWorkerPool {
-	return new WorkerTaskPool<GrepParseFile[], AnalyzedFileIndex[]>({
-		workerLimit: GREP_CONCURRENCY,
-		createWorker: () => createTypeScriptWorker(new URL("./parser-worker.ts", import.meta.url)),
-		workerName: "grep parser",
-		requestForTask: (id, files) => ({ id, files }),
-		decodeResponse: decodeGrepParserResponse,
-	});
-}
-
-function decodeGrepParserResponse(message: unknown): WorkerTaskResponse<AnalyzedFileIndex[]> | undefined {
-	if (!isRecord(message) || typeof message.id !== "number") return undefined;
-	if (Array.isArray(message.results)) return { id: message.id, result: message.results as AnalyzedFileIndex[] };
-	return typeof message.error === "string" ? { id: message.id, error: message.error } : undefined;
-}
-
 function isAborted(signal: AbortSignal | undefined): boolean {
 	return signal?.aborted === true;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function parseWorkload(files: readonly GrepParseFile[]): GrepParseWorkload {
-	let totalBytes = 0;
-	let maxFileBytes = 0;
-	for (const file of files) {
-		const bytes = Buffer.byteLength(file.text);
-		totalBytes += bytes;
-		maxFileBytes = Math.max(maxFileBytes, bytes);
-	}
-	return { fileCount: files.length, totalBytes, maxFileBytes };
 }
 
 function chunk<T>(values: readonly T[], size: number): T[][] {

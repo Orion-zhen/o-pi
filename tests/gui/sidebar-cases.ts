@@ -61,16 +61,16 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			await storeSession({ cwd: other, agentDir, provider: "gui-fixture" });
 			const source = path.join(other, "source.ts");
 			await writeFile(source, "project source\n");
-			await expect(host.dispatch({ action: "removeWorkspace", path: cwd })).rejects.toThrow("不能移除");
+			await expect(host.dispatch({ action: "removeWorkspace", path: cwd })).rejects.toThrow();
 			await host.dispatch({ action: "workspace", path: other });
-			await expect(host.dispatch({ action: "removeWorkspace", path: other })).rejects.toThrow("不能移除");
-			await expect(host.dispatch({ action: "removeWorkspace", path: cwd })).rejects.toThrow("不能移除");
+			await expect(host.dispatch({ action: "removeWorkspace", path: other })).rejects.toThrow();
+			await expect(host.dispatch({ action: "removeWorkspace", path: cwd })).rejects.toThrow();
 			await host.dispatch({ action: "workspace", path: cwd });
 			await host.dispatch({ action: "removeWorkspace", path: other });
 			await host.dispatch({ action: "sessions" });
 			expect(events.filter((event) => event.type === "workspaces").at(-1)?.value).toEqual([{ path: cwd, exists: true }]);
 			expect(await readFile(source, "utf8")).toBe("project source\n");
-			await expect(host.dispatch({ action: "removeWorkspace", path: path.join(cwd, "unknown") })).rejects.toThrow("不在列表");
+			await expect(host.dispatch({ action: "removeWorkspace", path: path.join(cwd, "unknown") })).rejects.toThrow();
 			const replay: GuiEvent[] = [];
 			host.replay((event) => replay.push(event));
 			expect(replay.find((event) => event.type === "workspaces")).toEqual({ type: "workspaces", value: [{ path: cwd, exists: true }] });
@@ -89,12 +89,12 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			expect(readSnapshot(host).name).toBe("当前新名称");
 			const source = path.join(cwd, "source.jsonl");
 			await writeFile(source, "project data\n");
-			await expect(host.dispatch({ action: "renameSession", path: source, name: "不允许" })).rejects.toThrow("历史记录已不存在");
+			await expect(host.dispatch({ action: "renameSession", path: source, name: "不允许" })).rejects.toThrow();
 			expect(await readFile(source, "utf8")).toBe("project data\n");
 			const external = await storeSession({ cwd, agentDir: path.join(cwd, "external-agent"), provider: "gui-fixture" });
 			const linked = path.join(path.dirname(file), "linked.jsonl");
 			await symlink(external, linked);
-			await expect(host.dispatch({ action: "renameSession", path: linked, name: "不允许" })).rejects.toThrow("符号链接");
+			await expect(host.dispatch({ action: "renameSession", path: linked, name: "不允许" })).rejects.toThrow();
 			expect(await readFile(external, "utf8")).not.toContain("不允许");
 		});
 

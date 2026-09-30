@@ -13,7 +13,7 @@ import type { WorkspaceFileSystem } from "../../../src/harness/filesystem/contra
 import { WorkspaceContentService } from "../../../src/harness/filesystem/services/content.ts";
 import { WorkspaceDiscoveryService } from "../../../src/harness/filesystem/services/discovery.ts";
 import { WorkspaceMetadataService } from "../../../src/harness/filesystem/services/metadata.ts";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { createVisibilityPolicy } from "./policy-fixture.ts";
 import { WorkspaceVisibilityService } from "../../../src/harness/filesystem/services/visibility/service.ts";
 
 export interface OpenedReadonly {

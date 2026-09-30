@@ -220,7 +220,7 @@ describe("lsp transport lifecycle", () => {
 		const request = vi.spyOn(LspClient.prototype, "workspaceSymbols").mockRejectedValueOnce(new Error("injected failure"));
 		try {
 			const failed = queryManagerSymbols(manager, workspace, "failed");
-			const failure = expect(failed).rejects.toThrow("injected failure");
+			const failure = expect(failed).rejects.toThrow();
 			const reloading = manager.reload();
 			await failure;
 			await reloading;

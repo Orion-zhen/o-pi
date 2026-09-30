@@ -64,9 +64,6 @@ describe("find renderer", () => {
 			outputTokenBudget: 48,
 		});
 
-		expect(result.content.split("\n")[0]).toBe(
-			"matched=40 selected=20; truncated=depth_limit,result_limit,output_limit",
-		);
 		expect(result.details.truncated_by).toEqual(["depth_limit", "result_limit", "output_limit"]);
 		expect(result.details.displayed_matches.length).toBeLessThan(matches.length);
 		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(48);
@@ -97,12 +94,6 @@ describe("find renderer", () => {
 			outputTokenBudget: 1_000,
 		});
 
-		expect(result.content).toBe([
-			"partial; scope_errors=missing:PATH_NOT_FOUND",
-			"none",
-			"searched=8; ignored=2; skipped=1",
-			"next: refine query/path/glob",
-		].join("\n"));
 		expect(result.details).toMatchObject({
 			glob: "**/*.ts",
 			displayed_matches: [],

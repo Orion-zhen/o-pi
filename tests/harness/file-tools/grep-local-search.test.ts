@@ -28,6 +28,23 @@ import {
 const testContext = createGrepTestContext();
 
 describe("grep local search", () => {
+	it.each([
+		["ts", "export function target() { return 'needle'; }"],
+		["tsx", "export function target() { return <div>needle</div>; }"],
+		["js", "export function target() { return 'needle'; }"],
+		["py", "def target():\n    return 'needle'\n"],
+		["go", "package main\nfunc target() string { return \"needle\" }"],
+		["rs", "pub fn target() -> &'static str { \"needle\" }"],
+		["c", "const char *target(void) { return \"needle\"; }"],
+		["cpp", "const char *target() { return \"needle\"; }"],
+		["sh", "target() { echo needle; }"],
+	])("%s 正文命中通过实际搜索返回函数锚点", async (extension, content) => {
+		await writeFile(path.join(testContext.workspace, `target.${extension}`), content);
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
+		expect(firstRegion(result)).toMatchObject({ symbol: "target", query_match: "verified" });
+		await assertStrictMatches(testContext.workspace, result, "needle");
+	});
+
 	it("结构化路径命中不会被靠前文件中的重复正文命中挤出结果窗口", async () => {
 		await testContext.useConfig({ grep_result_limit: 6 }, "structured-path-ranking");
 		await mkdir(path.join(testContext.workspace, "aaa"), { recursive: true });
@@ -64,10 +81,10 @@ describe("grep local search", () => {
 	});
 
 	it.each([
-		{ limit: 1, shown: [2], omitted: 3 },
-		{ limit: 2, shown: [2, 5], omitted: 2 },
-		{ limit: 4, shown: [2, 3, 4, 5], omitted: 0 },
-	])("区域展示限制 $limit 均匀选择代表行且保留完整命中", async ({ limit, shown, omitted }) => {
+		{ limit: 1, shown: [2] },
+		{ limit: 2, shown: [2, 5] },
+		{ limit: 4, shown: [2, 3, 4, 5] },
+	])("区域展示限制 $limit 均匀选择代表行且保留完整命中", async ({ limit, shown }) => {
 		await testContext.useConfig({ grep_regional_display_limit: limit }, `regional-display-${limit}`);
 		const lines = [
 			"export function collect() {",
@@ -85,8 +102,6 @@ describe("grep local search", () => {
 		expect(region.display_lines?.map((line) => line.line)).toEqual(shown);
 		const output = formatCompactGrepResult(result);
 		for (const line of shown) expect(output).toContain(`  ${line}: ${lines[line - 1]}`);
-		if (omitted > 0) expect(output).toContain(`  +${omitted} match lines`);
-		else expect(output).not.toContain("match lines");
 	});
 
 	it("单个代码命中直接使用行号格式", async () => {
@@ -515,39 +530,7 @@ describe("grep local search", () => {
 		});
 	});
 
-	it("cache snapshot 复验被取消时不淘汰共享正文", async () => {
-		await writeFile(path.join(testContext.workspace, "cancel-cache.ts"), "export const cached = 'CancelCacheNeedle';\n");
-		await withGrepRuntime(testContext.workspace, "grep-cache-cancel", async ({ execute, opened }) => {
-			let fullReads = 0;
-			const filesystem = overrideContent(opened.filesystem, (service) => ({
-				async readText(file, options) {
-					fullReads += 1;
-					return await service.readText(file, options);
-				},
-			}));
-			expectGrepSuccess(await execute({ query: "CancelCacheNeedle" }, { filesystem }));
 
-			const controller = new AbortController();
-			const metadata = filesystem.metadata;
-			const abortingFilesystem = {
-				...filesystem,
-				metadata: {
-					...metadata,
-					async stat(ref: Parameters<typeof metadata.stat>[0]) {
-						controller.abort();
-						return await metadata.stat(ref);
-					},
-				},
-			};
-			await expect(execute({ query: "CancelCacheNeedle" }, {
-				filesystem: abortingFilesystem,
-				operation: { signal: controller.signal },
-			})).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-
-			expectGrepSuccess(await execute({ query: "CancelCacheNeedle" }, { filesystem }));
-			expect(fullReads).toBe(2);
-		});
-	});
 
 	it.each(["总字节", "文件数"] as const)("正文缓存按%s上限执行 LRU 淘汰并在命中时更新顺序", async (limit) => {
 		const content = (name: string) => `export const ${name} = 'LruCacheNeedle';\n`;

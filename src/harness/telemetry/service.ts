@@ -26,12 +26,11 @@ import type {
 	CallBatch,
 	CallRecord,
 	Fields,
-	GitRevision,
 	RunRecord,
 	TelemetryFacts,
 	TelemetryRecord,
 } from "./types.ts";
-import type { TelemetryWriter } from "./writer.ts";
+import type { JsonlTelemetryWriter as TelemetryWriter } from "./writer.ts";
 import { attachTelemetryService } from "./pi-adapter.ts";
 
 export type TelemetryPi = Pick<ExtensionAPI, "events" | "getAllTools" | "getThinkingLevel" | "on">;
@@ -99,16 +98,8 @@ export interface TelemetryServiceSnapshot {
 	records: TelemetryRecord[];
 }
 
-export interface TelemetryServiceOptions {
-	now?: () => Date;
-	monotonicNow?: () => number;
-	runId?: () => string;
-	revision?: (cwd: string) => Promise<GitRevision | undefined>;
-	writerFactory?: (runId: string, onError: (error: unknown) => void) => Promise<TelemetryWriter>;
-}
-
-export function registerTelemetry(pi: TelemetryPi, options: TelemetryServiceOptions = {}): TelemetryService {
-	const service = new TelemetryService(pi, options);
+export function registerTelemetry(pi: TelemetryPi): TelemetryService {
+	const service = new TelemetryService(pi);
 	pi.events.on(TELEMETRY_TOOL_CHANNEL, (value) => service.registerTool(telemetryToolRegistration(value)));
 	pi.events.on(TELEMETRY_REPAIR_CHANNEL, (value) => service.prepared(repairObservation(value)));
 	attachTelemetryService(pi, service);
@@ -117,11 +108,6 @@ export function registerTelemetry(pi: TelemetryPi, options: TelemetryServiceOpti
 }
 
 export class TelemetryService {
-	readonly #now: () => Date;
-	readonly #monotonicNow: () => number;
-	readonly #runId: () => string;
-	readonly #captureRevision: (cwd: string) => Promise<GitRevision | undefined>;
-	readonly #writerFactory: NonNullable<TelemetryServiceOptions["writerFactory"]>;
 	readonly #tools = new Map<string, ToolState>();
 	readonly #pending = new Map<string, PendingCall>();
 	readonly #declaredBatches = new Map<string, CallBatch>();
@@ -131,13 +117,7 @@ export class TelemetryService {
 	#turn: TurnContext | undefined;
 	#nextCallIndex = 0;
 
-	constructor(private readonly pi: Pick<TelemetryPi, "getAllTools" | "getThinkingLevel">, options: TelemetryServiceOptions = {}) {
-		this.#now = options.now ?? (() => new Date());
-		this.#monotonicNow = options.monotonicNow ?? (() => performance.now());
-		this.#runId = options.runId ?? randomUUID;
-		this.#captureRevision = options.revision ?? (async (cwd) => (await import("./revision.ts")).captureGitRevision(cwd));
-		this.#writerFactory = options.writerFactory ?? (async (runId, onError) => (await import("./writer.ts")).JsonlTelemetryWriter.open(runId, { onError }));
-	}
+	constructor(private readonly pi: Pick<TelemetryPi, "getAllTools" | "getThinkingLevel">) {}
 
 	registerTool(registration: TelemetryToolRegistration): void {
 		this.#tools.set(registration.definition.name, registration);
@@ -157,12 +137,12 @@ export class TelemetryService {
 	onSessionStart(event: SessionStartEvent, context: TelemetrySessionContext): void {
 		const previous = this.#run;
 		this.resetRunState();
-		const runId = this.#runId();
+		const runId = randomUUID();
 		const sessionId = context.sessionId;
 		const header = {
 			type: "run",
 			run_id: runId,
-			at: this.#now().toISOString(),
+			at: new Date().toISOString(),
 			session_id: sessionId,
 			reason: event.reason,
 			cwd: context.cwd,
@@ -221,8 +201,8 @@ export class TelemetryService {
 			tool: event.toolName,
 			...(tool?.definitionHash === undefined ? {} : { definitionHash: tool.definitionHash }),
 			...(this.#turn === undefined ? {} : { turn: this.#turn }),
-			startedAt: this.#now().getTime(),
-			startedMonotonic: this.#monotonicNow(),
+			startedAt: new Date().getTime(),
+			startedMonotonic: performance.now(),
 			rawParams: event.args,
 			params: event.args,
 			inputFacts: {},
@@ -278,7 +258,7 @@ export class TelemetryService {
 			throw new Error(`Telemetry result was not observed before completion: ${call.tool}`);
 		}
 		const facts = mergeFacts(call.inputFacts, call.resultFacts);
-		const ended = this.#now();
+		const ended = new Date();
 		const status = classify(event.isError, facts.fields);
 		const output = outputFacts(event.result);
 		const errorCode = typeof facts.fields?.["error_code"] === "string" ? facts.fields["error_code"] : undefined;
@@ -299,7 +279,7 @@ export class TelemetryService {
 			...(call.definitionHash === undefined ? {} : { definition_hash: call.definitionHash }),
 			started_at: new Date(call.startedAt).toISOString(),
 			ended_at: ended.toISOString(),
-			duration_ms: this.#monotonicNow() - call.startedMonotonic,
+			duration_ms: performance.now() - call.startedMonotonic,
 			status,
 			...(status === "success" ? {} : { error: { ...(errorCode === undefined ? {} : { code: errorCode }) } }),
 			output_chars: output.chars,
@@ -350,12 +330,11 @@ export class TelemetryService {
 	}
 
 	private async initializeRun(run: RunState): Promise<void> {
-		const resources = Promise.all([
-			this.#writerFactory(run.id, () => this.disableRun(run)),
-			this.#captureRevision(run.header.cwd),
-		] as const);
+		let writer: TelemetryWriter | undefined;
 		try {
-			const [writer, git] = await resources;
+			const [{ JsonlTelemetryWriter }, { captureGitRevision }] = await Promise.all([import("./writer.ts"), import("./revision.ts")]);
+			writer = await JsonlTelemetryWriter.open(run.id, () => this.disableRun(run));
+			const git = await captureGitRevision(run.header.cwd);
 			if (!run.enabled) {
 				await writer.close().catch(() => undefined);
 				return;
@@ -372,6 +351,7 @@ export class TelemetryService {
 			run.queued.length = 0;
 		} catch {
 			this.disableRun(run);
+			await writer?.close().catch(() => undefined);
 		}
 	}
 

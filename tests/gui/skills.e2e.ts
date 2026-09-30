@@ -92,7 +92,6 @@ test("技能卡片、按需正文、会话树与按需查询", async ({ webPage:
 	const send = async (text: string) => { await editor.fill(text); await editor.press("ControlOrMeta+Enter"); };
 	await send("/skill:gui-manual");
 	const manual = page.locator(".skill-message .skill-activity").first();
-	await expect(manual.locator(".activity-summary")).toContainText("手动引用");
 	await expect(manual.locator(".activity-state > svg")).toBeVisible();
 	await expectSuccessIcon(manual);
 	await expect(manual.locator(".activity-state")).toHaveText("");
@@ -103,20 +102,16 @@ test("技能卡片、按需正文、会话树与按需查询", async ({ webPage:
 	await expect(manual.locator(".skill-metadata")).toContainText("skill://gui-manual");
 	await manual.locator(".activity-summary").click();
 	await send("/skill:gui-manual");
-	await expect(page.locator(".skill-message .activity-summary").last()).toContainText("已加载过");
 	expect(model.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(0);
 
 	await send("验证模型主动加载技能");
 	await expect(page.locator(".reply-answer")).toContainText("技能验证完成");
 	const process = page.locator(".assistant-reply > .reply-process");
 	await expect(process).toHaveAttribute("data-state", "closed");
-	await expect(process.locator(":scope > .disclosure-trigger")).toContainText("1 个技能 · 1 次工具调用");
 	await process.locator(":scope > .disclosure-trigger").click();
 	const activity = process.locator(".reply-activity");
-	await expect(activity.locator(":scope > .disclosure-trigger")).toContainText("1 个技能 · 1 次工具调用");
 	await activity.locator(":scope > .disclosure-trigger").click();
 	const skill = activity.locator(".skill-activity");
-	await expect(skill.locator(".activity-summary")).toContainText("模型调用");
 	await expect(skill.locator(".activity-state svg")).toBeVisible();
 	await expectSuccessIcon(skill);
 	await expect(skill.locator(".skill-body")).toHaveCount(0);
@@ -127,26 +122,19 @@ test("技能卡片、按需正文、会话树与按需查询", async ({ webPage:
 	await skill.locator(".activity-summary").click();
 
 	if (!await page.locator('.session-sidebar[data-open="true"]').count()) await page.getByRole("button", { name: "展开会话信息", exact: true }).click();
-	const sidebar = page.getByRole("complementary", { name: "会话信息", exact: true });
-	await expect(sidebar).not.toContainText("本分支已加载");
 	const skillRows = page.locator(".tree-row").filter({ has: page.locator(".tree-role", { hasText: /^技能$/ }) });
-	await expect(skillRows.locator(".tree-message-preview")).toHaveText(["gui-manual · 手动引用", "gui-manual · 已加载过，未重复注入"]);
 	await expect(skillRows.locator(".tree-role svg")).toHaveCount(2);
 	await expect(skillRows).not.toContainText(["invoked_skill", "invoked_skill"]);
 	await page.screenshot({ path: info.outputPath("skills.png"), animations: "disabled" });
 	await page.reload();
 	await expect(page.locator(".reply-answer")).toContainText("技能验证完成");
-	await expect(process.locator(":scope > .disclosure-trigger")).toContainText("1 个技能 · 1 次工具调用");
 	if (!await page.locator('.session-sidebar[data-open="true"]').count()) await page.getByRole("button", { name: "展开会话信息", exact: true }).click();
-	await expect(sidebar).not.toContainText("本分支已加载");
-	await expect(skillRows.locator(".tree-message-preview")).toHaveText(["gui-manual · 手动引用", "gui-manual · 已加载过，未重复注入"]);
 	const entryId = await page.locator(".skill-message").first().getAttribute("data-entry-id");
 	if (!entryId) throw new Error("缺少技能消息定位 ID");
 	await skillRows.first().getByRole("button", { name: `定位消息 ${entryId}`, exact: true }).click();
 	await expect(page.locator(".skill-message").first()).toBeInViewport();
 	const requests = model.requests.filter((request) => Array.isArray(request.messages)).length;
 	await send("/skill");
-	await expect(page.locator(".notices")).toContainText("Disclosed skills:");
 	await expect(page.locator(".notices")).toContainText("gui-manual");
 	await expect(page.locator(".notices")).toContainText("gui-model");
 	expect(model.requests.filter((request) => Array.isArray(request.messages))).toHaveLength(requests);

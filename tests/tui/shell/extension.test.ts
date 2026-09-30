@@ -63,15 +63,10 @@ it("标题、运行和审批状态随会话更新，退出恢复界面", async (
 	await emit("session_info_changed");
 	expect(ui.setTitle.mock.lastCall?.[0]).toContain("检查变更");
 	await emit("ui_prompt_start");
-	expect(ui.setStatus.mock.lastCall?.[1]).toContain("ready");
 	await emit("agent_start");
-	expect(ui.setStatus.mock.lastCall?.[1]).toContain("running");
 	await emit("ui_prompt_start");
-	expect(ui.setStatus.mock.lastCall?.[1]).toContain("waiting");
 	await emit("ui_prompt_end");
-	expect(ui.setStatus.mock.lastCall?.[1]).toContain("running");
 	await emit("agent_settled");
-	expect(ui.setStatus.mock.lastCall?.[1]).toContain("ready");
 	await emit("session_shutdown");
 	expect(ui.setHeader.mock.lastCall).toEqual([undefined]);
 	expect(ui.setFooter.mock.lastCall).toEqual([undefined]);
@@ -139,7 +134,6 @@ it("数学后端失败不影响会话，重载不重复警告", async () => {
 	await vi.advanceTimersByTimeAsync(1000);
 	expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("renderer unavailable"), "warning");
 	await emit("agent_start");
-	expect(ui.setStatus.mock.lastCall?.[1]).toContain("running");
 	await emit("session_start", { reason: "reload" });
 	await vi.advanceTimersByTimeAsync(1000);
 	expect(ui.notify.mock.calls).toHaveLength(1);

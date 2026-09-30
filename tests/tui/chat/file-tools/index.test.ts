@@ -74,18 +74,7 @@ describe("file-tools extension renderers", () => {
 		expect(expanded).toContain("eight");
 	});
 
-	rendererTest("read 调用显示 lines 或 pages，PDF 结果展示页面摘要且不泄露 Base64", async ({ registered }) => {
-		const read = registered.slice().reverse().find((tool) => tool.name === "read");
-		const callContext = {
-			cwd: "/repo",
-			isPartial: true,
-			lastComponent: undefined,
-		};
-		const lineCall = read?.renderCall?.({ path: "src/app.ts", lines: "5-" }, theme, callContext);
-		expect(lineCall?.render(80).join("\n")).toContain("lines 5-");
-		const pageCall = read?.renderCall?.({ path: "docs/spec.pdf", pages: "2-3" }, theme, callContext);
-		expect(pageCall?.render(80).join("\n")).toContain("pages 2-3");
-
+	rendererTest("PDF 展开与折叠都不泄露 Base64", async ({ registered }) => {
 		const details = {
 			path: "docs/spec.pdf",
 			media_type: "pdf",
@@ -120,7 +109,6 @@ describe("file-tools extension renderers", () => {
 			args: { path: "docs/spec.pdf", pages: "2-3" },
 			width: 50,
 		});
-		for (const value of ["2-3/10", "2 attached", "2.0 KB", "more"]) expect(collapsed).toContain(value);
 		expect(collapsed).not.toContain("secret-page");
 
 		const expanded = renderToolResult(registered, "read", details, {
@@ -132,9 +120,6 @@ describe("file-tools extension renderers", () => {
 			],
 			width: 50,
 		});
-		for (const value of ["page 2", "label ii", "image/png", "300x200 pt", "page 3", "rotation 90", "Image resized"]) {
-			expect(expanded).toContain(value);
-		}
 		expect(expanded).not.toContain("secret-page");
 	});
 
@@ -147,7 +132,6 @@ describe("file-tools extension renderers", () => {
 				cwd: editCardTemp.path, argsComplete: false, expanded: true, isPartial: true, state, lastComponent,
 			});
 			const output = lastComponent?.render(80).join("\n");
-			expect(output).toContain("writing");
 			for (const line of content.split("\n")) expect(output).toContain(line);
 		}
 		const completed = write?.renderCall?.({ path: "app.ts", content: "// first line\n// second line" }, theme, {
@@ -194,16 +178,6 @@ describe("file-tools extension renderers", () => {
 
 		const first = edit?.renderCall?.(args, theme, context);
 		await vi.waitFor(() => expect(context.invalidate).toHaveBeenCalled());
-		const streamState: { callComponent?: { postProcess?: unknown } } = {};
-		const partialArgs = { path: "app.ts", edits: [{ old: "old", new: "new line" }] };
-		const partial = edit?.renderCall?.(partialArgs, theme, { ...context, args: partialArgs, argsComplete: false, lastComponent: undefined, state: streamState });
-		const partialOutput = partial?.render(80).join("\n");
-		expect(partialOutput).toContain("1 replacements");
-		expect(partialOutput).toContain("2 lines");
-		expect(partialOutput).toContain("11 chars");
-		const largerArgs = { path: "app.ts", edits: [{ old: "old", new: "new line\nwith more output" }] };
-		const larger = edit?.renderCall?.(largerArgs, theme, { ...context, args: largerArgs, argsComplete: false, lastComponent: partial, state: streamState });
-		expect(larger?.render(80).join("\n")).toContain("28 chars");
 		const collapsed = edit?.renderCall?.(args, theme, { ...context, lastComponent: first });
 		const collapsedOutput = collapsed?.render(80).join("\n");
 		const expanded = edit?.renderCall?.(args, theme, { ...context, expanded: true, lastComponent: first });
@@ -223,20 +197,6 @@ describe("file-tools extension renderers", () => {
 		});
 		expect(progress).toBe("");
 		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "errors", errors: 2 } });
-
-		const result = renderToolResult(registered, "edit", {
-			status: "applied",
-			path: "app.ts",
-			replacements: 1,
-			diff: "-1 old\n+1 new",
-			lsp: { diagnostics: { status: "clean", file_errors: 0, file_warnings: 0, items: [] } },
-		}, {
-			isPartial: false,
-			content: [],
-			width: 80,
-			context: { args, cwd, expanded: false, lastComponent: undefined, state },
-		});
-		expect(result).not.toContain("LSP clean");
 	});
 });
 

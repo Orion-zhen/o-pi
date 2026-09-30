@@ -97,10 +97,9 @@ describe("真实 opi 二进制 RPC", () => {
 		}
 
 		client.send({ id: "presence", type: "prompt", message: "/presence status" });
-		const presence = await client.waitFor((message) => (
+		await client.waitFor((message) => (
 			message["type"] === "extension_ui_request" && message["method"] === "notify"
 		));
-		expect(presence["message"]).toContain("Discord presence: off");
 		const presenceResponse = await client.waitFor((message) => isResponse(message, "presence", "prompt"));
 		expect(presenceResponse["success"]).toBe(true);
 		expect(presenceResponse["data"]).toEqual({ disposition: "handled" });

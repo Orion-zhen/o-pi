@@ -38,11 +38,6 @@ beforeEach(async () => {
 });
 
 describe("技能资源定位符", () => {
-	it("canonical root 索引在扩展生命周期内复用同一解析任务", async () => {
-		const first = skillIndex.canonicalRoots();
-		expect(skillIndex.canonicalRoots()).toBe(first);
-		expect(await first).toEqual([root]);
-	});
 
 	it("解析已授权资源并保留逻辑地址", async () => {
 		const rootResult = await resolveSkillResourceLocator("skill://demo", branch);

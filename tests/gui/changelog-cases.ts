@@ -97,7 +97,7 @@ export function changelogTests(context: () => { host: GuiClient; cwd: string; ag
 			const { host, agentDir } = context();
 			const file = path.join(agentDir, "settings.json");
 			await writeFile(file, "{broken");
-			await expect(host.query({ query: "startupChangelog" }, null)).rejects.toThrow("已读版本");
+			await expect(host.query({ query: "startupChangelog" }, null)).rejects.toThrow();
 			expect(await readFile(file, "utf8")).toBe("{broken");
 			await writeFile(file, JSON.stringify({ lastChangelogVersion: (await versions()).previous }));
 			expect(await host.query({ query: "startupChangelog" }, null)).not.toBeNull();

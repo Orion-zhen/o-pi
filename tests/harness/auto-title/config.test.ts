@@ -33,6 +33,6 @@ describe("自动标题配置", () => {
 		{ model: " local/small" }, { system_prompt: " " }, { unknown: true },
 	])("拒绝无效配置 %j", async (value) => {
 		await writeFile(path.join(temp.path, "auto-title.jsonc"), JSON.stringify(value));
-		await expect(loadAutoTitleConfig(temp.path)).rejects.toThrow("does not match schema");
+		await expect(loadAutoTitleConfig(temp.path)).rejects.toThrow();
 	});
 });

@@ -13,7 +13,7 @@ import type { FsResult } from "../../../src/harness/filesystem/contracts/result.
 import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.ts";
 import { FileSystemRuntime, type WorkspaceFileSystemLease } from "../../../src/harness/filesystem/runtime.ts";
 import type { NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { createVisibilityPolicy } from "./policy-fixture.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 import { expectFsOk } from "./fixtures.ts";
 
@@ -49,7 +49,7 @@ export function useMutationFixture(prefix: string) {
 
 	function policy(blockedPaths: readonly string[] = []): FilesystemPolicy {
 		const visibility = createVisibilityPolicy();
-		return { blockedPaths, visibility, fingerprint: JSON.stringify({ blockedPaths, visibility: visibility.fingerprint }) };
+		return { blockedPaths, visibility };
 	}
 
 	function track(runtime: FileSystemRuntime): FileSystemRuntime {

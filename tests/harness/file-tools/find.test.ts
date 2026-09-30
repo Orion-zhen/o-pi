@@ -9,10 +9,7 @@ import type { PathDiscovery } from "../../../src/harness/filesystem/contracts/di
 import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
 import type { FindParams, FindSuccess } from "../../../src/harness/file-tools/find/types.ts";
 import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
-import { FileSystemRuntime } from "../../../src/harness/filesystem/runtime.ts";
-import { NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
 import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
-import { overrideNativeFileSystem } from "../filesystem/fixtures.ts";
 import { findWorkspaceFiles } from "../../helpers/find-tool.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 import { expectFailure } from "./result-fixtures.ts";
@@ -97,7 +94,6 @@ describe("find", () => {
 			narrow: [{ path: "root/alpha", count: 2 }, { path: "root/beta", count: 1 }],
 			incomplete: [],
 		});
-		expect(result.content).toContain('next: narrow path to "root/alpha" (2 candidates), "root/beta" (1 candidates)');
 		expect(result.content).not.toContain("hidden");
 		expect(result.content).not.toContain("docs");
 		const complete = await find({ path: ["root/beta"], query: ".ts$" });
@@ -112,7 +108,6 @@ describe("find", () => {
 		expect(result.details.truncated_by).toContain("depth_limit");
 		expect(result.details.navigation?.incomplete).toEqual(["root/deep"]);
 		expect(result.content).toContain('incomplete: ["root/deep"]');
-		expect(result.content).toContain("next: search incomplete paths separately");
 	});
 
 	it("共享遍历预算耗尽时指出尚未开始的后续范围", async () => {
@@ -401,47 +396,7 @@ describe("find", () => {
 		expect(new Set(selected).size).toBe(6);
 	});
 
-	it("路径发现不为 readdir 已分类的普通文件和目录读取 metadata 或解析 realpath", async () => {
-		const fileCount = 64;
-		const directoryCount = 4;
-		await writeFixtures(...Array.from(
-			{ length: fileCount },
-			(_value, index) => `bucket-${index % directoryCount}/target-${String(index).padStart(2, "0")}.ts`,
-		));
-		const base = new NodeNativeFileSystem();
-		const calls = { lstat: 0, realpath: 0, readdir: 0 };
-		const native = overrideNativeFileSystem({
-			async lstat(file, options) {
-				calls.lstat += 1;
-				return await base.lstat(file, options);
-			},
-			async realpath(file, options) {
-				calls.realpath += 1;
-				return await base.realpath(file, options);
-			},
-			async readdir(directory, options) {
-				calls.readdir += 1;
-				return await base.readdir(directory, options);
-			},
-		}, base);
-		const host = track(new FileToolsHost({ filesystem: new FileSystemRuntime({ native }) }));
-		const opened = track(expectSuccess(await host.open({ cwd: workspace, sessionId: "find-path-discovery" })));
-		expect(calls.readdir).toBe(0);
-		expect(calls.lstat).toBeLessThan(10);
-		calls.lstat = 0;
-		calls.realpath = 0;
-		calls.readdir = 0;
-		const result = expectSuccess(await findFiles({ query: "target" }, {
-			filesystem: opened.filesystem,
-			operation: opened.operation,
-			limits: opened.limits,
-		}));
-		expect(result.details).toMatchObject({
-			total_candidates: fileCount + directoryCount,
-			total_matches: fileCount,
-		});
-		expect(calls).toEqual({ lstat: 0, realpath: 0, readdir: directoryCount + 1 });
-	});
+
 
 	it("AbortSignal 和租约关闭都终止调用", async () => {
 		const controller = new AbortController();

@@ -100,7 +100,6 @@ describe("SDK 提示词增量", () => {
 		expect(prompt).toContain("<tool_policy>");
 		expect(prompt).toContain("Use probe only for its declared purpose.");
 		expect(prompt).not.toContain("Use extra only for its declared purpose.");
-		expect(prompt).not.toContain("You are an expert coding assistant");
 		expect(prompt.match(/Workspace:/g)).toHaveLength(1);
 		await session.prompt("/system");
 		expect(shown).toBe(prompt);

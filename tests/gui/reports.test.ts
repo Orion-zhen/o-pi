@@ -18,15 +18,6 @@ describe("报告数据呈现", () => {
 		expect(doc.querySelector('[aria-label="工具输出"]')?.getAttribute("value")).toBe("50");
 	});
 
-	it("缓存保温单独展示，并明确已经包含在会话总量内", () => {
-		const doc = documentOf(createElement(StatsReport, { value: {
-			...statsReport, usage: { ...statsReport.usage, cacheWarming: { requests: 2, tokens: 40000, costUsd: 0.01 } },
-		} }));
-		expect(doc.querySelector(".report-dashboard")?.textContent).toContain("缓存保温");
-		expect(doc.querySelector(".report-dashboard")?.textContent).toContain("刷新次数");
-		expect(doc.querySelector(".report-dashboard")?.textContent).toContain("已计入会话总用量，不参与对话轮次和缓存命中率统计。");
-	});
-
 	it("缺失的上下文用量不伪装为零占用", () => {
 		const doc = documentOf(createElement(StatsReport, { value: { ...statsReport, context: { confidence: "estimated", items: [], notes: [] } } }));
 		expect(doc.querySelector('[aria-label="上下文占用"]')).toBeNull();

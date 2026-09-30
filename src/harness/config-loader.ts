@@ -90,7 +90,7 @@ export const CONFIG_DEFINITIONS = {
 	webTools: globalConfig("web-tools", "web-tools.jsonc", "PI_WEB_TOOLS_CONFIG"),
 } as const satisfies Record<string, ConfigDefinition>;
 
-export async function readOptionalJsoncConfig<E extends Error>(options: ReadJsoncConfigOptions<E>): Promise<unknown | undefined> {
+async function readOptionalJsoncConfig<E extends Error>(options: ReadJsoncConfigOptions<E>): Promise<unknown | undefined> {
 	let text: string;
 	try {
 		text = await readFile(options.path, "utf8");
@@ -99,16 +99,16 @@ export async function readOptionalJsoncConfig<E extends Error>(options: ReadJson
 		throw options.createError(`${options.label} config cannot be read.`, { path: options.path });
 	}
 
+	return parseConfig(text, options);
+}
+
+function parseConfig<E extends Error>(text: string, options: ReadJsoncConfigOptions<E>): unknown {
 	const errors: ParseError[] = [];
 	const value = parse(stripUtf8Bom(text), errors, { allowTrailingComma: true });
-	if (errors.length > 0) {
-		const first = errors[0];
-		throw options.createError(`${options.label} config is not valid JSONC.`, {
-			path: options.path,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
+	const first = errors[0];
+	if (first) throw options.createError(`${options.label} config is not valid JSONC.`, {
+		path: options.path, error: printParseErrorCode(first.error), offset: first.offset,
+	});
 	return value;
 }
 
@@ -227,32 +227,8 @@ export function readDefaultJsoncConfigSync<E extends Error>(options: ReadDefault
 	} catch {
 		throw options.createError(`${options.label} default config cannot be read.`, { path: options.configPath });
 	}
-	const errors: ParseError[] = [];
-	const value = parse(stripUtf8Bom(text), errors, { allowTrailingComma: true });
-	if (errors.length > 0) {
-		const first = errors[0];
-		throw options.createError(`${options.label} default config is not valid JSONC.`, {
-			path: options.configPath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-	let schema: unknown;
-	try {
-		schema = JSON.parse(readFileSync(options.schemaPath, "utf8"));
-	} catch {
-		throw options.createError(`${options.label} schema cannot be read.`, { path: options.schemaPath });
-	}
-	if (!isRecord(schema)) throw options.createError(`${options.label} schema is invalid.`, { path: options.schemaPath });
-	let validator: SchemaValidateFunction;
-	try {
-		validator = compileSchemaValidator(requireFixedProperties(schema, options.optionalCompleteProperties), { allErrors: true });
-	} catch (error) {
-		throw options.createError(`${options.label} schema is invalid.`, {
-			path: options.schemaPath,
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
+	const value = parseConfig(text, { ...options, path: options.configPath, label: `${options.label} default` });
+	const validator = compileValidator(options, true);
 	if (!validator(value)) {
 		throw options.createError(`${options.label} default config does not match schema.`, {
 			path: options.configPath,
@@ -266,57 +242,36 @@ function createSchemaValidatorInternal<E extends Error>(
 	options: SchemaValidatorOptions<E>,
 	requireComplete: boolean,
 ): () => Promise<SchemaValidateFunction> {
-	let compiledValidator: SchemaValidateFunction | undefined;
-	let validatorPromise: Promise<SchemaValidateFunction> | undefined;
-	return () => {
-		if (compiledValidator !== undefined) return Promise.resolve(compiledValidator);
-		if (validatorPromise !== undefined) return validatorPromise;
-		const pending = compileValidator();
-		validatorPromise = pending;
-		void pending.catch(() => {
-			if (validatorPromise === pending) validatorPromise = undefined;
-		});
-		return pending;
-	};
+	let pending: Promise<SchemaValidateFunction> | undefined;
+	return () => pending ??= Promise.resolve().then(() => compileValidator(options, requireComplete)).catch((error: unknown) => {
+		pending = undefined;
+		throw error;
+	});
+}
 
-	async function compileValidator(): Promise<SchemaValidateFunction> {
-		let schema: unknown;
-		try {
-			schema = JSON.parse(await readFile(options.schemaPath, "utf8"));
-		} catch {
-			throw options.createError(`${options.label} schema cannot be read.`, { path: options.schemaPath });
-		}
-		if (!isRecord(schema)) throw options.createError(`${options.label} schema is invalid.`, { path: options.schemaPath });
-		try {
-			const validator = compileSchemaValidator(
-				requireComplete ? requireFixedProperties(schema, options.optionalCompleteProperties) : schema,
-				{ allErrors: true },
-			);
-			compiledValidator = validator;
-			return validator;
-		} catch (error) {
-			throw options.createError(`${options.label} schema is invalid.`, {
-				path: options.schemaPath,
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
+function compileValidator<E extends Error>(options: SchemaValidatorOptions<E>, complete: boolean): SchemaValidateFunction {
+	let schema: unknown;
+	try {
+		schema = JSON.parse(readFileSync(options.schemaPath, "utf8"));
+	} catch {
+		throw options.createError(`${options.label} schema cannot be read.`, { path: options.schemaPath });
+	}
+	if (!isRecord(schema)) throw options.createError(`${options.label} schema is invalid.`, { path: options.schemaPath });
+	try {
+		return compileSchemaValidator(complete ? requireFixedProperties(schema, options.optionalCompleteProperties) : schema, { allErrors: true });
+	} catch (error) {
+		throw options.createError(`${options.label} schema is invalid.`, {
+			path: options.schemaPath, error: error instanceof Error ? error.message : String(error),
+		});
 	}
 }
 
-export function repoRoot(): string {
-	return installationRoot();
-}
-
-export function agentPath(...segments: string[]): string {
-	return path.join(repoRoot(), "agent", ...segments);
-}
-
 export function defaultAgentConfigPath(fileName: string): string {
-	return agentPath("defaults", fileName);
+	return path.join(installationRoot(), "agent", "defaults", fileName);
 }
 
 export function agentSchemaPath(fileName: string): string {
-	return agentPath("schemas", fileName);
+	return path.join(installationRoot(), "agent", "schemas", fileName);
 }
 
 export function userAgentConfigPath(fileName: string, envName: string): string {
@@ -327,7 +282,7 @@ export function userAgentPath(fileName: string, envName: string): string {
 	return process.env[envName] ?? path.join(os.homedir(), ".pi", "agent", fileName);
 }
 
-export function projectAgentConfigPath(cwd: string, fileName: string, configEnvName: string, rootEnvName: string): string | undefined {
+function projectAgentConfigPath(cwd: string, fileName: string, configEnvName: string, rootEnvName: string): string | undefined {
 	if (process.env[configEnvName]) return process.env[configEnvName];
 	const root = process.env[rootEnvName] ?? findNearestProjectRoot(cwd);
 	return root === undefined ? undefined : path.join(root, ".pi", "configs", fileName);

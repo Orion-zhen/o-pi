@@ -20,17 +20,10 @@ export interface IgnoreConfig {
 	builtinProfile: BuiltinIgnoreProfile;
 }
 
-export type PartialIgnoreConfig = {
-	piignore?: Partial<IgnoreConfig["piignore"]>;
-	gitignore?: Partial<IgnoreConfig["gitignore"]>;
-	builtinProfile?: BuiltinIgnoreProfile;
-};
-
 /** Immutable visibility policy produced by the config loader for one invocation cwd. */
 export interface VisibilityPolicy {
 	readonly ignoredPaths: readonly string[];
 	readonly ignore: IgnoreConfig;
-	readonly fingerprint: string;
 }
 
 export interface VisibilityAnnotation {

@@ -3,6 +3,7 @@ const MESSAGE = "opi is waiting for you.";
 
 /** 尽力发送原生通知，加载或后端错误不会向外传播。 */
 export async function notifyWaiting(): Promise<void> {
+	if (process.env.OPI_NO_NOTIFICATIONS === "1") return;
 	try {
 		const { default: notifier } = await import("node-notifier");
 		notifier.notify({ title: TITLE, message: MESSAGE }, () => {});

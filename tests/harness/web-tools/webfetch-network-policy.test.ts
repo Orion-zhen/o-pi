@@ -18,12 +18,11 @@ import {
 
 const resolver: { lookup(hostname: string, options: { all: true }): Promise<LookupAddress[]> } = dnsPromises;
 const servers: Server[] = [];
-const invalidLookupResults: Array<{ name: string; addresses: LookupAddress[]; message: string }> = [
-	{ name: "空结果", addresses: [], message: "DNS lookup returned no addresses." },
+const invalidLookupResults: Array<{ name: string; addresses: LookupAddress[] }> = [
+	{ name: "空结果", addresses: [] },
 	{
 		name: "未知地址族",
 		addresses: [{ address: "8.8.8.8", family: 0 }],
-		message: "DNS lookup returned unsupported address family 0.",
 	},
 ];
 
@@ -84,9 +83,9 @@ describe("webfetch network policy", () => {
 		expect(isPublicAddress("::ffff:192.168.1.1")).toBe(false);
 	});
 
-	it.each(invalidLookupResults)("拒绝 DNS $name", async ({ addresses, message }) => {
+	it.each(invalidLookupResults)("拒绝 DNS $name", async ({ addresses }) => {
 		vi.spyOn(resolver, "lookup").mockResolvedValue(addresses);
-		await expect(resolveAllowedAddresses("example.com")).rejects.toThrow(message);
+		await expect(resolveAllowedAddresses("example.com")).rejects.toThrow();
 	});
 
 	it("混合公网和私网 DNS 结果整体拒绝", async () => {

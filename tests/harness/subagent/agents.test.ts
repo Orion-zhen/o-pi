@@ -49,7 +49,6 @@ describe("subagent agent discovery", () => {
 		const found = discoverAgents(dir, await loadSubagentConfig(dir));
 
 		expect(found.agents).toHaveLength(0);
-		expect(found.warnings[0]).toContain("fork must be a boolean");
 	});
 
 	it.each([

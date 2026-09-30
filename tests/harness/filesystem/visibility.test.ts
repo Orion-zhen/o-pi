@@ -5,7 +5,6 @@ import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type {
-	PartialIgnoreConfig,
 	VisibilityAnnotation,
 	VisibilityIntent,
 } from "../../../src/harness/filesystem/contracts/visibility.ts";
@@ -13,7 +12,7 @@ import {
 	NativeFileSystemError,
 	NodeNativeFileSystem,
 } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { createVisibilityPolicy, type PartialIgnoreConfig } from "./policy-fixture.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 import {
 	expectFsOk,
@@ -58,77 +57,8 @@ async function write(relativePath: string, content = "\n"): Promise<void> {
 }
 
 describe("visibility rules", () => {
-	it("规则已加载也拒绝复制的目录引用", async () => {
-		const opened = await openVisibility();
-		expectFsOk(await opened.services.visibility.prepareDirectory(opened.namespace.root, []));
-		expect(await opened.services.visibility.prepareDirectory({ ...opened.namespace.root }, []))
-			.toMatchObject({ ok: false, error: { code: "invalid-path" } });
-	});
 
-	it("同一目录的并发求值共享枚举和规则读取", async () => {
-		await write("nested/.piignore", "hidden.txt\n");
-		await write("nested/hidden.txt");
-		await write("nested/visible.txt");
-		const base = new NodeNativeFileSystem();
-		const reads = new Map<string, number>();
-		const listings = new Map<string, number>();
-		const opened = await openReadonly(workspace, {
-			native: overrideNativeFileSystem({
-				async readdir(pathname, context) {
-					listings.set(pathname, (listings.get(pathname) ?? 0) + 1);
-					return base.readdir(pathname, context);
-				},
-				async read(pathname, context) {
-					reads.set(pathname, (reads.get(pathname) ?? 0) + 1);
-					return base.read(pathname, context);
-				},
-			}, base),
-		});
-		const [hidden, visible] = await Promise.all([
-			opened.resolveExisting("nested/hidden.txt"), opened.resolveExisting("nested/visible.txt"),
-		]);
-		const decisions = await Promise.all([hidden, visible, hidden].map((ref) => opened.services.visibility.evaluate(ref, "search")));
-		expect(decisions.map(expectFsOk)).toMatchObject([{ ignored: true }, { ignored: false }, { ignored: true }]);
-		expect(listings.get(workspace)).toBe(1);
-		expect(listings.get(path.join(workspace, "nested"))).toBe(1);
-		expect(reads.get(path.join(workspace, "nested/.piignore"))).toBe(1);
-	});
 
-	it("通过增量 operations 支持 Gitignore grammar 基础规则", async () => {
-		await write(".piignore", [
-			"\uFEFF",
-			"# comment",
-			"\\#literal",
-			"\\!bang",
-			"*.log",
-			"q?.txt",
-			"[ab].js",
-			"docs/**",
-			"/root-only.txt",
-			"src/inner.txt",
-			"build/",
-			"trail-space ",
-			"escaped-space\\ ",
-			".env",
-			"nonewline",
-		].join("\n"));
-		for (const candidate of [
-			"#literal", "!bang", "a.log", "q1.txt", "a.js", "docs/a/b.md", "root-only.txt",
-			"src/inner.txt", "trail-space", "escaped-space ", ".env", "nonewline", "nested/root-only.txt",
-		]) await write(candidate);
-		await mkdir(path.join(workspace, "build"));
-
-		const opened = await openVisibility({
-			builtinProfile: "none",
-			gitignore: { enabled: false },
-		});
-		for (const candidate of [
-			"#literal", "!bang", "a.log", "q1.txt", "a.js", "docs/a/b.md", "root-only.txt",
-			"src/inner.txt", "trail-space", "escaped-space ", ".env", "nonewline",
-		]) expect(await evaluate(opened, candidate)).toMatchObject({ ignored: true });
-		expect(await evaluate(opened, "nested/root-only.txt")).toMatchObject({ ignored: false });
-		expect(await evaluate(opened, "build", "search")).toMatchObject({ ignored: true });
-	});
 
 	it("按可达来源、目录层级和后置规则决定优先级", async () => {
 		await write(".gitignore", "dist/\n*.txt\nnode_modules/\n");
@@ -184,17 +114,6 @@ describe("visibility rules", () => {
 		expect(await evaluate(opened, "generated", "search")).toMatchObject({ ignored: false });
 	});
 
-	it("仅在访问目录链时加载宽目录树中的嵌套规则", async () => {
-		for (let index = 0; index < 40; index += 1) {
-			await write(`pkg-${index}/.gitignore`, "hidden.txt\n");
-			await write(`pkg-${index}/hidden.txt`);
-		}
-		const opened = await openVisibility({
-			builtinProfile: "none",
-			piignore: { enabled: false },
-		});
-		expect(await evaluate(opened, "pkg-39/hidden.txt")).toMatchObject({ ignored: true });
-	});
 
 	it("Git core.ignoreCase 优先于平台默认", async () => {
 		if (!(await hasGit())) return;

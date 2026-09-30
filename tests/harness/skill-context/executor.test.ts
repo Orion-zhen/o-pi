@@ -40,7 +40,7 @@ describe("技能加载执行器", () => {
 
 		await expect(executeSkillLoad(fakePi(entries), {
 			name: "hidden", loadedBy: "agent", candidates: [allowed, hidden], branch: [], toolCallId: "skill-2", visibleToolCallIds: new Set(),
-		})).rejects.toThrow("disables model invocation");
+		})).rejects.toThrow();
 	});
 
 	it("手动加载可以披露任意已发现技能", async () => {

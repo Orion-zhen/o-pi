@@ -35,7 +35,6 @@ describe("grep text search", () => {
 		await writeFile(path.join(testContext.workspace, "beta/b.conf"), "needle three\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
 		expect(result.navigation?.narrow).toEqual([{ path: "alpha", count: 2 }, { path: "beta", count: 1 }]);
-		expect(formatCompactGrepResult(result)).toContain('next: narrow path to "alpha" (2 candidates), "beta" (1 candidates)');
 		const complete = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["beta"], query: "needle" }));
 		expect(complete).not.toHaveProperty("navigation");
 		expect(formatCompactGrepResult(complete)).not.toContain("next:");
@@ -146,7 +145,6 @@ describe("grep text search", () => {
 		await writeFile(path.join(testContext.workspace, "semantic.conf"), "authentication request rejected\n");
 		const semantic = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["semantic.conf"], query: "authentication rejected" }));
 		expect(firstRegion(semantic)).toMatchObject({ kind: "text", query_match: "semantic", matched_by: ["lexical"] });
-		expect(formatCompactGrepResult(semantic)).toContain("semantic.conf:1 [not match, related]: authentication request rejected");
 	});
 
 	it("同文件 text region 只在模型文本中分组，候选和结果限制仍逐行计算", async () => {

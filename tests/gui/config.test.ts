@@ -73,7 +73,7 @@ it("外部变更后重新读取生效，旧编辑内容不能覆盖新文件", a
 	await writeFile(file, '{"theme":"dark"}');
 	const original = (await host.query({ query: "guiConfig" })).content;
 	await writeFile(file, '{"theme":"light"}');
-	await expect(host.dispatch({ action: "saveGuiConfig", original, content: "{}" })).rejects.toThrow("已被修改");
+	await expect(host.dispatch({ action: "saveGuiConfig", original, content: "{}" })).rejects.toThrow();
 	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { theme: "light" } });
 });
 

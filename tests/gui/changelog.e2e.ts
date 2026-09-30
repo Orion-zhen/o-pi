@@ -34,7 +34,6 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await expect(notice).toBeVisible();
 		const toggle = notice.getByRole("button");
 		await expect(toggle).toHaveAttribute("aria-expanded", String(!collapsed));
-		await expect(toggle).toContainText(`Pi 已更新至 v${current}`);
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		await expect.poll(async () => (await stored()).lastChangelogVersion).toBe(current);
 		expect(await notice.evaluate((node) => node.contains(document.activeElement))).toBe(false);

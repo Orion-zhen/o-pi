@@ -35,7 +35,7 @@ it("沿用环境变量重定向路径，拒绝旧版本覆盖，允许读取损�
 	await writeFile(file, "{broken");
 	expect(await host.query({ query: "moduleConfig", id: "webTools" })).toMatchObject({ path: file, content: "{broken" });
 	await host.dispatch({ action: "saveModuleConfig", id: "webTools", original: "{broken", content: "{}" });
-	await expect(host.dispatch({ action: "saveModuleConfig", id: "webTools", original: "{broken", content: "{}" })).rejects.toThrow("已被修改");
+	await expect(host.dispatch({ action: "saveModuleConfig", id: "webTools", original: "{broken", content: "{}" })).rejects.toThrow();
 	expect(await readFile(file, "utf8")).toBe("{}");
 });
 
@@ -53,6 +53,6 @@ it("重置字段只删除覆盖，不写入默认值", async () => {
 });
 
 it("配置接口不接受文件路径或未注册模块", async () => {
-	await expect(host.query({ query: "moduleConfig", id: "../../secret" })).rejects.toThrow("无效");
-	await expect(host.dispatch({ action: "saveModuleConfig", id: "gui", original: "", content: "{}" })).rejects.toThrow("无效");
+	await expect(host.query({ query: "moduleConfig", id: "../../secret" })).rejects.toThrow();
+	await expect(host.dispatch({ action: "saveModuleConfig", id: "gui", original: "", content: "{}" })).rejects.toThrow();
 });

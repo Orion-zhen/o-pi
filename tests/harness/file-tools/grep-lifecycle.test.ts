@@ -17,10 +17,14 @@ describe("grep lifecycle", () => {
 		const [local] = await parser.analyzeFiles([{ path: "local.ts", text: "export const needle = true;\n" }], undefined);
 		expect(local?.status).toBe("parsed");
 		const worker = await parser.analyzeFiles(
-			Array.from({ length: 33 }, (_value, index) => ({ path: `module-${index}.ts`, text: `export const value${index} = ${index};\n` })),
+			Array.from({ length: 33 }, (_value, index) => ({
+				path: `module-${index}.ts`,
+				text: `export const value${index} = ${index};\n` + (index === 0 ? " ".repeat(256 * 1024) : ""),
+			})),
 			undefined,
 		);
 		expect(worker).toHaveLength(33);
+		expect(worker.every((result) => result.status === "parsed")).toBe(true);
 		parser.dispose();
 		parser.dispose();
 		const document = await parseSyntaxTree(TREE_SITTER_LANGUAGES.javascript.grammar, "export const retained = true;\n");
@@ -38,6 +42,21 @@ describe("grep lifecycle", () => {
 		);
 		pendingParser.dispose();
 		await expect(pending).rejects.toBeInstanceOf(AbortGrepParse);
+	});
+
+	it("取消 worker 解析后仍能处理下一次搜索", async () => {
+		const parser = new GrepParser();
+		const files = [{ path: "large.ts", text: "export const needle = true;\n" + " ".repeat(256 * 1024) }];
+		try {
+			const controller = new AbortController();
+			const pending = parser.analyzeFiles(files, controller.signal);
+			controller.abort();
+			await expect(pending).rejects.toBeInstanceOf(AbortGrepParse);
+			const [result] = await parser.analyzeFiles(files, undefined);
+			expect(result?.status).toBe("parsed");
+		} finally {
+			parser.dispose();
+		}
 	});
 
 	it("grep owner dispose 幂等且停止后拒绝新调用", async () => {

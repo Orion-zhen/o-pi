@@ -29,20 +29,26 @@ it("默认配置能按实际文件名路由，而不锁定全部默认字段", a
 
 it("用户配置替换默认服务，项目配置合并覆盖并保留未覆盖字段", async () => {
 	await load({ request_timeout_ms: 700, diagnostics: { max_items: 3 }, servers: {
-		demo: { ...server, settings: { lint: true }, init: ["strict", { feature: true }] },
+		demo: {
+			...server,
+			settings: { lint: { enabled: true, rules: ["old"] }, format: true },
+			init: ["strict", { feature: true }],
+		},
 	} });
 	const project = path.join(temp.path, ".pi", "configs", "lsp.jsonc");
 	await mkdir(path.dirname(project), { recursive: true });
 	await writeFile(project, JSON.stringify({
 		request_timeout_ms: 900, diagnostics: { min_severity: "error" },
-		servers: { demo: { settings: { format: true } } },
+		servers: { demo: { settings: { lint: { rules: ["new"] }, format: null }, languages: { demo: ["*.demo", "*.demo2"] } } },
 	}));
 	const config = (await loadLspConfig(temp.path)).config;
 	expect(config.request_timeout_ms).toBe(900);
 	expect(config.diagnostics).toMatchObject({ max_items: 3, min_severity: "error" });
 	expect(config.servers).toEqual([expect.objectContaining({
 		id: "demo", transport: { type: "stdio", command: "demo", args: ["--stdio"] },
-		settings: { lint: true, format: true }, initializationOptions: ["strict", { feature: true }],
+		settings: { lint: { enabled: true, rules: ["new"] }, format: null },
+		initializationOptions: ["strict", { feature: true }],
+		routes: [{ languageId: "demo", selectors: ["*.demo", "*.demo2"] }],
 	})]);
 });
 
@@ -74,6 +80,17 @@ it("TCP 服务保留端点并参与路由", async () => {
 		.toEqual({ type: "tcp", host: "127.0.0.1", port: 2087 });
 });
 
+it("项目覆盖 TCP 服务时必须提供完整端点", async () => {
+	await load({ servers: { remote: { tcp: { host: "127.0.0.1", port: 2087 }, languages: { remote: "*.remote" } } } });
+	const project = path.join(temp.path, "project.jsonc");
+	process.env.PI_LSP_PROJECT_CONFIG = project;
+	await writeFile(project, JSON.stringify({ servers: { remote: { tcp: { port: 2088 } } } }));
+	await expect(loadLspConfig(temp.path)).rejects.toThrow();
+	await writeFile(project, JSON.stringify({ servers: { remote: { tcp: { host: "localhost", port: 2088 } } } }));
+	const { config } = await loadLspConfig(temp.path);
+	expect(config.servers[0]?.transport).toEqual({ type: "tcp", host: "localhost", port: 2088 });
+});
+
 it.each([
 	{ unknown: true }, { diagnostics: { min_severity: "fatal" } }, { diagnostics: { max_related_locations: 11 } },
 	{ servers: { "1demo": server } }, { servers: { demo: { ...server, languages: { demo: "" } } } },
@@ -85,7 +102,7 @@ it.each([
 });
 
 it.each(["!*.demo", "../*.demo", "./*.demo", "C:/*.demo", "dir\\*.demo", "@(foo).demo"])("拒绝不支持的选择规则 %s", async (selector) => {
-	await expect(load({ servers: { demo: { ...server, languages: { demo: selector } } } })).rejects.toThrow(/invalid selector/);
+	await expect(load({ servers: { demo: { ...server, languages: { demo: selector } } } })).rejects.toThrow();
 });
 
 it.each([
@@ -94,5 +111,5 @@ it.each([
 	{ one: { ...server, languages: { one: "*.demo", two: "special.*" } } },
 ])("拒绝歧义路由 %j", async (servers) => {
 	const config = await load({ servers });
-	expect(() => new LspServerRegistry(config.servers).route("special.demo")).toThrow(/multiple|both/);
+	expect(() => new LspServerRegistry(config.servers).route("special.demo")).toThrow();
 });

@@ -12,6 +12,7 @@ import { useGuiConfig } from "./use-gui-config.ts";
 import { useStartupChangelog } from "./use-startup-changelog.ts";
 import { useGuiActions } from "./use-gui-actions.ts";
 import { usePanels } from "./use-panels.ts";
+import { isTouchInput } from "./input-mode.ts";
 import { locateTranscript } from "./transcript-location.ts";
 import type { SessionSnapshot, SidebarView } from "./gui-controls.ts";
 
@@ -45,7 +46,10 @@ export function useGui() {
 			case "guiConfig": config.accept(event.value); break;
 			case "panel": panels.setPanel(event.panel); break;
 			case "sessionTab": panels.selectTab(event.tab); panels.setSessionPanelOpen(true); break;
-			case "editor": views.writeText(event.sessionId, event.text); if (selected.current === event.sessionId) editor.current?.focus(); break;
+			case "editor":
+				views.writeText(event.sessionId, event.text);
+				if (selected.current === event.sessionId && !isTouchInput()) editor.current?.focus();
+				break;
 		}
 	});
 	const { connected, status, send: dispatch, query: readQuery } = connection;

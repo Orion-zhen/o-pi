@@ -67,11 +67,11 @@ function endpointAcceptsConnections(): Promise<boolean> {
 
 describe("Discord presence 多进程协调", () => {
 	it.each([
-		[{ type: "activity", activity: { instance: true }, activeAt: 1 }, "instance"],
-		[{ type: "configure", config: { applicationId: "bad", updateIntervalMs: 5_000, retryIntervalMs: 30_000 } }, "Application ID"],
-		[{ type: "register", participantId: "a", joinedAt: 1, config: coordinatedConfig(), activity: { instance: false } }, "together"],
-	])("拒绝非法 IPC payload %#", (payload, message) => {
-		expect(() => parseClientMessage(payload)).toThrow(message);
+		[{ type: "activity", activity: { instance: true }, activeAt: 1 }],
+		[{ type: "configure", config: { applicationId: "bad", updateIntervalMs: 5_000, retryIntervalMs: 30_000 } }],
+		[{ type: "register", participantId: "a", joinedAt: 1, config: coordinatedConfig(), activity: { instance: false } }],
+	])("拒绝非法 IPC payload %#", (payload) => {
+		expect(() => parseClientMessage(payload)).toThrow();
 	});
 
 	it("最近活跃者获得展示权，退出后恢复前一参与者，最后退出时只销毁一次输出", async () => {

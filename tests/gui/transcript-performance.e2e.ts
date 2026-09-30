@@ -68,7 +68,7 @@ for (const turns of [20, 100, 300]) test(`${turns} 轮历史的打开、输入�
 			return { name, manager };
 		});
 		const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined && /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|DISPLAY|XAUTHORITY|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS)$/.test(entry[0])));
-		Object.assign(env, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", NODE_ENV: "test" });
+		Object.assign(env, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", OPI_NO_NOTIFICATIONS: "1", NODE_ENV: "test" });
 		child = spawn(process.env.OPI_GUI_TEST_BINARY ?? path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
 		child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
 		child.stderr?.on("data", (chunk: Buffer) => { output += chunk.toString(); });

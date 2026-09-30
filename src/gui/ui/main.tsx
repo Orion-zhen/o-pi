@@ -34,6 +34,7 @@ import { WorkspacePicker } from "./workspace-picker.tsx";
 import { Welcome } from "./welcome.tsx";
 import { StartupChangelog } from "./startup-changelog.tsx";
 import { useGui } from "./use-gui.ts";
+import { isTouchInput } from "./input-mode.ts";
 import { GuiQueryContext } from "./payload.tsx";
 import { IconButton } from "./components/icon-button";
 import { ResizeHandle } from "./components/resize-handle";
@@ -120,7 +121,7 @@ function App() {
 	const main = useRef<HTMLElement>(null);
 	const app = useRef<HTMLDivElement>(null);
 	const workspace = useRef<HTMLDivElement>(null);
-	const restoreFocus = () => (panelContent.current ?? gui.editor.current ?? main.current)?.focus();
+	const restoreFocus = () => (panelContent.current ?? (isTouchInput() ? null : gui.editor.current) ?? main.current)?.focus();
 	useEffect(() => {
 		const desktop = window.matchMedia("(min-width: 768px)");
 		const closeMobileSidebar = (event: MediaQueryListEvent) => {
@@ -184,7 +185,7 @@ function App() {
 								onClick={() => {
 									if (gui.sessionPanelOpen) {
 										gui.setSessionPanelOpen(false);
-										gui.editor.current?.focus();
+										restoreFocus();
 									}
 									else gui.setSessionPanelOpen(true);
 								}}

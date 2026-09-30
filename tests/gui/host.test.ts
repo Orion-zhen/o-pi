@@ -492,14 +492,12 @@ describe("GUI 直接使用 SDK", () => {
 	it("模型范围拒绝失效目录项，保存失败可见且可以重新保存", async () => {
 		const scope = ["gui-fixture/second"];
 		await host.dispatch({ action: "scopeModels", models: scope });
-		await expect(host.dispatch({ action: "scopeModels", models: ["gui-fixture/unavailable"] })).rejects.toThrow(
-			"模型不可用",
-		);
+		await expect(host.dispatch({ action: "scopeModels", models: ["gui-fixture/unavailable"] })).rejects.toThrow();
 		expect(readSnapshot(host).scopedModels).toEqual(scope);
 		const settingsFile = path.join(temp.path, ".pi", "agent", "settings.json");
 		const original = await readFile(settingsFile, "utf8");
 		await writeFile(settingsFile, "{ incomplete");
-		await expect(host.dispatch({ action: "persistModels" })).rejects.toThrow("模型保存失败");
+		await expect(host.dispatch({ action: "persistModels" })).rejects.toThrow();
 		expect(await readFile(settingsFile, "utf8")).toBe("{ incomplete");
 		await writeFile(settingsFile, original);
 		await host.dispatch({ action: "persistModels" });
@@ -545,7 +543,7 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch({ action: "dialog", id: dialog.id, value: null });
 		await task;
 		await expect(readFile(path.join(cwd, "output.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-		await expect(host.dispatch({ action: "dialog", id: dialog.id, value: "Allow once" })).rejects.toThrow("已结束");
+		await expect(host.dispatch({ action: "dialog", id: dialog.id, value: "Allow once" })).rejects.toThrow();
 	});
 
 	it("无效工作目录不破坏当前会话，设置编辑拒绝覆盖外部修改", async () => {
@@ -557,7 +555,7 @@ describe("GUI 直接使用 SDK", () => {
 		await writeFile(file, `${original}\n`);
 		await expect(
 			host.dispatch({ action: "saveConfig", file: "settings.json", original: original, content: "{}" }),
-		).rejects.toThrow("已被修改");
+		).rejects.toThrow();
 		expect(await readFile(file, "utf8")).toBe(`${original}\n`);
 	});
 

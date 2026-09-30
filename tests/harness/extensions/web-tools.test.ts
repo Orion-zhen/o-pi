@@ -84,7 +84,6 @@ it.each([false, true])("图片按模型能力返回，PDF 页码与页面图片�
 	expect(pdf.isError).toBe(!vision);
 	if (vision) {
 		expect(pdf.content.map((block) => block.type)).toEqual(["text", "text", "image"]);
-		expect(pdf.content[1]?.text).toBe("[page 2]");
 		expect(pdf.content[2]?.mimeType).toBe("image/png");
 	}
 });

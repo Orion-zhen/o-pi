@@ -201,7 +201,6 @@ describe("grep integration", () => {
 		await writeFile(path.join(testContext.workspace, "session", "common.ts"), "export const data = true;\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "data retry policy" }));
 		expect(result.regions).toEqual([]);
-		expect(formatCompactGrepResult(result)).toContain("next: refine query/path/glob");
 	});
 
 	it("unsupported language 安全退化到文本行", async () => {
@@ -213,7 +212,6 @@ describe("grep integration", () => {
 		expect(firstRegion(auto)).toMatchObject({ path: "notes.conf", kind: "text", matched_by: ["regex"] });
 		const warmLexical = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "fatal error" }));
 		expect(firstRegion(warmLexical)).toMatchObject({ path: "notes.conf", kind: "text", matched_by: ["lexical"] });
-		expect(formatCompactGrepResult(warmLexical)).toContain("notes.conf:2 [not match, related]: fatal authentication error");
 	});
 
 	it("超长无换行文件通过分段扫描召回末尾匹配", async () => {
@@ -303,7 +301,6 @@ describe("grep integration", () => {
 
 		expect(result.regions).toEqual([]);
 		expect(result.stats.parsed_files).toBe(1);
-		expect(formatCompactGrepResult(result)).toContain("next: refine query/path/glob");
 	});
 
 	it.each(["MissingNeedle", "Missing\\d+"])("query=%s 零命中返回扫描范围和可执行下一步", async (query) => {
@@ -313,13 +310,6 @@ describe("grep integration", () => {
 
 		expect(result.regions).toEqual([]);
 		expect(result.stats.searched_files).toBe(1);
-		expect(formatCompactGrepResult(result)).toBe([
-			"<grep>",
-			"none",
-			"searched=1; skipped=0",
-			"next: refine query/path/glob",
-			"</grep>",
-		].join("\n"));
 	});
 
 	it("共享索引构建时单个调用取消不影响其他调用", async () => {

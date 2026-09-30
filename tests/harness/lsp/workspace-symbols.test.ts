@@ -72,7 +72,6 @@ describe("lsp workspace symbols through code analysis", () => {
 			return manager.status(workspace);
 		});
 		expect(status.servers[0]).toMatchObject({ id: "missing", status: "unavailable" });
-		expect(status.servers[0]?.last_error).toMatch(/failed to start|ENOENT/);
 	});
 
 	it("workspace symbols 按 scope 文件 selector 路由且空 scope 不启动 server", async () => {

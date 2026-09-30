@@ -4,5 +4,4 @@ import type { VisibilityPolicy } from "./visibility.ts";
 export interface FilesystemPolicy {
 	readonly blockedPaths: readonly string[];
 	readonly visibility: VisibilityPolicy;
-	readonly fingerprint: string;
 }

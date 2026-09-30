@@ -43,7 +43,7 @@ Pi 扩展入口位于 `src/harness/extensions/file-tools.ts`。六个工具分�
 
 每次调用都由 `FileToolsHost.open({ cwd, sessionId, signal })` 根据调用的 `cwd` 加载配置。然后，`FileToolsHost` 提供 `WorkspaceFileSystem`、工具预算和会话观测状态。`WorkspaceFileSystem` 绑定不可变策略和仅供本次调用使用的可见性求值器。
 
-可见性求值器复用实际目录枚举，并增量加载忽略规则，不会在打开调用时扫描整个仓库。工具在首次使用时按执行路径延迟加载。不使用文件工具的会话不会加载文件系统运行时。调用 `ls` 也不会加载 `find`、`grep`、修改服务、Tree-sitter 或 LSP。
+可见性求值器复用实际目录枚举，并增量加载忽略规则，不会在打开调用时扫描整个仓库。工具在首次使用时按执行路径延迟加载。不使用文件工具的会话不会加载文件系统运行时。调用 `ls` 也不会加载 `find`、`grep`、Tree-sitter 或 LSP。文件系统运行时直接持有共享写队列，各次调用通过取消信号控制生命周期，不再单独维护租约登记表和修改服务的懒加载状态。
 
 工具职责保持分离：
 

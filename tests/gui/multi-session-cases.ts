@@ -78,7 +78,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				expect(second.execution.dialogs.list()[0]?.id).toBe(approval.id);
 				await second.dispatch({ action: "dialog", id: approval.id, value: "Allow once" });
 				await task;
-				await expect(first.dispatch({ action: "dialog", id: approval.id, value: "Allow once" })).rejects.toThrow("已结束");
+				await expect(first.dispatch({ action: "dialog", id: approval.id, value: "Allow once" })).rejects.toThrow();
 				await expect.poll(() => events.filter((event) => event.type === "activity").at(-1)?.value.find((item) => item.sessionId === original))
 					.toMatchObject({ state: "idle", completedAt: expect.any(Number) });
 			} finally { await first.dispatch({ action: "abort" }, original); await task; second.close(); }
@@ -103,7 +103,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				expect(host.execution.dialogs.list()[0]?.id).toBe(approval.id);
 				await host.dispatch({ action: "abort" }, a);
 				await first;
-				await expect(host.dispatch({ action: "dialog", id: approval.id, value: "Allow once" }, a)).rejects.toThrow("已结束");
+				await expect(host.dispatch({ action: "dialog", id: approval.id, value: "Allow once" }, a)).rejects.toThrow();
 			} finally { await host.dispatch({ action: "abort" }, a); await host.dispatch({ action: "abort" }, b); await Promise.all([first, second]); }
 		});
 

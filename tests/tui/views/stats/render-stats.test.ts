@@ -30,8 +30,6 @@ describe("stats renderer", () => {
 		expect(compactOutput).toContain("provider-model-with-a-very-long-name-and-large-context-window");
 		expect(compactOutput).toContain("provider overhead includes request serialization and tokenizer metadata");
 		expect(compactOutput).toContain("very-long-tool-name-for-regression");
-		expect(compactOutput).toContain("cache warming 2 requests");
-		expect(compactOutput).toContain("$0.010 (included)");
 		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 });

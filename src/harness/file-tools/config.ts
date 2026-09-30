@@ -11,7 +11,6 @@ import {
 import { ConfigCache, type ConfigSnapshot } from "../config-cache.ts";
 import type { FilesystemPolicy } from "../filesystem/contracts/policy.ts";
 import type { BuiltinIgnoreProfile } from "../filesystem/contracts/visibility.ts";
-import { createVisibilityPolicy } from "../filesystem/services/visibility/policy.ts";
 import type { FileToolLimits } from "../file-tool-limits.ts";
 
 const SCHEMA_PATH = agentSchemaPath("file-tools.schema.json");
@@ -47,10 +46,6 @@ export type FileToolsConfigResult =
 	| { readonly ok: true; readonly value: FileToolsConfig }
 	| FileToolsConfigFailure;
 
-export interface FileToolsConfigLoader {
-	load(cwd: string): Promise<FileToolsConfigResult>;
-}
-
 class FileToolsConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
@@ -59,19 +54,14 @@ class FileToolsConfigError extends Error {
 }
 
 /** 拥有一个文件工具运行时的配置元数据缓存。 */
-export class FileToolsConfigProvider implements FileToolsConfigLoader {
+export class FileToolsConfigProvider {
 	private readonly cache = new ConfigCache(CONFIG_DEFINITIONS.fileTools, loadMergedConfig);
-	private disposed = false;
 
-	/** 工作区 I/O 前加载用户配置和调用目录的项目配置。 */
-	async load(cwd: string): Promise<FileToolsConfigResult> {
-		if (this.disposed) return configFailure("File-tools config provider is shut down.");
-		const result = await this.cache.load(cwd);
-		return this.disposed ? configFailure("File-tools config provider is shut down.") : result;
+	load(cwd: string): Promise<FileToolsConfigResult> {
+		return this.cache.load(cwd);
 	}
 
 	dispose(): void {
-		this.disposed = true;
 		this.cache.clear();
 	}
 }
@@ -111,7 +101,7 @@ async function loadMergedConfig(cwd: string): Promise<ConfigSnapshot<FileToolsCo
 		}
 		return {
 			fingerprint: loaded.fingerprint,
-			value: { ok: true, value: materializeConfig(merged, loaded.fingerprint) },
+			value: { ok: true, value: materializeConfig(merged) },
 		};
 	} catch (error) {
 		if (!(error instanceof FileToolsConfigError)) throw error;
@@ -122,25 +112,20 @@ async function loadMergedConfig(cwd: string): Promise<ConfigSnapshot<FileToolsCo
 	}
 }
 
-/** 原始配置合并完毕后，只构建一次运行时策略和最终指纹。 */
-function materializeConfig(raw: CompleteFileToolsConfig, fingerprint: string): FileToolsConfig {
-	const visibility = createVisibilityPolicy({
-		ignoredPaths: raw.ignored_path,
-		ignore: {
-			piignore: { enabled: raw.ignore.piignore },
-			gitignore: { enabled: raw.ignore.gitignore, trackedFilesBypass: raw.ignore.git_tracked_files_bypass },
-			builtinProfile: raw.ignore.builtin_profile,
-		},
-		configFingerprint: fingerprint,
-	});
-	const blockedPaths = [...raw.blocked_path];
+function materializeConfig(raw: CompleteFileToolsConfig): FileToolsConfig {
 	return {
 		filesystem: {
-			blockedPaths,
-			visibility,
-			fingerprint: `${fingerprint}\0${JSON.stringify({ blockedPaths, visibility: visibility.fingerprint })}`,
+			blockedPaths: raw.blocked_path,
+			visibility: {
+				ignoredPaths: raw.ignored_path,
+				ignore: {
+					piignore: { enabled: raw.ignore.piignore },
+					gitignore: { enabled: raw.ignore.gitignore, trackedFilesBypass: raw.ignore.git_tracked_files_bypass },
+					builtinProfile: raw.ignore.builtin_profile,
+				},
+			},
 		},
-		limits: { ...raw.limits },
+		limits: raw.limits,
 	};
 }
 

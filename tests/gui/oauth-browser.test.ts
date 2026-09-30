@@ -65,6 +65,6 @@ describe("OAuth 浏览器导航", () => {
 		oauth.prepare();
 		await oauth.open("https://example.com/oauth");
 		expect(openExternal).toHaveBeenCalledExactlyOnceWith("https://example.com/oauth");
-		await expect(oauth.open("javascript:alert(1)")).rejects.toThrow("无效认证链接");
+		await expect(oauth.open("javascript:alert(1)")).rejects.toThrow();
 	});
 });

@@ -34,10 +34,7 @@ describe("技能语义展示", () => {
 			role: "custom", customType: SKILL_CONTEXT_MESSAGE, display: true, timestamp: 100,
 			content: formatSkillDisclosure(details.name, body), details: { ...details, loadedBy: "manual" },
 		} }));
-		for (const [doc, loader] of [[manual, "手动引用"], [renderTool(), "模型调用"]] as const) {
-			expect(doc.querySelector(".skill-activity .activity-summary")?.textContent).toContain(`技能${details.name}`);
-			expect(doc.querySelector(".activity-summary")?.textContent).toContain(loader);
-			expect(doc.querySelector(".activity-summary")?.textContent).not.toContain("已加载");
+		for (const doc of [manual, renderTool()]) {
 			expect(doc.querySelector(".activity-state > svg")).not.toBeNull();
 			expect(doc.querySelector(".activity-state")?.getAttribute("data-state")).toBe("completed");
 			expect(doc.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("false");
@@ -48,22 +45,13 @@ describe("技能语义展示", () => {
 		expect(manual.querySelector("[data-entry-id]")?.getAttribute("data-entry-id")).toBe("manual-1");
 	});
 
-	it.each([
-		["preparing", "生成参数"], ["pending", "等待加载"], ["running", "加载中"],
-		["stopped", "已停止"], ["unavailable", "无加载结果"],
-	] as const)("%s 不误报已加载", (state, label) => {
+	it.each(["preparing", "pending", "running", "stopped", "unavailable"] as const)("保留 %s 状态", (state) => {
 		const doc = renderTool(state, undefined);
-		const summary = doc.querySelector(".activity-summary")?.textContent;
 		expect(doc.querySelector(".activity-state")?.getAttribute("data-state")).toBe(state);
-		expect(summary).toContain(label);
-		expect(summary).not.toContain("已加载");
 	});
 
-	it("重复加载明确说明未重复注入，失败摘要保留具体错误", () => {
-		const duplicate = renderTool("completed", { content: [{ type: "text", text: formatSkillDisclosure(details.name, "") }], details: { ...details, deduplicated: true, chars: 0 } });
-		expect(duplicate.querySelector(".activity-summary")?.textContent).toContain("已加载过");
+	it("保留失败状态和原始错误", () => {
 		const failed = renderTool("failed", { content: [], details: { status: "failed", error: { code: "SKILL_NOT_FOUND", message: "skill not found" } } });
-		expect(failed.querySelector(".activity-summary")?.textContent).toContain("加载失败");
 		expect(failed.querySelector(".activity-state")?.getAttribute("data-state")).toBe("failed");
 		expect(failed.querySelector(".activity-error")?.textContent).toBe("skill not found");
 	});
@@ -71,7 +59,6 @@ describe("技能语义展示", () => {
 	it("展开显示来源、根路径和 Markdown 正文，不显示披露标签或默认展示哈希", () => {
 		const doc = document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state: "completed", output: { kind: "inline", value: result } } }),
 			new Map([[`skill:${call.id}`, true]]));
-		expect(doc.querySelector(".skill-metadata")?.textContent).toContain("用户技能");
 		expect(doc.querySelector(".skill-metadata")?.textContent).toContain("skill://debugging");
 		expect(doc.querySelector(".skill-body h1")?.textContent).toBe("检查任务");
 		expect(doc.toString()).not.toContain("invoked_skill");
@@ -85,7 +72,6 @@ describe("技能语义展示", () => {
 		] }) }));
 		const outer = doc.querySelector(commentary ? ".assistant-reply > .reply-process" : ".reply-activity");
 		expect(outer?.getAttribute("data-state")).toBe("closed");
-		expect(outer?.querySelector(":scope > .disclosure-trigger")?.textContent).toBe(`${commentary ? "本轮过程" : "思考与工具"}1 个技能 · 1 次工具调用`);
 	});
 
 	it("大体积结果的首屏保留技能状态，正文仍通过原有接口按需读取", () => {

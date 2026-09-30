@@ -9,6 +9,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { extensions } from "../../src/harness/extensions.ts";
+import { readTelemetryDirectory } from "../../src/harness/telemetry-report/read.ts";
 import { startModelServer, type ModelRequest, type ModelResponse } from "../cli/model-server.ts";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -119,6 +120,22 @@ describe("通过原生 SDK 复用 harness 业务扩展", () => {
 		if (result?.role !== "toolResult") throw new Error("缺少工具结果");
 		return result;
 	}
+
+	it("真实工具完成后只写一份遥测，参数修复和版本被记录而正文不落入日志", async () => {
+		const host = await createRuntime();
+		await call(host, { tool: "read", args: { path: "@input.txt", extra: true } });
+		await call(host, { tool: "write", args: { path: "output.txt", content: "private-written-body" } });
+		await host.dispose();
+		runtime = undefined;
+		const { records } = await readTelemetryDirectory(path.join(temp.path, ".pi", "telemetry", "runs"));
+		const calls = records.filter((record) => record.type === "call");
+		expect(calls.map((record) => record.tool)).toEqual(["read", "write"]);
+		expect(calls[0]).toMatchObject({ status: "success", repair: { status: "repaired" }, targets: [{ value: "input.txt" }] });
+		expect(calls[1]).toMatchObject({ status: "success", targets: [{ value: "output.txt" }] });
+		expect(JSON.stringify(records)).not.toContain("private-written-body");
+		expect(JSON.stringify(records)).not.toContain("SDK fixture\\n");
+		expect(records.filter((record) => record.type === "run")).toHaveLength(1);
+	});
 
 	it.each([
 		{ tool: "edit", args: { path: "input.txt", edits: [] } },

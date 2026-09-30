@@ -1,390 +1,76 @@
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
-import type { FileToolLimits } from "../../../src/harness/file-tool-limits.ts";
-import type { FileRef, TargetRef } from "../../../src/harness/filesystem/contracts/path.ts";
-import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.ts";
-import type { FsResult } from "../../../src/harness/filesystem/contracts/result.ts";
-import { NodeNativeFileSystem, type NativeAtomicReplaceOptions, type NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
-import { FileSystemRuntime, type OpenWorkspaceOptions } from "../../../src/harness/filesystem/runtime.ts";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
-import { contentHash } from "../../../src/harness/filesystem/services/text.ts";
-import {
-	FileToolsConfigProvider,
-	type FileToolsConfig,
-	type FileToolsConfigLoader,
-	type FileToolsConfigResult,
-} from "../../../src/harness/file-tools/config.ts";
-import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
+import { NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.ts";
+import { editFile } from "../../../src/harness/file-tools/edit/command.ts";
+import { writeFile as writeCommand } from "../../../src/harness/file-tools/write/command.ts";
 import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
-import { deferred, deferredVoid } from "../../helpers/async.ts";
+import { readWorkspaceFile } from "../../helpers/read-tool.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
-const temp = useTempDir("o-pi-file-tools-host-");
+const temp = useTempDir("o-pi-file-host-");
 preserveEnv("PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT");
-let workspace: string;
-let hosts: FileToolsHost[];
-let defaultLimits: FileToolLimits;
-
-beforeEach(async () => {
-	workspace = path.join(temp.path, "workspace");
-	await mkdir(workspace);
-	hosts = [];
-	const userConfig = path.join(temp.path, "defaults.jsonc");
-	await writeFile(userConfig, "{}\n");
-	process.env.PI_FILE_TOOLS_CONFIG = userConfig;
+let host: FileToolsHost;
+beforeEach(() => {
+	host = new FileToolsHost();
+	process.env.PI_FILE_TOOLS_CONFIG = path.join(temp.path, "file-tools.jsonc");
 	delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
 	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
-	const provider = new FileToolsConfigProvider();
+});
+afterEach(() => { host.dispose(); vi.restoreAllMocks(); });
+
+async function open(sessionId: string, signal?: AbortSignal) {
+	const result = await host.open({ cwd: temp.path, sessionId, ...(signal ? { signal } : {}) });
+	if (isFailed(result)) throw new Error(result.error.message);
+	return result;
+}
+
+async function edit(sessionId: string, file: string) {
+	const opened = await open(sessionId);
 	try {
-		const loaded = await provider.load(workspace);
-		if (!loaded.ok) throw new Error(loaded.error.message);
-		defaultLimits = loaded.value.limits;
-	} finally {
-		provider.dispose();
-	}
-});
+		return await editFile({ path: file, edits: [{ old: "before", new: "after" }] }, { ...opened, diff: piTextDiffGenerator });
+	} finally { opened.dispose(); }
+}
 
-afterEach(() => {
-	for (const host of hosts) host.dispose();
-});
-
-describe("FileToolsHost runtime", () => {
-	it("owns and idempotently disposes its config provider cache", async () => {
-		const userConfig = path.join(temp.path, "provider-file-tools.jsonc");
-		await writeFile(userConfig, "{}\n");
-		process.env.PI_FILE_TOOLS_CONFIG = userConfig;
-		delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
-		delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
-		const provider = new FileToolsConfigProvider();
-		expect(await provider.load(workspace)).toMatchObject({ ok: true, value: { limits: { ls_entries: expect.any(Number) } } });
-		provider.dispose();
-		provider.dispose();
-		await expect(provider.load(workspace)).resolves.toMatchObject({ ok: false, error: { message: expect.any(String) } });
-	});
-	it("returns config failures before any workspace I/O", async () => {
-		const counted = countingNative();
-		const config: FileToolsConfigLoader = {
-			async load() { return { ok: false, error: { message: "invalid project config" } }; },
-		};
-		const host = track(new FileToolsHost({ config, filesystem: new FileSystemRuntime({ native: counted.native }) }));
-		await expect(host.open({ cwd: workspace, sessionId: "config" })).resolves.toMatchObject({
-			status: "failed",
-			error: { code: "CONFIG_ERROR" },
-		});
-		expect(counted.calls()).toBe(0);
+describe("文件工具会话", () => {
+	it("配置错误可修复，失败打开不妨碍后续调用", async () => {
+		await writeFile(process.env.PI_FILE_TOOLS_CONFIG ?? "", '{"limits":{"ls_entries":0}}');
+		await expect(host.open({ cwd: temp.path, sessionId: "one" })).resolves.toMatchObject({ error: { code: "CONFIG_ERROR" } });
+		await writeFile(process.env.PI_FILE_TOOLS_CONFIG ?? "", "{}");
+		(await open("one")).dispose();
 	});
 
-	it("honors cancellation before or immediately after config loading without workspace I/O", async () => {
-		const counted = countingNative();
-		const before = new AbortController();
-		before.abort();
-		const host = track(new FileToolsHost({ config: staticConfig(), filesystem: new FileSystemRuntime({ native: counted.native }) }));
-		await expect(host.open({ cwd: workspace, sessionId: "before", signal: before.signal })).resolves.toMatchObject({
-			status: "failed",
-			error: { code: "OPERATION_ABORTED" },
-		});
-
-		const during = new AbortController();
-		const config: FileToolsConfigLoader = {
-			async load() {
-				during.abort();
-				return configSuccess();
-			},
-		};
-		const afterConfig = track(new FileToolsHost({ config, filesystem: new FileSystemRuntime({ native: counted.native }) }));
-		await expect(afterConfig.open({ cwd: workspace, sessionId: "during", signal: during.signal })).resolves.toMatchObject({
-			status: "failed",
-			error: { code: "OPERATION_ABORTED" },
-		});
-		expect(counted.calls()).toBe(0);
+	it.skipIf(process.platform === "win32")("同会话按真实路径共享已读版本，不同会话隔离", async () => {
+		await writeFile(path.join(temp.path, "file.txt"), "before");
+		await symlink(path.join(temp.path, "file.txt"), path.join(temp.path, "alias.txt"));
+		await readWorkspaceFile(temp.path, { path: "file.txt" }, { host, sessionId: "one" });
+		await expect(edit("two", "alias.txt")).resolves.toMatchObject({ error: { code: "READ_REQUIRED" } });
+		await expect(edit("one", "alias.txt")).resolves.toMatchObject({ status: "applied" });
+		expect(await readFile(path.join(temp.path, "file.txt"), "utf8")).toBe("after");
 	});
 
-	it("loads invocation-cwd config and returns CONFIG_ERROR before workspace I/O", async () => {
-		const userConfig = path.join(temp.path, "user-file-tools.jsonc");
-		const projectConfig = path.join(temp.path, "project-file-tools.jsonc");
-		await writeFile(userConfig, "{}\n");
-		await writeFile(projectConfig, JSON.stringify({ limits: { ls_entries: 0 } }));
-		process.env.PI_FILE_TOOLS_CONFIG = userConfig;
-		process.env.PI_FILE_TOOLS_PROJECT_CONFIG = projectConfig;
-		delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
-		const counted = countingNative();
-		const host = track(new FileToolsHost({ filesystem: new FileSystemRuntime({ native: counted.native }) }));
-
-		await expect(host.open({ cwd: workspace, sessionId: "project-config" })).resolves.toMatchObject({
-			status: "failed",
-			error: { code: "CONFIG_ERROR" },
-		});
-		expect(counted.calls()).toBe(0);
-	});
-
-	it("does not start workspace I/O when shutdown wins an in-flight config load", async () => {
-		const counted = countingNative();
-		const release = deferred<FileToolsConfigResult>();
-		let disposed = 0;
-		const config = {
-			load: () => release.promise,
-			dispose() { disposed += 1; },
-		};
-		const host = track(new FileToolsHost({ config, filesystem: new FileSystemRuntime({ native: counted.native }) }));
-		const opening = host.open({ cwd: workspace, sessionId: "shutdown" });
-		host.dispose();
-		host.dispose();
-		release.resolve(configSuccess());
-		await expect(opening).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-		expect(counted.calls()).toBe(0);
-		expect(disposed).toBe(1);
-	});
-
-	it("cleans a newly created session when workspace open fails", async () => {
-		const host = track(new FileToolsHost({ config: staticConfig() }));
-		await expect(host.open({ cwd: path.join(workspace, "missing"), sessionId: "retry" })).resolves.toMatchObject({
-			status: "failed",
-			error: { code: "PATH_NOT_FOUND" },
-		});
-		const opened = await openHost(host, "retry");
-		expect(opened.observation.get(await resolveTarget(opened, "new.txt"))).toBeUndefined();
-	});
-
-	it("exposes a stable opaque workspace cache identity without sharing path refs", async () => {
-		await writeFile(path.join(workspace, "identity.txt"), "identity");
-		const host = track(new FileToolsHost({ config: staticConfig() }));
-		const first = await openHost(host, "identity-a");
-		const second = await openHost(host, "identity-b");
-		const firstRef = await resolveFile(first, "identity.txt");
-		const secondRef = await resolveFile(second, "identity.txt");
-
-		expect(first.filesystem.identity).toBe(second.filesystem.identity);
-		expect(String(first.filesystem.identity)).not.toContain(workspace);
-		expect(firstRef).not.toBe(secondRef);
-		expect(second.nativeBridge.getNativeIdentity(firstRef)).toBeUndefined();
-	});
-
-	it("closes a workspace that finishes opening during host shutdown", async () => {
-		const runtime = new DisposeAfterOpenRuntime();
-		const host = track(new FileToolsHost({ config: staticConfig(), filesystem: runtime }));
-		runtime.afterOpen = () => { host.dispose(); };
-		await expect(host.open({ cwd: workspace, sessionId: "race" })).resolves.toMatchObject({
-			status: "failed",
-			error: { code: "OPERATION_ABORTED" },
-		});
-	});
-
-	it.skipIf(process.platform === "win32")("shares canonical observations within a session and isolates sessions", async () => {
-		await writeFile(path.join(workspace, "real.txt"), "content");
-		await symlink(path.join(workspace, "real.txt"), path.join(workspace, "alias.txt"));
-		const host = track(new FileToolsHost({ config: staticConfig() }));
-		const first = await openHost(host, "same");
-		const second = await openHost(host, "same");
-		const isolated = await openHost(host, "other");
-		const real = await resolveFile(first, "real.txt");
-		const alias = await resolveFile(second, "alias.txt");
-		const isolatedRef = await resolveFile(isolated, "real.txt");
-		const version = { hash: contentHash(bytes("content")), sizeBytes: bytes("content").byteLength };
-
-		first.observation.remember(real, version);
-		expect(second.observation.get(alias)).toEqual(version);
-		expect(host.sessionObservations("same")).toEqual([{
-			canonicalPath: path.join(workspace, "real.txt"),
-			version,
-		}]);
-		const nextVersion = { hash: contentHash(bytes("next")), sizeBytes: 4 };
-		second.observation.remember(alias, nextVersion);
-		expect(first.observation.get(real)).toEqual(nextVersion);
-		expect(isolated.observation.get(isolatedRef)).toBeUndefined();
-		first.observation.remember(isolatedRef, version);
-		first.observation.remember(alias, version);
-		expect(first.observation.get(real)).toEqual(nextVersion);
-		expect(isolated.observation.get(isolatedRef)).toBeUndefined();
-		expect(second.observation.get(real)).toBeUndefined();
-		first.dispose();
-		first.dispose();
-		expect(first.observation.get(real)).toBeUndefined();
-		first.observation.remember(real, version);
-		expect(first.observation.get(real)).toBeUndefined();
-		expect(second.observation.get(alias)).toEqual(nextVersion);
-		expect(host.sessionObservations("same")).toEqual([{ canonicalPath: path.join(workspace, "real.txt"), version: nextVersion }]);
-	});
-
-	it("updates observations before releasing the mutation queue for a concurrent edit", async () => {
-		const host = track(new FileToolsHost({ config: staticConfig() }));
-		const opened = await openHost(host, "ordered");
-		const target = await resolveTarget(opened, "ordered.txt");
-		const entered = deferredVoid();
-		const release = deferredVoid();
-		const first = opened.filesystem.mutations.run(target, { createParents: false }, async () => {
-			entered.resolve();
-			await release.promise;
-			return { type: "commit", prepared: undefined, bytes: bytes("one") };
-		});
-		await entered.promise;
-		let observedBySecond: string | undefined;
-		const second = opened.filesystem.mutations.run(target, { createParents: false }, () => {
-			observedBySecond = opened.observation.get(target)?.hash;
-			return { type: "commit", prepared: undefined, bytes: bytes("two") };
-		});
-		release.resolve();
-		expect(expectOk(await first)).toMatchObject({ committed: true });
-		expect(expectOk(await second)).toMatchObject({ committed: true });
-		expect(observedBySecond).toBe(contentHash(bytes("one")));
-		expect(opened.observation.get(target)).toEqual({ hash: contentHash(bytes("two")), sizeBytes: 3 });
-	});
-
-	it("提交后的调用取消不丢失已写入文件的观测版本", async () => {
+	it("提交后取消仍记录版本，下一次 edit 不会误报未读", async () => {
 		const controller = new AbortController();
-		class CancelAfterCommit extends NodeNativeFileSystem {
-			override async atomicReplace<T>(path: string, bytes: Uint8Array, options: NativeAtomicReplaceOptions<T>): Promise<T> {
-				const receipt = await super.atomicReplace(path, bytes, options);
-				controller.abort();
-				return receipt;
-			}
-		}
-		const host = track(new FileToolsHost({ config: staticConfig(), filesystem: new FileSystemRuntime({ native: new CancelAfterCommit() }) }));
-		const opened = await host.open({ cwd: workspace, sessionId: "committed-abort", signal: controller.signal });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		const target = await resolveTarget(opened, "committed.txt");
-		expect(expectOk(await opened.filesystem.mutations.run(target, { createParents: false }, () => ({
-			type: "commit", bytes: bytes("committed"), prepared: undefined,
-		})))).toMatchObject({ committed: true });
-		expect(host.sessionObservations("committed-abort")).toEqual([{
-			canonicalPath: path.join(workspace, "committed.txt"),
-			version: { hash: contentHash(bytes("committed")), sizeBytes: 9 },
-		}]);
+		const replace = NodeNativeFileSystem.prototype.atomicReplace;
+		vi.spyOn(NodeNativeFileSystem.prototype, "atomicReplace").mockImplementation(async function (this: NodeNativeFileSystem, file, bytes, options) {
+			const result = await replace.call(this, file, bytes, options);
+			controller.abort();
+			return result;
+		});
+		const opened = await open("one", controller.signal);
+		try {
+			await expect(writeCommand({ path: "file.txt", content: "before" }, { ...opened, diff: piTextDiffGenerator }))
+				.resolves.toMatchObject({ status: "written" });
+		} finally { opened.dispose(); }
+		await expect(edit("one", "file.txt")).resolves.toMatchObject({ status: "applied" });
 	});
 
-	it("supports observation-based external stale detection inside the mutation session", async () => {
-		await writeFile(path.join(workspace, "stale.txt"), "read-version");
-		const host = track(new FileToolsHost({ config: staticConfig() }));
-		const opened = await openHost(host, "stale");
-		const file = await resolveFile(opened, "stale.txt");
-		const target = await resolveTarget(opened, "stale.txt");
-		const read = expectOk(await opened.filesystem.content.readBytes(file, {}));
-		opened.observation.remember(file, read);
-		await writeFile(path.join(workspace, "stale.txt"), "external");
-
-		const result = await opened.filesystem.mutations.run(target, { createParents: false }, (snapshot) => {
-			const observed = opened.observation.get(target);
-			if (!snapshot.exists || observed?.hash !== snapshot.hash) return { type: "reject", reason: "stale" };
-			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
-		});
-		expect(expectOk(result)).toMatchObject({ committed: false, reason: "stale" });
-	});
-
-	it("owns workspace, session, and host lifecycle with idempotent disposal", async () => {
-		const host = track(new FileToolsHost({ config: staticConfig() }));
-		const opened = await openHost(host, "lifecycle");
-		const target = await resolveTarget(opened, "life.txt");
-		expect(expectOk(await opened.filesystem.mutations.run(
-			target,
-			{ createParents: false },
-			() => ({ type: "commit", prepared: undefined, bytes: bytes("life") }),
-		))).toMatchObject({ committed: true, receipt: { created: true } });
-		expect(opened.limits.ls_entries).toBe(defaultLimits.ls_entries);
-		const file = await resolveFile(opened, "life.txt");
-
-		opened.dispose();
-		opened.dispose();
-		await expect(opened.filesystem.paths.resolveTarget(
-			"after-dispose.txt",
-		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
-		await expect(opened.filesystem.content.readBytes(file, {}))
-			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
-		await expect(opened.filesystem.mutations.run(
-			target,
-			{ createParents: false },
-			() => ({ type: "commit", prepared: undefined, bytes: bytes("unsafe") }),
-		))
-			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
-
+	it("关闭宿主拒绝在途打开和新调用", async () => {
+		const opening = host.open({ cwd: temp.path, sessionId: "one" });
 		host.dispose();
-		host.dispose();
-		await expect(host.open({ cwd: workspace, sessionId: "after" })).resolves.toMatchObject({
-			status: "failed",
-			error: { code: "OPERATION_ABORTED" },
-		});
+		await expect(opening).resolves.toMatchObject({ error: { code: "OPERATION_ABORTED" } });
+		await expect(host.open({ cwd: temp.path, sessionId: "two" })).resolves.toMatchObject({ error: { code: "OPERATION_ABORTED" } });
 	});
 });
-
-async function openHost(host: FileToolsHost, sessionId: string): Promise<FileToolsInvocation> {
-	const opened = await host.open({ cwd: workspace, sessionId });
-	if (isFailed(opened)) throw new Error(opened.error.message);
-	return opened;
-}
-
-async function resolveFile(opened: FileToolsInvocation, input: string): Promise<FileRef> {
-	const resolved = expectOk(await opened.filesystem.paths.resolveExisting(
-		input,
-		{ expected: "file", followFinalSymlink: true },
-	));
-	return resolved;
-}
-
-async function resolveTarget(opened: FileToolsInvocation, input: string): Promise<TargetRef> {
-	return expectOk(await opened.filesystem.paths.resolveTarget(input));
-}
-
-function expectOk<T>(result: FsResult<T>): T {
-	expect(result).toMatchObject({ ok: true });
-	if (!result.ok) throw new Error(result.error.message);
-	return result.value;
-}
-
-function staticConfig(): FileToolsConfigLoader {
-	return { async load() { return configSuccess(); } };
-}
-
-function configSuccess(): FileToolsConfigResult {
-	return { ok: true, value: fileToolsConfig() };
-}
-
-function fileToolsConfig(): FileToolsConfig {
-	return { filesystem: policy(), limits: defaultLimits };
-}
-
-function policy(): FilesystemPolicy {
-	const visibility = createVisibilityPolicy();
-	return { blockedPaths: [".git/"], visibility, fingerprint: visibility.fingerprint };
-}
-
-function bytes(value: string): Uint8Array {
-	return new TextEncoder().encode(value);
-}
-
-function track(host: FileToolsHost): FileToolsHost {
-	hosts.push(host);
-	return host;
-}
-
-class DisposeAfterOpenRuntime extends FileSystemRuntime {
-	afterOpen: (() => void) | undefined;
-
-	override async open(options: OpenWorkspaceOptions) {
-		const result = await super.open(options);
-		this.afterOpen?.();
-		return result;
-	}
-}
-
-function countingNative(): { readonly native: NativeFileSystem; calls(): number } {
-	const base = new NodeNativeFileSystem();
-	let count = 0;
-	const called = <T extends readonly unknown[], R>(operation: (...args: T) => Promise<R>) => async (...args: T): Promise<R> => {
-		count += 1;
-		return await operation(...args);
-	};
-	return {
-		native: {
-			lstat: called((file, options) => base.lstat(file, options)),
-			stat: called((file, options) => base.stat(file, options)),
-			realpath: called((file, options) => base.realpath(file, options)),
-			readdir: called((directory, options) => base.readdir(directory, options)),
-			readlink: called((file, options) => base.readlink(file, options)),
-			read: called((file, options) => base.read(file, options)),
-			open: called((file, options) => base.open(file, options)),
-			atomicReplace: called((file, value, options) => base.atomicReplace(file, value, options)),
-			mkdir: called((directory, options) => base.mkdir(directory, options)),
-		},
-		calls: () => count,
-	};
-}

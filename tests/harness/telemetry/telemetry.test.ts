@@ -1,489 +1,107 @@
-import {
-	createEventBus,
-	type AgentToolResult,
-	type ExtensionAPI,
-	type ExtensionContext,
-	type ExtensionToolContext,
-	type SessionStartEvent,
-	type ToolDefinition,
-	type ToolResultEvent,
-} from "@earendil-works/pi-coding-agent";
-import { fileURLToPath } from "node:url";
-import { Type } from "typebox";
-import { describe, expect, it } from "vitest";
-
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { loadExtensions } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
-import { presentation } from "../../../src/tui/extensions.ts";
-import { registerTelemetryCommand } from "../../../src/harness/extensions/telemetry.ts";
-import { attachTelemetryService } from "../../../src/harness/telemetry/pi-adapter.ts";
-import { defineToolTelemetry, fields } from "../../../src/harness/telemetry/projection.ts";
-import { registerTelemetry, TelemetryService } from "../../../src/harness/telemetry/service.ts";
-import { registerTool as registerProjectTool } from "../../../src/harness/register-tool.ts";
-import type { CallRecord, GitRevision, TelemetryRecord, ToolTelemetry } from "../../../src/harness/telemetry/types.ts";
-import type { TelemetryWriter } from "../../../src/harness/telemetry/writer.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Type } from "typebox";
+import { TelemetryService } from "../../../src/harness/telemetry/service.ts";
+import type { TelemetryRecord } from "../../../src/harness/telemetry/types.ts";
+import * as revision from "../../../src/harness/telemetry/revision.ts";
+import { assistant } from "../../gui/transcript-fixtures.ts";
 import { deferred } from "../../helpers/async.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
-const parameters = Type.Object({ path: Type.String(), count: Type.Optional(Type.Integer()) }, { additionalProperties: false });
-interface TestDetails { status: string; error_code?: string; truncated?: boolean }
-type TestTool = ToolDefinition<typeof parameters, TestDetails, unknown>;
+const temp = useTempDir("opi-telemetry-");
+preserveEnv("HOME", "USERPROFILE");
+let service: TelemetryService;
+let notifications: string[];
+const shutdown = () => service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
+beforeEach(() => {
+	setTestHome(temp.path);
+	notifications = [];
+	service = new TelemetryService({ getAllTools: () => [], getThinkingLevel: () => "off" });
+	service.onSessionStart({ type: "session_start", reason: "startup" }, {
+		cwd: temp.path, sessionId: "session", notify: (message) => notifications.push(message),
+	});
+});
+afterEach(async () => { await shutdown(); vi.restoreAllMocks(); });
 
-describe("telemetry service", () => {
-	it.each(["collector-first", "tool-first"] as const)("registers projectors across distinct Pi event wrappers: %s", async (order) => {
-		const events = createEventBus();
-		const collectorPi = fakePi(eventView(events));
-		const toolPi = fakePi(eventView(events));
-		const writer = new MemoryWriter();
-		let service: TelemetryService;
-		let observedTool: TestTool | undefined;
-		const registerTool = () => {
-			observedTool = registerProjectTool(toolPi.api, {
-				tool: testTool(),
-				telemetry: defineToolTelemetry<{ path: string; count?: number }, TestDetails>({
-					input: (params) => ({ fields: { input_count: params.count ?? 0 } }),
-				}),
-			});
-		};
-		if (order === "tool-first") registerTool();
-		service = registerTelemetry(collectorPi.api, {
-			runId: () => "run",
-			writerFactory: async () => writer,
-			revision: async () => undefined,
-		});
-		if (order === "collector-first") registerTool();
-		service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
-		if (observedTool === undefined) throw new Error("observed tool not registered");
-		const rawArgs = { path: "a", count: "2" };
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: rawArgs });
-		const prepared = observedTool.prepareArguments?.(rawArgs);
-		service.onToolResult(fixture<ToolResultEvent>({ type: "tool_result", toolCallId: "call", toolName: "test", input: prepared }));
-		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "ok" }), isError: false });
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
-		expect(writer.records[1]).toMatchObject({
-			tool: "test",
-			fields: { input_count: 2 },
-			repair: { status: "repaired", operations: ["numeric_string_to_number"] },
-		});
-		expect(collectorPi.hooks).toEqual([
-			"session_start", "turn_start", "message_end", "tool_execution_start", "tool_result", "tool_execution_end", "session_shutdown",
-		]);
-		expect(toolPi.hooks).toEqual([]);
+function finish(id: string, parentToolCallId?: string, isError = false) {
+	const parent = parentToolCallId === undefined ? {} : { parentToolCallId };
+	service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: id, toolName: "external", args: {}, ...parent });
+	service.onToolResult({ type: "tool_result", toolCallId: id, toolName: "external", input: {}, details: {}, content: [], isError });
+	service.onToolExecutionEnd({
+		type: "tool_execution_end", toolCallId: id, toolName: "external", ...parent, isError,
+		result: { content: [{ type: "text", text: "secret output" }], details: {} },
+	});
+}
+async function records(): Promise<TelemetryRecord[]> {
+	await shutdown();
+	const directory = path.join(temp.path, ".pi/telemetry/runs");
+	const [name] = await readdir(directory);
+	if (!name) throw new Error("缺少遥测文件");
+	const file = path.join(directory, name);
+	if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
+	const text = await readFile(file, "utf8");
+	expect(text).not.toContain("secret output");
+	return text.trim().split("\n").map((line) => JSON.parse(line) as TelemetryRecord);
+}
+
+describe("遥测收集与真实写盘", () => {
+	it("没有完成的工具调用就不创建日志", async () => {
+		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "pending", toolName: "external", args: {} });
+		await shutdown();
+		await expect(readdir(path.join(temp.path, ".pi/telemetry/runs"))).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
-	it("independently loaded extensions still attach one collector", async () => {
-		const loaded = await loadExtensions([
-			fileURLToPath(new URL("../../../src/harness/extensions/bash-tool.ts", import.meta.url)),
-			fileURLToPath(new URL("../../../src/harness/extensions/subagent.ts", import.meta.url)),
-			fileURLToPath(new URL("../../../src/harness/extensions/telemetry.ts", import.meta.url)),
-		], process.cwd(), createEventBus());
-		expect(loaded.errors).toEqual([]);
-		for (const event of ["session_start", "turn_start", "message_end", "tool_execution_start", "tool_result", "tool_execution_end", "session_shutdown"] as const) {
-			const handlers = loaded.extensions.reduce((count, extension) => count + (extension.handlers.get(event)?.length ?? 0), 0);
-			expect(handlers, event).toBe(
-				event === "session_start"
-					? 3
-					: event === "session_shutdown" ? 2 : 1,
-			);
-		}
-		const telemetry = loaded.extensions.find((extension) => extension.path.endsWith(path.join("src", "harness", "extensions", "telemetry.ts")));
-		expect(telemetry?.commands.has("telemetry")).toBe(true);
+	it("Git 采集未完成时缓存调用，写盘时先写运行头并保留完成顺序", async () => {
+		const started = deferred<void>();
+		const release = deferred<undefined>();
+		vi.spyOn(revision, "captureGitRevision").mockImplementation(() => { started.resolve(); return release.promise; });
+		finish("first");
+		await started.promise;
+		finish("second");
+		release.resolve(undefined);
+		const saved = await records();
+		expect(saved.map((record) => record.type === "call" ? record.call_id : record.type)).toEqual(["run", "first", "second"]);
+		expect(saved).toEqual(service.snapshot().records);
 	});
 
-	it("writes one run header and one completed, projected call", async () => {
-		const writer = new MemoryWriter();
-		let inputProjectionCalls = 0;
-		let mutationBlocked = false;
-		let monotonic = 100;
-		const pi = fakePi().api;
-		const service = new TelemetryService(pi, {
-			runId: () => "run-1",
-			now: clock(),
-			monotonicNow: () => monotonic,
-			revision: async (): Promise<GitRevision> => ({ root: "/repo", commit: "abc", dirty: false }),
-			writerFactory: async () => writer,
-		});
-		registerTestTool(service, defineToolTelemetry({
-			input: (params: { path: string; count?: number }) => {
-				inputProjectionCalls += 1;
-				try { params.path = "mutated"; } catch { mutationBlocked = true; }
-				return { fields: { input_count: params.count ?? 0 }, targets: [{ kind: "file", value: params.path }] };
-			},
-			result: (_params, details) => ({ fields: fields({ status: details.status, error_code: details.error_code, truncated: details.truncated }) }),
-		}));
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
-		service.onTurnStart(
-			{ type: "turn_start", turnIndex: 2, timestamp: 1 },
-			{ model: { provider: "test-provider", id: "test-model" } },
-		);
-		service.onMessageEnd(fixture({ type: "message_end", message: assistantCalls(["call-1", "call-2"]) }));
-		const rawArgs = { path: "raw.ts", count: "3" };
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call-1", toolName: "test", args: rawArgs });
-		service.prepared({ toolName: "test", rawArgs, preparedArgs: { path: ["src", "tests"], count: 3 }, status: "repaired", operations: ["numeric_string_to_number", "split_path_list"], fanout: { field: "path", count: 2, separator: "whitespace" } });
-		service.onToolResult(fixture<ToolResultEvent>({ type: "tool_result", toolCallId: "call-1", toolName: "test", input: { path: "src/a.ts", count: 3 }, details: { status: "ok", truncated: true }, content: [], isError: false }));
-		monotonic = 125;
-		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call-1", toolName: "test", result: result({ status: "ok", truncated: true }), isError: false });
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
-
-		expect(writer.records[0]).toMatchObject({ type: "run", run_id: "run-1", git: { commit: "abc", dirty: false } });
-		expect(writer.records[1]).toMatchObject({
-			type: "call",
-			call_id: "call-1",
-			turn_index: 2,
-			tool: "test",
-			model: { provider: "test-provider", id: "test-model" },
-			duration_ms: 25,
-			status: "success",
-			truncated: true,
-			batch: { size: 2, index: 0 },
-			repair: {
-				status: "repaired",
-				operations: ["numeric_string_to_number", "split_path_list"],
-				fanout: { field: "path", count: 2, separator: "whitespace" },
-			},
-			fields: { input_count: 3, status: "ok", truncated: true },
-			targets: [{ kind: "file", value: "src/a.ts" }],
-		});
-		expect((writer.records[1] as CallRecord).definition_hash).toMatch(/^[a-f0-9]{64}$/u);
-		expect(inputProjectionCalls).toBe(1);
-		expect(mutationBlocked).toBe(true);
-		const snapshot = service.snapshot();
-		expect(snapshot).toMatchObject({
-			run_id: "run-1",
-			session_id: "session-1",
-			enabled: true,
-			pending_calls: 0,
-			records: [{ type: "run" }, { type: "call", call_id: "call-1" }],
-		});
-		snapshot.records.length = 0;
-		expect(service.snapshot().records).toHaveLength(2);
-	});
-
-	it("路由后按响应模型归因，保留选择模型，下一轮不沿用旧路由", async () => {
-		const service = new TelemetryService(fakePi().api, {
-			writerFactory: async () => new MemoryWriter(), revision: async () => undefined,
-		});
-		service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
-		for (const [index, id] of ["fast", "precise"].entries()) {
+	it("响应模型随轮次更新，嵌套调用继承模型并保留父 ID", async () => {
+		for (const [index, model] of ["fast", "precise"].entries()) {
 			service.onTurnStart({ type: "turn_start", turnIndex: index, timestamp: index }, { model: { provider: "router", id: "auto" } });
-			service.onMessageEnd(fixture({ type: "message_end", message: {
-				role: "assistant", provider: "physical", model: id, thinkingLevel: "off",
-				content: [{ type: "toolCall", id, name: "codemode", arguments: {} }], stopReason: "toolUse",
-			} }));
-			for (const call of [id, `${id}/1`]) {
-				const parent = call === id ? {} : { parentToolCallId: id };
-				service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: call, toolName: "external", args: {}, ...parent });
-				service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: call, toolName: "external", result: result({ status: "ok" }), isError: false, ...parent });
-			}
+			service.onMessageEnd({ type: "message_end", message: {
+				...assistant([{ type: "toolCall", id: model, name: "external", arguments: {} }]), provider: "physical", model,
+			} });
+			finish(model);
+			finish(`${model}/1`, model);
 		}
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
-		const calls = service.snapshot().records.filter((record) => record.type === "call");
+		const calls = (await records()).filter((record) => record.type === "call");
 		expect(calls.map((call) => call.model?.id)).toEqual(["fast", "fast", "precise", "precise"]);
-		for (const call of calls) expect(call).toMatchObject({ selected_model: { provider: "router", id: "auto" }, thinking: "off" });
+		expect(calls[0]).toMatchObject({ selected_model: { provider: "router", id: "auto" }, batch: { size: 1, index: 0 } });
+		expect(calls[1]).toMatchObject({ parent_call_id: "fast" });
+		expect(calls[1]).not.toHaveProperty("batch");
 	});
 
-	it("嵌套调用保存 SDK 父 ID，不伪造 assistant 批次", async () => {
-		const writer = new MemoryWriter();
-		const service = new TelemetryService(fakePi().api, { runId: () => "nested", writerFactory: async () => writer, revision: async () => undefined });
-		service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "code/1", parentToolCallId: "code", toolName: "external", args: {} });
-		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "code/1", parentToolCallId: "code", toolName: "external", result: result({ status: "ok" }), isError: false });
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
-		expect(writer.records[1]).toMatchObject({ call_id: "code/1", parent_call_id: "code" });
-		expect(writer.records[1]).not.toHaveProperty("batch");
-	});
-
-	it("buffers calls in order while startup resources initialize", async () => {
-		const writer = new MemoryWriter();
-		const writerGate = deferred<TelemetryWriter>();
-		const revisionGate = deferred<GitRevision | undefined>();
-		const service = new TelemetryService(fakePi().api, {
-			runId: () => "run",
-			writerFactory: async () => writerGate.promise,
-			revision: async () => revisionGate.promise,
+	it("投影异常不影响工具结果，执行异常不调用结果投影", async () => {
+		const result = vi.fn(() => ({ fields: { status: "failed", error_code: "NOT_FOUND" } }));
+		service.registerTool({
+			definition: { name: "external", description: "External tool", parameters: Type.Object({}) },
+			input: () => { throw new RangeError("private input"); }, result,
 		});
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "early", toolName: "host", args: {} });
-		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "early", toolName: "host", result: result({ status: "ok" }), isError: false });
-		expect(writer.records).toEqual([]);
-		writerGate.resolve(writer);
-		revisionGate.resolve(undefined);
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
-		expect(writer.records.map((record) => record.type)).toEqual(["run", "call"]);
-		expect(writer.records[1]).toMatchObject({ call_id: "early" });
+		finish("projected");
+		finish("execution-error", undefined, true);
+		const saved = await records();
+		expect(saved[1]).toMatchObject({ status: "error", error: { code: "NOT_FOUND" }, fields: { telemetry_input_error: "RangeError" } });
+		expect(result).toHaveBeenCalledOnce();
+		expect(saved[2]).toMatchObject({ status: "error" });
 	});
 
-	it("does not put telemetry initialization on Pi's session_start await chain", async () => {
-		let start: ((event: SessionStartEvent, ctx: ExtensionContext) => unknown) | undefined;
-		let writerCalls = 0;
-		let revisionCalls = 0;
-		const pi = fakePi().api;
-		pi.on = (event, handler) => {
-			if (event === "session_start") start = fixture<(event: SessionStartEvent, ctx: ExtensionContext) => unknown>(handler);
-			return () => {};
-		};
-		const service = new TelemetryService(pi, {
-			runId: () => "run",
-			writerFactory: async () => { writerCalls += 1; return new MemoryWriter(); },
-			revision: async () => { revisionCalls += 1; return undefined; },
-		});
-		attachTelemetryService(pi, service);
-		if (start === undefined) throw new Error("session_start not attached");
-		expect(start({ type: "session_start", reason: "startup" }, extensionContext())).toBeUndefined();
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
-		expect({ writerCalls, revisionCalls }).toEqual({ writerCalls: 0, revisionCalls: 0 });
-	});
-
-	it("registers a non-TUI live report without writing to session history", async () => {
-		let command: Parameters<ExtensionAPI["registerCommand"]>[1] | undefined;
-		const notifications: string[] = [];
-		registerTelemetryCommand({
-			registerCommand(name, options) {
-				expect(name).toBe("telemetry");
-				command = options;
-			},
-		}, {
-			snapshot: () => ({ enabled: false, pending_calls: 0, records: [] }),
-		}, presentation.telemetry);
-		if (command === undefined) throw new Error("telemetry command not registered");
-		await command.handler("", fixture({
-			mode: "print",
-			ui: { notify(message: string) { notifications.push(message); } },
-		}));
-		expect(notifications).toHaveLength(1);
-
-		let customCalled = false;
-		await command.handler("", fixture({
-			mode: "tui",
-			ui: {
-				async custom(factory: (tui: unknown, theme: unknown, keybindings: unknown, done: () => void) => { render(width: number): string[] }) {
-					customCalled = true;
-					const viewer = factory(
-						{ terminal: { rows: 30 } },
-						{ fg: (_color: string, text: string) => text },
-						{},
-						() => undefined,
-					);
-					expect(viewer.render(80).length).toBeGreaterThan(0);
-				},
-			},
-		}));
-		expect(customCalled).toBe(true);
-	});
-
-	it("classifies projected tool failures and preserves projector diagnostics", async () => {
-		const writer = new MemoryWriter();
-		const service = new TelemetryService(fakePi().api, { runId: () => "run", writerFactory: async () => writer, revision: async () => undefined });
-		registerTestTool(service, defineToolTelemetry({
-			input() { throw new RangeError("projection failure"); },
-			result: () => ({ fields: { status: "failed", error_code: "NOT_FOUND" } }),
-		}));
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: { path: "a" } });
-		service.onToolResult(fixture<ToolResultEvent>({
-			type: "tool_result",
-			toolCallId: "call",
-			toolName: "test",
-			input: { path: "a" },
-			details: { status: "failed", error_code: "NOT_FOUND" },
-			isError: true,
-		}));
-		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "failed", error_code: "NOT_FOUND" }), isError: true });
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
-		expect(writer.records[1]).toMatchObject({ status: "error", error: { code: "NOT_FOUND" }, fields: { telemetry_input_error: "RangeError" } });
-	});
-
-	it("does not invoke a typed result projector for execution errors", async () => {
-		const writer = new MemoryWriter();
-		let resultProjectionCalls = 0;
-		const service = new TelemetryService(fakePi().api, {
-			runId: () => "run",
-			writerFactory: async () => writer,
-			revision: async () => undefined,
-		});
-		registerTestTool(service, defineToolTelemetry({
-			input: (params: { path: string }) => ({ fields: { input_path: params.path } }),
-			result: () => {
-				resultProjectionCalls += 1;
-				return { fields: { status: "unexpected" } };
-			},
-		}));
-		service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: { path: "a" } });
-		service.onToolResult(fixture<ToolResultEvent>({
-			type: "tool_result",
-			toolCallId: "call",
-			toolName: "test",
-			input: { path: "a" },
-			details: {},
-			isError: true,
-		}));
-		service.onToolExecutionEnd({
-			type: "tool_execution_end",
-			toolCallId: "call",
-			toolName: "test",
-			result: { content: [{ type: "text", text: "business failure" }], details: {} },
-			isError: true,
-		});
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
-		expect(resultProjectionCalls).toBe(0);
-		expect(writer.records[1]).toMatchObject({ status: "error", fields: { input_path: "a" } });
-	});
-
-	it("does not initialize or write a run without a completed call", async () => {
-		const writer = new MemoryWriter();
-		let writerCalls = 0;
-		let revisionCalls = 0;
-		const service = new TelemetryService(fakePi().api, {
-			runId: () => "run",
-			writerFactory: async () => { writerCalls += 1; return writer; },
-			revision: async () => { revisionCalls += 1; return undefined; },
-		});
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "pending", toolName: "host", args: {} });
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
-		expect(writer.records).toEqual([]);
-		expect(writer.closed).toBe(false);
-		expect({ writerCalls, revisionCalls }).toEqual({ writerCalls: 0, revisionCalls: 0 });
-	});
-
-	it("write failure disables telemetry once without changing tool behavior", async () => {
-		const notifications: string[] = [];
-		const service = new TelemetryService(fakePi().api, { runId: () => "run", writerFactory: async () => new FailingWriter(), revision: async () => undefined });
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext(notifications));
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: {} });
-		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "ok" }), isError: false });
-		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
+	it("真实写入失败只通知一次，不阻止后续工具执行", async () => {
+		await mkdir(path.join(temp.path, ".pi"));
+		await writeFile(path.join(temp.path, ".pi/telemetry"), "not a directory");
+		finish("first");
+		await shutdown();
+		finish("later");
 		expect(notifications).toEqual(["Telemetry disabled for this run after a write failure."]);
-		expect(() => service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "later", toolName: "test", args: {} })).not.toThrow();
-	});
-
-});
-
-describe("observed tool registration", () => {
-	it("keeps execution semantics and applies repair without a telemetry execute wrapper", async () => {
-		let registered: TestTool | undefined;
-		const pi = fakePi().api;
-		pi.registerTool = (tool) => { registered = fixture<TestTool>(tool); };
-		registerProjectTool(pi, { tool: testTool() });
-		if (registered === undefined) throw new Error("tool not registered");
-		expect(registered.constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
-		expect(registered.prepareArguments?.({ path: "a", count: "2" })).toEqual({ path: "a", count: 2 });
-		await expect(registered.execute("call", { path: "a", count: 2 }, undefined, undefined, extensionContext())).resolves.toEqual(result({ status: "ok" }));
-	});
-
-	it("preserves an explicit constrained sampling choice", () => {
-		let registered: TestTool | undefined;
-		const pi = fakePi().api;
-		pi.registerTool = (tool) => { registered = fixture<TestTool>(tool); };
-		registerProjectTool(pi, { tool: { ...testTool(), constrainedSampling: false } });
-		if (registered === undefined) throw new Error("tool not registered");
-		expect(registered.constrainedSampling).toBe(false);
-	});
-
-	it("rethrows the original tool exception", async () => {
-		const original = new Error("business failure");
-		let registered: TestTool | undefined;
-		const pi = fakePi().api;
-		pi.registerTool = (tool) => { registered = fixture<TestTool>(tool); };
-		registerProjectTool(pi, { tool: testTool("test", async () => { throw original; }) });
-		if (registered === undefined) throw new Error("tool not registered");
-		await expect(registered.execute("call", { path: "a" }, undefined, undefined, extensionContext())).rejects.toBe(original);
+		expect(service.snapshot().enabled).toBe(false);
 	});
 });
-
-class MemoryWriter implements TelemetryWriter {
-	readonly records: TelemetryRecord[] = [];
-	closed = false;
-	append(record: TelemetryRecord): boolean { this.records.push(record); return true; }
-	async close(): Promise<void> { this.closed = true; }
-}
-
-class FailingWriter implements TelemetryWriter {
-	append(): boolean { return false; }
-	async close(): Promise<void> {}
-}
-
-function registerTestTool(service: TelemetryService, telemetry: ToolTelemetry<{ path: string; count?: number }, TestDetails>): void {
-	const input = telemetry.input;
-	const output = telemetry.result;
-	service.registerTool({
-		definition: { name: "test", description: "Test tool", parameters },
-		...(input === undefined ? {} : { input: (params: unknown) => input(fixture(params)) }),
-		...(output === undefined ? {} : {
-			result: (params: unknown, details: unknown) => output(fixture(params), fixture(details)),
-		}),
-	});
-}
-
-function eventView(events: ReturnType<typeof createEventBus>): ExtensionAPI["events"] {
-	return {
-		emit: (channel, data) => events.emit(channel, data),
-		on: (channel, handler) => events.on(channel, handler),
-	};
-}
-
-function fakePi(events: ExtensionAPI["events"] = createEventBus()): { api: ExtensionAPI; hooks: string[] } {
-	const hooks: string[] = [];
-	const api = fixture<ExtensionAPI>({
-		events,
-		on(event: string) { hooks.push(event); },
-		getAllTools: () => [],
-		getThinkingLevel: () => "high",
-		registerTool() {},
-	});
-	return { api, hooks };
-}
-
-function testTool(name = "test", execute?: TestTool["execute"]): TestTool {
-	return {
-		name,
-		label: name,
-		description: "Test tool",
-		parameters,
-		execute: execute ?? (async () => result({ status: "ok" })),
-	};
-}
-
-function result(details: TestDetails): AgentToolResult<TestDetails> {
-	return { content: [{ type: "text", text: "ok" }], details };
-}
-
-function assistantCalls(ids: readonly string[]): unknown {
-	return {
-		role: "assistant",
-		provider: "test-provider", model: "test-model",
-		content: ids.map((id) => ({ type: "toolCall", id, name: "test", arguments: { path: "a" } })),
-		stopReason: "toolUse",
-	};
-}
-
-function extensionContext(notifications: string[] = []): ExtensionToolContext {
-	return fixture<ExtensionToolContext>({
-		tools: [],
-		executeTool: async () => { throw new Error("No nested tools registered"); },
-		cwd: "/repo",
-		mode: "interactive",
-		model: { provider: "test-provider", id: "test-model" },
-		ui: { notify(message: string) { notifications.push(message); } },
-		sessionManager: { getSessionId: () => "session-1", getBranch: () => [] },
-	});
-}
-
-function telemetrySessionContext(notifications: string[] = []) {
-	return {
-		cwd: "/repo",
-		sessionId: "session-1",
-		notify(message: string) {
-			notifications.push(message);
-		},
-	};
-}
-
-function clock(): () => Date {
-	let offset = 0;
-	return () => new Date(Date.UTC(2026, 0, 1, 0, 0, offset++));
-}
-
-function fixture<T>(value: unknown): T {
-	return value as T;
-}

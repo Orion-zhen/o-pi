@@ -11,12 +11,15 @@ export type WorkerTaskResponse<TResult> =
 	| { readonly id: number; readonly result: TResult }
 	| { readonly id: number; readonly error: string };
 
-export interface WorkerTaskPoolOptions<TRequest, TResult> {
+export interface WorkerTaskRequest<TRequest> {
+	readonly id: number;
+	readonly request: TRequest;
+}
+
+interface WorkerTaskPoolOptions {
 	workerLimit: number;
 	createWorker: () => Worker;
-	decodeResponse: (message: unknown) => WorkerTaskResponse<TResult> | undefined;
 	workerName: string;
-	requestForTask: (id: number, request: TRequest) => unknown;
 }
 
 interface WorkerTask<TRequest, TResult> {
@@ -42,12 +45,8 @@ export class WorkerTaskPool<TRequest, TResult> {
 	private nextTaskId = 1;
 	private disposed = false;
 
-	constructor(private readonly options: WorkerTaskPoolOptions<TRequest, TResult>) {
+	constructor(private readonly options: WorkerTaskPoolOptions) {
 		if (!Number.isInteger(options.workerLimit) || options.workerLimit < 1) throw new Error("workerLimit must be positive");
-	}
-
-	get workerCount(): number {
-		return this.slots.size;
 	}
 
 	run(request: TRequest, signal?: AbortSignal): Promise<TResult> {
@@ -96,18 +95,18 @@ export class WorkerTaskPool<TRequest, TResult> {
 				this.spawnWorker();
 				idleWorkers += 1;
 			} catch (error) {
-				const task = this.nextQueuedTask();
+				const task = this.queue.shift();
 				if (task !== undefined) this.rejectTask(task, error instanceof Error ? error : new Error(String(error)));
 			}
 		}
 		for (const slot of this.slots) {
 			if (slot.task !== undefined || slot.stopping) continue;
-			const task = this.nextQueuedTask();
+			const task = this.queue.shift();
 			if (task === undefined) return;
 			slot.task = task;
 			slot.worker.ref();
 			try {
-				slot.worker.postMessage(this.options.requestForTask(task.id, task.request));
+				slot.worker.postMessage({ id: task.id, request: task.request } satisfies WorkerTaskRequest<TRequest>);
 			} catch (error) {
 				this.failWorker(slot, error instanceof Error ? error : new Error(String(error)));
 			}
@@ -118,7 +117,7 @@ export class WorkerTaskPool<TRequest, TResult> {
 		const worker = this.options.createWorker();
 		const slot: WorkerSlot<TRequest, TResult> = { worker, stopping: false };
 		this.slots.add(slot);
-		worker.on("message", (message: unknown) => this.finishTask(slot, message));
+		worker.on("message", (response: WorkerTaskResponse<TResult>) => this.finishTask(slot, response));
 		worker.on("error", (error: Error) => this.failWorker(slot, error));
 		worker.on("exit", (code: number) => {
 			if (!slot.stopping) this.failWorker(slot, new Error(`${this.options.workerName} worker exited with code ${code}`));
@@ -126,18 +125,9 @@ export class WorkerTaskPool<TRequest, TResult> {
 		worker.unref();
 	}
 
-	private nextQueuedTask(): WorkerTask<TRequest, TResult> | undefined {
-		while (this.queue.length > 0) {
-			const task = this.queue.shift();
-			if (task !== undefined && !task.settled) return task;
-		}
-		return undefined;
-	}
-
-	private finishTask(slot: WorkerSlot<TRequest, TResult>, message: unknown): void {
+	private finishTask(slot: WorkerSlot<TRequest, TResult>, response: WorkerTaskResponse<TResult>): void {
 		const task = slot.task;
-		const response = this.options.decodeResponse(message);
-		if (task === undefined || response === undefined || response.id !== task.id) {
+		if (task === undefined || response.id !== task.id) {
 			this.failWorker(slot, new Error(`${this.options.workerName} worker returned an unexpected task`));
 			return;
 		}

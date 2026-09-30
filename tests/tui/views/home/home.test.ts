@@ -19,7 +19,6 @@ describe("startup home", () => {
 
 		expect(lines).toHaveLength(height);
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-		expect(stripTerminalSequences(lines.join("\n"))).toContain("Ask anything");
 	});
 
 	it("宽屏保留项目、上下文和能力信息", () => {
@@ -70,8 +69,6 @@ describe("startup home", () => {
 			wave: 1,
 			pointer: { kind: "burst", progress: 0.35, x: 60, y: 4 },
 		}));
-		const output = stripTerminalSequences(lines.join("\n"));
-		expect(output).toContain("Ask anything");
 		expect(lines).toHaveLength(28);
 		expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
 	});

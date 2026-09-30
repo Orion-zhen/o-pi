@@ -14,6 +14,7 @@ import {
 	type FileHandle,
 } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 export type NativePathKind = "file" | "directory" | "symlink" | "other";
 
@@ -74,25 +75,12 @@ export class NativeFileSystemError extends Error {
 	}
 }
 
-/** Narrow, injectable platform boundary used by filesystem kernel and services. */
-export interface NativeFileSystem {
-	lstat(path: string, options?: NativeOperationOptions): Promise<NativeMetadata>;
-	stat(path: string, options?: NativeOperationOptions): Promise<NativeMetadata>;
-	realpath(path: string, options?: NativeOperationOptions): Promise<string>;
-	readdir(path: string, options?: NativeOperationOptions): Promise<readonly NativeDirectoryEntry[]>;
-	readlink(path: string, options?: NativeOperationOptions): Promise<string>;
-	read(path: string, options?: NativeOperationOptions): Promise<Uint8Array>;
-	/** Opens a regular final component without following a symlink at that component. */
-	open(path: string, options?: NativeOperationOptions): Promise<NativeOpenFile>;
-	/** Writes through an exclusive same-directory temp and atomically replaces the destination. */
-	atomicReplace<TCommit>(path: string, bytes: Uint8Array, options: NativeAtomicReplaceOptions<TCommit>): Promise<TCommit>;
-	mkdir(path: string, options?: NativeOperationOptions & { readonly recursive?: boolean }): Promise<void>;
-}
+export type NativeFileSystem = NodeNativeFileSystem;
 
 const WINDOWS_IO_ATTEMPTS = 6;
 const WINDOWS_TRANSIENT_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
 
-export class NodeNativeFileSystem implements NativeFileSystem {
+export class NodeNativeFileSystem {
 	async lstat(pathname: string, options: NativeOperationOptions = {}): Promise<NativeMetadata> {
 		return runNative("lstat", pathname, options.signal, async () => metadataFromStats(await lstat(pathname, { bigint: true })));
 	}
@@ -203,12 +191,8 @@ class NodeNativeOpenFile implements NativeOpenFile {
 		});
 	}
 
-	async close(): Promise<void> {
-		try {
-			await this.handle.close();
-		} catch (error) {
-			throw toNativeError(error, "close", this.path);
-		}
+	close(): Promise<void> {
+		return this.handle.close();
 	}
 }
 
@@ -232,29 +216,9 @@ async function renameWithWindowsRetry(source: string, destination: string, signa
 			return;
 		} catch (error) {
 			if (attempt + 1 === attempts || !WINDOWS_TRANSIENT_CODES.has(nodeErrorCode(error) ?? "")) throw error;
-			await abortableDelay(10 * 2 ** attempt, signal, destination);
+			await delay(10 * 2 ** attempt, undefined, { signal });
 		}
 	}
-}
-
-async function abortableDelay(milliseconds: number, signal: AbortSignal | undefined, pathname: string): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		if (signal?.aborted === true) {
-			reject(new NativeFileSystemError("aborted", "rename", pathname, { cause: signal.reason }));
-			return;
-		}
-		const timer = setTimeout(done, milliseconds);
-		const onAbort = () => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			reject(new NativeFileSystemError("aborted", "rename", pathname, { cause: signal?.reason }));
-		};
-		function done() {
-			signal?.removeEventListener("abort", onAbort);
-			resolve();
-		}
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
 }
 
 async function unlinkTemporaryWithWindowsRetry(pathname: string): Promise<void> {
@@ -267,7 +231,7 @@ async function unlinkTemporaryWithWindowsRetry(pathname: string): Promise<void> 
 			const code = nodeErrorCode(error);
 			if (code === "ENOENT") return;
 			if (attempt + 1 === attempts || !WINDOWS_TRANSIENT_CODES.has(code ?? "")) throw error;
-			await abortableDelay(10 * 2 ** attempt, undefined, pathname);
+			await delay(10 * 2 ** attempt);
 		}
 	}
 }
@@ -288,40 +252,17 @@ async function runNative<T>(
 	checkAfter = true,
 ): Promise<T> {
 	throwIfAborted(signal, operation, pathname);
-	try {
-		const result = await run();
-		if (checkAfter) throwIfAborted(signal, operation, pathname);
-		return result;
-	} catch (error) {
-		if (error instanceof NativeFileSystemError) throw error;
-		throw toNativeError(error, operation, pathname);
-	}
+	const result = await run();
+	if (checkAfter) throwIfAborted(signal, operation, pathname);
+	return result;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined, operation: string, pathname: string): void {
 	if (signal?.aborted === true) throw new NativeFileSystemError("aborted", operation, pathname, { cause: signal.reason });
 }
 
-function toNativeError(error: unknown, operation: string, pathname: string): NativeFileSystemError {
-	const errno = nodeErrorCode(error);
-	let code: NativeFileSystemErrorCode;
-	if (isAbortError(error)) code = "aborted";
-	else if (errno === "ENOENT") code = "not-found";
-	else if (errno === "ENOTDIR") code = "not-directory";
-	else if (errno === "EISDIR") code = "is-directory";
-	else if (errno === "EACCES" || errno === "EPERM") code = "access-denied";
-	else if (errno === "EEXIST") code = "already-exists";
-	else if (errno === "EINVAL" || errno === "ENAMETOOLONG" || errno === "ELOOP") code = "invalid-path";
-	else code = "io-error";
-	return new NativeFileSystemError(code, operation, pathname, { cause: error });
-}
-
 function nodeErrorCode(error: unknown): string | undefined {
 	return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : undefined;
-}
-
-function isAbortError(error: unknown): boolean {
-	return nodeErrorCode(error) === "ABORT_ERR" || (error instanceof Error && error.name === "AbortError");
 }
 
 function metadataFromStats(info: {

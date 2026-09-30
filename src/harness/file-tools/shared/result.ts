@@ -42,26 +42,10 @@ export interface FailedResult {
 
 export type ToolOutcome<T> = T | FailedResult;
 
-export interface FailureOptions {
-	next?: string;
-	path?: string;
-	edit_index?: number;
-	expected?: string;
-	actual?: string;
-	details?: Record<string, unknown>;
-	errors?: FileToolError[];
-}
+export type FailureOptions = Omit<FileToolError, "code" | "message">;
 
 export function fail(code: FileToolErrorCode, message: string, options: FailureOptions = {}): FailedResult {
-	const error: FileToolError = { code, message };
-	if (options.next !== undefined) error.next = options.next;
-	if (options.path !== undefined) error.path = options.path;
-	if (options.edit_index !== undefined) error.edit_index = options.edit_index;
-	if (options.expected !== undefined) error.expected = options.expected;
-	if (options.actual !== undefined) error.actual = options.actual;
-	if (options.details !== undefined) error.details = options.details;
-	if (options.errors !== undefined) error.errors = options.errors;
-	return { status: "failed", error };
+	return { status: "failed", error: { code, message, ...options } };
 }
 
 export function isFailed<T>(result: T | FailedResult): result is FailedResult {
@@ -79,7 +63,7 @@ export interface FsErrorMappingOptions {
 export function mapFsError(error: FsError, options: FsErrorMappingOptions = {}): FailedResult {
 	const code = fileToolCode(error, options.notFound ?? "path");
 	const displayPath = options.path ?? error.path;
-	const message = options.message ?? (error.message.length > 0 ? error.message : defaultMessage(code));
+	const message = options.message ?? error.message;
 	return fail(code, message, {
 		...(displayPath !== undefined ? { path: displayPath } : {}),
 		...(options.next !== undefined ? { next: options.next } : {}),
@@ -87,21 +71,7 @@ export function mapFsError(error: FsError, options: FsErrorMappingOptions = {}):
 	});
 }
 
-type MappedFsErrorCode =
-	| "FILE_NOT_FOUND"
-	| "PATH_NOT_FOUND"
-	| "NOT_A_FILE"
-	| "NOT_A_DIRECTORY"
-	| "PROTECTED_PATH"
-	| "ACCESS_DENIED"
-	| "INVALID_PATH"
-	| "ENCODING_UNSUPPORTED"
-	| "BINARY_FILE_UNSUPPORTED"
-	| "OUTPUT_LIMIT_EXCEEDED"
-	| "OPERATION_ABORTED"
-	| "STALE_READ";
-
-function fileToolCode(error: FsError, notFound: "file" | "path"): MappedFsErrorCode {
+function fileToolCode(error: FsError, notFound: "file" | "path"): FileToolErrorCode {
 	switch (error.code) {
 		case "invalid-path": return "INVALID_PATH";
 		case "not-found": return notFound === "file" ? "FILE_NOT_FOUND" : "PATH_NOT_FOUND";
@@ -115,22 +85,5 @@ function fileToolCode(error: FsError, notFound: "file" | "path"): MappedFsErrorC
 		case "binary": return "BINARY_FILE_UNSUPPORTED";
 		case "aborted": return "OPERATION_ABORTED";
 		case "changed-during-read": return "STALE_READ";
-	}
-}
-
-function defaultMessage(code: MappedFsErrorCode): string {
-	switch (code) {
-		case "FILE_NOT_FOUND": return "File does not exist.";
-		case "PATH_NOT_FOUND": return "Path does not exist.";
-		case "NOT_A_FILE": return "Path is not a regular file.";
-		case "NOT_A_DIRECTORY": return "Path is not a directory.";
-		case "PROTECTED_PATH": return "Path is protected.";
-		case "ACCESS_DENIED": return "Path cannot be accessed.";
-		case "INVALID_PATH": return "Path is invalid.";
-		case "ENCODING_UNSUPPORTED": return "Only valid UTF-8 text is supported.";
-		case "BINARY_FILE_UNSUPPORTED": return "Binary files are not supported.";
-		case "OUTPUT_LIMIT_EXCEEDED": return "File exceeds the configured limit.";
-		case "OPERATION_ABORTED": return "Operation aborted.";
-		case "STALE_READ": return "File changed during the operation.";
 	}
 }

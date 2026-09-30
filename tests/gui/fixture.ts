@@ -22,7 +22,7 @@ export const test = base.extend<{
 			await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
 			const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>
 				entry[1] !== undefined && /^(PATH|DISPLAY|XAUTHORITY|LD_LIBRARY_PATH|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|SYSTEMROOT|WINDIR|TEMP|TMP)$/.test(entry[0])));
-			Object.assign(env, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", NODE_ENV: "test", XDG_CONFIG_HOME: path.join(home, "config") });
+			Object.assign(env, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", OPI_NO_NOTIFICATIONS: "1", NODE_ENV: "test", XDG_CONFIG_HOME: path.join(home, "config") });
 			await use({ home, cwd, agentDir, env });
 		} finally { await rm(home, { recursive: true, force: true }); }
 	},

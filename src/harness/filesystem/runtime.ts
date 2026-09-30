@@ -1,27 +1,17 @@
-import { createHash } from "node:crypto";
-
 import type { FilesystemPathAccess } from "./contracts/access.ts";
-import type {
-	MutationOperations,
-	MutationOptions,
-	MutationReceipt,
-	MutationRunResult,
-	MutationSnapshot,
-	MutationTransform,
-} from "./contracts/mutation.ts";
+import type { MutationReceipt } from "./contracts/mutation.ts";
 import type { ExistingRef, TargetRef } from "./contracts/path.ts";
 import type { FilesystemPolicy } from "./contracts/policy.ts";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "./contracts/result.ts";
 import type { WorkspaceFileSystem, WorkspaceIdentity } from "./contracts/workspace.ts";
 import { mapNativeError } from "./kernel/native-error.ts";
-import {
-	createWorkspaceNamespace,
-	type NativePathIdentity,
-} from "./kernel/namespace.ts";
+import { createWorkspaceNamespace, type NativePathIdentity } from "./kernel/namespace.ts";
 import { NodeNativeFileSystem, type NativeFileSystem } from "./platform/node/native-filesystem.ts";
+import { MutationQueue } from "./platform/node/mutation-queue.ts";
 import { WorkspaceContentService } from "./services/content.ts";
 import { WorkspaceDiscoveryService } from "./services/discovery.ts";
 import { WorkspaceMetadataService } from "./services/metadata.ts";
+import { WorkspaceMutationService } from "./services/mutation.ts";
 import { WorkspaceVisibilityService } from "./services/visibility/service.ts";
 
 export interface WorkspaceNativeBridge {
@@ -45,162 +35,71 @@ export interface WorkspaceFileSystemLease {
 	dispose(): void;
 }
 
-export interface FileSystemRuntimeOptions {
-	readonly native?: NativeFileSystem;
-}
-
-/** Owns the Node backend, shared visibility state, lazy mutation queue, and workspace invocation leases. */
+/** 共享可见性缓存和写队列，每次调用绑定独立的取消信号。 */
 export class FileSystemRuntime {
 	private readonly native: NativeFileSystem;
 	private readonly visibility: WorkspaceVisibilityService;
 	private readonly shutdown = new AbortController();
-	private mutationModule?: Promise<MutationModule>;
-	private mutationQueue?: InstanceType<MutationModule["MutationQueue"]>;
-	private readonly leases = new Set<WorkspaceLease>();
-	private disposed = false;
+	private readonly mutationQueue = new MutationQueue();
 
-	constructor(options: FileSystemRuntimeOptions = {}) {
+	constructor(options: { native?: NativeFileSystem } = {}) {
 		this.native = options.native ?? new NodeNativeFileSystem();
 		this.visibility = new WorkspaceVisibilityService(this.native);
 	}
 
 	async open(options: OpenWorkspaceOptions): Promise<FsResult<WorkspaceFileSystemLease>> {
-		if (this.disposed) return runtimeClosed(options.cwd);
-		const leaseController = new AbortController();
-		const inputSignals = [this.shutdown.signal, leaseController.signal];
-		if (options.context?.signal !== undefined) inputSignals.push(options.context.signal);
-		const leaseSignal = AbortSignal.any(inputSignals);
-		const context: FsOperationContext = { signal: leaseSignal };
-		const namespace = await createWorkspaceNamespace({
+		const controller = new AbortController();
+		const owner = this.shutdown.signal;
+		const signals = [owner, controller.signal];
+		if (options.context?.signal) signals.push(options.context.signal);
+		const signal = AbortSignal.any(signals);
+		const context: FsOperationContext = { signal };
+		if (signal.aborted) return runtimeClosed(options.cwd);
+		const resolved = await createWorkspaceNamespace({
 			workspaceRoot: options.cwd,
 			blockedPaths: options.policy.blockedPaths,
 			...(options.pathAccess === undefined ? {} : { pathAccess: options.pathAccess }),
 			native: this.native,
 			context,
 		});
-		if (!namespace.ok) return namespace;
-		const rootIdentity = namespace.value.rootIdentity;
-		let readonly;
+		if (!resolved.ok) return resolved;
+		const namespace = resolved.value;
 		try {
 			const visibility = await this.visibility.createOperations(
-				rootIdentity.canonicalPath,
-				options.policy.visibility,
-				namespace.value,
-				context,
+				namespace.rootIdentity.canonicalPath, options.policy.visibility, namespace, context,
 			);
-			const metadata = new WorkspaceMetadataService(this.native, namespace.value.bridge, visibility, context);
-			readonly = {
-				metadata,
-				content: new WorkspaceContentService(this.native, namespace.value.bridge, context),
-				visibility,
-				discovery: new WorkspaceDiscoveryService({ native: this.native, namespace: namespace.value, visibility, context }, metadata),
-			};
-		} catch (error) {
-			return fsFailure(mapNativeError(error, namespace.value.root.displayPath));
-		}
-		if (this.disposed || context.signal?.aborted === true) return runtimeClosed(options.cwd);
-		const mutations = lazyMutationOperations(context, async () => {
-			if (this.disposed || leaseSignal.aborted) return undefined;
-			const module = await this.loadMutationModule();
-			if (this.disposed || leaseSignal.aborted) return undefined;
-			this.mutationQueue ??= new module.MutationQueue();
-			return new module.WorkspaceMutationService({
-				native: this.native,
-				namespace: namespace.value,
-				queue: this.mutationQueue,
+			if (signal.aborted) return runtimeClosed(options.cwd);
+			const metadata = new WorkspaceMetadataService(this.native, namespace.bridge, visibility, context);
+			return fsSuccess({
+				filesystem: {
+					identity: namespace.rootIdentity.canonicalPath as WorkspaceIdentity,
+					root: namespace.root,
+					paths: namespace.paths,
+					metadata,
+					content: new WorkspaceContentService(this.native, namespace.bridge, context),
+					visibility,
+					discovery: new WorkspaceDiscoveryService({ native: this.native, namespace, visibility, context }, metadata),
+					mutations: new WorkspaceMutationService({
+						native: this.native, namespace, queue: this.mutationQueue, context,
+						...(options.onCommitted === undefined ? {} : { onCommitted: options.onCommitted }),
+					}),
+				},
 				context,
-				...(options.onCommitted === undefined ? {} : { onCommitted: options.onCommitted }),
+				nativeBridge: { root: namespace.rootIdentity, getNativeIdentity: (ref) => namespace.bridge.getNativeIdentity(ref) },
+				get disposed() { return controller.signal.aborted || owner.aborted; },
+				dispose: () => controller.abort(new Error("Workspace filesystem lease is closed.")),
 			});
-		});
-		const filesystem: WorkspaceFileSystem = {
-			identity: workspaceIdentity(rootIdentity.canonicalPath),
-			root: namespace.value.root,
-			paths: namespace.value.paths,
-			metadata: readonly.metadata,
-			content: readonly.content,
-			visibility: readonly.visibility,
-			discovery: readonly.discovery,
-			mutations,
-		};
-		const nativeBridge: WorkspaceNativeBridge = {
-			root: rootIdentity,
-			getNativeIdentity: (ref) => namespace.value.bridge.getNativeIdentity(ref),
-		};
-		const lease = new WorkspaceLease(filesystem, context, nativeBridge, leaseController, () => this.leases.delete(lease));
-		this.leases.add(lease);
-		return fsSuccess(lease);
+		} catch (error) {
+			return fsFailure(mapNativeError(error, namespace.root.displayPath));
+		}
 	}
 
 	dispose(): void {
-		if (this.disposed) return;
-		this.disposed = true;
+		if (this.shutdown.signal.aborted) return;
 		this.shutdown.abort(new Error("Filesystem runtime is shut down."));
-		for (const lease of [...this.leases]) lease.dispose();
-		this.mutationQueue?.dispose();
+		this.mutationQueue.dispose();
 		this.visibility.dispose();
 	}
-
-	private loadMutationModule(): Promise<MutationModule> {
-		this.mutationModule ??= Promise.all([
-			import("./services/mutation.ts"),
-			import("./platform/node/mutation-queue.ts"),
-		]).then(([service, queue]) => ({ ...service, ...queue }));
-		return this.mutationModule;
-	}
-}
-
-class WorkspaceLease implements WorkspaceFileSystemLease {
-	private isDisposed = false;
-
-	constructor(
-		readonly filesystem: WorkspaceFileSystem,
-		readonly context: FsOperationContext,
-		readonly nativeBridge: WorkspaceNativeBridge,
-		private readonly controller: AbortController,
-		private readonly onDispose: () => void,
-	) {}
-
-	get disposed(): boolean {
-		return this.isDisposed;
-	}
-
-	dispose(): void {
-		if (this.isDisposed) return;
-		this.isDisposed = true;
-		this.controller.abort(new Error("Workspace filesystem lease is closed."));
-		this.onDispose();
-	}
-}
-
-function workspaceIdentity(canonicalRoot: string): WorkspaceIdentity {
-	return `workspace:${createHash("sha256").update(canonicalRoot).digest("hex")}` as WorkspaceIdentity;
-}
-
-type MutationModule = typeof import("./services/mutation.ts") & typeof import("./platform/node/mutation-queue.ts");
-
-function lazyMutationOperations(
-	context: FsOperationContext,
-	load: () => Promise<MutationOperations | undefined>,
-): MutationOperations {
-	let resolved: MutationOperations | undefined;
-	let pending: Promise<MutationOperations | undefined> | undefined;
-	const service = (): Promise<MutationOperations | undefined> => pending ??= load().then((value) => {
-		resolved = value;
-		return value;
-	});
-	return {
-		run<TPrepared, TRejected = never>(
-			target: TargetRef,
-			options: MutationOptions,
-			transform: (snapshot: MutationSnapshot) => MutationTransform<TPrepared, TRejected> | Promise<MutationTransform<TPrepared, TRejected>>,
-		): Promise<FsResult<MutationRunResult<TPrepared, TRejected>>> {
-			if (context.signal?.aborted === true) return Promise.resolve(runtimeClosed(target.displayPath));
-			if (resolved !== undefined) return resolved.run(target, options, transform);
-			return service().then((mutations) => mutations === undefined
-				? runtimeClosed(target.displayPath)
-				: mutations.run(target, options, transform));
-		},
-	};
 }
 
 function runtimeClosed(path: string): FsResult<never> {

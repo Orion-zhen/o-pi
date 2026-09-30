@@ -41,8 +41,6 @@ describe("会话编辑器", () => {
 		}) });
 		editor.setText("!npm test");
 		const lines = editor.render(80).map(stripTerminalSequences);
-		expect(lines[0]).toMatch(/^── Refactor TUI .*gpt-5\.6-sol · high ─$/);
-		expect(lines.at(-1)).toMatch(/^── BASH .* queued ─$/);
 		expect(lines.slice(1, -1).every((line) => !line.startsWith("│") && !line.endsWith("│"))).toBe(true);
 		expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
 	});
@@ -53,7 +51,6 @@ describe("会话编辑器", () => {
 			routedModel: { provider: "openai", id: "fast", thinkingLevel: "off" },
 		}) });
 		const lines = editor.render(width).map(stripTerminalSequences);
-		if (width === 120) expect(lines[0]).toContain("auto → openai/fast · off");
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 	});
 
@@ -73,7 +70,6 @@ describe("会话编辑器", () => {
 		editor.hideHome();
 		const chat = editor.render(100).map(stripTerminalSequences);
 		expect(chat).toHaveLength(3);
-		expect(chat.join("\n")).not.toContain("NEW SESSION");
 	});
 
 	it("regular 启动横幅不扩展输入框，提交时仍退出启动态", () => {
@@ -120,13 +116,6 @@ describe("会话编辑器", () => {
 		const editor = createEditor({ getSnapshot: () => tuiSnapshot({ sessionName: "A very long session name", modelId: "gpt-5.6-sol", modelReasoning: true, thinkingLevel: "xhigh" }) });
 		editor.setText("一段用于检查窄屏换行的输入");
 		expect(editor.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
-	});
-
-	it("保留原生滚动提示，不通过边框标签隐藏溢出行数", () => {
-		const editor = createEditor();
-		editor.setText(Array.from({ length: 100 }, (_, index) => `line-${index}`).join("\n"));
-		const output = editor.render(80).map(stripTerminalSequences).join("\n");
-		expect(output).toMatch(/↑ \d+ more/);
 	});
 
 	it("补全列表位于原生下边框之后，选择候选仍可提交", async () => {

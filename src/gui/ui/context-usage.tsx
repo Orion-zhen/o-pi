@@ -25,6 +25,17 @@ export function ContextUsage({ snapshot }: { snapshot: SessionSnapshot }) {
 								transform="rotate(-90 12 12)"
 							/>
 						)}
+						{percent != null && percent > 100 && (
+							<circle
+								cx="12"
+								cy="12"
+								r="9"
+								stroke="var(--destructive)"
+								pathLength="100"
+								strokeDasharray={`${Math.min(100, percent - 100)} 100`}
+								transform="rotate(-90 12 12)"
+							/>
+						)}
 					</svg>
 				</IconButton>
 			</PopoverTrigger>

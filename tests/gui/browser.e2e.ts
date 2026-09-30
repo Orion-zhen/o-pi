@@ -3,7 +3,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { startModelServer } from "../cli/model-server.ts";
 import { createCanvas } from "@napi-rs/canvas";
-import { exerciseModels } from "./model-steps.ts";
 import { exerciseComposerRunning, exerciseSuggestions } from "./composer-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
 import { exerciseRichTools } from "./rich-tools-steps.ts";
@@ -121,10 +120,6 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await expect(page.locator(".reply-answer")).toContainText("GUI 验证完成");
 		await image.scrollIntoViewIfNeeded();
 		await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(2);
-	});
-
-	test("模型选择与范围持久化", async ({ gui: { page }, workspace: { agentDir } }) => {
-		await exerciseModels(page, path.join(agentDir, "settings.json"));
 	});
 
 	test("运行时引导、跟进队列和停止", async ({ gui: { page } }) => {

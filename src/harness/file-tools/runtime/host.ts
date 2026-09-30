@@ -5,10 +5,7 @@ import {
 	FileSystemRuntime,
 	type WorkspaceNativeBridge,
 } from "../../filesystem/runtime.ts";
-import {
-	FileToolsConfigProvider,
-	type FileToolsConfigLoader,
-} from "../config.ts";
+import { FileToolsConfigProvider } from "../config.ts";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
 import type { FileToolLimits } from "../../file-tool-limits.ts";
 import { ObservationStore, type FileObservations, type ObservationEntry } from "./observation-store.ts";
@@ -40,22 +37,18 @@ export interface SessionObservationSeed {
 }
 
 export interface FileToolsHostOptions {
-	readonly config?: FileToolsConfigLoader & { dispose?(): void };
-	readonly filesystem?: FileSystemRuntime;
 	readonly initialSession?: SessionObservationSeed;
 }
 
 /** 统一拥有配置、文件系统、调用租约和会话观测。 */
 export class FileToolsHost {
-	private readonly config: FileToolsConfigLoader & { dispose?(): void };
-	private readonly filesystem: FileSystemRuntime;
+	private readonly config = new FileToolsConfigProvider();
+	private readonly filesystem = new FileSystemRuntime();
 	private readonly sessions = new Map<string, ObservationStore>();
 	private accepting = true;
 	private disposed = false;
 
 	constructor(options: FileToolsHostOptions = {}) {
-		this.config = options.config ?? new FileToolsConfigProvider();
-		this.filesystem = options.filesystem ?? new FileSystemRuntime();
 		if (options.initialSession !== undefined && options.initialSession.observations.length > 0) {
 			this.sessions.set(
 				options.initialSession.sessionId,
@@ -100,13 +93,6 @@ export class FileToolsHost {
 		if (!config.ok) return fail("CONFIG_ERROR", config.error.message, config.error.details === undefined ? {} : { details: config.error.details });
 		if (isAborted(options.signal)) return operationAborted();
 
-		let store = this.sessions.get(options.sessionId);
-		let createdSession = false;
-		if (store === undefined) {
-			store = new ObservationStore();
-			this.sessions.set(options.sessionId, store);
-			createdSession = true;
-		}
 		let observation: FileObservations;
 		const opened = await this.filesystem.open({
 			cwd: options.cwd,
@@ -115,18 +101,17 @@ export class FileToolsHost {
 			...(options.signal === undefined ? {} : { context: { signal: options.signal } }),
 			onCommitted: (receipt) => { observation.remember(receipt.target, receipt); },
 		});
-		if (!opened.ok) {
-			if (createdSession && this.sessions.get(options.sessionId) === store) {
-				store.dispose();
-				this.sessions.delete(options.sessionId);
-			}
-			return mapFsError(opened.error);
-		}
+		if (!opened.ok) return mapFsError(opened.error);
 		if (!this.accepting) {
 			opened.value.dispose();
 			return hostClosed();
 		}
 		const lease = opened.value;
+		let store = this.sessions.get(options.sessionId);
+		if (store === undefined) {
+			store = new ObservationStore();
+			this.sessions.set(options.sessionId, store);
+		}
 		observation = store.bind(lease);
 		return {
 			filesystem: lease.filesystem,
@@ -149,7 +134,7 @@ export class FileToolsHost {
 		for (const observation of this.sessions.values()) observation.dispose();
 		this.sessions.clear();
 		this.filesystem.dispose();
-		this.config.dispose?.();
+		this.config.dispose();
 	}
 }
 

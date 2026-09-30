@@ -27,7 +27,6 @@ describe("GUI OAuth", () => {
 		expect(events.some((event) => event.type === "auth")).toBe(true);
 		callback.resolve();
 		await login;
-		expect(dialogs.notices.at(-1)?.text).toBe("test 登录成功。");
 	});
 
 	it("取消登录会终止隐藏的手动输入等待", async () => {

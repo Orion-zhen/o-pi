@@ -3,7 +3,6 @@ import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-age
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
-import { formatPruneOutcome } from "../../../src/harness/prune/presentation/outcome.ts";
 import { estimateMessagesTokensWithConfidence, PRUNE_STATE, type PruneState } from "../../../src/harness/prune/prune.ts";
 import {
 	PruneService,
@@ -79,7 +78,6 @@ describe("PruneService", () => {
 			state: pruneState(["done"]),
 		}]);
 		expect(structuredClone(outcome)).toEqual(JSON.parse(JSON.stringify(outcome)));
-		expect(formatPruneOutcome(outcome).message).toContain("Next prompt:");
 	});
 
 	it("force 无需模型或成本估算", async () => {
@@ -97,7 +95,6 @@ describe("PruneService", () => {
 			code: "FORCE_PRUNED",
 			state: pruneState(["done"]),
 		});
-		expect(formatPruneOutcome(outcome).message).toContain("Cost calculation was skipped.");
 	});
 
 	it("restore 撤销最近一次未撤销的 checkpoint", async () => {

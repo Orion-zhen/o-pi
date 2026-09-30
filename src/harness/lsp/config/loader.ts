@@ -7,6 +7,7 @@ import {
 	createSchemaValidator,
 	expandHomePath,
 	loadConfigLayers,
+	mergeConfigValues,
 	userAgentConfigPath,
 	validateConfigValue,
 } from "../../config-loader.ts";
@@ -39,23 +40,14 @@ interface RawLspServer {
 	settings?: LspJsonValue;
 }
 
-interface RawLspConfig {
-	enabled?: boolean;
-	exclude_paths?: string[];
-	startup_timeout_ms?: number;
-	request_timeout_ms?: number;
-	idle_timeout_ms?: number;
-	max_open_documents?: number;
+interface RawLspConfig extends Partial<Omit<LspConfig, "diagnostics" | "read" | "grep" | "servers">> {
 	diagnostics?: Partial<LspConfig["diagnostics"]>;
 	read?: Partial<LspConfig["read"]>;
 	grep?: Partial<LspConfig["grep"]>;
 	servers?: Record<string, RawLspServer>;
 }
 
-interface CompleteLspConfig extends Required<RawLspConfig> {
-	diagnostics: LspConfig["diagnostics"];
-	read: LspConfig["read"];
-	grep: LspConfig["grep"];
+interface CompleteLspConfig extends Omit<LspConfig, "servers"> {
 	servers: Record<string, RawLspServer>;
 }
 
@@ -96,73 +88,20 @@ function mergeUserRawConfig(defaults: RawLspConfig, user: RawLspConfig): RawLspC
 	return merged;
 }
 
-function mergeRawConfig(global: RawLspConfig, project: RawLspConfig): RawLspConfig {
-	const merged: RawLspConfig = { ...global, ...project };
-	const diagnostics = mergeObject(global.diagnostics, project.diagnostics);
-	const read = mergeObject(global.read, project.read);
-	const grep = mergeObject(global.grep, project.grep);
-	const servers = mergeServers(global.servers, project.servers);
-	if (diagnostics !== undefined) merged.diagnostics = diagnostics;
-	if (read !== undefined) merged.read = read;
-	if (grep !== undefined) merged.grep = grep;
-	if (servers !== undefined) merged.servers = servers;
-	return merged;
-}
-
-function mergeServers(
-	global: RawLspConfig["servers"],
-	project: RawLspConfig["servers"],
-): RawLspConfig["servers"] {
-	if (global === undefined) return project;
-	if (project === undefined) return global;
-	const merged = { ...global };
-	for (const [id, projectServer] of Object.entries(project)) {
-		const globalServer = global[id];
-		const init = mergeJsonValue(globalServer?.init, projectServer.init);
-		const settings = mergeJsonValue(globalServer?.settings, projectServer.settings);
-		const mergedServer: RawLspServer = {
-			...globalServer,
-			...projectServer,
-			languages: { ...globalServer?.languages, ...projectServer.languages },
-		};
-		if (init !== undefined) mergedServer.init = init;
-		if (settings !== undefined) mergedServer.settings = settings;
-		merged[id] = mergedServer;
+function mergeRawConfig(base: RawLspConfig, overlay: RawLspConfig): RawLspConfig {
+	const merged = mergeConfigValues(base, overlay) as RawLspConfig;
+	for (const [id, server] of Object.entries(overlay.servers ?? {})) {
+		const target = merged.servers?.[id];
+		// TCP 端点整体替换，不能从上一层补齐缺失的 host 或 port。
+		if (target !== undefined && server.tcp !== undefined) target.tcp = server.tcp;
 	}
 	return merged;
-}
-
-function mergeObject<T extends Record<string, unknown>>(global: T | undefined, project: T | undefined): T | undefined {
-	if (global === undefined) return project;
-	if (project === undefined) return global;
-	return { ...global, ...project };
-}
-
-function mergeJsonValue(global: LspJsonValue | undefined, project: LspJsonValue | undefined): LspJsonValue | undefined {
-	if (project === undefined) return global;
-	if (isJsonObject(global) && isJsonObject(project)) {
-		const merged: Record<string, LspJsonValue> = { ...global };
-		for (const [key, value] of Object.entries(project)) merged[key] = mergeJsonValue(global[key], value) ?? null;
-		return merged;
-	}
-	return project;
-}
-
-function isJsonObject(value: LspJsonValue | undefined): value is { [key: string]: LspJsonValue } {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function materializeConfig(raw: CompleteLspConfig): LspConfig {
 	return {
-		enabled: raw.enabled,
+		...raw,
 		exclude_paths: raw.exclude_paths.map(normalizeExcludePath),
-		startup_timeout_ms: raw.startup_timeout_ms,
-		request_timeout_ms: raw.request_timeout_ms,
-		idle_timeout_ms: raw.idle_timeout_ms,
-		max_open_documents: raw.max_open_documents,
-		diagnostics: { ...raw.diagnostics },
-		read: { ...raw.read },
-		grep: { ...raw.grep },
 		servers: normalizeServers(raw.servers),
 	};
 }

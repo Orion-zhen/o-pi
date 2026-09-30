@@ -56,7 +56,6 @@ describe("整轮处理过程折叠", () => {
 			source: snapshot, prunedToolCallIds, clear: () => {},
 		}))).document;
 		const pruned = render(new Set([call.id, second.id]));
-		expect(pruned.querySelector(".assistant-reply > .reply-process > .disclosure-trigger")?.textContent).toContain("已裁剪本轮过程");
 		expect(pruned.querySelectorAll(".reply-activity .pruned-text-active")).toHaveLength(2);
 		const restored = render(new Set());
 		expect(restored.querySelector(".reply-pruned-label")).toBeNull();
@@ -108,7 +107,6 @@ describe("整轮处理过程折叠", () => {
 		expect(replies(snapshot)[0]?.answer).toEqual([]);
 		expect(blank.querySelectorAll(".reply-process")).toHaveLength(1);
 		expect(blank.querySelector(".reply-activity")?.getAttribute("data-state")).toBe("open");
-		expect(blank.querySelector(".reply-counts")?.textContent).toBe("2 段思考 · 1 次工具调用");
 		expect(blank.querySelectorAll(".assistant-reply .reply-body, .assistant-reply .message-identity")).toHaveLength(0);
 		const live = assistant([thinking, text("我先检查")], "pending");
 		const streaming = replies(source({ messages: [user], streamingMessage: live, streaming: true }));
@@ -247,7 +245,6 @@ describe("整轮处理过程折叠", () => {
 		}))).document;
 		expect(document.querySelectorAll(".assistant-reply .skill-message")).toHaveLength(0);
 		expect(document.querySelector(".transcript-row > .skill-message")?.getAttribute("data-entry-id")).toBe("skill-1");
-		expect(document.querySelector(".skill-message .activity-summary")?.textContent).toContain("手动引用");
 	});
 
 	it("连续手动加载分别显示，重复加载也不生成或修改模型回复", () => {

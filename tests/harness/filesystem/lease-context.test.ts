@@ -10,7 +10,7 @@ import {
 	NodeNativeFileSystem,
 	type NativeOpenFile,
 } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
-import { createVisibilityPolicy } from "../../../src/harness/filesystem/services/visibility/policy.ts";
+import { createVisibilityPolicy } from "./policy-fixture.ts";
 import { deferredVoid } from "../../helpers/async.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 import {
@@ -149,7 +149,7 @@ describe("workspace lease operation context", () => {
 
 function policy(): FilesystemPolicy {
 	const visibility = createVisibilityPolicy({ ignore: { builtinProfile: "none" } });
-	return { blockedPaths: [], visibility, fingerprint: visibility.fingerprint };
+	return { blockedPaths: [], visibility };
 }
 
 async function openLease(runtime: FileSystemRuntime): Promise<WorkspaceFileSystemLease> {

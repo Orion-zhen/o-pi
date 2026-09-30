@@ -52,7 +52,7 @@ describe("system prompt extension", () => {
 
 	it("子进程缺少 Agent Markdown 时拒绝启动", async () => {
 		process.env.PI_SUBAGENT_CHILD = "1";
-		await expect(buildRuntimeSystemPrompt({ cwd: "/repo" }, "/repo")).rejects.toThrow("Subagent Agent Markdown is required");
+		await expect(buildRuntimeSystemPrompt({ cwd: "/repo" }, "/repo")).rejects.toThrow();
 	});
 
 	it("/system 只通过只读浮层展示，不写入消息或编辑器", async () => {

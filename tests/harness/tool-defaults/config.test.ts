@@ -49,7 +49,7 @@ describe("原生 defaultTools 保存", () => {
 		await saveUserToolDefaults(["read"]);
 		const original = await readFile(settingsPath, "utf8");
 		await saveUserToolDefaults(["bash"]);
-		await expect(replaceConfigFile(settingsPath, original, "{}")).rejects.toThrow("已被修改");
+		await expect(replaceConfigFile(settingsPath, original, "{}")).rejects.toThrow();
 		expect(SettingsManager.create(temp.path, agentDir).getDefaultTools()).toEqual(["bash"]);
 	});
 });

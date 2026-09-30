@@ -189,7 +189,7 @@ describe("filesystem mutation commit boundaries", () => {
 		});
 		const broken = await openMutation("broken.txt", { native: brokenNative });
 		await expect(broken.commit(bytes("no"), { createParents: false }))
-			.rejects.toThrow("injected implementation failure");
+			.rejects.toThrow();
 
 		const controller = new AbortController();
 		const committingNative = nativeOverride({

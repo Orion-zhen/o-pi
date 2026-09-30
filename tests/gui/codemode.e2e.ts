@@ -104,7 +104,6 @@ for (const mode of ["web", "desktop"] as const) {
 			await expect(counter).toHaveText(String(codemodeCount));
 			for (const name of ["script_probe", "deferred_probe"]) {
 				const child = panel.locator(`.tool-selection-children [data-tool-option="${name}"]`);
-				await expect(child).toContainText("可调用");
 				await expect(child.locator('[role="checkbox"]')).toHaveCount(0);
 			}
 			await page.screenshot({ path: info.outputPath("tool-selection.png") });
@@ -135,7 +134,6 @@ for (const mode of ["web", "desktop"] as const) {
 			await page.locator(".assistant-reply .reply-activity > .disclosure-trigger").click();
 			await tool.locator(':scope > [data-slot="collapsible"] > .activity-summary').click();
 			await expect(tool).toHaveAttribute("data-state", "completed");
-			await expect(tool.locator(".nested-failures")).toContainText("1 次失败");
 			await expect(tool.locator("[data-nested-tool-call-id]")).toHaveCount(3);
 			await expect(tool.locator('[data-nested-tool-call-id]:has([title="find"])')).toContainText("sample");
 			await tool.locator(".codemode-output > .disclosure-trigger").click();

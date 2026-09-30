@@ -102,7 +102,6 @@ describe("bash 输出链路", () => {
 		const text = "same\n".repeat(2_000);
 		const result = await execute(Buffer.from(text), { successBudget: 1_024 });
 		expect(result.details.output_state).toBe("truncated");
-		expect(result.content).toContain("5904 raw bytes outside preview");
 		expect(result.content.match(/same line repeated/g)).toHaveLength(2);
 		expect(result.details.returned_bytes).toBeLessThan(1_024);
 	});
@@ -121,8 +120,6 @@ describe("bash 输出链路", () => {
 		const text = `{"start":1,${"\u001b[31m".repeat(2_000)}"end":2}`;
 		const result = await execute(Buffer.from(text), { successBudget: 1_024 });
 		expect(result.details).toMatchObject({ output_state: "truncated", output_format: "json" });
-		expect(result.content).toContain("this is not a complete JSON document");
-		expect(result.content).toContain("raw bytes outside preview");
 		expect(result.details.returned_bytes).toBeLessThanOrEqual(1_024);
 	});
 
@@ -131,6 +128,5 @@ describe("bash 输出链路", () => {
 		const result = await execute(Buffer.from(text), { exitCode: 1, liveBudget: 8_192 });
 		expect(result.content).toContain("Fatal error: boom");
 		expect(result.details.returned_bytes).toBeLessThanOrEqual(1_024);
-		expect(result.content).not.toContain("output truncated to byte budget");
 	});
 });

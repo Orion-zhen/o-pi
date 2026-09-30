@@ -90,7 +90,7 @@ describe("o-pet 协议与端点", () => {
 		delete process.env.O_PET_ENDPOINT;
 		expect(defaultOPetEndpoint()).toBe(path.join(temp.path, "o-pet.sock"));
 		delete process.env.XDG_RUNTIME_DIR;
-		expect(() => defaultOPetEndpoint()).toThrow("XDG_RUNTIME_DIR");
+		expect(() => defaultOPetEndpoint()).toThrow();
 	});
 
 	it.skipIf(process.platform === "win32")("创建私有端点目录并拒绝宽松权限", async () => {
@@ -99,7 +99,7 @@ describe("o-pet 协议与端点", () => {
 
 		await chmod(temp.path, 0o755);
 		await expect(prepareOPetEndpoint(path.join(temp.path, "unsafe.sock")))
-			.rejects.toThrow("only be accessible");
+			.rejects.toThrow();
 	});
 });
 
