@@ -15,8 +15,15 @@
 		"overlay": { "opacity": 32, "darkOpacity": 32, "blur": 4, "saturation": 100 }
 	},
 	"fonts": {
-		"ui": [],
-		"code": []
+		"ui": [
+			"Maple Mono NF",
+			"LXGWWenKai Nerd Font",
+			"LXGW WenKai"
+		],
+		"code": [
+			"Maple Mono NF",
+			"Hack Nerd Font Mono"
+		]
 	},
 	"fontSizes": {
 		"ui": 14,
