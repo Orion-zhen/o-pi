@@ -98,7 +98,9 @@ for (const mode of ["web", "desktop"] as const) {
 				await panel.getByRole("checkbox", { name, exact: true }).click();
 				await expect(panel.getByRole("checkbox", { name, exact: true })).not.toBeChecked();
 			}
-			await expect(counter).toHaveText(String(normalCount - 1));
+			await expect(panel.locator('[data-tool-option="tool_search"]')).toContainText("已启用");
+			await expect(panel.locator('[data-tool-option="tool_search"] [role="checkbox"]')).toHaveCount(0);
+			await expect(counter).toHaveText(String(normalCount));
 			await panel.getByRole("checkbox", { name: "codemode", exact: true }).click();
 			await expect(panel.getByRole("checkbox", { name: "codemode", exact: true })).toBeChecked();
 			await expect(counter).toHaveText(String(codemodeCount));
@@ -146,7 +148,8 @@ for (const mode of ["web", "desktop"] as const) {
 			await expect(page.locator('.tool-activity[data-tool="find"]')).toHaveCount(0);
 			await editor.fill("普通模式继续");
 			await editor.press("ControlOrMeta+Enter");
-			await expect.poll(() => model.requests.findLast((request) => Array.isArray(request.messages))?.tools?.length).toBe(normalCount - 1);
+			await expect.poll(() => model.requests.findLast((request) => Array.isArray(request.messages))?.tools?.length).toBe(normalCount);
+			expect(model.requests.findLast((request) => Array.isArray(request.messages))?.tools?.map((tool) => tool.function.name)).toContain("tool_search");
 			expect(model.requests.findLast((request) => Array.isArray(request.messages))?.tools).toHaveLength(Number(await counter.textContent()));
 		});
 	});

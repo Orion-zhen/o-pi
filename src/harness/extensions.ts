@@ -9,6 +9,7 @@ import toolSearch from "./extensions/tool-search.ts";
 import discordPresence from "./extensions/discord-presence.ts";
 import fileTools from "./extensions/file-tools.ts";
 import lsp from "./extensions/lsp.ts";
+import mcp from "./extensions/mcp.ts";
 import oPet from "./extensions/o-pet.ts";
 import openAICompatibleProvider from "./extensions/openai-compatible-provider.ts";
 import projectSkills from "./extensions/project-skills.ts";
@@ -26,6 +27,7 @@ import webTools from "./extensions/web-tools.ts";
 export const extensions: InlineExtension[] = [
 	{ name: "tool-search", builtin: true, factory: toolSearch },
 	{ name: "codemode", builtin: true, factory: codemode },
+	{ name: "mcp", builtin: true, factory: mcp },
 	{ name: "agents-prompts", factory: agentsPrompts },
 	{ name: "approval-gate", factory: approvalGate },
 	{ name: "auto-title", factory: autoTitle },

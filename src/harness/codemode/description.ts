@@ -12,14 +12,13 @@ export const CODEMODE_DESCRIPTION = `Compose tool calls in a fresh QuickJS sandb
 - store(key, value) saves JSON across calls on this session branch, only on success. undefined deletes. load(key) returns the value or undefined.
 - First-line // @options JSON accepts max_output_tokens (default 10000) and timeout_ms (default none).`;
 
-const DISCOVERY = "Unlisted tools remain callable. searchTools(query: string, options?: {limit?: number, namespace?: string}) resolves to {name, description}[] including signatures (default limit 8). Emit matches to inspect them.";
-const MCP_IMAGES = "MCP results use CallToolResult. Forward image blocks with image(block) from result.content. image(base64DataUrl) also emits an image.";
+const DISCOVERY = "Unlisted tools remain callable. searchTools(query: string, options?: {limit?: number, namespace?: string}) returns {name, description}[] with signatures (default limit 8). describeNamespace(name) returns namespace instructions and tool names. Emit results to inspect them.";
+const MCP_IMAGES = "MCP results have content blocks and optional structuredContent. Forward image blocks with image(block), or emit image(base64DataUrl).";
 
 interface CatalogEntry {
 	name: string;
 	text: string;
 	cost: number;
-	deferred: boolean;
 }
 
 interface CatalogGroup {
@@ -30,8 +29,7 @@ interface CatalogGroup {
 /** 按命名空间轮流选择短声明，保留目录预算和延迟发现语义。 */
 function selectEntries(groups: readonly CatalogGroup[], budget: number): Set<string> {
 	const shown = new Set<string>();
-	let queues = groups.map((group) => group.entries.filter((entry) => !entry.deferred)
-		.sort((a, b) => a.cost - b.cost));
+	let queues = groups.map((group) => [...group.entries].sort((a, b) => a.cost - b.cost));
 	while (queues.length > 0) {
 		queues = queues.filter((queue) => {
 			const next = queue.shift();
@@ -46,9 +44,9 @@ function selectEntries(groups: readonly CatalogGroup[], budget: number): Set<str
 
 /** 只改声明，不接管上游脚本执行与工具权限。 */
 export function prepareCodemodeLoadout(loadout: ToolLoadout, inlineBudget: number): ToolLoadoutChanges {
-	const callable = loadout.callable.filter((tool) => tool.name !== "codemode");
+	const inline = loadout.callable.filter((tool) => tool.name !== "codemode" && loadout.getExposure(tool.name) !== "deferred");
 	const groups = new Map<string, CatalogGroup>();
-	for (const tool of callable) {
+	for (const tool of inline) {
 		const namespace = loadout.getNamespace(tool.name);
 		const key = namespace?.name ?? "";
 		let group = groups.get(key);
@@ -60,24 +58,20 @@ export function prepareCodemodeLoadout(loadout: ToolLoadout, inlineBudget: numbe
 			name: tool.name, inputSchema: { ...tool.parameters }, outputSchema: tool.outputSchema ? { ...tool.outputSchema } : { type: "string" },
 		});
 		const text = `${tool.description.trim()}\n\`\`\`ts\n${signature}\n\`\`\``;
-		group.entries.push({ name: tool.name, text, cost: Math.ceil(text.length / 4), deferred: loadout.getExposure(tool.name) === "deferred" });
+		group.entries.push({ name: tool.name, text, cost: Math.ceil(text.length / 4) });
 	}
 	const ordered = [...groups.values()].sort((a, b) => a.namespace === undefined ? -1
 		: b.namespace === undefined ? 1 : a.namespace.name.localeCompare(b.namespace.name));
 	const shown = selectEntries(ordered, inlineBudget);
-	const sections = [CODEMODE_DESCRIPTION];
-	if (shown.size < callable.length) sections.push(DISCOVERY);
-	if (callable.some((tool) => mcpStructuredContentSchema(tool.outputSchema ? { ...tool.outputSchema } : undefined) !== undefined)) {
-		sections.push(MCP_IMAGES, `\`\`\`ts\n${MCP_TYPESCRIPT_PREAMBLE}\n\`\`\``);
+	const sections = [CODEMODE_DESCRIPTION, DISCOVERY, MCP_IMAGES];
+	if (inline.some((tool) => shown.has(tool.name) && mcpStructuredContentSchema(tool.outputSchema ? { ...tool.outputSchema } : undefined) !== undefined)) {
+		sections.push(`\`\`\`ts\n${MCP_TYPESCRIPT_PREAMBLE}\n\`\`\``);
 	}
-	if (callable.length > 0) {
-		sections.push(`Tools: ${shown.size}/${callable.length} shown.`);
-		for (const { namespace, entries } of ordered) {
-			if (namespace) {
-				sections.push(`${namespace.name}: ${entries.length} tools.${namespace.description?.trim() ? ` ${namespace.description.trim()}` : ""}`);
-			}
-			for (const entry of entries) if (shown.has(entry.name)) sections.push(entry.text);
-		}
+	for (const { namespace, entries } of ordered) {
+		const visible = entries.filter((entry) => shown.has(entry.name));
+		if (visible.length === 0) continue;
+		if (namespace) sections.push(`${namespace.name}${namespace.description?.trim() ? `: ${namespace.description.trim()}` : ""}`);
+		sections.push(...visible.map((entry) => entry.text));
 	}
 	return {
 		descriptions: { codemode: sections.join("\n\n") },

@@ -21,8 +21,9 @@
 - 仅支持 TUI 模式。非 TUI 模式会提示错误。
 - 从 `pi.getAllTools()` 返回的工具中列出非 `hidden` 工具，并标明曝光方式。
 - 选择器沿用 Pi 原生 `/scoped-models` 的交互样式。输入文字可搜索工具，`Enter` 或空格切换当前工具，`Esc` 退出。
-- 切换后立即调用 `pi.setActiveTools()` 生效，并写入当前会话分支的 `tools-config` 自定义条目。会话开始或切换分支时，按当前分支恢复。
-- 直接退出时，选择仅在当前会话分支中生效。按 `Ctrl+S` 会把当前完整选择写入全局 `~/.pi/agent/settings.json` 的原生 `defaultTools` 数组，保留其他设置。
+- 切换后立即生效。用户选择写入当前会话分支的 `tools-config` 自定义条目，不包含自动派生的 `tool_search`。会话开始或切换分支时恢复选择，再计算搜索入口。
+- `tool_search` 是只读自动入口：普通模式有未加载候选时启用，无候选或 codemode 模式时禁用，不接受手动切换。
+- 直接退出时，选择仅在当前会话分支中生效。按 `Ctrl+S` 会把当前选择写入全局 `~/.pi/agent/settings.json` 的原生 `defaultTools` 数组，排除自动派生的 `tool_search`，保留其他设置。
 - 恢复时过滤已经不存在或隐藏的工具名。手动选择之后的 SDK 工具声明变更也参与恢复，避免覆盖 `tool_search` 已发现的工具。
 - 默认工具由 Pi SDK 解析原生 `settings.json.defaultTools`，沿用 `+name` / `-name`、项目设置和 CLI `--tools` 语义，不另设默认值覆盖层。
 - 会话开始、切换分支时优先恢复会话选择，没有覆盖项时恢复 SDK 初始工具集合。切换模型不改变工具选择。保存默认值供新会话使用。

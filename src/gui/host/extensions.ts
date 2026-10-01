@@ -33,6 +33,11 @@ export interface GuiExtensionBindings {
 
 export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, toolsChanged, commandSignal, reports, approvalStores, approvalRules, trackBackground }: GuiExtensionBindings): InlineExtension[] {
 	const views: InlineExtension[] = [
+		{ name: "mcp", builtin: true, factory: createGuiMcpExtension({
+			bind: bindMcp, changed: toolsChanged,
+			openUrl: (url) => emit({ type: "auth", value: { type: "auth_url", url } }),
+			showConfig: () => emit({ type: "panel", panel: { kind: "settings", category: "mcp" } }),
+		}) },
 		{ name: "auto-title", factory: (pi) => autoTitle(pi, trackBackground) },
 		{ name: "approval-gate", factory: (pi) => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }, createApprovalGate(approvalStores, approvalRules)) },
 		// LSP 由宿主统一释放，回收单个会话不能重置其他会话的服务。
@@ -88,12 +93,5 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, toolsCh
 			}, bindTools),
 		},
 	];
-	return [
-		...extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension),
-		{ name: "mcp", builtin: true, factory: createGuiMcpExtension({
-			bind: bindMcp, changed: toolsChanged,
-			openUrl: (url) => emit({ type: "auth", value: { type: "auth_url", url } }),
-			showConfig: () => emit({ type: "panel", panel: { kind: "settings", category: "mcp" } }),
-		}) },
-	];
+	return extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension);
 }

@@ -21,9 +21,9 @@ beforeEach(async () => {
 afterEach(async () => { await server.close(); });
 
 it.each([
-	{ exposure: "codemode", inlineBudget: 3000, inline: true },
-	{ exposure: "codemode-deferred", inlineBudget: 3000, inline: false },
-	{ exposure: "codemode", inlineBudget: 0, inline: false },
+	{ exposure: "codemode", inlineBudget: 3000, inline: false },
+	{ exposure: "direct", inlineBudget: 3000, inline: true },
+	{ exposure: "direct", inlineBudget: 0, inline: false },
 ])("codemode 按需声明 MCP 类型并通过脚本转交图片：$exposure / $inlineBudget", async ({ exposure, inlineBudget, inline }) => {
 	const agentDir = path.join(temp.path, "agent");
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
@@ -79,13 +79,18 @@ it.each([
 	const result = await pending;
 	expect(result.stderr).toBe("");
 	const description = server.requests[0]?.tools?.find((tool) => tool.function.name === "codemode")?.function.description;
-	expect(description).toContain("CallToolResult");
+	expect(description).toContain("describeNamespace(name)");
 	expect(description).toContain("image(block)");
 	expect(description).not.toContain("Model API");
 	if (inline) {
 		expect(description).toContain("mcp__images__read_image(args:");
-		expect(description).not.toContain("searchTools");
+		expect(description).toContain("CallToolResult");
 	} else {
+		expect(description).not.toContain("CallToolResult");
+		for (const request of server.requests) {
+			expect(request.tools?.map((tool) => tool.function.name)).not.toContain("tool_search");
+			expect(request.tools?.find((tool) => tool.function.name === "codemode")?.function.description).toBe(description);
+		}
 		expect(description).not.toContain("mcp__images__read_image(args:");
 		expect(description).toContain("searchTools");
 		const discovery = server.requests[1]?.messages.find((message) => message.role === "tool");

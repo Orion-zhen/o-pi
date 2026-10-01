@@ -68,6 +68,16 @@ describe("ToolSelectorComponent", () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
+	it("自动搜索入口不能手动切换", () => {
+		const onChange = vi.fn();
+		const component = new ToolSelectorComponent([
+			{ name: "tool_search", description: "Search", exposure: "model-only", enabled: true, available: true },
+		], theme, { onChange, onPersist: async () => true, onCancel: () => {}, requestRender: () => {} });
+		component.handleInput("\r");
+		expect(onChange).not.toHaveBeenCalled();
+		expect(component.render(100).join("\n")).toContain("Automatic discovery");
+	});
+
 	it("切换候选工具后刷新搜索入口的可用性", () => {
 		const tools: ToolSelectionItem[] = [
 			{ name: "fixture", description: "Fixture", exposure: "deferred", enabled: false, available: true },

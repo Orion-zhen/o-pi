@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	createAgentSessionFromServices, createAgentSessionServices, createAgentSessionRuntime,
@@ -89,7 +89,7 @@ describe("工具选择与 SDK 状态", () => {
 		expect(requestedTools()).not.toContain("tool_search");
 	});
 
-	it.each(["codemode", "deferred"] as const)("%s 候选全部激活或隐藏后关闭搜索，候选恢复后不自动启用", async (exposure) => {
+	it.each(["codemode", "deferred"] as const)("%s 搜索入口随候选集合自动启停，codemode 下禁用", async (exposure) => {
 		let api: ExtensionAPI | undefined;
 		const candidate = {
 			name: "fixture", label: "Fixture", description: "Fixture records", exposure,
@@ -102,28 +102,39 @@ describe("工具选择与 SDK 状态", () => {
 		});
 		if (!api) throw new Error("测试扩展未绑定");
 		const search = () => controller.listTools().find((tool) => tool.name === "tool_search");
-		controller.set("tool_search", true);
 		expect(search()).toMatchObject({ available: true, enabled: true });
+		controller.set("tool_search", false);
+		expect(session.getActiveToolNames()).toContain("tool_search");
 		session.setActiveToolsByName(["tool_search", "fixture"]);
-		await Promise.resolve();
+		await session.prompt("SDK 加载全部候选后更新搜索入口");
 		expect(search()).toMatchObject({ available: false, enabled: false });
 		expect(session.getActiveToolNames()).toEqual(["fixture"]);
 		controller.set("tool_search", true);
 		expect(session.getActiveToolNames()).toEqual(["fixture"]);
 
 		controller.set("fixture", false);
-		expect(search()).toMatchObject({ available: true, enabled: false });
-		controller.set("tool_search", true);
+		expect(search()).toMatchObject({ available: true, enabled: true });
+		expect(session.sessionManager.getBranch().at(-1)).toMatchObject({
+			type: "custom", customType: "tools-config", data: { enabledTools: [] },
+		});
+		await controller.persistUserDefaults();
+		expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).defaultTools).toEqual([]);
 		api.registerTool({ ...candidate, exposure: "hidden" });
-		await Promise.resolve();
+		await session.prompt("扩展隐藏候选后更新搜索入口");
 		expect(search()).toMatchObject({ available: false, enabled: false });
 		expect(session.getActiveToolNames()).not.toContain("tool_search");
 
 		api.registerTool(candidate);
-		expect(search()).toMatchObject({ available: true, enabled: false });
-		controller.set("tool_search", true);
-		await session.prompt("候选恢复后重新启用搜索");
+		await session.prompt("候选恢复后自动启用搜索");
+		expect(search()).toMatchObject({ available: true, enabled: true });
 		expect(requestedTools()).toContain("tool_search");
+		controller.set("codemode", true);
+		expect(search()).toMatchObject({ available: false, enabled: false });
+		expect(session.getActiveToolNames()).not.toContain("tool_search");
+		await session.prompt("脚本模式保留延迟工具");
+		expect(requestedTools()).toEqual(["codemode"]);
+		controller.set("codemode", false);
+		expect(session.getActiveToolNames()).toEqual(["tool_search"]);
 		controller.set("fixture", true);
 		expect(search()).toMatchObject({ available: false, enabled: false });
 		expect(session.getActiveToolNames()).toEqual(["fixture"]);

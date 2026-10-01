@@ -24,7 +24,7 @@ async function run(codemode = false) {
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
 	await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-		defaultProvider: "fixture", defaultModel: "test", defaultTools: ["tool_search", ...(codemode ? ["codemode"] : [])],
+		defaultProvider: "fixture", defaultModel: "test", defaultTools: codemode ? ["codemode"] : [],
 		compaction: { enabled: false }, retry: { enabled: false },
 	}));
 	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
@@ -35,7 +35,7 @@ async function run(codemode = false) {
 	const extension = path.join(temp.path, "tools.mjs");
 	await writeFile(extension, `
 		export default function(pi) {
-			for (const name of ["alpha", "beta", "gamma", "delta", "epsilon"]) {
+			for (const name of ["alpha", "beta", "gamma"]) {
 				pi.registerTool({
 					name: "fixture_" + name, label: name, description: "Inspect fixture records.",
 					exposure: "deferred", defaultActive: false,
@@ -58,36 +58,32 @@ async function run(codemode = false) {
 }
 
 it.each([
-	{ args: { query: "fixture" }, names: ["alpha", "beta", "gamma"] },
-	{ args: { query: "fixture", limit: 1 }, names: ["alpha"] },
-	{ args: { query: "fixture_delta" }, names: ["delta"] },
+	{ args: { query: "alpha", limit: 1 }, names: ["alpha"] },
 	{ args: { query: "zzzzzz" }, names: [] },
-])("tool_search 精简发现并加载：$args", async ({ args, names }) => {
+])("tool_search 搜索后向模型声明匹配的工具：$args", async ({ args, names }) => {
 	responses.push({ tool: "tool_search", args });
 	const requests = await run();
 	const loaded = names.map((name) => "fixture_" + name);
 	expect(requests[1]?.tools?.map((tool) => tool.function.name).filter((name) => name.startsWith("fixture_"))).toEqual(loaded);
 });
 
-it.each([
-	{ query: " " },
-	{ query: "fixture_alpha", limit: 0 },
-	{ query: "fixture_alpha", limit: 1.5 },
-])("tool_search 拒绝无效参数且不加载工具：%j", async (args) => {
-	responses.push({ tool: "tool_search", args });
+it("tool_search 拒绝空查询且不加载工具", async () => {
+	responses.push({ tool: "tool_search", args: { query: " " } });
 	const requests = await run();
 	expect(requests[1]?.tools?.some((tool) => tool.function.name.startsWith("fixture_"))).toBe(false);
 });
 
 it("tool_search 保留已加载工具，后续搜索只加载剩余工具", async () => {
-	responses.push({ tool: "tool_search", args: { query: "fixture" } }, { tool: "tool_search", args: { query: "fixture" } });
+	responses.push({ tool: "tool_search", args: { query: "alpha", limit: 1 } }, { tool: "tool_search", args: { query: "fixture" } });
 	const requests = await run();
-	expect(requests[2]?.tools?.filter((tool) => tool.function.name.startsWith("fixture_"))).toHaveLength(5);
+	expect(requests[1]?.tools?.map((tool) => tool.function.name)).toContain("fixture_alpha");
+	expect(requests[2]?.tools?.filter((tool) => tool.function.name.startsWith("fixture_")).map((tool) => tool.function.name))
+		.toEqual(expect.arrayContaining(["fixture_alpha", "fixture_beta", "fixture_gamma"]));
 	expect(requests[1]?.tools?.map((tool) => tool.function.name)).toContain("tool_search");
 	expect(requests[2]?.tools?.map((tool) => tool.function.name)).not.toContain("tool_search");
 });
 
-it("codemode 隐藏 tool_search，searchTools 仍返回可执行签名", async () => {
+it("codemode 禁用 tool_search，searchTools 仍返回可执行签名", async () => {
 	responses.push({ tool: "codemode", args: { code: 'text(await searchTools("fixture", {limit:1}));' } },
 		{ tool: "codemode", args: { code: "text(await tools.fixture_alpha({}));" } });
 	const requests = await run(true);

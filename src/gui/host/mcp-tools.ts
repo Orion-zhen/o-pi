@@ -1,4 +1,6 @@
-import { createMcpExtension, type ExtensionAPI, type ExtensionContext, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { createModeMcpExtension } from "../../harness/extensions/mcp.ts";
+import { syncToolSearch } from "../../harness/tool-search/loadout.ts";
 import type { ToolSelectionItem } from "../../harness/tool-defaults/controller.ts";
 
 const ENTRY = "gui-mcp-tools";
@@ -18,6 +20,7 @@ export class GuiMcpTools {
 			if (exposure !== "hidden" && this.choices.get(tool.name) === true) {
 				this.pi.setActiveTools([...new Set([...this.pi.getActiveTools(), tool.name])]);
 			}
+			syncToolSearch(this.pi);
 			this.changed();
 		};
 		this.tools.set(tool.name, { name: tool.name, description: tool.description, exposure, apply });
@@ -65,7 +68,7 @@ export function createGuiMcpExtension({ bind, changed, showConfig, openUrl }: {
 		bind(tools);
 		pi.on("session_start", (_event, ctx) => tools.restore(ctx));
 		pi.on("session_tree", (_event, ctx) => tools.restore(ctx));
-		return createMcpExtension({ openUrl })({
+		return createModeMcpExtension({ openUrl })({
 			...pi,
 			registerTool: tools.register,
 			registerCommand(name, command) {

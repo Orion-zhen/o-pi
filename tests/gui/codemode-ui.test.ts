@@ -25,6 +25,25 @@ const renderTool = (value: Activity, expanded?: boolean) => parseHTML(renderWith
 	new Map(expanded === undefined ? [] : [[`tool:${value.id}`, expanded]]))).document;
 
 describe("codemode 工具层级", () => {
+	it.each([false, true])("搜索入口只在普通模式显示只读自动状态：codemode=%s", (enabled) => {
+		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
+			snapshot: {
+				tools: [
+					...tools.map((tool) => tool.name === "codemode" ? { ...tool, available: true as const, enabled } : tool),
+					{ name: "tool_search", exposure: "model-only", description: "Search", callable: false,
+						...(enabled ? { enabled: false as const, available: false as const } : { enabled: true as const, available: true as const }) },
+				],
+				modelTools: enabled ? ["codemode", "skill"] : ["skill", "read", "tool_search"],
+			},
+			send: async () => true, disabled: false,
+		}))).document;
+		const row = doc.querySelector('[data-tool-option="tool_search"]');
+		if (enabled) expect(row).toBeNull();
+		else {
+			expect(row?.textContent).toContain("自动启用");
+			expect(row?.querySelector('[role="checkbox"]')).toBeNull();
+		}
+	});
 	it("只有模型专用工具平级，未勾选的延迟工具仍显示为可调用而非禁用开关", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
 			snapshot: { tools, modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,

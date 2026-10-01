@@ -55,9 +55,9 @@ class ToolRow {
 		const leading = `${cursor}${icon} ${name}${namePadding}`;
 		const descriptionWidth = width - visibleWidth(leading) - 2;
 		if (descriptionWidth <= 0) return [truncateToWidth(leading, width, "")];
-		const rawDescription = this.tool.available
-			? `[${this.tool.exposure}] ${this.tool.description}`
-			: `${this.tool.description} (unavailable)`;
+		const rawDescription = this.tool.name === "tool_search"
+			? `Automatic discovery${this.tool.available ? "" : " (unavailable)"}.`
+			: this.tool.available ? `[${this.tool.exposure}] ${this.tool.description}` : `${this.tool.description} (unavailable)`;
 		const description = truncateToWidth(rawDescription.replace(/[\r\n]+/gu, " ").trim(), descriptionWidth, "");
 		return [`${leading}  ${this.theme.fg("dim", description)}`];
 	}
@@ -174,7 +174,7 @@ export class ToolSelectorComponent extends Container implements Focusable {
 
 	private toggleSelected(): void {
 		const tool = this.filteredTools[this.selectedIndex];
-		if (tool === undefined || !tool.available) return;
+		if (tool === undefined || !tool.available || tool.name === "tool_search") return;
 		this.tools = this.callbacks.onChange(tool.name, !tool.enabled);
 		this.revision += 1;
 		this.refresh();

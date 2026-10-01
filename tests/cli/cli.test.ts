@@ -115,7 +115,7 @@ describe("standalone opi CLI", () => {
 		expect(server.requests[0]?.tools?.map((tool) => tool.function.name).sort()).toEqual(["codemode", "skill", "subagent"]);
 	});
 
-	it("codemode 请求只包含精简契约，完整目录不附带发现或 MCP 说明", async () => {
+	it("codemode 使用精简契约和稳定发现说明，不附带未使用的完整 MCP 类型", async () => {
 		await runJson(["--tools", "read,find,bash,codemode"]);
 		const request = server.requests[0];
 		const definition = request?.tools?.find((tool) => tool.function.name === "codemode");
@@ -129,7 +129,9 @@ describe("standalone opi CLI", () => {
 		expect(description).toContain("find(args:");
 		expect(description).toContain("bash(args:");
 		expect(description).toContain("exit_code");
-		for (const omitted of ["Model API", "models.", "searchTools", "ALL_TOOLS", "describeTool", "ImageContent", "console.", "exit()"]) {
+		expect(description).toContain("searchTools");
+		expect(description).toContain("describeNamespace");
+		for (const omitted of ["Model API", "models.", "ALL_TOOLS", "describeTool", "ImageContent", "console.", "exit()"]) {
 			expect(description).not.toContain(omitted);
 		}
 	});

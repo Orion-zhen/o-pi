@@ -13,7 +13,7 @@ export function ToolSelection({ snapshot, send, disabled }: { snapshot: Pick<Gui
 	const codemode = snapshot.tools.find((tool) => tool.name === "codemode");
 	const enabled = snapshot.modelTools.includes("codemode");
 	const children = snapshot.tools.filter((tool) => tool.exposure !== "model-only");
-	const peers = snapshot.tools.filter((tool) => tool.name !== "codemode" && (!enabled || tool.exposure === "model-only"));
+	const peers = snapshot.tools.filter((tool) => tool.name !== "codemode" && (!enabled || (tool.exposure === "model-only" && tool.name !== "tool_search")));
 	return <div className="tool-selection">
 		<p>{enabled ? "模型通过 codemode 调用子工具，其余入口保持独立。" : "选择向模型开放的工具，在当前分支生效。"}</p>
 		<Button variant="outline" size="sm" disabled={disabled} onClick={() => void send({ action: "persistTools" })}>保存为用户默认</Button>
@@ -37,6 +37,10 @@ export function ToolSelection({ snapshot, send, disabled }: { snapshot: Pick<Gui
 
 function ToolChoice({ tool, send, disabled, nested }: { tool: Tool; send: Send; disabled: boolean; nested: boolean }) {
 	const alwaysCallable = nested && !tool.mcp && (tool.exposure === "codemode" || tool.exposure === "deferred");
+	if (tool.name === "tool_search") return <div className="list-row" data-tool-option={tool.name}>
+		<span><strong>tool_search</strong><small>普通模式下有未加载工具时自动启用。</small></span>
+		<small className="tool-callable-state">{tool.enabled ? "已启用" : "无可搜索工具"}</small>
+	</div>;
 	const description = <span><strong>{tool.name}</strong><small>{tool.mcp ? `MCP · 当前分支可见性。${tool.description}` : tool.description}</small></span>;
 	if (alwaysCallable) return <div className="list-row" data-tool-option={tool.name}>
 		<Check className="tool-callable-icon" aria-hidden="true" />{description}

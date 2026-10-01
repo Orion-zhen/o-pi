@@ -1,6 +1,6 @@
 import type { ExtensionAPI, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { saveUserToolDefaults } from "./config.ts";
-import { hasSearchableTools } from "../tool-search/loadout.ts";
+import { syncToolSearch, toolSearchEnabled } from "../tool-search/loadout.ts";
 
 const TOOL_SELECTION_ENTRY = "tools-config";
 
@@ -18,18 +18,18 @@ export class ToolSelectionController {
 	/** 开关控制声明集合，不表示权限。脚本专用和延迟工具仍可嵌套调用。 */
 	listTools(tools = this.pi.getAllTools(), activeTools = this.pi.getActiveTools()): ToolSelectionItem[] {
 		const active = new Set(activeTools);
-		const searchAvailable = hasSearchableTools(tools, activeTools);
-		return tools.filter((tool) => tool.exposure !== "hidden").map(({ name, description, exposure }) => ({
-			name, description, exposure,
-			...(this.available({ name, exposure }, searchAvailable)
+		const searchAvailable = toolSearchEnabled(tools, activeTools);
+		return tools.filter((tool) => tool.exposure !== "hidden").map(({ name, description, exposure }) => {
+			const available = name === "tool_search" ? searchAvailable : this.selectable({ name, exposure });
+			return { name, description, exposure, ...(available
 				? { available: true as const, enabled: active.has(name) }
-				: { available: false as const, enabled: false as const }),
-		}));
+				: { available: false as const, enabled: false as const }) };
+		});
 	}
 
 	restore(branch: readonly SessionEntry[], subagentAvailable: boolean): string[] {
 		this.subagentAvailable = subagentAvailable;
-		const available = this.availableNames();
+		const available = this.selectableNames();
 		this.baseline ??= this.pi.getActiveTools().filter((name) => available.has(name));
 		const saved = findSavedTools(branch);
 		const names = saved ?? this.baseline;
@@ -38,36 +38,31 @@ export class ToolSelectionController {
 	}
 
 	set(name: string, enabled: boolean): void {
-		if (!this.availableNames().has(name)) return;
+		if (!this.selectableNames().has(name)) return;
 		const names = new Set(this.pi.getActiveTools());
 		if (enabled) names.add(name); else names.delete(name);
 		this.pi.appendEntry(TOOL_SELECTION_ENTRY, { enabledTools: this.apply([...names]) });
 	}
 
 	persistUserDefaults(): Promise<string> {
-		return saveUserToolDefaults(this.listTools().filter((tool) => tool.enabled).map((tool) => tool.name));
+		const active = new Set(this.pi.getActiveTools());
+		return saveUserToolDefaults([...this.selectableNames()].filter((name) => active.has(name)));
 	}
 
-	private available(tool: Pick<ToolInfo, "name" | "exposure">, searchAvailable: boolean): boolean {
-		return tool.exposure !== "hidden"
+	private selectable(tool: Pick<ToolInfo, "name" | "exposure">): boolean {
+		return tool.name !== "tool_search" && tool.exposure !== "hidden"
 			&& (tool.name !== "powershell" || process.platform === "win32")
-			&& (tool.name !== "subagent" || this.subagentAvailable)
-			&& (tool.name !== "tool_search" || searchAvailable);
+			&& (tool.name !== "subagent" || this.subagentAvailable);
 	}
 
-	private availableNames(activeTools: readonly string[] = this.pi.getActiveTools()): Set<string> {
-		const tools = this.pi.getAllTools();
-		const searchAvailable = hasSearchableTools(tools, activeTools);
-		return new Set(tools.filter((tool) => this.available(tool, searchAvailable)).map((tool) => tool.name));
+	private selectableNames(): Set<string> {
+		return new Set(this.pi.getAllTools().filter((tool) => this.selectable(tool)).map((tool) => tool.name));
 	}
 
 	private apply(names: readonly string[]): string[] {
-		const available = this.availableNames(names);
-		const enabled = [...new Set(names)].filter((name) => available.has(name));
-		const current = this.pi.getActiveTools();
-		// SDK 已恢复相同选择时保留声明顺序，避免重建提示词和工具前缀。
-		if (current.length === enabled.length && current.every((name) => enabled.includes(name))) return current;
-		this.pi.setActiveTools(enabled);
+		const available = this.selectableNames();
+		const enabled = names.filter((name) => available.has(name));
+		syncToolSearch(this.pi, enabled);
 		return enabled;
 	}
 }
@@ -86,5 +81,5 @@ function findSavedTools(branch: readonly SessionEntry[]): string[] | undefined {
 		const names: unknown = data.enabledTools;
 		if (Array.isArray(names) && names.every((name): name is string => typeof name === "string")) saved = new Set(names);
 	}
-	return saved ? [...saved] : undefined;
+	return saved ? [...saved].filter((name) => name !== "tool_search") : undefined;
 }
