@@ -23,6 +23,7 @@ async function save(page: Page) {
 }
 
 for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
+	const nativeVibrancy = mode === "desktop" && process.platform === "darwin";
 	test.use({ mode });
 	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
 	test.beforeEach(async ({ gui: { page }, workspace: { agentDir } }) => {
@@ -35,18 +36,22 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		const opacity = field(page, "左侧栏");
 		await opacity.fill("55");
 		await expect(settings(page).getByRole("img", { name: "界面材质预览：左侧栏", exact: true })).toBeVisible();
-		await field(page, "左侧栏", "模糊").fill("18");
-		await field(page, "左侧栏", "饱和度").fill("140");
+		if (!nativeVibrancy) {
+			await field(page, "左侧栏", "模糊").fill("18");
+			await field(page, "左侧栏", "饱和度").fill("140");
+		}
 		await expect(page.locator(".sidebar")).toHaveCSS("background-color", alpha(55));
-		await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", "blur(18px) saturate(1.4)");
+		await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", nativeVibrancy ? "none" : "blur(18px) saturate(1.4)");
 		await opacity.fill("");
 		await opacity.press("Enter");
 		await expect(opacity).toHaveValue("55");
-		await field(page, "菜单与浮层", "模糊").fill("30");
-		await expect(settings(page).locator(".material-preview-floating")).toHaveCSS("backdrop-filter", `blur(30px) saturate(${defaults.floating.saturation / 100})`);
-		await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", "blur(18px) saturate(1.4)");
-		await field(page, "弹窗").fill("35");
-		await expect(settings(page)).toHaveCSS("background-color", alpha(35));
+		if (!nativeVibrancy) {
+			await field(page, "菜单与浮层", "模糊").fill("30");
+			await expect(settings(page).locator(".material-preview-floating")).toHaveCSS("backdrop-filter", `blur(30px) saturate(${defaults.floating.saturation / 100})`);
+			await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", "blur(18px) saturate(1.4)");
+			await field(page, "弹窗").fill("35");
+			await expect(settings(page)).toHaveCSS("background-color", alpha(35));
+		}
 		expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toEqual({});
 		await selectSettingsCategory(page, "交互");
 		await selectSettingsCategory(page, "外观");
@@ -64,14 +69,16 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 
 	test("保存区域参数，重新加载后继续生效", async ({ gui: { page }, workspace: { agentDir } }) => {
 		await field(page, "内容画布").fill("82");
-		await field(page, "内容画布", "模糊").fill("28");
-		await field(page, "内容画布", "饱和度").fill("95");
+		if (!nativeVibrancy) {
+			await field(page, "内容画布", "模糊").fill("28");
+			await field(page, "内容画布", "饱和度").fill("95");
+		}
 		await field(page, "会话信息栏").fill("78");
 		await save(page);
-		expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toEqual({ materials: { canvas: { opacity: 82, blur: 28, saturation: 95 }, inspector: { opacity: 78 } } });
+		expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toEqual({ materials: { canvas: nativeVibrancy ? { opacity: 82 } : { opacity: 82, blur: 28, saturation: 95 }, inspector: { opacity: 78 } } });
 		await page.reload();
 		await expect(page.locator(".conversation-canvas")).toHaveCSS("background-color", alpha(82));
-		await expect(page.locator(".conversation-canvas")).toHaveCSS("backdrop-filter", "blur(28px) saturate(0.95)");
+		await expect(page.locator(".conversation-canvas")).toHaveCSS("backdrop-filter", nativeVibrancy ? "none" : "blur(28px) saturate(0.95)");
 		await expect(page.locator(".session-sidebar")).toHaveCSS("background-color", alpha(78));
 		if (mode === "web") await expect(page.locator(".app")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 	});
@@ -118,10 +125,10 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await opacity.fill("67");
 		await page.emulateMedia({ colorScheme: "dark" });
 		await expect(opacity).toHaveValue("91");
-		await field(page, "左侧栏", "模糊").fill("30");
+		if (!nativeVibrancy) await field(page, "左侧栏", "模糊").fill("30");
 		await settings(page).getByRole("button", { name: "重置左侧栏材质", exact: true }).click();
 		await expect(opacity).toHaveValue(String(defaults.sidebar.darkOpacity));
-		await expect(field(page, "左侧栏", "模糊")).toHaveValue(String(defaults.sidebar.blur));
+		if (!nativeVibrancy) await expect(field(page, "左侧栏", "模糊")).toHaveValue(String(defaults.sidebar.blur));
 		await page.emulateMedia({ colorScheme: "light" });
 		await expect(opacity).toHaveValue("67");
 		await save(page);

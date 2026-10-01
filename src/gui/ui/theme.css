@@ -129,6 +129,17 @@
 :root[data-desktop-transparency-supported="true"][data-desktop-transparent="true"] {
 	--app-background: transparent;
 }
+/* 兼容 Electron/macOS 的 vibrancy 与 backdrop-filter 合成缺陷：悬停时会闪烁或画面割裂。
+ * 局部保留滤镜仍会触发，故禁用全部页面背景滤镜，并用实色浮层避免文字透穿，底层透明度不变。
+ * 相关上游报告：https://github.com/electron/electron/issues/44720
+ */
+:root[data-desktop-material="vibrancy"] {
+	--material-filter-override: none !important;
+	--popover: var(--panel-base);
+	--soft-popover: var(--soft-base);
+	--dialog: var(--panel-base);
+}
+:root[data-desktop-material="vibrancy"] .mobile-sidebar { background: var(--glass-base); }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
 	:root {
 		--material-transparency: 0 !important;

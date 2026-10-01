@@ -28,6 +28,13 @@ function subscribeTheme(change: () => void): () => void {
 const systemDark = () => darkScheme.matches;
 const noSubscription = () => () => {};
 
+function subscribeDesktopMaterial(change: () => void): () => void {
+	const observer = new MutationObserver(change);
+	observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-desktop-material"] });
+	return () => observer.disconnect();
+}
+const usesNativeVibrancy = () => document.documentElement.dataset.desktopMaterial === "vibrancy";
+
 export function MaterialSettings({ value, defaults, theme, disabled, change, reset }: {
 	value: GuiMaterials; defaults: GuiMaterials; theme: GuiPreferences["theme"]; disabled: boolean;
 	change: (path: MaterialPreferencePath, value: number | boolean | undefined) => void;
@@ -36,14 +43,17 @@ export function MaterialSettings({ value, defaults, theme, disabled, change, res
 	const prefersDark = useSyncExternalStore(theme === "system" ? subscribeTheme : noSubscription, systemDark);
 	const dark = theme === "dark" || (theme === "system" && prefersDark);
 	const opacityKey = dark ? "darkOpacity" : "opacity";
-	const parameters = [
+	const nativeVibrancy = useSyncExternalStore(subscribeDesktopMaterial, usesNativeVibrancy);
+	const parameters = ([
 		{ key: opacityKey, label: "不透明度", unit: "%", max: 100 },
 		{ key: "blur", label: "模糊", unit: "px", max: 64 },
 		{ key: "saturation", label: "饱和度", unit: "%", max: 200 },
-	] as const;
+	] as const).filter(({ key }) => !nativeVibrancy || key === opacityKey);
+	const visibleRegion = (region: MaterialRegion) => !nativeVibrancy || (region !== "floating" && region !== "dialog");
 	const [hovered, setHovered] = useState<MaterialRegion>();
 	const [focused, setFocused] = useState<MaterialRegion>();
-	const active = focused ?? hovered;
+	const selected = focused ?? hovered;
+	const active = selected && visibleRegion(selected) ? selected : undefined;
 	const blocked = disabled || !value.enabled;
 	useLayoutEffect(() => previewMaterials(value), [value]);
 	return <section className="material-settings" aria-label="磨砂与透明">
@@ -56,10 +66,10 @@ export function MaterialSettings({ value, defaults, theme, disabled, change, res
 			<span className="material-save-hint">保存后生效</span>
 		</SettingsRow>
 		<MaterialPreview active={active} />
-		<table className="material-table" aria-label="材质区域设置">
+		<table className="material-table" aria-label="材质区域设置" data-opacity-only={nativeVibrancy}>
 			<thead><tr><th scope="col">区域</th>{parameters.map(({ label }) => <th key={label} scope="col">{label}</th>)}</tr></thead>
 			{[materialRegions.slice(0, 5), materialRegions.slice(5)].map((group, index) => <tbody key={index}>
-				{group.map((region) => <tr key={region} data-active={active === region}
+				{group.filter(visibleRegion).map((region) => <tr key={region} data-active={active === region}
 					onPointerEnter={() => setHovered(region)} onPointerLeave={() => setHovered(undefined)}
 					onFocusCapture={() => setFocused(region)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(undefined); }}>
 					<th scope="row"><div className="material-region-label">{regions[region].label}

@@ -42,6 +42,7 @@
 	.material-table, .material-table tbody { display: block; }
 	.material-table thead { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
 	.material-table tbody tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding-block: var(--space-2); }
+	.material-table[data-opacity-only="true"] tbody tr { grid-template-columns: minmax(0, 1fr); }
 	.material-table th:first-child { grid-column: 1 / -1; inline-size: auto; }
 	.material-table th, .material-table td { padding: var(--space-1); }
 	.material-table tbody + tbody tr:first-child > * { padding-block-start: var(--space-1); }
