@@ -12,7 +12,7 @@ import { GuiClient } from "./client.ts";
 import { prepareSessionDeletion } from "./delete-session.ts";
 import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace-files.ts";
 import { readWorkspaceGit } from "./workspace-git.ts";
-import type { WorkspaceGit } from "../workbench.ts";
+import type { WorkspaceEntry, WorkspaceGit, WorkspacePreview } from "../workbench.ts";
 import { readGuiConfig, readGuiDefaults } from "./preferences.ts";
 import { StartupChangelog } from "./changelog.ts";
 
@@ -91,6 +91,8 @@ export class GuiHost {
 		}
 		this.emit({ type: "guiConfig", value: document });
 	}
+	queryWorkspace(query: Extract<WorkspaceQuery, { query: "previewFile" }>): Promise<WorkspacePreview>;
+	queryWorkspace(query: Exclude<WorkspaceQuery, { query: "previewFile" }>): Promise<WorkspaceEntry[] | WorkspaceGit | null>;
 	async queryWorkspace(query: WorkspaceQuery) {
 		const signal = this.workbenchController.signal;
 		const git = () => {
@@ -101,11 +103,11 @@ export class GuiHost {
 			}
 			return pending;
 		};
-		const result = query.query === "workspaceFiles" ? await listWorkspaceFiles(query.cwd, query.path)
-			: query.query === "workspaceGit" ? await git()
-			: await previewWorkspaceFile(query.cwd, query.path, signal, git);
+		if (query.query === "workspaceFiles") return listWorkspaceFiles(query.cwd, query.path);
+		if (query.query === "workspaceGit") return git();
+		const preview = await previewWorkspaceFile(query.cwd, query.path, signal, git);
 		signal.throwIfAborted();
-		return result;
+		return preview;
 	}
 	track<T>(task: Promise<T>): Promise<T> {
 		this.tasks.add(task);

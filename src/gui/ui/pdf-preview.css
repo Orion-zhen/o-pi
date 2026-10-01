@@ -1,0 +1,17 @@
+.pdf-viewport { flex: 1; min-block-size: 0; overflow: auto; overscroll-behavior: contain; background: var(--control-surface); }
+.pdf-pages { position: relative; }
+.pdf-page-slot { position: absolute; inset-block-start: 0; inset-inline-start: 0; inline-size: 100%; padding: 8px 16px; }
+.pdf-page { position: relative; margin-inline: auto; background: white; color: black; min-block-size: 48px; box-shadow: 0 1px 5px #0003; }
+.pdf-page-slot[data-current="true"] .pdf-page { outline: 1px solid var(--ring); }
+.pdf-page canvas { display: block; inline-size: 100%; block-size: 100%; }
+.pdf-page-status { position: absolute; inset: 0; padding: 12px; margin: 0; font-size: var(--text-small); overflow-wrap: anywhere; }
+.pdf-text-layer { position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1; letter-spacing: normal; word-spacing: normal; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; color-scheme: only light; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.pdf-text-layer :is(span, br) { position: absolute; color: transparent; white-space: pre; cursor: text; transform-origin: 0 0; user-select: text; }
+.pdf-text-layer > :not(.markedContent), .pdf-text-layer .markedContent span:not(.markedContent) { z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.pdf-text-layer .markedContent { display: contents; }
+.pdf-text-layer ::selection { color: transparent; background: #0066ff55; }
+.pdf-text-layer br::selection { background: transparent; }
+.media-toolbar form { display: flex; align-items: center; gap: 4px; }
+.pdf-reader input[name="page"] { appearance: textfield; }
+.pdf-reader input[name="page"]::-webkit-inner-spin-button,
+.pdf-reader input[name="page"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

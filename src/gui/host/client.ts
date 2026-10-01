@@ -14,6 +14,7 @@ import { readModuleConfig, saveModuleConfig } from "./module-config.ts";
 import { readMcpConfig, saveMcpConfig } from "./mcp-config.ts";
 import { listDirectories } from "./directories.ts";
 import { importSession } from "./files.ts";
+import { FileResources } from "./file-resource.ts";
 
 const validateAction = compileSchemaValidator(actionSchema);
 const validateQuery = compileSchemaValidator(querySchema);
@@ -21,6 +22,11 @@ const validateQuery = compileSchemaValidator(querySchema);
 /** 每个连接独立导航。操作始终使用提交时的会话标识。 */
 export class GuiClient {
 	readonly id = randomUUID();
+	private readonly resources = new FileResources(this.id);
+	resolveFileResource(token: string) {
+		if (this.closed) throw new Error("客户端已断开。");
+		return this.resources.resolve(token, this.selected?.cwd ?? this.host.workspaceRoot);
+	}
 	selected: GuiSession | undefined;
 	private listeners = new Set<(event: GuiEvent) => void>();
 	private unsubscribe: (() => void) | undefined;
@@ -272,7 +278,12 @@ export class GuiClient {
 		if (query.query === "directories") return listDirectories(path.resolve(this.host.workspaceRoot || process.cwd(), query.path));
 		if (query.query === "workspaceFiles" || query.query === "workspaceGit" || query.query === "previewFile") {
 			if (query.cwd !== (this.selected?.cwd ?? this.host.workspaceRoot)) throw new Error("工作区已切换，请刷新后重试。");
-			return this.host.queryWorkspace(query);
+			if (query.query !== "previewFile") return this.host.queryWorkspace(query);
+			const preview = await this.host.queryWorkspace(query);
+			const content = preview.content;
+			return { ...preview, content: content.kind === "image" || content.kind === "pdf"
+				? { ...content, url: this.resources.url({ cwd: query.cwd, path: query.path, version: content.version, mime: content.mime, size: content.size }) }
+				: content };
 		}
 		const session = sessionId ? this.host.sessions.get(sessionId) : undefined;
 		if (!session) throw new Error("请先选择有效会话。");

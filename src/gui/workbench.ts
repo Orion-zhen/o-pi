@@ -14,14 +14,18 @@ export interface WorkspaceGit {
 	changes: GitChange[];
 	ignored: string[];
 }
-export interface FilePreview {
+export type FileMedia = { mime: string; size: number; version: string } & ({ kind: "image" } | { kind: "pdf" });
+export interface WorkspacePreview {
 	path: string;
 	content:
 		| { kind: "text"; text: string }
-		| { kind: "image"; data: string; mime: string }
+		| FileMedia
 		| { kind: "unavailable"; reason: string }
 		| { kind: "deleted" };
 	diffs: { title: string; text: string }[];
+}
+export interface FilePreview extends Omit<WorkspacePreview, "content"> {
+	content: Exclude<WorkspacePreview["content"], FileMedia> | (FileMedia & { url: string });
 }
 export const gitStatusLabels: Record<GitStatus, string> = {
 	M: "已修改", A: "已添加", D: "已删除", R: "已重命名", C: "已复制", U: "冲突", "?": "未跟踪",

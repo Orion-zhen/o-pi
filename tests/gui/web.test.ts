@@ -8,6 +8,7 @@ import type { GuiClient } from "../../src/gui/host/client.ts";
 import { startWebServer } from "../../src/web/server.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
+import type { FilePreview } from "../../src/gui/workbench.ts";
 import { GuiReceiver, type GuiDelivery } from "../../src/gui/sync.ts";
 
 const temp = useTempDir("opi-web-boundary-");
@@ -72,6 +73,33 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		expect(head.status).toBe(200);
 		expect(head.headers.get("content-type")).toBe(contentType);
 		expect(await head.text()).toBe("");
+	});
+
+	it("文件资源绑定客户端，支持 Range，刷新复用地址且旧版本不可混读", async () => {
+		const cwd = gui.workspaceRoot;
+		await copyFile("tests/harness/file-tools/fixtures/read/two-page.pdf", path.join(cwd, "document.pdf"));
+		const preview = async () => {
+			const response = await fetch(`${server.url}/api/query`, { method: "POST", headers: headers(), body: body({ query: "previewFile", cwd, path: "document.pdf" }) });
+			expect(response.status).toBe(200);
+			const result = await response.json() as FilePreview;
+			if (result.content.kind !== "pdf") throw new Error("缺少 PDF 资源");
+			return result.content.url;
+		};
+		const source = await preview();
+		expect(await preview()).toBe(source);
+		const range = await fetch(`${server.url}${source}`, { headers: { Range: "bytes=0-7" } });
+		expect(range.status).toBe(206);
+		expect(range.headers.get("content-length")).toBe("8");
+		expect(await range.text()).toMatch(/^%PDF-/);
+		const wrongClient = new URL(source, server.url);
+		wrongClient.searchParams.set("client", local.id);
+		expect((await fetch(wrongClient)).status).toBe(403);
+		expect((await fetch(`${server.url}${source}`, { headers: { "Sec-Fetch-Site": "cross-site" } })).status).toBe(403);
+		await writeFile(path.join(cwd, "document.pdf"), "%PDF-1.7\nchanged\n");
+		expect((await fetch(`${server.url}${source}`)).status).toBe(409);
+		expect(await preview()).not.toBe(source);
+		peer.ws.close(); await once(peer.ws, "close");
+		await expect.poll(async () => (await fetch(`${server.url}${source}`)).status).toBe(403);
 	});
 
 	it("允许未加密的局域网监听", async () => {

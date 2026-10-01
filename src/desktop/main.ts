@@ -18,6 +18,7 @@ import { resolveShellEnvironment } from "./shell-environment.ts";
 import { forkDesktopWorker } from "./worker-services.ts";
 import { DesktopDiagnostics } from "./diagnostics.ts";
 import { installDesktopAppearance } from "./appearance.ts";
+import { fileResourceResponse, type FileResource } from "../gui/host/file-resource.ts";
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -72,6 +73,15 @@ void app
 		protocol.handle("opi", async (request) => {
 			const url = new URL(request.url);
 			if (url.hostname !== "app") return new Response("Forbidden", { status: 403 });
+			if (url.pathname === "/api/file") {
+				try {
+					if (!backend) throw new Error("SDK 后端不可用。");
+					const resource = await backend.request("resource", url.searchParams.get("token"), undefined) as FileResource;
+					return await fileResourceResponse(resource, request);
+				} catch (error) {
+					return new Response(error instanceof Error ? error.message : String(error), { status: 403 });
+				}
+			}
 			const root = path.join(directory, "ui");
 			const target = path.resolve(root, decodeURIComponent(url.pathname).slice(1));
 			const relative = path.relative(root, target);
@@ -80,7 +90,7 @@ void app
 			const headers = new Headers(response.headers);
 			headers.set(
 				"Content-Security-Policy",
-				"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+				"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
 			);
 			headers.set("X-Content-Type-Options", "nosniff");
 			return new Response(response.body, { status: response.status, headers });

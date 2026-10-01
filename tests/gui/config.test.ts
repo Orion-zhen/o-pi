@@ -22,7 +22,7 @@ afterEach(async () => { await host.host.dispose(); });
 it("未选择工作区也能读取默认值、保存 GUI 设置并广播，不创建会话", async () => {
 	const initial = await host.query({ query: "guiConfig" });
 	expect(initial).toMatchObject({ path: file, content: "", state: "ready", value: {
-		theme: "system", themeColor: "#007AFF", fonts: { ui: [], code: [] }, fontSizes: { ui: 14, chat: 16, code: 14 }, sendShortcut: "mod-enter", sessionCache: { idleLimit: 3, idleMs: 60_000 },
+		theme: "system", themeColor: "#007AFF", fontSizes: { ui: 14, chat: 16, code: 14 }, sendShortcut: "mod-enter", sessionCache: { idleLimit: 3, idleMs: 60_000 },
 	} });
 	const events: GuiEvent[] = [];
 	host.subscribe((event) => events.push(event));
@@ -61,14 +61,18 @@ it.each([
 	await expect(host.dispatch({ action: "saveGuiConfig", original: "", content: JSON.stringify({ materials }) })).rejects.toThrow();
 });
 
-it("字体链保留顺序，空数组恢复系统字体，未覆盖的字体组保留默认值", async () => {
-	const content = JSON.stringify({ fonts: { ui: ["Inter", "Noto Sans SC", "Apple Color Emoji"] } });
+it("字体链按用户顺序保存，未覆盖组继承默认值，空数组覆盖默认字体", async () => {
+	const initial = await host.query({ query: "guiConfig" });
+	const ui = ["Inter", "Noto Sans SC", "Apple Color Emoji"];
+	const content = JSON.stringify({ fonts: { ui } });
 	await host.dispatch({ action: "saveGuiConfig", original: "", content });
 	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: {
-		fonts: { ui: ["Inter", "Noto Sans SC", "Apple Color Emoji"], code: [] },
+		fonts: { ui, code: initial.defaults.fonts.code },
 	} });
 	await host.dispatch({ action: "saveGuiConfig", original: content, content: '{"fonts":{"ui":[]}}' });
-	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { fonts: { ui: [], code: [] } } });
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: {
+		fonts: { ui: [], code: initial.defaults.fonts.code },
+	} });
 });
 
 it.each([

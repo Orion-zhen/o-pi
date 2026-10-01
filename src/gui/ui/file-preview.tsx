@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "./components/animated";
 import { AtSign, WrapText, X } from "lucide-react";
@@ -8,7 +8,10 @@ import { fileLanguage, SyntaxHighlighter } from "./code-highlight.ts";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { FileDiff } from "./file-diff.tsx";
+import ImagePreview from "./image-preview.tsx";
 import "./file-preview.css";
+
+const PdfPreview = lazy(() => import("./pdf-preview.tsx"));
 
 function FileCode({ text, path, wrap }: { text: string; path: string; wrap: boolean }) {
 	const gutter = `${String(text.split("\n").length).length + 1}ch`;
@@ -26,7 +29,10 @@ function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean
 	const content = preview.content;
 	if (content.kind === "deleted") return <p className="file-hint">文件已删除，可查看差异。</p>;
 	if (content.kind === "unavailable") return <p className="file-hint">{content.reason}</p>;
-	if (content.kind === "image") return <img className="file-preview-image" src={`data:${content.mime};base64,${content.data}`} alt={preview.path} />;
+	if (content.kind === "image") return <ImagePreview key={content.url} url={content.url} path={preview.path} size={content.size} />;
+	if (content.kind === "pdf") return <Suspense fallback={<p className="file-hint" role="status">正在加载 PDF 阅读器…</p>}>
+		<PdfPreview url={content.url} size={content.size} />
+	</Suspense>;
 	return <FileCode path={preview.path} text={content.text} wrap={wrap} />;
 }
 
@@ -37,16 +43,17 @@ export function FilePreviewPanel({ preview: selection, referenceFile, close }: {
 	const [wrap, setWrap] = useState(true);
 	const result = selection.result;
 	const preview = result.state === "ready" ? result.value : undefined;
+	const media = preview?.content.kind === "image" || preview?.content.kind === "pdf";
 	const diff = mode !== "content" && Boolean(preview?.diffs.length);
 	const name = selection.path.split("/").at(-1);
-	return <div className="file-preview" data-wrap={wrap}>
+	return <div className="file-preview" data-wrap={wrap} data-media={media}>
 		<div className="file-preview-heading">
 			<strong className="file-preview-path" title={selection.path}>{name}</strong>
 			{preview && preview.diffs.length > 0 && <div className="file-preview-modes" aria-label="文件视图">
 				<Button variant="ghost" size="sm" aria-pressed={!diff} onClick={() => setMode("content")}>内容</Button>
 				<Button variant="ghost" size="sm" aria-pressed={diff} onClick={() => setMode("diff")}>差异</Button>
 			</div>}
-			<IconButton label="自动折行" size="icon-sm" aria-pressed={wrap} onClick={() => setWrap(!wrap)}><WrapText /></IconButton>
+			{!media && <IconButton label="自动折行" size="icon-sm" aria-pressed={wrap} onClick={() => setWrap(!wrap)}><WrapText /></IconButton>}
 			<IconButton label="引用文件" size="icon-sm" disabled={!preview || preview.content.kind === "deleted"}
 				onClick={() => referenceFile(selection.path)}><AtSign /></IconButton>
 			<IconButton label="关闭文件预览" size="icon-sm" onClick={close}><X /></IconButton>

@@ -6,10 +6,14 @@ import { WebSocketServer } from "ws";
 import type { GuiHost } from "../gui/host/host.ts";
 import type { GuiClient } from "../gui/host/client.ts";
 import { decodeGuiRequest } from "../gui/host/request.ts";
+import { fileResourceResponse } from "../gui/host/file-resource.ts";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 const MAX_BODY = 16 * 1024 * 1024;
 const CSP =
-	"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+	"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 
 export async function startWebServer(
 	gui: GuiHost,
@@ -55,6 +59,24 @@ export async function startWebServer(
 				}
 				return;
 			}
+			if (url.pathname === "/api/file") {
+				const client = clients.get(url.searchParams.get("client") ?? "");
+				if (!client || request.headers["sec-fetch-site"] === "cross-site") { response.writeHead(403).end(); return; }
+				const resource = client.resolveFileResource(url.searchParams.get("token") ?? "");
+				const controller = new AbortController();
+				const abort = () => controller.abort();
+				response.once("close", abort);
+				try {
+					const headers = new Headers();
+					if (request.headers.range) headers.set("range", request.headers.range);
+					const result = await fileResourceResponse(resource, new Request(url, { method: request.method ?? "GET", headers, signal: controller.signal }));
+					result.headers.forEach((value, key) => response.setHeader(key, value));
+					response.writeHead(result.status);
+					if (result.body) await pipeline(Readable.fromWeb(result.body as NodeReadableStream<Uint8Array>), response);
+					else response.end();
+				} finally { response.off("close", abort); }
+				return;
+			}
 			if (url.pathname.startsWith("/api/")) {
 				response.writeHead(404).end();
 				return;
@@ -84,6 +106,8 @@ export async function startWebServer(
 			const types: Record<string, string> = {
 				".html": "text/html; charset=utf-8",
 				".js": "text/javascript",
+				".mjs": "text/javascript",
+				".wasm": "application/wasm",
 				".css": "text/css",
 				".svg": "image/svg+xml",
 				".png": "image/png",
@@ -93,6 +117,7 @@ export async function startWebServer(
 			response.setHeader("Content-Type", types[path.extname(target)] ?? "application/octet-stream");
 			response.end(request.method === "HEAD" ? undefined : data);
 		} catch (error) {
+			if (response.headersSent || response.destroyed) { response.destroy(); return; }
 			response
 				.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" })
 				.end(error instanceof Error ? error.message : String(error));

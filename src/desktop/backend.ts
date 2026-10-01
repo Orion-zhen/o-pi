@@ -65,13 +65,19 @@ if (!(await runChildProcess())) {
 					(error: unknown) => { console.error(error); process.exit(1); },
 				);
 				return;
-			case "action": case "query": void execute(data); return;
+			case "action": case "query": case "resource": void execute(data); return;
 			default: data satisfies never;
 		}
 	});
 	async function execute(request: BackendRequest): Promise<void> {
 		if (request.traced) process.parentPort.postMessage({ kind: "requestReceived", id: request.id, at: Date.now() } satisfies BackendMessage);
 		try {
+			if (request.kind === "resource") {
+				if (typeof request.value !== "string") throw new Error("无效文件授权。");
+				const value = client.resolveFileResource(request.value);
+				process.parentPort.postMessage({ kind: "result", id: request.id, value } satisfies BackendMessage);
+				return;
+			}
 			const { value, sessionId } = decodeGuiRequest(request.value);
 			const result = await (request.kind === "query" ? client.query(value, sessionId) : client.dispatch(value, sessionId));
 			process.parentPort.postMessage({ kind: "result", id: request.id, value: result } satisfies BackendMessage);
