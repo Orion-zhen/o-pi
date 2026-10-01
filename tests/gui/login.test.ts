@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import { runLogin } from "../../src/gui/host/login.ts";
@@ -21,7 +22,7 @@ describe("GUI OAuth", () => {
 			manual.abort();
 			await pending;
 			return { type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 10000 };
-		} }, "test", "oauth", dialogs, (event) => events.push(event), controller.signal);
+		} }, "test", "oauth", dialogs, (event) => events.push(event), controller.signal, randomUUID);
 		await ready.promise;
 		expect(dialogs.list()).toEqual([]);
 		expect(events.some((event) => event.type === "auth")).toBe(true);
@@ -38,7 +39,7 @@ describe("GUI OAuth", () => {
 			ready.resolve();
 			await pending;
 			throw new Error("不应继续");
-		} }, "test", "oauth", dialogs, () => {}, controller.signal);
+		} }, "test", "oauth", dialogs, () => {}, controller.signal, randomUUID);
 		await ready.promise;
 		controller.abort();
 		await expect(login).rejects.toThrow();

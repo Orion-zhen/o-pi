@@ -9,7 +9,7 @@ import type { GuiPayloads } from "./payloads.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
-	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "bashOutput"
+	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "bashOutput" | "scopedModels"
 >;
 
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
@@ -53,7 +53,6 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		model: session.model ? guiModel(session.model) : null,
 		routedModel: routed ? { model: guiModel(routed.model), ...(routed.thinkingLevel === undefined ? {} : { thinkingLevel: routed.thinkingLevel }) } : null,
 		models: services.modelRuntime.getAvailableSnapshot().map(guiModel),
-		scopedModels: session.scopedModels.map(({ model }) => `${model.provider}/${model.id}`),
 		defaultModel: {
 			provider: defaults.defaultProvider ?? null,
 			id: defaults.defaultModel ?? null,

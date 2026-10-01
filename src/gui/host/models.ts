@@ -1,29 +1,57 @@
-import type { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionRuntime, resolveModelScopeWithDiagnostics } from "@earendil-works/pi-coding-agent";
 
-export function setModelScope(runtime: AgentSessionRuntime, ids: string[]): void {
-	const available = new Map(
-		runtime.services.modelRuntime.getAvailableSnapshot().map((model) => [`${model.provider}/${model.id}`, model]),
-	);
-	const previous = new Map(
-		runtime.session.scopedModels.map((scoped) => [`${scoped.model.provider}/${scoped.model.id}`, scoped]),
-	);
-	const scope = ids.map((id) => {
-		const model = available.get(id);
-		if (!model) throw new Error(`模型不可用: ${id}`);
-		return { ...previous.get(id), model };
-	});
-	runtime.session.setScopedModels(scope);
+function scopePatterns(scope: AgentSessionRuntime["session"]["scopedModels"]): Map<string, string> {
+	return new Map(scope.map(({ model, thinkingLevel }) => {
+		const id = `${model.provider}/${model.id}`;
+		return [id, `${id}${thinkingLevel === undefined ? "" : `:${thinkingLevel}`}`];
+	}));
 }
 
-export function modelScope(runtime: AgentSessionRuntime): string[] {
-	return runtime.session.scopedModels.map(({ model, thinkingLevel }) =>
-		`${model.provider}/${model.id}${thinkingLevel === undefined ? "" : `:${thinkingLevel}`}`);
-}
+export class GuiModelScope {
+	private selected = new Map<string, string>();
 
-export async function persistModelScope(runtime: AgentSessionRuntime): Promise<void> {
-	const settings = runtime.services.settingsManager;
-	settings.setEnabledModels(modelScope(runtime));
-	await flushModelSettings(runtime);
+	initialize(scope: Awaited<ReturnType<typeof resolveModelScopeWithDiagnostics>>): void {
+		this.selected = scopePatterns(scope.scopedModels);
+		for (const diagnostic of scope.diagnostics) {
+			if (diagnostic.code === "no-match") this.selected.set(diagnostic.pattern, diagnostic.pattern);
+		}
+	}
+
+	get ids(): string[] { return [...this.selected.keys()]; }
+
+	private entries(runtime: AgentSessionRuntime): Map<string, string> {
+		const resolved = scopePatterns(runtime.session.scopedModels);
+		return new Map([...this.selected].map(([id, pattern]) => [id, resolved.get(id) ?? pattern]));
+	}
+
+	patterns(runtime: AgentSessionRuntime): string[] {
+		return [...this.entries(runtime).values()];
+	}
+
+	set(runtime: AgentSessionRuntime, ids: string[]): void {
+		const available = new Map(
+			runtime.services.modelRuntime.getAvailableSnapshot().map((model) => [`${model.provider}/${model.id}`, model]),
+		);
+		const previous = new Map(
+			runtime.session.scopedModels.map((scoped) => [`${scoped.model.provider}/${scoped.model.id}`, scoped]),
+		);
+		const saved = this.entries(runtime);
+		const scope = ids.flatMap((id) => {
+			const model = available.get(id);
+			if (!model) {
+				if (!this.selected.has(id)) throw new Error(`模型不可用: ${id}`);
+				return [];
+			}
+			return [{ ...previous.get(id), model }];
+		});
+		runtime.session.setScopedModels(scope);
+		this.selected = new Map(ids.map((id) => [id, saved.get(id) ?? id]));
+	}
+
+	async persist(runtime: AgentSessionRuntime): Promise<void> {
+		runtime.services.settingsManager.setEnabledModels(this.patterns(runtime));
+		await flushModelSettings(runtime);
+	}
 }
 
 export async function persistDefaultModel(runtime: AgentSessionRuntime): Promise<void> {

@@ -21,6 +21,7 @@
 .model-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-2); border-radius: var(--radius-md); }
 .model-row + .model-row { margin-block-start: var(--space-1); }
 .model-row:hover { background: var(--accent); }
+.model-row-unavailable .model-name { color: var(--muted-foreground); opacity: 0.6; }
 .model-name strong { display: block; font-size: var(--text-ui); font-weight: 500; overflow-wrap: anywhere; }
 .model-name small { display: block; margin-block-start: var(--space-1); color: var(--muted-foreground); font-size: var(--text-caption); overflow-wrap: anywhere; }
 .model-row-actions { display: flex; gap: var(--space-1); color: var(--muted-foreground); }

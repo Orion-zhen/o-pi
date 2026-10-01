@@ -12,7 +12,7 @@ import { runLogin } from "./login.ts";
 import { completeCommand, runBuiltin } from "./commands.ts";
 import { openView } from "./views.ts";
 import { collectGuiSnapshot } from "./snapshot.ts";
-import { persistDefaultModel, persistModelScope, setModelScope } from "./models.ts";
+import { GuiModelScope, persistDefaultModel } from "./models.ts";
 import { GuiReports } from "./reports.ts";
 import { GuiPayloads } from "./payloads.ts";
 import { GuiHistory } from "./history.ts";
@@ -41,6 +41,7 @@ export class GuiExecution {
 	private commandController = new AbortController();
 	private messageTiming = new MessageTiming();
 	readonly payloads = new GuiPayloads();
+	readonly modelScope = new GuiModelScope();
 	private guiHistory = new GuiHistory(this.payloads);
 	private bashOutput = "";
 	private liveTools = new Map<string, GuiSnapshot["liveTools"][number]>();
@@ -126,7 +127,7 @@ export class GuiExecution {
 						this.background.add(cancel);
 						return this.track(task.finally(() => this.background.delete(cancel)));
 					},
-				}, manager, initial.event, initial.models);
+				}, manager, initial.event, initial.models, this.modelScope);
 				if (this.disposed) { await runtime.dispose(); return; }
 				this.current = runtime;
 				await this.bindSession();
@@ -205,6 +206,7 @@ export class GuiExecution {
 	snapshot(): GuiSnapshot {
 		if (!this.toolController) throw new Error("工具选择未绑定。");
 		return collectGuiSnapshot(this.runtime, {
+			scopedModels: this.modelScope.ids,
 			canSubmit: !this.changing,
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
@@ -291,7 +293,7 @@ export class GuiExecution {
 				this.loginController = new AbortController();
 				this.publish();
 				this.emit({ type: "auth", value: { type: "progress", message: "正在准备登录…" } });
-				try { await runLogin(services.modelRuntime, action.provider, action.type, this.dialogs, (event) => this.emit(event), this.loginController.signal); }
+				try { await runLogin(services.modelRuntime, action.provider, action.type, this.dialogs, (event) => this.emit(event), this.loginController.signal, () => services.settingsManager.getOrCreateDeviceId()); }
 				catch (error) { if (!this.loginController.signal.aborted) throw error; }
 				finally { this.loginController = undefined; this.emit({ type: "auth", value: null }); this.publish(); }
 				return;
@@ -365,8 +367,8 @@ export class GuiExecution {
 				await session.setModel(model, { persist: false }); break;
 			}
 			case "thinking": session.setThinkingLevel(action.level); break;
-			case "scopeModels": setModelScope(runtime, action.models); break;
-			case "persistModels": await persistModelScope(runtime); break;
+			case "scopeModels": this.modelScope.set(runtime, action.models); break;
+			case "persistModels": await this.modelScope.persist(runtime); break;
 			case "persistDefaultModel": await persistDefaultModel(runtime); break;
 			case "settings":
 				session.setAutoCompactionEnabled(action.compaction); session.setAutoRetryEnabled(action.retry);

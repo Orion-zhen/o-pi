@@ -4,7 +4,6 @@ import { SessionManager, type SessionStartEvent } from "@earendil-works/pi-codin
 import type { GuiEvent, GuiSessionActivity } from "../contract.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../harness/approval/rules/store.ts";
 import { GuiExecution, type SessionClient } from "./execution.ts";
-import { modelScope } from "./models.ts";
 
 type Listener = (event: GuiEvent) => void;
 type Resources =
@@ -195,7 +194,7 @@ export class GuiSession {
 		if (resources.state === "closing") return resources.task;
 		const execution = resources.execution;
 		const manager = execution.ready ? execution.runtime.session.sessionManager : this.manager;
-		if (execution.ready) this.scopedModels = modelScope(execution.runtime);
+		if (execution.ready) this.scopedModels = execution.modelScope.patterns(execution.runtime);
 		const task = Promise.resolve().then(async () => {
 			await execution.dispose();
 			this.manager = this.stamp !== undefined || this.file && existsSync(this.file) ? undefined : manager;

@@ -10,6 +10,7 @@ export async function runLogin(
 	dialogs: GuiDialogs,
 	emit: (event: GuiEvent) => void,
 	signal: AbortSignal,
+	getDeviceId: () => string,
 ): Promise<void> {
 	await models.login(provider, type, {
 		signal,
@@ -37,6 +38,6 @@ export async function runLogin(
 			if (!option) throw new Error("无效登录选项。");
 			return option.id;
 		},
-	});
+	}, { getDeviceId });
 	dialogs.notify(`${provider} 登录成功。`);
 }

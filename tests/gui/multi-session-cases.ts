@@ -334,7 +334,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				provider.models = provider.models.filter((model) => model.id !== "second");
 				await writeFile(modelsFile, JSON.stringify(modelConfig));
 				await client.dispatch({ action: "openSession", id: a });
-				expect(readSnapshot(client).scopedModels).toEqual(["gui-fixture/test"]);
+				expect(readSnapshot(client).scopedModels).toEqual(["gui-fixture/test", "gui-fixture/second"]);
 				expect(readSnapshot(client).messages.length).toBeGreaterThan(before.length);
 				await client.dispatch({ action: "new" });
 				const separate = client.dispatch(prompt("新会话不继承授权"));

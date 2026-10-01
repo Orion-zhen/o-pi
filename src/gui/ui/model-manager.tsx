@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { ListItem } from "./components/animated";
 import { ArrowDown, ArrowUp, Check, Cpu, ListX, LoaderCircle, Play, Save, Search } from "lucide-react";
-import type { GuiAction, GuiModel, GuiSnapshot } from "../contract.ts";
+import type { GuiAction, GuiSnapshot } from "../contract.ts";
 import type { Send } from "./connection.ts";
 import { ThinkingControl } from "./model-controls.tsx";
 import { IconButton } from "./components/icon-button";
@@ -23,15 +23,10 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 	const selected = new Set(scope);
 	const available = new Map(snapshot.models.map((model) => [`${model.provider}/${model.id}`, model]));
 	const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-	const matches = (model: GuiModel) =>
-		terms.every((term) => `${model.provider}/${model.id} ${model.name}`.toLocaleLowerCase().includes(term));
-	const selectedModels = scope.flatMap((id) => {
-		const model = available.get(id);
-		return model && matches(model) ? [model] : [];
-	});
-	const otherModels = snapshot.models.filter(
-		(model) => !selected.has(`${model.provider}/${model.id}`) && matches(model),
-	);
+	const matches = (id: string) =>
+		terms.every((term) => `${id} ${available.get(id)?.name ?? ""}`.toLocaleLowerCase().includes(term));
+	const selectedModels = scope.filter(matches);
+	const otherModels = [...available.keys()].filter((id) => !selected.has(id) && matches(id));
 	const disabled = blocked || pending !== null;
 	const run = async (action: GuiAction) => {
 		setPending(action.action);
@@ -53,12 +48,12 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 		next.splice(index + direction, 0, id);
 		update(next);
 	};
-	const row = (model: GuiModel) => {
-		const id = `${model.provider}/${model.id}`;
+	const row = (id: string) => {
+		const model = available.get(id);
 		const index = scope.indexOf(id);
-		const active = snapshot.model?.provider === model.provider && snapshot.model.id === model.id;
+		const active = model && snapshot.model?.provider === model.provider && snapshot.model.id === model.id;
 		return (
-			<ListItem className="model-row" key={id}>
+			<ListItem className={`model-row${model ? "" : " model-row-unavailable"}`} key={id}>
 				<Checkbox
 					aria-label={`已选模型 ${id}`}
 					checked={selected.has(id)}
@@ -68,8 +63,8 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 					}
 				/>
 				<div className="model-name">
-					<strong>{model.name}</strong>
-					<small>{id}</small>
+					<strong>{model?.name ?? id}</strong>
+					<small>{model ? id : "不可用"}</small>
 				</div>
 				<div className="model-row-actions">
 					{index >= 0 && (
@@ -96,8 +91,8 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 						label={active ? `当前模型 ${id}` : `使用模型 ${id}`}
 						size="icon-sm"
 						variant={active ? "secondary" : "ghost"}
-						disabled={disabled || active}
-						onClick={() => void run({ action: "model", provider: model.provider, id: model.id })}
+						disabled={disabled || !model || active}
+						onClick={() => { if (model) void run({ action: "model", provider: model.provider, id: model.id }); }}
 					>
 						{active ? <Check /> : <Play />}
 					</IconButton>

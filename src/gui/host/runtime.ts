@@ -17,6 +17,7 @@ import {
 	type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
+import type { GuiModelScope } from "./models.ts";
 
 EventEmitter.defaultMaxListeners = 20;
 
@@ -26,6 +27,7 @@ export async function createGuiRuntime(
 	sessionManager: SessionManager,
 	initialEvent: SessionStartEvent,
 	cachedScope: string[] | undefined,
+	modelScope: GuiModelScope,
 ) {
 	const { dialogs, projectTrust: decisions } = bindings;
 	cwd = path.resolve(cwd);
@@ -86,6 +88,7 @@ export async function createGuiRuntime(
 			cachedScope ?? settingsManager.getEnabledModels() ?? [],
 			services.modelRuntime,
 		);
+		modelScope.initialize(scope);
 		for (const diagnostic of scope.diagnostics) dialogs.notify(diagnostic.message, "warning");
 		const context = sessionManager.buildSessionContext();
 		const model = context.messages.length === 0 && context.model
