@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Clock3, ShieldCheck } from "lucide-react";
 import type { GuiDialog } from "../contract.ts";
 import type { Send } from "./connection.ts";
@@ -17,6 +17,7 @@ import {
 
 
 export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send: Send; restoreFocus: () => void }) {
+	const formId = useId();
 	const [value, setValue] = useState(dialog.initial);
 	const [now, setNow] = useState(Date.now());
 	useEffect(() => {
@@ -50,7 +51,7 @@ export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send
 					<DialogTitle className="dialog-title">{clean(dialog.title)}</DialogTitle>
 				</DialogHeader>
 				{dialog.bash && <BashApproval approval={dialog.bash} />}
-				{dialog.message && <pre>{clean(dialog.message)}</pre>}
+				{dialog.message && dialog.kind !== "input" && dialog.kind !== "secret" && <pre>{clean(dialog.message)}</pre>}
 				{dialog.deadline !== null && (
 					<p className="flex items-center gap-2 text-sm text-muted-foreground">
 						<Clock3 className="size-4" />
@@ -65,10 +66,9 @@ export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send
 							</Button>
 						))}
 					</div>
-				) : dialog.kind === "confirm" ? (
-					<Button onClick={() => respond("yes")}>确认</Button>
-				) : (
+				) : dialog.kind !== "confirm" ? (
 					<form
+						id={formId}
 						className="dialog-form"
 						onSubmit={(event) => {
 							event.preventDefault();
@@ -89,16 +89,23 @@ export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send
 								autoFocus
 								autoComplete="off"
 								type={dialog.kind === "secret" ? "password" : "text"}
+								placeholder={clean(dialog.message)}
 								value={value}
 								onChange={(event) => setValue(event.target.value)}
 							/>
 						)}
-						<Button type="submit">提交</Button>
 					</form>
+				) : null}
+				{(!dialog.bash || dialog.kind !== "select") && (
+					<div className="dialog-actions">
+						{!dialog.bash && <Button variant="outline" onClick={() => respond(null)}>取消</Button>}
+						{dialog.kind === "confirm" ? (
+							<Button onClick={() => respond("yes")}>确认</Button>
+						) : dialog.kind !== "select" ? (
+							<Button type="submit" form={formId}>提交</Button>
+						) : null}
+					</div>
 				)}
-				{!dialog.bash && <Button variant="ghost" onClick={() => respond(null)}>
-					取消 / 拒绝
-				</Button>}
 			</DialogContent>
 		</DialogRoot>
 	);

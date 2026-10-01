@@ -182,8 +182,9 @@ input.session-name { flex: 1; background: var(--surface); }
 .approval { overflow: auto; border-radius: 1em; }
 .approval pre { max-height: 40dvh; overflow: auto; }
 .dialog-title { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin-top: 0.5rem; }
-.dialog-form { display: grid; gap: 0.75rem; }
-.dialog-form > button { justify-self: end; }
+.dialog-form { display: grid; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.dialog-actions > button { inline-size: 5rem; }
 .choices { display: grid; gap: 0.5rem; }
 .choices button { height: auto; min-height: 2.75rem; justify-content: flex-start; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 

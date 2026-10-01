@@ -1,4 +1,5 @@
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import llamaExtension from "../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/llama/index.js";
 import { createGuiMcpExtension, type GuiMcpTools } from "./mcp-tools.ts";
 import { extensions } from "../../harness/extensions.ts";
 import { collectContextStats } from "../../harness/extensions/stats.ts";
@@ -93,5 +94,8 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, toolsCh
 			}, bindTools),
 		},
 	];
-	return extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension);
+	return [
+		{ name: "llama.cpp", builtin: true, factory: llamaExtension },
+		...extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension),
+	];
 }
