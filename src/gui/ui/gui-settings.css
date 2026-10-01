@@ -56,6 +56,8 @@
 .font-size-control > span { color: var(--muted-foreground); font-size: var(--text-small); }
 .settings-popover { display: flex; flex-direction: column; gap: var(--space-3); min-inline-size: 0; max-inline-size: calc(100vw - 2em); max-block-size: var(--radix-popover-content-available-height); overflow: auto; font-size: var(--text-ui); }
 .settings-popover > * { flex-shrink: 0; }
+.settings-popover.model-select-content { overflow: hidden; }
+.model-select-content > .list-scroll { flex: 1 1 auto; }
 .settings-popover header p { color: var(--muted-foreground); font-size: var(--text-small); }
 .font-picker { inline-size: min(28em, calc(100vw - 2em)); }
 .font-input > * { flex-shrink: 0; }
