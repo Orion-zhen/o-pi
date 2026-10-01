@@ -1,5 +1,6 @@
 import { CustomEditor, type KeybindingsManager, type Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, truncateToWidth, visibleWidth, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
+import { normalizeHistoryText } from "../../harness/user-history.ts";
 import { formatHomePage, HOME_CONTENT_WIDTH } from "../views/home/home.ts";
 import { HomeAnimation } from "../views/home/animation.ts";
 import type { TuiSnapshot, TuiHomeConfig } from "../shell/types.ts";
@@ -36,7 +37,7 @@ export class SessionEditor extends CustomEditor {
 	) {
 		super(tui, theme, appKeybindings);
 		this.replayQueue = options.replayHistory.map((text) => text.trim()).filter((text) => text.length > 0);
-		for (const text of options.initialHistory) super.addToHistory(text);
+		for (const text of options.initialHistory) this.remember(text);
 		const home = options.home;
 		this.fullscreenHome = tui.mode === "fullscreen" && home?.isVisible()
 			? { options: home, animation: new HomeAnimation(tui, home.config, () => this.getFullscreenHome() !== undefined) }
@@ -51,6 +52,15 @@ export class SessionEditor extends CustomEditor {
 			return;
 		}
 		this.replayQueue = [];
+		this.remember(normalized);
+	}
+
+	private remember(text: string): void {
+		const normalized = normalizeHistoryText(text);
+		if (normalized.length === 0) return;
+		const history = this["history"];
+		const index = history.indexOf(normalized);
+		if (index >= 0) history.splice(index, 1);
 		super.addToHistory(normalized);
 	}
 
@@ -136,9 +146,9 @@ export class SessionEditor extends CustomEditor {
 	}
 
 	private capture(text: string): void {
-		const normalized = text.trim();
+		const normalized = normalizeHistoryText(text);
 		if (normalized.length === 0) return;
-		super.addToHistory(normalized);
+		this.remember(normalized);
 		this.options.record(normalized);
 	}
 

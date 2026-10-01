@@ -103,6 +103,16 @@ newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("输入历史去重并提升到最新，斜杠命令不记录，重载后保持一致", async () => {
+		await host.dispatch(prompt("first"));
+		await host.dispatch(prompt("second"));
+		await host.dispatch(prompt(" first "));
+		expect(readSnapshot(host).history).toEqual(["second", "first"]);
+		await host.dispatch(prompt("/tools"));
+		expect(readSnapshot(host).history).toEqual(["second", "first"]);
+		await host.dispatch({ action: "reload" });
+		expect(readSnapshot(host).history).toEqual(["second", "first"]);
+	});
 	it("子代理可用状态随 profile 重载更新，选择器与实际声明一致", async () => {
 		const subagent = () => readSnapshot(host).tools.find((tool) => tool.name === "subagent");
 		expect(subagent()).toMatchObject({ available: false, enabled: false });

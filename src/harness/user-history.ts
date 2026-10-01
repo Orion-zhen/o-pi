@@ -33,7 +33,7 @@ export class UserHistoryStore {
 	}
 
 	append(entry: UserHistoryAppend): Promise<void> {
-		const text = entry.text.trim();
+		const text = normalizeHistoryText(entry.text);
 		if (text.length === 0 || Buffer.byteLength(text) >= COMPACT_TARGET_BYTES) return Promise.resolve();
 		const record: UserHistoryRecord = {
 			timestamp: new Date().toISOString(),
@@ -86,13 +86,25 @@ export function buildInitialHistory(
 	const earliestRecorded = currentSessionTimes.length === 0 ? Number.POSITIVE_INFINITY : Math.min(...currentSessionTimes);
 	let index = indexed.length;
 	for (const message of sessionMessages) {
-		const text = message.text.trim();
+		const text = normalizeHistoryText(message.text);
 		if (text.length === 0 || message.timestamp >= earliestRecorded) continue;
 		indexed.push({ timestamp: message.timestamp, text, index });
 		index += 1;
 	}
 	indexed.sort((left, right) => left.timestamp - right.timestamp || left.index - right.index);
-	return indexed.slice(-USER_HISTORY_LIMIT).map((entry) => entry.text);
+	const texts = new Set<string>();
+	for (const entry of indexed) {
+		const text = normalizeHistoryText(entry.text);
+		if (text.length === 0) continue;
+		texts.delete(text);
+		texts.add(text);
+	}
+	return [...texts].slice(-USER_HISTORY_LIMIT);
+}
+
+export function normalizeHistoryText(text: string): string {
+	const trimmed = text.trim();
+	return trimmed.startsWith("/") ? "" : trimmed;
 }
 
 export function normalizeHistoryCwd(cwd: string): string {
@@ -196,7 +208,9 @@ function readMatchingFragments(
 
 function readMatchingLine(line: Buffer, cwd: string, records: UserHistoryRecord[]): void {
 	const record = parseHistoryRecord(line.toString("utf8"));
-	if (record !== undefined && normalizeHistoryCwd(record.cwd) === cwd) records.push(record);
+	if (record !== undefined && normalizeHistoryCwd(record.cwd) === cwd && !records.some((entry) => entry.text === record.text)) {
+		records.push(record);
+	}
 }
 
 function parseHistoryRecord(line: string): UserHistoryRecord | undefined {
@@ -212,7 +226,7 @@ function parseHistoryRecord(line: string): UserHistoryRecord | undefined {
 			|| typeof session !== "string"
 			|| session.length === 0
 			|| typeof text !== "string"
-			|| text.trim().length === 0
+			|| normalizeHistoryText(text).length === 0
 		) return undefined;
 		return { timestamp, cwd, session, text: text.trim() };
 	} catch {
@@ -224,7 +238,7 @@ async function compactHistoryFile(filePath: string): Promise<void> {
 	const content = await readFile(filePath, "utf8");
 	const lines = content.split("\n");
 	const retainedNewestFirst: string[] = [];
-	const pathCounts = new Map<string, number>();
+	const pathTexts = new Map<string, Set<string>>();
 	let retainedBytes = 0;
 	for (let index = lines.length - 1; index >= 0; index -= 1) {
 		const line = lines[index];
@@ -232,13 +246,14 @@ async function compactHistoryFile(filePath: string): Promise<void> {
 		const record = parseHistoryRecord(line);
 		if (record === undefined) continue;
 		const cwd = normalizeHistoryCwd(record.cwd);
-		const count = pathCounts.get(cwd) ?? 0;
-		if (count >= USER_HISTORY_LIMIT) continue;
+		const texts = pathTexts.get(cwd) ?? new Set<string>();
+		if (texts.size >= USER_HISTORY_LIMIT || texts.has(record.text)) continue;
 		const normalizedLine = JSON.stringify({ ...record, cwd });
 		const bytes = Buffer.byteLength(normalizedLine) + 1;
 		if (retainedBytes + bytes > COMPACT_TARGET_BYTES) continue;
 		retainedNewestFirst.push(normalizedLine);
-		pathCounts.set(cwd, count + 1);
+		texts.add(record.text);
+		pathTexts.set(cwd, texts);
 		retainedBytes += bytes;
 	}
 	const output = retainedNewestFirst.reverse().join("\n");

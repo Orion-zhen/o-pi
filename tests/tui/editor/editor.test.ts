@@ -29,10 +29,47 @@ describe("会话编辑器", () => {
 		editor.handleInput("\x1b[B");
 		expect(editor.getText()).toBe("");
 		editor.onSubmit = (text) => editor.addToHistory(text);
-		editor.setText(" /settings ");
+		editor.setText(" next message ");
 		editor.handleInput("\r");
 		expect(record).toHaveBeenCalledOnce();
-		expect(record).toHaveBeenCalledWith("/settings");
+		expect(record).toHaveBeenCalledWith("next message");
+	});
+
+	it("重复输入移到最新，斜杠命令仍提交但不进入历史", () => {
+		const record = vi.fn();
+		const editor = createEditor({
+			initialHistory: ["first", "/tools", "second", "first", "third"],
+			replayHistory: ["first", "/tools", "second"], record,
+		});
+		for (const text of ["first", "/tools", "second"]) editor.addToHistory(text);
+		const submit = vi.fn((text: string) => editor.addToHistory(text));
+		editor.onSubmit = submit;
+		for (const text of [" second ", " /tools ", "/settings"]) {
+			editor.setText(text);
+			editor.handleInput("\r");
+		}
+		expect(submit).toHaveBeenCalledTimes(3);
+		expect(record.mock.calls).toEqual([["second"]]);
+		editor.setText("");
+		for (const text of ["second", "third", "first", "first"]) {
+			editor.handleInput("\x1b[A");
+			expect(editor.getText()).toBe(text);
+		}
+	});
+
+	it("去重后保留最近 100 条输入", () => {
+		const initialHistory = Array.from({ length: 101 }, (_, index) => `message-${index}`);
+		const editor = createEditor({ initialHistory });
+		editor.addToHistory("message-1");
+		editor.setText("");
+		editor.handleInput("\x1b[A");
+		expect(editor.getText()).toBe("message-1");
+		for (let index = 100; index >= 2; index -= 1) {
+			editor.handleInput("\x1b[A");
+			expect(editor.getText()).toBe(`message-${index}`);
+		}
+		editor.handleInput("\x1b[A");
+		expect(editor.getText()).toBe("message-2");
 	});
 
 	it("输入框直线展示会话、模型、thinking 和条件状态", () => {

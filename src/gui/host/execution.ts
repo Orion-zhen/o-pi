@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { SessionManager, AgentSessionRuntime, SessionStartEvent, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { UserHistoryStore, buildInitialHistory } from "../../harness/user-history.ts";
+import { UserHistoryStore, buildInitialHistory, normalizeHistoryText } from "../../harness/user-history.ts";
 import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
 import type { GuiAction, GuiEvent, SessionQuery, GuiQueryResults, GuiSnapshot } from "../contract.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../harness/approval/rules/store.ts";
@@ -316,9 +316,10 @@ export class GuiExecution {
 	private async prompt(action: Extract<GuiAction, { action: "prompt" }>, client: SessionClient): Promise<void> {
 		const runtime = this.runtime;
 		const session = runtime.session;
-		if (action.text.trim()) {
-			this.historyTexts = [...this.historyTexts, action.text.trim()].slice(-100);
-			void this.history.append({ cwd: runtime.cwd, session: session.sessionId, text: action.text }).catch((error: unknown) => this.historyError(error));
+		const text = normalizeHistoryText(action.text);
+		if (text) {
+			this.historyTexts = [...this.historyTexts.filter((entry) => entry !== text), text].slice(-100);
+			void this.history.append({ cwd: runtime.cwd, session: session.sessionId, text }).catch((error: unknown) => this.historyError(error));
 		}
 		this.publish();
 		if (await runBuiltin(this, action.text, (next) => client.dispatch(next))) return;

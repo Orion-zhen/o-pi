@@ -32,6 +32,35 @@ describe("路径级用户历史", () => {
 		expect(lines[2]).toContain('"text":"multi\\nline"');
 	});
 
+	it("跨会话重复输入只保留最新记录，忽略空白和斜杠命令", async () => {
+		const cwd = path.join(temp.path, "project");
+		const store = new UserHistoryStore();
+		for (const text of ["first", "second", " first ", "/tools", " /settings ", "   "]) {
+			await store.append({ cwd, session: text === "first" ? "old" : "new", text });
+		}
+		const records = await new UserHistoryStore().load(cwd);
+		expect(records.map(({ text, session }) => ({ text, session }))).toEqual([
+			{ text: "second", session: "new" }, { text: "first", session: "new" },
+		]);
+		expect((await readFile(historyPath(), "utf8")).trimEnd().split("\n")).toHaveLength(3);
+	});
+
+	it("旧文件先过滤命令和重复输入，再取最近 100 条", async () => {
+		const cwd = path.join(temp.path, "project");
+		const texts = [
+			...Array.from({ length: 101 }, (_, index) => `message-${index}`),
+			...Array.from({ length: 110 }, () => " message-1 "),
+			"/tools", " /settings ",
+		];
+		await mkdir(path.dirname(historyPath()), { recursive: true });
+		await writeFile(historyPath(), texts.map((text, index) => JSON.stringify({
+			timestamp: new Date(index).toISOString(), cwd, session: "old", text,
+		})).join("\n") + "\n");
+		expect((await new UserHistoryStore().load(cwd)).map((record) => record.text)).toEqual([
+			...Array.from({ length: 99 }, (_, index) => `message-${index + 2}`), "message-1",
+		]);
+	});
+
 	it("多个存储实例并发写同一个真实缓存文件，不互相覆盖", async () => {
 		const first = new UserHistoryStore();
 		const second = new UserHistoryStore();
@@ -55,6 +84,11 @@ describe("路径级用户历史", () => {
 		expect((await store.load(smallCwd)).map((record) => record.text)).toEqual(
 			Array.from({ length: 100 }, (_, index) => `small-${index + 30}`),
 		);
+		for (let index = 0; index < 110; index += 1) {
+			await store.append({ cwd: smallCwd, session: "session", text: "small-30" });
+		}
+		const oldCommand = JSON.stringify({ timestamp: new Date().toISOString(), cwd: smallCwd, session: "session", text: "/tools" });
+		await writeFile(historyPath(), `${oldCommand}\n`, { flag: "a" });
 		const body = "x".repeat(128 * 1024);
 		for (let index = 0; index < 72; index += 1) {
 			await store.append({ cwd: largeCwd, session: "session", text: `${index}-${body}` });
@@ -62,7 +96,9 @@ describe("路径级用户历史", () => {
 		const content = await readFile(historyPath(), "utf8");
 		const persisted = content.trimEnd().split("\n").map((line) => JSON.parse(line) as UserHistoryRecord);
 		expect(Buffer.byteLength(content)).toBeLessThanOrEqual(8 * 1024 * 1024);
-		expect(persisted.filter((record) => record.cwd === smallCwd)).toHaveLength(100);
+		expect(persisted.filter((record) => record.cwd === smallCwd).map((record) => record.text)).toEqual([
+			...Array.from({ length: 99 }, (_, index) => `small-${index + 31}`), "small-30",
+		]);
 		expect((await store.load(largeCwd)).at(-1)?.text).toBe(`71-${body}`);
 	});
 
@@ -94,6 +130,14 @@ describe("路径级用户历史", () => {
 		await store.append({ cwd, session: "session", text: "recent" });
 		expect(Buffer.byteLength(await readFile(historyPath(), "utf8"))).toBeLessThanOrEqual(6 * 1024 * 1024);
 		expect((await store.load(cwd)).map((record) => record.text)).toEqual(["older", "recent"]);
+	});
+
+	it("会话补齐与持久化记录合并后去重，并排除命令", () => {
+		const records = ["first", "/tools", "second", "first"].map((text, index) => ({
+			timestamp: new Date(index + 10).toISOString(), cwd: "/project", session: "current", text,
+		}));
+		const messages = ["first", "older", " /settings "].map((text, timestamp) => ({ text, timestamp }));
+		expect(buildInitialHistory(records, messages, "current")).toEqual(["older", "second", "first"]);
 	});
 
 	it("仅用当前会话消息补齐该会话开始持久化前的部分", () => {
