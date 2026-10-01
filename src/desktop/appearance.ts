@@ -17,7 +17,7 @@ export function installDesktopAppearance(window: BrowserWindow): (value: unknown
 	let transparent = false;
 	const update = () => {
 		const enabled = transparent && !nativeTheme.prefersReducedTransparency && !nativeTheme.shouldUseHighContrastColors;
-		if (material === "vibrancy") window.setVibrancy(enabled ? "sidebar" : null);
+		if (material === "vibrancy") window.setVibrancy(enabled ? "hud" : null);
 		if (material === "acrylic") window.setBackgroundMaterial(enabled ? "acrylic" : "none");
 		window.setBackgroundColor(enabled && material !== "none" ? "#00000000" : GUI_BACKGROUNDS[nativeTheme.shouldUseDarkColors ? "dark" : "light"]);
 	};

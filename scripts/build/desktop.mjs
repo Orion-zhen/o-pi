@@ -78,7 +78,15 @@ await import(${JSON.stringify(path.join(root, "src/desktop/backend.ts"))});\n`);
 			directories: { output: path.join(output, "release") },
 			files: ["**/*"],
 			linux: { target: ["AppImage"], category: "Development", icon: "icons/linux", syncDesktopName: true },
-			mac: { target: ["dmg"], category: "public.app-category.developer-tools", identity: null, icon: "icons/icon.icns" },
+			mac: {
+				target: ["dmg"],
+				category: "public.app-category.developer-tools",
+				identity: "-",
+				icon: "icons/icon.icns",
+				extendInfo: {
+					NSLocalNetworkUsageDescription: "opi-desktop 需要访问本地网络，以连接你配置的局域网模型 API 和其他本地服务。",
+				},
+			},
 			win: { target: ["nsis"], icon: "icons/icon.ico" },
 		},
 	});
