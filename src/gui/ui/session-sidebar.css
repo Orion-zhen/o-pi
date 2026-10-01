@@ -16,8 +16,10 @@
 .session-tab-body .report-metric { background: var(--control-surface); border-color: var(--divider); }
 .session-tab-body .report-metric dd { font-size: 1.5em; }
 .session-tab-body .report-section { border: 0; border-block-start: 1px solid var(--divider); border-radius: 0; background: transparent; }
-.session-tab-body .report-section > :is(h3, .disclosure-trigger) { padding: var(--space-4) 0; }
-.session-tab-body .report-section-body { padding: 0 0 var(--space-2); }
+.session-tab-body .report-section + .report-section { margin-block-start: -1.25em; }
+.session-tab-body .report-section > :is(h3, .disclosure-trigger) { padding: var(--space-4); }
+.session-tab-body .report-section > .disclosure-trigger { border-radius: var(--radius-md); }
+.session-tab-body .report-section-body { padding: var(--space-4); }
 @container (max-width: 20em) { .session-tab-body .report-metrics { grid-template-columns: minmax(0, 1fr); } }
 .session-tab-body .report-intro h2 { font-size: var(--text-heading); }
 @media (max-width: 64em) {

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { BookOpen, Download, Ellipsis, FileJson, Terminal, Upload } from "lucide-react";
+import { AppWindow, BookOpen, Braces, BrainCog, Ellipsis, Import } from "lucide-react";
 import type { GuiPanel } from "../contract.ts";
 import type { GuiControls } from "./gui-controls.ts";
 import { IconButton } from "./components/icon-button";
@@ -22,13 +22,13 @@ export function SessionActions({ gui }: { gui: Pick<GuiControls, "canSubmit" | "
 		}}>
 			<DropdownMenuLabel>当前会话</DropdownMenuLabel>
 			<DropdownMenuItem onSelect={() => void gui.send({ action: "view", view: "system" })}>
-				<Terminal />系统提示词
+				<BrainCog />系统提示词
 			</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => { panel.current = { kind: "help" }; }}><BookOpen />命令帮助</DropdownMenuItem>
 			<DropdownMenuSeparator />
-			<DropdownMenuItem disabled={!gui.canChangeSession} onSelect={() => { panel.current = { kind: "import" }; }}><Upload />导入会话</DropdownMenuItem>
-			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "jsonl" })}><FileJson />导出 JSONL</DropdownMenuItem>
-			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "html" })}><Download />导出 HTML</DropdownMenuItem>
+			<DropdownMenuItem disabled={!gui.canChangeSession} onSelect={() => { panel.current = { kind: "import" }; }}><Import />导入会话</DropdownMenuItem>
+			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "jsonl" })}><Braces />导出 JSONL</DropdownMenuItem>
+			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "html" })}><AppWindow />导出 HTML</DropdownMenuItem>
 		</DropdownMenuContent>
 	</DropdownMenu>;
 }
