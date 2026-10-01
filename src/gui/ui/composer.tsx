@@ -2,17 +2,11 @@ import { useRef } from "react";
 import { AnimatePresence } from "motion/react";
 import { ListItem, Reveal } from "./components/animated";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
-import { ArrowUp, CodeXml, CornerUpRight, History, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
+import { ArrowUp, CodeXml, CornerUpRight, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
 import { IconButton } from "./components/icon-button";
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuLabel,
-	DropdownMenuTrigger,
-} from "./components/ui/dropdown-menu";
+import { InputHistory } from "./input-history.tsx";
 import type { RefObject } from "react";
 import type { GuiPreferences } from "../preferences.ts";
 import type { GuiControls, SessionSnapshot } from "./gui-controls.ts";
@@ -276,28 +270,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 								event.target.value = "";
 							}}
 						/>
-						<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<IconButton label="输入历史" disabled={!snapshot.history.length}>
-										<History />
-									</IconButton>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent
-									align="end"
-									className="history-menu"
-									onCloseAutoFocus={(event) => {
-										event.preventDefault();
-										editor.current?.focus();
-									}}
-								>
-									<DropdownMenuLabel>输入历史</DropdownMenuLabel>
-									{[...snapshot.history].reverse().map((text, index) => (
-										<DropdownMenuItem key={index} onSelect={() => setDraft(text)}>
-											{text.slice(0, 120)}
-										</DropdownMenuItem>
-									))}
-								</DropdownMenuContent>
-						</DropdownMenu>
+						<InputHistory history={snapshot.history} select={setDraft} focusEditor={() => editor.current?.focus()} />
 						<Button
 							variant="ghost"
 							size="sm"

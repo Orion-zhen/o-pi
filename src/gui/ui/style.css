@@ -161,8 +161,11 @@ input.session-name { flex: 1; background: var(--surface); }
 .suggestion-label { flex: 1; }
 .suggestion-command .suggestion-label { flex: 2; font-family: var(--font-mono); }
 .suggestion-description { flex: 3; color: var(--muted-foreground); font-weight: normal; }
-.history-menu { width: min(24rem, calc(100vw - 2rem)); }
+.history-menu { display: flex; flex-direction: column; inline-size: 40vi; min-inline-size: 0; max-inline-size: min(90vi, var(--radix-dropdown-menu-content-available-width)); overflow: hidden; }
+.history-menu > [data-slot="dropdown-menu-label"] { flex-shrink: 0; }
+.history-menu-list { flex: 1 1 auto; min-block-size: 0; overflow-y: auto; overscroll-behavior: contain; }
 .history-menu [role="menuitem"] { overflow-wrap: anywhere; white-space: pre-wrap; }
+.history-menu-search { flex-shrink: 0; padding-block-start: var(--space-2); margin-block-start: var(--space-2); border-block-start: thin solid var(--border); }
 
 .modal-layer { background: var(--overlay); backdrop-filter: var(--overlay-filter); grid-area: 1 / 1; z-index: 50; display: flex; align-items: center; justify-content: center; min-inline-size: 0; min-block-size: 0; overflow: hidden; }
 .modal-content { background: var(--dialog); backdrop-filter: var(--dialog-filter); box-shadow: var(--surface-highlight), var(--shadow-dialog); display: flex; flex-direction: column; flex: 0 1 80%; min-inline-size: 0; min-block-size: 0; max-inline-size: 100ch; max-block-size: 90%; overflow: auto; font-size: var(--text-ui); }
@@ -185,6 +188,7 @@ input.session-name { flex: 1; background: var(--surface); }
 .choices button { height: auto; min-height: 2.75rem; justify-content: flex-start; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 @media (max-width: 767px) {
+	.history-menu { inline-size: 90vi; }
 	.modal-content { flex-basis: 95%; max-block-size: 95%; }
 	.sidebar { display: none; }
 	.mobile-menu { display: inline-flex; }
