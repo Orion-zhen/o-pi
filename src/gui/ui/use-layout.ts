@@ -7,8 +7,8 @@ const storageKey = (dimension: LayoutDimension) => `opi.gui.layout.v1.${dimensio
 
 /** 布局只属于当前客户端，窗口收缩不会回写并覆盖用户拖动的尺寸。 */
 export function useLayout(reportError: (message: string) => void) {
-	const [values, setValues] = useState<LayoutValues>({});
-	useEffect(() => {
+	// 首帧使用已保存的尺寸，避免默认宽度与入场动画叠加。
+	const [{ values, error }, setLayout] = useState<{ values: LayoutValues; error: string }>(() => {
 		const values: LayoutValues = {};
 		try {
 			for (const dimension of dimensions) {
@@ -19,11 +19,12 @@ export function useLayout(reportError: (message: string) => void) {
 					throw new Error(`无效布局尺寸：${dimension}`);
 				values[dimension] = value;
 			}
-			setValues(values);
-		} catch (error) { reportError(`无法恢复本机布局：${String(error)}`); }
-	}, [reportError]);
+			return { values, error: "" };
+		} catch (error) { return { values: {}, error: String(error) }; }
+	});
+	useEffect(() => { if (error) reportError(`无法恢复本机布局：${error}`); }, [error, reportError]);
 	const set = useCallback((dimension: LayoutDimension, value: number | undefined, persist: boolean) => {
-		setValues((current) => ({ ...current, [dimension]: value }));
+		setLayout((current) => ({ ...current, values: { ...current.values, [dimension]: value } }));
 		if (!persist) return;
 		try {
 			if (value === undefined) localStorage.removeItem(storageKey(dimension));

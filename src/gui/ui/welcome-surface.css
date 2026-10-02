@@ -1,0 +1,32 @@
+.welcome-surface { position: relative; inline-size: 100%; max-inline-size: 64ch; }
+.welcome-refraction { position: absolute; inline-size: 0; block-size: 0; pointer-events: none; }
+.welcome-content { display: flex; flex-direction: column; align-items: center; }
+
+/* 软边液膜从中央撑开，折射在破膜时增强，再随表面张力释放而消退。 */
+@keyframes welcome-emerge {
+	from { transform: perspective(900px) translateZ(-36px) scaleY(0.965); mask-size: 45% 55%; }
+	to { transform: perspective(900px) translateZ(0) scaleY(1); mask-size: 280% 320%; }
+}
+@keyframes welcome-resolve {
+	from { filter: blur(6px); }
+	to { filter: blur(0px); }
+}
+@keyframes welcome-appear {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+.welcome[data-startup="welcome"] .welcome-emergence {
+	mask-image: radial-gradient(ellipse at center, #000 42%, rgb(0 0 0 / 0.95) 52%, rgb(0 0 0 / 0.4) 63%, transparent 73%);
+	mask-position: center;
+	mask-repeat: no-repeat;
+	animation: welcome-emerge 900ms cubic-bezier(0.3, 0.05, 0.2, 1) both,
+		welcome-resolve 780ms cubic-bezier(0.3, 0.05, 0.2, 1) both,
+		welcome-appear 540ms cubic-bezier(0.3, 0.05, 0.2, 1) both;
+}
+.welcome[data-startup="welcome"] .welcome-content { filter: var(--welcome-refraction); }
+
+@media (prefers-reduced-motion: reduce) {
+	.welcome[data-startup="welcome"] .welcome-emergence { animation: none; mask-image: none; }
+	.welcome[data-startup="welcome"] .welcome-content { filter: none; }
+}

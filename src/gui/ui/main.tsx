@@ -32,8 +32,10 @@ import { SessionHistory } from "./session-history.tsx";
 import { SessionHeading } from "./session-heading.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
 import { Welcome } from "./welcome.tsx";
+import { WelcomeSurface } from "./welcome-surface.tsx";
 import { StartupChangelog } from "./startup-changelog.tsx";
 import { useGui } from "./use-gui.ts";
+import { useStartupMotion } from "./use-startup-motion.ts";
 import { isTouchInput } from "./input-mode.ts";
 import { GuiQueryContext } from "./payload.tsx";
 import { IconButton } from "./components/icon-button";
@@ -121,6 +123,7 @@ function App() {
 	const main = useRef<HTMLElement>(null);
 	const app = useRef<HTMLDivElement>(null);
 	const workspace = useRef<HTMLDivElement>(null);
+	useStartupMotion(app, Boolean(snapshot));
 	const restoreFocus = () => (panelContent.current ?? (isTouchInput() ? null : gui.editor.current) ?? main.current)?.focus();
 	useEffect(() => {
 		const desktop = window.matchMedia("(min-width: 768px)");
@@ -250,18 +253,20 @@ function App() {
 								{snapshot && gui.changelog && !located?.preview && <StartupChangelog value={gui.changelog} shown={gui.changelogShown} />}
 								<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
 								{workspaceWelcome && (
-									<Fade key="workspace-welcome" className="welcome workspace-welcome">
-										<div className="welcome-mark">
-											<span className="app-logo" role="img" aria-label="opi" />
-										</div>
-										<h1>选择工作区</h1>
-										<p>打开项目目录，或从侧栏恢复历史会话。</p>
-										<WorkspacePicker gui={gui} close={() => setMobileOpen(false)} />
+									<Fade key="workspace-welcome" initial={false} className="welcome workspace-welcome">
+										<WelcomeSurface>
+											<div className="welcome-mark">
+												<span className="app-logo" role="img" aria-label="opi" />
+											</div>
+											<h1>选择工作区</h1>
+											<p>打开项目目录，或从侧栏恢复历史会话。</p>
+											<WorkspacePicker gui={gui} close={() => setMobileOpen(false)} />
+										</WelcomeSurface>
 									</Fade>
 								)}
 								{snapshot && !snapshot.messages.length && !located?.preview && (
-									<Fade key={`welcome-${snapshot.sessionId}`} className="welcome">
-										<Welcome snapshot={snapshot} gui={gui} />
+									<Fade key={`welcome-${snapshot.sessionId}`} initial={false} className="welcome">
+										<WelcomeSurface><Welcome snapshot={snapshot} gui={gui} /></WelcomeSurface>
 									</Fade>
 								)}
 								{snapshot && located && source && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}

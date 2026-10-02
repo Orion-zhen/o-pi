@@ -3,6 +3,7 @@ import type { GuiSnapshot } from "../contract.ts";
 import type { GuiControls, EditorControls } from "./gui-controls.ts";
 import { Button } from "./components/ui/button";
 import { modelSetup } from "./model-setup.ts";
+import { WelcomeMark } from "./welcome-mark.tsx";
 
 const starters = [
 	{ icon: FolderSearch, title: "了解项目", text: "梳理这个项目的结构，介绍主要模块和运行方式。" },
@@ -13,7 +14,7 @@ const starters = [
 export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: Pick<GuiControls, "canChangeSession" | "setPanel"> & EditorControls }) {
 	const setup = modelSetup(snapshot);
 	return <>
-		<div className="welcome-mark"><span className="app-logo" role="img" aria-label="opi" /></div>
+		<WelcomeMark />
 		{!setup && <p className="welcome-eyebrow">你的代码工作空间</p>}
 		<h1>{setup?.title ?? "今天，想构建什么？"}</h1>
 		{!setup && <p>从一个想法开始，一起把它变成现实。</p>}
