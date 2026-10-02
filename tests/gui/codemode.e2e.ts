@@ -124,7 +124,7 @@ for (const mode of ["web", "desktop"] as const) {
 			expect(request?.tools?.map((tool) => tool.function.name).sort()).toEqual(["codemode", "skill"]);
 			const description = request?.tools?.find((tool) => tool.function.name === "codemode")?.function.description;
 			expect(description).toContain("find(args:");
-			expect(description).not.toContain("Model API");
+			expect(description).toContain("`models`");
 			expect(description).toContain("searchTools");
 			await expect(counter).toHaveText(String(codemodeCount));
 			const toolResult = model.requests.findLast((request) => Array.isArray(request.messages))?.messages.find((message) => message.role === "tool");

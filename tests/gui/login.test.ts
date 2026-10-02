@@ -7,7 +7,7 @@ import type { GuiEvent } from "../../src/gui/contract.ts";
 import { deferred } from "../helpers/async.ts";
 
 describe("GUI OAuth", () => {
-	it("回调等待不产生输入弹窗，回调完成后结束登录", async () => {
+	it("浏览器回调完成后关闭备用授权码输入框并结束登录", async () => {
 		const events: GuiEvent[] = [];
 		const dialogs = new GuiDialogs((event) => events.push(event), () => 0, { get: () => "", set: () => {} });
 		const callback = deferred<void>();
@@ -24,13 +24,14 @@ describe("GUI OAuth", () => {
 			return { type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 10000 };
 		} }, "test", "oauth", dialogs, (event) => events.push(event), controller.signal, randomUUID);
 		await ready.promise;
-		expect(dialogs.list()).toEqual([]);
 		expect(events.some((event) => event.type === "auth")).toBe(true);
 		callback.resolve();
 		await login;
+		expect(dialogs.list()).toEqual([]);
+		expect(dialogs.notices).toEqual([expect.objectContaining({ text: "test 登录成功。" })]);
 	});
 
-	it("取消登录会终止隐藏的手动输入等待", async () => {
+	it("取消登录会关闭输入框并结束等待", async () => {
 		const controller = new AbortController();
 		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const ready = deferred<void>();
@@ -42,7 +43,7 @@ describe("GUI OAuth", () => {
 		} }, "test", "oauth", dialogs, () => {}, controller.signal, randomUUID);
 		await ready.promise;
 		controller.abort();
-		await expect(login).rejects.toThrow();
+		await expect(login).rejects.toThrow("登录已取消。");
 		expect(dialogs.list()).toEqual([]);
 		expect(dialogs.notices).toEqual([]);
 	});

@@ -338,7 +338,7 @@ Web 与 Desktop 的 Bash 审批共用结构化展示。工作目录和原因弱�
 | 新建、恢复、重命名、删除、分支、树导航与标签 | 侧栏、行末按钮、会话树、`/name` |
 | JSONL 导入、JSONL/HTML 导出 | 顶栏“会话操作”，Desktop 使用原生保存对话框 |
 | 模型、已选模型、思考级别 | 侧栏“模型”、输入区、`/model`、`/thinking`、`/scoped-models` |
-| API Key、OAuth 登录和退出 | 认证面板，使用 SDK 的登录交互 |
+| API Key、OAuth 登录和退出 | 认证面板，使用 SDK 的登录交互。授权码或重定向 URL 可在输入框粘贴，支持 Anthropic copy-code 登录，浏览器回调成功后自动关闭备用输入框 |
 | 自动压缩、重试、队列和图片设置 | 设置的 Agent 页，完整设置可编辑 `settings.json` |
 | 深浅主题、主题色、字体、三档基准字号与发送快捷键 | 设置的 GUI 页，可编辑 `gui.jsonc` |
 | 手动压缩、资源重载 | `/compact`、左栏重载按钮、`/reload` |

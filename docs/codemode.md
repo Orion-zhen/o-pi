@@ -20,16 +20,12 @@ opi 中启用 codemode 即使用 `only` 模式，忽略设置中的 `codemode.mo
 
 ## 模型可见接口
 
-codemode 复用上游执行器，通过公开扩展工厂替换工具描述和 `prepareLoadout`。保持原参数 schema、审批、取消、会话存储和结果格式，不修改上游生成的长字符串。
+codemode 使用原生 `description`、`promptSnippet`、`promptGuidelines` 和 `prepareLoadout` 生成的工具目录，不维护另一套提示词或目录算法。opi 只覆盖 `hiddenDeclarations`，保留更严格的 `only` 模式。schema、执行、审批、取消、会话存储和结果格式继续由 SDK 提供。
 
-- 关闭 `models` API，不提供模型目录或分类器调用。
-- `description` 保留调用、输出、错误、副作用、存储和资源限制，并动态附加子工具目录。
-- `promptGuidelines` 提供同一脚本内完成已知调用链、过滤汇总和最小输出策略，仅在 codemode 启用时由系统提示词统一收集到 `tool_policy`。通用并发与顺序规则不按工具名分支。
-- `promptSnippet` 保留一行能力摘要，供 Pi 默认系统提示词使用，不在 opi 的自定义系统提示词中重复工具目录。
-- 工具签名使用上游 schema 渲染器生成，保留参数说明和返回类型，不重复包裹每个工具的声明。
-- 内联目录预算仍默认约 3000 tokens，可通过 `codemode.inlineBudget` 调整。按命名空间轮流选择短声明，`deferred` 工具不内联，也不参与工具数量、命名空间或类型说明的生成。
-- 固定介绍 `searchTools()`、`describeNamespace()` 和图片转交，不因后台工具注册改变契约。只有实际内联的 MCP 工具才附加共享类型。默认 MCP 工具按需发现，不加入内联目录。
-- 主要介绍 `text()` 和顶层 `return`。`console.*`、`exit()`、`ALL_TOOLS`、`describeTool()` 等上游能力不删除，但不重复介绍。
+- 开放原生 `models` API，支持模型目录、分类和图片生成，复用会话认证。能力说明和参考文档入口完全沿用原生提示词，不额外追加。
+- 原生 `promptGuidelines` 在 codemode 启用时由系统提示词收集到 `tool_policy`。
+- 内联目录预算默认约 3000 tokens，可通过 `codemode.inlineBudget` 调整。分组、预算分配、签名和 MCP 共享类型均由上游生成。延迟工具不内联，不因其后台注册改变目录。
+- 检查工具是否存在使用 `"name" in tools`。访问不存在的成员会抛错，不能使用 `typeof tools.name` 探测。
 
 ## 普通模式的工具发现
 
@@ -76,7 +72,7 @@ GUI 另将成功的 `write` 和 `edit` 子调用的实际 diff 保存为会话�
 
 遥测记录 `parent_call_id`，不把子调用伪造成 assistant 批次。费用只读取 SDK 已汇总的父结果，不重复累计子调用。
 
-QuickJS 只限制脚本环境，不隔离宿主工具的文件、进程或网络权限。本轮没有为 MCP 增加审批策略，现有 Approval Gate 只管理其明确支持的工具。
+QuickJS 只限制脚本环境，不隔离宿主工具的文件、进程或网络权限。现有 Approval Gate 只管理其明确支持的工具，不新增 MCP 或 `models.*` 审批。`models.*` 直接调用会话模型运行时，不经过嵌套工具审批。分类和图片生成的费用由 SDK 归入 codemode 结果。
 
 ## 打包
 
@@ -86,15 +82,15 @@ Bun 产物内嵌 QuickJS WASM，并按上游约定嵌入 codemode worker。Deskt
 
 `tests/cli/cli.test.ts` 使用本地模拟模型，通过真实独立二进制比较同一组“搜索 51 个候选后读取目标文件”任务。固定脚本不能代表真实模型编写脚本的成功率。
 
-Pi 0.99.1 下，固定 `read/find/bash/codemode` 工具集合，实际请求中的 codemode 定义在精简前后分别估算为 1812 和 614 tokens。两者均使用 `only` 模式，减少约 66%。
+Pi 1.0.0 下，固定 `read/find/bash/codemode` 工具集合，使用原生提示词并开放 `models` 后，实际请求中的 codemode 定义估算为 765 tokens。
 
-精简后的搜索读取场景样本：
+搜索读取场景样本：
 
 | 指标 | 直接调用 | Codemode |
 | --- | ---: | ---: |
 | 模型请求数 | 3 | 2 |
 | 最终请求中的工具结果估算 token | 362 | 60 |
-| 全部请求 JSON 累计估算 token | 2558 | 1605 |
+| 全部请求 JSON 累计估算 token | 2549 | 1913 |
 
 估算使用仓库本地计数器，不是提供方实际计费，不计算缓存折扣。请求中的临时路径等会导致小幅波动，固定场景不能证明所有任务都更省 tokens。本轮未做真实模型对比。codemode 仍按需开启，开启后固定使用 `only`，不降低默认目录或输出预算。`/stats` 的工具定义拆分仍是注册定义估算，不能用它验证 `prepareLoadout` 后的实际声明成本，应比较真实请求。
 

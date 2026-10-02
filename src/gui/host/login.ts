@@ -17,12 +17,6 @@ export async function runLogin(
 		notify: (value) => emit({ type: "auth", value }),
 		prompt: async (prompt) => {
 			const promptSignal = prompt.signal ? AbortSignal.any([signal, prompt.signal]) : signal;
-			if (prompt.type === "manual_code") {
-				return new Promise<string>((_resolve, reject) => {
-					if (promptSignal.aborted) { reject(promptSignal.reason); return; }
-					promptSignal.addEventListener("abort", () => reject(promptSignal.reason), { once: true });
-				});
-			}
 			const options = prompt.type === "select" ? prompt.options.map((option) => `${option.label} [${option.id}]`) : [];
 			const value = await dialogs.ask(
 				prompt.type === "secret" ? "secret" : prompt.type === "select" ? "select" : "input",

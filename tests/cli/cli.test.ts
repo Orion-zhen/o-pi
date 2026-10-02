@@ -115,7 +115,7 @@ describe("standalone opi CLI", () => {
 		expect(server.requests[0]?.tools?.map((tool) => tool.function.name).sort()).toEqual(["codemode", "skill", "subagent"]);
 	});
 
-	it("codemode 使用精简契约和稳定发现说明，不附带未使用的完整 MCP 类型", async () => {
+	it("codemode 使用原生提示词和模型 API 说明，不附带未使用的完整 MCP 类型", async () => {
 		await runJson(["--tools", "read,find,bash,codemode"]);
 		const request = server.requests[0];
 		const definition = request?.tools?.find((tool) => tool.function.name === "codemode");
@@ -131,9 +131,10 @@ describe("standalone opi CLI", () => {
 		expect(description).toContain("exit_code");
 		expect(description).toContain("searchTools");
 		expect(description).toContain("describeNamespace");
-		for (const omitted of ["Model API", "models.", "ALL_TOOLS", "describeTool", "ImageContent", "console.", "exit()"]) {
-			expect(description).not.toContain(omitted);
+		for (const included of ["`models`", "codemode.md", "ALL_TOOLS", "describeTool", "console.log", "exit()"]) {
+			expect(description).toContain(included);
 		}
+		expect(description).not.toContain("ImageContent");
 	});
 
 	it("codemode 目录预算为零时仍可发现签名并调用未展示工具", async () => {
@@ -154,16 +155,31 @@ describe("standalone opi CLI", () => {
 		expect(JSON.stringify(results[1]?.content)).toContain("export const value = 1");
 	});
 
-	it("codemode 关闭模型 API，跨调用存储只提交成功脚本的写入", async () => {
+	it("codemode 原生模型目录可调用，并开放图片生成和分类 API", async () => {
+		sequence([{ tool: "codemode", args: { code: `
+			const available = await models.getAvailableOfType("chat", "opi-fixture");
+			const selected = await models.getModelOfType("chat", "opi-fixture", "test");
+			text({models: available.map(model => model.id), selected: selected.id,
+				images: "generateImages" in models, classifiers: "classify" in models});
+		` } }]);
+		const results = toolResults(await runJson(["--tools", "codemode"]));
+		expect(results).toHaveLength(1);
+		expect(results[0]).toMatchObject({ isError: false });
+		expect(results[0]?.content).toEqual(expect.arrayContaining([
+			expect.objectContaining({ type: "text", text: '{"models":["test"],"selected":"test","images":true,"classifiers":true}' }),
+		]));
+	});
+
+	it("codemode 跨调用存储只提交成功脚本的写入", async () => {
 		sequence([
-			{ tool: "codemode", args: { code: 'const r = await tools.find({query:"sample"}); store("files", r.matches); text(typeof models);' } },
+			{ tool: "codemode", args: { code: 'const r = await tools.find({query:"sample"}); store("files", r.matches);' } },
 			{ tool: "codemode", args: { code: 'store("files", []); text("partial"); throw new Error("discard writes");' } },
 			{ tool: "codemode", args: { code: 'text(await tools.read({path:load("files")[0].path})); store("files", undefined);' } },
 			{ tool: "codemode", args: { code: 'return load("files") === undefined;' } },
 		]);
 		const results = toolResults(await runJson(["--tools", "find,read,codemode"]));
 		expect(results).toHaveLength(4);
-		expect(JSON.stringify(results[0]?.content)).toContain("undefined");
+		expect(results[0]?.isError).toBe(false);
 		expect(results[1]?.isError).toBe(true);
 		expect(JSON.stringify(results[1]?.content)).toContain("partial");
 		expect(results[2]?.isError).toBe(false);
@@ -203,17 +219,35 @@ describe("standalone opi CLI", () => {
 		expect(await readFile(path.join(cwd, "sample.ts"), "utf8")).toBe("after-abort");
 	});
 
-	it("codemode 嵌套调用仍执行审批，并拒绝调用仅向模型开放的工具", async () => {
+	it("codemode 嵌套调用仍执行审批，存在性检查排除 model-only 工具", async () => {
 		sequence([{ tool: "codemode", args: { code: `
 			const blocked = await Promise.allSettled([tools.bash({command: "sudo true"})]);
-			text(blocked[0].status);
-			text(typeof tools.skill);
-			text(typeof tools.subagent);
+			text({status: blocked[0].status, bash: "bash" in tools, skill: "skill" in tools, subagent: "subagent" in tools});
 		` } }]);
 		const events = await runJson(["--tools", "bash,skill,subagent,codemode"]);
-		expect(JSON.stringify(toolResults(events))).toContain("rejected");
-		expect(JSON.stringify(toolResults(events))).toContain("undefined");
+		const results = toolResults(events);
+		expect(results[0]).toMatchObject({ isError: false });
+		expect(results[0]?.content).toEqual(expect.arrayContaining([
+			expect.objectContaining({ type: "text", text: '{"status":"rejected","bash":true,"skill":false,"subagent":false}' }),
+		]));
 		expect(events.find((event) => event.type === "tool_execution_end" && event.toolName === "bash")).toMatchObject({ isError: true });
+	});
+
+	it.each(["skill", "subagent"])("codemode 拒绝脚本调用 model-only 工具 %s", async (name) => {
+		sequence([{ tool: "codemode", args: { code: `await tools.${name}({});` } }]);
+		const events = await runJson(["--tools", "skill,subagent,codemode"]);
+		expect(toolResults(events)[0]).toMatchObject({ isError: true });
+		expect(JSON.stringify(toolResults(events))).toContain(`tools.${name} does not exist`);
+		expect(events.some((event) => event.type === "tool_execution_start" && event.toolName === name)).toBe(false);
+	});
+
+	it("codemode 拒绝模型绕过脚本直接调用普通工具", async () => {
+		sequence([{ tool: "read", args: { path: "sample.ts" } }]);
+		const events = await runJson(["--tools", "read,codemode"]);
+		const results = toolResults(events);
+		expect(results[0]).toMatchObject({ isError: true });
+		expect(JSON.stringify(results)).toContain("Call this tool from a codemode script");
+		expect(JSON.stringify(results)).not.toContain("export const value");
 	});
 
 	it("codemode 用结构化搜索完成依赖读取，减少模型往返和中间输出", async () => {

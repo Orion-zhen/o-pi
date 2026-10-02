@@ -1,7 +1,7 @@
 import { createCodemodeExtension, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { CODEMODE_DESCRIPTION, prepareCodemodeLoadout } from "../codemode/description.ts";
+import { codemodeHiddenDeclarations } from "../codemode/loadout.ts";
 
-/** 复用原生 schema 和执行闭包，精简声明并限制脚本模式下的顶层调用。 */
+/** 沿用原生提示词和执行器，只收紧 only 模式的声明与顶层调用。 */
 export default function codemode(pi: ExtensionAPI): void {
 	pi.on("tool_call", (event) => {
 		if (event.parentToolCallId !== undefined || !pi.getActiveTools().includes("codemode")) return;
@@ -11,20 +11,18 @@ export default function codemode(pi: ExtensionAPI): void {
 			return { block: true, reason: "Codemode is active. Call this tool from a codemode script." };
 		}
 	});
-	createCodemodeExtension({ mode: "only", models: false })({
+	createCodemodeExtension({ mode: "only" })({
 		...pi,
 		registerTool(tool) {
 			pi.registerTool({
 				...tool,
-				description: CODEMODE_DESCRIPTION,
-				promptSnippet: "Compose tool calls with JavaScript.",
-				promptGuidelines: [
-					"With codemode, complete known call chains in the same script. Filter/aggregate intermediate data. Emit only answer evidence or inputs needing model judgment.",
-				],
 				prepareLoadout(loadout) {
-					const budget = pi.getSettings().codemode?.inlineBudget;
-					return prepareCodemodeLoadout(loadout,
-						typeof budget === "number" && Number.isFinite(budget) && budget >= 0 ? budget : 3000);
+					return {
+						...tool.prepareLoadout?.(loadout),
+						hiddenDeclarations: codemodeHiddenDeclarations(loadout.declared.map((tool) => ({
+							name: tool.name, exposure: loadout.getExposure(tool.name),
+						}))),
+					};
 				},
 			});
 		},

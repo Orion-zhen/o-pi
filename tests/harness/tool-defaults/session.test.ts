@@ -138,6 +138,13 @@ describe("工具选择与 SDK 状态", () => {
 		controller.set("fixture", true);
 		expect(search()).toMatchObject({ available: false, enabled: false });
 		expect(session.getActiveToolNames()).toEqual(["fixture"]);
+		controller.set("codemode", true);
+		await session.prompt("脚本模式也隐藏已激活的间接工具声明");
+		expect(requestedTools()).toEqual(["codemode"]);
+		expect(session.getActiveToolNames()).toEqual(["fixture", "codemode"]);
+		controller.set("codemode", false);
+		await session.prompt("恢复间接工具的直接调用");
+		expect(requestedTools()).toEqual(["fixture"]);
 	});
 
 	it("SDK 显式工具选择优先于已保存的默认值", async () => {
@@ -191,13 +198,13 @@ describe("工具选择与 SDK 状态", () => {
 		expect(selected(controller)).toEqual(expect.arrayContaining(["read", "bash", "write", "codemode"]));
 		const scriptDescription = server.requests.at(-1)?.tools?.[0]?.function.description;
 		expect(scriptDescription).toContain("read(args:");
-		expect(scriptDescription).not.toContain("Model API");
+		expect(scriptDescription).toContain("`models`");
 		controller.set("read", false);
 		await session.prompt("更新脚本目录");
 		const updated = server.requests.at(-1)?.tools?.[0]?.function.description;
 		expect(updated).not.toContain("read(args:");
 		expect(updated).toContain("write(args:");
-		expect(updated).not.toContain("Model API");
+		expect(updated).toContain("`models`");
 		controller.set("read", true);
 		controller.set("codemode", false);
 		await session.prompt("恢复直接调用");

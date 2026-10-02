@@ -33,7 +33,7 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 
 GUI 模型选择器保留所选虚拟模型，旁边展示 `AgentSession.routedModel` 提供的最近成功响应模型及思考级别。TUI 从有效上下文提取相同的响应信息。遥测分别记录所选模型与实际模型，费用读取真实响应和父工具聚合用量，不重复累计嵌套记录。
 
-图片生成与分类是独立模型类型，不加入聊天模型选择器。需要这些能力的 SDK 业务直接使用 `ModelRuntime.getAvailableOfType()`、`generateImages()` 或 `classify()`，复用现有认证和取消机制。当前没有新增图片生成工具或自动分类策略。
+图片生成与分类是独立模型类型，不加入聊天模型选择器。codemode 开放原生 `models` API，模型目录、图片生成和分类复用会话认证、取消及费用统计。SDK 业务可直接使用 `ModelRuntime.getAvailableOfType()`、`generateImages()` 或 `classify()`，不新增独立图片生成工具或自动分类策略。
 
 ## Desktop 使用的 SDK 能力
 

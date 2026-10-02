@@ -80,8 +80,8 @@ it.each([
 	expect(result.stderr).toBe("");
 	const description = server.requests[0]?.tools?.find((tool) => tool.function.name === "codemode")?.function.description;
 	expect(description).toContain("describeNamespace(name)");
-	expect(description).toContain("image(block)");
-	expect(description).not.toContain("Model API");
+	expect(description).toContain("image(dataUrlOrImageBlock)");
+	expect(description).toContain("`models`");
 	if (inline) {
 		expect(description).toContain("mcp__images__read_image(args:");
 		expect(description).toContain("CallToolResult");
