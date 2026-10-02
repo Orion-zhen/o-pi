@@ -1,6 +1,6 @@
 import type { GuiDelivery } from "../gui/sync.ts";
 
-export type BackendRequest = { kind: "action" | "query" | "resource"; id: number; value: unknown; traced: boolean };
+export type BackendRequest = { kind: "action" | "query" | "resource" | "activeSessions"; id: number; value: unknown; traced: boolean };
 
 export type BackendControl =
 	| { kind: "subscribe" | "unsubscribe" }

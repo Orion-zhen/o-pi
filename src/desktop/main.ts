@@ -18,6 +18,7 @@ import { resolveShellEnvironment } from "./shell-environment.ts";
 import { forkDesktopWorker } from "./worker-services.ts";
 import { DesktopDiagnostics } from "./diagnostics.ts";
 import { installDesktopAppearance } from "./appearance.ts";
+import { installDesktopShutdown } from "./shutdown.ts";
 import { fileResourceResponse, type FileResource } from "../gui/host/file-resource.ts";
 
 protocol.registerSchemesAsPrivileged([
@@ -191,13 +192,7 @@ void app
 			await openExternal(url);
 		});
 		app.on("window-all-closed", () => app.quit());
-		app.on("before-quit", (event) => {
-			if (client.stop()) event.preventDefault();
-			else if (!diagnostics.closed) {
-				event.preventDefault();
-				void diagnostics.close().then(() => app.quit());
-			}
-		});
+		installDesktopShutdown(window, client, diagnostics);
 		await window.loadURL(entryUrl);
 	})
 	.catch((error: unknown) => {

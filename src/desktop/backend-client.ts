@@ -60,6 +60,11 @@ export class BackendClient {
 		}
 	}
 
+	async activeSessions(): Promise<number> {
+		if (this.exited) return 0;
+		return await this.request("activeSessions", undefined, undefined) as number;
+	}
+
 	send(command: BackendControl): void {
 		this.child.postMessage(command);
 	}
