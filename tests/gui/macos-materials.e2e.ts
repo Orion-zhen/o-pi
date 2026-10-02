@@ -28,7 +28,7 @@ for (const [theme, label] of [["light", "浅色"], ["dark", "深色"]] as const)
 	const file = path.join(agentDir, "configs", "gui.jsonc");
 	const source = JSON.stringify(config);
 	await writeFile(file, source);
-	await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+	await page.emulateMedia({ colorScheme: theme });
 	await page.reload();
 	await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 	for (const selector of surfaces) await expect(page.locator(selector)).toHaveCSS("backdrop-filter", "none");
@@ -84,7 +84,7 @@ test("桌面透明保存后才切换兼容策略，关闭后恢复页面滤镜�
 	const file = path.join(agentDir, "configs", "gui.jsonc");
 	const source = '{"theme":"light","materials":{"floating":{"opacity":25},"dialog":{"opacity":35}}}';
 	await writeFile(file, source);
-	await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+	await page.emulateMedia({ colorScheme: "light" });
 	await page.reload();
 	await page.getByRole("button", { name: "设置", exact: true }).click();
 	const toggle = settings(page).getByRole("checkbox", { name: "桌面背景透明", exact: true });
@@ -130,7 +130,7 @@ test("仅重置可见的不透明度，隐藏的材质参数在关闭桌面透�
 		dialog: { opacity: 35, blur: 12, saturation: 95 },
 	};
 	await writeFile(file, JSON.stringify({ theme: "light", materials }));
-	await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+	await page.emulateMedia({ colorScheme: "light" });
 	await page.reload();
 	await page.getByRole("button", { name: "设置", exact: true }).click();
 	const opacity = settings(page).getByRole("spinbutton", { name: "左侧栏不透明度", exact: true });

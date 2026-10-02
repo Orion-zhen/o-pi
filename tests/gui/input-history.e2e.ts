@@ -18,7 +18,6 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
 
 	test("输入历史底部搜索、全文筛选和回填", async ({ gui: { page } }) => {
-		await page.emulateMedia({ reducedMotion: "reduce" });
 		const trigger = page.getByRole("button", { name: "输入历史", exact: true });
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await editor.fill("未提交的草稿");
@@ -29,6 +28,7 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await expect(entries).toHaveCount(history.length);
 		await expect(entries.first()).toHaveText("最新 ALPHA 记录");
 		await expect(search).toBeInViewport();
+		await menu.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
 		const top = await search.evaluate((element) => element.getBoundingClientRect().top);
 		const list = menu.locator(".history-menu-list");
 		expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);

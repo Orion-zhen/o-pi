@@ -48,7 +48,7 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 
 		if (!collapsed) {
 			for (const colorScheme of ["light", "dark"] as const) {
-				await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+				await page.emulateMedia({ colorScheme });
 				await page.screenshot({ path: info.outputPath(`changelog-${colorScheme}.png`), animations: "disabled" });
 			}
 			await page.getByRole("button", { name: "收起会话信息", exact: true }).click();

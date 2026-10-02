@@ -18,6 +18,3 @@
 @media (max-width: 64em) {
 	[data-startup="right"] { --startup-x: 0px; --startup-y: 12px; }
 }
-@media (prefers-reduced-motion: reduce) {
-	[data-startup] { animation: none; }
-}

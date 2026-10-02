@@ -53,15 +53,16 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 
 	test("深浅主题的普通悬停背景统一，选中态与按下态独立", async ({ gui: { page }, workspace: { agentDir } }, info) => {
 		test.skip(info.project.name !== "desktop", "鼠标悬停使用桌面视口");
-		await page.emulateMedia({ reducedMotion: "reduce" });
 		const attachment = page.getByRole("button", { name: "附件", exact: true });
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		for (const theme of ["light", "dark"] as const) {
 			await writeFile(path.join(agentDir, "configs", "gui.jsonc"), JSON.stringify({ theme }));
 			await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-			await attachment.hover();
-			await expect(attachment).toHaveCSS("background-color", /^rgb\(/);
+			await expect.poll(async () => {
+				await attachment.hover();
+				return attachment.evaluate((element) => getComputedStyle(element).backgroundColor);
+			}).toMatch(/^rgb\(/);
 			const background = await attachment.evaluate((element) => getComputedStyle(element).backgroundColor);
 			for (const target of [page.locator(".workspace-select").first(), page.locator(".files-toggle")]) {
 				await target.hover();
@@ -78,8 +79,10 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 				await page.locator(".reply-activity:has(.activity-summary) > .disclosure-trigger").first().click();
 			}
 			const activity = page.locator(".activity-summary").first();
-			await activity.hover();
-			await expect(activity).toHaveCSS("background-color", background);
+			await expect.poll(async () => {
+				await activity.hover();
+				return activity.evaluate((element) => getComputedStyle(element).backgroundColor);
+			}).toBe(background);
 			const rename = page.locator(".history-session-row .row-action-button").first();
 			await rename.locator("..").locator("..").hover();
 			await rename.hover();

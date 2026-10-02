@@ -28,7 +28,7 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
 	test.beforeEach(async ({ gui: { page }, workspace: { agentDir } }) => {
 		await writeFile(path.join(agentDir, "configs", "gui.jsonc"), "{}\n");
-		await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+		await page.emulateMedia({ colorScheme: "light" });
 		await openSettings(page);
 	});
 

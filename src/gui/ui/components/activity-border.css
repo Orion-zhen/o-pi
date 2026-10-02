@@ -18,8 +18,3 @@
 .approval-marker { color: var(--ring); }
 @keyframes activity-orbit { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
 @keyframes activity-pulse { 50% { opacity: 0.4; transform: scale(0.75); } }
-@media (prefers-reduced-motion: reduce) {
-	.activity-frame > .activity-border, .activity-border rect, .workspace-option-status[data-activity="running"]::before { transition: none; animation: none; }
-	.activity-border[data-activity="running"] { opacity: 0.7; }
-	.activity-border[data-activity="running"] rect { stroke-dasharray: 0 0 100 0; }
-}

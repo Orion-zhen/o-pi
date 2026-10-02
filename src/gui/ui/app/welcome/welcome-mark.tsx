@@ -5,10 +5,9 @@ import { welcomeIdle } from "../../lib/motion.ts";
 export function WelcomeMark() {
 	const controls = useAnimationControls();
 	useEffect(() => {
-		const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 		let timer: number | undefined;
 		let stretching = false;
-		const canPlay = () => !reduced.matches && !document.hidden && document.hasFocus();
+		const canPlay = () => !document.hidden && document.hasFocus();
 		const schedule = (delay: number) => {
 			window.clearTimeout(timer);
 			if (canPlay()) timer = window.setTimeout(play, delay);
@@ -37,7 +36,6 @@ export function WelcomeMark() {
 		window.addEventListener("focus", availabilityChanged);
 		window.addEventListener("blur", availabilityChanged);
 		document.addEventListener("visibilitychange", availabilityChanged);
-		reduced.addEventListener("change", availabilityChanged);
 		availabilityChanged();
 		return () => {
 			window.clearTimeout(timer);
@@ -46,7 +44,6 @@ export function WelcomeMark() {
 			window.removeEventListener("focus", availabilityChanged);
 			window.removeEventListener("blur", availabilityChanged);
 			document.removeEventListener("visibilitychange", availabilityChanged);
-			reduced.removeEventListener("change", availabilityChanged);
 		};
 	}, [controls]);
 

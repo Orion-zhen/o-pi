@@ -161,9 +161,6 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "idle");
 		await expectActivityTrail(row("任务 A").locator(".activity-border"));
 		await navigation(page).screenshot({ path: info.outputPath("sessions-running.png") });
-		await page.emulateMedia({ reducedMotion: "reduce" });
-		await expect(row("任务 A").locator(".activity-border")).toHaveCSS("animation-name", "none");
-		await page.emulateMedia({ reducedMotion: "no-preference" });
 		await switchTo(page, other);
 		await expect(page.locator(".image-previews img")).toHaveCount(0);
 		await editor.fill("B 的草稿");
@@ -174,8 +171,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(aRow.locator(".activity-border")).toHaveCount(0);
 		await expect(aRow.getByRole("button", { name: `移除工作区 ${cwd}`, exact: true })).toHaveCount(0);
 		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "running");
-		await page.emulateMedia({ reducedMotion: "reduce" });
-		await expect.poll(() => aRow.locator(".workspace-option-status").evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("none");
+		await expect.poll(() => aRow.locator(".workspace-option-status").evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("activity-pulse");
 		await page.keyboard.press("Escape");
 		await closeMenu();
 		for (let index = 0; index < 3; index++) {
@@ -183,7 +179,6 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 			await expect(page.locator(".message.user")).toContainText("并行任务");
 			await switchTo(page, other);
 		}
-		await page.emulateMedia({ reducedMotion: "no-preference" });
 		first.resolve({ tool: "bash", args: { command: bashCommand } });
 		await picker(page);
 		// A2 仍在运行，A 的审批必须优先透传到工作区和选择按钮。
@@ -232,11 +227,9 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await command.getByRole("button", { name: "收起命令", exact: true }).focus();
 		await page.keyboard.press("Enter");
 		await expect(command.getByRole("button", { name: "展开完整命令", exact: true })).toHaveAttribute("aria-expanded", "false");
-		await page.emulateMedia({ reducedMotion: "reduce" });
 		await command.getByRole("button", { name: "展开完整命令", exact: true }).click();
 		await expect(command.locator('[data-slot="collapsible-content"] pre code')).toBeVisible();
 		await page.screenshot({ path: info.outputPath("bash-approval-expanded.png"), animations: "disabled" });
-		await page.emulateMedia({ reducedMotion: "no-preference" });
 		await approval.getByRole("button", { name: "Allow once", exact: true }).click();
 		await expect.poll(() => readFile(path.join(cwd, "output.txt"), "utf8").catch((error: unknown) => {
 			if (error instanceof Error && "code" in error && error.code === "ENOENT") return "";

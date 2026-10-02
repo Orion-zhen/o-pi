@@ -16,7 +16,6 @@ export function useStartupMotion(root: RefObject<HTMLElement | null>, sessionRea
 		const element = root.current;
 		if (!element) return;
 		const startup = state.current;
-		const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 		const finish = (target: HTMLElement) => {
 			target.removeAttribute("data-startup");
 			target.querySelector<SVGAnimateElement>(".welcome-refraction animate")?.endElement();
@@ -26,19 +25,16 @@ export function useStartupMotion(root: RefObject<HTMLElement | null>, sessionRea
 			for (const target of startup.active) finish(target);
 			startup.active.clear();
 		};
-		const preferenceChanged = () => { if (reduced.matches) stop(); };
 		const finished = (event: AnimationEvent) => {
 			if ((event.animationName !== "startup-settle" && event.animationName !== "welcome-emerge") || !(event.target instanceof HTMLElement)) return;
 			const target = event.target.closest<HTMLElement>("[data-startup]");
 			if (target && startup.active.delete(target)) finish(target);
 		};
-		preferenceChanged();
 		element.addEventListener("animationend", finished);
 		window.addEventListener("pointerdown", stop, true);
 		window.addEventListener("keydown", stop, true);
 		window.addEventListener("wheel", stop, { capture: true, passive: true });
 		window.addEventListener("resize", stop);
-		reduced.addEventListener("change", preferenceChanged);
 		return () => {
 			stop();
 			element.removeEventListener("animationend", finished);
@@ -46,7 +42,6 @@ export function useStartupMotion(root: RefObject<HTMLElement | null>, sessionRea
 			window.removeEventListener("keydown", stop, true);
 			window.removeEventListener("wheel", stop, true);
 			window.removeEventListener("resize", stop);
-			reduced.removeEventListener("change", preferenceChanged);
 		};
 	}, [root]);
 
