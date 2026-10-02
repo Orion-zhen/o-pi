@@ -6,7 +6,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHost } from "../../src/gui/host/host.ts";
 import type { GuiClient } from "../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
-import { locateTranscript } from "../../src/gui/ui/transcript-location.ts";
+import { locateTranscript } from "../../src/gui/ui/transcript/transcript-location.ts";
 import { storeSession } from "./session-fixture.ts";
 
 export function sidebarTests(context: () => { host: GuiClient; cwd: string; agentDir: string; events: GuiEvent[] }) {

@@ -4,7 +4,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHistory } from "../../src/gui/host/history.ts";
 import { GuiPayloads } from "../../src/gui/host/payloads.ts";
 import { sessionTree } from "../../src/gui/messages.ts";
-import { locateTranscript } from "../../src/gui/ui/transcript-location.ts";
+import { locateTranscript } from "../../src/gui/ui/transcript/transcript-location.ts";
 import { assistant } from "./transcript-fixtures.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 

@@ -10,7 +10,7 @@ import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
 import { deferred } from "../helpers/async.ts";
 import { storeSession } from "./session-fixture.ts";
 import { assistant } from "./transcript-fixtures.ts";
-import { locateTranscript } from "../../src/gui/ui/transcript-location.ts";
+import { locateTranscript } from "../../src/gui/ui/transcript/transcript-location.ts";
 import { historyDeletionTests } from "./deletion-cases.ts";
 import { sidebarTests } from "./sidebar-cases.ts";
 import { workbenchTests } from "./workbench-cases.ts";

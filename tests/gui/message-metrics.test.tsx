@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageTiming } from "../../src/gui/host/message-timing.ts";
 import { assistantKey, replyMetrics } from "../../src/gui/message-metrics.ts";
-import { transcriptReplies } from "../../src/gui/ui/transcript-replies.ts";
+import { transcriptReplies } from "../../src/gui/ui/transcript/transcript-replies.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 
 const user = { role: "user", content: "检查项目", timestamp: 1 } as const;

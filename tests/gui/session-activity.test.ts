@@ -2,10 +2,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { WorkspacePicker } from "../../src/gui/ui/workspace-picker.tsx";
-import { HistorySessionRow } from "../../src/gui/ui/history-session-row.tsx";
+import { WorkspacePicker } from "../../src/gui/ui/workspace/workspace-picker.tsx";
+import { HistorySessionRow } from "../../src/gui/ui/sessions/history-session-row.tsx";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { workspaceActivity, type SessionActivity } from "../../src/gui/ui/use-session-activity.ts";
+import { workspaceActivity, type SessionActivity } from "../../src/gui/ui/sessions/use-session-activity.ts";
 
 function row(busy: boolean, waiting: boolean, unread: boolean) {
 	return parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, createElement(HistorySessionRow, {

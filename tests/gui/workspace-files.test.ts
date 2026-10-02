@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { listWorkspaceFiles, previewWorkspaceFile } from "../../src/gui/host/workspace-files.ts";
 import { readWorkspaceGit } from "../../src/gui/host/workspace-git.ts";
 import { fileGitState, indexWorkspaceGit } from "../../src/gui/workbench.ts";
-import { workspaceTreeRows } from "../../src/gui/ui/workspace-tree-rows.ts";
+import { workspaceTreeRows } from "../../src/gui/ui/workspace/workspace-tree-rows.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-workspace-files-");

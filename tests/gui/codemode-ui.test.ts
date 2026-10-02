@@ -2,9 +2,9 @@ import { createElement } from "react";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import type { GuiSnapshot } from "../../src/gui/contract.ts";
-import { ToolSelection } from "../../src/gui/ui/tool-selection.tsx";
-import { ToolActivity } from "../../src/gui/ui/tool-activity.tsx";
-import type { ToolActivity as Activity } from "../../src/gui/ui/transcript-items.ts";
+import { ToolSelection } from "../../src/gui/ui/tools/tool-selection.tsx";
+import { ToolActivity } from "../../src/gui/ui/tools/tool-activity.tsx";
+import type { ToolActivity as Activity } from "../../src/gui/ui/transcript/transcript-items.ts";
 import { renderWithMemory } from "./render.ts";
 
 const tools: GuiSnapshot["tools"] = [

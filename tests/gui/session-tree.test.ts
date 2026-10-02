@@ -8,7 +8,7 @@ import { sessionTree } from "../../src/gui/messages.ts";
 import { GuiPayloads } from "../../src/gui/host/payloads.ts";
 import { GuiHistory } from "../../src/gui/host/history.ts";
 import { assistant } from "./transcript-fixtures.ts";
-import { SessionTree } from "../../src/gui/ui/session-tree.tsx";
+import { SessionTree } from "../../src/gui/ui/sessions/session-tree.tsx";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 import { renderWithMemory } from "./render.ts";
 

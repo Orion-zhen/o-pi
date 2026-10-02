@@ -3,9 +3,9 @@ import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SKILL_CONTEXT_MESSAGE } from "../../src/harness/skill-context/types.ts";
-import { useTranscriptRows } from "../../src/gui/ui/use-transcript-rows.ts";
-import type { TranscriptSource } from "../../src/gui/ui/transcript-items.ts";
-import type { TranscriptRow } from "../../src/gui/ui/transcript-replies.ts";
+import { useTranscriptRows } from "../../src/gui/ui/transcript/use-transcript-rows.ts";
+import type { TranscriptSource } from "../../src/gui/ui/transcript/transcript-items.ts";
+import type { TranscriptRow } from "../../src/gui/ui/transcript/transcript-replies.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 
 const user = { role: "user", content: "检查文件", timestamp: 1 } as const;

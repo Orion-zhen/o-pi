@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderWithMemory } from "./render.ts";
 import { parseHTML } from "linkedom";
-import { Transcript } from "../../src/gui/ui/transcript.tsx";
+import { Transcript } from "../../src/gui/ui/transcript/transcript.tsx";
 import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
-import { transcriptReplies } from "../../src/gui/ui/transcript-replies.ts";
+import { transcriptReplies } from "../../src/gui/ui/transcript/transcript-replies.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../src/harness/skill-context/types.ts";
 

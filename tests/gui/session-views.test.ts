@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { SessionViews } from "../../src/gui/ui/session-views.ts";
-import { sessionList } from "../../src/gui/ui/session-list.ts";
-import type { SessionActivity } from "../../src/gui/ui/use-session-activity.ts";
+import { SessionViews } from "../../src/gui/ui/sessions/session-views.ts";
+import { sessionList } from "../../src/gui/ui/sessions/session-list.ts";
+import type { SessionActivity } from "../../src/gui/ui/sessions/use-session-activity.ts";
 
 describe("会话视图记忆", () => {
 	it("编辑器只收到本会话草稿变更，关闭订阅后不再通知", () => {

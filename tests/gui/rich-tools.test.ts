@@ -2,8 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { ToolResult } from "../../src/gui/ui/tool-results.tsx";
-import type { ToolActivity } from "../../src/gui/ui/transcript-items.ts";
+import { ToolResult } from "../../src/gui/ui/tools/tool-results.tsx";
+import type { ToolActivity } from "../../src/gui/ui/transcript/transcript-items.ts";
 import { agentDetails, agentRun, fetchDetails, searchDetails } from "./rich-tool-fixtures.ts";
 
 function render(name: string, details: unknown, state: ToolActivity["state"] = "completed") {

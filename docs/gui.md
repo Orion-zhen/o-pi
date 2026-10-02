@@ -327,7 +327,31 @@ Web 与 Desktop 的 Bash 审批共用结构化展示。工作目录和原因弱�
 
 子代理执行时默认展开任务列表，显示并行或串行模式、已结束任务数、各任务状态及最新活动。任务详情包含输出、执行记录、耗时和结果文件路径。同名代理按任务顺序分别展示，失败、停止和未执行不会标为成功。任务的手动展开状态在流式更新和整体折叠后保留。`/run` 面板使用相同的进度视图，可停止整批命令任务。
 
-组件源码位于 `src/gui/ui/components/ui/`，选型配置位于 `components.json`。`theme/palette.ts` 生成语义颜色，`theme.css` 将颜色映射到组件并管理材质、字号、间距和圆角的共享变量，`style.css` 管理布局，`transcript.css`、`tools.css`、`rich-tools.css` 和 `code.css` 分别管理对话、工具、网页与子代理、代码样式。
+基础控件位于 `src/gui/ui/components/ui/`，选型配置位于 `components.json`。以下路径均相对于 `src/gui/ui/`：`theme/palette.ts` 生成语义颜色，`theme/theme.css` 将颜色映射到组件并管理材质、字号、间距和圆角的共享变量，`app/style.css` 管理全局布局与共享样式。业务样式随功能归档，例如 `transcript/transcript.css`、`tools/tools.css`、`tools/rich-tools.css` 和 `content/code.css`。
+
+## 前端目录
+
+`src/gui/ui/` 按功能组织，组件、专用 Hook 和样式放在同一功能目录。根目录只保留启动入口 `main.tsx`、`index.html` 和类型声明 `vite-env.d.ts`。
+
+| 目录 | 职责 |
+| --- | --- |
+| `app/` | 应用组装、布局、侧栏和弹窗，`welcome/` 管理欢迎页、启动动画和更新日志 |
+| `runtime/` | 宿主连接、事件状态、查询上下文和认证交互 |
+| `composer/` | 消息输入、输入历史、建议和文件拖放 |
+| `sessions/` | 会话列表、历史、树、草稿、活动状态和信息栏 |
+| `transcript/` | 消息流组织、回复阶段、定位、虚拟行和滚动 |
+| `tools/` | 工具选择、审批、执行状态和结果展示 |
+| `content/` | Markdown、代码、公式和技能卡片 |
+| `workspace/` | 工作区选择、目录树和工作台，`preview/` 管理文件、图片、PDF 和差异预览 |
+| `settings/` | 配置编辑、外观、模块和 MCP 设置 |
+| `models/` | 模型选择、管理和配置 |
+| `components/` | 跨功能复用的交互组件，`ui/` 保存基础控件 |
+| `lib/` | 跨功能通用逻辑 |
+| `theme/` | 主题生成、应用和全局主题样式 |
+| `reports/` | 统计、用量和遥测报表 |
+| `public/` | 静态资源 |
+
+新增文件归入对应功能目录，不按文件类型另建全局 `hooks/` 或 `styles/`。全局样式在 `main.tsx` 按顺序加载，功能组件直接引用自身样式。
 
 ## 功能
 

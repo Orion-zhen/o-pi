@@ -1,6 +1,6 @@
 import type { WebFetchSuccessDetails, WebSearchSuccessDetails } from "../harness/web-tools/core/types.ts";
 import type { SubagentDetails, SubagentRunResult } from "../harness/subagent/types.ts";
-import type { ToolState } from "./ui/transcript-items.ts";
+import type { ToolState } from "./ui/transcript/transcript-items.ts";
 import type { ToolOutput } from "./messages.ts";
 
 function record(value: unknown): value is Record<string, unknown> {
