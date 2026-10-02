@@ -38,8 +38,8 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, disable
 		{path && <div className="row-actions">
 			{!busy && <IconButton label={`重命名会话 ${title}`} className="row-action-button" disabled={disabled || pending || editing}
 				onClick={() => setEditing(true)}><Pencil /></IconButton>}
-			{!busy && !waiting && !unread && <ConfirmAction label={`删除会话 ${title}`} hint="永久删除会话，再次点击确认。Ctrl+点击直接删除"
-				disabled={disabled || pending || editing} allowCtrl confirm={() => send({ action: "deleteSession", path })} />}
+			{!busy && !waiting && !unread && <ConfirmAction label={`删除会话 ${title}`} hint="永久删除会话，再次点击确认。Ctrl/Command+点击直接删除"
+				disabled={disabled || pending || editing} allowShortcut confirm={() => send({ action: "deleteSession", path })} />}
 		</div>}
 	</>;
 	const props = { className: "history-session-row overlay-list-row activity-frame", "data-current": selected, "data-editing": editing };

@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Check, Trash2 } from "lucide-react";
 import { IconButton } from "./icon-button";
 
-export function ConfirmAction({ label, hint, disabled, confirm, allowCtrl = false }: {
-	label: string; hint: string; disabled: boolean; confirm: () => Promise<unknown>; allowCtrl?: boolean;
+export function ConfirmAction({ label, hint, disabled, confirm, allowShortcut = false }: {
+	label: string; hint: string; disabled: boolean; confirm: () => Promise<unknown>; allowShortcut?: boolean;
 }) {
 	const [armed, setArmed] = useState(false);
 	const [pending, setPending] = useState(false);
@@ -22,7 +22,7 @@ export function ConfirmAction({ label, hint, disabled, confirm, allowCtrl = fals
 		className="row-action-button" disabled={disabled || pending} data-confirming={armed}
 		onBlur={() => setArmed(false)}
 		onClick={(event) => {
-			if (!armed && !(allowCtrl && event.ctrlKey)) { setArmed(true); return; }
+			if (!armed && !(allowShortcut && (event.ctrlKey || event.metaKey))) { setArmed(true); return; }
 			setArmed(false);
 			setPending(true);
 			void confirm().finally(() => setPending(false));

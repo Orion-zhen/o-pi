@@ -274,7 +274,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(row("任务 A").locator('.activity-border[data-activity="idle"]')).toHaveCount(1);
 		await expect(row("任务 A").getByRole("button", { name: "删除会话 任务 A", exact: true })).toHaveCount(1);
 		await row("任务 A2").hover();
-		await row("任务 A2").getByRole("button", { name: "删除会话 任务 A2", exact: true }).click({ modifiers: ["Control"] });
+		await row("任务 A2").getByRole("button", { name: "删除会话 任务 A2", exact: true }).click({ modifiers: ["ControlOrMeta"] });
 		await expect(row("任务 A2")).toHaveCount(0);
 		await picker(page);
 		await expect(aRow.locator(".workspace-option-status")).toHaveCount(0);
@@ -302,7 +302,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await switchTo(page, other);
 		await picker(page);
 		await aRow.hover();
-		await aRow.getByRole("button", { name: `移除工作区 ${cwd}`, exact: true }).click();
+		await aRow.getByRole("button", { name: `移除工作区 ${cwd}`, exact: true }).click({ modifiers: ["ControlOrMeta"] });
 		await aRow.getByRole("button", { name: `确认移除工作区 ${cwd}`, exact: true }).click();
 		await expect(aRow).toHaveCount(0);
 		expect(errors).toEqual([]);
