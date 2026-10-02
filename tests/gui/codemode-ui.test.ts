@@ -25,7 +25,7 @@ const renderTool = (value: Activity, expanded?: boolean) => parseHTML(renderWith
 	new Map(expanded === undefined ? [] : [[`tool:${value.id}`, expanded]]))).document;
 
 describe("codemode 工具层级", () => {
-	it.each([false, true])("搜索入口只在普通模式显示只读自动状态：codemode=%s", (enabled) => {
+	it.each([false, true])("搜索入口只在普通模式显示禁用的复选框：codemode=%s", (enabled) => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
 			snapshot: {
 				tools: [
@@ -40,8 +40,8 @@ describe("codemode 工具层级", () => {
 		const row = doc.querySelector('[data-tool-option="tool_search"]');
 		if (enabled) expect(row).toBeNull();
 		else {
-			expect(row?.textContent).toContain("自动启用");
-			expect(row?.querySelector('[role="checkbox"]')).toBeNull();
+			expect(row?.querySelector(".tool-description-text")?.textContent).toBe("Search");
+			expect(row?.querySelector('[role="checkbox"]')?.hasAttribute("disabled")).toBe(true);
 		}
 	});
 	it("只有模型专用工具平级，未勾选的延迟工具仍显示为可调用而非禁用开关", () => {

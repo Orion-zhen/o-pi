@@ -15,7 +15,7 @@ import { moduleConfigIds, type ModuleConfigDocument } from "./module-config.ts";
 import type { McpConfigDocument } from "./mcp.ts";
 
 const moduleConfigId = Type.Enum(moduleConfigIds);
-const text = Type.String({ maxLength: 4_000_000 });
+const text = Type.String();
 const short = Type.String({ maxLength: 4096 });
 const object = <T extends TProperties>(properties: T) => Type.Object(properties, { additionalProperties: false });
 const image = object({

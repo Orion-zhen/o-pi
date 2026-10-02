@@ -42,12 +42,14 @@
 }
 .collapse-content[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
 .collapse-inner { min-block-size: 0; min-inline-size: 0; overflow: clip; }
+.tool-description { transition: height var(--motion-layout) var(--motion-ease), grid-template-rows var(--motion-layout) var(--motion-ease); }
+.tool-description-preview, .tool-description-full { transition: opacity var(--motion-normal) var(--motion-ease), visibility var(--motion-normal); }
 .disclosure-trigger { display: flex; align-items: baseline; gap: 0.375rem; max-inline-size: 100%; text-align: start; outline-offset: 0.25rem; }
 .disclosure-chevron { inline-size: 0.875em; block-size: 0.875em; flex-shrink: 0; align-self: center; }
 .disclosure-trigger[data-state="open"] > .disclosure-chevron { transform: rotate(90deg); }
 .disclosure-trigger:focus-visible { outline: 2px solid var(--ring); }
 
-:is(.disclosure-chevron, .activity-chevron, .workspace-chevron, .file-chevron, .files-toggle > svg, [data-slot="select-icon"]) { transition: transform var(--motion-layout) var(--motion-ease); }
+:is(.disclosure-chevron, .activity-chevron, .workspace-chevron, .file-chevron, .files-toggle > svg, .tool-description-toggle > svg, [data-slot="select-icon"]) { transition: transform var(--motion-layout) var(--motion-ease); }
 [data-slot="select-trigger"][data-state="open"] [data-slot="select-icon"] { transform: rotate(180deg); }
 :is(button, a, [role="menuitem"], [role="option"], .row-actions, .status-dot) {
 	transition-property: background-color, color, border-color, box-shadow, opacity;

@@ -13,7 +13,6 @@ import {
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import type { GuiEvent } from "../contract.ts";
 
-const MAX_ATTACHMENT = 8 * 1024 * 1024;
 export async function expandAttachments(text: string, cwd: string): Promise<{ text: string; images: ImageContent[] }> {
 	const images: ImageContent[] = [];
 	const contents: string[] = [];
@@ -25,7 +24,6 @@ export async function expandAttachments(text: string, cwd: string): Promise<{ te
 		const file = path.resolve(cwd, reference);
 		const metadata = await stat(file);
 		if (!metadata.isFile()) throw new Error(`附件必须是普通文件: ${reference}`);
-		if (metadata.size > MAX_ATTACHMENT) throw new Error(`附件超过 8 MiB: ${reference}`);
 		const data = await readFile(file);
 		const format = await fileTypeFromBuffer(data);
 		if (format?.mime.startsWith("image/")) {

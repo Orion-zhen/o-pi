@@ -11,7 +11,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
-const MAX_BODY = 16 * 1024 * 1024;
+const MAX_BUFFERED_AMOUNT = 16 * 1024 * 1024;
 const CSP =
 	"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 
@@ -142,7 +142,7 @@ export async function startWebServer(
 			clients.set(client.id, client);
 			const connection = client.connect((delivery) => {
 				if (ws.readyState !== ws.OPEN) return;
-				if (ws.bufferedAmount > MAX_BODY) {
+				if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
 					ws.close(1013, "Client too slow");
 					return;
 				}
@@ -184,11 +184,8 @@ export async function startWebServer(
 
 async function readBody(request: IncomingMessage): Promise<string> {
 	const chunks: Buffer[] = [];
-	let size = 0;
 	for await (const value of request) {
 		const chunk = Buffer.isBuffer(value) ? value : Buffer.from(String(value));
-		size += chunk.length;
-		if (size > MAX_BODY) throw new Error("请求超过 16 MiB。");
 		chunks.push(chunk);
 	}
 	return Buffer.concat(chunks).toString("utf8");

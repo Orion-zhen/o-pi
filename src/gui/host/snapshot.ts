@@ -20,6 +20,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 	const defaults = services.settingsManager.getGlobalSettings();
 	const allTools = session.getAllTools();
 	const activeTools = session.getActiveToolNames();
+	const descriptions = new Map(session.state.tools.map((tool) => [tool.name, tool.description]));
 	// 重载期间新的扩展 API 尚未绑定，工具列表直接取会话，controller 只投影可用性。
 	const tools = new Map<string, ToolSelectionItem & { mcp?: true }>(selection.listTools(allTools, activeTools).map((tool) => [tool.name, tool]));
 	for (const tool of mcpTools) tools.set(tool.name, { ...tool, mcp: true });
@@ -73,7 +74,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 			blockImages: services.settingsManager.getBlockImages(),
 		},
 		commands: [...commands.values()],
-		tools: [...tools.values()].map((tool) => ({ ...tool, callable: callableTools.has(tool.name) })),
+		// 启用工具展示 loadout 处理后的声明，未启用工具保留注册描述。
+		tools: [...tools.values()].map((tool) => ({ ...tool, description: descriptions.get(tool.name) ?? tool.description, callable: callableTools.has(tool.name) })),
 		modelTools: activeTools.filter((name) => !hidden.has(name)),
 		providers: services.modelRuntime
 			.getProviders()

@@ -18,6 +18,7 @@ import { modelSetup } from "./model-setup.ts";
 import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
+import { useFileDrop } from "./use-file-drop.ts";
 
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
 let nextAttachmentId = 0;
@@ -45,6 +46,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 		draft, sessionId: snapshot.sessionId, connected, send, query, setError,
 	});
 	const upload = useRef<HTMLInputElement>(null);
+	const fileDrop = useFileDrop();
 	const hasContent = Boolean(draft.trim() || images.length);
 	const setup = modelSetup(snapshot);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
@@ -76,7 +78,6 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 			const additions: ImageAttachment[] = [];
 			const texts: string[] = [];
 			for (const file of files) {
-				if (file.size > 3_000_000) throw new Error("单个上传附件暂限 3 MB。较大文件可通过 @路径 引用后端文件。");
 				if (/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
 					const data = await new Promise<string>((resolve, reject) => {
 						const reader = new FileReader();
@@ -118,7 +119,18 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>
 				<Button variant="link" size="sm" disabled={!gui.canChangeSession} onClick={() => gui.setPanel({ kind: setup.kind })}>{setup.action}</Button>
 			</div>}
-			<div className="composer-card">
+			<div
+				className="composer-card"
+				ref={fileDrop.ref}
+				data-file-drop={fileDrop.state}
+				onDrop={(event) => {
+					const files = [...event.dataTransfer.files];
+					if (!files.length) return;
+					event.preventDefault();
+					void attach(files);
+					editor.current?.focus({ preventScroll: true });
+				}}
+			>
 				<AnimatePresence initial={false}>
 				{queuedCount > 0 && (
 					<Reveal key="queue"><Collapsible defaultOpen className="queue">
@@ -223,6 +235,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 				</ul>
 				</Reveal>}
 				</AnimatePresence>
+				<div className="composer-input">
 				<Textarea
 					className="message-editor"
 					ref={editor}
@@ -254,6 +267,11 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 						}
 					}}
 				/>
+				<div className="composer-drop-hint" role="status" aria-hidden={fileDrop.state === "idle"}>
+					<Paperclip aria-hidden="true" />
+					<span>{fileDrop.state === "over" ? "松开即可添加" : "拖到此处添加附件"}</span>
+				</div>
+				</div>
 				<div className="composer-bottom">
 					<div className="composer-actions">
 						<IconButton label="附件" onClick={() => upload.current?.click()}>

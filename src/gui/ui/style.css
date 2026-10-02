@@ -119,6 +119,16 @@ input.session-name { flex: 1; background: var(--surface); }
 .composer-card:focus-within { border-color: var(--ring); box-shadow: var(--soft-highlight), var(--shadow), 0 0 0 2px color-mix(in srgb, var(--ring) 12%, transparent); }
 .message-editor { border: 0; border-radius: var(--radius-lg); box-shadow: none; background: transparent; padding: var(--space-3); min-block-size: calc(1lh + 2 * var(--space-3)); max-block-size: 25dvh; resize: none; font-size: var(--text-body); line-height: 1.7; }
 .message-editor:focus-visible { box-shadow: none; border: 0; }
+.composer-input { position: relative; }
+.composer-input .message-editor { transition: opacity var(--motion-fast) var(--motion-ease); }
+.composer-drop-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--ring) 4%, transparent); color: var(--muted-foreground); font-size: var(--text-ui); font-weight: 500; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity var(--motion-fast) var(--motion-ease), visibility var(--motion-fast), background-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease); }
+.composer-drop-hint > svg { inline-size: 1.125rem; block-size: 1.125rem; flex-shrink: 0; }
+.composer-card[data-file-drop="ready"] { border-color: color-mix(in srgb, var(--ring) 45%, var(--surface-edge)); }
+.composer-card:is([data-file-drop="ready"], [data-file-drop="over"]) .message-editor { opacity: 0; }
+.composer-card:is([data-file-drop="ready"], [data-file-drop="over"]) .composer-drop-hint { opacity: 1; visibility: visible; }
+.composer-card[data-file-drop="over"] { border-color: var(--ring); box-shadow: var(--soft-highlight), var(--shadow), 0 0 0 3px color-mix(in srgb, var(--ring) 14%, transparent); }
+.composer-card[data-file-drop="over"] .composer-drop-hint { color: var(--foreground); background: color-mix(in srgb, var(--ring) 9%, transparent); }
+.composer-card[data-file-drop="over"] .composer-drop-hint > svg { color: var(--ring); }
 .composer-bottom { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); align-items: center; padding: var(--space-1); }
 .model-controls { display: flex; flex: 1; align-items: center; gap: 0.25rem; min-width: 0; }
 .model-controls [data-slot="select-trigger"] { min-inline-size: 0; max-inline-size: 100%; font-size: var(--text-caption); }
