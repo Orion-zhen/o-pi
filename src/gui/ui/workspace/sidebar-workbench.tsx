@@ -8,7 +8,7 @@ import { WorkspacePicker } from "./workspace-picker.tsx";
 import { WorkspaceChanges, WorkspaceTree } from "./workspace-tree.tsx";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
+import { SearchInput } from "../components/search-input";
 import { ResizeHandle } from "../components/resize-handle";
 import "./workbench.css";
 
@@ -32,7 +32,7 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 			<div className="workbench-sessions">
 				<div className="workbench-session-controls">
 					<div className="session-search-controls">
-						<div className="session-search"><Search aria-hidden="true" /><Input aria-label="搜索会话" placeholder="搜索会话…" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+						<div className="session-search"><Search aria-hidden="true" /><SearchInput aria-label="搜索会话" placeholder="搜索会话…" value={search} onValueChange={setSearch} /></div>
 						<Button variant="outline" aria-label="新建会话" disabled={blocked} onClick={() => { void gui.send({ action: "new" }); close(); }}><Plus />新建</Button>
 					</div>
 				</div>

@@ -14,9 +14,9 @@
 .session-search-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .session-search { display: flex; align-items: center; flex: 1 1 9em; min-inline-size: 0; border: 1px solid var(--border); border-radius: var(--radius-md); padding-inline-start: var(--space-2); background: var(--control-surface); }
 .session-search > svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; color: var(--muted-foreground); }
-.session-search > input { min-inline-size: 0; inline-size: 100%; border: 0; box-shadow: none; background: transparent; }
+.session-search input { min-inline-size: 0; inline-size: 100%; border: 0; box-shadow: none; background: transparent; }
 .session-search:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
-.session-search > input:focus-visible { box-shadow: none; outline: none; }
+.session-search input:focus-visible { box-shadow: none; outline: none; }
 .session-history-flat { display: flex; flex-direction: column; flex: 1; min-block-size: 0; margin: 0; padding: 0 var(--space-3) var(--space-2); }
 .session-history-flat .history-heading { flex-shrink: 0; }
 .session-history-flat .history-scroll { flex: 1; }

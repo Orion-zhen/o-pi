@@ -3,7 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { Check, ChevronDown } from "lucide-react";
 import type { GuiModel } from "../../contract.ts";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
+import { SearchInput } from "../components/search-input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { ListScroll } from "../components/list-scroll";
 import { Fade } from "../components/animated";
@@ -35,7 +35,7 @@ export function ModelSelect({ label, models, value, disabled, change }: {
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent className="settings-popover model-select-content" align="end">
-				<Input aria-label="搜索模型" placeholder="搜索模型" value={filter} onChange={(event) => setFilter(event.target.value)} />
+				<SearchInput aria-label="搜索模型" placeholder="搜索模型" value={filter} onValueChange={setFilter} />
 				<ListScroll>
 					<div role="listbox" aria-label="模型列表" className="model-select-list">
 						<AnimatePresence initial={false}>

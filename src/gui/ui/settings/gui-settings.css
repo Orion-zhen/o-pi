@@ -64,7 +64,7 @@
 .font-picker p, .font-local-controls, .font-chain small { font-size: var(--text-small); overflow-wrap: anywhere; }
 .font-fallback, .font-chain small, .font-local-controls > span { color: var(--muted-foreground); }
 .font-local-controls, .font-input-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.font-input-controls > input { min-inline-size: 0; flex: 1 1 10em; }
+.font-input-controls > [data-slot="search-input"] { min-inline-size: 0; flex: 1 1 10em; }
 .font-chain { display: flex; flex-direction: column; gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
 .font-chain:empty { display: none; }
 .font-chain > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }

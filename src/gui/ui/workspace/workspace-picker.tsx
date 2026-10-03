@@ -5,7 +5,7 @@ import { fade, settle } from "../lib/motion";
 import { Check, ChevronsUpDown, FolderOpen, Shield } from "lucide-react";
 import type { SidebarView } from "../app/gui-controls.ts";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
+import { SearchInput } from "../components/search-input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { DirectoryBrowser } from "./directory-browser.tsx";
 import { ConfirmAction } from "../components/confirm-action.tsx";
@@ -48,7 +48,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 				{!compact && <ChevronsUpDown />}
 			</Button></PopoverTrigger>
 			<PopoverContent className="workspace-options">
-				<Input aria-label="筛选工作区" placeholder="筛选工作区" value={filter} onChange={(event) => setFilter(event.target.value)} />
+				<SearchInput aria-label="筛选工作区" placeholder="筛选工作区" value={filter} onValueChange={setFilter} />
 				<ListScroll>
 				<div role="listbox" aria-label="工作区列表" className="workspace-list">
 					<AnimatePresence initial={false}>

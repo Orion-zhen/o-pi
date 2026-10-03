@@ -1,7 +1,7 @@
 import { useRef, useState, type PointerEvent } from "react";
 import { History } from "lucide-react";
 import { IconButton } from "../components/icon-button";
-import { Input } from "../components/ui/input";
+import { SearchInput } from "../components/search-input";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -49,12 +49,12 @@ export function InputHistory({ history, select, focusEditor }: { history: string
 					{entries.length === 0 && <p className="px-2 py-3 text-sm text-muted-foreground" role="status">无匹配的输入历史</p>}
 				</div>
 				<div className="history-menu-search">
-					<Input
+					<SearchInput
 						ref={searchInput}
 						aria-label="搜索输入历史"
 						placeholder="搜索输入历史…"
 						value={search}
-						onChange={(event) => setSearch(event.target.value)}
+						onValueChange={setSearch}
 						onKeyDown={(event) => {
 							if (event.key !== "Escape" && event.key !== "Tab") event.stopPropagation();
 						}}

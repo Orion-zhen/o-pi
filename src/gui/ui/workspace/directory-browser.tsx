@@ -4,6 +4,7 @@ import type { GuiDirectories } from "../../contract.ts";
 import type { SidebarView } from "../app/gui-controls.ts";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { SearchInput } from "../components/search-input";
 import { IconButton } from "../components/icon-button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
 
@@ -42,7 +43,7 @@ export function DirectoryBrowser({ gui, initial, select, close }: {
 				<Input aria-label="工作目录" value={path} onChange={(event) => setPath(event.target.value)} />
 				<Button type="submit" variant="outline" disabled={pending || !path.trim()}>前往</Button>
 			</form>
-			<Input aria-label="筛选目录" placeholder="筛选目录" value={filter} onChange={(event) => setFilter(event.target.value)} />
+			<SearchInput aria-label="筛选目录" placeholder="筛选目录" value={filter} onValueChange={setFilter} />
 			<Button variant="ghost" className="justify-start" disabled={pending || !listing || listing.parent === listing.path}
 				onClick={() => { if (listing) void browse(listing.parent); }}><ArrowUp />上级目录</Button>
 			<div className="directory-list" aria-label="目录列表" aria-busy={pending}>

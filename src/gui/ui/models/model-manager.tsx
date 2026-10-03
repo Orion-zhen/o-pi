@@ -8,7 +8,7 @@ import { ThinkingControl } from "./model-controls.tsx";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
-import { Input } from "../components/ui/input";
+import { SearchInput } from "../components/search-input";
 import "./models.css";
 
 export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: GuiSnapshot; send: Send; disabled: boolean }) {
@@ -118,15 +118,15 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 			<p className="model-default-summary">
 				全局默认：{defaults.provider ?? "未设置提供方"} / {defaults.id ?? "未设置模型"} · {defaults.thinking ?? "未设置思考等级"}
 			</p>
-			<label className="model-search">
+			<div className="model-search">
 				<Search aria-hidden="true" />
-				<Input
+				<SearchInput
 					aria-label="搜索模型"
 					placeholder="搜索名称、提供方或模型 ID"
 					value={query}
-					onChange={(event) => setQuery(event.target.value)}
+					onValueChange={setQuery}
 				/>
-			</label>
+			</div>
 			<div className="model-manager-toolbar">
 				<p>已选 {scope.length} 个模型</p>
 				<IconButton label="清空已选模型" disabled={disabled || !scope.length} onClick={() => update([])}>
