@@ -1,17 +1,13 @@
 import type { ExtensionCommandContext, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { extensions as harnessExtensions } from "../harness/extensions.ts";
 import approvalGate from "../harness/extensions/approval-gate.ts";
-import bashTool from "../harness/extensions/bash-tool.ts";
 import { createToolsExtension } from "../harness/extensions/cmd-slash-tools.ts";
-import { createFileToolsExtension } from "../harness/extensions/file-tools.ts";
 import { createPruneExtension } from "../harness/extensions/prune.ts";
-import { createSkillContextExtension } from "../harness/extensions/skill-context.ts";
 import stats from "../harness/extensions/stats.ts";
 import { createSubagentExtension } from "../harness/extensions/subagent.ts";
 import systemPrompt from "../harness/extensions/system-prompt.ts";
 import telemetry from "../harness/extensions/telemetry.ts";
 import usage from "../harness/extensions/usage.ts";
-import { createWebToolsExtension } from "../harness/extensions/web-tools.ts";
 import type { Presenter } from "../harness/presentation.ts";
 import type { StatsSnapshot } from "../harness/stats/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
@@ -22,19 +18,9 @@ function tuiPresenter<T>(show: T): Presenter<T> { return { mode: "tui", show }; 
 
 /** 终端入口装配呈现器，harness 不知道组件的路径和加载方式。 */
 export const presentation = {
-	fileTools: () => import("./chat/file-tools/index.ts"),
-	bashTool: () => import("./chat/bash-tool/renderer.ts"),
 	tools: () => import("./views/tool-defaults/tool-selector.ts"),
 	prune: () => import("./chat/prune/index.ts"),
-	skillContext: () => import("./chat/skill-context/renderer.ts"),
 	subagent: () => import("./chat/subagent/adapter.ts"),
-	webTools: async () => {
-		const [fetch, search] = await Promise.all([
-			import("./chat/web-tools/webfetch.ts"),
-			import("./chat/web-tools/websearch.ts"),
-		]);
-		return { ...fetch, ...search };
-	},
 	approvalGate: tuiPresenter(async (...args: Parameters<(typeof import("./views/approval/dialog.ts"))["openApprovalDialog"]>) =>
 		(await import("./views/approval/dialog.ts")).openApprovalDialog(...args)),
 	stats: tuiPresenter(async (ctx: ExtensionCommandContext, snapshot: StatsSnapshot) => {
@@ -84,17 +70,13 @@ export const presentation = {
 export function createTuiExtensions(): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "approval-gate", factory: (pi) => approvalGate(pi, presentation.approvalGate) },
-		{ name: "bash-tool", factory: (pi) => bashTool(pi, presentation.bashTool) },
 		{ name: "cmd-slash-tools", factory: createToolsExtension(presentation.tools) },
-		{ name: "file-tools", factory: createFileToolsExtension(presentation.fileTools) },
 		{ name: "prune", factory: createPruneExtension(presentation.prune) },
-		{ name: "skill-context", factory: createSkillContextExtension(presentation.skillContext) },
 		{ name: "stats", factory: (pi) => stats(pi, presentation.stats) },
 		{ name: "subagent", factory: createSubagentExtension(presentation.subagent) },
 		{ name: "system-prompt", factory: (pi) => systemPrompt(pi, presentation.systemPrompt) },
 		{ name: "telemetry", factory: (pi) => telemetry(pi, presentation.telemetry) },
 		{ name: "usage", factory: (pi) => usage(pi, presentation.usage) },
-		{ name: "web-tools", factory: createWebToolsExtension(presentation.webTools) },
 	];
 	const extensions = harnessExtensions.map(
 		(extension) => views.find((view) => view.name === extension.name) ?? extension,
@@ -102,6 +84,14 @@ export function createTuiExtensions(): InlineExtension[] {
 	extensions.splice(
 		extensions.findIndex((extension) => extension.name === "usage"),
 		0,
+		{ name: "tool-renderers", factory: (pi) => {
+			let loaded: Promise<void> | undefined;
+			pi.on("session_start", async (_event, ctx) => {
+				if (ctx.mode !== "tui") return;
+				loaded ??= import("./chat/tool-renderers.ts").then(({ registerToolRenderers }) => registerToolRenderers(pi));
+				await loaded;
+			});
+		} },
 		{ name: "tui", factory: tui },
 	);
 	return extensions;

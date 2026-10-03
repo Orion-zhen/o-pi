@@ -25,11 +25,11 @@ interface RegisterToolOptions<TParams extends TSchema, TDetails, TState> {
 	repair?: RepairSpecHints;
 }
 
-/** 组合采样策略、参数修复和遥测，注册后仍可由 TUI 附加呈现器。 */
+/** 组合采样策略、参数修复和遥测，只注册工具执行定义。 */
 export function registerTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
 	pi: Pick<ExtensionAPI, "events" | "registerTool">,
 	options: RegisterToolOptions<TParams, TDetails, TState>,
-): ToolDefinition<TParams, TDetails, TState> {
+): void {
 	const prepared = repairableTool({
 		...options.tool,
 		constrainedSampling: options.tool.constrainedSampling ?? PREFERRED_STRICT_SAMPLING,
@@ -43,7 +43,6 @@ export function registerTool<TParams extends TSchema, TDetails = unknown, TState
 	pi.events.on(TELEMETRY_READY_CHANNEL, announce);
 	pi.registerTool(prepared);
 	announce();
-	return prepared;
 }
 
 function eraseRegistration<TParams extends TSchema, TDetails, TState>(

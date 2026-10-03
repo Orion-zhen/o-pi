@@ -7,7 +7,7 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 - `src/harness/` 保存本项目的工具执行、审批策略、子代理、配置和业务扩展，不引用应用入口或前端。
 - `src/harness/extensions.ts` 导出 SDK 原生 `InlineExtension[]`，可通过 `createAgentSessionServices()` 的 `resourceLoaderOptions.extensionFactories` 加载。各工厂创建独立的会话状态。
 - 三端入口平级：`src/tui/main.ts`、`src/web/main.ts` 和 `src/desktop/main.ts`。TUI 和 Web 的 `binary.ts` 仅负责单文件启动适配，共享资源初始化位于 `src/harness/runtime/binary.ts`。
-- `src/tui/` 保存终端入口、呈现与增强。`extensions.ts` 为业务扩展提供呈现器、弹窗和只读视图，再交给上游 `main()`。
+- `src/tui/` 保存终端入口、呈现与增强。`extensions.ts` 为业务扩展提供弹窗和只读视图，再交给上游 `main()`。工具由 harness 注册一次，工具渲染器在 TUI 会话启动时按需加载，通过 `registerToolRenderer()` 独立挂载，不改写执行定义。
 - 三端通过 harness 共用 Pi 的 `codemode`、`tool-search` 和 MCP 内置工厂适配，统一调用模式与搜索可用性。GUI 只增加 MCP 配置窗口、认证链接和分支工具可见性。CLI 通过同名内置工厂替换上游装配，不重复注册。打包与工具边界见 [Codemode](codemode.md)。
 - `src/gui/` 保存共享图形界面与 SDK 装配，`src/desktop/` 和 `src/web/` 分别负责 Electron 与网络宿主。输入历史位于 `src/harness/user-history.ts`，由三个前端共用。
 

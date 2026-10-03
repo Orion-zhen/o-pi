@@ -89,7 +89,7 @@ async function runSearchBenchmark() {
 	grepHost = new FileToolsHost();
 	const concurrentGrepMs = await measure(() => Promise.all([
 		grep({ query: "createRetryableLoader" }),
-		grep({ query: "createFileToolsExtension" }),
+		grep({ query: "hostForInvocation" }),
 	]));
 	const broadGrepMs = await measure(() => grep({
 		query: "File Tools",

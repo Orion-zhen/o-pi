@@ -1,8 +1,6 @@
 import { truncateToVisualLines, type Theme } from "@earendil-works/pi-coding-agent";
 import { Text, type Component } from "@earendil-works/pi-tui";
 
-import type { BashParams } from "../../../harness/bash-tool/types.ts";
-
 const COLLAPSED_COMMAND_LINES = 5;
 
 interface BashRendererState {
@@ -41,7 +39,7 @@ class BashCallComponent implements Component {
 
 /** 命令收起时只显示最近五个视觉行，展开后显示完整内容。 */
 export function renderBashCall(
-	args: BashParams,
+	args: unknown,
 	theme: Pick<Theme, "fg" | "bold">,
 	context: BashCallRenderContext,
 ): Component {
@@ -55,11 +53,12 @@ export function renderBashCall(
 	return component;
 }
 
-function formatBashCall(args: BashParams, theme: Pick<Theme, "fg" | "bold">): string {
-	const command = typeof args.command === "string" ? args.command : "";
+function formatBashCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
+	const params = typeof args === "object" && args !== null ? args : {};
+	const command = "command" in params && typeof params.command === "string" ? params.command : "";
 	const commandDisplay = command.length > 0 ? command : theme.fg("toolOutput", "...");
-	const timeoutSuffix = typeof args.timeout === "number" && args.timeout > 0
-		? theme.fg("muted", ` (timeout ${args.timeout}s)`)
+	const timeoutSuffix = "timeout" in params && typeof params.timeout === "number" && params.timeout > 0
+		? theme.fg("muted", ` (timeout ${params.timeout}s)`)
 		: "";
 	return theme.fg("toolTitle", theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix;
 }

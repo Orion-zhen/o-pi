@@ -2,12 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildSessionProjection, createEventBus, type BuildSystemPromptOptions, type ExtensionAPI, type ExtensionContext, type ExtensionToolContext, type InputEvent, type InputEventResult, type SessionEntry, type SlashCommandInfo, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createSkillContextExtension } from "../../../src/harness/extensions/skill-context.ts";
-import { presentation } from "../../../src/tui/extensions.ts";
-const skillContextExtension = createSkillContextExtension(presentation.skillContext);
+import skillContextExtension from "../../../src/harness/extensions/skill-context.ts";
 import { registerSkillCommands } from "../../../src/harness/skill-context/commands.ts";
-import { SKILL_CONTEXT_ENTRY, SKILL_CONTEXT_MESSAGE, type SkillLoadEntry } from "../../../src/harness/skill-context/types.ts";
+import { SKILL_CONTEXT_ENTRY, type SkillLoadEntry } from "../../../src/harness/skill-context/types.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
+import { registerExtension } from "../../helpers/extension.ts";
 
 const temp = useTempDir("o-pi-skill-command-");
 let tempDir: string;
@@ -15,41 +14,14 @@ let tempDir: string;
 beforeEach(() => { tempDir = temp.path; });
 
 describe("技能命令", () => {
-	it("扩展注册一个静态工具、一个管理命令、渲染器和事件钩子", async () => {
-		const tools: Array<{ name: string; parameters: unknown }> = [];
-		const commands: string[] = [];
-		const renderers: string[] = [];
-		const events: string[] = [];
-		let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
-		skillContextExtension({
-			registerTool(tool: { name: string; parameters: unknown }) {
-				const index = tools.findIndex((item) => item.name === tool.name);
-				if (index === -1) tools.push(tool);
-				else tools[index] = tool;
-			},
-			registerCommand(name: string) { commands.push(name); },
-			registerMessageRenderer(type: string) { renderers.push(type); },
-			on(name: string, handler: unknown) {
-				events.push(name);
-				if (name === "session_start") sessionStart = handler as typeof sessionStart;
-			},
-			getCommands: () => [],
-			getAllTools: () => [],
-			getThinkingLevel: () => "off",
-			events: createEventBus(),
-		} as unknown as ExtensionAPI);
-		await sessionStart?.({}, { mode: "rpc", ui: { notify() {} } });
-		expect(renderers).toEqual([]);
-		await sessionStart?.({}, { mode: "tui", ui: { notify() {} } });
-
+	it("业务扩展只注册静态工具、管理命令和事件钩子", () => {
+		const { registered: tools, commands, handlers } = registerExtension(skillContextExtension);
 		expect(tools.map((tool) => tool.name)).toEqual(["skill"]);
 		expect(JSON.stringify(tools[0]?.parameters)).not.toContain("enum");
-		expect(commands).toEqual(["skill"]);
-		expect(renderers).toEqual([SKILL_CONTEXT_MESSAGE]);
-		expect(events).toContain("input");
-		expect(events).not.toContain("tool_result");
-		expect(events).not.toContain("context");
-		expect(events).not.toContain("tool_call");
+		expect(tools[0]?.renderCall).toBeUndefined();
+		expect([...commands.keys()]).toEqual(["skill"]);
+		expect(handlers.has("input")).toBe(true);
+		for (const event of ["session_start", "tool_result", "context", "tool_call"]) expect(handlers.has(event)).toBe(false);
 	});
 
 	it("/skill:name 使用共享手动执行器且不触发模型轮次", async () => {

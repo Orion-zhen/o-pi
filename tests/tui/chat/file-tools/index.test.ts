@@ -1,14 +1,13 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme, type ToolRenderers } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import { theme } from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
+import { stripTerminalSequences, type Component } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { createFileToolsExtension } from "../../../../src/harness/extensions/file-tools.ts";
-import { presentation } from "../../../../src/tui/extensions.ts";
-const fileTools = createFileToolsExtension(presentation.fileTools);
-import { registerExtension } from "../../../helpers/extension.ts";
+import { registerToolRenderers } from "../../../../src/tui/chat/tool-renderers.ts";
 import { useTempDir } from "../../../helpers/lifecycle.ts";
-import { activateFileTools, renderToolResult, theme, type Renderable } from "../../../harness/file-tools/extension-fixture.ts";
 
 const editCardTemp = useTempDir("o-pi-edit-card-");
 
@@ -126,17 +125,17 @@ describe("file-tools extension renderers", () => {
 	rendererTest("write 从空内容流式追加到多行，完成参数后保持完整预览", ({ registered }) => {
 		const write = registered.slice().reverse().find((tool) => tool.name === "write");
 		const state = {};
-		let lastComponent: Renderable | undefined;
+		let lastComponent: Component | undefined;
 		for (const content of ["", "// first line", "// first line\n// second line"]) {
-			lastComponent = write?.renderCall?.({ path: "app.ts", content }, theme, {
+			lastComponent = write?.renderCall?.({ path: "app.ts", content }, theme, renderContext({
 				cwd: editCardTemp.path, argsComplete: false, expanded: true, isPartial: true, state, lastComponent,
-			});
+			}));
 			const output = lastComponent?.render(80).join("\n");
 			for (const line of content.split("\n")) expect(output).toContain(line);
 		}
-		const completed = write?.renderCall?.({ path: "app.ts", content: "// first line\n// second line" }, theme, {
+		const completed = write?.renderCall?.({ path: "app.ts", content: "// first line\n// second line" }, theme, renderContext({
 			cwd: editCardTemp.path, argsComplete: true, expanded: true, isPartial: true, state, lastComponent,
-		});
+		}));
 		expect(completed?.render(80).join("\n")).toContain("// second line");
 	});
 
@@ -154,9 +153,9 @@ describe("file-tools extension renderers", () => {
 			state: {},
 		};
 		const invalidArgs = { path: "app.ts", edits: [] };
-		const invalidCall = edit?.renderCall?.(invalidArgs, theme, invalidContext);
+		const invalidCall = edit?.renderCall?.(invalidArgs, theme, renderContext(invalidContext));
 		await vi.waitFor(() => expect(invalidContext.invalidate).toHaveBeenCalledOnce());
-		const failedPreview = edit?.renderCall?.(invalidArgs, theme, { ...invalidContext, lastComponent: invalidCall });
+		const failedPreview = edit?.renderCall?.(invalidArgs, theme, renderContext({ ...invalidContext, lastComponent: invalidCall }));
 		expect(failedPreview?.render(80).join("\n")).toContain("INVALID_OPERATION");
 		await expect((await import("../../../../src/harness/file-tools/pi/adapters/edit.ts")).previewEditWorkspace(cwd, {
 			path: "app.ts",
@@ -176,11 +175,11 @@ describe("file-tools extension renderers", () => {
 			state,
 		};
 
-		const first = edit?.renderCall?.(args, theme, context);
+		const first = edit?.renderCall?.(args, theme, renderContext(context));
 		await vi.waitFor(() => expect(context.invalidate).toHaveBeenCalled());
-		const collapsed = edit?.renderCall?.(args, theme, { ...context, lastComponent: first });
+		const collapsed = edit?.renderCall?.(args, theme, renderContext({ ...context, lastComponent: first }));
 		const collapsedOutput = collapsed?.render(80).join("\n");
-		const expanded = edit?.renderCall?.(args, theme, { ...context, expanded: true, lastComponent: first });
+		const expanded = edit?.renderCall?.(args, theme, renderContext({ ...context, expanded: true, lastComponent: first }));
 		expect(collapsedOutput).not.toContain("-1 old");
 		expect(expanded?.render(80).join("\n")).toContain("-1 old");
 
@@ -207,8 +206,41 @@ function rendererTest(
 	it(name, async () => test(await registerRenderers()));
 }
 
-async function registerRenderers() {
-	const extension = registerExtension(fileTools);
-	await activateFileTools(extension.handlers.get("session_start"));
-	return extension;
+function registerRenderers() {
+	const registered: RenderedTool[] = [];
+	registerToolRenderers({
+		registerToolRenderer(resolve) {
+			for (const name of ["ls", "find", "grep", "read", "write", "edit"]) {
+				registered.push({ name, ...resolve(name, () => undefined) });
+			}
+		},
+		registerMessageRenderer() {},
+		registerEntryRenderer() {},
+	});
+	return { registered };
+}
+
+type RenderedTool = { name: string } & ToolRenderers;
+type RenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
+
+function renderContext(options: Partial<RenderContext> = {}): RenderContext {
+	return {
+		toolCallId: "render-test", args: {}, cwd: editCardTemp.path, state: {}, lastComponent: undefined,
+		invalidate() {}, argsComplete: true, executionStarted: true, expanded: false, isPartial: false,
+		showImages: false, isError: false, ...options,
+	};
+}
+
+function renderToolResult(registered: RenderedTool[], name: string, details: unknown, options: {
+	expanded?: boolean; isPartial?: boolean; args?: unknown; content?: AgentToolResult<unknown>["content"];
+	context?: Partial<RenderContext>; width?: number;
+} = {}): string {
+	const context = renderContext({
+		expanded: options.expanded ?? false, isPartial: options.isPartial ?? false,
+		args: options.args, ...options.context,
+	});
+	const component = registered.find((tool) => tool.name === name)?.renderResult?.(
+		{ content: options.content ?? [], details }, context, theme, context,
+	);
+	return stripTerminalSequences(component?.render(options.width ?? 120).join("\n") ?? "");
 }

@@ -1,4 +1,3 @@
-import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type LsParams } from "../file-tools/ls/types.ts";
@@ -126,26 +125,7 @@ const editParameters = Type.Object(
 	{ additionalProperties: false },
 );
 
-export interface FileToolRenderers {
-	renderLsCall: ToolCallRenderer;
-	renderLsResult: ToolResultRenderer;
-	renderFindCall: ToolCallRenderer;
-	renderFindResult: ToolResultRenderer;
-	renderGrepCall: ToolCallRenderer;
-	renderGrepResult: ToolResultRenderer;
-	renderReadCall: ToolCallRenderer;
-	renderReadResult: ToolResultRenderer;
-	renderWriteCall: ToolCallRenderer;
-	renderWriteResult: ToolResultRenderer;
-	renderEditCall: ToolCallRenderer;
-	renderEditResult: ToolResultRenderer;
-}
-
-export function createFileToolsExtension(loadRenderers?: () => Promise<FileToolRenderers>): (pi: ExtensionAPI) => void {
-	return (pi) => registerFileTools(pi, loadRenderers);
-}
-
-function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileToolRenderers>): void {
+export default function fileTools(pi: ExtensionAPI): void {
 	type GrepAdapter = ReturnType<(typeof import("../file-tools/pi/adapters/grep.ts"))["createGrepAdapter"]>;
 	let grep: Promise<GrepAdapter> | undefined;
 	let grepAdapter: GrepAdapter | undefined;
@@ -189,7 +169,7 @@ function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileT
 		};
 	};
 
-	const lsTool = registerTool(pi, {
+	registerTool(pi, {
 		tool: {
 			name: "ls",
 			label: "ls",
@@ -205,7 +185,7 @@ function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileT
 		telemetry: lsTelemetry,
 	});
 
-	const findTool = registerTool(pi, {
+	registerTool(pi, {
 		tool: {
 			name: "find",
 			label: "find",
@@ -223,7 +203,7 @@ function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileT
 		telemetry: findTelemetry,
 	});
 
-	const grepTool = registerTool(pi, {
+	registerTool(pi, {
 		tool: {
 			name: "grep",
 			label: "grep",
@@ -241,7 +221,7 @@ function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileT
 		telemetry: grepTelemetry,
 	});
 
-	const readTool = registerTool(pi, {
+	registerTool(pi, {
 		tool: {
 			name: "read",
 			label: "read",
@@ -260,7 +240,7 @@ function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileT
 		telemetry: readTelemetry,
 	});
 
-	const writeTool = registerTool<typeof writeParameters, ToolOutcome<WriteSuccess> | MutationProgressDetails>(pi, {
+	registerTool<typeof writeParameters, ToolOutcome<WriteSuccess> | MutationProgressDetails>(pi, {
 		tool: {
 			name: "write",
 			label: "write",
@@ -292,14 +272,13 @@ function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileT
 		telemetry: writeTelemetry,
 	});
 
-	const editTool = registerTool<typeof editParameters, ToolOutcome<EditSuccess> | MutationProgressDetails>(pi, {
+	registerTool<typeof editParameters, ToolOutcome<EditSuccess> | MutationProgressDetails>(pi, {
 		tool: {
 			name: "edit",
 			label: "edit",
 			description: "Edit one previously read or written file with exact replacements.",
 			promptSnippet: "edit one known file",
 			parameters: editParameters,
-			renderShell: "self",
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const batch = mutationBatches.invocation(toolCallId);
 				try {
@@ -330,8 +309,7 @@ function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileT
 		telemetry: editTelemetry,
 	});
 
-	let nativeRendererLoad: Promise<void> | undefined;
-	pi.on("session_start", async (event, ctx) => {
+	pi.on("session_start", (event, ctx) => {
 		const persisted =
 			event.reason === "reload" ? readPersistedObservationState(ctx.sessionManager.getBranch()) : undefined;
 		restoredSession =
@@ -341,16 +319,6 @@ function registerFileTools(pi: ExtensionAPI, loadRenderers?: () => Promise<FileT
 						sessionId: ctx.sessionManager.getSessionId(),
 						observations: persisted.observations,
 					};
-		if (ctx.mode !== "tui" || loadRenderers === undefined) return;
-		nativeRendererLoad ??= loadRenderers().then((renderers) => {
-			pi.registerTool({ ...lsTool, renderCall: renderers.renderLsCall, renderResult: renderers.renderLsResult });
-			pi.registerTool({ ...findTool, renderCall: renderers.renderFindCall, renderResult: renderers.renderFindResult });
-			pi.registerTool({ ...grepTool, renderCall: renderers.renderGrepCall, renderResult: renderers.renderGrepResult });
-			pi.registerTool({ ...readTool, renderCall: renderers.renderReadCall, renderResult: renderers.renderReadResult });
-			pi.registerTool({ ...writeTool, renderCall: renderers.renderWriteCall, renderResult: renderers.renderWriteResult });
-			pi.registerTool({ ...editTool, renderShell: "self", renderCall: renderers.renderEditCall, renderResult: renderers.renderEditResult });
-		});
-		await nativeRendererLoad;
 	});
 
 	pi.on("message_end", (event) => {
@@ -413,7 +381,3 @@ function createRetryableLoader<T>(load: () => Promise<T>): () => Promise<T> {
 		return created;
 	};
 }
-
-const fileTools = createFileToolsExtension();
-
-export default fileTools;

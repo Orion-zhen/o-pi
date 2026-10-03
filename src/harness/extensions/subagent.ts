@@ -1,5 +1,5 @@
-import { type ToolDefinition, type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type TSchema, Type } from "typebox";
+import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { type SubagentProgressCallback } from "../subagent/types.ts";
 
 import {
@@ -20,10 +20,6 @@ import { registerTool } from "../register-tool.ts";
 import { readCurrentSystemPrompt } from "../system-prompt/current.ts";
 
 interface SubagentTuiModule {
-	registerSubagentTui<TParams extends TSchema, TDetails, TState>(
-		pi: ExtensionAPI,
-		tool: ToolDefinition<TParams, TDetails, TState>,
-	): void;
 	createSubagentCommandProgressAdapter(ui: ExtensionCommandContext["ui"]): {
 		onProgress: SubagentProgressCallback;
 		dispose(): void;
@@ -55,11 +51,11 @@ const subagentParams = Type.Object(
 	{ additionalProperties: false },
 );
 
-/** 注册轻量 subagent 工具和确定性命令；所有 component 仅由延迟加载的 TUI adapter 创建。 */
+/** 注册 subagent 工具和命令，/run 进度呈现按需加载。 */
 export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModule>, presentation?: SubagentCommandPresentation): (pi: ExtensionAPI) => void {
 	return function subagentExtension(pi: ExtensionAPI): void {
 		const executions = new SubagentExecutionRegistry();
-		const subagentTool = registerTool(pi, {
+		registerTool(pi, {
 			tool: {
 				name: "subagent",
 				exposure: "model-only",
@@ -98,24 +94,7 @@ export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModul
 			telemetry: subagentTelemetry,
 		});
 
-		let tuiLoad: Promise<SubagentTuiModule> | undefined;
-		const requireTui =
-			loadTui === undefined
-				? undefined
-				: (): Promise<SubagentTuiModule> => {
-						if (tuiLoad === undefined) {
-							tuiLoad = loadTui().then((module) => {
-								module.registerSubagentTui(pi, subagentTool);
-								return module;
-							});
-						}
-						return tuiLoad;
-					};
-		registerCommandAdapters(pi, executions, requireTui, presentation);
-
-		pi.on("session_start", async (_event, ctx) => {
-			if (ctx.mode === "tui") await requireTui?.();
-		});
+		registerCommandAdapters(pi, executions, loadTui, presentation);
 		pi.on("session_shutdown", () => {
 			executions.abortAll();
 		});
@@ -125,7 +104,7 @@ export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModul
 function registerCommandAdapters(
 	pi: ExtensionAPI,
 	executions: SubagentExecutionRegistry,
-	requireTui: (() => Promise<SubagentTuiModule>) | undefined,
+	loadTui: (() => Promise<SubagentTuiModule>) | undefined,
 	presentation: SubagentCommandPresentation | undefined,
 ): void {
 	pi.registerCommand("agents", {
@@ -146,8 +125,8 @@ function registerCommandAdapters(
 			}
 
 			const progressAdapter =
-				ctx.mode === "tui" && requireTui !== undefined
-					? (await requireTui()).createSubagentCommandProgressAdapter(ctx.ui)
+				ctx.mode === "tui" && loadTui !== undefined
+					? (await loadTui()).createSubagentCommandProgressAdapter(ctx.ui)
 					: undefined;
 			const signal = presentation?.signal();
 			const lease = executions.start(signal && ctx.signal ? AbortSignal.any([signal, ctx.signal]) : signal ?? ctx.signal);

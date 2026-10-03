@@ -5,7 +5,6 @@ import { createLocalBashOperations, type BashOperations, type SessionEntry } fro
 import { Ajv, type AnySchema } from "ajv";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { presentation } from "../../../src/tui/extensions.ts";
 import bashToolExtension from "../../../src/harness/extensions/bash-tool.ts";
 import { createExecutionEnvironment } from "../../../src/harness/bash-tool/environment.ts";
 import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.ts";
@@ -66,20 +65,13 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
 }
 
 describe("bash tool execution", () => {
-	it("扩展先注册无 renderer 的覆盖版 bash，TUI session 再加载 renderer，并统一标记失败结果", async () => {
-		const { registered: tools, handlers } = registerExtension((pi) => bashToolExtension(pi, presentation.bashTool));
+	it("扩展只注册执行定义，并统一标记失败结果", async () => {
+		const { registered: tools } = registerExtension(bashToolExtension);
 
 		expect(tools).toMatchObject([{ name: "bash", executionMode: "sequential" }]);
 		const tool = tools[0];
 		expect(tool?.renderCall).toBeUndefined();
-		for (const mode of ["rpc", "json", "print"]) {
-			await handlers.get("session_start")?.({}, { mode, ui: { notify() {} } });
-		}
-		expect(tools).toHaveLength(1);
-		await handlers.get("session_start")?.({}, { mode: "tui", ui: { notify() {} } });
-		await handlers.get("session_start")?.({}, { mode: "tui", ui: { notify() {} } });
-		expect(tools).toHaveLength(2);
-		expect(tools.at(-1)?.renderCall).toBeTypeOf("function");
+		expect(tool?.renderResult).toBeUndefined();
 		if (!tool) throw new Error("missing bash tool");
 		const ctx = { cwd: workspace, sessionManager: { getSessionId: () => "bash-test", getSessionFile: () => undefined, getBranch: () => [] } };
 		await expect(tool.execute("failed", { command: "exit 7" }, undefined, undefined, ctx)).resolves.toMatchObject({ isError: true });
@@ -87,7 +79,7 @@ describe("bash tool execution", () => {
 	});
 
 	it("参数 schema 在执行前拒绝越界 timeout", () => {
-		const { registered: tools } = registerExtension((pi) => bashToolExtension(pi, presentation.bashTool));
+		const { registered: tools } = registerExtension(bashToolExtension);
 		const schema = tools[0]?.parameters;
 		if (schema === undefined) throw new Error("bash tool schema was not registered");
 		const validate = new Ajv({ strict: false }).compile(schema as AnySchema);
@@ -151,7 +143,7 @@ describe("bash tool execution", () => {
 		process.env.PI_PROVIDER = "stale-provider";
 		process.env.PI_MODEL = "stale-model";
 		process.env.PI_REASONING_LEVEL = "stale-level";
-		const { registered: tools } = registerExtension((pi) => bashToolExtension(pi, presentation.bashTool));
+		const { registered: tools } = registerExtension(bashToolExtension);
 		const tool = tools[0];
 		if (tool === undefined) throw new Error("bash tool was not registered");
 		let state: {

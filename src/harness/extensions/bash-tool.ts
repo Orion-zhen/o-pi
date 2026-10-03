@@ -1,4 +1,3 @@
-import { type ToolCallRenderer } from "../presentation.ts";
 import {
 	createLocalBashOperations,
 	type ExtensionAPI,
@@ -9,7 +8,7 @@ import { Type } from "typebox";
 import { bashOutputSchema } from "../bash-tool/structured-output.ts";
 import { executeBashCommand } from "../bash-tool/bash-tool.ts";
 import { loadBashToolConfig } from "../bash-tool/config.ts";
-import { type BashParams, type BashSessionMetadata, type BashToolDetails } from "../bash-tool/types.ts";
+import { type BashSessionMetadata, type BashToolDetails } from "../bash-tool/types.ts";
 import { bashTelemetry } from "../bash-tool/telemetry.ts";
 import { registerTool } from "../register-tool.ts";
 
@@ -28,12 +27,9 @@ const bashParameters = Type.Object(
 );
 
 /** 注册覆盖版 bash。执行后端用 Pi 本地 shell，输出管理由本项目控制。 */
-export default function bashTool(
-	pi: ExtensionAPI,
-	loadRenderer?: () => Promise<{ renderBashCall: ToolCallRenderer<BashParams> }>,
-): void {
+export default function bashTool(pi: ExtensionAPI): void {
 	const operations = createLocalBashOperations();
-	const tool = registerTool<typeof bashParameters, NativeBashDetails | undefined, unknown>(pi, {
+	registerTool<typeof bashParameters, NativeBashDetails | undefined, unknown>(pi, {
 		tool: {
 			name: "bash",
 			label: "bash",
@@ -79,15 +75,6 @@ export default function bashTool(
 		},
 		repair: { singleStringField: "command" },
 		telemetry: bashTelemetry,
-	});
-
-	let rendererLoad: Promise<void> | undefined;
-	pi.on("session_start", async (_event, ctx) => {
-		if (ctx.mode !== "tui" || loadRenderer === undefined) return;
-		rendererLoad ??= loadRenderer().then(({ renderBashCall }) => {
-			pi.registerTool({ ...tool, renderCall: renderBashCall });
-		});
-		await rendererLoad;
 	});
 }
 

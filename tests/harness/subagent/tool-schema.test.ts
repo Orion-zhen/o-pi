@@ -1,8 +1,6 @@
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { createSubagentExtension } from "../../../src/harness/extensions/subagent.ts";
-import { presentation } from "../../../src/tui/extensions.ts";
-const subagentExtension = createSubagentExtension(presentation.subagent);
+import subagentExtension from "../../../src/harness/extensions/subagent.ts";
 import { preserveEnv } from "../../helpers/lifecycle.ts";
 
 preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK");

@@ -1,4 +1,3 @@
-import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.ts";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -68,142 +67,116 @@ const webFetchParameters = Type.Object(
 	{ additionalProperties: false },
 );
 
-export type WebToolsRendererLoader = () => Promise<{
-	renderWebFetchCall: ToolCallRenderer;
-	renderWebFetchResult: ToolResultRenderer;
-	renderWebSearchCall: ToolCallRenderer;
-	renderWebSearchResult: ToolResultRenderer;
-}>;
-
-/** 创建轻量工具壳；runtime 和 native renderer 均按需加载。 */
-export function createWebToolsExtension(
-	loadRenderers?: WebToolsRendererLoader,
-): (pi: ExtensionAPI) => void {
-	return function webTools(pi: ExtensionAPI): void {
-		let runtimePromise: Promise<WebToolsRuntime> | undefined;
-		let shuttingDown = false;
-		const getRuntime = (): Promise<WebToolsRuntime> => {
-			if (shuttingDown) return Promise.reject(new Error("web-tools runtime is shutting down"));
-			if (runtimePromise !== undefined) return runtimePromise;
-			const pending = loadDefaultRuntime();
-			runtimePromise = pending;
-			void pending.catch(() => {
-				if (runtimePromise === pending) runtimePromise = undefined;
-			});
-			return pending;
-		};
-
-		const webSearchTool = registerTool(pi, {
-			tool: {
-				name: "websearch",
-				label: "websearch",
-				description: "Search the web; return page titles, URLs, and snippets.",
-				promptSnippet: "search the web",
-				promptGuidelines: [WEB_CONTENT_GUIDELINE],
-				parameters: webSearchParameters,
-				outputSchema: webSearchOutputSchema,
-				annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-				async execute(toolCallId, params, signal, onUpdate) {
-					const runtime = await getRuntime();
-					const result = await runtime.search(params, {
-						toolCallId,
-						...(signal !== undefined ? { signal } : {}),
-						...(onUpdate
-							? {
-									onUpdate(partial: { content: string; details: WebSearchProgressDetails }) {
-										onUpdate({ content: [{ type: "text", text: partial.content }], details: partial.details });
-									},
-								}
-							: {}),
-					});
-					return {
-						content: [{ type: "text", text: result.content }], details: result.details,
-						isError: result.details.status === "failed",
-						...(result.details.status === "success" ? { structuredContent: webSearchStructuredOutput(result.details) } : {}),
-					};
-				},
-			},
-			repair: { singleStringField: "query" },
-			telemetry: webSearchTelemetry,
+/** 注册轻量工具壳，执行时按需加载 runtime。 */
+export default function webTools(pi: ExtensionAPI): void {
+	let runtimePromise: Promise<WebToolsRuntime> | undefined;
+	let shuttingDown = false;
+	const getRuntime = (): Promise<WebToolsRuntime> => {
+		if (shuttingDown) return Promise.reject(new Error("web-tools runtime is shutting down"));
+		if (runtimePromise !== undefined) return runtimePromise;
+		const pending = loadDefaultRuntime();
+		runtimePromise = pending;
+		void pending.catch(() => {
+			if (runtimePromise === pending) runtimePromise = undefined;
 		});
-
-		const webFetchTool = registerTool(pi, {
-			tool: {
-				name: "webfetch",
-				label: "webfetch",
-				description: "Read one HTTP(S) URL: web text, images, or PDF text/pages.",
-				promptSnippet: "read a known URL",
-				promptGuidelines: [
-					WEB_CONTENT_GUIDELINE,
-					"Webfetch covers only detected static response content. Remind user of limitation if content is partial.",
-				],
-				parameters: webFetchParameters,
-				async execute(toolCallId, params, signal, onUpdate, ctx) {
-					const acceptsImages = ctx.model?.input.includes("image") === true;
-					const privateNetworkGrant = readPrivateNetworkGrant(params);
-					const executionContext = {
-						toolCallId,
-						...(privateNetworkGrant !== undefined ? { privateNetworkGrant } : {}),
-						...(signal !== undefined ? { signal } : {}),
-						...(onUpdate
-							? {
-									onUpdate: (partial: { content: string; details: WebFetchProgressDetails }) => {
-										onUpdate({ content: [{ type: "text", text: partial.content }], details: partial.details });
-									},
-								}
-							: {}),
-						acceptsImages,
-						...(ctx.hasUI
-							? {
-									interaction: {
-										confirmAuthentication: (title: string, message: string) => ctx.ui.confirm(title, message),
-									},
-								}
-							: {}),
-					};
-					const runtime = await getRuntime();
-					const result = await runtime.fetch(params, executionContext);
-					const media = acceptsImages ? (result.media ?? []) : [];
-					return {
-						content: [
-							{ type: "text" as const, text: result.content },
-							...media.flatMap((item) => [
-								...(item.page === undefined ? [] : [{ type: "text" as const, text: `[page ${item.page}]` }]),
-								{ type: "image" as const, data: Buffer.from(item.data).toString("base64"), mimeType: item.mimeType },
-							]),
-						],
-						details: result.details,
-						isError: result.details.status === "failed",
-					};
-				},
-			},
-			repair: { singleStringField: "url" },
-			telemetry: webFetchTelemetry,
-		});
-
-		let nativeRendererLoad: Promise<void> | undefined;
-		pi.on("session_start", async (_event, ctx) => {
-			if (ctx.mode !== "tui" || loadRenderers === undefined) return;
-			nativeRendererLoad ??= loadRenderers().then((renderers) => {
-				pi.registerTool({ ...webSearchTool, renderCall: renderers.renderWebSearchCall, renderResult: renderers.renderWebSearchResult });
-				pi.registerTool({ ...webFetchTool, renderCall: renderers.renderWebFetchCall, renderResult: renderers.renderWebFetchResult });
-			});
-			await nativeRendererLoad;
-		});
-
-
-		pi.on("session_shutdown", async () => {
-			shuttingDown = true;
-			const pending = runtimePromise;
-			runtimePromise = undefined;
-			if (pending !== undefined) await (await pending).close();
-		});
+		return pending;
 	};
+
+	registerTool(pi, {
+		tool: {
+			name: "websearch",
+			label: "websearch",
+			description: "Search the web; return page titles, URLs, and snippets.",
+			promptSnippet: "search the web",
+			promptGuidelines: [WEB_CONTENT_GUIDELINE],
+			parameters: webSearchParameters,
+			outputSchema: webSearchOutputSchema,
+			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+			async execute(toolCallId, params, signal, onUpdate) {
+				const runtime = await getRuntime();
+				const result = await runtime.search(params, {
+					toolCallId,
+					...(signal !== undefined ? { signal } : {}),
+					...(onUpdate
+						? {
+								onUpdate(partial: { content: string; details: WebSearchProgressDetails }) {
+									onUpdate({ content: [{ type: "text", text: partial.content }], details: partial.details });
+								},
+							}
+						: {}),
+				});
+				return {
+					content: [{ type: "text", text: result.content }], details: result.details,
+					isError: result.details.status === "failed",
+					...(result.details.status === "success" ? { structuredContent: webSearchStructuredOutput(result.details) } : {}),
+				};
+			},
+		},
+		repair: { singleStringField: "query" },
+		telemetry: webSearchTelemetry,
+	});
+
+	registerTool(pi, {
+		tool: {
+			name: "webfetch",
+			label: "webfetch",
+			description: "Read one HTTP(S) URL: web text, images, or PDF text/pages.",
+			promptSnippet: "read a known URL",
+			promptGuidelines: [
+				WEB_CONTENT_GUIDELINE,
+				"Webfetch covers only detected static response content. Remind user of limitation if content is partial.",
+			],
+			parameters: webFetchParameters,
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
+				const acceptsImages = ctx.model?.input.includes("image") === true;
+				const privateNetworkGrant = readPrivateNetworkGrant(params);
+				const executionContext = {
+					toolCallId,
+					...(privateNetworkGrant !== undefined ? { privateNetworkGrant } : {}),
+					...(signal !== undefined ? { signal } : {}),
+					...(onUpdate
+						? {
+								onUpdate: (partial: { content: string; details: WebFetchProgressDetails }) => {
+									onUpdate({ content: [{ type: "text", text: partial.content }], details: partial.details });
+								},
+							}
+						: {}),
+					acceptsImages,
+					...(ctx.hasUI
+						? {
+								interaction: {
+									confirmAuthentication: (title: string, message: string) => ctx.ui.confirm(title, message),
+								},
+							}
+						: {}),
+				};
+				const runtime = await getRuntime();
+				const result = await runtime.fetch(params, executionContext);
+				const media = acceptsImages ? (result.media ?? []) : [];
+				return {
+					content: [
+						{ type: "text" as const, text: result.content },
+						...media.flatMap((item) => [
+							...(item.page === undefined ? [] : [{ type: "text" as const, text: `[page ${item.page}]` }]),
+							{ type: "image" as const, data: Buffer.from(item.data).toString("base64"), mimeType: item.mimeType },
+						]),
+					],
+					details: result.details,
+					isError: result.details.status === "failed",
+				};
+			},
+		},
+		repair: { singleStringField: "url" },
+		telemetry: webFetchTelemetry,
+	});
+
+	pi.on("session_shutdown", async () => {
+		shuttingDown = true;
+		const pending = runtimePromise;
+		runtimePromise = undefined;
+		if (pending !== undefined) await (await pending).close();
+	});
 }
-
-const webTools = createWebToolsExtension();
-
-export default webTools;
 
 async function loadDefaultRuntime(): Promise<WebToolsRuntime> {
 	const { createWebToolsRuntime } = await import("../web-tools/web-tools-runtime.ts");

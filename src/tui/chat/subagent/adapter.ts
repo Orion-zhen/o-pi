@@ -1,34 +1,12 @@
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import type { TSchema } from "typebox";
-
-import { SUBAGENT_COMMAND_ENTRY } from "../../../harness/subagent/constants.ts";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentProgressCallback } from "../../../harness/subagent/types.ts";
-import {
-	renderSubagentCall,
-	renderSubagentCommandEntry,
-	renderSubagentCommandWidget,
-	renderSubagentResult,
-} from "./renderer.ts";
+import { renderSubagentCommandWidget } from "./renderer.ts";
 
 let commandWidgetSequence = 0;
 
 export interface SubagentCommandProgressAdapter {
 	onProgress: SubagentProgressCallback;
 	dispose(): void;
-}
-
-export function registerSubagentTui<TParams extends TSchema, TDetails, TState>(
-	pi: ExtensionAPI,
-	tool: ToolDefinition<TParams, TDetails, TState>,
-): void {
-	pi.registerTool({ ...tool, renderCall: renderSubagentCall, renderResult: renderSubagentResult });
-	pi.registerEntryRenderer(SUBAGENT_COMMAND_ENTRY, (entry, { expanded }, theme) => (
-		renderSubagentCommandEntry(entry.data, expanded, theme)
-	));
 }
 
 /** 把结构化进度消费为临时 widget；application promise 与此 adapter 无关。 */

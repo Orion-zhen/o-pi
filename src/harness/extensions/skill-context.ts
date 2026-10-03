@@ -1,4 +1,3 @@
-import { type ToolCallRenderer, type ToolResultRenderer } from "../presentation.ts";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { registerSkillCommands } from "../skill-context/commands.ts";
@@ -8,15 +7,6 @@ import { findVisibleToolCallIds } from "../prune/prune.ts";
 import { type SkillCandidate, type SkillLoadDetails, type SkillToolErrorDetails } from "../skill-context/types.ts";
 import { defineToolTelemetry } from "../telemetry/projection.ts";
 import { registerTool } from "../register-tool.ts";
-
-interface SkillRendererModule {
-	registerSkillMessageRenderer(pi: Pick<ExtensionAPI, "registerMessageRenderer">): void;
-	renderSkillCall: ToolCallRenderer;
-	renderSkillResult(
-		details: unknown,
-		...args: Parameters<ToolResultRenderer> extends [unknown, ...infer Rest] ? Rest : never
-	): ReturnType<ToolResultRenderer>;
-}
 
 const skillParameters = Type.Object(
 	{
@@ -30,43 +20,15 @@ const skillParameters = Type.Object(
 
 type SkillToolDetails = SkillLoadDetails | SkillToolErrorDetails;
 
-/** 注册模型与手动技能披露，并维护分支内的资源权限；native renderer 只在 TUI session 激活。 */
-export function createSkillContextExtension(
-	loadRenderers?: () => Promise<SkillRendererModule>,
-): (pi: ExtensionAPI) => void {
-	return function skillContextExtension(pi: ExtensionAPI): void {
-		registerSkillCommands(pi);
-		const skillTool = registerSkillTool(pi);
-
-		let nativeRendererLoad: Promise<void> | undefined;
-		pi.on("session_start", async (_event, ctx) => {
-			if (ctx.mode !== "tui" || loadRenderers === undefined) return;
-			nativeRendererLoad ??= loadRenderers().then((renderers) => {
-				renderers.registerSkillMessageRenderer(pi);
-				pi.registerTool({
-					...skillTool,
-					renderCall: renderers.renderSkillCall,
-					renderResult(result, options, theme, context) {
-						return renderers.renderSkillResult(result.details, options, theme, context);
-					},
-				});
-			});
-			await nativeRendererLoad;
-		});
-	};
-}
-
-const skillContextExtension = createSkillContextExtension();
-
-export default skillContextExtension;
-
-function registerSkillTool(pi: ExtensionAPI) {
+/** 注册模型与手动技能披露，并维护分支内的资源权限。 */
+export default function skillContextExtension(pi: ExtensionAPI): void {
+	registerSkillCommands(pi);
 	let modelCandidates: SkillCandidate[] = [];
 	pi.on("before_agent_start", (event) => {
 		modelCandidates = collectSkillCandidates(event.systemPromptOptions, []);
 	});
 
-	const tool = registerTool(pi, {
+	registerTool(pi, {
 		tool: {
 			name: "skill",
 			exposure: "model-only",
@@ -123,10 +85,7 @@ function registerSkillTool(pi: ExtensionAPI) {
 					: { fields: { status: "failed" } },
 		}),
 	});
-
-	return tool;
 }
-
 
 function escapeXml(value: string): string {
 	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
