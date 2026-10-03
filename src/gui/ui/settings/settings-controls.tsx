@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Code, List, RotateCcw } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { IconButton } from "../components/icon-button";
+import { Disclosure } from "../components/disclosure";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import "./gui-settings.css";
 
@@ -11,46 +12,55 @@ export function SettingsHeading({ title, children }: { title: string; children?:
 	</header>;
 }
 
+export function SettingsSection({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
+	return <section className="settings-section" aria-label={title}>
+		<header className="settings-group-heading"><h3>{title}</h3>{actions && <div className="settings-heading-actions">{actions}</div>}</header>
+		{children}
+	</section>;
+}
+
+export function SettingsDisclosure({ title, children }: { title: string; children: ReactNode }) {
+	return <Disclosure className="settings-disclosure" summary={title}>
+		<div className="settings-disclosure-body">{children}</div>
+	</Disclosure>;
+}
+
 export function SettingsSourceButton({ file, source = false, disabled, onClick }: {
 	file: string; source?: boolean; disabled?: boolean; onClick: () => void;
 }) {
 	return <Tooltip><TooltipTrigger asChild>
-		<Button variant="outline" size="sm" disabled={disabled} onClick={onClick}>
+		<Button variant="ghost" size="sm" disabled={disabled} onClick={onClick}>
 			{source ? <List aria-hidden="true" /> : <Code aria-hidden="true" />}
-			{source ? "返回表单" : file.endsWith(".jsonc") ? "编辑 JSONC" : "编辑 JSON"}
+			{source ? "表单" : file.endsWith(".jsonc") ? "JSONC" : "JSON"}
 		</Button>
 	</TooltipTrigger><TooltipContent>{file}</TooltipContent></Tooltip>;
 }
 
-export function SettingsRow({ label, description, htmlFor, children, reset, disabled }: {
-	label: string; description?: string | undefined; htmlFor?: string; children: ReactNode; disabled?: boolean;
+export function SettingsRow({ label, htmlFor, children, reset, disabled, layout = "inline" }: {
+	label: string; htmlFor?: string; children: ReactNode; disabled?: boolean;
+	layout?: "inline" | "fluid" | "wide";
 	reset?: { value: unknown; defaultValue: unknown; apply: () => void };
 }) {
-	return <div className="preference-row">
+	return <div className="preference-row" data-layout={layout}>
 		<div className="preference-label">
-			<div className="preference-label-heading"><label htmlFor={htmlFor}>{label}</label>
-				{reset && JSON.stringify(reset.value) !== JSON.stringify(reset.defaultValue)
-					&& <IconButton size="icon-sm" label={`重置${label}`} disabled={disabled} onClick={reset.apply}><RotateCcw /></IconButton>}
-			</div>
-			{description && <small>{description}</small>}
+			<label htmlFor={htmlFor}>{label}</label>
+			{reset && JSON.stringify(reset.value) !== JSON.stringify(reset.defaultValue)
+				&& <IconButton size="icon-sm" label={`重置${label}`} disabled={disabled} onClick={reset.apply}><RotateCcw /></IconButton>}
 		</div>
 		<div className="preference-control">{children}</div>
 	</div>;
 }
 
-export function SettingsActions({ dirty, saving, disabled, invalid = false, error, status, save, discard, reload }: {
-	dirty: boolean; saving: boolean; disabled: boolean; invalid?: boolean; error: string; status: string;
-	save: () => void; discard: () => void; reload?: () => void;
+export function SettingsActions({ count, saving, disabled, blocked, error, status, save, discard }: {
+	count: number; saving: boolean; disabled: boolean; blocked: boolean; error: string; status: string;
+	save: () => void; discard: () => void;
 }) {
-	const blocked = disabled || saving;
 	return <footer className="settings-actions">
-		<div className="settings-action-buttons">
-			<Button disabled={blocked || invalid || !dirty} onClick={save}>{saving ? "保存中…" : "保存"}</Button>
-			<Button variant="outline" disabled={blocked || !dirty} onClick={discard}>放弃修改</Button>
-			{reload && <Button variant="ghost" disabled={blocked || dirty} onClick={reload}>重新读取</Button>}
-			{dirty && <span className="settings-dirty" role="status">有未保存修改</span>}
-		</div>
+		<div className="settings-save-status" role="status">{saving ? "保存中…" : count ? `${count} 个页面未保存` : status}</div>
 		{error && <p role="alert">{error}</p>}
-		{status && <p role="status">{status}</p>}
+		<div className="settings-action-buttons">
+			<Button disabled={disabled || saving || blocked || count === 0} aria-busy={saving} onClick={save}>保存</Button>
+			<Button variant="outline" disabled={saving || count === 0} onClick={discard}>放弃</Button>
+		</div>
 	</footer>;
 }

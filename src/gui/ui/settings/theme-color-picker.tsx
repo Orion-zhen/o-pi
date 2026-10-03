@@ -51,7 +51,7 @@ function ThemeColorEditor({ savedValue, value, defaultValue, disabled, change }:
 		{ index: 2, label: "明度", max: 100, unit: "%", background: `linear-gradient(to right, #000, hsl(${hsl[0]} ${hsl[1]}% 50%), #fff)` },
 	] as const;
 	return <>
-		<header><div><strong>主题色</strong><p>自动适配深浅色与文字对比度</p></div><span className="theme-color-swatch" style={{ background: color }} /></header>
+		<header><strong>主题色</strong><span className="theme-color-swatch" style={{ background: color }} /></header>
 		<div className="theme-color-presets" aria-label="预设主题色">{presets.map((preset) => <button key={preset} type="button" disabled={disabled}
 			aria-label={`主题色 ${preset}`} aria-pressed={color === preset} onClick={() => select(preset)}>
 			<span className="theme-color-swatch" style={{ background: preset }} />

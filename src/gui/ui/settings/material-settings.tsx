@@ -5,7 +5,7 @@ import { previewMaterials } from "../theme/materials.ts";
 import { IconButton } from "../components/icon-button";
 import { Checkbox } from "../components/ui/checkbox";
 import { Input } from "../components/ui/input";
-import { SettingsRow } from "./settings-controls.tsx";
+import { SettingsDisclosure, SettingsRow, SettingsSection } from "./settings-controls.tsx";
 import "./material-settings.css";
 
 export type MaterialPreferencePath = ["materials", "enabled" | "desktop"] | ["materials", MaterialRegion, keyof MaterialSurface];
@@ -56,17 +56,18 @@ export function MaterialSettings({ value, defaults, theme, disabled, change, res
 	const active = selected && visibleRegion(selected) ? selected : undefined;
 	const blocked = disabled || !value.enabled;
 	useLayoutEffect(() => previewMaterials(value), [value]);
-	return <section className="material-settings" aria-label="磨砂与透明">
-		<h3>磨砂与透明</h3>
+	return <SettingsSection title="磨砂与透明">
+		<div className="settings-fields">
 		<SettingsRow label="启用磨砂材质" disabled={disabled} reset={{ value: value.enabled, defaultValue: defaults.enabled, apply: () => change(["materials", "enabled"], undefined) }}>
 			<Checkbox aria-label="启用磨砂材质" checked={value.enabled} disabled={disabled} onCheckedChange={(checked) => change(["materials", "enabled"], checked === true)} />
 		</SettingsRow>
 		<SettingsRow label="桌面背景透明" disabled={disabled} reset={{ value: value.desktop, defaultValue: defaults.desktop, apply: () => change(["materials", "desktop"], undefined) }}>
 			<Checkbox aria-label="桌面背景透明" checked={value.desktop} disabled={blocked} onCheckedChange={(checked) => change(["materials", "desktop"], checked === true)} />
-			<span className="material-save-hint">保存后生效</span>
 		</SettingsRow>
+		</div>
+		<SettingsDisclosure title="分区域调整"><div className="material-detail-layout">
 		<MaterialPreview active={active} />
-		<table className="material-table" aria-label="材质区域设置" data-opacity-only={nativeVibrancy}>
+		<div className="material-editor"><table className="material-table" aria-label="材质区域设置" data-opacity-only={nativeVibrancy}>
 			<thead><tr><th scope="col">区域</th>{parameters.map(({ label }) => <th key={label} scope="col">{label}</th>)}</tr></thead>
 			{[materialRegions.slice(0, 5), materialRegions.slice(5)].map((group, index) => <tbody key={index}>
 				{group.filter(visibleRegion).map((region) => <tr key={region} data-active={active === region}
@@ -82,8 +83,9 @@ export function MaterialSettings({ value, defaults, theme, disabled, change, res
 					</td>)}
 				</tr>)}
 			</tbody>)}
-		</table>
-	</section>;
+		</table></div>
+		</div></SettingsDisclosure>
+	</SettingsSection>;
 }
 
 function MaterialPreview({ active }: { active: MaterialRegion | undefined }) {
@@ -95,7 +97,7 @@ function MaterialPreview({ active }: { active: MaterialRegion | undefined }) {
 		<div className="material-preview-window" aria-hidden="true">
 			{surface("sidebar", <div className="material-preview-lines"><i /><i /><i /></div>)}
 			{surface("toolbar")}
-			{surface("canvas", <><div className="material-preview-message">你好，有什么可以帮你？</div>{surface("composer")}</>)}
+			{surface("canvas", <><div className="material-preview-lines"><i /><i /></div>{surface("composer")}</>)}
 			{surface("inspector", <div className="material-preview-lines"><i /><i /></div>)}
 			{active === "floating" && surface("floating", <div className="material-preview-lines"><i /><i /></div>)}
 			{(active === "dialog" || active === "overlay") && <>{surface("overlay")}{surface("dialog", <div className="material-preview-lines"><i /><i /></div>)}</>}

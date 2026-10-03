@@ -1,5 +1,5 @@
 .theme-color-trigger { justify-content: space-between; }
-.theme-color-trigger > span:nth-child(2) { flex: 1; text-align: start; }
+.theme-color-trigger > span:nth-child(2) { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; text-align: start; }
 .theme-color-swatch { display: inline-block; flex-shrink: 0; inline-size: 1.5em; block-size: 1.5em; border: 0.0625em solid var(--border); border-radius: 50%; }
 .theme-color-picker { inline-size: min(22em, calc(100vw - 2em)); }
 .theme-color-picker header, .theme-color-custom { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; }

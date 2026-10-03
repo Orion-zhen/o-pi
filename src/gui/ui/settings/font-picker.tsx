@@ -50,14 +50,13 @@ function FontChainEditor({ kind, value, disabled, local, onChange }: Props) {
 		void save(next);
 	};
 	return <>
-		<header><strong>{kind === "ui" ? "界面字体" : "代码字体"}</strong><p>按顺序匹配，缺少字符时使用后面的字体。</p></header>
+		<header><strong>{kind === "ui" ? "界面字体" : "代码字体"}</strong></header>
 		<div className="font-local-controls">
 			<Button variant="outline" size="sm" disabled={!local.supported || local.loading} onClick={() => void local.load()}>
 				{local.loading ? "正在读取字体…" : local.fonts ? "刷新本机字体" : "读取本机字体"}
 			</Button>
-			<span>当前设备</span>
 		</div>
-		{!local.supported && <p role="status">当前浏览器或访问地址不支持读取本机字体，仍可手写。读取需要支持此功能的浏览器及 HTTPS 或 localhost。</p>}
+		{!local.supported && <p role="status">无法读取本机字体</p>}
 		{local.error && <p role="alert">{local.error}</p>}
 		<ol className="font-chain" aria-label="字体优先顺序">
 			{value.map((font, index) => <li key={font}>
@@ -80,7 +79,6 @@ function FontChainEditor({ kind, value, disabled, local, onChange }: Props) {
 			</li>)}
 		</ol>
 		{!editing && <FontInput kind={kind} fonts={local.fonts} selected={value} disabled={disabled} commit={(font) => save([...value, font])} />}
-		<p className="font-fallback">最终回退：系统默认 <code>{kind === "ui" ? "system-ui, sans-serif" : "ui-monospace, monospace"}</code></p>
 		{error && <p role="alert">{error}</p>}
 	</>;
 }
