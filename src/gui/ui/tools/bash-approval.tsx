@@ -59,10 +59,12 @@ function BashCommand({ command, label }: { command: string; label: string }) {
 				</Button>
 			</CollapsibleTrigger>}
 		</div>
-		{!expanded && <div className="approval-command-preview">
-			<CommandCode command={command} limit={preview.length} />
-			{truncated && <p className="text-xs text-muted-foreground">… 已折叠，仅显示命令开头</p>}
-		</div>}
+		<div className="collapse-content" data-state={expanded ? "closed" : "open"} inert={expanded} aria-hidden={expanded}>
+			<div className="collapse-inner approval-command-preview">
+				<CommandCode command={command} limit={preview.length} />
+				{truncated && <p className="text-xs text-muted-foreground">… 已折叠，仅显示命令开头</p>}
+			</div>
+		</div>
 		{truncated && <CollapsibleContent lazy><CommandCode command={command} /></CollapsibleContent>}
 	</Collapsible>;
 }
