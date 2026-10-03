@@ -29,18 +29,6 @@ test("流式追加正文和完成高亮不重挂已有代码块", async ({ gui: 
 	await expect(code.getByRole("button", { name: "复制ts" })).toBeVisible();
 });
 
-test("失焦只暂停状态动效，不阻止生成完成", async ({ gui: { page } }) => {
-	await page.getByRole("textbox", { name: "消息", exact: true }).fill("后台继续输出");
-	await page.getByRole("button", { name: "发送", exact: true }).click();
-	const border = page.locator('.activity-border[data-activity="running"]').first();
-	await expect(border).toHaveCSS("animation-play-state", "running");
-	await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-	await expect(border).toHaveCSS("animation-play-state", "paused");
-	await expect(page.locator('.assistant-reply[data-state="completed"]')).toContainText("正文-29");
-	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-	await expect(page.locator("html")).toHaveAttribute("data-activity-animations", "true");
-});
-
 test("欢迎动效由浏览器播放，交互后回到静止状态", async ({ gui: { page } }) => {
 	const logo = page.locator(".welcome-mark .app-logo");
 	await page.locator(".welcome h1").click();

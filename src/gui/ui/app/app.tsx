@@ -35,7 +35,6 @@ import { WelcomeSurface } from "./welcome/welcome-surface.tsx";
 import { StartupChangelog } from "./welcome/startup-changelog.tsx";
 import { useGui } from "./use-gui.ts";
 import { useStartupMotion } from "./welcome/use-startup-motion.ts";
-import { useActivityAnimations } from "./use-activity-animations.ts";
 import { isTouchInput } from "../lib/input-mode.ts";
 import { GuiQueryContext } from "../runtime/payload.tsx";
 import { IconButton } from "../components/icon-button";
@@ -57,7 +56,6 @@ function useDelayed(value: boolean, delay: number): boolean {
 }
 
 export function App() {
-	useActivityAnimations();
 	const gui = useGui();
 	const { snapshot, dialogs, notices, status, error, panel, auth, authUrl, deviceCode, send } = gui;
 	const [mobileOpen, setMobileOpen] = useState(false);

@@ -17,7 +17,5 @@
 .workspace-option-status[data-activity="running"]::before { animation: activity-pulse 1.8s ease-in-out infinite; }
 .history-session[data-unread="true"] .history-session-title { color: var(--foreground); font-weight: 600; }
 .approval-marker { color: var(--ring); }
-:root[data-activity-animations="false"] :is(.activity-border, .animate-spin),
-:root[data-activity-animations="false"] .workspace-option-status::before { animation-play-state: paused; }
 @keyframes activity-orbit { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
 @keyframes activity-pulse { 50% { opacity: 0.4; transform: scale(0.75); } }

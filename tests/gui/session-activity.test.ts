@@ -44,9 +44,9 @@ describe("工作区切换边框", () => {
 		{ items: [activity("A", "/a", "running")], state: "idle" },
 		{ items: [activity("B", "/b", "running")], state: "running" },
 		{ items: [activity("B", "/b", "loading")], state: "running" },
-		{ items: [activity("A", "/a", "idle", true), activity("B", "/b", "running")], state: "unread" },
+		{ items: [activity("A", "/a", "idle", true), activity("B", "/b", "running")], state: "running" },
 		{ items: [activity("B", "/b", "idle", true), activity("C", "/c", "running")], state: "unread" },
-		{ items: [activity("A", "/a", "waiting"), activity("B", "/b", "running")], state: "waiting" },
+		{ items: [activity("A", "/a", "waiting"), activity("B", "/b", "running")], state: "running" },
 		{ items: [activity("B", "/b", "waiting"), activity("A", "/a", "idle", true)], state: "waiting" },
 		{ items: [activity("A", "/a", "idle"), activity("B", "/b", "idle")], state: "idle" },
 	])("$state: $items", ({ items, state }) => {

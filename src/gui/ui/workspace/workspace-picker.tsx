@@ -19,11 +19,12 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 	const [filter, setFilter] = useState("");
 	const [pending, setPending] = useState(false);
 	const cwd = gui.cwd;
-	const state: ActivityState = gui.activity.some((item) => item.state === "waiting") ? "waiting"
-		: gui.activity.some((item) => item.unread) ? "unread"
-		: gui.activity.some((item) => item.cwd !== cwd && (item.state === "running" || item.state === "loading")) ? "running" : "idle";
+	const elsewhere = gui.activity.filter((item) => item.cwd !== cwd);
+	const elsewhereWaiting = elsewhere.some((item) => item.state === "waiting");
+	const state: ActivityState = elsewhereWaiting ? "waiting"
+		: elsewhere.some((item) => item.unread) ? "unread"
+		: elsewhere.some((item) => item.state === "running" || item.state === "loading") ? "running" : "idle";
 	const status = state === "waiting" ? "有会话等待审批" : state === "unread" ? "有未读结果" : "其他工作区有会话运行中";
-	const elsewhereWaiting = gui.activity.some((item) => item.cwd !== cwd && item.state === "waiting");
 	const workspaces = gui.workspaces;
 	const open = async (directory: string) => {
 		setPending(true);
