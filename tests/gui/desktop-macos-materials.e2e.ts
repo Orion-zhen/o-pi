@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "jsonc-parser";
 import type { Page } from "@playwright/test";
-import { test, expect } from "./fixture.ts";
+import { test, expect } from "./desktop-fixture.ts";
 import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
 
 const defaults = readGuiDefaults().materials;
@@ -12,8 +12,7 @@ const settings = (page: Page) => page.getByRole("dialog", { name: "设置", exac
 const surfaces = [".sidebar", ".sidebar-resize", ".conversation-canvas", ".topbar", ".session-sidebar", ".info-resize", ".composer-card"];
 const sidebarFilter = `blur(${defaults.sidebar.blur}px) saturate(${defaults.sidebar.saturation / 100})`;
 
-test.use({ mode: "desktop" });
-test.beforeEach(({}, info) => { test.skip(process.platform !== "darwin" || info.project.name !== "desktop", "macOS 桌面材质兼容"); });
+test.skip(process.platform !== "darwin", "macOS 桌面材质兼容");
 
 for (const [theme, label] of [["light", "浅色"], ["dark", "深色"]] as const) test(`${label}原生磨砂不叠加背景滤镜，浮层实色且不覆盖透明度配置`, async ({ gui: { page }, workspace: { agentDir } }) => {
 	const config = {

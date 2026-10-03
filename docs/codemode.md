@@ -94,12 +94,16 @@ Pi 1.0.0 下，固定 `read/find/bash/codemode` 工具集合，使用原生提�
 
 估算使用仓库本地计数器，不是提供方实际计费，不计算缓存折扣。请求中的临时路径等会导致小幅波动，固定场景不能证明所有任务都更省 tokens。本轮未做真实模型对比。codemode 仍按需开启，开启后固定使用 `only`，不降低默认目录或输出预算。`/stats` 的工具定义拆分仍是注册定义估算，不能用它验证 `prepareLoadout` 后的实际声明成本，应比较真实请求。
 
-验证命令：
+日常验证命令：
 
 ```bash
 bun run typecheck
 bun run build:tui
 bun run vitest run tests/cli/cli.test.ts tests/cli/codemode-mcp.test.ts -t codemode --silent=false
-bun scripts/build.mjs web desktop --dir
-bun run playwright test --config playwright.gui.config.ts tests/gui/codemode.e2e.ts
+```
+
+仅在需要验证真实浏览器交互时，运行定向无头 E2E：
+
+```bash
+bun run test:gui tests/gui/codemode.e2e.ts --project=desktop
 ```

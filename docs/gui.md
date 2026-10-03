@@ -399,17 +399,32 @@ MVP 不承诺任意外部扩展都能在 GUI 使用，尤其是直接依赖终�
 
 ## 验证
 
+日常改动按 `AGENTS.md` 的测试约定选择验证范围，例如配置改动：
+
 ```sh
 bun run typecheck
-./node_modules/.bin/vitest run tests/gui
-bun run test:gui
+./node_modules/.bin/vitest run tests/gui/config.test.ts tests/gui/settings-draft.test.ts
 ```
+
+确需验证浏览器交互或打包资源时，按文件选择无头 Web E2E：
+
+```sh
+bun run test:gui tests/gui/preferences.e2e.ts --project=desktop
+```
+
+这里的 `desktop` 是浏览器大屏视口，`phone` 是窄屏视口，均不启动 Electron。省略文件会运行整套 Web E2E，不作为日常验证步骤。
 
 工作台测试覆盖真实 Git 仓库的忽略项、暂存与未暂存差异、重命名、删除、未跟踪文件、子目录及路径边界，以及会话搜索、文件区折叠、键盘导航、右侧预览和 200% 字体布局。深浅色截图位于 `dist/gui-workbench-{light,dark}-*.png`。
 
-原有 GUI 测试使用 Electron，多会话和长聊天专项测试使用已安装的 Playwright Chromium。Linux 需要显示环境，也可使用已安装的 `xvfb-run -a bun run test:gui`。缺少运行环境时先报告，不自动下载安装。测试使用隔离 HOME 和本地模型 HTTP 服务，不读取个人认证，不调用付费模型。
+Web E2E 使用已安装的 Playwright Chromium，无头运行，不需要桌面显示环境。原生桌面用例位于 `desktop-*.e2e.ts`，仅由 `test:desktop` 入口运行，不重复验证通用页面交互。该入口会启动可见 Electron 窗口，Playwright 的 `headless` 选项不会隐藏这些窗口。获得用户同意后，Linux 可在已安装的虚拟显示环境中运行定向用例：
 
-覆盖真实 SDK 文件回路、审批拒绝与重连、会话恢复、Shell、结构化面板、项目扩展信任、配置并发修改、HTTP 连接绑定及来源校验。GUI 测试把 `opi-web` 和桌面应用目录复制到仓库外，再用隔离的 Electron 窗口访问 Web 或启动桌面应用，验证图片处理、代码解析 worker、外部扩展、标准输入弹窗和导出。聊天测试覆盖工具流式输出原位更新、整轮过程自动折叠一次、手动展开保留、各轮独立分组、上翻与回到最新、思考折叠、参数布局、源码高亮、复制和 diff 配色。网页与子代理测试使用本地搜索服务、静态网页和真实子代理进程，覆盖网页卡片、部分内容提示、并行任务错序完成、展开状态保留、`/run` 进度与串行取消。过程详情截图位于 `dist/gui-transcript-*.png`，聚焦回复的截图位于 `dist/gui-reply-*.png`，网页与子代理截图位于 `dist/gui-web-cards-*.png` 和 `dist/gui-subagents-*.png`。另覆盖默认目录及配置目录覆盖、已有历史读取、同名工作区区分、历史排序、跨工作区恢复与文件工具执行、外部会话变更刷新、失效路径和信任确认。删除测试覆盖行内确认与取消、当前会话替换、项目文件保留、目录边界、符号链接、删除准备期间的外部修改及任务运行限制。工作区测试覆盖失效目录移除、启动目录与当前目录保护，以及项目文件保留。界面测试包含侧栏折叠、移动抽屉、会话信息分屏与标签切换、工具数量、直接视图接口、图标菜单、设置控件、嵌套弹窗焦点和 320–1200 宽度的布局检查，截图保存在 `dist/gui-*.png`。主界面和模型弹窗另检查字体放大至 200% 时的控件可达性与横向溢出，深浅色样板截图为 `dist/gui-welcome-{light,dark}-*.png` 和 `dist/gui-models-{light,dark}-*.png`。手机布局使用 Electron 或 Chromium 窄屏验证，不包含触摸模拟，不等同于真实 iOS Safari 或 Android 实机验证。
+```sh
+xvfb-run -a bun run test:desktop tests/gui/desktop-protocol.e2e.ts
+```
+
+缺少运行环境时先报告，不自动下载安装。测试使用隔离 HOME 和本地模型 HTTP 服务，不读取个人认证，不调用付费模型。PDF 图片传递在 `pdf.test.ts` 通过宿主集成测试验证。协调进程的共享与退出由 `coordinator.test.ts` 覆盖，桌面子进程的 Node 启动参数由 `invocation.test.ts` 覆盖。`desktop-runtime.integration.ts` 只检查打包后端在 Node 模式启动和退出，不创建窗口，可通过 `bun run test:desktop tests/gui/desktop-runtime.integration.ts` 单独运行。
+
+覆盖真实 SDK 文件回路、审批拒绝与重连、会话恢复、Shell、结构化面板、项目扩展信任、配置并发修改、HTTP 连接绑定及来源校验。公共测试夹具把 `opi-web` 或桌面应用目录复制到仓库外，分别用无头 Chromium 或原生 Electron 验证对应入口。桌面专项保留 IPC、文件协议、原生保存、打包 worker、系统代理、窗口材质和退出清理。聊天测试覆盖工具流式输出原位更新、整轮过程自动折叠一次、手动展开保留、各轮独立分组、上翻与回到最新、思考折叠、参数布局、源码高亮、复制和 diff 配色。网页与子代理测试使用本地搜索服务、静态网页和真实子代理进程，覆盖网页卡片、部分内容提示、并行任务错序完成、展开状态保留、`/run` 进度与串行取消。过程详情截图位于 `dist/gui-transcript-*.png`，聚焦回复的截图位于 `dist/gui-reply-*.png`，网页与子代理截图位于 `dist/gui-web-cards-*.png` 和 `dist/gui-subagents-*.png`。另覆盖默认目录及配置目录覆盖、已有历史读取、同名工作区区分、历史排序、跨工作区恢复与文件工具执行、外部会话变更刷新、失效路径和信任确认。删除测试覆盖行内确认与取消、当前会话替换、项目文件保留、目录边界、符号链接、删除准备期间的外部修改及任务运行限制。工作区测试覆盖失效目录移除、启动目录与当前目录保护，以及项目文件保留。界面测试包含侧栏折叠、移动抽屉、会话信息分屏与标签切换、工具数量、直接视图接口、图标菜单、设置控件、嵌套弹窗焦点和 320–1200 宽度的布局检查，截图保存在 `dist/gui-*.png`。主界面和模型弹窗另检查字体放大至 200% 时的控件可达性与横向溢出，深浅色样板截图为 `dist/gui-welcome-{light,dark}-*.png` 和 `dist/gui-models-{light,dark}-*.png`。手机布局使用无头 Chromium 窄屏验证，不包含触摸模拟，不等同于真实 iOS Safari 或 Android 实机验证。
 
 `desktop-web.e2e.ts` 覆盖默认关闭、设置开关重启生效、桌面与浏览器共享执行、浏览器刷新后继续任务、跨端确认和退出释放端口。`preferences.e2e.ts` 覆盖桌面 Web 设置的保存及窄屏操作。
 

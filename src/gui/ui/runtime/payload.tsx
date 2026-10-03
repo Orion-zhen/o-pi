@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { GuiQueryResults, Query } from "../../contract.ts";
+import { ContentVisible } from "../components/ui/collapsible.tsx";
+import { payloadKey } from "../../messages.ts";
 
 export const GuiQueryContext = createContext<Query | undefined>(undefined);
 
@@ -11,10 +13,11 @@ function useGuiQuery(): Query {
 
 export function useToolOutput(id: string | undefined) {
 	const query = useGuiQuery();
+	const visible = useContext(ContentVisible);
 	const [result, setResult] = useState<{ id: string; value: GuiQueryResults["toolOutput"] }>();
 	const [error, setError] = useState("");
 	useEffect(() => {
-		if (!id) return;
+		if (!id || !visible) return;
 		let cancelled = false;
 		setError("");
 		void query({ query: "toolOutput", id }).then(
@@ -22,8 +25,10 @@ export function useToolOutput(id: string | undefined) {
 			(error: unknown) => { if (!cancelled) setError(String(error)); },
 		);
 		return () => { cancelled = true; };
-	}, [id, query]);
-	return { value: result?.id === id ? result?.value : undefined, error };
+	}, [id, query, visible]);
+	// 同一调用读取新进度时保留已有正文，避免加载占位符重挂详情并丢失展开状态。
+	const value = result && id && (!visible || payloadKey(result.id) === payloadKey(id)) ? result.value : undefined;
+	return { value, error };
 }
 
 export function SessionImage({ id, mime }: { id: string; mime: string }) {

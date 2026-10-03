@@ -57,6 +57,14 @@ describe("外部工具内容", () => {
 });
 
 describe("子代理结束状态", () => {
+	it("折叠的长输出只渲染摘要，不挂载正文和执行记录", () => {
+		const doc = render("subagent", { ...agentDetails, results: [
+			agentRun(0, { exitCode: 0, outputFile: "/workspace/result.md", output: "进度内容".repeat(20_000), events: [{ type: "text", text: "历史过程" }] }),
+		] }, "running");
+		expect(doc.querySelector(".subagent-current")?.textContent?.length).toBeLessThanOrEqual(2048);
+		expect(doc.querySelector(".subagent-task-body, .subagent-events")).toBeNull();
+	});
+
 	it("串行失败保留错误和部分结果，后续任务标为未执行", () => {
 		const doc = render("subagent", { ...agentDetails, mode: "chain", results: [
 			agentRun(0, { mode: "chain", exitCode: 1, outputFile: "/workspace/error.md", error: "provider unavailable", output: "已生成的部分" }),
@@ -74,6 +82,7 @@ describe("子代理结束状态", () => {
 		] }, "failed");
 		expect([...doc.querySelectorAll(".subagent-task")].map((task) => task.getAttribute("data-state")))
 			.toEqual(["completed", "stopped", "skipped"]);
-		expect(doc.querySelector(".subagent-output")?.textContent).toBe("布局完成");
+		expect(doc.querySelector(".subagent-current")?.textContent).toBe("布局完成");
+		expect(doc.querySelector(".subagent-task-body")).toBeNull();
 	});
 });

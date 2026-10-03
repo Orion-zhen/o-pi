@@ -152,13 +152,13 @@ export class GuiExecution {
 			this.messageTiming.accept(event);
 			if (event.type === "message_start" && event.message.role === "user") this.submitted();
 			if (event.type === "message_update") {
-				this.emit({ type: "stream", sessionId: session.sessionId, value: this.payloads.stream(event.message) });
+				if (this.observed) this.emit({ type: "stream", sessionId: session.sessionId, value: this.payloads.stream(event.message) });
 				return;
 			}
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") this.liveTools.set(event.toolCallId, {
 				toolCallId: event.toolCallId, toolName: event.toolName, args: structuredClone(event.args), status: "running",
 				...(event.parentToolCallId === undefined ? {} : { parentToolCallId: event.parentToolCallId }),
-				output: event.type === "tool_execution_update" ? this.payloads.output(event.toolName, structuredClone(event.partialResult)) : undefined,
+				output: event.type === "tool_execution_update" ? this.payloads.progress(event.toolCallId, event.toolName, structuredClone(event.partialResult)) : undefined,
 			});
 			if (event.type === "tool_execution_end") {
 				// 变更 diff 作为界面专用条目落盘，父结果完成后仍可恢复。
@@ -168,8 +168,8 @@ export class GuiExecution {
 				const started = this.liveTools.get(event.toolCallId);
 				if (event.parentToolCallId && started) this.liveTools.set(event.toolCallId, {
 					...started, status: event.isError ? "error" : "ok",
-					output: mutation ? this.payloads.output(event.toolName, { content: [], details: { diff: mutation.diff } })
-						: event.isError ? this.payloads.output(event.toolName, structuredClone(event.result)) : undefined,
+					output: mutation ? this.payloads.complete(event.toolCallId, event.toolName, { content: [], details: { diff: mutation.diff } })
+						: event.isError ? this.payloads.complete(event.toolCallId, event.toolName, structuredClone(event.result)) : undefined,
 				});
 				else {
 					this.liveTools.delete(event.toolCallId);

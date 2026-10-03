@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
+import { memo, useContext, useState } from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger, ContentVisible } from "../components/ui/collapsible";
 import { Disclosure } from "../components/disclosure";
 import Markdown from "react-markdown";
 import { Bot, Check, ChevronRight, CircleDashed, CircleStop, LoaderCircle, X } from "lucide-react";
 import type { SubagentDetails, SubagentRunResult, SubagentTask } from "../../../harness/subagent/types.ts";
 import { CodeBlock } from "../content/code-block.tsx";
-import { MarkdownText, clean } from "../content/content.tsx";
+import { MarkdownText, StreamingText, clean } from "../content/content.tsx";
 import { subagentFacts, subagentTaskState as taskState } from "../../tool-facts.ts";
 import { ParameterValue } from "./tool-parameters.tsx";
 import { toolTarget } from "./tool-target.ts";
@@ -32,6 +32,7 @@ export function SubagentProgress({ details, state }: { details: SubagentDetails;
 }
 
 function Task({ task, result, state }: { task: SubagentTask; result: SubagentRunResult | undefined; state: TaskState }) {
+	const visible = useContext(ContentVisible);
 	const [expanded, setExpanded] = useState<boolean | null>(null);
 	const open = expanded ?? state === "failed";
 	const active = state === "running";
@@ -46,22 +47,27 @@ function Task({ task, result, state }: { task: SubagentTask; result: SubagentRun
 			</span>
 			<span className="subagent-task-description">{task.task}</span>
 			{current && !open && <span className="subagent-current">{latest?.type === "tool" ? clean(current)
-				: <Markdown allowedElements={["strong", "em", "del", "code"]} unwrapDisallowed>{clean(current)}</Markdown>}</span>}
+				: <Markdown allowedElements={["strong", "em", "del", "code"]} unwrapDisallowed>{clean(current).slice(0, 2048)}</Markdown>}</span>}
 		</CollapsibleTrigger>
 		{result?.error && <p className="subagent-error">{clean(result.error)}</p>}
-		{result && <CollapsibleContent><div className="subagent-task-body">
-			<p className="tool-note">{[result.model, `${(result.durationMs / 1000).toFixed(1)}s`, `${result.usage.turns} 轮`, result.attempts > 1 ? `${result.attempts} 次尝试` : ""].filter(Boolean).join(" · ")}</p>
-			{result.output && <div className="message subagent-output"><MarkdownText text={result.output} /></div>}
-			{result.events.length > 0 && <Disclosure className="subagent-events" summary="执行记录">
-				{result.events.map((event, index) => event.type === "text"
-					? event.text.trim() === result.output.trim() ? null : <div className="message" key={index}><MarkdownText text={event.text} /></div>
-					: <Disclosure className="subagent-event" key={index} summary={<><code>{event.name} {toolTarget(event.name, event.args)}</code>
-						<span>{event.status === "error" ? "失败" : event.status ? labels[event.status] : ""}</span>
-					</>}><ParameterValue value={event.args} /></Disclosure>)}
-			</Disclosure>}
-			{result.stderr && <CodeBlock label="错误日志" text={clean(result.stderr)} />}
-			{result.status === "completed" && <p className="tool-note">结果文件：<code>{result.outputFile}</code></p>}
-		</div></CollapsibleContent>}
+		{result && <CollapsibleContent lazy><TaskBody result={result} active={active} visible={visible && open} /></CollapsibleContent>}
 		</Collapsible>
 	</section>;
 }
+
+/** 折叠后保留交互状态，但不继续解析不可见的流式正文。 */
+const TaskBody = memo(function TaskBody({ result, active }: { result: SubagentRunResult; active: boolean; visible: boolean }) {
+	return <div className="subagent-task-body">
+		<p className="tool-note">{[result.model, `${(result.durationMs / 1000).toFixed(1)}s`, `${result.usage.turns} 轮`, result.attempts > 1 ? `${result.attempts} 次尝试` : ""].filter(Boolean).join(" · ")}</p>
+		{result.output && <div className="message subagent-output"><StreamingText text={result.output} active={active} /></div>}
+		{result.events.length > 0 && <Disclosure className="subagent-events" summary="执行记录" lazy>
+			{result.events.map((event, index) => event.type === "text"
+				? event.text.trim() === result.output.trim() ? null : <div className="message" key={index}><MarkdownText text={event.text} /></div>
+				: <Disclosure className="subagent-event" key={index} summary={<><code>{event.name} {toolTarget(event.name, event.args)}</code>
+					<span>{event.status === "error" ? "失败" : event.status ? labels[event.status] : ""}</span>
+				</>} lazy><ParameterValue value={event.args} /></Disclosure>)}
+		</Disclosure>}
+		{result.stderr && <CodeBlock label="错误日志" text={clean(result.stderr)} highlight={!active} />}
+		{result.status === "completed" && <p className="tool-note">结果文件：<code>{result.outputFile}</code></p>}
+	</div>;
+}, (before, after) => !before.visible && !after.visible || before.visible === after.visible && before.result === after.result && before.active === after.active);

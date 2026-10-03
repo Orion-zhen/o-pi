@@ -3,11 +3,9 @@ import path from "node:path";
 import { test, expect } from "./fixture.ts";
 import { startModelServer } from "../cli/model-server.ts";
 
-for (const mode of ["web", "desktop"] as const) test.describe(`路由模型 ${mode}`, () => {
-	test.use({ mode });
+test.describe("路由模型", () => {
 	let model: Awaited<ReturnType<typeof startModelServer>>;
-	test.beforeEach(async ({ workspace: { cwd, agentDir } }, info) => {
-		test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面入口只验证一次");
+	test.beforeEach(async ({ workspace: { cwd, agentDir } }) => {
 		model = await startModelServer((request) => request.messages.some((message) => message.role === "tool")
 			? { text: "路由验证完成" } : { tool: "read", args: { path: "input.txt" } });
 		await writeFile(path.join(cwd, "input.txt"), "routing fixture\n");

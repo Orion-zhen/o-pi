@@ -17,7 +17,8 @@
 		"build:web": "bun scripts/build.mjs web",
 		"build:desktop": "bun scripts/build.mjs desktop",
 		"desktop": "electron dist/desktop/app",
-		"test:gui": "bun scripts/build.mjs web desktop --dir && playwright test --config playwright.gui.config.ts"
+		"test:gui": "bun scripts/build.mjs web && playwright test --config playwright.gui.config.ts",
+		"test:desktop": "bun scripts/build.mjs desktop --dir && playwright test --config playwright.desktop.config.ts"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-server": "latest",

@@ -1,11 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { test, expect } from "./fixture.ts";
+import { test, expect } from "./desktop-fixture.ts";
 import { startModelServer } from "../cli/model-server.ts";
 import { startProxyFixture, socketToolExtension } from "./proxy-fixture.ts";
-
-test.use({ mode: "desktop" });
-test.beforeEach(({}, info) => { test.skip(info.project.name !== "desktop", "仅验证桌面网络栈"); });
 
 for (const bypass of [false, true]) test.describe(bypass ? "系统代理绕过" : "系统代理", () => {
 	let model: Awaited<ReturnType<typeof startModelServer>>;

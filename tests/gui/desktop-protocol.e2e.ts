@@ -1,11 +1,9 @@
 import { _electron as electron } from "@playwright/test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { test, expect } from "./fixture.ts";
+import { test, expect } from "./desktop-fixture.ts";
 
-test.use({ mode: "desktop" });
-test.beforeEach(async ({ workspace: { agentDir, home } }, info) => {
-	test.skip(info.project.name !== "desktop", "仅验证桌面进程协议");
+test.beforeEach(async ({ workspace: { agentDir, home } }) => {
 	await mkdir(path.join(agentDir, "extensions"), { recursive: true });
 	await writeFile(path.join(agentDir, "extensions", "protocol.ts"), `
 		import { appendFile } from "node:fs/promises";

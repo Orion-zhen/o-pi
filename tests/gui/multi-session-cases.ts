@@ -14,6 +14,18 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 	describe("多会话执行与客户端隔离", () => {
 		afterEach(() => { vi.useRealTimers(); });
 
+		it("无人观察时不投影流式消息，恢复观察后结果完整", async () => {
+			const { host } = context();
+			await host.dispatch({ action: "observe", visible: false });
+			const stream = vi.spyOn(host.execution.payloads, "stream");
+			try {
+				await host.dispatch(prompt("后台检查文件并写入结果"));
+				expect(stream).not.toHaveBeenCalled();
+				await host.dispatch({ action: "observe", visible: true });
+				expect(JSON.stringify(readSnapshot(host).messages)).toContain("GUI completed");
+			} finally { stream.mockRestore(); }
+		});
+
 		it("重连时缓存失效也先重放目标导航，不回退到空工作区", async () => {
 			const { host } = context();
 			await host.dispatch(prompt("保存 A"));

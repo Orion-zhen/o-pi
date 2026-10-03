@@ -12,9 +12,7 @@ async function sdkVersions() {
 	return { current, previous };
 }
 
-for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
-	test.use({ mode });
-	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
+test.describe("更新日志", () => {
 
 	for (const collapsed of [false, true]) test(`启动日志内联展示、折叠和已读持久化 (${collapsed})`, async ({ gui: { page }, workspace: { agentDir } }, info) => {
 		const file = path.join(agentDir, "settings.json");
@@ -26,7 +24,7 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await expect(notice).toHaveCount(0);
 		await writeFile(file, JSON.stringify({ ...await stored(), lastChangelogVersion: previous, collapseChangelog: collapsed, quietStartup: true }));
 		let disconnect: (() => Promise<void>) | undefined;
-		if (mode === "web") await page.routeWebSocket("**/api/events*", (socket) => {
+		await page.routeWebSocket("**/api/events*", (socket) => {
 			const server = socket.connectToServer();
 			disconnect = async () => { await Promise.all([socket.close(), server.close()]); };
 		});
@@ -67,13 +65,11 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 			await page.setViewportSize(info.project.use.viewport ?? { width: 1200, height: 820 });
 		}
 
-		if (mode === "web") {
-			if (!disconnect) throw new Error("缺少 WebSocket 连接。");
-			await disconnect();
-			await expect(page.getByRole("button", { name: "重新连接", exact: true })).toBeVisible();
-			await expect(page.getByRole("button", { name: "重新连接", exact: true })).toHaveCount(0);
-			await expect(notice).toHaveCount(1);
-		}
+		if (!disconnect) throw new Error("缺少 WebSocket 连接。");
+		await disconnect();
+		await expect(page.getByRole("button", { name: "重新连接", exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "重新连接", exact: true })).toHaveCount(0);
+		await expect(notice).toHaveCount(1);
 		const id = await page.evaluate(() => sessionStorage.getItem("opi.session"));
 		if ((page.viewportSize()?.width ?? 1200) < 768) await page.getByRole("button", { name: "菜单", exact: true }).click();
 		await page.getByRole("button", { name: "新建会话", exact: true }).click();

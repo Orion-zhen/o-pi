@@ -1,11 +1,11 @@
 import type { GuiMessage } from "../../messages.ts";
-import { Children, isValidElement, lazy, memo, Suspense, useDeferredValue, type ComponentProps, type ReactNode } from "react";
+import { Children, createContext, isValidElement, lazy, memo, Suspense, useContext, useDeferredValue, type ComponentProps, type ReactNode } from "react";
 import { MessageIdentity } from "./message-meta.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import { motion } from "motion/react";
 import { fade } from "../lib/motion";
 import { Disclosure } from "../components/disclosure";
-import Markdown, { type ExtraProps } from "react-markdown";
+import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkMath } from "./remark-math.ts";
 import "./math.css";
@@ -58,25 +58,27 @@ function MarkdownSpan({ node, children, ...props }: ComponentProps<"span"> & Ext
 	</Suspense>;
 }
 
+const Streaming = createContext(false);
+const markdownPlugins = [remarkGfm, remarkMath];
+const markdownComponents: Components = {
+	span: MarkdownSpan,
+	pre: MarkdownCode,
+	a: ({ href, children }) => href ? <ExternalLink href={href}>{children}</ExternalLink> : <span>{children}</span>,
+	img: ({ alt }) => <span>[图片链接: {alt}]</span>,
+};
+
+function MarkdownCode({ children }: ComponentProps<"pre">) {
+	const streaming = useContext(Streaming);
+	const child = Children.only(children);
+	if (!isValidElement<{ children?: string; className?: string }>(child)) return <pre>{children}</pre>;
+	const language = child.props.className?.replace(/^language-/, "") ?? "text";
+	return <CodeBlock text={child.props.children ?? ""} label={language === "text" ? "代码" : language} language={language} highlight={!streaming} />;
+}
+
 export const MarkdownText = memo(function MarkdownText({ text, streaming = false }: { text: string; streaming?: boolean }) {
-	return (
-		<Markdown
-			remarkPlugins={[remarkGfm, remarkMath]}
-			components={{
-				span: MarkdownSpan,
-				pre: ({ children }) => {
-					const child = Children.only(children);
-					if (!isValidElement<{ children?: string; className?: string }>(child)) return <pre>{children}</pre>;
-					const language = child.props.className?.replace(/^language-/, "") ?? "text";
-					return <CodeBlock text={child.props.children ?? ""} label={language === "text" ? "代码" : language} language={language} highlight={!streaming} />;
-				},
-				a: ({ href, children }) => href ? <ExternalLink href={href}>{children}</ExternalLink> : <span>{children}</span>,
-				img: ({ alt }) => <span>[图片链接: {alt}]</span>,
-			}}
-		>
-			{clean(text)}
-		</Markdown>
-	);
+	return <Streaming value={streaming}>
+		<Markdown remarkPlugins={markdownPlugins} components={markdownComponents}>{clean(text)}</Markdown>
+	</Streaming>;
 });
 
 export function Content({ value }: { value: unknown }): ReactNode {

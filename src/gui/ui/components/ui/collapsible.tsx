@@ -2,6 +2,7 @@ import { createContext, useContext, useState, type ComponentProps } from "react"
 import { Collapsible as Primitive } from "radix-ui";
 
 const Expanded = createContext(false);
+export const ContentVisible = createContext(true);
 
 function Collapsible({ open, defaultOpen = false, onOpenChange, ...props }: ComponentProps<typeof Primitive.Root>) {
 	const [expanded, setExpanded] = useState(defaultOpen);
@@ -18,11 +19,12 @@ function CollapsibleTrigger(props: ComponentProps<typeof Primitive.Trigger>) {
 
 function CollapsibleContent({ className, children, lazy = false, ...props }: Omit<ComponentProps<typeof Primitive.Content>, "forceMount"> & { lazy?: boolean }) {
 	const open = useContext(Expanded);
+	const visible = useContext(ContentVisible) && open;
 	const [mounted, setMounted] = useState(!lazy || open);
 	if (open && !mounted) setMounted(true);
 	return <Primitive.Content {...props} forceMount data-slot="collapsible-content" className={className} inert={!open} aria-hidden={!open}>
 		{/* Radix 测量外层时会暂停过渡，动画放在内层以保留连续反向切换。 */}
-		<div className="collapse-content" data-state={open ? "open" : "closed"}><div className="collapse-inner">{mounted && children}</div></div>
+		<ContentVisible value={visible}><div className="collapse-content" data-state={open ? "open" : "closed"}><div className="collapse-inner">{mounted && children}</div></div></ContentVisible>
 	</Primitive.Content>;
 }
 

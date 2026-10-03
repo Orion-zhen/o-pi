@@ -2,7 +2,7 @@ import { _electron as electron, type ElectronApplication, type Page } from "@pla
 import { createServer } from "node:net";
 import { cp, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { test, expect } from "./fixture.ts";
+import { test, expect } from "./workspace.ts";
 import { selectSettingsCategory } from "./settings-steps.ts";
 
 let app: ElectronApplication | undefined;
@@ -10,8 +10,7 @@ let port: number;
 const url = () => `http://127.0.0.1:${port}`;
 const health = () => fetch(`${url()}/health`, { signal: AbortSignal.timeout(1000) }).then((response) => response.status, () => 0);
 
-test.beforeEach(async ({ workspace: { home, agentDir } }, info) => {
-	test.skip(info.project.name !== "desktop", "验证桌面宿主与浏览器共享后端");
+test.beforeEach(async ({ workspace: { home, agentDir } }) => {
 	const listener = createServer();
 	await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
 	const address = listener.address();

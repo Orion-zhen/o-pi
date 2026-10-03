@@ -1,34 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import type { Locator, Page } from "@playwright/test";
-import { test as base, expect } from "./fixture.ts";
+import type { Locator } from "@playwright/test";
+import { test, expect } from "./fixture.ts";
 import { startModelServer } from "../cli/model-server.ts";
-
-const test = base.extend<{ webPage: Page }>({
-	webPage: async ({ workspace: { cwd, env }, page }, use) => {
-		const binary = process.env.OPI_GUI_TEST_BINARY ?? path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web");
-		const child = spawn(binary, ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-		let output = "";
-		child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
-		child.stderr.on("data", (chunk: Buffer) => { output += chunk.toString(); });
-		try {
-			let url = "";
-			await expect.poll(() => { url = output.match(/opi-web: (http:\/\/[^\s]+)/)?.[1] ?? ""; return url; }).toBeTruthy();
-			const errors: string[] = [];
-			page.on("pageerror", (error) => errors.push(error.message));
-			await page.goto(url);
-			await use(page);
-			expect(errors).toEqual([]);
-		} finally {
-			if (child.exitCode === null && child.signalCode === null) await new Promise<void>((resolve) => {
-				const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
-				child.once("exit", () => { clearTimeout(timer); resolve(); });
-				child.kill("SIGTERM");
-			});
-		}
-	},
-});
 
 async function expectSuccessIcon(card: Locator) {
 	const color = await card.evaluate((element) => {
@@ -67,7 +41,7 @@ test.beforeEach(async ({ workspace: { agentDir } }) => {
 });
 test.afterEach(async () => { await model?.close(); });
 
-test("完成一轮后手动加载技能，刷新和下一轮都不改变卡片位置", async ({ webPage: page }) => {
+test("完成一轮后手动加载技能，刷新和下一轮都不改变卡片位置", async ({ gui: { page } }) => {
 	const editor = page.getByRole("textbox", { name: "消息", exact: true });
 	const send = async (text: string) => { await editor.fill(text); await editor.press("ControlOrMeta+Enter"); };
 	const order = () => page.locator(".transcript-row > .message.user, .transcript-row > .assistant-reply, .transcript-row > .skill-message")
@@ -87,7 +61,7 @@ test("完成一轮后手动加载技能，刷新和下一轮都不改变卡片�
 	await expect(page.locator(".assistant-reply .skill-message")).toHaveCount(0);
 });
 
-test("技能卡片、按需正文、会话树与按需查询", async ({ webPage: page }, info) => {
+test("技能卡片、按需正文、会话树与按需查询", async ({ gui: { page } }, info) => {
 	const editor = page.getByRole("textbox", { name: "消息", exact: true });
 	const send = async (text: string) => { await editor.fill(text); await editor.press("ControlOrMeta+Enter"); };
 	await send("/skill:gui-manual");

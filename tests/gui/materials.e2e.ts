@@ -1,12 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "jsonc-parser";
-import { createCanvas, loadImage } from "@napi-rs/canvas";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixture.ts";
 import { selectSetting, selectSettingsCategory } from "./settings-steps.ts";
 import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
-import { GUI_BACKGROUNDS } from "../../src/gui/theme-base.ts";
 
 const defaults = readGuiDefaults().materials;
 const alpha = (opacity: number) => new RegExp(`[/,] ${String(opacity / 100).replace(".", "\\.")}\\)$`);
@@ -22,10 +20,7 @@ async function save(page: Page) {
 	await expect(button).toBeDisabled();
 }
 
-for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
-	const nativeVibrancy = mode === "desktop" && process.platform === "darwin";
-	test.use({ mode });
-	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
+test.describe("页面材质", () => {
 	test.beforeEach(async ({ gui: { page }, workspace: { agentDir } }) => {
 		await writeFile(path.join(agentDir, "configs", "gui.jsonc"), "{}\n");
 		await page.emulateMedia({ colorScheme: "light" });
@@ -36,22 +31,18 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		const opacity = field(page, "左侧栏");
 		await opacity.fill("55");
 		await expect(settings(page).getByRole("img", { name: "界面材质预览：左侧栏", exact: true })).toBeVisible();
-		if (!nativeVibrancy) {
-			await field(page, "左侧栏", "模糊").fill("18");
-			await field(page, "左侧栏", "饱和度").fill("140");
-		}
+		await field(page, "左侧栏", "模糊").fill("18");
+		await field(page, "左侧栏", "饱和度").fill("140");
 		await expect(page.locator(".sidebar")).toHaveCSS("background-color", alpha(55));
-		await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", nativeVibrancy ? "none" : "blur(18px) saturate(1.4)");
+		await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", "blur(18px) saturate(1.4)");
 		await opacity.fill("");
 		await opacity.press("Enter");
 		await expect(opacity).toHaveValue("55");
-		if (!nativeVibrancy) {
-			await field(page, "菜单与浮层", "模糊").fill("30");
-			await expect(settings(page).locator(".material-preview-floating")).toHaveCSS("backdrop-filter", `blur(30px) saturate(${defaults.floating.saturation / 100})`);
-			await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", "blur(18px) saturate(1.4)");
-			await field(page, "弹窗").fill("35");
-			await expect(settings(page)).toHaveCSS("background-color", alpha(35));
-		}
+		await field(page, "菜单与浮层", "模糊").fill("30");
+		await expect(settings(page).locator(".material-preview-floating")).toHaveCSS("backdrop-filter", `blur(30px) saturate(${defaults.floating.saturation / 100})`);
+		await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", "blur(18px) saturate(1.4)");
+		await field(page, "弹窗").fill("35");
+		await expect(settings(page)).toHaveCSS("background-color", alpha(35));
 		expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toEqual({});
 		await selectSettingsCategory(page, "交互");
 		await selectSettingsCategory(page, "外观");
@@ -69,18 +60,16 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 
 	test("保存区域参数，重新加载后继续生效", async ({ gui: { page }, workspace: { agentDir } }) => {
 		await field(page, "内容画布").fill("82");
-		if (!nativeVibrancy) {
-			await field(page, "内容画布", "模糊").fill("28");
-			await field(page, "内容画布", "饱和度").fill("95");
-		}
+		await field(page, "内容画布", "模糊").fill("28");
+		await field(page, "内容画布", "饱和度").fill("95");
 		await field(page, "会话信息栏").fill("78");
 		await save(page);
-		expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toEqual({ materials: { canvas: nativeVibrancy ? { opacity: 82 } : { opacity: 82, blur: 28, saturation: 95 }, inspector: { opacity: 78 } } });
+		expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toEqual({ materials: { canvas: { opacity: 82, blur: 28, saturation: 95 }, inspector: { opacity: 78 } } });
 		await page.reload();
 		await expect(page.locator(".conversation-canvas")).toHaveCSS("background-color", alpha(82));
-		await expect(page.locator(".conversation-canvas")).toHaveCSS("backdrop-filter", nativeVibrancy ? "none" : "blur(28px) saturate(0.95)");
+		await expect(page.locator(".conversation-canvas")).toHaveCSS("backdrop-filter", "blur(28px) saturate(0.95)");
 		await expect(page.locator(".session-sidebar")).toHaveCSS("background-color", alpha(78));
-		if (mode === "web") await expect(page.locator(".app")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+		await expect(page.locator(".app")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 	});
 
 	test("外部配置刷新不覆盖材质草稿，放弃后采用最新配置", async ({ gui: { page }, workspace: { agentDir } }) => {
@@ -125,10 +114,10 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await opacity.fill("67");
 		await page.emulateMedia({ colorScheme: "dark" });
 		await expect(opacity).toHaveValue("91");
-		if (!nativeVibrancy) await field(page, "左侧栏", "模糊").fill("30");
+		await field(page, "左侧栏", "模糊").fill("30");
 		await settings(page).getByRole("button", { name: "重置左侧栏材质", exact: true }).click();
 		await expect(opacity).toHaveValue(String(defaults.sidebar.darkOpacity));
-		if (!nativeVibrancy) await expect(field(page, "左侧栏", "模糊")).toHaveValue(String(defaults.sidebar.blur));
+		await expect(field(page, "左侧栏", "模糊")).toHaveValue(String(defaults.sidebar.blur));
 		await page.emulateMedia({ colorScheme: "light" });
 		await expect(opacity).toHaveValue("67");
 		await save(page);
@@ -168,34 +157,5 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		} finally { await cdp.detach(); }
 		await page.emulateMedia({ colorScheme: "light" });
 		await expect(page.locator(".sidebar")).toHaveCSS("background-color", alpha(defaults.sidebar.opacity));
-	});
-
-	if (mode === "desktop") test("原生窗口透明度不被重复叠加，关闭桌面透明后仍保留页面材质", async ({ gui: { app, page } }) => {
-		await selectSetting(page, "主题", "浅色");
-		await field(page, "左侧栏").fill("55");
-		await field(page, "内容画布").fill("82");
-		await save(page);
-		await settings(page).getByRole("button", { name: "关闭面板", exact: true }).click();
-		await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
-		await expect(page.locator("html")).toHaveAttribute("data-desktop-transparency-supported", /true|false/);
-		if (process.platform === "linux") {
-			await expect(page.locator(".app")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-			const image = await loadImage(await page.screenshot());
-			const context = createCanvas(image.width, image.height).getContext("2d");
-			context.drawImage(image, 0, 0);
-			for (const [selector, opacity] of [[".sidebar", 55], [".conversation-canvas", 82]] as const) {
-				const bounds = await page.locator(selector).boundingBox();
-				if (!bounds) throw new Error(`${selector} 不可见`);
-				for (const y of [bounds.y + 4, bounds.y + bounds.height - 4]) {
-					expect(context.getImageData(bounds.x + 4, y, 1, 1).data[3]).toBe(Math.round(255 * opacity / 100));
-				}
-			}
-		}
-		await openSettings(page);
-		await settings(page).getByRole("checkbox", { name: "桌面背景透明", exact: true }).click();
-		await save(page);
-		await expect(page.locator(".app")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-		expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getBackgroundColor().toUpperCase())).toBe(GUI_BACKGROUNDS.light);
-		await expect(page.locator(".sidebar")).toHaveCSS("backdrop-filter", `blur(${defaults.sidebar.blur}px) saturate(${defaults.sidebar.saturation / 100})`);
 	});
 });

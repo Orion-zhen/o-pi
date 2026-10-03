@@ -4,8 +4,7 @@ import { test, expect } from "./fixture.ts";
 import { writeMcpFixture } from "./mcp-fixture.ts";
 import { startModelServer } from "../cli/model-server.ts";
 
-for (const mode of ["web", "desktop"] as const) test.describe(`MCP ${mode}`, () => {
-	test.use({ mode });
+test.describe("MCP", () => {
 	let model: Awaited<ReturnType<typeof startModelServer>>;
 	test.beforeEach(async ({ workspace: { cwd, agentDir } }) => {
 		const script = await writeMcpFixture(cwd);

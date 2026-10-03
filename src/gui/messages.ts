@@ -9,6 +9,12 @@ export interface GuiImage {
 }
 export type GuiContent = string | (TextContent | GuiImage)[];
 export interface ToolOutput { content: unknown; details?: unknown }
+
+/** 进度引用附带版本，同一载荷位置始终读取最新值。 */
+export function payloadKey(id: string): string {
+	const separator = id.indexOf("/");
+	return separator < 0 ? id : id.slice(0, separator);
+}
 export type GuiToolOutput =
 	| { kind: "inline"; value: ToolOutput }
 	| { kind: "reference"; id: string; preview: ToolOutput; facts: string };

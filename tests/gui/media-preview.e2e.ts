@@ -29,9 +29,7 @@ async function openFile(page: Page, name: string, phone: boolean) {
 	await navigation.getByRole("treeitem", { name, exact: true }).click();
 }
 
-for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
-	test.use({ mode });
-	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
+test.describe("媒体预览", () => {
 
 	test("图片支持缩放输入、指针缩放和拖动，刷新保留阅读状态", async ({ gui: { page }, workspace: { cwd } }, info) => {
 		const canvas = createCanvas(1200, 900);
@@ -109,13 +107,6 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		await page.mouse.up();
 		expect(await image.evaluate((element) => element.style.transform)).not.toBe(transform);
 		const imageUrl = await image.getAttribute("src");
-		if (mode === "desktop") {
-			const range = await image.evaluate(async (element) => {
-				const response = await fetch((element as HTMLImageElement).src, { headers: { Range: "bytes=0-7" } });
-				return { status: response.status, bytes: [...new Uint8Array(await response.arrayBuffer())] };
-			});
-			expect(range).toEqual({ status: 206, bytes: [137, 80, 78, 71, 13, 10, 26, 10] });
-		}
 		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 		await expect(image).toHaveAttribute("src", imageUrl ?? "");
 		await expect(zoom).toHaveValue("100");

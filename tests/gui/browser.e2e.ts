@@ -47,9 +47,7 @@ export default function (pi) {
 });
 test.afterEach(async () => { await model?.close(); await richTools?.close(); });
 
-for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
-	test.use({ mode });
-	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
+test.describe("浏览器交互", () => {
 
 	test("深浅主题的普通悬停背景统一，选中态与按下态独立", async ({ gui: { page }, workspace: { agentDir } }, info) => {
 		test.skip(info.project.name !== "desktop", "鼠标悬停使用桌面视口");
@@ -110,7 +108,7 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 		}
 	});
 
-	test("真实工具、扩展交互、导出和刷新恢复", async ({ gui: { page, app }, workspace: { cwd } }) => {
+	test("真实工具、扩展交互、导出和刷新恢复", async ({ gui: { page }, workspace: { cwd } }) => {
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await exerciseSuggestions(page);
 		await editor.fill("验证真实工具");
@@ -151,15 +149,11 @@ for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
 			.evaluateAll((els) => els.map((el) => el.matches(".notices") ? "notice" : el.matches(".message.user") ? "user" : "reply"));
 		expect(timeline.join(",")).toContain("reply,notice,user");
 		const exported = path.join(cwd, "export.html");
-		if (mode === "desktop") await app.evaluate(({ dialog }, filePath) => {
-			dialog.showSaveDialog = async () => ({ canceled: false, filePath });
-		}, exported);
-		const download = mode === "web" ? page.waitForEvent("download") : undefined;
+		const download = page.waitForEvent("download");
 		await editor.fill("/export");
 		await editor.press("ControlOrMeta+Enter");
-		if (download) await (await download).saveAs(exported);
-		// expect.poll 不重试谓函数抛出的错误, 文件由主进程异步落盘, 需用 toPass 重试整个读取断言块.
-		await expect(async () => expect(await readFile(exported, "utf8")).toContain("session-data")).toPass();
+		await (await download).saveAs(exported);
+		expect(await readFile(exported, "utf8")).toContain("session-data");
 		const data = await page.evaluate((html) => new DOMParser().parseFromString(html, "text/html").getElementById("session-data")?.textContent, await readFile(exported, "utf8"));
 		expect(Buffer.from(data ?? "", "base64").toString("utf8")).toContain("GUI 验证完成");
 		expect(await page.evaluate(() => typeof (globalThis as Record<string, unknown>)["require"])).toBe("undefined");

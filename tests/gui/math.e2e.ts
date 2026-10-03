@@ -26,9 +26,7 @@ test.beforeEach(async ({ workspace: { agentDir } }) => {
 });
 test.afterEach(async () => { await model?.close(); });
 
-for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
-	test.use({ mode });
-	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
+test.describe("公式资源", () => {
 	test("公式按需加载拆分后的引擎和字体，刷新后仍可渲染", async ({ gui: { page } }) => {
 		const resources: string[] = [];
 		page.on("request", (request) => { if (/\/math(?:jax|-formula)-/.test(request.url())) resources.push(request.url()); });

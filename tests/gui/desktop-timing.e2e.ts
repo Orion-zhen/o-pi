@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { test, expect } from "./fixture.ts";
+import { test, expect } from "./desktop-fixture.ts";
 import { startModelServer } from "../cli/model-server.ts";
 
 interface Timing {
@@ -17,10 +17,8 @@ interface Timing {
 	appliedAt?: number;
 }
 
-test.use({ mode: "desktop" });
 let model: Awaited<ReturnType<typeof startModelServer>>;
-test.beforeEach(async ({ workspace: { agentDir } }, info) => {
-	test.skip(info.project.name !== "desktop", "仅验证桌面请求链路");
+test.beforeEach(async ({ workspace: { agentDir } }) => {
 	model = await startModelServer(() => ({ text: "PRIVATE_RESPONSE_MARKER" }));
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "never", defaultProvider: "timing-test", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "timing-test": {

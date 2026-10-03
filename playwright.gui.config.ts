@@ -3,6 +3,8 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
 	testDir: "tests/gui",
 	testMatch: "**/*.e2e.ts",
+	testIgnore: "**/desktop-*.e2e.ts",
+	use: { headless: true },
 	timeout: 120_000,
 	expect: { timeout: 15_000 },
 	workers: 1,

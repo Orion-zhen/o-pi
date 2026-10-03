@@ -13,9 +13,7 @@ test.beforeEach(async ({ workspace: { home, cwd } }) => {
 	})).join("\n") + "\n");
 });
 
-for (const mode of ["web", "desktop"] as const) test.describe(mode, () => {
-	test.use({ mode });
-	test.beforeEach(({}, info) => { test.skip(mode === "desktop" && info.project.name !== "desktop", "桌面应用使用桌面窗口"); });
+test.describe("输入历史", () => {
 
 	test("输入历史底部搜索、全文筛选和回填", async ({ gui: { page } }) => {
 		const trigger = page.getByRole("button", { name: "输入历史", exact: true });
