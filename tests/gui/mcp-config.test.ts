@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { mcpObject, parseMcpConfig, validateMcpConfig, validateMcpServer } from "../../src/gui/mcp-validation.ts";
-import { changeMcpTransport, copyMcpServer, createMcpDraft, createMcpServer, importMcpServers, mcpDraftIssues, mcpId, mcpServerSummary, mcpServerValue, nextMcpName, writeMcpDraft } from "../../src/gui/ui/settings/mcp-draft.ts";
-import { parseMcpCommand } from "../../src/gui/ui/settings/mcp-command.ts";
-import { mcpEditorContent, readMcpEditor } from "../../src/gui/ui/settings/mcp-editor.ts";
+import { changeMcpTransport, copyMcpServer, createMcpDraft, createMcpServer, importMcpServers, mcpDraftIssues, mcpId, mcpServerSummary, mcpServerValue, nextMcpName, writeMcpDraft } from "../../src/gui/ui/mcp/mcp-draft.ts";
+import { parseMcpCommand } from "../../src/gui/ui/mcp/mcp-command.ts";
+import { mcpEditorContent, readMcpEditor } from "../../src/gui/ui/mcp/mcp-editor.ts";
 
 it("编辑、复制、删除服务保留凭据、未知字段与全局选项", () => {
 	const original = {

@@ -8,7 +8,7 @@ import { sessionList } from "../sessions/session-list.ts";
 import { SessionViews, type SessionViewState } from "../sessions/session-views.ts";
 import { useHostState } from "../runtime/use-host-state.ts";
 import { useConnection } from "../runtime/use-connection.ts";
-import { useGuiConfig } from "../settings/use-gui-config.ts";
+import { useGuiConfig } from "../preferences/use-gui-config.ts";
 import { useStartupChangelog } from "./welcome/use-startup-changelog.ts";
 import { useGuiActions } from "../runtime/use-gui-actions.ts";
 import { usePanels } from "./use-panels.ts";

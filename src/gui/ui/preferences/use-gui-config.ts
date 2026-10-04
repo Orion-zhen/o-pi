@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GlobalQuery, Query } from "../../contract.ts";
 import type { GuiConfigDocument } from "../../preferences.ts";
-import { usePreferences } from "../theme/use-preferences.ts";
+import { usePreferences } from "./use-preferences.ts";
 import { useWindowRefresh } from "../runtime/use-window-refresh.ts";
 
 export function useGuiConfig(connected: boolean, query: Query<GlobalQuery>, reportError: (message: string) => void) {

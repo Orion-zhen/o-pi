@@ -1,0 +1,27 @@
+.font-trigger { justify-content: space-between; }
+.font-trigger > span { overflow: hidden; text-overflow: ellipsis; text-align: start; }
+.font-picker { inline-size: min(28em, calc(100vw - 2em)); }
+.font-input > * { flex-shrink: 0; }
+.font-picker p, .font-local-controls, .font-chain small { font-size: var(--text-small); overflow-wrap: anywhere; }
+.font-chain small { color: var(--muted-foreground); }
+.font-local-controls, .font-input-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.font-input-controls > [data-slot="search-input"] { min-inline-size: 0; flex: 1 1 10em; }
+.font-chain { display: flex; flex-direction: column; gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
+.font-chain:empty { display: none; }
+.font-chain > li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.font-chain-index { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.font-chain-name { flex: 1; min-inline-size: 0; text-align: start; padding: var(--space-1); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.font-chain-name > span, .font-chain small { display: block; }
+.font-chain-name:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
+.font-chain-name:hover:not(:disabled) { background: var(--accent); }
+.font-chain > li > .font-input { flex: 1 1 100%; min-inline-size: 0; }
+.font-list { overflow: auto; max-block-size: min(14em, 30dvh); margin-block-start: var(--space-2); }
+.font-list > button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); inline-size: 100%; padding: var(--space-2); border-radius: var(--radius-sm); text-align: start; overflow-wrap: anywhere; }
+.font-list > button:is(:hover, [aria-selected="true"]):not(:disabled) { background: var(--accent); }
+.font-chain-name:disabled, .font-list > button:disabled { opacity: 0.45; }
+.font-list small { flex-shrink: 0; color: var(--muted-foreground); }
+.typography-preview { padding: var(--space-3); background: var(--secondary); border-radius: var(--radius-md); min-inline-size: 0; overflow-wrap: anywhere; }
+.typography-preview strong, .typography-preview small { display: block; }
+.typography-preview small { font-size: var(--text-caption); color: var(--muted-foreground); }
+.typography-preview p { margin-block: var(--space-2); font-size: var(--text-body); }
+.typography-preview pre { margin: 0; overflow: auto; }

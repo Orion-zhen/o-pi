@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { IconButton } from "../components/icon-button";
 import { Disclosure } from "../components/disclosure";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
-import "./gui-settings.css";
+import "./settings.css";
 
 export function SettingsHeading({ title, children }: { title: string; children?: ReactNode }) {
 	return <header className="settings-section-heading"><h2>{title}</h2>

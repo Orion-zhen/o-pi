@@ -3,6 +3,7 @@ import { Cpu } from "lucide-react";
 import type { GuiSnapshot } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "../components/ui/select";
+import "./models.css";
 
 const manageModels = "manage-models";
 

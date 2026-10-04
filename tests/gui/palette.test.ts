@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { generatePalette } from "../../src/gui/ui/theme/palette.ts";
-import { alpha, composite, contrast, hex } from "../../src/gui/ui/theme/color.ts";
+import { generatePalette } from "../../src/gui/ui/preferences/palette.ts";
+import { alpha, composite, contrast, hex } from "../../src/gui/ui/preferences/color.ts";
 import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
 
 for (const mode of ["light", "dark"] as const) {

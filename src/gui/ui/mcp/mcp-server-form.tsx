@@ -6,7 +6,7 @@ import { mcpObject, type McpIssue } from "../../mcp-validation.ts";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { IconButton } from "../components/icon-button.tsx";
-import { SettingsDisclosure } from "./settings-controls.tsx";
+import { SettingsDisclosure } from "../settings/settings-controls.tsx";
 import { changeMcpTransport, mcpId, type McpMapField, type McpPair, type McpServerDraft } from "./mcp-draft.ts";
 import { exposureOptions, McpChoice, McpField, McpPairs, McpTextField, mcpText } from "./mcp-fields.tsx";
 import { McpAuthFields } from "./mcp-auth-fields.tsx";

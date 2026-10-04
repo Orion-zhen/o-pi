@@ -12,6 +12,7 @@ import { ConfirmAction } from "../components/confirm-action.tsx";
 import { ListScroll } from "../components/list-scroll";
 import { workspaceActivity, type ActivityState } from "../sessions/use-session-activity.ts";
 import { ActivityBorder } from "../components/activity-border.tsx";
+import "./workspace-picker.css";
 
 export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<SidebarView, "cwd" | "activity" | "workspaceRoot" | "workspaces" | "send" | "connected" | "canNavigate" | "globalQuery" | "error" | "setError">; close: () => void; compact?: boolean }) {
 	const [expanded, setExpanded] = useState(false);

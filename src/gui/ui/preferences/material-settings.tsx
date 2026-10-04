@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { RotateCcw } from "lucide-react";
 import { materialRegions, type GuiMaterials, type GuiPreferences, type MaterialRegion, type MaterialSurface } from "../../preferences.ts";
-import { previewMaterials } from "../theme/materials.ts";
+import { previewMaterials } from "./materials.ts";
 import { IconButton } from "../components/icon-button";
 import { Switch } from "../components/ui/switch";
 import { Input } from "../components/ui/input";
-import { SettingsDisclosure, SettingsRow, SettingsSection } from "./settings-controls.tsx";
+import { SettingsDisclosure, SettingsRow, SettingsSection } from "../settings/settings-controls.tsx";
 import "./material-settings.css";
 
 export type MaterialPreferencePath = ["materials", "enabled" | "desktop"] | ["materials", MaterialRegion, keyof MaterialSurface];

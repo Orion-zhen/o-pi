@@ -3,7 +3,7 @@ import { Plus, X } from "lucide-react";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { SearchInput } from "../components/search-input";
-import { fontFamily } from "../theme/use-preferences.ts";
+import { fontFamily } from "./use-preferences.ts";
 
 export function FontInput({ kind, fonts, selected, disabled, initial = "", commit, cancel }: {
 	kind: "ui" | "code"; fonts: string[] | undefined; selected: string[]; disabled: boolean; initial?: string;

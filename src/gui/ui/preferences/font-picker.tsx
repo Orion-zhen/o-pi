@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { IconButton } from "../components/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { FontInput } from "./font-input.tsx";
-import { genericFamilies } from "../theme/use-preferences.ts";
+import { genericFamilies } from "./use-preferences.ts";
 import type { LocalFonts } from "./use-local-fonts.ts";
 
 type Props = {

@@ -1,5 +1,5 @@
 import { mcpObject, type McpIssue, type McpObject } from "../../mcp-validation.ts";
-import { SettingsDisclosure } from "./settings-controls.tsx";
+import { SettingsDisclosure } from "../settings/settings-controls.tsx";
 import { McpChoice, McpField, McpPairs, McpTextField, mcpText } from "./mcp-fields.tsx";
 import { mcpId, type McpAuthMode, type McpPair, type McpServerDraft } from "./mcp-draft.ts";
 

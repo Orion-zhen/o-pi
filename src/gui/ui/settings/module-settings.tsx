@@ -10,11 +10,11 @@ import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { ModelSelect } from "../models/model-select.tsx";
 import { moduleGroups, optionLabels, type ConfigField } from "./module-fields.ts";
-import { useConfigDraft } from "./config-draft.tsx";
+import { useConfigDraft } from "./use-config-draft.ts";
 import { SettingsDisclosure, SettingsSection, SettingsRow, SettingsSourceButton } from "./settings-controls.tsx";
 import { useSettingsDraft, useSettingsState } from "./settings-state.tsx";
 import { SettingsListField } from "./settings-list-field.tsx";
-import { SubagentToolPicker } from "../tools/subagent-tool-picker.tsx";
+import { SubagentToolPicker } from "./subagent-tool-picker.tsx";
 import { SettingsNumber } from "./settings-number.tsx";
 
 function readObject(text: string): Record<string, unknown> {

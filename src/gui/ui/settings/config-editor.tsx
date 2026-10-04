@@ -3,7 +3,7 @@ import type { Send } from "../runtime/connection.ts";
 import { PanelDialog } from "../components/panel-dialog";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
-import "./gui-settings.css";
+import "./settings.css";
 
 export function ConfigEditor({ file, content, send, close, restoreFocus }: {
 	file: "settings.json" | "gui.jsonc"; content: string; send: Send; close: () => void; restoreFocus: () => void;

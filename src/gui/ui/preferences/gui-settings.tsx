@@ -12,10 +12,11 @@ import { FontPicker } from "./font-picker.tsx";
 import { useLocalFonts } from "./use-local-fonts.ts";
 import { ThemeColorPicker } from "./theme-color-picker.tsx";
 import { MaterialSettings, type MaterialPreferencePath } from "./material-settings.tsx";
-import { ConfigEditor } from "./config-editor.tsx";
-import { SettingsSection, SettingsRow, SettingsSourceButton } from "./settings-controls.tsx";
-import { useSettingsDraft, useSettingsState } from "./settings-state.tsx";
-import { SettingsNumber } from "./settings-number.tsx";
+import { ConfigEditor } from "../settings/config-editor.tsx";
+import { SettingsSection, SettingsRow, SettingsSourceButton } from "../settings/settings-controls.tsx";
+import { useSettingsDraft, useSettingsState } from "../settings/settings-state.tsx";
+import { SettingsNumber } from "../settings/settings-number.tsx";
+import "./gui-settings.css";
 
 type PreferencePath = MaterialPreferencePath | ["theme"] | ["themeColor"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
 

@@ -1,9 +1,10 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./app/app.tsx";
-import { applyThemeColor } from "./theme/apply.ts";
-import { DEFAULT_THEME_COLOR } from "./theme/palette.ts";
-import "./theme/theme.css";
+import { applyThemeColor } from "./preferences/apply.ts";
+import { DEFAULT_THEME_COLOR } from "./preferences/palette.ts";
+import "./preferences/theme.css";
 import "./app/style.css";
+import "./composer/composer.css";
 import "./transcript/transcript.css";
 import "./tools/tools.css";
 import "./tools/rich-tools.css";

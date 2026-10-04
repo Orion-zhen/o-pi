@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popove
 import { ListScroll } from "../components/list-scroll";
 import { Fade } from "../components/animated";
 import { fade, settle } from "../lib/motion";
+import "./models.css";
 
 const modelKey = (model: GuiModel) => `${model.provider}/${model.id}`;
 

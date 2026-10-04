@@ -15,7 +15,7 @@ import { useSessionDraft } from "../sessions/use-session-draft.ts";
 import type { ImageAttachment } from "../sessions/use-session-draft.ts";
 import { ModelControls } from "../models/model-controls.tsx";
 import { modelSetup } from "../models/model-setup.ts";
-import { ContextUsage } from "../sessions/context-usage.tsx";
+import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
 import { useFileDrop } from "./use-file-drop.ts";

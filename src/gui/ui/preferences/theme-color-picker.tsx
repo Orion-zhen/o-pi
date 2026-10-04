@@ -4,8 +4,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { IconButton } from "../components/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import { applyThemeColor } from "../theme/apply.ts";
-import { fromHsl, hex, toHex, toHsl, type Hsl } from "../theme/color.ts";
+import { applyThemeColor } from "./apply.ts";
+import { fromHsl, hex, toHex, toHsl, type Hsl } from "./color.ts";
 import "./theme-color-picker.css";
 
 const presets = ["#8E8E93", "#FF3B30", "#FF9500", "#FFCC00", "#34C759", "#00C7BE", "#30B0C7", "#32ADE6", "#007AFF", "#5856D6", "#AF52DE", "#FF2D55"];
