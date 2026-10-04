@@ -27,9 +27,14 @@ export class GuiSessionCatalog {
 		return this.pending;
 	}
 
-	async paths(): Promise<Set<string>> {
+	async read(): Promise<GuiSessionInfo[]> {
 		await this.refresh();
-		return new Set(this.value?.map((session) => session.path));
+		if (this.value === undefined) throw new Error("会话目录未就绪。");
+		return this.value;
+	}
+
+	async paths(): Promise<Set<string>> {
+		return new Set((await this.read()).map((session) => session.path));
 	}
 
 	async rename(path: string, name: string): Promise<void> {

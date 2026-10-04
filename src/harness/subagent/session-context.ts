@@ -1,5 +1,6 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { forkDirectoryPrefix } from "../storage/paths.ts";
+import { retainStoragePath } from "../storage/active.ts";
 import path from "node:path";
 import {
 	buildContextEntries,
@@ -9,8 +10,6 @@ import {
 	type SessionHeader,
 } from "@earendil-works/pi-coding-agent";
 import type { ExecutorContext, ForkExecutionContext } from "./types.ts";
-
-const FORK_RESOURCE_PREFIX = "pi-subagent-fork-";
 
 export async function createForkExecutionContext(context: ExecutorContext): Promise<ForkExecutionContext> {
 	if (context.currentModel === undefined) throw new Error("current model is unavailable");
@@ -24,7 +23,12 @@ export async function createForkExecutionContext(context: ExecutorContext): Prom
 		timestamp: new Date().toISOString(),
 		cwd,
 	};
-	const root = await mkdtemp(path.join(os.tmpdir(), FORK_RESOURCE_PREFIX));
+	const root = await mkdtemp(forkDirectoryPrefix());
+	const release = retainStoragePath(root);
+	const dispose = async () => {
+		try { await rm(root, { recursive: true, force: true }); }
+		finally { release(); }
+	};
 	const snapshotPath = path.join(root, "context.jsonl");
 	const systemPromptPath = path.join(root, "system-prompt.txt");
 
@@ -32,6 +36,7 @@ export async function createForkExecutionContext(context: ExecutorContext): Prom
 		await writePrivateFile(snapshotPath, serializeJsonl([header, ...entries]));
 		await writePrivateFile(systemPromptPath, context.systemPrompt);
 		return {
+			dispose,
 			snapshotPath,
 			systemPromptPath,
 			model: context.currentModel,
@@ -41,13 +46,9 @@ export async function createForkExecutionContext(context: ExecutorContext): Prom
 			cwd,
 		};
 	} catch (error) {
-		await rm(root, { recursive: true, force: true });
+		await dispose();
 		throw error;
 	}
-}
-
-export async function cleanupForkExecutionContext(context: ForkExecutionContext): Promise<void> {
-	await rm(path.dirname(context.snapshotPath), { recursive: true, force: true });
 }
 
 export function formatForkAssignment(agentBody: string, task: string): string {

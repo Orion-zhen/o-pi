@@ -11,6 +11,7 @@ import { GuiSettings } from "../preferences/gui-settings.tsx";
 import { ModuleSettings } from "./module-settings.tsx";
 import { LspServers } from "./lsp-servers.tsx";
 import { McpSettings } from "../mcp/mcp-settings.tsx";
+import { StorageSettings } from "../storage/storage-settings.tsx";
 import { SettingsActions, SettingsHeading, SettingsSection } from "./settings-controls.tsx";
 import { settingsCategories, type SettingsCategory } from "./settings-navigation.ts";
 import { SettingsCategoryContext, SettingsStateContext, useSettingsCoordinator } from "./settings-state.tsx";
@@ -52,6 +53,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 				<GuiSettings title="桌面 Web 访问" section="desktopWeb" {...guiProps} />
 				{module("discordPresence", "Discord 状态")}
 			</>;
+			case "storage": return <StorageSettings query={globalQuery} send={send} connected={connected} active={category === "storage"} />;
 			case "terminal": return module("tui", "终端界面");
 		}
 	};
@@ -81,7 +83,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 			</aside>
 			{settingsCategories.map(({ id, label }) => <Tabs.Content key={id} value={id} className="settings-content" forceMount>
 				{visited.has(id) && <SettingsCategoryContext value={id}><div className="gui-settings">
-					<SettingsHeading title={label} />{content(id)}
+					{id !== "storage" && <SettingsHeading title={label} />}{content(id)}
 				</div></SettingsCategoryContext>}
 			</Tabs.Content>)}
 		</Tabs.Root>

@@ -2,7 +2,7 @@ import { createReadStream, type Dirent } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getSessionsDir } from "../../harness/storage/sdk-paths.ts";
 import pLimit from "p-limit";
 import type { GuiSessionInfo } from "../contract.ts";
 
@@ -60,7 +60,7 @@ export class GuiSessionIndex {
 	private cache = new Map<string, { stamp: string; value: GuiSessionInfo | null }>();
 
 	async list(): Promise<GuiSessionInfo[]> {
-		const root = path.join(getAgentDir(), "sessions");
+		const root = getSessionsDir();
 		const limit = pLimit(10);
 		let directories: Dirent[];
 		try { directories = await readdir(root, { withFileTypes: true }); }

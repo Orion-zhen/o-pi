@@ -1,6 +1,6 @@
 import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { userCachePath } from "./cache-path.ts";
+import { userHistoryPath } from "./storage/paths.ts";
 
 const USER_HISTORY_LIMIT = 100;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -25,7 +25,7 @@ interface UserHistoryAppend {
 
 /** 单文件 JSONL 历史；追加和压缩在进程内串行，并用短期目录锁协调多个 Pi 进程。 */
 export class UserHistoryStore {
-	private readonly filePath = userCachePath("user-history", "history.jsonl");
+	private readonly filePath = userHistoryPath();
 	private writeTail: Promise<void> = Promise.resolve();
 
 	async load(cwd: string): Promise<UserHistoryRecord[]> {
@@ -266,7 +266,7 @@ async function compactHistoryFile(filePath: string): Promise<void> {
 	}
 }
 
-async function withHistoryLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+export async function withHistoryLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
 	const lockPath = `${filePath}.lock`;
 	const deadline = Date.now() + LOCK_TIMEOUT_MS;
 	while (true) {

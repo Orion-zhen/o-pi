@@ -19,7 +19,6 @@ export { SubagentExecutionRegistry } from "./execution-lifecycle.ts";
 export { exceedsTokenLimit, formatResultForContext, sanitizeFileName } from "./output.ts";
 export { runPiProcess } from "./process.ts";
 export {
-	cleanupForkExecutionContext,
 	createForkExecutionContext,
 	formatForkAssignment,
 	loadForkSystemPrompt,

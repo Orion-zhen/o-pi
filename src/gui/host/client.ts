@@ -15,6 +15,7 @@ import { readMcpConfig, saveMcpConfig } from "./mcp-config.ts";
 import { listDirectories } from "./directories.ts";
 import { importSession } from "./files.ts";
 import { FileResources } from "./file-resource.ts";
+import { GuiStorage } from "./storage/service.ts";
 
 const validateAction = compileSchemaValidator(actionSchema);
 const validateQuery = compileSchemaValidator(querySchema);
@@ -23,6 +24,7 @@ const validateQuery = compileSchemaValidator(querySchema);
 export class GuiClient {
 	readonly id = randomUUID();
 	private readonly resources = new FileResources(this.id);
+	private readonly storage: GuiStorage;
 	resolveFileResource(token: string) {
 		if (this.closed) throw new Error("客户端已断开。");
 		return this.resources.resolve(token, this.selected?.cwd ?? this.host.workspaceRoot);
@@ -40,6 +42,7 @@ export class GuiClient {
 	private creatingSessions = new Map<string, Promise<{ cancelled: boolean }>>();
 
 	constructor(readonly host: GuiHost) {
+		this.storage = new GuiStorage(host);
 		this.unsubscribeHost = host.subscribe((event) => {
 			if (event.type === "sessionsDeleted") {
 				for (const id of event.ids) this.drafts.delete(id);
@@ -222,6 +225,7 @@ export class GuiClient {
 				}
 				return;
 			}
+			case "removeStorage": await this.host.manageStorage(() => this.storage.remove(action.ids)); return;
 			case "saveMcpConfig": await saveMcpConfig(action.original, action.content); return;
 			case "saveModuleConfig": await saveModuleConfig(action.id, action.original, action.content); return;
 			case "saveGuiConfig": this.host.applyGuiConfig(await saveGuiConfig(action.original, action.content)); return;
@@ -270,6 +274,7 @@ export class GuiClient {
 		if (!validateQuery(value)) throw new Error("无效 GUI 查询参数。");
 		if (this.closed) throw new Error("客户端已断开。");
 		const query = value as GuiQuery;
+		if (query.query === "storage") return this.host.manageStorage(() => this.storage.read());
 		if (query.query === "mcpConfig") return readMcpConfig();
 		if (query.query === "guiConfig") return readGuiConfig();
 		if (query.query === "startupChangelog") return this.host.changelog.read(this.id, this.host.workspaceRoot);
@@ -295,6 +300,7 @@ export class GuiClient {
 		this.closed = true;
 		this.selection++;
 		this.unbind(); this.unsubscribeHost();
+		this.storage.dispose();
 		this.host.changelog.release(this.id);
 		this.host.clients.delete(this);
 		this.listeners.clear();

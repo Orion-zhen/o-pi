@@ -1,0 +1,31 @@
+.storage-settings, .storage-group-body { display: flex; flex-direction: column; gap: var(--space-3); min-inline-size: 0; }
+.storage-list-actions, .storage-confirmation-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); min-inline-size: 0; }
+.storage-delete { color: var(--destructive); }
+.storage-summary { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-6); padding: var(--space-4); border-radius: var(--radius-md); background: var(--control-surface); }
+.storage-summary > div { flex: 1 1 20ch; min-inline-size: 0; }
+.storage-summary dt, .storage-group-amount, .storage-entry-meta { color: var(--muted-foreground); font-size: var(--text-small); }
+.storage-summary dd { font-size: var(--text-heading); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.storage-group { min-inline-size: 0; border-block-start: thin solid var(--divider); }
+.storage-group-heading { flex-wrap: wrap; justify-content: flex-start; inline-size: 100%; padding: var(--space-3) var(--space-2); white-space: normal; text-align: start; }
+.storage-group-heading > strong { min-inline-size: 0; overflow-wrap: anywhere; font-weight: 500; }
+.storage-group-amount { margin-inline-start: auto; font-weight: 400; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.storage-group-body { padding-block: var(--space-2) var(--space-4); }
+.storage-paths { display: flex; flex-direction: column; gap: var(--space-1); min-inline-size: 0; color: var(--muted-foreground); font-size: var(--text-caption); }
+.storage-paths code, .storage-entry-text code, .storage-confirmation-list code { white-space: normal; overflow-wrap: anywhere; font-family: var(--font-mono); }
+.storage-select { display: flex; align-items: center; gap: var(--space-2); min-inline-size: 0; font-size: var(--text-small); cursor: pointer; }
+.storage-entries { display: flex; flex-direction: column; min-inline-size: 0; }
+.storage-entry { display: flex; align-items: flex-start; gap: var(--space-3); min-inline-size: 0; padding-block: var(--space-3); }
+.storage-entry + .storage-entry { border-block-start: thin solid var(--divider); }
+.storage-entry-text { display: flex; flex: 1; flex-direction: column; gap: var(--space-1); min-inline-size: 0; overflow-wrap: anywhere; }
+.storage-entry-text > strong { font-size: var(--text-ui); font-weight: 500; }
+.storage-entry-text > code { color: var(--muted-foreground); font-size: var(--text-caption); }
+.storage-entry-meta { font-variant-numeric: tabular-nums; }
+.storage-confirmation { display: flex; flex-direction: column; min-inline-size: 0; max-inline-size: min(64ch, 100%); max-block-size: 100%; overflow: auto; }
+.storage-confirmation-list { display: flex; flex-direction: column; gap: var(--space-2); min-inline-size: 0; }
+.storage-confirmation-list > li { display: flex; flex-direction: column; min-inline-size: 0; overflow-wrap: anywhere; }
+.storage-confirmation-list strong { font-size: var(--text-ui); font-weight: 500; }
+.storage-confirmation-list code { font-size: var(--text-caption); color: var(--muted-foreground); }
+.storage-consent { align-items: flex-start; line-height: 1.6; }
+.storage-consent > span { min-inline-size: 0; overflow-wrap: anywhere; }
+.storage-confirmation-actions { justify-content: flex-end; }
+.storage-confirmation-actions > button { flex: 1 1 auto; min-inline-size: 0; white-space: normal; }

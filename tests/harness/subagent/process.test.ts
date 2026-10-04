@@ -12,10 +12,7 @@ import { runSubagentCommand } from "../../../src/harness/subagent/commands.ts";
 import { executeSubagent, resolveMode } from "../../../src/harness/subagent/executor.ts";
 import { PiJsonProgressAccumulator } from "../../../src/harness/subagent/json-progress.ts";
 import { runPiProcess } from "../../../src/harness/subagent/process.ts";
-import {
-	cleanupForkExecutionContext,
-	createForkExecutionContext,
-} from "../../../src/harness/subagent/session-context.ts";
+import { createForkExecutionContext } from "../../../src/harness/subagent/session-context.ts";
 import type {
 	AgentDefinition,
 	ExecutorContext,
@@ -224,7 +221,7 @@ describe("subagent execution", () => {
 			const snapshot = (await readFile(fork.snapshotPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { id?: string });
 			expect(snapshot.map((entry) => entry.id)).toEqual(["parent-session", "user", "assistant"]);
 		} finally {
-			await cleanupForkExecutionContext(fork);
+			await fork.dispose();
 		}
 	});
 
@@ -257,7 +254,7 @@ describe("subagent execution", () => {
 			const snapshot = (await readFile(fork.snapshotPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { id?: string });
 			expect(snapshot.map((entry) => entry.id)).toEqual(["parent-session", "user"]);
 		} finally {
-			await cleanupForkExecutionContext(fork);
+			await fork.dispose();
 		}
 	});
 
@@ -281,7 +278,7 @@ describe("subagent execution", () => {
 			}
 			expect(await readFile(fork.systemPromptPath, "utf8")).toBe("Exact parent system prompt");
 		} finally {
-			await cleanupForkExecutionContext(fork);
+			await fork.dispose();
 		}
 	});
 

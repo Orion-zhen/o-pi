@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { userCachePath } from "../../../src/harness/cache-path.ts";
+import { userHistoryPath } from "../../../src/harness/storage/paths.ts";
 import { buildInitialHistory, UserHistoryStore, type UserHistoryRecord } from "../../../src/harness/user-history.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
@@ -9,8 +9,6 @@ const temp = useTempDir("o-pi-user-history-");
 preserveEnv("HOME", "USERPROFILE");
 beforeEach(() => setTestHome(temp.path));
 afterEach(() => vi.useRealTimers());
-
-const historyPath = () => userCachePath("user-history", "history.jsonl");
 
 describe("路径级用户历史", () => {
 	it("以 JSONL 单文件追加，并只加载当前路径的最近记录", async () => {
@@ -25,7 +23,7 @@ describe("路径级用户历史", () => {
 		vi.setSystemTime(new Date("2026-01-01T00:00:02Z"));
 		await store.append({ cwd: projectA, session: "s3", text: "multi\nline" });
 		const records = await store.load(projectA);
-		const lines = (await readFile(historyPath(), "utf8")).trimEnd().split("\n");
+		const lines = (await readFile(userHistoryPath(), "utf8")).trimEnd().split("\n");
 		expect(records.map((record) => record.text)).toEqual(["first", "multi\nline"]);
 		expect(lines).toHaveLength(3);
 		expect(lines[0]).toContain('"timestamp":"2026-01-01T00:00:00.000Z"');
@@ -42,7 +40,7 @@ describe("路径级用户历史", () => {
 		expect(records.map(({ text, session }) => ({ text, session }))).toEqual([
 			{ text: "second", session: "new" }, { text: "first", session: "new" },
 		]);
-		expect((await readFile(historyPath(), "utf8")).trimEnd().split("\n")).toHaveLength(3);
+		expect((await readFile(userHistoryPath(), "utf8")).trimEnd().split("\n")).toHaveLength(3);
 	});
 
 	it("旧文件先过滤命令和重复输入，再取最近 100 条", async () => {
@@ -52,8 +50,8 @@ describe("路径级用户历史", () => {
 			...Array.from({ length: 110 }, () => " message-1 "),
 			"/tools", " /settings ",
 		];
-		await mkdir(path.dirname(historyPath()), { recursive: true });
-		await writeFile(historyPath(), texts.map((text, index) => JSON.stringify({
+		await mkdir(path.dirname(userHistoryPath()), { recursive: true });
+		await writeFile(userHistoryPath(), texts.map((text, index) => JSON.stringify({
 			timestamp: new Date(index).toISOString(), cwd, session: "old", text,
 		})).join("\n") + "\n");
 		expect((await new UserHistoryStore().load(cwd)).map((record) => record.text)).toEqual([
@@ -88,12 +86,12 @@ describe("路径级用户历史", () => {
 			await store.append({ cwd: smallCwd, session: "session", text: "small-30" });
 		}
 		const oldCommand = JSON.stringify({ timestamp: new Date().toISOString(), cwd: smallCwd, session: "session", text: "/tools" });
-		await writeFile(historyPath(), `${oldCommand}\n`, { flag: "a" });
+		await writeFile(userHistoryPath(), `${oldCommand}\n`, { flag: "a" });
 		const body = "x".repeat(128 * 1024);
 		for (let index = 0; index < 72; index += 1) {
 			await store.append({ cwd: largeCwd, session: "session", text: `${index}-${body}` });
 		}
-		const content = await readFile(historyPath(), "utf8");
+		const content = await readFile(userHistoryPath(), "utf8");
 		const persisted = content.trimEnd().split("\n").map((line) => JSON.parse(line) as UserHistoryRecord);
 		expect(Buffer.byteLength(content)).toBeLessThanOrEqual(8 * 1024 * 1024);
 		expect(persisted.filter((record) => record.cwd === smallCwd).map((record) => record.text)).toEqual([
@@ -116,19 +114,19 @@ describe("路径级用户历史", () => {
 		await store.append({ cwd, session: "session", text: "kept" });
 		await store.append({ cwd, session: "session", text: "x".repeat(6 * 1024 * 1024) });
 		expect((await store.load(cwd)).map((record) => record.text)).toEqual(["kept"]);
-		expect(Buffer.byteLength(await readFile(historyPath(), "utf8"))).toBeLessThan(6 * 1024 * 1024);
+		expect(Buffer.byteLength(await readFile(userHistoryPath(), "utf8"))).toBeLessThan(6 * 1024 * 1024);
 	});
 
 	it("跳过旧文件中的超长记录，并在下次写入时清理", async () => {
 		const cwd = path.join(temp.path, "project");
 		const older = JSON.stringify({ timestamp: "2026-01-01T00:00:00.000Z", cwd, session: "session", text: "older" });
 		const oversized = JSON.stringify({ timestamp: "2026-01-01T00:00:01.000Z", cwd, session: "session", text: "x".repeat(9 * 1024 * 1024) });
-		await mkdir(path.dirname(historyPath()), { recursive: true });
-		await writeFile(historyPath(), `${older}\n${oversized}\n`);
+		await mkdir(path.dirname(userHistoryPath()), { recursive: true });
+		await writeFile(userHistoryPath(), `${older}\n${oversized}\n`);
 		const store = new UserHistoryStore();
 		expect((await store.load(cwd)).map((record) => record.text)).toEqual(["older"]);
 		await store.append({ cwd, session: "session", text: "recent" });
-		expect(Buffer.byteLength(await readFile(historyPath(), "utf8"))).toBeLessThanOrEqual(6 * 1024 * 1024);
+		expect(Buffer.byteLength(await readFile(userHistoryPath(), "utf8"))).toBeLessThanOrEqual(6 * 1024 * 1024);
 		expect((await store.load(cwd)).map((record) => record.text)).toEqual(["older", "recent"]);
 	});
 

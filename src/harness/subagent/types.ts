@@ -144,6 +144,7 @@ export type RenderEvent =
 	| { type: "tool"; name: string; args: Record<string, unknown>; status?: ToolProgressStatus };
 
 export interface ForkExecutionContext {
+	dispose(): Promise<void>;
 	snapshotPath: string;
 	systemPromptPath: string;
 	model: ParentModel;

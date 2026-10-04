@@ -3,6 +3,8 @@ import type { DesktopBridge } from "../gui/contract.ts";
 import type { GuiDelivery } from "../gui/sync.ts";
 
 const bridge: DesktopBridge = {
+	readStorage: () => ipcRenderer.invoke("gui:storage"),
+	clearStorage: (ids) => ipcRenderer.invoke("gui:clearStorage", ids),
 	setAppearance: (value) => ipcRenderer.invoke("gui:appearance", value),
 	send: (value, sessionId) => ipcRenderer.invoke("gui:action", { value, sessionId }, Date.now()),
 	query: (value, sessionId) => ipcRenderer.invoke("gui:query", { value, sessionId }),

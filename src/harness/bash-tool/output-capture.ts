@@ -1,6 +1,7 @@
 import type { WriteStream } from "node:fs";
 import { chmod, mkdir, open, rm } from "node:fs/promises";
-import os from "node:os";
+import { bashOutputDirectory } from "../storage/paths.ts";
+import { retainStoragePath } from "../storage/active.ts";
 import path from "node:path";
 import { finished } from "node:stream/promises";
 
@@ -38,14 +39,15 @@ export class OutputCapture {
 		this.head = Buffer.alloc(headLimit);
 		this.tail = Buffer.alloc(previewBytes - headLimit);
 		// 立即监听写入错误，并将拒绝转为可等待的结果，避免 finish 之前发生未处理异常。
-		this.completion = finished(stream, { cleanup: true }).then(
+		const release = retainStoragePath(logPath);
+		this.completion = finished(stream, { cleanup: true }).finally(release).then(
 			() => undefined,
 			(error: unknown) => ({ error }),
 		);
 	}
 
 	static async create(options: CaptureOptions): Promise<OutputCapture> {
-		const dir = path.join(os.tmpdir(), "o-pi", "bash", sanitizePathPart(options.sessionId));
+		const dir = path.join(bashOutputDirectory(), sanitizePathPart(options.sessionId));
 		await mkdir(dir, { recursive: true, mode: 0o700 });
 		await chmodForPlatform(dir, 0o700);
 		const logPath = path.join(dir, `${sanitizePathPart(options.toolCallId)}.log`);

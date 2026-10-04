@@ -17,6 +17,7 @@ import { BackendClient } from "./backend-client.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";
 import { forkDesktopWorker } from "./worker-services.ts";
 import { DesktopDiagnostics } from "./diagnostics.ts";
+import { DesktopStorage } from "./storage.ts";
 import { installDesktopAppearance } from "./appearance.ts";
 import { installDesktopShutdown } from "./shutdown.ts";
 import { fileResourceResponse, type FileResource } from "../gui/host/file-resource.ts";
@@ -58,6 +59,9 @@ void app
 	.whenReady()
 	.then(async () => {
 		const diagnostics = new DesktopDiagnostics(path.join(app.getPath("logs"), "gui-timing.jsonl"));
+		const storage = new DesktopStorage(diagnostics);
+		ipcMain.handle("gui:storage", (event) => { trusted(event); return storage.read(); });
+		ipcMain.handle("gui:clearStorage", (event, ids: unknown) => { trusted(event); return storage.clear(ids); });
 		let environment = process.env;
 		if (process.platform === "darwin") {
 			app.dock?.setIcon(icon);

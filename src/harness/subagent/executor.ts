@@ -7,7 +7,7 @@ import { loadSubagentConfig } from "./config.ts";
 import { formatModelReference } from "./model.ts";
 import { exceedsTokenLimit, formatFileHandoff, formatResultForContext, persistResult } from "./output.ts";
 import { runPiProcess } from "./process.ts";
-import { cleanupForkExecutionContext, createForkExecutionContext, formatForkAssignment } from "./session-context.ts";
+import { createForkExecutionContext, formatForkAssignment } from "./session-context.ts";
 import type {
 	AgentDefinition,
 	ExecutorContext,
@@ -107,7 +107,7 @@ async function executeTasks(params: SubagentToolParams, context: ExecutorContext
 		}
 		return await executeChain(preparedTasks, runId, config, context, details, tokenScope);
 	} finally {
-		if (forkContext !== undefined) await cleanupForkExecutionContext(forkContext);
+		if (forkContext !== undefined) await forkContext.dispose();
 	}
 }
 

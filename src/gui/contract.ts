@@ -14,6 +14,7 @@ import type { GuiEntry, GuiMessage, GuiToolOutput, ToolOutput } from "./messages
 import { moduleConfigIds, type ModuleConfigDocument } from "./module-config.ts";
 import type { McpConfigDocument } from "./mcp.ts";
 import type { GuiLspServers } from "./lsp.ts";
+import type { StorageSnapshot, StorageGroup } from "./storage.ts";
 
 const moduleConfigId = Type.Enum(moduleConfigIds);
 const text = Type.String();
@@ -101,6 +102,7 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]) }),
 	object({ action: Type.Literal("clearNotices"), ids: Type.Array(short, { maxItems: 100, uniqueItems: true }) }),
 	object({ action: Type.Literal("draft"), text }),
+	object({ action: Type.Literal("removeStorage"), ids: Type.Array(short, { minItems: 1, maxItems: 1000, uniqueItems: true }) }),
 	object({ action: Type.Literal("saveMcpConfig"), original: text, content: text }),
 	object({ action: Type.Literal("saveModuleConfig"), id: moduleConfigId, original: text, content: text }),
 	object({ action: Type.Literal("saveGuiConfig"), original: text, content: text }),
@@ -113,6 +115,7 @@ export const requestSchema = object({ sessionId: Type.Union([short, Type.Null()]
 export type GuiRequest = Static<typeof requestSchema>;
 
 export const querySchema = Type.Union([
+	object({ query: Type.Literal("storage") }),
 	object({ query: Type.Literal("moduleConfig"), id: moduleConfigId }),
 	object({ query: Type.Literal("guiConfig") }),
 	object({ query: Type.Literal("mcpConfig") }),
@@ -130,10 +133,11 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
 ]);
 export type GuiQuery = Static<typeof querySchema>;
-export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" }>;
+export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "storage" }>;
 export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" | "lspServers" }>;
 export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
 export interface GuiQueryResults {
+	storage: StorageSnapshot;
 	mcpConfig: McpConfigDocument;
 	moduleConfig: ModuleConfigDocument;
 	guiConfig: GuiConfigDocument;
@@ -296,6 +300,8 @@ export interface GuiConnection {
 export interface DesktopAppearance { theme: "system" | "light" | "dark"; transparent: boolean }
 export type DesktopMaterial = "vibrancy" | "acrylic" | "compositor" | "none";
 export interface DesktopBridge extends Omit<GuiConnection, "subscribe"> {
+	readStorage(): Promise<StorageGroup>;
+	clearStorage(ids: string[]): Promise<void>;
 	/** 返回平台支持的背景材质，不受当前开关或辅助功能设置影响。 */
 	setAppearance(value: DesktopAppearance): Promise<DesktopMaterial>;
 	subscribe(listener: (delivery: import("./sync.ts").GuiDelivery) => void): () => void;

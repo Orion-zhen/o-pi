@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { tmpdir } from "node:os";
+import { exportDirectoryPrefix } from "../../harness/storage/paths.ts";
+import { retainStoragePath } from "../../harness/storage/active.ts";
 import { replaceConfigFile } from "../../harness/config-file.ts";
 export { replaceConfigFile } from "../../harness/config-file.ts";
 import { fileTypeFromBuffer } from "file-type";
@@ -50,7 +51,8 @@ export async function exportSession(
 	format: "jsonl" | "html",
 	emit: (event: GuiEvent) => void,
 ): Promise<void> {
-	const directory = await mkdtemp(path.join(tmpdir(), "opi-export-"));
+	const directory = await mkdtemp(exportDirectoryPrefix());
+	const release = retainStoragePath(directory);
 	try {
 		const file = path.join(directory, `session.${format}`);
 		if (format === "jsonl") session.exportToJsonl(file);
@@ -62,7 +64,8 @@ export async function exportSession(
 			mimeType: format === "html" ? "text/html" : "application/x-ndjson",
 		});
 	} finally {
-		await rm(directory, { recursive: true, force: true });
+		try { await rm(directory, { recursive: true, force: true }); }
+		finally { release(); }
 	}
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, Copy, Plus, Server, Upload } from "lucide-react";
+import { ChevronRight, Copy, Import, Plus, Server } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import type { GlobalQuery, Query } from "../../contract.ts";
 import { mcpObject, parseMcpConfig, validateMcpConfig, type McpConfig } from "../../mcp-validation.ts";
@@ -68,7 +68,7 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 		};
 		form = <>
 			<div className="mcp-toolbar"><span className="settings-description">{draft.servers.length} 个服务</span>
-				<div className="settings-action-buttons"><Button variant="outline" size="sm" disabled={blocked} onClick={() => setImporting(!importing)}><Upload />导入配置</Button>
+				<div className="settings-action-buttons"><Button variant="outline" size="sm" disabled={blocked} onClick={() => setImporting(!importing)}><Import />导入配置</Button>
 					<Button size="sm" disabled={blocked} onClick={() => add()}><Plus />添加服务</Button></div>
 			</div>
 			<AnimatePresence initial={false}>{importing && <Reveal key="import"><McpImport draft={draft} disabled={blocked} apply={(next) => { changeDraft(next); setImporting(false); }} cancel={() => setImporting(false)} /></Reveal>}</AnimatePresence>

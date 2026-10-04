@@ -1,4 +1,4 @@
-import os from "node:os";
+import { telemetryRunsDirectory, telemetryReportDirectory } from "../storage/paths.ts";
 import path from "node:path";
 
 import type { TelemetryReport, TelemetryReportQuery } from "./types.ts";
@@ -17,8 +17,8 @@ export interface GenerateTelemetryReportResult {
 
 export async function generateTelemetryReport(options: GenerateTelemetryReportOptions = {}): Promise<GenerateTelemetryReportResult> {
 	const usesDefaultInput = options.inputDirectory === undefined;
-	const inputDirectory = path.resolve(options.inputDirectory ?? path.join(os.homedir(), ".pi", "telemetry", "runs"));
-	const outputDirectory = path.resolve(options.outputDirectory ?? path.join(os.homedir(), ".pi", "telemetry", "reports", "latest"));
+	const inputDirectory = path.resolve(options.inputDirectory ?? telemetryRunsDirectory());
+	const outputDirectory = path.resolve(options.outputDirectory ?? telemetryReportDirectory());
 	const [{ mkdir, stat, writeFile }, { readTelemetryDirectory }, { aggregateTelemetry }, { renderTelemetryHtml }] = await Promise.all([
 		import("node:fs/promises"),
 		import("./read.ts"),

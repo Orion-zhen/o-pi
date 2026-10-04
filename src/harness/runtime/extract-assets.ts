@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import os from "node:os";
+import { resourceCacheDirectory } from "../storage/paths.ts";
 import path from "node:path";
 
 export interface EmbeddedAsset {
@@ -10,7 +10,7 @@ export interface EmbeddedAsset {
 
 /** 先完整写入临时目录，再原子发布。并发启动只保留一个完整的资源目录。 */
 export function extractAssets(id: string, assets: readonly EmbeddedAsset[]): string {
-	const cache = path.join(os.homedir(), ".pi", "cache", "opi");
+	const cache = resourceCacheDirectory();
 	const destination = path.join(cache, id);
 	if (existsSync(destination)) return destination;
 	mkdirSync(cache, { recursive: true, mode: 0o700 });

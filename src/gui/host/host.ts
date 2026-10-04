@@ -36,6 +36,7 @@ export class GuiHost {
 	private listeners = new Set<(event: GuiEvent) => void>();
 	private tasks = new Set<Promise<unknown>>();
 	private historyMutation: Promise<void> = Promise.resolve();
+	private storageMutation: Promise<void> = Promise.resolve();
 	private closed = false;
 	private refreshPending = false;
 	private activityPending = false;
@@ -208,8 +209,13 @@ export class GuiHost {
 			await this.catalog.refresh();
 		});
 	}
-	remove(files: string[]): Promise<void> { return this.changeHistory(() => this.removeFiles(files)); }
-	private async removeFiles(files: string[]): Promise<void> {
+	manageStorage<T>(operation: () => Promise<T>): Promise<T> {
+		const pending = this.storageMutation.then(operation);
+		this.storageMutation = pending.then(() => {}, () => {});
+		return pending;
+	}
+	remove(files: string[], verify?: () => Promise<void>): Promise<void> { return this.changeHistory(() => this.removeFiles(files, verify)); }
+	private async removeFiles(files: string[], verify?: () => Promise<void>): Promise<void> {
 		const normalized = [...new Set(files.map((file) => path.resolve(file)))];
 		const affected = [...this.sessions.values()].filter((session) => session.file && normalized.includes(session.file));
 		try {
@@ -218,6 +224,7 @@ export class GuiHost {
 			for (const session of affected) if (!await session.confirmDeletion()) return;
 			const plan = await prepareSessionDeletion(normalized, new Set(affected.flatMap((session) => session.file ? [session.file] : [])), () => this.catalog.paths());
 			await plan.verify();
+			await verify?.();
 			for (const session of affected) await session.prepareDeletion();
 			const removed = new Set<string>();
 			try { await plan.remove((file) => removed.add(file)); }

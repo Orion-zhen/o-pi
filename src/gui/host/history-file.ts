@@ -1,10 +1,10 @@
 import path from "node:path";
 import { lstat, realpath } from "node:fs/promises";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getSessionsDir } from "../../harness/storage/sdk-paths.ts";
 
 /** 历史修改仅接受共享目录中的普通文件，返回身份信息供并发修改检查。 */
 export async function inspectHistoryFile(file: string) {
-	const root = await realpath(path.join(getAgentDir(), "sessions"));
+	const root = await realpath(getSessionsDir());
 	const parent = await realpath(path.dirname(file));
 	const relative = path.relative(root, parent);
 	if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))

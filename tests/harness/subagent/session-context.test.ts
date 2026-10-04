@@ -1,7 +1,7 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { cleanupForkExecutionContext, createForkExecutionContext } from "../../../src/harness/subagent/session-context.ts";
+import { createForkExecutionContext } from "../../../src/harness/subagent/session-context.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-fork-context-");
@@ -31,7 +31,7 @@ describe("fork 模型上下文", () => {
 			expect(child.buildSessionContext().messages).toEqual(expected);
 			expect(child.getEntries().filter((entry) => entry.type === "context_edit")).toHaveLength(2);
 			expect(manager.getEntries()).toEqual(original);
-		} finally { await cleanupForkExecutionContext(fork); }
+		} finally { await fork.dispose(); }
 	});
 
 	it("工具 fork 只继承当前调用之前的编辑，不带入当前批次或其他分支", async () => {
@@ -53,6 +53,6 @@ describe("fork 模型上下文", () => {
 		});
 		try {
 			expect(SessionManager.open(fork.snapshotPath).buildSessionContext().messages).toEqual(expected);
-		} finally { await cleanupForkExecutionContext(fork); }
+		} finally { await fork.dispose(); }
 	});
 });

@@ -19,7 +19,7 @@ export class DesktopDiagnostics {
 	private generation = 0;
 	private deliveries = new Set<number>();
 
-	constructor(private file: string) {
+	constructor(readonly file: string) {
 		this.pending = mkdir(path.dirname(file), { recursive: true }).then(async () => {
 			try { this.size = (await stat(file)).size; }
 			catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
@@ -38,7 +38,7 @@ export class DesktopDiagnostics {
 		this.pending = this.pending.then(async () => {
 			if (this.failed) return;
 			if (this.size + bytes > MAX_BYTES) {
-				await rename(this.file, `${this.file}.1`);
+				await rename(this.file, this.archiveFile);
 				this.size = 0;
 			}
 			await appendFile(this.file, line, { mode: 0o600 });
@@ -96,6 +96,14 @@ export class DesktopDiagnostics {
 			});
 			this.deliveries.delete(deliveryId);
 		}
+	}
+	get archiveFile(): string { return `${this.file}.1`; }
+	/** 清理旧日志与轮转共用队列，清理失败不关闭后续日志写入。 */
+	manageFiles<T>(operation: () => Promise<T>): Promise<T> {
+		if (this.closing) return Promise.reject(new Error("诊断日志正在关闭。"));
+		const task = this.pending.then(operation);
+		this.pending = task.then(() => {}, () => {});
+		return task;
 	}
 	close(): Promise<void> {
 		this.closing ??= this.pending.then(() => { this.finished = true; });

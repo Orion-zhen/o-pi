@@ -7,8 +7,6 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { compileSchemaValidator, type SchemaValidateFunction } from "./schema-validator.ts";
 import { mergeConfigValues } from "./config-values.ts";
 
-export { expandHomePath, userCachePath } from "./cache-path.ts";
-
 export type ConfigErrorFactory<E extends Error> = (message: string, details?: Record<string, unknown>) => E;
 export type ConfigLayerKind = "default" | "user" | "project";
 
@@ -255,6 +253,12 @@ function compileValidator<E extends Error>(options: SchemaValidatorOptions<E>, c
 			path: options.schemaPath, error: error instanceof Error ? error.message : String(error),
 		});
 	}
+}
+
+export function expandHomePath(value: string): string {
+	if (value === "~") return os.homedir();
+	if (value.startsWith("~/") || value.startsWith("~\\")) return path.join(os.homedir(), value.slice(2));
+	return value;
 }
 
 export function defaultAgentConfigPath(fileName: string): string {
