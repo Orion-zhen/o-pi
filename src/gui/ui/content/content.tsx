@@ -5,7 +5,8 @@ import { CodeBlock } from "./code-block.tsx";
 import { motion } from "motion/react";
 import { fade } from "../lib/motion";
 import { Disclosure } from "../components/disclosure";
-import Markdown, { type Components, type ExtraProps } from "react-markdown";
+import Markdown, { defaultUrlTransform, type Components, type ExtraProps, type UrlTransform } from "react-markdown";
+import { FileLinksContext, fileLinkPath } from "./file-links.ts";
 import remarkGfm from "remark-gfm";
 import { remarkMath } from "./remark-math.ts";
 import "./math.css";
@@ -58,12 +59,23 @@ function MarkdownSpan({ node, children, ...props }: ComponentProps<"span"> & Ext
 	</Suspense>;
 }
 
+function MarkdownLink({ href, children }: ComponentProps<"a">) {
+	const files = useContext(FileLinksContext);
+	const path = files && href ? fileLinkPath(href, files.cwd) : undefined;
+	if (files && path !== undefined) return <a href={`./${path.split("/").map(encodeURIComponent).join("/")}`} title={path} onClick={(event) => {
+		event.preventDefault();
+		files.openFile(path);
+	}}>{children}</a>;
+	return href ? <ExternalLink href={href}>{children}</ExternalLink> : <span>{children}</span>;
+}
+
 const Streaming = createContext(false);
 const markdownPlugins = [remarkGfm, remarkMath];
+const markdownUrl: UrlTransform = (url, key, node) => node.tagName === "a" && key === "href" ? url : defaultUrlTransform(url);
 const markdownComponents: Components = {
 	span: MarkdownSpan,
 	pre: MarkdownCode,
-	a: ({ href, children }) => href ? <ExternalLink href={href}>{children}</ExternalLink> : <span>{children}</span>,
+	a: MarkdownLink,
 	img: ({ alt }) => <span>[图片链接: {alt}]</span>,
 };
 
@@ -77,7 +89,7 @@ function MarkdownCode({ children }: ComponentProps<"pre">) {
 
 export const MarkdownText = memo(function MarkdownText({ text, streaming = false }: { text: string; streaming?: boolean }) {
 	return <Streaming value={streaming}>
-		<Markdown remarkPlugins={markdownPlugins} components={markdownComponents}>{clean(text)}</Markdown>
+		<Markdown remarkPlugins={markdownPlugins} components={markdownComponents} urlTransform={markdownUrl}>{clean(text)}</Markdown>
 	</Streaming>;
 });
 

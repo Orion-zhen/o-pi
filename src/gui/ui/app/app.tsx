@@ -13,6 +13,7 @@ import {
 	X,
 } from "lucide-react";
 import { safeLink } from "../content/content.tsx";
+import { FileLinksContext } from "../content/file-links.ts";
 import { locateTranscript } from "../transcript/transcript-location.ts";
 import { Transcript } from "../transcript/transcript.tsx";
 import type { TranscriptSource } from "../transcript/transcript-items.ts";
@@ -57,6 +58,7 @@ function useDelayed(value: boolean, delay: number): boolean {
 
 export function App() {
 	const gui = useGui();
+	const fileLinks = useMemo(() => ({ cwd: gui.cwd, openFile: gui.openFile }), [gui.cwd, gui.openFile]);
 	const { snapshot, dialogs, notices, status, error, panel, auth, authUrl, deviceCode, send } = gui;
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [settingsDirty, setSettingsDirty] = useState(false);
@@ -261,8 +263,8 @@ export function App() {
 								{snapshot && located && source && (snapshot.messages.length > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
 									onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 									{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
-									<DisclosureMemoryContext value={memory}><Transcript source={source} entryIds={located.entryIds}
-										prunedToolCallIds={located.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} windowRef={transcript.virtualizer} target={target} view={located.preview ? undefined : gui.view} /></DisclosureMemoryContext>
+									<FileLinksContext value={fileLinks}><DisclosureMemoryContext value={memory}><Transcript source={source} entryIds={located.entryIds}
+										prunedToolCallIds={located.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} windowRef={transcript.virtualizer} target={target} view={located.preview ? undefined : gui.view} /></DisclosureMemoryContext></FileLinksContext>
 								</Fade>}
 								</AnimatePresence>
 								<AnimatePresence initial={false}>{snapshot?.bashOutput && <Reveal><pre className="live-output">{snapshot.bashOutput}</pre></Reveal>}</AnimatePresence>
