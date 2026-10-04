@@ -134,7 +134,9 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 		},
 		toEntry: (id: string) => {
 			const selector = CSS.escape(id);
-			const target = content.current?.querySelector<HTMLElement>(`[data-entry-id="${selector}"]`) ??
+			const target = content.current?.querySelector<HTMLElement>(`.reply-answer [data-entry-id="${selector}"]`) ??
+				content.current?.querySelector<HTMLElement>(`.reply-body [data-entry-id="${selector}"]`) ??
+				content.current?.querySelector<HTMLElement>(`[data-entry-id="${selector}"]`) ??
 				content.current?.querySelector<HTMLElement>(`[data-entry-ids~="${selector}"]`);
 			if (!target) return;
 			interrupt();
