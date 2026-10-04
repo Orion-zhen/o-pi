@@ -31,6 +31,7 @@
 		"@types/react-dom": "latest",
 		"@types/react-syntax-highlighter": "latest",
 		"@types/turndown": "latest",
+		"@types/which": "latest",
 		"@types/ws": "latest",
 		"@vitest/coverage-v8": "latest",
 		"electron": "latest",
@@ -104,6 +105,7 @@
 		"vscode-jsonrpc": "latest",
 		"vscode-languageserver-protocol": "latest",
 		"web-tree-sitter": "latest",
+		"which": "latest",
 		"ws": "latest"
 	},
 	"trustedDependencies": ["@google/genai", "protobufjs", "electron"],

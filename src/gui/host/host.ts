@@ -6,6 +6,8 @@ import type { GuiEvent, WorkspaceQuery } from "../contract.ts";
 import type { GuiConfigDocument } from "../preferences.ts";
 import { ApprovalStores } from "../../harness/approval/rules/store.ts";
 import { lspManager } from "../../harness/lsp/index.ts";
+import type { GuiLspServers } from "../lsp.ts";
+import { readLspServers } from "./lsp-servers.ts";
 import { GuiSession } from "./session.ts";
 import { GuiSessionCatalog } from "./sessions.ts";
 import { GuiClient } from "./client.ts";
@@ -92,8 +94,10 @@ export class GuiHost {
 		this.emit({ type: "guiConfig", value: document });
 	}
 	queryWorkspace(query: Extract<WorkspaceQuery, { query: "previewFile" }>): Promise<WorkspacePreview>;
-	queryWorkspace(query: Exclude<WorkspaceQuery, { query: "previewFile" }>): Promise<WorkspaceEntry[] | WorkspaceGit | null>;
+	queryWorkspace(query: Extract<WorkspaceQuery, { query: "lspServers" }>): Promise<GuiLspServers>;
+	queryWorkspace(query: Extract<WorkspaceQuery, { query: "workspaceFiles" | "workspaceGit" }>): Promise<WorkspaceEntry[] | WorkspaceGit | null>;
 	async queryWorkspace(query: WorkspaceQuery) {
+		if (query.query === "lspServers") return readLspServers(query.cwd);
 		const signal = this.workbenchController.signal;
 		const git = () => {
 			let pending = this.pendingGit.get(query.cwd);

@@ -8,6 +8,25 @@ import type { GuiClient } from "../../src/gui/host/client.ts";
 
 export function workbenchTests(context: () => { host: GuiClient; cwd: string }) {
 	describe("GUI 工作台读取边界", () => {
+		it("LSP 查询检查当前工作区的命令，切换后拒绝旧目录", async () => {
+			const { host, cwd } = context();
+			const config = await host.query({ query: "moduleConfig", id: "lsp" });
+			await writeFile(config.path, JSON.stringify({ servers: {
+				local: { command: ["definitely-missing-gui-lsp"], languages: { typescript: "*.ts" } },
+			} }));
+			await expect(host.query({ query: "lspServers", cwd })).resolves.toMatchObject({
+				servers: [{ id: "local", transport: { executable: null } }],
+			});
+			const next = path.join(cwd, "next");
+			const project = path.join(next, ".pi", "configs");
+			await mkdir(project, { recursive: true });
+			await writeFile(path.join(project, "lsp.jsonc"), JSON.stringify({ servers: { local: { command: [process.execPath] } } }));
+			await host.dispatch({ action: "workspace", path: next });
+			await expect(host.query({ query: "lspServers", cwd })).rejects.toThrow("工作区已切换");
+			await expect(host.query({ query: "lspServers", cwd: next })).resolves.toMatchObject({
+				servers: [{ id: "local", transport: { executable: process.execPath } }],
+			});
+		});
 		it("Git 状态与并发文件预览共享扫描，后续刷新仍读取外部变更", async () => {
 			const { host, cwd } = context();
 			await promisify(childProcess.execFile)("git", ["init", "-b", "main"], { cwd });

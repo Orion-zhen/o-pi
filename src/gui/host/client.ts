@@ -276,8 +276,9 @@ export class GuiClient {
 		if (query.query === "availableVersion") return this.host.checkVersion();
 		if (query.query === "moduleConfig") return readModuleConfig(query.id);
 		if (query.query === "directories") return listDirectories(path.resolve(this.host.workspaceRoot || process.cwd(), query.path));
-		if (query.query === "workspaceFiles" || query.query === "workspaceGit" || query.query === "previewFile") {
+		if (query.query === "workspaceFiles" || query.query === "workspaceGit" || query.query === "previewFile" || query.query === "lspServers") {
 			if (query.cwd !== (this.selected?.cwd ?? this.host.workspaceRoot)) throw new Error("工作区已切换，请刷新后重试。");
+			if (query.query === "lspServers") return this.host.queryWorkspace(query);
 			if (query.query !== "previewFile") return this.host.queryWorkspace(query);
 			const preview = await this.host.queryWorkspace(query);
 			const content = preview.content;

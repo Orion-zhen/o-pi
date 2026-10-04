@@ -13,6 +13,7 @@ import type { GuiEntry, GuiMessage, GuiToolOutput, ToolOutput } from "./messages
 
 import { moduleConfigIds, type ModuleConfigDocument } from "./module-config.ts";
 import type { McpConfigDocument } from "./mcp.ts";
+import type { GuiLspServers } from "./lsp.ts";
 
 const moduleConfigId = Type.Enum(moduleConfigIds);
 const text = Type.String();
@@ -123,13 +124,14 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("files"), prefix: short }),
 	object({ query: Type.Literal("workspaceFiles"), cwd: short, path: short }),
 	object({ query: Type.Literal("workspaceGit"), cwd: short }),
+	object({ query: Type.Literal("lspServers"), cwd: short }),
 	object({ query: Type.Literal("previewFile"), cwd: short, path: short }),
 	object({ query: Type.Literal("complete"), text: short }),
 	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
 ]);
 export type GuiQuery = Static<typeof querySchema>;
 export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" }>;
-export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" }>;
+export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" | "lspServers" }>;
 export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
 export interface GuiQueryResults {
 	mcpConfig: McpConfigDocument;
@@ -143,6 +145,7 @@ export interface GuiQueryResults {
 	files: string[];
 	workspaceFiles: WorkspaceEntry[];
 	workspaceGit: WorkspaceGit | null;
+	lspServers: GuiLspServers;
 	previewFile: FilePreview;
 	complete: { value: string; label: string; description?: string }[];
 	config: string;

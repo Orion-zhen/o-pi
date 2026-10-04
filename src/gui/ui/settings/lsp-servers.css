@@ -1,0 +1,13 @@
+.lsp-server-list { display: flex; flex-direction: column; min-inline-size: 0; }
+.lsp-server + .lsp-server { border-block-start: thin solid var(--divider); }
+.lsp-server-summary { inline-size: 100%; min-inline-size: 0; justify-content: flex-start; padding: var(--space-3) var(--space-2); white-space: normal; text-align: start; }
+.lsp-server-name { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.lsp-server-name > strong, .lsp-server-name > span { display: block; }
+.lsp-server-name > strong { font-weight: 500; }
+.lsp-server-name > span { color: var(--muted-foreground); font-size: var(--text-small); font-weight: 400; }
+.lsp-server-availability { flex-shrink: 0; color: var(--muted-foreground); font-size: var(--text-small); font-weight: 400; }
+.lsp-server-availability[data-availability="found"] { color: var(--primary); }
+.lsp-server-availability[data-availability="missing"] { color: var(--destructive); }
+.lsp-server-details { display: flex; flex-direction: column; gap: var(--space-2); min-inline-size: 0; padding: var(--space-2) var(--space-3) var(--space-3); font-size: var(--text-small); overflow-wrap: anywhere; }
+.lsp-server-details dt { color: var(--muted-foreground); }
+.lsp-server-details dd { margin: 0; }

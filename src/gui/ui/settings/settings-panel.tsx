@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { AgentSettings } from "./agent-settings.tsx";
 import { GuiSettings } from "./gui-settings.tsx";
 import { ModuleSettings } from "./module-settings.tsx";
+import { LspServers } from "./lsp-servers.tsx";
 import { McpSettings } from "./mcp-settings.tsx";
 import { SettingsActions, SettingsHeading, SettingsSection } from "./settings-controls.tsx";
 import { settingsCategories, type SettingsCategory } from "./settings-navigation.ts";
@@ -40,7 +41,9 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 					: <SettingsSection title="会话行为"><p className="settings-empty">未选择工作区</p></SettingsSection>}
 				{module("autoTitle", "自动标题")}
 			</>;
-			case "tools": return <>{module("bashTool", "终端执行")}{module("fileTools", "文件访问")}{module("lsp", "代码智能")}</>;
+			case "tools": return <>{module("bashTool", "终端执行")}{module("fileTools", "文件访问")}{module("lsp", "代码智能")}
+				<LspServers key={snapshot?.cwd} cwd={snapshot?.cwd} query={query} connected={connected} active={category === "tools"} />
+			</>;
 			case "web": return module("webTools", "网络与网页");
 			case "agents": return module("subagent", "子代理");
 			case "security": return module("approvalGate", "权限与安全");
