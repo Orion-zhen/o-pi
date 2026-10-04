@@ -25,7 +25,7 @@ test.beforeEach(async ({ workspace: { agentDir } }) => {
 test("服务行使用开关、组件折叠与直接图标操作，复用两步和快捷删除", async ({ gui: { page }, workspace: { agentDir } }) => {
 	await open(page);
 	const row = mcp(page).getByRole("article", { name: "MCP 服务 docs", exact: true });
-	const enabled = row.getByRole("switch", { name: "启用 docs", exact: true });
+	const enabled = row.getByRole("switch", { name: "docs", exact: true });
 	await expect(enabled).not.toBeChecked();
 	await enabled.click();
 	await expect(enabled).toBeChecked();
@@ -172,7 +172,7 @@ test("批量导入显式确认替换，复制、删除与放弃都只修改草�
 	} }));
 	await mcp(page).getByRole("button", { name: "预览导入", exact: true }).click();
 	await expect(mcp(page).getByRole("button", { name: "导入到草稿", exact: true })).toBeDisabled();
-	await mcp(page).getByRole("checkbox", { name: "替换 docs", exact: true }).check();
+	await mcp(page).getByRole("switch", { name: "替换 docs", exact: true }).check();
 	await mcp(page).getByRole("button", { name: "导入到草稿", exact: true }).click();
 	await mcp(page).getByRole("button", { name: "复制服务 docs", exact: true }).click();
 	await expect(form(page).getByLabel("服务名称", { exact: true })).toHaveValue("docs-copy-2");
@@ -201,7 +201,7 @@ test("新建远程服务，编辑认证头、OAuth 和有序工具规则", async
 	await form(page).getByLabel("服务名称", { exact: true }).fill("remote");
 	await selectSetting(page, "连接方式", "远程 HTTP");
 	await form(page).getByLabel("服务地址", { exact: true }).fill("https://remote.example/mcp");
-	await mcp(page).getByRole("switch", { name: "启用 remote", exact: true }).uncheck();
+	await mcp(page).getByRole("switch", { name: "remote", exact: true }).uncheck();
 	await selectSetting(page, "认证方式", "Bearer Token");
 	await form(page).getByLabel("Bearer Token", { exact: true }).fill("${REMOTE_TOKEN}");
 	await mcp(page).getByRole("button", { name: "自定义请求头", exact: true }).click();
@@ -267,7 +267,7 @@ test("导入替换已展开的服务时重新初始化认证编辑模式", async
 		docs: { url: "https://example.com/mcp", enabled: false, headers: { Authorization: "Bearer new-token" } },
 	} }));
 	await mcp(page).getByRole("button", { name: "预览导入", exact: true }).click();
-	await mcp(page).getByRole("checkbox", { name: "替换 docs", exact: true }).check();
+	await mcp(page).getByRole("switch", { name: "替换 docs", exact: true }).check();
 	await mcp(page).getByRole("button", { name: "导入到草稿", exact: true }).click();
 	await expect(form(page).getByRole("combobox", { name: "认证方式", exact: true })).toHaveText("Bearer Token");
 	await expect(form(page).getByLabel("Bearer Token", { exact: true })).toHaveValue("new-token");

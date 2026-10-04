@@ -3,7 +3,7 @@ import { RotateCcw } from "lucide-react";
 import { materialRegions, type GuiMaterials, type GuiPreferences, type MaterialRegion, type MaterialSurface } from "../../preferences.ts";
 import { previewMaterials } from "../theme/materials.ts";
 import { IconButton } from "../components/icon-button";
-import { Checkbox } from "../components/ui/checkbox";
+import { Switch } from "../components/ui/switch";
 import { Input } from "../components/ui/input";
 import { SettingsDisclosure, SettingsRow, SettingsSection } from "./settings-controls.tsx";
 import "./material-settings.css";
@@ -58,11 +58,11 @@ export function MaterialSettings({ value, defaults, theme, disabled, change, res
 	useLayoutEffect(() => previewMaterials(value), [value]);
 	return <SettingsSection title="磨砂与透明">
 		<div className="settings-fields">
-		<SettingsRow label="启用磨砂材质" disabled={disabled} reset={{ value: value.enabled, defaultValue: defaults.enabled, apply: () => change(["materials", "enabled"], undefined) }}>
-			<Checkbox aria-label="启用磨砂材质" checked={value.enabled} disabled={disabled} onCheckedChange={(checked) => change(["materials", "enabled"], checked === true)} />
+		<SettingsRow label="磨砂材质" disabled={disabled} reset={{ value: value.enabled, defaultValue: defaults.enabled, apply: () => change(["materials", "enabled"], undefined) }}>
+			<Switch aria-label="磨砂材质" checked={value.enabled} disabled={disabled} onCheckedChange={(checked) => change(["materials", "enabled"], checked)} />
 		</SettingsRow>
 		<SettingsRow label="桌面背景透明" disabled={disabled} reset={{ value: value.desktop, defaultValue: defaults.desktop, apply: () => change(["materials", "desktop"], undefined) }}>
-			<Checkbox aria-label="桌面背景透明" checked={value.desktop} disabled={blocked} onCheckedChange={(checked) => change(["materials", "desktop"], checked === true)} />
+			<Switch aria-label="桌面背景透明" checked={value.desktop} disabled={blocked} onCheckedChange={(checked) => change(["materials", "desktop"], checked)} />
 		</SettingsRow>
 		</div>
 		<SettingsDisclosure title="分区域调整"><div className="material-detail-layout">

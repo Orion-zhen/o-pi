@@ -33,7 +33,7 @@ test("分类草稿、关闭确认、保存与刷新恢复", async ({ gui: { page
 	await selectSettingsCategory(page, "桌面 Web 访问");
 	await settings.getByRole("textbox", { name: "监听地址", exact: true }).fill("::1");
 	await settings.getByRole("spinbutton", { name: "监听端口", exact: true }).fill("19200");
-	await settings.getByRole("checkbox", { name: "启用 Web 访问", exact: true }).check();
+	await settings.getByRole("switch", { name: "Web 访问", exact: true }).check();
 	expect(await stored()).not.toHaveProperty("desktopWeb");
 	await save.click();
 	await expect(async () => expect(await stored()).toMatchObject({ desktopWeb: { enabled: true, host: "::1", port: 19200 } })).toPass();

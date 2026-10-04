@@ -10,7 +10,7 @@
 .settings-tabs button[aria-selected="true"] { background: var(--selected); color: var(--selected-foreground); }
 .settings-unsaved { margin-inline-start: auto; color: var(--primary); }
 .settings-category-select { display: none; }
-.settings-content { --settings-control-min: 18ch; --settings-form-max: 80ch; flex: 1; min-inline-size: 0; min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: var(--content-inset); background: var(--background); }
+.settings-content { --settings-control-width: 40ch; --settings-form-max: 80ch; flex: 1; min-inline-size: 0; min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: var(--content-inset); background: var(--background); }
 .settings-content[data-state="inactive"] { display: none; }
 .settings-content > .gui-settings { inline-size: 100%; max-inline-size: var(--settings-form-max); margin-inline: auto; }
 .settings-section-heading, .settings-group-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
@@ -19,12 +19,16 @@
 .settings-heading-actions, .settings-action-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .settings-heading-actions { margin-inline-start: auto; }
 .gui-settings, .settings-module { display: flex; flex-direction: column; gap: var(--space-6); min-inline-size: 0; }
-.settings-section { display: flex; flex-direction: column; gap: var(--space-4); min-inline-size: 0; }
-.settings-section + .settings-section, .settings-module + .settings-module, .settings-module + .settings-section, .settings-section + .settings-module { padding-block-start: var(--space-5); border-block-start: thin solid var(--divider); }
-.settings-fields { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-6); min-inline-size: 0; }
-.settings-disclosure { min-inline-size: 0; }
-.settings-disclosure > .disclosure-trigger { flex-direction: row-reverse; align-items: center; justify-content: space-between; inline-size: 100%; gap: var(--space-3); padding-block: var(--space-2); cursor: pointer; color: var(--muted-foreground); font-size: var(--text-small); }
-.settings-disclosure-body { padding-block-start: var(--space-3); }
+.settings-section { display: flex; flex-direction: column; gap: var(--space-2); min-inline-size: 0; }
+.settings-section-body, .settings-disclosure { min-inline-size: 0; padding-inline: var(--space-4); border: thin solid var(--divider); border-radius: var(--radius-lg); background: var(--control-surface); }
+.settings-section-body { display: flex; flex-direction: column; }
+.settings-section-body > :not(.settings-fields, .settings-disclosure) { margin-block-start: var(--space-3); }
+.settings-section-body > :last-child:not(.settings-fields, .settings-disclosure) { margin-block-end: var(--space-3); }
+.settings-fields { display: flex; flex-direction: column; min-inline-size: 0; }
+.settings-disclosure > .disclosure-trigger { flex-direction: row-reverse; align-items: center; justify-content: space-between; inline-size: 100%; gap: var(--space-3); padding-block: var(--space-3); cursor: pointer; font-size: var(--text-ui); }
+.settings-disclosure-body { min-inline-size: 0; border-block-start: thin solid var(--divider); }
+.settings-section-body > .settings-disclosure { margin-block: 0; padding-inline: 0; border: 0; border-block-start: thin solid var(--divider); border-radius: 0; background: transparent; }
+.settings-section-body > .settings-disclosure .settings-disclosure-body { padding-block: var(--space-3); }
 .settings-actions { display: flex; flex-direction: column; gap: var(--space-3); padding-block-start: var(--space-4); border-block-start: thin solid var(--divider); }
 .settings-navigation > .settings-actions { flex-shrink: 0; padding: var(--space-4); }
 .settings-navigation .settings-action-buttons { flex-direction: row; align-items: stretch; }
@@ -35,17 +39,19 @@
 .settings-warning { padding: var(--space-2) var(--space-3); border-inline-start: thin solid var(--primary); color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }
 .gui-settings [role="alert"], .settings-popover [role="alert"], .settings-actions [role="alert"] { color: var(--destructive); font-size: var(--text-small); overflow-wrap: anywhere; }
 .settings-actions [role="alert"] { max-block-size: 6lh; overflow: auto; }
-.preference-row { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-inline-size: 0; max-inline-size: 100%; }
-.preference-label { display: flex; align-items: center; gap: var(--space-1); min-inline-size: 0; max-inline-size: 100%; min-block-size: 2em; overflow-wrap: anywhere; }
+.preference-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); min-inline-size: 0; inline-size: 100%; padding-block: var(--space-3); }
+.preference-row + .preference-row { border-block-start: thin solid var(--divider); }
+.preference-label { display: flex; flex: 1 1 12ch; align-items: center; gap: var(--space-1); min-inline-size: 0; max-inline-size: 100%; min-block-size: 2em; overflow-wrap: anywhere; }
 .preference-label > label { min-inline-size: 0; }
-.preference-label > button { flex-shrink: 0; }
-.preference-control { display: flex; align-items: center; gap: var(--space-2); min-inline-size: 0; max-inline-size: 100%; }
+.preference-label > button { flex-shrink: 0; inline-size: 2em; block-size: 2em; padding: 0; }
+.preference-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-inline-size: 0; max-inline-size: 100%; margin-inline-start: auto; }
 .preference-control > * { min-inline-size: 0; max-inline-size: 100%; }
-.preference-row[data-layout="fluid"] { flex: 1 1 auto; inline-size: max-content; }
-.preference-row[data-layout="fluid"] > .preference-control { flex: 1 1 var(--settings-control-min); inline-size: var(--settings-control-min); }
+.preference-row[data-layout="fluid"] > .preference-control { flex: 0 1 var(--settings-control-width); inline-size: var(--settings-control-width); }
 .preference-row:is([data-layout="fluid"], [data-layout="wide"]) > .preference-control > * { inline-size: 100%; }
-.preference-row[data-layout="wide"] { flex: 1 1 100%; flex-direction: column; align-items: stretch; }
-.preference-control > [data-slot="checkbox"] { flex-shrink: 0; }
+.preference-row[data-layout="wide"] { flex-direction: column; align-items: stretch; }
+.preference-row[data-layout="wide"] > .preference-label { flex: none; }
+.preference-row[data-layout="wide"] > .preference-control { inline-size: 100%; margin-inline-start: 0; }
+.preference-control > [data-slot="select-trigger"] { min-inline-size: min(18ch, 100%); }
 .settings-number-control { display: flex; align-items: center; gap: var(--space-2); min-inline-size: 0; }
 .settings-number-control > span { color: var(--muted-foreground); font-size: var(--text-small); }
 .gui-settings .settings-number { field-sizing: content; inline-size: auto; min-inline-size: 8ch; max-inline-size: min(14ch, 100%); font-variant-numeric: tabular-nums; }

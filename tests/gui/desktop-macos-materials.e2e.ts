@@ -86,7 +86,7 @@ test("桌面透明保存后才切换兼容策略，关闭后恢复页面滤镜�
 	await page.emulateMedia({ colorScheme: "light" });
 	await page.reload();
 	await page.getByRole("button", { name: "设置", exact: true }).click();
-	const toggle = settings(page).getByRole("checkbox", { name: "桌面背景透明", exact: true });
+	const toggle = settings(page).getByRole("switch", { name: "桌面背景透明", exact: true });
 	const table = settings(page).getByRole("table", { name: "材质区域设置", exact: true });
 	const blur = table.getByRole("spinbutton", { name: "左侧栏模糊", exact: true });
 	await toggle.uncheck();
@@ -143,7 +143,7 @@ test("仅重置可见的不透明度，隐藏的材质参数在关闭桌面透�
 	expect(parse(await readFile(file, "utf8"))).toEqual({ theme: "light", materials: {
 		...materials, sidebar: { darkOpacity: 91, blur: 18, saturation: 140 },
 	} });
-	await settings(page).getByRole("checkbox", { name: "桌面背景透明", exact: true }).uncheck();
+	await settings(page).getByRole("switch", { name: "桌面背景透明", exact: true }).uncheck();
 	await settings(page).getByRole("button", { name: "保存", exact: true }).click();
 	for (const [name, value] of [["左侧栏模糊", "18"], ["左侧栏饱和度", "140"], ["菜单与浮层不透明度", "25"], ["菜单与浮层模糊", "30"], ["菜单与浮层饱和度", "125"], ["弹窗不透明度", "35"], ["弹窗模糊", "12"], ["弹窗饱和度", "95"]] as const) {
 		await expect(settings(page).getByRole("spinbutton", { name, exact: true })).toHaveValue(value);

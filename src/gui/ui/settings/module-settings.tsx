@@ -4,7 +4,7 @@ import type { GuiModel, GuiSnapshot, Query, GlobalQuery } from "../../contract.t
 import type { ModuleConfigId } from "../../module-config.ts";
 import type { Send } from "../runtime/connection.ts";
 import { Button } from "../components/ui/button";
-import { Checkbox } from "../components/ui/checkbox";
+import { Switch } from "../components/ui/switch";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -62,11 +62,15 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 	const fields = (items: ConfigField[]) => <div className="settings-fields">{items.map((field) => {
 		const value = valueAt(field.path);
 		const defaultValue = at(defaults, field.path);
+		const options = field.type === "profile"
+			? [...new Set([defaults.profiles, values.profiles].flatMap((profiles) =>
+				typeof profiles === "object" && profiles !== null && !Array.isArray(profiles) ? Object.keys(profiles) : []))]
+			: document.options[field.path];
 		const locked = blocked || (field.enabledBy !== undefined && valueAt(field.enabledBy) !== true);
 		return <SettingsRow key={field.path} label={field.label}
-			layout={Array.isArray(value) ? "wide" : field.type === "model" || (!field.options && (typeof value === "string" || value === null)) ? "fluid" : "inline"}
+			layout={Array.isArray(value) ? "wide" : field.type === "model" || (!options && (typeof value === "string" || value === null)) ? "fluid" : "inline"}
 			reset={{ value, defaultValue, apply: () => change(field, undefined) }} disabled={locked}>
-			<FieldControl field={field} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field, value)} />
+			<FieldControl field={field} options={options} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field, value)} />
 		</SettingsRow>;
 	})}</div>;
 	return <div className="settings-module">
@@ -88,12 +92,12 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 	</div>;
 }
 
-function FieldControl({ field, value, nullable, disabled, models, tools, change }: { field: ConfigField; value: unknown; nullable: boolean; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; change: (value: unknown) => void }) {
-	if (typeof value === "boolean") return <Checkbox aria-label={field.label} checked={value} disabled={disabled} onCheckedChange={(value) => change(value === true)} />;
+function FieldControl({ field, options, value, nullable, disabled, models, tools, change }: { field: ConfigField; options: readonly string[] | undefined; value: unknown; nullable: boolean; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; change: (value: unknown) => void }) {
+	if (typeof value === "boolean") return <Switch aria-label={field.label} checked={value} disabled={disabled} onCheckedChange={change} />;
 	if (field.type === "model") return <ModelSelect label={field.label} models={models} disabled={disabled}
 		value={typeof value === "string" && value !== "" ? value : null} change={change} />;
-	if (field.options) return <Select value={String(value)} disabled={disabled} onValueChange={change}>
-		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{field.options.map((option) => <SelectItem key={option} value={option}>{optionLabels[option] ?? option}</SelectItem>)}</SelectContent>
+	if (options) return <Select value={String(value)} disabled={disabled} onValueChange={change}>
+		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{optionLabels[option] ?? option}</SelectItem>)}</SelectContent>
 	</Select>;
 	if (Array.isArray(value)) return field.type === "tools"
 		? <SubagentToolPicker label={field.label} value={value} tools={tools} disabled={disabled} change={change} />

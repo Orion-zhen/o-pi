@@ -5,4 +5,5 @@ export interface ModuleConfigDocument {
 	path: string;
 	content: string;
 	defaults: string;
+	options: Record<string, readonly string[]>;
 }

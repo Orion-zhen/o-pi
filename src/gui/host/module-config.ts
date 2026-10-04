@@ -6,14 +6,15 @@ import {
 } from "../../harness/config-loader.ts";
 import { replaceConfigFile } from "./files.ts";
 import { moduleConfigIds, type ModuleConfigId, type ModuleConfigDocument } from "../module-config.ts";
+import { moduleConfigOptions } from "./module-config-options.ts";
 
-const validators = new Map(moduleConfigIds.map((id) => {
+const validators = Object.fromEntries(moduleConfigIds.map((id) => {
 	const name = CONFIG_DEFINITIONS[id].fileName;
 	return [id, createSchemaValidator({
 		schemaPath: agentSchemaPath(name.replace(".jsonc", ".schema.json")), label: name,
 		createError: (message) => new Error(message),
 	})];
-}));
+})) as Record<ModuleConfigId, ReturnType<typeof createSchemaValidator>>;
 
 function paths(id: ModuleConfigId) {
 	const definition = CONFIG_DEFINITIONS[id];
@@ -25,12 +26,13 @@ function paths(id: ModuleConfigId) {
 
 export async function readModuleConfig(id: ModuleConfigId): Promise<ModuleConfigDocument> {
 	const locations = paths(id);
+	const [validate, defaults] = await Promise.all([validators[id](), readFile(locations.defaults, "utf8")]);
 	let content: string;
 	try { content = await readFile(locations.user, "utf8"); }
 	catch (error) { if (isNotFound(error)) content = ""; else throw error; }
 	return {
-		path: locations.user, content,
-		defaults: await readFile(locations.defaults, "utf8"),
+		path: locations.user, content, defaults,
+		options: moduleConfigOptions(validate.schema),
 	};
 }
 
@@ -38,9 +40,7 @@ export async function saveModuleConfig(id: ModuleConfigId, original: string, con
 	const errors: ParseError[] = [];
 	const value: unknown = parse(content.replace(/^\uFEFF/, ""), errors, { allowTrailingComma: true });
 	if (errors.length) throw new Error(`JSONC 错误: ${errors.map((error) => `${printParseErrorCode(error.error)} @${error.offset}`).join(", ")}`);
-	const load = validators.get(id);
-	if (!load) throw new Error("未知配置。");
-	const validate = await load();
+	const validate = await validators[id]();
 	if (!validate(value)) throw new Error(`配置不符合 schema: ${JSON.stringify(validate.errors)}`);
 	await replaceConfigFile(paths(id).user, original, content);
 }

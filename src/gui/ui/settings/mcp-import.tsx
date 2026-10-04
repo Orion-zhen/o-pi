@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { mcpNameConflict } from "../../mcp-validation.ts";
 import { Button } from "../components/ui/button";
-import { Checkbox } from "../components/ui/checkbox";
+import { Switch } from "../components/ui/switch";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import { importMcpServers, mcpDraftIssues, mcpServerSummary, type McpDraft, type McpServerDraft } from "./mcp-draft.ts";
@@ -37,9 +37,9 @@ export function McpImport({ draft, disabled, apply, cancel }: {
 					setReplace(new Set([...replace].filter((id) => id !== server.id)));
 				}} />
 				<span className="settings-description">{mcpServerSummary(server)}</span>
-				{draft.servers.some(({ name }) => name === server.name) && <label className="mcp-replace"><Checkbox aria-label={`替换 ${server.name}`} checked={replace.has(server.id)} onCheckedChange={(checked) => setReplace((previous) => {
-					const next = new Set(previous); if (checked === true) next.add(server.id); else next.delete(server.id); return next;
-				})} />替换已有服务</label>}
+				{draft.servers.some(({ name }) => name === server.name) && <label className="mcp-replace">替换已有服务<Switch aria-label={`替换 ${server.name}`} checked={replace.has(server.id)} onCheckedChange={(checked) => setReplace((previous) => {
+					const next = new Set(previous); if (checked) next.add(server.id); else next.delete(server.id); return next;
+				})} /></label>}
 				{errors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
 			</div>)}
 			<div className="settings-action-buttons"><Button size="sm" disabled={preview.some(({ errors }) => errors.length > 0)} onClick={() => {

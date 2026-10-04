@@ -11,7 +11,7 @@
 .mcp-server-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-weight: 600; overflow-wrap: anywhere; }
 .mcp-server-name .settings-badge { font-size: var(--text-caption); font-weight: 400; }
 .mcp-server-address { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-family: var(--font-mono); font-size: var(--text-small); margin-block-start: var(--space-1); }
-.mcp-replace { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--muted-foreground); font-size: var(--text-small); }
+.mcp-replace { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); color: var(--muted-foreground); font-size: var(--text-small); }
 .mcp-error-badge { color: var(--destructive); font-size: var(--text-caption); font-weight: 400; }
 .mcp-server-actions { display: flex; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
 .mcp-server-actions > [data-slot="switch"] { margin-inline-end: var(--space-2); }

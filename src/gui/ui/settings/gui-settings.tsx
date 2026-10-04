@@ -6,7 +6,7 @@ import type { GuiConfigDocument, GuiPreferences } from "../../preferences.ts";
 import type { GlobalQuery, Query } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
 import { Input } from "../components/ui/input";
-import { Checkbox } from "../components/ui/checkbox";
+import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { FontPicker } from "./font-picker.tsx";
 import { useLocalFonts } from "./use-local-fonts.ts";
@@ -88,8 +88,8 @@ export function GuiSettings({ title, section, document: latest, send, query, dis
 						reset={{ value: document.value.fonts[kind], defaultValue: document.defaults.fonts[kind], apply: () => change(["fonts", kind], undefined) }} disabled={blocked}>
 						<FontPicker kind={kind} value={document.value.fonts[kind]} disabled={blocked} local={localFonts}
 							onChange={(fonts) => change(["fonts", kind], fonts.length === 0 ? undefined : fonts)} />
-					</SettingsRow>)}</div>
-					<div className="settings-fields">{([["ui", "界面字号"], ["chat", "对话字号"], ["code", "代码字号"]] as const).map(([kind, label]) =>
+					</SettingsRow>)}
+					{([["ui", "界面字号"], ["chat", "对话字号"], ["code", "代码字号"]] as const).map(([kind, label]) =>
 						<SettingsRow key={kind} label={label} reset={{ value: document.value.fontSizes[kind], defaultValue: document.defaults.fontSizes[kind], apply: () => change(["fontSizes", kind], undefined) }} disabled={blocked}>
 							<SettingsNumber label={label} value={document.value.fontSizes[kind]} min={8} max={48} step={0.5} unit="px" disabled={blocked}
 								change={(size) => void change(["fontSizes", kind], size === document.defaults.fontSizes[kind] ? undefined : size)} />
@@ -101,9 +101,9 @@ export function GuiSettings({ title, section, document: latest, send, query, dis
 					reset={(region, keys) => update(keys.reduce((draft, key) => editPreference(draft, ["materials", region, key], undefined), document))} />
 			</> : section === "desktopWeb" ? <SettingsSection title="桌面 Web 访问" actions={<><span className="settings-badge">重启生效</span>{actions}</>}>
 				<div className="settings-fields">
-					<SettingsRow label="启用 Web 访问" reset={{ value: document.value.desktopWeb.enabled, defaultValue: document.defaults.desktopWeb.enabled, apply: () => change(["desktopWeb", "enabled"], undefined) }} disabled={blocked}>
-						<Checkbox aria-label="启用 Web 访问" checked={document.value.desktopWeb.enabled} disabled={blocked}
-							onCheckedChange={(value) => void change(["desktopWeb", "enabled"], value === true)} />
+					<SettingsRow label="Web 访问" reset={{ value: document.value.desktopWeb.enabled, defaultValue: document.defaults.desktopWeb.enabled, apply: () => change(["desktopWeb", "enabled"], undefined) }} disabled={blocked}>
+						<Switch aria-label="Web 访问" checked={document.value.desktopWeb.enabled} disabled={blocked}
+							onCheckedChange={(value) => void change(["desktopWeb", "enabled"], value)} />
 					</SettingsRow>
 					<SettingsRow label="监听地址" layout="fluid" reset={{ value: document.value.desktopWeb.host, defaultValue: document.defaults.desktopWeb.host, apply: () => change(["desktopWeb", "host"], undefined) }} disabled={blocked}>
 						<Input aria-label="监听地址" value={document.value.desktopWeb.host} disabled={blocked || !document.value.desktopWeb.enabled} required pattern="\S+"

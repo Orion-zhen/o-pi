@@ -14,10 +14,10 @@ type Props = {
 
 export function FontPicker(props: Props) {
 	const label = props.kind === "ui" ? "界面字体" : "代码字体";
-	const [first, ...rest] = props.value;
+	const summary = props.value.length > 0 ? props.value.join(", ") : "系统默认";
 	return <Popover>
 		<PopoverTrigger asChild><Button variant="outline" className="font-trigger" aria-label={label} disabled={props.disabled}>
-			<span>{first ? `${first}${rest.length ? ` + ${rest.length} 个后备字体` : ""}` : "系统默认"}</span><ChevronDown />
+			<span title={summary}>{summary}</span><ChevronDown />
 		</Button></PopoverTrigger>
 		<PopoverContent className="settings-popover font-picker" align="end" aria-label={`${label}链`} onEscapeKeyDown={(event) => {
 			// Radix 在捕获阶段关闭浮层，先让输入框消费补全和草稿的 Escape。

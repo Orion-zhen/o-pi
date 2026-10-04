@@ -5,6 +5,7 @@ import type { ErrorObject } from "ajv";
 export type SchemaValidationError = Pick<ErrorObject, "instancePath" | "keyword" | "params" | "message">;
 export interface SchemaValidateFunction {
 	(value: unknown): boolean;
+	readonly schema: unknown;
 	errors?: SchemaValidationError[] | null;
 }
 

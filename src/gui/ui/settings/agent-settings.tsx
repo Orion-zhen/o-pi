@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import type { GuiSnapshot, Query } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
-import { Checkbox } from "../components/ui/checkbox";
+import { Switch } from "../components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { ConfigEditor } from "./config-editor.tsx";
 import { SettingsRow, SettingsSection, SettingsSourceButton } from "./settings-controls.tsx";
@@ -50,8 +50,8 @@ export function AgentSettings({ snapshot, send, query, disabled, restoreFocus }:
 	};
 	const toggles = (items: readonly (readonly ["compaction" | "retry" | "autoResize" | "blockImages", string])[]) =>
 		<div className="settings-fields">{items.map(([key, label]) => <SettingsRow key={key} label={label} htmlFor={`${controlId}-${key}`}>
-			<Checkbox id={`${controlId}-${key}`} aria-label={label} checked={settings[key]} disabled={blocked}
-				onCheckedChange={(checked) => change({ ...settings, [key]: checked === true })} />
+			<Switch id={`${controlId}-${key}`} aria-label={label} checked={settings[key]} disabled={blocked}
+				onCheckedChange={(checked) => change({ ...settings, [key]: checked })} />
 		</SettingsRow>)}</div>;
 	return <div className="settings-module">
 		<SettingsSection title="消息队列" actions={<SettingsSourceButton file="settings.json" disabled={loading || blocked || dirty} onClick={() => void openConfig()} />}>

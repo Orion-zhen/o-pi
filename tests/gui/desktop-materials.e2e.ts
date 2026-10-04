@@ -35,7 +35,7 @@ test("原生窗口透明度不被重复叠加，关闭桌面透明后仍保留�
 		}
 	}
 	await page.getByRole("button", { name: "设置", exact: true }).click();
-	await settings.getByRole("checkbox", { name: "桌面背景透明", exact: true }).click();
+	await settings.getByRole("switch", { name: "桌面背景透明", exact: true }).click();
 	await save.click();
 	await expect(save).toBeDisabled();
 	await expect(page.locator(".app")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");

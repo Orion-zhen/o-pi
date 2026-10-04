@@ -126,7 +126,7 @@ test.describe("页面材质", () => {
 
 	test("关闭材质使用实色，恢复默认清除外观覆盖", async ({ gui: { page }, workspace: { agentDir } }) => {
 		await field(page, "左侧栏").fill("55");
-		await settings(page).getByRole("checkbox", { name: "启用磨砂材质", exact: true }).click();
+		await settings(page).getByRole("switch", { name: "磨砂材质", exact: true }).click();
 		await expect(field(page, "左侧栏")).toBeDisabled();
 		await save(page);
 		await page.reload();

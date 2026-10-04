@@ -53,7 +53,7 @@ test("默认不监听，在设置中开启后必须重启，关闭后也在重�
 	expect(await health()).toBe(0);
 	await desktop.getByRole("button", { name: "设置", exact: true }).click();
 	await selectSettingsCategory(desktop, "桌面 Web 访问");
-	const enabled = desktop.getByRole("checkbox", { name: "启用 Web 访问", exact: true });
+	const enabled = desktop.getByRole("switch", { name: "Web 访问", exact: true });
 	await expect(enabled).not.toBeChecked();
 	await enabled.click();
 	await expect(enabled).toBeChecked();
@@ -73,7 +73,7 @@ test("默认不监听，在设置中开启后必须重启，关闭后也在重�
 	await expect(remote.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
 	await restarted.getByRole("button", { name: "设置", exact: true }).click();
 	await selectSettingsCategory(restarted, "桌面 Web 访问");
-	const restartedEnabled = restarted.getByRole("checkbox", { name: "启用 Web 访问", exact: true });
+	const restartedEnabled = restarted.getByRole("switch", { name: "Web 访问", exact: true });
 	await restartedEnabled.click();
 	await expect(restartedEnabled).not.toBeChecked();
 	await restarted.getByRole("button", { name: "保存", exact: true }).click();

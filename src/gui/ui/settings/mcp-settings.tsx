@@ -87,7 +87,7 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 									<span className="mcp-server-address">{mcpServerSummary(server)}</span>
 								</button></CollapsibleTrigger>
 								<div className="mcp-server-actions">
-									<Switch aria-label={`启用 ${name}`} title={config.enabled === false ? "已停用" : "已启用"} checked={config.enabled !== false} disabled={blocked || !mcpObject(server.config)} onCheckedChange={(enabled) => {
+									<Switch aria-label={name} checked={config.enabled !== false} disabled={blocked || !mcpObject(server.config)} onCheckedChange={(enabled) => {
 										const next = { ...config }; if (enabled) delete next.enabled; else next.enabled = false;
 										changeServer({ ...server, config: next });
 									}} />
