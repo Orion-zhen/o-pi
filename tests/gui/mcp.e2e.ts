@@ -56,18 +56,20 @@ test.describe("MCP", () => {
 		await editor.press("ControlOrMeta+Enter");
 		await expect(page.locator(".reply-answer")).toHaveCount(2);
 		await expect(page.locator(".reply-answer").last()).toContainText("MCP 检查完成");
-		expect(JSON.stringify(model.requests.at(-1)?.tools)).toContain(name);
+		// 脚本模式通过搜索结果发现 MCP 工具，不直接声明它们。
+		expect(JSON.stringify(model.requests.at(-1)?.tools)).not.toContain(name);
 		expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain(name);
 		await editor.fill("/mcp");
 		await editor.press("ControlOrMeta+Enter");
 		const settings = page.getByRole("dialog", { name: "设置", exact: true });
+		await settings.getByRole("region", { name: "MCP 服务", exact: true }).getByRole("button", { name: "JSON", exact: true }).click();
 		const config = settings.getByRole("textbox", { name: "全局 MCP JSON", exact: true });
 		await expect(config).toHaveValue(original);
 		await expect(settings.getByRole("button", { name: "重连", exact: true })).toHaveCount(0);
 		await config.fill("{}");
 		expect(await readFile(file, "utf8")).toBe(original);
 		await settings.getByRole("button", { name: "保存", exact: true }).click();
-		await expect(settings.getByRole("status")).toHaveText("已保存。新会话或 /reload 后生效。");
+		await expect(settings.getByRole("status")).toHaveText("已保存");
 		expect(await readFile(file, "utf8")).toBe("{}");
 		await settings.getByRole("button", { name: "关闭面板", exact: true }).click();
 		await page.locator(".tool-count").click();

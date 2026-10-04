@@ -1,0 +1,47 @@
+.mcp-toolbar, .mcp-field-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-2); }
+.mcp-empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-6) var(--space-4); border: thin dashed var(--border); border-radius: var(--radius-lg); text-align: center; }
+.mcp-empty > svg { inline-size: 2em; block-size: 2em; color: var(--muted-foreground); }
+.mcp-empty p { color: var(--muted-foreground); font-size: var(--text-small); }
+.mcp-server-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.mcp-server { min-inline-size: 0; border: thin solid var(--border); border-radius: var(--radius-lg); overflow: clip; background: var(--surface); }
+.mcp-server[data-state="open"] { border-color: var(--ring); }
+.mcp-server-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); }
+.mcp-server-summary { flex: 1 1 12ch; min-inline-size: 0; text-align: start; border-radius: var(--radius-sm); }
+.mcp-server-summary:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
+.mcp-server-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-weight: 600; overflow-wrap: anywhere; }
+.mcp-server-name .settings-badge { font-size: var(--text-caption); font-weight: 400; }
+.mcp-server-address { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-family: var(--font-mono); font-size: var(--text-small); margin-block-start: var(--space-1); }
+.mcp-replace { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--muted-foreground); font-size: var(--text-small); }
+.mcp-error-badge { color: var(--destructive); font-size: var(--text-caption); font-weight: 400; }
+.mcp-server-actions { display: flex; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
+.mcp-server-actions > [data-slot="switch"] { margin-inline-end: var(--space-2); }
+.mcp-server-actions > .row-action-button { padding: 0.55em; }
+.mcp-server-actions > .row-action-button > svg { inline-size: 1.15em; block-size: 1.15em; }
+.mcp-server-form, .mcp-import { display: flex; flex-direction: column; gap: var(--space-4); min-inline-size: 0; padding: var(--space-4); margin: 0; border: 0; }
+.mcp-server-form { border-block-start: thin solid var(--divider); background: var(--background); }
+.mcp-import { border: thin solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.mcp-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(22ch, 100%), 1fr)); gap: var(--space-4); min-inline-size: 0; }
+.mcp-field, .mcp-advanced, .mcp-args, .mcp-pairs { display: flex; flex-direction: column; gap: var(--space-2); min-inline-size: 0; }
+.mcp-advanced { gap: var(--space-4); }
+.mcp-args, .mcp-pairs { gap: 0; }
+.mcp-arg, .mcp-pair { padding-block-end: var(--space-2); }
+.mcp-field > label, .mcp-field-label { font-size: var(--text-small); font-weight: 500; }
+.mcp-field [data-slot="select-trigger"] { inline-size: 100%; min-inline-size: 0; }
+.mcp-secret { display: flex; align-items: center; gap: var(--space-1); min-inline-size: 0; }
+.mcp-secret > input { flex: 1; }
+.mcp-secret > button, .mcp-arg > button { flex-shrink: 0; }
+.mcp-arg { display: flex; align-items: center; gap: var(--space-2); min-inline-size: 0; }
+.mcp-arg input { font-family: var(--font-mono); }
+.mcp-pair { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-inline-size: 0; }
+.mcp-pair > input { flex: 1 1 15ch; inline-size: 15ch; }
+.mcp-pair > .mcp-secret, .mcp-pair > [data-slot="select-trigger"] { flex: 2 1 22ch; inline-size: 22ch; }
+.mcp-pair > .settings-warning { flex: 1 1 100%; }
+.mcp-row-actions { display: flex; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
+.mcp-add-row { align-self: flex-start; }
+.mcp-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); background: var(--secondary); font-size: var(--text-small); }
+.mcp-confirm p { flex: 1 1 100%; overflow-wrap: anywhere; }
+.mcp-command-paste { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); background: var(--secondary); border-radius: var(--radius-md); }
+.mcp-command-paste > input { flex: 1 1 25ch; inline-size: 25ch; }
+.mcp-command-paste > p { flex: 1 1 100%; }
+.mcp-import-row { display: flex; flex-direction: column; gap: var(--space-2); padding-block: var(--space-2); }
+.mcp-issues { padding: var(--space-2); background: var(--secondary); border-radius: var(--radius-md); }

@@ -34,8 +34,9 @@ function at(value: unknown, path: string): unknown {
 export function ModuleSettings({ title, id, query, send, disabled, models, tools }: {
 	title: string; id: ModuleConfigId; query: Query<GlobalQuery>; send: Send; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null;
 }) {
-	const editor = useConfigDraft(useCallback(() => query({ query: "moduleConfig", id }), [id, query]));
-	const { document, draft, error, dirty } = editor;
+	const editor = useConfigDraft(useCallback(() => query({ query: "moduleConfig", id }), [id, query]), String);
+	const { document, draft, error } = editor;
+	const dirty = document !== undefined && draft !== document.content;
 	const { saving } = useSettingsState();
 	const [source, setSource] = useState(false);
 	let values: Record<string, unknown> = {};
@@ -43,7 +44,7 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 	try { values = readObject(draft); } catch (error) { parseError = error instanceof Error ? error.message : String(error); }
 	useSettingsDraft(id, {
 		title, dirty, blocked: disabled, invalid: !!parseError,
-		save: () => editor.save(async (document, content) =>
+		save: () => editor.save(draft, async (document, content) =>
 			await send({ action: "saveModuleConfig", id, original: document.content, content }) ? { ...document, content } : undefined),
 		discard: editor.discard,
 	});

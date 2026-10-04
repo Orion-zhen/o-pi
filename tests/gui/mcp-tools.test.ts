@@ -189,16 +189,22 @@ it("普通模式的搜索入口在全部加载、隐藏和恢复后自动更新"
 
 it("配置编辑保留冲突检查，非法 JSON 可读取修复，不建立连接", async () => {
 	const initial = await host.query({ query: "mcpConfig" });
-	expect(initial).toMatchObject({ content: "", errors: [] });
+	expect(initial).toMatchObject({ content: "" });
 	const content = JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [fixture], enabled: false } } });
 	await host.dispatch({ action: "saveMcpConfig", original: "", content });
-	expect(await host.query({ query: "mcpConfig" })).toMatchObject({ content, errors: [] });
-	for (const invalid of ["[]", '{"mcpServers":[]}', '{"mcpServers":{"bad":true}}', "", "{"]) {
+	expect(await host.query({ query: "mcpConfig" })).toMatchObject({ content });
+	for (const invalid of ["[]", '{"mcpServers":[]}', '{"mcpServers":{"bad":true}}', "", "{",
+		'{"mcpServers":{"bad":{"url":"ftp://example.com"}}}',
+		'{"mcpServers":{"bad":{"command":"node","timeout":0}}}',
+		'{"mcpServers":{"a-b":{"command":"node"},"a_b":{"command":"node"}}}',
+		'{"mcpServers":{"bad":{"url":"https://example.com","headers":{"Authorization":"one","authorization":"two"}}}}',
+		'{"mcpServers":{"bad":{"url":"https://example.com","oauth":{"clientRegistration":["cimd"]}}}}',
+	]) {
 		await expect(host.dispatch({ action: "saveMcpConfig", original: content, content: invalid })).rejects.toThrow();
 		expect(await readFile(mcpFile, "utf8")).toBe(content);
 	}
 	await writeFile(mcpFile, "{");
-	expect((await host.query({ query: "mcpConfig" })).errors).not.toEqual([]);
+	expect((await host.query({ query: "mcpConfig" })).content).toBe("{");
 	await expect(host.dispatch({ action: "saveMcpConfig", original: content, content: "{}" })).rejects.toThrow();
 	await host.dispatch({ action: "saveMcpConfig", original: "{", content: "{}" });
 	expect(host.host.sessions.size).toBe(0);
