@@ -40,9 +40,8 @@ interface RawLspServer {
 	settings?: LspJsonValue;
 }
 
-interface RawLspConfig extends Partial<Omit<LspConfig, "diagnostics" | "read" | "grep" | "servers">> {
+interface RawLspConfig extends Partial<Omit<LspConfig, "diagnostics" | "grep" | "servers">> {
 	diagnostics?: Partial<LspConfig["diagnostics"]>;
-	read?: Partial<LspConfig["read"]>;
 	grep?: Partial<LspConfig["grep"]>;
 	servers?: Record<string, RawLspServer>;
 }

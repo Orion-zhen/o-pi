@@ -1,9 +1,8 @@
 import { formatReadRanges, mergeReadRanges } from "../../content-ranges.ts";
 import type {
-	ReadEnclosingSymbol,
 	ReadPdfPage,
 	ReadPdfSuccess,
-	ReadRemainingSymbol,
+	ReadStructureSummary,
 	ReadStructureContext,
 	ReadSuccess,
 } from "./types.ts";
@@ -36,7 +35,7 @@ export function readPdfRangeLabel(result: ReadPdfSuccess): string {
 
 export function formatReadTextContent(result: ReadSuccess): string {
 	return result.segments.map((segment) => {
-		const structure = formatReadStructureContext(segment.lsp);
+		const structure = formatReadStructureContext(segment.structure);
 		let body = segment.content;
 		if (!body.endsWith("\n")) body += "\n";
 		if (structure !== undefined) body += `${structure}\n`;
@@ -91,18 +90,18 @@ export function formatReadStructureContext(structure: ReadStructureContext | und
 		attrs.push(`enclosing="${escapeXmlAttribute(formatSymbolRange(structure.enclosing_symbol))}"`);
 	}
 	const sections: string[] = [];
-	if (attrs.length > 0) sections.push(`<lsp ${attrs.join(" ")}/>`);
+	if (attrs.length > 0) sections.push(`<structure ${attrs.join(" ")}/>`);
 	if (structure.remaining_symbols !== undefined && structure.remaining_symbols.length > 0) {
 		sections.push(`<remaining_symbols>\n${structure.remaining_symbols.map(formatRemainingSymbol).join("\n")}\n</remaining_symbols>`);
 	}
 	return sections.length === 0 ? undefined : sections.join("\n");
 }
 
-function formatRemainingSymbol(item: ReadRemainingSymbol): string {
+function formatRemainingSymbol(item: ReadStructureSummary): string {
 	return `line ${item.line}-${item.end_line}: ${escapeXmlText(`${item.kind} ${item.name}`)}`;
 }
 
-function formatSymbolRange(item: ReadEnclosingSymbol): string {
+function formatSymbolRange(item: ReadStructureSummary): string {
 	return `${item.kind} ${item.name} ${item.line}-${item.end_line}`;
 }
 

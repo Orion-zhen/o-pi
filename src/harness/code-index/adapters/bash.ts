@@ -1,53 +1,24 @@
-import { collectUnits, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.ts";
-import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.ts";
-import type { ModuleImport } from "../types.ts";
+import { collectUnits, rawUnit, type UnitRules } from "./shared.ts";
 import type { LanguageExtractor } from "./types.ts";
 
 const bashRules: UnitRules = {
-	extract(node) {
+	extract(node, scope) {
 		if (node.type !== "function_definition") return undefined;
-		const name = nameField(node);
-		return name === undefined ? undefined : rawUnit(node, "function", name, undefined, !name.startsWith("_"));
+		const name = node.childForFieldName("name");
+		return name === null ? undefined : rawUnit(node, "function", name.text, scope, {
+			name, body: node.childForFieldName("body"), callable: node,
+		});
 	},
-	childScope(_node, _unit, current) {
-		return current;
-	},
-	shouldDescend() {
-		return false;
-	},
+	childScope(_node, _unit, current) { return current; },
+	isContainer() { return false; },
 };
 
-function extractBashImports(root: SyntaxNode, control: AnalysisControl): ModuleImport[] {
-	const imports: ModuleImport[] = [];
-	walkNamed(root, (node) => {
-		if (node.type !== "command") return;
-		const commandName = node.childForFieldName("name");
-		if (commandName === null || (commandName.text !== "source" && commandName.text !== ".")) return;
-		const target = node.namedChildren.find((child) =>
-			child.id !== commandName.id
-			&& child.type !== "file_redirect"
-			&& child.type !== "herestring_redirect"
-			&& child.type !== "variable_assignment");
-		const imported = target === undefined ? undefined : staticShellImport(target);
-		if (imported !== undefined) imports.push(imported);
-	}, control);
-	return imports;
-}
-
-function staticShellImport(node: SyntaxNode): ModuleImport | undefined {
-	if (node.type === "word" && node.namedChildren.length === 0) return { specifier: node.text, importKind: "relative" };
-	if (node.type === "raw_string" && node.text.length >= 2) {
-		return {
-			specifier: node.text.slice(1, -1),
-			importKind: "relative",
-		};
-	}
-	if (node.type !== "string" || node.namedChildren.length !== 1) return undefined;
-	const content = node.namedChildren[0];
-	return content?.type === "string_content" ? { specifier: content.text, importKind: "relative" } : undefined;
-}
-
 export const bashExtractor: LanguageExtractor = {
-	extractUnits: (root, control) => collectUnits(root, bashRules, control),
-	extractImports: extractBashImports,
+	extractUnits: (root, text, control) => collectUnits(root, text, bashRules, control),
+	call(node) {
+		const callee = node.type === "command" ? node.childForFieldName("name") : undefined;
+		if (callee == null) return undefined;
+		const word = callee.type === "command_name" ? callee.namedChildren[0] : callee;
+		return { callee, ...(word?.type === "word" ? { lookup: word } : {}) };
+	},
 };

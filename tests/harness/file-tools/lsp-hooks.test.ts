@@ -16,7 +16,7 @@ import type { GrepSuccess } from "../../../src/harness/file-tools/grep/types.ts"
 import { summarizeDiagnostics } from "../../../src/harness/lsp/diagnostics/ledger.ts";
 import type { LspFileOperations } from "../../../src/harness/lsp/file-operations.ts";
 import * as diagnosticOperations from "../../../src/harness/lsp/diagnostics/operations.ts";
-import { LspClient } from "../../../src/harness/lsp/client/client.ts";
+import { executeRead } from "../../../src/harness/file-tools/pi/adapters/read.ts";
 import { LspManager } from "../../../src/harness/lsp/manager/manager.ts";
 import type { LspDiagnosticSnapshot } from "../../../src/harness/lsp/types.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
@@ -42,20 +42,20 @@ afterEach(() => { host.dispose(); vi.restoreAllMocks(); });
 
 describe("file-tools lsp hooks", () => {
 	it("read 只为 partial 或截断内容请求结构，完整读取不启动分析", async () => {
-		process.env.PI_LSP_CONFIG = path.join(outside, "lsp.jsonc");
-		await writeFile(process.env.PI_LSP_CONFIG, JSON.stringify({ servers: { fake: { command: ["unused"], languages: { test: "*.ts" } } } }));
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		const symbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([]);
-		const manager = new LspManager();
-		const base = { workspaceRoot: workspace, filePath: path.join(workspace, "a.ts"), content: "const value = 1;\n", startLine: 1, endLine: 1 };
-		try {
-			await manager.read({ ...base, truncated: true, partial: true });
-			expect(symbols).toHaveBeenCalledTimes(1);
-			await manager.read({ ...base, truncated: false, partial: false });
-			expect(symbols).toHaveBeenCalledTimes(1);
-			await manager.read({ ...base, truncated: true, partial: false });
-			expect(symbols).toHaveBeenCalledTimes(2);
-		} finally { await manager.reload(); }
+		await writeFile(path.join(workspace, "a.ts"), "function demo() {\n  return 1;\n}\n");
+		const documentAnalysis = vi.fn<LspFileOperations["documentAnalysis"]>().mockResolvedValue(undefined);
+		const read = (lines?: string) => executeRead({ path: "a.ts", ...(lines === undefined ? {} : { lines }) }, {
+			host, cwd: workspace, sessionId: "read-hooks", model: undefined,
+			pathAccess: { mounts: [], protectedRoots: [], managedSchemes: [] },
+			lsp: async () => lspOperations({ documentAnalysis }),
+		});
+		await read("2");
+		expect(documentAnalysis).toHaveBeenCalledTimes(1);
+		await read();
+		expect(documentAnalysis).toHaveBeenCalledTimes(1);
+		await writeFile(path.join(outside, "file-tools.jsonc"), JSON.stringify({ limits: { read_lines: 1 } }));
+		await read();
+		expect(documentAnalysis).toHaveBeenCalledTimes(2);
 	});
 
 	it("read 附加 partial enclosing symbol，hook 失败时仍成功", async () => {
@@ -69,7 +69,7 @@ describe("file-tools lsp hooks", () => {
 			},
 		})).resolves.toMatchObject({
 			path: "a.ts",
-			segments: [{ lsp: { enclosing_symbol: { name: "demo" } } }],
+			segments: [{ structure: { enclosing_symbol: { name: "demo" } } }],
 		});
 
 		await expect(readWorkspaceFile(workspace, { path: "a.ts", lines: "2-" }, {
@@ -361,7 +361,7 @@ function diagnostics(status: "errors" | "warnings") {
 
 function throwingHooks(): Partial<LspFileOperations> {
 	return {
-		async read() {
+		async documentAnalysis() {
 			throw new Error("lsp unavailable");
 		},
 		async afterMutation() {

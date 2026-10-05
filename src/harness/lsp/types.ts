@@ -54,6 +54,8 @@ export interface LspFileRoute {
 export interface LspRequestOptions {
 	timeoutMs?: number;
 	signal?: AbortSignal;
+	/** 协议层超时先于调用方截止时间时，保留准确的失败原因。 */
+	onTimeout?: () => void;
 }
 
 /** LSP 配置；由全局配置和可选项目配置合并得到。 */
@@ -72,10 +74,6 @@ export interface LspConfig {
 		max_items: number;
 		max_related_locations: number;
 		min_severity: LspSeverityName;
-	};
-	read: {
-		outline: boolean;
-		max_symbols: number;
 	};
 	grep: {
 		workspace_symbols: boolean;
@@ -154,22 +152,6 @@ export type LspDiagnosticSnapshot =
 export type LspMutationBaseline = LspDiagnosticSnapshot & {
 	readonly related: readonly LspDiagnosticSnapshot[];
 };
-
-/** 长文件截断 read 中尚未出现的顶层 symbol。 */
-export interface LspRemainingSymbol {
-	name: string;
-	kind: string;
-	line: number;
-	end_line: number;
-}
-
-/** partial read 中声明行不可见的最小包围 symbol。 */
-export interface LspEnclosingSymbol {
-	name: string;
-	kind: string;
-	line: number;
-	end_line: number;
-}
 
 /** /lsp status 展示的单个 server 状态。 */
 export interface LspServerStatus {

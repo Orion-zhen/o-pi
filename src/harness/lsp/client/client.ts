@@ -1,23 +1,19 @@
 import {
 	PublishDiagnosticsNotification,
-	type CallHierarchyIncomingCall,
 	type Diagnostic,
 	type FileChangeType,
-	type Location,
-	type Position,
 	type ServerCapabilities,
 	type SymbolInformation,
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
 import { LspClientDiagnostics, type LspSaveDiagnosticsResult } from "./diagnostics.ts";
+import type { LspDocumentSession } from "./document-session.ts";
 import { LspClientDocuments } from "./documents.ts";
 import { LspClientLifecycle } from "./lifecycle.ts";
 import type { LspClientConnection } from "./connection.ts";
 import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.ts";
 import {
-	requestIncomingCalls,
-	requestReferences,
 	requestWorkspaceSymbols,
 	resolveWorkspaceSymbol,
 } from "../protocol/features.ts";
@@ -133,12 +129,8 @@ export class LspClient {
 		return this.withSession((session) => resolveWorkspaceSymbol(session.connection, symbol, options));
 	}
 
-	references(filePath: string, position: Position, options?: LspRequestOptions): Promise<Location[] | undefined> {
-		return this.withSession((session) => requestReferences(session.connection, pathToFileUri(filePath), position, options));
-	}
-
-	incomingCalls(filePath: string, position: Position, options?: LspRequestOptions): Promise<CallHierarchyIncomingCall[] | undefined> {
-		return this.withSession((session) => requestIncomingCalls(session.connection, pathToFileUri(filePath), position, options));
+	withDocument<T>(filePath: string, text: string, signal: AbortSignal | undefined, operation: (document: LspDocumentSession) => Promise<T>): Promise<T | undefined> {
+		return this.withSession((session) => session.documents.withDocument(filePath, text, signal, operation));
 	}
 
 	private withSession<T>(operation: (session: ClientSession) => Promise<T>): Promise<T | undefined> {

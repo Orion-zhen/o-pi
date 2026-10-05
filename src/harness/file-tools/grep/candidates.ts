@@ -1,5 +1,5 @@
 import { compactDisplayLine } from "./display.ts";
-import type { CodeAuthority, CodeNavigation } from "../../code-index/types.ts";
+import type { CodeAuthority, CodeNavigation, CodeRelationStatus } from "../../code-index/types.ts";
 import type { GrepDisplayLine, GrepMatchedBy } from "./types.ts";
 
 export type SymbolRole = "definition" | "enclosing";
@@ -65,12 +65,15 @@ export interface CodeRegionBase {
 	readonly kind: string;
 	readonly symbol?: string;
 	readonly qualifiedSymbol?: string;
+	readonly enclosingSymbol?: string;
+	readonly context?: string;
 	readonly declaration?: string;
 	/** Internal UTF-8 boundary used only to suppress declaration-duplicate hits. */
 	readonly declarationEndByte?: number;
 	readonly symbolRole?: SymbolRole;
 	readonly authority?: CodeAuthority;
 	readonly navigation?: readonly CodeNavigation[];
+	readonly relationStatus?: CodeRelationStatus;
 	readonly signals: readonly CandidateSignal[];
 	readonly evidence?: RegionEvidence;
 	readonly displayLines: readonly GrepDisplayLine[];
@@ -121,7 +124,7 @@ export function createVerifiedCodeRegion(
 	const displayLines: GrepDisplayLine[] = [];
 	const seenLines = new Set<number>();
 	for (const hit of sortedHits) {
-		if (seenLines.has(hit.line) || declarationCoversHit(input.declaration, input.declarationEndByte, hit)) continue;
+		if (seenLines.has(hit.line) || declarationCoversHit(input.context ?? input.declaration, input.declarationEndByte, hit)) continue;
 		seenLines.add(hit.line);
 		displayLines.push({
 			line: hit.line,

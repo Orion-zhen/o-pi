@@ -1,10 +1,6 @@
+import { structureIssues } from "../../code-index/structure.ts";
 import { languageFromPath } from "../../syntax-tree/grammars.ts";
-import type {
-	AnalyzeCode,
-	CodeAnalysisTarget,
-	PrepareCodeAnalysis,
-} from "../../code-index/types.ts";
-import type { TextContent } from "../../filesystem/contracts/content.ts";
+import type { AnalyzeCode, PrepareCodeAnalysis } from "../../code-index/types.ts";
 import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
 import { combineOperationContext } from "../shared/operation-context.ts";
@@ -16,21 +12,12 @@ import { buildRankedRegions, semanticParsePriority } from "./local.ts";
 import { packGrepResults, renderGrepSuccess } from "./packer.ts";
 import { createQueryPlan, type QueryPlan } from "./query-plan.ts";
 import { mergeGrepSkippedFiles } from "./skipped.ts";
-import {
-	GrepRegionizer,
-	regionizeAnalyzedFiles,
-	type RegionizationResult,
-	type RegionizedFile,
-} from "./regionizer.ts";
-import { scanInventoryText, type TextScanResult } from "./text-scanner.ts";
+import { GrepRegionizer } from "./regionizer.ts";
+import { analyzeSymbols } from "./symbol-analysis.ts";
+import { scanInventoryText } from "./text-scanner.ts";
 import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess } from "./types.ts";
 
 type GrepSkippedStats = NonNullable<GrepSuccess["stats"]["skipped_files"]>;
-
-interface SymbolAnalysisAttempt {
-	readonly loaded: ReadonlyMap<string, TextContent>;
-	readonly result?: RegionizationResult;
-}
 
 export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
@@ -41,7 +28,7 @@ export interface GrepCommandContext {
 	readonly analyzeCode?: AnalyzeCode;
 }
 
-/** Stateful grep command；正文/AST cache、parser 与 active invocation 共享 owner。 */
+/** 正文缓存、语法缓存、解析器和活动调用共享所有者。 */
 export class GrepTool {
 	private readonly contentCache = new GrepContentCache();
 	private readonly regionizer = new GrepRegionizer();
@@ -103,17 +90,20 @@ export class GrepTool {
 		if (isFailed(scanned)) return scanned;
 		await preparation;
 		const analysisPaths = semanticParsePriority(inventory, scanned);
-		const analyzed = await analyzeSymbols(plan, inventory, scanned, analysisPaths, context);
+		const analyzed = await analyzeSymbols(plan, inventory, scanned, analysisPaths, context,
+			(document, signal) => this.regionizer.syntax(document, context.filesystem, signal ?? context.operation.signal));
 		if (isFailed(analyzed)) return analyzed;
-		const regionized = analyzed.result ?? await this.regionizer.regionize(
+		const regionized = await this.regionizer.regionize(
 			inventory,
 			scanned.hits,
-			analysisPaths,
+			analyzed.syntaxPaths,
 			{
 				filesystem: context.filesystem,
 				operation: context.operation,
 				astMaxFileBytes: context.limits.grep_ast_max_file_bytes,
 				preloaded: analyzed.loaded,
+				semantic: analyzed.files,
+				related: scanned.totalHits === 0,
 			},
 		);
 		if (isFailed(regionized)) return regionized;
@@ -127,6 +117,8 @@ export class GrepTool {
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			regions,
+			analysis: analyzed.coverage,
+			structureIssues: regionized.files.flatMap((file) => structureIssues(file.analysis)),
 			stats: grepStats(
 				inventory,
 				scanned.stats,
@@ -156,113 +148,6 @@ function prepareCodeAnalysis(inventory: ScopeInventory, context: GrepCommandCont
 		paths,
 		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
 	}).catch(() => undefined);
-}
-
-async function analyzeSymbols(
-	plan: QueryPlan,
-	inventory: ScopeInventory,
-	scan: TextScanResult,
-	analysisPaths: readonly string[],
-	context: GrepCommandContext,
-): Promise<SymbolAnalysisAttempt | FailedResult> {
-	const loaded = new Map<string, TextContent>(scan.contents);
-	if (context.analyzeCode === undefined) return { loaded };
-	const byPath = new Map(inventory.files.map((file) => [file.path, file]));
-	const targets = codeAnalysisTargets(scan, analysisPaths, byPath, context.limits.grep_ast_max_file_bytes);
-	let analysis;
-	try {
-		analysis = await context.analyzeCode({
-			query: plan.targetQuery.length === 0 ? plan.query : plan.targetQuery,
-			targets,
-			allowRelated: scan.totalHits === 0,
-			limit: context.limits.grep_result_limit,
-			async load(path) {
-				const cached = loaded.get(path);
-				if (cached !== undefined) {
-					return hasBareCr(cached.text) ? undefined : { path, text: cached.text, hash: cached.hash };
-				}
-				const file = byPath.get(path);
-				if (file === undefined || file.snapshot.sizeBytes > context.limits.grep_ast_max_file_bytes) return undefined;
-				const content = await context.filesystem.content.readText(file.ref, {
-					maxBytes: context.limits.grep_ast_max_file_bytes,
-					expectedSnapshot: file.snapshot,
-				});
-				if (!content.ok) return undefined;
-				loaded.set(path, content.value);
-				if (hasBareCr(content.value.text)) return undefined;
-				return { path, text: content.value.text, hash: content.value.hash };
-			},
-			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
-		});
-	} catch {
-		return context.operation.signal?.aborted === true ? aborted() : { loaded };
-	}
-	if (context.operation.signal?.aborted === true) return aborted();
-	if (analysis === undefined) return { loaded };
-	const files: RegionizedFile[] = analysis.files.flatMap(({ document, analysis: fileAnalysis }) => {
-		if (fileAnalysis.status !== "parsed") return [];
-		const file = byPath.get(document.path);
-		const content = loaded.get(document.path);
-		return file === undefined || content === undefined ? [] : [{ file, content, analysis: fileAnalysis }];
-	});
-	return {
-		loaded,
-		result: {
-			regions: regionizeAnalyzedFiles(scan.hits, files, scan.totalHits === 0),
-			files,
-			astSkippedOversizedFiles: structuralOversizedCount(
-				analysisPaths,
-				byPath,
-				context.limits.grep_ast_max_file_bytes,
-			),
-			skipped: {},
-			scopeErrors: [],
-		},
-	};
-}
-
-function structuralOversizedCount(
-	analysisPaths: readonly string[],
-	files: ReadonlyMap<string, ScopeInventory["files"][number]>,
-	astMaxFileBytes: number,
-): number {
-	return analysisPaths.filter((path) => {
-		const file = files.get(path);
-		return file !== undefined
-			&& languageFromPath(file.path) !== "text"
-			&& file.snapshot.sizeBytes > astMaxFileBytes;
-	}).length;
-}
-
-function codeAnalysisTargets(
-	scan: TextScanResult,
-	analysisPaths: readonly string[],
-	files: ReadonlyMap<string, ScopeInventory["files"][number]>,
-	astMaxFileBytes: number,
-): CodeAnalysisTarget[] {
-	const ranges = new Map<string, Array<{ startByte: number; endByte: number }>>();
-	for (const hit of scan.hits) {
-		const grouped = ranges.get(hit.path);
-		const range = { startByte: hit.byteStart, endByte: hit.byteEnd };
-		if (grouped === undefined) ranges.set(hit.path, [range]);
-		else grouped.push(range);
-	}
-	const paths = scan.totalHits === 0
-		? analysisPaths
-		: [...ranges.keys()];
-	return paths.flatMap((path) => {
-		const file = files.get(path);
-		if (
-			file === undefined
-			|| file.snapshot.sizeBytes > astMaxFileBytes
-			|| languageFromPath(file.path) === "text"
-		) return [];
-		return [{ path, ranges: ranges.get(path) ?? [] }];
-	});
-}
-
-function hasBareCr(text: string): boolean {
-	return /\r(?!\n)/u.test(text);
 }
 
 function successfulScopeState(
@@ -329,7 +214,6 @@ export function formatCompactGrepResult(result: GrepSuccess): string {
 function isAborted(signal: AbortSignal | undefined): boolean {
 	return signal?.aborted === true;
 }
-
 
 function aborted(path?: string): ReturnType<typeof fail> {
 	return fail("OPERATION_ABORTED", "grep was aborted.", path === undefined ? {} : { path });

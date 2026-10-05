@@ -1,9 +1,9 @@
-import type { SymbolInformation, WorkspaceSymbol } from "vscode-languageserver-protocol";
+import type { WorkspaceSymbol } from "vscode-languageserver-protocol";
 
+import type { CodeAnalysisStatus } from "../../code-index/types.ts";
 import { LspClient } from "../client/client.ts";
-import type { OperationDeadline } from "./deadline.ts";
+import { combinedStatus, type AnalysisRequests } from "./requests.ts";
 import {
-	hasUriOnlyWorkspaceSymbolLocation,
 	normalizeSymbolText,
 	qualifiedSymbolName,
 	workspaceSymbolLocation,
@@ -26,51 +26,50 @@ export interface ResolvedWorkspaceSymbol {
 	readonly seed: WorkspaceSymbolSeed;
 }
 
-type WorkspaceSymbolServerResult = {
-	readonly client: LspClient;
-	readonly symbols: Array<SymbolInformation | WorkspaceSymbol>;
-};
+export interface WorkspaceSymbolSeeds {
+	readonly seeds: readonly ResolvedWorkspaceSymbol[];
+	readonly coverage: ReadonlyMap<string, CodeAnalysisStatus>;
+}
 
 type SymbolCandidate =
 	| { kind: "complete"; client: LspClient; seed: WorkspaceSymbolSeed }
-	| { kind: "resolve"; client: LspClient; symbol: WorkspaceSymbol };
+	| { kind: "resolve"; client: LspClient; path: string; symbol: WorkspaceSymbol };
 
-/** 查询、过滤和 resolve workspace symbols，返回后续 code analysis 使用的 seed。 */
+/** 各服务器和 resolve 请求独立返回结果，共用候选预算和稳定选择顺序。 */
 export async function resolveWorkspaceSymbolSeeds(
 	input: WorkspaceSymbolSeedsInput,
 	config: LspConfig["grep"],
-	operation: OperationDeadline,
+	requests: AnalysisRequests,
 	clients: readonly LspClient[],
-): Promise<ResolvedWorkspaceSymbol[] | undefined> {
-	const serverResults = await Promise.all(clients.map(async (client) => {
-		if (operation.signal.aborted) return undefined;
-		const symbols = await client.workspaceSymbols(input.query, operation.requestOptions());
-		return symbols === undefined ? undefined : { client, symbols };
-	}));
-	const completeServerResults = serverResults.filter(
-		(result): result is WorkspaceSymbolServerResult => result !== undefined,
-	);
-	if (operation.signal.aborted || completeServerResults.length !== serverResults.length) return undefined;
-
+): Promise<WorkspaceSymbolSeeds> {
+	const serverResults = await Promise.all(clients.map(async (client) => ({
+		client,
+		result: await requests.run(client.capabilities()?.workspaceSymbolProvider,
+			(options) => client.workspaceSymbols(input.query, options)),
+	})));
+	const coverage = new Map<string, CodeAnalysisStatus>();
 	const candidates: SymbolCandidate[] = [];
 	const seenRaw = new Set<string>();
-	for (const result of completeServerResults) {
-		for (const symbol of result.symbols) {
-			if (operation.signal.aborted) return undefined;
+	for (const { client, result } of serverResults) {
+		for (const [path, owner] of input.owners) {
+			if (owner === client.server.id) coverage.set(path, result.status);
+		}
+		if (result.status !== "ok") continue;
+		for (const symbol of result.value) {
+			if (requests.signal?.aborted === true) break;
 			const location = workspaceSymbolLocation(symbol);
 			if (location !== undefined) {
 				const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-				if (seed === undefined || input.owners.get(seed.path) !== result.client.server.id) continue;
+				if (seed === undefined || input.owners.get(seed.path) !== client.server.id) continue;
 				const key = symbolHitKey(seed);
 				if (seenRaw.has(key)) continue;
 				seenRaw.add(key);
-				candidates.push({ kind: "complete", client: result.client, seed });
+				candidates.push({ kind: "complete", client, seed });
 				continue;
 			}
-			if (!hasUriOnlyWorkspaceSymbolLocation(symbol) || typeof symbol.name !== "string" || typeof symbol.kind !== "number") continue;
 			const relative = relativePathForUri(input.root, symbol.location.uri);
-			if (relative === undefined || input.owners.get(relative) !== result.client.server.id) continue;
-			candidates.push({ kind: "resolve", client: result.client, symbol });
+			if (relative === undefined || input.owners.get(relative) !== client.server.id) continue;
+			candidates.push({ kind: "resolve", client, path: relative, symbol });
 		}
 	}
 
@@ -82,7 +81,7 @@ export async function resolveWorkspaceSymbolSeeds(
 	while (
 		accepted.length < config.max_symbols
 		&& candidateIndex < candidates.length
-		&& !operation.signal.aborted
+		&& requests.signal?.aborted !== true
 	) {
 		const remaining = config.max_symbols - accepted.length;
 		const batchSize = Math.min(RESOLVE_CONCURRENCY, remaining, candidates.length - candidateIndex);
@@ -90,21 +89,27 @@ export async function resolveWorkspaceSymbolSeeds(
 		candidateIndex += batchSize;
 		const resolved = await Promise.all(batch.map(async (candidate) => {
 			if (candidate.kind === "complete") return { client: candidate.client, seed: candidate.seed };
-			if (operation.signal.aborted) return undefined;
-			const symbol = await candidate.client.resolveWorkspaceSymbol(candidate.symbol, operation.requestOptions());
-			if (symbol === undefined || operation.signal.aborted) return undefined;
-			const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-			return seed === undefined || input.owners.get(seed.path) !== candidate.client.server.id
-				? undefined
-				: { client: candidate.client, seed };
+			const provider = candidate.client.capabilities()?.workspaceSymbolProvider;
+			const result = await requests.run(typeof provider === "object" && provider.resolveProvider === true,
+				(options) => candidate.client.resolveWorkspaceSymbol(candidate.symbol, options));
+			if (result.status !== "ok") {
+				coverage.set(candidate.path, combinedStatus([coverage.get(candidate.path) ?? "ok", result.status]));
+				return undefined;
+			}
+			const seed = workspaceSymbolSeed(input.root, input.query, result.value);
+			if (seed === undefined || input.owners.get(seed.path) !== candidate.client.server.id) {
+				coverage.set(candidate.path, combinedStatus([coverage.get(candidate.path) ?? "ok", "unavailable"]));
+				return undefined;
+			}
+			return { client: candidate.client, seed };
 		}));
-		const completeResolved = resolved.filter(
-			(result): result is ResolvedWorkspaceSymbol => result !== undefined,
-		);
-		if (operation.signal.aborted || completeResolved.length !== resolved.length) return undefined;
-		for (const result of completeResolved) {
+		for (const result of resolved) {
+			if (result === undefined) continue;
 			const exactLeaf = isExactLeafQuery(input.query, result.seed);
-			if (exactLeaf && exactLeafCount >= config.max_exact_leaf_symbols) continue;
+			if (exactLeaf && exactLeafCount >= config.max_exact_leaf_symbols) {
+				markSkipped(result.seed.path);
+				continue;
+			}
 			const key = symbolHitKey(result.seed);
 			if (seenHits.has(key)) continue;
 			seenHits.add(key);
@@ -113,9 +118,15 @@ export async function resolveWorkspaceSymbolSeeds(
 			if (accepted.length >= config.max_symbols) break;
 		}
 	}
-	return operation.signal.aborted ? undefined : accepted;
-}
+	for (const candidate of candidates.slice(candidateIndex)) {
+		markSkipped(candidate.kind === "complete" ? candidate.seed.path : candidate.path);
+	}
+	return { seeds: accepted, coverage };
 
+	function markSkipped(path: string): void {
+		if (coverage.get(path) === "ok") coverage.set(path, "skipped");
+	}
+}
 
 function relativePathForUri(root: string, uri: string): string | undefined {
 	const filePath = fileUriToPath(uri);

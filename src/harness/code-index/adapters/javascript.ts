@@ -1,44 +1,52 @@
-import { collectUnits, firstNamedChildText, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.ts";
-import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.ts";
-import type { ModuleImport } from "../types.ts";
+import { collectUnits, firstNamedChildText, functionUnit, nameField, rawUnit, type UnitRules } from "./shared.ts";
+import type { SyntaxNode } from "../../syntax-tree/types.ts";
 import type { LanguageExtractor } from "./types.ts";
 
 const TS_UNIT_KINDS = new Set([
-	"function_declaration",
-	"method_definition",
-	"method_signature",
-	"class_declaration",
-	"interface_declaration",
-	"type_alias_declaration",
-	"enum_declaration",
-	"variable_declaration",
-	"variable_declarator",
+	"function_declaration", "method_definition", "method_signature", "class_declaration",
+	"interface_declaration", "type_alias_declaration", "enum_declaration", "variable_declaration", "variable_declarator",
 ]);
+const FUNCTION_EXPRESSIONS = new Set(["arrow_function", "function_expression", "generator_function"]);
 
-function unitRules(exportedNames: ReadonlySet<string>): UnitRules {
-	return {
-		extract(node, scope) {
-			if (!TS_UNIT_KINDS.has(node.type)) return undefined;
-			const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "property_identifier", "type_identifier"]);
-			return name === undefined ? undefined : rawUnit(node, normalizeTsKind(node.type), name, scope, isExportedDeclaration(node, name, exportedNames));
-		},
-		childScope(_node, unit, current) {
-			if (unit === undefined || (unit.kind !== "class" && unit.kind !== "interface")) return current;
-			return unit.qualifiedName;
-		},
-		shouldDescend(_node, unit) {
-			return unit.kind === "class" || unit.kind === "interface";
-		},
-	};
-}
-
-function isExportedDeclaration(node: SyntaxNode, name: string, exportedNames: ReadonlySet<string>): boolean {
-	if (node.type === "method_definition" || node.type === "method_signature") return false;
-	const parent = node.parent;
-	return exportedNames.has(name)
-		|| parent?.type === "export_statement"
-		|| (node.type === "variable_declarator" && parent?.parent?.type === "export_statement");
-}
+const javascriptRules: UnitRules = {
+	extract(node, scope, text) {
+		if (FUNCTION_EXPRESSIONS.has(node.type)) {
+			const name = node.childForFieldName("name");
+			const call = node.parent?.type === "arguments" ? node.parent.parent : undefined;
+			return functionUnit(node, scope, text, node.childForFieldName("body"), name === null ? undefined : { name, declaration: node }, call);
+		}
+		const property = node.type === "pair" || node.type === "public_field_definition" || node.type === "field_definition";
+		if (!TS_UNIT_KINDS.has(node.type) && !property) return undefined;
+		const value = node.childForFieldName("value");
+		if (property && (value === null || !FUNCTION_EXPRESSIONS.has(value.type))) return undefined;
+		const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "property_identifier", "type_identifier"]);
+		if (name === undefined) return undefined;
+		const kind = normalizeTsKind(node.type);
+		const callable = value !== null && FUNCTION_EXPRESSIONS.has(value.type) ? value
+			: kind === "function" || kind === "method" ? node : undefined;
+		const declaredName = node.childForFieldName("name");
+		const nameNode = declaredName?.text === name ? declaredName
+			: node.namedChildren.find((child) => child.text === name && /identifier|name/u.test(child.type));
+		return rawUnit(node, kind, name, scope, {
+			range: node.parent?.type === "export_statement" ? node.parent : node,
+			...(nameNode === undefined ? {} : { name: nameNode }),
+			body: (callable ?? node).childForFieldName("body") ?? node.childForFieldName("type")?.childForFieldName("body"),
+			...(callable === undefined ? {} : { callable }),
+			...(callable === undefined || callable.id === node.id || nameField(callable) !== undefined ? {} : { ownedCallable: callable.id }),
+		});
+	},
+	childScope(node, unit, current) {
+		if (node.childForFieldName("value")?.type === "object") {
+			const name = nameField(node) ?? node.childForFieldName("key")?.text;
+			if (name !== undefined) return current === undefined ? name : `${current}.${name}`;
+		}
+		if (unit === undefined || (unit.kind !== "class" && unit.kind !== "interface")) return current;
+		return unit.qualifiedName;
+	},
+	isContainer(_node, unit) {
+		return unit.kind === "class" || unit.kind === "interface";
+	},
+};
 
 function normalizeTsKind(kind: string): string {
 	if (kind === "function_declaration") return "function";
@@ -50,51 +58,20 @@ function normalizeTsKind(kind: string): string {
 	return "declaration";
 }
 
-function extractJavaScriptUnits(root: SyntaxNode, control: AnalysisControl) {
-	return collectUnits(root, unitRules(localExportNames(root)), control);
-}
-
-function localExportNames(root: SyntaxNode): Set<string> {
-	const names = new Set<string>();
-	for (const statement of root.descendantsOfType("export_statement")) {
-		if (statement.childForFieldName("source") !== null) continue;
-		for (const specifier of statement.descendantsOfType("export_specifier")) {
-			const name = specifier.childForFieldName("name");
-			if (name !== null) names.add(name.text);
-		}
-	}
-	return names;
-}
-
-function extractJavaScriptImports(root: SyntaxNode, control: AnalysisControl): ModuleImport[] {
-	const imports: ModuleImport[] = [];
-	walkNamed(root, (node) => {
-		if (node.type === "import_statement" || node.type === "export_statement") {
-			const source = node.childForFieldName("source");
-			const imported = source === null ? undefined : stringImport(source);
-			if (imported !== undefined) imports.push(imported);
-			return;
-		}
-		if (node.type !== "call_expression") return;
-		const functionNode = node.childForFieldName("function");
-		if (functionNode === null || (functionNode.type !== "import" && (functionNode.type !== "identifier" || functionNode.text !== "require"))) return;
-		const args = node.childForFieldName("arguments");
-		if (args === null || args.namedChildren.length !== 1) return;
-		const argument = args.namedChildren[0];
-		if (argument === undefined) return;
-		const imported = stringImport(argument);
-		if (imported !== undefined) imports.push(imported);
-	}, control);
-	return imports;
-}
-
-function stringImport(node: SyntaxNode): ModuleImport | undefined {
-	if (node.type !== "string") return undefined;
-	const fragment = node.namedChildren.find((child) => child.type === "string_fragment");
-	return fragment === undefined ? undefined : { specifier: fragment.text };
+function calleeIdentifier(node: SyntaxNode): SyntaxNode | undefined {
+	if (node.namedChildCount === 0 && node.type.includes("identifier")) return node;
+	const child = node.type === "member_expression" ? node.childForFieldName("property")
+		: node.type === "parenthesized_expression" ? node.namedChildren[0] : undefined;
+	return child == null ? undefined : calleeIdentifier(child);
 }
 
 export const javascriptExtractor: LanguageExtractor = {
-	extractUnits: extractJavaScriptUnits,
-	extractImports: extractJavaScriptImports,
+	extractUnits: (root, text, control) => collectUnits(root, text, javascriptRules, control),
+	call(node) {
+		const callee = node.type === "call_expression" ? node.childForFieldName("function")
+			: node.type === "new_expression" ? node.childForFieldName("constructor") : undefined;
+		if (callee == null) return undefined;
+		const lookup = calleeIdentifier(callee);
+		return { callee, ...(lookup === undefined ? {} : { lookup }) };
+	},
 };

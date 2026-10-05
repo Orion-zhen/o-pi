@@ -1,3 +1,5 @@
+import { hasStructuralRange } from "../../code-index/structure.ts";
+import { codeRegionMetadata } from "./unit-metadata.ts";
 import { compareCodeUnitNesting } from "../../code-index/units.ts";
 import { createTextTokenMatcher, tokenizeText } from "../../code-index/text.ts";
 import { languageFromPath } from "../../syntax-tree/grammars.ts";
@@ -66,7 +68,7 @@ export function buildRankedRegions(
 	}
 	if (scan.totalHits > 0) return rankCodeRegions(plan, [...byId.values()]);
 
-	const units = regionized.files.flatMap((file) => file.analysis.units);
+	const units = regionized.files.flatMap((file) => file.analysis.units).filter(hasStructuralRange);
 	const queryTerms = uniqueTerms(plan.targetTerms.length > 0 ? plan.targetTerms : [plan.query]);
 	const groupedAnchors = groupLexicalAnchors(scan.fileEvidence, units);
 	const entries = [
@@ -91,6 +93,7 @@ function anchoredUnitCandidates(
 	displayLimit: number,
 ): LocalEntry[] {
 	const result: LocalEntry[] = [];
+	const unitsById = new Map(units.map((unit) => [unit.id, unit]));
 	const matchTerms = createTextTokenMatcher(queryTerms);
 	for (const item of units) {
 		const anchors = anchorsByUnit.get(item.id);
@@ -115,6 +118,7 @@ function anchoredUnitCandidates(
 			- Math.max(0, item.endLine - item.startLine);
 		result.push(localEntry(
 			item,
+			unitsById,
 			quality,
 			[highCoverage ? "lexical_high_coverage" : "lexical"],
 			displayLines,
@@ -189,6 +193,7 @@ function lexicalAnchorCandidates(
 
 function localEntry(
 	item: IndexedCodeUnit,
+	units: ReadonlyMap<string, IndexedCodeUnit>,
 	quality: number,
 	signals: readonly CandidateSignal[],
 	displayLines: readonly GrepDisplayLine[] = [],
@@ -203,12 +208,10 @@ function localEntry(
 			startByte: item.startByte,
 			endByte: item.endByte,
 			kind: item.kind,
-			symbol: item.qualifiedName ?? item.name,
-			...(item.qualifiedName === undefined ? {} : { qualifiedSymbol: item.qualifiedName }),
-			...(item.signature === undefined ? {} : { declaration: item.signature }),
-			...(item.declarationEndByte === undefined ? {} : { declarationEndByte: item.declarationEndByte }),
+			...codeRegionMetadata(item, units),
 			symbolRole: "definition",
 			authority: item.authority,
+			...(item.relationStatus === undefined ? {} : { relationStatus: item.relationStatus }),
 			signals,
 			displayLines,
 		}),

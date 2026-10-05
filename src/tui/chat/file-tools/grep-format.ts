@@ -114,13 +114,14 @@ function formatRegion(region: GrepRegion, theme: Pick<Theme, "fg">): string {
 	const metadata = [
 		`kind=${region.kind}`,
 		...(region.symbol === undefined ? [] : [`symbol=${region.symbol}`]),
+		...(region.enclosing_symbol === undefined ? [] : [`in=${region.enclosing_symbol}`]),
 		...(region.roles === undefined || region.roles.length === 0 ? [] : [`roles=${region.roles.map(kebabCase).join(",")}`]),
 		...(region.matched_by.length === 0 ? [] : [`matched-by=${region.matched_by.join(",")}`]),
 		...(region.match_lines === undefined ? [] : [`matches=${region.match_lines.length}`]),
 	];
 	return [
 		`${theme.fg("accent", range)} [${metadata.join("; ")}]`,
-		...(region.navigation ?? []).map((location) => `  ${location.kind}: ${location.path}:${location.line}:${location.column}`),
+		...(region.navigation ?? []).map((location) => `  ${location.kind}${location.ambiguous === true ? "?" : ""}: ${location.path}:${location.line}:${location.column}`),
 	].join("\n");
 }
 

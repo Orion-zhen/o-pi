@@ -1,9 +1,12 @@
 import path from "node:path";
 import { FileChangeType } from "vscode-languageserver-protocol";
-import type { LspMutationInput, LspReadInput } from "../file-operations.ts";
+import type { LspMutationInput, LspDocumentAnalysisInput } from "../file-operations.ts";
 import { emptySummary } from "../diagnostics/ledger.ts";
 
-import type { CodeAnalysis } from "../../code-index/types.ts";
+import type { AnalyzedFileIndex, CodeAnalysis } from "../../code-index/types.ts";
+import { analyzeLspDocument } from "../analysis/document.ts";
+import { AnalysisRequests } from "../analysis/requests.ts";
+import { pathToFileUri } from "../protocol/uri.ts";
 import { codeAnalysis as runCodeAnalysis, type LspCodeAnalysisInput } from "../analysis/code-analysis.ts";
 import {
 	beforeDiagnostics as readBeforeDiagnostics,
@@ -12,12 +15,9 @@ import {
 } from "../diagnostics/operations.ts";
 import { waitUnlessAborted } from "../analysis/deadline.ts";
 import { LspManagerRuntime } from "./runtime.ts";
-import { findEnclosingSymbol, remainingSymbols } from "../analysis/symbols.ts";
 import type {
 	LspMutationBaseline,
 	LspDiagnosticsSummary,
-	LspEnclosingSymbol,
-	LspRemainingSymbol,
 	LspStatus,
 } from "../types.ts";
 
@@ -27,13 +27,6 @@ export interface LspCodeAnalysisPreparationInput {
 	readonly root: string;
 	readonly paths: readonly string[];
 	readonly signal?: AbortSignal;
-}
-
-export interface ReadEnhancement {
-	/** 整文件截断且可见部分不足以覆盖顶层结构时的导航回退。 */
-	remaining_symbols?: LspRemainingSymbol[];
-	/** partial range 所属的最小包围 symbol。 */
-	enclosing_symbol?: LspEnclosingSymbol;
 }
 
 /** 进程内 LSP 管理器：负责对外协调各个专用服务。 */
@@ -48,11 +41,8 @@ export class LspManager {
 		return this.runtime.reload();
 	}
 
-	read(input: LspReadInput): Promise<ReadEnhancement | undefined> {
-		return this.runtime.withClientOperation(() => this.readEnhancementOperation(
-			input.workspaceRoot, input.filePath, input.content, input,
-			{ outline: input.truncated && !input.partial, enclosing: input.partial },
-		));
+	documentAnalysis(input: LspDocumentAnalysisInput): Promise<AnalyzedFileIndex | undefined> {
+		return this.runtime.withClientOperation(() => this.analyzeDocument(input));
 	}
 
 	codeAnalysis(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined> {
@@ -133,36 +123,22 @@ export class LspManager {
 		return listKnownDiagnostics(this.runtime, root, filePath);
 	}
 
-	private async readEnhancementOperation(
-		root: string,
-		filePath: string,
-		text: string,
-		range: { startLine: number; endLine: number },
-		options: { outline: boolean; enclosing: boolean },
-	): Promise<ReadEnhancement | undefined> {
-		const workspace = await this.runtime.workspace(root);
+	private async analyzeDocument(input: LspDocumentAnalysisInput): Promise<AnalyzedFileIndex | undefined> {
+		const workspace = await this.runtime.workspace(input.workspaceRoot);
 		if (workspace === undefined) return undefined;
-		const config = workspace.config;
-		const wantsOutline = options.outline
-			&& !options.enclosing
-			&& config.read.outline
-			&& config.read.max_symbols > 0;
-		if (!wantsOutline && !options.enclosing) return undefined;
-		const route = workspace.routeForFile(filePath);
+		const route = workspace.routeForFile(input.filePath);
 		if (route === undefined) return undefined;
-		const client = await workspace.client(route.server);
-		if (client === undefined) return undefined;
-		const symbols = await client.documentSymbols(filePath, text);
-		if (symbols === undefined) return undefined;
-		const result: ReadEnhancement = {};
-		if (wantsOutline) {
-			const remaining = remainingSymbols(symbols, range.startLine, range.endLine, config.read.max_symbols);
-			if (remaining.length > 0) result.remaining_symbols = remaining;
-		}
-		if (options.enclosing) {
-			const enclosing = findEnclosingSymbol(symbols, range.startLine, range.endLine);
-			if (enclosing !== undefined) result.enclosing_symbol = enclosing;
-		}
-		return Object.keys(result).length === 0 ? undefined : result;
+		const requests = new AnalysisRequests(input.signal, workspace.config.request_timeout_ms);
+		const started = await requests.run(true, () => workspace.client(route.server));
+		if (started.status !== "ok") return undefined;
+		const client = started.value;
+		const result = await requests.run(client.capabilities()?.documentSymbolProvider, async (options) => {
+			const symbols = await client.documentSymbols(input.filePath, input.content, options);
+			if (symbols === undefined) return undefined;
+			return analyzeLspDocument({
+				path: path.relative(input.workspaceRoot, input.filePath).replaceAll(path.sep, "/"), text: input.content,
+			}, symbols, pathToFileUri(input.filePath));
+		});
+		return result.status === "ok" ? result.value : undefined;
 	}
 }

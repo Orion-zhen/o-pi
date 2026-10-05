@@ -32,6 +32,20 @@ describe("grep renderer", () => {
 		for (const sourceLine of ["async login", "return secretSession"]) expect(output).not.toContain(sourceLine);
 	});
 
+	it("匿名区域的具名归属不显示为自身符号", () => {
+		const output = formatGrepResult({
+			...success(),
+			regions: [{
+				path: "nested.ts", start_line: 8, end_line: 10, kind: "function",
+				enclosing_symbol: "outer", context: "return values.map((value) => {",
+				query_match: "verified", matched_by: ["regex"], sources: ["text-regex"], match_lines: [9],
+			}],
+		}, true, theme);
+		expect(output).toContain("nested.ts:8-10");
+		expect(output).toContain("in=outer");
+		expect(output).not.toContain("symbol=outer");
+	});
+
 	it("literal 模式在折叠与展开状态都可区分", () => {
 		const base = success();
 		const first = base.regions[0];

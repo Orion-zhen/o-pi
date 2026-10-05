@@ -9,6 +9,8 @@ import {
 	type TextDocumentSyncOptions,
 } from "vscode-languageserver-protocol";
 
+import { LspDocumentSession } from "./document-session.ts";
+import { waitUnlessAborted } from "../analysis/deadline.ts";
 import { incrementalContentChange } from "./text-change.ts";
 import { languageIdForServerPath } from "../config/routing.ts";
 import { requestDocumentSymbols } from "../protocol/features.ts";
@@ -17,7 +19,7 @@ import type { LspClientConnection } from "./connection.ts";
 import type { LspClientDocumentContext, LspConfig, LspDocumentSymbols, LspRequestOptions, LspServerConfig } from "../types.ts";
 
 interface DocumentState extends LspClientDocumentContext {
-	version: number;
+	readonly version: number;
 	open: boolean;
 	persistent: boolean;
 	lastUsed: number;
@@ -74,30 +76,46 @@ export class LspClientDocuments {
 		}
 	}
 
-	async documentSymbols(filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
+	documentSymbols(filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
 		const document = this.context(filePath, text);
-		const symbols = await this.enqueue(document.uri, async () => {
+		return this.query(document.uri, options?.signal, async () => {
 			const previous = this.states.get(document.uri);
 			if (previous?.text === document.text && previous.languageId === document.languageId && previous.cachedSymbols !== undefined) {
 				previous.lastUsed = ++this.clock;
 				return previous.cachedSymbols;
 			}
-			if (!await this.synchronizeDocument(document, false)) return undefined;
-			const state = this.states.get(document.uri);
-			if (state === undefined) return undefined;
-			const requested = await requestDocumentSymbols(this.connection, document.uri, options);
-			if (requested !== undefined && this.states.get(document.uri) === state) {
-				state.cachedSymbols = requested;
-				state.lastUsed = ++this.clock;
-			}
-			return requested;
+			return this.withSynchronizedDocument(document, options?.signal, (session) => session.symbols(options));
 		});
-		await this.enqueue(document.uri, async () => {
-			const state = this.states.get(document.uri);
-			if (state !== undefined && !state.persistent) await this.closeDocument(document.uri, true);
+	}
+
+	/** 同 URI 的保存和其他分析排队，临时文档在全部查询结束后才关闭。 */
+	withDocument<T>(filePath: string, text: string, signal: AbortSignal | undefined, operation: (session: LspDocumentSession) => Promise<T>): Promise<T | undefined> {
+		const document = this.context(filePath, text);
+		return this.query(document.uri, signal, () => this.withSynchronizedDocument(document, signal, operation));
+	}
+
+	private query<T>(uri: string, signal: AbortSignal | undefined, operation: () => Promise<T>): Promise<T | undefined> {
+		const pending = this.enqueue(uri, async () => signal?.aborted ? undefined : operation());
+		const cleaned = pending.finally(() => this.trim(uri));
+		return signal === undefined ? cleaned : waitUnlessAborted(cleaned, signal);
+	}
+
+	private async withSynchronizedDocument<T>(document: LspClientDocumentContext, signal: AbortSignal | undefined, operation: (session: LspDocumentSession) => Promise<T>): Promise<T | undefined> {
+		if (!await this.synchronizeDocument(document, false)) return undefined;
+		const state = this.states.get(document.uri);
+		if (state === undefined) return undefined;
+		const session = new LspDocumentSession(document.uri, this.connection, async (options) => {
+			if (state.cachedSymbols !== undefined) return state.cachedSymbols;
+			const symbols = await requestDocumentSymbols(this.connection, document.uri, options);
+			if (symbols !== undefined && this.states.get(document.uri) === state) state.cachedSymbols = symbols;
+			return symbols;
 		});
-		await this.trim(document.uri);
-		return symbols;
+		try {
+			const result = await operation(session);
+			return !signal?.aborted && this.states.get(document.uri) === state ? result : undefined;
+		} finally {
+			if (this.states.get(document.uri) === state && !state.persistent) await this.closeDocument(document.uri, true);
+		}
 	}
 
 	async synchronizeAndSave(document: LspClientDocumentContext): Promise<boolean> {

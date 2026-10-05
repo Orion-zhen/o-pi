@@ -5,6 +5,7 @@ export interface FileToolLimits {
 	read_max_file_bytes: number;
 	read_pdf_pages: number;
 	read_suggestion_limit: number;
+	read_outline_symbols: number;
 	write_max_file_bytes: number;
 	edit_max_file_bytes: number;
 	edit_match_hint_limit: number;

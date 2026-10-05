@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AnalyzeCode, CodeAnalysis, CodeAuthority, CodeNavigation } from "../../../src/harness/code-index/types.ts";
 import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.ts";
-import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
 import { deferredVoid } from "../../helpers/async.ts";
 import { grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
 import {
@@ -18,15 +17,15 @@ const testContext = createGrepTestContext();
 
 describe("grep code analysis", () => {
 	it.each([
-		{ name: "正则正文查询", content: "export const value = 'Needle42';\n", query: "Needle\\d+" },
-		{ name: "唯一正文命中", content: "export function Target() { return true; }\n", query: "Target" },
-	] as const)("$name也优先使用完整 symbol analyzer", async ({ content, query }) => {
+		{ name: "正则正文查询", content: "export const value = 'Needle42';\n", query: "Needle\\d+", kind: "declaration" },
+		{ name: "唯一正文命中", content: "export function Target() { return true; }\n", query: "Target", kind: "function" },
+	] as const)("$name 保留 LSP 成功空结果并补充语法结构", async ({ content, query, kind }) => {
 		await writeFile(path.join(testContext.workspace, "target.ts"), content);
 		const analyzeCode = codeAnalyzer([]);
 		const result = await analyzeGrep(query, { analyzeCode });
 
 		expect(result.regions).toHaveLength(1);
-		expect(result.regions[0]?.kind).toBe("text");
+		expect(result.regions[0]?.kind).toBe(kind);
 		expect(analyzeCode).toHaveBeenCalledOnce();
 	});
 
@@ -84,7 +83,7 @@ describe("grep code analysis", () => {
 	it("只给前四个区域附加关系导航，位置不计入正文命中", async () => {
 		const files = Array.from({ length: 6 }, (_, index) => ({
 			path: `target-${index}.ts`, authority: "called" as const,
-			navigation: [{ kind: "caller" as const, path: "caller.ts", line: 2, column: 3 }],
+			navigation: [{ kind: "caller" as const, source: "hierarchy" as const, path: "caller.ts", line: 2, column: 3 }],
 		}));
 		await Promise.all(files.map((file) => writeFile(path.join(testContext.workspace, file.path), "export function Target() { return true; }\n")));
 		await writeFile(path.join(testContext.workspace, "caller.ts"), "export function run() {\n  Target();\n}\n");
@@ -93,6 +92,21 @@ describe("grep code analysis", () => {
 		expect(result.regions.slice(4).every((region) => region.navigation === undefined)).toBe(true);
 		expect(result.regions.every((region) => region.match_lines?.length === 1)).toBe(true);
 		expect(formatCompactGrepResult(result).match(/caller: caller.ts:2:3/gu)).toHaveLength(4);
+	});
+
+	it("结果打包选择两条不同种类的导航，不修改分析候选", async () => {
+		await writeFile(path.join(testContext.workspace, "target.ts"), "export function Target() {}\n");
+		const navigation: CodeNavigation[] = [
+			{ kind: "reference", source: "references", path: "a.ts", line: 1, column: 1 },
+			{ kind: "caller", source: "hierarchy", path: "c.ts", line: 1, column: 1, ambiguous: true },
+			{ kind: "caller", source: "hierarchy", path: "a.ts", line: 1, column: 1 },
+			{ kind: "caller", source: "hierarchy", path: "b.ts", line: 1, column: 1 },
+			{ kind: "callee", source: "definition", path: "d.ts", line: 1, column: 1 },
+		];
+		const original = structuredClone(navigation);
+		const result = await analyzeGrep("Target", { analyzeCode: codeAnalyzer([{ path: "target.ts", authority: "called", navigation }]) });
+		expect(result.regions[0]?.navigation).toEqual([navigation[2], navigation[4]]);
+		expect(navigation).toEqual(original);
 	});
 
 	it("analyzer 抛错时完整回退 Tree-sitter", async () => {
@@ -152,7 +166,7 @@ describe("grep code analysis", () => {
 			})),
 		);
 
-		expect(result.regions[0]?.kind).toBe("text");
+		expect(result.regions[0]?.kind).toBe("function");
 		expect(scanObservedPreparation).toBe(true);
 		expect(prepareCodeAnalysis).toHaveBeenCalledWith({
 			paths: ["target.ts"],
@@ -194,7 +208,7 @@ describe("grep code analysis", () => {
 			alternate: "int Target(void) { return 0; }\n",
 			consumer: "#include \"engine.c\"\nint run(void) { return Target(); }\n",
 		},
-	])("LSP unavailable 时由 $language import/call 关系提升唯一目标定义", async ({
+	])("LSP unavailable 时不根据 $language import/call 同名关系提升等级", async ({
 		extension,
 		engineDirectory,
 		query,
@@ -219,10 +233,9 @@ describe("grep code analysis", () => {
 
 		const engine = result.regions.find((region) => region.path === enginePath && region.roles?.includes("definition") === true);
 		const sample = result.regions.find((region) => region.path === samplePath && region.roles?.includes("definition") === true);
-		expect(engine?.roles).toEqual(["definition", "called"]);
+		expect(engine?.roles).toEqual(["definition", "defined"]);
 		expect(sample?.roles).toEqual(["definition", "defined"]);
-		expect(result.regions.findIndex((region) => region === engine))
-			.toBeLessThan(result.regions.findIndex((region) => region === sample));
+		expect(result.regions.every((region) => region.navigation === undefined)).toBe(true);
 		expect(analyzeCode).toHaveBeenCalledOnce();
 	});
 
@@ -240,7 +253,7 @@ describe("grep code analysis", () => {
 		expect(target?.roles).toEqual(["definition", "defined"]);
 	});
 
-	it("Tree-sitter 将显式 import 后的非调用使用标记为 referenced", async () => {
+	it("显式导入和同名使用不能代替语义引用证据", async () => {
 		await writeFile(path.join(testContext.workspace, "value.ts"), "export const Token = 1;\n");
 		await writeFile(path.join(testContext.workspace, "alternate.ts"), "export const Token = 2;\n");
 		await writeFile(
@@ -253,18 +266,20 @@ describe("grep code analysis", () => {
 
 		const value = result.regions.find((region) => region.path === "value.ts" && region.roles?.includes("definition") === true);
 		const alternate = result.regions.find((region) => region.path === "alternate.ts");
-		expect(value?.roles).toEqual(["definition", "referenced"]);
+		expect(value?.roles).toEqual(["definition", "defined"]);
 		expect(alternate?.roles).toEqual(["definition", "defined"]);
 	});
 
-	it("Tree-sitter authority 推断不污染跨调用复用的 AST cache", async () => {
+	it("语义关系等级不污染跨调用复用的语法缓存", async () => {
 		await writeFile(path.join(testContext.workspace, "engine.ts"), "export function Target() { return true; }\n");
 		await writeFile(
 			path.join(testContext.workspace, "consumer.ts"),
 			"import { Target } from './engine';\nexport function run() { return Target(); }\n",
 		);
 
-		const linked = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Target" }));
+		const linked = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Target" }, undefined, {
+			lsp: { codeAnalysis: codeAnalyzer([{ path: "engine.ts", authority: "called" }]) },
+		}));
 		expect(linked.regions.find((region) => region.path === "engine.ts")?.roles)
 			.toEqual(["definition", "called"]);
 
@@ -309,15 +324,26 @@ function codeAnalyzer(
 		const analyzed = await Promise.all(files.map(async (file) => {
 			const document = await input.load(file.path);
 			if (document === undefined) throw new Error(`missing analyzer document: ${file.path}`);
-			const parsed = await analyzeCodeFile(file.path, document.text);
+			const parsed = await input.syntax(document);
 			return {
 				document,
+				selectedIds: parsed.units.map((unit) => `lsp:${unit.id}`),
 				analysis: {
 					...parsed,
-					units: parsed.units.map((unit) => ({ ...unit, authority: file.authority, ...(file.navigation === undefined ? {} : { navigation: file.navigation }) })),
+					units: parsed.units.map((unit) => ({
+						...unit, id: `lsp:${unit.id}`, authority: file.authority,
+						symbol: { type: "document" as const, range: { startByte: unit.startByte, endByte: unit.endByte, startLine: unit.startLine, endLine: unit.endLine }, selection: unit.syntax?.nameRange ?? unit },
+						...(file.navigation === undefined ? {} : { navigation: file.navigation }),
+					})),
 				},
 			};
 		}));
-		return { mode: "symbol", coveredPaths: input.targets.map((target) => target.path), files: analyzed };
+		return {
+			relations: [],
+			results: input.targets.map((target) => {
+				const file = analyzed.find((file) => file.document.path === target.path);
+				return { coverage: { path: target.path, symbols: "ok" }, ...(file === undefined ? {} : { file }) };
+			}),
+		};
 	});
 }

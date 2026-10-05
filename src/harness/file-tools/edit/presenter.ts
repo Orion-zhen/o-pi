@@ -18,7 +18,7 @@ export function formatEditModelResult(result: EditSuccess): string {
 
 function editDiagnostics(diagnostics: DiagnosticsSummary | undefined): string[] {
 	if (diagnostics === undefined) return [];
-	if (diagnostics.status === "timeout" || diagnostics.status === "unavailable") return [`diag ${diagnostics.status}`];
+	if (diagnostics.status === "timeout" || diagnostics.status === "unavailable") return [];
 	const lines = diagnostics.file_errors > 0 ? [`errors=${diagnostics.file_errors}`] : [];
 	const uncertain = diagnostics.baseline === "unknown";
 	for (const item of diagnostics.items) {

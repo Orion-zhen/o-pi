@@ -34,6 +34,7 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 		field("ignored_path", "忽略路径"), field("blocked_path", "禁止访问路径"),
 		field("ignore.piignore", "遵循 .piignore"), field("ignore.gitignore", "遵循 .gitignore"),
 		field("ignore.git_tracked_files_bypass", "已跟踪文件绕过忽略"),
+		field("limits.read_outline_symbols", "读取大纲符号上限（0 关闭）"),
 	] }],
 	webTools: [
 		{ title: "网络代理", fields: [
@@ -72,7 +73,7 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 		{ title: "代码智能", fields: [
 			field("enabled", "LSP"), field("diagnostics.enabled", "代码诊断"),
 			field("diagnostics.min_severity", "诊断级别"),
-			field("read.outline", "读取时显示大纲"), field("grep.workspace_symbols", "搜索工作区符号"),
+			field("grep.workspace_symbols", "搜索工作区符号"),
 		] },
 		{ title: "代码智能高级选项", advanced: true, fields: [field("exclude_paths", "排除路径"), field("request_timeout_ms", "请求超时（毫秒）")] },
 	],

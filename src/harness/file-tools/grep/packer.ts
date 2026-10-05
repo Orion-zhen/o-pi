@@ -1,6 +1,7 @@
 import { formatSearchNavigation, SearchScopeCounts } from "../shared/search-navigation.ts";
 import { countTextTokensSync } from "../../token-counter.ts";
 import type { RankedRegion } from "./candidates.ts";
+import { selectNavigation } from "./navigation.ts";
 import {
 	GREP_RANKING_ALGORITHM,
 	GREP_RELEVANCE_HEAD_SIZE,
@@ -34,6 +35,8 @@ export interface GrepPackInput {
 	paths?: string[];
 	scopeErrors?: GrepScopeError[];
 	regions: readonly RankedRegion[];
+	analysis?: GrepSuccess["analysis"];
+	structureIssues?: GrepSuccess["structure_issues"];
 	stats: Omit<GrepStats, "dropped_related_results">;
 	truncationReasons: readonly TruncationReason[];
 	incomplete: readonly string[];
@@ -101,9 +104,12 @@ function publicRegion(candidate: RankedRegion, displayLimit: number, navigation:
 		start_line: candidate.startLine,
 		end_line: candidate.endLine,
 		kind: candidate.kind,
-		...(!navigation || candidate.navigation === undefined || candidate.navigation.length === 0 ? {} : { navigation: candidate.navigation }),
+		...(!navigation || candidate.navigation === undefined || candidate.navigation.length === 0 ? {} : { navigation: selectNavigation(candidate.navigation) }),
+		...(candidate.relationStatus === undefined ? {} : { relation_status: candidate.relationStatus }),
 		...(candidate.symbol === undefined ? {} : { symbol: candidate.symbol }),
-		...(candidate.declaration === undefined ? {} : { declaration: boundedDeclaration(candidate.declaration) }),
+		...(candidate.enclosingSymbol === undefined ? {} : { enclosing_symbol: candidate.enclosingSymbol }),
+		...(candidate.context === undefined ? {} : { context: boundedDeclaration(candidate.context) }),
+		...(candidate.context !== undefined || candidate.declaration === undefined ? {} : { declaration: boundedDeclaration(candidate.declaration) }),
 		query_match: candidate.queryMatch === "verified" ? "verified" : "semantic",
 		...(roles.length === 0 ? {} : { roles: unique(roles) }),
 		matched_by: [...candidate.matchedBy],
@@ -147,6 +153,8 @@ function createSuccess(
 		truncated_by: [...reasons],
 		regions: [...regions],
 		ranking,
+		...(input.analysis === undefined || input.analysis.length === 0 ? {} : { analysis: input.analysis }),
+		...(input.structureIssues === undefined || input.structureIssues.length === 0 ? {} : { structure_issues: input.structureIssues }),
 	};
 }
 
@@ -274,14 +282,16 @@ function renderRegion(region: GrepRegion): string {
 			: `${region.path}:${display.line}${RELATED_MARKER}: ${display.text}`;
 	}
 	const range = `${region.path}:${region.start_line}${region.end_line === region.start_line ? "" : `-${region.end_line}`}`;
-	const symbol = region.symbol === undefined ? "" : ` ${metadataValue(region.symbol)}`;
+	const symbol = region.symbol !== undefined ? ` ${metadataValue(region.symbol)}`
+		: region.enclosing_symbol === undefined ? "" : ` in ${metadataValue(region.enclosing_symbol)}`;
 	const related = region.query_match === "semantic" ? RELATED_MARKER : "";
 	const lines = [`${range}${symbol}${related}`];
-	if (region.declaration !== undefined) lines.push(`  ${region.declaration}`);
+	const context = region.context ?? region.declaration;
+	if (context !== undefined) lines.push(`  ${context}`);
 	if (region.query_match === "verified") appendMatchingLines(lines, displayLines, region.match_lines?.length ?? 0);
 	else appendEvidenceLines(lines, displayLines);
 	for (const location of region.navigation ?? []) {
-		lines.push(`  ${location.kind}: ${location.path}:${location.line}:${location.column}`);
+		lines.push(`  ${location.kind}${location.ambiguous === true ? "?" : ""}: ${location.path}:${location.line}:${location.column}`);
 	}
 	return lines.join("\n");
 }

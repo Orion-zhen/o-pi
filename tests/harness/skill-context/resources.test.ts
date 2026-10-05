@@ -61,7 +61,7 @@ describe("技能资源定位符", () => {
 			sessionId: "skill-read",
 			model: undefined,
 			host,
-			lsp: async () => lspOperations({ read: enhanceRead }),
+			lsp: async () => lspOperations({ documentAnalysis: enhanceRead }),
 			pathAccess,
 		});
 		const opened = await host.open({ cwd: temp.path, sessionId: "skill-read" });

@@ -40,7 +40,7 @@
 取得最新诊断后，展示当前错误和警告。错误优先，同级别内新增问题优先，原有问题标记为 `existing`。基线未知时不标记新增或已存在。条数由 `diagnostics.max_items` 控制，剩余内容用计数省略：
 
 ```xml
-<write path="src/a.ts" lsp="errors">
+<write path="src/a.ts">
 errors=2 warnings=1
 diag new error 12:5 Cannot find name 'foo'. (TS2304)
 diag existing error 30:7 Argument type mismatch. (TS2345)
@@ -48,7 +48,7 @@ diag existing error 30:7 Argument type mismatch. (TS2345)
 </write>
 ```
 
-没有可见诊断时只返回普通写入成功，不报告 `clean` 或已修复计数。超时或不可用时分别标记 `lsp="timeout"` 或 `lsp="unavailable"`，不推断错误已经消失。
+没有可见诊断时只返回普通写入成功，不报告 `clean` 或已修复计数。诊断超时或不可用状态仅保留在 `details`，不进入模型正文，也不推断错误已经消失。
 
 可见错误可以附加 `hint: ...`，只展示唯一、已解析的单文件 quickfix 标题。基线已知时，不为原有错误重复请求提示。提示不会应用修改或执行命令。
 

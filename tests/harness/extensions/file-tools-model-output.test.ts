@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../../src/harness/extensions/file-tools.ts";
+import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.ts";
 import { formatErrorModelResult } from "../../../src/harness/file-tools/pi/model-output.ts";
 import { formatEditModelResult } from "../../../src/harness/file-tools/edit/presenter.ts";
 import { formatWriteModelResult } from "../../../src/harness/file-tools/write/presenter.ts";
-import { formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../../src/harness/file-tools/read/presenter.ts";
+import { formatReadPdfModelSummary, formatReadPdfPageMarker, formatReadStructureContext } from "../../../src/harness/file-tools/read/presenter.ts";
 import type { ReadPdfSuccess } from "../../../src/harness/file-tools/read/types.ts";
 import { isGrepSuccessDetails } from "../../../src/harness/file-tools/pi/guards.ts";
 import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
@@ -231,7 +232,24 @@ describe("file-tools extension model output", () => {
 		expect(pdfRead.details).toMatchObject({ path: "document.pdf", media_type: "pdf" });
 	});
 
-	it("write 模型结果保留有界诊断摘要", () => {
+	it("read 隐藏解析恢复和关联冲突状态，只展示结构导航", () => {
+		const range = { startLine: 1, endLine: 4, startByte: 0, endByte: 40 };
+		const status = {
+			parse_errors: [range],
+			conflicts: [
+				{ path: "a.ts", kind: "range" as const, range },
+				{ path: "a.ts", kind: "ambiguous" as const, range },
+			],
+		};
+		expect(formatReadStructureContext(status)).toBeUndefined();
+		expect(formatReadStructureContext({
+			...status,
+			enclosing_symbol: { name: "outer", kind: "function", line: 1, end_line: 4 },
+			remaining_symbols: [{ name: "next", kind: "function", line: 6, end_line: 9 }],
+		})).toBe('<structure enclosing="function outer 1-4"/>\n<remaining_symbols>\nline 6-9: function next\n</remaining_symbols>');
+	});
+
+	it("write 模型结果保留有界诊断摘要，不暴露 LSP 状态", () => {
 		const text = formatWriteModelResult({
 			status: "written", path: "bad.ts", bytes: 4, action: "create", after_version: "new", after_size_bytes: 4, diff: "",
 			lsp: { diagnostics: {
@@ -243,10 +261,11 @@ describe("file-tools extension model output", () => {
 				],
 			} },
 		});
-		for (const value of ['lsp="errors"', "errors=2 warnings=4", "Cannot find name 'foo'.", "hidden", "hint: Import foo from &lt;module&gt;"]) expect(text).toContain(value);
+		for (const value of ["errors=2 warnings=4", "Cannot find name 'foo'.", "hidden", "hint: Import foo from &lt;module&gt;"]) expect(text).toContain(value);
+		expect(text).not.toContain("lsp=");
 	});
 
-	it("edit/write 展示当前有界错误清单，不展示已修复计数或 clean", () => {
+	it("edit/write 展示当前有界错误清单，不展示已修复计数或诊断服务状态", () => {
 		const diagnostics = {
 			status: "errors" as const, file_errors: 3, file_warnings: 0, new_errors: 1, new_warnings: 0,
 			resolved_errors: 2, resolved_warnings: 0, baseline: "known" as const, total_items: 3,
@@ -265,15 +284,15 @@ describe("file-tools extension model output", () => {
 		for (const output of [formatEditModelResult({ ...edit, lsp: { diagnostics } }), formatWriteModelResult({ ...write, lsp: { diagnostics } })]) {
 			expect(output).toContain("errors=3");
 			expect(output).toContain("still broken");
-			expect(output).not.toMatch(/resolved|clean/u);
+			expect(output).not.toMatch(/resolved|clean|lsp=/u);
 		}
 		const cleared = { ...diagnostics, status: "clean" as const, file_errors: 0, new_errors: 0, total_items: 0, items: [] };
 		expect(formatEditModelResult({ ...edit, lsp: { diagnostics: cleared } })).toBe('<edit path="a.ts" replacements="1"/>');
 		expect(formatWriteModelResult({ ...write, lsp: { diagnostics: cleared } })).toBe('<write path="a.ts"/>');
 		for (const status of ["timeout", "unavailable"] as const) {
 			const failed = { ...cleared, status };
-			expect(formatEditModelResult({ ...edit, lsp: { diagnostics: failed } })).toContain(`diag ${status}`);
-			expect(formatWriteModelResult({ ...write, lsp: { diagnostics: failed } })).toContain(`lsp="${status}"`);
+			expect(formatEditModelResult({ ...edit, lsp: { diagnostics: failed } })).toBe('<edit path="a.ts" replacements="1"/>');
+			expect(formatWriteModelResult({ ...write, lsp: { diagnostics: failed } })).toBe('<write path="a.ts"/>');
 		}
 	});
 
@@ -310,6 +329,24 @@ describe("file-tools extension model output", () => {
 		if (!isGrepSuccessDetails(grep.details)) throw new Error("missing grep success details");
 		expect(grep.details.approx_tokens).toBe(countTextTokensSync(grepText).tokens);
 		expect(grep.details).toMatchObject({ truncated_by: [], stats: { searched_files: 1 }, regions: [expect.objectContaining({ roles: expect.any(Array) })] });
+		for (const status of ["ok", "unsupported", "unavailable", "timeout", "skipped"] as const) {
+			const enhanced = formatCompactGrepResult({
+				...grep.details,
+				analysis: [{ path: "a.ts", symbols: status, workspaceSymbols: status }],
+				structure_issues: [{ path: "a.ts", kind: "ambiguous", range: { startByte: 0, endByte: 10, startLine: 1, endLine: 1 } }],
+				regions: grep.details.regions.map((region) => ({
+					...region,
+					relation_status: { incomingCalls: status, outgoingCalls: status, references: status, definitions: status, validation: status },
+					navigation: [
+						{ kind: "caller", source: "hierarchy", path: "caller.ts", line: 2, column: 3 },
+						{ kind: "callee", source: "definition", ambiguous: true, path: "dep.ts", line: 4, column: 5 },
+					],
+				})),
+			});
+			expect(enhanced).toContain("caller: caller.ts:2:3");
+			expect(enhanced).toContain("callee?: dep.ts:4:5");
+			expect(enhanced).not.toMatch(/lsp|tree.sitter|hierarchy|definition|relation_status|structure_issues|ambiguous|unsupported|unavailable|timeout|skipped|validation/iu);
+		}
 
 		const partialFind = await executeTool(registered, "find", { query: "a.ts", path: [".", "missing"] }, ctx);
 		expect(partialFind.details).toMatchObject({ paths: ["."], scope_errors: [{ path: "missing" }] });

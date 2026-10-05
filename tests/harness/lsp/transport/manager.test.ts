@@ -2,6 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { FileChangeType } from "vscode-languageserver-protocol";
 
+import { analyzeCodeFile } from "../../../../src/harness/code-index/parser.ts";
 import { LspClient } from "../../../../src/harness/lsp/client/client.ts";
 import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.ts";
 import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
@@ -70,11 +71,10 @@ describe("lsp transport manager and protocol", () => {
 		});
 		const manager = await createManager(transport, fake);
 		const roots = [transport.workspace, transport.configDir, `${transport.workspace}/.`];
-		const results = await Promise.all(roots.map((root) => manager.read({
+		const results = await Promise.all(roots.map((root) => manager.documentAnalysis({
 			workspaceRoot: root, filePath: path.join(root, "a.ts"), content: "function outer() {\n  return 1;\n}\n",
-			startLine: 2, endLine: 2, truncated: false, partial: true,
 		})));
-		expect(results).toEqual(roots.map(() => ({ enclosing_symbol: { name: "outer", kind: "function", line: 1, end_line: 3 } })));
+		expect(results).toMatchObject(roots.map(() => ({ units: [{ name: "outer", kind: "function", startLine: 1, endLine: 3, symbol: { type: "document" } }] })));
 		expect(fake.connections).toBe(2);
 		for (const root of roots) {
 			await expect(manager.status(root)).resolves.toMatchObject({ servers: [{ root: path.resolve(root), status: "ready" }] });
@@ -259,6 +259,7 @@ describe("lsp transport manager and protocol", () => {
 		});
 		const manager = await createManager(transport, fake);
 		const analysis = await manager.codeAnalysis({
+			syntax: (document) => analyzeCodeFile(document.path, document.text),
 			root: transport.workspace, query: "target", targets: [{ path: "target.ts", ranges: [] }],
 			allowRelated: true, limit: 8,
 			async load(relativePath) {
@@ -267,7 +268,7 @@ describe("lsp transport manager and protocol", () => {
 			},
 		});
 		expect(fake.messages.filter((message) => message.method === "workspaceSymbol/resolve").map((message) => message.params)).toEqual(symbols);
-		expect(analysis?.files[0]?.analysis.units.map((unit) => unit.startLine)).toEqual([1, 2]);
+		expect(analysis?.results[0]?.file?.analysis.units.map((unit) => unit.startLine)).toEqual([1, 2]);
 	});
 
 	it.each([

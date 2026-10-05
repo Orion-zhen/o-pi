@@ -8,7 +8,7 @@ import { isFailed, type FailedResult } from "../../shared/result.ts";
 import type { LoadLsp } from "../../../lsp/file-operations.ts";
 import { parseSkillPath, type SkillPath } from "../../../skill-context/resources.ts";
 import { failedToolResult, withFileToolsInvocation, type FileToolRuntime } from "../invocation.ts";
-import { bindFileLsp } from "../lsp.ts";
+import { createReadStructureSource } from "../ports/read-structure.ts";
 
 export interface ExecuteReadOptions extends FileToolRuntime {
 	readonly model: { input?: readonly string[] } | undefined;
@@ -24,7 +24,7 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 				...opened,
 				image: lazyInlineImageProcessor,
 				pdf: lazyPdfDocumentSource,
-				structure: bindFileLsp(opened, options.lsp).structure,
+				structure: createReadStructureSource(opened, options.lsp),
 			},
 		);
 		if (skill?.kind === "skill") applySkillResolution(result, skill);

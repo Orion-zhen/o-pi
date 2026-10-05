@@ -1,4 +1,4 @@
-import type { CodeNavigation } from "../../code-index/types.ts";
+import type { CodeAnalysisCoverage, CodeNavigation, CodeRelationStatus, CodeStructureIssue } from "../../code-index/types.ts";
 import type { SearchNavigation } from "../shared/search-navigation.ts";
 import type { FileToolError } from "../shared/result.ts";
 
@@ -58,6 +58,8 @@ export interface GrepRegion {
 	end_line: number;
 	kind: string;
 	symbol?: string;
+	enclosing_symbol?: string;
+	context?: string;
 	declaration?: string;
 	query_match: "verified" | "semantic";
 	roles?: string[];
@@ -68,6 +70,7 @@ export interface GrepRegion {
 	match_lines?: number[];
 	display_lines?: GrepDisplayLine[];
 	navigation?: readonly CodeNavigation[];
+	relation_status?: CodeRelationStatus;
 }
 
 export interface GrepScopeError {
@@ -117,4 +120,7 @@ export interface GrepSuccess {
 	navigation?: SearchNavigation;
 	regions: GrepRegion[];
 	ranking?: GrepRankingDiagnostics;
+	/** 每个目标的 LSP 分析状态，不影响正文命中的完整性。 */
+	analysis?: readonly CodeAnalysisCoverage[];
+	structure_issues?: readonly CodeStructureIssue[];
 }

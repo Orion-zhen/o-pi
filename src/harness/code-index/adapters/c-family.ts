@@ -1,6 +1,41 @@
-import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.ts";
-import type { ModuleImport } from "../types.ts";
-import { walkNamed } from "./shared.ts";
+import type { SyntaxNode } from "../../syntax-tree/types.ts";
+import { rawUnit } from "./shared.ts";
+import type { RawCall, RawUnit } from "./types.ts";
+
+export function cUnit(node: SyntaxNode, kind: string, name: string, scope?: string): RawUnit {
+	const nameNode = declarationNameNode(node, name);
+	return rawUnit(node, kind, name, scope, {
+		...(nameNode === undefined ? {} : { name: nameNode }),
+		body: node.childForFieldName("body") ?? node.childForFieldName("type")?.childForFieldName("body"),
+		...(kind === "function" || kind === "method" ? { callable: node } : {}),
+	});
+}
+
+function declarationNameNode(node: SyntaxNode, name: string): SyntaxNode | undefined {
+	const named = node.childForFieldName("name");
+	if (named !== null && named.text === name) return named;
+	for (let current = node.childForFieldName("declarator"); current !== null; current = current.childForFieldName("declarator")) {
+		if (current.text === name) return current;
+	}
+	return node.namedChildren.find((child) => child.text === name && /identifier|name/u.test(child.type));
+}
+
+export function cCall(node: SyntaxNode): RawCall | undefined {
+	const callee = node.type === "call_expression" ? node.childForFieldName("function")
+		: node.type === "new_expression" ? node.childForFieldName("type") : undefined;
+	if (callee == null) return undefined;
+	const lookup = calleeIdentifier(callee);
+	return { callee, ...(lookup === undefined ? {} : { lookup }) };
+}
+
+function calleeIdentifier(node: SyntaxNode): SyntaxNode | undefined {
+	if (node.namedChildCount === 0 && node.type.includes("identifier")) return node;
+	const child = node.type === "field_expression" ? node.childForFieldName("field")
+		: node.type === "qualified_identifier" || node.type === "scoped_identifier" ? node.childForFieldName("name")
+		: node.type === "template_function" ? node.childForFieldName("name")
+		: node.type === "parenthesized_expression" ? node.namedChildren[0] : undefined;
+	return child == null ? undefined : calleeIdentifier(child);
+}
 
 const DECLARATOR_NAME_TYPES = new Set([
 	"identifier", "field_identifier", "type_identifier", "qualified_identifier", "scoped_identifier", "operator_name", "destructor_name",
@@ -40,23 +75,4 @@ export function hasAncestorType(node: SyntaxNode): boolean {
 		if (parent.type === "class_specifier" || parent.type === "struct_specifier") return true;
 	}
 	return false;
-}
-
-export function hasStorageClass(node: SyntaxNode, storageClass: string): boolean {
-	return node.namedChildren.some((child) => child.type === "storage_class_specifier" && child.text === storageClass);
-}
-
-export function extractIncludes(root: SyntaxNode, control: AnalysisControl): ModuleImport[] {
-	const imports: ModuleImport[] = [];
-	walkNamed(root, (node) => {
-		if (node.type !== "preproc_include") return;
-		const path = node.childForFieldName("path");
-		if (path?.type === "system_lib_string") {
-			imports.push({ specifier: path.text.slice(1, -1), importKind: "external" });
-		} else if (path?.type === "string_literal") {
-			const content = path.namedChildren[0];
-			if (content !== undefined) imports.push({ specifier: content.text, importKind: "relative" });
-		}
-	}, control);
-	return imports;
 }

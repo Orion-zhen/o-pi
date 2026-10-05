@@ -16,10 +16,6 @@
 		"max_related_locations": 3,
 		"min_severity": "warning"
 	},
-	"read": {
-		"outline": true,
-		"max_symbols": 40
-	},
 	"grep": {
 		"workspace_symbols": true,
 		"max_symbols": 20,

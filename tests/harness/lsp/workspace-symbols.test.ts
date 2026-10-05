@@ -4,6 +4,9 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
 
+import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
+import { LspDocumentSession } from "../../../src/harness/lsp/client/document-session.ts";
+import { mockDocumentSessions } from "./mock-document-session.ts";
 import { LspClient } from "../../../src/harness/lsp/client/client.ts";
 import { LspManager } from "../../../src/harness/lsp/manager/manager.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
@@ -99,20 +102,18 @@ describe("lsp workspace symbols through code analysis", () => {
 		expect(requests).toEqual(["ts", "ts", "python"]);
 	});
 
-	it("outline 关闭且不需要 enclosing symbol 时不启动 client", async () => {
+	it("LSP 禁用时文档分析不启动 client", async () => {
 		await writeConfig({
-			read: { outline: false, max_symbols: 40 },
+			enabled: false,
 			servers: { fake: testServer("unused", ["ts"]) },
 		});
 		const ensureReady = mockReady();
 		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([]);
 
-		const result = await withManager((manager) => manager.read({
+		const result = await withManager((manager) => manager.documentAnalysis({
 			workspaceRoot: workspace,
 			filePath: path.join(workspace, "a.ts"),
 			content: "const value = 1;\n",
-			startLine: 1, endLine: 1,
-			truncated: true, partial: false,
 		}));
 
 		expect(result).toBeUndefined();
@@ -271,7 +272,7 @@ describe("lsp workspace symbols through code analysis", () => {
 		});
 
 		const hits = await withManager(async (manager) => {
-			const pending = queryWorkspaceSymbols(manager, "target", ["src/a.ts", "src/b.py"]);
+			const pending = queryWorkspaceSymbols(manager, "target", ["src/b.py", "src/a.ts"]);
 			await pythonStarted;
 			releaseTs();
 			return pending;
@@ -312,11 +313,12 @@ async function writeConfig(config: unknown): Promise<void> {
 }
 
 function mockReady() {
+	mockDocumentSessions();
 	const ensureReady = vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
 	vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue(fullCapabilities);
-	vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue(defaultDocumentSymbols());
-	vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
-	vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+	vi.spyOn(LspClient.prototype, "documentSymbols").mockImplementation(async (filePath) => defaultDocumentSymbols(filePath));
+	vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([]);
+	vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([]);
 	return ensureReady;
 }
 
@@ -332,6 +334,7 @@ async function queryWorkspaceSymbols(
 	loadDocuments = true,
 ) {
 	const analysis = await manager.codeAnalysis({
+		syntax: (document) => analyzeCodeFile(document.path, document.text),
 		root: workspace,
 		query,
 		targets: paths.map((targetPath) => ({ path: targetPath, ranges: [] })),
@@ -348,8 +351,8 @@ async function queryWorkspaceSymbols(
 		},
 	});
 	if (analysis === undefined) return [];
-	return analysis.files.flatMap(({ document: value, analysis: file }) => file.units.map((unit) => ({
-		path: value.path,
+	return analysis.results.flatMap(({ file }) => file === undefined ? [] : file.analysis.units.map((unit) => ({
+		path: file.document.path,
 		start_line: unit.startLine,
 		end_line: unit.endLine,
 		kind: unit.kind,
@@ -360,13 +363,13 @@ async function queryWorkspaceSymbols(
 	})));
 }
 
-function defaultDocumentSymbols(): SymbolInformation[] {
+function defaultDocumentSymbols(filePath: string): SymbolInformation[] {
 	return documentSymbolNames.map((name) => {
 		const range = { start: { line: 0, character: 0 }, end: { line: 0, character: name.length } };
 		return {
 			name,
 			kind: 12,
-			location: { uri: pathToUri(path.join(workspace, "analysis.ts")), range },
+			location: { uri: pathToUri(filePath), range },
 			...(name === "parse" ? { containerName: "Parser" } : {}),
 		};
 	});

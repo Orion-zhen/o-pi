@@ -230,7 +230,7 @@ describe("read", () => {
 				},
 			},
 		});
-		expect(oversized).not.toHaveProperty("segments.0.lsp");
+		expect(oversized).not.toHaveProperty("segments.0.structure");
 
 		const fitting = await testContext.read({ path: "structured.ts", lines: "2" }, {
 			structure: {
@@ -239,7 +239,7 @@ describe("read", () => {
 				},
 			},
 		});
-		expect(fitting).toMatchObject({ segments: [{ lsp: { enclosing_symbol: { name: "demo" } } }] });
+		expect(fitting).toMatchObject({ segments: [{ structure: { enclosing_symbol: { name: "demo" } } }] });
 	});
 
 	it.each([

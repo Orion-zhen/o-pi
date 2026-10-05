@@ -31,7 +31,7 @@ describe("文件工具配置", () => {
 		expect((await load()).limits).toEqual({ ...defaults.limits, ls_entries: 12 });
 	});
 
-	it.each([{ unknown: true }, { limits: { read_max_file_bytes: 1023 } }, { limits: { read_pdf_pages: 101 } }])(
+	it.each([{ unknown: true }, { limits: { read_max_file_bytes: 1023 } }, { limits: { read_pdf_pages: 101 } }, { limits: { read_outline_symbols: -1 } }, { limits: { read_outline_symbols: 201 } }])(
 		"拒绝非法配置 %j", async (config) => {
 			await save(config);
 			await expect(provider.load(temp.path)).resolves.toMatchObject({ ok: false });

@@ -1,4 +1,5 @@
 import type { NewlineKind } from "../../filesystem/contracts/content.ts";
+import type { CodeStructureIssue, SourceRange } from "../../code-index/types.ts";
 
 export interface ReadParams {
 	path: string;
@@ -6,14 +7,7 @@ export interface ReadParams {
 	pages?: string;
 }
 
-export interface ReadRemainingSymbol {
-	name: string;
-	kind: string;
-	line: number;
-	end_line: number;
-}
-
-export interface ReadEnclosingSymbol {
+export interface ReadStructureSummary {
 	name: string;
 	kind: string;
 	line: number;
@@ -21,15 +15,17 @@ export interface ReadEnclosingSymbol {
 }
 
 export interface ReadStructureContext {
-	remaining_symbols?: ReadRemainingSymbol[];
-	enclosing_symbol?: ReadEnclosingSymbol;
+	remaining_symbols?: ReadStructureSummary[];
+	enclosing_symbol?: ReadStructureSummary;
+	parse_errors?: readonly SourceRange[];
+	conflicts?: readonly CodeStructureIssue[];
 }
 
 export interface ReadTextSegment {
 	content: string;
 	start_line: number;
 	end_line: number;
-	lsp?: ReadStructureContext;
+	structure?: ReadStructureContext;
 }
 
 export interface ReadSuccess {

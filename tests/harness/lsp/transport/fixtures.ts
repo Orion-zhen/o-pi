@@ -4,6 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, vi } from "vitest";
 
+import { analyzeCodeFile } from "../../../../src/harness/code-index/parser.ts";
+import { LspDocumentSession } from "../../../../src/harness/lsp/client/document-session.ts";
+import { mockDocumentSessions } from "../mock-document-session.ts";
 import { LspClient } from "../../../../src/harness/lsp/client/client.ts";
 import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.ts";
 import { LspManager } from "../../../../src/harness/lsp/manager/manager.ts";
@@ -94,7 +97,6 @@ export function createClientConfig(): LspConfig {
 			max_related_locations: 3,
 			min_severity: "warning",
 		},
-		read: { outline: true, max_symbols: 40 },
 		grep: { workspace_symbols: true, max_symbols: 20, max_exact_leaf_symbols: 2 },
 		servers: [],
 	};
@@ -159,15 +161,17 @@ export function diagnostic(message: string, line: number): Record<string, unknow
 }
 
 export async function queryManagerSymbols(manager: LspManager, root: string, query: string, signal?: AbortSignal) {
+	mockDocumentSessions();
 	vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([{
 		name: "target",
 		kind: 12,
 		range: { start: { line: 2, character: 0 }, end: { line: 2, character: 6 } },
 		selectionRange: { start: { line: 2, character: 0 }, end: { line: 2, character: 6 } },
 	}]);
-	vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
-	vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+	vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([]);
+	vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([]);
 	const analysis = await manager.codeAnalysis({
+		syntax: (document) => analyzeCodeFile(document.path, document.text),
 		root,
 		query,
 		targets: ["src/target.ts", "src/def.ts", "src/use.ts", "a.ts"].map((targetPath) => ({ path: targetPath, ranges: [] })),
@@ -183,8 +187,8 @@ export async function queryManagerSymbols(manager: LspManager, root: string, que
 			};
 		},
 	});
-	return analysis?.files.flatMap(({ document, analysis: file }) => file.units.map((unit) => ({
-		path: document.path,
+	return analysis?.results.flatMap(({ file }) => file === undefined ? [] : file.analysis.units.map((unit) => ({
+		path: file.document.path,
 		start_line: unit.startLine,
 		end_line: unit.endLine,
 		kind: unit.kind,

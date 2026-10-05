@@ -1,7 +1,8 @@
 import { compareCodeUnitNesting } from "../../code-index/units.ts";
+import { codeRegionMetadata } from "./unit-metadata.ts";
 import { languageFromPath } from "../../syntax-tree/grammars.ts";
-import type { AnalyzedFileIndex, IndexedCodeUnit } from "../../code-index/types.ts";
-import { inferCodeAuthorities } from "../../code-index/authority.ts";
+import type { AnalyzedFileIndex, CodeDocument, IndexedCodeUnit } from "../../code-index/types.ts";
+import { hasStructuralRange } from "../../code-index/structure.ts";
 import type { TextContent } from "../../filesystem/contracts/content.ts";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.ts";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
@@ -38,6 +39,10 @@ export interface RegionizedFile {
 	readonly analysis: AnalyzedFileIndex;
 }
 
+export interface SemanticRegionizedFile extends RegionizedFile {
+	readonly selectedIds: readonly string[];
+}
+
 export interface RegionizationResult {
 	readonly regions: readonly CodeRegion[];
 	readonly files: readonly RegionizedFile[];
@@ -51,6 +56,8 @@ export interface RegionizerContext {
 	readonly operation: FsOperationContext;
 	readonly astMaxFileBytes: number;
 	readonly preloaded?: ReadonlyMap<string, TextContent>;
+	readonly semantic: readonly SemanticRegionizedFile[];
+	readonly related: boolean;
 }
 
 /** 将流式事实命中映射到当前正文的最小代码区域；缓存只保存派生 AST。 */
@@ -67,12 +74,14 @@ export class GrepRegionizer {
 	): Promise<ToolOutcome<RegionizationResult>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
 		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
+		const combined = new Map<string, RegionizedFile>(context.semantic.map((file) => [file.file.path, file]));
 		const excludedHitPaths = new Set<string>();
 		const prepared: PreparedFile[] = [];
 		const scopeErrors: GrepScopeError[] = [];
 		const skipped = createGrepSkippedFiles();
 		let astSkippedOversizedFiles = 0;
 		for (const path of priorityPaths) {
+			if (combined.has(path)) continue;
 			const file = inventoryByPath.get(path);
 			if (file === undefined || languageFromPath(file.path) === "text") continue;
 			if (file.snapshot.sizeBytes > context.astMaxFileBytes) {
@@ -101,17 +110,13 @@ export class GrepRegionizer {
 			if (analysis === undefined || analysis.status !== "parsed") continue;
 			files.push({ file: file.file, content: file.content, analysis });
 		}
-		const inferred = hits.length === 1
-			? files.map((file) => file.analysis)
-			: inferCodeAuthorities(files.map((file) => file.analysis));
-		const authorityFiles = files.map((file, index) => ({
-			...file,
-			analysis: inferred[index] ?? file.analysis,
-		}));
+		for (const file of files) combined.set(file.file.path, file);
+		const authorityFiles = [...combined.values()];
+		const relatedIds = new Set(context.related ? context.semantic.flatMap((file) => file.selectedIds) : []);
 		const regions = regionizeAnalyzedFiles(
 			hits.filter((hit) => !excludedHitPaths.has(hit.path)),
 			authorityFiles,
-			false,
+			relatedIds,
 		);
 		return {
 			regions,
@@ -120,6 +125,19 @@ export class GrepRegionizer {
 			skipped: compactGrepSkippedFiles(skipped),
 			scopeErrors,
 		};
+	}
+
+	async syntax(document: CodeDocument, filesystem: WorkspaceFileSystem, signal?: AbortSignal): Promise<AnalyzedFileIndex> {
+		const cacheKey = astCacheKey(document, document.hash, filesystem);
+		const cached = this.cacheGet(cacheKey);
+		const result = await this.analyzePrepared([{
+			file: document, content: document, cacheKey,
+			...(cached === undefined ? {} : { cached }),
+		}], signal);
+		if (result.status === "failed") throw new AbortGrepParse();
+		const analysis = result.values[0];
+		if (analysis === undefined) throw new Error("Missing syntax analysis");
+		return analysis;
 	}
 
 	dispose(): void {
@@ -156,7 +174,7 @@ export class GrepRegionizer {
 	}
 
 	private async analyzePrepared(
-		files: readonly PreparedFile[],
+		files: readonly { file: Pick<ScopedFile, "path">; content: Pick<TextContent, "text">; cacheKey: string; cached?: CachedAst }[],
 		signal: AbortSignal | undefined,
 	): Promise<{ readonly status: "success"; readonly values: readonly AnalyzedFileIndex[] } | ReturnType<typeof fail>> {
 		const pending = files.filter((file) => file.cached === undefined);
@@ -185,7 +203,6 @@ export class GrepRegionizer {
 					language: languageFromPath(file.file.path),
 					units: [],
 					status: "error",
-					imports: [],
 				};
 			}
 			values.push(analysis);
@@ -212,29 +229,30 @@ export class GrepRegionizer {
 	}
 }
 
-/** 将一个已选定 analyzer 的规范 code units 映射为 grep regions。 */
+/** 将已接纳的代码单元映射为区域，未归属的正文命中保留为文本。 */
 export function regionizeAnalyzedFiles(
 	hits: readonly TextHit[],
 	files: readonly RegionizedFile[],
-	includeUnmatchedUnits: boolean,
+	relatedIds: ReadonlySet<string>,
 ): CodeRegion[] {
 	const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
 	for (const [path, grouped] of groupHits(hits)) fallback.set(path, asNonEmpty(grouped));
 	const regions: CodeRegion[] = [];
 	for (const file of files) {
 		const fileHits = fallback.get(file.file.path) ?? [];
+		const units = new Map(file.analysis.units.map((unit) => [unit.id, unit]));
 		const parsed = fileHits.length === 0
 			? []
-			: parsedRegions(file.file, asNonEmpty(fileHits), file.analysis.units);
+			: parsedRegions(file.file, asNonEmpty(fileHits), units);
 		regions.push(...parsed);
 		const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
 		const outside = fileHits.filter((hit) => !mappedHits.has(hit));
 		if (outside.length === 0) fallback.delete(file.file.path);
 		else fallback.set(file.file.path, asNonEmpty(outside));
-		if (!includeUnmatchedUnits) continue;
+		if (relatedIds.size === 0) continue;
 		const mappedUnits = new Set(parsed.map((region) => region.id));
 		for (const unit of file.analysis.units) {
-			if (mappedUnits.has(unit.id)) continue;
+			if (mappedUnits.has(unit.id) || !relatedIds.has(unit.id)) continue;
 			regions.push(createSemanticCodeRegion({
 				id: unit.id,
 				path: unit.path,
@@ -243,13 +261,11 @@ export function regionizeAnalyzedFiles(
 				startByte: unit.startByte,
 				endByte: unit.endByte,
 				kind: unit.kind,
-				symbol: unit.qualifiedName ?? unit.name,
-				...(unit.qualifiedName === undefined ? {} : { qualifiedSymbol: unit.qualifiedName }),
-				...(unit.signature === undefined ? {} : { declaration: unit.signature }),
-				...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
+				...codeRegionMetadata(unit, units),
 				symbolRole: "definition",
 				authority: unit.authority,
 				...(unit.navigation === undefined ? {} : { navigation: unit.navigation }),
+				...(unit.relationStatus === undefined ? {} : { relationStatus: unit.relationStatus }),
 				signals: ["related_symbol"],
 			}));
 		}
@@ -271,9 +287,9 @@ function groupHits(hits: readonly TextHit[]): Map<string, TextHit[]> {
 function parsedRegions(
 	file: ScopedFile,
 	hits: readonly [TextHit, ...TextHit[]],
-	units: readonly IndexedCodeUnit[],
+	units: ReadonlyMap<string, IndexedCodeUnit>,
 ): VerifiedCodeRegion[] {
-	const sortedUnits = [...units].sort(compareCodeUnitNesting);
+	const sortedUnits = [...units.values()].filter(hasStructuralRange).sort(compareCodeUnitNesting);
 	const grouped = new Map<string, { readonly unit: IndexedCodeUnit; readonly hits: TextHit[] }>();
 	for (const hit of hits) {
 		const unit = sortedUnits.find((candidate) => candidate.startByte <= hit.byteStart && hit.byteEnd <= candidate.endByte);
@@ -294,13 +310,11 @@ function parsedRegions(
 			startByte: unit.startByte,
 			endByte: unit.endByte,
 			kind: unit.kind,
-			symbol: unit.qualifiedName ?? unit.name,
-			...(unit.qualifiedName === undefined ? {} : { qualifiedSymbol: unit.qualifiedName }),
-			...(unit.signature === undefined ? {} : { declaration: unit.signature }),
-			...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
+			...codeRegionMetadata(unit, units),
 			symbolRole: "enclosing",
 			authority: unit.authority,
 			...(unit.navigation === undefined ? {} : { navigation: unit.navigation }),
+			...(unit.relationStatus === undefined ? {} : { relationStatus: unit.relationStatus }),
 			signals: ["verified_enclosing_region"],
 			evidence: textEvidence(first.matchMode),
 		}, asNonEmpty(sortedHits));
@@ -330,14 +344,8 @@ function textEvidence(matchMode: TextHit["matchMode"]): RegionEvidence {
 	};
 }
 
-function astCacheKey(file: ScopedFile, hash: string, filesystem: WorkspaceFileSystem): string {
-	return [
-		filesystem.identity,
-		file.snapshot.identity,
-		file.path,
-		file.snapshot.version,
-		hash,
-	].join("\0");
+function astCacheKey(file: Pick<ScopedFile, "path">, hash: string, filesystem: WorkspaceFileSystem): string {
+	return [filesystem.identity, file.path, hash].join("\0");
 }
 
 function hasBareCr(text: string): boolean {

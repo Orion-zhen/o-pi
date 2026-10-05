@@ -44,10 +44,12 @@
 ### `limits`
 
 - `ls_entries`：一次 `ls` 最多返回的直属成员数。
-- `read_lines` / `read_bytes`：一次 `read` 全部文本片段共享的行数和 UTF-8 字节数。结构提示消耗两种预算，分段标记消耗字节预算。
+- `read_lines`：一次 `read` 全部文本片段共享的正文行数上限，结构提示、导航和分段标记不计入。
+- `read_bytes`：一次 `read` 全部文本片段共享的 UTF-8 字节数上限，包含正文、结构提示和分段标记。
 - `read_max_file_bytes`：`read` 可完整载入的单文件上限。局部行范围和 PDF 页面范围都不能绕过。
 - `read_pdf_pages`：一次 `read` 最多渲染并返回的 PDF 页面数。默认配置为 20，取值范围为 1 到 100。显式的 `pages` 范围不能绕过。
 - `read_suggestion_limit`：文件不存在时最多返回的相关路径数。默认配置为 3，取值范围为 1 到 10。
+- `read_outline_symbols`：整文件截断后的顶层大纲符号上限，默认 40，取值范围为 0 到 200。`0` 关闭大纲，不影响局部读取的包围符号提示。与 LSP 是否可用无关。原 `lsp.jsonc` 的 `read.outline`、`read.max_symbols` 已移除，统一改用此字段。
 - `write_max_file_bytes`：`write` 的现有文件快照和提交内容上限。
 - `edit_max_file_bytes`：`edit` 的现有文件快照和提交内容上限。
 - `edit_match_hint_limit`：一次 `edit` 全部错误共享的恢复候选数，包括唯一上下文、格式等价和锚点候选。默认配置为 5，取值范围为 1 到 10。最多展示 8 个验证错误，该数量不接受配置。
@@ -58,7 +60,7 @@
 - `grep_max_depth`：`grep` 相对每个明确范围的最大路径深度。范围根目录的深度为 0，直属子项为 1。
 - `grep_max_entries`：一次 `grep` 文件清单构建在所有目录范围间共享的最大遍历条目数，默认 10000。
 - `grep_max_search_bytes`：一次 `grep` 正文搜索可预留的累计文件快照字节数，默认配置为 128 MiB。下一文件无法完整容纳时停止扫描。
-- `grep_ast_max_file_bytes`：单文件进入 Tree-sitter 的最大字节数。不限制流式正文搜索。
+- `grep_ast_max_file_bytes`：`grep` 和 `read` 结构增强的单文件字节上限，不限制正文读取或流式搜索。
 - `grep_content_cache_bytes`：进程内 `grep` 正文缓存的总字节上限，默认配置为 16 MiB，取值范围为 0 到 100 MiB。`0` 表示禁用。
 - `grep_content_cache_entries`：进程内 `grep` 正文缓存的文件数上限，默认配置为 2048，取值范围为 0 到 100000。`0` 表示禁用。
 - `grep_result_limit`：`grep` 最多返回的区域数。

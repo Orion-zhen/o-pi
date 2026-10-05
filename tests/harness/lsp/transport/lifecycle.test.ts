@@ -210,7 +210,7 @@ describe("lsp transport lifecycle", () => {
 		await expect(queryManagerSymbols(manager, workspace, "fresh")).resolves.toEqual([]);
 		expect(fake.connections).toBe(2);
 	});
-	it("活动操作失败后释放 reload drain", async () => {
+	it("分析回调的意外错误向上传播后仍释放 reload drain", async () => {
 		const workspace = transport.workspace;
 		const fake = await createWorkspaceSymbolServer(transport, (message, socket) => {
 				send(socket, { id: message.id, result: [] });
@@ -220,7 +220,7 @@ describe("lsp transport lifecycle", () => {
 		const request = vi.spyOn(LspClient.prototype, "workspaceSymbols").mockRejectedValueOnce(new Error("injected failure"));
 		try {
 			const failed = queryManagerSymbols(manager, workspace, "failed");
-			const failure = expect(failed).rejects.toThrow();
+			const failure = expect(failed).rejects.toThrow("injected failure");
 			const reloading = manager.reload();
 			await failure;
 			await reloading;

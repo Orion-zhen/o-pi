@@ -32,6 +32,7 @@
 		"read_max_file_bytes": 16777216,
 		"read_pdf_pages": 20,
 		"read_suggestion_limit": 3,
+		"read_outline_symbols": 40,
 		"write_max_file_bytes": 16777216,
 		"edit_max_file_bytes": 16777216,
 		"edit_match_hint_limit": 5,

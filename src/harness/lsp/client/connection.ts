@@ -87,7 +87,10 @@ export class LspClientConnection implements LspFeatureSession {
 		const onAbort = (): void => cancel("request cancelled");
 		if (options.signal?.aborted === true) onAbort();
 		else options.signal?.addEventListener("abort", onAbort, { once: true });
-		const timer = setTimeout(() => cancel("timeout"), options.timeoutMs ?? this.requestTimeoutMs);
+		const timer = setTimeout(() => {
+			options.onTimeout?.();
+			cancel("timeout");
+		}, options.timeoutMs ?? this.requestTimeoutMs);
 		try {
 			return await Promise.race([
 				this.rpc.sendRequest(type, params, source.token), this.failure, cancelled,

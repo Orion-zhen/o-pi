@@ -8,7 +8,7 @@ export async function diagnosticHints(
 	uri: string,
 	diagnostics: readonly Diagnostic[],
 	errors: readonly LspErrorDiagnostic[],
-	options: Required<LspRequestOptions>,
+	options: Required<Pick<LspRequestOptions, "signal" | "timeoutMs">>,
 ): Promise<readonly (string | undefined)[]> {
 	const provider = session.capabilities()?.codeActionProvider;
 	if (provider === undefined || provider === false) return [];

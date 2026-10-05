@@ -7,7 +7,7 @@ import { formatReadRanges, type ReadRange, type ResolvedReadRange } from "../../
 import { resolveReadRanges } from "./range.ts";
 import type { ReadStructureContext, ReadSuccess, ReadTextSegment } from "./types.ts";
 
-/** 从同一快照提取全部范围，正文与结构提示共享预算。 */
+/** 从同一快照提取全部范围，行数只计正文，结构提示共享字节预算。 */
 export async function readTextRanges(
 	file: FileRef,
 	content: TextContent,
@@ -39,29 +39,39 @@ export async function readTextRanges(
 			return mapFsError(initial.error, { notFound: "file" });
 		}
 		let slice = initial.value;
-		let structure = await structureContext(file, content, slice, requested !== undefined, context);
-		if (context.operation.signal?.aborted) return fail("OPERATION_ABORTED", "Operation aborted.", { path: file.displayPath });
-		let structureText = formatReadStructureContext(structure);
-		if (structureText !== undefined) {
+		let structure: ReadStructureContext | undefined;
+		let structureText: string | undefined;
+		while (true) {
+			structure = await structureContext(file, content, slice, requested !== undefined, context);
+			if (context.operation.signal?.aborted) return fail("OPERATION_ABORTED", "Operation aborted.", { path: file.displayPath });
+			structureText = formatReadStructureContext(structure);
+			if (structureText === undefined) break;
 			const bytes = Buffer.byteLength(`${structureText}\n`);
-			const lines = structureText.split(/\r\n|\r|\n/u).length;
-			const reserved = bytes < maxBytes && lines < remainingLines
-				? context.filesystem.content.sliceText(content, { ...options, maxBytes: maxBytes - bytes, maxLines: remainingLines - lines })
+			const reserved = bytes < maxBytes
+				? context.filesystem.content.sliceText(content, {
+					...options, maxBytes: maxBytes - bytes,
+					maxLines: slice.endLine - slice.startLine + 1,
+				})
 				: undefined;
-			if (reserved?.ok) slice = reserved.value;
-			else {
+			if (!reserved?.ok) {
 				structure = undefined;
 				structureText = undefined;
+				slice = initial.value;
+				break;
 			}
+			// 正文只会缩短，直到导航与最终切片一致。
+			const unchanged = reserved.value.endLine === slice.endLine;
+			slice = reserved.value;
+			if (unchanged) break;
 		}
 		segments.push({
 			content: slice.content,
 			start_line: slice.startLine,
 			end_line: slice.endLine,
-			...(structure === undefined ? {} : { lsp: structure }),
+			...(structure === undefined ? {} : { structure }),
 		});
 		remainingBytes -= wrapperBytes + Buffer.byteLength(slice.content) + (structureText === undefined ? 0 : Buffer.byteLength(`${structureText}\n`));
-		remainingLines -= slice.endLine - slice.startLine + 1 + (structureText === undefined ? 0 : structureText.split(/\r\n|\r|\n/u).length);
+		remainingLines -= slice.endLine - slice.startLine + 1;
 		if (slice.continuation !== undefined) {
 			continuation = { lines: formatReadRanges(remainingRanges(ranges, index, slice.continuation.startLine)) };
 			break;

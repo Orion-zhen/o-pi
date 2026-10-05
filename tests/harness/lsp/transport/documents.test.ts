@@ -48,21 +48,73 @@ describe("lsp transport documents", () => {
 		expect(documentMethods).toEqual([
 			"textDocument/didOpen",
 			"textDocument/documentSymbol",
-			"textDocument/didChange",
+			"textDocument/didClose",
+			"textDocument/didOpen",
 			"textDocument/documentSymbol",
 			"textDocument/didClose",
 			"textDocument/didOpen",
 			"textDocument/didSave",
 		]);
-		expect(fake.messages.find((message) => message.method === "textDocument/didChange")).toMatchObject({
-			params: {
-				textDocument: { version: 2 },
-				contentChanges: [{ text: "const target = 2;\n" }],
-			},
+		expect(fake.messages.filter((message) => message.method === "textDocument/didOpen")[1]).toMatchObject({
+			params: { textDocument: { version: 2, text: "const target = 2;\n" } },
 		});
 		const saveParams = fake.messages.filter((message) => message.method === "textDocument/didSave").at(-1)?.params;
 		expect(saveParams).not.toHaveProperty("text");
 	});
+	it("会话查询与单独符号查询共用缓存，缓存命中不重新打开文档", async () => {
+		const fake = await createProtocolServer(transport, {
+			capabilities: { documentSymbolProvider: true, textDocumentSync: 1 },
+			routes: { "textDocument/documentSymbol": (message, socket) => send(socket, { id: message.id, result: [documentSymbol("target", 0)] }) },
+		});
+		const client = directClient(transport, fake);
+		const file = path.join(transport.workspace, "a.ts");
+		const text = "const target = 1;\n";
+		const symbols = await client.withDocument(file, text, undefined, (session) => session.symbols());
+		const before = fake.methods.length;
+		await expect(client.documentSymbols(file, text)).resolves.toEqual(symbols);
+		expect(fake.methods).toHaveLength(before);
+		await expect(client.withDocument(file, text, undefined, (session) => session.symbols())).resolves.toEqual(symbols);
+		expect(fake.methods.filter((method) => method === "textDocument/documentSymbol")).toHaveLength(1);
+		expect(client.status().open_documents).toBe(0);
+	});
+
+	it("符号查询在队列中取消时不打开新版文档，前一会话仍正常关闭", async () => {
+		const entered = deferred<void>();
+		const release = deferred<void>();
+		const fake = await createProtocolServer(transport, { capabilities: { textDocumentSync: 1 } });
+		const client = directClient(transport, fake);
+		const file = path.join(transport.workspace, "a.ts");
+		const first = client.withDocument(file, "old\n", undefined, async () => {
+			entered.resolve();
+			await release.promise;
+			return "complete";
+		});
+		await entered.promise;
+		const controller = new AbortController();
+		const queued = client.documentSymbols(file, "cancelled\n", { signal: controller.signal });
+		controller.abort();
+		await expect(queued).resolves.toBeUndefined();
+		release.resolve();
+		await expect(first).resolves.toBe("complete");
+		await client.shutdown();
+		expect(fake.messages.filter((message) => message.method === "textDocument/didOpen").map((message) => message.params))
+			.toMatchObject([{ textDocument: { text: "old\n" } }]);
+		expect(fake.methods.filter((method) => method === "textDocument/didClose")).toHaveLength(1);
+	});
+
+	it("会话回调抛错仍关闭临时文档，不阻塞后续符号查询", async () => {
+		const fake = await createProtocolServer(transport, {
+			capabilities: { documentSymbolProvider: true, textDocumentSync: 1 },
+			routes: { "textDocument/documentSymbol": (message, socket) => send(socket, { id: message.id, result: [] }) },
+		});
+		const client = directClient(transport, fake);
+		const file = path.join(transport.workspace, "a.ts");
+		await expect(client.withDocument(file, "old\n", undefined, async () => { throw new Error("query failed"); })).rejects.toThrow("query failed");
+		expect(client.status().open_documents).toBe(0);
+		await expect(client.documentSymbols(file, "new\n")).resolves.toEqual([]);
+		expect(client.status().open_documents).toBe(0);
+	});
+
 	it("incremental sync 使用 UTF-16 range，language route 与 save includeText 生效", async () => {
 		const workspace = transport.workspace;
 		const fake = await createProtocolServer(transport, {

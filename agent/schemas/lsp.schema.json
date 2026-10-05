@@ -26,14 +26,6 @@
 				"min_severity": { "enum": ["error", "warning", "information", "hint"], "default": "warning" }
 			}
 		},
-		"read": {
-			"type": "object",
-			"additionalProperties": false,
-			"properties": {
-				"outline": { "type": "boolean", "default": true },
-				"max_symbols": { "type": "integer", "minimum": 0, "maximum": 200, "default": 40 }
-			}
-		},
 		"grep": {
 			"type": "object",
 			"additionalProperties": false,

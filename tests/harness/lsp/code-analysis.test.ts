@@ -4,7 +4,10 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SymbolKind, type ServerCapabilities, type SymbolInformation } from "vscode-languageserver-protocol";
 
-import type { CodeDocument } from "../../../src/harness/code-index/types.ts";
+import type { CodeAnalysis, CodeDocument } from "../../../src/harness/code-index/types.ts";
+import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
+import { LspDocumentSession } from "../../../src/harness/lsp/client/document-session.ts";
+import { mockDocumentSessions } from "./mock-document-session.ts";
 import { LspClient } from "../../../src/harness/lsp/client/client.ts";
 import { LspManager } from "../../../src/harness/lsp/manager/manager.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
@@ -40,8 +43,7 @@ describe("lsp code analysis", () => {
 			workspaceSymbol("Target", path.join(workspace, "ignored.ts")),
 		]);
 		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([targetDocumentSymbol()]);
-		const incomingCalls = vi.spyOn(LspClient.prototype, "incomingCalls").mockImplementation(async (filePath) =>
-			filePath === sourcePath
+		const incomingCalls = vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockImplementation(async function(this: LspDocumentSession) { return this.uri === uri(sourcePath)
 				? [{
 						from: {
 							name: "caller",
@@ -52,12 +54,13 @@ describe("lsp code analysis", () => {
 						},
 						fromRanges: [],
 					}]
-				: []);
-		const references = vi.spyOn(LspClient.prototype, "references").mockImplementation(async (filePath) =>
-			filePath === testPath ? [{ uri: callerUri, range: range() }] : []);
+				: []; });
+		const references = vi.spyOn(LspDocumentSession.prototype, "references").mockImplementation(async function(this: LspDocumentSession) {
+			return this.uri === uri(testPath) ? [{ uri: callerUri, range: range() }] : []; });
 		const documents = new Map<string, CodeDocument>([
 			["src.ts", document("src.ts", "export function Target() {\n  return true;\n}\n")],
 			["tests.ts", document("tests.ts", "export function Target() {\n  return false;\n}\n")],
+			["caller.ts", document("caller.ts", "function caller() { Target(); }\n")],
 		]);
 
 		const analysis = await analyze(analysisInput({
@@ -68,30 +71,36 @@ describe("lsp code analysis", () => {
 				return value === undefined ? undefined : { ...value, filePath: path.join(workspace, relativePath) };
 			},
 		}));
-		expect(analysis?.files.map(({ document: value, analysis: file }) => ({
+		expect(analyzedFiles(analysis)?.map(({ document: value, analysis: file }) => ({
 			path: value.path,
 			authority: file.units[0]?.authority,
 		}))).toEqual([
 			{ path: "src.ts", authority: "called" },
 			{ path: "tests.ts", authority: "referenced" },
 		]);
-		expect(analysis?.coveredPaths).toEqual(["src.ts", "tests.ts", "ignored.ts"]);
+		expect(analysis?.results.map((result) => result.coverage)).toEqual([
+			{ path: "src.ts", symbols: "ok", workspaceSymbols: "ok" },
+			{ path: "tests.ts", symbols: "ok", workspaceSymbols: "ok" },
+			{ path: "ignored.ts", symbols: "skipped", workspaceSymbols: "skipped" },
+		]);
 		expect(documentSymbols).toHaveBeenCalledTimes(2);
 		expect(incomingCalls).toHaveBeenCalledTimes(2);
 		expect(references).toHaveBeenCalledTimes(2);
 	});
 
-	it("关系导航复用调用位置，去重并排除范围外、自引用和失效位置", async () => {
+	it("关系分析保留完整导航候选，排除范围外、自引用和失效位置", async () => {
 		const sourcePath = path.join(workspace, "src.ts");
 		const callerUri = uri(path.join(workspace, "caller.ts"));
 		mockCapabilities();
 		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([targetDocumentSymbol(0, 26)]);
-		const calls = vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([{
+		const calls = vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([{
 			from: { name: "run", kind: SymbolKind.Function, uri: callerUri, range: range(), selectionRange: range() },
 			fromRanges: [range(), range()],
 		}]);
-		const references = vi.spyOn(LspClient.prototype, "references").mockResolvedValue([
+		const references = vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([
 			{ uri: callerUri, range: range() },
+			{ uri: callerUri, range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } } },
+			{ uri: callerUri, range: { start: { line: 2, character: 0 }, end: { line: 2, character: 1 } } },
 			{ uri: uri(sourcePath), range: range() },
 			{ uri: uri(path.join(workspace, "ignored.ts")), range: range() },
 			{ uri: "file:///outside.ts", range: range() },
@@ -100,13 +109,16 @@ describe("lsp code analysis", () => {
 		const load = vi.fn(async (relativePath: string) => {
 			if (relativePath !== "src.ts" && relativePath !== "caller.ts") return undefined;
 			return {
-				...document(relativePath, relativePath === "src.ts" ? "export function Target() {}\n" : "Target();\n"),
+				...document(relativePath, relativePath === "src.ts" ? "export function Target() {}\n" : "Target();\nTarget();\nTarget();\n"),
 				filePath: path.join(workspace, relativePath),
 			};
 		});
 		const analysis = await analyze(analysisInput({ load }));
-		expect(analysis?.files[0]?.analysis.units[0]?.navigation).toEqual([
-			{ kind: "caller", path: "caller.ts", line: 1, column: 1 },
+		expect(analyzedFiles(analysis)?.[0]?.analysis.units[0]?.navigation).toEqual([
+			{ kind: "caller", source: "hierarchy", path: "caller.ts", line: 1, column: 1 },
+			{ kind: "reference", source: "references", path: "caller.ts", line: 1, column: 1 },
+			{ kind: "reference", source: "references", path: "caller.ts", line: 2, column: 1 },
+			{ kind: "reference", source: "references", path: "caller.ts", line: 3, column: 1 },
 		]);
 		expect(calls).toHaveBeenCalledOnce();
 		expect(references).toHaveBeenCalledOnce();
@@ -117,8 +129,8 @@ describe("lsp code analysis", () => {
 		const controller = new AbortController();
 		mockCapabilities();
 		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([targetDocumentSymbol(0, 26)]);
-		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
-		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([{ uri: uri(path.join(workspace, "caller.ts")), range: range() }]);
+		vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([]);
+		vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([{ uri: uri(path.join(workspace, "caller.ts")), range: range() }]);
 		const result = await analyze(analysisInput({
 			signal: controller.signal,
 			async load(relativePath) {
@@ -132,25 +144,13 @@ describe("lsp code analysis", () => {
 		expect(result).toBeUndefined();
 	});
 
-	it("选中 symbol 后 documentSymbol 请求失败时原子返回 unavailable", async () => {
-		const sourcePath = path.join(workspace, "src.ts");
-		mockCapabilities();
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", sourcePath)]);
-		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue(undefined);
-		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue(undefined);
-		vi.spyOn(LspClient.prototype, "references").mockResolvedValue(undefined);
-
-		const analysis = await analyze(analysisInput());
-		expect(analysis).toBeUndefined();
-	});
-
 	it("同文件但位于目标代码单元之外的 caller 仍形成 called authority", async () => {
 		const sourcePath = path.join(workspace, "src.ts");
 		const sourceUri = uri(sourcePath);
 		mockCapabilities();
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", sourcePath)]);
 		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([targetDocumentSymbol()]);
-		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([{
+		vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([{
 			from: {
 				name: "caller",
 				kind: SymbolKind.Function,
@@ -160,7 +160,7 @@ describe("lsp code analysis", () => {
 			},
 			fromRanges: [],
 		}]);
-		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+		vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([]);
 
 		const analysis = await analyze(analysisInput({
 			async load(relativePath) {
@@ -170,43 +170,29 @@ describe("lsp code analysis", () => {
 				};
 			},
 		}));
-		expect(analysis?.files[0]?.analysis.units[0]?.authority).toBe("called");
+		expect(analyzedFiles(analysis)?.[0]?.analysis.units[0]?.authority).toBe("called");
 	});
 
-	it("缺少完整 symbol analysis capability 时保持 unavailable", async () => {
-		const sourcePath = path.join(workspace, "src.ts");
-		mockCapabilities(["callHierarchyProvider"]);
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", sourcePath)]);
-		const load = vi.fn(async () => ({ ...document("src.ts", "export function Target() {}\n"), filePath: sourcePath }));
-
-		const analysis = await analyze(analysisInput({ load }));
-		expect(analysis).toBeUndefined();
-		expect(load).not.toHaveBeenCalled();
-	});
-
-	it("任一目标文档失败时丢弃其他文档的成功结果", async () => {
-		const sourcePath = path.join(workspace, "src.ts");
-		const testsPath = path.join(workspace, "tests.ts");
-		mockCapabilities(["workspaceSymbolProvider"]);
-		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockImplementation(async (filePath) =>
-			filePath === sourcePath ? [targetDocumentSymbol(0, 35)] : undefined);
-		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
-		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+	it.each([false, true])("一台服务器启动失败时保留其他结果，related=%s", async (allowRelated) => {
+		await writeLspConfig(multiLanguageServers);
+		mockCapabilities();
+		vi.spyOn(LspClient.prototype, "ensureReady").mockImplementation(async function(this: LspClient) {
+			return this.server.id === "typescript";
+		});
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", path.join(workspace, "src.ts"))]);
+		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([targetDocumentSymbol(0, 26)]);
+		vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([]);
+		vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([]);
 
 		const analysis = await analyze(analysisInput({
-			targets: [
-				{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] },
-				{ path: "tests.ts", ranges: [{ startByte: 16, endByte: 22 }] },
-			],
-			async load(relativePath) {
-				return {
-					...document(relativePath, "export function Target() { return true; }\n"),
-					filePath: relativePath === "src.ts" ? sourcePath : testsPath,
-				};
-			},
+			allowRelated,
+			targets: ["src.ts", "src.py"].map((path) => ({ path, ranges: allowRelated ? [] : [{ startByte: 16, endByte: 22 }] })),
 		}));
-		expect(analysis).toBeUndefined();
-		expect(documentSymbols).toHaveBeenCalledTimes(2);
+		expect(analyzedFiles(analysis)?.map((file) => file.document.path)).toEqual(["src.ts"]);
+		expect(analysis?.results.map((result) => result.coverage)).toEqual([
+			{ path: "src.ts", symbols: "ok", ...(allowRelated ? { workspaceSymbols: "ok" } : {}) },
+			{ path: "src.py", symbols: "unavailable", ...(allowRelated ? { workspaceSymbols: "unavailable" } : {}) },
+		]);
 	});
 
 	it("成功结果保持 server 顺序并限制在 target 路径和 symbol 范围内", async () => {
@@ -229,8 +215,8 @@ describe("lsp code analysis", () => {
 				selectionRange: { start: { line: 2, character: 0 }, end: { line: 2, character: name.length } },
 			}];
 		});
-		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
-		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+		vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([]);
+		vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([]);
 
 		const analysis = await analyze(analysisInput({
 			query: "target",
@@ -241,8 +227,8 @@ describe("lsp code analysis", () => {
 			},
 		}));
 
-		expect(analysis?.coveredPaths).toEqual(["src.ts", "tests.py"]);
-		expect(analysis?.files.map(({ document: value, analysis: file }) => ({
+		expect(analysis?.results.map((result) => result.coverage)).toEqual(["src.ts", "tests.py"].map((path) => ({ path, symbols: "ok", workspaceSymbols: "ok" })));
+		expect(analyzedFiles(analysis)?.map(({ document: value, analysis: file }) => ({
 			path: value.path,
 			units: file.units.map((unit) => ({ name: unit.name, startLine: unit.startLine, endLine: unit.endLine })),
 		}))).toEqual([
@@ -251,29 +237,7 @@ describe("lsp code analysis", () => {
 		]);
 	});
 
-	it("任一 workspace symbol resolve 失败时整次 unavailable", async () => {
-		const sourcePath = path.join(workspace, "src.ts");
-		mockCapabilities();
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([{
-			name: "Target",
-			kind: SymbolKind.Function,
-			location: { uri: uri(sourcePath) },
-		}]);
-		const resolve = vi.spyOn(LspClient.prototype, "resolveWorkspaceSymbol").mockResolvedValue(undefined);
-		const load = vi.fn(async () => ({ ...document("src.ts", "export function Target() {}\n"), filePath: sourcePath }));
-
-		const analysis = await analyze(analysisInput({
-			targets: [{ path: "src.ts", ranges: [] }],
-			allowRelated: true,
-			load,
-		}));
-
-		expect(analysis).toBeUndefined();
-		expect(resolve).toHaveBeenCalledTimes(1);
-		expect(load).not.toHaveBeenCalled();
-	});
-
-	it("任一 server 的 workspace symbol 请求失败时整次 unavailable", async () => {
+	it("一台服务器的 workspace symbol 失败不影响另一台服务器", async () => {
 		await writeLspConfig(multiLanguageServers);
 		const sourcePath = path.join(workspace, "src.ts");
 		mockCapabilities();
@@ -283,7 +247,12 @@ describe("lsp code analysis", () => {
 					? [workspaceSymbol("Target", sourcePath)]
 					: undefined;
 			});
-		const load = vi.fn(async () => undefined);
+		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([targetDocumentSymbol(0, 26)]);
+		vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([]);
+		vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([]);
+		const load = vi.fn(async (relativePath: string) => ({
+			...document(relativePath, "export function Target() {}\n"), filePath: path.join(workspace, relativePath),
+		}));
 
 		const analysis = await analyze(analysisInput({
 			targets: [
@@ -293,14 +262,22 @@ describe("lsp code analysis", () => {
 			allowRelated: true,
 			load,
 		}));
-		expect(analysis).toBeUndefined();
+		expect(analysis?.results.map((result) => result.coverage)).toEqual([
+			{ path: "src.ts", symbols: "ok", workspaceSymbols: "ok" },
+			{ path: "src.py", symbols: "unavailable", workspaceSymbols: "unavailable" },
+		]);
+		expect(analyzedFiles(analysis)?.map((file) => file.document.path)).toEqual(["src.ts"]);
 		expect(workspaceSymbols).toHaveBeenCalledTimes(2);
-		expect(load).not.toHaveBeenCalled();
+		expect(load).toHaveBeenCalledExactlyOnceWith("src.ts");
 	});
 });
 
+function analyzedFiles(analysis: CodeAnalysis | undefined) {
+	return analysis?.results.flatMap(({ file }) => file === undefined ? [] : [file]);
+}
+
 const fullCapabilities: ServerCapabilities = {
-	workspaceSymbolProvider: true,
+	workspaceSymbolProvider: { resolveProvider: true },
 	documentSymbolProvider: true,
 	referencesProvider: true,
 	callHierarchyProvider: true,
@@ -320,6 +297,7 @@ function analysisInput(
 ): Parameters<LspManager["codeAnalysis"]>[0] {
 	return {
 		root: workspace,
+		syntax: (document) => analyzeCodeFile(document.path, document.text),
 		query: "Target",
 		targets: [{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] }],
 		allowRelated: false,
@@ -331,11 +309,10 @@ function analysisInput(
 	};
 }
 
-function mockCapabilities(omitted: readonly (keyof ServerCapabilities)[] = []): void {
-	const capabilities = { ...fullCapabilities };
-	for (const key of omitted) delete capabilities[key];
+function mockCapabilities(): void {
+	mockDocumentSessions();
 	vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-	vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue(capabilities);
+	vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue(fullCapabilities);
 }
 
 async function analyze(input: Parameters<LspManager["codeAnalysis"]>[0]) {

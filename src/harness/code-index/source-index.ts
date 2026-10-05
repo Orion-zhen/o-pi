@@ -34,6 +34,25 @@ export class SourceIndex {
 		return this.#charToByte?.[offset] ?? offset;
 	}
 
+	/** UTF-8 边界转换为 0-based UTF-16 位置，拒绝拆分多字节字符。 */
+	positionForByte(byteOffset: number): { line: number; character: number } | undefined {
+		if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 || byteOffset > this.byteForChar(this.#charLength)) return undefined;
+		let charOffset = byteOffset;
+		if (this.#charToByte !== undefined) {
+			let low = 0;
+			let high = this.#charLength;
+			while (low <= high) {
+				const middle = Math.floor((low + high) / 2);
+				if (this.byteForChar(middle) <= byteOffset) low = middle + 1;
+				else high = middle - 1;
+			}
+			charOffset = high;
+			if (this.byteForChar(charOffset) !== byteOffset) return undefined;
+		}
+		const line = this.#lineForByte(byteOffset) - 1;
+		return { line, character: charOffset - (this.lineStartChars[line] ?? 0) };
+	}
+
 	#lineForByte(byteOffset: number): number {
 		let low = 0;
 		let high = this.#lineStarts.length - 1;

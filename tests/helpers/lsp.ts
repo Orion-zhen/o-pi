@@ -4,7 +4,7 @@ import type { LspFileOperations } from "../../src/harness/lsp/file-operations.ts
 export function lspOperations(overrides: Partial<LspFileOperations> = {}): LspFileOperations {
 	return {
 		async prepareCodeAnalysis() {},
-		async read() { return undefined; },
+		async documentAnalysis() { return undefined; },
 		async codeAnalysis() { return undefined; },
 		async beforeMutation() { return undefined; },
 		async afterMutation() { return undefined; },

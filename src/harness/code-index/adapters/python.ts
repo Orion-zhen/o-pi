@@ -1,57 +1,46 @@
-import { collectUnits, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.ts";
-import type { AnalysisControl, SyntaxNode } from "../../syntax-tree/types.ts";
-import type { ModuleImport } from "../types.ts";
+import { collectUnits, functionUnit, rawUnit, type UnitRules } from "./shared.ts";
+import type { SyntaxNode } from "../../syntax-tree/types.ts";
 import type { LanguageExtractor } from "./types.ts";
 
-const PYTHON_UNIT_KINDS = new Set(["function_definition", "class_definition"]);
-
 const pythonRules: UnitRules = {
-	extract(node, scope) {
-		if (!PYTHON_UNIT_KINDS.has(node.type)) return undefined;
-		const name = nameField(node);
-		return name === undefined ? undefined : rawUnit(node, node.type === "class_definition" ? "class" : "function", name, scope, isPublicName(name));
+	extract(node, scope, text) {
+		if (node.type === "lambda") {
+			const parent = node.parent;
+			const name = parent?.type === "assignment" && parent.childForFieldName("right")?.id === node.id ? parent.childForFieldName("left") : undefined;
+			const binding = name?.type === "identifier" && parent !== null ? { name, declaration: parent } : undefined;
+			const call = parent?.type === "argument_list" ? parent.parent : undefined;
+			return functionUnit(node, scope, text, node.childForFieldName("body"), binding, call);
+		}
+		if (node.type !== "function_definition" && node.type !== "class_definition") return undefined;
+		const name = node.childForFieldName("name");
+		if (name === null) return undefined;
+		return rawUnit(node, node.type === "class_definition" ? "class" : "function", name.text, scope, {
+			name, body: node.childForFieldName("body"),
+			range: node.parent?.type === "decorated_definition" ? node.parent : node,
+			...(node.type === "function_definition" ? { callable: node } : {}),
+		});
 	},
 	childScope(_node, unit, current) {
-		if (unit?.kind !== "class") return current;
-		return unit.qualifiedName;
+		return unit?.kind === "class" ? unit.qualifiedName : current;
 	},
-	shouldDescend(_node, unit) {
+	isContainer(_node, unit) {
 		return unit.kind === "class";
 	},
 };
 
-function isPublicName(name: string): boolean {
-	return !name.startsWith("_");
-}
-
-function extractPythonImports(root: SyntaxNode, control: AnalysisControl): ModuleImport[] {
-	const imports: ModuleImport[] = [];
-	walkNamed(root, (node) => {
-		if (node.type === "import_from_statement") {
-			const module = node.childForFieldName("module_name");
-			if (module === null) return;
-			if (module.type === "relative_import" && module.namedChildren.every((child) => child.type === "import_prefix")) {
-				for (const imported of node.childrenForFieldName("name")) {
-					const target = imported.type === "aliased_import" ? imported.childForFieldName("name") : imported;
-					if (target !== null) imports.push({ specifier: `${module.text}${target.text}`, importKind: "relative" });
-				}
-				return;
-			}
-			imports.push({ specifier: module.text, ...(module.type === "relative_import" ? { importKind: "relative" as const } : {}) });
-			return;
-		}
-		if (node.type !== "import_statement") return;
-		for (const child of node.namedChildren) {
-			const target = child.type === "aliased_import" ? child.childForFieldName("name") : child;
-			if (target !== null && (target.type === "dotted_name" || target.type === "identifier")) {
-				imports.push({ specifier: target.text });
-			}
-		}
-	}, control);
-	return imports;
+function calleeIdentifier(node: SyntaxNode): SyntaxNode | undefined {
+	if (node.type === "identifier") return node;
+	const child = node.type === "attribute" ? node.childForFieldName("attribute")
+		: node.type === "parenthesized_expression" ? node.namedChildren[0] : undefined;
+	return child == null ? undefined : calleeIdentifier(child);
 }
 
 export const pythonExtractor: LanguageExtractor = {
-	extractUnits: (root, control) => collectUnits(root, pythonRules, control),
-	extractImports: extractPythonImports,
+	extractUnits: (root, text, control) => collectUnits(root, text, pythonRules, control),
+	call(node) {
+		const callee = node.type === "call" ? node.childForFieldName("function") : undefined;
+		if (callee == null) return undefined;
+		const lookup = calleeIdentifier(callee);
+		return { callee, ...(lookup === undefined ? {} : { lookup }) };
+	},
 };

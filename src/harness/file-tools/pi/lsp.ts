@@ -2,7 +2,6 @@ import path from "node:path";
 import type { AnalyzeCode, PrepareCodeAnalysis } from "../../code-index/types.ts";
 import type { LspDiagnosticsSummary } from "../../lsp/types.ts";
 import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.ts";
-import type { ReadStructureSource } from "../read/ports.ts";
 import type { FileToolsInvocation } from "../runtime/host.ts";
 import type { MutationDiagnosticsSource } from "../shared/mutation-diagnostics.ts";
 import type { MutationBatchInvocation } from "./mutation-batch.ts";
@@ -12,14 +11,6 @@ import type { MutationPostProcessObserver } from "./progress.ts";
 export function bindFileLsp(invocation: FileToolsInvocation, load: LoadLsp) {
 	const bridge = invocation.nativeBridge;
 	const root = bridge.root;
-	const structure: ReadStructureSource = {
-		async context(input) {
-			if (input.file.workspacePath === undefined) return undefined;
-			const file = bridge.getNativeIdentity(input.file);
-			if (file === undefined) return undefined;
-			return (await load()).read({ ...input, workspaceRoot: root.canonicalPath, filePath: file.canonicalPath });
-		},
-	};
 	const prepareCodeAnalysis: PrepareCodeAnalysis = async (input) => {
 		if (input.signal?.aborted === true) return;
 		const paths = input.paths.filter(isWorkspaceLogicalPath);
@@ -42,7 +33,7 @@ export function bindFileLsp(invocation: FileToolsInvocation, load: LoadLsp) {
 			},
 		});
 	};
-	return { structure, prepareCodeAnalysis, analyzeCode, diagnostics };
+	return { prepareCodeAnalysis, analyzeCode, diagnostics };
 
 	async function filterRelated(result: LspDiagnosticsSummary | undefined): Promise<LspDiagnosticsSummary | undefined> {
 		if (result?.related === undefined) return result;

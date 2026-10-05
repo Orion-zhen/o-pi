@@ -160,6 +160,7 @@ export class LspClientLifecycle {
 						synchronization: { didSave: true },
 						documentSymbol: { hierarchicalDocumentSymbolSupport: true },
 						references: { dynamicRegistration: false },
+						definition: { dynamicRegistration: false, linkSupport: true },
 						callHierarchy: { dynamicRegistration: false },
 						diagnostic: { dynamicRegistration: false, relatedDocumentSupport: true },
 						publishDiagnostics: { relatedInformation: true, dataSupport: true },

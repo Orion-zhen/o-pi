@@ -74,8 +74,8 @@ describe("read 多范围", () => {
 		expectFailure(await context.edit({ path: "snapshot.ts", edits: [{ old: "external", new: "overwrite" }] }), "STALE_READ");
 	});
 
-	it("各片段的结构提示共享整次调用的预算并附着于正确片段", async () => {
-		await context.useConfig({ limits: { read_lines: 4 } });
+	it.each([1, 2, 3])("read_lines=%i 只计正文，结构提示和分段标记不占行数", async (limit) => {
+		await context.useConfig({ limits: { read_lines: limit } });
 		await writeFile(path.join(context.workspace, "structure.ts"), "function first() {\nwork();\n}\n\n\nfunction second() {\nwork();\n}\n");
 		const result = await context.read({ path: "structure.ts", lines: "2,7-8" }, {
 			structure: { async context(input) {
@@ -84,13 +84,15 @@ describe("read 多范围", () => {
 					: { name: "second", kind: "function", line: 6, end_line: 8 } };
 			} },
 		});
-		expect(result).toMatchObject({
-			segments: [
-				{ start_line: 2, end_line: 2, lsp: { enclosing_symbol: { name: "first" } } },
-				{ start_line: 7, end_line: 7, lsp: { enclosing_symbol: { name: "second" } } },
-			],
-			continuation: { lines: "8" },
-		});
+		if (!isReadSuccess(result)) throw new Error("read failed");
+		expect(result.segments).toMatchObject([
+			{ start_line: 2, end_line: 2, structure: { enclosing_symbol: { name: "first" } } },
+			...(limit === 1 ? [] : [{ start_line: 7, end_line: limit + 5, structure: { enclosing_symbol: { name: "second" } } }]),
+		]);
+		expect(result.segments.reduce((sum, segment) => sum + segment.end_line - segment.start_line + 1, 0)).toBe(limit);
+		expect(result.truncated).toBe(limit < 3);
+		expect(result.continuation).toEqual(limit === 3 ? undefined : { lines: limit === 1 ? "7-8" : "8" });
+		expect(formatReadModelResult(result)).toContain('<structure enclosing="function first 1-3"/>');
 	});
 
 	it("分段保留 BOM 元数据和原始换行符", async () => {
