@@ -91,8 +91,8 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 										const next = { ...config }; if (enabled) delete next.enabled; else next.enabled = false;
 										changeServer({ ...server, config: next });
 									}} />
-									<IconButton size="icon-sm" label={`复制服务 ${name}`} disabled={blocked} onClick={() => add(server)}><Copy /></IconButton>
-									<ConfirmAction label={`删除服务 ${name}`} hint="再次点击确认。Ctrl/Command+点击直接删除，保存后生效。" disabled={blocked} allowShortcut
+									<IconButton size="icon-sm" label={`复制服务 ${name}`} tooltip="复制服务" disabled={blocked} onClick={() => add(server)}><Copy /></IconButton>
+									<ConfirmAction label={`删除服务 ${name}`} tooltip="删除服务 · 保存生效" disabled={blocked} allowShortcut
 										confirm={async () => { changeDraft({ ...draft, servers: draft.servers.filter(({ id }) => id !== server.id) }); }} />
 									<CollapsibleTrigger className="disclosure-trigger" asChild><Button variant="ghost" size="icon-sm" aria-label={`${open ? "收起" : "展开"} ${name}`}><ChevronRight className="disclosure-chevron" /></Button></CollapsibleTrigger>
 								</div>

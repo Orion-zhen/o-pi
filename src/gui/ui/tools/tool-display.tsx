@@ -32,7 +32,7 @@ export function ActivityState({ state, label = toolStates[state] }: { state: Too
 	const active = state === "running" || state === "preparing";
 	const Icon = active ? LoaderCircle : state === "completed" ? Check : state === "failed" ? X
 		: state === "stopped" ? CircleStop : CircleDashed;
-	return <span className="activity-state" data-state={state} title={label}>
+	return <span className="activity-state" data-state={state}>
 		<Icon className={active ? "animate-spin" : ""} aria-hidden="true" /><span>{label}</span>
 	</span>;
 }

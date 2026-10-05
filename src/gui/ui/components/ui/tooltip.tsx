@@ -6,17 +6,9 @@ function TooltipProvider({ delayDuration = 0, disableHoverableContent = true, ..
 	return <TooltipPrimitive.Provider data-slot="tooltip-provider" delayDuration={delayDuration} disableHoverableContent={disableHoverableContent} {...props} />;
 }
 
-function Tooltip({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-	return <TooltipPrimitive.Root data-slot="tooltip" {...props} />;
-}
-
-function TooltipTrigger({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-	return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
-}
-
 function TooltipContent({
 	className,
-	sideOffset = 0,
+	sideOffset = 6,
 	children,
 	...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
@@ -26,7 +18,7 @@ function TooltipContent({
 				data-slot="tooltip-content"
 				sideOffset={sideOffset}
 				className={cn(
-					"pointer-events-none z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md bg-foreground px-3 py-1.5 text-[length:var(--text-caption)] text-balance text-background",
+					"pointer-events-none z-50 w-fit max-w-[min(24rem,calc(100vw-1rem))] origin-(--radix-tooltip-content-transform-origin) rounded-md bg-foreground px-3 py-1.5 text-[length:var(--text-caption)] text-left [overflow-wrap:anywhere] text-background",
 					className,
 				)}
 				{...props}
@@ -38,4 +30,19 @@ function TooltipContent({
 	);
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+function Hint({ content, children, side = "top", disabled = false }: {
+	content: string | undefined;
+	children: React.ReactElement;
+	side?: React.ComponentProps<typeof TooltipContent>["side"];
+	disabled?: boolean;
+}) {
+	const [open, setOpen] = React.useState(false);
+	React.useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+	if (!content) return children;
+	return <TooltipPrimitive.Root open={open && !disabled} onOpenChange={setOpen}>
+		<TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+		<TooltipContent side={side}>{content}</TooltipContent>
+	</TooltipPrimitive.Root>;
+}
+
+export { Hint, TooltipProvider };

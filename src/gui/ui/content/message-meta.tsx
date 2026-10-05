@@ -1,3 +1,4 @@
+import { Hint } from "../components/ui/tooltip";
 import type { replyMetrics } from "../../message-metrics.ts";
 
 export function MessageIdentity({ name, timestamp }: { name: string; timestamp: number }) {
@@ -14,7 +15,7 @@ export function ReplyMetrics({ metrics, scope = "本轮" }: { metrics: ReturnTyp
 		<span>输出 {number(metrics.output)}</span>
 		<span>缓存读取 {number(metrics.cacheRead)}</span>
 		<span>缓存写入 {number(metrics.cacheWrite)}</span>
-		<span title="按模型定价估算的美元费用">${metrics.cost.toFixed(4)}</span>
-		<span title={`${scope}输出 tokens / 模型请求耗时，含首字等待，不含工具执行`}>速度 {metrics.speed === null ? "—" : `${metrics.speed.toFixed(1)} tok/s`}</span>
+		<Hint content="预估费用 · USD"><span>${metrics.cost.toFixed(4)}</span></Hint>
+		<Hint content="输出速度 · 含首字等待"><span aria-description={`${scope}输出 tokens / 模型请求耗时，不含工具执行`}>速度 {metrics.speed === null ? "—" : `${metrics.speed.toFixed(1)} tok/s`}</span></Hint>
 	</footer>;
 }

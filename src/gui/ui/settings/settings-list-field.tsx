@@ -16,7 +16,7 @@ export function SettingsListField({ label, value, disabled, change }: {
 	return <Collapsible className="settings-list-field" open={expanded} onOpenChange={setExpanded}>
 		<div className="settings-list-summary">
 			{entries.length ? <>
-				<span className="settings-list-preview" title={entries.join("\n")}>{entries.join(" · ")}</span>
+				<span className="settings-list-preview">{entries.join(" · ")}</span>
 				<span className="settings-list-count">{entries.length} 项</span>
 			</> : <span className="settings-description">未配置</span>}
 			<CollapsibleTrigger asChild><Button ref={trigger} variant="ghost" size="sm" aria-label={`${action}${label}`} disabled={disabled}>

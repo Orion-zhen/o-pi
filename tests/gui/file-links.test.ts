@@ -74,7 +74,7 @@ describe("聊天文件链接", () => {
 	it("引用式链接和中文空格路径保留标签并正确编码", () => {
 		const doc = render("[说明][doc]\n\n[doc]: /workspace/%E5%BC%95%E7%94%A8%20%E7%A9%BA%E6%A0%BC.md");
 		expect(doc.querySelector("a")?.textContent).toBe("说明");
-		expect(doc.querySelector("a")?.getAttribute("title")).toBe("引用 空格.md");
+		expect(doc.querySelector("a")?.hasAttribute("title")).toBe(false);
 		expect(doc.querySelector("a")?.getAttribute("href")).toBe("./%E5%BC%95%E7%94%A8%20%E7%A9%BA%E6%A0%BC.md");
 	});
 

@@ -74,7 +74,7 @@ export function MaterialSettings({ value, defaults, theme, disabled, change, res
 					onPointerEnter={() => setHovered(region)} onPointerLeave={() => setHovered(undefined)}
 					onFocusCapture={() => setFocused(region)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(undefined); }}>
 					<th scope="row"><div className="material-region-label">{regions[region].label}
-						<IconButton size="icon-sm" label={`重置${regions[region].label}材质`} disabled={blocked || parameters.every(({ key }) => value[region][key] === defaults[region][key])}
+						<IconButton size="icon-sm" label={`重置${regions[region].label}材质`} tooltip="恢复默认" disabled={blocked || parameters.every(({ key }) => value[region][key] === defaults[region][key])}
 							onClick={() => reset(region, parameters.map(({ key }) => key))}><RotateCcw /></IconButton>
 					</div></th>
 					{parameters.map(({ key, label, unit, max }) => <td key={key} data-label={label}>

@@ -51,12 +51,12 @@ describe("工作区切换边框", () => {
 		{ items: [activity("A", "/a", "idle"), activity("B", "/b", "idle")], state: "idle" },
 	])("$state: $items", ({ items, state }) => {
 		for (const compact of [false, true]) {
-			const document = parseHTML(renderToStaticMarkup(createElement(WorkspacePicker, {
+			const document = parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, createElement(WorkspacePicker, {
 				gui: { cwd: "/a", activity: items, workspaceRoot: "/a", workspaces: [], connected: true,
 					canNavigate: true, send: async () => true, globalQuery: async () => { throw new Error("不应查询"); },
 					error: "", setError: () => {} },
 				close: () => {}, compact,
-			}))).document;
+			})))).document;
 			expect(document.querySelector(".workspace-select.activity-frame > .activity-border")?.getAttribute("data-activity")).toBe(state);
 		}
 	});

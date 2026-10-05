@@ -6,6 +6,7 @@ import type { SidebarView } from "../app/gui-controls.ts";
 import { SessionHistory } from "../sessions/session-history.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
 import { WorkspaceChanges, WorkspaceTree } from "./workspace-tree.tsx";
+import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { SearchInput } from "../components/search-input";
@@ -54,9 +55,9 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 						<ChevronRight data-open={filesOpen} /><span>文件</span>
 					</Button>
 					{git && <>
-						<span className="git-branch" title={git.branch}>
+						<Hint content={git.branch}><span className="git-branch">
 							<GitBranch aria-hidden="true" /><span>{git.branch}</span>
-						</span>
+						</span></Hint>
 						<IconButton label="显示文件变更" size="icon-sm" className="file-changes-toggle" aria-pressed={onlyChanges}
 							onClick={() => { setOnlyChanges(!onlyChanges); setFilesOpen(true); setPane("files"); }}><FileDiff /><span>{git.changes.length}</span></IconButton>
 					</>}

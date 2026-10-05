@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Send } from "../runtime/connection.ts";
+import { Hint } from "../components/ui/tooltip";
 import { SessionNameInput } from "./session-name-input.tsx";
 
 export function SessionHeading({ name, send }: { name: string; send: Send }) {
@@ -8,8 +9,8 @@ export function SessionHeading({ name, send }: { name: string; send: Send }) {
 		{editing ? <SessionNameInput name={name} finish={(value) => {
 			setEditing(false);
 			if (value && value !== name) void send({ action: "rename", name: value });
-		}} /> : <button type="button" className="session-name" title="重命名会话" onClick={() => setEditing(true)}>
+		}} /> : <Hint content="重命名"><button type="button" className="session-name" onClick={() => setEditing(true)}>
 			{name || "新会话"}
-		</button>}
+		</button></Hint>}
 	</div>;
 }

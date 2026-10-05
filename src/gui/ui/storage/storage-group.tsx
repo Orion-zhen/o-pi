@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide, ChevronRight, Trash2 } from "lucide-react";
 import type { StorageEntry, StorageGroup } from "../../storage.ts";
+import { Hint } from "../components/ui/tooltip";
+import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
@@ -62,8 +64,8 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 				<div className="storage-list-actions">
 					<label className="storage-select"><Checkbox aria-label={`选择本页可删除的${group.title}`} disabled={disabled || available.length === 0}
 						checked={checked ? true : partial ? "indeterminate" : false} onCheckedChange={(value) => select(available.map((entry) => entry.id), value === true)} />选择本页可删除项</label>
-					<Button variant="outline" size="sm" title={`切换为${sizeSortModes[sortMode.next].label}`} onClick={() => { setSizeSort(sortMode.next); setPage(0); }}>
-						<SortIcon aria-hidden="true" />{sortMode.label}</Button>
+					<Hint content={sizeSortModes[sortMode.next].label}><Button variant="outline" size="sm" onClick={() => { setSizeSort(sortMode.next); setPage(0); }}>
+						<SortIcon aria-hidden="true" />{sortMode.label}</Button></Hint>
 					<Button variant="outline" size="sm" className="storage-delete" disabled={disabled || chosen.length === 0 || chosen.length > 1000}
 						onClick={(event) => requestRemoval(chosen, event.currentTarget, heading.current)}><Trash2 aria-hidden="true" />删除所选{chosen.length ? ` (${chosen.length})` : ""}</Button>
 				</div>
@@ -76,8 +78,8 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 								{entry.modified > 0 && <> · {new Date(entry.modified).toLocaleString("zh-CN")}</>}</span>
 							{entry.blocked && <span className="storage-entry-meta">{entry.blocked}</span>}
 						</div>
-						<Button variant="ghost" size="icon-sm" className="storage-delete" disabled={disabled || entry.blocked !== null} aria-label={`删除 ${entry.name}`} title={entry.blocked ?? "删除条目"}
-							onClick={(event) => requestRemoval([entry], event.currentTarget, heading.current)}><Trash2 aria-hidden="true" /></Button>
+						<IconButton size="icon-sm" className="storage-delete" disabled={disabled || entry.blocked !== null} label={`删除 ${entry.name}`} tooltip="删除条目"
+							onClick={(event) => requestRemoval([entry], event.currentTarget, heading.current)}><Trash2 aria-hidden="true" /></IconButton>
 					</ListItem>)}
 				</AnimatePresence></ul>
 				{filtered.length === 0 && <p className="settings-empty">没有匹配的条目</p>}

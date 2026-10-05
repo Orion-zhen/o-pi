@@ -3,6 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { ListItem, Reveal } from "../components/animated";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
 import { ArrowUp, CodeXml, CornerUpRight, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
+import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
@@ -188,7 +189,6 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 								variant="ghost"
 								tabIndex={-1}
 								className="suggestion-command"
-								title={`/${choice.name}: ${choice.description}`}
 								onClick={() => {
 									setDraft(`/${choice.name} `);
 									editor.current?.focus();
@@ -205,7 +205,6 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 								variant="ghost"
 								tabIndex={-1}
 								className={item.description ? "suggestion-command" : undefined}
-								title={item.description ? `${item.label}: ${item.description}` : item.label}
 								onClick={() => {
 									setDraft(`${draft.replace(/\s.*$/s, "")} ${item.value}`);
 									editor.current?.focus();
@@ -218,10 +217,9 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 					))}
 					{fileChoices.map((file) => (
 						<li key={file}>
-							<Button
+							<Hint content={file}><Button
 								variant="ghost"
 								tabIndex={-1}
-								title={file}
 								onClick={() => {
 									setDraft((text) => text.replace(/@[^\s]*$/, () => `@"${file}" `));
 									clearFiles();
@@ -229,7 +227,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 								}}
 							>
 								<span className="suggestion-label">{file}</span>
-							</Button>
+							</Button></Hint>
 						</li>
 					))}
 				</ul>
@@ -289,19 +287,19 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 							}}
 						/>
 						<InputHistory history={snapshot.history} select={setDraft} focusEditor={() => editor.current?.focus()} />
-						<Button
+						<Hint content={codemode ? "工具 · codemode" : "工具 · 普通模式"}><Button
 							variant="ghost"
 							size="sm"
 							className="tool-count"
 							aria-label={`工具：可用 ${toolCount} 个${codemode ? "，codemode 模式" : ""}`}
-							title={codemode ? "codemode 模式" : "普通模式"}
 							disabled={!gui.canSubmit}
 							onClick={() => gui.setPanel({ kind: "tools" })}
 						>
 							<ToolIcon />{toolCount}
-						</Button>
+						</Button></Hint>
 						<IconButton
 							label={`当前：${behaviorLabel}（${steering ? "引导" : "跟进"}），点击切换为 ${steering ? "Follow-up" : "Steering"}`}
+							tooltip={steering ? "切换为跟进" : "切换为引导"}
 							size="sm"
 							className="message-behavior"
 							onClick={() => setBehavior((current) => current === "steer" ? "followUp" : "steer")}

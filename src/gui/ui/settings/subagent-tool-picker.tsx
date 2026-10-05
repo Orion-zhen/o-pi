@@ -1,6 +1,6 @@
 import type { GuiSnapshot } from "../../contract.ts";
 import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
+import { Hint } from "../components/ui/tooltip";
 
 export function SubagentToolPicker({ label, value, tools, disabled, change }: {
 	label: string; value: readonly unknown[]; tools: GuiSnapshot["tools"] | null; disabled: boolean; change: (value: string[]) => void;
@@ -13,19 +13,17 @@ export function SubagentToolPicker({ label, value, tools, disabled, change }: {
 			value={selected} onValueChange={change} disabled={disabled || tools === null}>
 			{[...names].map((name) => {
 				const enabled = selected.includes(name);
-				const unavailable = name === "subagent" ? "子代理不能调用 subagent。"
-					: tools !== null && !availableTools.get(name)?.available ? "当前会话不可用。" : "";
+				const unavailable = name === "subagent" ? "禁止嵌套子代理"
+					: tools !== null && !availableTools.get(name)?.available ? "当前不可用" : "";
 				const last = enabled && selected.length === 1;
 				const locked = last || (!enabled && unavailable !== "");
-				return <Tooltip key={name}><TooltipTrigger asChild>
+				return <Hint key={name} content={last ? "至少保留一个工具" : unavailable || (enabled ? "移除工具" : "启用工具")}>
 					<span className="settings-tool-option" tabIndex={locked ? 0 : undefined}>
 						<ToggleGroupItem value={name} aria-label={name} disabled={locked} data-unavailable={unavailable !== ""}>
 							{name}
 						</ToggleGroupItem>
 					</span>
-				</TooltipTrigger><TooltipContent>
-					{unavailable}{last ? "至少保留一个工具。" : enabled ? "点击移除。" : unavailable ? "不能启用。" : "点击启用。"}
-				</TooltipContent></Tooltip>;
+				</Hint>;
 			})}
 		</ToggleGroup>
 		{tools === null && <p className="settings-description">选择工作区后可选择工具。</p>}

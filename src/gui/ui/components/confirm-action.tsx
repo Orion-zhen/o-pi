@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Check, Trash2 } from "lucide-react";
 import { IconButton } from "./icon-button";
 
-export function ConfirmAction({ label, hint, disabled, confirm, allowShortcut = false }: {
-	label: string; hint: string; disabled: boolean; confirm: () => Promise<unknown>; allowShortcut?: boolean;
+export function ConfirmAction({ label, tooltip = "永久删除", disabled, confirm, allowShortcut = false }: {
+	label: string; tooltip?: string; disabled: boolean; confirm: () => Promise<unknown>; allowShortcut?: boolean;
 }) {
 	const [armed, setArmed] = useState(false);
 	const [pending, setPending] = useState(false);
@@ -18,7 +18,7 @@ export function ConfirmAction({ label, hint, disabled, confirm, allowShortcut = 
 		window.addEventListener("keydown", cancel, true);
 		return () => window.removeEventListener("keydown", cancel, true);
 	}, [armed]);
-	return <IconButton label={armed ? `确认${label}` : label} title={armed ? `再次点击确认。${hint}` : hint}
+	return <IconButton label={armed ? `确认${label}` : label} tooltip={armed ? "确认删除" : tooltip}
 		className="row-action-button" disabled={disabled || pending} data-confirming={armed}
 		onBlur={() => setArmed(false)}
 		onClick={(event) => {

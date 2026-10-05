@@ -5,6 +5,7 @@ import { AtSign, WrapText, X } from "lucide-react";
 import type { FilePreview as Preview } from "../../../workbench.ts";
 import type { Remote } from "../use-workbench.ts";
 import { fileLanguage, SyntaxHighlighter } from "../../content/code-highlight.ts";
+import { Hint } from "../../components/ui/tooltip";
 import { IconButton } from "../../components/icon-button";
 import { Button } from "../../components/ui/button";
 import { FileDiff } from "./file-diff.tsx";
@@ -48,7 +49,7 @@ export function FilePreviewPanel({ preview: selection, referenceFile, close }: {
 	const name = selection.path.split("/").at(-1);
 	return <div className="file-preview" data-wrap={wrap} data-media={media}>
 		<div className="file-preview-heading">
-			<strong className="file-preview-path" title={selection.path}>{name}</strong>
+			<Hint content={selection.path}><strong className="file-preview-path">{name}</strong></Hint>
 			{preview && preview.diffs.length > 0 && <div className="file-preview-modes" aria-label="文件视图">
 				<Button variant="ghost" size="sm" aria-pressed={!diff} onClick={() => setMode("content")}>内容</Button>
 				<Button variant="ghost" size="sm" aria-pressed={diff} onClick={() => setMode("diff")}>差异</Button>

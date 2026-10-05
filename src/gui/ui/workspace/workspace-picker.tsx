@@ -8,6 +8,7 @@ import { Button } from "../components/ui/button";
 import { SearchInput } from "../components/search-input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { DirectoryBrowser } from "./directory-browser.tsx";
+import { Hint } from "../components/ui/tooltip";
 import { ConfirmAction } from "../components/confirm-action.tsx";
 import { ListScroll } from "../components/list-scroll";
 import { workspaceActivity, type ActivityState } from "../sessions/use-session-activity.ts";
@@ -40,14 +41,14 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 	const disabled = pending || !gui.canNavigate;
 	return <>
 		<Popover open={expanded} onOpenChange={(value) => { setExpanded(value); setFilter(""); }}>
-			<PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="工作区" aria-expanded={expanded}
-				className="workspace-select activity-frame" title={state === "idle" ? cwd : `${cwd}\n${status}`} disabled={disabled}>
+			<Hint content={cwd} disabled={expanded}><PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="工作区" aria-expanded={expanded}
+				className="workspace-select activity-frame" aria-description={state === "idle" ? cwd : `${cwd}\n${status}`} disabled={disabled}>
 				<ActivityBorder state={state} />
 				{(!compact || !elsewhereWaiting) && <FolderOpen />}
 				{!compact && <span>{cwd.split(/[/\\]/).filter(Boolean).at(-1) || "选择工作区"}</span>}
 				{elsewhereWaiting && <Shield className="approval-marker" fill="currentColor" role="img" aria-label="其他工作区等待审批" />}
 				{!compact && <ChevronsUpDown />}
-			</Button></PopoverTrigger>
+			</Button></PopoverTrigger></Hint>
 			<PopoverContent className="workspace-options">
 				<SearchInput aria-label="筛选工作区" placeholder="筛选工作区" value={filter} onValueChange={setFilter} />
 				<ListScroll>
@@ -57,14 +58,14 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 						const state = workspaceActivity(gui.activity, path);
 						const status = state === "running" ? "运行中" : state === "waiting" ? "等待审批" : "有未读结果";
 						return <Fade layout="position" transition={{ ...fade.transition, layout: settle }} className="workspace-option-row overlay-list-row" key={path}>
-							<Button role="option" aria-label={path} aria-selected={path === cwd} variant="ghost"
-								disabled={disabled || !exists} title={state === "idle" ? path : `${path}\n${status}`} onClick={() => void open(path)}>
+							<Hint content={path}><Button role="option" aria-label={path} aria-selected={path === cwd} variant="ghost"
+								disabled={disabled || !exists} aria-description={state === "idle" ? undefined : status} onClick={() => void open(path)}>
 								<span className="workspace-option-label"><span className="workspace-option-path"><bdi dir="ltr">{path}</bdi></span>{!exists && <small>目录不存在</small>}</span>
 								{path === cwd ? <Check /> : state === "waiting" ? <Shield className="approval-marker" fill="currentColor" role="img" aria-label={status} />
 									: state !== "idle" && <span className="workspace-option-status" data-activity={state} role="img" aria-label={status} />}
-							</Button>
+							</Button></Hint>
 							{path !== gui.workspaceRoot && path !== cwd && state === "idle" && <div className="row-actions">
-								<ConfirmAction label={`移除工作区 ${path}`} hint="永久删除该工作区全部会话，保留项目目录和文件"
+								<ConfirmAction label={`移除工作区 ${path}`} tooltip="清空会话 · 保留文件"
 									disabled={disabled} confirm={() => gui.send({ action: "removeWorkspace", path })} />
 							</div>}
 						</Fade>;

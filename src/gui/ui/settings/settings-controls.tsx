@@ -3,7 +3,7 @@ import { Code, List, RotateCcw } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { IconButton } from "../components/icon-button";
 import { Disclosure } from "../components/disclosure";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
+import { Hint } from "../components/ui/tooltip";
 import "./settings.css";
 
 export function SettingsHeading({ title, children }: { title: string; children?: ReactNode }) {
@@ -28,12 +28,12 @@ export function SettingsDisclosure({ title, children }: { title: string; childre
 export function SettingsSourceButton({ file, source = false, disabled, onClick }: {
 	file: string; source?: boolean; disabled?: boolean; onClick: () => void;
 }) {
-	return <Tooltip><TooltipTrigger asChild>
+	return <Hint content={source ? "表单编辑" : "编辑配置文件"}>
 		<Button variant="ghost" size="sm" disabled={disabled} onClick={onClick}>
 			{source ? <List aria-hidden="true" /> : <Code aria-hidden="true" />}
 			{source ? "表单" : file.endsWith(".jsonc") ? "JSONC" : "JSON"}
 		</Button>
-	</TooltipTrigger><TooltipContent>{file}</TooltipContent></Tooltip>;
+	</Hint>;
 }
 
 export function SettingsRow({ label, htmlFor, children, reset, disabled, layout = "inline" }: {
@@ -45,7 +45,7 @@ export function SettingsRow({ label, htmlFor, children, reset, disabled, layout 
 		<div className="preference-label">
 			<label htmlFor={htmlFor}>{label}</label>
 			{reset && JSON.stringify(reset.value) !== JSON.stringify(reset.defaultValue)
-				&& <IconButton size="icon-sm" label={`重置${label}`} disabled={disabled} onClick={reset.apply}><RotateCcw /></IconButton>}
+				&& <IconButton size="icon-sm" label={`重置${label}`} tooltip="恢复默认" disabled={disabled} onClick={reset.apply}><RotateCcw /></IconButton>}
 		</div>
 		<div className="preference-control">{children}</div>
 	</div>;

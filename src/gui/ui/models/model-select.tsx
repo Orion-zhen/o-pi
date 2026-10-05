@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Check, ChevronDown } from "lucide-react";
 import type { GuiModel } from "../../contract.ts";
+import { Hint } from "../components/ui/tooltip";
 import { Button } from "../components/ui/button";
 import { SearchInput } from "../components/search-input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
@@ -25,16 +26,16 @@ export function ModelSelect({ label, models, value, disabled, change }: {
 	const pick = (next: string | null) => { change(next); setOpen(false); };
 	return (
 		<Popover open={open} onOpenChange={(next) => { setOpen(next); setFilter(""); }}>
-			<PopoverTrigger asChild>
+			<Hint content={value ?? undefined} disabled={open}><PopoverTrigger asChild>
 				<Button type="button" variant="outline" role="combobox" aria-expanded={open} aria-label={label}
-					className="model-select bg-(--surface)" disabled={disabled} title={value ?? undefined}>
+					className="model-select bg-(--surface)" disabled={disabled}>
 					<span className="model-select-value">
 						<span className="model-select-name">{selected?.name ?? value ?? "使用当前模型"}</span>
 						{selected && <small className="model-select-provider">· {selected.provider}</small>}
 					</span>
 					<ChevronDown />
 				</Button>
-			</PopoverTrigger>
+			</PopoverTrigger></Hint>
 			<PopoverContent className="settings-popover model-select-content" align="end">
 				<SearchInput aria-label="搜索模型" placeholder="搜索模型" value={filter} onValueChange={setFilter} />
 				<ListScroll>

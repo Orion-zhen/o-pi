@@ -1,5 +1,6 @@
 import type { GuiMessage } from "../../messages.ts";
 import { Children, createContext, isValidElement, lazy, memo, Suspense, useContext, useDeferredValue, type ComponentProps, type ReactNode } from "react";
+import { Hint } from "../components/ui/tooltip";
 import { MessageIdentity } from "./message-meta.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import { motion } from "motion/react";
@@ -62,10 +63,10 @@ function MarkdownSpan({ node, children, ...props }: ComponentProps<"span"> & Ext
 function MarkdownLink({ href, children }: ComponentProps<"a">) {
 	const files = useContext(FileLinksContext);
 	const path = files && href ? fileLinkPath(href, files.cwd) : undefined;
-	if (files && path !== undefined) return <a href={`./${path.split("/").map(encodeURIComponent).join("/")}`} title={path} onClick={(event) => {
+	if (files && path !== undefined) return <Hint content={path}><a href={`./${path.split("/").map(encodeURIComponent).join("/")}`} onClick={(event) => {
 		event.preventDefault();
 		files.openFile(path);
-	}}>{children}</a>;
+	}}>{children}</a></Hint>;
 	return href ? <ExternalLink href={href}>{children}</ExternalLink> : <span>{children}</span>;
 }
 

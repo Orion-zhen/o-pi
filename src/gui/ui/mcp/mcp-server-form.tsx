@@ -71,7 +71,7 @@ export function McpServerForm({ server, issues, disabled, change }: {
 			<McpField label="启动参数" field="args" issues={issues} hint="每项是一个完整参数，路径含空格时无需添加引号。">
 				<div className="mcp-args"><AnimatePresence initial={false}>{args.map((arg, index) => <Reveal key={arg.id}><div className="mcp-arg">
 					<Input aria-label={`启动参数 ${index + 1}`} value={mcpText(arg.value)} onChange={(event) => change({ ...server, args: args.map((row) => row.id === arg.id ? { ...row, value: event.target.value } : row) })} />
-					<IconButton size="icon-sm" label={`删除启动参数 ${index + 1}`} onClick={() => change({ ...server, args: args.filter(({ id }) => id !== arg.id) })}><Trash2 /></IconButton>
+					<IconButton size="icon-sm" label={`删除启动参数 ${index + 1}`} tooltip="删除参数" onClick={() => change({ ...server, args: args.filter(({ id }) => id !== arg.id) })}><Trash2 /></IconButton>
 				</div></Reveal>)}</AnimatePresence><Button variant="outline" size="sm" className="mcp-add-row" onClick={() => change({ ...server, args: [...args, createArgument("")] })}><Plus />添加参数</Button></div>
 			</McpField>
 			<McpField label="环境变量" field="env" issues={issues} hint="支持 ${ENV_NAME} 和整个值为 !command 的命令取值。环境变量来自运行 opi 的进程。">

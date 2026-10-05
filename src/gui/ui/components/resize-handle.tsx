@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Hint } from "./ui/tooltip";
 
 export interface ResizeBounds { value: number; min: number; max: number; scale?: number }
 
@@ -39,9 +40,9 @@ export function ResizeHandle({ label, axis = "x", value, measure, change, classN
 		else if (current.latest !== undefined) change(current.latest, true);
 	};
 	const clamp = (value: number, bounds: ResizeBounds) => Math.max(bounds.min, Math.min(bounds.max, value));
-	return <div ref={element} role="separator" aria-label={label} aria-orientation={axis === "x" ? "vertical" : "horizontal"}
+	return <Hint content="拖动调整 · 双击重置" disabled={dragging}><div ref={element} role="separator" aria-label={label} aria-orientation={axis === "x" ? "vertical" : "horizontal"}
 		aria-valuemin={Math.round(bounds.min)} aria-valuemax={Math.round(bounds.max)} aria-valuenow={Math.round(bounds.value)}
-		title="拖动调整，双击恢复默认" tabIndex={0} className={`resize-handle ${className}`} data-axis={axis} data-dragging={dragging}
+		tabIndex={0} className={`resize-handle ${className}`} data-axis={axis} data-dragging={dragging}
 		onDoubleClick={() => { finish(false); change(undefined, true); }}
 		onPointerDown={(event) => {
 			if (event.button !== 0) return;
@@ -74,5 +75,5 @@ export function ResizeHandle({ label, axis = "x", value, measure, change, classN
 			const bounds = measure();
 			change(clamp(bounds.value + (event.key === negative ? -10 : 10) * (bounds.scale ?? 1), bounds), true);
 		}}
-	/>;
+	/></Hint>;
 }

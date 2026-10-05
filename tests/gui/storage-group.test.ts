@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StorageEntry, StorageGroup } from "../../src/gui/storage.ts";
+import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 import { StorageGroupView } from "../../src/gui/ui/storage/storage-group.tsx";
 
 let root: ReturnType<typeof createRoot>;
@@ -14,9 +15,9 @@ const group = (entries: StorageEntry[], id: StorageGroup["id"] = "sessions"): St
 	id, title: id, paths: ["/storage"], entries, error: null,
 });
 async function render(groups: StorageGroup[]) {
-	await act(async () => root.render(groups.map((group) => createElement(StorageGroupView, {
+	await act(async () => root.render(createElement(TooltipProvider, null, groups.map((group) => createElement(StorageGroupView, {
 		key: group.id, group, disabled: false, requestRemoval,
-	}))));
+	})))));
 }
 function section(title = "sessions"): HTMLElement {
 	const element = document.querySelector<HTMLElement>(`section[aria-label="${title}"]`);

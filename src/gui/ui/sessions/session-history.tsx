@@ -3,6 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { SidebarView } from "../app/gui-controls.ts";
 import type { SessionListItem } from "./session-list.ts";
+import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
@@ -38,9 +39,9 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 			{groups.filter(([cwd]) => full || cwd === gui.cwd).map(([cwd, items]) => {
 				const rows = <SessionRows items={items} gui={gui} close={close} search={search} />;
 				return full ? <Collapsible key={cwd} defaultOpen className="workspace-sessions">
-					<CollapsibleTrigger asChild><Button variant="ghost" className="workspace-toggle" title={cwd}>
+					<Hint content={cwd}><CollapsibleTrigger asChild><Button variant="ghost" className="workspace-toggle">
 						<ChevronRight className="workspace-chevron" /><FolderClosed /><span className="workspace-label">{workspaceName(cwd)}</span>
-					</Button></CollapsibleTrigger>
+					</Button></CollapsibleTrigger></Hint>
 					<CollapsibleContent>{rows}</CollapsibleContent>
 				</Collapsible> : <div key={cwd}>{rows}</div>;
 			})}

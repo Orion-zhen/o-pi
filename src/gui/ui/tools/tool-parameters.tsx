@@ -8,7 +8,7 @@ export function ParameterValue({ value }: { value: unknown }) {
 		<li key={index}><ParameterValue value={entry} /></li>
 	))}</ul> : <span className="parameter-empty">空列表</span>;
 	if (record(value)) return <dl className="parameter-fields">{Object.entries(value).map(([key, entry]) => (
-		<div key={key}><dt title={key}>{key}</dt><dd><ParameterValue value={entry} /></dd></div>
+		<div key={key}><dt>{key}</dt><dd><ParameterValue value={entry} /></dd></div>
 	))}</dl>;
 	const text = String(value);
 	return text.includes("\n") ? <CodeBlock text={text} label="内容" /> : <span className="parameter-value">{text}</span>;

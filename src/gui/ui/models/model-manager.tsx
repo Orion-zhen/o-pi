@@ -70,7 +70,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 					{index >= 0 && (
 						<>
 							<IconButton
-								label={`上移 ${id}`}
+								label={`上移 ${id}`} tooltip="上移"
 								size="icon-sm"
 								disabled={disabled || index === 0}
 								onClick={() => move(id, -1)}
@@ -78,7 +78,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 								<ArrowUp />
 							</IconButton>
 							<IconButton
-								label={`下移 ${id}`}
+								label={`下移 ${id}`} tooltip="下移"
 								size="icon-sm"
 								disabled={disabled || index === scope.length - 1}
 								onClick={() => move(id, 1)}
@@ -89,6 +89,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 					)}
 					<IconButton
 						label={active ? `当前模型 ${id}` : `使用模型 ${id}`}
+						tooltip={active ? "当前模型" : "使用模型"}
 						size="icon-sm"
 						variant={active ? "secondary" : "ghost"}
 						disabled={disabled || !model || active}

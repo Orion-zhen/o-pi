@@ -4,6 +4,7 @@ import { fade, settle } from "../lib/motion";
 import { MessageSquare, Pencil, Shield } from "lucide-react";
 import type { Send } from "../runtime/connection.ts";
 import type { SessionListItem } from "./session-list.ts";
+import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { ConfirmAction } from "../components/confirm-action.tsx";
@@ -29,16 +30,16 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, disable
 			if (name === title || !path) return;
 			setPending(true);
 			void send({ action: "renameSession", path, name }).finally(() => setPending(false));
-		}} /> : <Button variant="ghost" className="history-session" aria-label={title}
+		}} /> : <Hint content={modified ? new Date(modified).toLocaleString("zh-CN") : undefined}><Button variant="ghost" className="history-session" aria-label={title}
 			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || pending}
-			title={modified ? `${title}\n${new Date(modified).toLocaleString("zh-CN")}` : title} onClick={() => open(item)}>
+			onClick={() => open(item)}>
 			{waiting ? <Shield className="approval-marker" fill="currentColor" role="img" aria-label="等待审批" /> : <MessageSquare />}<span className="history-session-title">{title}</span>
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
-		</Button>}
+		</Button></Hint>}
 		{path && <div className="row-actions">
-			{!busy && <IconButton label={`重命名会话 ${title}`} className="row-action-button" disabled={disabled || pending || editing}
+			{!busy && <IconButton label={`重命名会话 ${title}`} tooltip="重命名" className="row-action-button" disabled={disabled || pending || editing}
 				onClick={() => setEditing(true)}><Pencil /></IconButton>}
-			{!busy && !waiting && !unread && <ConfirmAction label={`删除会话 ${title}`} hint="永久删除会话，再次点击确认。Ctrl/Command+点击直接删除"
+			{!busy && !waiting && !unread && <ConfirmAction label={`删除会话 ${title}`}
 				disabled={disabled || pending || editing} allowShortcut confirm={() => send({ action: "deleteSession", path })} />}
 		</div>}
 	</>;

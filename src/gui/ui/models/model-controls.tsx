@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { Cpu } from "lucide-react";
 import type { GuiSnapshot } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
+import { Hint } from "../components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "../components/ui/select";
 import "./models.css";
 
@@ -61,9 +62,9 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 					if (model) void send({ action: "model", provider: model.provider, id: model.id });
 				}}
 			>
-				<SelectTrigger aria-label="模型" title={current || "选择或管理模型"}>
+				<Hint content={current || "选择模型"}><SelectTrigger aria-label="模型">
 					<SelectValue placeholder="选择模型" />
-				</SelectTrigger>
+				</SelectTrigger></Hint>
 				<SelectContent onCloseAutoFocus={(event) => {
 					if (!manageOnClose.current) return;
 					manageOnClose.current = false;
@@ -83,10 +84,9 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 				</SelectContent>
 			</Select>
 			<ThinkingControl snapshot={snapshot} send={send} disabled={disabled} />
-			{snapshot.routedModel && <span className="truncate text-xs text-muted-foreground" aria-label="最近响应模型"
-				title={`${snapshot.routedModel.model.provider}/${snapshot.routedModel.model.id}`}>
+			{snapshot.routedModel && <Hint content={`${snapshot.routedModel.model.provider}/${snapshot.routedModel.model.id}`}><span className="truncate text-xs text-muted-foreground" aria-label="最近响应模型">
 				→ {snapshot.routedModel.model.name}{snapshot.routedModel.thinkingLevel === undefined ? "" : ` · ${snapshot.routedModel.thinkingLevel}`}
-			</span>}
+			</span></Hint>}
 		</div>
 	);
 }

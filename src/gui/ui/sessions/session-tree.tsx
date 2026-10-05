@@ -132,9 +132,9 @@ function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate:
 			) : (
 				<>
 					<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}>
-						{skill ? <p className="tree-message-preview" title={skillPreview}>{skillPreview}</p> : <MessagePreview message={message} />}
+						{skill ? <p className="tree-message-preview">{skillPreview}</p> : <MessagePreview message={message} />}
 					</button>
-					{entry.label && <span className="tree-label" title={entry.label}>{entry.label}</span>}
+					{entry.label && <span className="tree-label">{entry.label}</span>}
 					<div className="tree-row-actions">
 						<IconButton label="切换到此处" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}><ArrowRight /></IconButton>
 						<IconButton label="总结后切换" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: true })}><ListCollapse /></IconButton>

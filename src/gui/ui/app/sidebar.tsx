@@ -7,7 +7,7 @@ import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { WorkspacePicker } from "../workspace/workspace-picker.tsx";
 import { SheetClose, SheetContent, SheetTitle } from "../components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
+import { Hint } from "../components/ui/tooltip";
 
 export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: { gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void }) {
 	const act = (action: GuiAction) => { close(); void gui.send(action); };
@@ -15,7 +15,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 	const content = (compact: boolean, mobile: boolean) => <>
 		<div className="sidebar-brand">
 			<span className="brand" aria-hidden={compact}><span className="app-logo" aria-hidden="true" /><span>opi</span><small>workspace</small></span>
-			{mobile ? <SheetClose asChild><Button variant="ghost" size="icon" aria-label="关闭菜单" title="关闭菜单"><PanelLeftClose /></Button></SheetClose>
+			{mobile ? <SheetClose asChild><IconButton label="关闭菜单"><PanelLeftClose /></IconButton></SheetClose>
 				: <IconButton label={compact ? "展开侧栏" : "收起侧栏"} onClick={toggle} aria-expanded={!compact}>{compact ? <PanelLeftOpen /> : <PanelLeftClose />}</IconButton>}
 		</div>
 		<div className="sidebar-navigation">
@@ -25,10 +25,10 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 			{!mobile && <div className="sidebar-compact sidebar-scroll" inert={!compact} aria-hidden={!compact}>
 				<div className="workspace-controls" data-compact="true">
 					<WorkspacePicker gui={gui} close={close} compact />
-					<Tooltip><TooltipTrigger asChild>
+					<Hint content="新建会话" side="right">
 						<Button variant="outline" className="new-session" aria-label="新建会话" disabled={!gui.canNavigate}
 							onClick={() => { void gui.send({ action: "new" }); close(); }}><Plus /></Button>
-					</TooltipTrigger><TooltipContent side="right">新建会话</TooltipContent></Tooltip>
+					</Hint>
 				</div>
 			</div>}
 		</div>

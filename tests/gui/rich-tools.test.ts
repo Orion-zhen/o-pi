@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithMemory } from "./render.ts";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import { ToolResult } from "../../src/gui/ui/tools/tool-results.tsx";
@@ -8,7 +8,7 @@ import { agentDetails, agentRun, fetchDetails, searchDetails } from "./rich-tool
 
 function render(name: string, details: unknown, state: ToolActivity["state"] = "completed") {
 	const tool = { id: "rich-tool", name, args: {}, state, output: { content: [], details } };
-	return parseHTML(renderToStaticMarkup(createElement(ToolResult, { tool }))).document;
+	return parseHTML(renderWithMemory(createElement(ToolResult, { tool }))).document;
 }
 
 describe("文件列表图标", () => {

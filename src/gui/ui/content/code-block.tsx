@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { Hint } from "../components/ui/tooltip";
 import { SyntaxHighlighter } from "./code-highlight.ts";
 
 export const CodeBlock = memo(function CodeBlock({ text, label = "代码", language = "text", startLine, diff = false, highlight = true }: {
@@ -15,7 +16,7 @@ export const CodeBlock = memo(function CodeBlock({ text, label = "代码", langu
 	return (
 		<div className={`code-block${diff ? " diff-block" : ""}`}>
 			<div className="code-toolbar">
-				<span title={label}>{label}</span>
+				<Hint content={label}><span>{label}</span></Hint>
 				<button type="button" aria-label={`复制${label}`} onClick={async () => {
 					try {
 						await navigator.clipboard.writeText(text);

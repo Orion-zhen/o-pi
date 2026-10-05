@@ -9,7 +9,6 @@ import { GuiPayloads } from "../../src/gui/host/payloads.ts";
 import { GuiHistory } from "../../src/gui/host/history.ts";
 import { assistant } from "./transcript-fixtures.ts";
 import { SessionTree } from "../../src/gui/ui/sessions/session-tree.tsx";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 import { renderWithMemory } from "./render.ts";
 
 const body = "先检查任务范围。";
@@ -22,9 +21,9 @@ const skill: CustomMessageEntry<SkillLoadDetails> = {
 function render(entry: SessionEntry) {
 	const manager = SessionManager.inMemory("/workspace", undefined, [{ type: "session", id: "fixture", version: 3, cwd: "/workspace", timestamp: entry.timestamp }, entry]);
 	const history = new GuiHistory(new GuiPayloads()).project(manager);
-	return parseHTML(renderWithMemory(createElement(TooltipProvider, null, createElement(SessionTree, {
+	return parseHTML(renderWithMemory(createElement(SessionTree, {
 		value: sessionTree(history.entries, entry.id), send: async () => true, locate() {},
-	})))).document;
+	}))).document;
 }
 
 describe("会话树技能消息", () => {

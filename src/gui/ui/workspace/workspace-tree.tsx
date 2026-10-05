@@ -5,6 +5,7 @@ import { gitStatusLabels, indexWorkspaceGit, type WorkspaceGit } from "../../wor
 import type { WorkbenchView } from "./use-workbench.ts";
 import { workspaceTreeRows } from "./workspace-tree-rows.ts";
 import { useVirtualRows } from "../lib/use-virtual-rows.ts";
+import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 
 function FileRowActions({ path, referenceFile }: { path: string; referenceFile: (path: string) => void }) {
@@ -16,6 +17,7 @@ function FileRowActions({ path, referenceFile }: { path: string; referenceFile: 
 	}, [copyState]);
 	return <div className="row-actions">
 		<IconButton label={`${copyState.status === "error" ? "复制失败，重试" : copyState.status === "copied" ? "已复制路径" : "复制路径"} ${path}`} className="row-action-button"
+			tooltip={copyState.status === "error" ? "重试复制" : copyState.status === "copied" ? "已复制" : "复制路径"}
 			onClick={async (event) => {
 				if (event.detail > 0) event.currentTarget.blur();
 				try {
@@ -25,7 +27,7 @@ function FileRowActions({ path, referenceFile }: { path: string; referenceFile: 
 					setCopyState({ status: "error" });
 				}
 			}}>{copyState.status === "copied" ? <Check /> : <Copy />}</IconButton>
-		<IconButton label={`引用路径 ${path}`} className="row-action-button"
+		<IconButton label={`引用路径 ${path}`} tooltip="引用路径" className="row-action-button"
 			onClick={() => referenceFile(path)}><AtSign /></IconButton>
 	</div>;
 }
@@ -43,14 +45,13 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ git, selected, 
 			if (!change) return null;
 			return <li key={row.key} data-index={row.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(row.start)}>
 			<div className="file-entry-row overlay-list-row">
-			<button type="button" className="file-row file-change-row" data-status={change.status} aria-label={change.path}
+			<Hint content={`${change.originalPath ? `${change.originalPath} -> ` : ""}${change.path}`}><button type="button" className="file-row file-change-row" data-status={change.status} aria-label={change.path}
 				aria-pressed={selected === change.path} aria-description={gitStatusLabels[change.status]}
-				title={`${change.originalPath ? `${change.originalPath} -> ` : ""}${change.path} (${gitStatusLabels[change.status]})`}
 				onClick={() => openFile(change.path)}>
 				<span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>
 				<FileIcon name={change.path} kind="file" />
 				<span className="file-name">{change.path}</span>
-			</button>
+			</button></Hint>
 			{change.status !== "D" && <FileRowActions path={change.path} referenceFile={referenceFile} />}
 			</div>
 		</li>;
@@ -111,9 +112,9 @@ export const WorkspaceTree = memo(function WorkspaceTree({ workbench, openFile, 
 				const open = workbench.expanded.has(entry.path);
 				const state = change ? gitStatusLabels[change.status] : descendants ? `${descendants} 个文件变更` : ignored ? "Git 忽略项" : "";
 				return <div className="file-entry-row overlay-list-row">
-					<button type="button" role="treeitem" aria-label={entry.path} aria-level={depth + 1} aria-posinset={row.position} aria-setsize={row.siblings}
+					<Hint content={entry.path}><button type="button" role="treeitem" aria-label={entry.path} aria-level={depth + 1} aria-posinset={row.position} aria-setsize={row.siblings}
 						aria-expanded={entry.kind === "directory" ? open : undefined} aria-selected={workbench.preview?.path === entry.path}
-						tabIndex={-1} aria-description={state} title={`${entry.path}${state ? ` (${state})` : ""}`}
+						tabIndex={-1} aria-description={state}
 						className="file-row" data-ignored={ignored} data-status={change?.status} style={{ paddingInlineStart: `${0.25 + depth}em` }}
 						onClick={() => entry.kind === "directory" ? workbench.toggleDirectory(entry.path, entry.virtual) : openFile(entry.path)}>
 						{row.hasDirectories && <ChevronRight className="file-chevron" data-directory={entry.kind === "directory"} data-open={open} />}
@@ -121,7 +122,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ workbench, openFile, 
 						{state && <span className="sr-only">{state}</span>}
 						{change && <span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>}
 						{!change && descendants > 0 && <span className="git-descendants" aria-hidden="true">{descendants}</span>}
-					</button>
+					</button></Hint>
 					{!entry.virtual && change?.status !== "D" && <FileRowActions path={entry.path} referenceFile={referenceFile} />}
 				</div>;
 			};

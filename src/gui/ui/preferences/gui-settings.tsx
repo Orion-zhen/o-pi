@@ -66,7 +66,7 @@ export function GuiSettings({ title, section, document: latest, send, query, dis
 	const blocked = disabled || saving;
 	const actions = <>
 		<SettingsSourceButton file="gui.jsonc" disabled={blocked || dirty} onClick={() => setEditing(true)} />
-		<IconButton size="icon-sm" label={`重置${title}`} disabled={blocked || document.state !== "ready"}
+		<IconButton size="icon-sm" label={`重置${title}`} tooltip="恢复默认" disabled={blocked || document.state !== "ready"}
 			onClick={() => { if (document.state === "ready") update(resetSection(document, section)); }}><RotateCcw /></IconButton>
 	</>;
 	return <div className="settings-module">

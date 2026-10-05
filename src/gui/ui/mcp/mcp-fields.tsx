@@ -52,7 +52,7 @@ export function McpSecret({ id, label, value, change }: { id?: string; label: st
 	const [visible, setVisible] = useState(false);
 	return <div className="mcp-secret"><Input id={id} aria-label={label} type={visible ? "text" : "password"} autoComplete="off" spellCheck={false}
 		value={value} onChange={(event) => change(event.target.value)} />
-		<IconButton label={`${visible ? "隐藏" : "显示"}${label}`} size="icon-sm" onClick={() => setVisible(!visible)}>{visible ? <EyeOff /> : <Eye />}</IconButton>
+		<IconButton label={`${visible ? "隐藏" : "显示"}${label}`} tooltip={visible ? "隐藏" : "显示"} size="icon-sm" onClick={() => setVisible(!visible)}>{visible ? <EyeOff /> : <Eye />}</IconButton>
 	</div>;
 }
 
@@ -81,9 +81,9 @@ export function McpPairs({ label, rows, change, disabled, kind = "secret", hidde
 			{kind === "exposure" ? <McpChoice label={`${label}方式 ${index + 1}`} value={row.value === "codemode-deferred" ? "codemode" : mcpText(row.value)} options={exposureOptions} disabled={disabled} change={(value) => update(row.id, { value })} />
 				: <McpSecret label={`${label}值 ${index + 1}`} value={mcpText(row.value)} change={(value) => update(row.id, { value })} />}
 			<div className="mcp-row-actions">
-				{kind === "exposure" && <><IconButton size="icon-sm" label={`上移规则 ${index + 1}`} disabled={index === 0} onClick={() => move(row, index, -1)}><ArrowUp /></IconButton>
-					<IconButton size="icon-sm" label={`下移规则 ${index + 1}`} disabled={index === rows.length - 1} onClick={() => move(row, index, 1)}><ArrowDown /></IconButton></>}
-				<IconButton size="icon-sm" label={`删除${label} ${index + 1}`} onClick={() => change(rows.filter(({ id }) => id !== row.id))}><Trash2 /></IconButton>
+				{kind === "exposure" && <><IconButton size="icon-sm" label={`上移规则 ${index + 1}`} tooltip="上移规则" disabled={index === 0} onClick={() => move(row, index, -1)}><ArrowUp /></IconButton>
+					<IconButton size="icon-sm" label={`下移规则 ${index + 1}`} tooltip="下移规则" disabled={index === rows.length - 1} onClick={() => move(row, index, 1)}><ArrowDown /></IconButton></>}
+				<IconButton size="icon-sm" label={`删除${label} ${index + 1}`} tooltip="删除条目" onClick={() => change(rows.filter(({ id }) => id !== row.id))}><Trash2 /></IconButton>
 			</div>
 			{typeof row.value === "string" && row.value.startsWith("!") && <p className="settings-warning">命令取值：连接时执行，编辑时不执行。</p>}
 		</div></Reveal>)}</AnimatePresence>

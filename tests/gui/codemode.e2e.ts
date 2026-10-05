@@ -38,9 +38,9 @@ test.describe("codemode", () => {
 		await editor.fill("验证变更");
 		await editor.press("ControlOrMeta+Enter");
 		const tool = page.locator('[data-tool="codemode"]');
-		await expect(tool.locator('[title="script_probe"]')).toBeVisible();
-		const edit = tool.locator('[data-nested-tool-call-id]:has([title="edit"])');
-		const writes = tool.locator('[data-nested-tool-call-id]:has([title="write"])');
+		await expect(tool.locator('[data-tool-name="script_probe"]')).toBeVisible();
+		const edit = tool.locator('[data-nested-tool-call-id]:has([data-tool-name="edit"])');
+		const writes = tool.locator('[data-nested-tool-call-id]:has([data-tool-name="write"])');
 		await expect(edit).toHaveAttribute("data-state", "completed");
 		await expect(writes).toHaveCount(2);
 		await edit.locator(".activity-summary").click();
@@ -95,8 +95,8 @@ test.describe("codemode", () => {
 			await panel.getByRole("checkbox", { name, exact: true }).click();
 			await expect(panel.getByRole("checkbox", { name, exact: true })).not.toBeChecked();
 		}
-		await expect(panel.locator('[data-tool-option="tool_search"]')).toContainText("已启用");
-		await expect(panel.locator('[data-tool-option="tool_search"] [role="checkbox"]')).toHaveCount(0);
+		await expect(panel.getByRole("checkbox", { name: "tool_search", exact: true })).toBeChecked();
+		await expect(panel.getByRole("checkbox", { name: "tool_search", exact: true })).toBeDisabled();
 		await expect(counter).toHaveText(String(normalCount));
 		await panel.getByRole("checkbox", { name: "codemode", exact: true }).click();
 		await expect(panel.getByRole("checkbox", { name: "codemode", exact: true })).toBeChecked();
@@ -111,9 +111,9 @@ test.describe("codemode", () => {
 		await editor.fill("查找 sample 文件");
 		await editor.press("ControlOrMeta+Enter");
 		const tool = page.locator('[data-tool="codemode"]');
-		await expect(tool.locator('[data-nested-tool-call-id] .activity-summary[title="script_probe"]')).toBeVisible();
-		await expect(tool.locator('[data-nested-tool-call-id]:has([title="find"])')).toHaveAttribute("data-state", "completed");
-		await expect(tool.locator('[data-nested-tool-call-id]:has([title="read"])')).toHaveAttribute("data-state", "failed");
+		await expect(tool.locator('[data-nested-tool-call-id] .activity-summary[data-tool-name="script_probe"]')).toBeVisible();
+		await expect(tool.locator('[data-nested-tool-call-id]:has([data-tool-name="find"])')).toHaveAttribute("data-state", "completed");
+		await expect(tool.locator('[data-nested-tool-call-id]:has([data-tool-name="read"])')).toHaveAttribute("data-state", "failed");
 		await expect(tool.locator('.tool-parameters > .disclosure-trigger').first()).toHaveAttribute("aria-expanded", "false");
 		await page.screenshot({ path: info.outputPath("codemode-running.png") });
 		await expect(page.locator(".reply-answer")).toContainText("嵌套验证完成");
@@ -134,7 +134,7 @@ test.describe("codemode", () => {
 		await tool.locator(':scope > [data-slot="collapsible"] > .activity-summary').click();
 		await expect(tool).toHaveAttribute("data-state", "completed");
 		await expect(tool.locator("[data-nested-tool-call-id]")).toHaveCount(3);
-		await expect(tool.locator('[data-nested-tool-call-id]:has([title="find"])')).toContainText("sample");
+		await expect(tool.locator('[data-nested-tool-call-id]:has([data-tool-name="find"])')).toContainText("sample");
 		await tool.locator(".codemode-output > .disclosure-trigger").click();
 		await expect(tool.locator(".codemode-output")).toContainText("sample.ts");
 		await counter.click();

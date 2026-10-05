@@ -6,6 +6,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import { exerciseComposerRunning, exerciseSuggestions } from "./composer-steps.ts";
 import { prepareRichTools } from "./rich-tools-server.ts";
 import { exerciseRichTools } from "./rich-tools-steps.ts";
+import { exerciseTooltips } from "./tooltip-steps.ts";
 
 let model: Awaited<ReturnType<typeof startModelServer>>;
 let richTools: Awaited<ReturnType<typeof prepareRichTools>>;
@@ -48,6 +49,11 @@ export default function (pi) {
 test.afterEach(async () => { await model?.close(); await richTools?.close(); });
 
 test.describe("浏览器交互", () => {
+
+	test("悬停提示统一且简短，支持键盘与组合控件", async ({ gui: { page }, workspace: { cwd } }, info) => {
+		test.skip(info.project.name !== "desktop", "鼠标悬停使用桌面视口");
+		await exerciseTooltips(page, cwd);
+	});
 
 	test("深浅主题的普通悬停背景统一，选中态与按下态独立", async ({ gui: { page }, workspace: { agentDir } }, info) => {
 		test.skip(info.project.name !== "desktop", "鼠标悬停使用桌面视口");
