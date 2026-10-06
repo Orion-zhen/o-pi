@@ -30,18 +30,28 @@ function TooltipContent({
 	);
 }
 
-function Hint({ content, children, side = "top", disabled = false }: {
+function Hint({ content, children, side = "top", disabled = false, followPointer = false }: {
 	content: string | undefined;
 	children: React.ReactElement;
 	side?: React.ComponentProps<typeof TooltipContent>["side"];
 	disabled?: boolean;
+	followPointer?: boolean;
 }) {
 	const [open, setOpen] = React.useState(false);
+	const [pointerOffset, setPointerOffset] = React.useState<number | null>(null);
 	React.useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
 	if (!content) return children;
 	return <TooltipPrimitive.Root open={open && !disabled} onOpenChange={setOpen}>
-		<TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
-		<TooltipContent side={side}>{content}</TooltipContent>
+		<TooltipPrimitive.Trigger asChild
+			onPointerMove={followPointer ? (event) => {
+				if (event.pointerType === "touch") return;
+				const bounds = event.currentTarget.getBoundingClientRect();
+				setPointerOffset(side === "top" || side === "bottom" ? event.clientX - bounds.left : event.clientY - bounds.top);
+			} : undefined}
+			onPointerLeave={followPointer ? () => setPointerOffset(null) : undefined}
+			onFocus={followPointer ? () => setPointerOffset(null) : undefined}
+		>{children}</TooltipPrimitive.Trigger>
+		<TooltipContent side={side} align={pointerOffset === null ? "center" : "start"} alignOffset={pointerOffset ?? 0}>{content}</TooltipContent>
 	</TooltipPrimitive.Root>;
 }
 

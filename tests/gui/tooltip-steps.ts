@@ -15,9 +15,22 @@ export async function exerciseTooltips(page: Page, cwd: string) {
 	await counter.press("Escape");
 	await expect(tooltip).toHaveCount(0);
 	await counter.click();
-	await expect(page.getByRole("dialog")).toBeVisible();
-	await expect(tooltip.filter({ hasText: "工具 · 普通模式" })).toHaveCount(0);
-	await page.getByRole("button", { name: "关闭面板", exact: true }).click();
+	const panel = page.getByRole("dialog");
+	const close = panel.getByRole("button", { name: "关闭面板", exact: true });
+	await expect(panel).toBeVisible();
+	await expect(panel).toBeFocused();
+	await expect(tooltip).toHaveCount(0);
+	await close.hover();
+	await expect(tooltip).toHaveText("关闭面板");
+	await page.mouse.move(0, 0);
+	await expect(tooltip).toHaveCount(0);
+	await page.keyboard.press("Tab");
+	await expect(close).toBeFocused();
+	await expect(tooltip).toHaveText("关闭面板");
+	await close.press("Escape");
+	await expect(tooltip).toHaveCount(0);
+	await expect(panel).toBeVisible();
+	await close.click();
 
 	const workspace = page.locator(".workspace-select").first();
 	await workspace.hover();
@@ -76,5 +89,46 @@ export async function exerciseTooltips(page: Page, cwd: string) {
 	await expect(tooltip).toHaveCount(0);
 	await page.mouse.up();
 	await handle.press("Home");
+	await editor.click();
+	for (const name of ["调整左侧栏宽度", "调整对话宽度（左边缘）", "调整对话宽度（右边缘）"]) {
+		await exerciseResizeTooltip(page, name);
+	}
+	await exerciseResizeTooltip(page, "调整会话与文件区域");
 	await expect(page.locator("[title]")).toHaveCount(0);
+}
+
+async function exerciseResizeTooltip(page: Page, name: string) {
+	const handle = page.getByRole("separator", { name, exact: true });
+	const tooltip = page.getByRole("tooltip");
+	await handle.scrollIntoViewIfNeeded();
+	const bounds = await handle.boundingBox();
+	if (!bounds) throw new Error(`缺少调整手柄：${name}`);
+	const vertical = await handle.getAttribute("aria-orientation") === "vertical";
+	for (const ratio of [0.3, 0.7]) {
+		const x = bounds.width * (vertical ? 0.5 : ratio);
+		const y = bounds.height * (vertical ? ratio : 0.5);
+		await handle.hover({ position: { x, y } });
+		await expect(tooltip).toHaveText("拖动调整 · 双击重置");
+		await expect.poll(async () => {
+			const hint = await tooltip.boundingBox();
+			if (!hint) throw new Error("缺少调整提示边界");
+			const pointerX = bounds.x + x;
+			const pointerY = bounds.y + y;
+			return Math.max(0, hint.x - pointerX, pointerX - hint.x - hint.width, hint.y - pointerY, pointerY - hint.y - hint.height);
+		}).toBeLessThan(32);
+	}
+	await page.mouse.move(0, 0);
+	await expect(tooltip).toHaveCount(0);
+	await handle.focus();
+	await expect(tooltip).toHaveText("拖动调整 · 双击重置");
+	await expect.poll(async () => {
+		const hint = await tooltip.boundingBox();
+		if (!hint) throw new Error("缺少键盘调整提示边界");
+		return vertical
+			? Math.abs(hint.y + hint.height / 2 - bounds.y - bounds.height / 2)
+			: Math.abs(hint.x + hint.width / 2 - bounds.x - bounds.width / 2);
+	}).toBeLessThan(2);
+	await handle.press("Escape");
+	await expect(tooltip).toHaveCount(0);
+	await page.getByRole("textbox", { name: "消息", exact: true }).focus();
 }

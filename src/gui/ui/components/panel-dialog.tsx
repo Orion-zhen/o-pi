@@ -15,6 +15,10 @@ export function PanelDialog({ title, ref, children, close, restoreFocus }: {
 			ref={ref}
 			className="panel"
 			aria-describedby={undefined}
+			onOpenAutoFocus={(event) => {
+				event.preventDefault();
+				if (event.target instanceof HTMLElement) event.target.focus();
+			}}
 			onCloseAutoFocus={(event) => {
 				event.preventDefault();
 				restoreFocus();

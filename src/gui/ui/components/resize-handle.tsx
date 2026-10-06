@@ -40,7 +40,7 @@ export function ResizeHandle({ label, axis = "x", value, measure, change, classN
 		else if (current.latest !== undefined) change(current.latest, true);
 	};
 	const clamp = (value: number, bounds: ResizeBounds) => Math.max(bounds.min, Math.min(bounds.max, value));
-	return <Hint content="拖动调整 · 双击重置" disabled={dragging}><div ref={element} role="separator" aria-label={label} aria-orientation={axis === "x" ? "vertical" : "horizontal"}
+	return <Hint content="拖动调整 · 双击重置" disabled={dragging} followPointer side={axis === "x" ? "right" : "bottom"}><div ref={element} role="separator" aria-label={label} aria-orientation={axis === "x" ? "vertical" : "horizontal"}
 		aria-valuemin={Math.round(bounds.min)} aria-valuemax={Math.round(bounds.max)} aria-valuenow={Math.round(bounds.value)}
 		tabIndex={0} className={`resize-handle ${className}`} data-axis={axis} data-dragging={dragging}
 		onDoubleClick={() => { finish(false); change(undefined, true); }}
