@@ -23,11 +23,12 @@
 .session-history-flat .workspace-session-list { margin: 0; padding: 0; border: 0; }
 .workbench-separator { flex: 0 0 auto; padding-block: var(--space-1); cursor: row-resize; touch-action: none; outline-offset: -2px; transition: padding-block var(--motion-layout) var(--motion-ease); }
 .workbench-sections[data-files-open="false"] .workbench-separator { padding-block: 0; visibility: hidden; }
+/* 分隔条隐藏后，由文件区标题补上同位置的横线。 */
+.workbench-sections[data-files-open="false"] .workspace-files-heading { border-block-start: 1px solid var(--divider); }
 .workspace-files-heading { position: relative; isolation: isolate; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-3); flex-shrink: 0; }
 .workspace-files-heading > button:not(.files-toggle) { position: relative; z-index: 1; pointer-events: auto; }
 .files-toggle { justify-content: flex-start; margin-inline-end: auto; font-size: var(--text-small); padding: 0.4em 0.25em; gap: var(--space-1); }
 .files-toggle::after { content: ""; position: absolute; inset: 0; }
-.files-toggle:hover { background: var(--accent); color: inherit; }
 .files-toggle > svg { inline-size: 1em; block-size: 1em; }
 .files-toggle > svg[data-open="true"] { transform: rotate(90deg); }
 .git-branch { display: flex; align-items: center; gap: var(--space-1); min-inline-size: 1em; max-inline-size: 35%; font-size: var(--text-caption); color: var(--muted-foreground); }
@@ -72,6 +73,7 @@
 	.workbench-pane-tabs { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: 0 var(--space-3); flex-shrink: 0; }
 	.workbench-pane-tabs > button { flex: 1; padding-inline: var(--space-2); }
 	.workbench-separator { padding-block: 0; visibility: hidden; }
+	.workspace-files-heading { border-block-start: 1px solid var(--divider); }
 }
 @media (max-width: 767px), (max-height: 36em) {
 	.workbench-sections { grid-template-rows: minmax(0, 0fr) auto auto minmax(0, 100fr); }
@@ -81,5 +83,6 @@
 	.workbench-pane-tabs { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: 0 var(--space-3); flex-shrink: 0; }
 	.workbench-pane-tabs > button { flex: 1; padding-inline: var(--space-2); }
 	.workbench-separator { padding-block: 0; visibility: hidden; }
+	.workspace-files-heading { border-block-start: 1px solid var(--divider); }
 	.file-row { min-block-size: 2.75em; }
 }

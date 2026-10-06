@@ -50,7 +50,7 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 				}} />
 			<section className="workspace-files" aria-label="项目文件" data-open={filesOpen}>
 				<div className="workspace-files-heading">
-					<Button variant="ghost" className="files-toggle" aria-label={filesOpen ? "收起文件区" : "展开文件区"} aria-expanded={filesOpen}
+					<Button variant="ghost" className="files-toggle hover:bg-transparent active:bg-transparent" aria-label={filesOpen ? "收起文件区" : "展开文件区"} aria-expanded={filesOpen}
 						onClick={() => { setFilesOpen(!filesOpen); if (!filesOpen) setPane("files"); }}>
 						<ChevronRight data-open={filesOpen} /><span>文件</span>
 					</Button>

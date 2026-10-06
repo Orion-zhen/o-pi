@@ -68,10 +68,13 @@ test.describe("浏览器交互", () => {
 				return attachment.evaluate((element) => getComputedStyle(element).backgroundColor);
 			}).toMatch(/^rgb\(/);
 			const background = await attachment.evaluate((element) => getComputedStyle(element).backgroundColor);
-			for (const target of [page.locator(".workspace-select").first(), page.locator(".files-toggle")]) {
-				await target.hover();
-				await expect(target).toHaveCSS("background-color", background);
-			}
+			const workspace = page.locator(".workspace-select").first();
+			await workspace.hover();
+			await expect(workspace).toHaveCSS("background-color", background);
+			// 文件区标题是整行可点的展开器，悬停不加底色。
+			const filesToggle = page.locator(".files-toggle");
+			await filesToggle.hover();
+			await expect(filesToggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 			if (theme === "light") {
 				const starter = page.locator(".starter").first();
 				await starter.hover();

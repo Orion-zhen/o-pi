@@ -56,6 +56,32 @@ test("折叠父目录后不刷新隐藏后代，重新展开读取外部修改",
 	expect(paths).toContain("src/deep");
 });
 
+test("折叠文件区后仍保留与展开时同位置的分割线", async ({ gui: { page } }, info) => {
+	const phone = info.project.name === "phone";
+	if (phone) {
+		await page.getByRole("button", { name: "菜单", exact: true }).click();
+		await page.locator(".mobile-sidebar .workbench-pane-tabs").getByRole("button", { name: "文件", exact: true }).click();
+	}
+	const navigation = page.locator(phone ? ".mobile-sidebar" : ".sidebar");
+	const heading = navigation.locator(".workspace-files-heading");
+	const separator = navigation.getByRole("separator", { name: "调整会话与文件区域", exact: true });
+	const dividerWidth = () => heading.evaluate((element) => getComputedStyle(element).borderTopWidth);
+	const expectDivider = (width: string) => expect.poll(dividerWidth).toBe(width);
+	if (phone) {
+		await expect(separator).toBeHidden();
+		await expectDivider("1px");
+		return;
+	}
+	await expect(separator).toBeVisible();
+	await expectDivider("0px");
+	await navigation.getByRole("button", { name: "收起文件区", exact: true }).click();
+	await expect(separator).toBeHidden();
+	await expectDivider("1px");
+	await navigation.getByRole("button", { name: "展开文件区", exact: true }).click();
+	await expect(separator).toBeVisible();
+	await expectDivider("0px");
+});
+
 test("浏览文件、读取 Git 差异并引用路径", async ({ gui: { page } }, info) => {
 	const phone = info.project.name === "phone";
 	const openFiles = async () => {
