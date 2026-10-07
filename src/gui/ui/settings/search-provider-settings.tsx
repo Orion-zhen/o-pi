@@ -7,7 +7,17 @@ import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
 import { Switch } from "../components/ui/switch";
+import { ExternalLink } from "../content/content";
 import "./search-provider-settings.css";
+
+const providerWebsites: Readonly<Record<string, string | undefined>> = {
+	brave_api: "https://brave.com/search/api/",
+	exa_api: "https://exa.ai",
+	exa_mcp: "https://exa.ai",
+	tavily: "https://tavily.com",
+	tinyfish: "https://tinyfish.ai",
+	anysearch: "https://anysearch.com",
+};
 
 export function SearchProviderSettings({ path, choices, valueAt, defaultAt, change, changeGroups, disabled, renderDetails }: {
 	path: string;
@@ -49,14 +59,18 @@ export function SearchProviderSettings({ path, choices, valueAt, defaultAt, chan
 					const enabledPath = `${prefix}.enabled`;
 					const enabled = valueAt(enabledPath);
 					const open = expanded === provider;
+					const website = providerWebsites[provider];
 					return <ListItem key={provider} className="search-provider-row" initial={false}
 						{...(reducedMotion ? { transition: { duration: 0, layout: { duration: 0 } } } : {})}>
 						<Collapsible open={open} onOpenChange={(next) => setExpanded(next ? provider : undefined)}>
 							<div className="search-provider-heading">
 								<div className="search-provider-label">
-									<CollapsibleTrigger asChild><button type="button" className="search-provider-name" aria-label={`编辑 ${label}`}>{label}</button></CollapsibleTrigger>
-									{enabled !== defaultAt(enabledPath) && <IconButton label={`重置${label}`} tooltip="恢复默认" size="icon-sm" disabled={disabled}
-										onClick={() => change(enabledPath, undefined)}><RotateCcw /></IconButton>}
+									<div className="search-provider-title">
+										<CollapsibleTrigger asChild><button type="button" className="search-provider-name" aria-label={`编辑 ${label}`}>{label}</button></CollapsibleTrigger>
+										{enabled !== defaultAt(enabledPath) && <IconButton label={`重置${label}`} tooltip="恢复默认" size="icon-sm" disabled={disabled}
+											onClick={() => change(enabledPath, undefined)}><RotateCcw /></IconButton>}
+									</div>
+									{website && <ExternalLink href={website} className="search-provider-website">{website}</ExternalLink>}
 								</div>
 								<div className="search-provider-actions">
 									<Button variant="ghost" size="sm" aria-label={`设为${group.target}引擎 ${label}`} disabled={disabled} onClick={() => changeGroups({

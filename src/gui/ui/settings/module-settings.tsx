@@ -13,6 +13,7 @@ import { useConfigDraft } from "./use-config-draft.ts";
 import { SettingsDisclosure, SettingsSection, SettingsRow, SettingsSourceButton } from "./settings-controls.tsx";
 import { useSettingsDraft, useSettingsState } from "./settings-state.tsx";
 import { SearchProviderSettings } from "./search-provider-settings.tsx";
+import { SearchApiKeyControl } from "./search-api-key-control.tsx";
 
 function readObject(text: string): Record<string, unknown> {
 	const errors: ParseError[] = [];
@@ -77,10 +78,12 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 				typeof profiles === "object" && profiles !== null && !Array.isArray(profiles) ? Object.keys(profiles) : []))]
 			: document.options[field.path];
 		const locked = blocked || (field.enabledBy !== undefined && valueAt(field.enabledBy) !== true);
+		const control = <FieldControl field={field} schema={schema} options={options} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field.path, value)} />;
 		return <SettingsRow key={field.path} label={field.label}
 			layout={Array.isArray(value) || schema?.type === "array" ? "wide" : field.type === "model" || (!options && (schema?.type === "string" || typeof value === "string" || value === null)) ? "fluid" : "inline"}
 			reset={{ value, defaultValue, apply: () => change(field.path, undefined) }} disabled={locked}>
-			<FieldControl field={field} schema={schema} options={options} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field.path, value)} />
+			{id === "webTools" && field.path.startsWith("websearch.") && field.path.endsWith(".api_key") && typeof value === "string"
+				? <SearchApiKeyControl config={value} query={query}>{control}</SearchApiKeyControl> : control}
 		</SettingsRow>;
 	})}</div>;
 	return <div className="settings-module">

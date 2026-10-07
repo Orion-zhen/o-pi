@@ -4,14 +4,19 @@
 .search-provider-row { position: relative; min-inline-size: 0; }
 .search-provider-row + .search-provider-row { border-block-start: thin solid var(--divider); }
 .search-provider-heading { position: relative; isolation: isolate; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-inline-size: 0; padding-block: var(--space-3); }
-.search-provider-label { display: flex; align-items: center; gap: var(--space-1); min-inline-size: 0; overflow-wrap: anywhere; }
-.search-provider-label > button:not(.search-provider-name) { flex-shrink: 0; padding: var(--space-1); }
+.search-provider-label { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); min-inline-size: 0; overflow-wrap: anywhere; }
+.search-provider-title { display: flex; align-items: center; gap: var(--space-1); min-inline-size: 0; }
+.search-provider-title > button:not(.search-provider-name) { flex-shrink: 0; padding: var(--space-1); }
+.search-provider-website { position: relative; z-index: 1; color: var(--muted-foreground); font-size: var(--text-small); }
+.search-provider-website:hover { text-decoration: underline; }
 .search-provider-name { min-inline-size: 0; text-align: start; cursor: pointer; overflow-wrap: anywhere; }
 /* 展开按钮覆盖整行标题，独立控件置于点击区上方。 */
 .search-provider-name::after { content: ""; position: absolute; inset: 0; }
 .search-provider-name:focus-visible::after { outline: 2px solid var(--ring); border-radius: var(--radius); }
-.search-provider-label > button:not(.search-provider-name), .search-provider-actions > button { position: relative; z-index: 1; }
-.search-provider-label > button:disabled, .search-provider-actions > button:disabled { pointer-events: auto; }
+.search-provider-title > button:not(.search-provider-name), .search-provider-actions > button { position: relative; z-index: 1; }
+.search-provider-title > button:disabled, .search-provider-actions > button:disabled { pointer-events: auto; }
 .search-provider-actions { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-1); }
 .search-provider-actions > [data-slot="switch"] { margin-inline: var(--space-2); }
 .search-provider-details { padding-block-end: var(--space-3); }
+.search-api-key-control { display: flex; flex-direction: column; gap: var(--space-1); }
+.search-api-key-control > [role="status"] { color: var(--muted-foreground); font-size: var(--text-small); }

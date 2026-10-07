@@ -16,7 +16,7 @@
 	},
 	"websearch": {
 		// 主组按顺序回退，辅助组全部并发请求。两组须包含全部引擎且不重复。
-		"primary_providers": ["brave_api", "exa_api", "tavily", "exa_mcp"],
+		"primary_providers": ["exa_api", "brave_api", "tavily", "exa_mcp"],
 		"auxiliary_providers": ["tinyfish", "anysearch"],
 		// 合并去重后的总条数上限，模型未传 limit 时使用。
 		"default_results": 12,

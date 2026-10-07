@@ -11,6 +11,7 @@ import type { GuiExecution, SessionClient } from "./execution.ts";
 import { GuiChannel } from "./channel.ts";
 import { readGuiConfig, saveGuiConfig } from "./preferences.ts";
 import { readModuleConfig, saveModuleConfig } from "./module-config.ts";
+import { resolveSearchApiKey } from "../../harness/web-tools/search-providers/api-key.ts";
 import { readMcpConfig, saveMcpConfig } from "./mcp-config.ts";
 import { listDirectories } from "./directories.ts";
 import { importSession } from "./files.ts";
@@ -280,6 +281,7 @@ export class GuiClient {
 		if (query.query === "startupChangelog") return this.host.changelog.read(this.id, this.host.workspaceRoot);
 		if (query.query === "availableVersion") return this.host.checkVersion();
 		if (query.query === "moduleConfig") return readModuleConfig(query.id);
+		if (query.query === "searchApiKeyAvailable") return resolveSearchApiKey(query.config) !== undefined;
 		if (query.query === "directories") return listDirectories(path.resolve(this.host.workspaceRoot || process.cwd(), query.path));
 		if (query.query === "workspaceFiles" || query.query === "workspaceGit" || query.query === "previewFile" || query.query === "lspServers") {
 			if (query.cwd !== (this.selected?.cwd ?? this.host.workspaceRoot)) throw new Error("工作区已切换，请刷新后重试。");
