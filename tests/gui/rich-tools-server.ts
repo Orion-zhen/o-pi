@@ -28,7 +28,7 @@ export async function prepareRichTools(agentDir: string) {
 	const url = `http://127.0.0.1:${address.port}`;
 	await writeFile(path.join(agentDir, "configs", "web-tools.jsonc"), JSON.stringify({
 		network: { proxy: { enabled: true, http_proxy: url } },
-		websearch: { brave_api: { enabled: true, endpoint: "http://search.example/search", api_key: "local-fixture" }, exa_api: { enabled: false }, tavily: { enabled: false }, duckduckgo_html: { enabled: false } },
+		websearch: { brave_api: { enabled: true, endpoint: "http://search.example/search", api_key: "local-fixture" }, exa_api: { enabled: false }, tavily: { enabled: false } },
 		webfetch: { media: { mode: "off" } },
 	}));
 	await writeFile(path.join(agentDir, "configs", "subagent.jsonc"), JSON.stringify({ max_concurrency: 2 }));

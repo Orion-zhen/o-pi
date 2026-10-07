@@ -13,7 +13,6 @@ describe("websearch renderer", () => {
 
 		for (const details of [
 			{ ...successDetails(0), results: [] },
-			{ status: "progress", phase: "waiting", wait_ms: 2000 },
 			{ status: "progress", phase: "requesting" },
 			{ status: "progress", phase: "downloading", received_bytes: 2048 },
 			{ status: "progress", phase: "parsing" },
@@ -38,25 +37,25 @@ describe("websearch renderer", () => {
 		const fallback = formatWebSearchResult(
 			{
 				...successDetails(1),
-				providers: ["duckduckgo_html" as const],
+				providers: ["tavily" as const],
 				attempts: [
 					{ provider: "exa_api" as const, role: "primary" as const, status: "failed" as const, error: { code: "TIMEOUT" as const, message: "secret-key" }, duration_ms: 12000 },
-					{ provider: "duckduckgo_html" as const, role: "primary" as const, status: "success" as const, duration_ms: 1500 },
+					{ provider: "tavily" as const, role: "primary" as const, status: "success" as const, duration_ms: 1500 },
 				],
 			},
 			{ expanded: true },
 			theme,
 		);
-		for (const value of ["exa_api", "duckduckgo_html"]) expect(fallback).toContain(value);
+		for (const value of ["exa_api", "tavily"]) expect(fallback).toContain(value);
 		expect(fallback).not.toContain("secret-key");
 
 		const details = {
 			status: "failed" as const,
 			error: { code: "PARSE_FAILED" as const, message: "bad\u001b[31m page" },
-			provider: "duckduckgo_html" as const,
+			provider: "tavily" as const,
 			http_status: 200,
 			duration_ms: 12,
-			attempts: [{ provider: "duckduckgo_html" as const, role: "primary" as const, status: "failed" as const, error: { code: "PARSE_FAILED" as const, message: "bad page" } }],
+			attempts: [{ provider: "tavily" as const, role: "primary" as const, status: "failed" as const, error: { code: "PARSE_FAILED" as const, message: "bad page" } }],
 			response_preview: "preview\u001b]0;title\u0007 text",
 		};
 		const collapsed = formatWebSearchResult(details, {}, theme);

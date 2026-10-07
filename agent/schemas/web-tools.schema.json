@@ -36,14 +36,13 @@
 			"properties": {
 				"primary_providers": {
 					"type": "array",
-					"maxItems": 6,
+					"maxItems": 5,
 					"uniqueItems": true,
 					"items": {
 						"oneOf": [
 							{ "const": "brave_api", "title": "Brave" },
 							{ "const": "exa_api", "title": "Exa" },
 							{ "const": "tavily", "title": "Tavily" },
-							{ "const": "duckduckgo_html", "title": "DuckDuckGo" },
 							{ "const": "tinyfish", "title": "TinyFish" },
 							{ "const": "anysearch", "title": "AnySearch" }
 						]
@@ -51,14 +50,13 @@
 				},
 				"auxiliary_providers": {
 					"type": "array",
-					"maxItems": 6,
+					"maxItems": 5,
 					"uniqueItems": true,
 					"items": {
 						"oneOf": [
 							{ "const": "brave_api", "title": "Brave" },
 							{ "const": "exa_api", "title": "Exa" },
 							{ "const": "tavily", "title": "Tavily" },
-							{ "const": "duckduckgo_html", "title": "DuckDuckGo" },
 							{ "const": "tinyfish", "title": "TinyFish" },
 							{ "const": "anysearch", "title": "AnySearch" }
 						]
@@ -145,27 +143,6 @@
 						"api_key": { "title": "API Key", "description": "为空或无法解析时匿名访问。密钥被拒绝或额度耗尽时重试一次匿名请求。", "type": "string", "maxLength": 4096, "default": "$ANYSEARCH_API_KEY" },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
 						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
-					}
-				},
-				"duckduckgo_html": {
-					"type": "object",
-					"additionalProperties": false,
-					"properties": {
-						"enabled": { "type": "boolean", "default": true },
-						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
-						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 15 },
-						"user_agent": { "title": "User-Agent", "type": "string", "minLength": 1, "maxLength": 512 },
-						"region": {
-							"title": "区域",
-							"type": "string",
-							"minLength": 2,
-							"maxLength": 32,
-							"pattern": "^[a-z0-9-]+$",
-							"default": "wt-wt"
-						},
-						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
-						"min_interval_seconds": { "title": "最小请求间隔（秒）", "type": "integer", "minimum": 0, "maximum": 3600, "default": 15 },
-						"blocked_cooldown_seconds": { "title": "封禁冷却（秒）", "type": "integer", "minimum": 0, "maximum": 86400, "default": 600 }
 					}
 				}
 			}

@@ -16,11 +16,11 @@
 	},
 	"websearch": {
 		// 主组按顺序回退，辅助组全部并发请求。两组须包含全部引擎且不重复。
-		"primary_providers": ["brave_api", "exa_api", "tavily", "duckduckgo_html"],
+		"primary_providers": ["brave_api", "exa_api", "tavily"],
 		"auxiliary_providers": ["tinyfish", "anysearch"],
 		// 合并去重后的总条数上限，模型未传 limit 时使用。
 		"default_results": 8,
-		// 包括 provider timeout、fallback 和 DDG 等待。
+		// 包括提供方超时和回退。
 		"total_deadline_seconds": 20,
 		// 每次搜索都至少应用；query 中的 site: / -site: 会继续合并。
 		"include_domains": [],
@@ -71,20 +71,6 @@
 			"api_key": "$ANYSEARCH_API_KEY",
 			"timeout_seconds": 8,
 			"response_bytes": 2097152
-		},
-		"duckduckgo_html": {
-			"enabled": true,
-			"max_results": 5,
-			// 包括请求和响应读取。
-			"timeout_seconds": 15,
-			// DDG HTML 需要浏览器形态 UA 才能稳定返回桌面结果页面。
-			"user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-			// DuckDuckGo kl 参数；wt-wt 表示不强制区域。
-			"region": "wt-wt",
-			// 搜索结果 HTML 的解压后正文上限。
-			"response_bytes": 2097152,
-			"min_interval_seconds": 15,
-			"blocked_cooldown_seconds": 600
 		}
 	},
 	"webfetch": {

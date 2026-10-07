@@ -66,14 +66,14 @@ describe("主辅搜索汇总", () => {
 		const brave = { ...provider("brave_api", []), search: vi.fn(async () => failed("brave_api")) };
 		const exa = provider("exa_api", []);
 		const tavily = provider("tavily", ["a"]);
-		const ddg = provider("duckduckgo_html", ["not-used"]);
+		const anysearch = provider("anysearch", ["not-used"]);
 		const tinyfish = { ...provider("tinyfish", []), search: vi.fn(async () => failed("tinyfish", "TIMEOUT")) };
-		await expect(new SearchProviderRouter({ primary: [brave, exa, tavily, ddg], auxiliary: [tinyfish] }).search(params(), context()))
+		await expect(new SearchProviderRouter({ primary: [brave, exa, tavily, anysearch], auxiliary: [tinyfish] }).search(params(), context()))
 			.resolves.toMatchObject({ status: "success", providers: ["tavily"], attempts: [
 				{ provider: "brave_api", status: "failed" }, { provider: "exa_api", result_count: 0 },
 				{ provider: "tavily", result_count: 1 }, { provider: "tinyfish", status: "failed" },
 			] });
-		expect(ddg.search).not.toHaveBeenCalled();
+		expect(anysearch.search).not.toHaveBeenCalled();
 	});
 
 	it.each([true, false])("主组不可用（有失败请求：%s）仍返回辅助结果", async (hasPrimary) => {

@@ -31,7 +31,7 @@ function failed(id: WebSearchProviderId, code: WebSearchErrorCode = "TIMEOUT", h
 function params(query = "pi agent", limit = 3) { return normalizeSearchParams({ query, limit }, 8); }
 function context(now = () => 0) { return { now, deadlineAt: 20_000 }; }
 
-const ORDER = ["brave_api", "exa_api", "tavily", "duckduckgo_html"] as const;
+const ORDER = ["brave_api", "exa_api", "tavily"] as const;
 
 function createRouter(primary: WebSearchProvider[], auxiliary: WebSearchProvider[] = []) {
 	return new SearchProviderRouter({ primary, auxiliary });
@@ -53,12 +53,12 @@ describe("主提供方串行回退", () => {
 		expect(calls).toEqual(["brave_api"]);
 	});
 
-	it.each(["failed", "empty"] as const)("前序 %s 时按 Brave、Exa、Tavily、DDG 继续", async (outcome) => {
+	it.each(["failed", "empty"] as const)("前序 %s 时按 Brave、Exa、Tavily 继续", async (outcome) => {
 		const calls: string[] = [];
 		const router = createRouter(ORDER.map((id) => provider(id,
-			id === "duckduckgo_html" ? success(id, 1) : outcome === "failed" ? failed(id) : success(id, 0), calls)));
+			id === "tavily" ? success(id, 1) : outcome === "failed" ? failed(id) : success(id, 0), calls)));
 		const result = await router.search(params(), context());
-		expect(result).toMatchObject({ status: "success", providers: ["duckduckgo_html"] });
+		expect(result).toMatchObject({ status: "success", providers: ["tavily"] });
 		expect(calls).toEqual(ORDER);
 	});
 
@@ -138,7 +138,7 @@ describe("主提供方串行回退", () => {
 		const router = createRouter(ORDER.map((id) => provider(id, failed(id, "HTTP_ERROR", 503), calls)));
 		const result = await router.search(params(), context());
 		expect(result).toMatchObject({ status: "failed", details: {
-			provider: "duckduckgo_html", error: { code: "HTTP_ERROR" },
+			provider: "tavily", error: { code: "HTTP_ERROR" },
 			attempts: ORDER.map((id) => ({ provider: id, status: "failed", http_status: 503 })),
 		} });
 		expect(calls).toEqual(ORDER);
@@ -168,13 +168,13 @@ describe("主提供方串行回退", () => {
 		expect(calls).toEqual(["brave_api"]);
 	});
 
-	it("总截止时间阻止后续提供方和 DDG", async () => {
+	it("总截止时间阻止后续提供方", async () => {
 		let now = 0;
 		const calls: string[] = [];
 		const first: WebSearchProvider = { id: "brave_api", maxResults: 20, async search() {
 			calls.push("brave_api"); now = 11; return failed("brave_api");
 		} };
-		const router = createRouter([first, provider("exa_api", success("exa_api"), calls), provider("duckduckgo_html", success("duckduckgo_html"), calls)]);
+		const router = createRouter([first, provider("exa_api", success("exa_api"), calls), provider("tavily", success("tavily"), calls)]);
 		await expect(router.search(params(), { now: () => now, deadlineAt: 10 })).resolves.toMatchObject({ status: "failed", details: { error: { code: "TIMEOUT" } } });
 		expect(calls).toEqual(["brave_api"]);
 	});

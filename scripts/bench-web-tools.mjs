@@ -9,7 +9,6 @@ const warmups = Math.min(2, runs);
 const search = measureJsonWorker(worker, ["search"], { warmups, runs });
 const fetch = measureJsonWorker(worker, ["fetch"], { warmups, runs });
 const skippedImage = measureJsonWorker(worker, ["fetch-image-skip"], { warmups, runs });
-const parser = measureJsonWorker(worker, ["parser"], { warmups, runs });
 const htmlWarmups = Math.min(1, runs);
 const htmlScenarios = ["deferred", "video", "article", "hostile"];
 const html = Object.fromEntries(htmlScenarios.map((scenario) => [
@@ -25,9 +24,6 @@ console.table([
 	row("warm fake source webfetch", fetch.map((sample) => sample.warmToolMs)),
 	row("first skipped direct image", skippedImage.map((sample) => sample.firstToolMs)),
 	row("warm skipped direct image", skippedImage.map((sample) => sample.warmToolMs)),
-	row("DDG parser Bun import", parser.map((sample) => sample.importMs)),
-	row("first DDG fixture parse", parser.map((sample) => sample.firstParseMs)),
-	row("warm DDG fixture parse", parser.map((sample) => sample.warmParseMs)),
 	...htmlScenarios.map((scenario) => row(`HTML ${scenario} conversion`, html[scenario].map((sample) => sample.conversionMs))),
 ]);
 console.table(htmlScenarios.map((scenario) => ({

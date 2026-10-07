@@ -69,7 +69,6 @@ export function formatWebSearchResult(
 
 function formatProgress(details: unknown): string {
 	if (!isProgressDetails(details)) return "searching...";
-	if (details.phase === "waiting") return details.wait_ms !== undefined ? `waiting ${Math.ceil(details.wait_ms / 1000)}s before searching...` : "waiting before searching...";
 	if (details.phase === "downloading") return details.received_bytes !== undefined ? `downloading ${formatBytes(details.received_bytes)}...` : "downloading...";
 	if (details.phase === "parsing") return "parsing results...";
 	return "searching...";
@@ -132,8 +131,6 @@ function queryForCall(args: unknown): string {
 
 function labelError(details: WebSearchFailureDetails): string {
 	switch (details.error.code) {
-		case "PROVIDER_BLOCKED":
-			return "provider blocked";
 		case "TIMEOUT":
 			return "timeout";
 		case "RESPONSE_TOO_LARGE":
@@ -202,5 +199,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isProvider(value: unknown): value is WebSearchProviderId {
-	return value === "brave_api" || value === "exa_api" || value === "tavily" || value === "duckduckgo_html" || value === "tinyfish" || value === "anysearch";
+	return value === "brave_api" || value === "exa_api" || value === "tavily" || value === "tinyfish" || value === "anysearch";
 }

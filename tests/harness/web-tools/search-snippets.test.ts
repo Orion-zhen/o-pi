@@ -3,10 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { searchApiProvider } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
 import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.ts";
-import { searchDuckDuckGoHtml } from "../../../src/harness/web-tools/search/duckduckgo-html.ts";
 import { executeWebSearch } from "../../../src/harness/web-tools/search/websearch-tool.ts";
 import { SearchFlights } from "../../../src/harness/web-tools/search/search-flights.ts";
-import type { FormalWebSearchProviderId } from "../../../src/harness/web-tools/core/types.ts";
+import type { WebSearchProviderId } from "../../../src/harness/web-tools/core/types.ts";
 import { defaultWebToolsConfig } from "./config-fixture.ts";
 import { httpResponse } from "../../helpers/http.ts";
 
@@ -17,7 +16,7 @@ const QUERY = '"WidgetError" v2.4';
 const EXACT = "WidgetError in v2.4 requires an explicit timeout.";
 const INTRO = "General product introduction without the requested details. ".repeat(15);
 
-async function search(id: FormalWebSearchProviderId, fields: Record<string, unknown>, query = QUERY) {
+async function search(id: WebSearchProviderId, fields: Record<string, unknown>, query = QUERY) {
 	const config = defaultWebToolsConfig();
 	const dispatcher = new Agent();
 	dispatchers.push(dispatcher);
@@ -84,19 +83,5 @@ describe("搜索摘要按查询选片", () => {
 		expect(snippet).toMatch(/^😀/u);
 		expect(snippet?.length).toBeLessThanOrEqual(240);
 		expect(snippet).not.toMatch(/[\uD800-\uDFFF]/u);
-	});
-
-	it("DDG 也在截断前寻找查询词附近的摘要", async () => {
-		const dispatcher = new Agent();
-		dispatchers.push(dispatcher);
-		const result = await searchDuckDuckGoHtml({
-			query: QUERY, limit: 1, config: defaultWebToolsConfig().websearch.duckduckgo_html,
-			dispatcher, signal: new AbortController().signal,
-			fetchImpl: async () => httpResponse(200, `<div class="result"><a class="result__a" href="https://example.com/docs">Guide</a><span class="result__snippet">${INTRO}${EXACT}</span></div>`, { "content-type": "text/html" }),
-		});
-		expect(result.status).toBe("success");
-		if (result.status !== "success") throw new Error("failed");
-		expect(result.results[0]?.snippet).toContain(EXACT);
-		expect(result.results[0]?.snippet?.length).toBeLessThanOrEqual(240);
 	});
 });

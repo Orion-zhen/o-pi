@@ -27,11 +27,11 @@ describe("网页工具配置", () => {
 
 	it("默认顺序来自配置文件，顺序与启停可以分别覆盖", async () => {
 		const defaults = await loadWebToolsConfig();
-		expect(defaults.websearch.primary_providers).toEqual(["brave_api", "exa_api", "tavily", "duckduckgo_html"]);
+		expect(defaults.websearch.primary_providers).toEqual(["brave_api", "exa_api", "tavily"]);
 		expect(defaults.websearch.auxiliary_providers).toEqual(["tinyfish", "anysearch"]);
 		expect(defaults.websearch.anysearch).toMatchObject({ enabled: true, api_key: "$ANYSEARCH_API_KEY", max_results: 5, endpoint: "https://api.anysearch.com/v1/search" });
 		expect(defaults.websearch.tinyfish).toMatchObject({ api_key: "$TINYFISH_API_KEY", max_results: 5 });
-		const order = ["tavily", "duckduckgo_html", "exa_api", "brave_api"];
+		const order = ["tavily", "exa_api", "brave_api"];
 		await save({ websearch: { primary_providers: order, exa_api: { enabled: false } } });
 		const config = await loadWebToolsConfig();
 		expect(config.websearch.primary_providers).toEqual(order);
@@ -41,12 +41,12 @@ describe("网页工具配置", () => {
 
 	it("提供方可调整主辅角色，允许仅使用辅助组且限制独立覆盖", async () => {
 		await save({ websearch: {
-			primary_providers: [], auxiliary_providers: ["tinyfish", "brave_api", "exa_api", "tavily", "duckduckgo_html", "anysearch"],
+			primary_providers: [], auxiliary_providers: ["tinyfish", "brave_api", "exa_api", "tavily", "anysearch"],
 			default_results: 12, tinyfish: { max_results: 3 },
 		} });
 		const config = await loadWebToolsConfig();
 		expect(config.websearch.primary_providers).toEqual([]);
-		expect(config.websearch.auxiliary_providers).toHaveLength(6);
+		expect(config.websearch.auxiliary_providers).toHaveLength(5);
 		expect(config.websearch.default_results).toBe(12);
 		expect(config.websearch.tinyfish.max_results).toBe(3);
 		expect(config.websearch.brave_api.max_results).toBe(5);
@@ -69,8 +69,8 @@ describe("网页工具配置", () => {
 		{ network: { fake_ip_ranges: ["10.0.0.0/8"] } },
 		{ websearch: { exa_api: { endpoint: "file:///secret" } } },
 		{ websearch: { primary_providers: [] } },
-		{ websearch: { primary_providers: ["brave_api", "exa_api", "tavily"] } },
-		{ websearch: { primary_providers: ["brave_api", "brave_api", "tavily", "duckduckgo_html"] } },
+		{ websearch: { primary_providers: ["brave_api", "exa_api"] } },
+		{ websearch: { primary_providers: ["brave_api", "brave_api", "tavily"] } },
 		{ websearch: { primary_providers: ["brave_api", "exa_api", "tavily", "unknown"] } },
 		{ websearch: { brave_api: { enabled: "false" } } },
 		{ websearch: { auxiliary_providers: ["tinyfish", "brave_api"] } },
@@ -82,7 +82,7 @@ describe("网页工具配置", () => {
 		{ websearch: { tinyfish: { max_results: 21 } } },
 		{ websearch: { tinyfish: { max_results: 1.5 } } },
 		{ websearch: { tinyfish: { endpoint: "http://127.0.0.1/" } } },
-		{ websearch: { provider_order: ["brave_api", "exa_api", "tavily", "duckduckgo_html"] } },
+		{ websearch: { provider_order: ["brave_api", "exa_api", "tavily"] } },
 	])("拒绝非法覆盖 %j", async (config) => {
 		await save(config);
 		await expect(loadWebToolsConfig()).rejects.toThrow();

@@ -28,7 +28,7 @@ bun run bench --quick
 | `file-tools` | 测量文件工具模块的 Bun 导入、注册和首次 `ls`。启动对比由 `startup` 套件负责。 |
 | `file-search` | 测量首次与后续 `find`、带模拟文件系统延迟的 `find`、首次与后续 `grep`、并发 `grep` 和宽范围 `grep`。 |
 | `code-index` | 使用生成的 TypeScript 内容测量首次与后续解析、本地并行批处理、工作线程批处理和内存占用。场景包括 ASCII、Unicode、密集声明、长行和大量导入。 |
-| `web-tools` | 测量网页工具模块的 Bun 导入和注册、模拟 `websearch` 和 `webfetch`、跳过不支持的直接图片、DuckDuckGo 解析器，以及多种大型 HTML 场景的转换。 |
+| `web-tools` | 测量网页工具模块的 Bun 导入和注册、模拟 `websearch` 和 `webfetch`、跳过不支持的直接图片，以及多种大型 HTML 场景的转换。 |
 
 选择套件：
 

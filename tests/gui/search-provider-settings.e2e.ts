@@ -22,14 +22,14 @@ test("搜索引擎按钮排序带位移动画，启停与顺序保存后可重�
 	const file = path.join(agentDir, "configs", "web-tools.jsonc");
 	await writeFile(file, "{}\n");
 	await open(page);
-	await expect(labels(page)).toHaveText(["Brave", "Exa", "Tavily", "DuckDuckGo", "TinyFish", "AnySearch"]);
+	await expect(labels(page)).toHaveText(["Brave", "Exa", "Tavily", "TinyFish", "AnySearch"]);
 	await expect(providers(page).locator(".settings-description")).toHaveCount(0);
 	for (const row of await providers(page).getByRole("listitem").all()) {
 		await expect(row).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 	}
 	await providers(page).getByRole("switch", { name: "Exa", exact: true }).uncheck();
 	await expect(providers(page).getByRole("button", { name: "上移 Brave", exact: true })).toBeDisabled();
-	await expect(providers(page).getByRole("button", { name: "下移 DuckDuckGo", exact: true })).toBeDisabled();
+	await expect(providers(page).getByRole("button", { name: "下移 Tavily", exact: true })).toBeDisabled();
 	await providers(page).getByRole("list", { name: "主搜索引擎顺序", exact: true }).scrollIntoViewIfNeeded();
 	const first = providers(page).getByRole("listitem").first();
 	const animated = first.evaluate((element) => new Promise<boolean>((resolve) => {
@@ -43,7 +43,7 @@ test("搜索引擎按钮排序带位移动画，启停与顺序保存后可重�
 		requestAnimationFrame(sample);
 	}));
 	await providers(page).getByRole("button", { name: "上移 Exa", exact: true }).click();
-	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "DuckDuckGo", "TinyFish", "AnySearch"]);
+	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "TinyFish", "AnySearch"]);
 	expect(await animated).toBe(true);
 	await expect.poll(() => providers(page).getByRole("listitem").evaluateAll((rows) => rows.every((row) => {
 		const transform = getComputedStyle(row).transform;
@@ -54,11 +54,11 @@ test("搜索引擎按钮排序带位移动画，启停与顺序保存后可重�
 	await providers(page).screenshot({ path: test.info().outputPath("search-providers.png"), animations: "disabled" });
 	await save(page);
 	expect(parse(await readFile(file, "utf8"))).toMatchObject({ websearch: {
-		primary_providers: ["exa_api", "brave_api", "tavily", "duckduckgo_html"], exa_api: { enabled: false },
+		primary_providers: ["exa_api", "brave_api", "tavily"], exa_api: { enabled: false },
 	} });
 	await page.reload();
 	await open(page);
-	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "DuckDuckGo", "TinyFish", "AnySearch"]);
+	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "TinyFish", "AnySearch"]);
 	await expect(providers(page).getByRole("switch", { name: "Exa", exact: true })).not.toBeChecked();
 });
 
@@ -66,19 +66,19 @@ test("键盘排序、放弃和恢复默认共享设置草稿，减少动态效�
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	const file = path.join(agentDir, "configs", "web-tools.jsonc");
 	await writeFile(file, JSON.stringify({ websearch: {
-		primary_providers: ["exa_api", "brave_api", "tavily", "duckduckgo_html"], exa_api: { enabled: false },
+		primary_providers: ["exa_api", "brave_api", "tavily"], exa_api: { enabled: false },
 	} }));
 	await open(page);
 	const down = providers(page).getByRole("button", { name: "下移 Exa", exact: true });
 	await down.press("Enter");
-	await expect(labels(page)).toHaveText(["Brave", "Exa", "Tavily", "DuckDuckGo", "TinyFish", "AnySearch"]);
+	await expect(labels(page)).toHaveText(["Brave", "Exa", "Tavily", "TinyFish", "AnySearch"]);
 	await expect(down).toBeFocused();
 	await expect(providers(page).getByRole("switch", { name: "Exa", exact: true })).not.toBeChecked();
 	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
-	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "DuckDuckGo", "TinyFish", "AnySearch"]);
+	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "TinyFish", "AnySearch"]);
 	await providers(page).getByRole("button", { name: "重置搜索引擎分组", exact: true }).click();
 	await providers(page).getByRole("button", { name: "重置Exa", exact: true }).click();
-	await expect(labels(page)).toHaveText(["Brave", "Exa", "Tavily", "DuckDuckGo", "TinyFish", "AnySearch"]);
+	await expect(labels(page)).toHaveText(["Brave", "Exa", "Tavily", "TinyFish", "AnySearch"]);
 	await expect(providers(page).getByRole("switch", { name: "Exa", exact: true })).toBeChecked();
 	await save(page);
 	const saved = parse(await readFile(file, "utf8"));
@@ -107,7 +107,7 @@ test("逐项展开 schema 详情，排序保留展开状态，修改支持保存
 	await number("超时（秒）").fill("12");
 	await engines.getByRole("switch", { name: "额外摘要", exact: true }).check();
 	await engines.getByRole("button", { name: "下移 Brave", exact: true }).click();
-	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "DuckDuckGo", "TinyFish", "AnySearch"]);
+	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "TinyFish", "AnySearch"]);
 	await expect(engines.getByRole("button", { name: "收起 Brave", exact: true })).toHaveAttribute("aria-expanded", "true");
 	await expect(textbox("API Key")).toHaveValue("$CUSTOM_BRAVE_KEY");
 	await engines.getByRole("button", { name: "展开 Exa", exact: true }).click();
@@ -116,19 +116,13 @@ test("逐项展开 schema 详情，排序保留展开状态，修改支持保存
 	await number("摘要长度（字符）").fill("800");
 	await engines.getByRole("button", { name: "展开 Tavily", exact: true }).click();
 	await expect(textbox("接口地址")).toHaveValue("https://api.tavily.com/search");
-	await engines.getByRole("button", { name: "展开 DuckDuckGo", exact: true }).click();
-	await expect(textbox("接口地址")).toHaveCount(0);
-	await expect(textbox("User-Agent")).not.toHaveValue("");
-	await textbox("区域").fill("us-en");
-	await number("最小请求间隔（秒）").fill("20");
-	await expect(number("封禁冷却（秒）")).toHaveValue("600");
 	expect(await engines.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 	await engines.screenshot({ path: test.info().outputPath("search-provider-details.png"), animations: "disabled" });
 	await save(page);
 	expect(parse(await readFile(file, "utf8"))).toMatchObject({ websearch: {
-		primary_providers: ["exa_api", "brave_api", "tavily", "duckduckgo_html"],
+		primary_providers: ["exa_api", "brave_api", "tavily"],
 		brave_api: { enabled: false, api_key: "$CUSTOM_BRAVE_KEY", timeout_seconds: 12, extra_snippets: true },
-		exa_api: { highlight_chars: 800 }, duckduckgo_html: { region: "us-en", min_interval_seconds: 20 },
+		exa_api: { highlight_chars: 800 },
 	} });
 	await page.reload();
 	await open(page);
@@ -151,7 +145,7 @@ test("主辅分组与两层条数限制可保存、重新读取并一起重置",
 	const engines = providers(page);
 	const primary = engines.getByRole("list", { name: "主搜索引擎顺序", exact: true });
 	const auxiliary = engines.getByRole("list", { name: "辅助搜索引擎顺序", exact: true });
-	await expect(primary.locator(".search-provider-name")).toHaveText(["Brave", "Exa", "Tavily", "DuckDuckGo"]);
+	await expect(primary.locator(".search-provider-name")).toHaveText(["Brave", "Exa", "Tavily"]);
 	await expect(auxiliary.locator(".search-provider-name")).toHaveText(["TinyFish", "AnySearch"]);
 	const spacing = await engines.locator(".search-provider-settings").evaluate((element) => {
 		const heading = element.querySelector("h3");
@@ -165,7 +159,7 @@ test("主辅分组与两层条数限制可保存、重新读取并一起重置",
 	});
 	expect(spacing.top).toBeGreaterThanOrEqual(spacing.inset);
 	await engines.getByRole("button", { name: "设为辅助引擎 Exa", exact: true }).click();
-	await expect(primary.locator(".search-provider-name")).toHaveText(["Brave", "Tavily", "DuckDuckGo"]);
+	await expect(primary.locator(".search-provider-name")).toHaveText(["Brave", "Tavily"]);
 	await expect(auxiliary.locator(".search-provider-name")).toHaveText(["TinyFish", "AnySearch", "Exa"]);
 	await engines.getByRole("button", { name: "上移 Exa", exact: true }).click();
 	await engines.getByRole("button", { name: "上移 Exa", exact: true }).click();
@@ -176,14 +170,14 @@ test("主辅分组与两层条数限制可保存、重新读取并一起重置",
 	expect(await engines.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 	await save(page);
 	expect(parse(await readFile(file, "utf8"))).toMatchObject({ websearch: {
-		primary_providers: ["brave_api", "tavily", "duckduckgo_html"], auxiliary_providers: ["exa_api", "tinyfish", "anysearch"],
+		primary_providers: ["brave_api", "tavily"], auxiliary_providers: ["exa_api", "tinyfish", "anysearch"],
 		default_results: 12, tinyfish: { max_results: 3 },
 	} });
 	await page.reload();
 	await open(page);
 	await expect(auxiliary.locator(".search-provider-name")).toHaveText(["Exa", "TinyFish", "AnySearch"]);
 	await engines.getByRole("button", { name: "设为主引擎 TinyFish", exact: true }).click();
-	await expect(primary.locator(".search-provider-name")).toHaveText(["Brave", "Tavily", "DuckDuckGo", "TinyFish"]);
+	await expect(primary.locator(".search-provider-name")).toHaveText(["Brave", "Tavily", "TinyFish"]);
 	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
 	await expect(auxiliary.locator(".search-provider-name")).toHaveText(["Exa", "TinyFish", "AnySearch"]);
 	await engines.getByRole("button", { name: "重置搜索引擎分组", exact: true }).click();
@@ -237,7 +231,7 @@ test("整行标题空白可展开，独立按钮和详情表单不会误触收�
 	await page.mouse.click(disabledUp.x + disabledUp.width / 2, disabledUp.y + disabledUp.height / 2);
 	await expect(toggle).toHaveAttribute("aria-expanded", "false");
 	await row.getByRole("button", { name: "下移 Brave", exact: true }).click();
-	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "DuckDuckGo", "TinyFish", "AnySearch"]);
+	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "TinyFish", "AnySearch"]);
 	await expect(toggle).toHaveAttribute("aria-expanded", "false");
 	await toggle.press("Enter");
 	await expect(toggle).toHaveAttribute("aria-expanded", "true");

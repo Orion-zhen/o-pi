@@ -54,16 +54,6 @@ export interface WebToolsConfig {
 			timeout_seconds: number;
 			response_bytes: number;
 		};
-		duckduckgo_html: {
-			enabled: boolean;
-			max_results: number;
-			timeout_seconds: number;
-			user_agent: string;
-			region: string;
-			response_bytes: number;
-			min_interval_seconds: number;
-			blocked_cooldown_seconds: number;
-		};
 	};
 	webfetch: {
 		timeout_seconds: number;

@@ -37,7 +37,7 @@ beforeEach(async () => {
 		network: { proxy: { enabled: true, http_proxy: origin } },
 		websearch: {
 			brave_api: { endpoint: "http://1.1.1.1/search", api_key: "fixture" },
-			exa_api: { enabled: false }, tavily: { enabled: false }, duckduckgo_html: { enabled: false },
+			exa_api: { enabled: false }, tavily: { enabled: false },
 		},
 		webfetch: { media: { mode: "on" }, cookies: { enabled: false } },
 	}));

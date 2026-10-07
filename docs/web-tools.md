@@ -11,13 +11,13 @@
 
 扩展启动时只同步注册工具模式、渲染器和事件，不加载网络运行时，也不执行后台预热。首次工具调用共享同一个运行时加载 Promise。并发调用不会重复创建运行时。
 
-运行时按能力拆分。只调用 `websearch` 时不加载 WebFetch 和 Cookie 执行链。只调用 `webfetch` 时不加载搜索路由器和提供方。同一网络配置签名的安全调度器由两条能力链共享，并按需创建。搜索提供方只在路由器执行到对应分支时加载。因此，Exa 成功时不会加载 DDG 或 HTML 解析器。Cookie 存储只在配置启用且域名命中允许列表时加载。
+运行时按能力拆分。只调用 `websearch` 时不加载 WebFetch 和 Cookie 执行链。只调用 `webfetch` 时不加载搜索路由器和提供方。同一网络配置签名的安全调度器由两条能力链共享，并按需创建。搜索提供方只在路由器执行到对应分支时加载。Cookie 存储只在配置启用且域名命中允许列表时加载。
 
 `source`、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown。只有 `readable` HTML 会加载转换链。配置使用共享 JSONC 加载器和仓库的 Schema 校验器，并发读取同一配置快照时共享一个 Promise。
 
 成功配置按文件标识、大小和时间戳缓存，每次返回隔离副本。文件变化后会重新读取和校验。读取期间发生变化时会重试。配置错误不会写入成功缓存，下一次工具调用会再次读取。默认值全部由 `agent/defaults/web-tools.jsonc` 提供，TypeScript 只做规范化和语义校验。
 
-搜索、抓取、提供方代码和 Cookie 存储分别按需加载。扩展加载运行时失败后，下次调用可重新尝试。搜索会话只持有进行中的请求和 DDG 节流状态。每次请求使用自己的配置和已解析凭据，路由器和提供方不再维护配置签名驱动的实例缓存。网络配置或 API key 更新后，同名搜索也会另行执行，已经开始的请求不变。`session_shutdown` 不加载未使用的能力，先等待已经开始的调用结束，再清理会话状态和共享连接。
+搜索、抓取、提供方代码和 Cookie 存储分别按需加载。扩展加载运行时失败后，下次调用可重新尝试。搜索会话只持有进行中的请求。每次请求使用自己的配置和已解析凭据，路由器和提供方不再维护配置签名驱动的实例缓存。网络配置或 API key 更新后，同名搜索也会另行执行，已经开始的请求不变。`session_shutdown` 不加载未使用的能力，先等待已经开始的调用结束，再清理会话状态和共享连接。
 
 需要向允许列表中的来源发送 Cookie 时，运行时只依赖 `WebFetchInteractionPort.confirmAuthentication()`，不依赖 Pi TUI。原生 TUI 与 RPC Extension UI 都能注入该端口。JSON 和打印模式没有端口时返回 `AUTH_CONFIRMATION_REQUIRED`。确认对话框只是适配器。抓取结果和错误结构不依赖组件或通知。
 
@@ -26,7 +26,6 @@
 - 网页工具模块的 Bun 导入与注册耗时。TUI 和完整 CLI 启动由统一基准的 `startup` 套件测量。
 - 首次及后续 `websearch` 和 `source` 模式 `webfetch` 的耗时。使用真实运行时和搜索提供方，仅在基准进程内替换 Undici 的 HTTP 响应。Undici 预加载不计入这两项耗时。
 - 模型不支持工具图片时，直接图片响应体的短路耗时。
-- DDG 解析器的耗时。
 - 四类合成 HTML 的转换耗时和进程最大常驻内存。这四类页面分别是 3–5 MB 的声明式延迟讨论页、无语义容器的视频元数据页、大型普通文章和包含大量无效模板或 JSON-LD 的恶意页面。
 
 基准不访问真实网络，也不保存真实站点页面或 Cookie。可用 `--runs=N` 调整采样次数。
@@ -50,24 +49,23 @@ websearch({
 
 提供方不暴露给模型，分为主组和辅助组：
 
-- `websearch.primary_providers`：按顺序回退，默认 `brave_api → exa_api → tavily → duckduckgo_html`。请求失败或域名过滤后无结果时继续下一家。首个非空批次作为主结果，不为补满条数继续回退。
+- `websearch.primary_providers`：按顺序回退，默认 `brave_api → exa_api → tavily`。请求失败或域名过滤后无结果时继续下一家。首个非空批次作为主结果，不为补满条数继续回退。
 - `websearch.auxiliary_providers`：全部并发请求，默认顺序为 `tinyfish → anysearch`。辅助请求与主组同时启动，即使主结果已达到总条数上限也会执行。
-- 两组须包含全部六个引擎且不重复，任一组可以为空。各引擎的 `enabled` 控制启停。未启用的引擎会被跳过。除 AnySearch 支持匿名访问外，缺少凭据的引擎也会被跳过。
+- 两组须包含全部五个引擎且不重复，任一组可以为空。各引擎的 `enabled` 控制启停。未启用的引擎会被跳过。除 AnySearch 支持匿名访问外，缺少凭据的引擎也会被跳过。
 - 先合并主结果，再按辅助组配置顺序追加结果。按规范化 URL 去重，重复时保留排在前面的结果，最后按 `limit` 截断并连续编号。请求完成顺序不影响结果顺序。
 - 单家失败不丢弃其他家的成功结果。主组不可用时可以只返回辅助结果，全部无可用结果时返回失败。总截止时间到期后保留已完成的结果，用户取消则终止整个搜索。
 
-默认值位于 `agent/defaults/web-tools.jsonc`。用户可在 `~/.pi/agent/configs/web-tools.jsonc` 中覆盖，例如优先 Exa 并关闭 DDG：
+默认值位于 `agent/defaults/web-tools.jsonc`。用户可在 `~/.pi/agent/configs/web-tools.jsonc` 中覆盖，例如优先 Exa：
 
 ```jsonc
 {
   "websearch": {
-    "primary_providers": ["exa_api", "brave_api", "tavily", "duckduckgo_html"],
+    "primary_providers": ["exa_api", "brave_api", "tavily"],
     "auxiliary_providers": ["tinyfish", "anysearch"],
     "default_results": 8,
     "exa_api": { "max_results": 5 },
     "tinyfish": { "max_results": 5, "api_key": "$TINYFISH_API_KEY" },
-    "anysearch": { "max_results": 5, "api_key": "$ANYSEARCH_API_KEY" },
-    "duckduckgo_html": { "enabled": false }
+    "anysearch": { "max_results": 5, "api_key": "$ANYSEARCH_API_KEY" }
   }
 }
 ```
@@ -78,12 +76,11 @@ websearch({
 
 - 各 provider 使用 `api_key`：可直接填写 key，也可用 `$NAME` / `${NAME}` 引用环境变量。解析规则与 `openai-compatible-provider` 一致。除 AnySearch 改用匿名访问外，空字符串、空白值或无法解析的引用会自动禁用该 provider。引用随后可用时会在下次搜索自动恢复。默认分别引用 `BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`TAVILY_API_KEY`、`TINYFISH_API_KEY`、`ANYSEARCH_API_KEY`，推荐使用环境变量，避免把 key 写入配置文件。
 - 搜索 API endpoint 只允许公开 HTTP(S) literal URL，拒绝 userinfo、localhost 和 literal 私网/回环/link-local IP。
-- Brave、DDG 和 AnySearch 将域名条件重建为 `site:` / `-site:`，多个包含域名使用 OR。Exa、Tavily 和 TinyFish 使用结构化域名参数。
+- Brave 和 AnySearch 将域名条件重建为 `site:` / `-site:`，多个包含域名使用 OR。Exa、Tavily 和 TinyFish 使用结构化域名参数。
 - Exa 固定使用 `type: auto`，不自动限定内容分类。Tavily 固定使用 `search_depth: basic`。
 - TinyFish 使用 `GET https://api.search.tinyfish.ai` 和 `X-API-Key`。仅请求首页，读取标题、URL 和 `snippet`，不自动翻页。接口未提供条数参数，本地应用 `max_results`。
 - AnySearch 使用 `POST https://api.anysearch.com/v1/search`，读取 `data.results` 的标题、URL、`content` 和 `snippet`。`max_results` 上限为 10，不自动限定垂直领域。有密钥时使用 Bearer 认证，缺少凭据时省略认证头。认证请求返回 401、402 或 403 时，最多重试一次匿名请求，重试与原请求共用提供方超时和总截止时间。网络错误、超时及普通限流不触发匿名重试。匿名访问按 IP 限流并使用每日免费额度。匿名额度耗尽时不继续重试，也不保存或使用响应中的新凭据。
 - 结果仅做 URL 规范化、相同 URL 去重和显式域名过滤。保留提供方顺序，不按相关度、摘要长度或域名多样性过滤、补搜或重排。
-- DDG 结果页使用流式 HTML parser，只抽取结果块所需字段，不构建完整 DOM。既有限流、challenge 检测和熔断保持不变。
 - 不执行 JavaScript，不使用 headless browser。
 - 不读取搜索结果页面，不自动调用 `webfetch`。
 - 不发送 `cookies.txt`，也不尝试登录搜索引擎。
@@ -117,15 +114,11 @@ provider request failed.
 ### 限制
 
 - 只搜索公开索引。登录墙后的内容由 `webfetch` 配合 `cookies.txt` 处理。
-- URL 会解包 DDG `/l/?uddg=...`，删除 fragment 和明确追踪参数，并按规范化 URL 去重。
+- URL 会删除 fragment 和明确追踪参数，并按规范化 URL 去重。
 - 摘要和标题按不可信纯文本处理，模型输出会转义 XML 字符。
-- 数据中心或共享出口 IP 可能触发 DDG bot challenge。
-- 工具会识别 challenge，但不会绕过 CAPTCHA、自动切换代理或重放请求。
 - 搜索只合并相同 key 的并发 in-flight 请求，不缓存已完成结果，也不保留 provider negative cache。
 - 并发请求的合并键包含搜索配置、API key 哈希和网络配置签名。提供方接收本次请求的数据，不保留跨调用健康状态。
-- `total_deadline_seconds` 限制整个调用。provider timeout、fallback 和 DDG 限流等待都服从剩余预算。
-- 会话内 DDG 请求串行发送，默认至少间隔 15 秒。一旦触发 challenge，进入 10 分钟冷却期，冷却期内不继续请求 DDG。
-- 该限速只降低触发概率，不能保证 DDG HTML 抓取长期稳定。
+- `total_deadline_seconds` 限制整个调用。提供方超时和回退都服从剩余预算。
 
 ### 错误码
 
@@ -133,7 +126,7 @@ provider request failed.
 INVALID_ARGUMENT, CONFIG_ERROR, DNS_FAILED, CONNECTION_FAILED,
 TLS_FAILED, TIMEOUT, ABORTED, HTTP_ERROR, RATE_LIMITED,
 QUOTA_EXHAUSTED, RESPONSE_TOO_LARGE, UNSUPPORTED_CONTENT_TYPE,
-NO_PROVIDER_AVAILABLE, PROVIDER_BLOCKED, PARSE_FAILED
+NO_PROVIDER_AVAILABLE, PARSE_FAILED
 ```
 
 ## `webfetch`

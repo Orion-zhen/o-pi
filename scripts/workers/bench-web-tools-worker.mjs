@@ -1,17 +1,14 @@
-import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { createRequire } from "node:module";
-import { fromRoot, loadTypeScript } from "../benchmark/loader.mjs";
+import { loadTypeScript } from "../benchmark/loader.mjs";
 
 const mode = process.argv[2] ?? "search";
-if (mode === "parser") {
-	await runParserBenchmark();
-} else if (mode === "html") {
+if (mode === "html") {
 	await runHtmlBenchmark(process.argv[3] ?? "article");
 } else if (mode === "search" || mode === "fetch" || mode === "fetch-image-skip") {
 	await runToolBenchmark(mode);
 } else {
-	throw new Error("mode must be search, fetch, fetch-image-skip, html, or parser");
+	throw new Error("mode must be search, fetch, fetch-image-skip, or html");
 }
 
 async function runToolBenchmark(toolMode) {
@@ -68,18 +65,6 @@ async function runToolBenchmark(toolMode) {
 			undici.fetch = originalFetch;
 		}
 	}
-}
-
-async function runParserBenchmark() {
-	const fixture = readFileSync(fromRoot("tests/harness/web-tools/fixtures/websearch/results.html"), "utf8");
-	const started = performance.now();
-	const module = await loadTypeScript("src/harness/web-tools/search/duckduckgo-html.ts");
-	const imported = performance.now();
-	module.parseDuckDuckGoHtml(fixture, 20, "coding agent");
-	const firstCompleted = performance.now();
-	module.parseDuckDuckGoHtml(fixture, 20, "coding agent");
-	const warmCompleted = performance.now();
-	console.log(JSON.stringify({ importMs: imported - started, firstParseMs: firstCompleted - imported, warmParseMs: warmCompleted - firstCompleted }));
 }
 
 async function runHtmlBenchmark(scenario) {

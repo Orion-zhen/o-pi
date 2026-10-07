@@ -2,7 +2,7 @@ import type { Dispatcher } from "undici";
 
 import { classifyNetworkError } from "../network/errors.ts";
 import { readLimitedResponseBody } from "../network/response-body.ts";
-import type { FormalWebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem } from "../core/types.ts";
+import type { WebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem } from "../core/types.ts";
 import type { WebHttpFetch } from "../network/types.ts";
 import type { WebToolsConfig } from "../config-types.ts";
 import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.ts";
@@ -11,8 +11,8 @@ import { selectSearchSnippet } from "./snippets.ts";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
 type ProviderConfig = {
-	[Id in FormalWebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id]; key: Id extends "anysearch" ? string | undefined : string };
-}[FormalWebSearchProviderId];
+	[Id in WebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id]; key: Id extends "anysearch" ? string | undefined : string };
+}[WebSearchProviderId];
 
 export type ApiProviderOptions = ProviderConfig & {
 	dispatcher: () => Promise<Dispatcher>;
@@ -139,7 +139,7 @@ export function buildAnySearchRequest(config: WebToolsConfig["websearch"]["anyse
 	};
 }
 
-export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: unknown, params: NormalizedSearchParams, downloadedBytes: number): SearchProviderResult {
+export function normalizeProviderResponse(id: WebSearchProviderId, raw: unknown, params: NormalizedSearchParams, downloadedBytes: number): SearchProviderResult {
 	const { query } = params;
 	if (!record(raw)) return failed(id, "PARSE_FAILED", `${id} response is not an object.`, query);
 	if (id === "anysearch" && (raw["code"] !== 0 || !record(raw["data"]) || !Array.isArray(raw["data"]["results"]))) {
@@ -158,7 +158,7 @@ export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: un
 	return { status: "success", provider: id, results, downloadedBytes };
 }
 
-function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unknown>, rank: number, query: string): WebSearchItem | undefined {
+function normalizedItem(id: WebSearchProviderId, row: Record<string, unknown>, rank: number, query: string): WebSearchItem | undefined {
 	const rawUrl = string(row["url"]);
 	const url = rawUrl === undefined ? undefined : normalizeSearchResultUrl(rawUrl)?.toString();
 	if (url === undefined) return undefined;
@@ -179,7 +179,7 @@ function classifyHttpStatus(status: number, body: string): { code: WebSearchErro
 	return { code: "HTTP_ERROR", message: `${status} search provider HTTP error.` };
 }
 
-function failed(provider: FormalWebSearchProviderId, code: WebSearchErrorCode, message: string, query: string, httpStatus?: number, retryAfter?: number): SearchProviderResult {
+function failed(provider: WebSearchProviderId, code: WebSearchErrorCode, message: string, query: string, httpStatus?: number, retryAfter?: number): SearchProviderResult {
 	const details: WebSearchFailureDetails = { status: "failed", provider, query, error: { code, message }, ...(httpStatus !== undefined ? { http_status: httpStatus } : {}), ...(retryAfter !== undefined ? { retry_after_ms: retryAfter } : {}) };
 	return { status: "failed", provider, details };
 }

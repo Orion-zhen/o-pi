@@ -102,7 +102,7 @@ describe("websearch tool", () => {
 
 	it("完成结果不缓存", async () => {
 		const calls = { count: 0 };
-		const rt = runtime([successProvider("duckduckgo_html", calls)]);
+		const rt = runtime([successProvider("brave_api", calls)]);
 		await executeWebSearch({ query: "pi", limit: 1 }, rt);
 		await executeWebSearch({ query: "pi", limit: 1 }, rt);
 		expect(calls.count).toBe(2);

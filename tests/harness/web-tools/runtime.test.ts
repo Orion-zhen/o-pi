@@ -1,12 +1,11 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Dispatcher } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as configModule from "../../../src/harness/web-tools/config.ts";
 import * as apiModule from "../../../src/harness/web-tools/search-providers/api-provider.ts";
-import * as ddgModule from "../../../src/harness/web-tools/search-providers/duckduckgo-html-provider.ts";
-import type { FormalWebSearchProviderId, WebToolsRuntime } from "../../../src/harness/web-tools/core/types.ts";
+import type { WebSearchProviderId, WebToolsRuntime } from "../../../src/harness/web-tools/core/types.ts";
 import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.ts";
 import { createWebToolsRuntime } from "../../../src/harness/web-tools/web-tools-runtime.ts";
 import { defaultWebToolsConfig } from "./config-fixture.ts";
@@ -47,19 +46,15 @@ describe("web-tools runtime", () => {
 		config.websearch.brave_api.api_key = "";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
 		const createApi = vi.spyOn(apiModule, "searchApiProvider");
-		const createDdg = vi.spyOn(ddgModule, "searchDuckDuckGoProvider");
-		const html = await readFile(new URL("./fixtures/websearch/results.html", import.meta.url), "utf8");
-		network.fetch.mockImplementation(async (url) => url.hostname === "html.duckduckgo.com"
-			? httpResponse(200, html, { "content-type": "text/html" })
-			: searchResponse("brave_api"));
+		network.fetch.mockImplementation(async () => searchResponse("brave_api"));
 		const runtime = trackRuntime();
 
-		await expect(runtime.search({ query: "example", limit: 1 }, { toolCallId: "empty-key" })).resolves.toMatchObject({ details: { providers: ["duckduckgo_html"] } });
+		await expect(runtime.search({ query: "example", limit: 1 }, { toolCallId: "empty-key" })).resolves.toMatchObject({ details: { status: "failed", error: { code: "NO_PROVIDER_AVAILABLE" }, attempts: [] } });
 		expect(createApi).not.toHaveBeenCalled();
+		expect(network.fetch).not.toHaveBeenCalled();
 		config.websearch.brave_api.api_key = "$BRAVE_SEARCH_API_KEY";
 		await expect(runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "restored-key" })).resolves.toMatchObject({ details: { providers: ["brave_api"] } });
 		expect(createApi).toHaveBeenCalledOnce();
-		expect(createDdg).toHaveBeenCalledOnce();
 	});
 
 	it.each(["brave_api", "exa_api", "tavily"] as const)("只配置 %s 时仍使用该正式 provider", async (selected) => {
@@ -69,11 +64,9 @@ describe("web-tools runtime", () => {
 		config.websearch[selected].api_key = "literal-key";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
 		const createApi = vi.spyOn(apiModule, "searchApiProvider");
-		const createDdg = vi.spyOn(ddgModule, "searchDuckDuckGoProvider");
 		network.fetch.mockImplementation(async () => searchResponse(selected));
 		await expect(trackRuntime().search({ query: "official pi docs", limit: 1 }, { toolCallId: selected })).resolves.toMatchObject({ details: { status: "success", providers: [selected] } });
 		expect(createApi).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: selected }), expect.anything(), expect.anything());
-		expect(createDdg).not.toHaveBeenCalled();
 	});
 
 	it("固定顺序贯穿真实请求适配，失败和空结果后继续，Tavily 有结果即停止", async () => {
@@ -84,7 +77,6 @@ describe("web-tools runtime", () => {
 			config.websearch[id].api_key = "test-key";
 		}
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
-		const createDdg = vi.spyOn(ddgModule, "searchDuckDuckGoProvider");
 		network.fetch.mockImplementation(async (url) => {
 			if (url.toString().startsWith(config.websearch.brave_api.endpoint)) return httpResponse(503, "unavailable");
 			if (url.toString().startsWith(config.websearch.exa_api.endpoint)) return httpResponse(200, '{"results":[]}');
@@ -99,24 +91,22 @@ describe("web-tools runtime", () => {
 			] },
 		});
 		expect(network.fetch).toHaveBeenCalledTimes(3);
-		expect(createDdg).not.toHaveBeenCalled();
 	});
 
-	it("按配置顺序跳过禁用和缺少凭据的引擎，DDG 可排在正式 API 前", async () => {
+	it("按配置顺序跳过禁用和缺少凭据的引擎", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
-		config.websearch.primary_providers = ["tavily", "exa_api", "duckduckgo_html", "brave_api"];
+		config.websearch.primary_providers = ["tavily", "exa_api", "brave_api"];
 		config.websearch.tavily.enabled = false;
 		config.websearch.tavily.api_key = "available-but-disabled";
 		config.websearch.exa_api.api_key = "";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
-		const html = await readFile(new URL("./fixtures/websearch/results.html", import.meta.url), "utf8");
-		network.fetch.mockResolvedValue(httpResponse(200, html, { "content-type": "text/html" }));
-		await expect(trackRuntime().search({ query: "example", limit: 1 }, { toolCallId: "ddg-first" })).resolves.toMatchObject({
-			details: { status: "success", providers: ["duckduckgo_html"], attempts: [{ provider: "duckduckgo_html" }] },
+		network.fetch.mockResolvedValue(searchResponse("brave_api"));
+		await expect(trackRuntime().search({ query: "example", limit: 1 }, { toolCallId: "skip-unavailable" })).resolves.toMatchObject({
+			details: { status: "success", providers: ["brave_api"], attempts: [{ provider: "brave_api" }] },
 		});
 		expect(network.fetch).toHaveBeenCalledOnce();
-		expect(network.fetch.mock.calls[0]?.[0].hostname).toBe("html.duckduckgo.com");
+		expect(network.fetch.mock.calls[0]?.[0].hostname).toBe("api.search.brave.com");
 	});
 
 	it("调整顺序不会合并到旧顺序的进行中请求，全部禁用后不发送请求", async () => {
@@ -139,7 +129,7 @@ describe("web-tools runtime", () => {
 		const first = runtime.search(params, { toolCallId: "old-order" });
 		await started.promise;
 		try {
-			config.websearch.primary_providers = ["exa_api", "brave_api", "tavily", "duckduckgo_html"];
+			config.websearch.primary_providers = ["exa_api", "brave_api", "tavily"];
 			await expect(runtime.search(params, { toolCallId: "new-order" })).resolves.toMatchObject({ details: { status: "success", providers: ["exa_api"] } });
 		} finally { release.resolve(); }
 		await expect(first).resolves.toMatchObject({ details: { status: "success", providers: ["brave_api"] } });
@@ -231,7 +221,6 @@ describe("web-tools runtime", () => {
 	it("失败请求不污染后续搜索，未调用时不发起网络请求", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
-		config.websearch.duckduckgo_html.enabled = false;
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
 		network.fetch.mockRejectedValueOnce(new Error("connection refused")).mockResolvedValue(searchResponse("brave_api"));
 		const runtime = trackRuntime();
@@ -399,7 +388,7 @@ function trackRuntime(): WebToolsRuntime {
 	return runtime;
 }
 
-function searchResponse(provider: FormalWebSearchProviderId) {
+function searchResponse(provider: WebSearchProviderId) {
 	const results = [{
 		title: "Official Pi docs", url: "https://example.com/pi",
 		description: "Official Pi documentation and reference.",

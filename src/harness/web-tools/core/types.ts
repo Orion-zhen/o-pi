@@ -3,9 +3,8 @@ export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "image
 export type WebFetchPageKind = "article" | "image" | "video" | "audio" | "pdf" | "generic";
 export type WebFetchTextSource = "readability" | "semantic" | "body" | "metadata" | "pdf";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
-export type FormalWebSearchProviderId = "brave_api" | "exa_api" | "tavily" | "tinyfish" | "anysearch";
+export type WebSearchProviderId = "brave_api" | "exa_api" | "tavily" | "tinyfish" | "anysearch";
 export type WebSearchProviderRole = "primary" | "auxiliary";
-export type WebSearchProviderId = FormalWebSearchProviderId | "duckduckgo_html";
 
 export interface WebFetchParams {
 	url: string;
@@ -36,7 +35,7 @@ export type WebFetchErrorCode =
 export type WebSearchErrorCode =
 	| "INVALID_ARGUMENT" | "CONFIG_ERROR" | "DNS_FAILED" | "CONNECTION_FAILED" | "TLS_FAILED"
 	| "TIMEOUT" | "ABORTED" | "HTTP_ERROR" | "RESPONSE_TOO_LARGE" | "UNSUPPORTED_CONTENT_TYPE"
-	| "QUOTA_EXHAUSTED" | "RATE_LIMITED" | "NO_PROVIDER_AVAILABLE" | "PROVIDER_BLOCKED" | "PARSE_FAILED";
+	| "QUOTA_EXHAUSTED" | "RATE_LIMITED" | "NO_PROVIDER_AVAILABLE" | "PARSE_FAILED";
 
 export interface WebFetchFailureDetails {
 	status: "failed";
@@ -131,10 +130,9 @@ export interface WebFetchMedia {
 
 export interface WebSearchProgressDetails {
 	status: "progress";
-	phase: "waiting" | "requesting" | "downloading" | "parsing";
+	phase: "requesting" | "downloading" | "parsing";
 	received_bytes?: number;
 	expected_bytes?: number;
-	wait_ms?: number;
 }
 
 export interface WebSearchProviderAttempt {
