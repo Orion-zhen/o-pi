@@ -29,7 +29,10 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 				gate?.requests.clear();
 				gate = { interval, cooldown, requests: new SearchRequestGate(options.now, interval, cooldown) };
 			}
-			const router = new SearchProviderRouter(providers(config, gate.requests));
+			const router = new SearchProviderRouter({
+				primary: providers(config, gate.requests, config.websearch.primary_providers),
+				auxiliary: providers(config, gate.requests, config.websearch.auxiliary_providers),
+			});
 			const signature = `${providerSignature(config.websearch)}:${networkConfigSignature(config.network)}`;
 			return executeWebSearch(params, { searches, router, providerSignature: signature, config, context, now: options.now });
 		},
@@ -39,19 +42,21 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 		},
 	};
 
-	function providers(config: WebToolsConfig, requestGate: SearchRequestGate): WebSearchProvider[] {
+	function providers(config: WebToolsConfig, requestGate: SearchRequestGate, order: WebToolsConfig["websearch"]["primary_providers"]): WebSearchProvider[] {
 		const result: WebSearchProvider[] = [];
 		const shared = { dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl };
 		const formal = {
 			brave_api: { id: "brave_api", config: config.websearch.brave_api },
 			exa_api: { id: "exa_api", config: config.websearch.exa_api },
 			tavily: { id: "tavily", config: config.websearch.tavily },
+			tinyfish: { id: "tinyfish", config: config.websearch.tinyfish },
 		} as const;
-		for (const id of config.websearch.provider_order) {
+		for (const id of order) {
 			if (!config.websearch[id].enabled) continue;
 			if (id === "duckduckgo_html") {
 				result.push({
 					id,
+					maxResults: config.websearch.duckduckgo_html.max_results,
 					async search(params, context) {
 						ddgModule ??= import("../search-providers/duckduckgo-html-provider.ts");
 						return (await ddgModule).searchDuckDuckGoProvider({ config: config.websearch.duckduckgo_html, requestGate, ...shared }, params, context);
@@ -64,6 +69,7 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 			if (key === undefined) continue;
 			result.push({
 				id: provider.id,
+				maxResults: provider.config.max_results,
 				async search(params, context) {
 					apiModule ??= import("../search-providers/api-provider.ts");
 					return (await apiModule).searchApiProvider({ ...provider, ...shared, key }, params, context);

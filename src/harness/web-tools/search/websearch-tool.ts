@@ -57,7 +57,7 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 	const details: WebSearchSuccessDetails = {
 		status: "success",
 		query,
-		provider: routed.provider,
+		providers: routed.providers,
 		results: routed.results,
 		downloaded_bytes: routed.downloadedBytes,
 		duration_ms: runtime.now() - startedAt,

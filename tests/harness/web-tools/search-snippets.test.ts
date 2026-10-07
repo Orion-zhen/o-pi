@@ -30,10 +30,11 @@ async function search(id: FormalWebSearchProviderId, fields: Record<string, unkn
 	const transport = { key: "test-key", dispatcher: async () => dispatcher, fetchImpl };
 	const options = id === "brave_api" ? { ...transport, id, config: config.websearch.brave_api }
 		: id === "exa_api" ? { ...transport, id, config: config.websearch.exa_api }
-		: { ...transport, id, config: config.websearch.tavily };
+		: id === "tavily" ? { ...transport, id, config: config.websearch.tavily }
+		: { ...transport, id, config: config.websearch.tinyfish };
 	const result = await executeWebSearch({ query, limit: 1 }, {
 		config, searches: new SearchFlights(),
-		router: new SearchProviderRouter([{ id, search: (params, context) => searchApiProvider(options, params, context) }]),
+		router: new SearchProviderRouter({ primary: [{ id, maxResults: 5, search: (params, context) => searchApiProvider(options, params, context) }], auxiliary: [] }),
 		context: { toolCallId: "snippet" }, now: () => Date.now(),
 	});
 	if (result.details.status !== "success") throw new Error(result.details.error.message);
@@ -45,6 +46,7 @@ describe("搜索摘要按查询选片", () => {
 		["brave_api", { description: INTRO, extra_snippets: [INTRO, EXACT, EXACT] }],
 		["exa_api", { highlights: [INTRO, EXACT, EXACT] }],
 		["tavily", { content: `${INTRO}${EXACT} ${INTRO}` }],
+		["tinyfish", { snippet: `${INTRO}${EXACT} ${INTRO}` }],
 	] as const)("%s 从已返回原文中保留错误码和版本，输出不超过 240 字符", async (id, fields) => {
 		const result = await search(id, fields);
 		const snippet = result.details.results[0]?.snippet;

@@ -1,4 +1,5 @@
-.search-provider-settings { min-inline-size: 0; }
+.search-provider-settings { display: grid; gap: var(--space-4); min-inline-size: 0; padding-block-start: var(--space-4); }
+.search-provider-settings h3 { color: var(--muted-foreground); font-size: var(--text-small); }
 .search-provider-list { display: flex; flex-direction: column; min-inline-size: 0; }
 .search-provider-row { position: relative; min-inline-size: 0; }
 .search-provider-row + .search-provider-row { border-block-start: thin solid var(--divider); }

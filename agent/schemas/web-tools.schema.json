@@ -34,17 +34,31 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"provider_order": {
+				"primary_providers": {
 					"type": "array",
-					"minItems": 4,
-					"maxItems": 4,
+					"maxItems": 5,
 					"uniqueItems": true,
 					"items": {
 						"oneOf": [
 							{ "const": "brave_api", "title": "Brave" },
 							{ "const": "exa_api", "title": "Exa" },
 							{ "const": "tavily", "title": "Tavily" },
-							{ "const": "duckduckgo_html", "title": "DuckDuckGo" }
+							{ "const": "duckduckgo_html", "title": "DuckDuckGo" },
+							{ "const": "tinyfish", "title": "TinyFish" }
+						]
+					}
+				},
+				"auxiliary_providers": {
+					"type": "array",
+					"maxItems": 5,
+					"uniqueItems": true,
+					"items": {
+						"oneOf": [
+							{ "const": "brave_api", "title": "Brave" },
+							{ "const": "exa_api", "title": "Exa" },
+							{ "const": "tavily", "title": "Tavily" },
+							{ "const": "duckduckgo_html", "title": "DuckDuckGo" },
+							{ "const": "tinyfish", "title": "TinyFish" }
 						]
 					}
 				},
@@ -69,6 +83,7 @@
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
+						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
 						"endpoint": {
 							"title": "接口地址",
 							"type": "string",
@@ -86,6 +101,7 @@
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
+						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
 						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.exa.ai/search" },
 						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$EXA_API_KEY" },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
@@ -98,9 +114,22 @@
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
+						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
 						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.tavily.com/search" },
 						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$TAVILY_API_KEY" },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
+					}
+				},
+				"tinyfish": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"enabled": { "type": "boolean", "default": true },
+						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
+						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.search.tinyfish.ai" },
+						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$TINYFISH_API_KEY" },
+						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
 						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
 					}
 				},
@@ -109,6 +138,7 @@
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
+						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 15 },
 						"user_agent": { "title": "User-Agent", "type": "string", "minLength": 1, "maxLength": 512 },
 						"region": {

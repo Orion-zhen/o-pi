@@ -82,7 +82,7 @@ function formatSuccess(details: WebSearchSuccessDetails, expanded: boolean, them
 		tool: "websearch",
 		status: count === 0 ? "warning" : "success",
 		target: `"${clean(details.query)}"`,
-		summary: joinParts([countText, details.provider, fallbackLabel(details), formatDuration(details.duration_ms)]),
+		summary: joinParts([countText, details.providers.join("+"), fallbackLabel(details), formatDuration(details.duration_ms)]),
 	}, theme);
 	if (!expanded) return header;
 
@@ -94,7 +94,7 @@ function formatSuccess(details: WebSearchSuccessDetails, expanded: boolean, them
 		header,
 		rows.length > 0 ? `\n${rows.join("\n\n")}` : undefined,
 		"",
-		`  Provider        ${clean(details.provider)}`,
+		`  Providers       ${details.providers.map(clean).join(", ")}`,
 		`  Downloaded      ${formatBytes(details.downloaded_bytes)}`,
 		`  Duration        ${formatDuration(details.duration_ms)}`,
 		formatAttempts(details.attempts),
@@ -148,7 +148,7 @@ function labelError(details: WebSearchFailureDetails): string {
 }
 
 function fallbackLabel(details: WebSearchSuccessDetails): string | undefined {
-	return details.attempts.length > 1 ? "fallback" : undefined;
+	return details.attempts.filter((attempt) => attempt.role === "primary").length > 1 ? "fallback" : undefined;
 }
 
 function formatAttempts(attempts: readonly WebSearchProviderAttempt[] | undefined): string | undefined {
@@ -157,7 +157,7 @@ function formatAttempts(attempts: readonly WebSearchProviderAttempt[] | undefine
 		const status = clean(attempt.status).padEnd(8);
 		const code = clean(attempt.error?.code ?? "").padEnd(14);
 		const duration = attempt.duration_ms !== undefined ? formatDuration(attempt.duration_ms) : "";
-		return `  ${clean(attempt.provider).padEnd(16)}${status}${code}${duration}`;
+		return `  ${clean(attempt.provider).padEnd(16)}${attempt.role.padEnd(11)}${status}${code}${duration}`;
 	});
 	return ["", "  Attempts", ...rows].join("\n");
 }
@@ -186,7 +186,7 @@ function indent(value: string): string {
 }
 
 function isSuccessDetails(value: unknown): value is WebSearchSuccessDetails {
-	return isRecord(value) && value["status"] === "success" && Array.isArray(value["results"]) && isProvider(value["provider"]);
+	return isRecord(value) && value["status"] === "success" && Array.isArray(value["results"]) && Array.isArray(value["providers"]) && value["providers"].every(isProvider);
 }
 
 function isFailureDetails(value: unknown): value is WebSearchFailureDetails {
@@ -202,5 +202,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isProvider(value: unknown): value is WebSearchProviderId {
-	return value === "brave_api" || value === "exa_api" || value === "tavily" || value === "duckduckgo_html";
+	return value === "brave_api" || value === "exa_api" || value === "tavily" || value === "duckduckgo_html" || value === "tinyfish";
 }

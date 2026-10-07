@@ -71,6 +71,7 @@ function buildProviderRequest(provider: ProviderConfig, params: NormalizedSearch
 		case "brave_api": return buildBraveRequest(provider.config, params, key);
 		case "exa_api": return buildExaRequest(provider.config, params, key);
 		case "tavily": return buildTavilyRequest(provider.config, params, key);
+		case "tinyfish": return buildTinyfishRequest(provider.config, params, key);
 	}
 }
 
@@ -89,7 +90,7 @@ export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], 
 	const body = {
 		query: textQuery,
 		type: "auto",
-		numResults: Math.min(10, params.limit),
+		numResults: params.limit,
 		contents: { highlights: { maxCharacters: config.highlight_chars } },
 		...(includeDomains.length > 0 ? { includeDomains } : {}),
 		...(excludeDomains.length > 0 ? { excludeDomains } : {}),
@@ -101,7 +102,7 @@ export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"]
 	const { textQuery, includeDomains, excludeDomains } = params;
 	const body = {
 		query: textQuery,
-		max_results: Math.min(10, params.limit),
+		max_results: params.limit,
 		search_depth: "basic",
 		auto_parameters: false,
 		include_answer: false,
@@ -111,6 +112,14 @@ export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"]
 		...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
 	};
 	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify(body) };
+}
+
+export function buildTinyfishRequest(config: WebToolsConfig["websearch"]["tinyfish"], params: NormalizedSearchParams, key: string): ProviderRequest {
+	const url = new URL(config.endpoint);
+	url.searchParams.set("query", params.textQuery);
+	if (params.includeDomains.length > 0) url.searchParams.set("include_domains", params.includeDomains.join(","));
+	if (params.excludeDomains.length > 0) url.searchParams.set("exclude_domains", params.excludeDomains.join(","));
+	return { url, method: "GET", headers: { Accept: "application/json", "X-API-Key": key } };
 }
 
 export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: unknown, params: NormalizedSearchParams, downloadedBytes: number): SearchProviderResult {
@@ -134,7 +143,7 @@ function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unkno
 	const url = rawUrl === undefined ? undefined : normalizeSearchResultUrl(rawUrl)?.toString();
 	if (url === undefined) return undefined;
 	const title = normalizeSearchText(string(row["title"]) ?? url).slice(0, SEARCH_RESULT_MAX_TITLE_CHARS) || url;
-	const candidates = [row[id === "tavily" ? "content" : "description"], ...array(row["highlights"]), ...array(row["extra_snippets"])];
+	const candidates = [row[id === "tavily" ? "content" : id === "tinyfish" ? "snippet" : "description"], ...array(row["highlights"]), ...array(row["extra_snippets"])];
 	const snippet = selectSearchSnippet(candidates.filter((value): value is string => typeof value === "string"), query);
 	return { rank, title, url, ...(snippet ? { snippet } : {}) };
 }

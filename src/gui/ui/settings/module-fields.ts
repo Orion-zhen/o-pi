@@ -43,9 +43,9 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 				.map((item) => ({ ...item, enabledBy: "network.proxy.enabled" })),
 		] },
 		{ title: "网页搜索", fields: [
-			field("websearch.default_results", "结果数量"), field("websearch.include_domains", "包含域名"), field("websearch.exclude_domains", "排除域名"),
+			field("websearch.default_results", "总结果条数上限"), field("websearch.include_domains", "包含域名"), field("websearch.exclude_domains", "排除域名"),
 		] },
-		{ title: "搜索引擎", fields: [field("websearch.provider_order", "搜索引擎顺序", "searchProviders")] },
+		{ title: "搜索引擎", fields: [field("websearch.primary_providers", "搜索引擎分组", "searchProviders")] },
 		{ title: "网页读取", fields: [
 			field("webfetch.media.mode", "网页图片"), field("webfetch.cookies.enabled", "浏览器 Cookie"),
 			{ ...field("webfetch.cookies.domains", "Cookie 域名"), enabledBy: "webfetch.cookies.enabled" },

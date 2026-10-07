@@ -13,7 +13,7 @@ function runtime(providers: WebSearchProvider[], now = () => Date.now()) {
 	return {
 		config,
 		searches: new SearchFlights(),
-		router: new SearchProviderRouter(providers),
+		router: new SearchProviderRouter({ primary: providers, auxiliary: [] }),
 		context: { toolCallId: "s1" },
 		now,
 	};
@@ -22,6 +22,7 @@ function runtime(providers: WebSearchProvider[], now = () => Date.now()) {
 function successProvider(id: WebSearchProviderId, calls: { count: number }): WebSearchProvider {
 	return {
 		id,
+		maxResults: 5,
 		async search(params): Promise<SearchProviderResult> {
 			calls.count += 1;
 			return {
@@ -40,6 +41,7 @@ function successProvider(id: WebSearchProviderId, calls: { count: number }): Web
 function failedProvider(id: WebSearchProviderId): WebSearchProvider {
 	return {
 		id,
+		maxResults: 5,
 		async search(_params, context: SearchProviderContext): Promise<SearchProviderResult> {
 			context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
 			return {
@@ -65,7 +67,7 @@ describe("websearch tool", () => {
 	it("成功模型输出只保留标题、URL、摘要，并转义 XML", async () => {
 		const calls = { count: 0 };
 		const result = await executeWebSearch({ query: "Title <pi>&" }, runtime([successProvider("exa_api", calls)]));
-		expect(result.details).toMatchObject({ status: "success", provider: "exa_api" });
+		expect(result.details).toMatchObject({ status: "success", providers: ["exa_api"] });
 		expect(result.content).toBe([
 			"<websearch>",
 			"[1] &lt;Title&gt;&amp;",
@@ -82,7 +84,7 @@ describe("websearch tool", () => {
 	it("每次搜索合并配置和 query 中的域名过滤", async () => {
 		let seen: { includeDomains: string[]; excludeDomains: string[] } | undefined;
 		const capture: WebSearchProvider = {
-			id: "brave_api",
+			id: "brave_api", maxResults: 5,
 			async search(params) {
 				seen = { includeDomains: params.includeDomains, excludeDomains: params.excludeDomains };
 				return { status: "failed", provider: "brave_api", details: { status: "failed", provider: "brave_api", error: { code: "ABORTED", message: "stop" } } };

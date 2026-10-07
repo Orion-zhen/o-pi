@@ -22,7 +22,7 @@ vi.mock("undici/index.js", async (importOriginal) => ({
 
 const runtimes: WebToolsRuntime[] = [];
 const temp = useTempDir("o-pi-web-runtime-");
-preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "TAVILY_API_KEY");
+preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "TAVILY_API_KEY", "TINYFISH_API_KEY");
 
 beforeEach(() => {
 	process.env.PI_WEB_TOOLS_CONFIG = path.join(temp.path, "config.jsonc");
@@ -30,6 +30,7 @@ beforeEach(() => {
 	process.env.BRAVE_SEARCH_API_KEY = "test-key";
 	delete process.env.EXA_API_KEY;
 	delete process.env.TAVILY_API_KEY;
+	delete process.env.TINYFISH_API_KEY;
 	network.fetch.mockReset().mockImplementation(async () => httpResponse(200, "hello world", { "content-type": "text/plain" }));
 });
 
@@ -51,10 +52,10 @@ describe("web-tools runtime", () => {
 			: searchResponse("brave_api"));
 		const runtime = trackRuntime();
 
-		await expect(runtime.search({ query: "example", limit: 1 }, { toolCallId: "empty-key" })).resolves.toMatchObject({ details: { provider: "duckduckgo_html" } });
+		await expect(runtime.search({ query: "example", limit: 1 }, { toolCallId: "empty-key" })).resolves.toMatchObject({ details: { providers: ["duckduckgo_html"] } });
 		expect(createApi).not.toHaveBeenCalled();
 		config.websearch.brave_api.api_key = "$BRAVE_SEARCH_API_KEY";
-		await expect(runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "restored-key" })).resolves.toMatchObject({ details: { provider: "brave_api" } });
+		await expect(runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "restored-key" })).resolves.toMatchObject({ details: { providers: ["brave_api"] } });
 		expect(createApi).toHaveBeenCalledOnce();
 		expect(createDdg).toHaveBeenCalledOnce();
 	});
@@ -67,7 +68,7 @@ describe("web-tools runtime", () => {
 		const createApi = vi.spyOn(apiModule, "searchApiProvider");
 		const createDdg = vi.spyOn(ddgModule, "searchDuckDuckGoProvider");
 		network.fetch.mockImplementation(async () => searchResponse(selected));
-		await expect(trackRuntime().search({ query: "official pi docs", limit: 1 }, { toolCallId: selected })).resolves.toMatchObject({ details: { status: "success", provider: selected } });
+		await expect(trackRuntime().search({ query: "official pi docs", limit: 1 }, { toolCallId: selected })).resolves.toMatchObject({ details: { status: "success", providers: [selected] } });
 		expect(createApi).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: selected }), expect.anything(), expect.anything());
 		expect(createDdg).not.toHaveBeenCalled();
 	});
@@ -87,7 +88,7 @@ describe("web-tools runtime", () => {
 			throw new Error(`unexpected provider: ${url}`);
 		});
 		await expect(trackRuntime().search({ query: "research papers about agents", limit: 8 }, { toolCallId: "fixed-order" })).resolves.toMatchObject({
-			details: { status: "success", provider: "tavily", attempts: [
+			details: { status: "success", providers: ["tavily"], attempts: [
 				{ provider: "brave_api", status: "failed", http_status: 503 },
 				{ provider: "exa_api", status: "success", result_count: 0 },
 				{ provider: "tavily", status: "success", result_count: 1 },
@@ -99,7 +100,7 @@ describe("web-tools runtime", () => {
 
 	it("按配置顺序跳过禁用和缺少凭据的引擎，DDG 可排在正式 API 前", async () => {
 		const config = defaultWebToolsConfig();
-		config.websearch.provider_order = ["tavily", "exa_api", "duckduckgo_html", "brave_api"];
+		config.websearch.primary_providers = ["tavily", "exa_api", "duckduckgo_html", "brave_api"];
 		config.websearch.tavily.enabled = false;
 		config.websearch.tavily.api_key = "available-but-disabled";
 		config.websearch.exa_api.api_key = "";
@@ -107,7 +108,7 @@ describe("web-tools runtime", () => {
 		const html = await readFile(new URL("./fixtures/websearch/results.html", import.meta.url), "utf8");
 		network.fetch.mockResolvedValue(httpResponse(200, html, { "content-type": "text/html" }));
 		await expect(trackRuntime().search({ query: "example", limit: 1 }, { toolCallId: "ddg-first" })).resolves.toMatchObject({
-			details: { status: "success", provider: "duckduckgo_html", attempts: [{ provider: "duckduckgo_html" }] },
+			details: { status: "success", providers: ["duckduckgo_html"], attempts: [{ provider: "duckduckgo_html" }] },
 		});
 		expect(network.fetch).toHaveBeenCalledOnce();
 		expect(network.fetch.mock.calls[0]?.[0].hostname).toBe("html.duckduckgo.com");
@@ -132,15 +133,77 @@ describe("web-tools runtime", () => {
 		const first = runtime.search(params, { toolCallId: "old-order" });
 		await started.promise;
 		try {
-			config.websearch.provider_order = ["exa_api", "brave_api", "tavily", "duckduckgo_html"];
-			await expect(runtime.search(params, { toolCallId: "new-order" })).resolves.toMatchObject({ details: { status: "success", provider: "exa_api" } });
+			config.websearch.primary_providers = ["exa_api", "brave_api", "tavily", "duckduckgo_html"];
+			await expect(runtime.search(params, { toolCallId: "new-order" })).resolves.toMatchObject({ details: { status: "success", providers: ["exa_api"] } });
 		} finally { release.resolve(); }
-		await expect(first).resolves.toMatchObject({ details: { status: "success", provider: "brave_api" } });
-		for (const id of config.websearch.provider_order) config.websearch[id].enabled = false;
+		await expect(first).resolves.toMatchObject({ details: { status: "success", providers: ["brave_api"] } });
+		for (const id of config.websearch.primary_providers) config.websearch[id].enabled = false;
 		await expect(runtime.search(params, { toolCallId: "all-disabled" })).resolves.toMatchObject({
 			details: { status: "failed", error: { code: "NO_PROVIDER_AVAILABLE" }, attempts: [] },
 		});
 		expect(network.fetch).toHaveBeenCalledTimes(2);
+	});
+
+	it("TinyFish 与主引擎汇总，规范化去重、域名过滤和两层条数限制贯穿真实适配", async () => {
+		const config = defaultWebToolsConfig();
+		config.websearch.brave_api.max_results = 2;
+		config.websearch.tinyfish.api_key = "$TINYFISH_API_KEY";
+		config.websearch.tinyfish.max_results = 3;
+		process.env.TINYFISH_API_KEY = "tinyfish-key";
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		network.fetch.mockImplementation(async (url, init) => {
+			if (url.hostname === "api.search.brave.com") {
+				expect(url.searchParams.get("count")).toBe("2");
+				return httpResponse(200, JSON.stringify({ web: { results: [
+					{ title: "Primary A", url: "https://example.com/a" },
+					{ title: "Primary B", url: "https://example.com/b" },
+					{ title: "Primary overflow", url: "https://example.com/primary-overflow" },
+				] } }));
+			}
+			expect(url.hostname).toBe("api.search.tinyfish.ai");
+			expect(init.headers["X-API-Key"]).toBe("tinyfish-key");
+			expect(url.searchParams.get("include_domains")).toBe("example.com");
+			return httpResponse(200, JSON.stringify({ results: [
+				{ title: "Excluded", url: "https://excluded.test/" },
+				{ title: "Duplicate", url: "https://example.com/b?utm_source=tinyfish#top" },
+				{ title: "Aux C", url: "https://example.com/c", snippet: "example snippet" },
+				{ title: "Aux D", url: "https://example.com/d" },
+				{ title: "Aux overflow", url: "https://example.com/aux-overflow" },
+			] }));
+		});
+		await expect(trackRuntime().search({ query: "site:example.com example", limit: 3 }, { toolCallId: "aggregation" }))
+			.resolves.toMatchObject({ details: { status: "success", providers: ["brave_api", "tinyfish"], results: [
+				{ rank: 1, title: "Primary A", provider: "brave_api" },
+				{ rank: 2, title: "Primary B", provider: "brave_api" },
+				{ rank: 3, title: "Aux C", provider: "tinyfish", snippet: "example snippet" },
+			], attempts: [{ role: "primary", result_count: 2 }, { role: "auxiliary", result_count: 3 }] } });
+		expect(network.fetch).toHaveBeenCalledTimes(2);
+	});
+
+	it("TinyFish 凭据热更新隔离同名进行中请求，缺少凭据时跳过辅助请求", async () => {
+		const config = defaultWebToolsConfig();
+		for (const id of config.websearch.primary_providers) config.websearch[id].enabled = false;
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		const runtime = trackRuntime();
+		await expect(runtime.search({ query: "tinyfish" }, { toolCallId: "missing-key" }))
+			.resolves.toMatchObject({ details: { error: { code: "NO_PROVIDER_AVAILABLE" }, attempts: [] } });
+		expect(network.fetch).not.toHaveBeenCalled();
+		const started = deferredVoid();
+		const release = deferredVoid();
+		network.fetch.mockImplementation(async (_url, init) => {
+			if (init.headers["X-API-Key"] === "old-key") { started.resolve(); await release.promise; }
+			return searchResponse("tinyfish");
+		});
+		process.env.TINYFISH_API_KEY = "old-key";
+		const first = runtime.search({ query: "tinyfish" }, { toolCallId: "old-tinyfish-key" });
+		await started.promise;
+		try {
+			process.env.TINYFISH_API_KEY = "new-key";
+			await expect(runtime.search({ query: "tinyfish" }, { toolCallId: "new-tinyfish-key" }))
+				.resolves.toMatchObject({ details: { status: "success", providers: ["tinyfish"] } });
+			expect(network.fetch.mock.calls.map(([, init]) => init.headers["X-API-Key"])).toEqual(["old-key", "new-key"]);
+		} finally { release.resolve(); }
+		await expect(first).resolves.toMatchObject({ details: { status: "success", providers: ["tinyfish"] } });
 	});
 
 	it("响应先按域名过滤再截取 limit，不因前排被排除而误判为空", async () => {
@@ -151,7 +214,7 @@ describe("web-tools runtime", () => {
 			{ title: "Allowed", url: "https://docs.example.com/" },
 		] } })));
 		await expect(trackRuntime().search({ query: "site:example.com 文档", limit: 1 }, { toolCallId: "filtered" })).resolves.toMatchObject({
-			details: { status: "success", provider: "brave_api", results: [{ rank: 1, title: "Allowed", url: "https://docs.example.com/" }] },
+			details: { status: "success", providers: ["brave_api"], results: [{ rank: 1, title: "Allowed", url: "https://docs.example.com/" }] },
 		});
 		expect(network.fetch).toHaveBeenCalledOnce();
 	});
@@ -261,12 +324,12 @@ describe("web-tools runtime", () => {
 		await started.promise;
 		try {
 			process.env.BRAVE_SEARCH_API_KEY = "new-key";
-			await expect(runtime.search(params, { toolCallId: "new-config" })).resolves.toMatchObject({ details: { status: "success", provider: "brave_api" } });
+			await expect(runtime.search(params, { toolCallId: "new-config" })).resolves.toMatchObject({ details: { status: "success", providers: ["brave_api"] } });
 			expect(keys).toEqual(["old-key", "new-key"]);
 		} finally {
 			release.resolve();
 		}
-		await expect(first).resolves.toMatchObject({ details: { status: "success", provider: "brave_api" } });
+		await expect(first).resolves.toMatchObject({ details: { status: "success", providers: ["brave_api"] } });
 	});
 
 	it("网络配置热更新不会合并到旧网络上的同名搜索", async () => {

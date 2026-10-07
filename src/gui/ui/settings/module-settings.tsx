@@ -52,13 +52,18 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 	const defaults = readObject(document.defaults);
 	const blocked = disabled || saving;
 	const valueAt = (path: string) => { const value = at(values, path); return value === undefined ? at(defaults, path) : value; };
-	const change = (path: string, value: unknown) => {
-		editor.change(applyEdits(draft || "{}\n", modify(draft || "{}\n", path.split("."), value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
+	const changeFields = (changes: Record<string, unknown>) => {
+		let next = draft || "{}\n";
+		for (const [path, value] of Object.entries(changes)) {
+			next = applyEdits(next, modify(next, path.split("."), value, { formattingOptions: { insertSpaces: false, tabSize: 4 } }));
+		}
+		editor.change(next);
 	};
+	const change = (path: string, value: unknown) => changeFields({ [path]: value });
 	const sourceButton = <SettingsSourceButton file={document.path} source={source} disabled={blocked} onClick={() => setSource(!source)} />;
 	const fields = (items: ConfigField[], fromSchema = false) => <div className="settings-fields">{items.map((field) => {
 		if (field.type === "searchProviders") return <SearchProviderSettings key={field.path} path={field.path} choices={document.arrayOptions[field.path]}
-			valueAt={valueAt} defaultAt={(path) => at(defaults, path)} change={change} disabled={blocked}
+			valueAt={valueAt} defaultAt={(path) => at(defaults, path)} change={change} changeGroups={changeFields} disabled={blocked}
 			renderDetails={(prefix) => fields(Object.entries(document.fields)
 				.filter(([path]) => path.startsWith(`${prefix}.`) && path !== `${prefix}.enabled`)
 				.map(([path, schema]) => ({ path, label: schema.title ?? path.slice(prefix.length + 1) })), true)} />;
@@ -87,10 +92,11 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 			: <SettingsSection key={group.title} title={group.title} actions={<>
 				{index === 0 && sourceButton}
 				{group.fields.filter((field) => field.type === "searchProviders").map((field) => {
-					const changed = JSON.stringify(valueAt(field.path)) !== JSON.stringify(at(defaults, field.path));
-					return <IconButton key={field.path} label={`重置${field.label}`} tooltip="恢复默认顺序" size="icon-sm"
+					const paths = [field.path, field.path.replace(/primary_providers$/, "auxiliary_providers")];
+					const changed = paths.some((path) => JSON.stringify(valueAt(path)) !== JSON.stringify(at(defaults, path)));
+					return <IconButton key={field.path} label={`重置${field.label}`} tooltip="恢复默认分组和顺序" size="icon-sm"
 						className={changed ? undefined : "invisible"} disabled={blocked || !changed}
-						onClick={() => change(field.path, undefined)}><RotateCcw /></IconButton>;
+						onClick={() => changeFields(Object.fromEntries(paths.map((path) => [path, undefined])))}><RotateCcw /></IconButton>;
 				})}
 			</>}>
 				{fields(group.fields)}

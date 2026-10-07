@@ -38,10 +38,10 @@ describe("websearch renderer", () => {
 		const fallback = formatWebSearchResult(
 			{
 				...successDetails(1),
-				provider: "duckduckgo_html" as const,
+				providers: ["duckduckgo_html" as const],
 				attempts: [
-					{ provider: "exa_api" as const, status: "failed" as const, error: { code: "TIMEOUT" as const, message: "secret-key" }, duration_ms: 12000 },
-					{ provider: "duckduckgo_html" as const, status: "success" as const, duration_ms: 1500 },
+					{ provider: "exa_api" as const, role: "primary" as const, status: "failed" as const, error: { code: "TIMEOUT" as const, message: "secret-key" }, duration_ms: 12000 },
+					{ provider: "duckduckgo_html" as const, role: "primary" as const, status: "success" as const, duration_ms: 1500 },
 				],
 			},
 			{ expanded: true },
@@ -56,7 +56,7 @@ describe("websearch renderer", () => {
 			provider: "duckduckgo_html" as const,
 			http_status: 200,
 			duration_ms: 12,
-			attempts: [{ provider: "duckduckgo_html" as const, status: "failed" as const, error: { code: "PARSE_FAILED" as const, message: "bad page" } }],
+			attempts: [{ provider: "duckduckgo_html" as const, role: "primary" as const, status: "failed" as const, error: { code: "PARSE_FAILED" as const, message: "bad page" } }],
 			response_preview: "preview\u001b]0;title\u0007 text",
 		};
 		const collapsed = formatWebSearchResult(details, {}, theme);
@@ -66,6 +66,19 @@ describe("websearch renderer", () => {
 		expect(expanded).toContain("PARSE_FAILED");
 		expect(expanded).toContain("preview text");
 		expect(expanded).not.toContain("\u001b");
+	});
+
+	it("主辅汇总显示多个来源，不误标为 fallback", () => {
+		const details = { ...successDetails(2), providers: ["brave_api", "tinyfish"], attempts: [
+			{ provider: "brave_api", role: "primary", status: "success", result_count: 1 },
+			{ provider: "tinyfish", role: "auxiliary", status: "success", result_count: 1 },
+		] };
+		const collapsed = formatWebSearchResult(details, {}, theme);
+		expect(collapsed).toContain("brave_api+tinyfish");
+		expect(collapsed).not.toContain("fallback");
+		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
+		expect(expanded).toContain("auxiliary");
+		expect(expanded).toContain("primary");
 	});
 
 	it("progress 和最终结果接管调用阶段组件", () => {
@@ -96,15 +109,16 @@ function successDetails(count: number) {
 	return {
 		status: "success" as const,
 		query: "pi search",
-		provider: "exa_api" as const,
+		providers: ["exa_api" as const],
 		results: Array.from({ length: count }, (_, index) => ({
 			rank: index + 1,
+			provider: "exa_api" as const,
 			title: `Title ${index + 1}`,
 			url: `https://example.com/${index + 1}`,
 			snippet: `Snippet ${index + 1}`,
 		})),
 		downloaded_bytes: 2048,
 		duration_ms: 42,
-		attempts: [{ provider: "exa_api" as const, status: "success" as const, duration_ms: 42 }],
+		attempts: [{ provider: "exa_api" as const, role: "primary" as const, status: "success" as const, duration_ms: 42 }],
 	};
 }

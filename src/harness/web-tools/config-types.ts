@@ -6,13 +6,15 @@ export interface WebToolsConfig {
 		fake_ip_ranges: string[];
 	};
 	websearch: {
-		provider_order: WebSearchProviderId[];
+		primary_providers: WebSearchProviderId[];
+		auxiliary_providers: WebSearchProviderId[];
 		default_results: number;
 		total_deadline_seconds: number;
 		include_domains: string[];
 		exclude_domains: string[];
 		brave_api: {
 			enabled: boolean;
+			max_results: number;
 			endpoint: string;
 			api_key: string;
 			timeout_seconds: number;
@@ -21,6 +23,7 @@ export interface WebToolsConfig {
 		};
 		exa_api: {
 			enabled: boolean;
+			max_results: number;
 			endpoint: string;
 			api_key: string;
 			timeout_seconds: number;
@@ -29,6 +32,15 @@ export interface WebToolsConfig {
 		};
 		tavily: {
 			enabled: boolean;
+			max_results: number;
+			endpoint: string;
+			api_key: string;
+			timeout_seconds: number;
+			response_bytes: number;
+		};
+		tinyfish: {
+			enabled: boolean;
+			max_results: number;
 			endpoint: string;
 			api_key: string;
 			timeout_seconds: number;
@@ -36,6 +48,7 @@ export interface WebToolsConfig {
 		};
 		duckduckgo_html: {
 			enabled: boolean;
+			max_results: number;
 			timeout_seconds: number;
 			user_agent: string;
 			region: string;

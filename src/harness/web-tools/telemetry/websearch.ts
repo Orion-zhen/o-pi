@@ -29,6 +29,6 @@ function webCandidates(details: WebSearchSuccessDetails): Candidate[] {
 		value: item.url,
 		rank: index + 1,
 		group: "primary",
-		sources: [details.provider],
+		sources: [item.provider],
 	}));
 }

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { defaultWebToolsConfig } from "./config-fixture.ts";
 import { resolveSearchApiKey } from "../../../src/harness/web-tools/search-providers/api-key.ts";
-import { buildBraveRequest, buildExaRequest, buildTavilyRequest, searchApiProvider, normalizeProviderResponse } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
+import { buildBraveRequest, buildExaRequest, buildTavilyRequest, buildTinyfishRequest, searchApiProvider, normalizeProviderResponse } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
 import { normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.ts";
 import { preserveEnv } from "../../helpers/lifecycle.ts";
 import { httpResponse } from "../../helpers/http.ts";
@@ -75,6 +75,15 @@ describe("搜索参数与提供方", () => {
 		expect(research.search_depth).toBe("basic");
 	});
 
+	it.each([11, 20])("Exa 和 Tavily 将 %i 条结果限制直接传给 API", (limit) => {
+		const config = defaultWebToolsConfig().websearch;
+		const params = normalizeSearchParams({ query: "pi docs", limit }, 8);
+		const exa = buildExaRequest(config.exa_api, params, "exa-secret");
+		const tavily = buildTavilyRequest(config.tavily, params, "tavily-secret");
+		expect(JSON.parse(exa.body ?? "null")).toMatchObject({ numResults: limit });
+		expect(JSON.parse(tavily.body ?? "null")).toMatchObject({ max_results: limit });
+	});
+
 	it("规范化三家响应并忽略 provider 原生相关度字段", () => {
 		const params = normalizeSearchParams({ query: "Alpha Beta Gamma", limit: 3 }, 8);
 		expect(normalizeProviderResponse("brave_api", { web: { results: [{ title: "A", url: "https://a.test/", description: "Alpha" }] } }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Alpha" }] });
@@ -82,7 +91,7 @@ describe("搜索参数与提供方", () => {
 		expect(normalizeProviderResponse("tavily", { results: [{ title: "C", url: "https://c.test/", content: "Gamma", score: 0.7 }] }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Gamma" }] });
 	});
 
-	it.each(["brave_api", "exa_api", "tavily"] as const)("%s 只按规范化 URL 去重，保留同标题不同页面", (id) => {
+	it.each(["brave_api", "exa_api", "tavily", "tinyfish"] as const)("%s 只按规范化 URL 去重，保留同标题不同页面", (id) => {
 		const rows = [
 			{ title: "Same title", url: "https://example.com/docs?utm_source=x#top" },
 			{ title: "Same title", url: "https://example.com/docs" },
@@ -95,6 +104,20 @@ describe("搜索参数与提供方", () => {
 			{ rank: 1, title: "Same title", url: "https://example.com/docs" },
 			{ rank: 2, title: "Same title", url: "https://example.com/other" },
 		] });
+	});
+
+	it("TinyFish 使用 GET、凭据头、结构化域名参数和 snippet", () => {
+		const params = normalizeSearchParams({ query: "site:example.com site:docs.test -site:spam.test Pi", limit: 4 }, 8);
+		const request = buildTinyfishRequest(defaultWebToolsConfig().websearch.tinyfish, params, "tinyfish-secret");
+		expect(request.method).toBe("GET");
+		expect(request.url.origin).toBe("https://api.search.tinyfish.ai");
+		expect(Object.fromEntries(request.url.searchParams)).toEqual({ query: "Pi", include_domains: "docs.test,example.com", exclude_domains: "spam.test" });
+		expect(request.headers["X-API-Key"]).toBe("tinyfish-secret");
+		expect(request.url.toString()).not.toContain("tinyfish-secret");
+		expect(normalizeProviderResponse("tinyfish", { results: [
+			{ position: 4, title: "Pi docs", url: "https://example.com/", snippet: "Pi reference" },
+		] }, params, 123)).toMatchObject({ status: "success", provider: "tinyfish", downloadedBytes: 123,
+			results: [{ rank: 1, title: "Pi docs", url: "https://example.com/", snippet: "Pi reference" }] });
 	});
 
 	it("总 deadline 在发请求前生效", async () => {

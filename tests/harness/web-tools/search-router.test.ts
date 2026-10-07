@@ -6,7 +6,7 @@ import type { SearchProviderResult, WebSearchProvider } from "../../../src/harne
 import type { WebSearchErrorCode, WebSearchProviderId } from "../../../src/harness/web-tools/core/types.ts";
 
 function provider(id: WebSearchProviderId, result: SearchProviderResult, calls: string[]): WebSearchProvider {
-	return { id, async search() { calls.push(id); return result; } };
+	return { id, maxResults: 20, async search() { calls.push(id); return result; } };
 }
 
 function success(id: WebSearchProviderId, count = 3): SearchProviderResult {
@@ -33,7 +33,11 @@ function context(now = () => 0) { return { now, deadlineAt: 20_000 }; }
 
 const ORDER = ["brave_api", "exa_api", "tavily", "duckduckgo_html"] as const;
 
-describe("串行搜索", () => {
+function createRouter(primary: WebSearchProvider[], auxiliary: WebSearchProvider[] = []) {
+	return new SearchProviderRouter({ primary, auxiliary });
+}
+
+describe("主提供方串行回退", () => {
 	it.each([
 		"pi agent",
 		"research papers about sparse mixture of experts routing",
@@ -41,9 +45,9 @@ describe("串行搜索", () => {
 		"如何查找相关研究论文",
 	])("查询不改变首选，少量无摘要结果也直接返回：%s", async (query) => {
 		const calls: string[] = [];
-		const router = new SearchProviderRouter(ORDER.map((id) => provider(id, success(id, 1), calls)));
+		const router = createRouter(ORDER.map((id) => provider(id, success(id, 1), calls)));
 		await expect(router.search(params(query), context())).resolves.toMatchObject({
-			status: "success", provider: "brave_api",
+			status: "success", providers: ["brave_api"],
 			attempts: [{ provider: "brave_api", status: "success", result_count: 1 }],
 		});
 		expect(calls).toEqual(["brave_api"]);
@@ -51,45 +55,45 @@ describe("串行搜索", () => {
 
 	it.each(["failed", "empty"] as const)("前序 %s 时按 Brave、Exa、Tavily、DDG 继续", async (outcome) => {
 		const calls: string[] = [];
-		const router = new SearchProviderRouter(ORDER.map((id) => provider(id,
+		const router = createRouter(ORDER.map((id) => provider(id,
 			id === "duckduckgo_html" ? success(id, 1) : outcome === "failed" ? failed(id) : success(id, 0), calls)));
 		const result = await router.search(params(), context());
-		expect(result).toMatchObject({ status: "success", provider: "duckduckgo_html" });
+		expect(result).toMatchObject({ status: "success", providers: ["duckduckgo_html"] });
 		expect(calls).toEqual(ORDER);
 	});
 
 	it("使用传入顺序，不按引擎名称重新排序", async () => {
 		const calls: string[] = [];
 		const order = [...ORDER].reverse();
-		const router = new SearchProviderRouter(order.map((id) => provider(id, success(id, 0), calls)));
+		const router = createRouter(order.map((id) => provider(id, success(id, 0), calls)));
 		await router.search(params(), context());
 		expect(calls).toEqual(order);
 	});
 
 	it.each(ORDER)("%s 是唯一可用提供方时直接调用", async (id) => {
 		const calls: string[] = [];
-		const router = new SearchProviderRouter([provider(id, success(id, 1), calls)]);
-		await expect(router.search(params(), context())).resolves.toMatchObject({ status: "success", provider: id });
+		const router = createRouter([provider(id, success(id, 1), calls)]);
+		await expect(router.search(params(), context())).resolves.toMatchObject({ status: "success", providers: [id] });
 		expect(calls).toEqual([id]);
 	});
 
 	it("第一家为空，第二家有结果时立即返回，不合并或限制同域数量", async () => {
 		const calls: string[] = [];
 		const batch = success("exa_api", 4);
-		const router = new SearchProviderRouter(ORDER.map((id) => provider(id,
+		const router = createRouter(ORDER.map((id) => provider(id,
 			id === "brave_api" ? success(id, 0) : id === "exa_api" ? batch : success(id), calls)));
 		const result = await router.search(params("site:example.com pi docs", 4), context());
-		expect(result).toMatchObject({ status: "success", provider: "exa_api", attempts: [
+		expect(result).toMatchObject({ status: "success", providers: ["exa_api"], attempts: [
 			{ provider: "brave_api", result_count: 0 }, { provider: "exa_api", result_count: 4 },
 		] });
 		if (result.status !== "success" || batch.status !== "success") throw new Error("expected results");
-		expect(result.results).toEqual(batch.results);
+		expect(result.results).toEqual(batch.results.map((item) => ({ ...item, provider: "exa_api" })));
 		expect(calls).toEqual(["brave_api", "exa_api"]);
 	});
 
 	it("域名过滤先于 limit，保留子域结果的相对顺序", async () => {
 		const calls: string[] = [];
-		const router = new SearchProviderRouter([provider("brave_api", {
+		const router = createRouter([provider("brave_api", {
 			status: "success", provider: "brave_api", downloadedBytes: 1,
 			results: ["notexample.com", "blocked.example.com", "docs.example.com", "example.com"].map((host, index) => ({
 				rank: index + 1, title: host, url: `https://${host}/`,
@@ -103,27 +107,27 @@ describe("串行搜索", () => {
 
 	it("第一家全部被域名约束排除时继续下一家", async () => {
 		const calls: string[] = [];
-		const router = new SearchProviderRouter([
+		const router = createRouter([
 			provider("brave_api", success("brave_api"), calls),
 			provider("exa_api", { status: "success", provider: "exa_api", downloadedBytes: 1,
 				results: [{ rank: 1, title: "Other", url: "https://allowed.test/" }] }, calls),
 		]);
-		await expect(router.search(params("site:allowed.test text"), context())).resolves.toMatchObject({ status: "success", provider: "exa_api" });
+		await expect(router.search(params("site:allowed.test text"), context())).resolves.toMatchObject({ status: "success", providers: ["exa_api"] });
 		expect(calls).toEqual(["brave_api", "exa_api"]);
 	});
 
 	it.each(["INVALID_ARGUMENT", "CONFIG_ERROR", "RATE_LIMITED", "QUOTA_EXHAUSTED"] as const)("提供方返回 %s 时仍可尝试下一家", async (code) => {
 		const calls: string[] = [];
-		const router = new SearchProviderRouter([
+		const router = createRouter([
 			provider("brave_api", failed("brave_api", code), calls), provider("exa_api", success("exa_api"), calls),
 		]);
-		await expect(router.search(params(), context())).resolves.toMatchObject({ status: "success", provider: "exa_api" });
+		await expect(router.search(params(), context())).resolves.toMatchObject({ status: "success", providers: ["exa_api"] });
 		expect(calls).toEqual(["brave_api", "exa_api"]);
 	});
 
 	it("没有提供方或所有提供方都为空时返回明确失败", async () => {
 		for (const providers of [[], ORDER.map((id) => provider(id, success(id, 0), []))]) {
-			await expect(new SearchProviderRouter(providers).search(params(), context())).resolves.toMatchObject({
+			await expect(createRouter(providers).search(params(), context())).resolves.toMatchObject({
 				status: "failed", details: { error: { code: "NO_PROVIDER_AVAILABLE" } },
 			});
 		}
@@ -131,7 +135,7 @@ describe("串行搜索", () => {
 
 	it("全部请求失败时保留最后错误和完整尝试记录", async () => {
 		const calls: string[] = [];
-		const router = new SearchProviderRouter(ORDER.map((id) => provider(id, failed(id, "HTTP_ERROR", 503), calls)));
+		const router = createRouter(ORDER.map((id) => provider(id, failed(id, "HTTP_ERROR", 503), calls)));
 		const result = await router.search(params(), context());
 		expect(result).toMatchObject({ status: "failed", details: {
 			provider: "duckduckgo_html", error: { code: "HTTP_ERROR" },
@@ -143,7 +147,7 @@ describe("串行搜索", () => {
 	it("已取消的请求不调用提供方", async () => {
 		const calls: string[] = [];
 		const signal = AbortSignal.abort();
-		const router = new SearchProviderRouter(ORDER.map((id) => provider(id, success(id), calls)));
+		const router = createRouter(ORDER.map((id) => provider(id, success(id), calls)));
 		await expect(router.search(params(), { ...context(), signal, userSignal: signal })).resolves.toMatchObject({
 			status: "failed", details: { error: { code: "ABORTED" } },
 		});
@@ -153,11 +157,11 @@ describe("串行搜索", () => {
 	it.each(["success", "failed"] as const)("请求期间取消后不返回 %s 结果或继续切换", async (outcome) => {
 		const calls: string[] = [];
 		const controller = new AbortController();
-		const first: WebSearchProvider = { id: "brave_api", async search() {
+		const first: WebSearchProvider = { id: "brave_api", maxResults: 20, async search() {
 			calls.push("brave_api"); controller.abort();
 			return outcome === "success" ? success("brave_api") : failed("brave_api");
 		} };
-		const router = new SearchProviderRouter([first, provider("exa_api", success("exa_api"), calls)]);
+		const router = createRouter([first, provider("exa_api", success("exa_api"), calls)]);
 		await expect(router.search(params(), { ...context(), signal: controller.signal, userSignal: controller.signal })).resolves.toMatchObject({
 			status: "failed", details: { error: { code: "ABORTED" } },
 		});
@@ -167,23 +171,23 @@ describe("串行搜索", () => {
 	it("总截止时间阻止后续提供方和 DDG", async () => {
 		let now = 0;
 		const calls: string[] = [];
-		const first: WebSearchProvider = { id: "brave_api", async search() {
+		const first: WebSearchProvider = { id: "brave_api", maxResults: 20, async search() {
 			calls.push("brave_api"); now = 11; return failed("brave_api");
 		} };
-		const router = new SearchProviderRouter([first, provider("exa_api", success("exa_api"), calls), provider("duckduckgo_html", success("duckduckgo_html"), calls)]);
+		const router = createRouter([first, provider("exa_api", success("exa_api"), calls), provider("duckduckgo_html", success("duckduckgo_html"), calls)]);
 		await expect(router.search(params(), { now: () => now, deadlineAt: 10 })).resolves.toMatchObject({ status: "failed", details: { error: { code: "TIMEOUT" } } });
 		expect(calls).toEqual(["brave_api"]);
 	});
 
 	it("正式提供方不保留跨调用冷却或失败缓存", async () => {
 		const calls: string[] = [];
-		const first: WebSearchProvider = { id: "brave_api", async search() {
+		const first: WebSearchProvider = { id: "brave_api", maxResults: 20, async search() {
 			calls.push("brave_api");
 			return calls.length === 1 ? failed("brave_api", "RATE_LIMITED", 429) : success("brave_api");
 		} };
-		const router = new SearchProviderRouter([first]);
+		const router = createRouter([first]);
 		await expect(router.search(params(), context())).resolves.toMatchObject({ status: "failed" });
-		await expect(router.search(params(), context())).resolves.toMatchObject({ status: "success", provider: "brave_api" });
+		await expect(router.search(params(), context())).resolves.toMatchObject({ status: "success", providers: ["brave_api"] });
 		expect(calls).toEqual(["brave_api", "brave_api"]);
 	});
 });

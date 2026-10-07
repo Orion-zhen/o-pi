@@ -1,47 +1,94 @@
-import type { WebSearchFailureDetails, WebSearchProviderAttempt } from "../core/types.ts";
+import type { WebSearchFailureDetails, WebSearchProviderAttempt, WebSearchProviderRole, WebSearchSuccessDetails } from "../core/types.ts";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult, WebSearchProvider } from "./types.ts";
 
-type ProviderSuccess = Extract<SearchProviderResult, { status: "success" }>;
+type ProviderOutcome = { result: SearchProviderResult; attempt: WebSearchProviderAttempt };
 
 export type SearchRouterResult =
-	| (ProviderSuccess & { attempts: WebSearchProviderAttempt[] })
+	| { status: "success"; providers: WebSearchSuccessDetails["providers"]; results: WebSearchSuccessDetails["results"]; downloadedBytes: number; attempts: WebSearchProviderAttempt[] }
 	| { status: "failed"; details: WebSearchFailureDetails };
 
-/** 按传入顺序尝试可用提供方，首批非空结果直接返回。 */
+export interface SearchProviderGroups {
+	primary: readonly WebSearchProvider[];
+	auxiliary: readonly WebSearchProvider[];
+}
+
+/** 主组串行回退，辅助组并发补充。合并顺序不依赖请求完成顺序。 */
 export class SearchProviderRouter {
-	constructor(private readonly providers: readonly WebSearchProvider[]) {}
+	constructor(private readonly providers: SearchProviderGroups) {}
 
 	async search(params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchRouterResult> {
-		const attempts: WebSearchProviderAttempt[] = [];
-		let lastFailure: WebSearchFailureDetails | undefined;
 		const stopped = interruption(params.query, context);
-		if (stopped !== undefined) return failure(stopped, attempts);
-		for (const provider of this.providers) {
-			const { id } = provider;
-			const started = context.now();
-			const response = await provider.search(params, context);
-			const duration = context.now() - started;
-			const result = response.status === "success"
-				? { ...response, results: response.results.filter((item) => matchesDomains(item.url, params)).slice(0, params.limit) }
-				: response;
-			attempts.push(result.status === "failed" ? {
-				provider: id, status: "failed", duration_ms: duration, error: result.details.error,
-				...(result.details.http_status !== undefined ? { http_status: result.details.http_status } : {}),
-			} : { provider: id, status: "success", duration_ms: duration, result_count: result.results.length });
-			const stoppedAfterRequest = interruption(params.query, context);
-			if (stoppedAfterRequest !== undefined) return failure(stoppedAfterRequest, attempts);
-			if (result.status === "failed") {
-				if (result.details.error.code === "ABORTED") return failure(result.details, attempts);
-				lastFailure = result.details;
-			} else if (result.results.length > 0) {
-				return { ...result, results: result.results.map((item, index) => ({ ...item, rank: index + 1 })), attempts };
+		if (stopped !== undefined) return failure(stopped, []);
+		const controller = new AbortController();
+		const requestContext = { ...context, signal: context.signal === undefined ? controller.signal : AbortSignal.any([context.signal, controller.signal]) };
+		try {
+			const [primary, auxiliary] = await Promise.all([
+				this.searchPrimary(params, requestContext),
+				Promise.all(this.providers.auxiliary.map((provider) => request(provider, "auxiliary", params, requestContext))),
+			]);
+			const outcomes = [...primary, ...auxiliary.filter((outcome): outcome is ProviderOutcome => outcome !== undefined)];
+			const attempts = outcomes.map(({ attempt }) => attempt);
+			const stoppedAfterRequests = interruption(params.query, context);
+			if (stoppedAfterRequests?.error.code === "ABORTED") return failure(stoppedAfterRequests, attempts);
+			const results: WebSearchSuccessDetails["results"] = [];
+			const providers: WebSearchSuccessDetails["providers"] = [];
+			const seen = new Set<string>();
+			let downloadedBytes = 0;
+			let lastFailure: WebSearchFailureDetails | undefined;
+			for (const { result } of outcomes) {
+				if (result.status === "failed") {
+					if (result.details.error.code === "ABORTED") return failure(result.details, attempts);
+					lastFailure = result.details;
+					continue;
+				}
+				downloadedBytes += result.downloadedBytes;
+				for (const item of result.results) {
+					if (seen.has(item.url) || results.length >= params.limit) continue;
+					seen.add(item.url);
+					results.push({ ...item, rank: results.length + 1, provider: result.provider });
+					if (!providers.includes(result.provider)) providers.push(result.provider);
+				}
 			}
+			if (results.length > 0) return { status: "success", providers, results, downloadedBytes, attempts };
+			return failure(stoppedAfterRequests ?? lastFailure ?? {
+				status: "failed", query: params.query,
+				error: { code: "NO_PROVIDER_AVAILABLE", message: "no search provider produced usable results." },
+			}, attempts);
+		} finally {
+			controller.abort();
 		}
-		return failure(lastFailure ?? {
-			status: "failed", query: params.query,
-			error: { code: "NO_PROVIDER_AVAILABLE", message: "no search provider produced usable results." },
-		}, attempts);
 	}
+
+	private async searchPrimary(params: NormalizedSearchParams, context: SearchProviderContext): Promise<ProviderOutcome[]> {
+		const outcomes: ProviderOutcome[] = [];
+		for (const provider of this.providers.primary) {
+			const outcome = await request(provider, "primary", params, context);
+			if (outcome === undefined) break;
+			outcomes.push(outcome);
+			const { result } = outcome;
+			if (result.status === "success" ? result.results.length > 0 : result.details.error.code === "ABORTED") break;
+		}
+		return outcomes;
+	}
+}
+
+async function request(provider: WebSearchProvider, role: WebSearchProviderRole, params: NormalizedSearchParams, context: SearchProviderContext): Promise<ProviderOutcome | undefined> {
+	if (interruption(params.query, context) !== undefined) return undefined;
+	const started = context.now();
+	const limit = Math.min(params.limit, provider.maxResults);
+	const response = await provider.search({ ...params, limit }, context);
+	const stopped = interruption(params.query, context);
+	const result: SearchProviderResult = stopped !== undefined
+		? { status: "failed", provider: provider.id, details: stopped }
+		: response.status === "success"
+			? { ...response, results: response.results.filter((item) => matchesDomains(item.url, params)).slice(0, limit) }
+			: response;
+	const duration_ms = context.now() - started;
+	const attempt: WebSearchProviderAttempt = result.status === "failed"
+		? { provider: provider.id, role, status: "failed", duration_ms, error: result.details.error,
+			...(result.details.http_status !== undefined ? { http_status: result.details.http_status } : {}) }
+		: { provider: provider.id, role, status: "success", duration_ms, result_count: result.results.length };
+	return { result, attempt };
 }
 
 function matchesDomains(rawUrl: string, params: NormalizedSearchParams): boolean {

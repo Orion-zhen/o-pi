@@ -2,10 +2,10 @@ import type { SubagentCompletedResult, SubagentDetails } from "../../src/harness
 import type { WebFetchSuccessDetails, WebSearchSuccessDetails } from "../../src/harness/web-tools/core/types.ts";
 
 export const searchDetails: WebSearchSuccessDetails = {
-	status: "success", query: "React streaming UI", provider: "brave_api", downloaded_bytes: 2048, duration_ms: 120, attempts: [],
+	status: "success", query: "React streaming UI", providers: ["brave_api", "tinyfish"], downloaded_bytes: 2048, duration_ms: 120, attempts: [],
 	results: [
-		{ rank: 1, title: "React 文档", url: "https://react.dev/learn?source=search", snippet: "了解组件与流式交互。" },
-		{ rank: 2, title: "设计参考", url: "https://example.com/design", snippet: "让用户专注于最终回复。" },
+		{ rank: 1, provider: "brave_api", title: "React 文档", url: "https://react.dev/learn?source=search", snippet: "了解组件与流式交互。" },
+		{ rank: 2, provider: "tinyfish", title: "设计参考", url: "https://example.com/design", snippet: "让用户专注于最终回复。" },
 	],
 };
 export const fetchDetails: WebFetchSuccessDetails = {

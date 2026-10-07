@@ -3,7 +3,8 @@ export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "image
 export type WebFetchPageKind = "article" | "image" | "video" | "audio" | "pdf" | "generic";
 export type WebFetchTextSource = "readability" | "semantic" | "body" | "metadata" | "pdf";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
-export type FormalWebSearchProviderId = "brave_api" | "exa_api" | "tavily";
+export type FormalWebSearchProviderId = "brave_api" | "exa_api" | "tavily" | "tinyfish";
+export type WebSearchProviderRole = "primary" | "auxiliary";
 export type WebSearchProviderId = FormalWebSearchProviderId | "duckduckgo_html";
 
 export interface WebFetchParams {
@@ -138,6 +139,7 @@ export interface WebSearchProgressDetails {
 
 export interface WebSearchProviderAttempt {
 	provider: WebSearchProviderId;
+	role: WebSearchProviderRole;
 	status: "success" | "failed";
 	duration_ms?: number;
 	error?: { code: WebSearchErrorCode; message: string };
@@ -148,8 +150,8 @@ export interface WebSearchProviderAttempt {
 export interface WebSearchSuccessDetails {
 	status: "success";
 	query: string;
-	provider: WebSearchProviderId;
-	results: WebSearchItem[];
+	providers: WebSearchProviderId[];
+	results: (WebSearchItem & { provider: WebSearchProviderId })[];
 	downloaded_bytes: number;
 	duration_ms: number;
 	attempts: WebSearchProviderAttempt[];

@@ -34,5 +34,6 @@ export type SearchProviderResult =
 /** 提供方只执行请求，连接资源由共享 dispatcher 管理。 */
 export interface WebSearchProvider {
 	id: WebSearchProviderId;
+	maxResults: number;
 	search(params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchProviderResult>;
 }

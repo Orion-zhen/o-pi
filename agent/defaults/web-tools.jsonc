@@ -15,9 +15,10 @@
 		]
 	},
 	"websearch": {
-		// 按此顺序尝试，须包含全部引擎且不重复。各引擎的 enabled 控制启停。
-		"provider_order": ["brave_api", "exa_api", "tavily", "duckduckgo_html"],
-		// 模型未传 limit 时使用。
+		// 主组按顺序回退，辅助组全部并发请求。两组须包含全部引擎且不重复。
+		"primary_providers": ["brave_api", "exa_api", "tavily", "duckduckgo_html"],
+		"auxiliary_providers": ["tinyfish"],
+		// 合并去重后的总条数上限，模型未传 limit 时使用。
 		"default_results": 8,
 		// 包括 provider timeout、fallback 和 DDG 等待。
 		"total_deadline_seconds": 20,
@@ -29,6 +30,7 @@
 		],
 		"brave_api": {
 			"enabled": true,
+			"max_results": 5,
 			"endpoint": "https://api.search.brave.com/res/v1/web/search",
 			// 可直接填写 key；推荐用 $NAME 或 ${NAME} 引用环境变量；为空或无法解析时自动禁用。
 			"api_key": "$BRAVE_SEARCH_API_KEY",
@@ -38,6 +40,7 @@
 		},
 		"exa_api": {
 			"enabled": true,
+			"max_results": 5,
 			"endpoint": "https://api.exa.ai/search",
 			"api_key": "$EXA_API_KEY",
 			"timeout_seconds": 10,
@@ -46,13 +49,23 @@
 		},
 		"tavily": {
 			"enabled": true,
+			"max_results": 5,
 			"endpoint": "https://api.tavily.com/search",
 			"api_key": "$TAVILY_API_KEY",
 			"timeout_seconds": 10,
 			"response_bytes": 2097152
 		},
+		"tinyfish": {
+			"enabled": true,
+			"max_results": 5,
+			"endpoint": "https://api.search.tinyfish.ai",
+			"api_key": "$TINYFISH_API_KEY",
+			"timeout_seconds": 8,
+			"response_bytes": 2097152
+		},
 		"duckduckgo_html": {
 			"enabled": true,
+			"max_results": 5,
 			// 包括请求和响应读取。
 			"timeout_seconds": 15,
 			// DDG HTML 需要浏览器形态 UA 才能稳定返回桌面结果页面。

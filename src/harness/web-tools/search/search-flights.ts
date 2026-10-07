@@ -36,6 +36,7 @@ export function providerSignature(config: WebToolsConfig["websearch"]): string {
 		brave_api: providerConfigSignature(config.brave_api),
 		exa_api: providerConfigSignature(config.exa_api),
 		tavily: providerConfigSignature(config.tavily),
+		tinyfish: providerConfigSignature(config.tinyfish),
 	});
 }
 

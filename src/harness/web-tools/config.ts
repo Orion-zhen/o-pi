@@ -50,9 +50,15 @@ function materializeConfig(raw: WebToolsConfig): WebToolsConfig {
 	}
 	validateProxyConfig(config.network.proxy);
 	validateFakeIpRanges(config.network.fake_ip_ranges);
+	const providers = [...websearch.primary_providers, ...websearch.auxiliary_providers];
+	const providerCount = Object.values(websearch).filter((value) => typeof value === "object" && value !== null && "enabled" in value).length;
+	if (providers.length !== providerCount || new Set(providers).size !== providers.length) {
+		throw new WebToolsConfigError("websearch provider groups must contain every provider exactly once.");
+	}
 	validateProviderUrl("brave_api", config.websearch.brave_api.endpoint);
 	validateProviderUrl("exa_api", config.websearch.exa_api.endpoint);
 	validateProviderUrl("tavily", config.websearch.tavily.endpoint);
+	validateProviderUrl("tinyfish", config.websearch.tinyfish.endpoint);
 	return config;
 }
 
