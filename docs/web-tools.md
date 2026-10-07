@@ -49,9 +49,9 @@ websearch({
 
 提供方不暴露给模型，分为主组和辅助组：
 
-- `websearch.primary_providers`：按顺序回退，默认 `brave_api → exa_api → tavily`。请求失败或域名过滤后无结果时继续下一家。首个非空批次作为主结果，不为补满条数继续回退。
+- `websearch.primary_providers`：按顺序回退，默认 `brave_api → exa_api → tavily → exa_mcp`。请求失败或域名过滤后无结果时继续下一家。首个非空批次作为主结果，不为补满条数继续回退。
 - `websearch.auxiliary_providers`：全部并发请求，默认顺序为 `tinyfish → anysearch`。辅助请求与主组同时启动，即使主结果已达到总条数上限也会执行。
-- 两组须包含全部五个引擎且不重复，任一组可以为空。各引擎的 `enabled` 控制启停。未启用的引擎会被跳过。除 AnySearch 支持匿名访问外，缺少凭据的引擎也会被跳过。
+- 两组须包含全部六个引擎且不重复，任一组可以为空。各引擎的 `enabled` 控制启停。未启用的引擎会被跳过。Exa MCP 无需凭据，AnySearch 支持匿名访问，其他引擎缺少凭据时会被跳过。
 - 先合并主结果，再按辅助组配置顺序追加结果。按规范化 URL 去重，重复时保留排在前面的结果，最后按 `limit` 截断并连续编号。请求完成顺序不影响结果顺序。
 - 单家失败不丢弃其他家的成功结果。主组不可用时可以只返回辅助结果，全部无可用结果时返回失败。总截止时间到期后保留已完成的结果，用户取消则终止整个搜索。
 
@@ -60,7 +60,7 @@ websearch({
 ```jsonc
 {
   "websearch": {
-    "primary_providers": ["exa_api", "brave_api", "tavily"],
+    "primary_providers": ["exa_api", "brave_api", "tavily", "exa_mcp"],
     "auxiliary_providers": ["tinyfish", "anysearch"],
     "default_results": 8,
     "exa_api": { "max_results": 5 },
@@ -70,14 +70,15 @@ websearch({
 }
 ```
 
-分组、顺序、条数和启停配置在下次调用生效，已开始的请求继续使用原配置。旧 `provider_order` 已移除，现有覆盖文件需改用上述分组字段。设置界面支持调整分组、组内顺序及各引擎的条数上限。已有分组覆盖须包含 `anysearch`，否则配置校验失败。
+分组、顺序、条数和启停配置在下次调用生效，已开始的请求继续使用原配置。旧 `provider_order` 已移除，现有覆盖文件需改用上述分组字段。设置界面支持调整分组、组内顺序及各引擎的条数上限。已有分组覆盖须包含 `anysearch` 和 `exa_mcp`，否则配置校验失败。可删除分组覆盖以恢复默认顺序。
 
 约束：
 
-- 各 provider 使用 `api_key`：可直接填写 key，也可用 `$NAME` / `${NAME}` 引用环境变量。解析规则与 `openai-compatible-provider` 一致。除 AnySearch 改用匿名访问外，空字符串、空白值或无法解析的引用会自动禁用该 provider。引用随后可用时会在下次搜索自动恢复。默认分别引用 `BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`TAVILY_API_KEY`、`TINYFISH_API_KEY`、`ANYSEARCH_API_KEY`，推荐使用环境变量，避免把 key 写入配置文件。
+- 除 Exa MCP 外，各 provider 使用 `api_key`：可直接填写 key，也可用 `$NAME` / `${NAME}` 引用环境变量。解析规则与 `openai-compatible-provider` 一致。除 AnySearch 改用匿名访问外，空字符串、空白值或无法解析的引用会自动禁用该 provider。引用随后可用时会在下次搜索自动恢复。默认分别引用 `BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`TAVILY_API_KEY`、`TINYFISH_API_KEY`、`ANYSEARCH_API_KEY`，推荐使用环境变量，避免把 key 写入配置文件。
 - 搜索 API endpoint 只允许公开 HTTP(S) literal URL，拒绝 userinfo、localhost 和 literal 私网/回环/link-local IP。
-- Brave 和 AnySearch 将域名条件重建为 `site:` / `-site:`，多个包含域名使用 OR。Exa、Tavily 和 TinyFish 使用结构化域名参数。
+- Brave 和 AnySearch 将域名条件重建为 `site:` / `-site:`，多个包含域名使用 OR。Exa API、Exa MCP、Tavily 和 TinyFish 使用结构化域名参数。
 - Exa 固定使用 `type: auto`，不自动限定内容分类。Tavily 固定使用 `search_depth: basic`。
+- Exa MCP 默认连接 `https://mcp.exa.ai/mcp`，通过官方 MCP SDK 调用 `web_search_advanced_exa`，无需 API key。使用结构化域名参数，读取 JSON 中的标题、URL、highlights 和 text，不暴露额外工具给模型。初始化与搜索共用提供方超时和剩余总预算，不自动重连或跟随重定向。每次请求使用独立会话，结束时尝试终止远端会话，清理最多额外等待一秒，本地连接始终关闭。公共服务受免费限流约束，零配置可用不保证服务始终可用。有凭据的前序引擎连续超时可能耗尽总预算，导致 MCP 未被调用。
 - TinyFish 使用 `GET https://api.search.tinyfish.ai` 和 `X-API-Key`。仅请求首页，读取标题、URL 和 `snippet`，不自动翻页。接口未提供条数参数，本地应用 `max_results`。
 - AnySearch 使用 `POST https://api.anysearch.com/v1/search`，读取 `data.results` 的标题、URL、`content` 和 `snippet`。`max_results` 上限为 10，不自动限定垂直领域。有密钥时使用 Bearer 认证，缺少凭据时省略认证头。认证请求返回 401、402 或 403 时，最多重试一次匿名请求，重试与原请求共用提供方超时和总截止时间。网络错误、超时及普通限流不触发匿名重试。匿名访问按 IP 限流并使用每日免费额度。匿名额度耗尽时不继续重试，也不保存或使用响应中的新凭据。
 - 结果仅做 URL 规范化、相同 URL 去重和显式域名过滤。保留提供方顺序，不按相关度、摘要长度或域名多样性过滤、补搜或重排。

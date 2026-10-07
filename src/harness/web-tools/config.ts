@@ -57,6 +57,7 @@ function materializeConfig(raw: WebToolsConfig): WebToolsConfig {
 	}
 	validateProviderUrl("brave_api", config.websearch.brave_api.endpoint);
 	validateProviderUrl("exa_api", config.websearch.exa_api.endpoint);
+	validateProviderUrl("exa_mcp", config.websearch.exa_mcp.endpoint);
 	validateProviderUrl("tavily", config.websearch.tavily.endpoint);
 	validateProviderUrl("tinyfish", config.websearch.tinyfish.endpoint);
 	validateProviderUrl("anysearch", config.websearch.anysearch.endpoint);

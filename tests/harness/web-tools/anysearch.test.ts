@@ -47,7 +47,7 @@ describe("AnySearch 辅助搜索", () => {
 		expect(request?.[0].toString()).toBe("https://api.anysearch.com/v1/search");
 		expect(request?.[1]).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" } });
 		expect(request?.[1].headers).not.toHaveProperty("Authorization");
-		expect(JSON.parse(request?.[1].body ?? "null")).toEqual({ query: "Pi site:example.com -site:csdn.com -site:gitcode.com", max_results: 5, format: "json" });
+		expect(JSON.parse(request?.[1].body ?? "null")).toEqual({ query: "Pi site:example.com -site:csdn.com -site:gitcode.com", max_results: config.websearch.anysearch.max_results, format: "json" });
 	});
 
 	it.each(["literal-key", "$ANYSEARCH_API_KEY", "${ANYSEARCH_API_KEY}"])("凭据 %j 可用时发送 Bearer", async (key) => {

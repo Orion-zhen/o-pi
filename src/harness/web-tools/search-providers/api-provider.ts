@@ -10,9 +10,10 @@ import { filteredLexicalQuery } from "./query.ts";
 import { selectSearchSnippet } from "./snippets.ts";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
+type ApiProviderId = Exclude<WebSearchProviderId, "exa_mcp">;
 type ProviderConfig = {
-	[Id in WebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id]; key: Id extends "anysearch" ? string | undefined : string };
-}[WebSearchProviderId];
+	[Id in ApiProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id]; key: Id extends "anysearch" ? string | undefined : string };
+}[ApiProviderId];
 
 export type ApiProviderOptions = ProviderConfig & {
 	dispatcher: () => Promise<Dispatcher>;
@@ -164,12 +165,12 @@ function normalizedItem(id: WebSearchProviderId, row: Record<string, unknown>, r
 	if (url === undefined) return undefined;
 	const title = normalizeSearchText(string(row["title"]) ?? url).slice(0, SEARCH_RESULT_MAX_TITLE_CHARS) || url;
 	const candidates = id === "anysearch" ? [row["content"], row["snippet"]]
-		: [row[id === "tavily" ? "content" : id === "tinyfish" ? "snippet" : "description"], ...array(row["highlights"]), ...array(row["extra_snippets"])];
+		: [row[id === "tavily" ? "content" : id === "tinyfish" ? "snippet" : "description"], ...array(row["highlights"]), ...array(row["extra_snippets"]), ...(id === "exa_mcp" ? [row["text"]] : [])];
 	const snippet = selectSearchSnippet(candidates.filter((value): value is string => typeof value === "string"), query);
 	return { rank, title, url, ...(snippet ? { snippet } : {}) };
 }
 
-function classifyHttpStatus(status: number, body: string): { code: WebSearchErrorCode; message: string } {
+export function classifyHttpStatus(status: number, body: string): { code: WebSearchErrorCode; message: string } {
 	const lower = body.toLowerCase();
 	if (status === 429) return { code: "RATE_LIMITED", message: "search provider rate limit exceeded." };
 	if (status === 402 || lower.includes("quota") || lower.includes("credit") && lower.includes("exhaust")) return { code: "QUOTA_EXHAUSTED", message: "search provider quota exhausted." };

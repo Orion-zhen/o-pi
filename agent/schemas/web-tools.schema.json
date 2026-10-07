@@ -36,12 +36,13 @@
 			"properties": {
 				"primary_providers": {
 					"type": "array",
-					"maxItems": 5,
+					"maxItems": 6,
 					"uniqueItems": true,
 					"items": {
 						"oneOf": [
 							{ "const": "brave_api", "title": "Brave" },
 							{ "const": "exa_api", "title": "Exa" },
+							{ "const": "exa_mcp", "title": "Exa MCP" },
 							{ "const": "tavily", "title": "Tavily" },
 							{ "const": "tinyfish", "title": "TinyFish" },
 							{ "const": "anysearch", "title": "AnySearch" }
@@ -50,12 +51,13 @@
 				},
 				"auxiliary_providers": {
 					"type": "array",
-					"maxItems": 5,
+					"maxItems": 6,
 					"uniqueItems": true,
 					"items": {
 						"oneOf": [
 							{ "const": "brave_api", "title": "Brave" },
 							{ "const": "exa_api", "title": "Exa" },
+							{ "const": "exa_mcp", "title": "Exa MCP" },
 							{ "const": "tavily", "title": "Tavily" },
 							{ "const": "tinyfish", "title": "TinyFish" },
 							{ "const": "anysearch", "title": "AnySearch" }
@@ -104,6 +106,19 @@
 						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
 						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.exa.ai/search" },
 						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$EXA_API_KEY" },
+						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
+						"highlight_chars": { "title": "摘要长度（字符）", "type": "integer", "minimum": 100, "maximum": 2000, "default": 600 }
+					}
+				},
+				"exa_mcp": {
+					"type": "object",
+					"additionalProperties": false,
+					"description": "免 API key，受 Exa 公共 MCP 免费限流约束。",
+					"properties": {
+						"enabled": { "type": "boolean", "default": true },
+						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 8 },
+						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://mcp.exa.ai/mcp" },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
 						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
 						"highlight_chars": { "title": "摘要长度（字符）", "type": "integer", "minimum": 100, "maximum": 2000, "default": 600 }

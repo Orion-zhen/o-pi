@@ -30,6 +30,14 @@ export interface WebToolsConfig {
 			response_bytes: number;
 			highlight_chars: number;
 		};
+		exa_mcp: {
+			enabled: boolean;
+			max_results: number;
+			endpoint: string;
+			timeout_seconds: number;
+			response_bytes: number;
+			highlight_chars: number;
+		};
 		tavily: {
 			enabled: boolean;
 			max_results: number;

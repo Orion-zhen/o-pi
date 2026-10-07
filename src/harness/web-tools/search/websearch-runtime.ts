@@ -12,6 +12,7 @@ import { executeWebSearch } from "./websearch-tool.ts";
 export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearchCapability {
 	const searches = new SearchFlights();
 	let apiModule: Promise<typeof import("../search-providers/api-provider.ts")> | undefined;
+	let mcpModule: Promise<typeof import("../search-providers/exa-mcp-provider.ts")> | undefined;
 	return {
 		async search(params, context) {
 			let config: WebToolsConfig;
@@ -44,6 +45,17 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 		} as const;
 		for (const id of order) {
 			if (!config.websearch[id].enabled) continue;
+			if (id === "exa_mcp") {
+				const providerConfig = config.websearch.exa_mcp;
+				result.push({
+					id, maxResults: providerConfig.max_results,
+					async search(params, context) {
+						mcpModule ??= import("../search-providers/exa-mcp-provider.ts");
+						return (await mcpModule).searchExaMcp({ config: providerConfig, ...shared }, params, context);
+					},
+				});
+				continue;
+			}
 			const provider = formal[id];
 			const key = resolveSearchApiKey(provider.config.api_key);
 			const credentials = provider.id === "anysearch" ? { ...provider, key }

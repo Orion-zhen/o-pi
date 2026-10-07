@@ -54,6 +54,7 @@
 		"@earendil-works/pi-tui": "latest",
 		"@mathjax/mathjax-tex-font": "latest",
 		"@mathjax/src": "latest",
+		"@modelcontextprotocol/sdk": "latest",
 		"@mozilla/readability": "latest",
 		"@napi-rs/canvas": "latest",
 		"@react-symbols/icons": "latest",

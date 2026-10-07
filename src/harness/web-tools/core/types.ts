@@ -3,7 +3,7 @@ export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "image
 export type WebFetchPageKind = "article" | "image" | "video" | "audio" | "pdf" | "generic";
 export type WebFetchTextSource = "readability" | "semantic" | "body" | "metadata" | "pdf";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
-export type WebSearchProviderId = "brave_api" | "exa_api" | "tavily" | "tinyfish" | "anysearch";
+export type WebSearchProviderId = "brave_api" | "exa_api" | "exa_mcp" | "tavily" | "tinyfish" | "anysearch";
 export type WebSearchProviderRole = "primary" | "auxiliary";
 
 export interface WebFetchParams {

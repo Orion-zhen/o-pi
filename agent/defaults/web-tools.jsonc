@@ -16,10 +16,10 @@
 	},
 	"websearch": {
 		// 主组按顺序回退，辅助组全部并发请求。两组须包含全部引擎且不重复。
-		"primary_providers": ["brave_api", "exa_api", "tavily"],
+		"primary_providers": ["brave_api", "exa_api", "tavily", "exa_mcp"],
 		"auxiliary_providers": ["tinyfish", "anysearch"],
 		// 合并去重后的总条数上限，模型未传 limit 时使用。
-		"default_results": 8,
+		"default_results": 12,
 		// 包括提供方超时和回退。
 		"total_deadline_seconds": 20,
 		// 每次搜索都至少应用；query 中的 site: / -site: 会继续合并。
@@ -30,7 +30,7 @@
 		],
 		"brave_api": {
 			"enabled": true,
-			"max_results": 5,
+			"max_results": 8,
 			"endpoint": "https://api.search.brave.com/res/v1/web/search",
 			// 可直接填写 key；推荐用 $NAME 或 ${NAME} 引用环境变量；为空或无法解析时自动禁用。
 			"api_key": "$BRAVE_SEARCH_API_KEY",
@@ -40,16 +40,25 @@
 		},
 		"exa_api": {
 			"enabled": true,
-			"max_results": 5,
+			"max_results": 8,
 			"endpoint": "https://api.exa.ai/search",
 			"api_key": "$EXA_API_KEY",
 			"timeout_seconds": 10,
 			"response_bytes": 2097152,
 			"highlight_chars": 600
 		},
+		"exa_mcp": {
+			// 公共 MCP 免 key，受免费限流约束。
+			"enabled": true,
+			"max_results": 8,
+			"endpoint": "https://mcp.exa.ai/mcp",
+			"timeout_seconds": 10,
+			"response_bytes": 2097152,
+			"highlight_chars": 600
+		},
 		"tavily": {
 			"enabled": true,
-			"max_results": 5,
+			"max_results": 8,
 			"endpoint": "https://api.tavily.com/search",
 			"api_key": "$TAVILY_API_KEY",
 			"timeout_seconds": 10,
@@ -57,7 +66,7 @@
 		},
 		"tinyfish": {
 			"enabled": true,
-			"max_results": 5,
+			"max_results": 8,
 			"endpoint": "https://api.search.tinyfish.ai",
 			"api_key": "$TINYFISH_API_KEY",
 			"timeout_seconds": 8,
@@ -65,7 +74,7 @@
 		},
 		"anysearch": {
 			"enabled": true,
-			"max_results": 5,
+			"max_results": 8,
 			"endpoint": "https://api.anysearch.com/v1/search",
 			// 缺少凭据时匿名请求。密钥被拒绝或额度耗尽时重试一次匿名请求。
 			"api_key": "$ANYSEARCH_API_KEY",

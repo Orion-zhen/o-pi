@@ -1,11 +1,10 @@
 import { Agent } from "undici";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { searchApiProvider } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
+import { searchApiProvider, type ApiProviderOptions } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
 import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.ts";
 import { executeWebSearch } from "../../../src/harness/web-tools/search/websearch-tool.ts";
 import { SearchFlights } from "../../../src/harness/web-tools/search/search-flights.ts";
-import type { WebSearchProviderId } from "../../../src/harness/web-tools/core/types.ts";
 import { defaultWebToolsConfig } from "./config-fixture.ts";
 import { httpResponse } from "../../helpers/http.ts";
 
@@ -16,7 +15,7 @@ const QUERY = '"WidgetError" v2.4';
 const EXACT = "WidgetError in v2.4 requires an explicit timeout.";
 const INTRO = "General product introduction without the requested details. ".repeat(15);
 
-async function search(id: WebSearchProviderId, fields: Record<string, unknown>, query = QUERY) {
+async function search(id: ApiProviderOptions["id"], fields: Record<string, unknown>, query = QUERY) {
 	const config = defaultWebToolsConfig();
 	const dispatcher = new Agent();
 	dispatchers.push(dispatcher);

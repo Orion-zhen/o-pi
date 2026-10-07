@@ -26,7 +26,7 @@ preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES", "BRAVE_SEARCH_API_KEY
 beforeEach(async () => {
 	process.env.PI_WEB_TOOLS_CONFIG = path.join(temp.path, "config.jsonc");
 	process.env.PI_WEB_TOOLS_COOKIES = path.join(temp.path, "missing-cookies.txt");
-	await writeFile(process.env.PI_WEB_TOOLS_CONFIG, JSON.stringify({ websearch: { anysearch: { enabled: false } } }));
+	await writeFile(process.env.PI_WEB_TOOLS_CONFIG, JSON.stringify({ websearch: { anysearch: { enabled: false }, exa_mcp: { enabled: false } } }));
 	process.env.BRAVE_SEARCH_API_KEY = "test-key";
 	delete process.env.EXA_API_KEY;
 	delete process.env.TAVILY_API_KEY;
@@ -43,6 +43,7 @@ describe("web-tools runtime", () => {
 	it("api_key 为空时不创建 provider，引用可用后自动恢复", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		config.websearch.brave_api.api_key = "";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
 		const createApi = vi.spyOn(apiModule, "searchApiProvider");
@@ -60,6 +61,7 @@ describe("web-tools runtime", () => {
 	it.each(["brave_api", "exa_api", "tavily"] as const)("只配置 %s 时仍使用该正式 provider", async (selected) => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		for (const id of ["brave_api", "exa_api", "tavily"] as const) config.websearch[id].enabled = id === selected;
 		config.websearch[selected].api_key = "literal-key";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
@@ -72,6 +74,7 @@ describe("web-tools runtime", () => {
 	it("固定顺序贯穿真实请求适配，失败和空结果后继续，Tavily 有结果即停止", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		for (const id of ["brave_api", "exa_api", "tavily"] as const) {
 			config.websearch[id].enabled = true;
 			config.websearch[id].api_key = "test-key";
@@ -96,6 +99,7 @@ describe("web-tools runtime", () => {
 	it("按配置顺序跳过禁用和缺少凭据的引擎", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		config.websearch.primary_providers = ["tavily", "exa_api", "brave_api"];
 		config.websearch.tavily.enabled = false;
 		config.websearch.tavily.api_key = "available-but-disabled";
@@ -112,6 +116,7 @@ describe("web-tools runtime", () => {
 	it("调整顺序不会合并到旧顺序的进行中请求，全部禁用后不发送请求", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		config.websearch.exa_api.api_key = "exa-key";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
 		const started = deferredVoid();
@@ -143,6 +148,7 @@ describe("web-tools runtime", () => {
 	it("TinyFish 与主引擎汇总，规范化去重、域名过滤和两层条数限制贯穿真实适配", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		config.websearch.brave_api.max_results = 2;
 		config.websearch.tinyfish.api_key = "$TINYFISH_API_KEY";
 		config.websearch.tinyfish.max_results = 3;
@@ -180,6 +186,7 @@ describe("web-tools runtime", () => {
 	it("TinyFish 凭据热更新隔离同名进行中请求，缺少凭据时跳过辅助请求", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		for (const id of config.websearch.primary_providers) config.websearch[id].enabled = false;
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
 		const runtime = trackRuntime();
@@ -207,6 +214,7 @@ describe("web-tools runtime", () => {
 	it("响应先按域名过滤再截取 limit，不因前排被排除而误判为空", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
 		network.fetch.mockResolvedValue(httpResponse(200, JSON.stringify({ web: { results: [
 			{ title: "Excluded", url: "https://example.org/" },
@@ -221,6 +229,7 @@ describe("web-tools runtime", () => {
 	it("失败请求不污染后续搜索，未调用时不发起网络请求", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
 		network.fetch.mockRejectedValueOnce(new Error("connection refused")).mockResolvedValue(searchResponse("brave_api"));
 		const runtime = trackRuntime();
@@ -334,6 +343,7 @@ describe("web-tools runtime", () => {
 	it("网络配置热更新不会合并到旧网络上的同名搜索", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
 		const started = deferredVoid();
 		const release = deferredVoid();
@@ -359,6 +369,7 @@ describe("web-tools runtime", () => {
 	it("fetch 分页复用 snapshot，避免重复下载", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
 		config.webfetch.limits.default_output_chars = 1000;
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
 		network.fetch.mockImplementation(async () => httpResponse(200, "x".repeat(2000)));

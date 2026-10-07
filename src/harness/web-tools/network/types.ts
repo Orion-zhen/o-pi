@@ -49,7 +49,7 @@ export interface WebHttpBodyReader {
 
 /** 重定向由安全网络边界显式处理。 */
 export interface WebHttpRequestInit {
-	method: "GET" | "POST";
+	method: "GET" | "POST" | "DELETE";
 	redirect: "manual";
 	dispatcher?: Dispatcher;
 	signal: AbortSignal;

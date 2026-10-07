@@ -67,6 +67,14 @@ describe("websearch renderer", () => {
 		expect(expanded).not.toContain("\u001b");
 	});
 
+	it("Exa MCP 来源和失败详情可渲染", () => {
+		const details = { ...successDetails(1), providers: ["exa_mcp"], results: [
+			{ ...successDetails(1).results[0], provider: "exa_mcp" },
+		], attempts: [{ provider: "exa_mcp", role: "primary", status: "success" }] };
+		expect(formatWebSearchResult(details, { expanded: true }, theme)).toContain("exa_mcp");
+		expect(formatWebSearchResult({ status: "failed", provider: "exa_mcp", error: { code: "RATE_LIMITED", message: "limited" } }, { expanded: true }, theme)).toContain("RATE_LIMITED");
+	});
+
 	it("主辅汇总显示多个来源，不误标为 fallback", () => {
 		const details = { ...successDetails(2), providers: ["brave_api", "tinyfish", "anysearch"], attempts: [
 			{ provider: "brave_api", role: "primary", status: "success", result_count: 1 },
