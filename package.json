@@ -36,6 +36,7 @@
 		"@vitest/coverage-v8": "latest",
 		"electron": "latest",
 		"electron-builder": "latest",
+		"flubber": "latest",
 		"jiti": "latest",
 		"mdast-util-from-markdown": "latest",
 		"micromark-util-types": "latest",

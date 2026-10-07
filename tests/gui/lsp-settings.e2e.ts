@@ -92,7 +92,6 @@ test("LSP 命令查询失败可刷新重试，缺失命令展示修复提示", a
 	await expect(section.getByText('["definitely-missing-gui-lsp"]', { exact: true })).toBeVisible();
 	await expect(section.getByText("请确认命令已安装，且 GUI 后端能通过 PATH 或配置路径找到它。", { exact: true })).toBeVisible();
 	await expect(section.getByRole("alert")).toHaveCount(0);
-	await page.emulateMedia({ reducedMotion: "reduce" });
 	await trigger.click();
 	await expect(trigger).toHaveAttribute("aria-expanded", "false");
 });

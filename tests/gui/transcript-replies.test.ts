@@ -20,6 +20,30 @@ const manualSkill = {
 } as const;
 const replies = (value: ReturnType<typeof source>) => transcriptReplies(value).filter((row) => row.kind === "reply");
 
+describe("回复末尾活动标记", () => {
+	it.each([
+		["等待首个事件", source({ messages: [user], streaming: true })],
+		["生成工具参数", source({ messages: [user], streamingMessage: assistant([call]), streaming: true })],
+		["工具已完成但模型尚未继续输出", source({ messages: [user, assistant([call]), result], streaming: true })],
+		["流式正文", source({ messages: [user], streamingMessage: assistant([text("回答中")], "pending"), streaming: true })],
+		["重试间隙", source({ messages: [user, assistant([], "error")], retrying: true })],
+	])("%s 时在回复末尾显示活动标记", (_, snapshot) => {
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
+		const reply = document.querySelector(".assistant-reply");
+		const indicator = reply?.querySelector('[role="status"]');
+		expect(indicator).not.toBeNull();
+		expect(reply?.lastElementChild).toBe(indicator);
+		expect(indicator?.getAttribute("aria-label")).toBe("正在处理");
+		expect(indicator?.textContent).toBe("正在处理");
+	});
+
+	it.each(["stop", "aborted", "error"] as const)("结束状态 %s 不保留活动标记", (reason) => {
+		const snapshot = source({ messages: [user, assistant([text("回复")], reason)] });
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
+		expect(document.querySelector(".reply-breathing")).toBeNull();
+	});
+});
+
 describe("整轮处理过程折叠", () => {
 	it("嵌套调用附着父工具，完成后从 SDK 记录恢复而不伪造工具结果", () => {
 		const parent = { ...call, name: "codemode", id: "code-1" };

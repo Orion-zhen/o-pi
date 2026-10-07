@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade, Reveal } from "../components/animated";
 import { NoticeGroupView, groupNotices } from "./notices";
@@ -22,7 +22,6 @@ import { useTranscriptScroll } from "../transcript/use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
 import { Panel } from "./panels.tsx";
 import { PanelDialog } from "../components/panel-dialog";
-import { Settings } from "../settings/settings-panel.tsx";
 import { connectionLabels } from "../runtime/connection.ts";
 import { Composer } from "../composer/composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
@@ -44,6 +43,8 @@ import { Button } from "../components/ui/button";
 import { Dialog as ConfirmDialog, DialogContent, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { Sheet, SheetTrigger } from "../components/ui/sheet";
 import { TooltipProvider } from "../components/ui/tooltip";
+
+const Settings = lazy(() => import("../settings/settings-panel.tsx").then((module) => ({ default: module.Settings })));
 
 /** 条件持续满足 delay 毫秒后才转真; 正常启动时会话先于超时到达, 工作区欢迎页不再闪现. */
 function useDelayed(value: boolean, delay: number): boolean {
@@ -304,7 +305,9 @@ export function App() {
 			</Sheet>
 			<AnimatePresence mode="wait">
 			{panel?.kind === "settings" ? <PanelDialog key="settings" ref={panelContent} title="设置" close={() => settingsDirty ? setConfirmSettingsClose(true) : gui.setPanel(undefined)} restoreFocus={restoreFocus}>
-				<Settings initialCategory={panel.category} onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+				<Suspense fallback={<p role="status">正在加载设置…</p>}>
+					<Settings initialCategory={panel.category} onDirty={setSettingsDirty} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+				</Suspense>
 			</PanelDialog> : panel && snapshot && (
 				<Panel key={panel.kind}
 					ref={panelContent}

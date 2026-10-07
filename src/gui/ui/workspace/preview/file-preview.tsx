@@ -8,11 +8,11 @@ import { fileLanguage, SyntaxHighlighter } from "../../content/code-highlight.ts
 import { Hint } from "../../components/ui/tooltip";
 import { IconButton } from "../../components/icon-button";
 import { Button } from "../../components/ui/button";
-import { FileDiff } from "./file-diff.tsx";
 import ImagePreview from "./image-preview.tsx";
 import "./file-preview.css";
 
 const PdfPreview = lazy(() => import("./pdf-preview.tsx"));
+const FileDiff = lazy(() => import("./file-diff.tsx").then((module) => ({ default: module.FileDiff })));
 
 function FileCode({ text, path, wrap }: { text: string; path: string; wrap: boolean }) {
 	const gutter = `${String(text.split("\n").length).length + 1}ch`;
@@ -26,7 +26,9 @@ function FileCode({ text, path, wrap }: { text: string; path: string; wrap: bool
 	</div>;
 }
 function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean; wrap: boolean }) {
-	if (diff) return preview.diffs.map((part) => <FileDiff key={part.title} path={preview.path} text={part.text} title={part.title} />);
+	if (diff) return <Suspense fallback={<p className="file-hint" role="status">正在加载差异查看器…</p>}>
+		{preview.diffs.map((part) => <FileDiff key={part.title} path={preview.path} text={part.text} title={part.title} />)}
+	</Suspense>;
 	const content = preview.content;
 	if (content.kind === "deleted") return <p className="file-hint">文件已删除，可查看差异。</p>;
 	if (content.kind === "unavailable") return <p className="file-hint">{content.reason}</p>;

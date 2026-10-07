@@ -1,6 +1,5 @@
 import { memo, useEffect } from "react";
 import { useDisclosureMemory } from "../components/disclosure-memory.ts";
-import { LoaderCircle } from "lucide-react";
 import { Disclosure } from "../components/disclosure";
 import { StreamingText, Message } from "../content/content.tsx";
 import { MessageIdentity, ReplyMetrics } from "../content/message-meta.tsx";
@@ -67,8 +66,7 @@ function Activity({ id, items, entryIds, tracking }: { id: string; items: Transc
 		failures ? `${failures} 次失败` : "",
 	].filter(Boolean).join(" · ");
 	return <Disclosure className="reply-process reply-activity" open={open} onOpenChange={setOpen} summary={<>
-		{tracking && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-		<span className={`pruned-text${pruned ? " pruned-text-active" : ""}`}>{tracking ? "正在处理" : "思考与工具"}</span>
+		<span className={`reply-status-label pruned-text${pruned ? " pruned-text-active" : ""}`} data-active={tracking}>思考与工具</span>
 		<span className={`reply-counts pruned-text${pruned ? " pruned-text-active" : ""}`}>{counts}</span>
 	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div></Disclosure>;
 }
@@ -88,8 +86,7 @@ function Thinking({ id, text, active, entryId }: { id: string; text: string; act
 	const [wasActive, setWasActive] = useDisclosureMemory(`${id}:active`, active);
 	useEffect(() => { if (wasActive !== active) { setWasActive(active); setOpen(active); } }, [active]);
 	return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy open={open} onOpenChange={setOpen} summary={<>
-		{active && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-		{active ? "思考中" : "思考"}
+		<span className="reply-status-label" data-active={active}>{active ? "思考中" : "思考"}</span>
 	</>}>
 		<div className="thinking-content message"><StreamingText text={text} active={active} /></div>
 	</Disclosure>;

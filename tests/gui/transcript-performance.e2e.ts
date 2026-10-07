@@ -104,10 +104,18 @@ for (const turns of [20, 100, 300]) test(`${turns} 轮历史的打开、输入�
 			}) });
 			const editor = page.getByRole("textbox", { name: "消息", exact: true });
 			measurements.push({ phase: "input", ...await measure(page, cdp, () => editor.pressSequentially("performance typing sample", { delay: 20 })) });
-			measurements.push({ phase: "stream", ...await measure(page, cdp, async () => {
+			const stream = await measure(page, cdp, async () => {
 				await page.getByRole("button", { name: "发送", exact: true }).click();
+				await expect(page.locator('.assistant-reply[data-state="running"] .reply-answer')).toContainText("流式-000");
+				await editor.pressSequentially("typing while streaming", { delay: 20 });
 				await expect(page.locator('.assistant-reply[data-state="completed"]').filter({ hasText: "流式-059" })).toBeVisible();
-			}) });
+				await expect(editor).toHaveValue("typing while streaming");
+			});
+			measurements.push({ phase: "stream", ...stream });
+			expect(Math.max(0, ...stream.tasks), "流式输出主线程长任务").toBeLessThan(250);
+			expect(stream.frames.length).toBeGreaterThan(0);
+			expect(Math.max(...stream.frames), "输入到下一次绘制").toBeLessThan(250);
+			await editor.fill("");
 		}
 		if (turns > 50) {
 			expect(await page.locator(".transcript .assistant-reply").count()).toBeLessThan(50);
