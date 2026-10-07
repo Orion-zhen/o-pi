@@ -36,7 +36,7 @@
 			"properties": {
 				"primary_providers": {
 					"type": "array",
-					"maxItems": 5,
+					"maxItems": 6,
 					"uniqueItems": true,
 					"items": {
 						"oneOf": [
@@ -44,13 +44,14 @@
 							{ "const": "exa_api", "title": "Exa" },
 							{ "const": "tavily", "title": "Tavily" },
 							{ "const": "duckduckgo_html", "title": "DuckDuckGo" },
-							{ "const": "tinyfish", "title": "TinyFish" }
+							{ "const": "tinyfish", "title": "TinyFish" },
+							{ "const": "anysearch", "title": "AnySearch" }
 						]
 					}
 				},
 				"auxiliary_providers": {
 					"type": "array",
-					"maxItems": 5,
+					"maxItems": 6,
 					"uniqueItems": true,
 					"items": {
 						"oneOf": [
@@ -58,7 +59,8 @@
 							{ "const": "exa_api", "title": "Exa" },
 							{ "const": "tavily", "title": "Tavily" },
 							{ "const": "duckduckgo_html", "title": "DuckDuckGo" },
-							{ "const": "tinyfish", "title": "TinyFish" }
+							{ "const": "tinyfish", "title": "TinyFish" },
+							{ "const": "anysearch", "title": "AnySearch" }
 						]
 					}
 				},
@@ -129,6 +131,18 @@
 						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
 						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.search.tinyfish.ai" },
 						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$TINYFISH_API_KEY" },
+						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
+					}
+				},
+				"anysearch": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"enabled": { "type": "boolean", "default": true },
+						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 10, "default": 5 },
+						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.anysearch.com/v1/search" },
+						"api_key": { "title": "API Key", "description": "为空或无法解析时匿名访问。密钥被拒绝或额度耗尽时重试一次匿名请求。", "type": "string", "maxLength": 4096, "default": "$ANYSEARCH_API_KEY" },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
 						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
 					}

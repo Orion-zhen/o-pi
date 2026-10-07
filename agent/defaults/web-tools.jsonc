@@ -17,7 +17,7 @@
 	"websearch": {
 		// 主组按顺序回退，辅助组全部并发请求。两组须包含全部引擎且不重复。
 		"primary_providers": ["brave_api", "exa_api", "tavily", "duckduckgo_html"],
-		"auxiliary_providers": ["tinyfish"],
+		"auxiliary_providers": ["tinyfish", "anysearch"],
 		// 合并去重后的总条数上限，模型未传 limit 时使用。
 		"default_results": 8,
 		// 包括 provider timeout、fallback 和 DDG 等待。
@@ -60,6 +60,15 @@
 			"max_results": 5,
 			"endpoint": "https://api.search.tinyfish.ai",
 			"api_key": "$TINYFISH_API_KEY",
+			"timeout_seconds": 8,
+			"response_bytes": 2097152
+		},
+		"anysearch": {
+			"enabled": true,
+			"max_results": 5,
+			"endpoint": "https://api.anysearch.com/v1/search",
+			// 缺少凭据时匿名请求。密钥被拒绝或额度耗尽时重试一次匿名请求。
+			"api_key": "$ANYSEARCH_API_KEY",
 			"timeout_seconds": 8,
 			"response_bytes": 2097152
 		},

@@ -50,6 +50,7 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 			exa_api: { id: "exa_api", config: config.websearch.exa_api },
 			tavily: { id: "tavily", config: config.websearch.tavily },
 			tinyfish: { id: "tinyfish", config: config.websearch.tinyfish },
+			anysearch: { id: "anysearch", config: config.websearch.anysearch },
 		} as const;
 		for (const id of order) {
 			if (!config.websearch[id].enabled) continue;
@@ -66,13 +67,15 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 			}
 			const provider = formal[id];
 			const key = resolveSearchApiKey(provider.config.api_key);
-			if (key === undefined) continue;
+			const credentials = provider.id === "anysearch" ? { ...provider, key }
+				: key === undefined ? undefined : { ...provider, key };
+			if (credentials === undefined) continue;
 			result.push({
 				id: provider.id,
 				maxResults: provider.config.max_results,
 				async search(params, context) {
 					apiModule ??= import("../search-providers/api-provider.ts");
-					return (await apiModule).searchApiProvider({ ...provider, ...shared, key }, params, context);
+					return (await apiModule).searchApiProvider({ ...credentials, ...shared }, params, context);
 				},
 			});
 		}

@@ -69,12 +69,13 @@ describe("websearch renderer", () => {
 	});
 
 	it("主辅汇总显示多个来源，不误标为 fallback", () => {
-		const details = { ...successDetails(2), providers: ["brave_api", "tinyfish"], attempts: [
+		const details = { ...successDetails(2), providers: ["brave_api", "tinyfish", "anysearch"], attempts: [
 			{ provider: "brave_api", role: "primary", status: "success", result_count: 1 },
 			{ provider: "tinyfish", role: "auxiliary", status: "success", result_count: 1 },
+			{ provider: "anysearch", role: "auxiliary", status: "success", result_count: 1 },
 		] };
 		const collapsed = formatWebSearchResult(details, {}, theme);
-		expect(collapsed).toContain("brave_api+tinyfish");
+		expect(collapsed).toContain("brave_api+tinyfish+anysearch");
 		expect(collapsed).not.toContain("fallback");
 		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
 		expect(expanded).toContain("auxiliary");

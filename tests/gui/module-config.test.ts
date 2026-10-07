@@ -37,8 +37,10 @@ it("从校验 schema 返回固定字段的枚举，包括本地引用和未展�
 	expect(web.arrayOptions["websearch.primary_providers"]).toEqual([
 		{ value: "brave_api", label: "Brave" }, { value: "exa_api", label: "Exa" },
 		{ value: "tavily", label: "Tavily" }, { value: "duckduckgo_html", label: "DuckDuckGo" },
-		{ value: "tinyfish", label: "TinyFish" },
+		{ value: "tinyfish", label: "TinyFish" }, { value: "anysearch", label: "AnySearch" },
 	]);
+	expect(web.arrayOptions["websearch.auxiliary_providers"]).toEqual(web.arrayOptions["websearch.primary_providers"]);
+	expect(web.fields["websearch.anysearch.max_results"]).toMatchObject({ type: "integer", maximum: 10 });
 	expect(web.fields["websearch.brave_api.endpoint"]).toMatchObject({ type: "string", title: "接口地址" });
 	expect(web.fields["websearch.exa_api.highlight_chars"]).toMatchObject({ type: "integer", title: "摘要长度（字符）", minimum: 100, maximum: 2000 });
 	expect(web.fields["websearch.duckduckgo_html.min_interval_seconds"]).toMatchObject({ type: "integer", title: "最小请求间隔（秒）", minimum: 0 });

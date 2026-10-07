@@ -11,11 +11,10 @@ import { selectSearchSnippet } from "./snippets.ts";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
 type ProviderConfig = {
-	[Id in FormalWebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id] };
+	[Id in FormalWebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id]; key: Id extends "anysearch" ? string | undefined : string };
 }[FormalWebSearchProviderId];
 
 export type ApiProviderOptions = ProviderConfig & {
-	key: string;
 	dispatcher: () => Promise<Dispatcher>;
 	fetchImpl: WebHttpFetch;
 };
@@ -33,32 +32,41 @@ export async function searchApiProvider(options: ApiProviderOptions, params: Nor
 	if (remaining <= 0) return failed(options.id, "TIMEOUT", "websearch deadline exceeded.", params.query);
 	const timeout = AbortSignal.timeout(Math.min(options.config.timeout_seconds * 1000, remaining));
 	const signal = context.signal === undefined ? timeout : AbortSignal.any([context.signal, timeout]);
-	const request = buildProviderRequest(options, params, options.key);
+	let request = buildProviderRequest(options, params);
+	let authenticated = options.id === "anysearch" && options.key !== undefined;
 	context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
 	try {
-		const response = await options.fetchImpl(request.url, {
-			method: request.method, redirect: "manual", dispatcher: await options.dispatcher(), signal,
-			headers: request.headers,
-			...(request.body === undefined ? {} : { body: request.body }),
-		});
-		const body = await readLimitedResponseBody(response, {
-			maxBytes: options.config.response_bytes, signal,
-			onProgress(receivedBytes) {
-				context.onUpdate?.({ content: `Downloading ${receivedBytes} bytes...`, details: { status: "progress", phase: "downloading", received_bytes: receivedBytes } });
-			},
-		});
-		if (body.status === "failed") {
-			const code = body.code === "ABORTED" && !userAborted(context) ? "TIMEOUT" : body.code;
-			return failed(options.id, code, body.message, params.query, response.status);
+		for (;;) {
+			signal.throwIfAborted();
+			const response = await options.fetchImpl(request.url, {
+				method: request.method, redirect: "manual", dispatcher: await options.dispatcher(), signal,
+				headers: request.headers,
+				...(request.body === undefined ? {} : { body: request.body }),
+			});
+			const body = await readLimitedResponseBody(response, {
+				maxBytes: options.config.response_bytes, signal,
+				onProgress(receivedBytes) {
+					context.onUpdate?.({ content: `Downloading ${receivedBytes} bytes...`, details: { status: "progress", phase: "downloading", received_bytes: receivedBytes } });
+				},
+			});
+			if (body.status === "failed") {
+				const code = body.code === "ABORTED" && !userAborted(context) ? "TIMEOUT" : body.code;
+				return failed(options.id, code, body.message, params.query, response.status);
+			}
+			if (response.status < 200 || response.status >= 300) {
+				const classified = classifyHttpStatus(response.status, decode(body.bytes));
+				if (options.id === "anysearch" && authenticated && (response.status === 401 || response.status === 402 || response.status === 403)) {
+					request = buildAnySearchRequest(options.config, params, undefined);
+					authenticated = false;
+					continue;
+				}
+				return failed(options.id, classified.code, classified.message, params.query, response.status, retryAfterMs(response.headers.get("retry-after"), context.now()));
+			}
+			context.onUpdate?.({ content: "Parsing results...", details: { status: "progress", phase: "parsing" } });
+			const parsed = parseJson(body.bytes);
+			if (parsed === undefined) return failed(options.id, "PARSE_FAILED", `${options.id} returned invalid JSON.`, params.query, response.status);
+			return normalizeProviderResponse(options.id, parsed, params, body.bytes.length);
 		}
-		if (response.status < 200 || response.status >= 300) {
-			const classified = classifyHttpStatus(response.status, decode(body.bytes));
-			return failed(options.id, classified.code, classified.message, params.query, response.status, retryAfterMs(response.headers.get("retry-after"), context.now()));
-		}
-		context.onUpdate?.({ content: "Parsing results...", details: { status: "progress", phase: "parsing" } });
-		const parsed = parseJson(body.bytes);
-		if (parsed === undefined) return failed(options.id, "PARSE_FAILED", `${options.id} returned invalid JSON.`, params.query, response.status);
-		return normalizeProviderResponse(options.id, parsed, params, body.bytes.length);
 	} catch (error) {
 		const networkCode = userAborted(context) ? "ABORTED" : signal.aborted ? "TIMEOUT" : classifyNetworkError(error, context.userSignal ?? (context.deadlineAt === undefined ? context.signal : undefined));
 		const code = networkCode === "BLOCKED_ADDRESS" ? "CONNECTION_FAILED" : networkCode;
@@ -66,12 +74,13 @@ export async function searchApiProvider(options: ApiProviderOptions, params: Nor
 	}
 }
 
-function buildProviderRequest(provider: ProviderConfig, params: NormalizedSearchParams, key: string): ProviderRequest {
+function buildProviderRequest(provider: ProviderConfig, params: NormalizedSearchParams): ProviderRequest {
 	switch (provider.id) {
-		case "brave_api": return buildBraveRequest(provider.config, params, key);
-		case "exa_api": return buildExaRequest(provider.config, params, key);
-		case "tavily": return buildTavilyRequest(provider.config, params, key);
-		case "tinyfish": return buildTinyfishRequest(provider.config, params, key);
+		case "brave_api": return buildBraveRequest(provider.config, params, provider.key);
+		case "exa_api": return buildExaRequest(provider.config, params, provider.key);
+		case "tavily": return buildTavilyRequest(provider.config, params, provider.key);
+		case "tinyfish": return buildTinyfishRequest(provider.config, params, provider.key);
+		case "anysearch": return buildAnySearchRequest(provider.config, params, provider.key);
 	}
 }
 
@@ -122,10 +131,21 @@ export function buildTinyfishRequest(config: WebToolsConfig["websearch"]["tinyfi
 	return { url, method: "GET", headers: { Accept: "application/json", "X-API-Key": key } };
 }
 
+export function buildAnySearchRequest(config: WebToolsConfig["websearch"]["anysearch"], params: NormalizedSearchParams, key: string | undefined): ProviderRequest {
+	return {
+		url: new URL(config.endpoint), method: "POST",
+		headers: { Accept: "application/json", "Content-Type": "application/json", ...(key === undefined ? {} : { Authorization: `Bearer ${key}` }) },
+		body: JSON.stringify({ query: filteredLexicalQuery(params), max_results: params.limit, format: "json" }),
+	};
+}
+
 export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: unknown, params: NormalizedSearchParams, downloadedBytes: number): SearchProviderResult {
 	const { query } = params;
 	if (!record(raw)) return failed(id, "PARSE_FAILED", `${id} response is not an object.`, query);
-	const rows = id === "brave_api" ? nestedRows(raw, "web") : array(raw["results"]);
+	if (id === "anysearch" && (raw["code"] !== 0 || !record(raw["data"]) || !Array.isArray(raw["data"]["results"]))) {
+		return failed(id, "PARSE_FAILED", "anysearch returned an invalid search response.", query);
+	}
+	const rows = id === "brave_api" ? nestedRows(raw, "web") : id === "anysearch" ? nestedRows(raw, "data") : array(raw["results"]);
 	const results: WebSearchItem[] = [];
 	const seen = new Set<string>();
 	for (const row of rows) {
@@ -143,7 +163,8 @@ function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unkno
 	const url = rawUrl === undefined ? undefined : normalizeSearchResultUrl(rawUrl)?.toString();
 	if (url === undefined) return undefined;
 	const title = normalizeSearchText(string(row["title"]) ?? url).slice(0, SEARCH_RESULT_MAX_TITLE_CHARS) || url;
-	const candidates = [row[id === "tavily" ? "content" : id === "tinyfish" ? "snippet" : "description"], ...array(row["highlights"]), ...array(row["extra_snippets"])];
+	const candidates = id === "anysearch" ? [row["content"], row["snippet"]]
+		: [row[id === "tavily" ? "content" : id === "tinyfish" ? "snippet" : "description"], ...array(row["highlights"]), ...array(row["extra_snippets"])];
 	const snippet = selectSearchSnippet(candidates.filter((value): value is string => typeof value === "string"), query);
 	return { rank, title, url, ...(snippet ? { snippet } : {}) };
 }
@@ -165,7 +186,10 @@ function failed(provider: FormalWebSearchProviderId, code: WebSearchErrorCode, m
 
 function parseJson(bytes: Uint8Array): unknown | undefined { try { return JSON.parse(decode(bytes)); } catch { return undefined; } }
 function decode(bytes: Uint8Array): string { return new TextDecoder().decode(bytes); }
-function sanitizeError(error: unknown, key: string): string { return (error instanceof Error ? error.message : String(error)).split(key).join("REDACTED").slice(0, 300); }
+function sanitizeError(error: unknown, key: string | undefined): string {
+	const message = error instanceof Error ? error.message : String(error);
+	return (key === undefined ? message : message.split(key).join("REDACTED")).slice(0, 300);
+}
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 function nestedRows(value: Record<string, unknown>, key: string): unknown[] { const nested = value[key]; return record(nested) ? array(nested["results"]) : []; }

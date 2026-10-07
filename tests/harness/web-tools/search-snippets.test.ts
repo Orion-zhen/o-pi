@@ -25,13 +25,14 @@ async function search(id: FormalWebSearchProviderId, fields: Record<string, unkn
 	const row = { title: "WidgetError v2.4 reference", url: "https://example.com/docs", ...fields };
 	const fetchImpl = async () => {
 		requests += 1;
-		return httpResponse(200, JSON.stringify(id === "brave_api" ? { web: { results: [row] } } : { results: [row] }), { "content-type": "application/json" });
+		return httpResponse(200, JSON.stringify(id === "brave_api" ? { web: { results: [row] } } : id === "anysearch" ? { code: 0, data: { results: [row] } } : { results: [row] }), { "content-type": "application/json" });
 	};
 	const transport = { key: "test-key", dispatcher: async () => dispatcher, fetchImpl };
 	const options = id === "brave_api" ? { ...transport, id, config: config.websearch.brave_api }
 		: id === "exa_api" ? { ...transport, id, config: config.websearch.exa_api }
 		: id === "tavily" ? { ...transport, id, config: config.websearch.tavily }
-		: { ...transport, id, config: config.websearch.tinyfish };
+		: id === "tinyfish" ? { ...transport, id, config: config.websearch.tinyfish }
+		: { ...transport, id, config: config.websearch.anysearch };
 	const result = await executeWebSearch({ query, limit: 1 }, {
 		config, searches: new SearchFlights(),
 		router: new SearchProviderRouter({ primary: [{ id, maxResults: 5, search: (params, context) => searchApiProvider(options, params, context) }], auxiliary: [] }),
@@ -47,6 +48,7 @@ describe("搜索摘要按查询选片", () => {
 		["exa_api", { highlights: [INTRO, EXACT, EXACT] }],
 		["tavily", { content: `${INTRO}${EXACT} ${INTRO}` }],
 		["tinyfish", { snippet: `${INTRO}${EXACT} ${INTRO}` }],
+		["anysearch", { content: `${INTRO}${EXACT} ${INTRO}`, snippet: INTRO }],
 	] as const)("%s 从已返回原文中保留错误码和版本，输出不超过 240 字符", async (id, fields) => {
 		const result = await search(id, fields);
 		const snippet = result.details.results[0]?.snippet;

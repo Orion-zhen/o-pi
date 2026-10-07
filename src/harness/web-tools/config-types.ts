@@ -46,6 +46,14 @@ export interface WebToolsConfig {
 			timeout_seconds: number;
 			response_bytes: number;
 		};
+		anysearch: {
+			enabled: boolean;
+			max_results: number;
+			endpoint: string;
+			api_key: string;
+			timeout_seconds: number;
+			response_bytes: number;
+		};
 		duckduckgo_html: {
 			enabled: boolean;
 			max_results: number;

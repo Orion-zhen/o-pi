@@ -59,6 +59,7 @@ function materializeConfig(raw: WebToolsConfig): WebToolsConfig {
 	validateProviderUrl("exa_api", config.websearch.exa_api.endpoint);
 	validateProviderUrl("tavily", config.websearch.tavily.endpoint);
 	validateProviderUrl("tinyfish", config.websearch.tinyfish.endpoint);
+	validateProviderUrl("anysearch", config.websearch.anysearch.endpoint);
 	return config;
 }
 

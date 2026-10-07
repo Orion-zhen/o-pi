@@ -91,7 +91,7 @@ describe("搜索参数与提供方", () => {
 		expect(normalizeProviderResponse("tavily", { results: [{ title: "C", url: "https://c.test/", content: "Gamma", score: 0.7 }] }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Gamma" }] });
 	});
 
-	it.each(["brave_api", "exa_api", "tavily", "tinyfish"] as const)("%s 只按规范化 URL 去重，保留同标题不同页面", (id) => {
+	it.each(["brave_api", "exa_api", "tavily", "tinyfish", "anysearch"] as const)("%s 只按规范化 URL 去重，保留同标题不同页面", (id) => {
 		const rows = [
 			{ title: "Same title", url: "https://example.com/docs?utm_source=x#top" },
 			{ title: "Same title", url: "https://example.com/docs" },
@@ -99,7 +99,7 @@ describe("搜索参数与提供方", () => {
 			{ title: "Invalid", url: "not-a-url" },
 			{ title: "Invalid", url: "javascript:alert(1)" },
 		];
-		const result = normalizeProviderResponse(id, id === "brave_api" ? { web: { results: rows } } : { results: rows }, normalizeSearchParams({ query: "查询结果可使用不同语言" }, 8), 100);
+		const result = normalizeProviderResponse(id, id === "brave_api" ? { web: { results: rows } } : id === "anysearch" ? { code: 0, data: { results: rows } } : { results: rows }, normalizeSearchParams({ query: "查询结果可使用不同语言" }, 8), 100);
 		expect(result).toMatchObject({ status: "success", results: [
 			{ rank: 1, title: "Same title", url: "https://example.com/docs" },
 			{ rank: 2, title: "Same title", url: "https://example.com/other" },

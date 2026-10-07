@@ -202,5 +202,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isProvider(value: unknown): value is WebSearchProviderId {
-	return value === "brave_api" || value === "exa_api" || value === "tavily" || value === "duckduckgo_html" || value === "tinyfish";
+	return value === "brave_api" || value === "exa_api" || value === "tavily" || value === "duckduckgo_html" || value === "tinyfish" || value === "anysearch";
 }
