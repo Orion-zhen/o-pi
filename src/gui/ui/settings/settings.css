@@ -35,8 +35,7 @@
 .settings-navigation .settings-action-buttons > button { flex: 1; min-inline-size: 0; }
 .settings-save-status { color: var(--muted-foreground); font-size: var(--text-small); }
 .settings-save-status:empty { display: none; }
-.settings-description, .settings-empty, .settings-badge, .gui-settings [role="status"], .settings-popover [role="status"] { color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }
-.settings-warning { padding: var(--space-2) var(--space-3); border-inline-start: thin solid var(--primary); color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }
+.settings-description, .settings-warning, .settings-empty, .settings-badge, .gui-settings [role="status"], .settings-popover [role="status"] { color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }
 .gui-settings [role="alert"], .settings-popover [role="alert"], .settings-actions [role="alert"] { color: var(--destructive); font-size: var(--text-small); overflow-wrap: anywhere; }
 .settings-actions [role="alert"] { max-block-size: 6lh; overflow: auto; }
 .preference-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); min-inline-size: 0; inline-size: 100%; padding-block: var(--space-3); }

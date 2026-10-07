@@ -117,7 +117,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ workbench, openFile, 
 						tabIndex={-1} aria-description={state}
 						className="file-row" data-ignored={ignored} data-status={change?.status} style={{ paddingInlineStart: `${0.25 + depth}em` }}
 						onClick={() => entry.kind === "directory" ? workbench.toggleDirectory(entry.path, entry.virtual) : openFile(entry.path)}>
-						{row.hasDirectories && <ChevronRight className="file-chevron" data-directory={entry.kind === "directory"} data-open={open} />}
+						<ChevronRight className="file-chevron" data-directory={entry.kind === "directory"} data-open={open} aria-hidden="true" />
 						<FileIcon name={entry.name} kind={entry.kind} open={open} /><span className="file-name">{entry.name}</span>
 						{state && <span className="sr-only">{state}</span>}
 						{change && <span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>}
