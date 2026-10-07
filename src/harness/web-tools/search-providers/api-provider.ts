@@ -5,9 +5,8 @@ import { readLimitedResponseBody } from "../network/response-body.ts";
 import type { WebSearchProviderId, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem } from "../core/types.ts";
 import type { WebHttpFetch } from "../network/types.ts";
 import type { WebToolsConfig } from "../config-types.ts";
-import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.ts";
+import { normalizeSearchResultUrl, normalizeSearchText, stripTerminalControls } from "../network/url-utils.ts";
 import { filteredLexicalQuery } from "./query.ts";
-import { selectSearchSnippet } from "./snippets.ts";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
 type ApiProviderId = Exclude<WebSearchProviderId, "exa_mcp">;
@@ -89,9 +88,8 @@ export function buildBraveRequest(config: WebToolsConfig["websearch"]["brave_api
 	const url = new URL(config.endpoint);
 	url.searchParams.set("q", filteredLexicalQuery(params));
 	url.searchParams.set("count", String(params.limit));
-	url.searchParams.set("text_decorations", "false");
+	url.searchParams.set("maximum_number_of_urls", String(params.limit));
 	url.searchParams.set("safesearch", "moderate");
-	url.searchParams.set("extra_snippets", String(config.extra_snippets));
 	return { url, method: "GET", headers: { Accept: "application/json", "X-Subscription-Token": key } };
 }
 
@@ -101,11 +99,11 @@ export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], 
 		query: textQuery,
 		type: "auto",
 		numResults: params.limit,
-		contents: { highlights: { maxCharacters: config.highlight_chars } },
+		contents: { highlights: { dynamic: true } },
 		...(includeDomains.length > 0 ? { includeDomains } : {}),
 		...(excludeDomains.length > 0 ? { excludeDomains } : {}),
 	};
-	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "x-api-key": key }, body: JSON.stringify(body) };
+	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "x-api-key": key, "Exa-Beta": "dynamic-highlights-2026-08-28" }, body: JSON.stringify(body) };
 }
 
 export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"], params: NormalizedSearchParams, key: string): ProviderRequest {
@@ -146,12 +144,12 @@ export function normalizeProviderResponse(id: WebSearchProviderId, raw: unknown,
 	if (id === "anysearch" && (raw["code"] !== 0 || !record(raw["data"]) || !Array.isArray(raw["data"]["results"]))) {
 		return failed(id, "PARSE_FAILED", "anysearch returned an invalid search response.", query);
 	}
-	const rows = id === "brave_api" ? nestedRows(raw, "web") : id === "anysearch" ? nestedRows(raw, "data") : array(raw["results"]);
+	const rows = id === "brave_api" ? braveRows(raw) : id === "anysearch" ? nestedRows(raw, "data") : array(raw["results"]);
 	const results: WebSearchItem[] = [];
 	const seen = new Set<string>();
 	for (const row of rows) {
 		if (!record(row)) continue;
-		const normalized = normalizedItem(id, row, results.length + 1, query);
+		const normalized = normalizedItem(id, row, results.length + 1);
 		if (normalized === undefined || seen.has(normalized.url)) continue;
 		seen.add(normalized.url);
 		results.push(normalized);
@@ -159,14 +157,19 @@ export function normalizeProviderResponse(id: WebSearchProviderId, raw: unknown,
 	return { status: "success", provider: id, results, downloadedBytes };
 }
 
-function normalizedItem(id: WebSearchProviderId, row: Record<string, unknown>, rank: number, query: string): WebSearchItem | undefined {
+function normalizedItem(id: WebSearchProviderId, row: Record<string, unknown>, rank: number): WebSearchItem | undefined {
 	const rawUrl = string(row["url"]);
 	const url = rawUrl === undefined ? undefined : normalizeSearchResultUrl(rawUrl)?.toString();
 	if (url === undefined) return undefined;
-	const title = normalizeSearchText(string(row["title"]) ?? url).slice(0, SEARCH_RESULT_MAX_TITLE_CHARS) || url;
-	const candidates = id === "anysearch" ? [row["content"], row["snippet"]]
-		: [row[id === "tavily" ? "content" : id === "tinyfish" ? "snippet" : "description"], ...array(row["highlights"]), ...array(row["extra_snippets"]), ...(id === "exa_mcp" ? [row["text"]] : [])];
-	const snippet = selectSearchSnippet(candidates.filter((value): value is string => typeof value === "string"), query);
+	const title = normalizeSearchText(string(row["title"]) ?? url) || url;
+	const candidates = id === "brave_api" ? array(row["snippets"])
+		: id === "anysearch" ? [row["content"], row["snippet"]]
+		: [row[id === "tavily" ? "content" : id === "tinyfish" ? "snippet" : "description"], ...array(row["highlights"]), ...(id === "exa_mcp" ? [row["text"]] : [])];
+	// 保留全部非空片段及代码排版，只清理终端控制字符和完全重复的片段。
+	const snippets = candidates.filter((value): value is string => typeof value === "string")
+		.map((value) => stripTerminalControls(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ""))
+		.filter((value) => value.trim().length > 0);
+	const snippet = [...new Set(snippets)].join("\n\n");
 	return { rank, title, url, ...(snippet ? { snippet } : {}) };
 }
 
@@ -189,11 +192,16 @@ function parseJson(bytes: Uint8Array): unknown | undefined { try { return JSON.p
 function decode(bytes: Uint8Array): string { return new TextDecoder().decode(bytes); }
 function sanitizeError(error: unknown, key: string | undefined): string {
 	const message = error instanceof Error ? error.message : String(error);
-	return (key === undefined ? message : message.split(key).join("REDACTED")).slice(0, 300);
+	return key === undefined ? message : message.split(key).join("REDACTED");
 }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 function nestedRows(value: Record<string, unknown>, key: string): unknown[] { const nested = value[key]; return record(nested) ? array(nested["results"]) : []; }
+function braveRows(raw: Record<string, unknown>): unknown[] {
+	const grounding = raw["grounding"];
+	if (!record(grounding)) return [];
+	return [...array(grounding["generic"]), ...(record(grounding["poi"]) ? [grounding["poi"]] : []), ...array(grounding["map"])];
+}
 function string(value: unknown): string | undefined { return typeof value === "string" && value.trim() ? value : undefined; }
 
 function retryAfterMs(value: string | null, now: number): number | undefined {

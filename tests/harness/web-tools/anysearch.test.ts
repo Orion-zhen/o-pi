@@ -40,7 +40,7 @@ describe("AnySearch 辅助搜索", () => {
 	it.each(["", "   ", "$ANYSEARCH_API_KEY", "${ANYSEARCH_API_KEY}"])("凭据 %j 不可用时直接匿名访问", async (key) => {
 		config.websearch.anysearch.api_key = key;
 		await expect(search()).resolves.toMatchObject({ details: { status: "success", providers: ["anysearch"],
-			results: [{ provider: "anysearch", snippet: "Pi reference" }],
+			results: [{ provider: "anysearch", snippet: "Pi reference\n\nPi summary" }],
 			attempts: [{ provider: "anysearch", role: "auxiliary", status: "success" }] } });
 		expect(fetchImpl).toHaveBeenCalledOnce();
 		const request = fetchImpl.mock.calls[0];
@@ -149,7 +149,7 @@ describe("AnySearch 辅助搜索", () => {
 		config.websearch.brave_api.api_key = "brave-key";
 		config.websearch.brave_api.max_results = 1;
 		fetchImpl.mockImplementation(async (url) => url.hostname === "api.search.brave.com"
-			? httpResponse(200, JSON.stringify({ web: { results: rows } }))
+			? httpResponse(200, JSON.stringify({ grounding: { generic: rows } }))
 			: httpResponse(200, JSON.stringify({ code: 0, data: { results: [
 				{ title: "Excluded", url: "https://excluded.test/" },
 				{ title: "Duplicate", url: "https://example.com/docs?utm_source=anysearch#top" },

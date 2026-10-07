@@ -19,7 +19,6 @@ export interface WebToolsConfig {
 			api_key: string;
 			timeout_seconds: number;
 			response_bytes: number;
-			extra_snippets: boolean;
 		};
 		exa_api: {
 			enabled: boolean;
@@ -28,7 +27,6 @@ export interface WebToolsConfig {
 			api_key: string;
 			timeout_seconds: number;
 			response_bytes: number;
-			highlight_chars: number;
 		};
 		exa_mcp: {
 			enabled: boolean;
@@ -36,7 +34,6 @@ export interface WebToolsConfig {
 			endpoint: string;
 			timeout_seconds: number;
 			response_bytes: number;
-			highlight_chars: number;
 		};
 		tavily: {
 			enabled: boolean;

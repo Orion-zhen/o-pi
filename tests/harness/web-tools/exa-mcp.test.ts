@@ -73,7 +73,7 @@ describe("Exa MCP 免 key 搜索", () => {
 		expect(request?.[0].toString()).toBe("https://mcp.exa.ai/mcp?tools=web_search_advanced_exa");
 		expect(JSON.parse(request?.[1].body ?? "null").params).toEqual({ name: "web_search_advanced_exa", arguments: {
 			query: "Pi", numResults: 2, type: "auto", includeDomains: ["example.com"], excludeDomains: ["csdn.com", "gitcode.com"],
-			textMaxCharacters: 600, enableHighlights: true, highlightsMaxCharacters: 600,
+			enableHighlights: true,
 		} });
 		for (const [, init] of fetchImpl.mock.calls) {
 			expect(init.dispatcher).toBe(dispatcher);
@@ -84,6 +84,17 @@ describe("Exa MCP 免 key 搜索", () => {
 		expect(request?.[1].headers["mcp-session-id"]).toBe("test-session");
 		expect(fetchImpl.mock.calls.some(([, init]) => init.method === "DELETE" && init.headers["mcp-session-id"] === "test-session")).toBe(true);
 		expect(calls("tools/list")).toHaveLength(0);
+	});
+
+	it("highlights 和 text 全部保留，超长标题与正文不截断", async () => {
+		const title = "Pi reference ".repeat(50).trim();
+		const highlights = ["First relevant passage. ".repeat(50), "Additional passage. ".repeat(50)];
+		const text = "```ts\n  const pi = 3.14;\n```\n".repeat(100);
+		callResponse = async () => toolResult({ results: [{ title, url: "https://example.com/docs", highlights, text }] });
+		const result = await search();
+		expect(result.details).toMatchObject({ status: "success", results: [{ title, snippet: [...highlights, text].join("\n\n") }] });
+		expect(result.content).toContain(title);
+		expect(result.content).toContain([...highlights, text].join("\n\n"));
 	});
 
 	it("前序主引擎失败或空结果后才回退到 MCP，主结果成功则不连接 MCP", async () => {
@@ -98,7 +109,7 @@ describe("Exa MCP 免 key 搜索", () => {
 			{ provider: "brave_api", status: "failed" }, { provider: "exa_api", result_count: 0 },
 			{ provider: "tavily", result_count: 0 }, { provider: "exa_mcp", status: "success" },
 		] } });
-		fetchImpl.mockClear().mockImplementation(async () => httpResponse(200, JSON.stringify({ web: { results: rows } })));
+		fetchImpl.mockClear().mockImplementation(async () => httpResponse(200, JSON.stringify({ grounding: { generic: rows } })));
 		await expect(search()).resolves.toMatchObject({ details: { providers: ["brave_api"] } });
 		expect(fetchImpl).toHaveBeenCalledOnce();
 	});

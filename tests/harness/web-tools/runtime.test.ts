@@ -157,7 +157,7 @@ describe("web-tools runtime", () => {
 		network.fetch.mockImplementation(async (url, init) => {
 			if (url.hostname === "api.search.brave.com") {
 				expect(url.searchParams.get("count")).toBe("2");
-				return httpResponse(200, JSON.stringify({ web: { results: [
+				return httpResponse(200, JSON.stringify({ grounding: { generic: [
 					{ title: "Primary A", url: "https://example.com/a" },
 					{ title: "Primary B", url: "https://example.com/b" },
 					{ title: "Primary overflow", url: "https://example.com/primary-overflow" },
@@ -216,7 +216,7 @@ describe("web-tools runtime", () => {
 		config.websearch.anysearch.enabled = false;
 		config.websearch.exa_mcp.enabled = false;
 		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
-		network.fetch.mockResolvedValue(httpResponse(200, JSON.stringify({ web: { results: [
+		network.fetch.mockResolvedValue(httpResponse(200, JSON.stringify({ grounding: { generic: [
 			{ title: "Excluded", url: "https://example.org/" },
 			{ title: "Allowed", url: "https://docs.example.com/" },
 		] } })));
@@ -402,8 +402,8 @@ function trackRuntime(): WebToolsRuntime {
 function searchResponse(provider: WebSearchProviderId) {
 	const results = [{
 		title: "Official Pi docs", url: "https://example.com/pi",
-		description: "Official Pi documentation and reference.",
+		snippets: ["Official Pi documentation and reference."],
 		content: "Official Pi documentation and reference.",
 	}];
-	return httpResponse(200, JSON.stringify(provider === "brave_api" ? { web: { results } } : { results }), { "content-type": "application/json" });
+	return httpResponse(200, JSON.stringify(provider === "brave_api" ? { grounding: { generic: results } } : { results }), { "content-type": "application/json" });
 }

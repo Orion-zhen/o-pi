@@ -2,7 +2,7 @@
 
 网页工具分为搜索和抓取：
 
-- `websearch`：搜索公开网页索引，返回标题、URL 和摘要。
+- `websearch`：搜索公开网页索引，返回标题、URL 和提供方抽取的相关内容。
 - `webfetch`：读取一个已知 HTTP(S) URL，返回有界文本。
 
 ## 加载生命周期
@@ -77,7 +77,9 @@ websearch({
 - 除 Exa MCP 外，各 provider 使用 `api_key`：可直接填写 key，也可用 `$NAME` / `${NAME}` 引用环境变量。解析规则与 `openai-compatible-provider` 一致。除 AnySearch 改用匿名访问外，空字符串、空白值或无法解析的引用会自动禁用该 provider。引用随后可用时会在下次搜索自动恢复。默认分别引用 `BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`TAVILY_API_KEY`、`TINYFISH_API_KEY`、`ANYSEARCH_API_KEY`，推荐使用环境变量，避免把 key 写入配置文件。
 - 搜索 API endpoint 只允许公开 HTTP(S) literal URL，拒绝 userinfo、localhost 和 literal 私网/回环/link-local IP。
 - Brave 和 AnySearch 将域名条件重建为 `site:` / `-site:`，多个包含域名使用 OR。Exa API、Exa MCP、Tavily 和 TinyFish 使用结构化域名参数。
-- Exa 固定使用 `type: auto`，不自动限定内容分类。Tavily 固定使用 `search_depth: basic`。
+- Brave 默认使用 `https://api.search.brave.com/res/v1/llm/context`，读取 `grounding.generic`、`grounding.poi` 和 `grounding.map` 中的标题、URL 与全部 snippets。不主动设置内容 token 预算，使用 Brave 默认值。
+- Exa 固定使用 `type: auto`，不自动限定内容分类。Exa API 默认请求 `contents: { highlights: { dynamic: true } }`，同时发送 `Exa-Beta: dynamic-highlights-2026-08-28`。Dynamic Highlights 仍为预览功能，会综合多个结果分配内容预算，不设置 `maxCharacters`。Exa MCP 启用 highlights，不设置 `textMaxCharacters` 或 `highlightsMaxCharacters`，两者均使用提供方默认内容预算。Tavily 固定使用 `search_depth: basic`。
+- Brave 的 `extra_snippets` 和 Exa API、Exa MCP 的 `highlight_chars` 配置已移除。现有覆盖文件须删除这些字段。显式覆盖 Brave 普通搜索 endpoint 的用户须改为 LLM Context endpoint。
 - Exa MCP 默认连接 `https://mcp.exa.ai/mcp`，通过官方 MCP SDK 调用 `web_search_advanced_exa`，无需 API key。使用结构化域名参数，读取 JSON 中的标题、URL、highlights 和 text，不暴露额外工具给模型。初始化与搜索共用提供方超时和剩余总预算，不自动重连或跟随重定向。每次请求使用独立会话，结束时尝试终止远端会话，清理最多额外等待一秒，本地连接始终关闭。公共服务受免费限流约束，零配置可用不保证服务始终可用。有凭据的前序引擎连续超时可能耗尽总预算，导致 MCP 未被调用。
 - TinyFish 使用 `GET https://api.search.tinyfish.ai` 和 `X-API-Key`。仅请求首页，读取标题、URL 和 `snippet`，不自动翻页。接口未提供条数参数，本地应用 `max_results`。
 - AnySearch 使用 `POST https://api.anysearch.com/v1/search`，读取 `data.results` 的标题、URL、`content` 和 `snippet`。`max_results` 上限为 10，不自动限定垂直领域。有密钥时使用 Bearer 认证，缺少凭据时省略认证头。认证请求返回 401、402 或 403 时，最多重试一次匿名请求，重试与原请求共用提供方超时和总截止时间。网络错误、超时及普通限流不触发匿名重试。匿名访问按 IP 限流并使用每日免费额度。匿名额度耗尽时不继续重试，也不保存或使用响应中的新凭据。
@@ -100,9 +102,9 @@ Search result snippet.
 
 查询、实际贡献结果的 `providers`、每条结果的 `provider` 和带主辅角色的尝试记录保留在 `details`，不重复进入模型正文。不可信内容规则由 prompt guideline 声明。
 
-摘要从提供方已返回的 description、content、snippet、highlights 和 extra snippets 中选择一个连续原文片段。精确短语、错误码和版本号优先，重复候选去重，同分保留提供方原始顺序。选片在截断前执行，统一空白后最多 240 字符，截去的前后文用 `...` 标记。没有查询词命中时取首个非空摘要的开头。此过程不调用 LLM，也不增加网络请求。
+每条结果的 `snippet` 保留提供方返回的全部非空文本片段，包括 Brave 的 snippets、Exa 的 highlights、Exa MCP 的 text，以及其他提供方的 description、content 或 snippet。片段按原始顺序以空行连接，只去除完全重复的片段，不按查询选片，不按字符数截断标题或内容。内容保留换行、缩进和 Unicode，清理终端控制字符，模型正文中的 XML 特殊字符会转义。结构化结果使用相同的完整内容。TUI 展示仍使用紧凑预览，不影响模型收到的内容。
 
-搜索摘要不等于页面正文。需要确认内容时，继续用 `webfetch` 读取选定 URL。
+提供方仍会应用自身的内容预算。结果条数、超时和响应字节上限继续生效，字节超限返回错误，不静默截断内容。搜索内容不保证覆盖整页，需要更多内容时继续用 `webfetch` 读取选定 URL。
 
 失败时模型只收到紧凑错误标签，完整错误结构保留在 `details`：
 

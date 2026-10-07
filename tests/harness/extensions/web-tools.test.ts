@@ -19,9 +19,9 @@ beforeEach(async () => {
 	const image = createCanvas(10, 10).toBuffer("image/png");
 	server = createServer((request, response) => {
 		const pathname = new URL(request.url ?? "/", origin).pathname;
-		if (pathname === "/search") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ web: { results: [
-			{ title: "Pi", url: "https://pi.dev/", description: "Pi SDK documentation" },
-			{ title: "Pi guide", url: "https://example.org/pi", description: "Pi examples" },
+		if (pathname === "/search") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ grounding: { generic: [
+			{ title: "Pi", url: "https://pi.dev/", snippets: ["Pi SDK documentation"] },
+			{ title: "Pi guide", url: "https://example.org/pi", snippets: ["Pi examples"] },
 		] } }));
 		else if (pathname === "/image") response.writeHead(200, { "content-type": "image/png" }).end(image);
 		else if (pathname === "/pdf") response.writeHead(200, { "content-type": "application/pdf" }).end(pdf);

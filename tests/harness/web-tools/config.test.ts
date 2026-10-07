@@ -28,6 +28,10 @@ describe("网页工具配置", () => {
 	it("默认顺序来自配置文件，顺序与启停可以分别覆盖", async () => {
 		const defaults = await loadWebToolsConfig();
 		expect(defaults.websearch.primary_providers).toEqual(["brave_api", "exa_api", "tavily", "exa_mcp"]);
+		expect(defaults.websearch.brave_api.endpoint).toBe("https://api.search.brave.com/res/v1/llm/context");
+		expect(defaults.websearch.brave_api).not.toHaveProperty("extra_snippets");
+		expect(defaults.websearch.exa_api).not.toHaveProperty("highlight_chars");
+		expect(defaults.websearch.exa_mcp).not.toHaveProperty("highlight_chars");
 		expect(defaults.websearch.exa_mcp).toMatchObject({ enabled: true, endpoint: "https://mcp.exa.ai/mcp", max_results: 8 });
 		expect(defaults.websearch.exa_mcp).not.toHaveProperty("api_key");
 		expect(defaults.websearch.auxiliary_providers).toEqual(["tinyfish", "anysearch"]);
@@ -89,6 +93,9 @@ describe("网页工具配置", () => {
 		{ websearch: { tinyfish: { max_results: 1.5 } } },
 		{ websearch: { tinyfish: { endpoint: "http://127.0.0.1/" } } },
 		{ websearch: { provider_order: ["brave_api", "exa_api", "tavily"] } },
+		{ websearch: { brave_api: { extra_snippets: true } } },
+		{ websearch: { exa_api: { highlight_chars: 600 } } },
+		{ websearch: { exa_mcp: { highlight_chars: 600 } } },
 		{ websearch: { exa_mcp: { api_key: "not-supported" } } },
 		{ websearch: { exa_mcp: { max_results: 21 } } },
 		{ websearch: { exa_mcp: { endpoint: "http://localhost/mcp" } } },

@@ -27,7 +27,7 @@ async function runToolBenchmark(toolMode) {
 	undici.fetch = async () => toolMode === "fetch-image-skip"
 		? skippedImageResponse(() => { imageReads += 1; })
 		: toolMode === "search"
-			? response(JSON.stringify({ web: { results: [{ title: "Pi docs", url: "https://example.com/", description: "Pi coding agent documentation and reference." }] } }), "application/json")
+			? response(JSON.stringify({ grounding: { generic: [{ title: "Pi docs", url: "https://example.com/", snippets: ["Pi coding agent documentation and reference."] }] } }), "application/json")
 			: response("hello benchmark");
 	try {
 		const started = performance.now();

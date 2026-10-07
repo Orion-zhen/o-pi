@@ -42,15 +42,26 @@ describe("搜索参数与提供方", () => {
 			{ includeDomains: ["docs.example"], excludeDomains: ["blocked.example"] },
 		);
 		const brave = buildBraveRequest(config.brave_api, exact, "brave-secret");
+		expect(brave.url.pathname).toBe("/res/v1/llm/context");
 		expect(brave.url.searchParams.get("count")).toBe("4");
+		expect(brave.url.searchParams.get("maximum_number_of_urls")).toBe("4");
+		expect(brave.url.searchParams.get("safesearch")).toBe("moderate");
+		expect(brave.url.searchParams.has("extra_snippets")).toBe(false);
+		expect(brave.url.searchParams.has("text_decorations")).toBe(false);
+		expect(brave.url.searchParams.has("maximum_number_of_tokens")).toBe(false);
+		expect(brave.url.searchParams.has("maximum_number_of_tokens_per_url")).toBe(false);
 		expect(brave.url.searchParams.get("q")).toContain("(site:docs.example OR site:example.com)");
 		expect(brave.url.searchParams.get("q")).toContain("-site:blocked.example");
 		expect(brave.url.searchParams.has("freshness")).toBe(false);
 		expect(brave.headers["X-Subscription-Token"]).toBe("brave-secret");
 
 		const paper = normalizeSearchParams({ query: "research paper sparse attention", limit: 5 }, 8);
-		const exaBody = JSON.parse(buildExaRequest(config.exa_api, paper, "exa-secret").body ?? "null") as Record<string, unknown>;
+		const exa = buildExaRequest(config.exa_api, paper, "exa-secret");
+		const exaBody = JSON.parse(exa.body ?? "null") as Record<string, unknown>;
+		expect(exa.headers["Exa-Beta"]).toBe("dynamic-highlights-2026-08-28");
+		expect(exa.headers["x-api-key"]).toBe("exa-secret");
 		expect(exaBody).toMatchObject({ query: paper.query, type: "auto", numResults: 5 });
+		expect(exaBody["contents"]).toEqual({ highlights: { dynamic: true } });
 		expect(exaBody).not.toHaveProperty("category");
 		expect(exaBody).not.toHaveProperty("startPublishedDate");
 		expect(exaBody).not.toHaveProperty("endPublishedDate");
@@ -86,9 +97,25 @@ describe("搜索参数与提供方", () => {
 
 	it("规范化三家响应并忽略 provider 原生相关度字段", () => {
 		const params = normalizeSearchParams({ query: "Alpha Beta Gamma", limit: 3 }, 8);
-		expect(normalizeProviderResponse("brave_api", { web: { results: [{ title: "A", url: "https://a.test/", description: "Alpha" }] } }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Alpha" }] });
+		expect(normalizeProviderResponse("brave_api", { grounding: { generic: [{ title: "A", url: "https://a.test/", snippets: ["Alpha"] }] } }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Alpha" }] });
 		expect(normalizeProviderResponse("exa_api", { results: [{ title: "B", url: "https://b.test/", highlights: ["Beta"], highlightScores: [0.8] }] }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Beta" }] });
 		expect(normalizeProviderResponse("tavily", { results: [{ title: "C", url: "https://c.test/", content: "Gamma", score: 0.7 }] }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Gamma" }] });
+	});
+
+	it("Brave LLM Context 解析普通网页、地点和地图来源，不把元数据当正文", () => {
+		const params = normalizeSearchParams({ query: "local places", limit: 3 }, 8);
+		expect(normalizeProviderResponse("brave_api", {
+			grounding: {
+				generic: [{ title: "Guide", url: "https://guide.test/", snippets: ["Guide text", "Guide details"] }],
+				poi: { title: "Cafe", url: "https://cafe.test/", snippets: ["Cafe details"] },
+				map: [{ title: "Park", url: "https://park.test/", snippets: ["Park details"] }],
+			},
+			sources: { "https://guide.test/": { description: "Metadata only" } },
+		}, params, 300)).toEqual({ status: "success", provider: "brave_api", downloadedBytes: 300, results: [
+			{ rank: 1, title: "Guide", url: "https://guide.test/", snippet: "Guide text\n\nGuide details" },
+			{ rank: 2, title: "Cafe", url: "https://cafe.test/", snippet: "Cafe details" },
+			{ rank: 3, title: "Park", url: "https://park.test/", snippet: "Park details" },
+		] });
 	});
 
 	it.each(["brave_api", "exa_api", "tavily", "tinyfish", "anysearch"] as const)("%s 只按规范化 URL 去重，保留同标题不同页面", (id) => {
@@ -99,7 +126,7 @@ describe("搜索参数与提供方", () => {
 			{ title: "Invalid", url: "not-a-url" },
 			{ title: "Invalid", url: "javascript:alert(1)" },
 		];
-		const result = normalizeProviderResponse(id, id === "brave_api" ? { web: { results: rows } } : id === "anysearch" ? { code: 0, data: { results: rows } } : { results: rows }, normalizeSearchParams({ query: "查询结果可使用不同语言" }, 8), 100);
+		const result = normalizeProviderResponse(id, id === "brave_api" ? { grounding: { generic: rows } } : id === "anysearch" ? { code: 0, data: { results: rows } } : { results: rows }, normalizeSearchParams({ query: "查询结果可使用不同语言" }, 8), 100);
 		expect(result).toMatchObject({ status: "success", results: [
 			{ rank: 1, title: "Same title", url: "https://example.com/docs" },
 			{ rank: 2, title: "Same title", url: "https://example.com/other" },
@@ -134,9 +161,10 @@ describe("搜索参数与提供方", () => {
 		const config = defaultWebToolsConfig().websearch.brave_api;
 		const options = { id: "brave_api" as const, config, key: "brave-secret", dispatcher: async () => new Agent(), fetchImpl: async () => httpResponse(429, '{"error":"limited"}', { "retry-after": "2" }) };
 		await expect(searchApiProvider(options, normalizeSearchParams({ query: "pi" }, 8), { now: () => 0, deadlineAt: 10_000 })).resolves.toMatchObject({ status: "failed", details: { error: { code: "RATE_LIMITED" }, http_status: 429, retry_after_ms: 2000 } });
-		options.fetchImpl = async () => { throw new Error("failed brave-secret"); };
+		const message = `failed ${"network details ".repeat(40)}brave-secret`;
+		options.fetchImpl = async () => { throw new Error(message); };
 		const failed = await searchApiProvider(options, normalizeSearchParams({ query: "pi" }, 8), { now: () => 0, deadlineAt: 10_000 });
-		expect(failed).toMatchObject({ status: "failed", details: { error: { code: "CONNECTION_FAILED" } } });
+		expect(failed).toMatchObject({ status: "failed", details: { error: { code: "CONNECTION_FAILED", message: message.replace("brave-secret", "REDACTED") } } });
 		expect(JSON.stringify(failed)).not.toContain("brave-secret");
 	});
 });

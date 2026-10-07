@@ -97,7 +97,7 @@ test("逐项展开 schema 详情，排序保留展开状态，修改支持保存
 	await engines.getByRole("switch", { name: "Brave", exact: true }).uncheck();
 	await expect(engines.getByRole("button", { name: "展开 Brave", exact: true })).toHaveAttribute("aria-expanded", "false");
 	await engines.getByRole("button", { name: "编辑 Brave", exact: true }).click();
-	await expect(textbox("接口地址")).toHaveValue("https://api.search.brave.com/res/v1/web/search");
+	await expect(textbox("接口地址")).toHaveValue("https://api.search.brave.com/res/v1/llm/context");
 	await expect(textbox("API Key")).toBeEnabled();
 	await expect(textbox("API Key")).toHaveAttribute("maxlength", "4096");
 	await expect(number("超时（秒）")).toHaveAttribute("min", "1");
@@ -105,15 +105,15 @@ test("逐项展开 schema 详情，排序保留展开状态，修改支持保存
 	await expect(number("超时（秒）")).toHaveAttribute("step", "1");
 	await textbox("API Key").fill("$CUSTOM_BRAVE_KEY");
 	await number("超时（秒）").fill("12");
-	await engines.getByRole("switch", { name: "额外摘要", exact: true }).check();
+	await expect(engines.getByRole("switch", { name: "额外摘要", exact: true })).toHaveCount(0);
 	await engines.getByRole("button", { name: "下移 Brave", exact: true }).click();
 	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "Exa MCP", "TinyFish", "AnySearch"]);
 	await expect(engines.getByRole("button", { name: "收起 Brave", exact: true })).toHaveAttribute("aria-expanded", "true");
 	await expect(textbox("API Key")).toHaveValue("$CUSTOM_BRAVE_KEY");
 	await engines.getByRole("button", { name: "展开 Exa", exact: true }).click();
 	await expect(engines.getByRole("button", { name: "展开 Brave", exact: true })).toHaveAttribute("aria-expanded", "false");
-	await expect(number("摘要长度（字符）")).toHaveValue("600");
-	await number("摘要长度（字符）").fill("800");
+	await expect(number("摘要长度（字符）")).toHaveCount(0);
+	await number("超时（秒）").fill("15");
 	await engines.getByRole("button", { name: "展开 Tavily", exact: true }).click();
 	await expect(textbox("接口地址")).toHaveValue("https://api.tavily.com/search");
 	expect(await engines.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -121,8 +121,8 @@ test("逐项展开 schema 详情，排序保留展开状态，修改支持保存
 	await save(page);
 	expect(parse(await readFile(file, "utf8"))).toMatchObject({ websearch: {
 		primary_providers: ["exa_api", "brave_api", "tavily", "exa_mcp"],
-		brave_api: { enabled: false, api_key: "$CUSTOM_BRAVE_KEY", timeout_seconds: 12, extra_snippets: true },
-		exa_api: { highlight_chars: 800 },
+		brave_api: { enabled: false, api_key: "$CUSTOM_BRAVE_KEY", timeout_seconds: 12 },
+		exa_api: { timeout_seconds: 15 },
 	} });
 	await page.reload();
 	await open(page);

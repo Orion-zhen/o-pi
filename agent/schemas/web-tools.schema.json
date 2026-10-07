@@ -90,12 +90,11 @@
 							"title": "接口地址",
 							"type": "string",
 							"pattern": "^https?://",
-							"default": "https://api.search.brave.com/res/v1/web/search"
+							"default": "https://api.search.brave.com/res/v1/llm/context"
 						},
 						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$BRAVE_SEARCH_API_KEY" },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
-						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
-						"extra_snippets": { "title": "额外摘要", "type": "boolean", "default": false }
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
 					}
 				},
 				"exa_api": {
@@ -107,8 +106,7 @@
 						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.exa.ai/search" },
 						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$EXA_API_KEY" },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
-						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
-						"highlight_chars": { "title": "摘要长度（字符）", "type": "integer", "minimum": 100, "maximum": 2000, "default": 600 }
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
 					}
 				},
 				"exa_mcp": {
@@ -120,8 +118,7 @@
 						"max_results": { "title": "结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 8 },
 						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://mcp.exa.ai/mcp" },
 						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
-						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
-						"highlight_chars": { "title": "摘要长度（字符）", "type": "integer", "minimum": 100, "maximum": 2000, "default": 600 }
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
 					}
 				},
 				"tavily": {

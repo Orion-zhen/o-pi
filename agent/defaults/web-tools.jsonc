@@ -31,12 +31,11 @@
 		"brave_api": {
 			"enabled": true,
 			"max_results": 8,
-			"endpoint": "https://api.search.brave.com/res/v1/web/search",
+			"endpoint": "https://api.search.brave.com/res/v1/llm/context",
 			// 可直接填写 key；推荐用 $NAME 或 ${NAME} 引用环境变量；为空或无法解析时自动禁用。
 			"api_key": "$BRAVE_SEARCH_API_KEY",
 			"timeout_seconds": 8,
-			"response_bytes": 2097152,
-			"extra_snippets": false
+			"response_bytes": 2097152
 		},
 		"exa_api": {
 			"enabled": true,
@@ -44,8 +43,7 @@
 			"endpoint": "https://api.exa.ai/search",
 			"api_key": "$EXA_API_KEY",
 			"timeout_seconds": 10,
-			"response_bytes": 2097152,
-			"highlight_chars": 600
+			"response_bytes": 2097152
 		},
 		"exa_mcp": {
 			// 公共 MCP 免 key，受免费限流约束。
@@ -53,8 +51,7 @@
 			"max_results": 8,
 			"endpoint": "https://mcp.exa.ai/mcp",
 			"timeout_seconds": 10,
-			"response_bytes": 2097152,
-			"highlight_chars": 600
+			"response_bytes": 2097152
 		},
 		"tavily": {
 			"enabled": true,

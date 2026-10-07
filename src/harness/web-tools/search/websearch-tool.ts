@@ -77,7 +77,7 @@ function successContent(details: WebSearchSuccessDetails): string {
 	const body = details.results
 		.map((item) => {
 			const lines = [
-				`[${item.rank}] ${escapeXml(truncateChars(item.title, 160))}`,
+				`[${item.rank}] ${escapeXml(item.title)}`,
 				escapeXml(item.url),
 				item.snippet ? escapeXml(item.snippet) : undefined,
 			].filter((line): line is string => line !== undefined);
@@ -91,8 +91,4 @@ function failureContent(details: WebSearchFailureDetails): string {
 	return `<error tool="websearch" code="${escapeXml(details.error.code)}">
 ${escapeXml(details.error.message)}
 </error>`;
-}
-
-function truncateChars(value: string, maxChars: number): string {
-	return value.length <= maxChars ? value : `${value.slice(0, maxChars - 3)}...`;
 }

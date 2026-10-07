@@ -58,8 +58,7 @@ export async function searchExaMcp(options: {
 			method: "tools/call",
 			params: { name: "web_search_advanced_exa", arguments: {
 				query: params.textQuery, numResults: params.limit, type: "auto",
-				textMaxCharacters: config.highlight_chars,
-				enableHighlights: true, highlightsMaxCharacters: config.highlight_chars,
+				enableHighlights: true,
 				...(params.includeDomains.length === 0 ? {} : { includeDomains: params.includeDomains }),
 				...(params.excludeDomains.length === 0 ? {} : { excludeDomains: params.excludeDomains }),
 			} },
@@ -113,7 +112,7 @@ function failureFromError(query: string, error: unknown): SearchProviderResult {
 		return failed(query, code, "exa_mcp protocol request failed.");
 	}
 	const code = classifyNetworkError(error);
-	return failed(query, code === "BLOCKED_ADDRESS" ? "CONNECTION_FAILED" : code, (error instanceof Error ? error.message : String(error)).slice(0, 300));
+	return failed(query, code === "BLOCKED_ADDRESS" ? "CONNECTION_FAILED" : code, error instanceof Error ? error.message : String(error));
 }
 
 function failed(query: string, code: WebSearchErrorCode, message: string, httpStatus?: number): SearchProviderResult {

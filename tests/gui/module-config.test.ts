@@ -45,7 +45,9 @@ it("从校验 schema 返回固定字段的枚举，包括本地引用和未展�
 	expect(web.fields).not.toHaveProperty("websearch.exa_mcp.api_key");
 	expect(web.fields["websearch.anysearch.max_results"]).toMatchObject({ type: "integer", maximum: 10 });
 	expect(web.fields["websearch.brave_api.endpoint"]).toMatchObject({ type: "string", title: "接口地址" });
-	expect(web.fields["websearch.exa_api.highlight_chars"]).toMatchObject({ type: "integer", title: "摘要长度（字符）", minimum: 100, maximum: 2000 });
+	expect(web.fields).not.toHaveProperty("websearch.brave_api.extra_snippets");
+	expect(web.fields).not.toHaveProperty("websearch.exa_api.highlight_chars");
+	expect(web.fields).not.toHaveProperty("websearch.exa_mcp.highlight_chars");
 	const approval = await host.query({ query: "moduleConfig", id: "approvalGate" });
 	expect(approval).toMatchObject({ options: {
 		"ui.non_interactive": ["block", "allow"],
