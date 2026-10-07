@@ -20,8 +20,9 @@
 	mask-image: radial-gradient(ellipse at center, #000 42%, rgb(0 0 0 / 0.95) 52%, rgb(0 0 0 / 0.4) 63%, transparent 73%);
 	mask-position: center;
 	mask-repeat: no-repeat;
-	animation: welcome-emerge 900ms cubic-bezier(0.3, 0.05, 0.2, 1) both,
-		welcome-resolve 780ms cubic-bezier(0.3, 0.05, 0.2, 1) both,
-		welcome-appear 540ms cubic-bezier(0.3, 0.05, 0.2, 1) both;
+	animation: welcome-emerge var(--startup-duration) cubic-bezier(0.3, 0.05, 0.2, 1) both,
+		welcome-resolve calc(var(--startup-duration) * 0.8667) cubic-bezier(0.3, 0.05, 0.2, 1) both,
+		welcome-appear calc(var(--startup-duration) * 0.6) cubic-bezier(0.3, 0.05, 0.2, 1) both;
+	animation-delay: var(--startup-delay);
 }
 .welcome[data-startup="welcome"] .welcome-content { filter: var(--welcome-refraction); }

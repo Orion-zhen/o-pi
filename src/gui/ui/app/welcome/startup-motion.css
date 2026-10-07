@@ -4,13 +4,15 @@
 }
 @keyframes startup-fade { from { opacity: 0; } }
 
+.sidebar[data-startup-lists] :is(.history-session-row, .file-entry-row) { visibility: hidden; }
+
 [data-startup="left"] { --startup-x: -20px; }
 [data-startup="right"] { --startup-x: 20px; }
 [data-startup="composer"] { --startup-y: 12px; --startup-duration: 240ms; }
 
 :is([data-startup="left"], [data-startup="right"]:not([data-open="false"]), [data-startup="composer"]) {
 	animation-name: startup-settle, startup-fade;
-	animation-duration: var(--startup-duration, 280ms), 160ms;
+	animation-duration: var(--startup-duration), 160ms;
 	animation-timing-function: var(--motion-ease);
 	animation-fill-mode: both;
 }

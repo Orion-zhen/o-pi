@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
+import { startupLists, startupContentDuration, startupListDuration, startupSidebarDuration } from "./startup-lists.ts";
 import "./startup-motion.css";
 
 const regions = [
@@ -11,24 +12,34 @@ type Region = typeof regions[number]["name"];
 
 /** 入场按区域只播放一次，不等待异步数据，也不随会话组件重新挂载而重播。 */
 export function useStartupMotion(root: RefObject<HTMLElement | null>, sessionReady: boolean) {
-	const state = useRef({ seen: new Set<Region>(), active: new Set<HTMLElement>(), stopped: false });
+	const state = useRef<{
+		seen: Set<Region>; active: Set<HTMLElement>; stopped: boolean; sidebarEndsAt: number;
+		lists?: ReturnType<typeof startupLists>; refractionTimer?: ReturnType<typeof setTimeout>;
+	}>({ seen: new Set(), active: new Set(), stopped: false, sidebarEndsAt: 0 });
 	useLayoutEffect(() => {
 		const element = root.current;
 		if (!element) return;
 		const startup = state.current;
 		const finish = (target: HTMLElement) => {
 			target.removeAttribute("data-startup");
+			target.style.removeProperty("--startup-duration");
+			target.style.removeProperty("--startup-delay");
 			target.querySelector<SVGAnimateElement>(".welcome-refraction animate")?.endElement();
 		};
 		const stop = () => {
 			startup.stopped = true;
+			clearTimeout(startup.refractionTimer);
+			startup.lists?.stop();
 			for (const target of startup.active) finish(target);
 			startup.active.clear();
 		};
 		const finished = (event: AnimationEvent) => {
 			if ((event.animationName !== "startup-settle" && event.animationName !== "welcome-emerge") || !(event.target instanceof HTMLElement)) return;
 			const target = event.target.closest<HTMLElement>("[data-startup]");
-			if (target && startup.active.delete(target)) finish(target);
+			if (target && startup.active.delete(target)) {
+				if (target.dataset.startup === "welcome") startup.lists?.stop();
+				finish(target);
+			}
 		};
 		element.addEventListener("animationend", finished);
 		window.addEventListener("pointerdown", stop, true);
@@ -59,14 +70,34 @@ export function useStartupMotion(root: RefObject<HTMLElement | null>, sessionRea
 			}
 			startup.seen.add(region.name);
 			if (target.getAttribute("data-open") === "false") continue;
+			if (region.name === "left" || region.name === "right") target.style.setProperty("--startup-duration", `${startupSidebarDuration}ms`);
+			if (region.name === "left") {
+				startup.sidebarEndsAt = performance.now() + startupSidebarDuration;
+				startup.lists = startupLists(target);
+			}
+			if (region.name === "welcome") {
+				const startsAt = Math.max(performance.now(), startup.sidebarEndsAt + startupListDuration - startupContentDuration);
+				const delay = startsAt - performance.now();
+				target.style.setProperty("--startup-duration", `${startupContentDuration}ms`);
+				target.style.setProperty("--startup-delay", `${Math.max(0, delay)}ms`);
+				startup.lists?.start(Math.max(performance.now(), startup.sidebarEndsAt));
+				startup.refractionTimer = setTimeout(() => {
+					const refraction = target.querySelector<SVGAnimateElement>(".welcome-refraction animate");
+					if (refraction) {
+						refraction.setAttribute("dur", `${startupContentDuration}ms`);
+						refraction.beginElement();
+					}
+				}, Math.max(0, delay));
+			}
 			target.dataset.startup = region.name;
 			startup.active.add(target);
-			if (region.name === "welcome") target.querySelector<SVGAnimateElement>(".welcome-refraction animate")?.beginElement();
 			const divider = region.divider ? element.querySelector<HTMLElement>(region.divider) : null;
 			if (divider) {
+				divider.style.setProperty("--startup-duration", `${startupSidebarDuration}ms`);
 				divider.dataset.startup = region.name;
 				startup.active.add(divider);
 			}
 		}
+		if (sessionReady && !element.querySelector(".welcome")) startup.lists?.start(Math.max(performance.now(), startup.sidebarEndsAt));
 	});
 }
