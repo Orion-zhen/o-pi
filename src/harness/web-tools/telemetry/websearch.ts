@@ -11,12 +11,10 @@ export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearch
 		const attempts = "attempts" in details ? details.attempts : undefined;
 		return {
 			fields: { ...webResultFields(details), ...fields({
-				provider_latencies: attempts?.flatMap((attempt) => attempt.duration_ms === undefined
-					? []
-					: [`${attempt.provider}:${attempt.duration_ms}`]),
-				provider_errors: attempts?.flatMap((attempt) => attempt.error === undefined
-					? []
-					: [`${attempt.provider}:${attempt.error.code}`]),
+				provider_latencies: attempts?.map((attempt) => `${attempt.provider}:${attempt.duration_ms}`),
+				provider_errors: attempts?.flatMap((attempt) => attempt.status === "failed"
+					? [`${attempt.provider}:${attempt.error.code}`]
+					: []),
 			}) },
 			candidates: details.status === "success" ? webCandidates(details) : [],
 		};

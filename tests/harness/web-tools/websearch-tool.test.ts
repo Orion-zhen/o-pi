@@ -1,121 +1,51 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultWebToolsConfig } from "./config-fixture.ts";
-import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.ts";
-import type { SearchProviderContext, SearchProviderResult, WebSearchProvider } from "../../../src/harness/web-tools/search-providers/types.ts";
-import { SearchFlights } from "../../../src/harness/web-tools/search/search-flights.ts";
-import type { WebSearchProviderId } from "../../../src/harness/web-tools/core/types.ts";
-import { executeWebSearch } from "../../../src/harness/web-tools/search/websearch-tool.ts";
+import { webSearchStructuredOutput } from "../../../src/harness/web-tools/search/structured-output.ts";
+import { httpResponse } from "../../helpers/http.ts";
+import { useWebSearch } from "./search-fixture.ts";
 
-function runtime(providers: WebSearchProvider[], now = () => Date.now()) {
-	const config = defaultWebToolsConfig();
-	config.websearch.default_results = 2;
-	return {
-		config,
-		searches: new SearchFlights(),
-		router: new SearchProviderRouter({ primary: providers, auxiliary: [] }),
-		context: { toolCallId: "s1" },
-		now,
-	};
-}
+const fixture = useWebSearch();
 
-function successProvider(id: WebSearchProviderId, calls: { count: number }): WebSearchProvider {
-	return {
-		id,
-		maxResults: 5,
-		async search(params): Promise<SearchProviderResult> {
-			calls.count += 1;
-			return {
-				status: "success",
-				provider: id,
-				downloadedBytes: 123,
-				results: [
-					{ rank: 1, title: "<Title>&", url: "https://example.com/?a=1", snippet: `Snippet for ${params.query}` },
-					{ rank: 2, title: "Second", url: "https://example.org/" },
-				],
-			};
-		},
-	};
-}
-
-function failedProvider(id: WebSearchProviderId): WebSearchProvider {
-	return {
-		id,
-		maxResults: 5,
-		async search(_params, context: SearchProviderContext): Promise<SearchProviderResult> {
-			context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
-			return {
-				status: "failed",
-				provider: id,
-				details: {
-					status: "failed",
-					error: { code: "HTTP_ERROR", message: "failed without secret" },
-					provider: id,
-					response_preview: "secret preview",
-				},
-			};
-		},
-	};
-}
-
-describe("websearch tool", () => {
-	it("保留 schema 无法表达的域名冲突校验", async () => {
-		const rt = runtime([]);
-		await expect(executeWebSearch({ query: "site:example.com -site:example.com x" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
+describe("websearch 输出", () => {
+	it("配置与查询的域名冲突在请求前返回 INVALID_ARGUMENT", async () => {
+		fixture.config.websearch.exclude_domains = ["example.com"];
+		await expect(fixture.runtime.search({ query: "site:example.com pi" }, { toolCallId: "conflict" }))
+			.resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
+		expect(fixture.fetchImpl).not.toHaveBeenCalled();
 	});
 
-	it("成功模型输出只保留标题、URL、摘要，并转义 XML", async () => {
-		const calls = { count: 0 };
-		const result = await executeWebSearch({ query: "Title <pi>&" }, runtime([successProvider("exa_api", calls)]));
-		expect(result.details).toMatchObject({ status: "success", providers: ["exa_api"] });
+	it("模型正文转义 XML、清理终端控制字符，结构化结果保留原始排版", async () => {
+		fixture.config.websearch.default_results = 2;
+		const title = "😀 <Title>& ".repeat(50).trim();
+		const snippet = "<code>\n  x && y\n\treturn '中文';\n</code>\n".repeat(100);
+		fixture.fetchImpl.mockResolvedValue(httpResponse(200, JSON.stringify({ grounding: { generic: [
+			{ title, url: "https://example.com/?a=1", snippets: [`\u001b[31m${snippet}\u001b[0m\u0000`] },
+			{ title: "Second", url: "https://example.org/" },
+		] } })));
+		const result = await fixture.runtime.search({ query: "pi docs" }, { toolCallId: "output" });
+		expect(result.details).toMatchObject({ status: "success", providers: ["brave_api"] });
 		expect(result.content).toBe([
-			"<websearch>",
-			"[1] &lt;Title&gt;&amp;",
-			"https://example.com/?a=1",
-			"Snippet for Title &lt;pi&gt;&amp;",
-			"",
-			"[2] Second",
-			"https://example.org/",
-			"</websearch>",
+			"<websearch>", `[1] ${"😀 &lt;Title&gt;&amp; ".repeat(50).trim()}`, "https://example.com/?a=1",
+			"&lt;code&gt;\n  x &amp;&amp; y\n\treturn '中文';\n&lt;/code&gt;\n".repeat(100),
+			"", "[2] Second", "https://example.org/", "</websearch>",
 		].join("\n"));
-		expect(calls.count).toBe(1);
+		if (result.details.status !== "success") throw new Error(result.details.error.message);
+		expect(webSearchStructuredOutput(result.details)).toEqual({ results: [
+			{ title, url: "https://example.com/?a=1", snippet },
+			{ title: "Second", url: "https://example.org/" },
+		] });
+		expect(fixture.fetchImpl).toHaveBeenCalledOnce();
 	});
 
-	it("每次搜索合并配置和 query 中的域名过滤", async () => {
-		let seen: { includeDomains: string[]; excludeDomains: string[] } | undefined;
-		const capture: WebSearchProvider = {
-			id: "brave_api", maxResults: 5,
-			async search(params) {
-				seen = { includeDomains: params.includeDomains, excludeDomains: params.excludeDomains };
-				return { status: "failed", provider: "brave_api", details: { status: "failed", provider: "brave_api", error: { code: "ABORTED", message: "stop" } } };
-			},
-		};
-		const rt = runtime([capture]);
-		rt.config.websearch.include_domains = ["configured.example"];
-		rt.config.websearch.exclude_domains = ["blocked.example"];
-		await executeWebSearch({ query: "site:query.example -site:spam.example pi" }, rt);
-		expect(seen).toEqual({
-			includeDomains: ["configured.example", "query.example"],
-			excludeDomains: ["blocked.example", "spam.example"],
+	it("HTTP 失败的模型正文不暴露响应内容和尝试记录", async () => {
+		fixture.fetchImpl.mockResolvedValue(httpResponse(503, "private upstream diagnostic"));
+		const result = await fixture.runtime.search({ query: "pi" }, { toolCallId: "failure" });
+		expect(result.details).toMatchObject({ status: "failed", provider: "brave_api", query: "pi", http_status: 503,
+			duration_ms: expect.any(Number), attempts: [
+				{ provider: "brave_api", role: "primary", status: "failed", duration_ms: expect.any(Number), error: { code: "HTTP_ERROR" }, http_status: 503 },
+			],
 		});
-	});
-
-	it("完成结果不缓存", async () => {
-		const calls = { count: 0 };
-		const rt = runtime([successProvider("brave_api", calls)]);
-		await executeWebSearch({ query: "pi", limit: 1 }, rt);
-		await executeWebSearch({ query: "pi", limit: 1 }, rt);
-		expect(calls.count).toBe(2);
-	});
-
-	it("失败模型输出不包含 response_preview 或 attempts 长诊断", async () => {
-		const result = await executeWebSearch({ query: "x" }, runtime([failedProvider("exa_api")]));
-		expect(result.details).toMatchObject({ status: "failed", response_preview: "secret preview" });
-		expect(result.details.status === "failed" ? result.details.attempts?.find((attempt) => attempt.provider === "exa_api") : undefined).toMatchObject({ provider: "exa_api", status: "failed" });
-		expect(result.content).toContain('<error tool="websearch" code="HTTP_ERROR">');
-		expect(result.content).toContain("failed without secret");
-		expect(result.content).not.toContain("secret preview");
-		expect(result.content).not.toContain("attempts");
-		expect(result.content).not.toContain("\n  ");
+		expect(result.content).toBe('<error tool="websearch" code="HTTP_ERROR">\n503 search provider HTTP error.\n</error>');
+		expect(JSON.stringify(result)).not.toContain("private upstream diagnostic");
 	});
 });

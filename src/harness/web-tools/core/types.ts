@@ -20,7 +20,6 @@ export interface WebSearchParams {
 }
 
 export interface WebSearchItem {
-	rank: number;
 	title: string;
 	url: string;
 	snippet?: string;
@@ -132,24 +131,22 @@ export interface WebSearchProgressDetails {
 	status: "progress";
 	phase: "requesting" | "downloading" | "parsing";
 	received_bytes?: number;
-	expected_bytes?: number;
 }
 
-export interface WebSearchProviderAttempt {
+export type WebSearchProviderAttempt = {
 	provider: WebSearchProviderId;
 	role: WebSearchProviderRole;
-	status: "success" | "failed";
-	duration_ms?: number;
-	error?: { code: WebSearchErrorCode; message: string };
-	http_status?: number;
-	result_count?: number;
-}
+	duration_ms: number;
+} & (
+	| { status: "success"; result_count: number }
+	| { status: "failed"; error: { code: WebSearchErrorCode; message: string }; http_status?: number }
+);
 
 export interface WebSearchSuccessDetails {
 	status: "success";
 	query: string;
 	providers: WebSearchProviderId[];
-	results: (WebSearchItem & { provider: WebSearchProviderId })[];
+	results: (WebSearchItem & { rank: number; provider: WebSearchProviderId })[];
 	downloaded_bytes: number;
 	duration_ms: number;
 	attempts: WebSearchProviderAttempt[];
@@ -161,11 +158,8 @@ export interface WebSearchFailureDetails {
 	query?: string;
 	provider?: WebSearchProviderId;
 	http_status?: number;
-	retry_after_ms?: number;
 	duration_ms?: number;
 	attempts?: WebSearchProviderAttempt[];
-	/** 展开诊断使用，必须先去除标签和终端控制字符，不写入模型正文。 */
-	response_preview?: string;
 }
 
 export type WebSearchDetails = WebSearchProgressDetails | WebSearchSuccessDetails | WebSearchFailureDetails;

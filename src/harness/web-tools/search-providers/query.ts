@@ -3,20 +3,20 @@ import type { NormalizedSearchParams } from "./types.ts";
 
 const SITE = /(?:^|\s)(-?)site:(?:"([^"]+)"|(\S+))/giu;
 
-export interface SearchDomainFilters {
-	includeDomains?: readonly string[];
-	excludeDomains?: readonly string[];
+interface SearchDomainFilters {
+	includeDomains: readonly string[];
+	excludeDomains: readonly string[];
 }
 
-export function normalizeSearchParams(params: WebSearchParams, defaultLimit: number, filters: SearchDomainFilters = {}): NormalizedSearchParams {
+export function normalizeSearchParams(params: WebSearchParams, defaultLimit: number, filters: SearchDomainFilters): NormalizedSearchParams {
 	const query = params.query.trim();
 	const sites = [...query.matchAll(SITE)].map((match) => ({ excluded: match[1] === "-", domain: match[2] ?? match[3] ?? "" }));
 	return {
 		query,
 		limit: params.limit ?? defaultLimit,
 		textQuery: withoutSites(query) || query,
-		includeDomains: normalizeDomains([...(filters.includeDomains ?? []), ...sites.filter((site) => !site.excluded).map((site) => site.domain)]),
-		excludeDomains: normalizeDomains([...(filters.excludeDomains ?? []), ...sites.filter((site) => site.excluded).map((site) => site.domain)]),
+		includeDomains: normalizeDomains([...filters.includeDomains, ...sites.filter((site) => !site.excluded).map((site) => site.domain)]),
+		excludeDomains: normalizeDomains([...filters.excludeDomains, ...sites.filter((site) => site.excluded).map((site) => site.domain)]),
 	};
 }
 

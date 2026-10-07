@@ -98,6 +98,7 @@ describe("Exa MCP 免 key 搜索", () => {
 	});
 
 	it("前序主引擎失败或空结果后才回退到 MCP，主结果成功则不连接 MCP", async () => {
+		config.websearch.primary_providers = ["brave_api", "exa_api", "tavily", "exa_mcp"];
 		for (const id of ["brave_api", "exa_api", "tavily"] as const) config.websearch[id].api_key = "test-key";
 		const mcpFetch = fetchImpl.getMockImplementation();
 		if (mcpFetch === undefined) throw new Error("missing HTTP boundary");

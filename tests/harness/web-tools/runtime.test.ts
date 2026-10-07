@@ -1,10 +1,9 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Dispatcher } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as configModule from "../../../src/harness/web-tools/config.ts";
-import * as apiModule from "../../../src/harness/web-tools/search-providers/api-provider.ts";
 import type { WebSearchProviderId, WebToolsRuntime } from "../../../src/harness/web-tools/core/types.ts";
 import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.ts";
 import { createWebToolsRuntime } from "../../../src/harness/web-tools/web-tools-runtime.ts";
@@ -40,39 +39,41 @@ afterEach(async () => {
 });
 
 describe("web-tools runtime", () => {
+	it("禁用的提供方不解析命令凭据", async () => {
+		const config = defaultWebToolsConfig();
+		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
+		config.websearch.exa_api.enabled = false;
+		const marker = path.join(temp.path, "disabled-credential");
+		config.websearch.exa_api.api_key = `!printf unexpected > "${marker}"`;
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		network.fetch.mockResolvedValue(searchResponse("brave_api"));
+
+		await expect(trackRuntime().search({ query: "pi docs" }, { toolCallId: "disabled-credential" }))
+			.resolves.toMatchObject({ details: { status: "success", providers: ["brave_api"] } });
+		expect(network.fetch).toHaveBeenCalledOnce();
+		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
 	it("api_key 为空时不创建 provider，引用可用后自动恢复", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
 		config.websearch.exa_mcp.enabled = false;
 		config.websearch.brave_api.api_key = "";
 		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
-		const createApi = vi.spyOn(apiModule, "searchApiProvider");
 		network.fetch.mockImplementation(async () => searchResponse("brave_api"));
 		const runtime = trackRuntime();
 
 		await expect(runtime.search({ query: "example", limit: 1 }, { toolCallId: "empty-key" })).resolves.toMatchObject({ details: { status: "failed", error: { code: "NO_PROVIDER_AVAILABLE" }, attempts: [] } });
-		expect(createApi).not.toHaveBeenCalled();
 		expect(network.fetch).not.toHaveBeenCalled();
 		config.websearch.brave_api.api_key = "$BRAVE_SEARCH_API_KEY";
 		await expect(runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "restored-key" })).resolves.toMatchObject({ details: { providers: ["brave_api"] } });
-		expect(createApi).toHaveBeenCalledOnce();
-	});
-
-	it.each(["brave_api", "exa_api", "tavily"] as const)("只配置 %s 时仍使用该正式 provider", async (selected) => {
-		const config = defaultWebToolsConfig();
-		config.websearch.anysearch.enabled = false;
-		config.websearch.exa_mcp.enabled = false;
-		for (const id of ["brave_api", "exa_api", "tavily"] as const) config.websearch[id].enabled = id === selected;
-		config.websearch[selected].api_key = "literal-key";
-		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
-		const createApi = vi.spyOn(apiModule, "searchApiProvider");
-		network.fetch.mockImplementation(async () => searchResponse(selected));
-		await expect(trackRuntime().search({ query: "official pi docs", limit: 1 }, { toolCallId: selected })).resolves.toMatchObject({ details: { status: "success", providers: [selected] } });
-		expect(createApi).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: selected }), expect.anything(), expect.anything());
+		expect(network.fetch).toHaveBeenCalledOnce();
 	});
 
 	it("固定顺序贯穿真实请求适配，失败和空结果后继续，Tavily 有结果即停止", async () => {
 		const config = defaultWebToolsConfig();
+		config.websearch.primary_providers = ["brave_api", "exa_api", "tavily", "exa_mcp"];
 		config.websearch.anysearch.enabled = false;
 		config.websearch.exa_mcp.enabled = false;
 		for (const id of ["brave_api", "exa_api", "tavily"] as const) {
@@ -96,11 +97,29 @@ describe("web-tools runtime", () => {
 		expect(network.fetch).toHaveBeenCalledTimes(3);
 	});
 
+	it.each(["not JSON", "null"])("提供方返回损坏响应 %s 时保留解析错误并回退", async (body) => {
+		const config = defaultWebToolsConfig();
+		config.websearch.primary_providers = ["brave_api", "exa_api", "tavily", "exa_mcp"];
+		config.websearch.anysearch.enabled = false;
+		config.websearch.exa_mcp.enabled = false;
+		config.websearch.exa_api.api_key = "exa-key";
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		network.fetch.mockImplementation(async (url) => url.hostname === "api.search.brave.com"
+			? httpResponse(200, body)
+			: searchResponse("exa_api"));
+		await expect(trackRuntime().search({ query: "pi docs" }, { toolCallId: "invalid-response" }))
+			.resolves.toMatchObject({ details: { status: "success", providers: ["exa_api"], attempts: [
+				{ provider: "brave_api", status: "failed", error: { code: "PARSE_FAILED" } },
+				{ provider: "exa_api", status: "success" },
+			] } });
+		expect(network.fetch).toHaveBeenCalledTimes(2);
+	});
+
 	it("按配置顺序跳过禁用和缺少凭据的引擎", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.anysearch.enabled = false;
 		config.websearch.exa_mcp.enabled = false;
-		config.websearch.primary_providers = ["tavily", "exa_api", "brave_api"];
+		config.websearch.primary_providers = ["tavily", "exa_api", "brave_api", "exa_mcp"];
 		config.websearch.tavily.enabled = false;
 		config.websearch.tavily.api_key = "available-but-disabled";
 		config.websearch.exa_api.api_key = "";
@@ -115,6 +134,7 @@ describe("web-tools runtime", () => {
 
 	it("调整顺序不会合并到旧顺序的进行中请求，全部禁用后不发送请求", async () => {
 		const config = defaultWebToolsConfig();
+		config.websearch.primary_providers = ["brave_api", "exa_api", "tavily", "exa_mcp"];
 		config.websearch.anysearch.enabled = false;
 		config.websearch.exa_mcp.enabled = false;
 		config.websearch.exa_api.api_key = "exa-key";
@@ -134,7 +154,7 @@ describe("web-tools runtime", () => {
 		const first = runtime.search(params, { toolCallId: "old-order" });
 		await started.promise;
 		try {
-			config.websearch.primary_providers = ["exa_api", "brave_api", "tavily"];
+			config.websearch.primary_providers = ["exa_api", "brave_api", "tavily", "exa_mcp"];
 			await expect(runtime.search(params, { toolCallId: "new-order" })).resolves.toMatchObject({ details: { status: "success", providers: ["exa_api"] } });
 		} finally { release.resolve(); }
 		await expect(first).resolves.toMatchObject({ details: { status: "success", providers: ["brave_api"] } });
@@ -297,17 +317,28 @@ describe("web-tools runtime", () => {
 	});
 
 
-	it("并发搜索各用自身请求数据，完成后的相同查询重新请求", async () => {
-		const createApi = vi.spyOn(apiModule, "searchApiProvider");
-		network.fetch.mockImplementation(async () => searchResponse("brave_api"));
+	it("并发相同查询合并，不同查询独立请求，完成结果不缓存", async () => {
+		const release = deferredVoid();
+		network.fetch.mockImplementation(async () => { await release.promise; return searchResponse("brave_api"); });
 		const runtime = trackRuntime();
-		const results = await Promise.all([
-			runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "first" }),
-			runtime.search({ query: "official pi reference", limit: 1 }, { toolCallId: "concurrent" }),
+		const firstUpdate = vi.fn();
+		const sameUpdate = vi.fn();
+		const pending = Promise.all([
+			runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "first", onUpdate: firstUpdate }),
+			runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "same", onUpdate: sameUpdate }),
+			runtime.search({ query: "official pi reference", limit: 1 }, { toolCallId: "different" }),
 		]);
-		results.push(await runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "again" }));
+		try {
+			await vi.waitFor(() => expect(network.fetch).toHaveBeenCalledTimes(2));
+		} finally { release.resolve(); }
+		const results = await pending;
 		expect(results.every((result) => result.details.status === "success")).toBe(true);
-		expect(createApi).toHaveBeenCalledTimes(3);
+		for (const onUpdate of [firstUpdate, sameUpdate]) {
+			expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ details: { status: "progress", phase: "parsing" } }));
+		}
+		expect(network.fetch).toHaveBeenCalledTimes(2);
+		await expect(runtime.search({ query: "official pi docs", limit: 1 }, { toolCallId: "again" }))
+			.resolves.toMatchObject({ details: { status: "success" } });
 		expect(network.fetch).toHaveBeenCalledTimes(3);
 	});
 

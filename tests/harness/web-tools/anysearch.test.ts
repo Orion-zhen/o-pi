@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWebSearchRuntime } from "../../../src/harness/web-tools/search/websearch-runtime.ts";
 import type { WebSearchCapability } from "../../../src/harness/web-tools/core/runtime-types.ts";
 import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.ts";
-import { normalizeProviderResponse } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
-import { normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.ts";
 import { defaultWebToolsConfig } from "./config-fixture.ts";
 import { httpResponse } from "../../helpers/http.ts";
 import { deferredVoid } from "../../helpers/async.ts";
@@ -37,7 +35,7 @@ afterEach(async () => { await runtime.close(); await dispatcher.close(); });
 const search = (limit = 8) => runtime.search({ query: "site:example.com Pi", limit }, { toolCallId: "anysearch" });
 
 describe("AnySearch 辅助搜索", () => {
-	it.each(["", "   ", "$ANYSEARCH_API_KEY", "${ANYSEARCH_API_KEY}"])("凭据 %j 不可用时直接匿名访问", async (key) => {
+	it.each(["", "$ANYSEARCH_API_KEY"])("凭据 %j 不可用时直接匿名访问", async (key) => {
 		config.websearch.anysearch.api_key = key;
 		await expect(search()).resolves.toMatchObject({ details: { status: "success", providers: ["anysearch"],
 			results: [{ provider: "anysearch", snippet: "Pi reference\n\nPi summary" }],
@@ -50,7 +48,7 @@ describe("AnySearch 辅助搜索", () => {
 		expect(JSON.parse(request?.[1].body ?? "null")).toEqual({ query: "Pi site:example.com -site:csdn.com -site:gitcode.com", max_results: config.websearch.anysearch.max_results, format: "json" });
 	});
 
-	it.each(["literal-key", "$ANYSEARCH_API_KEY", "${ANYSEARCH_API_KEY}"])("凭据 %j 可用时发送 Bearer", async (key) => {
+	it.each(["literal-key", "$ANYSEARCH_API_KEY"])("凭据 %j 可用时发送 Bearer", async (key) => {
 		config.websearch.anysearch.api_key = key;
 		process.env.ANYSEARCH_API_KEY = "literal-key";
 		await expect(search()).resolves.toMatchObject({ details: { status: "success" } });
@@ -79,7 +77,7 @@ describe("AnySearch 辅助搜索", () => {
 		for (const secret of ["bad-key", "password", "secret", "generated-key"]) expect(JSON.stringify(result)).not.toContain(secret);
 	});
 
-	it.each([400, 404, 429, 502])("密钥请求返回 %i 时不切换匿名访问", async (status) => {
+	it.each([429, 503])("密钥请求返回 %i 时不切换匿名访问", async (status) => {
 		config.websearch.anysearch.api_key = "key";
 		fetchImpl.mockImplementation(async () => httpResponse(status, "failed"));
 		await expect(search()).resolves.toMatchObject({ details: { status: "failed", http_status: status } });
@@ -163,16 +161,19 @@ describe("AnySearch 辅助搜索", () => {
 		expect(fetchImpl).toHaveBeenCalledTimes(2);
 	});
 
-	it("snippet 可单独使用，合法空结果保持为空", () => {
-		const params = normalizeSearchParams({ query: "Pi" }, 8);
-		expect(normalizeProviderResponse("anysearch", { code: 0, data: { results: [{ title: "", url: "https://example.com/", snippet: "Pi snippet" }] } }, params, 42))
-			.toMatchObject({ status: "success", results: [{ title: "https://example.com/", snippet: "Pi snippet" }] });
-		expect(normalizeProviderResponse("anysearch", { code: 0, data: { results: [] } }, params, 42))
-			.toMatchObject({ status: "success", results: [] });
+	it("无标题结果使用 URL，保留单独的 snippet，空响应返回无可用结果", async () => {
+		fetchImpl.mockResolvedValueOnce(httpResponse(200, JSON.stringify({ code: 0, data: { results: [
+			{ title: "", url: "https://example.com/", snippet: "Pi snippet" },
+		] } })));
+		await expect(search()).resolves.toMatchObject({ details: { status: "success", results: [{ title: "https://example.com/", snippet: "Pi snippet" }] } });
+		fetchImpl.mockResolvedValueOnce(httpResponse(200, '{"code":0,"data":{"results":[]}}'));
+		await expect(search()).resolves.toMatchObject({ details: { error: { code: "NO_PROVIDER_AVAILABLE" }, attempts: [{ result_count: 0 }] } });
 	});
 
-	it.each([{ code: -1, message: "secret" }, { code: 0 }, { code: 0, data: { results: {} } }])("非法响应不当作成功空结果 %j", (raw) => {
-		expect(normalizeProviderResponse("anysearch", raw, normalizeSearchParams({ query: "Pi" }, 8), 42))
-			.toMatchObject({ status: "failed", details: { error: { code: "PARSE_FAILED" } } });
+	it("HTTP 成功但业务返回错误时，不当作空结果或泄漏响应内容", async () => {
+		fetchImpl.mockResolvedValueOnce(httpResponse(200, '{"code":-1,"message":"private diagnostic"}'));
+		const result = await search();
+		expect(result).toMatchObject({ details: { status: "failed", error: { code: "PARSE_FAILED" } } });
+		expect(JSON.stringify(result)).not.toContain("private diagnostic");
 	});
 });

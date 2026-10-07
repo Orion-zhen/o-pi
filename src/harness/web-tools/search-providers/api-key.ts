@@ -1,11 +1,7 @@
-import { resolveConfigValueOrThrow } from "../../openai-compatible-provider/config-values.ts";
+import { resolveConfigValue } from "../../openai-compatible-provider/config-values.ts";
 
-/** Resolve the shared config-value syntax without making an unavailable key fatal to fallback routing. */
+/** 缺少凭据时跳过提供方或匿名访问，不阻止路由回退。 */
 export function resolveSearchApiKey(config: string): string | undefined {
-	try {
-		const resolved = resolveConfigValueOrThrow(config, "search provider API key");
-		return resolved.trim().length > 0 ? resolved : undefined;
-	} catch {
-		return undefined;
-	}
+	const resolved = resolveConfigValue(config);
+	return resolved === undefined || resolved.trim().length === 0 ? undefined : resolved;
 }

@@ -118,7 +118,6 @@ function formatFailure(details: WebSearchFailureDetails, expanded: boolean, them
 		details.provider !== undefined ? `  Provider        ${clean(details.provider)}` : undefined,
 		details.duration_ms !== undefined ? `  Duration        ${formatDuration(details.duration_ms)}` : undefined,
 		formatAttempts(details.attempts),
-		details.error.code === "PARSE_FAILED" && details.response_preview ? `\n  Response\n${indent(truncateText(clean(details.response_preview), 500))}` : undefined,
 	]
 		.filter((item): item is string => item !== undefined)
 		.join("\n");
@@ -152,8 +151,8 @@ function formatAttempts(attempts: readonly WebSearchProviderAttempt[] | undefine
 	if (attempts === undefined || attempts.length === 0) return undefined;
 	const rows = attempts.map((attempt) => {
 		const status = clean(attempt.status).padEnd(8);
-		const code = clean(attempt.error?.code ?? "").padEnd(14);
-		const duration = attempt.duration_ms !== undefined ? formatDuration(attempt.duration_ms) : "";
+		const code = clean(attempt.status === "failed" ? attempt.error.code : "").padEnd(14);
+		const duration = formatDuration(attempt.duration_ms);
 		return `  ${clean(attempt.provider).padEnd(16)}${attempt.role.padEnd(11)}${status}${code}${duration}`;
 	});
 	return ["", "  Attempts", ...rows].join("\n");
@@ -176,10 +175,6 @@ function clean(value: string): string {
 
 function truncateText(value: string, maxChars: number): string {
 	return value.length <= maxChars ? value : `${value.slice(0, maxChars - 3)}...`;
-}
-
-function indent(value: string): string {
-	return value.split("\n").map((line) => `  ${line}`).join("\n");
 }
 
 function isSuccessDetails(value: unknown): value is WebSearchSuccessDetails {

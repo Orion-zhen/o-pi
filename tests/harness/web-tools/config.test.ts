@@ -27,7 +27,7 @@ describe("网页工具配置", () => {
 
 	it("默认顺序来自配置文件，顺序与启停可以分别覆盖", async () => {
 		const defaults = await loadWebToolsConfig();
-		expect(defaults.websearch.primary_providers).toEqual(["brave_api", "exa_api", "tavily", "exa_mcp"]);
+		expect(defaults.websearch.primary_providers).toEqual(["exa_api", "brave_api", "tavily", "exa_mcp"]);
 		expect(defaults.websearch.brave_api.endpoint).toBe("https://api.search.brave.com/res/v1/llm/context");
 		expect(defaults.websearch.brave_api).not.toHaveProperty("extra_snippets");
 		expect(defaults.websearch.exa_api).not.toHaveProperty("highlight_chars");

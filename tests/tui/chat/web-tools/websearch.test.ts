@@ -12,7 +12,6 @@ describe("websearch renderer", () => {
 		expect(text).not.toContain("\u001b");
 
 		for (const details of [
-			{ ...successDetails(0), results: [] },
 			{ status: "progress", phase: "requesting" },
 			{ status: "progress", phase: "downloading", received_bytes: 2048 },
 			{ status: "progress", phase: "parsing" },
@@ -56,14 +55,12 @@ describe("websearch renderer", () => {
 			http_status: 200,
 			duration_ms: 12,
 			attempts: [{ provider: "tavily" as const, role: "primary" as const, status: "failed" as const, error: { code: "PARSE_FAILED" as const, message: "bad page" } }],
-			response_preview: "preview\u001b]0;title\u0007 text",
 		};
 		const collapsed = formatWebSearchResult(details, {}, theme);
 		expect(collapsed).not.toContain("\u001b");
-		expect(collapsed).not.toContain("preview text");
 		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
 		expect(expanded).toContain("PARSE_FAILED");
-		expect(expanded).toContain("preview text");
+		expect(expanded).toContain("Attempts");
 		expect(expanded).not.toContain("\u001b");
 	});
 

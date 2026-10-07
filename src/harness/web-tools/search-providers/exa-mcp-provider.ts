@@ -5,10 +5,9 @@ import { CallToolResultSchema, ErrorCode, McpError } from "@modelcontextprotocol
 import type { Dispatcher } from "undici";
 
 import type { WebToolsConfig } from "../config-types.ts";
-import type { WebSearchErrorCode } from "../core/types.ts";
 import { classifyNetworkError } from "../network/errors.ts";
 import type { WebHttpFetch } from "../network/types.ts";
-import { classifyHttpStatus, normalizeProviderResponse } from "./api-provider.ts";
+import { classifyHttpStatus, normalizeProviderResponse, searchFailure } from "./response.ts";
 import { createExaMcpFetch, ExaMcpHttpError } from "./exa-mcp-http.ts";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
@@ -18,11 +17,11 @@ export async function searchExaMcp(options: {
 	fetchImpl: WebHttpFetch;
 }, params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchProviderResult> {
 	const { config } = options;
-	const remaining = (context.deadlineAt ?? Number.POSITIVE_INFINITY) - context.now();
-	if (remaining <= 0) return failed(params.query, "TIMEOUT", "websearch deadline exceeded.");
+	const remaining = context.deadlineAt - context.now();
+	if (remaining <= 0) return searchFailure("TIMEOUT", "websearch deadline exceeded.");
 	const timeout = AbortSignal.timeout(Math.min(config.timeout_seconds * 1000, remaining));
 	const controller = new AbortController();
-	const signal = AbortSignal.any([controller.signal, timeout, ...(context.signal === undefined ? [] : [context.signal])]);
+	const signal = AbortSignal.any([controller.signal, timeout, context.signal]);
 	let downloadedBytes = 0;
 	let closing = false;
 	const endpoint = new URL(config.endpoint);
@@ -70,17 +69,14 @@ export async function searchExaMcp(options: {
 			const error = /rate limit/i.test(text) ? { code: "RATE_LIMITED" as const, message: "exa_mcp free rate limit exceeded." }
 				: status === undefined ? { code: "HTTP_ERROR" as const, message: "exa_mcp search failed." }
 				: classifyHttpStatus(Number(status), text);
-			return failed(params.query, error.code, error.message);
+			return searchFailure(error.code, error.message);
 		}
 		const raw: unknown = JSON.parse(text);
-		if (typeof raw !== "object" || raw === null || !("results" in raw) || !Array.isArray(raw.results)) {
-			return failed(params.query, "PARSE_FAILED", "exa_mcp returned an invalid search response.");
-		}
-		return normalizeProviderResponse("exa_mcp", raw, params, downloadedBytes);
+		return normalizeProviderResponse("exa_mcp", raw, downloadedBytes);
 	} catch (error) {
-		if (context.userSignal?.aborted || context.deadlineAt === undefined && context.signal?.aborted) return failed(params.query, "ABORTED", "websearch request was aborted.");
-		if (timeout.aborted || context.deadlineAt !== undefined && context.now() >= context.deadlineAt) return failed(params.query, "TIMEOUT", "websearch deadline exceeded.");
-		return failureFromError(params.query, controller.signal.aborted ? controller.signal.reason : error);
+		if (context.userSignal?.aborted) return searchFailure("ABORTED", "websearch request was aborted.");
+		if (timeout.aborted || context.now() >= context.deadlineAt) return searchFailure("TIMEOUT", "websearch deadline exceeded.");
+		return failureFromError(controller.signal.aborted ? controller.signal.reason : error);
 	} finally {
 		closing = true;
 		try {
@@ -94,30 +90,23 @@ export async function searchExaMcp(options: {
 	}
 }
 
-function failureFromError(query: string, error: unknown): SearchProviderResult {
-	if (error instanceof ExaMcpHttpError) return failed(query, error.code, error.message);
+function failureFromError(error: unknown): SearchProviderResult {
+	if (error instanceof ExaMcpHttpError) return searchFailure(error.code, error.message);
 	if (error instanceof StreamableHTTPError) {
-		if (error.code === -1) return failed(query, "UNSUPPORTED_CONTENT_TYPE", "exa_mcp returned an unsupported content type.");
+		if (error.code === -1) return searchFailure("UNSUPPORTED_CONTENT_TYPE", "exa_mcp returned an unsupported content type.");
 		if (error.code !== undefined) {
 			const classified = classifyHttpStatus(error.code, error.message);
-			return failed(query, classified.code, classified.message, error.code);
+			return searchFailure(classified.code, classified.message, error.code);
 		}
 	}
-	if (error instanceof SyntaxError || error instanceof Error && error.name === "ZodError") return failed(query, "PARSE_FAILED", "exa_mcp returned an invalid MCP response.");
+	if (error instanceof SyntaxError || error instanceof Error && error.name === "ZodError") return searchFailure("PARSE_FAILED", "exa_mcp returned an invalid MCP response.");
 	if (error instanceof McpError) {
 		const code = error.code === ErrorCode.RequestTimeout ? "TIMEOUT"
 			: error.code === ErrorCode.InvalidParams ? "INVALID_ARGUMENT"
 			: error.code === ErrorCode.MethodNotFound || error.code === ErrorCode.InvalidRequest ? "CONFIG_ERROR"
 			: error.code === ErrorCode.ParseError ? "PARSE_FAILED" : "HTTP_ERROR";
-		return failed(query, code, "exa_mcp protocol request failed.");
+		return searchFailure(code, "exa_mcp protocol request failed.");
 	}
 	const code = classifyNetworkError(error);
-	return failed(query, code === "BLOCKED_ADDRESS" ? "CONNECTION_FAILED" : code, error instanceof Error ? error.message : String(error));
-}
-
-function failed(query: string, code: WebSearchErrorCode, message: string, httpStatus?: number): SearchProviderResult {
-	return { status: "failed", provider: "exa_mcp", details: {
-		status: "failed", provider: "exa_mcp", query, error: { code, message },
-		...(httpStatus === undefined ? {} : { http_status: httpStatus }),
-	} };
+	return searchFailure(code === "BLOCKED_ADDRESS" ? "CONNECTION_FAILED" : code, error instanceof Error ? error.message : String(error));
 }

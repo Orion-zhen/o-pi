@@ -125,7 +125,7 @@ export function isCommandConfigValue(config: string): boolean {
 	return config.startsWith("!");
 }
 
-function resolveConfigValue(config: string, env?: Record<string, string>): string | undefined {
+export function resolveConfigValue(config: string, env?: Record<string, string>): string | undefined {
 	const reference = parseConfigValueReference(config);
 	if (reference.type === "command") return executeCachedCommand(reference.config);
 	return resolveTemplate(reference.parts, env);
