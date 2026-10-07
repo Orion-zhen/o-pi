@@ -20,6 +20,7 @@ import { DesktopDiagnostics } from "./diagnostics.ts";
 import { DesktopStorage } from "./storage.ts";
 import { installDesktopAppearance } from "./appearance.ts";
 import { installDesktopShutdown } from "./shutdown.ts";
+import { createDesktopWindowState } from "./window-state.ts";
 import { fileResourceResponse, type FileResource } from "../gui/host/file-resource.ts";
 
 protocol.registerSchemesAsPrivileged([
@@ -100,11 +101,9 @@ void app
 			headers.set("X-Content-Type-Options", "nosniff");
 			return new Response(response.body, { status: response.status, headers });
 		});
+		const windowState = createDesktopWindowState();
 		window = new BrowserWindow({
-			width: 1200,
-			height: 820,
-			minWidth: 420,
-			minHeight: 500,
+			...windowState.options,
 			title: "opi-desktop",
 			icon,
 			backgroundColor: GUI_BACKGROUNDS.dark,
@@ -117,6 +116,7 @@ void app
 				nodeIntegration: false,
 			},
 		});
+		windowState.install(window);
 		const setAppearance = installDesktopAppearance(window);
 		ipcMain.handle("gui:appearance", (event, value: unknown) => {
 			trusted(event);
