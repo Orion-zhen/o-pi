@@ -6,18 +6,12 @@ import type { GuiModel, GuiSnapshot, Query, GlobalQuery } from "../../contract.t
 import type { ModuleConfigId } from "../../module-config.ts";
 import type { Send } from "../runtime/connection.ts";
 import { Button } from "../components/ui/button";
-import { Switch } from "../components/ui/switch";
-import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { ModelSelect } from "../models/model-select.tsx";
-import { moduleGroups, optionLabels, type ConfigField } from "./module-fields.ts";
+import { moduleGroups, type ConfigField } from "./module-fields.ts";
+import { FieldControl } from "./field-control.tsx";
 import { useConfigDraft } from "./use-config-draft.ts";
 import { SettingsDisclosure, SettingsSection, SettingsRow, SettingsSourceButton } from "./settings-controls.tsx";
 import { useSettingsDraft, useSettingsState } from "./settings-state.tsx";
-import { SettingsListField } from "./settings-list-field.tsx";
-import { SubagentToolPicker } from "./subagent-tool-picker.tsx";
-import { SettingsNumber } from "./settings-number.tsx";
 import { SearchProviderSettings } from "./search-provider-settings.tsx";
 
 function readObject(text: string): Record<string, unknown> {
@@ -62,20 +56,26 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 		editor.change(applyEdits(draft || "{}\n", modify(draft || "{}\n", path.split("."), value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
 	};
 	const sourceButton = <SettingsSourceButton file={document.path} source={source} disabled={blocked} onClick={() => setSource(!source)} />;
-	const fields = (items: ConfigField[]) => <div className="settings-fields">{items.map((field) => {
+	const fields = (items: ConfigField[], fromSchema = false) => <div className="settings-fields">{items.map((field) => {
 		if (field.type === "searchProviders") return <SearchProviderSettings key={field.path} path={field.path} choices={document.arrayOptions[field.path]}
-			valueAt={valueAt} defaultAt={(path) => at(defaults, path)} change={change} disabled={blocked} />;
-		const value = valueAt(field.path);
-		const defaultValue = at(defaults, field.path);
+			valueAt={valueAt} defaultAt={(path) => at(defaults, path)} change={change} disabled={blocked}
+			renderDetails={(prefix) => fields(Object.entries(document.fields)
+				.filter(([path]) => path.startsWith(`${prefix}.`) && path !== `${prefix}.enabled`)
+				.map(([path, schema]) => ({ path, label: schema.title ?? path.slice(prefix.length + 1) })), true)} />;
+		const schema = fromSchema ? document.fields[field.path] : undefined;
+		const configuredDefault = at(defaults, field.path);
+		const defaultValue = configuredDefault === undefined ? schema?.default : configuredDefault;
+		const configuredValue = valueAt(field.path);
+		const value = configuredValue === undefined ? defaultValue : configuredValue;
 		const options = field.type === "profile"
 			? [...new Set([defaults.profiles, values.profiles].flatMap((profiles) =>
 				typeof profiles === "object" && profiles !== null && !Array.isArray(profiles) ? Object.keys(profiles) : []))]
 			: document.options[field.path];
 		const locked = blocked || (field.enabledBy !== undefined && valueAt(field.enabledBy) !== true);
 		return <SettingsRow key={field.path} label={field.label}
-			layout={Array.isArray(value) ? "wide" : field.type === "model" || (!options && (typeof value === "string" || value === null)) ? "fluid" : "inline"}
+			layout={Array.isArray(value) || schema?.type === "array" ? "wide" : field.type === "model" || (!options && (schema?.type === "string" || typeof value === "string" || value === null)) ? "fluid" : "inline"}
 			reset={{ value, defaultValue, apply: () => change(field.path, undefined) }} disabled={locked}>
-			<FieldControl field={field} options={options} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field.path, value)} />
+			<FieldControl field={field} schema={schema} options={options} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field.path, value)} />
 		</SettingsRow>;
 	})}</div>;
 	return <div className="settings-module">
@@ -103,19 +103,4 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 			</SettingsSection>)}
 		{error && <p role="alert">{error}</p>}
 	</div>;
-}
-
-function FieldControl({ field, options, value, nullable, disabled, models, tools, change }: { field: ConfigField; options: readonly string[] | undefined; value: unknown; nullable: boolean; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; change: (value: unknown) => void }) {
-	if (typeof value === "boolean") return <Switch aria-label={field.label} checked={value} disabled={disabled} onCheckedChange={change} />;
-	if (field.type === "model") return <ModelSelect label={field.label} models={models} disabled={disabled}
-		value={typeof value === "string" && value !== "" ? value : null} change={change} />;
-	if (options) return <Select value={String(value)} disabled={disabled} onValueChange={change}>
-		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{optionLabels[option] ?? option}</SelectItem>)}</SelectContent>
-	</Select>;
-	if (Array.isArray(value)) return field.type === "tools"
-		? <SubagentToolPicker label={field.label} value={value} tools={tools} disabled={disabled} change={change} />
-		: <SettingsListField label={field.label} value={value} disabled={disabled} change={change} />;
-	if (typeof value === "number") return <SettingsNumber label={field.label} value={value} disabled={disabled} change={change} />;
-	return <Input aria-label={field.label} value={value === null ? "" : String(value)} disabled={disabled}
-		onChange={(event) => change(event.target.value || (nullable ? null : ""))} />;
 }

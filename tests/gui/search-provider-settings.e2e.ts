@@ -7,7 +7,7 @@ import { selectSettingsCategory } from "./settings-steps.ts";
 
 const settings = (page: Page) => page.getByRole("dialog", { name: "设置", exact: true });
 const providers = (page: Page) => settings(page).getByRole("region", { name: "搜索引擎", exact: true });
-const labels = (page: Page) => providers(page).getByRole("listitem").locator("label");
+const labels = (page: Page) => providers(page).getByRole("listitem").locator(".search-provider-name");
 async function open(page: Page) {
 	if ((page.viewportSize()?.width ?? 1200) < 768) await page.getByRole("button", { name: "菜单", exact: true }).click();
 	await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -23,7 +23,7 @@ test("搜索引擎按钮排序带位移动画，启停与顺序保存后可重�
 	await writeFile(file, "{}\n");
 	await open(page);
 	await expect(labels(page)).toHaveText(["Brave", "Exa", "Tavily", "DuckDuckGo"]);
-	await expect(providers(page).locator(".search-provider-heading, .settings-description")).toHaveCount(0);
+	await expect(providers(page).locator(".settings-description")).toHaveCount(0);
 	for (const row of await providers(page).getByRole("listitem").all()) {
 		await expect(row).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 	}
@@ -84,4 +84,112 @@ test("键盘排序、放弃和恢复默认共享设置草稿，减少动态效�
 	const saved = parse(await readFile(file, "utf8"));
 	expect(saved).not.toHaveProperty("websearch.provider_order");
 	expect(saved).not.toHaveProperty("websearch.exa_api.enabled");
+});
+
+test("逐项展开 schema 详情，排序保留展开状态，修改支持保存、重置和放弃", async ({ gui: { page }, workspace: { agentDir } }) => {
+	const file = path.join(agentDir, "configs", "web-tools.jsonc");
+	await writeFile(file, "{}\n");
+	await open(page);
+	const engines = providers(page);
+	const textbox = (name: string) => engines.getByRole("textbox", { name, exact: true });
+	const number = (name: string) => engines.getByRole("spinbutton", { name, exact: true });
+	await expect(textbox("接口地址")).toHaveCount(0);
+	await engines.getByRole("switch", { name: "Brave", exact: true }).uncheck();
+	await expect(engines.getByRole("button", { name: "展开 Brave", exact: true })).toHaveAttribute("aria-expanded", "false");
+	await engines.getByRole("button", { name: "编辑 Brave", exact: true }).click();
+	await expect(textbox("接口地址")).toHaveValue("https://api.search.brave.com/res/v1/web/search");
+	await expect(textbox("API Key")).toBeEnabled();
+	await expect(textbox("API Key")).toHaveAttribute("maxlength", "4096");
+	await expect(number("超时（秒）")).toHaveAttribute("min", "1");
+	await expect(number("超时（秒）")).toHaveAttribute("max", "60");
+	await expect(number("超时（秒）")).toHaveAttribute("step", "1");
+	await textbox("API Key").fill("$CUSTOM_BRAVE_KEY");
+	await number("超时（秒）").fill("12");
+	await engines.getByRole("switch", { name: "额外摘要", exact: true }).check();
+	await engines.getByRole("button", { name: "下移 Brave", exact: true }).click();
+	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "DuckDuckGo"]);
+	await expect(engines.getByRole("button", { name: "收起 Brave", exact: true })).toHaveAttribute("aria-expanded", "true");
+	await expect(textbox("API Key")).toHaveValue("$CUSTOM_BRAVE_KEY");
+	await engines.getByRole("button", { name: "展开 Exa", exact: true }).click();
+	await expect(engines.getByRole("button", { name: "展开 Brave", exact: true })).toHaveAttribute("aria-expanded", "false");
+	await expect(number("摘要长度（字符）")).toHaveValue("600");
+	await number("摘要长度（字符）").fill("800");
+	await engines.getByRole("button", { name: "展开 Tavily", exact: true }).click();
+	await expect(textbox("接口地址")).toHaveValue("https://api.tavily.com/search");
+	await engines.getByRole("button", { name: "展开 DuckDuckGo", exact: true }).click();
+	await expect(textbox("接口地址")).toHaveCount(0);
+	await expect(textbox("User-Agent")).not.toHaveValue("");
+	await textbox("区域").fill("us-en");
+	await number("最小请求间隔（秒）").fill("20");
+	await expect(number("封禁冷却（秒）")).toHaveValue("600");
+	expect(await engines.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+	await engines.screenshot({ path: test.info().outputPath("search-provider-details.png"), animations: "disabled" });
+	await save(page);
+	expect(parse(await readFile(file, "utf8"))).toMatchObject({ websearch: {
+		provider_order: ["exa_api", "brave_api", "tavily", "duckduckgo_html"],
+		brave_api: { enabled: false, api_key: "$CUSTOM_BRAVE_KEY", timeout_seconds: 12, extra_snippets: true },
+		exa_api: { highlight_chars: 800 }, duckduckgo_html: { region: "us-en", min_interval_seconds: 20 },
+	} });
+	await page.reload();
+	await open(page);
+	await engines.getByRole("button", { name: "展开 Brave", exact: true }).click();
+	await expect(textbox("API Key")).toHaveValue("$CUSTOM_BRAVE_KEY");
+	await expect(number("超时（秒）")).toHaveValue("12");
+	await textbox("API Key").fill("discard-this");
+	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
+	await expect(textbox("API Key")).toHaveValue("$CUSTOM_BRAVE_KEY");
+	await engines.getByRole("button", { name: "重置API Key", exact: true }).click();
+	await expect(textbox("API Key")).toHaveValue("$BRAVE_SEARCH_API_KEY");
+	await save(page);
+	expect(parse(await readFile(file, "utf8"))).not.toHaveProperty("websearch.brave_api.api_key");
+});
+
+test("整行标题空白可展开，独立按钮和详情表单不会误触收起", async ({ gui: { page }, workspace: { agentDir } }) => {
+	await page.emulateMedia({ reducedMotion: "reduce" });
+	await writeFile(path.join(agentDir, "configs", "web-tools.jsonc"), "{}\n");
+	await open(page);
+	const engines = providers(page);
+	const row = engines.getByRole("listitem").filter({ has: page.getByRole("button", { name: "编辑 Brave", exact: true }) });
+	const heading = row.locator(".search-provider-heading");
+	const toggle = row.getByRole("button", { name: "编辑 Brave", exact: true });
+	await heading.scrollIntoViewIfNeeded();
+	const blank = await heading.evaluate((element) => {
+		const heading = element.getBoundingClientRect();
+		const name = element.querySelector(".search-provider-name");
+		const actions = element.querySelector(".search-provider-actions");
+		if (!name || !actions) throw new Error("缺少标题控件");
+		return { x: (name.getBoundingClientRect().right + actions.getBoundingClientRect().left) / 2 - heading.left, y: heading.height / 2 };
+	});
+	await heading.click({ position: blank });
+	await expect(toggle).toHaveAttribute("aria-expanded", "true");
+	await row.getByRole("textbox", { name: "接口地址", exact: true }).click();
+	await expect(toggle).toHaveAttribute("aria-expanded", "true");
+	await heading.click({ position: { x: blank.x, y: 2 } });
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	const gap = await heading.evaluate((element) => {
+		const heading = element.getBoundingClientRect();
+		const buttons = element.querySelectorAll(".search-provider-actions > button");
+		const up = buttons[0]?.getBoundingClientRect();
+		const down = buttons[1]?.getBoundingClientRect();
+		if (!up || !down) throw new Error("缺少排序按钮");
+		return { x: (up.right + down.left) / 2 - heading.left, y: heading.height / 2 };
+	});
+	await heading.click({ position: gap });
+	await expect(toggle).toHaveAttribute("aria-expanded", "true");
+	await row.getByRole("button", { name: "收起 Brave", exact: true }).click();
+	await row.getByRole("switch", { name: "Brave", exact: true }).uncheck();
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	await row.getByRole("button", { name: "重置Brave", exact: true }).click();
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	const disabledUp = await row.getByRole("button", { name: "上移 Brave", exact: true }).boundingBox();
+	if (!disabledUp) throw new Error("缺少排序按钮位置");
+	await page.mouse.click(disabledUp.x + disabledUp.width / 2, disabledUp.y + disabledUp.height / 2);
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	await row.getByRole("button", { name: "下移 Brave", exact: true }).click();
+	await expect(labels(page)).toHaveText(["Exa", "Brave", "Tavily", "DuckDuckGo"]);
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
+	await toggle.press("Enter");
+	await expect(toggle).toHaveAttribute("aria-expanded", "true");
+	await toggle.press("Space");
+	await expect(toggle).toHaveAttribute("aria-expanded", "false");
 });

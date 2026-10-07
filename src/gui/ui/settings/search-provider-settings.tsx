@@ -1,21 +1,24 @@
-import { useId } from "react";
-import { ArrowDown, ArrowUp, RotateCcw } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ChevronRight, RotateCcw } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import type { ModuleConfigChoice } from "../../module-config.ts";
 import { ListItem } from "../components/animated";
 import { IconButton } from "../components/icon-button";
+import { Button } from "../components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
 import { Switch } from "../components/ui/switch";
 import "./search-provider-settings.css";
 
-export function SearchProviderSettings({ path, choices, valueAt, defaultAt, change, disabled }: {
+export function SearchProviderSettings({ path, choices, valueAt, defaultAt, change, disabled, renderDetails }: {
 	path: string;
 	choices: readonly ModuleConfigChoice[] | undefined;
 	valueAt: (path: string) => unknown;
 	defaultAt: (path: string) => unknown;
 	change: (path: string, value: unknown) => void;
 	disabled: boolean;
+	renderDetails: (prefix: string) => ReactNode;
 }) {
-	const id = useId();
+	const [expanded, setExpanded] = useState<string>();
 	const reducedMotion = useReducedMotion();
 	const value = valueAt(path);
 	const order = readOrder(value, choices);
@@ -31,22 +34,30 @@ export function SearchProviderSettings({ path, choices, valueAt, defaultAt, chan
 	return <div className="search-provider-settings">
 		{order ? <ul className="search-provider-list" aria-label="搜索引擎顺序">
 			{order.map(({ value: provider, label }, index) => {
-				const enabledPath = `${providersPath}.${provider}.enabled`;
+				const prefix = `${providersPath}.${provider}`;
+				const enabledPath = `${prefix}.enabled`;
 				const enabled = valueAt(enabledPath);
+				const open = expanded === provider;
 				return <ListItem key={provider} className="search-provider-row" initial={false}
 					{...(reducedMotion ? { transition: { duration: 0, layout: { duration: 0 } } } : {})}>
-					<div className="search-provider-label">
-						<label htmlFor={`${id}-${provider}`}>{label}</label>
-						{enabled !== defaultAt(enabledPath) && <IconButton label={`重置${label}`} tooltip="恢复默认" size="icon-sm" disabled={disabled}
-							onClick={() => change(enabledPath, undefined)}><RotateCcw /></IconButton>}
-					</div>
-					<div className="search-provider-actions">
-						<IconButton label={`上移 ${label}`} tooltip="上移" size="icon-sm" disabled={disabled || index === 0}
-							onClick={() => move(provider, -1)}><ArrowUp /></IconButton>
-						<IconButton label={`下移 ${label}`} tooltip="下移" size="icon-sm" disabled={disabled || index === order.length - 1}
-							onClick={() => move(provider, 1)}><ArrowDown /></IconButton>
-						<Switch id={`${id}-${provider}`} checked={enabled === true} disabled={disabled} onCheckedChange={(checked) => change(enabledPath, checked)} />
-					</div>
+					<Collapsible open={open} onOpenChange={(next) => setExpanded(next ? provider : undefined)}>
+						<div className="search-provider-heading">
+							<div className="search-provider-label">
+								<CollapsibleTrigger asChild><button type="button" className="search-provider-name" aria-label={`编辑 ${label}`}>{label}</button></CollapsibleTrigger>
+								{enabled !== defaultAt(enabledPath) && <IconButton label={`重置${label}`} tooltip="恢复默认" size="icon-sm" disabled={disabled}
+									onClick={() => change(enabledPath, undefined)}><RotateCcw /></IconButton>}
+							</div>
+							<div className="search-provider-actions">
+								<IconButton label={`上移 ${label}`} tooltip="上移" size="icon-sm" disabled={disabled || index === 0}
+									onClick={() => move(provider, -1)}><ArrowUp /></IconButton>
+								<IconButton label={`下移 ${label}`} tooltip="下移" size="icon-sm" disabled={disabled || index === order.length - 1}
+									onClick={() => move(provider, 1)}><ArrowDown /></IconButton>
+								<Switch aria-label={label} checked={enabled === true} disabled={disabled} onCheckedChange={(checked) => change(enabledPath, checked)} />
+								<CollapsibleTrigger className="disclosure-trigger" asChild><Button variant="ghost" size="icon-sm" aria-label={`${open ? "收起" : "展开"} ${label}`}><ChevronRight className="disclosure-chevron" /></Button></CollapsibleTrigger>
+							</div>
+						</div>
+						<CollapsibleContent lazy><div className="search-provider-details">{renderDetails(prefix)}</div></CollapsibleContent>
+					</Collapsible>
 				</ListItem>;
 			})}
 		</ul> : <p role="alert">搜索引擎顺序无效。请恢复默认顺序或编辑 JSONC。</p>}

@@ -70,14 +70,15 @@
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
 						"endpoint": {
+							"title": "接口地址",
 							"type": "string",
 							"pattern": "^https?://",
 							"default": "https://api.search.brave.com/res/v1/web/search"
 						},
-						"api_key": { "type": "string", "maxLength": 4096, "default": "$BRAVE_SEARCH_API_KEY" },
-						"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
-						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
-						"extra_snippets": { "type": "boolean", "default": false }
+						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$BRAVE_SEARCH_API_KEY" },
+						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
+						"extra_snippets": { "title": "额外摘要", "type": "boolean", "default": false }
 					}
 				},
 				"exa_api": {
@@ -85,11 +86,11 @@
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
-						"endpoint": { "type": "string", "pattern": "^https?://", "default": "https://api.exa.ai/search" },
-						"api_key": { "type": "string", "maxLength": 4096, "default": "$EXA_API_KEY" },
-						"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
-						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
-						"highlight_chars": { "type": "integer", "minimum": 100, "maximum": 2000, "default": 600 }
+						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.exa.ai/search" },
+						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$EXA_API_KEY" },
+						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
+						"highlight_chars": { "title": "摘要长度（字符）", "type": "integer", "minimum": 100, "maximum": 2000, "default": 600 }
 					}
 				},
 				"tavily": {
@@ -97,10 +98,10 @@
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
-						"endpoint": { "type": "string", "pattern": "^https?://", "default": "https://api.tavily.com/search" },
-						"api_key": { "type": "string", "maxLength": 4096, "default": "$TAVILY_API_KEY" },
-						"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
-						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
+						"endpoint": { "title": "接口地址", "type": "string", "pattern": "^https?://", "default": "https://api.tavily.com/search" },
+						"api_key": { "title": "API Key", "type": "string", "maxLength": 4096, "default": "$TAVILY_API_KEY" },
+						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
 					}
 				},
 				"duckduckgo_html": {
@@ -108,18 +109,19 @@
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
-						"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 15 },
-						"user_agent": { "type": "string", "minLength": 1, "maxLength": 512 },
+						"timeout_seconds": { "title": "超时（秒）", "type": "integer", "minimum": 1, "maximum": 60, "default": 15 },
+						"user_agent": { "title": "User-Agent", "type": "string", "minLength": 1, "maxLength": 512 },
 						"region": {
+							"title": "区域",
 							"type": "string",
 							"minLength": 2,
 							"maxLength": 32,
 							"pattern": "^[a-z0-9-]+$",
 							"default": "wt-wt"
 						},
-						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
-						"min_interval_seconds": { "type": "integer", "minimum": 0, "maximum": 3600, "default": 15 },
-						"blocked_cooldown_seconds": { "type": "integer", "minimum": 0, "maximum": 86400, "default": 600 }
+						"response_bytes": { "title": "响应上限（字节）", "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
+						"min_interval_seconds": { "title": "最小请求间隔（秒）", "type": "integer", "minimum": 0, "maximum": 3600, "default": 15 },
+						"blocked_cooldown_seconds": { "title": "封禁冷却（秒）", "type": "integer", "minimum": 0, "maximum": 86400, "default": 600 }
 					}
 				}
 			}
