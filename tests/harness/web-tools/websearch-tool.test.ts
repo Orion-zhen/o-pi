@@ -71,6 +71,9 @@ describe("websearch tool", () => {
 			"[1] &lt;Title&gt;&amp;",
 			"https://example.com/?a=1",
 			"Snippet for Title &lt;pi&gt;&amp;",
+			"",
+			"[2] Second",
+			"https://example.org/",
 			"</websearch>",
 		].join("\n"));
 		expect(calls.count).toBe(1);
@@ -81,7 +84,7 @@ describe("websearch tool", () => {
 		const capture: WebSearchProvider = {
 			id: "brave_api",
 			async search(params) {
-				seen = { includeDomains: params.compiled.includeDomains, excludeDomains: params.compiled.excludeDomains };
+				seen = { includeDomains: params.includeDomains, excludeDomains: params.excludeDomains };
 				return { status: "failed", provider: "brave_api", details: { status: "failed", provider: "brave_api", error: { code: "ABORTED", message: "stop" } } };
 			},
 		};

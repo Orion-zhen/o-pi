@@ -4,15 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import { defaultWebToolsConfig } from "./config-fixture.ts";
 import { resolveSearchApiKey } from "../../../src/harness/web-tools/search-providers/api-key.ts";
 import { buildBraveRequest, buildExaRequest, buildTavilyRequest, searchApiProvider, normalizeProviderResponse } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
-import { mergeSearchResults } from "../../../src/harness/web-tools/search-providers/merge.ts";
-import { assessSearchQuality } from "../../../src/harness/web-tools/search-providers/quality.ts";
-import { compileSearchQuery, normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.ts";
+import { normalizeSearchParams } from "../../../src/harness/web-tools/search-providers/query.ts";
 import { preserveEnv } from "../../helpers/lifecycle.ts";
 import { httpResponse } from "../../helpers/http.ts";
 
 preserveEnv("BRAVE_SEARCH_API_KEY", "WEBSEARCH_API_KEY_TEST");
 
-describe("adaptive search compilation and providers", () => {
+describe("搜索参数与提供方", () => {
 	it("api_key 支持明文和共享的 $ 环境变量引用", () => {
 		process.env.WEBSEARCH_API_KEY_TEST = "env-secret";
 		expect(resolveSearchApiKey("literal-secret")).toBe("literal-secret");
@@ -26,18 +24,14 @@ describe("adaptive search compilation and providers", () => {
 		expect(resolveSearchApiKey("$WEBSEARCH_API_KEY_TEST")).toBeUndefined();
 	});
 
-	it("编译 lexical/semantic query 并确定性分类", () => {
-		const exact = compileSearchQuery({ query: 'site:docs.example.com -site:spam.example "WidgetError" v2.4' });
-		expect(exact).toMatchObject({
-			lexicalQuery: 'site:docs.example.com -site:spam.example "WidgetError" v2.4',
-			semanticQuery: '"WidgetError" v2.4',
-			intent: "exact",
+	it("只提取域名条件，保留其他查询内容", () => {
+		const query = 'site:docs.example.com -site:spam.example "WidgetError" v2.4 filetype:pdf intitle:guide';
+		expect(normalizeSearchParams({ query }, 8)).toEqual({
+			query, limit: 8,
+			textQuery: '"WidgetError" v2.4 filetype:pdf intitle:guide',
 			includeDomains: ["docs.example.com"],
 			excludeDomains: ["spam.example"],
 		});
-		expect(compileSearchQuery({ query: "research papers about sparse mixture of experts routing" }).intent).toBe("paper");
-		expect(compileSearchQuery({ query: "find practical approaches that compare several subtle tradeoffs across distributed teams and systems" }).intent).toBe("semantic");
-		expect(compileSearchQuery({ query: "OpenAI API official documentation" }).intent).toBe("navigation");
 	});
 
 	it("映射 Brave、Exa、Tavily 稳定参数", () => {
@@ -48,6 +42,7 @@ describe("adaptive search compilation and providers", () => {
 			{ includeDomains: ["docs.example"], excludeDomains: ["blocked.example"] },
 		);
 		const brave = buildBraveRequest(config.brave_api, exact, "brave-secret");
+		expect(brave.url.searchParams.get("count")).toBe("4");
 		expect(brave.url.searchParams.get("q")).toContain("(site:docs.example OR site:example.com)");
 		expect(brave.url.searchParams.get("q")).toContain("-site:blocked.example");
 		expect(brave.url.searchParams.has("freshness")).toBe(false);
@@ -55,7 +50,8 @@ describe("adaptive search compilation and providers", () => {
 
 		const paper = normalizeSearchParams({ query: "research paper sparse attention", limit: 5 }, 8);
 		const exaBody = JSON.parse(buildExaRequest(config.exa_api, paper, "exa-secret").body ?? "null") as Record<string, unknown>;
-		expect(exaBody).toMatchObject({ type: "auto", numResults: 6 });
+		expect(exaBody).toMatchObject({ query: paper.query, type: "auto", numResults: 5 });
+		expect(exaBody).not.toHaveProperty("category");
 		expect(exaBody).not.toHaveProperty("startPublishedDate");
 		expect(exaBody).not.toHaveProperty("endPublishedDate");
 		expect(exaBody).not.toHaveProperty("text");
@@ -63,6 +59,8 @@ describe("adaptive search compilation and providers", () => {
 
 		const basic = JSON.parse(buildTavilyRequest(config.tavily, exact, "tvly-secret").body ?? "null") as Record<string, unknown>;
 		expect(basic).toMatchObject({
+			query: "WidgetError",
+			max_results: 4,
 			search_depth: "basic",
 			auto_parameters: false,
 			include_answer: false,
@@ -73,8 +71,8 @@ describe("adaptive search compilation and providers", () => {
 		expect(basic).not.toHaveProperty("time_range");
 		expect(basic).not.toHaveProperty("start_date");
 		expect(basic).not.toHaveProperty("end_date");
-		const advanced = JSON.parse(buildTavilyRequest(config.tavily, { ...paper, lastFormalOpportunity: true }, "tvly-secret").body ?? "null") as Record<string, unknown>;
-		expect(advanced.search_depth).toBe("advanced");
+		const research = JSON.parse(buildTavilyRequest(config.tavily, paper, "tvly-secret").body ?? "null") as Record<string, unknown>;
+		expect(research.search_depth).toBe("basic");
 	});
 
 	it("规范化三家响应并忽略 provider 原生相关度字段", () => {
@@ -82,6 +80,21 @@ describe("adaptive search compilation and providers", () => {
 		expect(normalizeProviderResponse("brave_api", { web: { results: [{ title: "A", url: "https://a.test/", description: "Alpha" }] } }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Alpha" }] });
 		expect(normalizeProviderResponse("exa_api", { results: [{ title: "B", url: "https://b.test/", highlights: ["Beta"], highlightScores: [0.8] }] }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Beta" }] });
 		expect(normalizeProviderResponse("tavily", { results: [{ title: "C", url: "https://c.test/", content: "Gamma", score: 0.7 }] }, params, 120)).toMatchObject({ status: "success", results: [{ snippet: "Gamma" }] });
+	});
+
+	it.each(["brave_api", "exa_api", "tavily"] as const)("%s 只按规范化 URL 去重，保留同标题不同页面", (id) => {
+		const rows = [
+			{ title: "Same title", url: "https://example.com/docs?utm_source=x#top" },
+			{ title: "Same title", url: "https://example.com/docs" },
+			{ title: "Same title", url: "https://example.com/other" },
+			{ title: "Invalid", url: "not-a-url" },
+			{ title: "Invalid", url: "javascript:alert(1)" },
+		];
+		const result = normalizeProviderResponse(id, id === "brave_api" ? { web: { results: rows } } : { results: rows }, normalizeSearchParams({ query: "查询结果可使用不同语言" }, 8), 100);
+		expect(result).toMatchObject({ status: "success", results: [
+			{ rank: 1, title: "Same title", url: "https://example.com/docs" },
+			{ rank: 2, title: "Same title", url: "https://example.com/other" },
+		] });
 	});
 
 	it("总 deadline 在发请求前生效", async () => {
@@ -102,27 +115,5 @@ describe("adaptive search compilation and providers", () => {
 		const failed = await searchApiProvider(options, normalizeSearchParams({ query: "pi" }, 8), { now: () => 0, deadlineAt: 10_000 });
 		expect(failed).toMatchObject({ status: "failed", details: { error: { code: "CONNECTION_FAILED" } } });
 		expect(JSON.stringify(failed)).not.toContain("brave-secret");
-	});
-});
-
-describe("adaptive search quality and merge", () => {
-	it("区分 accepted、partial 和 soft miss，导航查询不要求域名多样性", () => {
-		const query = compileSearchQuery({ query: "pi agent" });
-		const strong = Array.from({ length: 3 }, (_, index) => ({ rank: index + 1, title: `Pi agent ${index}`, url: `https://d${index}.test/pi`, snippet: "Pi agent documentation snippet." }));
-		expect(assessSearchQuality(strong, query, 3).quality).toBe("accepted");
-		expect(assessSearchQuality(strong.slice(0, 1), query, 3).quality).toBe("partial");
-		expect(assessSearchQuality([{ rank: 1, title: "Unrelated", url: "https://x.test/" }], query, 3).quality).toBe("soft_miss");
-		const nav = compileSearchQuery({ query: "site:example.com pi docs" });
-		const sameDomain = [{ rank: 1, title: "Pi docs", url: "https://example.com/pi", snippet: "Pi docs official documentation." }, { rank: 2, title: "Pi API", url: "https://example.com/api", snippet: "Pi docs API reference." }];
-		expect(assessSearchQuality(sameDomain, nav, 2).quality).toBe("accepted");
-	});
-
-	it("URL/标题去重、RRF 共识加分、域名最多两条并保留 provenance", () => {
-		const merged = mergeSearchResults([
-			{ provider: "brave_api", weight: 1, results: [{ rank: 1, title: "Pi docs", url: "https://example.com/docs?utm_source=x#top" }, { rank: 2, title: "Pi API", url: "https://example.com/api" }, { rank: 3, title: "Pi guide", url: "https://example.com/guide" }] },
-			{ provider: "tavily", weight: 0.9, results: [{ rank: 1, title: "Pi docs", url: "https://example.com/docs" }, { rank: 2, title: "Other", url: "https://other.test/pi" }] },
-		], 5, compileSearchQuery({ query: "pi" }));
-		expect(merged[0]).toMatchObject({ url: "https://example.com/docs", provenance: [{ provider: "brave_api" }, { provider: "tavily" }] });
-		expect(merged.filter((item) => new URL(item.url).hostname === "example.com")).toHaveLength(2);
 	});
 });

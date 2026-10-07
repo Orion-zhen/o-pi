@@ -1,12 +1,14 @@
 import { normalizeSearchText, SEARCH_RESULT_MAX_SNIPPET_CHARS } from "../network/url-utils.ts";
-import type { CompiledSearchQuery } from "./types.ts";
+
+const OPERATOR = /-?\b(?:site|filetype|intitle|inurl):(?:"[^"]+"|\S+)/giu;
+const STOP_WORDS = new Set(["the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with", "is", "are", "what", "how"]);
 
 const CONTEXT_CHARS = 72;
 const MAX_MATCHES_PER_TERM = 32;
 const ELLIPSIS = "...";
 
 /** 只选一个连续原文窗口，避免拼接不同摘要制造上下文。 */
-export function selectSearchSnippet(candidates: readonly string[], query: CompiledSearchQuery): string | undefined {
+export function selectSearchSnippet(candidates: readonly string[], query: string): string | undefined {
 	const terms = queryTerms(query);
 	const texts = new Set(candidates.map(normalizeSearchText).filter(Boolean));
 	let best: { text: string; score: number } | undefined;
@@ -30,9 +32,12 @@ export function selectSearchSnippet(candidates: readonly string[], query: Compil
 	return best?.text;
 }
 
-function queryTerms(query: CompiledSearchQuery): Array<{ pattern: RegExp; weight: number }> {
-	const terms = new Map(query.keyTerms.map((term) => [term, /\d|(?:error|exception)$/iu.test(term) ? 4 : 1]));
-	for (const match of query.semanticQuery.matchAll(/"([^"]+)"/gu)) {
+function queryTerms(query: string): Array<{ pattern: RegExp; weight: number }> {
+	const text = query.replace(OPERATOR, " ");
+	const keyTerms = [...new Set(text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}._-]*/gu) ?? [])]
+		.filter((term) => term.length > 1 && !STOP_WORDS.has(term)).slice(0, 12);
+	const terms = new Map(keyTerms.map((term) => [term, /\d|(?:error|exception)$/iu.test(term) ? 4 : 1]));
+	for (const match of text.matchAll(/"([^"]+)"/gu)) {
 		const phrase = match[1]?.trim().toLowerCase();
 		if (phrase) terms.set(phrase, 8);
 	}

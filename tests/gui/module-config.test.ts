@@ -34,6 +34,10 @@ it("从校验 schema 返回固定字段的枚举，包括本地引用和未展�
 		"webfetch.media.mode": ["auto", "on", "off"],
 		"webfetch.cookies.confirmation": ["always", "session", "never"],
 	} });
+	expect(web.arrayOptions["websearch.provider_order"]).toEqual([
+		{ value: "brave_api", label: "Brave" }, { value: "exa_api", label: "Exa" },
+		{ value: "tavily", label: "Tavily" }, { value: "duckduckgo_html", label: "DuckDuckGo" },
+	]);
 	const approval = await host.query({ query: "moduleConfig", id: "approvalGate" });
 	expect(approval).toMatchObject({ options: {
 		"ui.non_interactive": ["block", "allow"],

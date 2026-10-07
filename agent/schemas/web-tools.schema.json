@@ -34,6 +34,20 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
+				"provider_order": {
+					"type": "array",
+					"minItems": 4,
+					"maxItems": 4,
+					"uniqueItems": true,
+					"items": {
+						"oneOf": [
+							{ "const": "brave_api", "title": "Brave" },
+							{ "const": "exa_api", "title": "Exa" },
+							{ "const": "tavily", "title": "Tavily" },
+							{ "const": "duckduckgo_html", "title": "DuckDuckGo" }
+						]
+					}
+				},
 				"default_results": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 },
 				"total_deadline_seconds": { "type": "integer", "minimum": 1, "maximum": 120, "default": 20 },
 				"include_domains": {

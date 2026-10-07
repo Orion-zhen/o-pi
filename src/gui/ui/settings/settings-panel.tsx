@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Tabs } from "radix-ui";
+import { motion } from "motion/react";
 import type { GuiSnapshot, Query, GlobalQuery } from "../../contract.ts";
 import type { GuiConfigDocument } from "../../preferences.ts";
 import type { ModuleConfigId } from "../../module-config.ts";
@@ -81,11 +82,11 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 				<SettingsActions count={dirtyPages.size} saving={saving} disabled={!connected} blocked={coordinator.blocked}
 					error={coordinator.error} status={coordinator.status} save={() => void coordinator.save()} discard={coordinator.discard} />
 			</aside>
-			{settingsCategories.map(({ id, label }) => <Tabs.Content key={id} value={id} className="settings-content" forceMount>
+			{settingsCategories.map(({ id, label }) => <Tabs.Content key={id} value={id} forceMount asChild><motion.div className="settings-content" layoutScroll>
 				{visited.has(id) && <SettingsCategoryContext value={id}><div className="gui-settings">
 					{id !== "storage" && <SettingsHeading title={label} />}{content(id)}
 				</div></SettingsCategoryContext>}
-			</Tabs.Content>)}
+			</motion.div></Tabs.Content>)}
 		</Tabs.Root>
 	</SettingsStateContext>;
 }

@@ -3,8 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { searchApiProvider } from "../../../src/harness/web-tools/search-providers/api-provider.ts";
 import { SearchProviderRouter } from "../../../src/harness/web-tools/search-providers/router.ts";
-import { mergeSearchResults } from "../../../src/harness/web-tools/search-providers/merge.ts";
-import { compileSearchQuery } from "../../../src/harness/web-tools/search-providers/query.ts";
 import { searchDuckDuckGoHtml } from "../../../src/harness/web-tools/search/duckduckgo-html.ts";
 import { executeWebSearch } from "../../../src/harness/web-tools/search/websearch-tool.ts";
 import { SearchFlights } from "../../../src/harness/web-tools/search/search-flights.ts";
@@ -96,13 +94,5 @@ describe("搜索摘要按查询选片", () => {
 		if (result.status !== "success") throw new Error("failed");
 		expect(result.results[0]?.snippet).toContain(EXACT);
 		expect(result.results[0]?.snippet?.length).toBeLessThanOrEqual(240);
-	});
-
-	it("跨来源合并保留相关片段，不再单纯选较长摘要", () => {
-		const merged = mergeSearchResults([
-			{ provider: "brave_api", weight: 1, results: [{ rank: 1, title: "Guide", url: "https://example.com/docs", snippet: EXACT }] },
-			{ provider: "tavily", weight: 0.9, results: [{ rank: 1, title: "Guide", url: "https://example.com/docs", snippet: INTRO.slice(0, 200) }] },
-		], 1, compileSearchQuery({ query: QUERY }));
-		expect(merged[0]?.snippet).toBe(EXACT);
 	});
 });

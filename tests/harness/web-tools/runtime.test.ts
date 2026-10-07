@@ -72,6 +72,90 @@ describe("web-tools runtime", () => {
 		expect(createDdg).not.toHaveBeenCalled();
 	});
 
+	it("固定顺序贯穿真实请求适配，失败和空结果后继续，Tavily 有结果即停止", async () => {
+		const config = defaultWebToolsConfig();
+		for (const id of ["brave_api", "exa_api", "tavily"] as const) {
+			config.websearch[id].enabled = true;
+			config.websearch[id].api_key = "test-key";
+		}
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		const createDdg = vi.spyOn(ddgModule, "searchDuckDuckGoProvider");
+		network.fetch.mockImplementation(async (url) => {
+			if (url.toString().startsWith(config.websearch.brave_api.endpoint)) return httpResponse(503, "unavailable");
+			if (url.toString().startsWith(config.websearch.exa_api.endpoint)) return httpResponse(200, '{"results":[]}');
+			if (url.toString().startsWith(config.websearch.tavily.endpoint)) return searchResponse("tavily");
+			throw new Error(`unexpected provider: ${url}`);
+		});
+		await expect(trackRuntime().search({ query: "research papers about agents", limit: 8 }, { toolCallId: "fixed-order" })).resolves.toMatchObject({
+			details: { status: "success", provider: "tavily", attempts: [
+				{ provider: "brave_api", status: "failed", http_status: 503 },
+				{ provider: "exa_api", status: "success", result_count: 0 },
+				{ provider: "tavily", status: "success", result_count: 1 },
+			] },
+		});
+		expect(network.fetch).toHaveBeenCalledTimes(3);
+		expect(createDdg).not.toHaveBeenCalled();
+	});
+
+	it("按配置顺序跳过禁用和缺少凭据的引擎，DDG 可排在正式 API 前", async () => {
+		const config = defaultWebToolsConfig();
+		config.websearch.provider_order = ["tavily", "exa_api", "duckduckgo_html", "brave_api"];
+		config.websearch.tavily.enabled = false;
+		config.websearch.tavily.api_key = "available-but-disabled";
+		config.websearch.exa_api.api_key = "";
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		const html = await readFile(new URL("./fixtures/websearch/results.html", import.meta.url), "utf8");
+		network.fetch.mockResolvedValue(httpResponse(200, html, { "content-type": "text/html" }));
+		await expect(trackRuntime().search({ query: "example", limit: 1 }, { toolCallId: "ddg-first" })).resolves.toMatchObject({
+			details: { status: "success", provider: "duckduckgo_html", attempts: [{ provider: "duckduckgo_html" }] },
+		});
+		expect(network.fetch).toHaveBeenCalledOnce();
+		expect(network.fetch.mock.calls[0]?.[0].hostname).toBe("html.duckduckgo.com");
+	});
+
+	it("调整顺序不会合并到旧顺序的进行中请求，全部禁用后不发送请求", async () => {
+		const config = defaultWebToolsConfig();
+		config.websearch.exa_api.api_key = "exa-key";
+		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
+		const started = deferredVoid();
+		const release = deferredVoid();
+		network.fetch.mockImplementation(async (url) => {
+			if (url.toString().startsWith(config.websearch.brave_api.endpoint)) {
+				started.resolve();
+				await release.promise;
+				return searchResponse("brave_api");
+			}
+			return searchResponse("exa_api");
+		});
+		const runtime = trackRuntime();
+		const params = { query: "same query", limit: 1 };
+		const first = runtime.search(params, { toolCallId: "old-order" });
+		await started.promise;
+		try {
+			config.websearch.provider_order = ["exa_api", "brave_api", "tavily", "duckduckgo_html"];
+			await expect(runtime.search(params, { toolCallId: "new-order" })).resolves.toMatchObject({ details: { status: "success", provider: "exa_api" } });
+		} finally { release.resolve(); }
+		await expect(first).resolves.toMatchObject({ details: { status: "success", provider: "brave_api" } });
+		for (const id of config.websearch.provider_order) config.websearch[id].enabled = false;
+		await expect(runtime.search(params, { toolCallId: "all-disabled" })).resolves.toMatchObject({
+			details: { status: "failed", error: { code: "NO_PROVIDER_AVAILABLE" }, attempts: [] },
+		});
+		expect(network.fetch).toHaveBeenCalledTimes(2);
+	});
+
+	it("响应先按域名过滤再截取 limit，不因前排被排除而误判为空", async () => {
+		const config = defaultWebToolsConfig();
+		vi.spyOn(configModule, "loadWebToolsConfig").mockResolvedValue(config);
+		network.fetch.mockResolvedValue(httpResponse(200, JSON.stringify({ web: { results: [
+			{ title: "Excluded", url: "https://example.org/" },
+			{ title: "Allowed", url: "https://docs.example.com/" },
+		] } })));
+		await expect(trackRuntime().search({ query: "site:example.com 文档", limit: 1 }, { toolCallId: "filtered" })).resolves.toMatchObject({
+			details: { status: "success", provider: "brave_api", results: [{ rank: 1, title: "Allowed", url: "https://docs.example.com/" }] },
+		});
+		expect(network.fetch).toHaveBeenCalledOnce();
+	});
+
 	it("失败请求不污染后续搜索，未调用时不发起网络请求", async () => {
 		const config = defaultWebToolsConfig();
 		config.websearch.duckduckgo_html.enabled = false;

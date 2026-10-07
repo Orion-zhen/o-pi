@@ -40,28 +40,35 @@ websearch({
 })
 ```
 
-- `query`：支持 `site:`、`-site:`、引号、错误码和版本号。域名操作符会转成跨 provider 的结构化过滤，router 同时编译 lexical/semantic 形式。
+- `query`：支持 `site:`、`-site:`、引号、错误码和版本号。域名操作符会提取为统一过滤条件，其他查询内容保留。
 - `limit`：返回 1 到 20 条。默认使用配置 `websearch.default_results`。
 
 配置中的 `websearch.include_domains` 和 `websearch.exclude_domains` 是每次搜索都会应用的全局域名过滤，默认均为空。`query` 中的 `site:` / `-site:` 会在此基础上继续合并。配置或合并结果中的包含、排除域名不得重叠。
 
 ### 搜索后端
 
-Provider 是运行时策略，不暴露给模型：
+提供方不暴露给模型，按 `websearch.provider_order` 顺序尝试，默认 `brave_api → exa_api → tavily → duckduckgo_html`。顺序列表必须包含全部四个引擎且不重复，各引擎的 `enabled` 控制启停。未启用或缺少凭据的提供方会被跳过，全部禁用时返回 `NO_PROVIDER_AVAILABLE`。请求失败或域名过滤后无结果时继续下一家。只要有结果就直接返回，即使不足 `limit`。每家最多请求一次，用户取消或总截止时间到期时停止。
 
-- `brave_api`：默认处理精确关键词、操作符、官方页面、错误信息、当前事件、新闻和导航查询。
-- `exa_api`：处理论文、技术博客、长自然语言和语义发现。
-- `tavily`：Brave/Exa 结果不足时做独立质量修复或第二索引验证。
-- `duckduckgo_html`：没有可用正式 provider，或本次最多两个正式请求均 hard failure 且没有可用 partial 结果时作为最终灾备。正式 provider 返回 accepted、partial、用户取消或总 deadline 到期时不调用。
+默认值位于 `agent/defaults/web-tools.jsonc`。用户可在 `~/.pi/agent/configs/web-tools.jsonc` 中覆盖，例如优先 Exa 并关闭 DDG：
+
+```jsonc
+{
+  "websearch": {
+    "provider_order": ["exa_api", "brave_api", "tavily", "duckduckgo_html"],
+    "duckduckgo_html": { "enabled": false }
+  }
+}
+```
+
+顺序和启停配置在下次调用生效，已开始的请求继续使用原配置。
 
 约束：
 
 - 各 provider 使用 `api_key`：可直接填写 key，也可用 `$NAME` / `${NAME}` 引用环境变量。解析规则与 `openai-compatible-provider` 一致。空字符串、空白值或无法解析的引用会自动禁用该 provider。引用随后可用时会在下次搜索自动恢复。默认分别引用 `BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`TAVILY_API_KEY`，推荐使用环境变量，避免把 key 写入配置文件。
 - 三家正式 endpoint 只允许公开 HTTP(S) literal URL，拒绝 userinfo、localhost 和 literal 私网/回环/link-local IP。
-- 查询在本地确定性编译成保留操作符的 lexical query 与去除操作符、提取域名条件的 semantic query，不额外调用 LLM。
-- HTTP 成功仍需经过数量、关键词匹配、snippet 和域名多样性质量门控。导航与 `site:` 查询不要求域名多样性。
-- 大多数调用只请求一个正式 provider。质量不足或 hard failure 时最多请求第二个正式 provider。第二次失败仍保留第一批 partial results，不会继续请求第三个正式 provider。
-- 合并结果会规范化 URL、去重、加权 RRF、为跨 provider 共识加分，并默认限制每个 registrable domain 最多两条。provenance 仅保留在 `details`/遥测。
+- Brave 和 DDG 将域名条件重建为 `site:` / `-site:`，多个包含域名使用 OR。Exa 和 Tavily 使用结构化域名参数。
+- Exa 固定使用 `type: auto`，不自动限定内容分类。Tavily 固定使用 `search_depth: basic`。
+- 结果仅做 URL 规范化、相同 URL 去重和显式域名过滤。保留提供方顺序，不按相关度、摘要长度或域名多样性过滤、补搜或重排。
 - DDG 结果页使用流式 HTML parser，只抽取结果块所需字段，不构建完整 DOM。既有限流、challenge 检测和熔断保持不变。
 - 不执行 JavaScript，不使用 headless browser。
 - 不读取搜索结果页面，不自动调用 `webfetch`。
@@ -69,7 +76,7 @@ Provider 是运行时策略，不暴露给模型：
 
 ### 返回内容
 
-单个 provider 的直接返回保留其结果顺序，跨 provider 合并采用前述去重和排序规则：
+返回首个有可用结果的提供方批次，最多 `limit` 条：
 
 ```xml
 <websearch>
@@ -79,9 +86,9 @@ Search result snippet.
 </websearch>
 ```
 
-查询、提供方、尝试记录和合并来源保留在 `details`，不重复进入模型正文。不可信内容规则由 prompt guideline 声明。
+查询、提供方和尝试记录保留在 `details`，不重复进入模型正文。不可信内容规则由 prompt guideline 声明。
 
-摘要从提供方已返回的 description、content、highlights 和 extra snippets 中选择一个连续原文片段。精确短语、错误码和版本号优先，重复候选去重，同分保留提供方原始顺序。选片在截断前执行，统一空白后最多 240 字符，截去的前后文用 `...` 标记。没有查询词命中时取首个非空摘要的开头。跨提供方合并也按查询选择摘要，不再单纯保留较长摘要。此过程不调用 LLM，也不增加网络请求。
+摘要从提供方已返回的 description、content、highlights 和 extra snippets 中选择一个连续原文片段。精确短语、错误码和版本号优先，重复候选去重，同分保留提供方原始顺序。选片在截断前执行，统一空白后最多 240 字符，截去的前后文用 `...` 标记。没有查询词命中时取首个非空摘要的开头。此过程不调用 LLM，也不增加网络请求。
 
 搜索摘要不等于页面正文。需要确认内容时，继续用 `webfetch` 读取选定 URL。
 

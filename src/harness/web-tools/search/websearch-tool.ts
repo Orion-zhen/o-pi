@@ -23,7 +23,7 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 		includeDomains: runtime.config.websearch.include_domains,
 		excludeDomains: runtime.config.websearch.exclude_domains,
 	});
-	if (normalized.compiled.includeDomains.some((domain) => normalized.compiled.excludeDomains.includes(domain))) {
+	if (normalized.includeDomains.some((domain) => normalized.excludeDomains.includes(domain))) {
 		const details = { ...invalid("site: and -site: domains must not overlap."), duration_ms: runtime.now() - startedAt };
 		return { content: failureContent(details), details };
 	}
@@ -50,7 +50,6 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 			...routed.details,
 			query,
 			duration_ms: runtime.now() - startedAt,
-			query_type: normalized.compiled.intent,
 		};
 		return { content: failureContent(details), details };
 	}
@@ -63,7 +62,6 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 		downloaded_bytes: routed.downloadedBytes,
 		duration_ms: runtime.now() - startedAt,
 		attempts: routed.attempts,
-		query_type: normalized.compiled.intent,
 	};
 	return { content: successContent(details), details };
 }

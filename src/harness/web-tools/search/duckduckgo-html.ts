@@ -12,7 +12,6 @@ import {
 	SEARCH_RESULT_MAX_TITLE_CHARS,
 } from "../network/url-utils.ts";
 
-import { compileSearchQuery } from "../search-providers/query.ts";
 import { selectSearchSnippet } from "../search-providers/snippets.ts";
 
 export { normalizeSearchText } from "../network/url-utils.ts";
@@ -148,7 +147,6 @@ export function parseDuckDuckGoHtml(html: string, limit: number, query: string):
 	}
 
 	const parsed = parseResultBlocks(html);
-	const compiled = compileSearchQuery({ query });
 	const seen = new Set<string>();
 	const results: WebSearchItem[] = [];
 	for (const block of parsed.blocks) {
@@ -161,7 +159,7 @@ export function parseDuckDuckGoHtml(html: string, limit: number, query: string):
 		const normalizedUrl = url.toString();
 		if (seen.has(normalizedUrl)) continue;
 		seen.add(normalizedUrl);
-		const snippet = selectSearchSnippet([block.snippet], compiled);
+		const snippet = selectSearchSnippet([block.snippet], query);
 		results.push({
 			rank: results.length + 1,
 			title,

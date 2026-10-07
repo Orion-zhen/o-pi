@@ -1,4 +1,6 @@
 import { useCallback, useState } from "react";
+import { RotateCcw } from "lucide-react";
+import { IconButton } from "../components/icon-button";
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
 import type { GuiModel, GuiSnapshot, Query, GlobalQuery } from "../../contract.ts";
 import type { ModuleConfigId } from "../../module-config.ts";
@@ -16,6 +18,7 @@ import { useSettingsDraft, useSettingsState } from "./settings-state.tsx";
 import { SettingsListField } from "./settings-list-field.tsx";
 import { SubagentToolPicker } from "./subagent-tool-picker.tsx";
 import { SettingsNumber } from "./settings-number.tsx";
+import { SearchProviderSettings } from "./search-provider-settings.tsx";
 
 function readObject(text: string): Record<string, unknown> {
 	const errors: ParseError[] = [];
@@ -55,11 +58,13 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 	const defaults = readObject(document.defaults);
 	const blocked = disabled || saving;
 	const valueAt = (path: string) => { const value = at(values, path); return value === undefined ? at(defaults, path) : value; };
-	const change = (field: ConfigField, value: unknown) => {
-		editor.change(applyEdits(draft || "{}\n", modify(draft || "{}\n", field.path.split("."), value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
+	const change = (path: string, value: unknown) => {
+		editor.change(applyEdits(draft || "{}\n", modify(draft || "{}\n", path.split("."), value, { formattingOptions: { insertSpaces: false, tabSize: 4 } })));
 	};
 	const sourceButton = <SettingsSourceButton file={document.path} source={source} disabled={blocked} onClick={() => setSource(!source)} />;
 	const fields = (items: ConfigField[]) => <div className="settings-fields">{items.map((field) => {
+		if (field.type === "searchProviders") return <SearchProviderSettings key={field.path} path={field.path} choices={document.arrayOptions[field.path]}
+			valueAt={valueAt} defaultAt={(path) => at(defaults, path)} change={change} disabled={blocked} />;
 		const value = valueAt(field.path);
 		const defaultValue = at(defaults, field.path);
 		const options = field.type === "profile"
@@ -69,8 +74,8 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 		const locked = blocked || (field.enabledBy !== undefined && valueAt(field.enabledBy) !== true);
 		return <SettingsRow key={field.path} label={field.label}
 			layout={Array.isArray(value) ? "wide" : field.type === "model" || (!options && (typeof value === "string" || value === null)) ? "fluid" : "inline"}
-			reset={{ value, defaultValue, apply: () => change(field, undefined) }} disabled={locked}>
-			<FieldControl field={field} options={options} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field, value)} />
+			reset={{ value, defaultValue, apply: () => change(field.path, undefined) }} disabled={locked}>
+			<FieldControl field={field} options={options} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field.path, value)} />
 		</SettingsRow>;
 	})}</div>;
 	return <div className="settings-module">
@@ -79,7 +84,15 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 			{source && <Textarea aria-label={`${id} 全局 JSONC`} className="settings-source" value={draft} disabled={blocked} onChange={(event) => editor.change(event.target.value)} />}
 		</SettingsSection> : moduleGroups[id].map((group, index) => group.advanced
 			? <SettingsDisclosure key={group.title} title={group.title}>{fields(group.fields)}</SettingsDisclosure>
-			: <SettingsSection key={group.title} title={group.title} actions={index === 0 ? sourceButton : undefined}>
+			: <SettingsSection key={group.title} title={group.title} actions={<>
+				{index === 0 && sourceButton}
+				{group.fields.filter((field) => field.type === "searchProviders").map((field) => {
+					const changed = JSON.stringify(valueAt(field.path)) !== JSON.stringify(at(defaults, field.path));
+					return <IconButton key={field.path} label={`重置${field.label}`} tooltip="恢复默认顺序" size="icon-sm"
+						className={changed ? undefined : "invisible"} disabled={blocked || !changed}
+						onClick={() => change(field.path, undefined)}><RotateCcw /></IconButton>;
+				})}
+			</>}>
 				{fields(group.fields)}
 				{id === "approvalGate" && index === 0 && (valueAt("enabled") === false || valueAt("ui.non_interactive") === "allow")
 					&& <p className="settings-warning">{valueAt("enabled") === false ? "权限审批已关闭。" : "非交互操作将直接放行。"}</p>}

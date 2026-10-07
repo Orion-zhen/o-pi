@@ -1,24 +1,12 @@
 import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchItem, WebSearchProviderId } from "../core/types.ts";
 
-export type SearchIntent = "exact" | "navigation" | "news" | "fact" | "paper" | "semantic" | "general";
-
-export interface CompiledSearchQuery {
-	lexicalQuery: string;
-	semanticQuery: string;
-	intent: SearchIntent;
-	includeDomains: string[];
-	excludeDomains: string[];
-	keyTerms: string[];
-	navigation: boolean;
-}
-
-/** Provider 已校验的搜索参数；limit 总是落在公开 schema 允许范围内。 */
+/** 已校验的搜索参数，limit 落在公开 schema 允许范围内。 */
 export interface NormalizedSearchParams {
 	query: string;
 	limit: number;
-	compiled: CompiledSearchQuery;
-	/** Router-only hint; never exposed in tool schema. */
-	lastFormalOpportunity?: boolean;
+	textQuery: string;
+	includeDomains: string[];
+	excludeDomains: string[];
 }
 
 /** Provider 执行上下文；progress 由具体 provider 映射到 Pi update。 */

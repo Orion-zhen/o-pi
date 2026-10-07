@@ -1,9 +1,12 @@
+import type { WebSearchProviderId } from "./core/types.ts";
+
 export interface WebToolsConfig {
 	network: {
 		proxy: { enabled: boolean; http_proxy: string; https_proxy: string; socks5_proxy: string };
 		fake_ip_ranges: string[];
 	};
 	websearch: {
+		provider_order: WebSearchProviderId[];
 		default_results: number;
 		total_deadline_seconds: number;
 		include_domains: string[];

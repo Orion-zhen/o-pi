@@ -1,6 +1,6 @@
 import { defineToolTelemetry, fields, textFields } from "../../telemetry/projection.ts";
 import type { Candidate } from "../../telemetry/types.ts";
-import type { WebSearchDetails, WebSearchParams, WebSearchProviderAttempt, WebSearchSuccessDetails } from "../core/types.ts";
+import type { WebSearchDetails, WebSearchParams, WebSearchSuccessDetails } from "../core/types.ts";
 import { webResultFields } from "./common.ts";
 
 export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearchDetails>({
@@ -11,8 +11,6 @@ export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearch
 		const attempts = "attempts" in details ? details.attempts : undefined;
 		return {
 			fields: { ...webResultFields(details), ...fields({
-				query_type: "query_type" in details ? details.query_type : undefined,
-				first_call_accepted: firstCallAccepted(attempts),
 				provider_latencies: attempts?.flatMap((attempt) => attempt.duration_ms === undefined
 					? []
 					: [`${attempt.provider}:${attempt.duration_ms}`]),
@@ -25,20 +23,12 @@ export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearch
 	},
 });
 
-function firstCallAccepted(attempts: WebSearchProviderAttempt[] | undefined): boolean | undefined {
-	const first = attempts?.[0];
-	return first === undefined ? undefined : first.quality === "accepted";
-}
-
 function webCandidates(details: WebSearchSuccessDetails): Candidate[] {
-	return details.results.map((item, index) => {
-		const sources = item.provenance?.map((entry) => entry.provider) ?? [details.provider];
-		return {
-			kind: "url",
-			value: item.url,
-			rank: index + 1,
-			group: "primary",
-			sources: [...new Set(sources)].sort(),
-		};
-	});
+	return details.results.map((item, index) => ({
+		kind: "url",
+		value: item.url,
+		rank: index + 1,
+		group: "primary",
+		sources: [details.provider],
+	}));
 }

@@ -24,8 +24,6 @@ export interface WebSearchItem {
 	title: string;
 	url: string;
 	snippet?: string;
-	/** 合并来源只供 details 和遥测使用，不进入模型正文。 */
-	provenance?: Array<{ provider: FormalWebSearchProviderId; rank: number }>;
 }
 
 export type WebFetchErrorCode =
@@ -144,7 +142,6 @@ export interface WebSearchProviderAttempt {
 	duration_ms?: number;
 	error?: { code: WebSearchErrorCode; message: string };
 	http_status?: number;
-	quality?: "accepted" | "partial" | "soft_miss" | "hard_failure";
 	result_count?: number;
 }
 
@@ -156,7 +153,6 @@ export interface WebSearchSuccessDetails {
 	downloaded_bytes: number;
 	duration_ms: number;
 	attempts: WebSearchProviderAttempt[];
-	query_type?: string;
 }
 
 export interface WebSearchFailureDetails {
@@ -170,7 +166,6 @@ export interface WebSearchFailureDetails {
 	attempts?: WebSearchProviderAttempt[];
 	/** 展开诊断使用，必须先去除标签和终端控制字符，不写入模型正文。 */
 	response_preview?: string;
-	query_type?: string;
 }
 
 export type WebSearchDetails = WebSearchProgressDetails | WebSearchSuccessDetails | WebSearchFailureDetails;

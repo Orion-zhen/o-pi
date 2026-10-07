@@ -32,7 +32,7 @@ export async function readModuleConfig(id: ModuleConfigId): Promise<ModuleConfig
 	catch (error) { if (isNotFound(error)) content = ""; else throw error; }
 	return {
 		path: locations.user, content, defaults,
-		options: moduleConfigOptions(validate.schema),
+		...moduleConfigOptions(validate.schema),
 	};
 }
 

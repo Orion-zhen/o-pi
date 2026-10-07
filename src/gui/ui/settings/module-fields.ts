@@ -3,7 +3,7 @@ import type { ModuleConfigId } from "../../module-config.ts";
 export interface ConfigField {
 	path: string;
 	label: string;
-	type?: "model" | "tools" | "profile";
+	type?: "model" | "tools" | "profile" | "searchProviders";
 	enabledBy?: string;
 }
 interface ConfigGroup {
@@ -44,9 +44,8 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 		] },
 		{ title: "网页搜索", fields: [
 			field("websearch.default_results", "结果数量"), field("websearch.include_domains", "包含域名"), field("websearch.exclude_domains", "排除域名"),
-			field("websearch.brave_api.enabled", "Brave"), field("websearch.exa_api.enabled", "Exa"),
-			field("websearch.tavily.enabled", "Tavily"), field("websearch.duckduckgo_html.enabled", "DuckDuckGo"),
 		] },
+		{ title: "搜索引擎", fields: [field("websearch.provider_order", "搜索引擎顺序", "searchProviders")] },
 		{ title: "网页读取", fields: [
 			field("webfetch.media.mode", "网页图片"), field("webfetch.cookies.enabled", "浏览器 Cookie"),
 			{ ...field("webfetch.cookies.domains", "Cookie 域名"), enabledBy: "webfetch.cookies.enabled" },

@@ -25,6 +25,17 @@ describe("网页工具配置", () => {
 		await expect(loadWebToolsConfig()).rejects.toThrow();
 	});
 
+	it("默认顺序来自配置文件，顺序与启停可以分别覆盖", async () => {
+		const defaults = await loadWebToolsConfig();
+		expect(defaults.websearch.provider_order).toEqual(["brave_api", "exa_api", "tavily", "duckduckgo_html"]);
+		const order = ["tavily", "duckduckgo_html", "exa_api", "brave_api"];
+		await save({ websearch: { provider_order: order, exa_api: { enabled: false } } });
+		const config = await loadWebToolsConfig();
+		expect(config.websearch.provider_order).toEqual(order);
+		expect(config.websearch.exa_api).toEqual({ ...defaults.websearch.exa_api, enabled: false });
+		expect(config.websearch.brave_api).toEqual(defaults.websearch.brave_api);
+	});
+
 	it("配置错误可以修复，外部更改使缓存失效，并发调用不共享可变结果", async () => {
 		await save({ webfetch: { unknown: true } });
 		await expect(loadWebToolsConfig()).rejects.toThrow();
@@ -41,6 +52,11 @@ describe("网页工具配置", () => {
 		{ webfetch: { media: { mode: "invalid" } } },
 		{ network: { fake_ip_ranges: ["10.0.0.0/8"] } },
 		{ websearch: { exa_api: { endpoint: "file:///secret" } } },
+		{ websearch: { provider_order: [] } },
+		{ websearch: { provider_order: ["brave_api", "exa_api", "tavily"] } },
+		{ websearch: { provider_order: ["brave_api", "brave_api", "tavily", "duckduckgo_html"] } },
+		{ websearch: { provider_order: ["brave_api", "exa_api", "tavily", "unknown"] } },
+		{ websearch: { brave_api: { enabled: "false" } } },
 	])("拒绝非法覆盖 %j", async (config) => {
 		await save(config);
 		await expect(loadWebToolsConfig()).rejects.toThrow();

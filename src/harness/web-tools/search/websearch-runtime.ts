@@ -42,13 +42,24 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 	function providers(config: WebToolsConfig, requestGate: SearchRequestGate): WebSearchProvider[] {
 		const result: WebSearchProvider[] = [];
 		const shared = { dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl };
-		const formal = [
-			{ id: "brave_api", config: config.websearch.brave_api },
-			{ id: "exa_api", config: config.websearch.exa_api },
-			{ id: "tavily", config: config.websearch.tavily },
-		] as const;
-		for (const provider of formal) {
-			if (!provider.config.enabled) continue;
+		const formal = {
+			brave_api: { id: "brave_api", config: config.websearch.brave_api },
+			exa_api: { id: "exa_api", config: config.websearch.exa_api },
+			tavily: { id: "tavily", config: config.websearch.tavily },
+		} as const;
+		for (const id of config.websearch.provider_order) {
+			if (!config.websearch[id].enabled) continue;
+			if (id === "duckduckgo_html") {
+				result.push({
+					id,
+					async search(params, context) {
+						ddgModule ??= import("../search-providers/duckduckgo-html-provider.ts");
+						return (await ddgModule).searchDuckDuckGoProvider({ config: config.websearch.duckduckgo_html, requestGate, ...shared }, params, context);
+					},
+				});
+				continue;
+			}
+			const provider = formal[id];
 			const key = resolveSearchApiKey(provider.config.api_key);
 			if (key === undefined) continue;
 			result.push({
@@ -59,13 +70,6 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 				},
 			});
 		}
-		if (config.websearch.duckduckgo_html.enabled) result.push({
-			id: "duckduckgo_html",
-			async search(params, context) {
-				ddgModule ??= import("../search-providers/duckduckgo-html-provider.ts");
-				return (await ddgModule).searchDuckDuckGoProvider({ config: config.websearch.duckduckgo_html, requestGate, ...shared }, params, context);
-			},
-		});
 		return result;
 	}
 }

@@ -1,15 +1,7 @@
 import type { WebSearchParams } from "../core/types.ts";
-import type { CompiledSearchQuery, NormalizedSearchParams, SearchIntent } from "./types.ts";
+import type { NormalizedSearchParams } from "./types.ts";
 
-const OPERATOR = /-?\b(?:site|filetype|intitle|inurl):(?:"[^"]+"|\S+)/giu;
-const OPERATOR_SIGNAL = /\b(?:site|filetype|intitle|inurl):/iu;
 const SITE = /(?:^|\s)(-?)site:(?:"([^"]+)"|(\S+))/giu;
-const EXACT_SIGNAL = /(?:"[^"]+"|\b(?:[A-Z]{1,8}-?\d{2,}|0x[\da-f]+|v?\d+\.\d+(?:\.\d+)?)\b|\b(?:error|exception|failed|status code)\b)/iu;
-const NEWS_SIGNAL = /\b(?:latest|today|current|news|breaking|update|status|release|最近|最新|今天|新闻|现状)\b/iu;
-const PAPER_SIGNAL = /\b(?:paper|papers|research|study|arxiv|doi|journal|conference|论文|研究|文献)\b/iu;
-const NAVIGATION_SIGNAL = /\b(?:official|docs?|documentation|homepage|website|github|官网|官方|文档)\b/iu;
-const SEMANTIC_SIGNAL = /\b(?:find|discover|compare|approach|technique|method|examples? of|similar to|如何|寻找|比较|方法)\b/iu;
-const STOP_WORDS = new Set(["the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with", "is", "are", "what", "how"]);
 
 export interface SearchDomainFilters {
 	includeDomains?: readonly string[];
@@ -18,58 +10,31 @@ export interface SearchDomainFilters {
 
 export function normalizeSearchParams(params: WebSearchParams, defaultLimit: number, filters: SearchDomainFilters = {}): NormalizedSearchParams {
 	const query = params.query.trim();
-	const queryCompiled = compileSearchQuery({ ...params, query });
-	const includeDomains = normalizeDomains([...(filters.includeDomains ?? []), ...queryCompiled.includeDomains]);
-	const excludeDomains = normalizeDomains([...(filters.excludeDomains ?? []), ...queryCompiled.excludeDomains]);
-	const compiled = { ...queryCompiled, includeDomains, excludeDomains };
+	const sites = [...query.matchAll(SITE)].map((match) => ({ excluded: match[1] === "-", domain: match[2] ?? match[3] ?? "" }));
 	return {
 		query,
 		limit: params.limit ?? defaultLimit,
-		compiled,
+		textQuery: withoutSites(query) || query,
+		includeDomains: normalizeDomains([...(filters.includeDomains ?? []), ...sites.filter((site) => !site.excluded).map((site) => site.domain)]),
+		excludeDomains: normalizeDomains([...(filters.excludeDomains ?? []), ...sites.filter((site) => site.excluded).map((site) => site.domain)]),
 	};
 }
 
-/** Rebuild domain operators so multiple included domains retain OR semantics across lexical providers. */
+/** 重建域名操作符，多个包含域名使用 OR 语义。 */
 export function filteredLexicalQuery(params: NormalizedSearchParams): string {
-	const { lexicalQuery: rawLexicalQuery, includeDomains, excludeDomains } = params.compiled;
-	const lexicalQuery = rawLexicalQuery.replace(SITE, " ").replace(/\s+/gu, " ").trim();
+	const { includeDomains, excludeDomains } = params;
 	const includeClause = includeDomains.length > 1
 		? `(${includeDomains.map((domain) => `site:${domain}`).join(" OR ")})`
 		: includeDomains[0] === undefined ? undefined : `site:${includeDomains[0]}`;
 	return [
-		lexicalQuery,
+		withoutSites(params.query),
 		includeClause,
 		...excludeDomains.map((domain) => `-site:${domain}`),
 	].filter((part): part is string => part !== undefined && part.length > 0).join(" ");
 }
 
-export function compileSearchQuery(params: WebSearchParams): CompiledSearchQuery {
-	const lexicalQuery = params.query.trim().replace(/\s+/gu, " ");
-	const siteOperators = [...lexicalQuery.matchAll(SITE)].map((match) => ({ excluded: match[1] === "-", domains: normalizeDomains([match[2] ?? match[3] ?? ""]) }));
-	const includeDomains = normalizeDomains(siteOperators.filter((site) => !site.excluded).flatMap((site) => site.domains));
-	const excludeDomains = normalizeDomains(siteOperators.filter((site) => site.excluded).flatMap((site) => site.domains));
-	const semanticQuery = lexicalQuery.replace(OPERATOR, " ").replace(/\s+/gu, " ").trim();
-	const intent = classifySearchIntent(lexicalQuery, semanticQuery);
-	return {
-		lexicalQuery,
-		semanticQuery: semanticQuery || lexicalQuery,
-		intent,
-		includeDomains,
-		excludeDomains,
-		keyTerms: keyTerms(semanticQuery || lexicalQuery),
-		navigation: siteOperators.length > 0 || NAVIGATION_SIGNAL.test(lexicalQuery),
-	};
-}
-
-export function classifySearchIntent(lexicalQuery: string, semanticQuery = lexicalQuery): SearchIntent {
-	if (PAPER_SIGNAL.test(lexicalQuery)) return "paper";
-	if (EXACT_SIGNAL.test(lexicalQuery) || OPERATOR_SIGNAL.test(lexicalQuery)) return "exact";
-	if (NAVIGATION_SIGNAL.test(lexicalQuery)) return "navigation";
-	if (NEWS_SIGNAL.test(lexicalQuery)) return "news";
-	const words = semanticQuery.split(/\s+/u).filter(Boolean);
-	if (words.length >= 12 || SEMANTIC_SIGNAL.test(semanticQuery) && words.length >= 7) return "semantic";
-	if (/^(?:who|what|when|where|which|how many|多少|谁|什么|何时|哪里)\b/iu.test(semanticQuery)) return "fact";
-	return "general";
+function withoutSites(query: string): string {
+	return query.replace(SITE, " ").replace(/\s+/gu, " ").trim();
 }
 
 export function normalizeDomains(values: readonly string[]): string[] {
@@ -78,10 +43,4 @@ export function normalizeDomains(values: readonly string[]): string[] {
 		return trimmed && /^[a-z0-9.-]+$/u.test(trimmed) ? [trimmed.replace(/\.$/u, "")] : [];
 	});
 	return [...new Set(domains)].sort();
-}
-
-function keyTerms(value: string): string[] {
-	return [...new Set(value.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}._-]*/gu) ?? [])]
-		.filter((term) => term.length > 1 && !STOP_WORDS.has(term))
-		.slice(0, 12);
 }

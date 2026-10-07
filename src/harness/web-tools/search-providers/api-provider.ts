@@ -8,7 +8,7 @@ import type { WebToolsConfig } from "../config-types.ts";
 import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.ts";
 import { filteredLexicalQuery } from "./query.ts";
 import { selectSearchSnippet } from "./snippets.ts";
-import type { CompiledSearchQuery, NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
+import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
 type ProviderConfig = {
 	[Id in FormalWebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id] };
@@ -77,7 +77,7 @@ function buildProviderRequest(provider: ProviderConfig, params: NormalizedSearch
 export function buildBraveRequest(config: WebToolsConfig["websearch"]["brave_api"], params: NormalizedSearchParams, key: string): ProviderRequest {
 	const url = new URL(config.endpoint);
 	url.searchParams.set("q", filteredLexicalQuery(params));
-	url.searchParams.set("count", String(Math.min(20, Math.max(params.limit, 8))));
+	url.searchParams.set("count", String(params.limit));
 	url.searchParams.set("text_decorations", "false");
 	url.searchParams.set("safesearch", "moderate");
 	url.searchParams.set("extra_snippets", String(config.extra_snippets));
@@ -85,13 +85,12 @@ export function buildBraveRequest(config: WebToolsConfig["websearch"]["brave_api
 }
 
 export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], params: NormalizedSearchParams, key: string): ProviderRequest {
-	const { semanticQuery, intent, includeDomains, excludeDomains } = params.compiled;
+	const { textQuery, includeDomains, excludeDomains } = params;
 	const body = {
-		query: semanticQuery,
+		query: textQuery,
 		type: "auto",
-		numResults: Math.min(10, Math.max(params.limit, 6)),
+		numResults: Math.min(10, params.limit),
 		contents: { highlights: { maxCharacters: config.highlight_chars } },
-		...(intent === "paper" ? { category: "publication" } : {}),
 		...(includeDomains.length > 0 ? { includeDomains } : {}),
 		...(excludeDomains.length > 0 ? { excludeDomains } : {}),
 	};
@@ -99,12 +98,11 @@ export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], 
 }
 
 export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"], params: NormalizedSearchParams, key: string): ProviderRequest {
-	const { semanticQuery, intent, includeDomains, excludeDomains } = params.compiled;
-	const complex = params.lastFormalOpportunity === true && (intent === "semantic" || intent === "paper");
+	const { textQuery, includeDomains, excludeDomains } = params;
 	const body = {
-		query: semanticQuery,
-		max_results: Math.min(10, Math.max(params.limit, 5)),
-		search_depth: complex ? "advanced" : "basic",
+		query: textQuery,
+		max_results: Math.min(10, params.limit),
+		search_depth: "basic",
 		auto_parameters: false,
 		include_answer: false,
 		include_raw_content: false,
@@ -116,23 +114,22 @@ export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"]
 }
 
 export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: unknown, params: NormalizedSearchParams, downloadedBytes: number): SearchProviderResult {
-	const { query, limit, compiled } = params;
+	const { query } = params;
 	if (!record(raw)) return failed(id, "PARSE_FAILED", `${id} response is not an object.`, query);
 	const rows = id === "brave_api" ? nestedRows(raw, "web") : array(raw["results"]);
 	const results: WebSearchItem[] = [];
 	const seen = new Set<string>();
 	for (const row of rows) {
 		if (!record(row)) continue;
-		const normalized = normalizedItem(id, row, results.length + 1, compiled);
+		const normalized = normalizedItem(id, row, results.length + 1, query);
 		if (normalized === undefined || seen.has(normalized.url)) continue;
 		seen.add(normalized.url);
 		results.push(normalized);
-		if (results.length >= limit) break;
 	}
 	return { status: "success", provider: id, results, downloadedBytes };
 }
 
-function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unknown>, rank: number, query: CompiledSearchQuery): WebSearchItem | undefined {
+function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unknown>, rank: number, query: string): WebSearchItem | undefined {
 	const rawUrl = string(row["url"]);
 	const url = rawUrl === undefined ? undefined : normalizeSearchResultUrl(rawUrl)?.toString();
 	if (url === undefined) return undefined;
