@@ -4,6 +4,7 @@ import { parse } from "jsonc-parser";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./desktop-fixture.ts";
 import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
+import { recordStartupMotion, expectStartupContentMotion, expectStartupMotionFinished } from "./startup-motion-check.ts";
 
 const defaults = readGuiDefaults().materials;
 const translucent = /[/,] 0(?:\.\d+)?\)$/;
@@ -13,6 +14,17 @@ const surfaces = [".sidebar", ".sidebar-resize", ".conversation-canvas", ".topba
 const sidebarFilter = `blur(${defaults.sidebar.blur}px) saturate(${defaults.sidebar.saturation / 100})`;
 
 test.skip(process.platform !== "darwin", "macOS 桌面材质兼容");
+
+test("原生透明侧栏背景静止，内容保留入场动画", async ({ gui: { page }, workspace: { cwd } }) => {
+	await writeFile(path.join(cwd, "startup.txt"), "startup");
+	await recordStartupMotion(page);
+	await page.reload();
+	await expect(page.locator("html")).toHaveAttribute("data-desktop-material", "vibrancy");
+	await expectStartupContentMotion(page);
+	await expectStartupMotionFinished(page);
+	await expect(page.locator(".sidebar .file-entry-row").filter({ hasText: "startup.txt" })).toBeVisible();
+	await expect(page.locator(".app")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+});
 
 for (const [theme, label] of [["light", "浅色"], ["dark", "深色"]] as const) test(`${label}原生磨砂不叠加背景滤镜，浮层实色且不覆盖透明度配置`, async ({ gui: { page }, workspace: { agentDir } }) => {
 	const config = {

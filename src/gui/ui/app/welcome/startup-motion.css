@@ -10,7 +10,9 @@
 [data-startup="right"] { --startup-x: 20px; }
 [data-startup="composer"] { --startup-y: 12px; --startup-duration: 240ms; }
 
-:is([data-startup="left"], [data-startup="right"]:not([data-open="false"]), [data-startup="composer"]) {
+/* 只移动侧栏前景，透明背景和分隔条不参与入场合成。 */
+:is([data-startup="left"], [data-startup="right"]:not([data-open="false"])) > *,
+[data-startup="composer"] {
 	animation-name: startup-settle, startup-fade;
 	animation-duration: var(--startup-duration), 160ms;
 	animation-timing-function: var(--motion-ease);

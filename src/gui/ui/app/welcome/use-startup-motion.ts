@@ -3,10 +3,10 @@ import { startupLists, startupContentDuration, startupListDuration, startupSideb
 import "./startup-motion.css";
 
 const regions = [
-	{ name: "left", selector: ".sidebar", divider: ".sidebar-resize" },
-	{ name: "right", selector: ".session-sidebar", divider: ".info-resize" },
-	{ name: "composer", selector: ".composer", divider: null },
-	{ name: "welcome", selector: ".welcome", divider: null },
+	{ name: "left", selector: ".sidebar" },
+	{ name: "right", selector: ".session-sidebar" },
+	{ name: "composer", selector: ".composer" },
+	{ name: "welcome", selector: ".welcome" },
 ] as const;
 type Region = typeof regions[number]["name"];
 
@@ -91,12 +91,6 @@ export function useStartupMotion(root: RefObject<HTMLElement | null>, sessionRea
 			}
 			target.dataset.startup = region.name;
 			startup.active.add(target);
-			const divider = region.divider ? element.querySelector<HTMLElement>(region.divider) : null;
-			if (divider) {
-				divider.style.setProperty("--startup-duration", `${startupSidebarDuration}ms`);
-				divider.dataset.startup = region.name;
-				startup.active.add(divider);
-			}
 		}
 		if (sessionReady && !element.querySelector(".welcome")) startup.lists?.start(Math.max(performance.now(), startup.sidebarEndsAt));
 	});
