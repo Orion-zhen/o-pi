@@ -1,13 +1,5 @@
-@property --reply-shimmer-position {
-	syntax: "<percentage>";
-	inherits: true;
-	initial-value: 100%;
-}
 .assistant-reply {
 	--reply-acceleration: cubic-bezier(0.4, 0.033, 0.6, 0.967);
-}
-.assistant-reply[data-state="running"] {
-	animation: reply-shimmer var(--reply-beat-duration) linear infinite;
 }
 .reply-breathing {
 	display: flex;
@@ -32,6 +24,7 @@
 	animation-duration: var(--reply-breathing-duration), var(--reply-rotation-duration);
 	animation-timing-function: ease-in-out, linear;
 	animation-iteration-count: infinite;
+	animation-play-state: paused;
 }
 .reply-status-label {
 	--label-ink: color-mix(in srgb, var(--muted-foreground) 65%, var(--canvas));
@@ -46,14 +39,14 @@
 	color: transparent;
 	background-image: linear-gradient(to right, var(--label-ink) 42%, var(--foreground) 50%, var(--label-ink) 58%);
 	background-size: 300% 100%;
-	background-position: var(--reply-shimmer-position) center;
+	background-position: 100% center;
 	background-clip: text;
+	animation: reply-shimmer var(--reply-beat-duration) linear infinite paused;
 }
-.reply-breathing[data-present="false"] > svg { animation-play-state: paused; }
 /* 扫光与每次形变的加速区间一致，慢转期间高亮留在文字左侧之外。 */
 @keyframes reply-shimmer {
-	0%, 60% { --reply-shimmer-position: 100%; animation-timing-function: var(--reply-acceleration); }
-	100% { --reply-shimmer-position: 0%; }
+	0%, 60% { background-position: 100% center; animation-timing-function: var(--reply-acceleration); }
+	100% { background-position: 0% center; }
 }
 @keyframes reply-breathe {
 	0%, 100% { opacity: 0.72; scale: 0.98; }

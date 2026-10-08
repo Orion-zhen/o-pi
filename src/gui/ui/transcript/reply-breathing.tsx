@@ -1,6 +1,7 @@
-import { memo, useEffect } from "react";
-import { animate, motion, transform, useIsPresent, useMotionValue, useTransform, type MotionStyle } from "motion/react";
+import { memo, useLayoutEffect } from "react";
+import { animate, motion, transform, useMotionValue, useTransform, type MotionStyle } from "motion/react";
 import { breathingSegments } from "./breathing-segments.ts";
+import { useReplyAnimation } from "./use-reply-animation.ts";
 import "./reply-breathing.css";
 
 const segments = breathingSegments.map((paths) => transform([0, 1], paths));
@@ -30,18 +31,20 @@ function shapeAt(progress: number): string {
 }
 
 export const ReplyBreathing = memo(function ReplyBreathing() {
-	const present = useIsPresent();
+	const { ref, playing } = useReplyAnimation<HTMLDivElement>(true);
 	const progress = useMotionValue(0);
 	const path = useTransform(progress, shapeAt);
-	useEffect(() => {
-		if (!present) return;
+	useLayoutEffect(() => {
+		if (!playing) return;
 		const animation = animate(progress, values, {
-			duration, times, ease: [0.45, 0, 0.55, 1], repeat: Infinity,
+			duration, times, ease: [0.45, 0, 0.55, 1], repeat: Infinity, autoplay: false,
 		});
+		animation.time = (Number(document.timeline.currentTime) / 1000) % duration;
+		animation.play();
 		return () => animation.stop();
-	}, [progress, present]);
+	}, [progress, playing]);
 
-	return <motion.div className="reply-breathing" role="status" aria-label="正在处理" data-present={present}
+	return <motion.div ref={ref} className="reply-breathing" role="status" aria-label="正在处理"
 		initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.85 }}
 		transition={{ duration: 0.2 }}>
 		<svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">

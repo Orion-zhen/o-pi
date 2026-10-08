@@ -6,6 +6,7 @@
 .activity-label { flex-shrink: 0; }
 .activity-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); font-size: var(--text-small); min-width: 0; }
 .activity-facts { flex-shrink: 0; margin-left: auto; padding-left: 0.5rem; font-size: calc(var(--text-ui) * 11 / 14); font-variant-numeric: tabular-nums; }
+.activity-facts + .activity-facts { margin-left: 0; }
 .activity-state { display: flex; align-items: center; flex-shrink: 0; gap: 0.375rem; margin-left: auto; font-size: calc(var(--text-ui) * 11 / 14); }
 .activity-facts + .activity-state { margin-left: 0.25rem; }
 .activity-state svg { width: 0.8125rem; height: 0.8125rem; }

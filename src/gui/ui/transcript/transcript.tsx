@@ -7,6 +7,7 @@ import { skillCount } from "./skill-summary.tsx";
 import { MessageIdentity, ReplyMetrics } from "../content/message-meta.tsx";
 import { ReplyItems, useAutoFold } from "./transcript-sections.tsx";
 import { ReplyBreathing, replyTiming } from "./reply-breathing.tsx";
+import { ReplyStatusLabel } from "./reply-status-label.tsx";
 import type { TranscriptSource } from "./transcript-items.ts";
 import type { TranscriptReply, TranscriptRow } from "./transcript-replies.ts";
 import { useTranscriptRows } from "./use-transcript-rows.ts";
@@ -107,7 +108,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 	return <motion.section {...fade} className="assistant-reply" style={replyTiming} data-state={reply.state} data-entry-ids={reply.messageIndices.map((index) => entryIds[index]).filter(Boolean).join(" ")}>
 		{activityOnly ? processContent : <Disclosure className="reply-process" data-tail={processTail} hidden={!showProcess} open={open} onOpenChange={setOpen} summary={<>
 				{pruned && <span className="reply-pruned-label">已裁剪</span>}
-				<span className="reply-status-label" data-active={running}>{reply.retrying ? "正在重试" : "本轮过程"}</span>
+				<ReplyStatusLabel active={running}>{reply.retrying ? "正在重试" : "本轮过程"}</ReplyStatusLabel>
 				{counts && <span className="reply-counts">{counts}</span>}
 			</>}>
 			{processContent}
