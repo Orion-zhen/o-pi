@@ -52,17 +52,29 @@ function presentResult(
 ) {
 	if (isFailed(result)) return failedToolResult(result);
 	if (!("media_type" in result)) {
-		return { content: [{ type: "text" as const, text: formatReadModelResult(result) }], details: result };
+		const text = formatReadModelResult(result);
+		return { content: [{ type: "text" as const, text }], structuredContent: text, details: result };
 	}
-	return result.media_type === "image"
-		? { content: formatReadImageModelContent(result, model), details: result }
-		: { content: formatReadPdfModelContent(result, model), details: result };
+	if (result.media_type === "image") {
+		const content = formatReadImageModelContent(result, model);
+		return {
+			content, details: result,
+			structuredContent: { type: "image" as const, data: result.image.data, mimeType: result.image.mime_type, note: content[0].text },
+		};
+	}
+	const content = formatReadPdfModelContent(result, model);
+	return {
+		content, details: result,
+		structuredContent: { type: "pdf" as const, content: content.map((part) => part.type === "image"
+			? { type: part.type, data: part.data, mimeType: part.mimeType }
+			: { type: part.type, text: part.text }) },
+	};
 }
 
 function formatReadImageModelContent(
 	result: Extract<ReadFileSuccess, { media_type: "image" }>,
 	model: { input?: readonly string[] } | undefined,
-): Array<TextContent | ImageContent> {
+): [TextContent, ImageContent] {
 	const nonVisionNote = model === undefined || model.input?.includes("image")
 		? undefined
 		: "[Current model does not support images. The image may be omitted by the provider.]";

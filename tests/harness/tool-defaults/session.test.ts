@@ -56,7 +56,7 @@ async function start(manager = SessionManager.create(cwd), tools?: string[], fix
 				extensionFactories: [
 					...extensions.filter((extension) => extension.name === "codemode" || extension.name === "tool-search"),
 					...(fixture ? [{ name: "fixture", factory: fixture }] : []),
-					{ name: "tools", factory: createToolsExtension(undefined, undefined, (value) => { controller = value; }) },
+					{ name: "tools", factory: createToolsExtension(undefined, undefined, (value) => { controller = value; }, tools === undefined ? {} : { tools }) },
 				],
 			},
 		});

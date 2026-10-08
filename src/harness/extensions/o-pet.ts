@@ -93,9 +93,8 @@ export function createOPetEventHandlers(service: OPetService): OPetEventHandlers
 		},
 		messageEnd(event) {
 			if (event.message.role !== "assistant") return;
-			if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
-				service.onMessageEnd(event.message.stopReason);
-			} else if (event.message.stopReason === "stop" || event.message.stopReason === "length") {
+			service.onMessageEnd(event.message.stopReason === "error");
+			if (event.message.stopReason === "stop" || event.message.stopReason === "length") {
 				service.onReplyEnd();
 			}
 		},
@@ -112,9 +111,9 @@ export function createOPetEventHandlers(service: OPetService): OPetEventHandlers
 			if (event.type === "requested") service.onApprovalRequested(event.toolCallId, event.toolName);
 			else service.onApprovalResolved(event.toolCallId, event.outcome);
 		},
-		agentSettled() {
+		agentSettled(event) {
 			streamingTools.clear();
-			service.onAgentSettled();
+			service.onAgentSettled(event.aborted);
 		},
 		sessionShutdown() {
 			service.shutdown();

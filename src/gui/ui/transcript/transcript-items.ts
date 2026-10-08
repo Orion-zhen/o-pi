@@ -11,6 +11,7 @@ export interface ToolActivity {
 	state: ToolState;
 	output: GuiToolOutput | undefined;
 	nestedCalls?: GuiNestedCalls;
+	durationMs?: number;
 }
 export type TranscriptItem = { key: string; messageIndex: number } & (
 	| { kind: "message"; message: GuiMessage }

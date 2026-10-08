@@ -212,7 +212,7 @@ export interface GuiSessionInfo {
 	title: string;
 	modified: string;
 }
-export type GuiLiveTool = Omit<Extract<AgentSessionEvent, { type: "tool_execution_start" }>, "type"> & { output: GuiToolOutput | undefined; status: "running" | "ok" | "error" };
+export type GuiLiveTool = Omit<Extract<AgentSessionEvent, { type: "tool_execution_start" }>, "type"> & { output: GuiToolOutput | undefined; status: "running" | "ok" | "error"; durationMs?: number };
 
 export interface GuiSnapshot {
 	cwd: string;

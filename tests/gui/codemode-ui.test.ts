@@ -100,6 +100,13 @@ describe("codemode 执行容器", () => {
 		expect(doc.querySelector(".diff-block")).toBeNull();
 	});
 
+	it("父脚本和已完成子调用的耗时在折叠摘要中可见", () => {
+		const doc = renderTool({ ...tool, durationMs: 20 });
+		expect(doc.querySelector(".codemode-activity > [data-slot=collapsible] > .activity-summary")?.textContent).toContain("20 ms");
+		expect(doc.querySelector('[data-nested-tool-call-id="code-1/1"] .activity-summary')?.textContent).toContain("10 ms");
+		expect(doc.querySelector('[data-nested-tool-call-id="code-1/2"] .activity-summary')?.textContent).not.toContain(" ms");
+	});
+
 	it("运行时展开，子调用复用工具摘要，脚本默认不展开", () => {
 		const doc = renderTool({ ...tool, output: { kind: "inline", value: { content: "Script running" } } });
 		expect(doc.querySelector(".codemode-output")).toBeNull();

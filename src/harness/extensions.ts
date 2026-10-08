@@ -3,7 +3,8 @@ import agentsPrompts from "./extensions/agents-prompts.ts";
 import approvalGate from "./extensions/approval-gate.ts";
 import autoTitle from "./extensions/auto-title.ts";
 import bashTool from "./extensions/bash-tool.ts";
-import tools from "./extensions/cmd-slash-tools.ts";
+import tools, { createToolsExtension } from "./extensions/cmd-slash-tools.ts";
+import type { ToolStartupOptions } from "./tool-defaults/initial.ts";
 import codemode from "./extensions/codemode.ts";
 import toolSearch from "./extensions/tool-search.ts";
 import discordPresence from "./extensions/discord-presence.ts";
@@ -49,3 +50,10 @@ export const extensions: InlineExtension[] = [
 	{ name: "usage", factory: usage },
 	{ name: "web-tools", factory: webTools },
 ];
+
+/** 无界面入口只传递原生解析结果，不接管 CLI 解析。 */
+export function createHarnessExtensions(startup: ToolStartupOptions): InlineExtension[] {
+	return extensions.map((extension) => extension.name === "cmd-slash-tools"
+		? { name: extension.name, factory: createToolsExtension(undefined, undefined, undefined, startup) }
+		: extension);
+}

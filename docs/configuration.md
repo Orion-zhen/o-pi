@@ -77,7 +77,9 @@ GUI 编辑器需要同时呈现原文和校验错误，因此从同一份用户�
 
 ## 工具默认值
 
-默认工具直接使用 Pi 原生 `settings.json.defaultTools` 字段，由 SDK 解析工具名列表、`+name` / `-name`、项目设置及 CLI `--tools`。不增加自定义字段或默认值覆盖层。
+默认工具直接使用 Pi 原生 `settings.json.defaultTools` 字段，由 SDK 解析工具名列表、`+name` / `-name`、项目设置及 CLI `--tools`。不增加自定义配置字段。Pi 1.1.0 起，CLI `--tools +read,-bash` 在默认工具集合上增减，`--tools read,find` 则替换集合。
+
+未配置 `defaultTools` 时，保留工具注册时的默认启用行为，不维护额外的默认工具名单。codemode 默认关闭，`powershell` 和 `subagent` 仍受平台和 profile 可用性限制。显式工具列表替换启用集合，全局空列表禁用全部工具。仅含 `+name` / `-name` 的配置在默认启用集合上增减。解析复用 SDK，保留项目设置合并、CLI 覆盖和已有会话分支选择，不修改配置文件。Pi 1.1.0 将项目级空列表视为不增减，仍继承全局配置。
 
 在 `/tools` 中按 `Ctrl+S` 将当前启用的工具名列表写入全局 `~/.pi/agent/settings.json.defaultTools`，保留其他设置，供新会话使用。路径遵循 `PI_CODING_AGENT_DIR`。直接退出只保留当前会话分支的选择。
 

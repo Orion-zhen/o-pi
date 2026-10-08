@@ -16,6 +16,7 @@ export function ToolSummary({ tool, open, stateLabel }: { tool: ToolActivity; op
 		<span className="activity-label">{label}</span>
 		<code className="activity-target">{target}</code>
 		{facts && <span className="activity-facts">{facts}</span>}
+		{tool.durationMs !== undefined && <span className="activity-facts">{tool.durationMs} ms</span>}
 		<ActivityState state={tool.state} label={stateLabel} />
 		<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 	</CollapsibleTrigger></Hint>;

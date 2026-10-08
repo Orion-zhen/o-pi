@@ -47,8 +47,8 @@ export class OPetService {
 		this.client.publish({ type: "reply_finished" });
 	}
 
-	onMessageEnd(stopReason: "error" | "aborted"): void {
-		this.outcome = stopReason;
+	onMessageEnd(isError: boolean): void {
+		this.outcome = isError ? "error" : "success";
 	}
 
 	onToolObserved(toolName: string): void {
@@ -85,10 +85,10 @@ export class OPetService {
 		this.client.publish({ type: "approval_resolved", toolCallId, outcome });
 	}
 
-	onAgentSettled(): void {
+	onAgentSettled(aborted: boolean): void {
 		const startedAt = this.runStartedAt ?? this.now();
 		const durationMs = Math.max(0, Math.round(this.now() - startedAt));
-		this.client.publish({ type: "agent_settled", outcome: this.outcome, durationMs });
+		this.client.publish({ type: "agent_settled", outcome: aborted ? "aborted" : this.outcome, durationMs });
 		this.runStartedAt = undefined;
 		this.toolProgressAt.clear();
 	}

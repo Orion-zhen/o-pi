@@ -34,10 +34,10 @@ export function createTuiRuntime(pi: ExtensionAPI): TuiRuntime {
 	pi.on("ui_prompt_end", () => {
 		if (session?.status === "waiting") session.refresh("running");
 	});
-	pi.on("agent_settled", async (_event, ctx) => {
+	pi.on("agent_settled", async (event, ctx) => {
 		session?.refresh("ready");
 		math.schedule();
-		if (ctx.mode !== "tui") return;
+		if (ctx.mode !== "tui" || event.aborted) return;
 		await notifyWaiting();
 	});
 

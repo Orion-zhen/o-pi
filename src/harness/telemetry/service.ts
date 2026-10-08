@@ -66,7 +66,6 @@ interface PendingCall {
 	definitionHash?: string;
 	turn?: TurnContext;
 	startedAt: number;
-	startedMonotonic: number;
 	rawParams: unknown;
 	params: unknown;
 	inputFacts: TelemetryFacts;
@@ -202,7 +201,6 @@ export class TelemetryService {
 			...(tool?.definitionHash === undefined ? {} : { definitionHash: tool.definitionHash }),
 			...(this.#turn === undefined ? {} : { turn: this.#turn }),
 			startedAt: new Date().getTime(),
-			startedMonotonic: performance.now(),
 			rawParams: event.args,
 			params: event.args,
 			inputFacts: {},
@@ -279,7 +277,7 @@ export class TelemetryService {
 			...(call.definitionHash === undefined ? {} : { definition_hash: call.definitionHash }),
 			started_at: new Date(call.startedAt).toISOString(),
 			ended_at: ended.toISOString(),
-			duration_ms: performance.now() - call.startedMonotonic,
+			...(event.durationMs === undefined ? {} : { duration_ms: event.durationMs }),
 			status,
 			...(status === "success" ? {} : { error: { ...(errorCode === undefined ? {} : { code: errorCode }) } }),
 			output_chars: output.chars,

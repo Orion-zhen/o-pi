@@ -6,6 +6,7 @@ import { canPresent, type Presenter } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "../subagent/agents.ts";
 import { loadSubagentConfig } from "../subagent/config.ts";
+import { initialToolDefaults, type ToolStartupOptions } from "../tool-defaults/initial.ts";
 
 interface ToolSelectorModule {
 	openToolSelector(
@@ -24,6 +25,7 @@ export function createToolsExtension(
 	loadTui?: ToolSelectorLoader,
 	gui?: Presenter<(controller: ToolSelectionController) => void>,
 	bindController?: (controller: ToolSelectionController) => void,
+	startup: ToolStartupOptions = {},
 ): (pi: ExtensionAPI) => void {
 	return function toolsExtension(pi: ExtensionAPI): void {
 		const controller = new ToolSelectionController(pi);
@@ -31,7 +33,8 @@ export function createToolsExtension(
 
 		const restore = async (ctx: ExtensionContext): Promise<void> => {
 			const config = await loadSubagentConfig(ctx.cwd);
-			const removed = controller.restore(ctx.sessionManager.getBranch(), discoverAgents(ctx.cwd, config).agents.length > 0);
+			const branch = ctx.sessionManager.getBranch();
+			const removed = controller.restore(branch, discoverAgents(ctx.cwd, config).agents.length > 0, initialToolDefaults(pi, branch, startup));
 			if (removed.length > 0) ctx.ui.notify(`Removed unavailable tools from branch selection: ${removed.join(", ")}`, "warning");
 		};
 

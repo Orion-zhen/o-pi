@@ -61,6 +61,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			calls: children.map((child) => ({
 				id: child.toolCallId, name: child.toolName, arguments: child.args,
 				...(child.output ? { output: child.output } : {}),
+				...(child.durationMs === undefined ? {} : { durationMs: child.durationMs }),
 				status: child.status === "running" ? "unfinished" as const : child.status,
 				...(child.status === "error" ? { error: errorSummary(child) } : {}),
 			})),
@@ -73,6 +74,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			tool: {
 				id, name, args, state,
 				output: result?.output ?? event?.output,
+				...(result?.durationMs === undefined ? {} : { durationMs: result.durationMs }),
 				...(nestedCalls === undefined ? {} : { nestedCalls }),
 			},
 		};

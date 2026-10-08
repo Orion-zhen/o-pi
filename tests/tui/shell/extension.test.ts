@@ -9,6 +9,8 @@ import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts
 const temp = useTempDir("opi-tui-session-");
 preserveEnv("HOME", "USERPROFILE", "PI_TUI_CONFIG");
 const cleanups: (() => Promise<unknown>)[] = [];
+const notifyWaiting = vi.fn(async () => {});
+vi.mock("../../../src/harness/notification/native.ts", () => ({ notifyWaiting }));
 const math = {
 	installMathMarkdownRenderer: vi.fn(),
 	supportsDisplayMathImages: () => true,
@@ -72,6 +74,14 @@ it("标题、运行和审批状态随会话更新，退出恢复界面", async (
 	expect(ui.setFooter.mock.lastCall).toEqual([undefined]);
 	expect(ui.getEditorComponent()).toBeUndefined();
 	expect(ui.setStatus.mock.lastCall?.[1]).toBeUndefined();
+});
+
+it("用户取消不发送完成通知，正常完成仍通知", async () => {
+	const { emit } = await start();
+	await emit("agent_settled", { aborted: true });
+	expect(notifyWaiting).not.toHaveBeenCalled();
+	await emit("agent_settled", { aborted: false });
+	expect(notifyWaiting).toHaveBeenCalledOnce();
 });
 
 it.each(["rpc", "print"] as const)("%s 不安装终端界面", async (mode) => {

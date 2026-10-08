@@ -266,7 +266,7 @@ describe("o-pet 服务与 Pi 扩展", () => {
 		service.onApprovalResolved("bash-1", "denied");
 		service.onToolEnd("bash-1", true);
 		now = 2_100;
-		service.onAgentSettled();
+		service.onAgentSettled(false);
 		expect(client.events).toEqual([
 			{ type: "agent_started" },
 			{ type: "turn_started" },
@@ -286,22 +286,34 @@ describe("o-pet 服务与 Pi 扩展", () => {
 		]);
 	});
 
-	it.each(["error", "aborted"] as const)("保留 assistant %s 作为 settled 结果", (outcome) => {
+	it.each(["error", "aborted"] as const)("失败消息和 SDK 取消状态决定 settled 结果：%s", (outcome) => {
 		let now = 0;
 		const client = new FakeEventClient();
 		const service = new OPetService({ client, now: () => now });
 		service.startSession("session");
 		service.onAgentStart();
 		service.onTurnStart();
-		service.onMessageEnd(outcome);
+		service.onMessageEnd(outcome === "error");
 		now = 120;
-		service.onAgentSettled();
+		service.onAgentSettled(outcome === "aborted");
 		expect(client.events.at(-1)).toEqual({ type: "agent_settled", outcome, durationMs: 120 });
 		service.onAgentStart();
 		service.onTurnStart();
 		now = 300;
-		service.onAgentSettled();
+		service.onAgentSettled(false);
 		expect(client.events.at(-1)).toEqual({ type: "agent_settled", outcome: "success", durationMs: 180 });
+	});
+
+	it("自动重试成功清除旧错误，SDK 取消优先于最后消息状态", () => {
+		const client = new FakeEventClient();
+		const handlers = createOPetEventHandlers(new OPetService({ client, now: () => 0 }));
+		handlers.agentStart({ type: "agent_start" });
+		handlers.messageEnd({ type: "message_end", message: { ...assistantMessage(), stopReason: "error" } });
+		handlers.messageEnd({ type: "message_end", message: assistantMessage() });
+		handlers.agentSettled({ type: "agent_settled", aborted: false });
+		expect(client.events.at(-1)).toMatchObject({ outcome: "success" });
+		handlers.agentSettled({ type: "agent_settled", aborted: true });
+		expect(client.events.at(-1)).toMatchObject({ outcome: "aborted" });
 	});
 
 	it("最终文本消息结束时发布回复完成", () => {
@@ -383,7 +395,7 @@ describe("o-pet 服务与 Pi 扩展", () => {
 		});
 		const failedMessage = { ...assistantMessage(), stopReason: "aborted" as const };
 		handlers.messageEnd({ type: "message_end", message: failedMessage });
-		handlers.agentSettled({ type: "agent_settled" });
+		handlers.agentSettled({ type: "agent_settled", aborted: true });
 		handlers.sessionShutdown({ type: "session_shutdown", reason: "quit" });
 
 		expect(client.sessions).toEqual(["session-from-pi"]);

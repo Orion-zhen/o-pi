@@ -72,7 +72,7 @@ function runRecord(value: Record<string, unknown>): value is Record<string, unkn
 function callRecord(value: Record<string, unknown>): value is Record<string, unknown> & CallRecord {
 	return text(value["call_id"]) && nonNegativeInteger(value["call_index"]) && optionalNonNegativeInteger(value["turn_index"])
 		&& text(value["tool"]) && optionalText(value["definition_hash"])
-		&& timestamp(value["started_at"]) && timestamp(value["ended_at"]) && nonNegativeNumber(value["duration_ms"])
+		&& timestamp(value["started_at"]) && timestamp(value["ended_at"]) && optionalNonNegativeNumber(value["duration_ms"])
 		&& (value["status"] === "success" || value["status"] === "error")
 		&& optionalNonNegativeNumber(value["output_chars"]) && optionalNonNegativeNumber(value["output_lines"])
 		&& (value["truncated"] === undefined || typeof value["truncated"] === "boolean")

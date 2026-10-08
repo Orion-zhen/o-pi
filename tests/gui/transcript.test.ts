@@ -29,6 +29,29 @@ describe("聊天活动投影", () => {
 		expect(finished[0]).toMatchObject({ kind: "tool", tool: { state: "completed", output: { kind: "inline", value: { content: result.content, details: result.details } } } });
 	});
 
+	it("父调用未完成时保留子调用执行耗时，完成后读取 SDK 嵌套记录", () => {
+		const parent = { ...call, id: "code", name: "codemode", arguments: { code: "await tools.read(...)" } };
+		const input = source({ messages: [assistant([parent])], streaming: true });
+		input.liveTools = [{ toolCallId: "code/1", toolName: "read", args: call.arguments, parentToolCallId: "code", status: "ok", output: undefined, durationMs: 8 }];
+		expect(transcriptItems(input)[0]).toMatchObject({ tool: { nestedCalls: { complete: false, calls: [{ durationMs: 8 }] } } });
+		const persisted = { ...result, toolCallId: "code", toolName: "codemode", durationMs: 20,
+			nestedCalls: { complete: true, calls: [{ id: "code/1", name: "read", status: "ok" as const, durationMs: 9 }] } };
+		expect(transcriptItems(source({ messages: [assistant([parent]), persisted] }))[0]).toMatchObject({ tool: {
+			durationMs: 20, nestedCalls: { complete: true, calls: [{ durationMs: 9 }] },
+		} });
+	});
+
+	it("工具卡片使用持久化执行耗时，缺失耗时不补零", () => {
+		const items = transcriptItems(source({ messages: [assistant([call]), { ...result, durationMs: 12 }] }));
+		expect(items[0]).toMatchObject({ tool: { durationMs: 12 } });
+		if (items[0]?.kind !== "tool") throw new Error("缺少工具活动");
+		const doc = parseHTML(renderWithMemory(createElement(ToolActivityView, { tool: items[0].tool }))).document;
+		expect(doc.querySelector(".activity-summary")?.textContent).toContain("12 ms");
+		const missing = transcriptItems(source({ messages: [assistant([call]), result] }));
+		if (missing[0]?.kind !== "tool") throw new Error("缺少工具活动");
+		expect(missing[0].tool).not.toHaveProperty("durationMs");
+	});
+
 	it("并行结果按调用 ID 关联，不改变说明文字和调用的原始顺序", () => {
 		const second = { ...call, id: "read-2", arguments: { path: "other.ts" } };
 		const items = transcriptItems(source({ messages: [

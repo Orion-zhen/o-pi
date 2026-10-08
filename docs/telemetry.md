@@ -17,6 +17,8 @@
 - `run`：session、cwd、时间，以及自动取得的 Git root、commit 和 dirty diff hash。
 - `call`：完成调用的工具、时间、状态、耗时、repair、batch，以及少量专属事实。
 
+`duration_ms` 直接采用 SDK `tool_execution_end.durationMs`，仅包含 `execute()` 耗时，不包含排队、参数校验和审批等待。未执行调用省略该字段，仍计入调用量与成功率，不进入耗时分布。`started_at` / `ended_at` 保留事件时间，二者差值不是执行耗时。Pi 1.1.0 适配前的日志记录的是全链路耗时，比较性能时应分开采样。
+
 Pi 的 `tool_execution_start` 建立内存 pending call，参数准备完成后只投影最终执行输入，首个 `tool_execution_end` 才触发 writer 与 Git provenance 初始化并写入 `run + call`。仅启动后退出或只有未完成调用的 run 不创建文件。进程退出前仍未完成的调用不补写。系统不维护 declared/executing/unfinished 状态机，也不恢复 pending 数据。
 
 首个完成调用触发后台初始化，不阻塞 Pi 启动或工具完成事件。打开 writer 后采集 Git provenance，期间完成的调用在内存中按序暂存，待 `run` header 写入后刷新。初始化失败会关闭已打开的 writer。writer、Git 和报告模块都延迟到实际需要时加载。

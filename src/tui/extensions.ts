@@ -13,6 +13,7 @@ import type { StatsSnapshot } from "../harness/stats/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
 import type { UsageSnapshot } from "../harness/usage/types.ts";
 import tui from "./shell/extension.ts";
+import type { ToolStartupOptions } from "../harness/tool-defaults/initial.ts";
 
 function tuiPresenter<T>(show: T): Presenter<T> { return { mode: "tui", show }; }
 
@@ -67,10 +68,10 @@ export const presentation = {
 	}),
 };
 
-export function createTuiExtensions(): InlineExtension[] {
+export function createTuiExtensions(startup: ToolStartupOptions = {}): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "approval-gate", factory: (pi) => approvalGate(pi, presentation.approvalGate) },
-		{ name: "cmd-slash-tools", factory: createToolsExtension(presentation.tools) },
+		{ name: "cmd-slash-tools", factory: createToolsExtension(presentation.tools, undefined, undefined, startup) },
 		{ name: "prune", factory: createPruneExtension(presentation.prune) },
 		{ name: "stats", factory: (pi) => stats(pi, presentation.stats) },
 		{ name: "subagent", factory: createSubagentExtension(presentation.subagent) },

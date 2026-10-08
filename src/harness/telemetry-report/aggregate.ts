@@ -56,7 +56,7 @@ function summarizeTool(tool: string, calls: readonly CallRecord[]): ToolStatisti
 		calls: calls.length,
 		success_rate: rateSummary(calls.filter((call) => call.status === "success").length, calls.length),
 		error_rate: rateSummary(calls.filter((call) => call.status === "error").length, calls.length),
-		duration_ms: numericSummary(calls.map((call) => call.duration_ms)),
+		duration_ms: numericSummary(calls.flatMap((call) => call.duration_ms ?? [])),
 		output_chars: numericSummary(calls.flatMap((call) => call.output_chars ?? [])),
 		truncation_rate: rateSummary(calls.filter((call) => call.truncated === true).length, calls.length),
 		error_codes: frequency(calls.filter((call) => call.status === "error").flatMap((call) => call.error?.code ?? [])),

@@ -17,7 +17,7 @@ import { isSkillLoadDetails } from "../../skill-facts.ts";
 export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activity }) {
 	return tool.name === "codemode" ? <CodemodeActivity tool={tool} /> : <StandardToolActivity tool={tool} />;
 }, (before, after) => before.tool.id === after.tool.id && before.tool.name === after.tool.name && before.tool.state === after.tool.state
-	&& before.tool.args === after.tool.args && before.tool.output === after.tool.output && before.tool.nestedCalls === after.tool.nestedCalls);
+	&& before.tool.args === after.tool.args && before.tool.output === after.tool.output && before.tool.nestedCalls === after.tool.nestedCalls && before.tool.durationMs === after.tool.durationMs);
 
 function StandardToolActivity({ tool }: { tool: Activity }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);

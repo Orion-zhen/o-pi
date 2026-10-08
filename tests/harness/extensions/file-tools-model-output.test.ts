@@ -102,6 +102,7 @@ describe("file-tools extension model output", () => {
 			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [] } };
 			const read = await executeTool(registered, "read", { path: "a.ts" }, ctx);
 			const readText = textResult(read);
+			expect(read.structuredContent).toBe(readText);
 			expect(readText).not.toContain('"encoding"');
 			expect(read.details).toMatchObject({ path: "a.ts", segments: [{ content: "one\ntwo\n" }], encoding: "utf-8", bom: false });
 
@@ -112,6 +113,7 @@ describe("file-tools extension model output", () => {
 				{ type: "text", text: expect.any(String) },
 				{ type: "image", data: imageBytes.toString("base64"), mimeType: "image/gif" },
 			]);
+			expect(imageRead.structuredContent).toEqual({ type: "image", data: imageBytes.toString("base64"), mimeType: "image/gif", note: textResult(imageRead) });
 			expect(imageRead.details).toMatchObject({ path: "pixel.gif", media_type: "image", image: { mime_type: "image/gif" } });
 
 			const edit = await executeTool(registered, "edit", { path: "a.ts", edits: [{ old: "two", new: "TWO" }] }, ctx);
@@ -136,6 +138,7 @@ describe("file-tools extension model output", () => {
 		};
 
 		const result = await executeTool(registered, "read", { path: "document.pdf" }, ctx);
+		expect(result.structuredContent).toEqual({ type: "pdf", content: result.content });
 		expect(result.content).toHaveLength(5);
 		expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringMatching(/^<pdf /u) });
 		for (const field of [

@@ -24,13 +24,14 @@ beforeEach(() => {
 });
 afterEach(async () => { await shutdown(); vi.restoreAllMocks(); });
 
-function finish(id: string, parentToolCallId?: string, isError = false) {
+function finish(id: string, parentToolCallId?: string, isError = false, durationMs?: number) {
 	const parent = parentToolCallId === undefined ? {} : { parentToolCallId };
 	service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: id, toolName: "external", args: {}, ...parent });
 	service.onToolResult({ type: "tool_result", toolCallId: id, toolName: "external", input: {}, details: {}, content: [], isError });
 	service.onToolExecutionEnd({
 		type: "tool_execution_end", toolCallId: id, toolName: "external", ...parent, isError,
 		result: { content: [{ type: "text", text: "secret output" }], details: {} },
+		...(durationMs === undefined ? {} : { durationMs }),
 	});
 }
 async function records(): Promise<TelemetryRecord[]> {
@@ -50,6 +51,16 @@ describe("遥测收集与真实写盘", () => {
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "pending", toolName: "external", args: {} });
 		await shutdown();
 		await expect(readdir(path.join(temp.path, ".pi/telemetry/runs"))).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("耗时只使用 SDK 执行耗时，未执行调用不补零", async () => {
+		finish("executed", undefined, false, 12.5);
+		finish("zero", "executed", false, 0);
+		finish("blocked", undefined, true);
+		const saved = await records();
+		expect(saved[1]).toMatchObject({ duration_ms: 12.5 });
+		expect(saved[2]).toMatchObject({ duration_ms: 0, parent_call_id: "executed" });
+		expect(saved[3]).not.toHaveProperty("duration_ms");
 	});
 
 	it("Git 采集未完成时缓存调用，写盘时先写运行头并保留完成顺序", async () => {

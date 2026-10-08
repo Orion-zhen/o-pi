@@ -9,6 +9,7 @@ if (process.argv[2] === "--opi-discord-daemon") {
 	process.emitWarning = () => {};
 	const { main, parseArgs } = await import("@earendil-works/pi-coding-agent");
 	const args = process.argv.slice(2);
-	const extensionFactories = parseArgs(args).noExtensions ? [] : (await import("../extensions.ts")).extensions;
+	const parsed = parseArgs(args);
+	const extensionFactories = parsed.noExtensions ? [] : (await import("../extensions.ts")).createHarnessExtensions(parsed);
 	await main(args, { extensionFactories });
 }

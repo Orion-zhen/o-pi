@@ -12,7 +12,7 @@
 }
 ```
 
-单次 CLI 调用使用 `--tools read,find,grep,bash,codemode`。`--tools` 优先于 `defaultTools`，替换整个集合。当前分支的手动选择优先。`extensions: ["-builtin:codemode"]` 可禁用内置扩展。
+单次 CLI 调用使用 `--tools +codemode` 在默认集合中加入脚本入口，或使用 `--tools read,find,grep,bash,codemode` 替换整个集合。CLI 选择优先于 `defaultTools`。当前分支的手动选择优先。`extensions: ["-builtin:codemode"]` 可禁用内置扩展。
 
 opi 中启用 codemode 即使用 `only` 模式，忽略设置中的 `codemode.mode`，不提供原生 `on` 模式。所有非 `model-only` 工具不再单独向模型声明，包括已激活的脚本专用和延迟工具。其调用契约由 codemode 提供。`model-only` 工具仍直接向模型声明，但 `tool_search` 从启用集合移除，发现工具统一使用脚本内的 `searchTools()`。模型绕过脚本直接调用普通工具时会被阻止，脚本内嵌套调用不受此限制。关闭 codemode 后恢复普通工具声明，不改变其他工具的选择状态。
 
@@ -53,10 +53,11 @@ MCP 默认 `codemode` exposure 的工具在 SDK 内注册为延迟工具，普�
 | `find` | `matches[{path,kind}]`、`total_matches`、`truncated`，以及部分失败时的 `scope_errors` |
 | `grep` | `regions[{path,start_line,end_line,symbol?,lines}]`、`truncated`，以及部分失败时的 `scope_errors` |
 | `websearch` | `results[{title,url,snippet?}]` |
+| `read` | 文本为字符串，图片为 `{type:"image",data,mimeType,note}`，PDF 为 `{type:"pdf",content}`，保留页标记和图片块 |
 
 Bash 脚本输出不折叠重复行、不移除终端控制符，最多 1 MiB，超限保留头尾并标记截断。空输出为 `""`。非零退出、超时和取消通过结果字段说明，脚本应检查 `status` 和 `exit_code`。审批拒绝等没有结构化结果的失败，以及搜索工具失败，会拒绝调用 Promise。错误状态由工具直接返回 `isError`，不再由事后判错钩子补写。
 
-文件搜索仍受原有扫描、选择和访问边界限制。结构化结果不暴露内部排序诊断或网页来源合并信息。其他工具沿用上游的文本返回方式，不保证 `read` 的图片可通过脚本自动转交给模型。
+文件搜索仍受原有扫描、选择和访问边界限制。结构化结果不暴露内部排序诊断或网页来源合并信息。其他工具沿用上游的文本返回方式。`read` 图片结果可直接交给 `image(photo)` 或支持图片的 `models.classify(model, {state, images:[photo], questions})`。PDF 分类需从 `content` 筛选图片块。不要用 `text()`、`console` 或顶层 `return` 输出图片 Base64。读取失败拒绝 Promise，访问边界、取消及图片处理仍走原读取链路。
 
 `skill` 和 `subagent` 为 `model-only`。技能正文必须由模型直接接收，不能用脚本执行了加载来代表已经披露。
 
@@ -66,7 +67,7 @@ GUI 输入栏在普通模式统计模型工具声明。codemode 模式使用代�
 
 调用卡片按真实父子关系展示。codemode 执行中展开子调用，完成后自动收起，手动展开状态优先。脚本与输出给模型的内容分别折叠。父脚本和子调用各自显示状态，捕获子调用错误不会把已成功的父脚本标为失败。切换模式不重排历史调用。
 
-GUI 保留正在执行的父工具下已完成的子调用，父工具完成或恢复会话后读取 SDK 的 `nestedCalls`。该记录有上游大小限制，不包含结果正文，不完整时界面明确标注。
+GUI 保留正在执行的父工具下已完成的子调用，父工具完成或恢复会话后读取 SDK 的 `nestedCalls`。父脚本和已完成子调用的摘要显示 SDK 耗时，恢复会话后仍可查看。普通工具结果采用 `execute()` 耗时。子调用执行中采用结束事件的 `durationMs`，父调用完成后采用 SDK 持久化的 `nestedCalls`。Pi 1.1.0 的后者还包含子调用排队与审批等待，因此不应与遥测执行耗时混作同一指标。该记录有上游大小限制，不包含结果正文，不完整时界面明确标注。
 
 GUI 另将成功的 `write` 和 `edit` 子调用的实际 diff 保存为会话中的界面专用 custom 条目，不进入模型上下文。子调用展开后复用普通工具的 diff 组件，支持执行中查看、刷新和重新打开会话，大 diff 按需读取。旧会话没有保存 diff 时明确提示，不从参数或当前文件重建历史变更。脚本输出仍单独展示。
 
@@ -82,7 +83,7 @@ Bun 产物内嵌 QuickJS WASM，并按上游约定嵌入 codemode worker。Deskt
 
 `tests/cli/cli.test.ts` 使用本地模拟模型，通过真实独立二进制比较同一组“搜索 51 个候选后读取目标文件”任务。固定脚本不能代表真实模型编写脚本的成功率。
 
-Pi 1.0.0 下，固定 `read/find/bash/codemode` 工具集合，使用原生提示词并开放 `models` 后，实际请求中的 codemode 定义估算为 765 tokens。
+Pi 1.1.0 下，固定 `read/find/bash/codemode` 工具集合，使用原生提示词、开放 `models` 并声明 `read` 结构化图片/PDF 返回后，实际请求中的 codemode 定义估算为 906 tokens。此处统计包含工具返回类型，不是只统计上游提示词。
 
 搜索读取场景样本：
 
@@ -90,7 +91,7 @@ Pi 1.0.0 下，固定 `read/find/bash/codemode` 工具集合，使用原生提�
 | --- | ---: | ---: |
 | 模型请求数 | 3 | 2 |
 | 最终请求中的工具结果估算 token | 362 | 60 |
-| 全部请求 JSON 累计估算 token | 2549 | 1913 |
+| 全部请求 JSON 累计估算 token | 2552 | 2169 |
 
 估算使用仓库本地计数器，不是提供方实际计费，不计算缓存折扣。请求中的临时路径等会导致小幅波动，固定场景不能证明所有任务都更省 tokens。本轮未做真实模型对比。codemode 仍按需开启，开启后固定使用 `only`，不降低默认目录或输出预算。`/stats` 的工具定义拆分仍是注册定义估算，不能用它验证 `prepareLoadout` 后的实际声明成本，应比较真实请求。
 

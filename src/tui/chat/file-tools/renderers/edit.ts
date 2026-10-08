@@ -31,6 +31,7 @@ interface EditCallContext {
 	state: { callComponent?: EditCallComponent };
 	argsComplete: boolean;
 	cwd: string;
+	outputPad: number;
 	expanded: boolean;
 	isPartial: boolean;
 	invalidate(): void;
@@ -40,11 +41,12 @@ interface EditResultContext {
 	lastComponent?: unknown;
 	state: { callComponent?: EditCallComponent };
 	args: unknown;
+	outputPad: number;
 }
 
 export function renderEditCall(args: unknown, theme: Theme, context: EditCallContext): Text | EditCallComponent {
 	if (context.isPartial === false) return new Text("", 0, 0);
-	const component = getEditCallComponent(context.state, context.lastComponent);
+	const component = getEditCallComponent(context.state, context.lastComponent, context.outputPad);
 	const argsKey = context.argsComplete ? JSON.stringify(args) : undefined;
 	if (component.previewArgsKey !== argsKey) {
 		component.preview = undefined;
@@ -78,7 +80,7 @@ export function renderEditResult(
 	context: EditResultContext,
 ): Text | Box {
 	const details = result.details;
-	const callComponent = getEditCallComponent(context.state, undefined);
+	const callComponent = getEditCallComponent(context.state, undefined, context.outputPad);
 	if (options.isPartial) {
 		if (isMutationProgress(details)) {
 			if (details.status === "editing") callComponent.postProcess = undefined;
@@ -94,7 +96,8 @@ export function renderEditResult(
 	}
 	buildEditCallComponent(callComponent, context.args, theme, options.expanded);
 
-	const component = context.lastComponent instanceof Box ? context.lastComponent : new Box(1, 1);
+	const component = context.lastComponent instanceof Box ? context.lastComponent : new Box(context.outputPad, 1);
+	component.setPaddingX(context.outputPad);
 	component.clear();
 	component.setBgFn(editResultBg(details, theme));
 	const output = formatEditResult(details, theme, context.args, options.expanded);
@@ -103,13 +106,9 @@ export function renderEditResult(
 	return component;
 }
 
-function getEditCallComponent(state: { callComponent?: EditCallComponent }, lastComponent: unknown): EditCallComponent {
-	if (lastComponent instanceof EditCallComponent) {
-		state.callComponent = lastComponent;
-		return lastComponent;
-	}
-	if (state.callComponent !== undefined) return state.callComponent;
-	const component = new EditCallComponent();
+function getEditCallComponent(state: { callComponent?: EditCallComponent }, lastComponent: unknown, outputPad: number): EditCallComponent {
+	const component = lastComponent instanceof EditCallComponent ? lastComponent : state.callComponent ?? new EditCallComponent();
+	component.setPaddingX(outputPad);
 	state.callComponent = component;
 	return component;
 }

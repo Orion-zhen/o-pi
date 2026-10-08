@@ -50,6 +50,18 @@ describe("遥测报告业务流程", () => {
 		expect(html).not.toContain("<script>alert(1)</script>");
 	});
 
+	it("缺失执行耗时仍读取调用，只将已执行样本纳入耗时分布", async () => {
+		const { duration_ms: _duration, ...blocked } = call(0, "bash", { status: "error" });
+		const input = path.join(temp.path, "input");
+		await mkdir(input);
+		await writeFile(path.join(input, "run.jsonl"), [run, blocked, call(1, "bash", { duration_ms: 20 })]
+			.map((record) => JSON.stringify(record)).join("\n"));
+		const result = await generateTelemetryReport({ inputDirectory: input, outputDirectory: path.join(temp.path, "output") });
+		expect(result.report.metadata.invalid_lines).toBe(0);
+		expect(result.report.tools[0]).toMatchObject({ calls: 2, success_rate: { value: 0.5 }, duration_ms: { samples: 1, mean: 20, p50: 20 } });
+		expect(report([blocked]).tools[0]?.duration_ms).toMatchObject({ samples: 0 });
+	});
+
 	it("默认目录尚未创建时生成空报告，显式错误路径仍报错", async () => {
 		setTestHome(temp.path);
 		const outputDirectory = path.join(temp.path, "output");

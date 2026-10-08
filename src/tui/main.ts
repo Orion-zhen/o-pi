@@ -15,6 +15,6 @@ if (!(await runChildProcess())) {
 		console.error("opi does not manage Pi packages. Update opi from its source repository.");
 		process.exit(1);
 	}
-	const extensionFactories = parsed.noExtensions ? [] : (await import("./extensions.ts")).createTuiExtensions();
+	const extensionFactories = parsed.noExtensions ? [] : (await import("./extensions.ts")).createTuiExtensions(parsed);
 	await main(args, { extensionFactories });
 }

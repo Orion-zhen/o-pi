@@ -168,6 +168,7 @@ export class GuiExecution {
 				const started = this.liveTools.get(event.toolCallId);
 				if (event.parentToolCallId && started) this.liveTools.set(event.toolCallId, {
 					...started, status: event.isError ? "error" : "ok",
+					...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
 					output: mutation ? this.payloads.complete(event.toolCallId, event.toolName, { content: [], details: { diff: mutation.diff } })
 						: event.isError ? this.payloads.complete(event.toolCallId, event.toolName, structuredClone(event.result)) : undefined,
 				});
@@ -406,9 +407,10 @@ export class GuiExecution {
 			this.current.session.abortBash();
 			await this.current.session.abort();
 		}
-		await Promise.allSettled([...this.tasks]);
+		// SDK shutdown 先取消 MCP 授权请求，再等待可能被该请求阻塞的命令。
+		await Promise.all([this.current?.dispose(), Promise.allSettled([...this.tasks])]);
 		this.unsubscribe?.();
-		if (this.current) { await this.current.services.settingsManager.flush(); await this.current.dispose(); }
+		if (this.current) await this.current.services.settingsManager.flush();
 		await this.history.flush();
 		await infoClosed;
 	}

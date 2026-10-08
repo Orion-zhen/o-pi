@@ -23,6 +23,7 @@ import { readTelemetry } from "../file-tools/telemetry/read.ts";
 import { writeTelemetry } from "../file-tools/telemetry/write.ts";
 import { type ToolOutcome } from "../file-tools/shared/result.ts";
 import { findOutputSchema, grepOutputSchema } from "../file-tools/pi/search-output.ts";
+import { readOutputSchema } from "../file-tools/pi/read-output.ts";
 import { MutationBatchCoordinator } from "../file-tools/pi/mutation-batch.ts";
 import { type MutationProgressDetails } from "../file-tools/pi/progress.ts";
 import { registerTool } from "../register-tool.ts";
@@ -228,6 +229,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			description: "Read one text, image or PDF file.",
 			promptSnippet: "read one file",
 			parameters: readParameters,
+			outputSchema: readOutputSchema,
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/read.ts"), runtimeForInvocation(ctx, signal)]);
 				return module.executeRead(params as ReadParams, { ...runtime, model: ctx.model, lsp });

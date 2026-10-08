@@ -27,10 +27,10 @@ export class ToolSelectionController {
 		});
 	}
 
-	restore(branch: readonly SessionEntry[], subagentAvailable: boolean): string[] {
+	restore(branch: readonly SessionEntry[], subagentAvailable: boolean, initialTools?: readonly string[]): string[] {
 		this.subagentAvailable = subagentAvailable;
 		const available = this.selectableNames();
-		this.baseline ??= this.pi.getActiveTools().filter((name) => available.has(name));
+		this.baseline ??= [...initialTools ?? this.pi.getActiveTools()].filter((name) => available.has(name));
 		const saved = findSavedTools(branch);
 		const names = saved ?? this.baseline;
 		this.apply(names);

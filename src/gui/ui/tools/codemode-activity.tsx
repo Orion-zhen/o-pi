@@ -27,6 +27,7 @@ export function CodemodeActivity({ tool }: { tool: ToolActivity }) {
 			<CollapsibleTrigger className="activity-summary">
 				<CodeXml className="activity-icon" aria-hidden="true" /><span className="activity-label">codemode</span>
 				<span className="activity-facts">{tool.nestedCalls ? `${calls.length} 次调用` : "执行脚本"}{failures > 0 && <span className="nested-failures"> · {failures} 次失败</span>}</span>
+				{tool.durationMs !== undefined && <span className="activity-facts">{tool.durationMs} ms</span>}
 				<ActivityState state={tool.state} label={tool.state === "completed" ? "脚本完成" : undefined} />
 				<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 			</CollapsibleTrigger>
@@ -53,7 +54,7 @@ function NestedCallRow({ call, active, stopped }: { call: NestedCall; active: bo
 	const [expanded, setExpanded] = useDisclosureMemory(`nested:${call.id}`, null);
 	const state: ToolState = call.status === "ok" ? "completed" : call.status === "error" ? "failed"
 		: active ? "running" : stopped ? "stopped" : "unavailable";
-	const tool: ToolActivity = { id: call.id, name: call.name, args: call.arguments, state, output: call.output };
+	const tool: ToolActivity = { id: call.id, name: call.name, args: call.arguments, state, output: call.output, ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }) };
 	const open = expanded ?? state === "failed";
 	return <Collapsible className="tool-activity nested-tool-call" data-nested-tool-call-id={call.id} data-state={state}
 		open={open} onOpenChange={setExpanded}>
@@ -67,7 +68,6 @@ function NestedCallRow({ call, active, stopped }: { call: NestedCall; active: bo
 				{state === "completed" && (call.name === "write" || call.name === "edit")
 					&& <p className="tool-note">历史记录未保存变更结果。</p>}
 			</div>}
-			{call.durationMs !== undefined && <p className="tool-note nested-call-duration">耗时 {call.durationMs} ms</p>}
 		</div></CollapsibleContent>
 	</Collapsible>;
 }

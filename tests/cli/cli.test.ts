@@ -41,7 +41,7 @@ beforeEach(async () => {
 	await writeFile(path.join(cwd, "sample.ts"), "export const value = 1;\n");
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
 		defaultProvider: "opi-fixture", defaultModel: "test", defaultThinkingLevel: "off",
-		defaultTools: [], quietStartup: true, tuiMode: "fullscreen",
+		quietStartup: true, tuiMode: "fullscreen",
 		compaction: { enabled: false }, retry: { enabled: false },
 	}));
 	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "opi-fixture": {
@@ -107,6 +107,57 @@ describe("standalone opi CLI", () => {
 		expect(await capture(run(args))).toEqual(await capture(original));
 	});
 
+	it("显式空 defaultTools 不被静态工具注册扩大", async () => {
+		const file = path.join(agentDir, "settings.json");
+		const settings = JSON.parse(await readFile(file, "utf8"));
+		await writeFile(file, JSON.stringify({ ...settings, defaultTools: [] }));
+		await runJson();
+		expect(server.requests[0]?.tools ?? []).toEqual([]);
+	});
+
+	it.each([
+		{ defaults: undefined, flags: [], expected: ["bash", "edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
+		{ defaults: undefined, flags: ["--tools", "-bash"], expected: ["edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
+		{ defaults: undefined, flags: ["--tools", "read"], expected: ["read"] },
+		{ defaults: ["-bash"], flags: [], expected: ["edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
+		{ defaults: ["read", "bash", "-bash", "+find"], flags: [], expected: ["find", "read"] },
+		{ defaults: ["+codemode"], flags: ["--tools", "-codemode"], expected: ["bash", "edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
+		{ defaults: undefined, flags: ["--no-tools"], expected: [] },
+	])("opi 默认集合和原生 CLI 增减：$defaults / $flags", async ({ defaults, flags, expected }) => {
+		const file = path.join(agentDir, "settings.json");
+		const { defaultTools: _previous, ...settings } = JSON.parse(await readFile(file, "utf8"));
+		const configured = { ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) };
+		await writeFile(file, JSON.stringify(configured));
+		await runJson(flags);
+		expect(server.requests[0]?.tools?.map((tool) => tool.function.name).filter((name) => name !== "powershell").sort() ?? []).toEqual(expected);
+		expect(JSON.parse(await readFile(file, "utf8")).defaultTools).toEqual(defaults);
+	});
+
+	it.each([
+		{ selection: "+read,-bash", expected: ["find", "read"] },
+		{ selection: "read", expected: ["read"] },
+	])("--tools $selection 沿用 SDK 增减或替换默认集合", async ({ selection, expected }) => {
+		const settings = JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8"));
+		await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ ...settings, defaultTools: ["find", "bash"] }));
+		await runJson(["--tools", selection]);
+		expect(server.requests[0]?.tools?.map((tool) => tool.function.name).sort()).toEqual(expected);
+	});
+
+	it.each([
+		{ projectTools: ["-bash", "+find"], expected: ["find", "read"] },
+		{ projectTools: ["write"], expected: ["write"] },
+		{ projectTools: [], expected: ["bash", "read"] },
+	])("项目 defaultTools 沿用 SDK 合并语义：$projectTools", async ({ projectTools, expected }) => {
+		const settings = JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8"));
+		await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ ...settings, defaultTools: ["read", "bash"] }));
+		await mkdir(path.join(cwd, ".pi"), { recursive: true });
+		const project = JSON.stringify({ defaultTools: projectTools }, null, 2);
+		await writeFile(path.join(cwd, ".pi", "settings.json"), project);
+		await runJson();
+		expect(server.requests[0]?.tools?.map((tool) => tool.function.name).sort() ?? []).toEqual(expected);
+		expect(await readFile(path.join(cwd, ".pi", "settings.json"), "utf8")).toBe(project);
+	});
+
 	it.each([undefined, "on", "only"])("codemode 启用后只声明脚本入口和 model-only 工具，忽略 mode=%s", async (mode) => {
 		const settingsPath = path.join(agentDir, "settings.json");
 		const settings = JSON.parse(await readFile(settingsPath, "utf8"));
@@ -168,6 +219,35 @@ describe("standalone opi CLI", () => {
 		expect(results[0]?.content).toEqual(expect.arrayContaining([
 			expect.objectContaining({ type: "text", text: '{"models":["test"],"selected":"test","images":true,"classifiers":true}' }),
 		]));
+	});
+
+	it("codemode 将 read 图片直接交给分类 API，费用只记入父结果", async () => {
+		const canvas = createCanvas(2, 2);
+		canvas.getContext("2d").fillRect(0, 0, 2, 2);
+		const image = canvas.toBuffer("image/png");
+		await writeFile(path.join(cwd, "photo.png"), image);
+		const extension = path.join(agentDir, "classifier.ts");
+		await writeFile(extension, `export default (pi) => pi.registerProvider("fixture-classifier", {
+			baseUrl: "http://127.0.0.1", apiKey: "fixture",
+			models: [{type:"classifier", id:"vision", name:"Vision fixture", api:"fixture-classify", input:["text","image"], contextWindow:128000, cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}],
+			classifiers: {"fixture-classify": {classify: async (model, context) => {
+				if (context.images?.[0]?.data !== ${JSON.stringify(image.toString("base64"))}) throw new Error("Image payload lost");
+				if (context.images[0].mimeType !== "image/png" || context.state.task !== "test") throw new Error("Image context lost");
+				return {api:model.api,provider:model.provider,model:model.id,answers:{valid:{type:"bool",probability:1}},stopReason:"stop",timestamp:Date.now(),
+					usage:{input:1,output:1,cacheRead:0,cacheWrite:0,totalTokens:2,cost:{input:0.01,output:0.02,cacheRead:0,cacheWrite:0,total:0.03}}};
+			}}}
+		});`);
+		sequence([{ tool: "codemode", args: { code: `
+			const photo = await tools.read({path:"photo.png"});
+			const model = await models.getModelOfType("classifier", "fixture-classifier", "vision");
+			const result = await models.classify(model, {state:{task:"test"}, images:[photo], questions:{valid:{type:"bool", instructions:"Inspect image", criteria:{true:"Valid",false:"Invalid"}}}});
+			if (result.stopReason !== "stop") throw new Error(result.errorMessage);
+			text(result.answers); image(photo);
+		` } }]);
+		const results = toolResults(await runJson(["-e", extension, "--tools", "read,codemode"]));
+		expect(results[0]).toMatchObject({ isError: false, usage: { cost: { total: 0.03 } } });
+		expect(results[0]?.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "text", text: expect.stringContaining('"probability":1') })]));
+		expect(JSON.stringify(server.requests.at(-1)?.messages)).toContain(`data:image/png;base64,${image.toString("base64")}`);
 	});
 
 	it("codemode 跨调用存储只提交成功脚本的写入", async () => {

@@ -39,6 +39,25 @@ describe("file-tools extension renderers", () => {
 		expect(partial).not.toContain("error");
 	});
 
+	rendererTest("edit 自绘卡片在创建和复用时应用 outputPad", ({ registered }) => {
+		const edit = registered.find((tool) => tool.name === "edit");
+		const args = { path: "app.ts", edits: [] };
+		const state = {};
+		const call = edit?.renderCall?.(args, theme, renderContext({ state, isPartial: true, argsComplete: false, outputPad: 0 }));
+		expect(stripTerminalSequences(call?.render(80)[1] ?? "")).toMatch(/^\S+ edit/);
+		const padded = edit?.renderCall?.(args, theme, renderContext({ state, lastComponent: call, isPartial: true, argsComplete: false, outputPad: 3 }));
+		expect(padded).toBe(call);
+		expect(stripTerminalSequences(padded?.render(80)[1] ?? "")).toMatch(/^ {3}\S+ edit/);
+		const result = { content: [], details: { status: "failed", error: { code: "INVALID_OPERATION", message: "bad" } } };
+		const context = renderContext({ state, args, outputPad: 0 });
+		const output = edit?.renderResult?.(result, context, theme, context);
+		expect(stripTerminalSequences(output?.render(80)[1] ?? "")).toMatch(/^\S+ edit/);
+		const next = renderContext({ state, args, outputPad: 2, lastComponent: output });
+		const reused = edit?.renderResult?.(result, next, theme, next);
+		expect(reused).toBe(output);
+		expect(stripTerminalSequences(reused?.render(80)[1] ?? "")).toMatch(/^ {2}\S+ edit/);
+	});
+
 	rendererTest("find 展开结果保留匹配和部分 scope 错误", async ({ registered }) => {
 		const output = renderToolResult(registered, "find", {
 			status: "success",
@@ -227,7 +246,7 @@ function renderContext(options: Partial<RenderContext> = {}): RenderContext {
 	return {
 		toolCallId: "render-test", args: {}, cwd: editCardTemp.path, state: {}, lastComponent: undefined,
 		invalidate() {}, argsComplete: true, executionStarted: true, expanded: false, isPartial: false,
-		showImages: false, isError: false, ...options,
+		showImages: false, isError: false, durationMs: undefined, outputPad: 1, ...options,
 	};
 }
 

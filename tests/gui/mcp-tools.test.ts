@@ -1,4 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { deferred } from "../helpers/async.ts";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { GuiHost } from "../../src/gui/host/host.ts";
@@ -162,6 +164,37 @@ it.each(["codemode", "deferred"])("普通模式搜索 %s MCP 工具并直接调�
 	expect(await readFile(mcpFile, "utf8")).toBe(original);
 });
 
+it("父脚本仍在运行时保存子调用 SDK 耗时，完成并重载后仍可查看", async () => {
+	await start("direct");
+	const ended = deferred<void>();
+	const continueParent = deferred<ModelResponse>();
+	const waitModel = await startModelServer(() => continueParent.promise);
+	try {
+		// 第二个嵌套调用等待独立的本地 HTTP 响应，不阻塞普通聊天。
+		const extensionDir = path.join(agentDir, "extensions");
+		await mkdir(extensionDir);
+		await writeFile(path.join(extensionDir, "hold.ts"), `export default (pi) => pi.registerTool({
+			name:"hold", description:"Wait for local fixture", exposure:"codemode", parameters:{type:"object",properties:{}},
+			execute:async (_id, _params, signal) => { const r=await fetch(${JSON.stringify(waitModel.url + "/chat/completions")}, {signal,method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"test",messages:[{role:"user",content:"hold"}],stream:true})}); await r.text(); return {content:[]}; }
+		});`);
+		await host.dispatch({ action: "reload" });
+		await expect.poll(tool).toMatchObject({ available: true });
+		const stop = host.runtime.session.subscribe((event) => {
+			if (event.type === "tool_execution_end" && event.parentToolCallId && event.toolName === probe) ended.resolve();
+		});
+		response = { tool: "codemode", args: { code: `await tools.${probe}({}); await tools.hold({}); text("done");` } };
+		const task = host.dispatch(prompt("查看子调用耗时"));
+		try {
+			await ended.promise;
+			await expect.poll(() => readSnapshot(host).liveTools.find((tool) => tool.toolName === probe)).toMatchObject({ status: "ok", durationMs: expect.any(Number) });
+		} finally { continueParent.resolve({ text: "done" }); stop(); await task; }
+		const complete = readSnapshot(host).messages.find((message) => message.role === "toolResult" && message.toolName === "codemode");
+		expect(complete).toMatchObject({ durationMs: expect.any(Number), nestedCalls: { calls: expect.arrayContaining([expect.objectContaining({ name: probe, durationMs: expect.any(Number) })]) } });
+		await host.dispatch({ action: "reload" });
+		expect(readSnapshot(host).messages.find((message) => message.role === "toolResult" && message.toolName === "codemode")).toEqual(complete);
+	} finally { await waitModel.close(); }
+});
+
 it("脚本模式阻止模型绕过脚本直接调用 MCP，嵌套调用仍可执行", async () => {
 	await start("direct");
 	response = { tool: probe, args: {} };
@@ -186,6 +219,42 @@ it("普通模式的搜索入口在全部加载、隐藏和恢复后自动更新"
 	await expect.poll(() => host.runtime.session.getActiveToolNames().includes("tool_search")).toBe(true);
 	expect(host.runtime.session.getActiveToolNames()).not.toContain("codemode");
 });
+
+it("MCP 授权准备阶段的独立取消受 SDK 限制，关闭会话立即取消请求", async () => {
+	const reached = deferred<void>();
+	let url = "";
+	let closed = false;
+	const oauth = createServer((request, response) => {
+		if (request.url === "/metadata") {
+			reached.resolve();
+			response.on("close", () => { closed = true; });
+			return;
+		}
+		response.writeHead(401, { "WWW-Authenticate": `Bearer resource_metadata="${url}/resource"` });
+		response.end();
+	});
+	try {
+		await new Promise<void>((resolve) => oauth.listen(0, "127.0.0.1", resolve));
+		const address = oauth.address();
+		if (!address || typeof address === "string") throw new Error("缺少 OAuth 测试地址");
+		url = `http://127.0.0.1:${address.port}`;
+		await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "never", defaultTools: [], defaultProvider: "fixture", defaultModel: "test" }));
+		await writeFile(mcpFile, JSON.stringify({ mcpServers: { fixture: { url: `${url}/mcp`, oauth: { authServerMetadataUrl: `${url}/metadata` } } } }));
+		await host.host.start(temp.path);
+		const login = host.dispatch(prompt("/mcp login fixture"));
+		await reached.promise;
+		await host.dispatch({ action: "cancelLogin" });
+		expect(closed).toBe(false);
+		expect(readSnapshot(host).commandRunning).toBe(true);
+		const closing = host.host.dispose();
+		await expect.poll(() => closed, { timeout: 1000 }).toBe(true);
+		await closing;
+		await login;
+	} finally {
+		oauth.closeAllConnections();
+		await new Promise<void>((resolve, reject) => oauth.close((error) => error ? reject(error) : resolve()));
+	}
+}, 10_000);
 
 it("配置编辑保留冲突检查，非法 JSON 可读取修复，不建立连接", async () => {
 	const initial = await host.query({ query: "mcpConfig" });

@@ -103,6 +103,40 @@ newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 
 describe("GUI 直接使用 SDK", () => {
+	it.each([
+		{ defaults: undefined, expected: ["bash", "edit", "find", "grep", "ls", "read", "skill", "webfetch", "websearch", "write"] },
+		{ defaults: [], expected: [] },
+		{ defaults: ["read"], expected: ["read"] },
+		{ defaults: ["-bash"], expected: ["edit", "find", "grep", "ls", "read", "skill", "webfetch", "websearch", "write"] },
+		{ defaults: ["read", "bash", "-bash", "+find"], expected: ["find", "read"] },
+	])("GUI 初始集合尊重 opi 默认和显式配置：$defaults", async ({ defaults, expected }) => {
+		const file = path.join(temp.path, ".pi", "agent", "settings.json");
+		const settings = JSON.parse(await readFile(file, "utf8"));
+		await writeFile(file, JSON.stringify({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) }));
+		await host.dispatch({ action: "new" });
+		expect(host.runtime.session.getActiveToolNames().filter((name) => name !== "powershell").sort()).toEqual(expected);
+		expect(host.runtime.session.getActiveToolNames()).not.toContain("codemode");
+		expect(host.runtime.session.getActiveToolNames()).not.toContain("subagent");
+		expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) });
+	});
+	it.each([
+		{ defaults: undefined, enabled: true },
+		{ defaults: ["-bash"], enabled: true },
+		{ defaults: ["read"], enabled: false },
+		{ defaults: [], enabled: false },
+	])("工具默认值沿用扩展注册行为，不依赖固定名单：$defaults", async ({ defaults, enabled }) => {
+		const agentDir = path.join(temp.path, ".pi", "agent");
+		const directory = path.join(agentDir, "extensions");
+		await mkdir(directory, { recursive: true });
+		await writeFile(path.join(directory, "probe.ts"), `export default (pi) => pi.registerTool({name:"custom_probe",label:"Probe",description:"Test default activation",parameters:{type:"object",properties:{}},
+				async execute() { return {content:[{type:"text",text:"done"}],details:{}}; }});`);
+		const file = path.join(agentDir, "settings.json");
+		const settings = JSON.parse(await readFile(file, "utf8"));
+		await writeFile(file, JSON.stringify({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) }));
+		await host.dispatch({ action: "new" });
+		expect(host.runtime.session.getAllTools().map((tool) => tool.name)).toContain("custom_probe");
+		expect(host.runtime.session.getActiveToolNames().includes("custom_probe")).toBe(enabled);
+	});
 	it("输入历史去重并提升到最新，斜杠命令不记录，重载后保持一致", async () => {
 		await host.dispatch(prompt("first"));
 		await host.dispatch(prompt("second"));

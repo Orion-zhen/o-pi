@@ -84,7 +84,7 @@ export interface CallRecord extends TelemetryBaseRecord, TelemetryFacts {
 	thinking?: string;
 	started_at: string;
 	ended_at: string;
-	duration_ms: number;
+	duration_ms?: number;
 	status: "success" | "error";
 	error?: CallError;
 	output_chars?: number;

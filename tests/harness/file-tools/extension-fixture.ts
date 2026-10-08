@@ -1,6 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-export type ExecuteResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown };
+export type ExecuteResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown; structuredContent?: unknown };
 export interface ExecuteToolContext {
 	cwd: string;
 	sessionManager: { getSessionId(): string; getBranch(): SessionEntry[] };
