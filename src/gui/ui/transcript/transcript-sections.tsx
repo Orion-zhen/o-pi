@@ -6,9 +6,18 @@ import { MessageIdentity, ReplyMetrics } from "../content/message-meta.tsx";
 import { ToolActivity } from "../tools/tool-activity.tsx";
 import { skillCount } from "./skill-summary.tsx";
 import { ReplyStatusLabel } from "./reply-status-label.tsx";
-import type { TranscriptItem } from "./transcript-items.ts";
+import { sameTranscriptItem, type TranscriptItem } from "./transcript-items.ts";
 
 type TextItem = Extract<TranscriptItem, { kind: "text" }>;
+interface SectionContent { items: TranscriptItem[]; entryIds: (string | undefined)[] }
+
+function sameContent(before: SectionContent, after: SectionContent): boolean {
+	return before.items.length === after.items.length && before.items.every((item, index) => {
+		const next = after.items[index];
+		return next !== undefined && sameTranscriptItem(item, next)
+			&& before.entryIds[item.messageIndex] === after.entryIds[next.messageIndex];
+	});
+}
 type Section = { key: string } & (
 	| { kind: "body"; items: TextItem[]; first: TextItem }
 	| { kind: "activity"; items: TranscriptItem[] }
@@ -33,13 +42,19 @@ export function ReplyItems({ items, entryIds, tracking = false, followedByBody =
 		if (section.kind === "item") return <Item key={section.key} item={section.item} entryId={entryIds[section.item.messageIndex]} />;
 		if (section.kind === "activity") return <Activity key={section.key} id={section.key} items={section.items} entryIds={entryIds}
 			tracking={tracking && !followedByBody && !sections.slice(index + 1).some((next) => next.kind === "body")} />;
-		return <div key={section.key} className="reply-body">
-			<MessageIdentity name={section.first.identity.model} timestamp={section.first.identity.timestamp} />
-			{section.items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}
-			{showMetrics && !section.first.active && <ReplyMetrics metrics={section.first.metrics} scope="本条" />}
-		</div>;
+		return <Body key={section.key} first={section.first} items={section.items} entryIds={entryIds} showMetrics={showMetrics} />;
 	})}</>;
 }
+
+const Body = memo(function Body({ first, items, entryIds, showMetrics }: {
+	first: TextItem; items: TextItem[]; entryIds: (string | undefined)[]; showMetrics: boolean;
+}) {
+	return <div className="reply-body">
+		<MessageIdentity name={first.identity.model} timestamp={first.identity.timestamp} />
+		{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}
+		{showMetrics && !first.active && <ReplyMetrics {...first.metrics} scope="本条" />}
+	</div>;
+}, (before, after) => before.showMetrics === after.showMetrics && sameTranscriptItem(before.first, after.first) && sameContent(before, after));
 
 export function useAutoFold(key: string, tracking: boolean) {
 	const [open, setOpen] = useDisclosureMemory(`${key}:open`, tracking);
@@ -53,7 +68,7 @@ export function useAutoFold(key: string, tracking: boolean) {
 	return [open, setOpen] as const;
 }
 
-function Activity({ id, items, entryIds, tracking }: { id: string; items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking: boolean }) {
+const Activity = memo(function Activity({ id, items, entryIds, tracking }: SectionContent & { id: string; tracking: boolean }) {
 	const [open, setOpen] = useAutoFold(`activity:${id}`, tracking);
 	const thoughts = items.filter((item) => item.kind === "thinking").length;
 	const tools = items.filter((item) => item.kind === "tool");
@@ -70,7 +85,7 @@ function Activity({ id, items, entryIds, tracking }: { id: string; items: Transc
 		<ReplyStatusLabel className={`pruned-text${pruned ? " pruned-text-active" : ""}`} active={tracking}>思考与工具</ReplyStatusLabel>
 		<span className={`reply-counts pruned-text${pruned ? " pruned-text-active" : ""}`}>{counts}</span>
 	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div></Disclosure>;
-}
+}, (before, after) => before.id === after.id && before.tracking === after.tracking && sameContent(before, after));
 
 const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entryId: string | undefined }) {
 	switch (item.kind) {
@@ -80,7 +95,7 @@ const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entry
 		case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} /></div>;
 		case "error": return <pre data-entry-id={entryId} className="message error">{item.text}</pre>;
 	}
-});
+}, (before, after) => before.entryId === after.entryId && sameTranscriptItem(before.item, after.item));
 
 function Thinking({ id, text, active, entryId }: { id: string; text: string; active: boolean; entryId: string | undefined }) {
 	const [open, setOpen] = useDisclosureMemory(`${id}:open`, active);

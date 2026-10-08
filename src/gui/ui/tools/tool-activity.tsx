@@ -9,15 +9,14 @@ import { CodemodeActivity } from "./codemode-activity.tsx";
 import { clean } from "../content/content.tsx";
 import { ToolBody } from "./tool-body.tsx";
 import { ParameterValue } from "./tool-parameters.tsx";
-import type { ToolActivity as Activity } from "../transcript/transcript-items.ts";
+import { sameToolActivity, type ToolActivity as Activity } from "../transcript/transcript-items.ts";
 import { toolTarget } from "./tool-target.ts";
 import { SkillCard } from "../content/skill-card.tsx";
 import { isSkillLoadDetails } from "../../skill-facts.ts";
 
 export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activity }) {
 	return tool.name === "codemode" ? <CodemodeActivity tool={tool} /> : <StandardToolActivity tool={tool} />;
-}, (before, after) => before.tool.id === after.tool.id && before.tool.name === after.tool.name && before.tool.state === after.tool.state
-	&& before.tool.args === after.tool.args && before.tool.output === after.tool.output && before.tool.nestedCalls === after.tool.nestedCalls && before.tool.durationMs === after.tool.durationMs);
+}, (before, after) => sameToolActivity(before.tool, after.tool));
 
 function StandardToolActivity({ tool }: { tool: Activity }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);

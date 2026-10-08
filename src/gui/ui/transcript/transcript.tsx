@@ -120,6 +120,6 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 			<span>{outcome}</span>
 			{reply.error && <pre>{reply.error}</pre>}
 		</div>}
-		{!running && reply.identity && <ReplyMetrics metrics={reply.metrics} />}
+		{!running && reply.identity && <ReplyMetrics {...reply.metrics} />}
 	</motion.section>;
 });
