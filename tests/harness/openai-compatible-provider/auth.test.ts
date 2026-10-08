@@ -11,6 +11,19 @@ const temp = useOpenAICompatibleProviderTestSetup();
 const activeSignal = new AbortController().signal;
 
 describe("openai-compatible-provider auth", () => {
+	it.each([
+		["Bearer ${KEY}:$TOKEN/$KEY", "Bearer sk-test:header-token/sk-test", ["KEY", "TOKEN"]],
+		["$$KEY/$!/${invalid-$KEY}", "$KEY/!/${invalid-$KEY}", []],
+		["${unclosed $KEY", "${unclosed sk-test", ["KEY"]],
+		["中文😀 $KEY", "中文😀 sk-test", ["KEY"]],
+	] as const)("配置插值保留转义、字面量和变量顺序：%s", async (apiKey, expected, names) => {
+		const env = vi.fn(async (name: string) => ({ KEY: "sk-test", TOKEN: "header-token" })[name]);
+		const auth = createProviderAuth("template", { baseUrl: "https://gateway.test/v1", apiKey });
+		await expect(auth.resolve({ ctx: { env, fileExists: async () => false }, signal: activeSignal }))
+			.resolves.toMatchObject({ auth: { apiKey: expected } });
+		expect(env.mock.calls.map(([name]) => name)).toEqual(names);
+	});
+
 	it("认证检查和解析支持环境变量、无密钥配置及取消", async () => {
 		const ctx = {
 			env: async (name: string) => ({ KEY: "sk-test", TOKEN: "header-token" })[name],

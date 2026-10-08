@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { startWebProcess } from "./web-process.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -31,8 +31,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		if (JSON.stringify(request.messages).includes("并行任务")) return parallel.promise;
 		return request.messages.some((message) => message.role === "tool") ? last.promise : first.promise;
 	});
-	let child: ChildProcess | undefined;
-	let output = "";
+	let backend: ReturnType<typeof startWebProcess> | undefined;
 	const errors: string[] = [];
 	const context = await browser.newContext({ viewport: info.project.use.viewport ?? { width: 1200, height: 820 } });
 	try {
@@ -61,11 +60,8 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined
 			&& /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|DISPLAY|XAUTHORITY|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS)$/.test(entry[0])));
 		Object.assign(env, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", OPI_NO_NOTIFICATIONS: "1", NODE_ENV: "test" });
-		child = spawn(process.env.OPI_GUI_TEST_BINARY ?? path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", root, "--host", "127.0.0.1", "--port", "0"], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
-		child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
-		child.stderr?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
-		let url = "";
-		await expect.poll(() => { url = output.match(/opi-web: (http:\/\/[^\s]+)/)?.[1] ?? ""; return url; }).toBeTruthy();
+		backend = startWebProcess(root, env);
+		const url = await backend.ready();
 		const page = await context.newPage();
 		page.on("pageerror", (error) => errors.push(error.message));
 		await page.goto(url);
@@ -263,7 +259,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(row("任务 A2").getByRole("button", { name: "删除会话 任务 A2", exact: true })).toHaveCount(1);
 		await navigation(page).screenshot({ path: info.outputPath("session-unread.png") });
 		await picker(page);
-		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "unread");
+		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "idle");
 		await expect(aRow.locator(".lucide-check")).toHaveCount(1);
 		await expect(aRow.getByRole("option")).toHaveAttribute("aria-selected", "true");
 		await page.keyboard.press("Escape");
@@ -307,7 +303,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(aRow).toHaveCount(0);
 		expect(errors).toEqual([]);
 	} catch (error) {
-		await info.attach("backend", { body: output, contentType: "text/plain" });
+		await info.attach("backend", { body: backend?.output ?? "", contentType: "text/plain" });
 		const page = context.pages()[0];
 		if (page) await info.attach("failure", { body: await page.screenshot({ path: info.outputPath("failure.png") }), contentType: "image/png" });
 		throw error;
@@ -315,14 +311,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		startup.resolve({ text: "cancelled" });
 		first.resolve({ text: "cancelled" }); parallel.resolve({ text: "cancelled" }); last.resolve({ text: "cancelled" });
 		await context.close();
-		if (child && child.exitCode === null) {
-			const process = child;
-			await new Promise<void>((resolve) => {
-				const timer = setTimeout(() => process.kill("SIGKILL"), 10_000);
-				process.once("exit", () => { clearTimeout(timer); resolve(); });
-				process.kill("SIGTERM");
-			});
-		}
+		await backend?.close();
 		await model.close();
 		await startupServer.close();
 		await rm(home, { recursive: true, force: true });

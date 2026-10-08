@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test, expect } from "./fixture.ts";
@@ -6,12 +7,7 @@ import { startModelServer } from "../cli/model-server.ts";
 let model: Awaited<ReturnType<typeof startModelServer>>;
 test.beforeEach(async ({ workspace: { agentDir } }) => {
 	model = await startModelServer(() => ({ text: "", chunks: ["```ts\nconst answer = 42;\n```\n\n", ...Array.from({ length: 30 }, (_, index) => `正文-${index} `)], intervalMs: 80 }));
-	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "never", defaultProvider: "stream-test", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "stream-test": {
-		api: "openai-completions", baseUrl: model.url, apiKey: "fixture",
-		models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	await configureModel(agentDir, model.url, "stream-test", { reasoning: false });
 	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 });
 test.afterEach(async () => { await model?.close(); });

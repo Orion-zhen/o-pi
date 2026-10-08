@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, type Component, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, type Component, visibleWidth } from "@earendil-works/pi-tui";
 import { countTextTokensSync, type TokenCounterScope } from "../../../harness/token-counter.ts";
-import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.ts";
+import { borderedPanelContentWidth, renderBorderedPanel, ScrollPosition } from "../../components/scroll-viewer.ts";
 
 const MIN_BORDERED_PANEL_WIDTH = 4;
 const VIEWER_BODY_ROWS_RATIO = 0.75;
@@ -11,7 +11,7 @@ const VIEWER_NON_BODY_ROWS = 5;
 export class SystemPromptViewer implements Component {
 	private readonly content: string;
 	private readonly tokenCount: number;
-	private scrollTop = 0;
+	private scroll = new ScrollPosition();
 
 	constructor(
 		content: string,
@@ -25,18 +25,7 @@ export class SystemPromptViewer implements Component {
 	}
 
 	handleInput(data: string): void {
-		const pageSize = this.getBodyHeight();
-		if (this.isCloseKey(data)) {
-			this.done();
-			return;
-		}
-
-		if (matchesKey(data, Key.up)) this.scrollBy(-1);
-		else if (matchesKey(data, Key.down)) this.scrollBy(1);
-		else if (matchesKey(data, Key.pageUp)) this.scrollBy(-pageSize);
-		else if (matchesKey(data, Key.pageDown)) this.scrollBy(pageSize);
-		else if (matchesKey(data, Key.home)) this.scrollTop = 0;
-		else if (matchesKey(data, Key.end)) this.scrollTop = Number.MAX_SAFE_INTEGER;
+		this.scroll.handleInput(data, this.getBodyHeight(), this.done);
 	}
 
 	render(width: number): string[] {
@@ -52,7 +41,7 @@ export class SystemPromptViewer implements Component {
 	private renderContent(width: number): string[] {
 		const bodyHeight = this.getBodyHeight();
 		const bodyLines = this.formatBody(width);
-		this.clampScroll(bodyLines.length, bodyHeight);
+		this.scroll.clamp(bodyLines.length, bodyHeight);
 
 		return [
 			this.formatHeader(width, bodyLines.length, bodyHeight),
@@ -60,19 +49,6 @@ export class SystemPromptViewer implements Component {
 			this.fitLine("", width),
 			...this.formatVisibleBody(bodyLines, bodyHeight).map((line) => this.fitLine(line, width)),
 		];
-	}
-
-	private isCloseKey(data: string): boolean {
-		return matchesKey(data, Key.escape) || matchesKey(data, Key.enter) || matchesKey(data, "q");
-	}
-
-	private scrollBy(delta: number): void {
-		this.scrollTop = Math.max(0, this.scrollTop + delta);
-	}
-
-	private clampScroll(totalLines: number, bodyHeight: number): void {
-		const maxScrollTop = Math.max(0, totalLines - bodyHeight);
-		this.scrollTop = Math.min(Math.max(0, this.scrollTop), maxScrollTop);
 	}
 
 	private getBodyHeight(): number {
@@ -83,13 +59,13 @@ export class SystemPromptViewer implements Component {
 		const rawLineCount = this.content.split("\n").length;
 		const title = this.theme.bold(`System prompt (${this.content.length} chars, ~${this.tokenCount} tokens, ${rawLineCount} lines)`);
 		const position = bodyLineCount > bodyHeight
-			? ` ${this.scrollTop + 1}-${Math.min(bodyLineCount, this.scrollTop + bodyHeight)}/${bodyLineCount}`
+			? ` ${this.scroll.top + 1}-${Math.min(bodyLineCount, this.scroll.top + bodyHeight)}/${bodyLineCount}`
 			: "";
 		return this.fitLine(this.theme.fg("accent", title) + this.theme.fg("dim", position), width);
 	}
 
 	private formatVisibleBody(bodyLines: string[], bodyHeight: number): string[] {
-		const visibleBody = bodyLines.slice(this.scrollTop, this.scrollTop + bodyHeight);
+		const visibleBody = bodyLines.slice(this.scroll.top, this.scroll.top + bodyHeight);
 		while (visibleBody.length < bodyHeight) visibleBody.push("");
 		return visibleBody;
 	}

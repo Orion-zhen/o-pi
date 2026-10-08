@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test, expect } from "./desktop-fixture.ts";
@@ -20,12 +21,7 @@ interface Timing {
 let model: Awaited<ReturnType<typeof startModelServer>>;
 test.beforeEach(async ({ workspace: { agentDir } }) => {
 	model = await startModelServer(() => ({ text: "PRIVATE_RESPONSE_MARKER" }));
-	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "never", defaultProvider: "timing-test", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "timing-test": {
-		api: "openai-completions", baseUrl: model.url, apiKey: "PRIVATE_API_KEY",
-		models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	await configureModel(agentDir, model.url, "timing-test", { reasoning: false, apiKey: "PRIVATE_API_KEY" });
 	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 	await mkdir(path.join(agentDir, "extensions"), { recursive: true });
 	await writeFile(path.join(agentDir, "extensions", "slow-input.ts"), `export default function(pi) { pi.on("input", async () => { await new Promise(resolve => setTimeout(resolve, 300)); }); }`);

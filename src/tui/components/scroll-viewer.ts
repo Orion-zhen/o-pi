@@ -21,9 +21,28 @@ export function renderBorderedPanel(
 	return [border(`╭${"─".repeat(innerWidth)}╮`), ...lines.map(row), border(`╰${"─".repeat(innerWidth)}╯`)];
 }
 
+/** 只读查看器共享滚动位置和键盘操作，布局由调用方保留。 */
+export class ScrollPosition {
+	top = 0;
+
+	handleInput(data: string, pageSize: number, done: () => void): void {
+		if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter) || matchesKey(data, "q")) done();
+		else if (matchesKey(data, Key.up)) this.top = Math.max(0, this.top - 1);
+		else if (matchesKey(data, Key.down)) this.top++;
+		else if (matchesKey(data, Key.pageUp)) this.top = Math.max(0, this.top - pageSize);
+		else if (matchesKey(data, Key.pageDown)) this.top += pageSize;
+		else if (matchesKey(data, Key.home)) this.top = 0;
+		else if (matchesKey(data, Key.end)) this.top = Number.MAX_SAFE_INTEGER;
+	}
+
+	clamp(totalLines: number, bodyHeight: number): void {
+		this.top = Math.min(this.top, Math.max(0, totalLines - bodyHeight));
+	}
+}
+
 /** 只读行查看器共用的键盘、滚动和边框行为。 */
 export abstract class BorderedScrollViewer implements Component {
-	private scrollTop = 0;
+	private scroll = new ScrollPosition();
 
 	protected constructor(
 		private readonly theme: Pick<Theme, "fg">,
@@ -34,18 +53,7 @@ export abstract class BorderedScrollViewer implements Component {
 	) {}
 
 	handleInput(data: string): void {
-		const pageSize = this.getBodyHeight();
-		if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter) || matchesKey(data, "q")) {
-			this.done();
-			return;
-		}
-
-		if (matchesKey(data, Key.up)) this.scrollBy(-1);
-		else if (matchesKey(data, Key.down)) this.scrollBy(1);
-		else if (matchesKey(data, Key.pageUp)) this.scrollBy(-pageSize);
-		else if (matchesKey(data, Key.pageDown)) this.scrollBy(pageSize);
-		else if (matchesKey(data, Key.home)) this.scrollTop = 0;
-		else if (matchesKey(data, Key.end)) this.scrollTop = Number.MAX_SAFE_INTEGER;
+		this.scroll.handleInput(data, this.getBodyHeight(), this.done);
 	}
 
 	render(width: number): string[] {
@@ -62,19 +70,11 @@ export abstract class BorderedScrollViewer implements Component {
 		const widthLimit = Math.max(1, width);
 		const lines = this.renderLines(width).flatMap((line) => wrapTextWithAnsi(line, widthLimit));
 		const bodyHeight = this.getBodyHeight();
-		this.clampScroll(lines.length, bodyHeight);
+		this.scroll.clamp(lines.length, bodyHeight);
 		const visibleCount = this.fillBody ? bodyHeight : Math.min(lines.length, bodyHeight);
-		const visible = lines.slice(this.scrollTop, this.scrollTop + visibleCount);
+		const visible = lines.slice(this.scroll.top, this.scroll.top + visibleCount);
 		while (visible.length < visibleCount) visible.push("");
 		return visible.map((line, index) => (index === 0 ? this.theme.fg("accent", line) : line));
-	}
-
-	private scrollBy(delta: number): void {
-		this.scrollTop = Math.max(0, this.scrollTop + delta);
-	}
-
-	private clampScroll(totalLines: number, bodyHeight: number): void {
-		this.scrollTop = Math.min(this.scrollTop, Math.max(0, totalLines - bodyHeight));
 	}
 
 	private getBodyHeight(): number {

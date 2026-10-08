@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import type { Locator } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -16,12 +17,7 @@ async function animationStates(target: Locator) {
 test.beforeEach(async ({ workspace: { agentDir, cwd } }) => {
 	model = await startModelServer((request) => respond(request));
 	await writeFile(path.join(cwd, "example.txt"), "等待下一轮输出");
-	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "never", defaultProvider: "breathing-test", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "breathing-test": {
-		api: "openai-completions", baseUrl: model.url, apiKey: "fixture",
-		models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	await configureModel(agentDir, model.url, "breathing-test", { reasoning: false });
 	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 });
 test.afterEach(async () => { await model?.close(); });

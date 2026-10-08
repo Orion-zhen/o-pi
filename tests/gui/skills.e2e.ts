@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Locator } from "@playwright/test";
@@ -32,12 +33,7 @@ test.beforeEach(async ({ workspace: { agentDir } }) => {
 			? { text: "技能验证完成" } : { tool: "skill", args: { name: "gui-model" }, text: "先加载任务所需技能。" };
 	});
 	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
-	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-		defaultProjectTrust: "never", defaultProvider: "gui-test", defaultModel: "test", compaction: { enabled: false }, retry: { enabled: false },
-	}));
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "gui-test": {
-		api: "openai-completions", baseUrl: model.url, apiKey: "fixture", models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	await configureModel(agentDir, model.url, "gui-test", { reasoning: false });
 });
 test.afterEach(async () => { await model?.close(); });
 

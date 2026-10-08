@@ -11,7 +11,7 @@ import {
 	type MutationDiagnosticsSource,
 } from "../shared/mutation-diagnostics.ts";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.ts";
-import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.ts";
+import type { TextDiffGenerator } from "../shared/text-diff.ts";
 import { validateReplacements } from "./validation.ts";
 import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.ts";
 
@@ -21,12 +21,11 @@ const UTF8_BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
 interface EditedContent {
 	readonly file: TextContent;
 	readonly updatedText: string;
-	readonly replacementCount: number;
 	readonly changedRanges: readonly EditLineRange[];
+	readonly preview: EditPreviewSuccess;
 }
 
 interface PreparedEdit extends EditedContent {
-	readonly renderedDiff: TextDiff;
 	readonly baseline: DiagnosticSnapshot | undefined;
 }
 
@@ -34,12 +33,8 @@ interface EditObservationStore {
 	get(target: TargetRef): ContentVersion | undefined;
 }
 
-export interface EditCommandContext {
-	readonly filesystem: WorkspaceFileSystem;
-	readonly operation: FsOperationContext;
+export interface EditCommandContext extends EditPreviewContext {
 	readonly observation: EditObservationStore;
-	readonly limits: Readonly<Pick<FileToolLimits, "edit_max_file_bytes" | "edit_match_hint_limit">>;
-	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: MutationDiagnosticsSource;
 	readonly onPrepared?: (preview: EditPreviewSuccess) => void;
 }
@@ -64,37 +59,28 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 			maxOutputBytes: context.limits.edit_max_file_bytes,
 		},
 		async (snapshot) => {
-			const prepared = prepareSnapshot(snapshot, target, params.edits, context);
+			const file = validateSnapshot(snapshot, target, context);
+			if (isFailed(file)) return { type: "reject", reason: file };
+			const prepared = await prepareEdit(file, target.displayPath, params.edits, context);
 			if (isFailed(prepared)) return { type: "reject", reason: prepared };
-			const { file: before, updatedText, replacementCount } = prepared;
-			const output = buildTextBytes(updatedText, before.hasBom, target.displayPath, context.limits.edit_max_file_bytes);
-			if (isFailed(output)) return { type: "reject", reason: output };
-			const renderedDiff = await context.diff.generate(normalizeLineEndings(before.text), normalizeLineEndings(updatedText));
-			safePrepared(context.onPrepared, {
-				status: "preview",
-				path: target.displayPath,
-				replacements: replacementCount,
-				diff: renderedDiff.diff,
-				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
-			});
+			const bytes = buildTextBytes(prepared.updatedText, file.hasBom);
+			safePrepared(context.onPrepared, { ...prepared.preview });
 			const baseline = await captureMutationDiagnostics(context.diagnostics, target, context.operation.signal);
-			return { type: "commit", bytes: output, prepared: { ...prepared, renderedDiff, baseline } };
+			return { type: "commit", bytes, prepared: { ...prepared, baseline } };
 		},
 	);
 	if (!mutated.ok) return mapMutationError(mutated.error);
 	if (!mutated.value.committed) return mutated.value.reason;
 	const { receipt, prepared } = mutated.value;
-	const { file: before, updatedText, replacementCount, changedRanges, renderedDiff, baseline } = prepared;
+	const { file: before, updatedText, changedRanges, preview, baseline } = prepared;
 	const result: EditSuccess = {
+		...preview,
 		status: "applied",
 		path: receipt.target.displayPath,
-		replacements: replacementCount,
 		old_version: before.hash,
 		new_version: receipt.hash,
 		old_size_bytes: before.sizeBytes,
 		new_size_bytes: receipt.sizeBytes,
-		diff: renderedDiff.diff,
-		...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 	};
 	const diagnostics = await collectMutationDiagnostics(context.diagnostics, {
 		target: receipt.target,
@@ -119,17 +105,27 @@ export async function previewEdit(params: EditParams, context: EditPreviewContex
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	const decoded = context.filesystem.content.decodeText(loaded.value, file.displayPath);
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
-	const updated = applyReplacements(decoded.value.text, params.edits, file.displayPath, context.limits.edit_match_hint_limit);
+	const prepared = await prepareEdit(decoded.value, file.displayPath, params.edits, context);
+	return isFailed(prepared) ? prepared : prepared.preview;
+}
+
+/** 预览与提交共用替换、字节上限及 diff 准备；只在提交时编码输出。 */
+async function prepareEdit(
+	file: TextContent,
+	path: string,
+	edits: readonly EditReplacement[],
+	context: EditPreviewContext,
+): Promise<ToolOutcome<EditedContent>> {
+	const updated = applyReplacements(file.text, edits, path, context.limits.edit_match_hint_limit);
 	if (isFailed(updated)) return updated;
-	const outputError = validateTextSize(updated.text, decoded.value.hasBom, file.displayPath, context.limits.edit_max_file_bytes);
+	const outputError = validateTextSize(updated.text, file.hasBom, path, context.limits.edit_max_file_bytes);
 	if (outputError !== undefined) return outputError;
-	const rendered = await context.diff.generate(normalizeLineEndings(decoded.value.text), normalizeLineEndings(updated.text));
+	const rendered = await context.diff.generate(normalizeLineEndings(file.text), normalizeLineEndings(updated.text));
 	return {
-		status: "preview",
-		path: file.displayPath,
-		replacements: updated.replacements,
-		diff: rendered.diff,
-		...(rendered.firstChangedLine === undefined ? {} : { firstChangedLine: rendered.firstChangedLine }),
+		file,
+		updatedText: updated.text,
+		changedRanges: updated.changedRanges,
+		preview: { status: "preview", path, replacements: updated.replacements, ...rendered },
 	};
 }
 
@@ -159,12 +155,11 @@ async function resolveEditFile(
 	return existing.value;
 }
 
-function prepareSnapshot(
+function validateSnapshot(
 	snapshot: MutationSnapshot,
 	target: TargetRef,
-	edits: readonly EditReplacement[],
 	context: EditCommandContext,
-): ToolOutcome<EditedContent> {
+): ToolOutcome<TextContent> {
 	if (!snapshot.exists) return fail("FILE_NOT_FOUND", "File does not exist.", { path: target.displayPath });
 	const file = context.filesystem.content.decodeText(
 		{ bytes: snapshot.bytes, hash: snapshot.hash, sizeBytes: snapshot.sizeBytes },
@@ -186,13 +181,7 @@ function prepareSnapshot(
 			actual: file.value.hash,
 		});
 	}
-	const updated = applyReplacements(file.value.text, edits, target.displayPath, context.limits.edit_match_hint_limit);
-	return isFailed(updated) ? updated : {
-		file: file.value,
-		updatedText: updated.text,
-		replacementCount: updated.replacements,
-		changedRanges: updated.changedRanges,
-	};
+	return file.value;
 }
 
 function applyReplacements(
@@ -226,14 +215,7 @@ function applyReplacements(
 	};
 }
 
-function buildTextBytes(
-	text: string,
-	hasBom: boolean,
-	path: string,
-	maxBytes: number,
-): ToolOutcome<Uint8Array> {
-	const outputError = validateTextSize(text, hasBom, path, maxBytes);
-	if (outputError !== undefined) return outputError;
+function buildTextBytes(text: string, hasBom: boolean): Uint8Array {
 	const body = encoder.encode(text);
 	if (!hasBom) return body;
 	const bytes = new Uint8Array(UTF8_BOM.byteLength + body.byteLength);

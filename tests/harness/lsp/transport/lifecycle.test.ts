@@ -137,7 +137,8 @@ describe("lsp transport lifecycle", () => {
 		});
 		const client = directClient(transport, fake, 64, 10);
 		expect(await client.ensureReady()).toBe(true);
-		vi.useFakeTimers();
+		// 只推进空闲超时，让真实 socket 的异步消息解码继续运行。
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		try {
 			expect(await client.ensureReady()).toBe(true);
 			const pending = client.workspaceSymbols("target");

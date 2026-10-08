@@ -1,7 +1,6 @@
 import { act, createElement, useLayoutEffect } from "react";
-import { createRoot } from "react-dom/client";
-import { parseHTML } from "linkedom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useReactFixture } from "./react-fixture.ts";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GuiPayloads } from "../../src/gui/host/payloads.ts";
 import type { GuiToolOutput, ToolOutput } from "../../src/gui/messages.ts";
 import type { Query } from "../../src/gui/contract.ts";
@@ -9,7 +8,7 @@ import { ContentVisible } from "../../src/gui/ui/components/ui/collapsible.tsx";
 import { GuiQueryContext, useToolOutput } from "../../src/gui/ui/runtime/payload.tsx";
 import { deferred } from "../helpers/async.ts";
 
-let root: ReturnType<typeof createRoot>;
+const renderRoot = useReactFixture();
 let query = vi.fn<Query>();
 let payloads: GuiPayloads;
 let state: ReturnType<typeof useToolOutput>;
@@ -24,23 +23,14 @@ function Output({ id }: { id: string | undefined }) {
 	return null;
 }
 async function render(id: string | undefined, visible = true) {
-	await act(async () => root.render(createElement(GuiQueryContext, { value: query as Query },
-		createElement(ContentVisible, { value: visible }, createElement(Output, { id })))));
+	await renderRoot(createElement(GuiQueryContext, { value: query as Query },
+		createElement(ContentVisible, { value: visible }, createElement(Output, { id }))));
 }
 
 beforeEach(() => {
-	const { window, document } = parseHTML("<html><body></body></html>");
-	vi.stubGlobal("window", window);
-	vi.stubGlobal("document", document);
-	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-	root = createRoot(document.body);
 	query = vi.fn<Query>();
 	payloads = new GuiPayloads();
 	state = { value: undefined, error: "" };
-});
-afterEach(async () => {
-	await act(async () => root.unmount());
-	vi.unstubAllGlobals();
 });
 
 describe("大工具结果按需查询", () => {

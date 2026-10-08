@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test, expect } from "./fixture.ts";
@@ -20,16 +21,9 @@ test.describe("codemode", () => {
 		}`);
 		await writeFile(path.join(cwd, "sample.ts"), "export const value = 1;\n");
 		await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
-		await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-			defaultProjectTrust: "never", defaultProvider: "fixture", defaultModel: "test",
+		await configureModel(agentDir, model.url, "fixture", { reasoning: false, settings: {
 			defaultTools: ["read", "find", "write", "edit", "skill", "subagent", "codemode", "script_probe", "deferred_probe"], codemode: { mode: "on" },
-			compaction: { enabled: false }, retry: { enabled: false },
-		}));
-		await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
-			api: "openai-completions", baseUrl: model.url, apiKey: "fixture",
-			models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-		} } }));
+		} });
 	});
 	test.afterEach(async () => { await model?.close(); });
 

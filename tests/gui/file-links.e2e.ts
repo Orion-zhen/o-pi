@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -20,15 +21,7 @@ test.beforeEach(async ({ workspace: { cwd, agentDir } }) => {
 		"`src/main.ts`",
 	].join("\n\n");
 	model = await startModelServer(() => ({ text }));
-	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-		defaultProjectTrust: "never", defaultProvider: "file-links-test", defaultModel: "test",
-		retry: { enabled: false }, compaction: { enabled: false },
-	}));
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "file-links-test": {
-		api: "openai-completions", baseUrl: model.url, apiKey: "fixture",
-		models: [{ id: "test", name: "Test", input: ["text"], contextWindow: 128000, maxTokens: 4096,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	await configureModel(agentDir, model.url, "file-links-test");
 	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 });
 test.afterEach(async () => { await model?.close(); });

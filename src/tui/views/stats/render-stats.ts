@@ -3,90 +3,51 @@ import { formatWorkspace } from "../../components/format.ts";
 import { joinParts } from "../../components/text.ts";
 import type { ContextBreakdownItem, StatsSnapshot } from "../../../harness/stats/types.ts";
 
-const WIDE_WIDTH = 100;
-const MEDIUM_WIDTH = 70;
-
 /** 按终端宽度渲染 /stats 只读内容；返回行均不超过 width。 */
 export function renderStats(snapshot: StatsSnapshot, width: number): string[] {
 	const maxWidth = Math.max(1, width);
-	const lines = maxWidth >= WIDE_WIDTH ? renderWide(snapshot, maxWidth) : maxWidth >= MEDIUM_WIDTH ? renderMedium(snapshot, maxWidth) : renderNarrow(snapshot, maxWidth);
+	const lines = [
+		...renderContext(snapshot, maxWidth),
+		"",
+		maxWidth < 70 ? "Usage" : "Session usage",
+		formatUsage(snapshot),
+		"",
+		"Cache · conversation requests",
+		formatCache(snapshot),
+		"",
+		"Cost",
+		formatCost(snapshot),
+		"",
+		"Tools",
+		formatToolsSummary(snapshot),
+		formatToolsByName(snapshot),
+	];
 	return lines.flatMap((line) => wrapAndFitLine(line, maxWidth));
 }
 
-function renderWide(snapshot: StatsSnapshot, width: number): string[] {
-	return [
-		alignLine("Stats · current session", "q close  ↑↓ scroll", width),
-		alignLine(formatWorkspaceStatus(snapshot), formatModelStatus(snapshot), width),
-		formatSummaryLine(snapshot),
-		"",
-		`Context breakdown · current request window · ${snapshot.context.confidence === "exact" ? "exact" : "~estimated"}`,
-		renderBreakdownBar(snapshot.context.items),
-		"",
-		columns(["source", "tokens", "share", "note"], [26, 11, 8], "note"),
-		...snapshot.context.items.map((item) => columns([item.label, formatTokens(item.tokens, item.estimated), formatShare(item.share, true), item.note ?? ""], [26, 11, 8], "")),
-		"",
-		"Session usage",
-		formatUsage(snapshot),
-		"",
-		"Cache · conversation requests",
-		formatCache(snapshot),
-		"",
-		"Cost",
-		formatCost(snapshot),
-		"",
-		"Tools",
-		formatToolsSummary(snapshot),
-		formatToolsByName(snapshot),
-	];
-}
-
-function renderMedium(snapshot: StatsSnapshot, width: number): string[] {
-	return [
-		alignLine("Stats · session", "q close  ↑↓ scroll", width),
-		alignLine(formatWorkspaceStatus(snapshot), formatModelStatus(snapshot), width),
-		formatSummaryLine(snapshot),
-		"",
-		`Context breakdown · ${snapshot.context.confidence === "exact" ? "exact" : "~estimated"}`,
-		renderBreakdownBar(snapshot.context.items),
-		"",
-		columns(["source", "tokens", "%", "note"], [18, 9, 6], "note"),
-		...snapshot.context.items.map((item) => columns([shortLabel(item), formatTokens(item.tokens, item.estimated), formatShare(item.share, false), shortNote(item)], [18, 9, 6], "")),
-		"",
-		"Session usage",
-		formatUsage(snapshot),
-		"",
-		"Cache · conversation requests",
-		formatCache(snapshot),
-		"",
-		"Cost",
-		formatCost(snapshot),
-		"",
-		"Tools",
-		formatToolsSummary(snapshot),
-		formatToolsByName(snapshot),
-	];
-}
-
-function renderNarrow(snapshot: StatsSnapshot, width: number): string[] {
-	return [
+function renderContext(snapshot: StatsSnapshot, width: number): string[] {
+	if (width < 70) return [
 		alignLine("Stats", "q close", width),
 		formatWorkspaceStatus(snapshot),
 		formatModelStatus(snapshot),
 		formatCompactContext(snapshot),
-		...snapshot.context.items.map((item) => compactBreakdownLine(item)),
+		...snapshot.context.items.map(compactBreakdownLine),
+	];
+	const wide = width >= 100;
+	const widths: [number, number, number] = wide ? [26, 11, 8] : [18, 9, 6];
+	return [
+		alignLine(wide ? "Stats · current session" : "Stats · session", "q close  ↑↓ scroll", width),
+		alignLine(formatWorkspaceStatus(snapshot), formatModelStatus(snapshot), width),
+		formatSummaryLine(snapshot),
 		"",
-		"Usage",
-		formatUsage(snapshot),
+		`Context breakdown · ${wide ? "current request window · " : ""}${snapshot.context.confidence === "exact" ? "exact" : "~estimated"}`,
+		renderBreakdownBar(snapshot.context.items),
 		"",
-		"Cache · conversation requests",
-		formatCache(snapshot),
-		"",
-		"Cost",
-		formatCost(snapshot),
-		"",
-		"Tools",
-		formatToolsSummary(snapshot),
-		formatToolsByName(snapshot),
+		columns(["source", "tokens", wide ? "share" : "%", "note"], widths),
+		...snapshot.context.items.map((item) => columns([
+			wide ? item.label : shortLabel(item), formatTokens(item.tokens, item.estimated),
+			formatShare(item.share, wide), wide ? item.note ?? "" : shortNote(item),
+		], widths)),
 	];
 }
 
@@ -188,10 +149,10 @@ function shortNote(item: ContextBreakdownItem): string {
 	return item.note.replace("messages", "msgs").replace("active tools", "tools").replace("latest user message", "latest input");
 }
 
-function columns(values: [string, string, string, string], widths: [number, number, number], fallbackNote: string): string {
+function columns(values: [string, string, string, string], widths: [number, number, number]): string {
 	const [firstWidth, secondWidth, thirdWidth] = widths;
 	const fixed = `${padEnd(values[0], firstWidth)}  ${padStart(values[1], secondWidth)}  ${padStart(values[2], thirdWidth)}  `;
-	return `${fixed}${values[3] || fallbackNote}`;
+	return `${fixed}${values[3]}`;
 }
 
 function alignLine(left: string, right: string, width: number): string {

@@ -1,31 +1,24 @@
 import { readFile } from "node:fs/promises";
-import { Agent } from "undici";
-import { afterEach, describe, expect, it } from "vitest";
-import { executeWebFetch, type ExecuteWebFetchRuntime } from "../../../src/harness/web-tools/fetch/webfetch-tool.ts";
+import { describe, expect, it } from "vitest";
+import { executeWebFetch } from "../../../src/harness/web-tools/fetch/webfetch-tool.ts";
 import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.ts";
 import type { WebFetchParams, WebFetchResult } from "../../../src/harness/web-tools/core/types.ts";
-import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { useWebFetchRuntime } from "./fetch-fixture.ts";
 import { httpResponse, redirectResponse } from "../../helpers/http.ts";
 
 const DOCUMENT_URL = "https://example.com/download";
-const dispatchers: Agent[] = [];
-afterEach(async () => { await Promise.all(dispatchers.splice(0).map((dispatcher) => dispatcher.close())); });
 
 async function fixture(name = "two-page.pdf") {
 	return readFile(new URL(`../file-tools/fixtures/read/${name}`, import.meta.url));
 }
 
+const createRuntime = useWebFetchRuntime();
 function runtime(bytes: Uint8Array, contentType = "application/pdf") {
-	const dispatcher = new Agent();
-	dispatchers.push(dispatcher);
 	const requests: string[] = [];
-	const rt: ExecuteWebFetchRuntime = {
-		dispatcher, config: defaultWebToolsConfig(),
-		async fetchImpl(url) { requests.push(url.toString()); return httpResponse(200, bytes, { "content-type": contentType }); },
-		cookieStore: { async getCookieAccess() { return {}; }, async storeFromResponse() {} },
-		snapshots: new SnapshotCache(), approvedAuthOrigins: new Set(),
-		context: { toolCallId: "pdf", acceptsImages: true }, now: () => Date.now(),
-	};
+	const rt = createRuntime(async (url) => {
+		requests.push(url.toString());
+		return httpResponse(200, bytes, { "content-type": contentType });
+	});
 	return { rt, requests };
 }
 

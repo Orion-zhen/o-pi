@@ -1,5 +1,4 @@
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
+import { configureModel } from "./model-fixture.ts";
 import { test, expect } from "./fixture.ts";
 import { startModelServer } from "../cli/model-server.ts";
 
@@ -14,15 +13,7 @@ const formulas = [
 let model: Awaited<ReturnType<typeof startModelServer>>;
 test.beforeEach(async ({ workspace: { agentDir } }) => {
 	model = await startModelServer(() => ({ text: formulas.map((tex, index) => index === 0 ? `$${tex}$` : `$$\n${tex}\n$$`).join("\n\n") }));
-	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-		defaultProjectTrust: "never", defaultProvider: "math-test", defaultModel: "test",
-		compaction: { enabled: false }, retry: { enabled: false },
-	}));
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "math-test": {
-		api: "openai-completions", baseUrl: model.url, apiKey: "fixture",
-		models: [{ id: "test", name: "test", input: ["text"], contextWindow: 128000, maxTokens: 4096,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	await configureModel(agentDir, model.url, "math-test", { name: "test" });
 });
 test.afterEach(async () => { await model?.close(); });
 

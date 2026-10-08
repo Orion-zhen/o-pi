@@ -20,7 +20,6 @@ const REPAIR_OPERATIONS: readonly string[] = [
 	"scalar_to_array",
 	"split_path_list",
 	"drop_unknown_field",
-	"empty_value_to_default",
 ];
 const REPAIR_SEPARATORS: readonly string[] = ["scalar", "comma", "whitespace", "newline", "mixed"];
 

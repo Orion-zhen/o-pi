@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -344,33 +344,23 @@ describe("read PDF 页面", () => {
 		expect(fake.disposeCalls).toBe(1);
 	});
 
-	it("默认和显式大范围都受 read_pdf_pages 限制并返回 continuation", async () => {
+	it.each([
+		{ limit: undefined, pageCount: 25, pages: undefined, selected: sequence(1, 20), continuation: "21-25" },
+		{ limit: 2, pageCount: 10, pages: "4-9", selected: [4, 5], continuation: "6-9" },
+	])("页数限制 $limit 截断范围 $pages 并返回 continuation", async ({ limit, pageCount, pages, selected, continuation }) => {
 		await writeFile(path.join(workspace, "many.pdf"), await pdfFixture("two-page.pdf"));
-		const defaultFake = fakePdfSource({ pageCount: 25 });
-		const defaultResult = await testContext.read({ path: "many.pdf" }, {
-			pdf: defaultFake.source,
-			image: passthroughPdfImage,
+		if (limit !== undefined) await testContext.useConfig({ limits: { read_pdf_pages: limit } });
+		const fake = fakePdfSource({ pageCount });
+		const result = await testContext.read({ path: "many.pdf", ...(pages === undefined ? {} : { pages }) }, {
+			pdf: fake.source, image: passthroughPdfImage,
 		});
-		expect(defaultResult).toMatchObject({
-			pages: sequence(1, 20).map((number) => ({ number })),
-			total_pages: 25,
+		expect(result).toMatchObject({
+			pages: selected.map((number) => ({ number })),
+			total_pages: pageCount,
 			truncated: true,
-			continuation: { pages: "21-25" },
+			continuation: { pages: continuation },
 		});
-		expect(defaultFake.renderedPages).toEqual(sequence(1, 20));
-
-		await testContext.useConfig({ limits: { read_pdf_pages: 2 } });
-		const configuredFake = fakePdfSource({ pageCount: 10 });
-		const configuredResult = await testContext.read({ path: "many.pdf", pages: "4-9" }, {
-			pdf: configuredFake.source,
-			image: passthroughPdfImage,
-		});
-		expect(configuredResult).toMatchObject({
-			pages: [{ number: 4 }, { number: 5 }],
-			truncated: true,
-			continuation: { pages: "6-9" },
-		});
-		expect(configuredFake.renderedPages).toEqual([4, 5]);
+		expect(fake.renderedPages).toEqual(selected);
 	});
 
 	it("校验 PDF 范围后才打开或渲染文档", async () => {
@@ -406,32 +396,19 @@ describe("read PDF 页面", () => {
 		});
 	});
 
-	it("中间页渲染或图片处理失败时不返回部分结果并释放文档", async () => {
+	it.each(["render", "image-process"])("中间页 %s 失败时不返回部分结果并释放文档", async (stage) => {
 		await writeFile(path.join(workspace, "failure.pdf"), await pdfFixture("two-page.pdf"));
-		const renderFailure = fakePdfSource({
+		const fake = fakePdfSource({
 			pageCount: 3,
 			render(pageNumber) {
-				return pageNumber === 2
+				return stage === "render" && pageNumber === 2
 					? { ok: false, reason: "render-failed", message: "page failed" }
 					: renderedPdfPage(pageNumber);
 			},
 		});
-		const failedRender = await testContext.read({ path: "failure.pdf" }, {
-			pdf: renderFailure.source,
-			image: passthroughPdfImage,
-		});
-		expect(failedRender).toMatchObject({
-			status: "failed",
-			error: { code: "BINARY_FILE_UNSUPPORTED", details: { stage: "render", page: 2 } },
-		});
-		expect(failedRender).not.toHaveProperty("pages");
-		expect(renderFailure.renderedPages).toEqual([1, 2]);
-		expect(renderFailure.disposeCalls).toBe(1);
-
-		const imageFailure = fakePdfSource({ pageCount: 3 });
 		const processedPages: string[] = [];
-		const failedImage = await testContext.read({ path: "failure.pdf" }, {
-			pdf: imageFailure.source,
+		const result = await testContext.read({ path: "failure.pdf" }, {
+			pdf: fake.source,
 			image: {
 				async process(input) {
 					processedPages.push(input.path);
@@ -440,54 +417,36 @@ describe("read PDF 页面", () => {
 				},
 			},
 		});
-		expect(failedImage).toMatchObject({
+		expect(result).toMatchObject({
 			status: "failed",
-			error: { code: "BINARY_FILE_UNSUPPORTED", details: { stage: "image-process", page: 2 } },
+			error: { code: "BINARY_FILE_UNSUPPORTED", details: { stage, page: 2 } },
 		});
-		expect(processedPages).toEqual(["failure.pdf#page=1", "failure.pdf#page=2"]);
-		expect(imageFailure.renderedPages).toEqual([1, 2]);
-		expect(imageFailure.disposeCalls).toBe(1);
+		expect(result).not.toHaveProperty("pages");
+		expect(processedPages).toEqual((stage === "render" ? [1] : [1, 2]).map((page) => `failure.pdf#page=${page}`));
+		expect(fake.renderedPages).toEqual([1, 2]);
+		expect(fake.disposeCalls).toBe(1);
 	});
 
 	it("只在全部页面成功后记录原始 PDF 版本 observation", async () => {
-		await writeFile(path.join(workspace, "observed.pdf"), await pdfFixture("two-page.pdf"));
-		await writeFile(path.join(workspace, "failed.pdf"), await pdfFixture("two-page.pdf"));
+		const bytes = await pdfFixture("two-page.pdf");
 		const host = new FileToolsHost();
 		try {
-			const successful = fakePdfSource({ pageCount: 1 });
-			expect(await readWorkspaceFile(workspace, { path: "observed.pdf" }, {
-				host,
-				sessionId: "pdf-observation",
-				pdf: successful.source,
-				image: passthroughPdfImage,
-			})).toMatchObject({ media_type: "pdf" });
-
-			const failed = fakePdfSource({
-				pageCount: 2,
-				render(pageNumber) {
-					return pageNumber === 2
+			for (const [name, pageCount] of [["observed.pdf", 1], ["failed.pdf", 2]] as const) {
+				await writeFile(path.join(workspace, name), bytes);
+				const fake = fakePdfSource({
+					pageCount,
+					render: (pageNumber) => pageNumber === 2
 						? { ok: false, reason: "render-failed", message: "failed" }
-						: renderedPdfPage(pageNumber);
-				},
-			});
-			expect(await readWorkspaceFile(workspace, { path: "failed.pdf" }, {
-				host,
-				sessionId: "pdf-observation",
-				pdf: failed.source,
-				image: passthroughPdfImage,
-			})).toMatchObject({ status: "failed" });
-
-			const opened = await host.open({ cwd: workspace, sessionId: "pdf-observation" });
-			if ("status" in opened) throw new Error(opened.error.message);
-			try {
-				const observed = await opened.filesystem.paths.resolveExisting("observed.pdf", { expected: "file", followFinalSymlink: true });
-				const unobserved = await opened.filesystem.paths.resolveExisting("failed.pdf", { expected: "file", followFinalSymlink: true });
-				if (!observed.ok || !unobserved.ok) throw new Error("PDF observation fixtures were not resolved.");
-				expect(opened.observation.get(observed.value)).toBeDefined();
-				expect(opened.observation.get(unobserved.value)).toBeUndefined();
-			} finally {
-				opened.dispose();
+						: renderedPdfPage(pageNumber),
+				});
+				expect(await readWorkspaceFile(workspace, { path: name }, {
+					host, sessionId: "pdf-observation", pdf: fake.source, image: passthroughPdfImage,
+				})).toMatchObject(pageCount === 1 ? { media_type: "pdf" } : { status: "failed" });
 			}
+			expect(host.sessionObservations("pdf-observation")).toEqual([{
+				canonicalPath: await realpath(path.join(workspace, "observed.pdf")),
+				version: { hash: sha256Version(bytes), sizeBytes: bytes.byteLength },
+			}]);
 		} finally {
 			host.dispose();
 		}

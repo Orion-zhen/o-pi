@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test, expect } from "./desktop-fixture.ts";
@@ -28,15 +29,7 @@ for (const bypass of [false, true]) test.describe(bypass ? "系统代理绕过" 
 		proxy = await startProxyFixture(model.url);
 		await mkdir(path.join(agentDir, "extensions"), { recursive: true });
 		await writeFile(path.join(agentDir, "extensions", "proxy-socket.ts"), socketToolExtension(bypass ? proxy.wsUrl : "ws://socket.invalid/"));
-		await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-			defaultProjectTrust: "never", defaultProvider: "proxy-test", defaultModel: "test",
-			compaction: { enabled: false }, retry: { enabled: false },
-		}));
-		await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "proxy-test": {
-			api: "openai-completions", baseUrl: bypass ? model.url : "http://model.invalid/v1", apiKey: "proxy-test-token",
-			models: [{ id: "test", name: "test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-		} } }));
+		await configureModel(agentDir, bypass ? model.url : "http://model.invalid/v1", "proxy-test", { name: "test", reasoning: false, apiKey: "proxy-test-token" });
 	});
 	test.afterEach(async () => { await proxy?.close(); await model?.close(); });
 

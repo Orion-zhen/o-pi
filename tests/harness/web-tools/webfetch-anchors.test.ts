@@ -1,25 +1,13 @@
-import { Agent } from "undici";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { executeWebFetch } from "../../../src/harness/web-tools/fetch/webfetch-tool.ts";
-import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.ts";
-import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.ts";
-import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { useWebFetchRuntime } from "./fetch-fixture.ts";
 import { httpResponse, redirectResponse } from "../../helpers/http.ts";
 
-const dispatchers: Agent[] = [];
-afterEach(async () => { await Promise.all(dispatchers.splice(0).map((dispatcher) => dispatcher.close())); });
 
-function runtime(fetchImpl: WebHttpFetch) {
-	const dispatcher = new Agent();
-	dispatchers.push(dispatcher);
-	return {
-		dispatcher, fetchImpl, config: defaultWebToolsConfig(),
-		cookieStore: { async getCookieAccess() { return {}; }, async storeFromResponse() { return undefined; } },
-		snapshots: new SnapshotCache(), approvedAuthOrigins: new Set<string>(),
-		context: { toolCallId: "anchor", acceptsImages: false }, now: () => Date.now(),
-	};
-}
+const runtime = useWebFetchRuntime((runtime) => {
+	runtime.context.acceptsImages = false;
+});
 
 const HTML = `<html><head><title>Entire guide</title>
 	<meta property="og:image" content="https://example.com/unrelated.png">

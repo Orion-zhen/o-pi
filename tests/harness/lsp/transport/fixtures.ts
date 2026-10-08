@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, vi } from "vitest";
+import { StreamMessageReader, type Message } from "vscode-jsonrpc/node";
 
 import { analyzeCodeFile } from "../../../../src/harness/code-index/parser.ts";
 import { LspDocumentSession } from "../../../../src/harness/lsp/client/document-session.ts";
@@ -14,7 +15,7 @@ import type { LspConfig } from "../../../../src/harness/lsp/types.ts";
 import { deferred } from "../../../helpers/async.ts";
 import { preserveEnv, useTempDir } from "../../../helpers/lifecycle.ts";
 
-export interface JsonRpcMessage {
+export interface JsonRpcMessage extends Message {
 	method?: string;
 	id?: number;
 	params?: unknown;
@@ -272,37 +273,26 @@ export async function createFakeServer(fixture: TransportFixture, handler: Messa
 	const server = net.createServer((socket) => {
 		connections += 1;
 		sockets.add(socket);
-		let buffer = Buffer.alloc(0);
-		socket.on("data", (chunk: Buffer) => {
-			buffer = Buffer.concat([buffer, chunk]);
-			while (true) {
-				const marker = buffer.indexOf("\r\n\r\n");
-				if (marker < 0) return;
-				const header = buffer.subarray(0, marker).toString("utf8");
-				const match = header.match(/Content-Length:\s*(\d+)/i);
-				if (match === null) throw new Error("missing content length");
-				const length = Number(match[1]);
-				const start = marker + 4;
-				if (buffer.length < start + length) return;
-				const message = JSON.parse(buffer.subarray(start, start + length).toString("utf8")) as JsonRpcMessage;
-				buffer = buffer.subarray(start + length);
-				messages.push(message);
-				if (message.method !== undefined) {
-					methods.push(message.method);
-					if (message.method === "$/cancelRequest") cancelled.resolve();
-				} else if (message.id !== undefined) {
-					response.resolve(message);
-				}
-				if (message.method === "shutdown") {
-					send(socket, { id: message.id, result: null });
-				} else if (message.method === "exit") {
-					socket.end();
-				} else {
-					handler(message, socket);
-				}
+		const reader = new StreamMessageReader(socket);
+		reader.onError((error) => { throw error; });
+		reader.listen((message: JsonRpcMessage) => {
+			messages.push(message);
+			if (message.method !== undefined) {
+				methods.push(message.method);
+				if (message.method === "$/cancelRequest") cancelled.resolve();
+			} else if (message.id !== undefined) {
+				response.resolve(message);
+			}
+			if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			} else {
+				handler(message, socket);
 			}
 		});
 		socket.once("close", () => {
+			reader.dispose();
 			sockets.delete(socket);
 			if (sockets.size === 0) closed.resolve();
 		});

@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
 
@@ -282,23 +282,17 @@ describe("lsp workspace symbols through code analysis", () => {
 
 	it.skipIf(process.platform === "win32")("reload 等待顽固 language server 退出并在超时后强杀", async () => {
 		const pidPath = path.join(configDir, "stubborn-lsp.pid");
-		const server = path.join(configDir, "stubborn-lsp.mjs");
-		await writeFile(server, [
-			'import { writeFileSync } from "node:fs";',
-			`writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
-			'process.on("SIGTERM", () => {});',
-			fakeServerSource(workspace),
-		].join("\n"));
+		const server = fileURLToPath(new URL("./fixtures/stdio-server.mjs", import.meta.url));
 		await writeConfig({
 			enabled: true,
 			startup_timeout_ms: 2000,
 			request_timeout_ms: 2000,
-			servers: { stubborn: testServer([process.execPath, server], ["ts"]) },
+			servers: { stubborn: testServer([process.execPath, server, "stubborn", pidPath], ["ts"]) },
 		});
 
 		const pid = await withManager(async (manager) => {
 			await queryWorkspaceSymbols(manager, "target", undefined, false);
-			return Number(await readFile(pidPath, "utf8"));
+			return Number((await readFile(pidPath, "utf8")).split("\n")[0]);
 		});
 
 		expect(Number.isInteger(pid)).toBe(true);
@@ -386,54 +380,6 @@ function testServer(command: string | readonly string[], extensions: readonly st
 
 function range(line: number) {
 	return { start: { line, character: 0 }, end: { line, character: 6 } };
-}
-
-function fakeServerSource(root: string): string {
-	const defUri = pathToUri(path.join(root, "src", "def.ts"));
-	return `
-let buffer = Buffer.alloc(0);
-setInterval(() => {}, 60_000);
-process.stdin.resume();
-process.stdin.on("data", (chunk) => {
-	buffer = Buffer.concat([buffer, chunk]);
-	while (true) {
-		const marker = buffer.indexOf("\\r\\n\\r\\n");
-		if (marker === -1) return;
-		const header = buffer.slice(0, marker).toString("utf8");
-		const match = header.match(/Content-Length: (\\d+)/i);
-		if (match === null) throw new Error("missing content-length");
-		const length = Number(match[1]);
-		const start = marker + 4;
-		if (buffer.length < start + length) return;
-		const message = JSON.parse(buffer.slice(start, start + length).toString("utf8"));
-		buffer = buffer.slice(start + length);
-		handle(message);
-	}
-});
-
-function handle(message) {
-	if (message.method === "initialize") {
-		send({ jsonrpc: "2.0", id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
-		return;
-	}
-	if (message.method === "workspace/symbol") {
-		send({ jsonrpc: "2.0", id: message.id, result: [{
-			name: "target",
-			kind: 12,
-			location: { uri: ${JSON.stringify(defUri)}, range: { start: { line: 0, character: 16 }, end: { line: 0, character: 22 } } }
-		}] });
-		return;
-	}
-	if (message.method === "shutdown") {
-		send({ jsonrpc: "2.0", id: message.id, result: null });
-	}
-}
-
-function send(message) {
-	const body = JSON.stringify(message);
-	process.stdout.write("Content-Length: " + Buffer.byteLength(body, "utf8") + "\\r\\n\\r\\n" + body);
-}
-`;
 }
 
 function pathToUri(filePath: string): string {

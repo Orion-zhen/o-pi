@@ -1,5 +1,5 @@
 import { test, expect, type Page, type CDPSession } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { startWebProcess } from "./web-process.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -46,8 +46,7 @@ for (const turns of [20, 100, 300]) test(`${turns} 轮历史的打开、输入�
 			: { tool: "read", args: { path: "detail.txt" }, text: "处理过程\n\n" + "说明一项检查结果，保持完整过程可读。\n\n".repeat(80) }
 		: { text: chunks.join(""), chunks, intervalMs: 20 });
 	const context = await browser.newContext(info.project.use.viewport === undefined ? {} : { viewport: info.project.use.viewport });
-	let child: ChildProcess | undefined;
-	let output = "";
+	let backend: ReturnType<typeof startWebProcess> | undefined;
 	const measurements: unknown[] = [];
 	try {
 		await mkdir(cwd, { recursive: true });
@@ -69,11 +68,8 @@ for (const turns of [20, 100, 300]) test(`${turns} 轮历史的打开、输入�
 		});
 		const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined && /^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|DISPLAY|XAUTHORITY|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS)$/.test(entry[0])));
 		Object.assign(env, { HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", OPI_NO_NOTIFICATIONS: "1", NODE_ENV: "test" });
-		child = spawn(process.env.OPI_GUI_TEST_BINARY ?? path.resolve("dist/web", process.platform === "win32" ? "opi-web.exe" : "opi-web"), ["--cwd", cwd, "--host", "127.0.0.1", "--port", "0"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-		child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
-		child.stderr?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
-		let url = "";
-		await expect.poll(() => { url = output.match(/opi-web: (http:\/\/[^\s]+)/)?.[1] ?? ""; return url; }).toBeTruthy();
+		backend = startWebProcess(cwd, env);
+		const url = await backend.ready();
 		const page = await context.newPage();
 		const errors: string[] = [];
 		page.on("pageerror", (error) => errors.push(error.message));
@@ -175,7 +171,7 @@ for (const turns of [20, 100, 300]) test(`${turns} 轮历史的打开、输入�
 	} finally {
 		await info.attach("measurements", { body: JSON.stringify({ turns, viewport: info.project.use.viewport, measurements }, null, 2), contentType: "application/json" });
 		await context.close();
-		if (child?.exitCode === null) await new Promise<void>((resolve) => { const timer = setTimeout(() => child?.kill("SIGKILL"), 10000); child?.once("exit", () => { clearTimeout(timer); resolve(); }); child?.kill("SIGTERM"); });
+		await backend?.close();
 		await server.close();
 		await rm(home, { recursive: true, force: true });
 	}

@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test, expect } from "./fixture.ts";
@@ -17,15 +18,7 @@ test.describe("MCP", () => {
 				: { tool: "codemode", args: { code: 'text(await searchTools("MCP_VISIBILITY", {namespace:"mcp__fixture"}));' } };
 		});
 		await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
-		await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-			defaultProjectTrust: "never", defaultProvider: "fixture", defaultModel: "test", defaultTools: ["codemode"],
-			compaction: { enabled: false }, retry: { enabled: false },
-		}));
-		await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
-			baseUrl: model.url, api: "openai-completions", apiKey: "fixture",
-			models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-		} } }));
+		await configureModel(agentDir, model.url, "fixture", { reasoning: false, settings: { defaultTools: ["codemode"] } });
 	});
 	test.afterEach(async () => { await model?.close(); });
 

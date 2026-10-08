@@ -105,7 +105,7 @@ describe("subagent execution", () => {
 		childProcess.spawn.mockImplementation((_command, args, options) => {
 			capturedArgs = args;
 			expect(options.env?.PI_SUBAGENT_CHILD).toBe("1");
-			return completedProcess(messageStart(), messageEnd([{ type: "text", text: "done" }]));
+			return completedProcess([messageStart(), messageEnd([{ type: "text", text: "done" }])]);
 		});
 
 		await runPiProcess(input());
@@ -184,7 +184,7 @@ describe("subagent execution", () => {
 			if (sessionDir !== undefined) sessionDirs.push(sessionDir);
 			return calls === 1
 				? completedProcess()
-				: completedProcess(messageStart(), messageEnd([{ type: "text", text: "recovered" }]));
+				: completedProcess([messageStart(), messageEnd([{ type: "text", text: "recovered" }])]);
 		});
 
 		const result = await runTasks([{ agent: "forker", task: "retry" }], forkExecutorContext());
@@ -301,7 +301,7 @@ describe("subagent execution", () => {
 			if (snapshot === undefined) throw new Error("fork snapshot missing");
 			snapshots.push(snapshot);
 			readable.push(existsSync(snapshot));
-			return completedProcess(messageStart(), messageEnd([{ type: "text", text: "handoff" }]));
+			return completedProcess([messageStart(), messageEnd([{ type: "text", text: "handoff" }])]);
 		});
 		const result = await runTasks([
 			{ agent: "forker", task: "seed" },
@@ -363,14 +363,8 @@ describe("subagent execution", () => {
 		let calls = 0;
 		childProcess.spawn.mockImplementation(() => {
 			calls += 1;
-			if (calls > 1) return completedProcess(messageStart(), messageEnd([{ type: "text", text: "recovered" }]));
-			const proc = new FakeChildProcess();
-			queueMicrotask(() => {
-				proc.stderr.write("provider error: rate limit");
-				proc.exitCode = 0;
-				proc.emit("close", 0);
-			});
-			return proc;
+			if (calls > 1) return completedProcess([messageStart(), messageEnd([{ type: "text", text: "recovered" }])]);
+			return completedProcess([], { stderr: "provider error: rate limit" });
 		});
 
 		const result = await runTasks([{ agent: "scout", task: "provider" }]);
@@ -404,15 +398,7 @@ describe("subagent execution", () => {
 		let calls = 0;
 		childProcess.spawn.mockImplementation(() => {
 			calls++;
-			const proc = new FakeChildProcess();
-			queueMicrotask(() => {
-				proc.stdout.write("not-json\n");
-				proc.stdout.write(`${JSON.stringify(messageStart())}\n`);
-				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "text", text: "done" }]))}\n`);
-				proc.exitCode = 0;
-				proc.emit("close", 0);
-			});
-			return proc;
+			return completedProcess([messageStart(), messageEnd([{ type: "text", text: "done" }])], { stdout: "not-json\n" });
 		});
 
 		const result = await runTasks([{ agent: "scout", task: "protocol" }]);
@@ -463,13 +449,13 @@ describe("subagent execution", () => {
 	});
 
 	it("解析 message_update delta 并发送实时进度快照", async () => {
-		childProcess.spawn.mockImplementation(() => completedProcess(
+		childProcess.spawn.mockImplementation(() => completedProcess([
 			messageStart(),
 			messageUpdate({ input: 12, output: 0, totalTokens: 12 }, { type: "text_start", contentIndex: 0 }),
 			messageUpdate({ input: 12, output: 1, totalTokens: 13 }, { type: "text_delta", contentIndex: 0, delta: "work" }),
 			messageUpdate({ input: 12, output: 2, totalTokens: 14 }, { type: "text_delta", contentIndex: 0, delta: "ing" }),
 			messageEnd([{ type: "text", text: "done" }], { input: 12, output: 3, totalTokens: 15 }),
-		));
+		]));
 		const updates: ProcessRunProgress[] = [];
 
 		const output = await runPiProcess(input(), { onUpdate: (progress) => updates.push(progress) });
@@ -657,7 +643,7 @@ function setOutputSpawn(outputForTask: (task: string) => string | undefined): vo
 		const output = outputForTask(task);
 		return output === undefined
 			? completedProcess()
-			: completedProcess(messageStart(), messageEnd([{ type: "text", text: output }]));
+			: completedProcess([messageStart(), messageEnd([{ type: "text", text: output }])]);
 	});
 }
 
@@ -673,9 +659,11 @@ async function constrainInlineOutput(output: string): Promise<void> {
 	await writeConfig({ max_inline_output_tokens });
 }
 
-function completedProcess(...messages: unknown[]): FakeChildProcess {
+function completedProcess(messages: readonly unknown[] = [], output: { stdout?: string; stderr?: string } = {}): FakeChildProcess {
 	const proc = new FakeChildProcess();
 	queueMicrotask(() => {
+		if (output.stdout !== undefined) proc.stdout.write(output.stdout);
+		if (output.stderr !== undefined) proc.stderr.write(output.stderr);
 		for (const message of messages) proc.stdout.write(`${JSON.stringify(message)}\n`);
 		proc.exitCode = 0;
 		proc.emit("close", 0);

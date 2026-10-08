@@ -1,12 +1,11 @@
 import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
-import { parseHTML } from "linkedom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useReactFixture } from "./react-fixture.ts";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StorageEntry, StorageGroup } from "../../src/gui/storage.ts";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 import { StorageGroupView } from "../../src/gui/ui/storage/storage-group.tsx";
 
-let root: ReturnType<typeof createRoot>;
+const renderRoot = useReactFixture();
 const requestRemoval = vi.fn();
 const entry = (name: string, bytes: number): StorageEntry => ({
 	id: name, name, path: `/storage/${name}`, bytes, files: null, modified: 0, blocked: null,
@@ -15,9 +14,9 @@ const group = (entries: StorageEntry[], id: StorageGroup["id"] = "sessions"): St
 	id, title: id, paths: ["/storage"], entries, error: null,
 });
 async function render(groups: StorageGroup[]) {
-	await act(async () => root.render(createElement(TooltipProvider, null, groups.map((group) => createElement(StorageGroupView, {
+	await renderRoot(createElement(TooltipProvider, null, groups.map((group) => createElement(StorageGroupView, {
 		key: group.id, group, disabled: false, requestRemoval,
-	})))));
+	}))));
 }
 function section(title = "sessions"): HTMLElement {
 	const element = document.querySelector<HTMLElement>(`section[aria-label="${title}"]`);
@@ -40,19 +39,10 @@ async function expand(container = section()) {
 const names = (container = section()) => [...container.querySelectorAll(".storage-entry:not([aria-hidden=true]) strong")].map((element) => element.textContent);
 
 beforeEach(() => {
-	const { window, document } = parseHTML("<html><body></body></html>");
-	vi.stubGlobal("window", window);
-	vi.stubGlobal("document", document);
-	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("getComputedStyle", (element: HTMLElement) => element.style);
 	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0));
 	vi.stubGlobal("cancelAnimationFrame", clearTimeout);
-	root = createRoot(document.body);
 	requestRemoval.mockClear();
-});
-afterEach(async () => {
-	await act(async () => root.unmount());
-	vi.unstubAllGlobals();
 });
 
 describe("存储分类按文件大小排序", () => {

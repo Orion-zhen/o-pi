@@ -1,26 +1,12 @@
-import { Agent } from "undici";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { executeWebFetch } from "../../../src/harness/web-tools/fetch/webfetch-tool.ts";
-import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.ts";
-import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.ts";
-import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { useWebFetchRuntime } from "./fetch-fixture.ts";
 import { httpResponse } from "../../helpers/http.ts";
 
-const dispatchers: Agent[] = [];
-afterEach(async () => { await Promise.all(dispatchers.splice(0).map((dispatcher) => dispatcher.close())); });
 
-function runtime(fetchImpl: WebHttpFetch) {
-	const dispatcher = new Agent();
-	dispatchers.push(dispatcher);
-	const config = defaultWebToolsConfig();
-	config.webfetch.media.mode = "on";
-	return {
-		dispatcher, fetchImpl, config,
-		cookieStore: { async getCookieAccess() { return {}; }, async storeFromResponse() { return undefined; } },
-		snapshots: new SnapshotCache(), approvedAuthOrigins: new Set<string>(),
-		context: { toolCallId: "url", acceptsImages: true }, now: () => Date.now(),
-	};
-}
+const runtime = useWebFetchRuntime((runtime) => {
+	runtime.config.webfetch.media.mode = "on";
+});
 
 describe("webfetch URL 边界", () => {
 	it.each(["not a URL", "https://[broken", "file:///etc/passwd", "https://user:secret@example.com/docs"])(

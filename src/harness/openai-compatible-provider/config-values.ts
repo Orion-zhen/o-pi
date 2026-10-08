@@ -1,19 +1,15 @@
 import { execSync } from "node:child_process";
 
 const commandResultCache = new Map<string, string | undefined>();
-const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const ENV_VAR_NAME_PREFIX_RE = /^[A-Za-z_][A-Za-z0-9_]*/;
-
-type ConfigValuePart = { type: "literal"; value: string } | { type: "env"; name: string };
-type ConfigValueReference = { type: "command"; config: string } | { type: "template"; parts: ConfigValuePart[] };
+// 非法的 ${...} 整段保留，不能继续解析其中的 $。
+const CONFIG_VALUE_TOKEN = /\$(?:([$!])|\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)|\{[^}]*\})/g;
 
 export function resolveConfigValueOrThrow(config: string, description: string, env?: Record<string, string>): string {
 	const resolvedValue = resolveConfigValue(config, env);
 	if (resolvedValue !== undefined) return resolvedValue;
 
-	const reference = parseConfigValueReference(config);
-	if (reference.type === "command") {
-		throw new Error(`Failed to resolve ${description} from shell command: ${reference.config.slice(1)}`);
+	if (isCommandConfigValue(config)) {
+		throw new Error(`Failed to resolve ${description} from shell command: ${config.slice(1)}`);
 	}
 
 	const missingEnvVars = getMissingConfigValueEnvVarNames(config, env);
@@ -44,79 +40,11 @@ function getMissingConfigValueEnvVarNames(config: string, env?: Record<string, s
 }
 
 export function getConfigValueEnvVarNames(config: string): string[] {
-	const reference = parseConfigValueReference(config);
-	return reference.type === "template" ? getTemplateEnvVarNames(reference.parts) : [];
-}
-
-function parseConfigValueReference(config: string): ConfigValueReference {
-	if (config.startsWith("!")) return { type: "command", config };
-	return { type: "template", parts: parseConfigValueTemplate(config) };
-}
-
-function parseConfigValueTemplate(config: string): ConfigValuePart[] {
-	const parts: ConfigValuePart[] = [];
-	let index = 0;
-	while (index < config.length) {
-		const dollarIndex = config.indexOf("$", index);
-		if (dollarIndex < 0) {
-			appendLiteral(parts, config.slice(index));
-			break;
-		}
-
-		appendLiteral(parts, config.slice(index, dollarIndex));
-		const nextChar = config[dollarIndex + 1];
-		if (nextChar === "$" || nextChar === "!") {
-			appendLiteral(parts, nextChar);
-			index = dollarIndex + 2;
-			continue;
-		}
-
-		if (nextChar === "{") {
-			const endIndex = config.indexOf("}", dollarIndex + 2);
-			if (endIndex < 0) {
-				appendLiteral(parts, "$");
-				index = dollarIndex + 1;
-				continue;
-			}
-
-			const name = config.slice(dollarIndex + 2, endIndex);
-			if (ENV_VAR_NAME_RE.test(name)) {
-				parts.push({ type: "env", name });
-			} else {
-				appendLiteral(parts, config.slice(dollarIndex, endIndex + 1));
-			}
-			index = endIndex + 1;
-			continue;
-		}
-
-		const match = config.slice(dollarIndex + 1).match(ENV_VAR_NAME_PREFIX_RE);
-		if (match) {
-			parts.push({ type: "env", name: match[0] });
-			index = dollarIndex + 1 + match[0].length;
-			continue;
-		}
-
-		appendLiteral(parts, "$");
-		index = dollarIndex + 1;
-	}
-	return parts;
-}
-
-function appendLiteral(parts: ConfigValuePart[], value: string): void {
-	if (!value) return;
-	const previousPart = parts[parts.length - 1];
-	if (previousPart?.type === "literal") {
-		previousPart.value += value;
-		return;
-	}
-	parts.push({ type: "literal", value });
-}
-
-function getTemplateEnvVarNames(parts: ConfigValuePart[]): string[] {
+	if (isCommandConfigValue(config)) return [];
 	const names: string[] = [];
-	for (const part of parts) {
-		if (part.type !== "env" || names.includes(part.name)) continue;
-		names.push(part.name);
+	for (let match = CONFIG_VALUE_TOKEN.exec(config); match !== null; match = CONFIG_VALUE_TOKEN.exec(config)) {
+		const name = match[2] ?? match[3];
+		if (name !== undefined && !names.includes(name)) names.push(name);
 	}
 	return names;
 }
@@ -126,23 +54,20 @@ export function isCommandConfigValue(config: string): boolean {
 }
 
 export function resolveConfigValue(config: string, env?: Record<string, string>): string | undefined {
-	const reference = parseConfigValueReference(config);
-	if (reference.type === "command") return executeCachedCommand(reference.config);
-	return resolveTemplate(reference.parts, env);
-}
-
-function resolveTemplate(parts: ConfigValuePart[], env?: Record<string, string>): string | undefined {
+	if (isCommandConfigValue(config)) return executeCachedCommand(config);
 	let resolved = "";
-	for (const part of parts) {
-		if (part.type === "literal") {
-			resolved += part.value;
-			continue;
+	let end = 0;
+	for (let match = CONFIG_VALUE_TOKEN.exec(config); match !== null; match = CONFIG_VALUE_TOKEN.exec(config)) {
+		const name = match[2] ?? match[3];
+		const value = name === undefined ? match[1] ?? match[0] : resolveEnvConfigValue(name, env);
+		if (value === undefined) {
+			CONFIG_VALUE_TOKEN.lastIndex = 0;
+			return undefined;
 		}
-		const envValue = resolveEnvConfigValue(part.name, env);
-		if (envValue === undefined) return undefined;
-		resolved += envValue;
+		resolved += config.slice(end, match.index) + value;
+		end = CONFIG_VALUE_TOKEN.lastIndex;
 	}
-	return resolved;
+	return resolved + config.slice(end);
 }
 
 function resolveEnvConfigValue(name: string, env?: Record<string, string>): string | undefined {

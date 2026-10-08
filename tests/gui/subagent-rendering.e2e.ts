@@ -1,3 +1,4 @@
+import { configureModel } from "./model-fixture.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test, expect } from "./fixture.ts";
@@ -14,12 +15,7 @@ test.beforeEach(async ({ workspace: { agentDir } }) => {
 		if (request.messages.at(-1)?.role === "tool") return { text: "主任务完成" };
 		return { tool: "subagent", args: { tasks: [{ agent: "gui-worker", task: "CHILD_RENDER" }] } };
 	});
-	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "never", defaultProvider: "subagent-test", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "subagent-test": {
-		api: "openai-completions", baseUrl: model.url, apiKey: "fixture",
-		models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	await configureModel(agentDir, model.url, "subagent-test", { reasoning: false });
 	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 	await mkdir(path.join(agentDir, "agents"), { recursive: true });
 	await writeFile(path.join(agentDir, "agents", "gui-worker.md"), "---\nname: gui-worker\ndescription: GUI 流式渲染验证\ntools: read\nauto_confirm: true\nretries: 0\n---\n完成子任务。\n");

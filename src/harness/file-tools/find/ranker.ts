@@ -122,41 +122,29 @@ function fuzzyMatch(search: SearchText, text: readonly string[], pattern: readon
 	if (pattern.length === 0 || pattern.length > text.length || !isSubsequence(text, pattern)) {
 		return { matched: false, score: 0, positions: [] };
 	}
-	const scores = Array.from({ length: pattern.length }, () => new Array<number>(text.length).fill(NEGATIVE_INFINITY));
-	const previous = Array.from({ length: pattern.length }, () => new Array<number>(text.length).fill(-1));
-	const runBonuses = Array.from({ length: pattern.length }, () => new Array<number>(text.length).fill(0));
-	const firstScores = scores[0];
-	const firstRunBonuses = runBonuses[0];
-	if (firstScores === undefined || firstRunBonuses === undefined) {
-		return { matched: false, score: 0, positions: [] };
-	}
+	// 评分和连续奖励只依赖上一行；仅回溯前驱需要保留全部行。
+	let scores = new Array<number>(text.length).fill(NEGATIVE_INFINITY);
+	let runBonuses = new Array<number>(text.length).fill(0);
+	const previous: number[][] = [];
 
 	for (let column = 0; column < text.length; column += 1) {
 		if (text[column] !== pattern[0]) continue;
 		const boundary = search.bonuses[column] ?? 0;
-		firstScores[column] = SCORE_MATCH + boundary * BONUS_FIRST_MULTIPLIER;
-		firstRunBonuses[column] = boundary;
+		scores[column] = SCORE_MATCH + boundary * BONUS_FIRST_MULTIPLIER;
+		runBonuses[column] = boundary;
 	}
 
 	for (let row = 1; row < pattern.length; row += 1) {
-		const priorScores = scores[row - 1];
-		const currentScores = scores[row];
-		const priorRunBonuses = runBonuses[row - 1];
-		const currentRunBonuses = runBonuses[row];
-		const currentPrevious = previous[row];
-		if (
-			priorScores === undefined
-			|| currentScores === undefined
-			|| priorRunBonuses === undefined
-			|| currentRunBonuses === undefined
-			|| currentPrevious === undefined
-		) return { matched: false, score: 0, positions: [] };
+		const currentScores = new Array<number>(text.length).fill(NEGATIVE_INFINITY);
+		const currentRunBonuses = new Array<number>(text.length).fill(0);
+		const currentPrevious = new Array<number>(text.length).fill(-1);
+		previous.push(currentPrevious);
 		let bestGapValue = NEGATIVE_INFINITY;
 		let bestGapColumn = -1;
 		for (let column = 0; column < text.length; column += 1) {
 			const eligible = column - 2;
 			if (eligible >= 0) {
-				const prior = priorScores[eligible] ?? NEGATIVE_INFINITY;
+				const prior = scores[eligible] ?? NEGATIVE_INFINITY;
 				const value = prior - eligible * SCORE_GAP_EXTENSION;
 				if (value > bestGapValue) {
 					bestGapValue = value;
@@ -170,10 +158,10 @@ function fuzzyMatch(search: SearchText, text: readonly string[], pattern: readon
 			let predecessor = -1;
 			let runBonus = boundary;
 			const consecutiveScore = column > 0
-				? priorScores[column - 1] ?? NEGATIVE_INFINITY
+				? scores[column - 1] ?? NEGATIVE_INFINITY
 				: NEGATIVE_INFINITY;
 			if (Number.isFinite(consecutiveScore)) {
-				const priorRunBonus = priorRunBonuses[column - 1] ?? 0;
+				const priorRunBonus = runBonuses[column - 1] ?? 0;
 				const consecutiveBonus = Math.max(BONUS_CONSECUTIVE, boundary, priorRunBonus);
 				bestScore = consecutiveScore + SCORE_MATCH + consecutiveBonus;
 				predecessor = column - 1;
@@ -195,14 +183,14 @@ function fuzzyMatch(search: SearchText, text: readonly string[], pattern: readon
 			currentPrevious[column] = predecessor;
 			currentRunBonuses[column] = runBonus;
 		}
+		scores = currentScores;
+		runBonuses = currentRunBonuses;
 	}
 
-	const finalRow = scores[pattern.length - 1];
-	if (finalRow === undefined) return { matched: false, score: 0, positions: [] };
 	let end = -1;
 	let score = NEGATIVE_INFINITY;
-	for (let column = 0; column < finalRow.length; column += 1) {
-		const candidate = finalRow[column] ?? NEGATIVE_INFINITY;
+	for (let column = 0; column < scores.length; column += 1) {
+		const candidate = scores[column] ?? NEGATIVE_INFINITY;
 		if (candidate > score) {
 			score = candidate;
 			end = column;
@@ -213,7 +201,7 @@ function fuzzyMatch(search: SearchText, text: readonly string[], pattern: readon
 	let column = end;
 	for (let row = pattern.length - 1; row >= 0; row -= 1) {
 		positions[row] = column;
-		column = previous[row]?.[column] ?? -1;
+		column = previous[row - 1]?.[column] ?? -1;
 	}
 	return { matched: true, score, positions };
 }

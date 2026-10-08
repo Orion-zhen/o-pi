@@ -1,7 +1,6 @@
 import { act, createElement, Fragment } from "react";
-import { createRoot } from "react-dom/client";
-import { parseHTML } from "linkedom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useReactFixture } from "./react-fixture.ts";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assistantKey } from "../../src/gui/message-metrics.ts";
 import { DisclosureMemoryContext } from "../../src/gui/ui/components/disclosure-memory.ts";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
@@ -11,7 +10,10 @@ import { transcriptReplies } from "../../src/gui/ui/transcript/transcript-replie
 import type { TranscriptSource } from "../../src/gui/ui/transcript/transcript-items.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 
-let root: ReturnType<typeof createRoot>;
+const renderRoot = useReactFixture(() => {
+	Reflect.deleteProperty(window.HTMLElement.prototype, "getAnimations");
+	vi.restoreAllMocks();
+});
 const memory = new Map<string, boolean | null>();
 const query = async () => { throw new Error("内联结果不应请求载荷"); };
 const completed = assistant([{ type: "text", text: "已检查组件" }, call]);
@@ -19,11 +21,11 @@ const initial = source({ messages: [{ role: "user", content: "检查项目", tim
 async function render(value: TranscriptSource, entryIds = ["user", "checked", "result", "live"], pruned: ReadonlySet<string> = new Set()) {
 	const reply = transcriptReplies(value, pruned).find((row) => row.kind === "reply");
 	if (!reply) throw new Error("缺少回复");
-	await act(async () => root.render(createElement(GuiQueryContext, { value: query },
+	await renderRoot(createElement(GuiQueryContext, { value: query },
 		createElement(TooltipProvider, null, createElement(DisclosureMemoryContext, { value: memory },
 			createElement(Fragment, null,
 				createElement(ReplyItems, { items: reply.process, entryIds }),
-				createElement(ReplyItems, { items: reply.answer, entryIds, showMetrics: false })))))));
+				createElement(ReplyItems, { items: reply.answer, entryIds, showMetrics: false }))))));
 }
 function button(selector: string): HTMLButtonElement {
 	const element = document.querySelector<HTMLButtonElement>(selector);
@@ -32,22 +34,11 @@ function button(selector: string): HTMLButtonElement {
 }
 
 beforeEach(() => {
-	const { window, document } = parseHTML("<html><body></body></html>");
-	vi.stubGlobal("window", window);
-	vi.stubGlobal("document", document);
-	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("getComputedStyle", (element: HTMLElement) => element.style);
 	Object.defineProperty(window.HTMLElement.prototype, "getAnimations", { configurable: true, value: () => [] });
 	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0));
 	vi.stubGlobal("cancelAnimationFrame", clearTimeout);
-	root = createRoot(document.body);
 	memory.clear();
-});
-afterEach(async () => {
-	await act(async () => root.unmount());
-	Reflect.deleteProperty(window.HTMLElement.prototype, "getAnimations");
-	vi.restoreAllMocks();
-	vi.unstubAllGlobals();
 });
 
 describe("当前轮次中的稳定内容", () => {

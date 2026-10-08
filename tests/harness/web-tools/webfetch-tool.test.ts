@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Agent } from "undici";
 
-import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { useWebFetchRuntime } from "./fetch-fixture.ts";
 import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.ts";
 import type {
 	CookieStore,
@@ -14,51 +14,17 @@ import { executeWebFetch } from "../../../src/harness/web-tools/fetch/webfetch-t
 import type { PrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.ts";
 import { httpResponse, redirectResponse } from "../../helpers/http.ts";
 
-const cookieStore: CookieStore = {
-	async getCookieAccess() {
-		return {};
-	},
-	async storeFromResponse() {
-		return undefined;
-	},
-};
-
 const PRIMARY_IMAGE_HTML = '<main><h1>Image post</h1><img src="/post.png" alt="A detailed primary post image"></main>';
 const PNG_BYTES = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
 	"base64",
 );
 
-function runtime(
-	fetchImpl: WebHttpFetch,
-	acceptsImages = false,
-	signal?: AbortSignal,
-	interaction?: WebFetchInteractionPort,
-	selectedCookieStore: CookieStore = cookieStore,
-	privateNetworkGrant?: PrivateNetworkGrant,
-	privateNetworkDispatcher?: Agent,
-) {
-	const config = defaultWebToolsConfig();
-	config.webfetch.limits.default_output_chars = 1000;
-	config.webfetch.media.mode = "on";
-	return {
-		dispatcher: new Agent(),
-		fetchImpl,
-		cookieStore: selectedCookieStore,
-		snapshots: new SnapshotCache(),
-		approvedAuthOrigins: new Set<string>(),
-		config,
-		...(privateNetworkDispatcher !== undefined ? { privateNetworkDispatcher } : {}),
-		context: {
-			toolCallId: "t1",
-			acceptsImages,
-			...(privateNetworkGrant !== undefined ? { privateNetworkGrant } : {}),
-			...(signal !== undefined ? { signal } : {}),
-			...(interaction !== undefined ? { interaction } : {}),
-		},
-		now: () => Date.now(),
-	};
-}
+const runtime = useWebFetchRuntime((runtime) => {
+	runtime.config.webfetch.limits.default_output_chars = 1000;
+	runtime.config.webfetch.media.mode = "on";
+	runtime.context.acceptsImages = false;
+});
 
 function expectPrimaryMediaOmission(
 	result: WebFetchResult,
@@ -88,13 +54,9 @@ describe("webfetch tool", () => {
 				return true;
 			},
 		};
-		const rt = runtime(
-			async () => httpResponse(200, "authenticated", { "content-type": "text/plain" }),
-			false,
-			undefined,
-			interaction,
-			authenticatedStore,
-		);
+		const rt = runtime(async () => httpResponse(200, "authenticated", { "content-type": "text/plain" }), {
+			cookieStore: authenticatedStore, context: { interaction },
+		});
 		rt.config.webfetch.cookies.enabled = true;
 		rt.config.webfetch.cookies.domains = ["example.com"];
 		rt.config.webfetch.cookies.confirmation = "always";
@@ -244,7 +206,7 @@ describe("webfetch tool", () => {
 		const cancelledPromise = executeWebFetch({ url: "https://example.com/start" }, runtime(async (_url, init) => {
 			if (init.signal.aborted) throw new Error("aborted");
 			return { status: 200, statusText: "OK", headers: new Headers(), body: hanging };
-		}, false, userAbort.signal));
+		}, { context: { signal: userAbort.signal } }));
 		userAbort.abort();
 		const cancelled = await cancelledPromise;
 		if (cancelled.details.status !== "failed") throw new Error("expected cancellation");
@@ -254,12 +216,16 @@ describe("webfetch tool", () => {
 	it("等待认证确认时可取消，且不会发送请求", async () => {
 		const controller = new AbortController();
 		const fetchImpl = vi.fn(async () => httpResponse(200, "unexpected"));
-		const rt = runtime(fetchImpl, false, controller.signal, {
-			confirmAuthentication() {
-				controller.abort();
-				return new Promise<boolean>(() => undefined);
+		const rt = runtime(fetchImpl, {
+			cookieStore: { async getCookieAccess() { return { header: "sid=secret" }; }, async storeFromResponse() {} },
+			context: {
+				signal: controller.signal,
+				interaction: { confirmAuthentication() {
+					controller.abort();
+					return new Promise<boolean>(() => undefined);
+				} },
 			},
-		}, { async getCookieAccess() { return { header: "sid=secret" }; }, async storeFromResponse() {} });
+		});
 		rt.config.webfetch.cookies.domains = ["example.com"];
 		rt.config.webfetch.cookies.confirmation = "always";
 		await expect(executeWebFetch({ url: "https://example.com/private" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "ABORTED" } } });
@@ -273,10 +239,10 @@ describe("webfetch tool", () => {
 			requests += 1;
 			if (scenario === "redirect" && requests === 1) return httpResponse(302, "", { location: "/final", "set-cookie": "step=1" });
 			return httpResponse(200, "response body", { "content-type": scenario === "skipped_image" ? "image/png" : "text/plain", "set-cookie": "step=2" });
-		}, false, undefined, undefined, {
+		}, { cookieStore: {
 			async getCookieAccess() { return {}; },
 			async storeFromResponse(_url, headers) { stored.push(headers); },
-		});
+		} });
 		rt.config.webfetch.cookies.domains = ["example.com"];
 		if (scenario === "too_large") rt.config.webfetch.limits.response_bytes = 1;
 		const result = await executeWebFetch({ url: "https://example.com/start" }, rt);
@@ -321,24 +287,17 @@ describe("webfetch tool", () => {
 		};
 		const approved = await executeWebFetch(
 			{ url: "http://127.0.0.1:8080/private" },
-			runtime(
-				async (url) => {
-					requests.push(url.toString());
-					return httpResponse(200, "private response", { "content-type": "text/plain" });
-				},
-				false,
-				undefined,
-				undefined,
-				cookieStore,
-				grant,
-			),
+			runtime(async (url) => {
+				requests.push(url.toString());
+				return httpResponse(200, "private response", { "content-type": "text/plain" });
+			}, { context: { privateNetworkGrant: grant } }),
 		);
 		expect(approved.details).toMatchObject({ status: "success" });
 		expect(requests).toEqual(["http://127.0.0.1:8080/private"]);
 
 		const wrongOrigin = await executeWebFetch(
 			{ url: "http://127.0.0.1:9090/private" },
-			runtime(async () => httpResponse(200, "unexpected"), false, undefined, undefined, cookieStore, grant),
+			runtime(async () => httpResponse(200, "unexpected"), { context: { privateNetworkGrant: grant } }),
 		);
 		expect(wrongOrigin.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
 	});
@@ -352,28 +311,20 @@ describe("webfetch tool", () => {
 		const privateDispatcher = new Agent();
 		const usedDispatchers: WebHttpRequestInit["dispatcher"][] = [];
 		let requestCount = 0;
-		const rt = runtime(
-			async (_url, init) => {
-				usedDispatchers.push(init.dispatcher);
-				requestCount += 1;
-				return requestCount === 1
-					? redirectResponse("https://example.com/public")
-					: httpResponse(200, "public response", { "content-type": "text/plain" });
-			},
-			false,
-			undefined,
-			undefined,
-			cookieStore,
-			grant,
-			privateDispatcher,
-		);
+		const rt = runtime(async (_url, init) => {
+			usedDispatchers.push(init.dispatcher);
+			requestCount += 1;
+			return requestCount === 1
+				? redirectResponse("https://example.com/public")
+				: httpResponse(200, "public response", { "content-type": "text/plain" });
+		}, { privateNetworkDispatcher: privateDispatcher, context: { privateNetworkGrant: grant } });
 
 		try {
 			const result = await executeWebFetch({ url: "http://127.0.0.1:8080/start" }, rt);
 			expect(result.details).toMatchObject({ status: "success", redirect_count: 1 });
 			expect(usedDispatchers).toEqual([privateDispatcher, rt.dispatcher]);
 		} finally {
-			await Promise.all([privateDispatcher.close(), rt.dispatcher.close()]);
+			await privateDispatcher.close();
 		}
 	});
 
@@ -383,14 +334,7 @@ describe("webfetch tool", () => {
 			hostname: "127.0.0.1",
 			addresses: [{ address: "127.0.0.1", family: 4 }],
 		};
-		const rt = runtime(
-			async () => httpResponse(200, "x".repeat(2000), { "content-type": "text/plain" }),
-			false,
-			undefined,
-			undefined,
-			cookieStore,
-			grant,
-		);
+		const rt = runtime(async () => httpResponse(200, "x".repeat(2000), { "content-type": "text/plain" }), { context: { privateNetworkGrant: grant } });
 		const first = await executeWebFetch({ url: "http://127.0.0.1:8080/private" }, rt);
 		expect(first.details).toMatchObject({ status: "success", snapshot: "created" });
 		const nextRuntime = runtime(async () => httpResponse(200, "unexpected"));
@@ -428,7 +372,7 @@ describe("webfetch tool", () => {
 				? httpResponse(200, PNG_BYTES, { "content-type": "application/octet-stream" })
 				: httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
 		};
-		const result = await executeWebFetch({ url: "https://example.com/post" }, runtime(fetchImpl, true));
+		const result = await executeWebFetch({ url: "https://example.com/post" }, runtime(fetchImpl, { context: { acceptsImages: true } }));
 		expect(requests).toHaveLength(2);
 		expect(requests[1]?.accept).toContain("image/png");
 		expect(result.details).toMatchObject({
@@ -465,13 +409,10 @@ describe("webfetch tool", () => {
 		expectedMedia,
 	}) => {
 		let calls = 0;
-		const rt = runtime(
-			async () => {
-				calls += 1;
-				return httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
-			},
-			acceptsImages,
-		);
+		const rt = runtime(async () => {
+			calls += 1;
+			return httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
+		}, { context: { acceptsImages } });
 		if (!mediaEnabled) rt.config.webfetch.media.mode = "off";
 		const result = await executeWebFetch({ url: "https://example.com/post" }, rt);
 		expect(calls).toBe(1);
@@ -490,7 +431,7 @@ describe("webfetch tool", () => {
 				return url.pathname.endsWith(".png")
 					? httpResponse(200, PNG_BYTES, { "content-type": "image/png" })
 					: httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
-			}, true);
+			}, { context: { acceptsImages: true } });
 			rt.config.webfetch.media.mode = mode;
 			const result = await executeWebFetch({ url: `https://example.com/${direct ? "direct.png" : "post"}` }, rt);
 			expect(result.details).toMatchObject({ status: "success", media: { returned: mode === "on" ? 1 : 0 } });
@@ -510,7 +451,7 @@ describe("webfetch tool", () => {
 			return url.pathname.endsWith(".png")
 				? httpResponse(200, PNG_BYTES, { "content-type": "image/png" })
 				: httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
-		}, true);
+		}, { context: { acceptsImages: true } });
 		rt.config.webfetch.media.mode = mode;
 		for (const url of ["https://example.com/direct.png", "https://example.com/post"]) {
 			const result = await executeWebFetch({ url, mode: "image" }, rt);
@@ -526,7 +467,7 @@ describe("webfetch tool", () => {
 		const rt = runtime(async (url) => {
 			requests.push(url.pathname);
 			return url.pathname === "/post.png" ? httpResponse(200, PNG_BYTES, { "content-type": "image/png" }) : httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
-		}, true);
+		}, { context: { acceptsImages: true } });
 		rt.config.webfetch.media.mode = "auto";
 		const first = await executeWebFetch({ url: "https://example.com/post" }, rt);
 		expect(first.media).toBeUndefined();
@@ -544,7 +485,7 @@ describe("webfetch tool", () => {
 		const rt = runtime(async (url) => {
 			requests.push(url.pathname);
 			return url.pathname.endsWith(".png") ? httpResponse(200, PNG_BYTES, { "content-type": "image/png" }) : httpResponse(200, '<main><section id="chart"><img src="/chart.png" alt="Chart" width="800" height="600"></section><section id="plain"><p>Text only</p></section></main>', { "content-type": "text/html" });
-		}, true);
+		}, { context: { acceptsImages: true } });
 		rt.config.webfetch.media.mode = "auto";
 		const selected = await executeWebFetch({ url: "https://example.com/page#chart", mode: "image" }, rt);
 		expect(selected.details).toMatchObject({ status: "success", anchor: "chart", media: { returned: 1 } });
@@ -560,7 +501,7 @@ describe("webfetch tool", () => {
 			runtime(async () => {
 				calls += 1;
 				return httpResponse(200, PNG_BYTES, { "content-type": "application/octet-stream" });
-			}, true),
+			}, { context: { acceptsImages: true } }),
 		);
 		expect(calls).toBe(1);
 		expect(result.details).toMatchObject({
@@ -606,7 +547,7 @@ describe("webfetch tool", () => {
 						},
 					},
 				};
-			}, false),
+			}),
 		);
 		expect(calls).toBe(1);
 		expect(reads).toBe(0);
@@ -619,7 +560,7 @@ describe("webfetch tool", () => {
 	it("直接图片声明与嗅探不匹配时拒绝为图片", async () => {
 		const result = await executeWebFetch(
 			{ url: "https://example.com/not-image.png" },
-			runtime(async () => httpResponse(200, "not an image", { "content-type": "image/png" }), true),
+			runtime(async () => httpResponse(200, "not an image", { "content-type": "image/png" }), { context: { acceptsImages: true } }),
 		);
 		expect(result.details).toMatchObject({
 			status: "failed",
@@ -629,10 +570,7 @@ describe("webfetch tool", () => {
 	});
 
 	it("直接图片响应使用独立大小上限", async () => {
-		const rt = runtime(
-			async () => httpResponse(200, "short", { "content-type": "image/png", "content-length": "65537" }),
-			true,
-		);
+		const rt = runtime(async () => httpResponse(200, "short", { "content-type": "image/png", "content-length": "65537" }), { context: { acceptsImages: true } });
 		rt.config.webfetch.media.response_bytes = 65536;
 		const result = await executeWebFetch({ url: "https://example.com/too-large.png" }, rt);
 		expect(result.details).toMatchObject({
@@ -653,7 +591,7 @@ describe("webfetch tool", () => {
 					return redirectResponse("http://127.0.0.1/private.png");
 				}
 				return httpResponse(200, html, { "content-type": "text/html" });
-			}, true),
+			}, { context: { acceptsImages: true } }),
 		);
 		expect(requests).toEqual(["https://example.com/post", "https://example.com/poster.png"]);
 		expectPrimaryMediaOmission(result, "media_fetch_failed");
@@ -672,7 +610,7 @@ describe("webfetch tool", () => {
 				return url.pathname === "/poster.png"
 					? httpResponse(200, PNG_BYTES, { "content-type": "image/png" })
 					: httpResponse(200, html, { "content-type": "text/html" });
-			}, true),
+			}, { context: { acceptsImages: true } }),
 		);
 		expect(requests).toEqual(["https://example.com/video", "https://example.com/poster.png"]);
 		expect(result.media?.[0]).toMatchObject({ mimeType: "image/png" });
@@ -687,7 +625,7 @@ describe("webfetch tool", () => {
 			return url.pathname === "/diagram.png"
 				? httpResponse(200, PNG_BYTES, { "content-type": "image/png" })
 				: httpResponse(200, html, { "content-type": "text/html" });
-		}, true);
+		}, { context: { acceptsImages: true } });
 		const first = await executeWebFetch({ url: "https://example.com/illustrated" }, rt);
 		if (first.details.status !== "success" || first.details.range.next_offset === undefined) throw new Error("missing range");
 		expect(first.details).toMatchObject({ completeness: "complete", media: { discovered: 1, returned: 1 } });
@@ -708,7 +646,7 @@ describe("webfetch tool", () => {
 			runtime(async (url) => {
 				requests.push(url.toString());
 				return httpResponse(200, html, { "content-type": "text/html" });
-			}, true),
+			}, { context: { acceptsImages: true } }),
 		);
 		expect(requests).toEqual(["https://example.com/audio"]);
 		expect(result.media).toBeUndefined();
@@ -731,7 +669,7 @@ describe("webfetch tool", () => {
 		const rt = runtime(async () => {
 			calls += 1;
 			return calls === 1 ? httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" }) : imageResponse();
-		}, true);
+		}, { context: { acceptsImages: true } });
 		rt.config.webfetch.media.response_bytes = 65536;
 		const result = await executeWebFetch({ url: "https://example.com/post" }, rt);
 		expect(calls).toBe(2);

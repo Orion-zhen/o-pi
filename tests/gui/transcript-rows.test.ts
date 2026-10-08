@@ -1,7 +1,6 @@
-import { act, createElement, useLayoutEffect } from "react";
-import { createRoot } from "react-dom/client";
-import { parseHTML } from "linkedom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createElement, useLayoutEffect } from "react";
+import { useReactFixture } from "./react-fixture.ts";
+import { beforeEach, describe, expect, it } from "vitest";
 import { SKILL_CONTEXT_MESSAGE } from "../../src/harness/skill-context/types.ts";
 import { useTranscriptRows } from "../../src/gui/ui/transcript/use-transcript-rows.ts";
 import type { TranscriptSource } from "../../src/gui/ui/transcript/transcript-items.ts";
@@ -11,7 +10,7 @@ import { assistant, call, result, source } from "./transcript-fixtures.ts";
 const user = { role: "user", content: "检查文件", timestamp: 1 } as const;
 const skill = { role: "custom", customType: SKILL_CONTEXT_MESSAGE, content: "技能正文", display: true, timestamp: 2 } as const;
 const pruned = new Set<string>();
-let root: ReturnType<typeof createRoot>;
+const renderRoot = useReactFixture();
 let rows: TranscriptRow[];
 
 function Projection({ source }: { source: TranscriptSource }) {
@@ -20,21 +19,12 @@ function Projection({ source }: { source: TranscriptSource }) {
 	return null;
 }
 const render = async (source: TranscriptSource) => {
-	await act(async () => root.render(createElement(Projection, { source })));
+	await renderRoot(createElement(Projection, { source }));
 };
 const tools = () => rows.flatMap((row) => row.kind === "reply" ? row.process.filter((item) => item.kind === "tool") : []);
 
 beforeEach(() => {
-	const { window, document } = parseHTML("<html><body></body></html>");
-	vi.stubGlobal("window", window);
-	vi.stubGlobal("document", document);
-	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-	root = createRoot(document.body);
 	rows = [];
-});
-afterEach(async () => {
-	await act(async () => root.unmount());
-	vi.unstubAllGlobals();
 });
 
 describe("流式历史分组", () => {

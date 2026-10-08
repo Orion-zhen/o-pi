@@ -9,20 +9,6 @@ export interface PathIdentity {
 
 export type AccessCheckPhase = "lexical" | "canonical" | "parent";
 
-export interface BlockedPathMatch {
-	readonly code: "BLOCKED_PATH";
-	readonly message: string;
-	readonly inputPath: string;
-	readonly matchedPath: string;
-	readonly matchedRule: string;
-	readonly phase: AccessCheckPhase;
-}
-
-export interface WorkspaceAccessPolicyOptions {
-	readonly blockedPaths: readonly string[];
-	readonly homeDirectory?: string;
-}
-
 /** 预编译路径规则，并在所有规则之间复用规范化后的路径身份。 */
 export class CompiledPathRuleMatcher {
 	private readonly rules: readonly CompiledRule[];
@@ -38,28 +24,6 @@ export class CompiledPathRuleMatcher {
 			if (rule.path.length > 0 && identityMatchesRule(normalized, rule)) return rule.source;
 		}
 		return undefined;
-	}
-}
-
-/** 强制路径策略；visibility 规则不进入此层。 */
-export class WorkspaceAccessPolicy {
-	private readonly rules: CompiledPathRuleMatcher;
-
-	constructor(options: WorkspaceAccessPolicyOptions) {
-		this.rules = new CompiledPathRuleMatcher(options.blockedPaths, options.homeDirectory);
-	}
-
-	match(inputPath: string, identity: PathIdentity, phase: AccessCheckPhase): BlockedPathMatch | undefined {
-		const matchedRule = this.rules.match(identity);
-		if (matchedRule === undefined) return undefined;
-		return {
-			code: "BLOCKED_PATH",
-			message: "Path is blocked by filesystem policy.",
-			inputPath,
-			matchedPath: identity.absolutePath,
-			matchedRule,
-			phase,
-		};
 	}
 }
 

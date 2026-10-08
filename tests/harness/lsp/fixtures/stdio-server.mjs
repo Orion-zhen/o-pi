@@ -1,5 +1,5 @@
-// @ts-nocheck -- standalone child-process fixture executed outside the Vitest TypeScript runtime.
 import { writeFileSync } from "node:fs";
+import { StreamMessageReader } from "vscode-jsonrpc/node";
 
 const mode = process.argv[2] ?? "normal";
 const metadataPath = process.argv[3];
@@ -10,25 +10,11 @@ if (mode === "stubborn") {
 	setInterval(() => undefined, 1000);
 }
 
-let buffer = Buffer.alloc(0);
 let initializeProcessId;
 
-process.stdin.on("data", (chunk) => {
-	buffer = Buffer.concat([buffer, chunk]);
-	while (true) {
-		const marker = buffer.indexOf("\r\n\r\n");
-		if (marker < 0) return;
-		const header = buffer.subarray(0, marker).toString("utf8");
-		const match = /Content-Length:\s*(\d+)/i.exec(header);
-		if (match === null) process.exit(2);
-		const length = Number(match[1]);
-		const start = marker + 4;
-		if (buffer.length < start + length) return;
-		const message = JSON.parse(buffer.subarray(start, start + length).toString("utf8"));
-		buffer = buffer.subarray(start + length);
-		handle(message);
-	}
-});
+const reader = new StreamMessageReader(process.stdin);
+reader.onError(() => process.exit(2));
+reader.listen(handle);
 
 function handle(message) {
 	if (message.method === "initialize") {

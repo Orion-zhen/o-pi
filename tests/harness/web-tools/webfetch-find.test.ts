@@ -1,28 +1,14 @@
-import { Agent } from "undici";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { executeWebFetch, type ExecuteWebFetchRuntime } from "../../../src/harness/web-tools/fetch/webfetch-tool.ts";
-import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.ts";
+import { executeWebFetch } from "../../../src/harness/web-tools/fetch/webfetch-tool.ts";
 import type { WebFetchResult, WebFetchSuccessDetails } from "../../../src/harness/web-tools/core/types.ts";
-import type { WebHttpFetch } from "../../../src/harness/web-tools/network/types.ts";
-import { defaultWebToolsConfig } from "./config-fixture.ts";
+import { useWebFetchRuntime } from "./fetch-fixture.ts";
 import { httpResponse } from "../../helpers/http.ts";
 
-const dispatchers: Agent[] = [];
-afterEach(async () => { await Promise.all(dispatchers.splice(0).map((dispatcher) => dispatcher.close())); });
 
-function runtime(fetchImpl: WebHttpFetch): ExecuteWebFetchRuntime {
-	const dispatcher = new Agent();
-	dispatchers.push(dispatcher);
-	const config = defaultWebToolsConfig();
-	config.webfetch.media.mode = "on";
-	return {
-		dispatcher, fetchImpl, config,
-		cookieStore: { async getCookieAccess() { return {}; }, async storeFromResponse() { return undefined; } },
-		snapshots: new SnapshotCache(), approvedAuthOrigins: new Set<string>(),
-		context: { toolCallId: "find", acceptsImages: true }, now: () => Date.now(),
-	};
-}
+const runtime = useWebFetchRuntime((runtime) => {
+	runtime.config.webfetch.media.mode = "on";
+});
 
 function found(result: WebFetchResult) {
 	if (result.details.status !== "success") throw new Error(result.details.error.message);
