@@ -1,14 +1,15 @@
 import { ExternalLink as LinkIcon, Globe } from "lucide-react";
-import type { WebFetchSuccessDetails, WebSearchSuccessDetails } from "../../../harness/web-tools/core/types.ts";
+import type { WebFetchSuccessDetails, WebSearchProviderId, WebSearchSuccessDetails } from "../../../harness/web-tools/core/types.ts";
 import { CodeBlock } from "../content/code-block.tsx";
 import { Disclosure } from "../components/disclosure";
 import { Content, ExternalLink, MarkdownText, clean, record } from "../content/content.tsx";
 
-function WebCard({ url, title, snippet, rank }: { url: string; title?: string; snippet?: string; rank?: number }) {
+function WebCard({ url, title, snippet, rank, provider }: { url: string; title?: string; snippet?: string; rank?: number; provider?: WebSearchProviderId }) {
 	const domain = URL.canParse(url) ? new URL(url).hostname : "";
 	return <article className="web-card">
 		<ExternalLink href={url} className="web-card-link">
 			<span className="web-card-source"><Globe aria-hidden="true" />{domain || clean(url)}
+				{provider !== undefined && <span className="web-card-provider">{provider}</span>}
 				{rank !== undefined && <span className="web-card-rank">{rank}</span>}<LinkIcon aria-hidden="true" />
 			</span>
 			<span className="web-card-title">{clean(title || url)}</span>

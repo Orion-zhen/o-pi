@@ -6,6 +6,7 @@
 .web-card-source { display: flex; gap: 0.375rem; align-items: center; color: var(--muted-foreground); font-size: calc(var(--text-ui) * 11 / 14); }
 .web-card-source svg { width: 0.8125rem; height: 0.8125rem; flex-shrink: 0; }
 .web-card-source svg:last-child { margin-left: auto; opacity: 0.6; }
+.web-card-provider { flex-shrink: 0; padding: 0.125rem 0.375rem; border-radius: 0.25rem; background: var(--secondary); }
 .web-card-rank { margin-left: auto; font-variant-numeric: tabular-nums; }
 .web-card-rank + svg { margin-left: 0 !important; }
 .web-card-title { font-size: var(--text-ui); font-weight: 550; line-height: 1.5; }
