@@ -57,7 +57,8 @@ export function buildModels(
 			cost: model.cost ?? { ...ZERO_COST },
 			...(model.promptCache !== undefined ? { promptCache: model.promptCache } : {}),
 			contextWindow: model.contextWindow ?? 128_000,
-			maxTokens: model.maxTokens ?? 16_384,
+			// Pi 要求数值字段，0 表示不声明输出上限。
+			maxTokens: model.maxTokens ?? 0,
 			...(model.samplingParams !== undefined ? { samplingParams: model.samplingParams } : {}),
 			compat: resolveCompat(model.thinkingPreset ?? provider.thinkingPreset ?? "none", provider.compat, model.compat),
 		};
@@ -87,6 +88,7 @@ export function restoreCachedModels<TApi extends Api>(
 		const { promptCache: _cachedLifetime, inputLimits: _cachedLimits, ...metadata } = cached;
 		const model = {
 			...metadata,
+			maxTokens: config?.maxTokens ?? 0,
 			...(config?.name !== undefined ? { name: config.name } : {}),
 			...(config?.promptCache !== undefined ? { promptCache: config.promptCache } : {}),
 			...(config?.inputLimits !== undefined ? { inputLimits: config.inputLimits } : {}),

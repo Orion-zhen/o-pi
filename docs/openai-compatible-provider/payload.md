@@ -37,7 +37,7 @@ Pi 的 `stream` 和 `streamSimple` 都应用模型默认采样参数，扩展不
 
 `samplingParams` 会直接写入 Pi 的 `Model`。配置校验允许任意非空字段名，不单独限制 OpenAI 兼容采样字段。单次请求的 `samplingParams` 按字段覆盖模型配置。
 
-最大输出令牌数应配置在模型顶层的 `maxTokens`。不要在 `samplingParams` 中设置 `max_tokens`、`max_completion_tokens` 或 `max_output_tokens`。这些字段会绕过 Pi 对上下文窗口、思考预算和 `compat.maxTokensField` 的处理。
+最大输出令牌数应配置在模型顶层的 `maxTokens`。未配置且单次请求未指定时，不发送输出上限，由上游决定。压缩摘要、缓存保温等流程仍保留各自的请求级预算。不要在 `samplingParams` 中设置 `max_tokens`、`max_completion_tokens` 或 `max_output_tokens`。这些字段会绕过 Pi 对上下文窗口、思考预算和 `compat.maxTokensField` 的处理。
 
 也不要通过 `samplingParams` 覆盖 `model`、`messages`、`input`、`tools` 或 `stream` 等核心字段。
 

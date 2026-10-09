@@ -140,7 +140,7 @@ describe("openai-compatible-provider model discovery", () => {
 				id: "vision-model",
 				name: "vision-model",
 				contextWindow: 200000,
-				maxTokens: 16384,
+				maxTokens: 0,
 				input: ["text", "image"],
 			},
 			{
@@ -351,7 +351,7 @@ describe("openai-compatible-provider model discovery", () => {
 			id: "strict-model",
 			name: "strict-model",
 			contextWindow: 128000,
-			maxTokens: 16384,
+			maxTokens: 0,
 			input: ["text"],
 		});
 	});
