@@ -160,11 +160,11 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 						? "操作失败，请关闭面板查看错误后重试。"
 						: defaultSaved
 							? "已保存默认模型和思考等级。"
-							: saved === signature
+							: saved === signature && !snapshot.modelScopeChanged
 								? "已保存常用模型。"
 								: "切换仅影响当前会话；设为默认后供下次启动使用。"}
 				</p>
-				<Button disabled={disabled} onClick={() => void run({ action: "persistModels" })}>
+				<Button disabled={disabled || !snapshot.modelScopeChanged} aria-busy={pending === "persistModels"} onClick={() => void run({ action: "persistModels" })}>
 					{pending === "persistModels" ? <LoaderCircle className="animate-spin" /> : <Save />}
 					保存常用模型
 				</Button>

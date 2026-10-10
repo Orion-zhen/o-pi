@@ -43,11 +43,17 @@
 .line-number { display: inline-block; min-width: 3rem; padding-right: 1rem; text-align: right; color: var(--muted-foreground); user-select: none; opacity: 0.6; }
 .tool-note { margin-block: 0.5rem; font-size: var(--text-caption); color: var(--muted-foreground); overflow-wrap: anywhere; }
 .tool-note.error { color: var(--destructive); }
-.tool-selection > p { margin-bottom: 0.75rem; }
+.tool-selection-toolbar { display: flex; align-items: center; gap: 0.75em; margin-block-end: 0.75em; }
+.tool-selection-search { display: flex; flex: 1; min-inline-size: 0; align-items: center; gap: 0.5em; padding-inline: 0.75em; border: 0.0625em solid var(--border); border-radius: var(--radius-md); background: var(--surface); transition: border-color 150ms, box-shadow 150ms; }
+.tool-selection-search:focus-within { border-color: var(--ring); box-shadow: 0 0 0 0.125em color-mix(in srgb, var(--ring) 25%, transparent); }
+.tool-selection-search > svg { flex: none; inline-size: 1.15em; block-size: 1.15em; color: var(--muted-foreground); }
+.tool-selection-search input { padding-inline-start: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.tool-selection-toolbar > button { flex: none; }
+.tool-selection-empty { margin-block: 1em; color: var(--muted-foreground); }
 .tool-selection .list-row { align-items: flex-start; flex-wrap: nowrap; }
 .tool-choice-details { flex: 1; min-width: 0; }
 .tool-choice-heading { display: flex; align-items: center; gap: 0.75rem; }
-.tool-choice-heading > strong, .tool-name { min-width: 0; }
+.tool-choice-heading > strong, .tool-name { min-width: 0; overflow-wrap: anywhere; }
 .tool-name:not([data-disabled]) { cursor: pointer; }
 .tool-name:not([data-disabled]):hover { color: var(--primary); }
 .tool-name[data-disabled] { cursor: not-allowed; }
@@ -71,6 +77,26 @@
 .tool-callable-icon { color: var(--success); }
 .tool-selection-children { margin-left: 0.5rem; padding-left: 1rem; border-left: 1px solid var(--border); }
 .tool-callable-state { margin-left: auto; flex-shrink: 0; }
+.tool-selection-mcp { margin-block-start: 1.5em; }
+.tool-selection-mcp > h3 { margin-block-end: 0.5em; font-size: var(--text-ui); font-weight: 600; }
+.mcp-exposure { color: var(--muted-foreground); }
+.mcp-exposure code { font-family: var(--gui-font-code); font-size: inherit; }
+.mcp-tool-group { --mcp-inset: 0.75em; --mcp-chevron-size: 1em; --mcp-line-width: 0.0625em; flex-direction: column; border-block-start: var(--mcp-line-width) solid var(--border); }
+.mcp-tool-group:not([hidden]) { display: flex; }
+.mcp-tool-group-trigger { display: flex; align-items: baseline; gap: 0.625em; padding: 0.875em var(--mcp-inset); text-align: start; border-radius: 0.25em; cursor: pointer; }
+.mcp-tool-group-trigger:hover { background: var(--accent); }
+.mcp-tool-group-trigger:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
+.mcp-tool-group-chevron { flex: none; inline-size: var(--mcp-chevron-size); block-size: var(--mcp-chevron-size); color: var(--muted-foreground); transition: transform 150ms; }
+.mcp-tool-group-trigger[data-state="open"] .mcp-tool-group-chevron { transform: rotate(90deg); }
+.mcp-tool-group-heading { display: flex; flex: 1; flex-wrap: wrap; align-items: baseline; gap: 0.375em 0.75em; min-inline-size: 0; }
+.mcp-tool-group-heading > strong { min-width: 0; overflow-wrap: anywhere; }
+.mcp-tool-group-mode, .mcp-tool-group-count { color: var(--muted-foreground); font-size: var(--text-caption); }
+.mcp-tool-group-mode { overflow-wrap: anywhere; }
+.mcp-tool-group-count { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mcp-tool-group-tools { margin-block: 0 0.75em; margin-inline: calc(var(--mcp-inset) + (var(--mcp-chevron-size) - var(--mcp-line-width)) / 2) var(--mcp-inset); padding-inline-start: var(--mcp-inset); border-inline-start: var(--mcp-line-width) solid var(--border); }
+.tool-choice-exposure { display: block; margin-block: 0.125em; }
+.mcp-shared-tools { margin-block-start: 1em; }
+.mcp-shared-tools > h4 { color: var(--muted-foreground); font-size: var(--text-caption); }
 .codemode-body { padding-top: 0; }
 .codemode-activity > [data-slot="collapsible"] > .activity-summary .activity-facts { max-width: none; white-space: normal; flex-shrink: 1; }
 .nested-failures { color: var(--destructive); }

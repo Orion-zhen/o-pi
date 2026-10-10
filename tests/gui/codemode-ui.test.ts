@@ -27,7 +27,7 @@ const renderTool = (value: Activity, expanded?: boolean) => parseHTML(renderWith
 describe("codemode 工具层级", () => {
 	it.each([false, true])("搜索入口只在普通模式显示禁用的复选框：codemode=%s", (enabled) => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: {
+			snapshot: { toolDefaultsChanged: false,
 				tools: [
 					...tools.map((tool) => tool.name === "codemode" ? { ...tool, available: true as const, enabled } : tool),
 					{ name: "tool_search", exposure: "model-only", description: "Search", callable: false,
@@ -46,7 +46,7 @@ describe("codemode 工具层级", () => {
 	});
 	it("只有模型专用工具平级，未勾选的延迟工具仍显示为可调用而非禁用开关", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { tools, modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
+			snapshot: { toolDefaultsChanged: false, tools, modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
 		}))).document;
 		expect([...doc.querySelectorAll(".tool-selection-children [data-tool-option]")].map((row) => row.getAttribute("data-tool-option")))
 			.toEqual(["read", "bash", "search"]);
@@ -61,7 +61,7 @@ describe("codemode 工具层级", () => {
 			{ name: "mcp__demo__off", description: "Probe", exposure: "deferred", mcp: true, available: true, enabled: false, callable: false },
 		];
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { tools: [...tools, ...mcp], modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
+			snapshot: { toolDefaultsChanged: false, tools: [...tools, ...mcp], modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
 		}))).document;
 		expect(doc.querySelector('[aria-label="mcp__demo__on"]')?.getAttribute("aria-checked")).toBe("true");
 		expect(doc.querySelector('[aria-label="mcp__demo__off"]')?.getAttribute("aria-checked")).toBe("false");
@@ -69,7 +69,7 @@ describe("codemode 工具层级", () => {
 
 	it("关闭模式恢复平级选择，保留普通工具的勾选", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { tools: tools.map((item) => item.name === "codemode" ? { ...item, enabled: false as const } : item), modelTools: ["skill", "read"] },
+			snapshot: { toolDefaultsChanged: false, tools: tools.map((item) => item.name === "codemode" ? { ...item, enabled: false as const } : item), modelTools: ["skill", "read"] },
 			send: async () => true, disabled: false,
 		}))).document;
 		expect(doc.querySelector(".tool-selection-children")).toBeNull();

@@ -8,7 +8,8 @@ import { Input } from "../components/ui/input";
 import { IconButton } from "../components/icon-button.tsx";
 import { SettingsDisclosure } from "../settings/settings-controls.tsx";
 import { changeMcpTransport, mcpId, type McpMapField, type McpPair, type McpServerDraft } from "./mcp-draft.ts";
-import { exposureOptions, McpChoice, McpField, McpPairs, McpTextField, mcpText } from "./mcp-fields.tsx";
+import { McpChoice, McpField, McpPairs, McpTextField, mcpText } from "./mcp-fields.tsx";
+import { exposureOptions } from "./mcp-exposure.tsx";
 import { McpAuthFields } from "./mcp-auth-fields.tsx";
 import { parseMcpCommand } from "./mcp-command.ts";
 

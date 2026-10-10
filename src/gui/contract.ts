@@ -1,7 +1,6 @@
 import { Type, type Static, type TProperties } from "typebox";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession, AgentSessionEvent, SessionStats } from "@earendil-works/pi-coding-agent";
-import type { ToolSelectionItem } from "../harness/tool-defaults/controller.ts";
 import type { StatsSnapshot } from "../harness/stats/types.ts";
 import type { UsageSnapshot } from "../harness/usage/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
@@ -12,7 +11,7 @@ import type { GuiConfigDocument } from "./preferences.ts";
 import type { GuiEntry, GuiMessage, GuiToolOutput, ToolOutput } from "./messages.ts";
 
 import { moduleConfigIds, type ModuleConfigDocument } from "./module-config.ts";
-import type { McpConfigDocument } from "./mcp.ts";
+import type { GuiToolSelectionItem, McpConfigDocument } from "./mcp.ts";
 import type { GuiLspServers } from "./lsp.ts";
 import type { StorageSnapshot, StorageGroup } from "./storage.ts";
 
@@ -195,6 +194,7 @@ export interface GuiModel {
 export interface GuiWorkspaceInfo {
 	path: string;
 	exists: boolean;
+	home?: { username: string; suffix: string };
 }
 export interface GuiSessionActivity {
 	sessionId: string;
@@ -236,6 +236,7 @@ export interface GuiSnapshot {
 	routedModel: { model: GuiModel; thinkingLevel?: string } | null;
 	models: GuiModel[];
 	scopedModels: string[];
+	modelScopeChanged: boolean;
 	defaultModel: { provider: string | null; id: string | null; thinking: ThinkingLevel | null };
 	thinking: ThinkingLevel;
 	thinkingLevels: ThinkingLevel[];
@@ -251,8 +252,9 @@ export interface GuiSnapshot {
 		blockImages: boolean;
 	};
 	commands: { name: string; description: string }[];
-	tools: (ToolSelectionItem & { callable: boolean; mcp?: true })[];
+	tools: (GuiToolSelectionItem & { callable: boolean })[];
 	modelTools: string[];
+	toolDefaultsChanged: boolean;
 	providers: { id: string; name: string; oauth: boolean; authenticated: boolean }[];
 	bashOutput: string;
 }

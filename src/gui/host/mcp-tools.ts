@@ -1,17 +1,36 @@
-import { type ExtensionAPI, type ExtensionContext, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionFactory, type McpServerConfig, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { getMcpToolExposure, loadMcpConfig } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/config.js";
 import { createModeMcpExtension } from "../../harness/extensions/mcp.ts";
 import { syncToolSearch } from "../../harness/tool-search/loadout.ts";
-import type { ToolSelectionItem } from "../../harness/tool-defaults/controller.ts";
+import type { GuiToolSelectionItem } from "../mcp.ts";
 
 const ENTRY = "gui-mcp-tools";
-type Choice = { name: string; description: string; exposure: ToolSelectionItem["exposure"]; apply(): void };
+type Choice = Pick<GuiToolSelectionItem, "name" | "description" | "exposure"> & { mcpServer: GuiToolSelectionItem["mcpServer"]; apply(): void };
 
 /** 只控制会话工具暴露，不管理 MCP 连接。 */
 export class GuiMcpTools {
 	private tools = new Map<string, Choice>();
 	private choices = new Map<string, boolean>();
+	private configuredServers = new Map<string, McpServerConfig>();
 
 	constructor(private pi: ExtensionAPI, private changed: () => void) {}
+
+	loadConfig(ctx: ExtensionContext) {
+		const loaded = loadMcpConfig({ agentDir: getAgentDir(), cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted() });
+		this.configuredServers = new Map(loaded.servers.map(({ name, config }) => [name, config]));
+		return loaded;
+	}
+
+	private serverInfo(tool: Pick<ToolDefinition, "label" | "namespace">): GuiToolSelectionItem["mcpServer"] {
+		if (!tool.namespace?.name.startsWith("mcp__")) return undefined;
+		// SDK 的 label 保留服务名和原始工具名，模型工具名可能被清洗或截短。
+		const separator = tool.label.indexOf("/");
+		const name = tool.label.slice(0, separator);
+		const originalName = tool.label.slice(separator + 1);
+		const config = this.configuredServers.get(name) ?? this.pi.getMcpServers().find((server) => server.name === name)?.config;
+		if (!config) throw new Error(`缺少 MCP 服务配置：${name}`);
+		return { name, tool: originalName, exposure: getMcpToolExposure(config, originalName) };
+	}
 
 	readonly register: ExtensionAPI["registerTool"] = (tool) => {
 		const exposure = tool.exposure ?? "direct";
@@ -23,14 +42,18 @@ export class GuiMcpTools {
 			syncToolSearch(this.pi);
 			this.changed();
 		};
-		this.tools.set(tool.name, { name: tool.name, description: tool.description, exposure, apply });
+		this.tools.set(tool.name, {
+			name: tool.name, description: tool.description, exposure, apply,
+			mcpServer: exposure === "hidden" ? undefined : this.serverInfo(tool),
+		});
 		apply();
 	};
 
-	list(activeTools: readonly string[]): ToolSelectionItem[] {
+	list(activeTools: readonly string[]): GuiToolSelectionItem[] {
 		const active = new Set(activeTools);
 		return [...this.tools.values()].filter((tool) => tool.exposure !== "hidden").map((tool) => ({
 			name: tool.name, description: tool.description, exposure: tool.exposure, available: true,
+			mcp: true, ...(tool.mcpServer ? { mcpServer: tool.mcpServer } : {}),
 			enabled: this.choices.get(tool.name) !== false && (tool.exposure === "codemode" || tool.exposure === "deferred" || active.has(tool.name)),
 		}));
 	}
@@ -68,7 +91,7 @@ export function createGuiMcpExtension({ bind, changed, showConfig, openUrl }: {
 		bind(tools);
 		pi.on("session_start", (_event, ctx) => tools.restore(ctx));
 		pi.on("session_tree", (_event, ctx) => tools.restore(ctx));
-		return createModeMcpExtension({ openUrl })({
+		return createModeMcpExtension({ openUrl, loadConfig: (ctx) => tools.loadConfig(ctx) })({
 			...pi,
 			registerTool: tools.register,
 			registerCommand(name, command) {

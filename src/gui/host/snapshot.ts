@@ -1,5 +1,6 @@
 import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import type { ToolSelectionController, ToolSelectionItem } from "../../harness/tool-defaults/controller.ts";
+import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
+import type { GuiToolSelectionItem } from "../mcp.ts";
 import { codemodeHiddenDeclarations } from "../../harness/codemode/loadout.ts";
 import type { GuiSnapshot } from "../contract.ts";
 import { guiModel } from "./runtime.ts";
@@ -9,11 +10,11 @@ import type { GuiPayloads } from "./payloads.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
-	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "bashOutput" | "scopedModels"
+	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "bashOutput" | "scopedModels" | "modelScopeChanged"
 >;
 
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
-export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads, selection: ToolSelectionController, mcpTools: ToolSelectionItem[]): GuiSnapshot {
+export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads, selection: ToolSelectionController, mcpTools: GuiToolSelectionItem[]): GuiSnapshot {
 	const { session, services, cwd } = runtime;
 	const stats = session.getSessionStats();
 	const routed = session.routedModel;
@@ -22,8 +23,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 	const activeTools = session.getActiveToolNames();
 	const descriptions = new Map(session.state.tools.map((tool) => [tool.name, tool.description]));
 	// 重载期间新的扩展 API 尚未绑定，工具列表直接取会话，controller 只投影可用性。
-	const tools = new Map<string, ToolSelectionItem & { mcp?: true }>(selection.listTools(allTools, activeTools).map((tool) => [tool.name, tool]));
-	for (const tool of mcpTools) tools.set(tool.name, { ...tool, mcp: true });
+	const tools = new Map<string, GuiToolSelectionItem>(selection.listTools(allTools, activeTools).map((tool) => [tool.name, tool]));
+	for (const tool of mcpTools) tools.set(tool.name, tool);
 	const callableTools = new Set(session.getCallableToolNames());
 	const hidden = new Set(activeTools.includes("codemode") ? codemodeHiddenDeclarations(allTools) : []);
 	const commands = new Map<string, { name: string; description: string }>();
@@ -77,6 +78,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		// 启用工具展示 loadout 处理后的声明，未启用工具保留注册描述。
 		tools: [...tools.values()].map((tool) => ({ ...tool, description: descriptions.get(tool.name) ?? tool.description, callable: callableTools.has(tool.name) })),
 		modelTools: activeTools.filter((name) => !hidden.has(name)),
+		toolDefaultsChanged: selection.hasUserDefaultChanges(defaults.defaultTools),
 		providers: services.modelRuntime
 			.getProviders()
 			.map((provider) => ({

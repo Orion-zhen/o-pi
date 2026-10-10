@@ -7,14 +7,23 @@ function scopePatterns(scope: AgentSessionRuntime["session"]["scopedModels"]): M
 	}));
 }
 
+type ResolvedScope = Awaited<ReturnType<typeof resolveModelScopeWithDiagnostics>>;
+
+function scopeEntries(scope: ResolvedScope): Map<string, string> {
+	const entries = scopePatterns(scope.scopedModels);
+	for (const diagnostic of scope.diagnostics) {
+		if (diagnostic.code === "no-match") entries.set(diagnostic.pattern, diagnostic.pattern);
+	}
+	return entries;
+}
+
 export class GuiModelScope {
 	private selected = new Map<string, string>();
+	private defaults: string[] = [];
 
-	initialize(scope: Awaited<ReturnType<typeof resolveModelScopeWithDiagnostics>>): void {
-		this.selected = scopePatterns(scope.scopedModels);
-		for (const diagnostic of scope.diagnostics) {
-			if (diagnostic.code === "no-match") this.selected.set(diagnostic.pattern, diagnostic.pattern);
-		}
+	initialize(scope: ResolvedScope, defaults: ResolvedScope): void {
+		this.defaults = [...scopeEntries(defaults).values()];
+		this.selected = scopeEntries(scope);
 	}
 
 	get ids(): string[] { return [...this.selected.keys()]; }
@@ -48,9 +57,16 @@ export class GuiModelScope {
 		this.selected = new Map(ids.map((id) => [id, saved.get(id) ?? id]));
 	}
 
+	hasDefaultChanges(runtime: AgentSessionRuntime): boolean {
+		const current = this.patterns(runtime);
+		return current.length !== this.defaults.length || current.some((pattern, index) => pattern !== this.defaults[index]);
+	}
+
 	async persist(runtime: AgentSessionRuntime): Promise<void> {
-		runtime.services.settingsManager.setEnabledModels(this.patterns(runtime));
+		const patterns = this.patterns(runtime);
+		runtime.services.settingsManager.setEnabledModels(patterns);
 		await flushModelSettings(runtime);
+		this.defaults = patterns;
 	}
 }
 

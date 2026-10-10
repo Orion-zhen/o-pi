@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "../components/animated";
 import { fade, settle } from "../lib/motion";
-import { Check, ChevronsUpDown, FolderOpen, Shield } from "lucide-react";
+import { Check, ChevronsUpDown, FolderOpen, Home, Shield } from "lucide-react";
 import type { SidebarView } from "../app/gui-controls.ts";
 import { Button } from "../components/ui/button";
 import { SearchInput } from "../components/search-input";
@@ -54,13 +54,15 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 				<ListScroll>
 				<div role="listbox" aria-label="工作区列表" className="workspace-list">
 					<AnimatePresence initial={false}>
-					{workspaces.filter(({ path }) => path.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map(({ path, exists }) => {
+					{workspaces.filter(({ path }) => path.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map(({ path, exists, home }) => {
 						const state = workspaceActivity(gui.activity, path);
 						const status = state === "running" ? "运行中" : state === "waiting" ? "等待审批" : "有未读结果";
 						return <Fade layout="position" transition={{ ...fade.transition, layout: settle }} className="workspace-option-row overlay-list-row" key={path}>
 							<Hint content={path}><Button role="option" aria-label={path} aria-selected={path === cwd} variant="ghost"
 								disabled={disabled || !exists} aria-description={state === "idle" ? undefined : status} onClick={() => void open(path)}>
-								<span className="workspace-option-label"><span className="workspace-option-path"><bdi dir="ltr">{path}</bdi></span>{!exists && <small>目录不存在</small>}</span>
+								<span className="workspace-option-label"><span className="workspace-option-path"><bdi dir="ltr">{home
+									? <><span className="workspace-option-home"><Home aria-hidden="true" />{home.username}</span>{home.suffix}</>
+									: path}</bdi></span>{!exists && <small>目录不存在</small>}</span>
 								{path === cwd ? <Check /> : state === "waiting" ? <Shield className="approval-marker" fill="currentColor" role="img" aria-label={status} />
 									: state !== "idle" && <span className="workspace-option-status" data-activity={state} role="img" aria-label={status} />}
 							</Button></Hint>

@@ -36,7 +36,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			const retained = await storeSession({ cwd, agentDir, provider: "gui-fixture", name: "保留历史" });
 			await rm(missing, { recursive: true });
 			await host.dispatch({ action: "sessions" });
-			expect(events.filter((event) => event.type === "workspaces").at(-1)?.value).toContainEqual({ path: missing, exists: false });
+			expect(events.filter((event) => event.type === "workspaces").at(-1)?.value).toContainEqual(expect.objectContaining({ path: missing, exists: false }));
 			await host.dispatch({ action: "removeWorkspace", path: missing });
 			expect(events.filter((event) => event.type === "workspaces").at(-1)?.value).not.toContainEqual(expect.objectContaining({ path: missing }));
 			expect(events.filter((event) => event.type === "sessions").at(-1)?.value.map((session) => session.path)).toEqual([retained]);
@@ -68,12 +68,12 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			await host.dispatch({ action: "workspace", path: cwd });
 			await host.dispatch({ action: "removeWorkspace", path: other });
 			await host.dispatch({ action: "sessions" });
-			expect(events.filter((event) => event.type === "workspaces").at(-1)?.value).toEqual([{ path: cwd, exists: true }]);
+			expect(events.filter((event) => event.type === "workspaces").at(-1)?.value).toEqual([expect.objectContaining({ path: cwd, exists: true })]);
 			expect(await readFile(source, "utf8")).toBe("project source\n");
 			await expect(host.dispatch({ action: "removeWorkspace", path: path.join(cwd, "unknown") })).rejects.toThrow();
 			const replay: GuiEvent[] = [];
 			host.replay((event) => replay.push(event));
-			expect(replay.find((event) => event.type === "workspaces")).toEqual({ type: "workspaces", value: [{ path: cwd, exists: true }] });
+			expect(replay.find((event) => event.type === "workspaces")).toEqual({ type: "workspaces", value: [expect.objectContaining({ path: cwd, exists: true })] });
 		});
 
 		it("重命名未打开的历史不会切换会话，拒绝索引之外的文件", async () => {

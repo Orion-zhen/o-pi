@@ -84,11 +84,12 @@ export async function createGuiRuntime(
 				},
 			},
 		});
-		const scope = await resolveModelScopeWithDiagnostics(
-			cachedScope ?? settingsManager.getEnabledModels() ?? [],
-			services.modelRuntime,
-		);
-		modelScope.initialize(scope);
+		const defaultPatterns = settingsManager.getGlobalSettings().enabledModels ?? [];
+		const patterns = cachedScope ?? settingsManager.getEnabledModels() ?? [];
+		const defaultScope = await resolveModelScopeWithDiagnostics(defaultPatterns, services.modelRuntime);
+		const scope = patterns.length === defaultPatterns.length && patterns.every((pattern, index) => pattern === defaultPatterns[index])
+			? defaultScope : await resolveModelScopeWithDiagnostics(patterns, services.modelRuntime);
+		modelScope.initialize(scope, defaultScope);
 		for (const diagnostic of scope.diagnostics) dialogs.notify(diagnostic.message, "warning");
 		const context = sessionManager.buildSessionContext();
 		const model = context.messages.length === 0 && context.model

@@ -208,6 +208,7 @@ export class GuiExecution {
 		if (!this.toolController) throw new Error("工具选择未绑定。");
 		return collectGuiSnapshot(this.runtime, {
 			scopedModels: this.modelScope.ids,
+			modelScopeChanged: this.modelScope.hasDefaultChanges(this.runtime),
 			canSubmit: !this.changing,
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
@@ -383,7 +384,11 @@ export class GuiExecution {
 				if (action.action === "tool") {
 					if (!this.mcpTools?.set(action.name, action.enabled)) this.toolController.set(action.name, action.enabled);
 				}
-				else this.dialogs.notify(`已保存: ${await this.toolController.persistUserDefaults()}`);
+				else {
+					const file = await this.toolController.persistUserDefaults();
+					await runtime.services.settingsManager.reload();
+					this.dialogs.notify(`已保存: ${file}`);
+				}
 				break;
 			case "saveConfig":
 				await runtime.services.settingsManager.flush(); await saveConfig(action.file, action.original, action.content);

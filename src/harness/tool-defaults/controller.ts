@@ -1,5 +1,6 @@
 import type { ExtensionAPI, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { saveUserToolDefaults } from "./config.ts";
+import { initialToolDefaults } from "./initial.ts";
 import { syncToolSearch, toolSearchEnabled } from "../tool-search/loadout.ts";
 
 const TOOL_SELECTION_ENTRY = "tools-config";
@@ -44,9 +45,25 @@ export class ToolSelectionController {
 		this.pi.appendEntry(TOOL_SELECTION_ENTRY, { enabledTools: this.apply([...names]) });
 	}
 
+	hasUserDefaultChanges(defaultTools: string[] | undefined): boolean {
+		const baseline = this.baseline;
+		if (!baseline) return false;
+		const defaults = initialToolDefaults({
+			getActiveTools: () => baseline,
+			getSettings: () => defaultTools === undefined ? {} : { defaultTools },
+		}, [], {}) ?? baseline;
+		const expected = new Set(defaults.filter((name) => name !== "tool_search"));
+		const current = this.selectedNames();
+		return current.length !== expected.size || current.some((name) => !expected.has(name));
+	}
+
 	persistUserDefaults(): Promise<string> {
+		return saveUserToolDefaults(this.selectedNames());
+	}
+
+	private selectedNames(): string[] {
 		const active = new Set(this.pi.getActiveTools());
-		return saveUserToolDefaults([...this.selectableNames()].filter((name) => active.has(name)));
+		return [...this.selectableNames()].filter((name) => active.has(name));
 	}
 
 	private selectable(tool: Pick<ToolInfo, "name" | "exposure">): boolean {

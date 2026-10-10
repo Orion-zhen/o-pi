@@ -8,10 +8,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { mcpId, type McpPair } from "./mcp-draft.ts";
+import { exposureOptions } from "./mcp-exposure.tsx";
 
-export const exposureOptions = [
-	["codemode", "脚本与按需发现（默认）"], ["deferred", "搜索后加载"], ["direct", "始终提供给模型"], ["hidden", "隐藏"],
-] as const;
 export const mcpText = (value: unknown): string => typeof value === "string" ? value : value === undefined ? "" : JSON.stringify(value);
 
 export function McpField({ label, field, issues = [], hint, children }: {
@@ -57,7 +55,7 @@ export function McpSecret({ id, label, value, change }: { id?: string; label: st
 }
 
 export function McpChoice<T extends string>({ label, value, options, change, disabled }: {
-	label: string; value: string; options: readonly (readonly [T, string])[]; change: (value: T) => void; disabled: boolean;
+	label: string; value: string; options: readonly (readonly [T, ReactNode])[]; change: (value: T) => void; disabled: boolean;
 }) {
 	return <Select value={value} onValueChange={(value) => change(value as T)} disabled={disabled}>
 		<SelectTrigger aria-label={label}><SelectValue>{options.find(([key]) => key === value)?.[1] ?? `无效值：${value || "空"}`}</SelectValue></SelectTrigger>

@@ -28,12 +28,12 @@ export function liveSnapshot(): GuiSnapshot {
 		canSubmit: true, canChangeSession: false, running: true, commandRunning: false, liveTools: [], streaming: true, retrying: false,
 		contextEntryIds: entries.map((entry) => entry.id), history: [], entries, messageDurations: {},
 		streamingMessage: { ...assistant([{ type: "thinking", thinking: "继续检查" }], "pending"), timestamp: 1000 },
-		model: null, routedModel: null, models: [], scopedModels: [], defaultModel: { provider: null, id: null, thinking: null },
+		model: null, routedModel: null, models: [], scopedModels: [], modelScopeChanged: false, defaultModel: { provider: null, id: null, thinking: null },
 		thinking: "high", thinkingLevels: ["off", "high"], context: null,
 		stats: { sessionId: "live-perf", sessionFile: undefined, userMessages: 1, assistantMessages: 220, toolCalls: 220, toolResults: 220,
 			totalMessages: 441, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 },
 		queue: { steering: [], followUp: [] }, settings: { compaction: false, retry: false, steering: "all", followUp: "all", autoResize: true, blockImages: false },
-		commands: [], tools: [], modelTools: [], providers: [], bashOutput: "",
+		commands: [], tools: [], modelTools: [], toolDefaultsChanged: false, providers: [], bashOutput: "",
 	};
 }
 

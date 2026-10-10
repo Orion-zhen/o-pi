@@ -5,6 +5,8 @@
 .workspace-option-row { flex-shrink: 0; }
 .workspace-option-label { flex: 1; min-inline-size: 0; }
 .workspace-option-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.workspace-option-home { display: inline-flex; align-items: center; gap: 0.35em; vertical-align: bottom; }
+.workspace-option-home > svg { color: var(--muted-foreground); }
 .workspace-option-row > button { justify-content: flex-start; min-inline-size: 0; }
 .workspace-option-row small { display: block; color: var(--muted-foreground); }
 .directory-list > button { flex-shrink: 0; justify-content: flex-start; min-inline-size: 0; }

@@ -75,15 +75,15 @@ describe("会话列表增量读取", () => {
 		const publish = vi.fn();
 		const catalog = new GuiSessionCatalog(publish, () => [cwd]);
 		await catalog.refresh();
-		expect(catalog.workspaces).toEqual([{ path: cwd, exists: true }]);
+		expect(catalog.workspaces).toEqual([expect.objectContaining({ path: cwd, exists: true })]);
 		await catalog.refresh();
 		expect(publish).toHaveBeenCalledTimes(1);
 		await rm(cwd, { recursive: true });
 		await catalog.refresh();
-		expect(catalog.workspaces).toEqual([{ path: cwd, exists: false }]);
+		expect(catalog.workspaces).toEqual([expect.objectContaining({ path: cwd, exists: false })]);
 		await mkdir(cwd);
 		await catalog.refresh();
-		expect(catalog.workspaces).toEqual([{ path: cwd, exists: true }]);
+		expect(catalog.workspaces).toEqual([expect.objectContaining({ path: cwd, exists: true })]);
 		await catalog.dispose();
 		publish.mockClear();
 		await catalog.refresh();
