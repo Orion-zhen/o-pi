@@ -42,16 +42,20 @@ describe("codemode 工具层级", () => {
 		else {
 			expect(row?.querySelector(".tool-description-text")?.textContent).toBe("Search");
 			expect(row?.querySelector('[role="checkbox"]')?.hasAttribute("disabled")).toBe(true);
+			expect(row?.querySelector(".tool-callable-state")?.textContent).toBe("自动");
 		}
 	});
-	it("只有模型专用工具平级，未勾选的延迟工具仍显示为可调用而非禁用开关", () => {
+	it("只有模型专用工具平级，自动可调用工具统一显示禁用态勾选框", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
 			snapshot: { toolDefaultsChanged: false, tools, modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
 		}))).document;
 		expect([...doc.querySelectorAll(".tool-selection-children [data-tool-option]")].map((row) => row.getAttribute("data-tool-option")))
 			.toEqual(["read", "bash", "search"]);
 		expect(doc.querySelector('.tool-selection > [data-tool-option="skill"]')).not.toBeNull();
-		expect(doc.querySelector('[data-tool-option="search"] [role="checkbox"]')).toBeNull();
+		const automatic = doc.querySelector('[data-tool-option="search"] [role="checkbox"]');
+		expect(automatic?.getAttribute("aria-checked")).toBe("true");
+		expect(automatic?.hasAttribute("disabled")).toBe(true);
+		expect(doc.querySelector('[data-tool-option="search"] .tool-callable-state')?.textContent).toBe("自动");
 		expect(doc.querySelector('[aria-label="bash"]')?.getAttribute("aria-checked")).toBe("false");
 	});
 
@@ -65,6 +69,22 @@ describe("codemode 工具层级", () => {
 		}))).document;
 		expect(doc.querySelector('[aria-label="mcp__demo__on"]')?.getAttribute("aria-checked")).toBe("true");
 		expect(doc.querySelector('[aria-label="mcp__demo__off"]')?.getAttribute("aria-checked")).toBe("false");
+	});
+
+	it.each([false, true])("MCP 总开关不取决于单工具选择，资源开关单列：服务开启=%s", (available) => {
+		const mcp: GuiSnapshot["tools"] = [
+			{ name: "mcp__demo__probe", description: "Probe", exposure: "codemode", mcp: true, available, enabled: false, callable: false,
+				mcpServer: { name: "demo", tool: "probe", exposure: "codemode" } },
+			{ name: "read_mcp_resource", description: "Read resource", exposure: "codemode", mcp: true, available: true, enabled: true, callable: true },
+		];
+		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
+			snapshot: { toolDefaultsChanged: false, tools: [...tools, ...mcp], modelTools: ["codemode"] }, send: async () => true, disabled: false,
+		}))).document;
+		const row = doc.querySelector(".mcp-tool-group-row");
+		expect(row?.querySelector('[aria-label="demo 服务工具"]')?.getAttribute("aria-checked")).toBe(String(available));
+		expect(row?.querySelector('[aria-label="展开 demo"]')?.getAttribute("aria-expanded")).toBe("false");
+		expect(row?.textContent).toContain(available ? "0/1 已启用" : "本会话已关闭");
+		expect(doc.querySelector('.mcp-shared-tools [aria-label="read_mcp_resource"]')?.getAttribute("aria-checked")).toBe("true");
 	});
 
 	it("关闭模式恢复平级选择，保留普通工具的勾选", () => {

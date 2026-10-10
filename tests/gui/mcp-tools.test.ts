@@ -47,15 +47,93 @@ beforeEach(async () => {
 });
 afterEach(async () => { await host?.host.dispose(); await model?.close(); });
 
-async function start(exposure: string, codemode = true) {
+async function start(exposure: string, codemode = true, servers = ["fixture"]) {
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
 		defaultProjectTrust: "never", defaultProvider: "fixture", defaultModel: "test", defaultTools: codemode ? ["codemode"] : ["read"],
 		compaction: { enabled: false }, retry: { enabled: false },
 	}));
-	await writeFile(mcpFile, JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [fixture], exposure } } }));
+	await writeFile(mcpFile, JSON.stringify({ mcpServers: Object.fromEntries(servers.map((name) => [name, { command: process.execPath, args: [fixture], exposure }])) }));
 	await host.host.start(temp.path);
-	await expect.poll(tool).toMatchObject({ mcp: true, enabled: true, callable: true });
+	await expect.poll(() => readSnapshot(host).tools.find((tool) => tool.mcp)).toMatchObject({ enabled: true, callable: true });
 }
+
+it.each(["deferred", "direct"])("%s 服务总开关保留单工具选择和排列，批量关闭隔离搜索和调用", async (exposure) => {
+	await start(exposure, false, ["fixture", "other"]);
+	const original = await readFile(mcpFile, "utf8");
+	await expect.poll(() => readSnapshot(host).tools.filter((tool) => tool.mcpServer)).toHaveLength(4);
+	const names = () => readSnapshot(host).tools.map((tool) => tool.name);
+	const originalOrder = names();
+	await host.dispatch({ action: "tool", name: probe, enabled: false });
+	await host.dispatch({ action: "mcpServers", names: ["fixture"], enabled: false });
+	await host.dispatch({ action: "mcpServers", names: ["fixture", "other"], enabled: false });
+	expect(readSnapshot(host).tools.filter((tool) => tool.mcpServer).every((tool) => !tool.enabled && !tool.callable && !tool.available)).toBe(true);
+	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	expect(names()).toEqual(originalOrder);
+	response = { tool: probe, args: {} };
+	await host.dispatch(prompt("旧上下文不能绕过总开关"));
+	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).not.toContain("MCP_RESULT_probe");
+	await host.dispatch({ action: "tool", name: "codemode", enabled: true });
+	response = { tool: "codemode", args: { code: 'text(await searchTools("MCP_VISIBILITY")); text(await tools.mcp__fixture__refresh({}));' } };
+	await host.dispatch(prompt("脚本不能发现或调用关闭的服务工具"));
+	const result = JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"));
+	expect(result).toContain("[]");
+	expect(result).not.toContain("MCP_RESULT_refresh");
+	await host.dispatch({ action: "mcpServers", names: ["fixture", "other"], enabled: true });
+	expect(tool()).toMatchObject({ available: true, enabled: false });
+	expect(readSnapshot(host).tools.find((tool) => tool.name === refresh)).toMatchObject({ enabled: true, callable: true });
+	expect(names()).toEqual(originalOrder);
+	response = { tool: "codemode", args: { code: `text(await tools.${refresh}({}));` } };
+	await host.dispatch(prompt("恢复后调用"));
+	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain("MCP_RESULT_refresh");
+	expect(await readFile(mcpFile, "utf8")).toBe(original);
+});
+
+const resources = ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"];
+it("共享资源独立于服务工具开关，关闭后不可搜索调用，重载保留选择", async () => {
+	await writeMcpFixture(temp.path, { resources: true });
+	await start("codemode");
+	await expect.poll(() => readSnapshot(host).tools.filter((tool) => resources.includes(tool.name))).toHaveLength(3);
+	await host.dispatch({ action: "mcpServers", names: ["fixture"], enabled: false });
+	response = { tool: "codemode", args: { code: 'text(await tools.list_mcp_resources({})); text(await tools.read_mcp_resource({server:"fixture",uri:"fixture://document"}));' } };
+	await host.dispatch(prompt("独立资源入口仍可使用"));
+	const result = JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"));
+	expect(result).toContain("fixture://document");
+	expect(result).toContain("RESOURCE_RESULT");
+	const originalOrder = readSnapshot(host).tools.map((tool) => tool.name);
+	for (const name of resources) await host.dispatch({ action: "tool", name, enabled: false });
+	expect(readSnapshot(host).tools.map((tool) => tool.name)).toEqual(originalOrder);
+	response = { tool: "codemode", args: { code: 'text(await searchTools("resources")); text(await tools.read_mcp_resource({server:"fixture",uri:"fixture://document"}));' } };
+	await host.dispatch(prompt("资源关闭后不可搜索和调用"));
+	const hidden = JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"));
+	expect(hidden).toContain("[]");
+	expect(hidden).not.toContain("RESOURCE_RESULT");
+	await host.dispatch({ action: "tool", name: "codemode", enabled: false });
+	await host.dispatch({ action: "reload" });
+	await expect.poll(() => readSnapshot(host).tools.filter((tool) => resources.includes(tool.name))).toHaveLength(3);
+	expect(readSnapshot(host).tools.filter((tool) => resources.includes(tool.name)).every((tool) => !tool.enabled && !tool.callable)).toBe(true);
+	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	await host.dispatch({ action: "tool", name: "read_mcp_resource", enabled: true });
+	expect(host.runtime.session.getActiveToolNames()).toContain("tool_search");
+	expect(host.runtime.session.getActiveToolNames()).not.toContain("read_mcp_resource");
+	response = { tool: "tool_search", args: { query: "read_mcp_resource", limit: 1 } };
+	await host.dispatch(prompt("搜索加载重新开启的资源工具"));
+	expect(host.runtime.session.getActiveToolNames()).toContain("read_mcp_resource");
+	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	response = { tool: "read_mcp_resource", args: { server: "fixture", uri: "fixture://document" } };
+	await host.dispatch(prompt("单独恢复资源读取"));
+	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain("RESOURCE_RESULT");
+	expect(readSnapshot(host).tools.find((tool) => tool.name === "list_mcp_resources")).toMatchObject({ enabled: false });
+});
+
+it("仅提供资源的服务无需专属工具即可读取资源", async () => {
+	await writeMcpFixture(temp.path, { resourceOnly: true });
+	await start("codemode");
+	await expect.poll(() => readSnapshot(host).tools.filter((tool) => resources.includes(tool.name))).toHaveLength(3);
+	expect(readSnapshot(host).tools.some((tool) => tool.mcpServer)).toBe(false);
+	response = { tool: "codemode", args: { code: 'text(await tools.read_mcp_resource({server:"fixture",uri:"fixture://document"}));' } };
+	await host.dispatch(prompt("读取服务资源"));
+	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain("RESOURCE_RESULT");
+});
 
 it.each(["codemode", "codemode-deferred", "deferred", "direct"])("%s 工具关闭后不声明、不被搜索发现，重新启用恢复调用", async (exposure) => {
 	await start(exposure);
@@ -80,8 +158,16 @@ it.each(["codemode", "codemode-deferred", "deferred", "direct"])("%s 工具关�
 	expect(model.requests.at(-1)?.tools?.map((tool) => tool.function.name) ?? []).not.toContain("tool_search");
 	expect(tool()).toMatchObject({ enabled: false, callable: false });
 	await host.dispatch({ action: "tool", name: probe, enabled: true });
+	if (exposure !== "direct") {
+		expect(host.runtime.session.getActiveToolNames()).not.toContain(probe);
+		expect(host.runtime.session.getActiveToolNames()).toContain("tool_search");
+		response = { tool: "tool_search", args: { query: "MCP_VISIBILITY_probe", limit: 1 } };
+		await host.dispatch(prompt("重新勾选的延迟工具仍通过搜索加载"));
+	}
+	expect(host.runtime.session.getActiveToolNames()).toContain(probe);
+	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
 	response = { tool: probe, args: {} };
-	await host.dispatch(prompt("不开启 codemode 也能直接使用勾选的工具"));
+	await host.dispatch(prompt("普通模式直接调用已加载的工具"));
 	expect(model.requests.at(-1)?.tools?.some((tool) => tool.function.name === probe)).toBe(true);
 	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain("MCP_RESULT_probe");
 	await host.dispatch({ action: "tool", name: "codemode", enabled: true });
@@ -92,36 +178,47 @@ it.each(["codemode", "codemode-deferred", "deferred", "direct"])("%s 工具关�
 	expect(await readFile(mcpFile, "utf8")).toBe(original);
 });
 
-it("关闭选择在服务工具刷新、重载和会话恢复后保留，不影响新会话", async () => {
+it("服务和单工具选择在刷新、重载和分支恢复后保留，新会话独立", async () => {
 	await start("codemode");
 	await host.dispatch(prompt("建立会话"));
 	const firstId = readSnapshot(host).sessionId;
 	const originalLeaf = host.runtime.session.sessionManager.getLeafId();
 	const originalDescription = tool()?.description;
 	await host.dispatch({ action: "tool", name: probe, enabled: false });
-	const disabledLeaf = host.runtime.session.sessionManager.getLeafId();
-	if (!originalLeaf || !disabledLeaf) throw new Error("缺少分支节点");
 	response = { tool: "codemode", args: { code: `text(await tools.${refresh}({}));` } };
 	await host.dispatch(prompt("刷新服务工具列表"));
 	await expect.poll(() => tool()?.description).not.toBe(originalDescription);
 	expect(tool()).toMatchObject({ enabled: false, callable: false });
+	await expect.poll(() => readSnapshot(host).tools.find((tool) => tool.name === "mcp__fixture__extra")).toMatchObject({ enabled: true });
+	await host.dispatch({ action: "mcpServers", names: ["fixture"], enabled: false });
+	const disabledLeaf = host.runtime.session.sessionManager.getLeafId();
+	if (!originalLeaf || !disabledLeaf) throw new Error("缺少分支节点");
 	await host.dispatch({ action: "reload" });
-	await expect.poll(tool).toMatchObject({ enabled: false, callable: false });
+	await expect.poll(tool).toMatchObject({ available: false, enabled: false, callable: false });
 	await host.dispatch({ action: "navigate", entryId: originalLeaf, summarize: false });
 	await expect.poll(tool).toMatchObject({ enabled: true, callable: true });
 	await host.dispatch({ action: "navigate", entryId: disabledLeaf, summarize: false });
-	await expect.poll(tool).toMatchObject({ enabled: false, callable: false });
+	await expect.poll(tool).toMatchObject({ available: false, enabled: false, callable: false });
 	await host.dispatch({ action: "new" });
 	await expect.poll(tool).toMatchObject({ enabled: true, callable: true });
 	await host.dispatch({ action: "openSession", id: firstId });
-	await expect.poll(tool).toMatchObject({ enabled: false, callable: false });
+	await expect.poll(tool).toMatchObject({ available: false, enabled: false, callable: false });
 	const file = readSnapshot(host).sessionFile;
 	if (!file) throw new Error("缺少会话文件");
 	await host.host.dispose();
 	host = new GuiHost().createClient();
 	await host.host.start(temp.path);
 	await host.dispatch({ action: "openSession", path: file });
-	await expect.poll(tool).toMatchObject({ enabled: false, callable: false });
+	await expect.poll(tool).toMatchObject({ available: false, enabled: false, callable: false });
+	await host.dispatch({ action: "mcpServers", names: ["fixture"], enabled: true });
+	expect(tool()).toMatchObject({ available: true, enabled: false, callable: false });
+	expect(readSnapshot(host).tools.find((tool) => tool.name === refresh)).toMatchObject({ enabled: true, callable: true });
+	const original = await readFile(mcpFile, "utf8");
+	const content = JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [fixture], enabled: false } } });
+	await host.dispatch({ action: "saveMcpConfig", original, content });
+	expect(readSnapshot(host).tools.find((tool) => tool.name === refresh)).toMatchObject({ enabled: true });
+	await host.dispatch({ action: "reload" });
+	expect(tool()).toBeUndefined();
 });
 
 it.each(["codemode", "deferred"])("普通模式搜索 %s MCP 工具并直接调用，切换模式不改变加载选择", async (exposure) => {

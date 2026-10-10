@@ -8,9 +8,10 @@ import { startModelServer } from "../cli/model-server.ts";
 test.describe("MCP", () => {
 	let model: Awaited<ReturnType<typeof startModelServer>>;
 	test.beforeEach(async ({ workspace: { cwd, agentDir } }) => {
-		const script = await writeMcpFixture(cwd);
+		const script = await writeMcpFixture(cwd, { resources: true });
 		await writeFile(path.join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: {
 			fixture: { command: process.execPath, args: [script], exposure: "codemode" },
+			other: { command: process.execPath, args: [script], exposure: "codemode" },
 		} }));
 		model = await startModelServer((request) => {
 			const lastUser = request.messages.findLastIndex((message) => message.role === "user");
@@ -22,11 +23,70 @@ test.describe("MCP", () => {
 	});
 	test.afterEach(async () => { await model?.close(); });
 
+	test("MCP 服务行随容器和字号换行，不横向溢出", async ({ gui: { page } }) => {
+		await page.locator(".tool-count").click();
+		const selection = page.locator(".tool-selection-mcp");
+		await expect(selection).toBeVisible();
+		for (const fontSize of ["100%", "150%", "200%"]) {
+			await selection.evaluate((element, size) => { element.style.fontSize = size; }, fontSize);
+			await expect.poll(() => selection.locator(".mcp-tool-group-row").evaluateAll((rows) => rows.length > 0 && rows.every((row) =>
+				row.scrollWidth <= row.clientWidth && [...row.children].every((child) => child.scrollWidth <= child.clientWidth),
+			))).toBe(true);
+		}
+		await page.getByRole("button", { name: "展开 fixture", exact: true }).click();
+		await expect(page.getByRole("checkbox", { name: "mcp__fixture__probe", exact: true })).toBeVisible();
+	});
+
+	test("服务开关与资源独立，批量操作包含共享资源", async ({ gui: { page } }) => {
+		await page.locator(".tool-count").click();
+		const server = page.getByRole("checkbox", { name: "fixture 服务工具", exact: true });
+		const other = page.getByRole("checkbox", { name: "other 服务工具", exact: true });
+		const probe = page.getByRole("checkbox", { name: "mcp__fixture__probe", exact: true });
+		const refresh = page.getByRole("checkbox", { name: "mcp__fixture__refresh", exact: true });
+		const resource = page.getByRole("checkbox", { name: "read_mcp_resource", exact: true });
+		await page.getByRole("button", { name: "展开 fixture", exact: true }).click();
+		await expect(server).toBeChecked();
+		await probe.click();
+		await server.click();
+		await expect(refresh).toBeDisabled();
+		await expect(refresh).not.toBeChecked();
+		await expect(resource).toBeChecked();
+		await page.getByRole("button", { name: "收起 fixture", exact: true }).click();
+		await expect(probe).not.toBeVisible();
+		await expect(server).not.toBeChecked();
+		await page.getByRole("button", { name: "展开 fixture", exact: true }).press("Space");
+		await server.click();
+		await expect(probe).not.toBeChecked();
+		await expect(refresh).toBeChecked();
+		await resource.click();
+		const all = page.getByRole("checkbox", { name: "MCP 服务工具", exact: true });
+		await expect(all).toHaveAttribute("aria-checked", "mixed");
+		await all.click();
+		await expect(all).toBeChecked();
+		await page.locator(".mcp-selection-heading label").click();
+		await expect(server).not.toBeChecked();
+		await expect(other).not.toBeChecked();
+		await expect(all).toHaveAttribute("aria-checked", "false");
+		await all.click();
+		await expect(server).toBeChecked();
+		await expect(other).toBeChecked();
+		await expect(probe).not.toBeChecked();
+		await expect(resource).toBeChecked();
+		const search = page.getByRole("textbox", { name: "筛选工具", exact: true });
+		await search.fill("fixture");
+		await expect(all).toBeChecked();
+		await all.click();
+		await expect(server).not.toBeChecked();
+		await search.fill("");
+		await expect(other).toBeChecked();
+	});
+
 	test("选择器关闭 MCP 工具阻止模型发现，刷新保留选择，配置仅显式保存", async ({ gui: { page }, workspace: { agentDir } }) => {
 		const name = "mcp__fixture__probe";
 		const file = path.join(agentDir, "mcp.json");
 		const original = await readFile(file, "utf8");
 		await page.locator(".tool-count").click();
+		await page.getByRole("button", { name: "展开 fixture", exact: true }).click();
 		const checkbox = page.getByRole("checkbox", { name, exact: true });
 		await expect(checkbox).toBeChecked();
 		await checkbox.click();
@@ -41,6 +101,7 @@ test.describe("MCP", () => {
 		expect(await readFile(file, "utf8")).toBe(original);
 		await page.reload();
 		await page.locator(".tool-count").click();
+		await page.getByRole("button", { name: "展开 fixture", exact: true }).click();
 		await expect(checkbox).not.toBeChecked();
 		await checkbox.click();
 		await expect(checkbox).toBeChecked();
@@ -66,6 +127,7 @@ test.describe("MCP", () => {
 		expect(await readFile(file, "utf8")).toBe("{}");
 		await settings.getByRole("button", { name: "关闭面板", exact: true }).click();
 		await page.locator(".tool-count").click();
+		await page.getByRole("button", { name: "展开 fixture", exact: true }).click();
 		await expect(checkbox).toBeChecked();
 	});
 });

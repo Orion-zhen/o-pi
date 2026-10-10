@@ -98,6 +98,7 @@ export const actionSchema = Type.Union([
 	}),
 	object({ action: Type.Literal("logout"), provider: short }),
 	object({ action: Type.Literal("tool"), name: short, enabled: Type.Boolean() }),
+	object({ action: Type.Literal("mcpServers"), names: Type.Array(short, { minItems: 1, maxItems: 1000, uniqueItems: true }), enabled: Type.Boolean() }),
 	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]) }),
 	object({ action: Type.Literal("clearNotices"), ids: Type.Array(short, { maxItems: 100, uniqueItems: true }) }),
 	object({ action: Type.Literal("draft"), text }),

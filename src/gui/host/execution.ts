@@ -378,6 +378,10 @@ export class GuiExecution {
 				session.setSteeringMode(action.steering); session.setFollowUpMode(action.followUp);
 				runtime.services.settingsManager.setImageAutoResize(action.autoResize); runtime.services.settingsManager.setBlockImages(action.blockImages);
 				await runtime.services.settingsManager.flush(); break;
+			case "mcpServers":
+				if (!this.mcpTools) throw new Error("MCP 工具选择未绑定。");
+				this.mcpTools.setServers(action.names, action.enabled);
+				break;
 			case "tool":
 			case "persistTools":
 				if (!this.toolController) throw new Error("工具选择未绑定。");

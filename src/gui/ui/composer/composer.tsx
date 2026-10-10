@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { AnimatePresence } from "motion/react";
 import { ListItem, Reveal } from "../components/animated";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
-import { ArrowUp, CodeXml, CornerUpRight, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
+import { ArrowUp, Blocks, CodeXml, CornerUpRight, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
 import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
@@ -34,7 +34,8 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 	const codemode = snapshot.modelTools.includes("codemode");
 	const toolCount = codemode ? snapshot.tools.filter((tool) => tool.name !== "codemode"
 		&& (tool.callable || tool.exposure === "model-only" && tool.enabled)).length : snapshot.modelTools.length;
-	const ToolIcon = codemode ? CodeXml : Wrench;
+	const mcpEnabled = snapshot.tools.some((tool) => tool.mcp && tool.enabled);
+	const ToolIcon = codemode ? CodeXml : mcpEnabled ? Blocks : Wrench;
 	const {
 		connected,
 		query,
@@ -287,11 +288,11 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 							}}
 						/>
 						<InputHistory history={snapshot.history} select={setDraft} focusEditor={() => editor.current?.focus()} />
-						<Hint content={codemode ? "工具 · codemode" : "工具 · 普通模式"}><Button
+						<Hint content={`工具 · ${codemode ? "codemode" : "普通模式"}${mcpEnabled ? " · MCP 已启用" : ""}`}><Button
 							variant="ghost"
 							size="sm"
 							className="tool-count"
-							aria-label={`工具：可用 ${toolCount} 个${codemode ? "，codemode 模式" : ""}`}
+							aria-label={`工具：可用 ${toolCount} 个${codemode ? "，codemode 模式" : ""}${mcpEnabled ? "，MCP 已启用" : ""}`}
 							disabled={!gui.canSubmit}
 							onClick={() => gui.setPanel({ kind: "tools" })}
 						>

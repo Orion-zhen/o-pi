@@ -9,8 +9,8 @@
 .mcp-server-summary { flex: 1 1 12ch; min-inline-size: 0; text-align: start; border-radius: var(--radius-sm); }
 .mcp-server-summary:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
 .mcp-server-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-weight: 600; overflow-wrap: anywhere; }
-.mcp-server-name .settings-badge { font-size: var(--text-caption); font-weight: 400; }
-.mcp-server-address { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-family: var(--font-mono); font-size: var(--text-small); margin-block-start: var(--space-1); }
+.mcp-server-address { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); font-size: var(--text-small); margin-block-start: var(--space-1); }
+.mcp-server-address > span { font-family: var(--font-mono); }
 .mcp-replace { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); color: var(--muted-foreground); font-size: var(--text-small); }
 .mcp-error-badge { color: var(--destructive); font-size: var(--text-caption); font-weight: 400; }
 .mcp-server-actions { display: flex; align-items: center; gap: var(--space-1); margin-inline-start: auto; }

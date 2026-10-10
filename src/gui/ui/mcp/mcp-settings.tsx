@@ -83,8 +83,8 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 						<article className="mcp-server" aria-label={`MCP 服务 ${name}`}>
 							<div className="mcp-server-heading">
 								<CollapsibleTrigger asChild><button type="button" className="mcp-server-summary" aria-label={`编辑 ${name}`}>
-									<span className="mcp-server-name">{name}<span className="settings-badge">{remote ? "远程 HTTP" : "本地进程"}</span>{issues.length > 0 && <span className="mcp-error-badge">需修复</span>}</span>
-									<span className="mcp-server-address">{mcpServerSummary(server)}</span>
+									<span className="mcp-server-name">{name}{issues.length > 0 && <span className="mcp-error-badge">需修复</span>}</span>
+									<span className="mcp-server-address">{remote ? "HTTP" : "本地进程"} · <span>{mcpServerSummary(server)}</span></span>
 								</button></CollapsibleTrigger>
 								<div className="mcp-server-actions">
 									<Switch aria-label={name} checked={config.enabled !== false} disabled={blocked || !mcpObject(server.config)} onCheckedChange={(enabled) => {
