@@ -239,7 +239,7 @@ export function App() {
 						</Reveal>}
 						</AnimatePresence>
 						<div className="transcript-shell">
-						<div className="transcript" data-list-scroll ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
+						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
 							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
 								{snapshot && gui.availableVersion && !located?.preview && <div className="startup-version" role="status">Pi v{gui.availableVersion} 版本可用</div>}
 								{snapshot && gui.changelog && !located?.preview && <StartupChangelog value={gui.changelog} shown={gui.changelogShown} />}
@@ -265,7 +265,7 @@ export function App() {
 									onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 									{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { setLocation(undefined); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
 									<FileLinksContext value={fileLinks}><DisclosureMemoryContext value={memory}><Transcript source={source} entryIds={located.entryIds}
-										prunedToolCallIds={located.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} windowRef={transcript.virtualizer} target={target} view={located.preview ? undefined : gui.view} /></DisclosureMemoryContext></FileLinksContext>
+										prunedToolCallIds={located.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} /></DisclosureMemoryContext></FileLinksContext>
 								</Fade>}
 								</AnimatePresence>
 								<AnimatePresence initial={false}>{snapshot?.bashOutput && <Reveal><pre className="live-output">{snapshot.bashOutput}</pre></Reveal>}</AnimatePresence>

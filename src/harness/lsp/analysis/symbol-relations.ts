@@ -24,13 +24,13 @@ export async function symbolRelations(session: LspDocumentSession, position: Pos
 	const outgoing: CodeAnalysisStatus[] = [];
 	if (prepared.status === "ok") {
 		const limit = pLimit(2);
-		const results = await Promise.all(prepared.value.map((item) => limit(async () => {
+		const results = await limit.map(prepared.value, async (item) => {
 			const [calls, callees] = await Promise.all([
 				requests.run(true, (options) => session.incomingCalls(item, options)),
 				requests.run(true, (options) => session.outgoingCalls(item, options)),
 			]);
 			return { item, calls, callees };
-		})));
+		});
 		for (const { item, calls, callees } of results) {
 			incoming.push(calls.status);
 			outgoing.push(callees.status);

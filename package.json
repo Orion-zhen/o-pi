@@ -21,7 +21,6 @@
 		"test:desktop": "bun scripts/build.mjs desktop --dir && playwright test --config playwright.desktop.config.ts"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-server": "latest",
 		"@playwright/test": "latest",
 		"@tailwindcss/vite": "latest",
 		"@types/node": "latest",

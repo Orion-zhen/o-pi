@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import net from "node:net";
 import { createRequire } from "node:module";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import ipaddr from "ipaddr.js";
 
 const REMOTE_TIMEOUT_MS = 350;
 const ESTIMATED_IMAGE_TOKENS = 1200;
@@ -288,26 +288,13 @@ export function isLocalOrPrivateHttpUrl(value: string | undefined): boolean {
 	try {
 		const url = new URL(value);
 		if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-		const host = url.hostname.toLowerCase();
+		const host = url.hostname.replace(/^\[|\]$/g, "");
 		if (host === "localhost" || host.endsWith(".localhost")) return true;
-		const ipVersion = net.isIP(host);
-		if (ipVersion === 4) return isPrivateIpv4(host);
-		if (ipVersion === 6) return isPrivateIpv6(host);
-		return false;
+		const range = ipaddr.parse(host).range();
+		return range === "loopback" || range === "private" || range === "linkLocal" || range === "uniqueLocal";
 	} catch {
 		return false;
 	}
-}
-
-function isPrivateIpv4(host: string): boolean {
-	const parts = host.split(".").map(Number);
-	const [a, b] = parts;
-	if (a === undefined || b === undefined) return false;
-	return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
-}
-
-function isPrivateIpv6(host: string): boolean {
-	return host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:");
 }
 
 const confidenceRank: Record<TokenCounterConfidence, number> = {

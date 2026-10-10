@@ -1,4 +1,3 @@
-import type { VirtualItem } from "@tanstack/react-virtual";
 import type { GuiAction, GuiEvent } from "../../contract.ts";
 import type { DisclosureMemory } from "../components/disclosure-memory.ts";
 
@@ -9,7 +8,6 @@ export interface SessionViewState {
 	path: string | null;
 	draft: Draft;
 	disclosures: DisclosureMemory;
-	measurements: VirtualItem[];
 	position: { top: number; follow: boolean } | undefined;
 }
 
@@ -26,7 +24,7 @@ export class SessionViews {
 	open(session: { id: string; path: string | null }, draftFrom?: string): SessionViewState {
 		let record = this.records.get(session.id);
 		if (!record) {
-			record = { ...session, draft: { text: "", images: [], behavior: "steer" }, disclosures: new Map(), measurements: [], position: undefined };
+			record = { ...session, draft: { text: "", images: [], behavior: "steer" }, disclosures: new Map(), position: undefined };
 			this.records.set(session.id, record);
 		}
 		const previous = draftFrom ? this.records.get(draftFrom) : undefined;

@@ -12,6 +12,36 @@ describe("stats token counter", () => {
 		expect(isLocalOrPrivateHttpUrl("https://api.openai.com/v1")).toBe(false);
 	});
 
+	it.each([
+		["http://app.localhost:8000/v1", true],
+		["http://10.0.0.1", true],
+		["http://172.16.0.1", true],
+		["http://172.31.255.255", true],
+		["http://169.254.1.1", true],
+		["http://[::1]:8000/v1", true],
+		["https://[fc00::1]", true],
+		["http://[fdff::1]", true],
+		["http://[fe80::1]", true],
+		["http://[febf::1]", true],
+		["http://172.15.255.255", false],
+		["http://172.32.0.1", false],
+		["http://8.8.8.8", false],
+		["http://100.64.0.1", false],
+		["http://0.0.0.0", false],
+		["http://224.0.0.1", false],
+		["http://[::]", false],
+		["http://[ff02::1]", false],
+		["http://[fec0::1]", false],
+		["http://[2001:4860:4860::8888]", false],
+		["http://[::ffff:8.8.8.8]", false],
+		["http://localhost.example.com", false],
+		["ftp://127.0.0.1", false],
+		["invalid", false],
+		[undefined, false],
+	])("按地址范围限制 tokenizer: %s -> %s", (url, allowed) => {
+		expect(isLocalOrPrivateHttpUrl(url)).toBe(allowed);
+	});
+
 	it("本地 /tokenize 可用时优先使用 endpoint", async () => {
 		let requests = 0;
 		const server = createServer((request, response) => {

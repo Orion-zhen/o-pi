@@ -1,9 +1,8 @@
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { defaultRangeExtractor, useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 
 /** 小列表保留自然布局，大列表只挂载视口附近的行。 */
-export function useVirtualRows<T extends HTMLElement>(count: number, getKey: (index: number) => string, estimateSize: number,
-	position?: { top: number; measurements: VirtualItem[]; targetIndex: number }) {
+export function useVirtualRows<T extends HTMLElement>(count: number, getKey: (index: number) => string, estimateSize: number) {
 	const root = useRef<T>(null);
 	const [scrollMargin, setScrollMargin] = useState(0);
 	const windowed = count > 100;
@@ -16,15 +15,14 @@ export function useVirtualRows<T extends HTMLElement>(count: number, getKey: (in
 	}
 	const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
 		const indexes = new Set(defaultRangeExtractor(range));
-		for (const index of [focusedIndex, position?.targetIndex ?? -1]) if (index >= 0) indexes.add(index);
+		if (focusedIndex >= 0) indexes.add(focusedIndex);
 		if (selection) for (let index = selection[0]; index <= Math.min(selection[1], count - 1); index++) indexes.add(index);
 		return [...indexes].sort((a, b) => a - b);
-	}, [focusedIndex, position?.targetIndex, selection, count]);
+	}, [focusedIndex, selection, count]);
 	const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
 		count, getItemKey: getKey, estimateSize: () => estimateSize,
 		getScrollElement: () => root.current?.closest<HTMLElement>("[data-list-scroll]") ?? null,
 		overscan: 8, scrollMargin, enabled: windowed, rangeExtractor,
-		initialOffset: position?.top ?? 0, initialMeasurementsCache: position?.measurements ?? [],
 	});
 	useLayoutEffect(() => {
 		const element = root.current;

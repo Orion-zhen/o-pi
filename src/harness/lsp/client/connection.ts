@@ -50,7 +50,7 @@ export class LspClientConnection implements LspFeatureSession {
 			this.usable = false;
 			await onFailure(errorMessage(error));
 		});
-		this.writer = new DrainingMessageWriter(new StreamMessageWriter(transport.writer), (error) => this.fail(error));
+		this.writer = new DrainingMessageWriter(new StreamMessageWriter(transport.writer));
 		this.rpc = createMessageConnection(new StreamMessageReader(transport.reader), this.writer);
 		this.rpc.onError(([error]) => this.fail(error));
 		this.rpc.onClose(() => this.fail(new Error("connection closed")));
@@ -184,18 +184,12 @@ export class LspClientConnection implements LspFeatureSession {
 	}
 }
 
-/**
- * vscode-jsonrpc 的 sendRequest 会在 writer rejection 后额外抛出一次异常。
- * writer 在此吸收原始 stream rejection，并通过单次 failure signal 让 client 统一中止 connection。
- */
+/** 关闭连接前等待未完成的写入，写入错误交由 RPC 处理。 */
 class DrainingMessageWriter implements MessageWriter {
 	private pendingWrites = 0;
 	private readonly drainWaiters = new Set<() => void>();
 
-	constructor(
-		private readonly inner: MessageWriter,
-		private readonly onWriteError: (error: unknown) => void,
-	) {}
+	constructor(private readonly inner: MessageWriter) {}
 
 	get onError(): MessageWriter["onError"] {
 		return this.inner.onError;
@@ -209,8 +203,6 @@ class DrainingMessageWriter implements MessageWriter {
 		this.pendingWrites += 1;
 		try {
 			await this.inner.write(message);
-		} catch (error) {
-			this.onWriteError(error);
 		} finally {
 			this.pendingWrites -= 1;
 			if (this.pendingWrites === 0) {

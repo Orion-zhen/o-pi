@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { Query, WorkspaceQuery } from "../../contract.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "../../workbench.ts";
 import { useWindowRefresh } from "../runtime/use-window-refresh.ts";
@@ -63,8 +63,7 @@ export function useWorkbench(cwd: string | undefined, connected: boolean, runnin
 		loadGit();
 		if (preview) loadPreview(preview.path);
 	}, [loadDirectory, loadGit, loadPreview, directories, expanded, preview?.path]);
-	const refreshRef = useRef(refresh);
-	refreshRef.current = refresh;
+	const onRefresh = useEffectEvent(refresh);
 	useEffect(() => {
 		pending.current.clear();
 		if (workspace.current !== cwd) {
@@ -77,13 +76,13 @@ export function useWorkbench(cwd: string | undefined, connected: boolean, runnin
 			setSearch(""); setFilesOpen(true); setPane("sessions");
 			loadDirectory("");
 			loadGit();
-		} else refreshRef.current();
+		} else onRefresh();
 		return () => { pending.current.clear(); };
 	}, [loadDirectory, loadGit]);
 	useWindowRefresh(connected, refresh);
 	const wasRunning = useRef(running);
 	useEffect(() => {
-		if (wasRunning.current && !running) refreshRef.current();
+		if (wasRunning.current && !running) onRefresh();
 		wasRunning.current = running;
 	}, [running]);
 	const closePreview = useCallback(() => {

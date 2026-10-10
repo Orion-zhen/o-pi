@@ -67,13 +67,13 @@ export async function codeAnalysis(workspace: LspWorkspace, input: LspCodeAnalys
 	let analyzed: PendingFileAnalysis[];
 	if (!input.allowRelated) {
 		const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
-		analyzed = await Promise.all(routes.map(({ target, client: pending }) => limit(async () => {
+		analyzed = await limit.map(routes, async ({ target, client: pending }) => {
 			const client = await pending;
 			const selection = client.status === "ok"
 				? await analyzeDocumentSelection(input, target.path, client.value, requests, (units) => unitsForRanges(units, target.ranges))
 				: client;
 			return selectionResult({ path: target.path, symbols: "unsupported" }, selection);
-		})));
+		});
 	} else {
 		const ready = await Promise.all([...clients]
 			.sort(([left], [right]) => workspace.config.servers.indexOf(left) - workspace.config.servers.indexOf(right))
@@ -125,7 +125,7 @@ async function analyzeRelatedDocuments(
 		else grouped.push(item);
 	}
 	const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
-	const analyzed = await Promise.all([...byPath].map(([path, grouped]) => limit(async () => {
+	const analyzed = await limit.map(byPath, async ([path, grouped]) => {
 		const current = results.get(path);
 		if (current === undefined) throw new Error("Missing workspace symbol coverage");
 		const selection = await analyzeDocumentSelection(input, path, grouped[0].client, requests, (units) => {
@@ -138,7 +138,7 @@ async function analyzeRelatedDocuments(
 			return [...selected.values()];
 		});
 		return selectionResult(current.coverage, selection);
-	})));
+	});
 	for (const result of analyzed) results.delete(result.coverage.path);
 	return [...analyzed, ...results.values()];
 }
@@ -183,11 +183,11 @@ async function analyzeDocumentSelection(
 		const index = new SourceIndex(document.text);
 		const locations = new RelationLocations(input, requests, { document, analysis, index });
 		const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
-		const enhanced = await Promise.all(selected.map((unit) => limit(async () => {
+		const enhanced = await limit.map(selected, async (unit) => {
 			const position = index.positionForByte(queryAnchor(unit).startByte);
 			if (position === undefined) throw new RangeError("Invalid declaration boundary");
 			return { id: unit.id, result: await symbolRelations(session, position, unit, locations, requests) };
-		})));
+		});
 		const relations = enhanced.flatMap((item) => item.result.relations);
 		const definitions = await definitionRelations(session, analysis, selected, relations, locations, requests);
 		relations.push(...definitions.relations);

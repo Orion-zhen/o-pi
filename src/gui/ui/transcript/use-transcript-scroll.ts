@@ -1,33 +1,30 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type WheelEvent } from "react";
 
-import type { Virtualizer } from "@tanstack/react-virtual";
 import type { SessionViewState } from "../sessions/session-views.ts";
 
 export function useTranscriptScroll(sessionId: string | undefined, view: SessionViewState | undefined) {
 	const scroll = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
-	const virtualizer = useRef<Virtualizer<HTMLElement, HTMLElement> | null>(null);
 	const mode = useRef<"follow" | "paused" | "returning">("follow");
 	const locationVersion = useRef(0);
-	const pendingLocation = useRef<HTMLElement | undefined>(undefined);
 	const restoring = useRef<number | undefined>(undefined);
 	const lastScrollTop = useRef(0);
 	const [showLatest, setShowLatest] = useState(false);
-	const pinToBottom = () => {
-		const viewport = scroll.current;
-		if (!viewport) return;
-		viewport.scrollTop = viewport.scrollHeight;
-		lastScrollTop.current = viewport.scrollTop;
+	const atEnd = (threshold = 60) => Boolean(scroll.current &&
+		scroll.current.scrollHeight - scroll.current.clientHeight - scroll.current.scrollTop <= threshold);
+	const jumpTo = (top: number) => {
+		scroll.current?.scrollTo({ top, behavior: "instant" });
+		lastScrollTop.current = scroll.current?.scrollTop ?? 0;
 	};
-	const cancelLocation = () => { locationVersion.current++; pendingLocation.current = undefined; };
+	const pinToBottom = () => { if (scroll.current) jumpTo(scroll.current.scrollHeight); };
+	const cancelLocation = () => { locationVersion.current++; };
 	const centerTarget = (target: HTMLElement) => {
 		const viewport = scroll.current;
 		if (!viewport?.contains(target)) return;
 		const bounds = target.getBoundingClientRect();
 		const top = viewport.scrollTop + bounds.top - viewport.getBoundingClientRect().top
 			- (viewport.clientHeight - Math.min(bounds.height, viewport.clientHeight)) / 2;
-		if (virtualizer.current) virtualizer.current.scrollToOffset(top, { behavior: "smooth" });
-		else viewport.scrollTo({ top, behavior: "smooth" });
+		viewport.scrollTo({ top, behavior: "smooth" });
 	};
 	const followLatest = () => {
 		cancelLocation();
@@ -38,31 +35,26 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 	};
 	const toLatest = () => {
 		const viewport = scroll.current;
-		if (!viewport || viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 1) {
+		if (!viewport || atEnd(1)) {
 			followLatest();
 			return;
 		}
 		cancelLocation();
 		mode.current = "returning";
-		if (virtualizer.current) virtualizer.current.scrollToEnd({ behavior: "smooth" });
-		else viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+		viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
 	};
 	const interrupt = () => {
-		const locating = pendingLocation.current !== undefined;
 		cancelLocation();
-		if (mode.current !== "returning" && !locating) return;
+		if (mode.current !== "returning") return;
 		mode.current = "paused";
 		const viewport = scroll.current;
-		if (viewport) {
-			if (virtualizer.current) virtualizer.current.scrollToOffset(viewport.scrollTop, { behavior: "instant" });
-			else viewport.scrollTo({ top: viewport.scrollTop, behavior: "instant" });
-		}
+		viewport?.scrollTo({ top: viewport.scrollTop, behavior: "instant" });
 	};
 	useLayoutEffect(() => {
 		const saved = view?.position;
 		mode.current = saved?.follow === false ? "paused" : "follow";
 		restoring.current = saved?.follow === false ? saved.top : undefined;
-		if (restoring.current !== undefined && scroll.current) scroll.current.scrollTop = restoring.current;
+		if (restoring.current !== undefined) jumpTo(restoring.current);
 		else pinToBottom();
 		lastScrollTop.current = saved?.top ?? scroll.current?.scrollTop ?? 0;
 		setShowLatest(saved?.follow === false);
@@ -76,24 +68,17 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 		const body = content.current;
 		if (!viewport || !body) return;
 		const observer = new ResizeObserver(() => {
-			// 手动返回最新时，布局变化不能把平滑滚动改成瞬间置底。
 			if (mode.current === "returning") return;
-			if (restoring.current !== undefined) viewport.scrollTop = restoring.current;
+			if (restoring.current !== undefined) jumpTo(restoring.current);
 			else if (mode.current === "follow") pinToBottom();
-			setShowLatest(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 60);
+			setShowLatest(mode.current !== "follow" && !atEnd());
 		});
 		const finishReturn = () => {
-			if (pendingLocation.current) {
-				const target = pendingLocation.current;
-				pendingLocation.current = undefined;
-				centerTarget(target);
-				return;
-			}
 			if (mode.current !== "returning") return;
-			if (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 1) {
-				if (virtualizer.current) virtualizer.current.scrollToEnd({ behavior: "smooth" });
-				else viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
-			} else followLatest();
+			if (atEnd(1)) {
+				mode.current = "follow";
+				setShowLatest(false);
+			} else viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
 		};
 		observer.observe(body);
 		observer.observe(viewport);
@@ -104,22 +89,20 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 		};
 	}, [sessionId, view]);
 	return {
-		scroll, content, virtualizer, showLatest, toLatest, followLatest,
+		scroll, content, showLatest, toLatest, followLatest,
 		readFromStart: () => {
 			cancelLocation();
 			mode.current = "paused";
 			restoring.current = undefined;
-			if (scroll.current) scroll.current.scrollTop = 0;
-			lastScrollTop.current = 0;
+			jumpTo(0);
 		},
 		restorePosition: () => {
 			if (restoring.current !== undefined && scroll.current) {
-				scroll.current.scrollTop = restoring.current;
-				lastScrollTop.current = scroll.current.scrollTop;
+				jumpTo(restoring.current);
 				restoring.current = undefined;
 			}
 		},
-		atLatest: () => Boolean(scroll.current && restoring.current === undefined && scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 60),
+		atLatest: () => restoring.current === undefined && atEnd(),
 		onWheel: (event: WheelEvent<HTMLDivElement>) => {
 			interrupt();
 			if (event.deltaY < 0) {
@@ -155,16 +138,8 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 			requestAnimationFrame(() => {
 				// 展开后的尺寸稳定再定位，反向操作取消的过渡也视为结束。
 				void Promise.allSettled(expanding.flatMap((body) => body.getAnimations().map((animation) => animation.finished))).then(() => {
-					const viewport = scroll.current;
-					if (version !== locationVersion.current || !viewport?.contains(target)) return;
-					const row = target.closest<HTMLElement>("[data-index]");
-					const bounds = row?.getBoundingClientRect();
-					const viewportBounds = viewport.getBoundingClientRect();
-					if (virtualizer.current && row && bounds && (bounds.bottom <= viewportBounds.top || bounds.top >= viewportBounds.bottom)) {
-						// 先由虚拟列表稳定行位置，滚动结束后再定位行内的具体消息。
-						pendingLocation.current = target;
-						virtualizer.current.scrollToIndex(Number(row.dataset.index), { align: "center", behavior: "smooth" });
-					} else centerTarget(target);
+					if (version !== locationVersion.current || !scroll.current?.contains(target)) return;
+					centerTarget(target);
 					target.tabIndex = -1;
 					target.focus({ preventScroll: true });
 				});
@@ -175,10 +150,9 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 			if (!viewport || mode.current === "returning" || restoring.current !== undefined) return;
 			const delta = viewport.scrollTop - lastScrollTop.current;
 			lastScrollTop.current = viewport.scrollTop;
-			// 被动 wheel 回调可能晚于合成器滚动，暂停状态仍需按当前位置更新返回按钮。
 			if (mode.current === "follow" && delta >= 0) return;
-			const atBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 60;
-			mode.current = atBottom ? "follow" : "paused";
+			const atBottom = atEnd();
+			if (mode.current !== "paused" || delta > 0) mode.current = atBottom ? "follow" : "paused";
 			setShowLatest(!atBottom);
 		},
 		onClickCapture: (event: MouseEvent<HTMLDivElement>) => {

@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
+import { memo, useMemo, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { fade } from "../lib/motion";
 import { Disclosure } from "../components/disclosure";
@@ -12,24 +12,18 @@ import type { TranscriptSource } from "./transcript-items.ts";
 import type { TranscriptReply, TranscriptRow } from "./transcript-replies.ts";
 import { useTranscriptRows } from "./use-transcript-rows.ts";
 import { NoticeGroupContent, type NoticeGroup } from "../app/notices";
-import type { Virtualizer } from "@tanstack/react-virtual";
-import { useVirtualRows } from "../lib/use-virtual-rows.ts";
-import type { SessionViewState } from "../sessions/session-views.ts";
 
 type Row = TranscriptRow | { kind: "notices"; key: string; group: NoticeGroup };
 const noIds: (string | undefined)[] = [];
 const noGroups: NoticeGroup[] = [];
 const noPrunedToolCallIds: ReadonlySet<string> = new Set();
 
-export const Transcript = memo(function Transcript({ source, entryIds = noIds, groups = noGroups, tail = 0, clear, target, view, windowRef, prunedToolCallIds = noPrunedToolCallIds }: {
+export const Transcript = memo(function Transcript({ source, entryIds = noIds, groups = noGroups, tail = 0, clear, prunedToolCallIds = noPrunedToolCallIds }: {
 	source: TranscriptSource;
 	entryIds?: (string | undefined)[];
 	groups?: NoticeGroup[];
 	tail?: number;
 	clear: (ids: string[]) => void;
-	target?: string | undefined;
-	view?: SessionViewState | undefined;
-	windowRef?: RefObject<Virtualizer<HTMLElement, HTMLElement> | null>;
 	prunedToolCallIds?: ReadonlySet<string>;
 }) {
 	const replies = useTranscriptRows(source, prunedToolCallIds);
@@ -46,33 +40,17 @@ export const Transcript = memo(function Transcript({ source, entryIds = noIds, g
 		}
 		return rows;
 	}, [replies, groups]);
-	const targetIndex = useMemo(() => {
-		if (!target) return -1;
-		return rows.findIndex((row) => row.kind === "message" ? entryIds[row.messageIndex] === target
-			: row.kind === "reply" && row.messageIndices.some((index) => entryIds[index] === target));
-	}, [rows, entryIds, target]);
-	const getKey = useCallback((index: number) => (rows[index] as Row).key, [rows]);
-	const list = useVirtualRows<HTMLDivElement>(rows.length, getKey, 220, {
-		top: view?.position?.top ?? 0, measurements: view?.measurements ?? [], targetIndex,
-	});
 	const initialCount = useRef(rows.length);
-	useLayoutEffect(() => {
-		if (windowRef) windowRef.current = list.windowed ? list.virtualizer : null;
-		return () => { if (windowRef) windowRef.current = null; };
-	}, [windowRef, list.virtualizer, list.windowed]);
-	useLayoutEffect(() => () => { if (view && list.windowed) view.measurements = list.virtualizer.takeSnapshot(); }, [view, list.virtualizer, list.windowed]);
-	return <div ref={list.root} style={list.style} className="transcript-rows">
-		<AnimatePresence initial={false} presenceAffectsLayout={false}>{list.rows.map(({ index, key, start }) => {
-			const row = rows[index] as Row;
-			return <motion.div {...fade} initial={index < initialCount.current ? false : fade.initial} key={key} className="transcript-row"
-				data-index={index} data-first={index === 0} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={{ ...list.rowStyle(start) }}>
+	return <div className="transcript-rows">
+		<AnimatePresence initial={false} presenceAffectsLayout={false}>{rows.map((row, index) =>
+			<motion.div {...fade} initial={index < initialCount.current ? false : fade.initial} key={row.key} className="transcript-row" data-first={index === 0}>
 				<AnimatePresence initial={false} presenceAffectsLayout={false}>
 					{row.kind === "message" ? <Message key={row.key} value={row.message} entryId={entryIds[row.messageIndex]} />
 						: row.kind === "reply" ? <Reply key={row.key} reply={row} entryIds={entryIds} />
 						: <InlineNotices key={row.group.notices.at(-1)?.id} group={row.group} live={row.group.anchor >= tail} clear={clear} />}
 				</AnimatePresence>
-			</motion.div>;
-		})}</AnimatePresence>
+			</motion.div>
+		)}</AnimatePresence>
 	</div>;
 });
 

@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import type { GuiConnection, GuiEvent } from "../../contract.ts";
 import { connectGui, type ConnectionStatus } from "./connection.ts";
 
 export function useConnection(receive: (event: GuiEvent) => void) {
-	const listener = useRef(receive);
-	listener.current = receive;
+	const onReceive = useEffectEvent(receive);
 	const connection = useRef<GuiConnection | undefined>(undefined);
 	const [status, setStatus] = useState<ConnectionStatus>("connecting");
 	const [revision, setRevision] = useState(0);
@@ -14,7 +13,7 @@ export function useConnection(receive: (event: GuiEvent) => void) {
 		const unsubscribe = client.subscribe((event) => {
 			if (event.type === "close") { client.close(); setStatus("closed"); }
 			else if (event.type === "download") download(event);
-			else listener.current(event);
+			else onReceive(event);
 		});
 		return () => { unsubscribe(); client.close(); connection.current = undefined; };
 	}, [revision]);
