@@ -4,7 +4,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHistory } from "../../src/gui/host/history.ts";
 import { GuiPayloads } from "../../src/gui/host/payloads.ts";
 import { sessionTree } from "../../src/gui/messages.ts";
-import { locateTranscript } from "../../src/gui/ui/transcript/transcript-location.ts";
+import { contextMessages, hasContextMessages, isTranscriptPreview, locateTranscript } from "../../src/gui/ui/transcript/transcript-location.ts";
 import { assistant } from "./transcript-fixtures.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 
@@ -13,6 +13,17 @@ const temp = useTempDir("opi-history-projection-");
 const user = (content: string) => ({ role: "user" as const, content, timestamp: 100 });
 
 describe("统一历史身份", () => {
+	it("空会话元数据不算正文，首条消息到达后不再为空", () => {
+		const manager = SessionManager.inMemory();
+		manager.appendModelChange("test", "test");
+		const history = new GuiHistory(new GuiPayloads());
+		expect(hasContextMessages(history.project(manager))).toBe(false);
+		manager.appendMessage(user("你好"));
+		expect(hasContextMessages(history.project(manager))).toBe(true);
+		manager.resetLeaf();
+		expect(hasContextMessages(history.project(manager))).toBe(false);
+		expect(contextMessages(history.project(manager))).toEqual([]);
+	});
 	it("连续快照复用未变化的历史，不重复遍历 SDK 条目或上下文", () => {
 		const manager = SessionManager.inMemory();
 		manager.appendMessage(user("历史消息"));
@@ -67,7 +78,11 @@ describe("统一历史身份", () => {
 		const current = locateTranscript(snapshot, kept);
 		expect(current.entryIds).toEqual([summary, kept, answer]);
 		expect(current.preview).toBe(false);
-		expect(locateTranscript(snapshot, old)).toMatchObject({ preview: true, entryIds: [old], messages: [user("已压缩的问题")] });
+		expect(contextMessages(snapshot)).toEqual(current.messages);
+		expect(current.contextCount).toBe(3);
+		expect(isTranscriptPreview(snapshot, kept)).toBe(false);
+		expect(isTranscriptPreview(snapshot, old)).toBe(true);
+		expect(locateTranscript(snapshot, old)).toMatchObject({ preview: true, entryIds: [old], messages: [user("已压缩的问题")], contextCount: 3 });
 		expect(JSON.stringify(history).split("唯一完整回复")).toHaveLength(2);
 		expect(sessionTree(history.entries, snapshot.leafId)[0]?.entry.id).toBe(old);
 	});
@@ -81,6 +96,8 @@ describe("统一历史身份", () => {
 		const history = new GuiHistory(new GuiPayloads()).project(manager);
 		const current = locateTranscript({ ...history, leafId: "summary" }, "summary");
 		expect(current.entryIds).toEqual(["summary", "summary"]);
+		expect(current.contextCount).toBe(2);
+		expect(contextMessages(history)).toEqual(current.messages);
 		expect(current.messages.map((message) => message.role)).toEqual(["system", "compactionSummary"]);
 		expect(current.preview).toBe(false);
 		expect(sessionTree(history.entries, "summary")).toHaveLength(1);

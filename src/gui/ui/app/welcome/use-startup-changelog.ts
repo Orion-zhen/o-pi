@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GlobalQuery, GuiChangelog, GuiConnection, Query } from "../../../contract.ts";
-import type { SessionSnapshot } from "../gui-controls.ts";
+import type { GlobalQuery, GuiChangelog, GuiConnection, GuiSnapshot, Query } from "../../../contract.ts";
+import { hasContextMessages } from "../../transcript/transcript-location.ts";
 
-export function useStartupChangelog(connected: boolean, snapshot: SessionSnapshot | null, selectedId: string | null,
+export function useStartupChangelog(connected: boolean, snapshot: GuiSnapshot | null, selectedId: string | null,
 	query: Query<GlobalQuery>, send: GuiConnection["send"], onError: (message: string) => void) {
 	const started = useRef(false);
 	const displayed = useRef(false);
@@ -16,7 +16,7 @@ export function useStartupChangelog(connected: boolean, snapshot: SessionSnapsho
 	useEffect(() => {
 		if (!connected || !snapshot || started.current) return;
 		// 恢复会话不消耗更新提示，切换会话和重连也不重新检测。
-		if (snapshot.messages.length) { started.current = true; return; }
+		if (hasContextMessages(snapshot)) { started.current = true; return; }
 		const read = () => {
 			if (document.visibilityState !== "visible" || started.current) return;
 			started.current = true;

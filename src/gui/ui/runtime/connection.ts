@@ -1,5 +1,6 @@
 import type { DesktopBridge, GuiAction, GuiConnection, GuiEvent, GuiQuery, GuiQueryResults } from "../../contract.ts";
 import { GuiReceiver, type GuiDelivery } from "../../sync.ts";
+import { diagnosticContext } from "./diagnostics.ts";
 
 export type Send = (action: GuiAction) => Promise<boolean>;
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "closed";
@@ -27,10 +28,13 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 			pending = [];
 			let snapshot: Extract<GuiEvent, { type: "snapshot" }> | undefined;
 			for (const { delivery } of batch) for (const event of delivery.events) {
+				diagnosticContext({ deliveryId: delivery.id, lastEvent: event.type });
 				const value = receiver.accept(event);
+				if (value.type === "snapshot") diagnosticContext({ sessionId: value.value?.sessionId ?? null, running: value.value?.running ?? null });
 				if (value.type === "client") { clientId = value.id; onStatus("connected"); continue; }
 				if (value.type === "selected") {
 					selectedId = value.session?.id ?? null;
+					diagnosticContext({ sessionId: selectedId, running: null });
 					if (selectedId) sessionStorage.setItem("opi.session", selectedId);
 					else sessionStorage.removeItem("opi.session");
 				}
@@ -49,7 +53,8 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 		onStatus("connected");
 		const unsubscribe = desktop.subscribe((delivery) => receive(delivery, desktop.acknowledge));
 		return {
-			send: desktop.send, query: desktop.query, subscribe,
+			send: (action, sessionId) => { diagnosticContext({ lastAction: action.action }); return desktop.send(action, sessionId); },
+			query: desktop.query, subscribe,
 			close() { cancelFrame(); unsubscribe(); desktop.close(); listeners.clear(); },
 		};
 	}
@@ -91,7 +96,7 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	};
 	open();
 	return {
-		async send(value, sessionId) { await post("action", { value, sessionId }); },
+		async send(value, sessionId) { diagnosticContext({ lastAction: value.action }); await post("action", { value, sessionId }); },
 		async query<Q extends GuiQuery>(query: Q, sessionId: string | null): Promise<GuiQueryResults[Q["query"]]> {
 			const value: unknown = await (await post("query", { value: query, sessionId })).json();
 			return value as GuiQueryResults[Q["query"]];

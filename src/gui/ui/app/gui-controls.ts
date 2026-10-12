@@ -1,13 +1,11 @@
 import type { RefObject } from "react";
-import type { GlobalQuery, GuiPanel, GuiSessionInfo, GuiSnapshot, GuiWorkspaceInfo, Query } from "../../contract.ts";
-import type { GuiMessage } from "../../messages.ts";
+import type { GlobalQuery, GuiPanel, GuiSessionInfo, GuiWorkspaceInfo, Query } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
 import type { SessionActivity } from "../sessions/use-session-activity.ts";
 import type { SessionListItem } from "../sessions/session-list.ts";
 import type { WorkbenchView } from "../workspace/use-workbench.ts";
 import type { useLayout } from "./use-layout.ts";
 
-export interface SessionSnapshot extends GuiSnapshot { messages: GuiMessage[] }
 export interface GuiControls {
 	send: Send;
 	query: Query;

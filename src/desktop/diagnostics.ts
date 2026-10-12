@@ -1,13 +1,14 @@
 import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
 import type { GuiDelivery } from "../gui/sync.ts";
+import type { DiagnosticReceipt, GuiDiagnostic } from "../gui/diagnostics.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 type Fields = Record<string, string | number | boolean | null>;
 const object = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const timestamp = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
-/** 只记录身份与时间。写入串行且不阻塞请求，最多保留两份 2 MiB 日志。 */
+/** 时间线和异常共用串行写入与轮转，最多保留两份 2 MiB 日志。 */
 export class DesktopDiagnostics {
 	private readonly run = `${process.pid}-${Date.now()}`;
 	private pending: Promise<void>;
@@ -44,6 +45,13 @@ export class DesktopDiagnostics {
 			await appendFile(this.file, line, { mode: 0o600 });
 			this.size += bytes;
 		}).catch((error: unknown) => this.failure(error));
+	}
+
+	async error(value: GuiDiagnostic, environment: string): Promise<DiagnosticReceipt> {
+		const closed = Boolean(this.closing);
+		this.write({ ...value, phase: "gui_error", environment, generation: this.generation });
+		await this.pending;
+		return { file: this.file, run: this.run, environment, saved: !closed && !this.failed };
 	}
 
 	request(id: string, value: unknown, submittedAt: unknown): boolean {

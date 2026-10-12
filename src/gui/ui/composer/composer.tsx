@@ -10,7 +10,9 @@ import { Textarea } from "../components/ui/textarea";
 import { InputHistory } from "./input-history.tsx";
 import type { RefObject } from "react";
 import type { GuiPreferences } from "../../preferences.ts";
-import type { GuiControls, SessionSnapshot } from "../app/gui-controls.ts";
+import type { GuiControls } from "../app/gui-controls.ts";
+import type { GuiSnapshot } from "../../contract.ts";
+import { hasContextMessages } from "../transcript/transcript-location.ts";
 import type { SessionViews, SessionViewState } from "../sessions/session-views.ts";
 import { useSessionDraft } from "../sessions/use-session-draft.ts";
 import type { ImageAttachment } from "../sessions/use-session-draft.ts";
@@ -28,7 +30,7 @@ interface ComposerControls extends Pick<GuiControls, "connected" | "query" | "se
 	editor: RefObject<HTMLTextAreaElement | null>;
 	views: SessionViews;
 }
-export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: ComposerControls; view: SessionViewState; snapshot: SessionSnapshot; preferences: GuiPreferences | undefined; onSubmit: () => void }) {
+export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: ComposerControls; view: SessionViewState; snapshot: GuiSnapshot; preferences: GuiPreferences | undefined; onSubmit: () => void }) {
 	const { draft, setDraft, images, setImages, behavior, setBehavior } = useSessionDraft(view, gui.views);
 	const running = snapshot.running;
 	const codemode = snapshot.modelTools.includes("codemode");
@@ -117,7 +119,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 			: [];
 	return (
 		<footer className="composer">
-			{setup && snapshot.messages.length > 0 && <div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
+			{setup && hasContextMessages(snapshot) && <div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
 				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>
 				<Button variant="link" size="sm" disabled={!gui.canChangeSession} onClick={() => gui.setPanel({ kind: setup.kind })}>{setup.action}</Button>
 			</div>}

@@ -305,6 +305,7 @@ export interface GuiConnection {
 export interface DesktopAppearance { theme: "system" | "light" | "dark"; transparent: boolean }
 export type DesktopMaterial = "vibrancy" | "acrylic" | "compositor" | "none";
 export interface DesktopBridge extends Omit<GuiConnection, "subscribe"> {
+	reportDiagnostic(value: import("./diagnostics.ts").GuiDiagnostic): Promise<import("./diagnostics.ts").DiagnosticReceipt>;
 	readStorage(): Promise<StorageGroup>;
 	clearStorage(ids: string[]): Promise<void>;
 	/** 返回平台支持的背景材质，不受当前开关或辅助功能设置影响。 */

@@ -17,6 +17,7 @@ import { BackendClient } from "./backend-client.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";
 import { forkDesktopWorker } from "./worker-services.ts";
 import { DesktopDiagnostics } from "./diagnostics.ts";
+import { installDesktopFaults } from "./faults.ts";
 import { DesktopStorage } from "./storage.ts";
 import { installDesktopAppearance } from "./appearance.ts";
 import { installDesktopShutdown } from "./shutdown.ts";
@@ -117,6 +118,8 @@ void app
 			},
 		});
 		windowState.install(window);
+		const reportDiagnostic = installDesktopFaults(window, diagnostics);
+		ipcMain.handle("gui:diagnostic", (event, value: unknown) => { trusted(event); return reportDiagnostic(value); });
 		const setAppearance = installDesktopAppearance(window);
 		ipcMain.handle("gui:appearance", (event, value: unknown) => {
 			trusted(event);

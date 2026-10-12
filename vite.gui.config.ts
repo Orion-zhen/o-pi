@@ -28,10 +28,12 @@ export default defineConfig({
 	} },
 	build: {
 		outDir: "../../../dist/gui",
+		sourcemap: "hidden",
 		emptyOutDir: true,
 		rolldownOptions: {
 			checks: { moduleLevelDirective: false },
 			output: {
+				keepNames: true,
 				codeSplitting: {
 					groups: [
 						// 只拆纯字形数据，字体类和方向枚举留在引擎内，避免跨块初始化循环。

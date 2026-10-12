@@ -1,9 +1,10 @@
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import type { SessionSnapshot } from "../app/gui-controls.ts";
+import type { GuiSnapshot } from "../../contract.ts";
+import { contextMessages } from "../transcript/transcript-location.ts";
 import { summarizeUsage } from "../../../harness/stats/usage.ts";
 import { IconButton } from "../components/icon-button";
 
-export function ContextUsage({ snapshot }: { snapshot: SessionSnapshot }) {
+export function ContextUsage({ snapshot }: { snapshot: GuiSnapshot }) {
 	const tokens = snapshot.context?.tokens;
 	const capacity = snapshot.context?.contextWindow ?? snapshot.model?.contextWindow;
 	const percent = snapshot.context?.percent;
@@ -48,14 +49,14 @@ export function ContextUsage({ snapshot }: { snapshot: SessionSnapshot }) {
 						<div><dt>累计 tokens</dt><dd>{snapshot.stats.tokens.total.toLocaleString()}</dd></div>
 						<div><dt>预估费用</dt><dd>${snapshot.stats.cost.toFixed(4)}</dd></div>
 					</dl>
-					<ContextCache messages={snapshot.messages} />
+					<ContextCache snapshot={snapshot} />
 				</PopoverContent>
 		</Popover>
 	);
 }
 
-function ContextCache({ messages }: Pick<SessionSnapshot, "messages">) {
-	const { usage, cache } = summarizeUsage(messages.filter((message) => message.role === "assistant"));
+function ContextCache({ snapshot }: { snapshot: GuiSnapshot }) {
+	const { usage, cache } = summarizeUsage(contextMessages(snapshot).filter((message) => message.role === "assistant"));
 	const hitRate = (value: number | undefined) => value === undefined ? "暂无数据" : `${value.toFixed(1)}%`;
 	return <>
 		<strong>对话缓存命中</strong>

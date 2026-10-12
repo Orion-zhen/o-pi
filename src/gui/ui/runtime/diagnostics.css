@@ -1,0 +1,27 @@
+body:has(> #gui-diagnostics) { display: flex; flex-direction: column; }
+body:has(> #gui-diagnostics) > #root { flex: 1; min-block-size: 0; block-size: auto; }
+#gui-diagnostics {
+	display: flex;
+	flex-direction: column;
+	flex: 0 1 auto;
+	min-inline-size: 0;
+	max-block-size: 50%;
+	overflow: auto;
+	padding: 1em;
+	background: Canvas;
+	color: CanvasText;
+	font: 1rem / 1.5 system-ui, sans-serif;
+	overflow-wrap: anywhere;
+}
+#gui-diagnostics[data-fatal="true"] { flex: 1; max-block-size: none; }
+body:has(> #gui-diagnostics[data-fatal="true"]) > #root { display: none; }
+#gui-diagnostics article { display: flex; flex-direction: column; flex-shrink: 0; min-inline-size: 0; border-block-start: thin solid; padding-block: 0.5em; }
+#gui-diagnostics :is(h2, h3, p, pre) { margin-block: 0.5em; }
+#gui-diagnostics h2 { font-size: 1.2em; font-weight: bold; }
+#gui-diagnostics h3 { font-weight: bold; }
+#gui-diagnostics summary { cursor: pointer; }
+#gui-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: 0.9em / 1.5 monospace; }
+#gui-diagnostics button { align-self: flex-start; max-inline-size: 100%; white-space: normal; padding: 0.4em 0.8em; border: thin solid; font: inherit; }
+.diagnostic-region { display: flex; flex-direction: column; min-inline-size: 0; min-block-size: 0; padding: 1em; overflow: auto; overflow-wrap: anywhere; background: Canvas; color: CanvasText; }
+.app > .diagnostic-region { flex: 0 1 20%; }
+.chat-workspace > .diagnostic-region { flex: 0 1 34%; }

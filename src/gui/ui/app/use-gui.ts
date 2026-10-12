@@ -13,8 +13,7 @@ import { useStartupChangelog } from "./welcome/use-startup-changelog.ts";
 import { useGuiActions } from "../runtime/use-gui-actions.ts";
 import { usePanels } from "./use-panels.ts";
 import { isTouchInput } from "../lib/input-mode.ts";
-import { locateTranscript } from "../transcript/transcript-location.ts";
-import type { SessionSnapshot, SidebarView } from "./gui-controls.ts";
+import type { SidebarView } from "./gui-controls.ts";
 
 /** 连接功能区域。草稿由编辑器订阅，宿主事件不持有本地交互状态。 */
 export function useGui() {
@@ -84,9 +83,7 @@ export function useGui() {
 	}, [dispatch]);
 	useEffect(() => { if (connected) void refreshSessions(); }, [connected, refreshSessions]);
 	useWindowRefresh(connected, refreshSessions);
-	const current = host.snapshot?.sessionId === selectedId ? host.snapshot : null;
-	const history = useMemo(() => current ? locateTranscript(current, undefined) : undefined, [current?.entries, current?.contextEntryIds, current?.leafId]);
-	const snapshot = useMemo<SessionSnapshot | null>(() => current && history ? { ...current, messages: history.messages } : null, [current, history]);
+	const snapshot = host.snapshot?.sessionId === selectedId ? host.snapshot : null;
 	const changelog = useStartupChangelog(connected, snapshot, selectedId, globalQuery, dispatch, setError);
 	const cwd = host.navigation?.cwd ?? host.workspaceRoot;
 	const layout = useLayout(setError);
