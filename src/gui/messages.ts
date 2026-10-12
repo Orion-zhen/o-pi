@@ -68,9 +68,21 @@ export function sessionTree(entries: GuiEntry[], leafId: string | null): GuiTree
 		const parent = node.entry.parentId !== node.entry.id && node.entry.parentId ? nodes.get(node.entry.parentId) : undefined;
 		(parent?.children ?? roots).push(node);
 	}
-	const filter = (nodes: GuiTreeNode[]): GuiTreeNode[] => nodes.flatMap((node) => {
-		const children = filter(node.children.sort((a, b) => Date.parse(a.entry.timestamp) - Date.parse(b.entry.timestamp)));
-		return visible(node.entry, leafId) ? [{ ...node, children }] : children;
-	});
-	return filter(roots);
+	const result: GuiTreeNode[] = [];
+	const pending = roots.reverse().map((node) => ({ node, target: result }));
+	while (true) {
+		const next = pending.pop();
+		if (!next) break;
+		const { node } = next;
+		let { target } = next;
+		if (visible(node.entry, leafId)) {
+			const children: GuiTreeNode[] = [];
+			target.push({ entry: node.entry, children });
+			target = children;
+		}
+		const children = node.children;
+		if (children.length > 1) children.sort((a, b) => Date.parse(a.entry.timestamp) - Date.parse(b.entry.timestamp)).reverse();
+		for (const child of children) pending.push({ node: child, target });
+	}
+	return result;
 }

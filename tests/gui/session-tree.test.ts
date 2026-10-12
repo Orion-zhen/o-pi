@@ -7,7 +7,7 @@ import { formatSkillDisclosure } from "../../src/harness/skill-context/executor.
 import { sessionTree } from "../../src/gui/messages.ts";
 import { GuiPayloads } from "../../src/gui/host/payloads.ts";
 import { GuiHistory } from "../../src/gui/host/history.ts";
-import { assistant } from "./transcript-fixtures.ts";
+import { assistant, call, result } from "./transcript-fixtures.ts";
 import { SessionTree } from "../../src/gui/ui/sessions/session-tree.tsx";
 import { renderWithMemory } from "./render.ts";
 
@@ -25,6 +25,37 @@ function render(entry: SessionEntry) {
 		value: sessionTree(history.entries, entry.id), send: async () => true, locate() {},
 	}))).document;
 }
+
+describe("会话树遍历", () => {
+	it("长会话隐藏工具往返，保留用户消息和最终回复", () => {
+		const manager = SessionManager.inMemory();
+		const userId = manager.appendMessage({ role: "user", content: "检查项目", timestamp: 0 });
+		for (let index = 0; index < 1_100; index++) {
+			const id = `read-${index}`;
+			manager.appendMessage(assistant([{ ...call, id }]));
+			manager.appendMessage({ ...result, toolCallId: id });
+		}
+		const answerId = manager.appendMessage(assistant([{ type: "text", text: "检查完成" }], "stop"));
+		const tree = sessionTree(new GuiHistory(new GuiPayloads()).project(manager).entries, manager.getLeafId());
+		expect(tree.map((node) => node.entry.id)).toEqual([userId]);
+		expect(tree[0]?.children.map((node) => node.entry.id)).toEqual([answerId]);
+		expect(tree[0]?.children[0]?.children).toEqual([]);
+	});
+
+	it("切换回旧分支后保留两条分支，工具结果后的回复归属原用户消息", () => {
+		const manager = SessionManager.inMemory();
+		const userId = manager.appendMessage({ role: "user", content: "检查项目", timestamp: 0 });
+		manager.appendMessage(assistant([call]));
+		manager.appendMessage(result);
+		const first = manager.appendMessage(assistant([{ type: "text", text: "原分支回复" }], "stop"));
+		manager.branch(userId);
+		const second = manager.appendMessage(assistant([{ type: "text", text: "新分支回复" }], "stop"));
+		manager.branch(first);
+		const tree = sessionTree(new GuiHistory(new GuiPayloads()).project(manager).entries, manager.getLeafId());
+		expect(tree.map((node) => node.entry.id)).toEqual([userId]);
+		expect(tree[0]?.children.map((node) => node.entry.id)).toEqual([first, second]);
+	});
+});
 
 describe("会话树技能消息", () => {
 	it("隐藏 system、usage 和 context_edit 节点，不隐藏被上下文删除的原始消息", () => {
