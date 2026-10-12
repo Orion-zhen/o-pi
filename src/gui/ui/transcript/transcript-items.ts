@@ -2,7 +2,7 @@ import type { GuiMessage, GuiNestedCalls, GuiToolOutput } from "../../messages.t
 import type { GuiSnapshot } from "../../contract.ts";
 import type { replyMetrics } from "../../message-metrics.ts";
 
-export type TranscriptSource = Pick<GuiSnapshot, "models" | "messageDurations" | "streamingMessage" | "liveTools" | "streaming" | "retrying"> & { messages: GuiMessage[] };
+export type TranscriptSource = Pick<GuiSnapshot, "models" | "messageDurations" | "streamingMessage" | "liveTools" | "streaming" | "retrying" | "compacting"> & { messages: GuiMessage[] };
 export type ToolState = "preparing" | "pending" | "running" | "completed" | "failed" | "stopped" | "unavailable";
 export interface ToolActivity {
 	id: string;

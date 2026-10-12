@@ -22,7 +22,7 @@ export function useTranscriptRows(source: TranscriptSource, pruned: ReadonlySet<
 		})) offset = 0;
 		// 保留下一组起点，让上一轮仍能判定用户引导造成的接续。
 		const rows = offset === 0 ? [] : transcriptReplies({ ...source, messages: source.messages.slice(0, offset + 1),
-			streamingMessage: null, liveTools: [], streaming: false, retrying: false }, pruned)
+			streamingMessage: null, liveTools: [], streaming: false, retrying: false, compacting: false }, pruned)
 			.filter((row) => row.kind === "message" ? row.messageIndex < offset : row.messageIndices.every((index) => index < offset));
 		const tools = new Set([...calls, ...results].filter(([, index]) => index < offset).map(([id]) => id));
 		return { rows, offset, messages: source.messages.slice(offset), tools };
@@ -31,5 +31,5 @@ export function useTranscriptRows(source: TranscriptSource, pruned: ReadonlySet<
 		// 历史分组中的在途工具仍需接收进度，缺失结果本身不触发全量投影。
 		if (source.liveTools.some((event) => history.tools.has(event.toolCallId))) return transcriptReplies(source, pruned);
 		return [...history.rows, ...transcriptReplies({ ...source, messages: history.messages }, pruned, history.offset)];
-	}, [history, source.streamingMessage, source.liveTools, source.streaming, source.retrying, pruned]);
+	}, [history, source.streamingMessage, source.liveTools, source.streaming, source.retrying, source.compacting, pruned]);
 }

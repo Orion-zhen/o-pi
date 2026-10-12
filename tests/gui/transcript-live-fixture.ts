@@ -5,6 +5,7 @@ import type { GuiEntry, GuiMessage } from "../../src/gui/messages.ts";
 import { GuiChannel } from "../../src/gui/host/channel.ts";
 import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
 import { assistant } from "./transcript-fixtures.ts";
+import { guiSnapshot } from "./snapshot-fixture.ts";
 
 export function liveSnapshot(): GuiSnapshot {
 	const entries: GuiEntry[] = [];
@@ -23,17 +24,15 @@ export function liveSnapshot(): GuiSnapshot {
 				path: file, total_lines: 60, segments: [{ content: code, start_line: 1, end_line: 60 }],
 			} } } });
 	}
+	const snapshot = guiSnapshot();
 	return {
-		cwd: "/fixture", leafId: entries.at(-1)?.id ?? null, sessionId: "live-perf", sessionFile: null, name: "长轮次交互",
-		canSubmit: true, canChangeSession: false, running: true, commandRunning: false, liveTools: [], streaming: true, retrying: false,
-		contextEntryIds: entries.map((entry) => entry.id), history: [], entries, messageDurations: {},
+		...snapshot, leafId: entries.at(-1)?.id ?? null, sessionId: "live-perf", name: "长轮次交互",
+		canChangeSession: false, running: true, streaming: true,
+		contextEntryIds: entries.map((entry) => entry.id), entries,
 		streamingMessage: { ...assistant([{ type: "thinking", thinking: "继续检查" }], "pending"), timestamp: 1000 },
-		model: null, routedModel: null, models: [], scopedModels: [], modelScopeChanged: false, defaultModel: { provider: null, id: null, thinking: null },
-		thinking: "high", thinkingLevels: ["off", "high"], context: null,
-		stats: { sessionId: "live-perf", sessionFile: undefined, userMessages: 1, assistantMessages: 220, toolCalls: 220, toolResults: 220,
-			totalMessages: 441, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 },
-		queue: { steering: [], followUp: [] }, settings: { compaction: false, retry: false, steering: "all", followUp: "all", autoResize: true, blockImages: false },
-		commands: [], tools: [], modelTools: [], toolDefaultsChanged: false, providers: [], bashOutput: "",
+		thinking: "high",
+		stats: { ...snapshot.stats, sessionId: "live-perf", userMessages: 1, assistantMessages: 220, toolCalls: 220, toolResults: 220,
+			totalMessages: 441 },
 	};
 }
 

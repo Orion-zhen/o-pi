@@ -54,7 +54,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 	const hasContent = Boolean(draft.trim() || images.length);
 	const setup = modelSetup(snapshot);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
-	const stopping = running && !hasContent;
+	const stopping = snapshot.compacting || running && !hasContent;
 	const steering = behavior === "steer";
 	const BehaviorIcon = steering ? CornerUpRight : ListEnd;
 	const behaviorLabel = steering ? "Steering" : "Follow-up";
@@ -314,7 +314,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 						<ModelControls snapshot={snapshot} send={send} disabled={!gui.canChangeSession} openManager={() => gui.setPanel({ kind: "model" })} />
 						<ContextUsage snapshot={snapshot} />
 						<IconButton
-							label={stopping ? "停止" : "发送"}
+							label={snapshot.compacting ? "停止压缩" : stopping ? "停止" : "发送"}
 							variant="default"
 							className="send-button"
 							onClick={stopping ? () => void send({ action: "abort" }) : submit}

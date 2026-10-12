@@ -64,7 +64,8 @@ function rowLastIndex(row: TranscriptRow): number {
 }
 
 const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string | undefined)[] }) {
-	const [open, setOpen] = useAutoFold(reply.key, reply.tracking);
+	const running = reply.state === "running";
+	const [open, setOpen] = useAutoFold(reply.key, running);
 	const tools = reply.process.filter((item) => item.kind === "tool");
 	const thoughts = reply.process.filter((item) => item.kind === "thinking").length;
 	const failures = tools.filter((item) => item.tool.state === "failed").length;
@@ -75,13 +76,12 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 		tools.length > 0 ? `${tools.length} 次工具调用` : "",
 		failures > 0 ? `${failures} 次失败` : "",
 	].filter(Boolean).join(" · ");
-	const running = reply.state === "running";
 	const hasAnswer = reply.answer.length > 0;
 	const processTail = running && !hasAnswer;
 	const pruned = reply.process.some((item) => item.kind === "tool" && item.pruned);
 	const showProcess = reply.process.length > 0 || processTail;
 	const activityOnly = reply.process.length > 0 && reply.process.every((item) => item.kind === "thinking" || item.kind === "tool");
-	const processContent = <div className="reply-turn-content" data-tail={processTail}><ReplyItems items={reply.process} entryIds={entryIds} tracking={reply.tracking} followedByBody={hasAnswer} /></div>;
+	const processContent = <div className="reply-turn-content" data-tail={processTail}><ReplyItems items={reply.process} entryIds={entryIds} tracking={running} followedByBody={hasAnswer} /></div>;
 	const outcome = reply.state === "failed" ? "回复失败" : reply.state === "stopped" ? "已停止" : reply.state === "continued" ? "已接续" : "未收到完整回复";
 	return <motion.section {...fade} className="assistant-reply" style={replyTiming} data-state={reply.state} data-entry-ids={reply.messageIndices.map((index) => entryIds[index]).filter(Boolean).join(" ")}>
 		{activityOnly ? processContent : <Disclosure className="reply-process" data-tail={processTail} hidden={!showProcess} open={open} onOpenChange={setOpen} summary={<>
@@ -93,7 +93,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 		</Disclosure>}
 		{reply.identity && !hasAnswer && !running && <MessageIdentity name={reply.identity.model} timestamp={reply.identity.timestamp} />}
 		<div className="reply-answer" data-tail={running} hidden={running && !hasAnswer}><ReplyItems items={reply.answer} entryIds={entryIds} showMetrics={false} /></div>
-		<AnimatePresence presenceAffectsLayout={false}>{running && <ReplyBreathing key="breathing" />}</AnimatePresence>
+		<AnimatePresence presenceAffectsLayout={false}>{running && <ReplyBreathing key="breathing" compacting={reply.compacting} />}</AnimatePresence>
 		{!running && reply.state !== "completed" && <div className="reply-outcome" role={reply.state === "failed" ? "alert" : "status"}>
 			<span>{outcome}</span>
 			{reply.error && <pre>{reply.error}</pre>}

@@ -96,7 +96,7 @@ export function App() {
 		desktop.addEventListener("change", closeMobileSidebar);
 		return () => desktop.removeEventListener("change", closeMobileSidebar);
 	}, []);
-	const state = !gui.connected ? connectionLabels[status] : dialogs.length ? "等待操作" : gui.running ? "运行中" : "就绪";
+	const state = !gui.connected ? connectionLabels[status] : dialogs.length ? "等待操作" : snapshot?.compacting ? "正在压缩上下文" : gui.running ? "运行中" : "就绪";
 	return (
 		<GuiQueryContext value={gui.query}><TooltipProvider delayDuration={350}>
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -131,7 +131,7 @@ export function App() {
 								<div className="session-heading"><strong className="session-name">选择工作区</strong></div>
 							)}
 							<div role="status" className="connection-status" data-state={state}>
-								{state === "运行中" ? (
+								{state === "运行中" || state === "正在压缩上下文" ? (
 									<LoaderCircle className="animate-spin" aria-hidden="true" />
 								) : (
 									<span className="status-dot" aria-hidden="true" />

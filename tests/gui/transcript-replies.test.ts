@@ -37,6 +37,18 @@ describe("回复末尾活动标记", () => {
 		expect(indicator?.textContent).toBe("正在处理");
 	});
 
+	it("压缩期间复用活动标记，仅当前回复显示压缩提示", () => {
+		const snapshot = source({ messages: [user, assistant([text("上一轮")], "stop"),
+			{ ...user, timestamp: 200 }, assistant([text("本轮完成")], "stop")], compacting: true });
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
+		const indicators = document.querySelectorAll(".reply-breathing");
+		expect(indicators).toHaveLength(1);
+		expect(indicators[0]?.getAttribute("aria-label")).toBe("正在压缩上下文");
+		expect(indicators[0]?.textContent).toBe("正在压缩上下文");
+		expect(document.querySelector(".reply-answer")?.textContent).toContain("上一轮");
+		expect(document.querySelectorAll(".reply-answer")[1]?.textContent).toContain("本轮完成");
+	});
+
 	it.each(["stop", "aborted", "error"] as const)("结束状态 %s 不保留活动标记", (reason) => {
 		const snapshot = source({ messages: [user, assistant([text("回复")], reason)] });
 		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
@@ -121,7 +133,7 @@ describe("整轮处理过程折叠", () => {
 		expect(rows[0]?.process).toMatchObject([{ kind: "text", text: "已经找到原因" }]);
 		expect(rows[0]?.answer).toMatchObject([{ text: "最终报告" }]);
 		const live = replies(source({ messages: [user], streamingMessage: reply, streaming: true }));
-		expect(live[0]).toMatchObject({ state: "running", tracking: true });
+		expect(live[0]).toMatchObject({ state: "running" });
 	});
 
 	it("流式正文出现时仅折叠前面的思考和工具，后续工具不隐藏中途正文", () => {
@@ -156,9 +168,9 @@ describe("整轮处理过程折叠", () => {
 
 	it("整轮结束才折叠外层，旧字符串签名仍能显示", () => {
 		const reply = assistant([{ ...text("最终正文"), textSignature: "msg_legacy" }], "stop");
-		expect(replies(source({ messages: [user], streamingMessage: reply, streaming: true }))[0]?.tracking).toBe(true);
-		expect(replies(source({ messages: [user, reply], streaming: true }))[0]?.tracking).toBe(true);
-		expect(replies(source({ messages: [user, reply] }))[0]?.tracking).toBe(false);
+		expect(replies(source({ messages: [user], streamingMessage: reply, streaming: true }))[0]?.state).toBe("running");
+		expect(replies(source({ messages: [user, reply], streaming: true }))[0]?.state).toBe("running");
+		expect(replies(source({ messages: [user, reply] }))[0]?.state).toBe("completed");
 	});
 
 	it("每条用户消息独立分组，只有最后一组处于生成中", () => {
@@ -173,60 +185,60 @@ describe("整轮处理过程折叠", () => {
 	it.each([false, true])("引导接续结束追踪，不把工具返回错误（%s）当成阶段失败", (isError) => {
 		const messages = [user, assistant([thinking, text("先检查"), call]), { ...result, isError }];
 		const running = replies(source({ messages, streaming: true }));
-		expect(running[0]).toMatchObject({ state: "running", tracking: true });
+		expect(running[0]).toMatchObject({ state: "running" });
 		const nextUser = { ...user, content: "只检查样式", timestamp: 2 };
 		const continued = replies(source({ messages: [...messages, nextUser], streaming: true }));
 		expect(continued).toHaveLength(2);
-		expect(continued[0]).toMatchObject({ key: running[0]?.key, state: "continued", tracking: false, answer: [] });
-		expect(continued[1]).toMatchObject({ state: "running", tracking: true });
+		expect(continued[0]).toMatchObject({ key: running[0]?.key, state: "continued", answer: [] });
+		expect(continued[1]).toMatchObject({ state: "running" });
 		const history = replies(source({ messages: [...messages, nextUser, assistant([text("检查完成")], "stop")] }));
-		expect(history.map((row) => [row.state, row.tracking])).toEqual([["continued", false], ["completed", false]]);
+		expect(history.map((row) => row.state)).toEqual(["continued", "completed"]);
 	});
 
 	it("模型返回空消息后追加用户消息，仍保留未完成状态", () => {
 		const rows = replies(source({ messages: [user, assistant([call]), result, assistant([], "stop"),
 			{ ...user, content: "继续", timestamp: 2 }], streaming: true }));
-		expect(rows[0]).toMatchObject({ state: "incomplete", tracking: false });
+		expect(rows[0]).toMatchObject({ state: "incomplete" });
 	});
 
 	it("连续引导不生成空的历史过程，只有最后一个阶段需要追踪", () => {
 		const rows = transcriptReplies(source({ messages: [user, assistant([thinking, call]), result,
 			{ ...user, content: "先检查样式", timestamp: 2 }, { ...user, content: "不要改代码", timestamp: 3 }], streaming: true }));
 		expect(rows.map((row) => row.kind)).toEqual(["message", "reply", "message", "message", "reply"]);
-		expect(rows.filter((row) => row.kind === "reply").map((row) => row.tracking)).toEqual([false, true]);
+		expect(rows.filter((row) => row.kind === "reply").map((row) => row.state)).toEqual(["continued", "running"]);
 	});
 
 	it("仅有中途说明的正常阶段也能接续，不提升为最终正文", () => {
 		const rows = replies(source({ messages: [user, assistant([phase("继续检查", "commentary")], "stop"),
 			{ ...user, content: "换个方向", timestamp: 2 }], streaming: true }));
-		expect(rows[0]).toMatchObject({ state: "continued", tracking: false, answer: [] });
+		expect(rows[0]).toMatchObject({ state: "continued", answer: [] });
 	});
 
 	it.each(["aborted", "error", "length"] as const)("后续用户消息不会掩盖 %s 状态", (stopReason) => {
 		const rows = replies(source({ messages: [user, assistant([thinking, text("部分正文")], stopReason),
 			{ ...user, content: "换个方向", timestamp: 2 }], streaming: true }));
-		expect(rows[0]).toMatchObject({ state: stopReason === "aborted" ? "stopped" : stopReason === "error" ? "failed" : "incomplete", tracking: false, answer: [{ text: "部分正文" }] });
+		expect(rows[0]).toMatchObject({ state: stopReason === "aborted" ? "stopped" : stopReason === "error" ? "failed" : "incomplete", answer: [{ text: "部分正文" }] });
 	});
 
 	it("缺失或中止的工具结果不因后续用户消息而被标为正常接续", () => {
 		for (const results of [[], [{ ...result, isError: true, details: { status: "aborted" } }]]) {
 			const rows = replies(source({ messages: [user, assistant([call]), ...results,
 				{ ...user, content: "换个方向", timestamp: 2 }], streaming: true }));
-			expect(rows[0]).toMatchObject({ state: "incomplete", tracking: false });
+			expect(rows[0]).toMatchObject({ state: "incomplete" });
 		}
 	});
 
 	it.each(["aborted", "error", "length"] as const)("%s 时保留部分正文并明确标注状态，不冒充完成", (stopReason) => {
 		const message = { ...assistant([thinking, text("已生成的部分")], stopReason), errorMessage: "任务没有正常完成" };
 		const row = replies(source({ messages: [user, message] }))[0];
-		expect(row).toMatchObject({ state: stopReason === "aborted" ? "stopped" : stopReason === "error" ? "failed" : "incomplete", tracking: false, answer: [{ text: "已生成的部分" }], error: "任务没有正常完成" });
+		expect(row).toMatchObject({ state: stopReason === "aborted" ? "stopped" : stopReason === "error" ? "failed" : "incomplete", answer: [{ text: "已生成的部分" }], error: "任务没有正常完成" });
 		expect(row?.process.some((item) => item.kind === "error")).toBe(false);
 	});
 
 	it("重试期间不把失败的片段当最终回复，恢复后将旧错误归入过程", () => {
 		const failed = { ...assistant([text("失败前的部分")], "error"), errorMessage: "暂时不可用" };
 		const retrying = replies(source({ messages: [user, failed], retrying: true }));
-		expect(retrying[0]).toMatchObject({ state: "running", retrying: true, tracking: true, answer: [] });
+		expect(retrying[0]).toMatchObject({ state: "running", retrying: true, answer: [] });
 		const completed = replies(source({ messages: [user, failed, assistant([text("重试完成")], "stop")] }));
 		expect(completed[0]).toMatchObject({ key: retrying[0]?.key, state: "completed", error: undefined });
 		expect(completed[0]?.process).toContainEqual(expect.objectContaining({ kind: "error", text: "暂时不可用" }));
@@ -234,7 +246,7 @@ describe("整轮处理过程折叠", () => {
 
 	it("没有最终正文时不提升旧说明，孤立工具结果仍可查看", () => {
 		const noFinal = replies(source({ messages: [user, assistant([text("开始检查"), call]), result, assistant([], "stop")] }));
-		expect(noFinal[0]).toMatchObject({ state: "incomplete", tracking: false, answer: [] });
+		expect(noFinal[0]).toMatchObject({ state: "incomplete", answer: [] });
 		const orphan = replies(source({ messages: [result] }));
 		expect(orphan[0]?.process).toMatchObject([{ kind: "tool", tool: { output: { kind: "inline", value: { content: result.content, details: result.details } } } }]);
 		const document = parseHTML(renderWithMemory(createElement(Transcript, {
@@ -262,8 +274,8 @@ describe("整轮处理过程折叠", () => {
 			{ ...user, content: "下一轮任务", timestamp: 300 }], streamingMessage: assistant([text("下一轮回复")], "pending"), streaming: true });
 		const rows = transcriptReplies(snapshot);
 		expect(rows.map((row) => row.kind)).toEqual(["message", "reply", "message", "message", "reply"]);
-		expect(rows[1]).toMatchObject({ state: "completed", tracking: false, process: [], messageIndices: [1] });
-		expect(rows[4]).toMatchObject({ state: "running", tracking: true, process: [], messageIndices: [4] });
+		expect(rows[1]).toMatchObject({ state: "completed", process: [], messageIndices: [1] });
+		expect(rows[4]).toMatchObject({ state: "running", process: [], messageIndices: [4] });
 		const document = parseHTML(renderWithMemory(createElement(Transcript, {
 			source: snapshot, entryIds: ["user-1", "reply-1", "skill-1", "user-2", "reply-2"], clear() {},
 		}))).document;

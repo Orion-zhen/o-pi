@@ -30,7 +30,8 @@ function shapeAt(progress: number): string {
 	return segment(progress - index);
 }
 
-export const ReplyBreathing = memo(function ReplyBreathing() {
+export const ReplyBreathing = memo(function ReplyBreathing({ compacting }: { compacting: boolean }) {
+	const label = compacting ? "正在压缩上下文" : "正在处理";
 	const { ref, playing } = useReplyAnimation<HTMLDivElement>(true);
 	const progress = useMotionValue(0);
 	const path = useTransform(progress, shapeAt);
@@ -44,12 +45,12 @@ export const ReplyBreathing = memo(function ReplyBreathing() {
 		return () => animation.stop();
 	}, [progress, playing]);
 
-	return <motion.div ref={ref} className="reply-breathing" role="status" aria-label="正在处理"
+	return <motion.div ref={ref} className="reply-breathing" role="status" aria-label={label}
 		initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.85 }}
 		transition={{ duration: 0.2 }}>
 		<svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
 			<motion.path d={path} fill="currentColor" />
 		</svg>
-		<span className="reply-status-label" data-active="true" aria-hidden="true">正在处理</span>
+		<span className="reply-status-label" data-active="true" aria-hidden="true">{label}</span>
 	</motion.div>;
 });

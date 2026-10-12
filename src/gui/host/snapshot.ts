@@ -48,6 +48,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		name: session.sessionName ?? "未命名会话",
 		streaming: session.isStreaming,
 		retrying: session.isRetrying,
+		compacting: session.isCompacting,
 		running: !session.isIdle || session.isBashRunning || presentation.commandRunning,
 		// context_edit 只改变模型上下文，聊天区继续展示原始历史。
 		...history.project(session.sessionManager),

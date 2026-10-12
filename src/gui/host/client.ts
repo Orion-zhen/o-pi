@@ -198,7 +198,7 @@ export class GuiClient {
 				? typeof entry.message.content === "string" ? entry.message.content : entry.message.content.filter((block) => block.type === "text").map((block) => block.text).join("") : undefined;
 			const forked = this.host.register(manager, { type: "session_start", reason: "fork", ...(source.file ? { previousSessionFile: source.file } : {}) });
 			await this.select(forked);
-			if (selectedText) this.emit({ type: "editor", sessionId: forked.id, text: selectedText });
+			if (selectedText) this.emit({ type: "editor", sessionId: forked.id, text: selectedText, mode: "replace" });
 			if (options?.withSession) await options.withSession(this.runtime.session.createReplacedSessionContext());
 			return { cancelled: false, ...(selectedText === undefined ? {} : { selectedText }) };
 		}));

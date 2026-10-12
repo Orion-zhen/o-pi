@@ -46,7 +46,7 @@ export function useGui() {
 			case "panel": panels.setPanel(event.panel); break;
 			case "sessionTab": panels.selectTab(event.tab); panels.setSessionPanelOpen(true); break;
 			case "editor":
-				views.writeText(event.sessionId, event.text);
+				views.writeText(event.sessionId, event.text, event.mode);
 				if (selected.current === event.sessionId && !isTouchInput()) editor.current?.focus();
 				break;
 		}

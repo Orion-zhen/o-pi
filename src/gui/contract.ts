@@ -228,6 +228,7 @@ export interface GuiSnapshot {
 	liveTools: GuiLiveTool[];
 	streaming: boolean;
 	retrying: boolean;
+	compacting: boolean;
 	contextEntryIds: string[];
 	history: string[];
 	streamingMessage: GuiMessage | null;
@@ -291,7 +292,7 @@ export type GuiEvent =
 	| { type: "dialogs"; value: GuiDialog[] }
 	| { type: "notices"; value: GuiNotice[] }
 	| { type: "panel"; panel: GuiPanel }
-	| { type: "editor"; sessionId: string; text: string }
+	| { type: "editor"; sessionId: string; text: string; mode: "replace" | "prepend" }
 	| { type: "download"; name: string; content: string; mimeType: string }
 	| { type: "auth"; value: import("@earendil-works/pi-ai").AuthEvent | null }
 	| { type: "close" };

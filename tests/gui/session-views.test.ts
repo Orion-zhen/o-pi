@@ -4,6 +4,17 @@ import { sessionList } from "../../src/gui/ui/sessions/session-list.ts";
 import type { SessionActivity } from "../../src/gui/ui/sessions/use-session-activity.ts";
 
 describe("会话视图记忆", () => {
+	it.each(["", "已有草稿\n继续编辑"])("队列回填合并最新草稿并保留附件和发送模式：%j", (text) => {
+		const views = new SessionViews();
+		const view = views.open({ id: "a", path: null });
+		const image = { id: 1, data: "image", mimeType: "image/png" as const };
+		views.update(view, (draft) => ({ ...draft, text, images: [image], behavior: "followUp" }));
+		views.open({ id: "b", path: null });
+		views.writeText("a", "引导消息\n\n跟进消息", "prepend");
+		expect(view.draft).toEqual({ text: `引导消息\n\n跟进消息${text ? `\n\n${text}` : ""}`, images: [image], behavior: "followUp" });
+		expect(views.get("b")?.draft.text).toBe("");
+	});
+
 	it("编辑器只收到本会话草稿变更，关闭订阅后不再通知", () => {
 		const views = new SessionViews();
 		const a = views.open({ id: "a", path: null });

@@ -64,7 +64,7 @@ export class GuiExecution {
 		get: () => this.origin.getStore()?.readDraft() ?? "",
 		set: (text) => {
 			this.origin.getStore()?.writeDraft(text);
-			this.emit({ type: "editor", sessionId: this.id, text });
+			this.emit({ type: "editor", sessionId: this.id, text, mode: "replace" });
 		},
 	});
 
@@ -272,6 +272,16 @@ export class GuiExecution {
 			case "draft": client.writeDraft(action.text); return;
 			case "cancelLogin": this.loginController?.abort(); if (this.mcpLoggingIn) this.dialogs.cancel(); return;
 			case "abort":
+				if (this.current?.session.isCompacting) {
+					this.current.session.abortCompaction();
+					this.current.session.abortBranchSummary();
+					return;
+				}
+				if (this.current) {
+					const { steering, followUp } = this.current.session.clearQueue();
+					const text = [...steering, ...followUp].join("\n\n");
+					if (text) this.emit({ type: "editor", sessionId: this.id, text, mode: "prepend" });
+				}
 				this.dialogs.cancel();
 				this.commandController.abort();
 				this.commandController = new AbortController();

@@ -33,9 +33,11 @@ export class SessionViews {
 		return record;
 	}
 	get(id: string): SessionViewState | undefined { return this.records.get(id); }
-	writeText(id: string, text: string): void {
+	writeText(id: string, text: string, mode: "replace" | "prepend" = "replace"): void {
 		const record = this.records.get(id);
-		if (record) this.update(record, (draft) => ({ ...draft, text }));
+		if (record) this.update(record, (draft) => ({ ...draft,
+			text: mode === "prepend" ? [text, draft.text].filter((part) => part.trim()).join("\n\n") : text,
+		}));
 	}
 	update(record: SessionViewState, change: (draft: Draft) => Draft): boolean {
 		if (this.records.get(record.id) !== record) return false;

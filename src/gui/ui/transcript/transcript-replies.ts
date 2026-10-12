@@ -16,7 +16,7 @@ export interface TranscriptReply {
 	metrics: ReturnType<typeof replyMetrics>;
 	state: ReplyState;
 	retrying: boolean;
-	tracking: boolean;
+	compacting: boolean;
 	process: TranscriptItem[];
 	answer: Extract<TranscriptItem, { kind: "text" }>[];
 	error: string | undefined;
@@ -131,7 +131,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 	}
 	return rows.flatMap((row): TranscriptRow[] => {
 		if (row.kind === "message") return [row];
-		const active = row === current && (source.streaming || source.retrying);
+		const active = row === current && (source.streaming || source.retrying || source.compacting);
 		if (!row.items.length && !row.lastAssistant && !active) return [];
 		return [finishReply(row, source, active)];
 	});
@@ -162,7 +162,7 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 	const model = message && source.models.find((model) => model.provider === message.provider && model.id === message.model);
 	const identity = message ? { model: model?.name ?? message.model, timestamp: message.timestamp } : undefined;
 	const metrics = replyMetrics(draft.assistants, source.messageDurations);
-	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, tracking: active, process, answer, error };
+	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, compacting: active && source.compacting, process, answer, error };
 }
 
 function answerBlocks(message: AssistantMessage): Set<number> {

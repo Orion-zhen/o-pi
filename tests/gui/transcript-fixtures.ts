@@ -17,7 +17,7 @@ export function source(value: Partial<Omit<TranscriptSource, "messages" | "strea
 	liveTools?: Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_update" }>[];
 }): TranscriptSource {
 	const payloads = new GuiPayloads();
-	return { models: [], messageDurations: {}, streaming: false, retrying: false, ...value,
+	return { models: [], messageDurations: {}, streaming: false, retrying: false, compacting: false, ...value,
 		messages: (value.messages ?? []).map((message) => payloads.message(message)),
 		streamingMessage: payloads.stream(value.streamingMessage ?? null),
 		liveTools: (value.liveTools ?? []).map((event) => ({ toolCallId: event.toolCallId, toolName: event.toolName, args: event.args, status: "running",

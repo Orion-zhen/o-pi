@@ -15,6 +15,7 @@ import { historyDeletionTests } from "./deletion-cases.ts";
 import { sidebarTests } from "./sidebar-cases.ts";
 import { workbenchTests } from "./workbench-cases.ts";
 import { queueTests } from "./queue-cases.ts";
+import { compactionTests } from "./compaction-cases.ts";
 import { multiSessionTests } from "./multi-session-cases.ts";
 import { newSessionTests } from "./new-session-cases.ts";
 import { changelogTests } from "./changelog-cases.ts";
@@ -98,6 +99,7 @@ historyDeletionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "
 sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 workbenchTests(() => ({ host, cwd }));
 queueTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
+compactionTests(() => ({ host, events, setSummaryReply: (reply) => { titleReply = reply; } }));
 multiSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
@@ -640,17 +642,25 @@ describe("GUI 直接使用 SDK", () => {
 		const summaryStarted = deferred<void>();
 		const summary = deferred<ModelResponse>();
 		titleReply = () => { summaryStarted.resolve(); return summary.promise; };
+		host.runtime.services.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
 		const task = host.dispatch(operation === "compact"
-			? { action: "compact" }
+			? { action: "compact", instructions: "" }
 			: { action: "navigate", entryId: firstLeaf, summarize: true })
 			.then(() => undefined, (error: unknown) => error);
 		try {
-			await summaryStarted.promise;
+			await Promise.race([summaryStarted.promise, task.then((value) => { throw new Error(`提前结束: ${String(value)}`); })]);
+			await expect.poll(() => events.findLast((event) => event.type === "snapshot")?.value?.compacting).toBe(true);
+			expect(readSnapshot(host)).toMatchObject({ compacting: true, running: true });
+			const requests = server.requests.length;
 			if (shutdown) await host.host.dispose();
 			else await host.dispatch({ action: "abort" });
 			await task;
 			expect(session.isIdle).toBe(true);
 			expect(session.isCompacting).toBe(false);
+			if (!shutdown) {
+				expect(readSnapshot(host)).toMatchObject({ compacting: false, running: false });
+			}
+			expect(server.requests).toHaveLength(requests);
 			expect(session.sessionManager.getEntries()).toEqual(entries);
 		} finally {
 			summary.resolve({ text: "不应保存的摘要" });

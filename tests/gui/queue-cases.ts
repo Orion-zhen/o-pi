@@ -2,11 +2,56 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { GuiSnapshot } from "../../src/gui/contract.ts";
+import type { GuiEvent, GuiSnapshot } from "../../src/gui/contract.ts";
+import { SessionViews } from "../../src/gui/ui/sessions/session-views.ts";
 import { GuiReceiver } from "../../src/gui/sync.ts";
 
 export function queueTests(context: () => { host: GuiClient; agentDir: string }) {
 	describe("GUI 消息队列同步", () => {
+		it.each([false, true])("普通停止取回队列、保留最新草稿且仅回填发起客户端，queued=%s", async (queued) => {
+			const { host, agentDir } = context();
+			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
+			const id = host.execution.id;
+			const views = new SessionViews();
+			const view = views.open({ id, path: null });
+			await host.dispatch({ action: "draft", text: "后端的旧草稿" });
+			views.writeText(id, "尚未同步的新草稿");
+			const restored: GuiEvent[] = [];
+			const unsubscribe = host.subscribe((event) => {
+				if (event.type !== "editor") return;
+				restored.push(event);
+				views.writeText(event.sessionId, event.text, event.mode);
+			});
+			const other = host.host.createClient();
+			await other.dispatch({ action: "openSession", id });
+			const otherEvents: GuiEvent[] = [];
+			other.subscribe((event) => otherEvents.push(event));
+			const task = host.dispatch({ action: "prompt", text: "读取文件并写入结果", images: [], behavior: "followUp" });
+			try {
+				await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+				if (queued) {
+					await host.dispatch({ action: "prompt", text: "下一条跟进", images: [], behavior: "followUp" });
+					await host.dispatch({ action: "prompt", text: "第一条引导", images: [], behavior: "steer" });
+					await host.dispatch({ action: "prompt", text: "第二条引导", images: [], behavior: "steer" });
+				}
+				await host.dispatch({ action: "abort" });
+				await task;
+				expect(host.execution.snapshot()).toMatchObject({ running: false, compacting: false,
+					queue: { steering: [], followUp: [] } });
+				expect(host.runtime.session.messages.filter((message) => message.role === "user")).toHaveLength(1);
+				const text = "第一条引导\n\n第二条引导\n\n下一条跟进";
+				expect(restored).toEqual(queued ? [{ type: "editor", sessionId: id, text, mode: "prepend" }] : []);
+				const expected = queued ? `${text}\n\n尚未同步的新草稿` : "尚未同步的新草稿";
+				expect(view.draft.text).toBe(expected);
+				expect(otherEvents.filter((event) => event.type === "editor")).toEqual([]);
+			} finally {
+				unsubscribe();
+				other.close();
+				await host.dispatch({ action: "abort" });
+				await task;
+			}
+		});
+
 		it("运行中逐次入队和清空通过增量通道同步，旧快照保持不变", async () => {
 			const { host, agentDir } = context();
 			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');

@@ -28,6 +28,19 @@ beforeEach(() => {
 });
 
 describe("流式历史分组", () => {
+	it("只有压缩状态变化时更新当前回复，结束后恢复且不重建历史", async () => {
+		const initial = source({ messages: [user, assistant([{ type: "text", text: "上一轮" }], "stop"),
+			{ ...user, timestamp: 200 }, assistant([{ type: "text", text: "本轮完成" }], "stop")] });
+		await render(initial);
+		const history = rows[1];
+		await render({ ...initial, compacting: true });
+		expect(rows.at(-1)).toMatchObject({ state: "running", compacting: true });
+		expect(rows[1]).toBe(history);
+		await render(initial);
+		expect(rows.at(-1)).toMatchObject({ state: "completed", compacting: false });
+		expect(rows[1]).toBe(history);
+	});
+
 	it("已中止且没有结果的历史调用不随下一轮流式正文重新投影", async () => {
 		const initial = source({ messages: [user, assistant([call], "aborted"), { ...user, content: "下一轮", timestamp: 3 }], streaming: true });
 		await render(initial);

@@ -35,7 +35,7 @@ export function ConversationContent({ gui, target, workspaceWelcome, closeSideba
 	const conversation = useMemo(() => snapshot && located ? {
 		snapshot, ...located,
 		source: { ...snapshot, messages: located.messages,
-			...(located.preview ? { streamingMessage: null, liveTools: [], streaming: false, retrying: false } : {}),
+			...(located.preview ? { streamingMessage: null, liveTools: [], streaming: false, retrying: false, compacting: false } : {}),
 		} satisfies TranscriptSource,
 	} : null, [snapshot, located]);
 	const count = conversation?.contextCount ?? 0;
