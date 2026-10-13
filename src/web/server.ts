@@ -6,7 +6,7 @@ import { WebSocketServer } from "ws";
 import type { GuiHost } from "../gui/host/host.ts";
 import type { GuiClient } from "../gui/host/client.ts";
 import { decodeGuiRequest } from "../gui/host/request.ts";
-import { fileResourceResponse } from "../gui/host/file-resource.ts";
+import { fileResourceResponse } from "../gui/host/workspace/file-resource.ts";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";

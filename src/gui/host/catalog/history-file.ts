@@ -1,6 +1,6 @@
 import path from "node:path";
 import { lstat, realpath } from "node:fs/promises";
-import { getSessionsDir } from "../../harness/storage/sdk-paths.ts";
+import { getSessionsDir } from "../../../harness/storage/sdk-paths.ts";
 
 /** 历史修改仅接受共享目录中的普通文件，返回身份信息供并发修改检查。 */
 export async function inspectHistoryFile(file: string) {

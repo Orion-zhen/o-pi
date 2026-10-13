@@ -1,4 +1,4 @@
-import type { GuiAction } from "../contract.ts";
+import type { GuiAction } from "../../contract.ts";
 import type { GuiExecution } from "./execution.ts";
 
 type View = Extract<GuiAction, { action: "view" }>["view"];

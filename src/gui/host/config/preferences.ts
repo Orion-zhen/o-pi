@@ -5,10 +5,10 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import {
 	CONFIG_DEFINITIONS, agentSchemaPath, createSchemaValidator, defaultAgentConfigPath,
 	isNotFound, readDefaultJsoncConfigSync, stripUtf8Bom,
-} from "../../harness/config-loader.ts";
-import { mergeConfigValues } from "../../harness/config-values.ts";
-import type { GuiConfigDocument, GuiPreferences } from "../preferences.ts";
-import { replaceConfigFile } from "./files.ts";
+} from "../../../harness/config-loader.ts";
+import { mergeConfigValues } from "../../../harness/config-values.ts";
+import type { GuiConfigDocument, GuiPreferences } from "../../preferences.ts";
+import { replaceConfigFile } from "../session/files.ts";
 
 const definition = CONFIG_DEFINITIONS.gui;
 const schemaPath = agentSchemaPath("gui.schema.json");

@@ -3,7 +3,7 @@ import path from "node:path";
 import { parse } from "jsonc-parser";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./desktop-fixture.ts";
-import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
+import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
 
 const defaults = readGuiDefaults().materials;
 const translucent = /[/,] 0(?:\.\d+)?\)$/;

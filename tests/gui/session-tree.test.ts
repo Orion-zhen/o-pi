@@ -5,8 +5,8 @@ import { SessionManager, type CustomMessageEntry, type SessionEntry } from "@ear
 import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails } from "../../src/harness/skill-context/types.ts";
 import { formatSkillDisclosure } from "../../src/harness/skill-context/executor.ts";
 import { sessionTree } from "../../src/gui/messages.ts";
-import { GuiPayloads } from "../../src/gui/host/payloads.ts";
-import { GuiHistory } from "../../src/gui/host/history.ts";
+import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
+import { GuiHistory } from "../../src/gui/host/projection/history.ts";
 import { assistant, call, result } from "./transcript-fixtures.ts";
 import { SessionTree } from "../../src/gui/ui/sessions/session-tree.tsx";
 import { renderWithMemory } from "./render.ts";

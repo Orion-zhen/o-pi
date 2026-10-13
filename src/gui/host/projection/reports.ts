@@ -1,7 +1,7 @@
 import type { AgentSession, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { StatsSnapshot } from "../../harness/stats/types.ts";
-import type { LiveTelemetryReport } from "../../harness/telemetry-report/live.ts";
-import type { GuiEvent } from "../contract.ts";
+import type { StatsSnapshot } from "../../../harness/stats/types.ts";
+import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live.ts";
+import type { GuiEvent } from "../../contract.ts";
 
 type ReportSource = { session: AgentSession; entry: SessionEntry | undefined; idle: boolean };
 

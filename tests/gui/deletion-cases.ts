@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { GuiClient } from "../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
-import { prepareSessionDeletion } from "../../src/gui/host/delete-session.ts";
-import { GuiSessionIndex } from "../../src/gui/host/session-index.ts";
+import { prepareSessionDeletion } from "../../src/gui/host/catalog/delete-session.ts";
+import { GuiSessionIndex } from "../../src/gui/host/catalog/session-index.ts";
 import { storeSession } from "./session-fixture.ts";
 
 const prompt = { action: "prompt", text: "读取并写入文件", images: [], behavior: "followUp" };

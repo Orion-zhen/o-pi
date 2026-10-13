@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, relative, sep } from "node:path";
-import type { GuiWorkspaceInfo } from "../contract.ts";
+import type { GuiWorkspaceInfo } from "../../contract.ts";
 
 export async function listWorkspaces(paths: string[], protectedPaths: string[]): Promise<GuiWorkspaceInfo[]> {
 	const homeDirectory = homedir();

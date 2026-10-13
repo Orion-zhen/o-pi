@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GuiPayloads } from "../../src/gui/host/payloads.ts";
+import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
 import type { GuiToolOutput } from "../../src/gui/messages.ts";
 
 function reference(output: GuiToolOutput): string {

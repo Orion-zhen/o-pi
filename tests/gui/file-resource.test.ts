@@ -1,8 +1,8 @@
 import { copyFile, mkdir, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { FileResources, fileResourceResponse, type FileResource } from "../../src/gui/host/file-resource.ts";
-import { previewWorkspaceFile } from "../../src/gui/host/workspace-files.ts";
+import { FileResources, fileResourceResponse, type FileResource } from "../../src/gui/host/workspace/file-resource.ts";
+import { previewWorkspaceFile } from "../../src/gui/host/workspace/workspace-files.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-file-resource-");

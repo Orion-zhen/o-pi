@@ -1,6 +1,6 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AuthType } from "@earendil-works/pi-ai";
-import type { GuiEvent } from "../contract.ts";
+import type { GuiEvent } from "../../contract.ts";
 import type { GuiDialogs } from "./dialogs.ts";
 
 export async function runLogin(

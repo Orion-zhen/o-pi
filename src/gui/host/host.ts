@@ -7,15 +7,15 @@ import type { GuiConfigDocument } from "../preferences.ts";
 import { ApprovalStores } from "../../harness/approval/rules/store.ts";
 import { lspManager } from "../../harness/lsp/index.ts";
 import type { GuiLspServers } from "../lsp.ts";
-import { readLspServers } from "./lsp-servers.ts";
-import { GuiSession } from "./session.ts";
-import { GuiSessionCatalog } from "./sessions.ts";
+import { readLspServers } from "./workspace/lsp-servers.ts";
+import { GuiSession } from "./session/session.ts";
+import { GuiSessionCatalog } from "./catalog/sessions.ts";
 import { GuiClient } from "./client.ts";
-import { prepareSessionDeletion } from "./delete-session.ts";
-import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace-files.ts";
-import { readWorkspaceGit } from "./workspace-git.ts";
+import { prepareSessionDeletion } from "./catalog/delete-session.ts";
+import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace/workspace-files.ts";
+import { readWorkspaceGit } from "./workspace/workspace-git.ts";
 import type { WorkspaceEntry, WorkspaceGit, WorkspacePreview } from "../workbench.ts";
-import { readGuiConfig, readGuiDefaults } from "./preferences.ts";
+import { readGuiConfig, readGuiDefaults } from "./config/preferences.ts";
 import { StartupChangelog } from "./changelog.ts";
 
 /** 共享服务与会话目录。执行资源的准入和收尾由逻辑会话管理。 */

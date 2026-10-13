@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { exportDirectoryPrefix } from "../../harness/storage/paths.ts";
-import { retainStoragePath } from "../../harness/storage/active.ts";
-import { replaceConfigFile } from "../../harness/config-file.ts";
-export { replaceConfigFile } from "../../harness/config-file.ts";
+import { exportDirectoryPrefix } from "../../../harness/storage/paths.ts";
+import { retainStoragePath } from "../../../harness/storage/active.ts";
+import { replaceConfigFile } from "../../../harness/config-file.ts";
+export { replaceConfigFile } from "../../../harness/config-file.ts";
 import { fileTypeFromBuffer } from "file-type";
 import {
 	getAgentDir,
@@ -12,7 +12,7 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
-import type { GuiEvent } from "../contract.ts";
+import type { GuiEvent } from "../../contract.ts";
 
 export async function expandAttachments(text: string, cwd: string): Promise<{ text: string; images: ImageContent[] }> {
 	const images: ImageContent[] = [];

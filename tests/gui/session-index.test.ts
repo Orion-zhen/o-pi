@@ -4,8 +4,8 @@ import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/prom
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { GuiSessionIndex } from "../../src/gui/host/session-index.ts";
-import { GuiSessionCatalog } from "../../src/gui/host/sessions.ts";
+import { GuiSessionIndex } from "../../src/gui/host/catalog/session-index.ts";
+import { GuiSessionCatalog } from "../../src/gui/host/catalog/sessions.ts";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.ts";
 import { storeSession } from "./session-fixture.ts";
 

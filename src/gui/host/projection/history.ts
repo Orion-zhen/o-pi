@@ -1,6 +1,6 @@
 import { sessionEntryToContextMessages, type SessionEntry, type SessionManager } from "@earendil-works/pi-coding-agent";
-import { PRUNE_STATE, parsePruneState } from "../../harness/prune/prune.ts";
-import type { GuiEntry } from "../messages.ts";
+import { PRUNE_STATE, parsePruneState } from "../../../harness/prune/prune.ts";
+import type { GuiEntry } from "../../messages.ts";
 import type { GuiPayloads } from "./payloads.ts";
 import { restoreNestedMutations } from "./nested-mutations.ts";
 

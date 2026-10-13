@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import type { GuiEvent, GuiQuery, GuiSnapshot } from "../../src/gui/contract.ts";
 import type { GuiEntry, GuiMessage } from "../../src/gui/messages.ts";
 import { GuiChannel } from "../../src/gui/host/channel.ts";
-import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
+import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
 import { assistant } from "./transcript-fixtures.ts";
 import { guiSnapshot } from "./snapshot-fixture.ts";
 

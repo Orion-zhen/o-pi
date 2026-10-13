@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { parse } from "jsonc-parser";
-import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
+import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
 import { editPreference, resetSection, sectionSave, type ReadyGuiConfig } from "../../src/gui/ui/preferences/gui-settings-draft.ts";
 
 function initial(): ReadyGuiConfig {

@@ -11,7 +11,7 @@ const closeServices = process.type === "utility"
 const { runChildProcess } = await import("../harness/runtime/invocation.ts");
 if (!(await runChildProcess())) {
 	const [{ GuiHost }, { readGuiConfig }, { startWebServer }] = await Promise.all([
-		import("../gui/host/host.ts"), import("../gui/host/preferences.ts"), import("../web/server.ts"),
+		import("../gui/host/host.ts"), import("../gui/host/config/preferences.ts"), import("../web/server.ts"),
 	]);
 	const gui = new GuiHost();
 	const client = gui.createClient();

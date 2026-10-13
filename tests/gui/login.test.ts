@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
-import { runLogin } from "../../src/gui/host/login.ts";
-import { GuiDialogs } from "../../src/gui/host/dialogs.ts";
+import { runLogin } from "../../src/gui/host/session/login.ts";
+import { GuiDialogs } from "../../src/gui/host/session/dialogs.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
 import { deferred } from "../helpers/async.ts";
 

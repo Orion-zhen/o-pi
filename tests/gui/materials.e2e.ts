@@ -4,7 +4,7 @@ import { parse } from "jsonc-parser";
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixture.ts";
 import { selectSetting, selectSettingsCategory } from "./settings-steps.ts";
-import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
+import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
 
 const defaults = readGuiDefaults().materials;
 const alpha = (opacity: number) => new RegExp(`[/,] ${String(opacity / 100).replace(".", "\\.")}\\)$`);

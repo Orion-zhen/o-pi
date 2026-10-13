@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import type { ApprovalDecision, ApprovalUnit, BashApprovalRequest } from "../../src/harness/approval/types.ts";
-import { GuiDialogs } from "../../src/gui/host/dialogs.ts";
+import { GuiDialogs } from "../../src/gui/host/session/dialogs.ts";
 import { BashApproval, bashPreview } from "../../src/gui/ui/tools/bash-approval.tsx";
 import type { GuiBashApproval } from "../../src/gui/contract.ts";
 

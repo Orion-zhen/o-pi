@@ -1,8 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { SessionManager, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
-import type { GuiEvent, GuiSessionActivity } from "../contract.ts";
-import type { ApprovalStores, SessionApprovalRules } from "../../harness/approval/rules/store.ts";
+import type { GuiEvent, GuiSessionActivity } from "../../contract.ts";
+import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import { GuiExecution, type SessionClient } from "./execution.ts";
 
 type Listener = (event: GuiEvent) => void;

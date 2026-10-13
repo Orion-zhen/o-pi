@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, it } from "vitest";
-import { readLspServers } from "../../src/gui/host/lsp-servers.ts";
+import { readLspServers } from "../../src/gui/host/workspace/lsp-servers.ts";
 import { preserveEnv } from "../helpers/lifecycle.ts";
 import { createProtocolServer, useTransportFixture } from "../harness/lsp/transport/fixtures.ts";
 

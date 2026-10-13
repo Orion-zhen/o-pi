@@ -1,6 +1,6 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { listWorkspaces } from "./workspaces.ts";
-import type { GuiSessionInfo, GuiWorkspaceInfo } from "../contract.ts";
+import type { GuiSessionInfo, GuiWorkspaceInfo } from "../../contract.ts";
 import { inspectHistoryFile } from "./history-file.ts";
 import { GuiSessionIndex } from "./session-index.ts";
 

@@ -22,7 +22,7 @@ import { DesktopStorage } from "./storage.ts";
 import { installDesktopAppearance } from "./appearance.ts";
 import { installDesktopShutdown } from "./shutdown.ts";
 import { createDesktopWindowState } from "./window-state.ts";
-import { fileResourceResponse, type FileResource } from "../gui/host/file-resource.ts";
+import { fileResourceResponse, type FileResource } from "../gui/host/workspace/file-resource.ts";
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },

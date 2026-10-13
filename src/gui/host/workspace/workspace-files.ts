@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileTypeFromBuffer } from "file-type";
-import type { WorkspacePreview, WorkspaceEntry, WorkspaceGit } from "../workbench.ts";
+import type { WorkspacePreview, WorkspaceEntry, WorkspaceGit } from "../../workbench.ts";
 import { workspacePath } from "./workspace-path.ts";
 import { fileVersion } from "./file-resource.ts";
 import { gitOutput, readWorkspaceGit } from "./workspace-git.ts";

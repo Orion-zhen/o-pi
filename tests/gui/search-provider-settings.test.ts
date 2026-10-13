@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { expect, it } from "vitest";
-import { moduleConfigOptions } from "../../src/gui/host/module-config-options.ts";
+import { moduleConfigOptions } from "../../src/gui/host/config/module-config-options.ts";
 import { SearchProviderSettings } from "../../src/gui/ui/settings/search-provider-settings.tsx";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 

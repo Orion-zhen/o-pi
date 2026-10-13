@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { moduleConfigOptions } from "../../src/gui/host/module-config-options.ts";
+import { moduleConfigOptions } from "../../src/gui/host/config/module-config-options.ts";
 
 it("设置字段来自 schema，保留标题、默认值、约束和本地引用，不展开动态属性", () => {
 	const metadata = moduleConfigOptions({

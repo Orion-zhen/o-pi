@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readdir, realpath, stat } from "node:fs/promises";
-import type { GuiDirectories } from "../contract.ts";
+import type { GuiDirectories } from "../../contract.ts";
 
 export async function listDirectories(directory: string): Promise<GuiDirectories> {
 	const current = await realpath(directory);

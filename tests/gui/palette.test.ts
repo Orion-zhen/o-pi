@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { generatePalette } from "../../src/gui/ui/preferences/palette.ts";
 import { alpha, composite, contrast, hex } from "../../src/gui/ui/preferences/color.ts";
-import { readGuiDefaults } from "../../src/gui/host/preferences.ts";
+import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
 
 for (const mode of ["light", "dark"] as const) {
 	it.each(["#007AFF", "#AF52DE", "#FFFFFF", "#000000"])(`${mode} 主题色 %s 保持文字对比度与独立交互状态`, (seed) => {

@@ -3,9 +3,9 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import {
 	CONFIG_DEFINITIONS, agentSchemaPath, createSchemaValidator, isNotFound,
 	defaultAgentConfigPath, userAgentConfigPath,
-} from "../../harness/config-loader.ts";
-import { replaceConfigFile } from "./files.ts";
-import { moduleConfigIds, type ModuleConfigId, type ModuleConfigDocument } from "../module-config.ts";
+} from "../../../harness/config-loader.ts";
+import { replaceConfigFile } from "../session/files.ts";
+import { moduleConfigIds, type ModuleConfigId, type ModuleConfigDocument } from "../../module-config.ts";
 import { moduleConfigOptions } from "./module-config-options.ts";
 
 const validators = Object.fromEntries(moduleConfigIds.map((id) => {

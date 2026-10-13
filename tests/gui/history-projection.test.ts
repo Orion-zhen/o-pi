@@ -1,8 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { GuiHistory } from "../../src/gui/host/history.ts";
-import { GuiPayloads } from "../../src/gui/host/payloads.ts";
+import { GuiHistory } from "../../src/gui/host/projection/history.ts";
+import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
 import { sessionTree } from "../../src/gui/messages.ts";
 import { contextMessages, hasContextMessages, isTranscriptPreview, locateTranscript } from "../../src/gui/ui/transcript/transcript-location.ts";
 import { assistant } from "./transcript-fixtures.ts";

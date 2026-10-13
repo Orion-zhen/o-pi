@@ -1,22 +1,22 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { SessionManager, AgentSessionRuntime, SessionStartEvent, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { UserHistoryStore, buildInitialHistory, normalizeHistoryText } from "../../harness/user-history.ts";
-import type { ToolSelectionController } from "../../harness/tool-defaults/controller.ts";
-import type { GuiAction, GuiEvent, SessionQuery, GuiQueryResults, GuiSnapshot } from "../contract.ts";
-import type { ApprovalStores, SessionApprovalRules } from "../../harness/approval/rules/store.ts";
-import { MessageTiming } from "./message-timing.ts";
+import { UserHistoryStore, buildInitialHistory, normalizeHistoryText } from "../../../harness/user-history.ts";
+import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
+import type { GuiAction, GuiEvent, SessionQuery, GuiQueryResults, GuiSnapshot } from "../../contract.ts";
+import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
+import { MessageTiming } from "../projection/message-timing.ts";
 import { GuiDialogs } from "./dialogs.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
 import { completeCommand, runBuiltin } from "./commands.ts";
 import { openView } from "./views.ts";
-import { collectGuiSnapshot } from "./snapshot.ts";
+import { collectGuiSnapshot } from "../projection/snapshot.ts";
 import { GuiModelScope, persistDefaultModel } from "./models.ts";
-import { GuiReports } from "./reports.ts";
-import { GuiPayloads } from "./payloads.ts";
-import { GuiHistory } from "./history.ts";
-import { nestedMutation, NESTED_MUTATION_ENTRY } from "./nested-mutations.ts";
+import { GuiReports } from "../projection/reports.ts";
+import { GuiPayloads } from "../projection/payloads.ts";
+import { GuiHistory } from "../projection/history.ts";
+import { nestedMutation, NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
 import type { GuiMcpTools } from "./mcp-tools.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {

@@ -1,7 +1,7 @@
 import { act, createElement, useLayoutEffect } from "react";
 import { useReactFixture } from "./react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GuiPayloads } from "../../src/gui/host/payloads.ts";
+import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
 import type { GuiToolOutput, ToolOutput } from "../../src/gui/messages.ts";
 import type { Query } from "../../src/gui/contract.ts";
 import { ContentVisible } from "../../src/gui/ui/components/ui/collapsible.tsx";

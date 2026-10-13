@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { GuiHistory } from "../../src/gui/host/history.ts";
-import { GuiPayloads } from "../../src/gui/host/payloads.ts";
-import { nestedMutation, NESTED_MUTATION_ENTRY } from "../../src/gui/host/nested-mutations.ts";
+import { GuiHistory } from "../../src/gui/host/projection/history.ts";
+import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
+import { nestedMutation, NESTED_MUTATION_ENTRY } from "../../src/gui/host/projection/nested-mutations.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 import { assistant } from "./transcript-fixtures.ts";
 

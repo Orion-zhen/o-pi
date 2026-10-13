@@ -1,5 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { assistantKey } from "../message-metrics.ts";
+import { assistantKey } from "../../message-metrics.ts";
 
 /** 请求起点到模型消息结束，包含首字等待，不包含工具执行。 */
 export class MessageTiming {

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { payloadKey, type GuiContent, type GuiImage, type GuiMessage, type GuiToolOutput, type ToolOutput } from "../messages.ts";
-import { toolFacts } from "../tool-facts.ts";
-import { isSkillLoadDetails } from "../skill-facts.ts";
+import { payloadKey, type GuiContent, type GuiImage, type GuiMessage, type GuiToolOutput, type ToolOutput } from "../../messages.ts";
+import { toolFacts } from "../../tool-facts.ts";
+import { isSkillLoadDetails } from "../../skill-facts.ts";
 
 function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);

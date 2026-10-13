@@ -1,7 +1,7 @@
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { GuiPayloads } from "../../src/gui/host/payloads.ts";
+import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
 import type { TranscriptSource } from "../../src/gui/ui/transcript/transcript-items.ts";
 
 export function assistant(content: AssistantMessage["content"], stopReason: AssistantMessage["stopReason"] = "toolUse"): AssistantMessage {

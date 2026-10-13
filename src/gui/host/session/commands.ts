@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import type { GuiAction, GuiPanel, GuiQueryResults } from "../contract.ts";
+import type { GuiAction, GuiPanel, GuiQueryResults } from "../../contract.ts";
 import type { GuiExecution } from "./execution.ts";
 
 export const builtinCommands = ([

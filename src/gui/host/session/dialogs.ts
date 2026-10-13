@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { GuiBashApproval, GuiDialog, GuiEvent, GuiNotice } from "../contract.ts";
-import type { ApprovalInteractionPort } from "../../harness/approval/runtime/interaction.ts";
-import { approvalText, formatApprovalPrompt } from "../../harness/approval/presentation.ts";
+import type { GuiBashApproval, GuiDialog, GuiEvent, GuiNotice } from "../../contract.ts";
+import type { ApprovalInteractionPort } from "../../../harness/approval/runtime/interaction.ts";
+import { approvalText, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
 import { plainTheme } from "./theme.ts";
 
 /** 对话框属于会话，不随浏览器连接销毁。响应只能消费一次。 */
