@@ -202,16 +202,16 @@ Fork 行为：
 
 * `--tools` 始终显式传递。
 * `shell: false`。
-* stdout 按 Pi 0.84.3 JSONL 协议解析。`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。JSONL 损坏会使任务失败。
+* stdout 按 Pi JSONL 协议解析。`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。JSONL 损坏会使任务失败。
 * `toolcall_start` 提供工具 ID 和名称后立即建立 pending 工具。`toolcall_end` 补齐参数，`tool_execution_start/update/end` 再驱动 running、completed 或 error 状态。高频流式更新最多每 50ms 向主进程发送一次 partial snapshot。
 * stderr 完整保存，展示时截断。
 * 超时后终止进程。
 * 只读任务默认重试一次空输出、provider/连接失败、非零退出和错误 stop reason。超时仅在 `retry_on_timeout` 开启时重试。
-* 外部取消、损坏的 JSONL、写能力任务，以及执行期间已观察到 `write`、`edit` 或 `bash` 的任务不会重试。
+* 外部取消、输出达到模型 token 上限、损坏的 JSONL、写能力任务，以及执行期间已观察到 `write`、`edit` 或 `bash` 的任务不会重试。
 * Ctrl+C 先 `SIGTERM`，再宽限后 `SIGKILL`。
 * 子进程环境变量使用白名单继承，并额外设置 `PI_SUBAGENT_CHILD=1`。
 
-成功条件不是只看退出码。任务还必须产生非空最终 assistant 文本，且不能包含错误 stop reason、`errorMessage` 或 provider error。
+成功条件不是只看退出码。任务还必须产生非空最终 assistant 文本，且不能包含错误 stop reason、`errorMessage` 或 provider error。`stopReason: "length"` 表示输出被模型 token 上限截断，任务失败并保留部分输出，chain 停止后续任务。Pi 1.2.0 的截断退出码修复只覆盖文本模式，子代理使用的 JSON 模式仍需检查 `stopReason`。
 
 ## UI 卡片
 

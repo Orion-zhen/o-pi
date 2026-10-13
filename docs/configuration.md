@@ -2,6 +2,12 @@
 
 本文说明 `approval-gate`、`auto-title`、`bash-tool`、`discord-presence`、`file-tools`、`lsp`、`subagent`、`tui` 和 `web-tools` 共用的 JSONC 配置分层机制。
 
+## Pi 原生配置
+
+`settings.json`、`models.json`、`keybindings.json` 和主题使用 Pi 原生格式，可分别引用 `https://pi.dev/schemas/` 下的 `settings.schema.json`、`models.schema.json`、`keybindings.schema.json` 和 `theme.schema.json` 获得编辑器校验与补全。[`settings.example.jsonc`](../agent/settings.example.jsonc) 已包含 `$schema`。
+
+这些 schema 不适用于本仓库的 `configs/*.jsonc` 或扩展的 `models.jsonc`。自定义主题启动时也会校验，复用颜色应放在 `vars` 中，并移除不支持的元数据。
+
 ## 配置层级
 
 加载优先级从低到高为：

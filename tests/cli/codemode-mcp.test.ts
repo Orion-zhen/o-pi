@@ -84,9 +84,10 @@ it.each([
 	expect(description).toContain("`models`");
 	if (inline) {
 		expect(description).toContain("mcp__images__read_image(args:");
-		expect(description).toContain("CallToolResult");
+		expect(description).toContain("content: Array<");
+		expect(description).toContain("structuredContent?: unknown");
+		expect(description).toContain("isError?: boolean");
 	} else {
-		expect(description).not.toContain("CallToolResult");
 		for (const request of server.requests) {
 			expect(request.tools?.map((tool) => tool.function.name)).not.toContain("tool_search");
 			expect(request.tools?.find((tool) => tool.function.name === "codemode")?.function.description).toBe(description);

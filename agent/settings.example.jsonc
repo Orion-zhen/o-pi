@@ -1,4 +1,6 @@
 {
+  "$schema": "https://pi.dev/schemas/settings.schema.json",
+
   // 使用 Pi 内置暗色主题；可改为 "light" 或已安装的自定义主题名。
   "theme": "dark",
 

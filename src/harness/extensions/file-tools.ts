@@ -115,7 +115,7 @@ const editParameters = Type.Object(
 					}),
 					new: Type.String(),
 					replace_all: Type.Optional(
-						Type.Boolean({ default: false, description: "Replace ALL old matches; default false." }),
+						Type.Boolean({ default: false, description: "Replace ALL old matches." }),
 					),
 				},
 				{ additionalProperties: false },

@@ -2,6 +2,8 @@
 
 该扩展把兼容 OpenAI Chat Completions API 或 Responses API 的服务注册为 Pi 提供方。基本配置只需指定 `baseUrl`、认证方式和模型。
 
+OpenRouter 优先使用 Pi 原生 `openrouter` 提供方。Pi 1.2.0 联网刷新时按密钥获取可用聊天模型、上下文与输出上限及价格，支持 `models.json` 中的区域端点，并保存目录供离线使用。在 `models.jsonc` 中注册同名提供方会替换原生实现，不会自动获得这套目录逻辑。
+
 ## 快速开始
 
 扩展读取以下配置文件：

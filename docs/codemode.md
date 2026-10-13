@@ -24,7 +24,8 @@ codemode 使用原生 `description`、`promptSnippet`、`promptGuidelines` 和 `
 
 - 开放原生 `models` API，支持模型目录、分类和图片生成，复用会话认证。能力说明和参考文档入口完全沿用原生提示词，不额外追加。
 - 原生 `promptGuidelines` 在 codemode 启用时由系统提示词收集到 `tool_policy`。
-- 内联目录预算默认约 3000 tokens，可通过 `codemode.inlineBudget` 调整。分组、预算分配、签名和 MCP 共享类型均由上游生成。延迟工具不内联，不因其后台注册改变目录。
+- 内联目录预算默认约 3000 tokens，可通过 `codemode.inlineBudget` 调整。分组、预算分配和签名由上游生成。整数、范围、长度、正则和默认值从 schema 生成，不在描述中重复。延迟工具不内联，不因其后台注册改变目录。
+- MCP 返回类型内联声明 `content`、`structuredContent` 和 `isError`，不引用未定义的共享类型。无输出 schema 时，`structuredContent` 为 `unknown`，不假定它是对象。
 - 检查工具是否存在使用 `"name" in tools`。访问不存在的成员会抛错，不能使用 `typeof tools.name` 探测。
 
 ## 普通模式的工具发现
@@ -39,9 +40,9 @@ codemode 下禁用 `tool_search`，返回普通模式时重新计算搜索可用
 
 三端共用原生 MCP 工厂的模式适配。服务配置的 `codemode`、`deferred` 不会切换会话模式或打开另一种模式的入口。`direct` 仍直接加载，`hidden` 仍不可发现或调用，不改写用户的 MCP 配置。`autoEnableCodemode` 不决定 opi 的会话模式，模式只由 codemode 工具选择决定。
 
-MCP 默认 `codemode` exposure 的工具在 SDK 内注册为延迟工具，普通模式可通过 `tool_search` 加载后直接调用。`codemode-deferred` 是 `codemode` 的上游别名。脚本模式通过 `searchTools()` 找签名，通过 `describeNamespace()` 读取完整服务说明。实际开放的间接 MCP 工具按命名空间生成紧凑 `mcp_servers` 摘要，不在工具描述中重复服务目录。
+MCP 默认 `codemode` exposure 的工具在 SDK 内注册为延迟工具，普通模式可通过 `tool_search` 加载后直接调用。`codemode-deferred` 是 `codemode` 的上游别名。脚本模式通过 `searchTools()` 找签名，通过 `describeNamespace()` 读取完整服务说明。两者的命名空间参数均可使用服务名别名，无需拼接 `mcp__` 前缀。实际开放的间接 MCP 工具按命名空间生成紧凑 `mcp_servers` 摘要，不在工具描述中重复服务目录。
 
-搜索可用性只看已注册工具，不维护连接、失败或认证状态。非 direct 服务仍在后台连接，注册前不会据配置提前启用搜索，注册后自动更新。连接、认证、调用前等待、取消和错误处理继续由 SDK 负责。外部扩展改变工具后，最迟在下一次提示或模型回合开始时更新搜索入口。
+搜索可用性只看已注册工具，不维护连接、失败或认证状态。非 direct 服务仍在后台连接，注册前不会据配置提前启用搜索，注册后自动更新。连接、认证、调用前等待、取消和错误处理继续由 SDK 负责。包装工具时保留原生 `reachesTools` 声明，由 MCP 等待本次调用可能访问的服务。脚本直接引用命名空间时按引用等待，使用工具发现接口时仍等待全部启用服务。外部扩展改变工具后，最迟在下一次提示或模型回合开始时更新搜索入口。
 
 ## 结果与边界
 
@@ -83,7 +84,7 @@ Bun 产物内嵌 QuickJS WASM，并按上游约定嵌入 codemode worker。Deskt
 
 `tests/cli/cli.test.ts` 使用本地模拟模型，通过真实独立二进制比较同一组“搜索 51 个候选后读取目标文件”任务。固定脚本不能代表真实模型编写脚本的成功率。
 
-Pi 1.1.0 下，固定 `read/find/bash/codemode` 工具集合，使用原生提示词、开放 `models` 并声明 `read` 结构化图片/PDF 返回后，实际请求中的 codemode 定义估算为 906 tokens。此处统计包含工具返回类型，不是只统计上游提示词。
+Pi 1.2.0 下，固定 `read/find/bash/codemode` 工具集合，使用原生提示词、开放 `models` 并声明 `read` 结构化图片/PDF 返回后，实际请求中的 codemode 定义估算为 1028 tokens。此处统计包含工具返回类型，不是只统计上游提示词。
 
 搜索读取场景样本：
 
@@ -91,7 +92,7 @@ Pi 1.1.0 下，固定 `read/find/bash/codemode` 工具集合，使用原生提�
 | --- | ---: | ---: |
 | 模型请求数 | 3 | 2 |
 | 最终请求中的工具结果估算 token | 362 | 60 |
-| 全部请求 JSON 累计估算 token | 2552 | 2169 |
+| 全部请求 JSON 累计估算 token | 2546 | 2335 |
 
 估算使用仓库本地计数器，不是提供方实际计费，不计算缓存折扣。请求中的临时路径等会导致小幅波动，固定场景不能证明所有任务都更省 tokens。本轮未做真实模型对比。codemode 仍按需开启，开启后固定使用 `only`，不降低默认目录或输出预算。`/stats` 的工具定义拆分仍是注册定义估算，不能用它验证 `prepareLoadout` 后的实际声明成本，应比较真实请求。
 

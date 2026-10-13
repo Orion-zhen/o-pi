@@ -43,7 +43,8 @@ const webFetchParameters = Type.Object(
 		}),
 		mode: Type.Optional(
 			StringEnum(["readable", "source", "image"] as const, {
-				description: "Default readable. source: text source. image: image URL, web primary image, or PDF pages; no find/offset.",
+				default: "readable",
+				description: "source: text source. image: image URL, web primary image, or PDF pages; no find/offset.",
 			}),
 		),
 		pages: Type.Optional(Type.String({
@@ -60,7 +61,8 @@ const webFetchParameters = Type.Object(
 		offset: Type.Optional(
 			Type.Integer({
 				minimum: 0,
-				description: "Text offset, default 0. Copy next to continue; explicit offset reuses snapshot.",
+				default: 0,
+				description: "Text offset. Copy next to continue; explicit offset reuses snapshot.",
 			}),
 		),
 	},

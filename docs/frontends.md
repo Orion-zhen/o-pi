@@ -25,6 +25,8 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 
 会话内容、运行状态和消息队列以 SDK 为准，不复制 Agent 执行逻辑。GUI 的 `GuiHost` 管理实例、索引和共享资源，`GuiSession` 持有单个 SDK runtime，`GuiClient` 管理客户端的查看位置和操作路由。新增共享业务放入 harness，终端布局、快捷键和组件工厂留在 TUI。
 
+用户请求和空闲时由 `pi.sendMessage(..., { triggerTurn: true })` 启动的运行，共用 `before_agent_start` 中的提示词、技能候选和工具发现初始化。只处理用户输入的扩展必须检查 `event.messageType === "user"`。启动钩子期间 SDK 已处于忙碌状态，排队和取消交给 SDK。GUI 仍单独跟踪附件读取、命令和后台任务，不用模型空闲状态代替整个宿主的资源回收条件。
+
 模型上下文通过 `buildSessionProjection()` 读取，包含 `context_edit` 的删除和替换。GUI 聊天历史从 `buildContextEntries()` 中的原始条目生成，不用 `session.messages` 代替历史，因此上下文编辑不改变已展示的回复。上下文用量继续由 SDK 提供，会话树隐藏 `context_edit` 元数据节点。
 
 ### 虚拟模型与非聊天模型

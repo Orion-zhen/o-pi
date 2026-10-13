@@ -290,6 +290,7 @@ function validateProcessOutput(output: ProcessRunOutput): string | undefined {
 	if (output.parseErrors > 0) return `Pi JSON protocol error: ${output.parseErrors} malformed event${output.parseErrors === 1 ? "" : "s"}`;
 	if (output.providerError !== undefined) return `provider error: ${truncateError(output.providerError)}`;
 	if (output.error !== undefined) return output.error;
+	if (output.stopReason === "length") return "subagent output truncated: model output token limit reached";
 	if (output.exitCode !== 0) return `subagent exited with code ${output.exitCode}`;
 	if (output.stopReason === "error" || output.stopReason === "aborted") return `subagent stopReason: ${output.stopReason}`;
 	if (output.output.trim() === "") return "empty output";
@@ -304,7 +305,7 @@ function shouldRetry(
 	tools: string[],
 	config: SubagentConfig,
 ): boolean {
-	if (attempt >= maxAttempts || output.aborted) return false;
+	if (attempt >= maxAttempts || output.aborted || output.stopReason === "length") return false;
 	if (output.wrote || hasWriteCapability(tools)) return false;
 	if (failure === "subagent timed out") return config.retryOnTimeout;
 	if (failure === "empty output") return config.retryOnEmptyOutput;

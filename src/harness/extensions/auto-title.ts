@@ -26,9 +26,9 @@ export default function autoTitle(pi: ExtensionAPI, track?: (task: Promise<void>
 			&& !ctx.sessionManager.getEntries().some((entry) => entry.type === "message" && entry.message.role === "user");
 	});
 	pi.on("input", (event) => { input = event; });
-	pi.on("before_agent_start", () => {
-		// input 在技能展开前触发，message_start 确认请求已进入会话。
-		prompt = eligible && input?.source !== "extension" ? input?.text : undefined;
+	pi.on("before_agent_start", (event) => {
+		// input 在技能展开前触发，message_start 确认用户请求已进入会话。
+		prompt = event.messageType === "user" && eligible && input?.source !== "extension" ? input?.text : undefined;
 		input = undefined;
 	});
 	pi.on("message_start", (event, ctx) => {
