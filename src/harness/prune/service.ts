@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { normalizeContext, resolveTranscript, type Api, type Model } from "@earendil-works/pi-ai";
+import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { convertToLlm, type SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import {
@@ -270,9 +271,9 @@ function previewPruneCost(
 	const compat = model.compat;
 	const supportsPatches = compat !== undefined && "supportsMidConvoSystemMessages" in compat
 		&& compat.supportsMidConvoSystemMessages === true;
-	const project = (messages: readonly AgentMessage[]) => resolveTranscript(
+	const project = (messages: readonly AgentMessage[]) => transformMessages(resolveTranscript(
 		normalizeContext({ messages: convertToLlm([...messages]) }), supportsPatches,
-	).messages;
+	).messages, model);
 	const before = project(beforeMessages);
 	const after = project(afterMessages);
 	const beforeEstimate = estimateMessagesTokensWithConfidence(before, scope);

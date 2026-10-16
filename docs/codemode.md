@@ -12,9 +12,9 @@
 }
 ```
 
-单次 CLI 调用使用 `--tools +codemode` 在默认集合中加入脚本入口，或使用 `--tools read,find,grep,bash,codemode` 替换整个集合。CLI 选择优先于 `defaultTools`。当前分支的手动选择优先。`extensions: ["-builtin:codemode"]` 可禁用内置扩展。
+单次 CLI 调用使用 `--tools +codemode` 在默认集合中加入脚本入口，或使用 `--tools read,find,grep,bash,codemode` 替换整个集合。恢复会话时，增减项作用于 SDK 恢复的集合，显式列表优先于历史选择。CLI 选择优先于 `defaultTools`。`extensions: ["-builtin:codemode"]` 可禁用内置扩展。
 
-opi 中启用 codemode 即使用 `only` 模式，忽略设置中的 `codemode.mode`，不提供原生 `on` 模式。所有非 `model-only` 工具不再单独向模型声明，包括已激活的脚本专用和延迟工具。其调用契约由 codemode 提供。`model-only` 工具仍直接向模型声明，但 `tool_search` 从启用集合移除，发现工具统一使用脚本内的 `searchTools()`。模型绕过脚本直接调用普通工具时会被阻止，脚本内嵌套调用不受此限制。关闭 codemode 后恢复普通工具声明，不改变其他工具的选择状态。
+opi 中启用 codemode 即使用 `only` 模式，忽略设置中的 `codemode.mode`，不提供原生 `on` 模式。所有非 `model-only` 工具不再单独向模型声明，包括已激活的脚本专用和延迟工具。其调用契约由 codemode 提供。`model-only` 工具仍直接向模型声明，但 `tool_search` 从启用集合移除，发现工具统一使用脚本内的 `searchTools()`。模型绕过脚本直接调用普通工具时会被阻止，脚本内嵌套调用不受此限制。关闭 codemode 后恢复普通工具声明，不改变其他工具的选择状态。SDK 会话记录保留完整选择，隐藏只作用于请求投影，因此恢复不需要另一份工具快照。
 
 不要把 `/tools` 的未勾选理解为权限拒绝，`codemode`、`deferred` 曝光的工具仍可被脚本调用。
 

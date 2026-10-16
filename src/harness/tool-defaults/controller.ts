@@ -1,9 +1,7 @@
-import type { ExtensionAPI, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { saveUserToolDefaults } from "./config.ts";
 import { initialToolDefaults } from "./initial.ts";
 import { syncToolSearch, toolSearchEnabled } from "../tool-search/loadout.ts";
-
-const TOOL_SELECTION_ENTRY = "tools-config";
 
 export type ToolSelectionItem = Pick<ToolInfo, "name" | "description" | "exposure"> & (
 	| { available: true; enabled: boolean }
@@ -14,7 +12,7 @@ export class ToolSelectionController {
 	private baseline: string[] | undefined;
 	private subagentAvailable = false;
 
-	constructor(private readonly pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "setActiveTools" | "appendEntry">) {}
+	constructor(private readonly pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "setActiveTools">) {}
 
 	/** 开关控制声明集合，不表示权限。脚本专用和延迟工具仍可嵌套调用。 */
 	listTools(tools = this.pi.getAllTools(), activeTools = this.pi.getActiveTools()): ToolSelectionItem[] {
@@ -28,21 +26,18 @@ export class ToolSelectionController {
 		});
 	}
 
-	restore(branch: readonly SessionEntry[], subagentAvailable: boolean, initialTools?: readonly string[]): string[] {
+	/** 恢复交给 SDK，此处只应用新会话默认值和本地可用性约束。 */
+	refresh(subagentAvailable: boolean, initialTools?: readonly string[]): void {
 		this.subagentAvailable = subagentAvailable;
-		const available = this.selectableNames();
-		this.baseline ??= [...initialTools ?? this.pi.getActiveTools()].filter((name) => available.has(name));
-		const saved = findSavedTools(branch);
-		const names = saved ?? this.baseline;
-		this.apply(names);
-		return saved ? saved.filter((name) => !available.has(name)) : [];
+		this.apply(initialTools ?? this.pi.getActiveTools());
+		this.baseline ??= this.selectedNames();
 	}
 
 	set(name: string, enabled: boolean): void {
 		if (!this.selectableNames().has(name)) return;
 		const names = new Set(this.pi.getActiveTools());
 		if (enabled) names.add(name); else names.delete(name);
-		this.pi.appendEntry(TOOL_SELECTION_ENTRY, { enabledTools: this.apply([...names]) });
+		this.apply([...names]);
 	}
 
 	hasUserDefaultChanges(defaultTools: string[] | undefined): boolean {
@@ -76,27 +71,8 @@ export class ToolSelectionController {
 		return new Set(this.pi.getAllTools().filter((tool) => this.selectable(tool)).map((tool) => tool.name));
 	}
 
-	private apply(names: readonly string[]): string[] {
+	private apply(names: readonly string[]): void {
 		const available = this.selectableNames();
-		const enabled = names.filter((name) => available.has(name));
-		syncToolSearch(this.pi, enabled);
-		return enabled;
+		syncToolSearch(this.pi, names.filter((name) => available.has(name)));
 	}
-}
-
-function findSavedTools(branch: readonly SessionEntry[]): string[] | undefined {
-	let saved: Set<string> | undefined;
-	for (const entry of branch) {
-		// 手动快照之后的 SDK 工具变更优先，避免丢失 tool_search 新发现的工具。
-		if (saved && entry.type === "message" && entry.message.role === "system") {
-			for (const tool of entry.message.toolsRemoved ?? []) saved.delete(tool.name);
-			for (const tool of entry.message.toolsAdded ?? []) saved.add(tool.name);
-		}
-		if (entry.type !== "custom" || entry.customType !== TOOL_SELECTION_ENTRY) continue;
-		const data: unknown = entry.data;
-		if (typeof data !== "object" || data === null || !("enabledTools" in data)) continue;
-		const names: unknown = data.enabledTools;
-		if (Array.isArray(names) && names.every((name): name is string => typeof name === "string")) saved = new Set(names);
-	}
-	return saved ? [...saved].filter((name) => name !== "tool_search") : undefined;
 }

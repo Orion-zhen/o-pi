@@ -1,5 +1,5 @@
 import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
-import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { Api, Message, Model, ToolResultMessage } from "@earendil-works/pi-ai";
 import { buildContextBreakdown } from "./context-breakdown.ts";
 import type { StatsSnapshot, ToolStats } from "./types.ts";
 import { summarizeSessionUsage } from "./usage.ts";
@@ -12,12 +12,7 @@ export interface StatsPiApi {
 
 export interface StatsQueryPort {
 	cwd: string;
-	model: {
-		id: string;
-		provider: string;
-		baseUrl: string;
-		reasoning: boolean;
-	} | undefined;
+	model: Model<Api> | undefined;
 	getEntries(): SessionEntry[];
 	getBranch(): SessionEntry[];
 	isUsingSubscription(): boolean;
@@ -60,11 +55,7 @@ export async function collectStatsSnapshot(port: StatsQueryPort, pi: StatsPiApi)
 			activeTools,
 			allTools,
 			branchEntries,
-			tokenCounter: {
-				...(model?.provider !== undefined ? { provider: model.provider } : {}),
-				...(model?.id !== undefined ? { modelId: model.id } : {}),
-				...(model?.baseUrl !== undefined ? { baseUrl: model.baseUrl } : {}),
-			},
+			model,
 			...(systemPromptOptions !== undefined ? { systemPromptOptions } : {}),
 		}),
 		tools: collectTools(messages, activeTools.length, allTools.length),

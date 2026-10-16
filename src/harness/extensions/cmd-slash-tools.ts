@@ -20,7 +20,7 @@ interface ToolSelectorModule {
 }
 type ToolSelectorLoader = () => Promise<ToolSelectorModule>;
 
-/** 注册工具选择生命周期；配置、恢复与持久化由 controller 负责。 */
+/** 注册选择器与本地可用性约束，会话恢复由 SDK 负责。 */
 export function createToolsExtension(
 	loadTui?: ToolSelectorLoader,
 	gui?: Presenter<(controller: ToolSelectionController) => void>,
@@ -31,11 +31,9 @@ export function createToolsExtension(
 		const controller = new ToolSelectionController(pi);
 		bindController?.(controller);
 
-		const restore = async (ctx: ExtensionContext): Promise<void> => {
+		const refresh = async (ctx: ExtensionContext, initialTools?: readonly string[]): Promise<void> => {
 			const config = await loadSubagentConfig(ctx.cwd);
-			const branch = ctx.sessionManager.getBranch();
-			const removed = controller.restore(branch, discoverAgents(ctx.cwd, config).agents.length > 0, initialToolDefaults(pi, branch, startup));
-			if (removed.length > 0) ctx.ui.notify(`Removed unavailable tools from branch selection: ${removed.join(", ")}`, "warning");
+			controller.refresh(discoverAgents(ctx.cwd, config).agents.length > 0, initialTools);
 		};
 
 		pi.registerCommand("tools", {
@@ -74,8 +72,8 @@ export function createToolsExtension(
 			},
 		});
 
-		pi.on("session_start", async (_event, ctx) => restore(ctx));
-		pi.on("session_tree", async (_event, ctx) => restore(ctx));
+		pi.on("session_start", async (_event, ctx) => refresh(ctx, initialToolDefaults(pi, ctx.sessionManager.getBranch(), startup)));
+		pi.on("session_tree", async (_event, ctx) => refresh(ctx));
 	};
 }
 

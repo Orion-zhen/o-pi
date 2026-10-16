@@ -87,9 +87,9 @@ GUI 编辑器需要同时呈现原文和校验错误，因此从同一份用户�
 
 未配置 `defaultTools` 时，保留工具注册时的默认启用行为，不维护额外的默认工具名单。codemode 默认关闭，`powershell` 和 `subagent` 仍受平台和 profile 可用性限制。显式工具列表替换启用集合，全局空列表禁用全部工具。仅含 `+name` / `-name` 的配置在默认启用集合上增减。解析复用 SDK，保留项目设置合并、CLI 覆盖和已有会话分支选择，不修改配置文件。Pi 1.1.0 将项目级空列表视为不增减，仍继承全局配置。
 
-在 `/tools` 中按 `Ctrl+S` 将当前启用的工具名列表写入全局 `~/.pi/agent/settings.json.defaultTools`，保留其他设置，供新会话使用。路径遵循 `PI_CODING_AGENT_DIR`。直接退出只保留当前会话分支的选择。
+在 `/tools` 中按 `Ctrl+S` 将当前启用的工具名列表写入全局 `~/.pi/agent/settings.json.defaultTools`，保留其他设置，供新会话使用。路径遵循 `PI_CODING_AGENT_DIR`。
 
-会话恢复优先使用分支选择，没有覆盖项时使用 SDK 初始工具集合。切换模型不改变工具选择。不读取旧 `tools.jsonc` 或 `PI_TOOLS_*` 环境变量，不迁移旧配置。
+会话恢复和分支导航使用 SDK 记录的工具声明，不保存或重放自定义工具快照。选择在下次请求时持久化，尚未发起请求就退出的修改不会保存。恢复时，CLI `--tools +name/-name` 修改历史集合，显式列表或禁用工具的参数优先。切换模型不改变工具选择。不读取旧 `tools.jsonc`、`PI_TOOLS_*` 环境变量或 `tools-config` 条目，不迁移旧配置。
 
 ## Git 和升级
 

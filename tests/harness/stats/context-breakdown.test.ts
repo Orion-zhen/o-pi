@@ -15,6 +15,7 @@ describe("stats context breakdown", () => {
 		];
 
 		const stats = await buildContextBreakdown({
+			model: undefined,
 			usage: { tokens: 1000, contextWindow: 4000, percent: 25 },
 			systemPrompt: "<tool_policy>Use tools</tool_policy>\n<subagents>\n- scout: inspect\n</subagents>\nRules",
 			systemPromptOptions: {
@@ -43,6 +44,7 @@ describe("stats context breakdown", () => {
 	it("native tool definitions 使用 active ToolInfo，且不从 system prompt 扣减", async () => {
 		const systemPrompt = "System prompt mentions available tools by short snippet.";
 		const stats = await buildContextBreakdown({
+			model: undefined,
 			usage: undefined,
 			systemPrompt,
 			systemPromptOptions: {
@@ -71,6 +73,7 @@ describe("stats context breakdown", () => {
 
 	it("没有 context usage 时使用估算总量", async () => {
 		const stats = await buildContextBreakdown({
+			model: undefined,
 			usage: undefined,
 			systemPrompt: "system prompt text",
 			activeTools: [],
@@ -84,6 +87,7 @@ describe("stats context breakdown", () => {
 
 	it("将手动 skill disclosure 单独计入 skills", async () => {
 		const stats = await buildContextBreakdown({
+			model: undefined,
 			usage: undefined,
 			systemPrompt: "system",
 			activeTools: [],
@@ -96,6 +100,7 @@ describe("stats context breakdown", () => {
 
 	it("conversation history 不重复统计 skill disclosure", async () => {
 		const stats = await buildContextBreakdown({
+			model: undefined,
 			usage: undefined,
 			systemPrompt: "system",
 			activeTools: [],
@@ -109,14 +114,14 @@ describe("stats context breakdown", () => {
 });
 
 function entry(id: string, message: Message): SessionEntry {
-	return { type: "message", id, parentId: null, timestamp: "2026-07-05T00:00:00.000Z", message };
+	return { type: "message", id, parentId: id === "1" ? null : String(Number(id) - 1), timestamp: "2026-07-05T00:00:00.000Z", message };
 }
 
 function skillMessage(id: string, content: string): SessionEntry {
 	return {
 		type: "custom_message",
 		id,
-		parentId: null,
+		parentId: id === "1" ? null : String(Number(id) - 1),
 		timestamp: "2026-07-05T00:00:00.000Z",
 		customType: SKILL_CONTEXT_MESSAGE,
 		content,

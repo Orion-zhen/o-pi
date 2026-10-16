@@ -1,5 +1,7 @@
-import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage, ImageContent, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
+import { buildSessionProjection, convertToLlm, type BuildSystemPromptOptions, type ContextUsage, type SessionEntry, type ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Api, AssistantMessage, ImageContent, Message, Model, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
+import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { countContentTokens, countTextTokens, type TokenCounterScope } from "../token-counter.ts";
 import type { ContextBreakdownItem, ContextStats } from "./types.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../skill-context/types.ts";
@@ -11,7 +13,7 @@ export interface ContextBreakdownInput {
 	activeTools: string[];
 	allTools?: ToolInfo[];
 	branchEntries: SessionEntry[];
-	tokenCounter?: TokenCounterScope;
+	model: Model<Api> | undefined;
 }
 
 /** 基于 Pi 公开 session/context 数据生成当前请求窗口的估算拆分。 */
@@ -20,7 +22,8 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 	const contextWindow = input.usage?.contextWindow;
 	const activeTools = input.activeTools;
 	const activeToolInfos = selectActiveToolInfos(input.allTools ?? [], activeTools);
-	const counter = input.tokenCounter ?? {};
+	const model = input.model;
+	const counter: TokenCounterScope = model ? { provider: model.provider, modelId: model.id, baseUrl: model.baseUrl } : {};
 	const systemPromptTokens = await estimateTokens(input.systemPrompt ?? "", counter);
 	const toolDefinitionTokens = await estimateToolDefinitions(activeToolInfos, counter);
 	const projectContext = extractTaggedSection(input.systemPrompt ?? "", "project_context");
@@ -29,8 +32,10 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 		: await estimateProjectContext(input.systemPromptOptions, counter);
 	const subagentTokens = await estimateTokens(extractTaggedSection(input.systemPrompt ?? "", "subagents"), counter);
 	const systemTokens = clampKnown(systemPromptTokens - projectContextTokens - subagentTokens);
-	const skillStats = await estimateSkillContext(input.branchEntries, counter);
-	const messageStats = await estimateMessages(input.branchEntries, counter);
+	const projected = buildSessionProjection(input.branchEntries).messages;
+	const skillStats = await estimateSkillContext(projected, counter);
+	const messages = convertToLlm(projected.filter((message) => message.role !== "custom" || message.customType !== SKILL_CONTEXT_MESSAGE));
+	const messageStats = await estimateMessages(model ? transformMessages(messages, model) : messages, counter);
 
 	const items: ContextBreakdownItem[] = [
 		item("system", "system prompt", systemTokens, true, input.systemPrompt ? "runtime prompt" : undefined),
@@ -109,15 +114,15 @@ interface SkillEstimate {
 	disclosures: number;
 }
 
-async function estimateSkillContext(entries: SessionEntry[], counter: TokenCounterScope): Promise<SkillEstimate> {
-	const messages = entries.filter((entry): entry is Extract<SessionEntry, { type: "custom_message" }> =>
-		entry.type === "custom_message" && entry.customType === SKILL_CONTEXT_MESSAGE);
+async function estimateSkillContext(context: AgentMessage[], counter: TokenCounterScope): Promise<SkillEstimate> {
 	let tokens = 0;
-	for (const message of messages) tokens += await estimateContent(message.content, counter);
-	return {
-		tokens,
-		disclosures: messages.length,
-	};
+	let disclosures = 0;
+	for (const message of context) {
+		if (message.role !== "custom" || message.customType !== SKILL_CONTEXT_MESSAGE) continue;
+		tokens += await estimateContent(message.content, counter);
+		disclosures += 1;
+	}
+	return { tokens, disclosures };
 }
 
 function formatSkillContextNote(stats: SkillEstimate): string | undefined {
@@ -145,7 +150,7 @@ interface MessageEstimate {
 	currentUserTokens: number;
 }
 
-async function estimateMessages(entries: SessionEntry[], counter: TokenCounterScope): Promise<MessageEstimate> {
+async function estimateMessages(messages: Message[], counter: TokenCounterScope): Promise<MessageEstimate> {
 	let historyTokens = 0;
 	let historyMessages = 0;
 	let toolCallTokens = 0;
@@ -153,25 +158,12 @@ async function estimateMessages(entries: SessionEntry[], counter: TokenCounterSc
 	let toolOutputTokens = 0;
 	let toolResults = 0;
 	let currentUserTokens = 0;
-	let latestUserEntryId: string | undefined;
+	const latestUser = messages.findLast((message) => message.role === "user");
 
-	for (const entry of entries) {
-		if (entry.type === "message" && entry.message.role === "user") latestUserEntryId = entry.id;
-	}
-
-	for (const entry of entries) {
-		if (entry.type === "custom_message") {
-			if (entry.customType === SKILL_CONTEXT_MESSAGE) continue;
-			historyTokens += await estimateContent(entry.content, counter);
-			historyMessages += 1;
-			continue;
-		}
-		if (entry.type !== "message") continue;
-
-		const message = entry.message;
+	for (const message of messages) {
 		if (message.role === "user") {
 			const tokens = await estimateContent(message.content, counter);
-			if (entry.id === latestUserEntryId) currentUserTokens += tokens;
+			if (message === latestUser) currentUserTokens += tokens;
 			else {
 				historyTokens += tokens;
 				historyMessages += 1;

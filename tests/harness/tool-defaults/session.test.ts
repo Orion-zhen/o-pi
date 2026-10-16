@@ -114,9 +114,7 @@ describe("工具选择与 SDK 状态", () => {
 
 		controller.set("fixture", false);
 		expect(search()).toMatchObject({ available: true, enabled: true });
-		expect(session.sessionManager.getBranch().at(-1)).toMatchObject({
-			type: "custom", customType: "tools-config", data: { enabledTools: [] },
-		});
+		expect(session.getActiveToolNames()).toEqual(["tool_search"]);
 		await controller.persistUserDefaults();
 		expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).defaultTools).toEqual([]);
 		api.registerTool({ ...candidate, exposure: "hidden" });
@@ -274,7 +272,7 @@ describe("工具选择与 SDK 状态", () => {
 		expect(requestedTools()).toEqual(["read", "write", "bash"]);
 	});
 
-	it("手动切换后尚未发送请求也能恢复，导航回旧分支恢复旧选择", async () => {
+	it("未发送请求的选择不持久化，导航分支使用 SDK 声明", async () => {
 		let host = await start();
 		host.controller.set("bash", false);
 		await host.session.prompt("第一个分支");
@@ -285,7 +283,8 @@ describe("工具选择与 SDK 状态", () => {
 		expect(selected(host.controller)).toEqual(["write"]);
 		await runtime?.dispose();
 		host = await start(SessionManager.open(file));
-		expect(selected(host.controller)).toEqual(["write"]);
+		expect(selected(host.controller)).toEqual(["read", "write"]);
+		host.controller.set("read", false);
 		await host.session.prompt("第二个分支");
 		expect(requestedTools()).toEqual(["write"]);
 		await host.session.navigateTree(leaf, { summarize: false });
