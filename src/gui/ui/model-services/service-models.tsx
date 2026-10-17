@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { AnimatePresence } from "motion/react";
 import { Plus } from "lucide-react";
 import type { ModelCandidate } from "../../../harness/openai-compatible-provider/model-candidates.ts";
@@ -21,6 +21,8 @@ export function ServiceModels({ providerId, provider, candidates, disabled, chan
 	status?: string;
 }) {
 	const [adding, setAdding] = useState(false);
+	const addButton = useRef<HTMLButtonElement>(null);
+	const cancel = () => { setAdding(false); addButton.current?.focus(); };
 	const [expanded, setExpanded] = useState<string>();
 	const models = configuredModels(provider, candidates);
 	const definitions = models.filter((model) => model.manualIndex !== undefined).map(({ id }) => id);
@@ -40,13 +42,13 @@ export function ServiceModels({ providerId, provider, candidates, disabled, chan
 			</div>
 			<div className="service-section-actions">
 				{actions}
-				<Button variant="ghost" size="sm" disabled={disabled} onClick={() => setAdding(!adding)}><Plus />添加模型</Button>
+				<Button ref={addButton} variant="ghost" size="sm" disabled={disabled} aria-expanded={adding} onClick={() => setAdding(!adding)}><Plus />添加模型</Button>
 			</div>
 		</header>
 		{status && <p className="service-tag" role="status">{status}</p>}
 		<AnimatePresence initial={false}>{adding && <Reveal key="add">
 			<AddServiceItem label="模型 ID" disabled={disabled} existing={definitions}
-				suggestions={available.map(({ id }) => id)} cancel={() => setAdding(false)} add={add} />
+				suggestions={available.map(({ id }) => id)} cancel={cancel} add={add} />
 		</Reveal>}</AnimatePresence>
 		<div className="service-model-list"><AnimatePresence initial={false}>
 			{models.map((model) => <ModelItem key={model.id} model={model} settings={modelSettingsView(providerId, provider, model)}

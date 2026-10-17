@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Plus } from "lucide-react";
 import type { Query } from "../../contract.ts";
@@ -31,6 +31,8 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 	// 源码编辑保留注释和格式修改，表单只比较配置值。
 	const [sourceEdited, setSourceEdited] = useState(false);
 	const [adding, setAdding] = useState(false);
+	const addButton = useRef<HTMLButtonElement>(null);
+	const cancel = () => { setAdding(false); addButton.current?.focus(); };
 	const [expanded, setExpanded] = useState<string>();
 	const parsed = useMemo(() => parseServiceDraft(draft === "" && document?.content === "" ? emptyModelsDocument : draft),
 		[draft, document?.content]);
@@ -74,7 +76,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 		<header className="settings-group-heading">
 			<h3>OpenAI 兼容服务</h3>
 			{document && <div className="settings-heading-actions">
-				{!sourceView && <Button variant="outline" size="sm" disabled={blocked} onClick={() => setAdding(!adding)}><Plus />添加服务</Button>}
+				{!sourceView && <Button ref={addButton} variant="outline" size="sm" disabled={blocked} aria-expanded={adding} onClick={() => setAdding(!adding)}><Plus />添加服务</Button>}
 				<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || !!parsed.error} onClick={toggleSource} />
 			</div>}
 		</header>
@@ -85,7 +87,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 			{sourceView ? <Textarea className="settings-source" aria-label="模型服务 JSON" value={draft} disabled={blocked} spellCheck={false}
 				onChange={(event) => { setSourceEdited(true); editor.change(event.target.value); }} /> : <>
 				<AnimatePresence initial={false}>{adding && <Reveal key="add">
-					<AddServiceItem label="服务 ID" existing={Object.keys(providers)} disabled={blocked} cancel={() => setAdding(false)} add={addService} />
+					<AddServiceItem label="服务 ID" existing={Object.keys(providers)} disabled={blocked} cancel={cancel} add={addService} />
 				</Reveal>}</AnimatePresence>
 				<div className="model-service-list"><AnimatePresence initial={false}>
 					{services.map(([id, config]) => <ServiceItem key={id} id={id} config={config} disabled={blocked}
