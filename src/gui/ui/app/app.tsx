@@ -218,7 +218,7 @@ export function App() {
 							{(["left", "right"] as const).map((edge) => <ResizeHandle key={edge} label={`调整对话宽度（${edge === "left" ? "左" : "右"}边缘）`} value={gui.layout.values.conversation}
 								change={(value, persist) => gui.layout.set("conversation", value, persist)} measure={() => {
 									const max = transcript.scroll.current?.clientWidth ?? 0;
-									return { value: transcript.content.current?.getBoundingClientRect().width ?? 0, min: Math.min(320, max), max, scale: edge === "left" ? -2 : 2 };
+									return { value: transcript.content.current?.getBoundingClientRect().width ?? 0, min: max * 0.4, max, scale: edge === "left" ? -2 : 2 };
 								}} />)}
 						</div>
 						<AnimatePresence initial={false}>

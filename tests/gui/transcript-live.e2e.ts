@@ -7,7 +7,7 @@ interface LiveMeasurement { active: boolean; frames: number[]; tasks: number[]; 
 declare global { interface Window { liveTranscriptPerf: LiveMeasurement } }
 const percentile = (values: number[], fraction: number) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) * fraction)] ?? 0;
 
-test("工具详情随视口与字号伸缩，焦点留白覆盖轮廓", async ({ page }) => {
+test("工具详情随视口与字号伸缩，焦点轮廓保持内绘", async ({ page }) => {
 	const channel = await replayTranscript(page, liveSnapshot());
 	try {
 		const reply = page.locator('.assistant-reply[data-state="running"]');
@@ -27,11 +27,11 @@ test("工具详情随视口与字号伸缩，焦点留白覆盖轮廓", async ({
 				const style = getComputedStyle(element);
 				const cardStyle = getComputedStyle(card);
 				return { width: card.getBoundingClientRect().width, viewport: viewport.clientWidth, contain: cardStyle.contain,
-					margin: parseFloat(cardStyle.overflowClipMargin), outline: parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset) };
+					outline: parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset) };
 			});
 			expect(layout.width).toBeLessThanOrEqual(layout.viewport);
 			expect(layout.contain).toBe("paint");
-			expect(layout.margin).toBeGreaterThanOrEqual(layout.outline);
+			expect(layout.outline).toBeLessThanOrEqual(0);
 			await expect(summary).toHaveAttribute("aria-expanded", "true");
 		}
 	} finally { channel.close(); }
@@ -124,7 +124,7 @@ for (const mode of ["idle", "stream", "progress"] as const) test(`长轮次在 $
 			painter.drawImage(bitmap, 0, 0);
 			return [...painter.getImageData(Math.floor(bounds.x - outline), Math.floor(bounds.y + bounds.height / 2), 1, 1).data];
 		};
-		expect(await pixel(focused), "卡片外的键盘焦点轮廓仍可见").not.toEqual(await pixel(unfocused));
+		expect(await pixel(focused), "卡片内的键盘焦点轮廓仍可见").not.toEqual(await pixel(unfocused));
 		await first.click();
 		const tool = page.locator('[data-tool-call-id="read-0"]');
 		await context.grantPermissions(["clipboard-read", "clipboard-write"]);

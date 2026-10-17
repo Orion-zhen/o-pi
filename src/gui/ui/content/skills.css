@@ -4,7 +4,7 @@
 .skill-loader { font-size: var(--text-caption); color: var(--muted-foreground); }
 .tool-activity.skill-activity[data-state="completed"] .activity-state > span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
 .skill-activity .activity-state > span { max-width: none; }
-.skill-body { max-block-size: 28rem; overflow: auto; }
+.skill-body { max-block-size: 60dvh; overflow: auto; }
 .skill-metadata { display: grid; gap: 0.375rem; font-size: var(--text-caption); }
 .skill-metadata > div { display: flex; align-items: baseline; gap: 0.75rem; }
 .skill-metadata dt { flex-shrink: 0; color: var(--muted-foreground); }

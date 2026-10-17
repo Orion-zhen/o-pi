@@ -10,7 +10,7 @@
 .sidebar-resize { background: var(--glass); backdrop-filter: var(--sidebar-filter); }
 .info-resize { display: none; background: var(--inspector); backdrop-filter: var(--inspector-filter); }
 .chat-workspace:has(.session-sidebar[data-open="true"]) > .info-resize { display: flex; }
-.conversation-resize-track { position: absolute; inset: 0; inline-size: min(100%, var(--conversation-width)); margin-inline: auto; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
+.conversation-resize-track { inline-size: min(100%, var(--conversation-width)); margin-inline: auto; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
 .conversation-resize-track > .resize-handle { position: relative; flex: 0 0 0.75rem; block-size: 100%; pointer-events: auto; overflow: clip; }
 .conversation-resize-track > .resize-handle::after { position: absolute; inset-block-start: var(--resize-y, 50%); transform: translateY(-50%); inline-size: 2px; block-size: 6rem; background: linear-gradient(transparent, var(--muted-foreground), transparent); opacity: 0; transition: opacity var(--motion-normal); pointer-events: none; }
 .conversation-resize-track > .resize-handle:is(:hover, [data-dragging="true"])::after { opacity: 0.9; }
