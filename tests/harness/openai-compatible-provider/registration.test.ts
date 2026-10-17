@@ -5,60 +5,28 @@ import { ModelRegistry, ModelRuntime, type ExtensionAPI } from "@earendil-works/
 import { describe, expect, it, vi } from "vitest";
 
 import openAICompatibleProvider from "../../../src/harness/extensions/openai-compatible-provider.ts";
-import { loadModelsJsoncConfig } from "../../../src/harness/openai-compatible-provider/config.ts";
+import { loadModelsConfig } from "../../../src/harness/openai-compatible-provider/config.ts";
 import { registerOpenAICompatibleProviders } from "../../../src/harness/openai-compatible-provider/register.ts";
-import { createExtensionHarness, createRegistryPi, loadConfigFromText, loadProvider, providerConfig } from "./fixtures.ts";
+import { createExtensionHarness, createRegistryPi, loadConfigFromText, providerConfig, registerProvider } from "./fixtures.ts";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 
 describe("openai-compatible-provider registration", () => {
-	it("将模型图片配置及请求限制透传给 Pi，不为未配置模型添加策略", async () => {
-		const inputLimits = { maxRequestBytes: 8_000_000, images: {
-			maxPerMessage: 10, maxPerRequest: 20,
-			resize: { maxWidth: 2400, maxHeight: 1600, maxBytes: 524288, jpegQuality: 75 },
-		} };
-		const provider = await loadProvider(temp.path, { models: [
-			{ id: "vision", input: ["text", "image"], inputLimits }, { id: "default" },
-		] });
-		expect(provider.getModels()[0]?.inputLimits).toEqual(inputLimits);
-		expect(provider.getModels()[1]).not.toHaveProperty("inputLimits");
-	});
-
-	it.each([
-		{ maxRequestBytes: 0 }, { images: { maxPerMessage: -1 } }, { images: { maxPerRequest: 1.5 } },
-		{ images: { resize: { maxWidth: 0 } } }, { images: { resize: { maxHeight: "100" } } },
-		{ images: { resize: { maxBytes: -1 } } }, { images: { resize: { jpegQuality: 101 } } },
-		{ images: { resize: { unknown: true } } },
-	])("拒绝无效模型图片配置 %j", async (inputLimits) => {
-		await expect(loadProvider(temp.path, { models: [{ id: "m", inputLimits }] })).rejects.toThrow();
-	});
-
-	it("将已知缓存寿命透传给原生模型，不为未配置模型猜测寿命", async () => {
-		const provider = await loadProvider(temp.path, { models: [
-			{ id: "warm", promptCache: { short: 300, long: 3600 } }, { id: "unknown" },
-		] });
-		expect(provider.getModels()[0]?.promptCache).toEqual({ short: 300, long: 3600 });
-		expect(provider.getModels()[1]).not.toHaveProperty("promptCache");
-	});
-
-	it.each([{ short: 0 }, { long: -1 }, { short: "300" }, { daily: 86400 }])("拒绝无效缓存寿命 %j", async (promptCache) => {
-		await expect(loadProvider(temp.path, { models: [{ id: "m", promptCache }] })).rejects.toThrow();
-	});
-
 	it("仓库示例配置与当前 schema 同步", async () => {
-		const config = await loadModelsJsoncConfig(path.resolve("agent/models.example.jsonc"));
-		expect(config?.providers["llama-cpp"]?.api).toBe("openai-completions");
-		expect(config?.providers["llama-swap"]?.thinkingPreset).toBe("model-suffix");
-		expect(config?.providers["responses-demo"]?.api).toBe("openai-responses");
+		const config = await loadModelsConfig(path.resolve("agent/models.example.jsonc"));
+		if (!config) throw new Error("example config missing");
+		expect(config.providers["llama-cpp"]).toBeUndefined();
+		expect(config.providers["llama-swap"]?.thinkingPreset).toBe("model-suffix");
+		expect(config.providers["responses-demo"]?.api).toBe("openai-responses");
 	});
 
 	it("扩展只注册完整原生 Provider，启动阶段不自行联网", async () => {
 		process.env.PI_CODING_AGENT_DIR = temp.path;
 		const fetch = vi.spyOn(globalThis, "fetch");
 		await writeFile(
-			path.join(temp.path, "models.jsonc"),
-			'{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": ["manual"] } } }',
+			path.join(temp.path, "models.json"),
+			'{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "fixture", "api": "openai-completions", "discoverModels": true, "models": [{"id":"manual"}] } } }',
 			{ mode: 0o600 },
 		);
 		const harness = createExtensionHarness();
@@ -72,59 +40,72 @@ describe("openai-compatible-provider registration", () => {
 		expect(fetch).not.toHaveBeenCalled();
 	});
 
-	it("不存在 models.jsonc 时不产生 provider 注册输入", async () => {
-		expect(await loadModelsJsoncConfig(path.join(temp.path, "missing.jsonc"))).toBeUndefined();
+	it.each([undefined, false])("普通静态配置不因 discoverModels=%s 注册扩展 provider", async (discoverModels) => {
+		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
+			local: providerConfig({ discoverModels }, "local"),
+		} }));
+		const harness = createExtensionHarness();
+		registerOpenAICompatibleProviders(harness.pi, config, "models.json");
+		expect(harness.providers).toEqual([]);
 	});
 
-	it("接受带 UTF-8 BOM 的 models.jsonc", async () => {
-		const configPath = path.join(temp.path, "bom-models.jsonc");
-		await writeFile(configPath, '\uFEFF{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "models": ["model"] } } }');
+	it("仅设置默认思考等级时保留内置 provider，不要求 baseUrl 或 OpenAI API", async () => {
+		const runtime = await ModelRuntime.create({
+			modelsPath: null, credentials: new InMemoryCredentialStore(), modelsStore: new InMemoryModelsStore(),
+			allowModelNetwork: false, refreshOnCreate: false,
+		});
+		const native = runtime.getProvider("anthropic");
+		const model = native?.getModels().find((entry) => entry.reasoning);
+		if (!native || !model) throw new Error("native reasoning model missing");
+		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
+			anthropic: { discoverModels: false, modelOverrides: { [model.id]: { defaultThinkingLevel: "high" } } },
+		} }));
+		const select = vi.fn<(event: unknown) => void>();
+		const levels: string[] = [];
+		const register = vi.fn((provider: Provider) => runtime.registerNativeProvider(provider));
+		const pi = {
+			registerProvider(provider: Provider) { register(provider); },
+			on(_name: string, handler: (event: unknown) => void) { select.mockImplementation(handler); },
+			setThinkingLevel(level: string) { levels.push(level); },
+		};
+		registerOpenAICompatibleProviders(pi as ExtensionAPI, config, "models.json");
+		expect(register).not.toHaveBeenCalled();
+		expect(runtime.getProvider("anthropic")).toBe(native);
+		select({ model, source: "restore" });
+		expect(levels).toEqual([]);
+		select({ model, source: "set" });
+		expect(levels).toEqual(["high"]);
+	});
 
-		await expect(loadModelsJsoncConfig(configPath)).resolves.toMatchObject({
-			providers: { local: { models: ["model"] } },
+	it("不存在 models.json 时不产生 provider 注册输入", async () => {
+		expect(await loadModelsConfig(path.join(temp.path, "models.json"))).toBeUndefined();
+	});
+
+	it("接受带 UTF-8 BOM 的 models.json", async () => {
+		const configPath = path.join(temp.path, "bom-models.json");
+		await writeFile(configPath, '\uFEFF{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "api": "openai-completions", "discoverModels": true, "models": [{"id":"model"}] } } }');
+
+		await expect(loadModelsConfig(configPath)).resolves.toMatchObject({
+			providers: { local: { models: [{ id: "model" }] } },
 		});
 	});
 
 	it("配置文件读取失败时转换为配置错误", async () => {
-		await expect(loadModelsJsoncConfig(temp.path)).rejects.toThrow();
-	});
-
-	it("最小配置注册为完整原生 provider，并把字符串模型归一化为同名 model id", async () => {
-		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
-			vllm: providerConfig({
-				name: "Local vLLM",
-				baseUrl: "http://127.0.0.1:8000/v1",
-				api: "openai-completions",
-				models: ["Qwen/Qwen3-Coder-480B-A35B-Instruct"],
-			}, "vllm"),
-		} }));
-		const harness = createExtensionHarness();
-		registerOpenAICompatibleProviders(harness.pi, config, path.join(temp.path, "models.jsonc"));
-		const [provider] = harness.providers;
-
-		expect(provider).toMatchObject({
-			id: "vllm",
-			name: "Local vLLM",
-			baseUrl: "http://127.0.0.1:8000/v1",
-		});
-		expect(provider?.getModels()[0]).toMatchObject({
-			id: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-			name: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-			api: "openai-completions",
-		});
+		await expect(loadModelsConfig(temp.path)).rejects.toThrow();
 	});
 
 	it("同名 provider 注册到 Pi 时完全替换内置 provider 模型", async () => {
 		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
 			opencode: providerConfig({
+				discoverModels: true,
 				name: "Private OpenCode",
 				baseUrl: "https://private-opencode.example.com/v1",
-				models: ["private-opencode-model"],
+				models: [{ id: "private-opencode-model" }],
 			}, "opencode"),
 		} }));
 		const runtime = await ModelRuntime.create({
 			credentials: new InMemoryCredentialStore(),
-			modelsPath: null,
+			modelsPath: path.join(temp.path, "models.json"),
 			modelsStore: new InMemoryModelsStore(),
 			allowModelNetwork: false,
 		});
@@ -133,7 +114,7 @@ describe("openai-compatible-provider registration", () => {
 		expect(builtInModelIds.length).toBeGreaterThan(0);
 		expect(builtInModelIds).not.toEqual(["private-opencode-model"]);
 
-		registerOpenAICompatibleProviders(createRegistryPi(registry), config, path.join(temp.path, "models.jsonc"));
+		registerOpenAICompatibleProviders(createRegistryPi(registry), config, path.join(temp.path, "models.json"));
 
 		const models = registry.getAll().filter((model) => model.provider === "opencode");
 		expect(models.map((model) => model.id)).toEqual(["private-opencode-model"]);
@@ -148,15 +129,16 @@ describe("openai-compatible-provider registration", () => {
 	it("ModelRuntime 请求保留已存储密钥和调用方请求头优先级", async () => {
 		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
 			gateway: providerConfig({
+				dropParams: ["store"],
 				headers: { "X-Value": "provider" },
 				models: [{ id: "m", headers: { "X-Value": "model" } }],
 			}),
 		} }));
 		const credentials = new InMemoryCredentialStore();
 		await credentials.modify("gateway", async () => ({ type: "api_key", key: "sk-stored" }));
-		const runtime = await ModelRuntime.create({ credentials, modelsPath: null, modelsStore: new InMemoryModelsStore(), allowModelNetwork: false });
+		const runtime = await ModelRuntime.create({ credentials, modelsPath: path.join(temp.path, "models.json"), modelsStore: new InMemoryModelsStore(), allowModelNetwork: false });
 		const registry = new ModelRegistry(runtime);
-		registerOpenAICompatibleProviders(createRegistryPi(registry), config, "models.jsonc");
+		registerOpenAICompatibleProviders(createRegistryPi(registry), config, "models.json");
 		const model = registry.find("gateway", "m");
 		if (!model) throw new Error("registered model missing");
 		let headers: Headers | undefined;
@@ -171,44 +153,15 @@ describe("openai-compatible-provider registration", () => {
 		expect(headers?.get("X-Value")).toBe("provider");
 	});
 
-	it("模型目录刷新由 ModelRuntime 更新快照且不重复注册 provider", async () => {
-		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
-			local: providerConfig({ baseUrl: "http://127.0.0.1:8000/v1", models: undefined }, "local"),
-		} }));
-		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			new Response('{ "data": [{ "id": "dynamic-model" }] }'),
-		);
-		const runtime = await ModelRuntime.create({
-			credentials: new InMemoryCredentialStore(),
-			modelsPath: null,
-			modelsStore: new InMemoryModelsStore(),
-			allowModelNetwork: false,
-		});
-		const registry = new ModelRegistry(runtime);
-		const registerProvider = vi.spyOn(registry, "registerProvider");
-
-		registerOpenAICompatibleProviders(
-			createRegistryPi(registry),
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		await registry.refresh({ allowNetwork: true, providers: ["local"] });
-
-		expect(registerProvider).toHaveBeenCalledOnce();
-		expect(registerProvider).toHaveBeenCalledWith(expect.objectContaining({ id: "local" }));
-		expect(fetch).toHaveBeenCalledOnce();
-		expect(registry.find("local", "dynamic-model")).toMatchObject({
-			id: "dynamic-model",
-			provider: "local",
-			baseUrl: "http://127.0.0.1:8000/v1",
-		});
-	});
-
-	it("只在用户选择模型时应用 defaultThinkingLevel，不覆盖恢复值或每轮用户选择", async () => {
+	it.each([
+		[{}, "minimal"],
+		[{ m: { name: "Renamed" } }, "minimal"],
+		[{ m: { defaultThinkingLevel: "high" } }, "high"],
+	] as const)("默认思考等级遵循模型覆盖顺序，仅在用户选择模型时应用 %#", async (modelOverrides, expected) => {
 		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
 			gateway: providerConfig({
-				thinkingPreset: "openai",
-				models: [{ id: "m", defaultThinkingLevel: "minimal" }],
+				models: [{ id: "m", reasoning: true, defaultThinkingLevel: "minimal" }],
+				modelOverrides,
 			}),
 		} }));
 		const handlers = new Map<string, (event: unknown) => void>();
@@ -223,16 +176,18 @@ describe("openai-compatible-provider registration", () => {
 				thinkingLevels.push(level);
 			},
 		};
-		registerOpenAICompatibleProviders(pi as ExtensionAPI, config, path.join(temp.path, "models.jsonc"));
+		registerOpenAICompatibleProviders(pi as ExtensionAPI, config, path.join(temp.path, "models.json"));
 
 		expect([...handlers.keys()]).toEqual(["model_select"]);
-		const model = providers[0]?.getModels()[0];
+		expect(providers).toEqual([]);
+		const { provider } = await registerProvider(config, temp.path, "gateway");
+		const model = provider.getModels()[0];
 		const select = handlers.get("model_select");
 		if (!model || !select) throw new Error("model selection was not registered");
 		select({ model, source: "restore" });
 		expect(thinkingLevels).toEqual([]);
 		select({ model, source: "set" });
 
-		expect(thinkingLevels).toEqual(["minimal"]);
+		expect(thinkingLevels).toEqual([expected]);
 	});
 });

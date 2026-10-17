@@ -1,133 +1,28 @@
-# 自动发现和 `ModelsStore`
+# 自动发现
 
-## 配置方式
+只有 `discoverModels: true` 才会请求模型目录。省略 `models` 不再隐式开启联网。静态服务不需要实现 `/models`。
 
-以下配置不包含手写模型，只使用模型目录端点：
+请求地址默认为 `GET <baseUrl>/models`。`modelsEndpoint` 可以是相对路径或完整 URL。目录请求使用 SDK 刷新上下文中的有效 base URL、API key 和取消信号，另有独立的 30 秒超时。
 
-```jsonc
-{
-  "models": "auto"
-}
-```
-
-省略 `models` 时，行为相同。配置模型数组时，扩展先注册手写模型。联网刷新仍会请求模型目录端点，并用远端元数据补充模型目录。
-
-## 端点 URL
-
-默认请求为：
-
-```text
-GET <baseUrl>/models
-```
-
-可以通过相对路径覆盖默认值：
-
-```jsonc
-{
-  "modelsEndpoint": "models"
-}
-```
-
-`modelsEndpoint` 也可以是完整 URL。相对路径以 `baseUrl` 为基准解析。
-
-自动发现使用独立的 30 秒超时。提供方的 `timeoutMs` 控制模型流式请求，不会改变模型目录请求的超时时间。
-
-## 认证和请求头
-
-请求至少包含：
-
-```text
-Accept: application/json
-```
-
-模型目录请求使用 Pi 当前解析出的提供方凭证和 `headers`。如果 `apiKey` 为 `EMPTY`，扩展不会自动发送 `Authorization`。完整规则见[认证和敏感配置](authentication.md)。
-
-请求使用 Node 原生 `AbortSignal.any()` 组合调用方取消信号和 30 秒超时信号，不自行维护计时器或转发中止事件。
-
-## 支持的响应结构
-
-端点必须返回包含 `data` 数组的对象：
-
-```jsonc
-{
-  "data": [
-    {
-      "id": "model-id",
-      "context_length": 131072,
-      "architecture": {
-        "input_modalities": ["text", "image"]
-      }
-    }
-  ]
-}
-```
-
-`data` 中的每个条目必须是对象，并包含非空的 `id`。扩展只读取以下字段：
+响应必须是 `{ "data": [...] }`，数组非空，每个对象必须有非空且唯一的 `id`。扩展仅读取：
 
 - `id`
-- `context_length`
-- `architecture.input_modalities` 中的 `image` 输入能力
+- 有效的 `context_length`
+- `architecture.input_modalities` 中的 `image`
 
-未声明的元数据不会进入模型目录。根数组、`models` 数组、字符串条目、空目录、重复 ID 和缺失 ID 都会导致刷新失败。字段别名不会用于补充元数据。重复 ID 在解析远端响应时拒绝，不会在合并时被静默去重。
+其他模型能力由原生 `models` 或 `modelOverrides` 提供。`model-suffix` 在构建发现目录时折叠已知等级变体。
 
-## 合并手写模型和远端模型
+## 原生生命周期
 
-扩展按以下规则合并模型：
+扩展通过 `createProvider({ fetchModels })` 提供发现结果，不覆盖 `getModels`、`getAllModels` 或 `refreshModels`。
 
-```text
-保留手写模型顺序
-→ 用远端元数据补充手写模型缺少的字段
-→ 保留手写模型已有的字段值
-→ 把远端独有模型追加到末尾
-```
+SDK 负责离线恢复、静态基线和动态目录合并、取消、并发发布及 `ModelsStore` 持久化。刷新或持久化失败时保留已发布目录。`getModels` 与 `getAllModels` 使用同一份状态，聊天入口过滤非聊天模型。
 
-例如：
+缓存只保存发现目录，不混入手写模型覆盖、密钥或解析后的请求头。当前 `models.json` 由 SDK 在目录外层应用：
 
-```jsonc
-{
-  "models": [
-    { "id": "manual", "name": "手写名称" },
-    "manual-only"
-  ]
-}
-```
+- `models` 是完整定义，会添加或替换同名模型。
+- `modelOverrides` 修改已存在的模型，适合补充发现结果，并在离线恢复时继续生效。
 
-如果端点也返回 `manual`，远端数据可以补充上下文窗口和图片输入能力，但不会覆盖手写配置中的字段。远端独有模型的显示名称默认为 `id`，不声明最大输出令牌数。
+旧缓存可能包含过去的配置元数据，迁移后建议联网刷新一次。变更发现端点、目录请求头或扩展选项后执行 `/reload` 或重启。普通请求认证与模型字段仍按 SDK 原生刷新流程更新。
 
-## `ModelsStore`
-
-模型目录由 Pi 原生 `createProvider` 生命周期管理。Pi 按提供方 ID 保存刷新后的模型 overlay，缓存条目包含：
-
-- 合并后的模型元数据
-- `baseUrl` 和 API 类型
-- `checkedAt` 等 Pi 原生刷新状态
-
-缓存不包含 API 密钥、认证请求头或扩展内部标记。缓存恢复使用当前配置中的 `maxTokens`，未配置时不保留旧缓存中的输出上限。其他模型属性仍可能在联网刷新前使用旧的缓存 overlay。
-
-请求的 API、推理能力、等级映射和 `compat` 始终读取当前 `Model`，与实际选用的目录快照保持一致。`thinkingPreset`、默认思考级别、模型请求头和 `dropParams` 等附加行为读取当前配置，不再维护原生模型属性的副本。
-
-## 离线行为
-
-离线刷新或使用 `--offline` 时：
-
-- Pi 先恢复该提供方的 `ModelsStore` 缓存 overlay。
-- 扩展不发送网络请求。
-- 没有缓存时，保留手写 baseline 模型。
-- 网络刷新失败不会清空已有目录。
-
-联网刷新会在缓存恢复后请求模型目录端点。请求成功并发布后，Pi 原生生命周期替换旧 overlay；发布失败或请求失败则保留旧目录。
-
-## 错误处理
-
-以下情况会导致刷新失败：
-
-- HTTP 状态不是 2xx
-- 响应体无法读取
-- 响应体不是有效 JSON
-- 根对象不包含 `data` 数组
-- `data` 条目不是对象、缺少非空 `id` 或包含重复 ID
-- 端点未返回任何模型
-
-所有刷新错误都会指出提供方。模型目录端点返回非 2xx 状态时，错误还会包含 HTTP 状态，并最多截取响应正文的前 500 个字符。扩展不会把请求中的认证请求头写入错误。
-
-一次刷新失败不会立即删除手写模型或已恢复的缓存模型。需要清除目录时，按 Pi 的 `ModelsStore` 管理方式删除对应提供方缓存，然后再次刷新。
+目录认证限制见 [认证和请求头](authentication.md#目录请求)。

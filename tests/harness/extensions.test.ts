@@ -181,9 +181,8 @@ describe("通过原生 SDK 复用 harness 业务扩展", () => {
 		canvas.getContext("2d").fillRect(0, 0, 2400, 1200);
 		const bytes = canvas.toBuffer("image/png");
 		await writeFile(path.join(cwd, "input.txt"), bytes);
-		await writeFile(path.join(agentDir, "models.json"), "{}");
-		await writeFile(path.join(agentDir, "models.jsonc"), JSON.stringify({ providers: {
-			"sdk-fixture": { baseUrl: server.url, apiKey: "fixture", models: [
+		await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: {
+			"sdk-fixture": { baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [
 				{ id: "test", input: ["text", "image"], inputLimits: { images: { resize: { maxWidth: 2300, maxHeight: 2300 } } } },
 				{ id: "small", input: ["text", "image"], inputLimits: { images: { resize: { maxWidth: 64, maxHeight: 64 } } } },
 			] },

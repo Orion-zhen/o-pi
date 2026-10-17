@@ -1,158 +1,51 @@
-# 提供方和模型配置模式
+# 配置字段
 
-## 提供方
+配置文件为 `~/.pi/agent/models.json`。原生字段由 SDK 处理，自定义字段与原生字段平铺。
 
-以下示例列出所有提供方字段：
+## 原生 provider 和模型字段
 
-```jsonc
-{
-  "providers": {
-    "provider-id": {
-      "name": "显示名称",
-      "baseUrl": "https://example.com/v1",
-      "apiKey": "$API_KEY",
-      "api": "openai-completions",
-      "headers": {},
-      "compat": {},
-      "models": "auto",
-      "thinkingPreset": "none",
-      "modelsEndpoint": "models",
-      "timeoutMs": 600000,
-      "maxRetries": 0,
-      "dropParams": [],
-      "extraBody": {}
-    }
-  }
-}
-```
+使用 SDK 的 `name`、`baseUrl`、`apiKey`、`headers`、`api`、`compat`、`models` 和 `modelOverrides`。`models` 是对象数组，不接受字符串数组或 `"auto"`。
 
-| 字段 | 默认值 | 说明 |
-| --- | --- | --- |
-| `name` | 提供方 ID | `/model` 和 `/login` 中显示的名称 |
-| `baseUrl` | 必填 | 提供方的 API 端点 |
-| `apiKey` | `$PI_MODELS_JSONC_<PROVIDER_ID>_API_KEY` | API 密钥配置值。`EMPTY` 表示默认不认证 |
-| `api` | `openai-completions` | `openai-completions` 或 `openai-responses` |
-| `headers` | `{}` | 模型请求和模型目录请求使用的提供方请求头 |
-| `compat` | 保守默认值 | 传给 Pi 传输层的兼容选项 |
-| `models` | `"auto"` | `"auto"`，或由非空字符串和模型对象组成的非空数组 |
-| `thinkingPreset` | `none` | 提供方默认的思考编码方式。`model-suffix` 使用模型 ID 后缀 |
-| `modelsEndpoint` | `models` | 相对于 `baseUrl` 的路径或完整 URL |
-| `timeoutMs` | Pi 默认值 | 模型流式请求的超时时间，单位为毫秒 |
-| `maxRetries` | 未设置 | 模型请求的重试次数。未设置时由 Pi 处理 |
-| `dropParams` | `[]` | 从最终请求体中删除的非核心字段 |
-| `extraBody` | `{}` | 为该提供方的所有模型添加的非核心字段，主要用于自动发现的模型 |
+模型使用原生 `id`、`name`、`api`、`baseUrl`、`reasoning`、`thinkingLevelMap`、`input`、`inputLimits`、`cost`、`promptCache`、`contextWindow`、`maxTokens`、`samplingParams`、`samplingParamsByThinkingLevel`、`headers` 和 `compat`。
 
-使用自动发现时，模型目录端点必须返回 `{ "data": [...] }`。每个条目必须是包含非空且不重复 `id` 的对象。扩展只读取 `context_length` 和 `architecture.input_modalities`，其他远端字段不会进入模型配置。
+静态定义未指定上限时使用 SDK 默认值：`contextWindow=128000`、`maxTokens=16384`。扩展为发现模型采用相同默认值。没有元数据依据时，发现模型默认不支持推理，输入为文本，价格为零。
 
-## 模型
+### inputLimits
 
-模型可以写成字符串：
+由 SDK 校验和应用，包括 `maxRequestBytes`、`images.maxPerMessage`、`images.maxPerRequest` 和 `images.resize`。
 
-```jsonc
-"models": ["model-id"]
-```
+图片在进入历史时由 SDK 统一处理，切换模型不会改写已有图片。省略 resize 字段时使用 SDK 默认值。配置校验和图片处理失败遵循 SDK，不由 provider 扩展补偿。
 
-也可以写成对象：
+### 原生覆盖顺序
 
-```jsonc
-{
-  "id": "model-id",
-  "name": "显示名称",
-  "api": "openai-completions",
-  "baseUrl": "https://model.example.com/v1",
-  "reasoning": true,
-  "thinkingLevelMap": { "off": "none", "xhigh": "max" },
-  "input": ["text", "image"],
-  "cost": {
-    "input": 0,
-    "output": 0,
-    "cacheRead": 0,
-    "cacheWrite": 0
-  },
-  "contextWindow": 128000,
-  "maxTokens": 16384,
-  "headers": {},
-  "compat": {},
-  "thinkingPreset": "openai",
-  "defaultThinkingLevel": "high",
-  "samplingParams": { "temperature": 0.2, "top_p": 0.95 },
-  "dropParams": []
-}
-```
+`models` 添加或替换同名模型。`modelOverrides` 在 SDK 组合完成后应用，未知 ID 被忽略。发现模型应通过 `modelOverrides` 修改元数据，避免完整静态定义覆盖发现的能力和等级映射。
 
-| 字段 | 默认值 | 说明 |
-| --- | --- | --- |
-| `id` | 必填 | Pi 模型 ID，也是发送给上游的模型 ID |
-| `name` | `id` | 模型显示名称 |
-| `api` | 提供方的 `api` | 为该模型选择 Completions 或 Responses |
-| `baseUrl` | 提供方的 `baseUrl` | 该模型使用的 API 端点 |
-| `reasoning` | 自动推导 | 模型是否支持推理和思考级别 |
-| `thinkingLevelMap` | 未设置 | Pi 思考级别到上游值的映射。值为 `null` 时隐藏对应级别。`model-suffix` 用它声明等级可用性，但始终使用 Pi 等级名作为模型后缀 |
-| `input` | `["text"]` | 输入类型列表，可包含 `text` 和 `image` |
-| `inputLimits` | 未设置 | Pi 原生请求限制及图片缩放配置，见下文 |
-| `cost` | 各项为 `0` | 每百万个令牌的成本。可以包含 `tiers` |
-| `promptCache` | 未设置 | 已知缓存寿命，单位为秒。可选 `short`、`long`，值必须大于零。用于 Pi 原生缓存保温 |
-| `contextWindow` | `128000` | 上下文窗口大小 |
-| `maxTokens` | 未设置 | 最大输出令牌数。未配置且请求未指定时，不发送输出上限，由上游决定 |
-| `headers` | `{}` | 发送模型请求前解析的模型请求头 |
-| `compat` | 提供方的兼容选项 | 模型的兼容选项，按顶层字段覆盖提供方配置。对象字段整体覆盖 |
-| `thinkingPreset` | 提供方的预设 | 模型的思考编码方式 |
-| `defaultThinkingLevel` | 未设置 | 模型选择事件触发时设置的默认思考级别。恢复会话时除外 |
-| `samplingParams` | `{}` | Pi 模型的采样参数，使用上游请求体字段名 |
-| `dropParams` | `[]` | 追加到提供方 `dropParams` 的字段列表 |
+`samplingParamsByThinkingLevel` 使用 Pi 等级名。SDK 先限制思考等级，再依次合并模型采样参数、有效等级采样参数和单次请求采样参数。
 
-## `inputLimits`
+## provider 扩展字段
 
-图片缩放使用模型级配置：
+| 字段 | 行为 |
+| --- | --- |
+| `discoverModels` | `true` 时启用模型发现，默认不发现 |
+| `modelsEndpoint` | 模型目录相对路径或绝对 URL，默认 `models`，要求启用发现 |
+| `thinkingPreset` | Responses 非标准思考编码，或两种 API 的 `model-suffix` |
+| `timeoutMs` | 流式请求默认超时，单次请求可覆盖 |
+| `maxRetries` | 流式请求默认重试次数，非负整数，单次请求可覆盖 |
+| `extraBody` | 请求体附加字段，不能覆盖核心字段 |
+| `dropParams` | 删除请求体字段，不能删除核心字段 |
 
-```jsonc
-"inputLimits": {
-  "images": {
-    "resize": {
-      "maxWidth": 1568,
-      "maxHeight": 1568,
-      "maxBytes": 524288,
-      "jpegQuality": 75
-    }
-  }
-}
-```
+启用发现或请求改写的 provider 必须声明 `baseUrl` 和 OpenAI API 类型。仅设置 `defaultThinkingLevel` 或 `discoverModels: false` 不注册 provider，也不受这一约束。
 
-尺寸和字节上限必须为正整数，`jpegQuality` 为 1–100 的整数。`maxBytes` 限制 base64 编码后的大小。未设置的字段使用 Pi 默认值。
+## 模型扩展字段
 
-SDK 在图片附件和工具结果进入历史前应用当前模型的配置。`images.autoResize: false` 关闭缩放，切换模型不改写历史图片。工具保留格式转换失败、文件大小和 PDF 渲染资源限制，不再自行应用默认缩放策略。SDK 对工具结果图片的处理失败时保留原图，不保证所有图片都满足目标上限。
+以下字段可直接写在 `models` 条目或 `modelOverrides.<id>` 中：
 
-`maxRequestBytes`、`images.maxPerMessage` 和 `images.maxPerRequest` 接受正整数，当前仅作为 Pi 的模型元数据，不据此拒绝请求或裁剪历史。
+| 字段 | 行为 |
+| --- | --- |
+| `thinkingPreset` | 覆盖 provider 预设 |
+| `defaultThinkingLevel` | 选择模型时应用，恢复会话时不应用，不替换 provider |
+| `dropParams` | 在 provider 列表之后删除请求体字段 |
 
-离线恢复模型目录时使用当前配置中的 `inputLimits`，不会恢复已经删除或覆盖的旧缩放配置。
+模型级扩展选项按 provider 默认值、`models` 条目、`modelOverrides` 解析。`reasoning` 必须显式声明，`defaultThinkingLevel` 和 `thinkingLevelMap` 不再隐式启用推理。
 
-## `cost.tiers`
-
-当总输入令牌数超过指定阈值时，`cost.tiers` 可以为整次请求应用另一组费率：
-
-```jsonc
-{
-  "input": 1,
-  "output": 2,
-  "cacheRead": 0.1,
-  "cacheWrite": 0.2,
-  "tiers": [
-    {
-      "inputTokensAbove": 100000,
-      "input": 2,
-      "output": 4,
-      "cacheRead": 0.2,
-      "cacheWrite": 0.4
-    }
-  ]
-}
-```
-
-基础费率和每个阶梯必须包含 `input`、`output`、`cacheRead` 和 `cacheWrite`。如果多个阶梯匹配，Pi 使用阈值最高的阶梯。
-
-## 相关文档
-
-- `compat` 的 Pi 类型和向前兼容策略见[Pi 兼容选项](compatibility.md)。
-- 思考字段见[思考预设](thinking.md)。
-- `samplingParams`、`dropParams` 和 `extraBody` 见[请求体处理](payload.md)。
-- 完整配置见[配置示例](examples.md)。
+完整预设和请求体顺序见 [思考编码](thinking.md) 和 [请求体处理](payload.md)。

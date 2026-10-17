@@ -1,118 +1,56 @@
-# 思考预设
+# 思考编码
 
-`thinkingPreset` 将 Pi 思考级别转换为上游服务使用的请求字段或模型 ID。该字段可以配置在提供方或模型上，模型配置优先。
+未配置 `thinkingPreset` 时保留 SDK 原生请求。静态模型需显式声明 `reasoning: true`，可通过原生 `thinkingLevelMap` 配置等级可用性和上游值。
 
-## 支持的预设
+## Chat Completions
 
-| 预设 | 开启思考时的主要字段 | 关闭思考时的主要字段 |
-| --- | --- | --- |
-| `none` | 不添加控制字段 | 不添加控制字段 |
-| `model-suffix` | 把请求的模型 ID 改为对应等级的后缀变体 | 使用 `:off` 变体。没有 `:off` 时使用裸模型 ID |
-| `openai` | `reasoning_effort`，或 Responses API 的 `reasoning.effort` | 由 Pi 自身行为决定 |
-| `openrouter` | `reasoning: { effort }` | `reasoning: { effort: "none" }` |
-| `deepseek` | `thinking: { type: "enabled" }` | 默认发送 `thinking: { type: "disabled" }`。`off` 映射为 `null` 时省略 |
-| `together` | `reasoning: { enabled: true }` | `reasoning: { enabled: false }` |
-| `zai` | `thinking: { type: "enabled", clear_thinking: false }` | `thinking: { type: "disabled" }` |
-| `qwen` | `enable_thinking: true` | `enable_thinking: false` |
-| `qwen-chat-template` | `chat_template_kwargs.enable_thinking: true`，并设置 `preserve_thinking` | `chat_template_kwargs.enable_thinking: false`，并设置 `preserve_thinking` |
-| `chat-template-enabled` | `chat_template_kwargs.enable_thinking: true` | `chat_template_kwargs.enable_thinking: false` |
-| `chat-template-effort` | `chat_template_kwargs.reasoning_effort` | 默认发送 `none`。映射为 `null` 时省略 |
-| `string-thinking` | `thinking: "<level>"` | `thinking: "none"` |
-| `ant-ling` | 显式映射后发送 `reasoning: { effort }` | 不发送控制字段 |
+普通思考格式直接配置 `compat.thinkingFormat`，例如 `openai`、`deepseek`、`qwen` 或 `chat-template`。需要模板参数时配置 `compat.chatTemplateKwargs`。扩展不再把普通 `thinkingPreset` 翻译成 completions compat。
 
-预设只定义请求体编码方式，不保证上游服务支持对应字段。必要时还需配置 `compat`。
+## Responses 非标准字段
 
-## 模型后缀变体
+provider 或模型可以配置 `thinkingPreset`：
 
-`model-suffix` 适用于 llama-swap 等通过模型 ID 选择思考等级的服务。该预设必须显式配置，扩展不会折叠其他提供方的冒号模型 ID。
+| 预设 | 请求编码 |
+| --- | --- |
+| `openai` | 保留 SDK 原生 reasoning |
+| `none` | 移除思考相关字段 |
+| `openrouter` | `reasoning.effort` |
+| `deepseek` | `thinking.type` |
+| `together` | `reasoning.enabled` |
+| `zai` | `thinking.type`，启用时 `clear_thinking: false` |
+| `qwen` | `enable_thinking` |
+| `qwen-chat-template` | `chat_template_kwargs.enable_thinking` 和 `preserve_thinking` |
+| `chat-template-enabled` | `chat_template_kwargs.enable_thinking` |
+| `chat-template-effort` | `chat_template_kwargs.reasoning_effort` |
+| `string-thinking` | 字符串 `thinking` |
+| `ant-ling` | 启用且显式映射时设置 `reasoning.effort` |
 
-例如，模型目录同时包含以下 ID：
+非标准转换只对 Responses 推理模型生效。启用前清理 SDK 原生思考字段和 `reasoning.encrypted_content`。effort 使用当前模型的 `thinkingLevelMap`。DeepSeek、Together 和 Z.ai 只有显式 `compat.supportsReasoningEffort: true` 时才附带 `reasoning_effort`。
 
-```text
-deepseek-v4-flash
-deepseek-v4-flash:off
-deepseek-v4-flash:high
-deepseek-v4-flash:max
-```
+## model-suffix
 
-扩展只向 Pi 发布 `deepseek-v4-flash`，并推导出 `off`、`high` 和 `max` 三个可用级别。请求使用对应的完整上游模型 ID。只有同时存在裸模型 ID 时，扩展才折叠最后一个冒号后的合法 Pi 思考级别。单独存在的 `model:high` 仍作为普通模型发布。
+`thinkingPreset: "model-suffix"` 对两种 API 都有效。
 
-没有 `:off` 变体时，`off` 使用裸模型 ID。其他缺失级别在 Pi 中不可用。手写模型可以用 `thinkingLevelMap` 提前声明等级可用性，但映射值不会重命名模型后缀。实际上游后缀始终使用 Pi 等级名。`model-suffix` 会移除 Pi 传输层生成的其他思考字段，避免模型变体与请求字段重复控制思考等级。
+自动发现中，基础模型与 `:off`、`:minimal`、`:low`、`:medium`、`:high`、`:xhigh`、`:max` 变体同时存在时，扩展折叠这些变体并生成 `thinkingLevelMap`。未知后缀或没有基础模型的 ID 保持原样。
 
-## 推导模型的推理能力
+请求使用当前 Pi 等级名生成 `model-id:<level>`，不使用映射值作为后缀。没有 `:off` 变体时关闭思考使用基础模型。显式映射为 `null` 的等级不追加后缀。
 
-模型省略 `reasoning` 时，扩展按以下规则推导：
+自动发现模型的调整应放在 `modelOverrides`。静态配置请仅定义基础模型，并显式填写 `reasoning` 和 `thinkingLevelMap`，不要将路由变体作为原生 `models` 条目重复注册。原生 `models` 会重新加入显式条目并替换同名发现数据。
 
-- 配置了 `defaultThinkingLevel` 或 `thinkingLevelMap` 时，推导为 `true`。
-- 两个字段都没有配置时，推导为 `false`。
-
-`reasoning: false` 不能与这两个字段同时使用。例如，扩展会拒绝以下配置：
-
-```jsonc
+```json
 {
-  "reasoning": false,
-  "defaultThinkingLevel": "high"
-}
-```
-
-## 默认级别和级别映射
-
-```jsonc
-{
-  "id": "reasoning-model",
-  "reasoning": true,
-  "thinkingPreset": "openrouter",
-  "defaultThinkingLevel": "xhigh",
-  "thinkingLevelMap": {
-    "off": "none",
-    "minimal": null,
-    "xhigh": "max"
-  }
-}
-```
-
-规则如下：
-
-- `defaultThinkingLevel` 会在模型选择事件触发时设置。
-- 恢复会话触发的模型选择事件不会覆盖已恢复的思考级别。
-- `thinkingLevelMap` 的键必须是 Pi 支持的思考级别。
-- 映射值为 `null` 时，Pi 隐藏对应级别。
-- `xhigh` 和 `max` 只有在 `thinkingLevelMap` 中显式配置映射后才可用。
-- `defaultThinkingLevel` 必须是当前映射支持的级别。
-
-## Responses API
-
-对于 `openai-responses`，扩展按以下规则处理：
-
-- `openai` 预设保留 Pi 生成的 Responses 思考字段。
-- 其他预设会先删除已有的思考字段，再按预设重新编码。
-- 重新编码时，扩展会从 `include` 中删除 `reasoning.encrypted_content`。
-- `thinkingLevelMap` 的映射值优先于 Pi 的原始级别值。
-- 当 `supportsReasoningEffort` 为 `true` 时，`deepseek`、`together` 和 `zai` 还会在启用思考时发送 `reasoning_effort`。
-
-## Responses 配置示例
-
-```jsonc
-{
-  "providers": {
-    "gateway": {
-      "baseUrl": "https://example.com/v1",
-      "api": "openai-responses",
-      "thinkingPreset": "chat-template-effort",
-      "models": [
-        {
-          "id": "model-id",
-          "reasoning": true,
-          "defaultThinkingLevel": "xhigh",
-          "thinkingLevelMap": {
-            "off": "disabled",
-            "xhigh": "max"
-          }
-        }
-      ]
+  "thinkingPreset": "model-suffix",
+  "models": [{
+    "id": "local-model",
+    "reasoning": true,
+    "thinkingLevelMap": {
+      "off": "off", "minimal": null, "low": null, "medium": null,
+      "high": "high", "xhigh": null, "max": "max"
     }
-  }
+  }]
 }
 ```
 
-完整的 `compat` 合并规则见[Pi 兼容选项](compatibility.md)。
+`streamSimple` 使用 SDK 限制后的有效思考等级，低层 `stream` 使用调用方的合法等级。模型后缀路由在附加参数和删除参数之后运行，并最终清理思考字段。
+
+`defaultThinkingLevel` 只在模型选择事件中应用，恢复会话不覆盖已恢复等级。它不改变模型的推理能力。

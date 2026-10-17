@@ -1,551 +1,168 @@
-import { normalizeContext, createModels, InMemoryCredentialStore, type ModelsStoreEntry, type Provider, type RefreshModelsContext } from "@earendil-works/pi-ai";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
-
-import { loadConfigFromText, providerConfigText, registerProvider } from "./fixtures.ts";
+import { capturePayload, loadProvider } from "./fixtures.ts";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
 
 const temp = useOpenAICompatibleProviderTestSetup();
 
 describe("openai-compatible-provider model discovery", () => {
-	it("createProvider 原生生命周期恢复缓存、联网覆盖目录并保留旧快照", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "http://127.0.0.1:8000/v1",
-			apiKey: "sk-test",
-			models: [{ id: "manual", name: "Manual", promptCache: { short: 300 }, inputLimits: { images: { resize: { maxWidth: 2400 } } } }],
-		}, "local"));
+	it("ModelRuntime 发现模型、应用配置、离线恢复缓存，刷新失败时保留目录", async () => {
+		vi.stubEnv("KEY", "sk-test");
+		vi.stubEnv("TOKEN", "header-token");
+		const modelsStore = new InMemoryModelsStore();
+		const settings = {
+			discoverModels: true, modelsEndpoint: "catalog", models: undefined,
+			apiKey: "$KEY", headers: { "X-Token": "$TOKEN" },
+			modelOverrides: { vision: { name: "Vision", maxTokens: 8192 } },
+		};
 		const fetch = vi.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(jsonResponse({
-				data: [
-					{
-						id: "manual",
-						context_length: 200000,
-						architecture: { input_modalities: ["text", "image"] },
-					},
-					{ id: "dynamic" },
-				],
-			}))
-			.mockRejectedValueOnce(new Error("offline"))
-			.mockResolvedValueOnce(jsonResponse({ data: [{ id: "replacement" }] }));
-		const stores = new Map<string, ModelsStoreEntry>();
-		const publish = createMapPublisher(stores, "local");
-		const { provider: first, harness: firstHarness } = registerProvider(config, temp.path);
-		await refreshProvider(first, { publish, allowNetwork: true });
-		expect(first.getModels()).toMatchObject([
-			{
-				id: "manual",
-				name: "Manual",
-				contextWindow: 200000,
-				input: ["text", "image"],
-			},
-			{ id: "dynamic", name: "dynamic" },
-		]);
-		expect(first.getModels()[0]?.promptCache).toEqual({ short: 300 });
-		expect(first.getModels()[0]?.inputLimits).toEqual({ images: { resize: { maxWidth: 2400 } } });
-		expect(firstHarness.providers).toEqual([first]);
-
-		const stored = stores.get("local");
-		if (!stored) throw new Error("merged models were not stored");
-		expect(stored.models.every((model) => model.headers === undefined)).toBe(true);
-		expect(stored.models.map((model) => model.id)).toEqual(["manual", "dynamic"]);
-
-		const { provider: second, harness: secondHarness } = registerProvider(config, temp.path);
-		await refreshProvider(second, { stored, publish, allowNetwork: false });
-		expect(second.getModels()).toMatchObject([
-			{
-				id: "manual",
-				name: "Manual",
-				baseUrl: "http://127.0.0.1:8000/v1",
-				contextWindow: 200000,
-				input: ["text", "image"],
-			},
-			{ id: "dynamic", name: "dynamic", baseUrl: "http://127.0.0.1:8000/v1" },
-		]);
-		expect(second.getModels()[0]?.promptCache).toEqual({ short: 300 });
-		expect(second.getModels()[0]?.inputLimits).toEqual({ images: { resize: { maxWidth: 2400 } } });
-		expect(secondHarness.providers).toEqual([second]);
-		expect(fetch).toHaveBeenCalledOnce();
-
-		await expect(refreshProvider(second, { publish, allowNetwork: true })).rejects.toThrow();
-		expect(second.getModels().map((model) => model.id)).toEqual(["manual", "dynamic"]);
-
-		await expect(refreshProvider(second, {
-			allowNetwork: true,
-			publish: async () => { throw new Error("store failed"); },
-		})).rejects.toThrow();
-		expect(second.getModels().map((model) => model.id)).toEqual(["manual", "dynamic"]);
-
-		const changedConfig = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "http://127.0.0.1:8000/v1",
-			apiKey: "sk-test",
-			models: [{ id: "manual", name: "Changed Manual", promptCache: { short: 120 }, inputLimits: { images: { resize: { maxHeight: 100 } } } }],
-		}, "local"));
-		const { provider: third } = registerProvider(changedConfig, temp.path);
-		await refreshProvider(third, { stored, publish, allowNetwork: false });
-		expect(third.getModels().map((model) => [model.id, model.name, model.contextWindow])).toEqual([
-			["manual", "Changed Manual", 200000],
-			["dynamic", "dynamic", 128000],
-		]);
-		expect(third.getModels()[0]?.promptCache).toEqual({ short: 120 });
-		expect(third.getModels()[0]?.inputLimits).toEqual({ images: { resize: { maxHeight: 100 } } });
-		const withoutLifetime = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "http://127.0.0.1:8000/v1", apiKey: "sk-test", models: ["manual"],
-		}, "local"));
-		const { provider: fourth } = registerProvider(withoutLifetime, temp.path);
-		await refreshProvider(fourth, { stored, publish, allowNetwork: false });
-		expect(fourth.getModels()[0]).not.toHaveProperty("promptCache");
-		expect(fourth.getModels()[0]).not.toHaveProperty("inputLimits");
-		expect(fetch).toHaveBeenCalledTimes(3);
-	});
-
-	it("聊天 Provider 恢复混合目录时忽略同名图片和分类模型", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({ models: ["chat"] }, "local"));
-		const { provider } = registerProvider(config, temp.path);
-		const chat = provider.getModels()[0];
-		if (!chat) throw new Error("chat model missing");
-		await refreshProvider(provider, {
-			allowNetwork: false,
-			stored: { checkedAt: 1, models: [
-				{ ...chat, contextWindow: 64000 },
-				{ ...chat, type: "image", output: ["image"], api: "openrouter-image" },
-				{ ...chat, type: "classifier", api: "typesafe-classifier" },
-			] },
-		});
-		expect(provider.getModels()).toHaveLength(1);
-		expect(provider.getModels()[0]).toMatchObject({ id: "chat", contextWindow: 64000 });
-	});
-
-	it("models: auto 使用当前 data 响应发现模型及其上下文窗口和图片输入能力", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			name: "Gateway",
-			baseUrl: "https://gateway.example.com/v1",
-			apiKey: "sk-test",
-			models: "auto",
-		}));
-		const calls: Array<{ url: string; headers: Record<string, string> }> = [];
-		const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-			calls.push({ url: String(input), headers: Object.fromEntries(new Headers(init?.headers)) });
-			return jsonResponse(CURRENT_MODELS_RESPONSE);
-		});
-		const { provider: provider } = registerProvider(config, temp.path);
-		await refreshProvider(provider, { allowNetwork: true });
-
-		expect(calls).toEqual([
-			{
-				url: "https://gateway.example.com/v1/models",
-				headers: { accept: "application/json", authorization: "Bearer sk-test" },
-			},
-		]);
-		expect(provider.getModels()).toMatchObject([
-			{
-				id: "vision-model",
-				name: "vision-model",
-				contextWindow: 200000,
-				maxTokens: 0,
-				input: ["text", "image"],
-			},
-			{
-				id: "text-model",
-				name: "text-model",
-				contextWindow: 128000,
-				input: ["text"],
-			},
-		]);
-		expect(fetch).toHaveBeenCalledOnce();
-	});
-
-	it("model-suffix 折叠自动发现的变体，并在缓存恢复后按 thinking level 路由请求", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "http://127.0.0.1:8000/v1",
-			apiKey: "sk-test",
-			models: "auto",
-			thinkingPreset: "model-suffix",
-		}, "llama-swap"));
-		let requestBody: unknown;
-		const fetch = vi.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(jsonResponse({
-				data: [
-					{ id: "deepseek-v4-flash", context_length: 200000 },
-					{ id: "deepseek-v4-flash:off" },
-					{ id: "deepseek-v4-flash:high" },
-					{ id: "deepseek-v4-flash:max" },
-				],
-			}))
-			.mockImplementation(async (_input, init) => {
-				requestBody = JSON.parse(String(init?.body));
-				return new Response('{"error":"stop"}', { status: 400 });
-			});
-		const stores = new Map<string, ModelsStoreEntry>();
-		const publish = createMapPublisher(stores, "llama-swap");
-		const { provider: first } = registerProvider(config, temp.path);
-		await refreshProvider(first, { publish, allowNetwork: true });
-
-		expect(first.getModels()).toMatchObject([{
-			id: "deepseek-v4-flash",
-			reasoning: true,
-			contextWindow: 200000,
-			thinkingLevelMap: {
-				off: "off",
-				high: "high",
-				max: "max",
-			},
-		}]);
-		const stored = stores.get("llama-swap");
-		if (!stored) throw new Error("model-suffix catalog was not stored");
-		expect(stored.models.map((model) => model.id)).toEqual(["deepseek-v4-flash"]);
-
-		const renamedConfig = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "http://127.0.0.1:8000/v1",
-			apiKey: "sk-test",
-			models: [{ id: "deepseek-v4-flash", name: "DeepSeek Flash" }],
-			thinkingPreset: "model-suffix",
-		}, "llama-swap"));
-		const { provider: restored } = registerProvider(renamedConfig, temp.path);
-		await refreshProvider(restored, { stored, allowNetwork: false });
-		const model = restored.getModels()[0];
-		if (!model) throw new Error("restored model-suffix model missing");
-		expect(restored.getModels()).toHaveLength(1);
-		expect(model).toMatchObject({
-			name: "DeepSeek Flash",
-			contextWindow: 200000,
-			reasoning: true,
-			thinkingLevelMap: { off: "off", high: "high", max: "max" },
-		});
-		expect(stored.models[0]?.name).toBe("deepseek-v4-flash");
-		for await (const _event of restored.stream(model, normalizeContext({
-			messages: [{ role: "user", content: "test", timestamp: Date.now() }],
-		}), {
-			apiKey: "sk-test",
-			reasoningEffort: "max",
-		})) {
-		}
-
-		expect(requestBody).toMatchObject({ model: "deepseek-v4-flash:max" });
-		expect(requestBody).not.toHaveProperty("reasoning_effort");
-		expect(fetch).toHaveBeenCalledTimes(2);
-	});
-
-	it("缓存覆盖后的当前 Model 决定 API、推理能力和等级映射", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			api: "openai-completions",
-			thinkingPreset: "deepseek",
-			models: [{ id: "m", compat: { supportsReasoningEffort: false } }],
-		}));
-		const { provider } = registerProvider(config, temp.path);
-		const baseline = provider.getModels()[0];
-		if (!baseline) throw new Error("baseline model missing");
-		await refreshProvider(provider, {
-			allowNetwork: false,
-			stored: { checkedAt: Date.now(), models: [{
-				...baseline,
-				api: "openai-responses",
-				reasoning: true,
-				thinkingLevelMap: { high: "max" },
-				compat: { supportsReasoningEffort: true },
-			}] },
-		});
-		const restored = provider.getModels()[0];
-		if (!restored) throw new Error("restored model missing");
-		let payload: unknown;
-		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-			payload = JSON.parse(String(init?.body));
-			return new Response('{"error":"stop"}', { status: 400 });
-		});
-		for await (const _event of provider.stream(restored, normalizeContext({
-			messages: [{ role: "user", content: "test", timestamp: 0 }],
-		}), { apiKey: "sk-test", reasoningEffort: "high" })) {}
-		expect(payload).toMatchObject({ thinking: { type: "enabled" }, reasoning_effort: "max" });
-		expect(payload).not.toHaveProperty("reasoning");
-	});
-
-	it("手写 models 覆盖显式字段并由 models endpoint 补齐缺失元数据", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "https://gateway.example.com/v1",
-			apiKey: "sk-test",
-			models: [
-				{ id: "manual-model", name: "Manual Model", contextWindow: 1000, maxTokens: 100 },
-				"manual-string",
-			],
-		}));
-		const calls: string[] = [];
-		vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-			calls.push(String(input));
-			return jsonResponse({
-				data: [
-					{
-						id: "manual-model",
-						context_length: 200000,
-						architecture: { input_modalities: ["text", "image"] },
-					},
-					{ id: "manual-string", context_length: 200000 },
-					{ id: "endpoint-only", context_length: 300000 },
-				],
-			});
-		});
-		const { provider: provider } = registerProvider(config, temp.path);
-		await refreshProvider(provider, { allowNetwork: true });
-		const models = provider.getModels();
-
-		expect(calls).toEqual(["https://gateway.example.com/v1/models"]);
-		expect(models.map((model) => model.id)).toEqual(["manual-model", "manual-string", "endpoint-only"]);
-		expect(models[0]).toMatchObject({
-			id: "manual-model",
-			name: "Manual Model",
-			contextWindow: 1000,
-			maxTokens: 100,
-			input: ["text", "image"],
-		});
-		expect(models[1]).toMatchObject({
-			id: "manual-string",
-			name: "manual-string",
-			contextWindow: 200000,
-		});
-		expect(models[2]).toMatchObject({
-			id: "endpoint-only",
-			name: "endpoint-only",
-			contextWindow: 300000,
-		});
-	});
-
-	it.each([
-		[[]],
-		[{ models: [{ id: "m" }] }],
-		[{ data: ["m"] }],
-		[{ data: [{ model: "m" }] }],
-		[{ data: [{ id: "   " }] }],
-		[{ data: [] }],
-	] as const)("拒绝不支持的模型目录响应 %#", async (payload) => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({ models: "auto" }));
-		vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(payload));
-		const { provider: provider } = registerProvider(config, temp.path);
-
-		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow();
-	});
-
-	it("重复的 endpoint 模型 ID 在合并手写模型前被拒绝", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({ models: [{ id: "duplicate", name: "Manual" }] }));
-		vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
-			data: [{ id: "duplicate", context_length: 1000 }, { id: "duplicate", context_length: 2000 }],
-		}));
-		const { provider: provider } = registerProvider(config, temp.path);
-
-		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow();
-	});
-
-	it("忽略模型目录中未声明的元数据别名", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({ models: "auto" }));
-		vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
-			data: [{
-				id: "strict-model",
-				name: "Remote Name",
-				display_name: "Display Name",
-				context_window: 999,
-				max_completion_tokens: 999,
-				input_modalities: ["image"],
-				architecture: { input_modalities: ["text", "vision"] },
-			}],
-		}));
-		const { provider: provider } = registerProvider(config, temp.path);
-		await refreshProvider(provider, { allowNetwork: true });
-
-		expect(provider.getModels()[0]).toMatchObject({
-			id: "strict-model",
-			name: "strict-model",
-			contextWindow: 128000,
-			maxTokens: 0,
-			input: ["text"],
-		});
-	});
-
-	it.each([
-		["EMPTY", { "X-Token": "$TOKEN" }, { accept: "application/json", "x-token": "header-token" }],
-		["$KEY", { "X-Token": "$TOKEN" }, { accept: "application/json", authorization: "Bearer sk-env", "x-token": "header-token" }],
-	] as const)("Pi 原生刷新解析 %s 和提供方请求头", async (apiKey, configuredHeaders, expectedHeaders) => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "http://127.0.0.1:8000/v1",
-			apiKey,
-			headers: configuredHeaders,
-			models: "auto",
-		}, "local"));
-		let headers: Record<string, string> | undefined;
-		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-			headers = Object.fromEntries(new Headers(init?.headers));
-			return jsonResponse({ data: [{ id: "local-model" }] });
-		});
-		const { provider: provider } = registerProvider(config, temp.path);
-		const models = createModels({ authContext: {
-			env: async (name) => ({ KEY: "sk-env", TOKEN: "header-token" })[name],
-			fileExists: async () => false,
-		} });
-		models.setProvider(provider);
-		const result = await models.refresh({ allowNetwork: true });
-
-		expect(result.errors.size).toBe(0);
-		expect(headers).toEqual(expectedHeaders);
-		expect(provider.getModels()[0]?.id).toBe("local-model");
-	});
-
-	it("远端独有模型继承 provider 配置，手写模型保留自身配置", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			api: "openai-responses",
-			apiKey: "sk-test",
-			thinkingPreset: "qwen",
-			models: [{ id: "manual", defaultThinkingLevel: "high" }],
-		}));
-		const payloads = new Map<string, unknown>();
-		vi.spyOn(globalThis, "fetch")
-			.mockResolvedValueOnce(jsonResponse({ data: [{ id: "manual" }, { id: "dynamic" }] }))
-			.mockImplementation(async () => new Response('{"error":"stop"}', { status: 400 }));
-		const { provider: provider } = registerProvider(config, temp.path);
-		await refreshProvider(provider, { allowNetwork: true });
-
-		for (const id of ["manual", "dynamic"]) {
-			const model = provider.getModels().find((entry) => entry.id === id);
-			if (!model) throw new Error(`model ${id} was not discovered`);
-			for await (const _event of provider.stream(model, normalizeContext({
-				messages: [{ role: "user", content: "test", timestamp: Date.now() }],
-			}), {
-				apiKey: "sk-test",
-				reasoningEffort: "high",
-				onPayload: (payload) => {
-					payloads.set(id, payload);
-					return payload;
-				},
-			})) {
-			}
-		}
-
-		expect(payloads.get("manual")).toHaveProperty("enable_thinking", true);
-		expect(payloads.get("dynamic")).not.toHaveProperty("enable_thinking");
-	});
-
-	it("已有 OAuth 凭证与 API-key-only 提供方不匹配时，Pi 不发起模型发现", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({ models: "auto" }));
-		const { provider } = registerProvider(config, temp.path);
-		const credentials = new InMemoryCredentialStore();
-		await credentials.modify(provider.id, async () => ({
-			type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 60_000,
-		}));
-		const models = createModels({ credentials });
-		models.setProvider(provider);
-		const fetch = vi.spyOn(globalThis, "fetch");
-
-		const result = await models.refresh({ allowNetwork: true });
-		expect(result.errors.size).toBe(0);
+			.mockResolvedValueOnce(Response.json({ data: [
+				{ id: "vision", context_length: 200000, architecture: { input_modalities: ["text", "image"] } },
+				{ id: "text" },
+			] }))
+			.mockRejectedValueOnce(new Error("offline"));
+		const first = await loadProvider(temp.path, settings, "gateway", modelsStore);
 		expect(fetch).not.toHaveBeenCalled();
-	});
-
-	it("自动发现模型失败时输出 provider 和 HTTP 状态且不泄露 Authorization", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "https://gateway.example.com/v1",
-			apiKey: "sk-secret",
-			models: "auto",
-		}));
-		vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			jsonResponse({ error: "unauthorized" }, { status: 401, statusText: "Unauthorized" }),
-		);
-		const { provider: provider } = registerProvider(config, temp.path);
-
-		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow();
-		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.not.toThrow("sk-secret");
-	});
-
-	it("模型发现无效 JSON、响应读取失败、超时和取消都有明确错误且清理请求", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "https://gateway.example.com/v1",
-			apiKey: "sk-test",
-			models: "auto",
-		}));
-		const { provider: provider } = registerProvider(config, temp.path);
-
-		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json"));
-		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow();
-
-		const unreadable = new Response();
-		Object.defineProperty(unreadable, "text", { value: () => Promise.reject(new Error("body failed")) });
-		fetch.mockResolvedValue(unreadable);
-		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow();
-
-		const timeoutController = new AbortController();
-		const timeoutSignal = vi.spyOn(AbortSignal, "timeout").mockImplementationOnce((ms) => {
-			expect(ms).toBe(30000);
-			return timeoutController.signal;
+		expect((await first.runtime.refresh({ allowNetwork: true, providers: ["gateway"] })).errors.size).toBe(0);
+		const [url, init] = fetch.mock.calls[0] ?? [];
+		expect(url).toBe("https://gateway.example.test/v1/catalog");
+		expect(Object.fromEntries(new Headers(init?.headers))).toEqual({
+			accept: "application/json", authorization: "Bearer sk-test", "x-token": "header-token",
 		});
-		vi.mocked(globalThis.fetch).mockImplementation((_input, init) => new Promise<Response>((_resolve, reject) => {
+		expect(first.runtime.getModels("gateway")).toMatchObject([
+			{ id: "vision", name: "Vision", contextWindow: 200000, maxTokens: 8192, input: ["text", "image"] },
+			{ id: "text", contextWindow: 128000, input: ["text"] },
+		]);
+		expect((await modelsStore.read("gateway"))?.models.map((model) => model.id)).toEqual(["vision", "text"]);
+
+		const restored = await loadProvider(temp.path, {
+			...settings, modelOverrides: { vision: { name: "Renamed", maxTokens: 4096 } },
+		}, "gateway", modelsStore);
+		expect((await restored.runtime.refresh({ allowNetwork: false, providers: ["gateway"] })).errors.size).toBe(0);
+		expect(fetch).toHaveBeenCalledOnce();
+		expect(restored.runtime.getModel("gateway", "vision")).toMatchObject({
+			name: "Renamed", contextWindow: 200000, maxTokens: 4096, input: ["text", "image"],
+		});
+		const previous = restored.runtime.getModels("gateway");
+		const result = await restored.runtime.refresh({ allowNetwork: true, providers: ["gateway"] });
+		expect(result.errors.get("gateway")?.message).toContain("offline");
+		expect(restored.runtime.getModels("gateway")).toEqual(previous);
+		expect(restored.harness.providers).toHaveLength(1);
+	});
+
+	it("model-suffix 折叠发现的变体，缓存恢复后仍按思考等级发送请求", async () => {
+		const modelsStore = new InMemoryModelsStore();
+		const settings = { discoverModels: true, models: undefined, thinkingPreset: "model-suffix" };
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ data: [
+			{ id: "m", context_length: 200000 }, { id: "m:off" }, { id: "m:high" }, { id: "m:max" },
+		] }));
+		const first = await loadProvider(temp.path, settings, "gateway", modelsStore);
+		expect((await first.runtime.refresh({ allowNetwork: true, providers: ["gateway"] })).errors.size).toBe(0);
+		expect(fetch.mock.calls[0]?.[0]).toBe("https://gateway.example.test/v1/models");
+		expect(first.runtime.getModels("gateway")).toMatchObject([{
+			id: "m", reasoning: true, contextWindow: 200000, thinkingLevelMap: { off: "off", high: "high", max: "max" },
+		}]);
+		expect((await modelsStore.read("gateway"))?.models.map((model) => model.id)).toEqual(["m"]);
+
+		const restored = await loadProvider(temp.path, {
+			...settings, modelOverrides: { m: { name: "Renamed" } },
+		}, "gateway", modelsStore);
+		expect((await restored.runtime.refresh({ allowNetwork: false, providers: ["gateway"] })).errors.size).toBe(0);
+		expect(restored.runtime.getModel("gateway", "m")?.name).toBe("Renamed");
+		expect(fetch).toHaveBeenCalledOnce();
+		const request = await capturePayload(restored, { reasoning: "max" });
+		expect(request).toHaveProperty("model", "m:max");
+		expect(request).not.toHaveProperty("reasoning_effort");
+		expect(await capturePayload(restored)).toHaveProperty("model", "m:off");
+	});
+
+	it("仅启用发现时保留冒号模型 ID 和原生请求", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ data: [{ id: "m" }, { id: "m:high" }] }));
+		const fixture = await loadProvider(temp.path, { discoverModels: true, models: undefined });
+		expect((await fixture.runtime.refresh({ allowNetwork: true, providers: ["gateway"] })).errors.size).toBe(0);
+		expect(fixture.runtime.getModels("gateway").map((model) => model.id)).toEqual(["m", "m:high"]);
+		expect(await capturePayload(fixture, {}, { modelId: "m:high" })).toHaveProperty("model", "m:high");
+	});
+
+	it("Responses 发现模型后，只有声明思考能力的模型应用预设", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ data: [{ id: "manual" }, { id: "dynamic" }] }));
+		const fixture = await loadProvider(temp.path, {
+			discoverModels: true, api: "openai-responses", thinkingPreset: "qwen",
+			models: [{ id: "manual", reasoning: true }],
+		});
+		expect((await fixture.runtime.refresh({ allowNetwork: true, providers: ["gateway"] })).errors.size).toBe(0);
+		expect(await capturePayload(fixture, { reasoning: "high" }, { modelId: "manual" })).toHaveProperty("enable_thinking", true);
+		expect(await capturePayload(fixture, {}, { modelId: "dynamic" })).not.toHaveProperty("enable_thinking");
+	});
+
+	it("目录请求每次解析最新的命令请求头", async () => {
+		const token = path.join(temp.path, "token");
+		const resolver = path.join(temp.path, "resolve-header.cjs");
+		await writeFile(resolver, `process.stdout.write(require("node:fs").readFileSync(${JSON.stringify(token)}, "utf8"));`);
+		await writeFile(token, "first");
+		const fixture = await loadProvider(temp.path, {
+			discoverModels: true, headers: { "X-Token": `!"${process.execPath}" "${resolver}"` },
+		});
+		const headers: (string | null)[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			headers.push(new Headers(init?.headers).get("X-Token"));
+			return Response.json({ data: [{ id: "m" }] });
+		});
+		expect((await fixture.runtime.refresh({ allowNetwork: true, providers: ["gateway"] })).errors.size).toBe(0);
+		await writeFile(token, "second");
+		expect((await fixture.runtime.refresh({ allowNetwork: true, providers: ["gateway"] })).errors.size).toBe(0);
+		expect(headers).toEqual(["first", "second"]);
+	});
+
+	it.each([
+		[401, '{"error":"unauthorized"}', "HTTP 401"],
+		[200, "not json", "valid JSON"],
+		[200, '{"models":[]}', "data array"],
+		[200, '{"data":[]}', "no models"],
+		[200, '{"data":[{}]}', ".id is required"],
+		[200, '{"data":[{"id":"m"},{"id":"m"}]}', "duplicate model"],
+	] as const)("目录响应异常 %s/%s 时报告错误并保留已有模型", async (status, body, message) => {
+		const fixture = await loadProvider(temp.path, { discoverModels: true, apiKey: "sk-secret" });
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(body, { status }));
+		const result = await fixture.runtime.refresh({ allowNetwork: true, providers: ["gateway"] });
+		const error = result.errors.get("gateway");
+		expect(error?.message).toContain(message);
+		expect(error?.message).toContain('provider "gateway"');
+		expect(error?.message).not.toContain("sk-secret");
+		expect(fixture.runtime.getModels("gateway").map((model) => model.id)).toEqual(["m"]);
+	});
+
+	it("目录响应流中断时报告读取错误", async () => {
+		const fixture = await loadProvider(temp.path, { discoverModels: true });
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(new ReadableStream({
+			start(controller) { controller.error(new Error("connection reset")); },
+		})));
+		const result = await fixture.runtime.refresh({ allowNetwork: true, providers: ["gateway"] });
+		expect(result.errors.get("gateway")?.message).toContain("response cannot be read: connection reset");
+	});
+
+	it.each(["timeout", "cancel"] as const)("目录请求 %s 时中止网络请求并保留已有模型", async (mode) => {
+		const fixture = await loadProvider(temp.path, { discoverModels: true });
+		const controller = new AbortController();
+		if (mode === "timeout") vi.spyOn(AbortSignal, "timeout").mockReturnValueOnce(controller.signal);
+		const started = Promise.withResolvers<AbortSignal>();
+		vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => new Promise<Response>((_resolve, reject) => {
 			const signal = init?.signal;
 			if (!signal) throw new Error("request signal missing");
-			const rejectOnAbort = () => reject(new DOMException("aborted", "AbortError"));
-			if (signal.aborted) rejectOnAbort();
-			else signal.addEventListener("abort", rejectOnAbort, { once: true });
+			signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+			started.resolve(signal);
 		}));
-		const timeoutPromise = refreshProvider(provider, { allowNetwork: true });
-		const timeoutError = expect(timeoutPromise).rejects.toThrow();
-		timeoutController.abort(new DOMException("timed out", "TimeoutError"));
-		await timeoutError;
-		timeoutSignal.mockRestore();
-
-		const controller = new AbortController();
-		const cancelPromise = refreshProvider(provider, { allowNetwork: true, signal: controller.signal });
+		const pending = fixture.runtime.refresh({
+			allowNetwork: true, providers: ["gateway"], ...(mode === "cancel" ? { signal: controller.signal } : {}),
+		});
+		const requestSignal = await started.promise;
 		controller.abort();
-		await expect(cancelPromise).rejects.toThrow();
+		const result = await pending;
+		expect(requestSignal.aborted).toBe(true);
+		if (mode === "timeout") expect(result.errors.get("gateway")?.message).toContain("timed out after 30000ms");
+		else expect(result.aborted).toBe(true);
+		expect(fixture.runtime.getModels("gateway").map((model) => model.id)).toEqual(["m"]);
 	});
 });
-
-const CURRENT_MODELS_RESPONSE = {
-	data: [
-		{
-			id: "vision-model",
-			context_length: 200000,
-			architecture: { input_modalities: ["text", "image"] },
-		},
-		{
-			id: "text-model",
-			context_length: 128000,
-			architecture: { input_modalities: ["text"] },
-		},
-	],
-};
-
-interface RefreshContextOptions {
-	stored?: Readonly<ModelsStoreEntry>;
-	publish?: RefreshModelsContext["publish"];
-	allowNetwork: boolean;
-	signal?: AbortSignal;
-}
-
-async function refreshProvider(provider: Provider, options: RefreshContextOptions): Promise<void> {
-	if (!provider.refreshModels) throw new Error(`Provider ${provider.id} is not dynamic`);
-	await provider.refreshModels(refreshContext(options));
-}
-
-function refreshContext(options: RefreshContextOptions): RefreshModelsContext {
-	return {
-		credential: { type: "api_key", key: "sk-test" },
-		...(options.stored !== undefined ? { stored: options.stored } : {}),
-		publish: options.publish ?? (async (publication) => {
-			publication.update?.();
-			return true;
-		}),
-		allowNetwork: options.allowNetwork,
-		signal: options.signal ?? new AbortController().signal,
-	};
-}
-
-function createMapPublisher(
-	stores: Map<string, ModelsStoreEntry>,
-	providerId: string,
-): RefreshModelsContext["publish"] {
-	return async (publication) => {
-		if (publication.persist) stores.set(providerId, publication.persist);
-		publication.update?.();
-		return true;
-	};
-}
-
-
-function jsonResponse(value: unknown, init: { status?: number; statusText?: string } = {}): Response {
-	return new Response(JSON.stringify(value), {
-		status: init.status ?? 200,
-		...(init.statusText !== undefined ? { statusText: init.statusText } : {}),
-		headers: { "content-type": "application/json" },
-	});
-}

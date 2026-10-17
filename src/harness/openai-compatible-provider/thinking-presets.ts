@@ -1,100 +1,16 @@
-import type { Api, Model, ModelThinkingLevel, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
+import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ThinkingPresetName } from "./schema.ts";
 
-import type { OpenAICompatConfig, ThinkingPresetName } from "./schema.ts";
-
-const DEFAULT_COMPAT = {
-	supportsStore: false,
-	supportsDeveloperRole: false,
-	supportsReasoningEffort: false,
-} as const satisfies OpenAICompletionsCompat;
-
-/** provider thinking preset 到 Pi 原生 OpenAI completions compat 的映射。 */
-const THINKING_PRESETS = {
-	none: {
-		supportsReasoningEffort: false,
-		thinkingFormat: "openai",
-	},
-	"model-suffix": {
-		supportsReasoningEffort: false,
-		thinkingFormat: "openai",
-	},
-	openai: {
-		supportsReasoningEffort: true,
-		thinkingFormat: "openai",
-	},
-	openrouter: {
-		supportsReasoningEffort: false,
-		thinkingFormat: "openrouter",
-	},
-	deepseek: {
-		supportsReasoningEffort: false,
-		thinkingFormat: "deepseek",
-	},
-	together: {
-		supportsReasoningEffort: false,
-		thinkingFormat: "together",
-	},
-	zai: {
-		supportsReasoningEffort: false,
-		thinkingFormat: "zai",
-	},
-	qwen: {
-		supportsReasoningEffort: false,
-		thinkingFormat: "qwen",
-	},
-	"qwen-chat-template": {
-		supportsReasoningEffort: false,
-		thinkingFormat: "qwen-chat-template",
-	},
-	"chat-template-enabled": {
-		supportsReasoningEffort: false,
-		thinkingFormat: "chat-template",
-		chatTemplateKwargs: {
-			enable_thinking: { $var: "thinking.enabled" },
-		},
-	},
-	"chat-template-effort": {
-		supportsReasoningEffort: false,
-		thinkingFormat: "chat-template",
-		chatTemplateKwargs: {
-			reasoning_effort: { $var: "thinking.effort" },
-		},
-	},
-	"string-thinking": {
-		supportsReasoningEffort: false,
-		thinkingFormat: "string-thinking",
-	},
-	"ant-ling": {
-		supportsReasoningEffort: false,
-		thinkingFormat: "ant-ling",
-	},
-} as const satisfies Record<ThinkingPresetName, OpenAICompletionsCompat>;
-
-/** 合并保守默认值、thinking 编码和 provider/model 原生 compat。 */
-export function resolveCompat(
-	thinkingPreset: ThinkingPresetName,
-	providerCompat: OpenAICompatConfig | undefined,
-	modelCompat: OpenAICompatConfig | undefined,
-): OpenAICompatConfig {
-	return {
-		...DEFAULT_COMPAT,
-		...THINKING_PRESETS[thinkingPreset],
-		...providerCompat,
-		...modelCompat,
-	};
-}
-
-/** Responses 没有对应的原生 compat 编码，按当前 Model 补齐非 OpenAI 预设。 */
+/** Responses 的非标准编码仅在显式配置时启用，未配置时保留 SDK 请求。 */
 export function applyResponsesThinkingPreset(
 	payload: Record<string, unknown>,
 	model: Model<Api>,
-	preset: ThinkingPresetName,
+	preset: ThinkingPresetName | undefined,
 	level: ModelThinkingLevel,
 ): void {
-	if (model.api !== "openai-responses" || !model.reasoning || preset === "openai" || preset === "model-suffix") return;
+	if (model.api !== "openai-responses" || !model.reasoning || preset === undefined || preset === "openai" || preset === "model-suffix") return;
 	stripThinkingPayload(payload);
 	if (preset === "none") return;
-
 	const enabled = level !== "off";
 	const mapped = model.thinkingLevelMap?.[level];
 	const effort = mapped === null ? undefined : mapped ?? (enabled ? level : "none");

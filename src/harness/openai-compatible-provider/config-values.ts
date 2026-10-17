@@ -5,7 +5,7 @@ const commandResultCache = new Map<string, string | undefined>();
 const CONFIG_VALUE_TOKEN = /\$(?:([$!])|\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)|\{[^}]*\})/g;
 
 export function resolveConfigValueOrThrow(config: string, description: string, env?: Record<string, string>): string {
-	const resolvedValue = resolveConfigValue(config, env);
+	const resolvedValue = isCommandConfigValue(config) ? executeCommand(config.slice(1)) : resolveConfigValue(config, env);
 	if (resolvedValue !== undefined) return resolvedValue;
 
 	if (isCommandConfigValue(config)) {

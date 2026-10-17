@@ -1,111 +1,132 @@
 {
+  // Pi 的 models.json 支持行注释和尾逗号。将所需 provider 合并到用户配置，不要覆盖已有配置。
+  "$schema": "https://pi.dev/schemas/models.schema.json",
   "providers": {
     "llama-cpp": {
       "name": "Local AI",
       "baseUrl": "http://127.0.0.1:8000/v1",
-      "apiKey": "my-lovely-key",
+      // 无认证服务使用服务允许的占位密钥，仍会发送 Authorization: Bearer local。
+      // EMPTY 不再有特殊含义。实际密钥可写为 "$LOCAL_API_KEY" 或 "!获取密钥的命令"。
+      "apiKey": "local",
       "api": "openai-completions",
-      "thinkingPreset": "openai",
+      // provider 请求头由 SDK 解析，也支持环境变量和命令。
+      // "headers": { "X-Account": "$ACCOUNT_ID" },
+      // "authHeader": true,
 
-      // compat 是 Pi 原生字段。模型 compat 会按顶层字段覆盖，且对象字段整体替换。
-      // 以下先给出常用本地 Chat Completions 配置，其余字段以注释形式展示。
-      // 仅取消确实符合上游行为的项目。
+      // compat 是 Pi 原生字段，未配置的选项由 SDK 决定，扩展不再注入保守默认值。
+      // 模型 compat 覆盖同名字段，chatTemplateKwargs、chatTemplateArgs、
+      // openRouterRouting 和 vercelGatewayRouting 的嵌套属性按 SDK 规则合并。
+      // 以下启用常用本地 Chat Completions 配置，其余字段作为可选示例。
+      // 只有确认服务需要或支持对应行为后才取消注释。
       "compat": {
-        // 是否接受 store 字段；不支持时 Pi 不发送 store。
+        // 是否接受 store 字段，不支持时 Pi 不发送 store。
         "supportsStore": false,
-        // 是否接受 developer role；false 时 Pi 改用 system role。
+        // 是否接受 developer role，false 时 Pi 改用 system role。
         "supportsDeveloperRole": false,
         // 是否接受 reasoning_effort。
         "supportsReasoningEffort": false,
-        // 是否接受 stream_options.include_usage。
-        "supportsUsageInStreaming": true,
-        // 流式响应是否提供 finish_reason；false 时由 Pi 推断。
-        "supportsFinishReason": true,
         // 输出 token 上限字段：max_tokens 或 max_completion_tokens。
         "maxTokensField": "max_tokens",
+
+        // 是否接受 stream_options.include_usage。
+        // "supportsUsageInStreaming": true,
+        // 流式响应是否提供 finish_reason，false 时由 Pi 推断。
+        // "supportsFinishReason": true,
         // 限制思考 token 的请求字段。vLLM 使用 thinking_token_budget，
         // Qwen、DashScope 和 SGLang 使用 thinking_budget，llama.cpp 使用 thinking_budget_tokens。
-        "thinkingTokenBudgetField": "thinking_budget_tokens",
+        // "thinkingTokenBudgetField": "thinking_budget_tokens",
         // 旧字段 supportsThinkingTokenBudget: true 仅等价于 vLLM 的 thinking_token_budget。
 
         // tool message 是否必须携带 name。
-        "requiresToolResultName": true,
+        // "requiresToolResultName": true,
         // tool message 后接 user message 前是否必须插入 assistant message。
-        "requiresAssistantAfterToolResult": true,
+        // "requiresAssistantAfterToolResult": true,
         // 是否把 thinking block 转成带 <thinking> 分隔符的文本。
-        "requiresThinkingAsText": true,
-        // replay reasoning assistant 消息时是否必须补空 reasoning_content。
-        "requiresReasoningContentOnAssistantMessages": true,
+        // "requiresThinkingAsText": true,
+        // 重放 reasoning assistant 消息时是否必须补空 reasoning_content。
+        // "requiresReasoningContentOnAssistantMessages": true,
 
-        // thinking 参数格式；通常由 thinkingPreset 设置，无需同时配置。
-        // 可选 openai/openrouter/deepseek/together/zai/qwen/chat-template/
+        // Chat Completions 直接使用原生 thinkingFormat，不再用普通 thinkingPreset 生成 compat。
+        // 常用值：openai/openrouter/deepseek/together/zai/qwen/chat-template/
         // qwen-chat-template/string-thinking/ant-ling。
         "thinkingFormat": "chat-template",
-        // thinkingFormat=chat-template 时发送的 chat_template_kwargs；
-        // $var 会在请求时替换为 Pi 当前的 thinking 开关或 effort。
+        // thinkingFormat=chat-template 时发送的 chat_template_kwargs。
+        // $var 在请求时替换为 Pi 当前的 thinking 开关或 effort。
         "chatTemplateKwargs": {
-          "enable_thinking": { "$var": "thinking.enabled" },
-          "reasoning_effort": { "$var": "thinking.effort", "omitWhenOff": true }
-        },
+          "enable_thinking": { "$var": "thinking.enabled" }
+          // 服务支持 effort 时可同时添加，关闭思考时省略该参数。
+          // , "reasoning_effort": { "$var": "thinking.effort", "omitWhenOff": true }
+        }
 
         // 是否接受 tool definition 中的 strict 和 OpenAI grammar tool。
-        "supportsStrictMode": false,
-        "supportsOpenAIGrammarTools": false,
+        // , "supportsStrictMode": false
+        // , "supportsOpenAIGrammarTools": false
         // Anthropic 风格 prompt cache_control 标记。
-        "cacheControlFormat": "anthropic",
+        // , "cacheControlFormat": "anthropic"
         // 是否发送 session affinity headers。
-        "sendSessionAffinityHeaders": true,
+        // , "sendSessionAffinityHeaders": true
         // session affinity header 格式：openai/openai-nosession/openrouter。
-        "sessionAffinityFormat": "openai-nosession",
+        // , "sessionAffinityFormat": "openai-nosession"
         // 是否接受长 prompt cache retention。
-        "supportsLongCacheRetention": false,
+        // , "supportsLongCacheRetention": false
         // provider 延迟加载工具的序列化模式。
-        "deferredToolsMode": "kimi",
+        // , "deferredToolsMode": "kimi"
         // z.ai 是否接受顶层 tool_stream=true。
-        "zaiToolStream": true,
+        // , "zaiToolStream": true
 
-        // OpenRouter 的 provider 路由参数。
-        "openRouterRouting": {
-          "allow_fallbacks": true,
-          "require_parameters": false,
-          "data_collection": "deny",
-          "zdr": true,
-          "enforce_distillable_text": false,
-          "order": ["provider-a", "provider-b"],
-          "only": ["provider-a"],
-          "ignore": ["provider-c"],
-          "quantizations": ["fp16", "bf16"],
-          "sort": { "by": "latency", "partition": "model" },
-          "max_price": {
-            "prompt": 1,
-            "completion": 2,
-            "image": 0.01,
-            "audio": 0.01,
-            "request": 0.001
-          },
-          "preferred_min_throughput": { "p50": 20, "p90": 10 },
-          "preferred_max_latency": { "p50": 1, "p90": 3 }
-        },
+        // OpenRouter 的 provider 路由参数。内置 OpenRouter 服务优先使用原生 openrouter provider。
+        // , "openRouterRouting": {
+        //   "allow_fallbacks": true,
+        //   "require_parameters": false,
+        //   "data_collection": "deny",
+        //   "zdr": true,
+        //   "enforce_distillable_text": false,
+        //   "order": ["provider-a", "provider-b"],
+        //   "only": ["provider-a"],
+        //   "ignore": ["provider-c"],
+        //   "quantizations": ["fp16", "bf16"],
+        //   "sort": { "by": "latency", "partition": "model" },
+        //   "max_price": {
+        //     "prompt": 1,
+        //     "completion": 2,
+        //     "image": 0.01,
+        //     "audio": 0.01,
+        //     "request": 0.001
+        //   },
+        //   "preferred_min_throughput": { "p50": 20, "p90": 10 },
+        //   "preferred_max_latency": { "p50": 1, "p90": 3 }
+        // }
         // Vercel AI Gateway 的 provider 过滤和顺序。
-        "vercelGatewayRouting": {
-          "only": ["anthropic", "openai"],
-          "order": ["anthropic", "openai"]
-        }
+        // , "vercelGatewayRouting": {
+        //   "only": ["anthropic", "openai"],
+        //   "order": ["anthropic", "openai"]
+        // }
       },
       "models": [
         {
           "id": "gemma4-31b-it",
           "name": "Gemma4 31B it",
+          // 原生 reasoning 需显式声明，不再从 defaultThinkingLevel 或 thinkingLevelMap 推导。
+          "reasoning": true,
+          "input": ["text", "image"],
           "contextWindow": 131072,
           "maxTokens": 8192,
-          "thinkingPreset": "chat-template-enabled",
-          "defaultThinkingLevel": "off",
-          "input": ["text", "image"],
-          // Pi 原生 samplingParams 使用请求体字段名，并由请求期同名参数覆盖。
+          // 可选扩展字段：选择模型时设置默认等级，恢复会话时不覆盖已恢复的等级。
+          // "defaultThinkingLevel": "off",
+          // 原先的 thinkingPreset: chat-template-enabled 已迁移到上面的原生 compat。
+          // 模型可以覆盖 provider 的 api、baseUrl、headers 和 compat。
+          // "headers": { "X-Model": "$MODEL_HEADER" },
+
+          // Pi 原生 samplingParams 使用请求体字段名，不在其中配置令牌上限或核心请求字段。
+          // 合并顺序：模型默认值 -> 有效思考等级的参数 -> 单次请求参数。
           "samplingParams": {
-            "temperature": 0.2,
+            "temperature": 1,
             "top_p": 0.95,
             "top_k": 40
+          },
+          // 使用 Pi 等级名，不是 thinkingLevelMap 映射后的上游值。
+          "samplingParamsByThinkingLevel": {
+            "off": { "temperature": 0.7, "top_p": 0.8 }
           }
         }
       ]
@@ -114,36 +135,61 @@
     "llama-swap": {
       "name": "Local llama-swap",
       "baseUrl": "http://127.0.0.1:8080/v1",
-      "apiKey": "EMPTY",
+      "apiKey": "local",
       "api": "openai-completions",
-      // 把 model、model:off、model:high、model:max 等目录项折叠成一个 Pi 模型。
+      // 原先的 models: auto 改为显式启用发现，省略 models 不再隐式开启联网。
+      "discoverModels": true,
+      // 目录默认 GET <baseUrl>/models，可改为相对路径或完整 URL，独立超时为 30 秒。
+      // "modelsEndpoint": "models",
+      // 把发现的 model、model:off、model:high、model:max 等目录项折叠成一个 Pi 模型。
       // Pi 切换思考级别时，扩展把请求中的 model 改写为对应的 llama-swap 模型名。
+      // 后缀采用 Pi 等级名，不使用 thinkingLevelMap 的映射值。
       "thinkingPreset": "model-suffix",
-      "models": "auto"
+      // 发现模型的调整放在原生 modelOverrides，避免 models 的完整定义覆盖发现的等级映射。
+      // 未知模型 ID 的覆盖由 SDK 忽略，缓存与目录发布由 SDK 管理。
+      "modelOverrides": {
+        "deepseek-v4-flash": {
+          "name": "DeepSeek Flash",
+          "maxTokens": 32768
+          // 模型级扩展选项同样平铺，优先于 models 条目和 provider 默认值。
+          // , "defaultThinkingLevel": "high"
+        }
+      }
     },
 
     "responses-demo": {
       "name": "Responses Demo",
       "baseUrl": "http://127.0.0.1:11451/v1",
-      "apiKey": "EMPTY",
+      "apiKey": "$RESPONSES_API_KEY",
       "api": "openai-responses",
+      // 非标准 Responses 思考字段仍使用 thinkingPreset，未配置时保留 SDK 原生请求。
+      // 可选 none/openai/openrouter/deepseek/together/zai/qwen/qwen-chat-template/
+      // chat-template-enabled/chat-template-effort/string-thinking/ant-ling。
+      // model-suffix 则对 Chat Completions 和 Responses 两种 API 都有效。
       "thinkingPreset": "chat-template-effort",
-      // compat 会原样透传，Responses transport 只消费自己认识的字段。
-      "compat": {
-        // 是否接受 developer role；false 时使用 system role。
-        "supportsDeveloperRole": false,
-        // session affinity header 格式。
-        "sessionAffinityFormat": "openai-nosession",
-        // 是否接受 prompt_cache_retention=24h。
-        "supportsLongCacheRetention": false,
-        // 是否支持由客户端执行的 deferred tool search。
-        "supportsToolSearch": false,
-        // 是否支持 grammar tool、additional_tools 和显式 prompt cache mode。
-        "supportsOpenAIGrammarTools": false,
-        "supportsAdditionalTools": false,
-        "supportsExplicitPromptCacheMode": false
-      },
+      // 可选流式请求默认值，单次请求选项优先，不控制模型目录请求。
+      // "timeoutMs": 120000,
+      // "maxRetries": 0,
+      // 可选请求体调整，不能覆盖或删除 model/messages/input/tools/stream。
+      // extraBody 仅在 provider 层提供，dropParams 还可配置在模型条目或 modelOverrides 中。
+      // "extraBody": { "custom_option": true },
+      // "dropParams": ["store"],
 
+      // Responses transport 只消费自己认识的 compat 字段，不从预设自动生成 compat。
+      "compat": {
+        // 是否接受 developer role，false 时使用 system role。
+        "supportsDeveloperRole": false
+        // session affinity header 格式。
+        // , "sessionAffinityFormat": "openai-nosession"
+        // 是否接受 prompt_cache_retention=24h。
+        // , "supportsLongCacheRetention": false
+        // 是否支持由客户端执行的 deferred tool search。
+        // , "supportsToolSearch": false
+        // 是否支持 grammar tool、additional_tools 和显式 prompt cache mode。
+        // , "supportsOpenAIGrammarTools": false
+        // , "supportsAdditionalTools": false
+        // , "supportsExplicitPromptCacheMode": false
+      },
       "models": [
         {
           "id": "reasoning-model",
@@ -152,6 +198,9 @@
           "contextWindow": 65536,
           "maxTokens": 16384,
           "defaultThinkingLevel": "xhigh",
+          // 映射到上游 effort，null 表示该 Pi 等级不受支持。
+          // 模型级 thinkingPreset 可覆盖 provider 预设，例如 openai 保留原生编码。
+          // "thinkingPreset": "openai",
           "thinkingLevelMap": {
             "off": "none",
             "minimal": null,
@@ -164,19 +213,24 @@
     "chat-template-enabled-demo": {
       "name": "Chat Template Enabled Demo",
       "baseUrl": "http://127.0.0.1:9000/v1",
-      "apiKey": "EMPTY",
+      "apiKey": "local",
       "api": "openai-completions",
-      "thinkingPreset": "chat-template-enabled",
+      // 旧示例中的 thinkingPreset: chat-template-enabled 改为原生布尔模板。
       "compat": {
         "supportsStore": false,
         "supportsDeveloperRole": false,
         "supportsReasoningEffort": false,
-        "maxTokensField": "max_tokens"
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": { "$var": "thinking.enabled" }
+        }
       },
       "models": [
         {
           "id": "boolean-thinking-model",
           "name": "Boolean Thinking Model",
+          "reasoning": true,
           "contextWindow": 131072,
           "maxTokens": 32768,
           "defaultThinkingLevel": "high"
