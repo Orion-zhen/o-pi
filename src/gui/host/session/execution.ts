@@ -18,6 +18,8 @@ import { GuiPayloads } from "../projection/payloads.ts";
 import { GuiHistory } from "../projection/history.ts";
 import { nestedMutation, NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
 import type { GuiMcpTools } from "./mcp-tools.ts";
+import type { ModelsConfig } from "../../../harness/openai-compatible-provider/schema.ts";
+import { readModelServiceCatalog, refreshModelService } from "./model-services.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -50,6 +52,7 @@ export class GuiExecution {
 	private background = new Set<() => void>();
 	private toolController: ToolSelectionController | undefined;
 	private mcpTools: GuiMcpTools | undefined;
+	private modelsConfig: ModelsConfig | undefined;
 	private loginController: AbortController | undefined;
 	private mcpLoggingIn = false;
 	private origin = new AsyncLocalStorage<SessionClient>();
@@ -119,6 +122,7 @@ export class GuiExecution {
 					emit: (event) => this.emit(event),
 					bindTools: (controller) => { this.toolController = controller; },
 					bindMcp: (tools) => { this.mcpTools = tools; },
+					bindModelServices: (config) => { this.modelsConfig = config; },
 					toolsChanged: () => this.schedule(),
 					commandSignal: () => this.commandController.signal,
 					reports: this.reports,
@@ -196,7 +200,7 @@ export class GuiExecution {
 				fork: (entryId, options) => client().fork(entryId, options),
 				navigateTree: (entryId, options) => session.navigateTree(entryId, options),
 				switchSession: (file, options) => client().switchSession(file, options),
-				reload: () => session.reload(),
+				reload: () => this.reload(),
 			},
 			shutdownHandler: () => this.emit({ type: "close" }),
 			onError: (error) => this.dialogs.notify(`${error.extensionPath}: ${error.error}`, "error"),
@@ -259,6 +263,7 @@ export class GuiExecution {
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
 		const runtime = this.runtime;
 		switch (query.query) {
+			case "modelServiceCatalog": return readModelServiceCatalog(runtime.services.modelRuntime, this.modelsConfig, query.provider);
 			case "complete": return completeCommand(runtime.session, query.text);
 			case "files": return completeFiles(runtime.cwd, query.prefix);
 			case "config": await runtime.services.settingsManager.flush(); return readConfig(query.file);
@@ -362,6 +367,17 @@ export class GuiExecution {
 		}
 	}
 
+	private async reload(): Promise<void> {
+		const { session, services: { modelRuntime } } = this.runtime;
+		await session.reload();
+		const result = await modelRuntime.refresh({ allowNetwork: false, signal: this.commandController.signal });
+		if (result.aborted) throw new Error("模型配置重载已取消");
+		if (result.errors.size) throw new Error("模型配置重载失败");
+		const current = session.model;
+		const model = current && modelRuntime.getModel(current.provider, current.id);
+		if (model) session.agent.state.model = model;
+	}
+
 	private async mutate(action: GuiAction): Promise<void> {
 		const runtime = this.runtime;
 		const session = runtime.session;
@@ -373,7 +389,8 @@ export class GuiExecution {
 			}
 			case "label": session.sessionManager.appendLabelChange(action.entryId, action.label); break;
 			case "rename": session.setSessionName(action.name); this.refreshSessions(); break;
-			case "reload": await session.reload(); break;
+			case "reload": await this.reload(); break;
+			case "refreshModelService": await refreshModelService(runtime.services.modelRuntime, this.modelsConfig, action.provider, this.commandController.signal); break;
 			case "model": {
 				const model = runtime.services.modelRuntime.getModel(action.provider, action.id);
 				if (!model) throw new Error("模型不存在。");

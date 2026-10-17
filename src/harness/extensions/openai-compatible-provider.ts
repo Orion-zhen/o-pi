@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ModelsConfig } from "../openai-compatible-provider/schema.ts";
 
 import {
 	defaultModelsPath,
@@ -8,7 +9,8 @@ import {
 } from "../openai-compatible-provider/index.ts";
 
 /** 只为 models.json 中显式启用的 OpenAI 兼容扩展注册 provider。 */
-export default async function openAICompatibleProvider(pi: ExtensionAPI): Promise<void> {
+export default async function openAICompatibleProvider(pi: ExtensionAPI, loaded?: (config: ModelsConfig | undefined) => void): Promise<void> {
+	loaded?.(undefined);
 	const configPath = defaultModelsPath();
 	const warning = await ensure_private_config_permissions(configPath);
 	if (warning) console.warn(warning);
@@ -16,4 +18,5 @@ export default async function openAICompatibleProvider(pi: ExtensionAPI): Promis
 	const config = await loadModelsConfig(configPath);
 	if (!config) return;
 	registerOpenAICompatibleProviders(pi, config, configPath);
+	loaded?.(config);
 }

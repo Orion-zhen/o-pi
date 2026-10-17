@@ -12,6 +12,7 @@ import { GuiSettings } from "../preferences/gui-settings.tsx";
 import { ModuleSettings } from "./module-settings.tsx";
 import { LspServers } from "./lsp-servers.tsx";
 import { McpSettings } from "../mcp/mcp-settings.tsx";
+import { ModelServicesSettings } from "../model-services/model-services-settings.tsx";
 import { StorageSettings } from "../storage/storage-settings.tsx";
 import { SettingsActions, SettingsHeading, SettingsSection } from "./settings-controls.tsx";
 import { settingsCategories, type SettingsCategory } from "./settings-navigation.ts";
@@ -46,6 +47,8 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 			case "tools": return <>{module("bashTool", "终端执行")}{module("fileTools", "文件访问")}{module("lsp", "代码智能")}
 				<LspServers key={snapshot?.cwd} cwd={snapshot?.cwd} query={query} connected={connected} active={category === "tools"} />
 			</>;
+			case "models": return <ModelServicesSettings globalQuery={globalQuery} query={query} send={send} disabled={!connected}
+				sessionId={snapshot?.sessionId} canRefresh={!!snapshot && !disabled} />;
 			case "web": return module("webTools", "网络与网页");
 			case "agents": return module("subagent", "子代理");
 			case "security": return module("approvalGate", "权限与安全");

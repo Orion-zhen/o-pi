@@ -14,6 +14,7 @@ import { moduleConfigIds, type ModuleConfigDocument } from "./module-config.ts";
 import type { GuiToolSelectionItem, McpConfigDocument } from "./mcp.ts";
 import type { GuiLspServers } from "./lsp.ts";
 import type { StorageSnapshot, StorageGroup } from "./storage.ts";
+import type { ModelServicesDocument, ModelServiceCatalog } from "./model-services.ts";
 
 const moduleConfigId = Type.Enum(moduleConfigIds);
 const text = Type.String();
@@ -104,6 +105,8 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("draft"), text }),
 	object({ action: Type.Literal("removeStorage"), ids: Type.Array(short, { minItems: 1, maxItems: 1000, uniqueItems: true }) }),
 	object({ action: Type.Literal("saveMcpConfig"), original: text, content: text }),
+	object({ action: Type.Literal("saveModelServices"), original: text, content: text }),
+	object({ action: Type.Literal("refreshModelService"), provider: short }),
 	object({ action: Type.Literal("saveModuleConfig"), id: moduleConfigId, original: text, content: text }),
 	object({ action: Type.Literal("saveGuiConfig"), original: text, content: text }),
 	object({ action: Type.Literal("startupChangelog"), shown: Type.Boolean() }),
@@ -120,6 +123,8 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("searchApiKeyAvailable"), config: Type.String({ maxLength: 4096 }) }),
 	object({ query: Type.Literal("guiConfig") }),
 	object({ query: Type.Literal("mcpConfig") }),
+	object({ query: Type.Literal("modelServices") }),
+	object({ query: Type.Literal("modelServiceCatalog"), provider: short }),
 	object({ query: Type.Literal("startupChangelog") }),
 	object({ query: Type.Literal("availableVersion") }),
 	object({ query: Type.Literal("image"), id: short }),
@@ -134,12 +139,14 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
 ]);
 export type GuiQuery = Static<typeof querySchema>;
-export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "searchApiKeyAvailable" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "storage" }>;
+export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "searchApiKeyAvailable" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "modelServices" | "storage" }>;
 export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" | "lspServers" }>;
 export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
 export interface GuiQueryResults {
 	storage: StorageSnapshot;
 	mcpConfig: McpConfigDocument;
+	modelServices: ModelServicesDocument;
+	modelServiceCatalog: ModelServiceCatalog;
 	moduleConfig: ModuleConfigDocument;
 	searchApiKeyAvailable: boolean;
 	guiConfig: GuiConfigDocument;

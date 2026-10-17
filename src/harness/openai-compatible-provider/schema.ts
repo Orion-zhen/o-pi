@@ -1,12 +1,14 @@
-import { StringEnum, type ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ModelsDocument } from "./validation.ts";
 import { MODEL_THINKING_LEVELS, ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
 import { Type, type Static } from "typebox";
 
-const ThinkingPresetSchema = StringEnum([
+export const THINKING_PRESETS = [
 	"none", "model-suffix", "openai", "openrouter", "deepseek", "together", "zai", "qwen",
 	"qwen-chat-template", "chat-template-enabled", "chat-template-effort", "string-thinking", "ant-ling",
-] as const);
-const OpenAIApiSchema = StringEnum(["openai-completions", "openai-responses"] as const);
+] as const;
+const ThinkingPresetSchema = Type.Enum(THINKING_PRESETS);
+const OpenAIApiSchema = Type.Enum(["openai-completions", "openai-responses"]);
 export const MODEL_THINKING_LEVEL_VALUES = MODEL_THINKING_LEVELS;
 export function isModelThinkingLevel(value: unknown): value is ModelThinkingLevel {
 	return MODEL_THINKING_LEVELS.some((level) => level === value);
@@ -71,6 +73,7 @@ export type ProviderOptions = Static<typeof ProviderOptionsSchema>;
 export type ProviderConfig = Static<typeof ProviderConfigSchema>;
 export type ModelOverrides = Static<typeof ModelOptionsSchema>;
 export interface ModelsConfig {
+	source: ModelsDocument;
 	providers: Record<string, ProviderConfig>;
 	defaultThinkingLevels: Record<string, Record<string, ModelThinkingLevel>>;
 }

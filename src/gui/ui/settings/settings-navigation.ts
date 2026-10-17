@@ -1,8 +1,9 @@
-import { Blocks, Bot, Globe, HardDrive, MessageSquare, Palette, Shield, Terminal, Wrench } from "lucide-react";
+import { Blocks, Bot, Cpu, Globe, HardDrive, MessageSquare, Palette, Shield, Terminal, Wrench } from "lucide-react";
 
 export const settingsCategories = [
 	{ id: "appearance", label: "外观", group: "使用偏好", icon: Palette },
 	{ id: "conversation", label: "对话与输入", group: "使用偏好", icon: MessageSquare },
+	{ id: "models", label: "模型服务", group: "代理能力", icon: Cpu },
 	{ id: "tools", label: "工具与代码", group: "代理能力", icon: Wrench },
 	{ id: "web", label: "网络与网页", group: "代理能力", icon: Globe },
 	{ id: "agents", label: "子代理", group: "代理能力", icon: Bot },

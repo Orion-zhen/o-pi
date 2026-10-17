@@ -13,6 +13,7 @@ import { readGuiConfig, saveGuiConfig } from "./config/preferences.ts";
 import { readModuleConfig, saveModuleConfig } from "./config/module-config.ts";
 import { resolveSearchApiKey } from "../../harness/web-tools/search-providers/api-key.ts";
 import { readMcpConfig, saveMcpConfig } from "./config/mcp-config.ts";
+import { readModelServices, saveModelServices } from "./config/model-services.ts";
 import { listDirectories } from "./workspace/directories.ts";
 import { importSession } from "./session/files.ts";
 import { FileResources } from "./workspace/file-resource.ts";
@@ -228,6 +229,7 @@ export class GuiClient {
 			}
 			case "removeStorage": await this.host.manageStorage(() => this.storage.remove(action.ids)); return;
 			case "saveMcpConfig": await saveMcpConfig(action.original, action.content); return;
+			case "saveModelServices": await saveModelServices(action.original, action.content); return;
 			case "saveModuleConfig": await saveModuleConfig(action.id, action.original, action.content); return;
 			case "saveGuiConfig": this.host.applyGuiConfig(await saveGuiConfig(action.original, action.content)); return;
 			case "startupChangelog": await this.host.changelog.finish(this.id, action.shown); return;
@@ -277,6 +279,7 @@ export class GuiClient {
 		const query = value as GuiQuery;
 		if (query.query === "storage") return this.host.manageStorage(() => this.storage.read());
 		if (query.query === "mcpConfig") return readMcpConfig();
+		if (query.query === "modelServices") return readModelServices();
 		if (query.query === "guiConfig") return readGuiConfig();
 		if (query.query === "startupChangelog") return this.host.changelog.read(this.id, this.host.workspaceRoot);
 		if (query.query === "availableVersion") return this.host.checkVersion();
