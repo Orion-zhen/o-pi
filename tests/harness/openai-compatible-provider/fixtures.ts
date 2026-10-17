@@ -14,9 +14,9 @@ export function providerConfig(overrides: Record<string, unknown> = {}, provider
 	};
 }
 
-export async function loadProvider(dir: string, overrides: Record<string, unknown> = {}, providerId = "gateway", modelsStore = new InMemoryModelsStore()) {
+export async function loadProvider(dir: string, overrides: Record<string, unknown> = {}, providerId = "gateway") {
 	const config = await loadConfigFromText(dir, JSON.stringify({ providers: { [providerId]: providerConfig(overrides, providerId) } }));
-	return registerProvider(config, dir, providerId, modelsStore);
+	return registerProvider(config, dir, providerId);
 }
 
 /** 只模拟 HTTP，认证、模型配置和请求构建均经过 SDK。 */
@@ -48,11 +48,11 @@ export async function loadConfigFromText(dir: string, text: string): Promise<Mod
 
 interface ExtensionHarness { pi: ExtensionAPI; providers: Provider[] }
 
-export async function registerProvider(config: ModelsConfig, dir: string, providerId: string, modelsStore = new InMemoryModelsStore()) {
+export async function registerProvider(config: ModelsConfig, dir: string, providerId: string) {
 	const harness = createExtensionHarness();
-	registerOpenAICompatibleProviders(harness.pi, config, path.join(dir, "models.json"));
+	registerOpenAICompatibleProviders(harness.pi, config);
 	const runtime = await ModelRuntime.create({
-		modelsPath: path.join(dir, "models.json"), credentials: new InMemoryCredentialStore(), modelsStore,
+		modelsPath: path.join(dir, "models.json"), credentials: new InMemoryCredentialStore(), modelsStore: new InMemoryModelsStore(),
 		allowModelNetwork: false, refreshOnCreate: false,
 	});
 	for (const provider of harness.providers) runtime.registerNativeProvider(provider);

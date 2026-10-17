@@ -14,8 +14,8 @@ import { IconButton } from "../components/icon-button.tsx";
 import { useConfigDraft } from "../settings/use-config-draft.ts";
 import { SettingsSection, SettingsSourceButton } from "../settings/settings-controls.tsx";
 import { useSettingsDraft, useSettingsState } from "../settings/settings-state.tsx";
-import { copyMcpServer, createMcpServer, mcpDraftIssues, mcpServerSummary, nextMcpName, type McpDraft, type McpServerDraft } from "./mcp-draft.ts";
-import { mcpEditorContent, readMcpEditor } from "./mcp-editor.ts";
+import { copyMcpServer, createMcpServer, mcpDraftIssues, mcpServerSummary, nextMcpName, writeMcpDraft, type McpDraft, type McpServerDraft } from "./mcp-draft.ts";
+import { discardMcpEditor, mcpEditorContent, readMcpEditor } from "./mcp-editor.ts";
 import { McpServerForm } from "./mcp-server-form.tsx";
 import { McpImport } from "./mcp-import.tsx";
 import "./mcp-settings.css";
@@ -42,8 +42,8 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 	const rootErrors = state.mode === "form" ? validateMcpConfig(state.draft.root) : [];
 	const invalid = sourceView ? source.errors.length > 0 : rootErrors.length > 0 || servers.some(({ issues }) => issues.length > 0);
 	const discard = () => {
-		if (document) editor.change(sourceView ? { mode: "source", content: document.content } : readMcpEditor(document.content));
-		setExpanded(undefined); setImporting(false);
+		if (document) editor.change(discardMcpEditor(document.content, state));
+		setImporting(false);
 	};
 	useSettingsDraft("mcp", {
 		title: "MCP 服务", dirty, blocked: disabled, invalid,
@@ -51,7 +51,7 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 			if (content === undefined) return false;
 			const saved = await editor.save(content, async (document, content) => await send({ action: "saveMcpConfig", original: document.content, content })
 				? { ...document, content } : undefined);
-			if (saved) setExpanded(undefined);
+			if (saved && state.mode === "form") editor.change({ ...state, source: content, baseline: writeMcpDraft(state.draft), baselineDraft: state.draft });
 			return saved;
 		},
 		discard,

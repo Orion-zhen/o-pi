@@ -48,7 +48,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 				<LspServers key={snapshot?.cwd} cwd={snapshot?.cwd} query={query} connected={connected} active={category === "tools"} />
 			</>;
 			case "models": return <ModelServicesSettings globalQuery={globalQuery} query={query} send={send} disabled={!connected}
-				sessionId={snapshot?.sessionId} canRefresh={!!snapshot && !disabled} />;
+				sessionId={snapshot?.sessionId} />;
 			case "web": return module("webTools", "网络与网页");
 			case "agents": return module("subagent", "子代理");
 			case "security": return module("approvalGate", "权限与安全");

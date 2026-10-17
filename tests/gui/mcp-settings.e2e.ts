@@ -118,7 +118,7 @@ test("表单添加本地服务、字段校验、跨分类草稿与无损保存",
 	await open(page);
 	const save = settings(page).getByRole("button", { name: "保存", exact: true });
 	await expect(mcp(page).getByRole("textbox", { name: "全局 MCP JSON" })).toHaveCount(0);
-	await expect(mcp(page).locator(".mcp-server-address")).toHaveText("example.com");
+	await expect(mcp(page).locator(".mcp-server-address")).toHaveText("HTTP · example.com");
 	await expect(save).toBeDisabled();
 	await mcp(page).getByRole("button", { name: "添加服务", exact: true }).click();
 	await form(page).getByLabel("服务名称", { exact: true }).fill("filesystem");
@@ -149,13 +149,19 @@ test("表单添加本地服务、字段校验、跨分类草稿与无损保存",
 	expect(JSON.parse(await readFile(file, "utf8"))).toEqual(original);
 	await save.click();
 	await expect(save).toBeDisabled();
+	await expect(form(page).getByLabel("服务名称", { exact: true })).toHaveValue("filesystem");
+	await expect(form(page).getByRole("button", { name: "工具与高级设置", exact: true })).toHaveAttribute("aria-expanded", "true");
+	await form(page).getByLabel("服务名称", { exact: true }).fill("unsaved-name");
+	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
+	await expect(form(page).getByLabel("服务名称", { exact: true })).toHaveValue("filesystem");
+	await expect(form(page).getByRole("button", { name: "工具与高级设置", exact: true })).toHaveAttribute("aria-expanded", "true");
 	expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...original, mcpServers: { ...original.mcpServers,
 		filesystem: { command: "npx", args: ["-y", "server-package", "path with spaces"], env: { TOKEN: "${LOCAL_TOKEN}" }, timeout: 1.5 },
 	} });
 	await mcp(page).getByRole("button", { name: "编辑 docs", exact: true }).click();
 	await expect(form(page).getByLabel("Bearer Token", { exact: true })).toHaveValue("${DOCS_TOKEN}");
 	await expect(form(page).getByLabel("Bearer Token", { exact: true })).toHaveAttribute("type", "password");
-	await expect(settings(page).getByRole("status")).toHaveText("已保存");
+	await expect(settings(page).locator(".settings-save-status")).toBeEmpty();
 	await expect(save).toBeDisabled();
 	await form(page).getByLabel("Bearer Token", { exact: true }).scrollIntoViewIfNeeded();
 	await mcp(page).evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished)));

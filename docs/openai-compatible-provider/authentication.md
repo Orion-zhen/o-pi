@@ -15,10 +15,10 @@
 
 无认证服务使用服务允许的占位密钥，如 `"apiKey": "local"`。`EMPTY` 是普通字符串，会发送 `Bearer EMPTY`。自定义认证头不隐式禁用 Bearer，`Authorization` 本身可覆盖默认 Bearer。只有自定义请求头的服务也需要原生可用凭证或占位密钥。
 
-普通请求的 provider、模型和调用方请求头由 SDK 处理。调用方可以使用值为 `null` 的请求头移除对应字段。密钥和解析后的请求头不放入扩展的模型目录缓存。
+普通请求的 provider、模型和调用方请求头由 SDK 处理。调用方可以使用值为 `null` 的请求头移除对应字段。
 
-## 目录请求
+## GUI 候选列表
 
-SDK 的刷新上下文提供已解析的 key/env，但不携带解析后的认证请求头。因此扩展仅在 `/models` 请求边界解析 provider 级 `headers`，支持进程环境变量、凭证 env 和逐次执行的命令。
+GUI 通过 SDK `getAuth` 解析当前会话中的服务认证和 provider 级请求头，再请求 `GET <baseUrl>/models`。候选请求不使用模型级请求头，也不保存密钥、请求头或模型目录缓存。
 
-目录请求不使用模型级请求头。配置的 `Authorization` 优先，否则使用刷新凭证生成 Bearer。原生 `authHeader: true` 会强制使用凭证生成 Bearer。不再通过隐藏 env 标记传递认证状态或序列化请求头。
+已保存配置与会话不一致时先重载，避免将旧凭据发送到新地址。配置的 `Authorization` 优先，`authHeader: true` 由 SDK 强制生成 Bearer。

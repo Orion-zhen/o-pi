@@ -6,8 +6,9 @@ import { Type } from "typebox";
 
 import { isNotFound } from "../config-loader.ts";
 import { invalidModelsConfig } from "./errors.ts";
-import { hasProviderExtensions, hasRequestExtensions, ProviderOptionsSchema, type ModelsConfig, type ProviderConfig, type ProviderOptions } from "./schema.ts";
-import { modelsConfigIssues, parseModelsDocument } from "./validation.ts";
+import { hasRequestExtensions, ProviderOptionsSchema, type ModelsConfig, type ProviderConfig, type ProviderOptions } from "./schema.ts";
+import { parseModelsDocument } from "./document.ts";
+import { modelsConfigIssues } from "./validation.ts";
 
 const nativeProvider = Object.values(ModelsConfigSchema.properties.providers.patternProperties)[0];
 if (!nativeProvider) throw new Error("SDK 缺少模型服务 schema");
@@ -39,7 +40,6 @@ export function parseModelsConfig(text: string, configPath: string): ModelsConfi
 	if (issues.length) throw invalidModelsConfig(configPath, issues.join("\n"));
 	const config: ModelsConfig = { source, providers: {}, defaultThinkingLevels: {} };
 	for (const [id, value] of Object.entries(source.providers)) {
-		if (!hasProviderExtensions(value)) continue;
 		const options = value as ProviderOptions;
 		const models = [
 			...(options.models ?? []).map((model) => [model.id, model] as const),
@@ -50,7 +50,7 @@ export function parseModelsConfig(text: string, configPath: string): ModelsConfi
 				(config.defaultThinkingLevels[id] ??= {})[modelId] = model.defaultThinkingLevel;
 			}
 		}
-		if (options.discoverModels || hasRequestExtensions(options)) config.providers[id] = value as ProviderConfig;
+		if (hasRequestExtensions(options)) config.providers[id] = value as ProviderConfig;
 	}
 	return config;
 }

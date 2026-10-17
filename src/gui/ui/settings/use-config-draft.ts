@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type SetStateAction } from "react";
 
 /** 保留打开时的版本，草稿表示由调用方决定，保存冲突由后端检查。 */
 export function useConfigDraft<D extends { content: string }, T>(load: () => Promise<D>, readDraft: (content: string) => T) {
@@ -16,7 +16,7 @@ export function useConfigDraft<D extends { content: string }, T>(load: () => Pro
 	}, [load, readDraft, revision]);
 	return {
 		document, draft, error,
-		change(value: T) { setDraft(value); setError(""); },
+		change(value: SetStateAction<T>) { setDraft(value); setError(""); },
 		discard() { if (document) setDraft(readDraft(document.content)); setError(""); },
 		reload() { setRevision((value) => value + 1); },
 		async save(content: string, persist: (document: D, content: string) => Promise<D | undefined>) {

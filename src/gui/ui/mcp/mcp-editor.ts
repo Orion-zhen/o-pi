@@ -1,9 +1,9 @@
 import { parseMcpConfig, type McpConfig } from "../../mcp-validation.ts";
-import { createMcpDraft, mcpDraftSerializable, writeMcpDraft, type McpDraft } from "./mcp-draft.ts";
+import { createMcpDraft, mcpDraftSerializable, mcpMapFields, writeMcpDraft, type McpDraft } from "./mcp-draft.ts";
 
 export type McpEditor =
 	| { mode: "source"; content: string }
-	| { mode: "form"; draft: McpDraft; source: string; baseline: string };
+	| { mode: "form"; draft: McpDraft; baselineDraft: McpDraft; source: string; baseline: string };
 
 export function readMcpEditor(content: string): McpEditor {
 	let value: McpConfig;
@@ -14,7 +14,28 @@ export function readMcpEditor(content: string): McpEditor {
 		return { mode: "source", content };
 	}
 	const draft = createMcpDraft(value);
-	return { mode: "form", draft, source: content, baseline: writeMcpDraft(draft) };
+	return { mode: "form", draft, baselineDraft: draft, source: content, baseline: writeMcpDraft(draft) };
+}
+
+export function discardMcpEditor(content: string, editor: McpEditor): McpEditor {
+	if (editor.mode === "source") return { mode: "source", content };
+	if (content === editor.source) return { ...editor, draft: editor.baselineDraft };
+	const restored = readMcpEditor(content);
+	if (restored.mode === "source") return restored;
+	const previous = new Map(editor.baselineDraft.servers.map((server) => [server.name, server]));
+	const draft: McpDraft = { ...restored.draft, servers: restored.draft.servers.map((server) => {
+		const original = previous.get(server.name);
+		if (!original) return server;
+		const maps = { ...server.maps };
+		for (const field of mcpMapFields) {
+			const rows = maps[field];
+			if (rows) maps[field] = rows.map((row) => ({ ...row, id: original.maps[field]?.find((item) => item.key === row.key)?.id ?? row.id }));
+		}
+		return { ...server, id: original.id, maps,
+			...(server.args && { args: server.args.map((arg, index) => ({ ...arg, id: original.args?.[index]?.id ?? arg.id })) }),
+		};
+	}) };
+	return { ...restored, draft, baselineDraft: draft };
 }
 
 export function mcpEditorContent(editor: McpEditor): string | undefined {

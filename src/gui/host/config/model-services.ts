@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { defaultModelsPath, modelsConfigSchema } from "../../../harness/openai-compatible-provider/config.ts";
-import { modelsConfigIssues, parseModelsDocument } from "../../../harness/openai-compatible-provider/validation.ts";
+import { parseModelsDocument } from "../../../harness/openai-compatible-provider/document.ts";
+import { modelsConfigIssues } from "../../../harness/openai-compatible-provider/validation.ts";
 import { isNotFound } from "../../../harness/config-loader.ts";
 import { replaceConfigFile } from "../../../harness/config-file.ts";
 import type { ModelServicesDocument } from "../../model-services.ts";

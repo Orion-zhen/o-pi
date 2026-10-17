@@ -106,7 +106,6 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("removeStorage"), ids: Type.Array(short, { minItems: 1, maxItems: 1000, uniqueItems: true }) }),
 	object({ action: Type.Literal("saveMcpConfig"), original: text, content: text }),
 	object({ action: Type.Literal("saveModelServices"), original: text, content: text }),
-	object({ action: Type.Literal("refreshModelService"), provider: short }),
 	object({ action: Type.Literal("saveModuleConfig"), id: moduleConfigId, original: text, content: text }),
 	object({ action: Type.Literal("saveGuiConfig"), original: text, content: text }),
 	object({ action: Type.Literal("startupChangelog"), shown: Type.Boolean() }),

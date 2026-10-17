@@ -19,7 +19,7 @@ import { GuiHistory } from "../projection/history.ts";
 import { nestedMutation, NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
 import type { GuiMcpTools } from "./mcp-tools.ts";
 import type { ModelsConfig } from "../../../harness/openai-compatible-provider/schema.ts";
-import { readModelServiceCatalog, refreshModelService } from "./model-services.ts";
+import { readModelServiceCatalog } from "./model-services.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -263,7 +263,7 @@ export class GuiExecution {
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
 		const runtime = this.runtime;
 		switch (query.query) {
-			case "modelServiceCatalog": return readModelServiceCatalog(runtime.services.modelRuntime, this.modelsConfig, query.provider);
+			case "modelServiceCatalog": return readModelServiceCatalog(runtime.services.modelRuntime, this.modelsConfig, query.provider, this.commandController.signal);
 			case "complete": return completeCommand(runtime.session, query.text);
 			case "files": return completeFiles(runtime.cwd, query.prefix);
 			case "config": await runtime.services.settingsManager.flush(); return readConfig(query.file);
@@ -390,7 +390,6 @@ export class GuiExecution {
 			case "label": session.sessionManager.appendLabelChange(action.entryId, action.label); break;
 			case "rename": session.setSessionName(action.name); this.refreshSessions(); break;
 			case "reload": await this.reload(); break;
-			case "refreshModelService": await refreshModelService(runtime.services.modelRuntime, this.modelsConfig, action.provider, this.commandController.signal); break;
 			case "model": {
 				const model = runtime.services.modelRuntime.getModel(action.provider, action.id);
 				if (!model) throw new Error("模型不存在。");

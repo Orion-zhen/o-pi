@@ -9,6 +9,8 @@
       // EMPTY 不再有特殊含义。实际密钥可写为 "$LOCAL_API_KEY" 或 "!获取密钥的命令"。
       "apiKey": "local",
       "api": "openai-completions",
+      // 两种 API 共用思考传递方式，省略时继承，auto 使用 SDK 默认行为。
+      "thinkingPreset": "chat-template",
       // provider 请求头由 SDK 解析，也支持环境变量和命令。
       // "headers": { "X-Account": "$ACCOUNT_ID" },
       // "authHeader": true,
@@ -46,11 +48,7 @@
         // 重放 reasoning assistant 消息时是否必须补空 reasoning_content。
         // "requiresReasoningContentOnAssistantMessages": true,
 
-        // Chat Completions 直接使用原生 thinkingFormat，不再用普通 thinkingPreset 生成 compat。
-        // 常用值：openai/openrouter/deepseek/together/zai/qwen/chat-template/
-        // qwen-chat-template/string-thinking/ant-ling。
-        "thinkingFormat": "chat-template",
-        // thinkingFormat=chat-template 时发送的 chat_template_kwargs。
+        // thinkingPreset=chat-template 时发送的 chat_template_kwargs。
         // $var 在请求时替换为 Pi 当前的 thinking 开关或 effort。
         "chatTemplateKwargs": {
           "enable_thinking": { "$var": "thinking.enabled" }
@@ -110,10 +108,10 @@
           "reasoning": true,
           "input": ["text", "image"],
           "contextWindow": 131072,
-          "maxTokens": 8192,
+          // 默认不发送输出上限，由服务端决定。需要限制时填写正数。
+          // "maxTokens": 8192,
           // 可选扩展字段：选择模型时设置默认等级，恢复会话时不覆盖已恢复的等级。
           // "defaultThinkingLevel": "off",
-          // 原先的 thinkingPreset: chat-template-enabled 已迁移到上面的原生 compat。
           // 模型可以覆盖 provider 的 api、baseUrl、headers 和 compat。
           // "headers": { "X-Model": "$MODEL_HEADER" },
 
@@ -137,24 +135,19 @@
       "baseUrl": "http://127.0.0.1:8080/v1",
       "apiKey": "local",
       "api": "openai-completions",
-      // 原先的 models: auto 改为显式启用发现，省略 models 不再隐式开启联网。
-      "discoverModels": true,
-      // 目录默认 GET <baseUrl>/models，可改为相对路径或完整 URL，独立超时为 30 秒。
-      // "modelsEndpoint": "models",
-      // 把发现的 model、model:off、model:high、model:max 等目录项折叠成一个 Pi 模型。
-      // Pi 切换思考级别时，扩展把请求中的 model 改写为对应的 llama-swap 模型名。
-      // 后缀采用 Pi 等级名，不使用 thinkingLevelMap 的映射值。
+      // 只注册基础模型，请求时按 Pi 等级名追加后缀，不使用映射值作为后缀。
       "thinkingPreset": "model-suffix",
-      // 发现模型的调整放在原生 modelOverrides，避免 models 的完整定义覆盖发现的等级映射。
-      // 未知模型 ID 的覆盖由 SDK 忽略，缓存与目录发布由 SDK 管理。
-      "modelOverrides": {
-        "deepseek-v4-flash": {
-          "name": "DeepSeek Flash",
-          "maxTokens": 32768
-          // 模型级扩展选项同样平铺，优先于 models 条目和 provider 默认值。
-          // , "defaultThinkingLevel": "high"
+      "models": [{
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek Flash",
+        "reasoning": true,
+        // 显式启用服务支持的后缀，其余等级设为 null。
+        "thinkingLevelMap": {
+          "off": "off", "minimal": null, "low": null, "medium": null,
+          "high": "high", "xhigh": null, "max": "max"
         }
-      }
+        // , "defaultThinkingLevel": "high"
+      }]
     },
 
     "responses-demo": {
@@ -162,8 +155,8 @@
       "baseUrl": "http://127.0.0.1:11451/v1",
       "apiKey": "$RESPONSES_API_KEY",
       "api": "openai-responses",
-      // 非标准 Responses 思考字段仍使用 thinkingPreset，未配置时保留 SDK 原生请求。
-      // 可选 none/openai/openrouter/deepseek/together/zai/qwen/qwen-chat-template/
+      // 两种 API 共用 thinkingPreset，未配置时保留 SDK 默认行为。
+      // 可选 auto/none/openai/openrouter/deepseek/together/zai/qwen/qwen-chat-template/
       // chat-template-enabled/chat-template-effort/string-thinking/ant-ling。
       // model-suffix 则对 Chat Completions 和 Responses 两种 API 都有效。
       "thinkingPreset": "chat-template-effort",
@@ -196,7 +189,6 @@
           "name": "Reasoning Model",
           "reasoning": true,
           "contextWindow": 65536,
-          "maxTokens": 16384,
           "defaultThinkingLevel": "xhigh",
           // 映射到上游 effort，null 表示该 Pi 等级不受支持。
           // 模型级 thinkingPreset 可覆盖 provider 预设，例如 openai 保留原生编码。
@@ -215,16 +207,13 @@
       "baseUrl": "http://127.0.0.1:9000/v1",
       "apiKey": "local",
       "api": "openai-completions",
-      // 旧示例中的 thinkingPreset: chat-template-enabled 改为原生布尔模板。
+      // 固定布尔模板由预设生成，自定义模板使用 chat-template。
+      "thinkingPreset": "chat-template-enabled",
       "compat": {
         "supportsStore": false,
         "supportsDeveloperRole": false,
         "supportsReasoningEffort": false,
-        "maxTokensField": "max_tokens",
-        "thinkingFormat": "chat-template",
-        "chatTemplateKwargs": {
-          "enable_thinking": { "$var": "thinking.enabled" }
-        }
+        "maxTokensField": "max_tokens"
       },
       "models": [
         {
@@ -232,7 +221,6 @@
           "name": "Boolean Thinking Model",
           "reasoning": true,
           "contextWindow": 131072,
-          "maxTokens": 32768,
           "defaultThinkingLevel": "high"
         }
       ]

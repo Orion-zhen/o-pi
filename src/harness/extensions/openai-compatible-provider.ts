@@ -17,6 +17,6 @@ export default async function openAICompatibleProvider(pi: ExtensionAPI, loaded?
 
 	const config = await loadModelsConfig(configPath);
 	if (!config) return;
-	registerOpenAICompatibleProviders(pi, config, configPath);
+	registerOpenAICompatibleProviders(pi, config);
 	loaded?.(config);
 }

@@ -1,21 +1,19 @@
 # 兼容选项
 
-`compat` 直接使用 SDK 原生字段。扩展不注入 `supportsStore: false`、`supportsDeveloperRole: false`、`supportsReasoningEffort: false` 或默认思考编码。
+`compat` 使用 SDK 原生字段。未填写的选项由 SDK 决定，扩展不注入 `supportsStore`、`supportsDeveloperRole` 或 `supportsReasoningEffort` 默认值。
 
-未填写的字段由 SDK 决定。只有验证了服务差异后才显式设置兼容选项。
-
-Chat Completions 的思考格式使用 `compat.thinkingFormat`。例如：
+思考传递方式统一使用 [`thinkingPreset`](thinking.md)。Chat Completions 的自定义模板可配合原生模板参数：
 
 ```json
 {
+  "thinkingPreset": "chat-template",
   "compat": {
-    "thinkingFormat": "chat-template",
     "supportsReasoningEffort": false,
     "chatTemplateKwargs": { "enable_thinking": { "$var": "thinking.enabled" } }
   }
 }
 ```
 
-provider/model compat 遵循 SDK 的合并规则。`chatTemplateKwargs`、`chatTemplateArgs`、`openRouterRouting` 和 `vercelGatewayRouting` 的嵌套属性由 SDK 合并，不再由扩展整体替换。
+provider/model compat 遵循 SDK 的合并规则。`chatTemplateKwargs`、`chatTemplateArgs`、`openRouterRouting` 和 `vercelGatewayRouting` 的嵌套属性由 SDK 合并。
 
-Responses 非标准编码使用 [thinkingPreset](thinking.md)，不自动修改原生 compat。compat 由 SDK 校验和应用，扩展不重复定义 schema。
+显式预设优先于 SDK 检测的思考格式。`chat-template-enabled` 和 `chat-template-effort` 使用固定模板，需要自定义参数时改用 `chat-template`。仅在请求时生成兼容选项，不写回配置。Responses 的非标准预设直接转换请求体。

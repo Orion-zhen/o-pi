@@ -8,7 +8,7 @@
 
 模型使用原生 `id`、`name`、`api`、`baseUrl`、`reasoning`、`thinkingLevelMap`、`input`、`inputLimits`、`cost`、`promptCache`、`contextWindow`、`maxTokens`、`samplingParams`、`samplingParamsByThinkingLevel`、`headers` 和 `compat`。
 
-静态定义未指定上限时使用 SDK 默认值：`contextWindow=128000`、`maxTokens=16384`。扩展为发现模型采用相同默认值。没有元数据依据时，发现模型默认不支持推理，输入为文本，价格为零。
+`contextWindow` 未指定时使用 SDK 默认值 `128000`。对于 `models.json` 中配置的服务，Chat Completions 和 Responses 会话请求仅在 `models` 或 `modelOverrides` 显式设置 `maxTokens` 时发送输出上限。未设置时不发送上限，由服务端决定，`0` 为非法值。SDK 内部模型元数据的默认值不作为未配置时的请求上限。未声明能力时，模型默认不支持推理，输入为文本，价格为零。
 
 ### inputLimits
 
@@ -18,7 +18,7 @@
 
 ### 原生覆盖顺序
 
-`models` 添加或替换同名模型。`modelOverrides` 在 SDK 组合完成后应用，未知 ID 被忽略。发现模型应通过 `modelOverrides` 修改元数据，避免完整静态定义覆盖发现的能力和等级映射。
+`models` 添加或替换同名模型。`modelOverrides` 在 SDK 组合完成后应用，未知 ID 被忽略。
 
 `samplingParamsByThinkingLevel` 使用 Pi 等级名。SDK 先限制思考等级，再依次合并模型采样参数、有效等级采样参数和单次请求采样参数。
 
@@ -26,15 +26,13 @@
 
 | 字段 | 行为 |
 | --- | --- |
-| `discoverModels` | `true` 时启用模型发现，默认不发现 |
-| `modelsEndpoint` | 模型目录相对路径或绝对 URL，默认 `models`，要求启用发现 |
-| `thinkingPreset` | Responses 非标准思考编码，或两种 API 的 `model-suffix` |
+| `thinkingPreset` | 两种 API 共用的思考传递方式，省略时继承，`auto` 使用 SDK 默认行为 |
 | `timeoutMs` | 流式请求默认超时，单次请求可覆盖 |
 | `maxRetries` | 流式请求默认重试次数，非负整数，单次请求可覆盖 |
 | `extraBody` | 请求体附加字段，不能覆盖核心字段 |
 | `dropParams` | 删除请求体字段，不能删除核心字段 |
 
-启用发现或请求改写的 provider 必须声明 `baseUrl` 和 OpenAI API 类型。仅设置 `defaultThinkingLevel` 或 `discoverModels: false` 不注册 provider，也不受这一约束。
+启用请求改写的 provider 必须声明 `baseUrl` 和 OpenAI API 类型。仅设置 `defaultThinkingLevel` 不注册 provider，也不受这一约束。
 
 ## 模型扩展字段
 
@@ -48,4 +46,4 @@
 
 模型级扩展选项按 provider 默认值、`models` 条目、`modelOverrides` 解析。`reasoning` 必须显式声明，`defaultThinkingLevel` 和 `thinkingLevelMap` 不再隐式启用推理。
 
-完整预设和请求体顺序见 [思考编码](thinking.md) 和 [请求体处理](payload.md)。
+完整预设和请求体顺序见 [思考传递方式](thinking.md) 和 [请求体处理](payload.md)。

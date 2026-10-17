@@ -16,7 +16,7 @@ describe("openai-compatible-provider registration", () => {
 	it("仓库示例配置与当前 schema 同步", async () => {
 		const config = await loadModelsConfig(path.resolve("agent/models.example.jsonc"));
 		if (!config) throw new Error("example config missing");
-		expect(config.providers["llama-cpp"]).toBeUndefined();
+		expect(config.providers["llama-cpp"]?.thinkingPreset).toBe("chat-template");
 		expect(config.providers["llama-swap"]?.thinkingPreset).toBe("model-suffix");
 		expect(config.providers["responses-demo"]?.api).toBe("openai-responses");
 	});
@@ -26,7 +26,7 @@ describe("openai-compatible-provider registration", () => {
 		const fetch = vi.spyOn(globalThis, "fetch");
 		await writeFile(
 			path.join(temp.path, "models.json"),
-			'{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "fixture", "api": "openai-completions", "discoverModels": true, "models": [{"id":"manual"}] } } }',
+			'{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "fixture", "api": "openai-completions", "dropParams": ["store"], "models": [{"id":"manual"}] } } }',
 			{ mode: 0o600 },
 		);
 		const harness = createExtensionHarness();
@@ -36,16 +36,27 @@ describe("openai-compatible-provider registration", () => {
 		expect(harness.providers).toHaveLength(1);
 		expect(harness.providers[0]).toMatchObject({ id: "local", baseUrl: "http://127.0.0.1:8000/v1" });
 		expect(harness.providers[0]?.getModels().map((model) => model.id)).toEqual(["manual"]);
-		expect(harness.providers[0]?.refreshModels).toBeTypeOf("function");
+		expect(harness.providers[0]?.refreshModels).toBeUndefined();
 		expect(fetch).not.toHaveBeenCalled();
 	});
 
-	it.each([undefined, false])("普通静态配置不因 discoverModels=%s 注册扩展 provider", async (discoverModels) => {
+	it("联网刷新只保留显式模型，不请求服务模型列表", async () => {
 		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
-			local: providerConfig({ discoverModels }, "local"),
+			gateway: providerConfig({ thinkingPreset: "model-suffix" }),
+		} }));
+		const fetch = vi.spyOn(globalThis, "fetch");
+		const { runtime } = await registerProvider(config, temp.path, "gateway");
+		expect((await runtime.refresh({ allowNetwork: true, providers: ["gateway"] })).errors.size).toBe(0);
+		expect(fetch).not.toHaveBeenCalled();
+		expect(runtime.getModels("gateway").map((model) => model.id)).toEqual(["m"]);
+	});
+
+	it("普通静态配置不注册扩展 provider", async () => {
+		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
+			local: providerConfig({}, "local"),
 		} }));
 		const harness = createExtensionHarness();
-		registerOpenAICompatibleProviders(harness.pi, config, "models.json");
+		registerOpenAICompatibleProviders(harness.pi, config);
 		expect(harness.providers).toEqual([]);
 	});
 
@@ -58,7 +69,7 @@ describe("openai-compatible-provider registration", () => {
 		const model = native?.getModels().find((entry) => entry.reasoning);
 		if (!native || !model) throw new Error("native reasoning model missing");
 		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
-			anthropic: { discoverModels: false, modelOverrides: { [model.id]: { defaultThinkingLevel: "high" } } },
+			anthropic: { modelOverrides: { [model.id]: { defaultThinkingLevel: "high" } } },
 		} }));
 		const select = vi.fn<(event: unknown) => void>();
 		const levels: string[] = [];
@@ -68,7 +79,7 @@ describe("openai-compatible-provider registration", () => {
 			on(_name: string, handler: (event: unknown) => void) { select.mockImplementation(handler); },
 			setThinkingLevel(level: string) { levels.push(level); },
 		};
-		registerOpenAICompatibleProviders(pi as ExtensionAPI, config, "models.json");
+		registerOpenAICompatibleProviders(pi as ExtensionAPI, config);
 		expect(register).not.toHaveBeenCalled();
 		expect(runtime.getProvider("anthropic")).toBe(native);
 		select({ model, source: "restore" });
@@ -83,7 +94,7 @@ describe("openai-compatible-provider registration", () => {
 
 	it("接受带 UTF-8 BOM 的 models.json", async () => {
 		const configPath = path.join(temp.path, "bom-models.json");
-		await writeFile(configPath, '\uFEFF{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "api": "openai-completions", "discoverModels": true, "models": [{"id":"model"}] } } }');
+		await writeFile(configPath, '\uFEFF{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "api": "openai-completions", "dropParams": ["store"], "models": [{"id":"model"}] } } }');
 
 		await expect(loadModelsConfig(configPath)).resolves.toMatchObject({
 			providers: { local: { models: [{ id: "model" }] } },
@@ -97,7 +108,7 @@ describe("openai-compatible-provider registration", () => {
 	it("同名 provider 注册到 Pi 时完全替换内置 provider 模型", async () => {
 		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
 			opencode: providerConfig({
-				discoverModels: true,
+				dropParams: ["store"],
 				name: "Private OpenCode",
 				baseUrl: "https://private-opencode.example.com/v1",
 				models: [{ id: "private-opencode-model" }],
@@ -114,7 +125,7 @@ describe("openai-compatible-provider registration", () => {
 		expect(builtInModelIds.length).toBeGreaterThan(0);
 		expect(builtInModelIds).not.toEqual(["private-opencode-model"]);
 
-		registerOpenAICompatibleProviders(createRegistryPi(registry), config, path.join(temp.path, "models.json"));
+		registerOpenAICompatibleProviders(createRegistryPi(registry), config);
 
 		const models = registry.getAll().filter((model) => model.provider === "opencode");
 		expect(models.map((model) => model.id)).toEqual(["private-opencode-model"]);
@@ -138,7 +149,7 @@ describe("openai-compatible-provider registration", () => {
 		await credentials.modify("gateway", async () => ({ type: "api_key", key: "sk-stored" }));
 		const runtime = await ModelRuntime.create({ credentials, modelsPath: path.join(temp.path, "models.json"), modelsStore: new InMemoryModelsStore(), allowModelNetwork: false });
 		const registry = new ModelRegistry(runtime);
-		registerOpenAICompatibleProviders(createRegistryPi(registry), config, "models.json");
+		registerOpenAICompatibleProviders(createRegistryPi(registry), config);
 		const model = registry.find("gateway", "m");
 		if (!model) throw new Error("registered model missing");
 		let headers: Headers | undefined;
@@ -176,9 +187,9 @@ describe("openai-compatible-provider registration", () => {
 				thinkingLevels.push(level);
 			},
 		};
-		registerOpenAICompatibleProviders(pi as ExtensionAPI, config, path.join(temp.path, "models.json"));
+		registerOpenAICompatibleProviders(pi as ExtensionAPI, config);
 
-		expect([...handlers.keys()]).toEqual(["model_select"]);
+		expect([...handlers.keys()]).toEqual(["before_provider_request", "model_select"]);
 		expect(providers).toEqual([]);
 		const { provider } = await registerProvider(config, temp.path, "gateway");
 		const model = provider.getModels()[0];

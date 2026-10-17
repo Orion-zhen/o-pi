@@ -1,18 +1,22 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
-import type { ModelsDocument } from "./validation.ts";
+import type { ModelsDocument } from "./document.ts";
 import { MODEL_THINKING_LEVELS, ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
+import { OpenAICompletionsCompatSchema } from "@earendil-works/pi-ai/providers/compat-schema";
 import { Type, type Static } from "typebox";
 
 export const THINKING_PRESETS = [
-	"none", "model-suffix", "openai", "openrouter", "deepseek", "together", "zai", "qwen",
-	"qwen-chat-template", "chat-template-enabled", "chat-template-effort", "string-thinking", "ant-ling",
+	"auto", "none", "model-suffix",
+	...OpenAICompletionsCompatSchema.properties.thinkingFormat.anyOf.map(({ const: format }) => format),
+	"chat-template-enabled", "chat-template-effort",
 ] as const;
 const ThinkingPresetSchema = Type.Enum(THINKING_PRESETS);
+
+export function thinkingPresetIssue(api: unknown, preset: unknown): string | undefined {
+	if (api === "openai-responses" && (preset === "baseten" || preset === "chat-template"))
+		return `${preset} requires openai-completions`;
+}
 const OpenAIApiSchema = Type.Enum(["openai-completions", "openai-responses"]);
 export const MODEL_THINKING_LEVEL_VALUES = MODEL_THINKING_LEVELS;
-export function isModelThinkingLevel(value: unknown): value is ModelThinkingLevel {
-	return MODEL_THINKING_LEVELS.some((level) => level === value);
-}
 
 const ModelExtensionProperties = {
 	thinkingPreset: Type.Optional(ThinkingPresetSchema),
@@ -22,8 +26,6 @@ const ModelExtensionProperties = {
 const ModelOptionsSchema = Type.Object(ModelExtensionProperties);
 const ModelIdentitySchema = Type.Object({ id: Type.String({ minLength: 1 }), ...ModelExtensionProperties });
 const ProviderExtensionProperties = {
-	discoverModels: Type.Optional(Type.Boolean()),
-	modelsEndpoint: Type.Optional(Type.String({ minLength: 1 })),
 	thinkingPreset: Type.Optional(ThinkingPresetSchema),
 	timeoutMs: Type.Optional(Type.Number({ minimum: 0 })),
 	maxRetries: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -38,28 +40,17 @@ export const ProviderOptionsSchema = Type.Object({
 	...ProviderExtensionProperties,
 });
 
-// 只读取目录请求和 API 分派必需的原生字段，其余模型元数据由 SDK 处理。
+// 只读取注册和 API 分派必需的原生字段，其余模型元数据由 SDK 处理。
 export const ProviderConfigSchema = Type.Object({
 	...ProviderOptionsSchema.properties,
 	name: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.String({ minLength: 1 }),
 	api: OpenAIApiSchema,
-	headers: Type.Optional(Type.Record(Type.String(), Type.String())),
-	authHeader: Type.Optional(Type.Boolean()),
 	models: Type.Optional(Type.Array(Type.Object({
 		...ModelIdentitySchema.properties,
 		api: Type.Optional(OpenAIApiSchema),
 	}))),
 });
-
-export function hasProviderExtensions(value: object): boolean {
-	if (Object.keys(ProviderExtensionProperties).some((key) => key in value)) return true;
-	const models: unknown[] = "models" in value && Array.isArray(value.models) ? value.models : [];
-	const overrides = "modelOverrides" in value && typeof value.modelOverrides === "object" && value.modelOverrides !== null
-		? Object.values(value.modelOverrides) : [];
-	return [...models, ...overrides].some((model) => typeof model === "object" && model !== null
-		&& Object.keys(ModelExtensionProperties).some((key) => key in model));
-}
 
 export function hasRequestExtensions(config: ProviderOptions): boolean {
 	return config.timeoutMs !== undefined || config.maxRetries !== undefined || config.extraBody !== undefined

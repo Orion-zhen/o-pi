@@ -6,7 +6,7 @@
 
 `settings.json`、`models.json`、`keybindings.json` 和主题使用 Pi 原生格式，可分别引用 `https://pi.dev/schemas/` 下的 `settings.schema.json`、`models.schema.json`、`keybindings.schema.json` 和 `theme.schema.json` 获得编辑器校验与补全。[`settings.example.jsonc`](../agent/settings.example.jsonc) 已包含 `$schema`。
 
-这些 schema 不适用于本仓库的 `configs/*.jsonc`。OpenAI 兼容扩展与 SDK 共用 `models.json`，`discoverModels`、`thinkingPreset` 等扩展字段直接平铺，字段说明见[提供方配置](openai-compatible-provider/schema.md)。自定义主题启动时也会校验，复用颜色应放在 `vars` 中，并移除不支持的元数据。
+这些 schema 不适用于本仓库的 `configs/*.jsonc`。OpenAI 兼容扩展与 SDK 共用 `models.json`，`thinkingPreset` 等扩展字段直接平铺，字段说明见[提供方配置](openai-compatible-provider/schema.md)。自定义主题启动时也会校验，复用颜色应放在 `vars` 中，并移除不支持的元数据。
 
 ## 配置层级
 

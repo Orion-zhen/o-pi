@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mcpObject, parseMcpConfig, validateMcpConfig, validateMcpServer } from "../../src/gui/mcp-validation.ts";
 import { changeMcpTransport, copyMcpServer, createMcpDraft, createMcpServer, importMcpServers, mcpDraftIssues, mcpId, mcpServerSummary, mcpServerValue, nextMcpName, writeMcpDraft } from "../../src/gui/ui/mcp/mcp-draft.ts";
 import { parseMcpCommand } from "../../src/gui/ui/mcp/mcp-command.ts";
-import { mcpEditorContent, readMcpEditor } from "../../src/gui/ui/mcp/mcp-editor.ts";
+import { discardMcpEditor, mcpEditorContent, readMcpEditor } from "../../src/gui/ui/mcp/mcp-editor.ts";
 
 it("编辑、复制、删除服务保留凭据、未知字段与全局选项", () => {
 	const original = {
@@ -12,14 +12,29 @@ it("编辑、复制、删除服务保留凭据、未知字段与全局选项", (
 			local: { command: "uvx", args: ["server", "path with spaces", ""], env: { TOKEN: "${LOCAL_TOKEN}" }, enabled: false },
 		},
 	};
-	const draft = createMcpDraft(parseMcpConfig(JSON.stringify(original)));
+	const content = JSON.stringify(original);
+	const editor = readMcpEditor(content);
+	if (editor.mode !== "form") throw new Error("表单未加载");
+	const draft = editor.draft;
 	const server = draft.servers[0];
 	if (!server) throw new Error("服务未加载");
 	expect(mcpServerSummary(server)).toBe("example.com");
 	expect(JSON.parse(writeMcpDraft(draft))).toEqual(original);
 	const copy = copyMcpServer(server, nextMcpName(draft, "docs-copy"));
-	draft.servers = [{ ...server, name: "renamed" }, copy];
-	expect(JSON.parse(writeMcpDraft(draft))).toEqual({ ...original, mcpServers: { renamed: original.mcpServers.docs, "docs-copy": original.mcpServers.docs } });
+	const changed = { ...editor, draft: { ...draft, servers: [{ ...server, name: "renamed" }, copy] } };
+	expect(JSON.parse(mcpEditorContent(changed) ?? "null")).toEqual({ ...original, mcpServers: { renamed: original.mcpServers.docs, "docs-copy": original.mcpServers.docs } });
+	const restored = discardMcpEditor(content, changed);
+	if (restored.mode !== "form") throw new Error("表单未恢复");
+	expect(restored.draft).toBe(draft);
+	expect(restored.draft.servers[0]).toBe(server);
+	expect(mcpEditorContent(restored)).toBe(content);
+	const fromSource = readMcpEditor(JSON.stringify({ ...original, autoEnableCodemode: true }));
+	if (fromSource.mode !== "form") throw new Error("表单未加载");
+	const sourceRestored = discardMcpEditor(content, fromSource);
+	if (sourceRestored.mode !== "form") throw new Error("表单未恢复");
+	expect(sourceRestored.draft.servers.map(({ id, args, maps }) => ({ id, args, maps })))
+		.toEqual(fromSource.draft.servers.map(({ id, args, maps }) => ({ id, args, maps })));
+	expect(mcpEditorContent(sourceRestored)).toBe(content);
 });
 
 it("草稿比较忽略界面状态与行 ID，保留未知字段中的同名属性", () => {

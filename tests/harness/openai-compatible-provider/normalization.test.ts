@@ -8,8 +8,9 @@ const invalidConfigs = [
 	["model core dropParams", { models: [{ id: "m", dropParams: ["messages"] }] }],
 	["provider core extraBody", { extraBody: { tools: [] } }],
 	["override core dropParams", { modelOverrides: { m: { dropParams: ["tools"] } } }],
-	["endpoint without discovery", { discoverModels: false, modelsEndpoint: "models" }],
 	["fractional maxRetries", { maxRetries: 0.5 }],
+	["zero maxTokens", { models: [{ id: "m", maxTokens: 0 }] }],
+	["zero override maxTokens", { modelOverrides: { m: { maxTokens: 0 } } }],
 	["missing baseUrl", { baseUrl: undefined }],
 	["unknown provider thinking preset", { thinkingPreset: "unknown" }],
 	["unknown model thinking preset", { models: [{ id: "m", thinkingPreset: "unknown" }] }],
@@ -39,7 +40,7 @@ describe("openai-compatible-provider normalization", () => {
 	});
 
 	it.each(invalidConfigs)("拒绝 %s 且不泄露密钥", async (_name, overrides) => {
-		const result = loadProvider(temp.path, { apiKey: "sk-secret", discoverModels: true, ...overrides });
+		const result = loadProvider(temp.path, { apiKey: "sk-secret", dropParams: ["store"], ...overrides });
 		await expect(result).rejects.toThrow();
 		await expect(result).rejects.not.toThrow("sk-secret");
 	});
