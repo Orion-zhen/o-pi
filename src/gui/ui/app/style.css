@@ -102,8 +102,8 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .approval pre { max-height: 40dvh; overflow: auto; }
 .dialog-title { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin-top: 0.5rem; }
 .dialog-form { display: grid; }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
-.dialog-actions > button { inline-size: 5rem; }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+.dialog-actions > button { max-inline-size: 100%; white-space: normal; overflow-wrap: anywhere; }
 .choices { display: grid; gap: 0.5rem; }
 .choices button { height: auto; min-height: 2.75rem; justify-content: flex-start; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 

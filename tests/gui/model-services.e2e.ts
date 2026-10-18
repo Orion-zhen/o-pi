@@ -189,6 +189,44 @@ test("思考映射表编辑服务商值，禁用、单项还原和整体还原�
 	expect(parse(await readFile(file, "utf8")).providers.local.models[0]).not.toHaveProperty("thinkingLevelMap");
 });
 
+test("思考映射在窄容器和大字号下完整显示并可编辑", async ({ gui: { page }, workspace: { agentDir } }) => {
+	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { local: {
+		api: "openai-responses", baseUrl: "http://localhost:11451/v1", apiKey: "local", models: [{ id: "reasoner", reasoning: true }],
+	} } }));
+	await open(page);
+	const pane = services(page);
+	await pane.getByRole("button", { name: "编辑服务 local", exact: true }).click();
+	await pane.getByRole("button", { name: "编辑模型 reasoner", exact: true }).click();
+	await pane.getByRole("button", { name: "思考等级映射", exact: true }).click();
+	const table = pane.getByRole("table", { name: "思考等级映射", exact: true });
+	await pane.locator(".service-thinking").evaluate((element) => { element.style.maxInlineSize = "260px"; });
+	for (const scale of ["normal", "root", "ui"] as const) {
+		await page.evaluate((scale) => {
+			document.documentElement.style.fontSize = scale === "root" ? "200%" : "100%";
+			document.documentElement.style.setProperty("--text-ui", scale === "ui" ? "1.75rem" : "0.875rem");
+		}, scale);
+		const value = table.getByRole("textbox", { name: "opi high 对应的服务商值", exact: true });
+		await value.fill("provider-high-value");
+		await expect.poll(() => table.evaluate((element) => {
+			const container = element.closest(".service-thinking");
+			if (!container) throw new Error("缺少映射容器");
+			const bounds = container.getBoundingClientRect();
+			return element.getBoundingClientRect().width <= bounds.width
+				&& [...element.querySelectorAll("input, button")].every((control) => {
+					const rect = control.getBoundingClientRect();
+					return rect.left >= bounds.left && rect.right <= bounds.right;
+				});
+		})).toBe(true);
+		expect(await value.evaluate((element) => {
+			const table = element.closest("table");
+			if (!table) throw new Error("缺少映射表");
+			return element.clientWidth >= table.clientWidth * 0.8;
+		})).toBe(true);
+		await table.getByRole("button", { name: "恢复 high 默认映射", exact: true }).click();
+		await expect(value).toHaveValue("");
+	}
+});
+
 test("模型 ID 输入筛选候选，也可直接添加自定义模型", async ({ gui: { page }, workspace: { agentDir } }) => {
 	const requests: string[] = [];
 	const server = createServer((req, res) => {

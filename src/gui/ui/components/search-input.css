@@ -1,0 +1,6 @@
+[data-slot="search-input"] { display: flex; align-items: center; inline-size: 100%; min-inline-size: 0; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); transition: border-color var(--motion-normal), box-shadow var(--motion-normal); }
+[data-slot="search-input"]:focus-within { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent); }
+[data-slot="search-input"]:has(input[aria-invalid="true"]) { border-color: var(--destructive); }
+[data-slot="search-input"]:has(input[aria-invalid="true"]):focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--destructive) 20%, transparent); }
+[data-slot="search-input"] > input { flex: 1; border: 0; background: transparent; box-shadow: none; }
+[data-slot="search-input"] > button { margin-inline-end: var(--space-1); }
