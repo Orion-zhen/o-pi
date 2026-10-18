@@ -34,7 +34,6 @@ export async function collectAssets(root, staging, { target = "bun", extra = [] 
 	if (target === "node") await add(require.resolve("quickjs-wasi/quickjs.wasm"), "wasm/quickjs.wasm");
 	for (const directory of ["cmaps", "standard_fonts", "wasm"]) await add(path.join(path.dirname(require.resolve("pdfjs-dist/package.json")), directory), `pdf/${directory}`);
 	await add(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs"), "pdf/pdf.worker.mjs");
-	await add(path.join(path.dirname(require.resolve("node-notifier")), "vendor"), "notifier/vendor");
 
 	const libc = process.platform === "linux" ? (process.report.getReport().header.glibcVersionRuntime ? "gnu" : "musl") : undefined;
 	const suffix = [process.platform, process.arch, libc, ...(process.platform === "win32" ? ["msvc"] : [])].filter(Boolean).join("-");

@@ -15,8 +15,8 @@ describe("桌面耗时日志", () => {
 		expect(log.request("query-1", { sessionId: null, value: { query: "image", id: "PRIVATE_IMAGE" } }, 100)).toBe(false);
 		log.backend("send-1", 110);
 		log.user("session-1", 120, 120);
-		expect(log.delivery({ id: 1, events: [{ type: "selected", session: { id: "session-1", cwd: "/PRIVATE_PATH", path: null } }] }, 115)).toBe(true);
-		expect(log.delivery({ id: 2, events: [{ type: "patch", sessionId: "session-1", value: {},
+		expect(log.delivery({ kind: "frame", id: 1, events: [{ type: "selected", session: { id: "session-1", cwd: "/PRIVATE_PATH", path: null } }] }, 115)).toBe(true);
+		expect(log.delivery({ kind: "frame", id: 2, events: [{ type: "patch", sessionId: "session-1", value: {},
 			entries: { keep: 0, items: [{ id: "entry-1", parentId: null, type: "message", timestamp: new Date(120).toISOString(), label: undefined,
 				messages: [{ role: "user", content: "PRIVATE_INPUT", timestamp: 120 }] }] } }] }, 121)).toBe(true);
 		log.received(1, 130);
@@ -39,7 +39,7 @@ describe("桌面耗时日志", () => {
 	it("重连后不把上个连接尚未确认的批次算到新连接", async () => {
 		const file = path.join(temp.path, "gui-timing.jsonl");
 		const log = new DesktopDiagnostics(file);
-		log.delivery({ id: 3, events: [{ type: "selected", session: null }] }, 1);
+		log.delivery({ kind: "frame", id: 3, events: [{ type: "selected", session: null }] }, 1);
 		log.reset();
 		log.received(3, 2);
 		log.acknowledge(3, 3);

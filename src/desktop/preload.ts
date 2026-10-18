@@ -3,6 +3,7 @@ import type { DesktopBridge } from "../gui/contract.ts";
 import type { GuiDelivery } from "../gui/sync.ts";
 
 const bridge: DesktopBridge = {
+	attend: (sessionId) => ipcRenderer.send("gui:attention", sessionId),
 	reportDiagnostic: (value) => ipcRenderer.invoke("gui:diagnostic", value),
 	readStorage: () => ipcRenderer.invoke("gui:storage"),
 	clearStorage: (ids) => ipcRenderer.invoke("gui:clearStorage", ids),
@@ -12,7 +13,7 @@ const bridge: DesktopBridge = {
 	acknowledge: (id) => ipcRenderer.send("gui:ack", id, Date.now()),
 	subscribe(listener) {
 		const handle = (_event: Electron.IpcRendererEvent, value: GuiDelivery, traced: boolean) => {
-			if (traced) ipcRenderer.send("gui:received", value.id, Date.now());
+			if (traced && value.kind === "frame") ipcRenderer.send("gui:received", value.id, Date.now());
 			listener(value);
 		};
 		ipcRenderer.on("gui:event", handle);

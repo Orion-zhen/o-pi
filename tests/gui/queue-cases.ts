@@ -58,6 +58,7 @@ export function queueTests(context: () => { host: GuiClient; agentDir: string })
 			const receiver = new GuiReceiver();
 			const received: GuiSnapshot[] = [];
 			const connection = host.connect((delivery) => {
+				if (delivery.kind !== "frame") return;
 				for (const event of structuredClone(delivery).events) {
 					const value = receiver.accept(event);
 					if (value.type === "snapshot" && value.value) received.push(value.value);

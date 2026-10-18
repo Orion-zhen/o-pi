@@ -33,10 +33,6 @@ export function runtimePlugin() {
 				if (source.split('require("@napi-rs/canvas")').length !== 3) throw new Error(`PDF canvas adapter no longer matches: ${path}`);
 				return { contents: 'import * as opiCanvas from "@napi-rs/canvas";\n' + source.replaceAll('require("@napi-rs/canvas")', "opiCanvas"), loader: "js" };
 			});
-			build.onLoad({ filter: /[\\/]node-notifier[\\/]notifiers[\\/](notificationcenter|toaster|balloon)\.js$/ }, async ({ path }) => ({
-				contents: (await readFile(path, "utf8")).replaceAll("__dirname", '(process.env.PI_OPI_RESOURCE_DIR + "/notifier/notifiers")'),
-				loader: "js",
-			}));
 		},
 	};
 }

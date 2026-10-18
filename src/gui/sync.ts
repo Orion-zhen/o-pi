@@ -18,10 +18,11 @@ export interface GuiPatch {
 	entries?: Tail<GuiSnapshot["entries"][number]> | undefined;
 	streamingMessage?: StreamingPatch | undefined;
 }
-export type GuiWireEvent = Exclude<GuiEvent, { type: "stream" }> | GuiPatch
+export type GuiWireEvent = Exclude<GuiEvent, { type: "stream" | "notification" }> | GuiPatch
 	| { type: "sessionsPatch"; value: ListPatch<GuiSessionInfo> }
 	| { type: "workspacesPatch"; value: ListPatch<GuiWorkspaceInfo> };
-export interface GuiDelivery { id: number; events: GuiWireEvent[] }
+export interface GuiFrame { kind: "frame"; id: number; events: GuiWireEvent[] }
+export type GuiDelivery = GuiFrame | { kind: "notification"; value: import("../harness/attention.ts").Attention };
 
 function tail<T>(before: T[], after: T[]): Tail<T> | undefined {
 	if (before === after) return undefined;

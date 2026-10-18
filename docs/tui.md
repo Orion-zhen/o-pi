@@ -39,11 +39,11 @@
 - 提交第一条非空输入时立即隐藏启动界面。`agent_start` 同样确保离开 Home，将状态改为 `running` 并取消尚未开始的数学初始化。
 - `turn_end` 更新用量快照，状态仍为 `running`。
 - Agent 运行中的 `ui_prompt_start` 将状态改为 `waiting`，`ui_prompt_end` 恢复 `running`。空闲时打开扩展界面不改变状态。
-- `agent_settled` 将状态改为 `ready`，安排数学初始化，并通过 `node-notifier` 发送完成通知。TUI 运行时不在 `ui_prompt_start` 发送通知。
+- `agent_settled` 将状态改为 `ready`，安排数学初始化。独立通知扩展监听审批请求和正常完成，不把所有 `ui_prompt_start` 都当成审批。
 - 模型或思考级别变化时刷新快照，通过 `setStatus()` 请求重绘，不重建整套界面组件。
 - 会话关闭时取消延迟任务，停用已安装的数学补丁，释放动画和 Git 订阅，恢复仍由本扩展持有的编辑器，并等待历史写队列完成。
 
-系统通知采用尽力而为策略。失败不影响 Agent 状态。通知标题为 `opi`，正文为 `opi is waiting for you.`。
+系统通知由 `notification.ts` 发送。终端报告当前会话有焦点时跳过，焦点未知或失焦时发送。退出时关闭焦点报告并释放监听。Linux 使用 `notify-send`，macOS 使用 `osascript`，Windows 使用 PowerShell WinRT Toast，并注册当前用户的 OPi 通知身份。命令最多运行 5 秒，失败不影响 Agent 或审批。通过 SSH 运行时通知发生在远端，不转发到本地终端。通知内容与各端职责见[系统通知](frontends.md#系统通知)。
 
 ## 配置
 

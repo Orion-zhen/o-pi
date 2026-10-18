@@ -9,6 +9,7 @@ import { Button } from "../components/ui/button";
 import { AnimatedBackground } from "../components/motion-primitives/animated-background";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { AgentSettings } from "./agent-settings.tsx";
+import { NotificationSettings } from "./notification-settings.tsx";
 import { GuiSettings } from "../preferences/gui-settings.tsx";
 import { ModuleSettings } from "./module-settings.tsx";
 import { LspServers } from "./lsp-servers.tsx";
@@ -51,6 +52,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 			case "appearance": return <GuiSettings title="外观" section="appearance" {...guiProps} />;
 			case "conversation": return <>
 				<GuiSettings title="发送方式" section="interaction" {...guiProps} />
+				<NotificationSettings />
 				{snapshot ? <AgentSettings key={snapshot.sessionId} snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} />
 					: <SettingsSection title="会话行为"><p className="settings-empty">未选择工作区</p></SettingsSection>}
 				{module("autoTitle", "自动标题")}

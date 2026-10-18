@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { SessionManager, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { compileSchemaValidator } from "../../harness/schema-validator.ts";
-import { actionSchema, querySchema, type SessionTarget, type GuiAction, type GuiEvent, type GuiQuery, type GuiQueryResults } from "../contract.ts";
+import { actionSchema, querySchema, type SessionTarget, type GuiAction, type GuiAttention, type GuiEvent, type GuiQuery, type GuiQueryResults } from "../contract.ts";
 import type { GuiDelivery } from "../sync.ts";
 import type { GuiHost } from "./host.ts";
 import type { GuiSession } from "./session/session.ts";
@@ -37,6 +37,11 @@ export class GuiClient {
 	private unsubscribeHost: () => void;
 	private closed = false;
 	private observing = true;
+	private attention: GuiAttention | null = null;
+	get attending(): string | null {
+		return this.attention?.focused && this.attention.sessionId === this.selected?.id ? this.attention.sessionId : null;
+	}
+	get notificationDestination(): string | null { return this.attention?.destination ?? null; }
 	private selection = 0;
 	private drafts = new Map<string, string>();
 	private lastViewed = new Map<string, string>();
@@ -77,7 +82,11 @@ export class GuiClient {
 		const receive = (event: GuiEvent) => channel.accept(event);
 		const unsubscribe = this.subscribe(receive);
 		this.replay(receive);
-		return { acknowledge: (id: number) => channel.acknowledge(id), close: () => { unsubscribe(); channel.close(); } };
+		return {
+			attend: (value: GuiAttention) => { this.attention = value; },
+			acknowledge: (id: number) => channel.acknowledge(id),
+			close: () => { this.attention = null; unsubscribe(); channel.close(); },
+		};
 	}
 	private selectionEvent(): Extract<GuiEvent, { type: "selected" }> {
 		const session = this.selected;

@@ -1,4 +1,5 @@
 import { Type, type Static, type TProperties } from "typebox";
+import type { Attention } from "../harness/attention.ts";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession, AgentSessionEvent, SessionStats } from "@earendil-works/pi-coding-agent";
 import type { StatsSnapshot } from "../harness/stats/types.ts";
@@ -29,6 +30,18 @@ const image = object({
 		Type.Literal("image/gif"),
 	]),
 });
+
+const attentionSchema = object({
+	sessionId: Type.Union([short, Type.Null()]),
+	focused: Type.Boolean(),
+	destination: Type.Union([short, Type.Null()]),
+});
+export type GuiAttention = Static<typeof attentionSchema>;
+export const controlSchema = Type.Union([
+	object({ kind: Type.Literal("ack"), id: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) }),
+	object({ kind: Type.Literal("attention"), value: attentionSchema }),
+]);
+export type GuiControl = Static<typeof controlSchema>;
 
 /** 跨进程操作参数，目标会话由请求外层明确指定。 */
 export const actionSchema = Type.Union([
@@ -281,6 +294,7 @@ export interface GuiDirectories {
 }
 
 export type GuiEvent =
+	| { type: "notification"; value: Attention }
 	| { type: "client"; id: string }
 	| { type: "selected"; session: { id: string; cwd: string; path: string | null } | null; draftFrom?: string }
 	| { type: "activity"; value: GuiSessionActivity[] }
@@ -304,6 +318,7 @@ export type GuiEvent =
 	| { type: "close" };
 
 export interface GuiConnection {
+	attend(sessionId: string | null): void;
 	send(action: GuiAction, sessionId: string | null): Promise<void>;
 	query<Q extends GuiQuery>(query: Q, sessionId: string | null): Promise<GuiQueryResults[Q["query"]]>;
 	subscribe(listener: (event: GuiEvent) => void): () => void;

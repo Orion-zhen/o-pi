@@ -51,7 +51,7 @@ export function useGui() {
 				break;
 		}
 	});
-	const { connected, status, send: dispatch, query: readQuery } = connection;
+	const { connected, status, attend, send: dispatch, query: readQuery } = connection;
 	const dispatchSelected = useCallback((action: GuiAction) => dispatch(action, selectedId), [dispatch, selectedId]);
 	const auth = useGuiActions(dispatchSelected, setError, panels.closePanel);
 	useEffect(() => { if (!connected) auth.finish(); }, [connected, auth.finish]);
@@ -74,6 +74,7 @@ export function useGui() {
 		document.addEventListener("visibilitychange", observe);
 		return () => document.removeEventListener("visibilitychange", observe);
 	}, [connected, dispatch]);
+	useEffect(() => { if (connected) attend(selectedId); }, [connected, selectedId, attend]);
 	const [sessionsLoading, setSessionsLoading] = useState(false);
 	const refreshSessions = useCallback(async () => {
 		setSessionsLoading(true);

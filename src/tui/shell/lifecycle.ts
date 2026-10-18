@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { notifyWaiting } from "../../harness/notification/native.ts";
 import { clearChrome } from "./chrome.ts";
 import { loadTuiConfig } from "./config.ts";
 import { MathInitialization } from "../chat/math/initialization.ts";
@@ -34,11 +33,9 @@ export function createTuiRuntime(pi: ExtensionAPI): TuiRuntime {
 	pi.on("ui_prompt_end", () => {
 		if (session?.status === "waiting") session.refresh("running");
 	});
-	pi.on("agent_settled", async (event, ctx) => {
+	pi.on("agent_settled", () => {
 		session?.refresh("ready");
 		math.schedule();
-		if (ctx.mode !== "tui" || event.aborted) return;
-		await notifyWaiting();
 	});
 
 	pi.on("before_provider_headers", () => {

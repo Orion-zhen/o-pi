@@ -10,7 +10,7 @@ function connection() {
 	const channel = new GuiChannel((delivery) => {
 		const wire = JSON.parse(JSON.stringify(delivery)) as GuiDelivery;
 		deliveries.push(wire);
-		events.push(...wire.events.map((event) => receiver.accept(event)));
+		if (wire.kind === "frame") events.push(...wire.events.map((event) => receiver.accept(event)));
 	});
 	return { channel, deliveries, events, push: async (event: GuiEvent) => { channel.accept(event); await Promise.resolve(); } };
 }
@@ -57,7 +57,7 @@ describe("会话目录传输", () => {
 			const reconnected = connection();
 			try {
 				await reconnected.push({ type: "sessions", value: history });
-				expect(reconnected.deliveries[0]?.events).toEqual([{ type: "sessions", value: history }]);
+				expect(reconnected.deliveries[0]).toEqual({ kind: "frame", id: 1, events: [{ type: "sessions", value: history }] });
 			} finally { reconnected.channel.close(); }
 		} finally { peer.channel.close(); }
 	});

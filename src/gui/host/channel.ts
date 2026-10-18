@@ -9,7 +9,7 @@ export class GuiChannel {
 	private sessions: GuiSessionInfo[] | undefined;
 	private workspaces: GuiWorkspaceInfo[] | undefined;
 	private dirty = false;
-	private pending: Exclude<GuiEvent, { type: "snapshot" | "stream" }>[] = [];
+	private pending: Exclude<GuiEvent, { type: "snapshot" | "stream" | "notification" }>[] = [];
 	private sequence = 0;
 	private acknowledged = 0;
 	private scheduled = false;
@@ -19,6 +19,8 @@ export class GuiChannel {
 
 	accept(event: GuiEvent): void {
 		if (this.closed) return;
+		// 提醒不进入绘制流控窗口，后台页面可能暂停确认快照。
+		if (event.type === "notification") { this.send({ kind: "notification", value: event.value }); return; }
 		if (event.type === "snapshot") {
 			this.current = event.value;
 			this.dirty = true;
@@ -73,7 +75,7 @@ export class GuiChannel {
 				this.sent = this.current;
 				this.dirty = false;
 			}
-			if (events.length) this.send({ id: ++this.sequence, events });
+			if (events.length) this.send({ kind: "frame", id: ++this.sequence, events });
 		});
 	}
 

@@ -111,7 +111,7 @@ it("刷新会话列表不会覆盖诊断中的当前会话", async () => {
 	const connection = connectGui(() => {});
 	try {
 		if (!receive) throw new Error("缺少连接订阅");
-		receive({ id: 8, events: [{ type: "selected", session: { id: "selected-session", cwd: "/workspace", path: null } }] });
+		receive({ kind: "frame", id: 8, events: [{ type: "selected", session: { id: "selected-session", cwd: "/workspace", path: null } }] });
 		await Promise.resolve();
 		await connection.send({ action: "sessions" }, null);
 		reportDiagnostic("script", "application", new Error("刷新后的异常"));

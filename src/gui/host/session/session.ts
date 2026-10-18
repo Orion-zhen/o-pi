@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { SessionManager, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import type { GuiEvent, GuiSessionActivity } from "../../contract.ts";
+import type { Attention } from "../../../harness/attention.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import { GuiExecution, type SessionClient } from "./execution.ts";
 
@@ -36,6 +37,7 @@ export class GuiSession {
 		private startEvent: SessionStartEvent,
 		private notify: (activityChanged: boolean) => void,
 		private refreshHistory: () => void,
+		private attention: (event: Attention) => void,
 	) {
 		this.manager = manager;
 		this.awaitingMessage = (startEvent.reason === "startup" || startEvent.reason === "new")
@@ -106,6 +108,7 @@ export class GuiSession {
 		if (this.resources.state === "starting") return this.resources.task;
 		if (this.resources.state === "ready") return this.resources.execution;
 		const execution = new GuiExecution(this.id, (event) => {
+			if (event.type === "notification") { this.attention(event.value); return; }
 			for (const listener of this.listeners) listener(event);
 		}, () => this.changed(), this.refreshHistory, () => this.submitted());
 		execution.observe(this.observed);

@@ -6,11 +6,14 @@ import { WebSocketServer } from "ws";
 import type { GuiHost } from "../gui/host/host.ts";
 import type { GuiClient } from "../gui/host/client.ts";
 import { decodeGuiRequest } from "../gui/host/request.ts";
+import { controlSchema, type GuiControl } from "../gui/contract.ts";
+import { compileSchemaValidator } from "../harness/schema-validator.ts";
 import { fileResourceResponse } from "../gui/host/workspace/file-resource.ts";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
+const validateControl = compileSchemaValidator(controlSchema);
 const MAX_BUFFERED_AMOUNT = 16 * 1024 * 1024;
 const CSP =
 	"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
@@ -152,10 +155,11 @@ export async function startWebServer(
 			ws.on("message", (data) => {
 				try {
 					const value: unknown = JSON.parse(data.toString());
-					if (typeof value !== "object" || value === null || !("ack" in value) || typeof value.ack !== "number" || !Number.isSafeInteger(value.ack))
-						throw new Error("Invalid acknowledgement");
-					connection.acknowledge(value.ack);
-				} catch { ws.close(1008, "Expected acknowledgement"); }
+					if (!validateControl(value)) throw new Error("Invalid control message");
+					const control = value as GuiControl;
+					if (control.kind === "ack") connection.acknowledge(control.id);
+					else connection.attend(control.value);
+				} catch { ws.close(1008, "Invalid control message"); }
 			});
 			ws.on("error", () => ws.terminate());
 			ws.on("close", () => { connection.close(); client.close(); clients.delete(client.id); });

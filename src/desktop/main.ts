@@ -14,6 +14,7 @@ import { writeFile } from "node:fs/promises";
 import type { GuiEvent } from "../gui/contract.ts";
 import { GUI_BACKGROUNDS } from "../gui/theme-base.ts";
 import { BackendClient } from "./backend-client.ts";
+import { showDesktopNotification, trackDesktopAttention } from "./notifications.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";
 import { forkDesktopWorker } from "./worker-services.ts";
 import { DesktopDiagnostics } from "./diagnostics.ts";
@@ -137,6 +138,17 @@ void app
 				stdio: "pipe", serviceName: "opi-desktop SDK", env: environment,
 			}),
 			(delivery, at) => {
+				if (delivery.kind === "notification") {
+					showDesktopNotification(delivery.value, icon, () => {
+						if (window && !window.isDestroyed()) {
+							if (window.isMinimized()) window.restore();
+							window.show(); window.focus();
+						}
+						void backend?.request("action", { sessionId: null, value: { action: "openSession", id: delivery.value.sessionId } }, undefined)
+							.catch((error: unknown) => backend?.send({ kind: "notice", text: String(error) }));
+					});
+					return;
+				}
 				const events = delivery.events.filter((event) => {
 					if (event.type === "close") { app.quit(); return false; }
 					if (event.type !== "download") return true;
@@ -161,6 +173,12 @@ void app
 			},
 		);
 		backend = client;
+		const attend = trackDesktopAttention(window, (value) => client.send({ kind: "attention", value }));
+		ipcMain.on("gui:attention", (event, sessionId: unknown) => {
+			trusted(event);
+			if (sessionId !== null && typeof sessionId !== "string") throw new Error("无效会话标识");
+			attend(sessionId);
+		});
 		for (const kind of ["action", "query"] as const) {
 			ipcMain.handle(`gui:${kind}`, (event, value: unknown, submittedAt: unknown) => {
 				trusted(event);
@@ -171,6 +189,7 @@ void app
 			trusted(event);
 			diagnostics.reset();
 			client.send({ kind: "subscribe" });
+			attend(null);
 		});
 		ipcMain.on("gui:received", (event, id: unknown, at: unknown) => {
 			trusted(event);

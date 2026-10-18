@@ -24,7 +24,6 @@
 		"@playwright/test": "latest",
 		"@tailwindcss/vite": "latest",
 		"@types/node": "latest",
-		"@types/node-notifier": "latest",
 		"@types/picomatch": "latest",
 		"@types/react": "latest",
 		"@types/react-dom": "latest",
@@ -75,7 +74,6 @@
 		"linkedom": "latest",
 		"lucide-react": "latest",
 		"motion": "latest",
-		"node-notifier": "latest",
 		"p-limit": "latest",
 		"pdfjs-dist": "latest",
 		"picomatch": "latest",
@@ -107,10 +105,5 @@
 		"which": "latest",
 		"ws": "latest"
 	},
-	"trustedDependencies": ["@google/genai", "protobufjs", "electron"],
-	"overrides": {
-		"node-notifier": {
-			"uuid": "latest"
-		}
-	}
+	"trustedDependencies": ["@google/genai", "protobufjs", "electron"]
 }

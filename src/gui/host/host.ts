@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { Attention } from "../../harness/attention.ts";
 import { stat } from "node:fs/promises";
 import { SessionManager, VERSION, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import { checkForNewPiVersion } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/utils/version-check.js";
@@ -43,6 +44,18 @@ export class GuiHost {
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private deleting = new Set<string>();
 	private cache = readGuiDefaults().sessionCache;
+
+	private notifyAttention(value: Attention): void {
+		if (this.closed || process.env.OPI_NO_NOTIFICATIONS === "1") return;
+		if ([...this.clients].some((client) => client.attending === value.sessionId)) return;
+		const sent = new Set<string>();
+		for (const client of this.clients) {
+			const destination = client.notificationDestination;
+			if (!destination || sent.has(destination)) continue;
+			sent.add(destination);
+			client.emit({ type: "notification", value });
+		}
+	}
 
 	checkVersion(): Promise<string | null> {
 		return this.versionCheck ??= checkForNewPiVersion(VERSION).then((release) => release?.version ?? null);
@@ -157,7 +170,7 @@ export class GuiHost {
 			return existing;
 		}
 		const session = new GuiSession(manager, { stores: this.approvals, trust: this.projectTrust }, event,
-			(changed) => { if (changed) this.activityChanged(); this.scheduleCollection(); }, () => this.refresh());
+			(changed) => { if (changed) this.activityChanged(); this.scheduleCollection(); }, () => this.refresh(), (value) => this.notifyAttention(value));
 		this.sessions.set(session.id, session);
 		this.activityChanged();
 		return session;

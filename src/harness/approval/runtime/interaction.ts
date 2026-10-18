@@ -1,4 +1,3 @@
-import { notifyWaiting } from "../../notification/native.ts";
 import { createExactAllowRules, createSimilarAllowRules, describeAllowRules } from "../rules/allow.ts";
 import type { ApprovalStore } from "../rules/store.ts";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
@@ -48,7 +47,6 @@ export async function handleAskDecision(
 		askedUnits.every((unit) => unit.remember.session),
 		askedUnits.every((unit) => unit.remember.persistent),
 	);
-	await notifyWaiting();
 	const choice = await interaction.approve(request, decision, options, dialogOptions(config));
 	const acceptedChoice = choice !== undefined && isOfferedChoice(choice, options) ? choice : undefined;
 	if (acceptedChoice === ALLOW_ONCE) return { kind: "approved" };

@@ -4,7 +4,7 @@ import dns from "node:dns/promises";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import path from "node:path";
 import type { ExtensionContext, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { presentation } from "../../../src/tui/extensions.ts";
 import approvalGateExtension from "../../../src/harness/extensions/approval-gate.ts";
 import { loadApprovalGateConfig } from "../../../src/harness/approval/config.ts";
@@ -22,15 +22,10 @@ import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
-preserveEnv("PI_APPROVAL_GATE_CONFIG", "NODE_ENV", "OPI_NO_NOTIFICATIONS");
-
-const backend = vi.hoisted(() => ({ notify: vi.fn<() => void>() }));
-vi.mock("node-notifier", () => ({ default: backend }));
-afterEach(() => backend.notify.mockReset());
+preserveEnv("PI_APPROVAL_GATE_CONFIG", "NODE_ENV");
 
 beforeEach(async () => {
 	process.env.NODE_ENV = "production";
-	delete process.env.OPI_NO_NOTIFICATIONS;
 	dir = temp.path;
 	process.env.PI_APPROVAL_GATE_CONFIG = path.join(dir, "approval.jsonc");
 	await setStorePath(path.join(dir, "rules.jsonc"));
@@ -107,24 +102,6 @@ describe("approval gate", () => {
 		const gate = createApprovalGate();
 		expect(await gate.authorize(await requiredRequest(bash("git push origin main")), await loadApprovalGateConfig(), interaction))
 			.toEqual({ kind: "approved" });
-	});
-
-	it.each([undefined, "0", "1"])("审批遵循系统通知开关: %s", async (disabled) => {
-		if (disabled !== undefined) process.env.OPI_NO_NOTIFICATIONS = disabled;
-		const order: string[] = [];
-		const ui = fakeUi(["Allow once"], undefined, () => order.push("select"));
-		backend.notify.mockImplementation(() => { order.push("notify"); });
-		const gate = testGate();
-		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
-		expect(order).toEqual(disabled === "1" ? ["select"] : ["notify", "select"]);
-	});
-
-	it("通知失败不阻塞审批", async () => {
-		const ui = fakeUi(["Allow once"]);
-		backend.notify.mockImplementation(() => { throw new Error("notification unavailable"); });
-		const gate = testGate();
-		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(1);
 	});
 
 	it("复合命令只触发一次聚合审批", async () => {

@@ -23,7 +23,7 @@
 - `bun run vitest run tests/harness tests/tui`：直接运行业务和界面测试，不重新构建。
 - `bun run test:gui`：先构建 Web 和桌面版，再执行 Playwright 端到端测试。
 
-Vitest 使用 mock 隔离系统通知。GUI 端到端测试为桌面和 Web 子进程设置 `OPI_NO_NOTIFICATIONS=1`，关闭系统通知但保留审批交互。该开关仅在值为 `1` 时生效，修改通知代码后必须重新构建测试产物。
+通知适配器的 Vitest 测试 mock 系统命令、Electron 和浏览器 API，不显示真实横幅。GUI 端到端测试为桌面和 Web 子进程设置 `OPI_NO_NOTIFICATIONS=1`，关闭系统通知但保留审批交互。该开关仅在值为 `1` 时生效，修改通知代码后必须重新构建测试产物。
 
 CLI 的模型边界使用本地 HTTP 服务，不通过外部扩展注入，不访问付费模型。Vitest 的 Node worker 使用测试目录中的 TS 引导器，产品不携带这个引导器。
 

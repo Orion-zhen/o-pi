@@ -7,16 +7,18 @@ import { GuiHost } from "../../src/gui/host/host.ts";
 import type { GuiClient } from "../../src/gui/host/client.ts";
 import { startWebServer } from "../../src/web/server.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
+import type { GuiControl, GuiEvent } from "../../src/gui/contract.ts";
 import type { FilePreview } from "../../src/gui/workbench.ts";
 import { GuiReceiver, type GuiDelivery } from "../../src/gui/sync.ts";
+import { startModelServer } from "../cli/model-server.ts";
 
 const temp = useTempDir("opi-web-boundary-");
-preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE");
+preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE", "OPI_NO_NOTIFICATIONS");
 let gui: GuiHost;
 let local: GuiClient;
 let peer: Awaited<ReturnType<typeof connect>>;
 let server: Awaited<ReturnType<typeof startWebServer>>;
+let model: Awaited<ReturnType<typeof startModelServer>>;
 
 async function connect(url: string) {
 	const events: GuiEvent[] = [];
@@ -24,8 +26,11 @@ async function connect(url: string) {
 	const receiver = new GuiReceiver();
 	ws.on("message", (value) => {
 		const delivery = JSON.parse(value.toString()) as GuiDelivery;
-		events.push(...delivery.events.map((event) => receiver.accept(event)));
-		ws.send(JSON.stringify({ ack: delivery.id }));
+		if (delivery.kind === "notification") events.push({ type: "notification", value: delivery.value });
+		else {
+			events.push(...delivery.events.map((event) => receiver.accept(event)));
+			ws.send(JSON.stringify({ kind: "ack", id: delivery.id }));
+		}
 	});
 	await once(ws, "open");
 	await expect.poll(() => events.some((event) => event.type === "client")).toBe(true);
@@ -41,8 +46,9 @@ beforeEach(async () => {
 	process.env.PI_OFFLINE = "1";
 	await mkdir(path.join(agent, "configs"), { recursive: true });
 	await writeFile(path.join(agent, "settings.json"), '{"defaultProjectTrust":"never","defaultProvider":"web-fixture","defaultModel":"test"}');
+	model = await startModelServer(() => ({ text: "任务已完成" }));
 	await writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: {
-		"web-fixture": { api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", apiKey: "fixture", models: [{ id: "test", name: "test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] },
+		"web-fixture": { api: "openai-completions", baseUrl: model.url, apiKey: "fixture", models: [{ id: "test", name: "test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] },
 	} }));
 	await writeFile(path.join(agent, "configs", "discord-presence.jsonc"), '{"enabled":false}');
 	const cwd = path.join(temp.path, "workspace");
@@ -54,7 +60,7 @@ beforeEach(async () => {
 	server = await startWebServer(gui, { host: "127.0.0.1", port: 0, assets: temp.path });
 	peer = await connect(server.url);
 });
-afterEach(async () => { await server?.close(); await gui?.dispose(); });
+afterEach(async () => { await server?.close(); await gui?.dispose(); await model?.close(); });
 const headers = () => ({ Origin: server.url, "Content-Type": "application/json", "X-Opi-Client": peer.id });
 const body = (value: unknown, sessionId: string | null = local.execution.snapshot().sessionId) => JSON.stringify({ value, sessionId });
 
@@ -152,6 +158,44 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		expect((await respond()).status).toBe(204);
 		expect(await answer).toBe("yes");
 		expect((await respond()).status).toBe(400);
+	});
+
+	it("页面失焦后收到任务完成通知，重连不重放也不沿用旧焦点", async () => {
+		delete process.env.OPI_NO_NOTIFICATIONS;
+		const sessionId = local.runtime.session.sessionId;
+		const flush = () => { peer.ws.ping(); return once(peer.ws, "pong"); };
+		const report = async (focused: boolean) => {
+			peer.ws.send(JSON.stringify({ kind: "attention", value: { sessionId, focused, destination: "web:browser" } } satisfies GuiControl));
+			await flush();
+		};
+		const run = async () => {
+			const response = await fetch(`${server.url}/api/action`, { method: "POST", headers: headers(),
+				body: body({ action: "prompt", text: "检查任务", images: [], behavior: "followUp" }) });
+			expect(response.status).toBe(204);
+			await flush();
+		};
+		await report(true);
+		await run();
+		expect(peer.events.filter((event) => event.type === "notification")).toEqual([]);
+		await report(false);
+		await run();
+		expect(peer.events.filter((event) => event.type === "notification")).toEqual([
+			{ type: "notification", value: expect.objectContaining({ kind: "completed", sessionId, firstMessage: "检查任务" }) },
+		]);
+		await report(true);
+		peer.ws.close();
+		await once(peer.ws, "close");
+		peer = await connect(server.url);
+		expect(peer.events.filter((event) => event.type === "notification")).toEqual([]);
+		await report(false);
+		await run();
+		expect(peer.events.filter((event) => event.type === "notification")).toHaveLength(1);
+	});
+
+	it("WebSocket 拒绝畸形关注消息", async () => {
+		peer.ws.send(JSON.stringify({ kind: "attention", value: { sessionId: null, focused: "yes", destination: null } }));
+		const [code] = await once(peer.ws, "close");
+		expect(code).toBe(1008);
 	});
 
 	it("目录查询检查来源，并发请求各自返回对应目录而非广播", async () => {

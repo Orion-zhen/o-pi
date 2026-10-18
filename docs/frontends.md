@@ -13,6 +13,20 @@ TUI、Desktop 和 WebUI 都使用 `pi-coding-agent`，但不需要相同的启�
 
 子代理与 Discord 协调进程统一使用 `src/harness/runtime/headless.ts`。子代理复用上游 CLI JSON 流程，只加载 `src/harness/extensions.ts`，不引用任何应用入口。Bun 产物重启自身，Desktop 使用 Electron 的 Node 模式，源码开发由 Bun 运行共享入口。
 
+## 系统通知
+
+- `src/harness/attention.ts` 将审批请求和 `agent_settled` 转为会话业务事件，不调用系统通知。主动取消或最终助手消息失败时不发送完成提醒。
+- `src/gui/host/` 收集所有会话的事件。只有可见且有焦点的客户端正在查看目标会话，才抑制该会话的提醒。前台 A 不影响后台 B。关注状态独立于订阅和资源回收。
+- `src/gui/ui/` 上报正在展示的会话。Web 连接层通过 WebSocket 顺序上报页面焦点和通知权限。Web 在“设置 > 对话与输入 > 系统通知”中请求授权，通过浏览器 API 发送到访问者设备。同浏览器标签页共享投递标识，每个事件只选一个标签页发送。需要安全上下文，页面关闭后不提供 Web Push。
+- `src/desktop/` 从主进程读取原生窗口焦点，与渲染进程上报的会话合成关注状态，通过 IPC 更新后端。系统通知也由主进程发送，不依赖渲染帧。通知点击后打开目标会话。平台权限、macOS 签名和 Windows 应用身份仍由系统约束。
+- `src/tui/notification.ts` 管理终端焦点和系统命令，不依赖 GUI。
+
+GUI 通道区分 `frame` 和 `notification`。绘制帧携带序号并等待确认，提醒即时投递，不受绘制背压影响，也不进入快照或历史重放。关注状态绑定连接，断开时清除，重连后重新上报，不补发旧提醒。Desktop 和不同浏览器是独立通知出口。
+
+横幅标题为 `OPi 需要审批` 或 `OPi 任务完成`。正文优先显示会话名，未命名时显示首条用户消息的文本开头，合并空白、最多保留 80 个 Unicode 码点后加省略号。没有文本时显示 `新会话`。审批追加工具名，不展示命令、路径或回复摘要。首条消息摘要会出现在系统通知中，请注意锁屏隐私。完成通知请求静音，审批沿用系统声音设置，实际效果由平台决定。
+
+设置 `OPI_NO_NOTIFICATIONS=1` 可禁用所有出口。通知不绕过勿扰模式，失败不影响任务或审批。系统决定字体、布局、位置和截断方式。
+
 ## 本地构建
 
 `scripts/build.mjs` 统一选择 `tui`、`web`、`desktop` 目标，默认构建全部。`scripts/build/bun.mjs` 编译 TUI 和 Web 单文件程序，`scripts/build/desktop.mjs` 构建 Electron 应用及平台安装包。两者共用资源收集和依赖适配。

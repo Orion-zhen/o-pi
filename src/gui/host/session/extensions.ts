@@ -2,6 +2,7 @@ import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import llamaExtension from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/llama/index.js";
 import { createGuiMcpExtension, type GuiMcpTools } from "./mcp-tools.ts";
 import { extensions } from "../../../harness/extensions.ts";
+import { registerAttention } from "../../../harness/attention.ts";
 import { collectContextStats } from "../../../harness/extensions/stats.ts";
 import systemPrompt from "../../../harness/extensions/system-prompt.ts";
 import usage from "../../../harness/extensions/usage.ts";
@@ -99,6 +100,7 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindMod
 		},
 	];
 	return [
+		{ name: "notifications", factory: (pi) => registerAttention(pi, (value) => emit({ type: "notification", value })) },
 		{ name: "llama.cpp", builtin: true, factory: llamaExtension },
 		...extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension),
 	];

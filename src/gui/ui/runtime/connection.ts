@@ -1,6 +1,7 @@
-import type { DesktopBridge, GuiAction, GuiConnection, GuiEvent, GuiQuery, GuiQueryResults } from "../../contract.ts";
-import { GuiReceiver, type GuiDelivery } from "../../sync.ts";
+import type { DesktopBridge, GuiAction, GuiConnection, GuiControl, GuiEvent, GuiQuery, GuiQueryResults } from "../../contract.ts";
+import { GuiReceiver, type GuiDelivery, type GuiFrame } from "../../sync.ts";
 import { diagnosticContext } from "./diagnostics.ts";
+import { notificationDestination, NOTIFICATION_PERMISSION_CHANGED } from "./browser-notifications.ts";
 
 export type Send = (action: GuiAction) => Promise<boolean>;
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "closed";
@@ -18,8 +19,12 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	let selectedId = sessionStorage.getItem("opi.session");
 	const receiver = new GuiReceiver();
 	let frame: number | undefined;
-	let pending: { delivery: GuiDelivery; acknowledge: (id: number) => void }[] = [];
+	let pending: { delivery: GuiFrame; acknowledge: (id: number) => void }[] = [];
 	const receive = (delivery: GuiDelivery, acknowledge: (id: number) => void) => {
+		if (delivery.kind === "notification") {
+			for (const listener of listeners) listener({ type: "notification", value: delivery.value });
+			return;
+		}
 		pending.push({ delivery, acknowledge });
 		if (frame !== undefined) return;
 		frame = requestAnimationFrame(() => {
@@ -53,6 +58,7 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 		onStatus("connected");
 		const unsubscribe = desktop.subscribe((delivery) => receive(delivery, desktop.acknowledge));
 		return {
+			attend: desktop.attend,
 			send: (action, sessionId) => { diagnosticContext({ lastAction: action.action }); return desktop.send(action, sessionId); },
 			query: desktop.query, subscribe,
 			close() { cancelFrame(); unsubscribe(); desktop.close(); listeners.clear(); },
@@ -62,15 +68,27 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	let socket: WebSocket;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let attempts = 0;
+	let viewedSession: string | null = null;
+	const control = (value: GuiControl) => {
+		if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
+	};
+	const reportAttention = () => control({ kind: "attention", value: {
+		sessionId: viewedSession,
+		focused: document.visibilityState === "visible" && document.hasFocus(),
+		destination: notificationDestination(),
+	} });
+	const attentionEvents = ["focus", "blur", NOTIFICATION_PERMISSION_CHANGED] as const;
+	for (const event of attentionEvents) window.addEventListener(event, reportAttention);
+	document.addEventListener("visibilitychange", reportAttention);
 	const open = () => {
 		if (closed) return;
 		onStatus("connecting");
 		const search = selectedId ? `?session=${encodeURIComponent(selectedId)}` : "";
 		const client = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/events${search}`);
 		socket = client;
-		client.onopen = () => { attempts = 0; };
+		client.onopen = () => { attempts = 0; reportAttention(); };
 		client.onmessage = (message: MessageEvent<string>) => receive(JSON.parse(message.data) as GuiDelivery, (id) => {
-			if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ ack: id }));
+			if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ kind: "ack", id } satisfies GuiControl));
 		});
 		client.onclose = () => {
 			cancelFrame();
@@ -96,12 +114,18 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	};
 	open();
 	return {
+		attend(sessionId) { viewedSession = sessionId; reportAttention(); },
 		async send(value, sessionId) { diagnosticContext({ lastAction: value.action }); await post("action", { value, sessionId }); },
 		async query<Q extends GuiQuery>(query: Q, sessionId: string | null): Promise<GuiQueryResults[Q["query"]]> {
 			const value: unknown = await (await post("query", { value: query, sessionId })).json();
 			return value as GuiQueryResults[Q["query"]];
 		},
 		subscribe,
-		close() { closed = true; clearTimeout(timer); cancelFrame(); socket.close(); listeners.clear(); },
+		close() {
+			closed = true;
+			for (const event of attentionEvents) window.removeEventListener(event, reportAttention);
+			document.removeEventListener("visibilitychange", reportAttention);
+			clearTimeout(timer); cancelFrame(); socket.close(); listeners.clear();
+		},
 	};
 }

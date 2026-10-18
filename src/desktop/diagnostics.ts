@@ -1,6 +1,6 @@
 import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
-import type { GuiDelivery } from "../gui/sync.ts";
+import type { GuiFrame } from "../gui/sync.ts";
 import type { DiagnosticReceipt, GuiDiagnostic } from "../gui/diagnostics.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -72,7 +72,7 @@ export class DesktopDiagnostics {
 		this.deliveries.clear();
 		this.generation++;
 	}
-	delivery(delivery: GuiDelivery, sentAt: unknown): boolean {
+	delivery(delivery: GuiFrame, sentAt: unknown): boolean {
 		let tracked = false;
 		for (const event of delivery.events) {
 			let fields: Fields;

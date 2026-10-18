@@ -1,10 +1,10 @@
 import type { GuiDelivery } from "../gui/sync.ts";
+import type { GuiControl } from "../gui/contract.ts";
 
 export type BackendRequest = { kind: "action" | "query" | "resource" | "activeSessions"; id: number; value: unknown; traced: boolean };
 
-export type BackendControl =
+export type BackendControl = GuiControl
 	| { kind: "subscribe" | "unsubscribe" }
-	| { kind: "ack"; id: number }
 	| { kind: "notice"; text: string };
 
 export type BackendCommand = BackendRequest | BackendControl | { kind: "dispose" };

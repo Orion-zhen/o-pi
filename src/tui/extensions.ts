@@ -13,6 +13,7 @@ import type { StatsSnapshot } from "../harness/stats/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
 import type { UsageSnapshot } from "../harness/usage/types.ts";
 import tui from "./shell/extension.ts";
+import terminalNotifications from "./notification.ts";
 import type { ToolStartupOptions } from "../harness/tool-defaults/initial.ts";
 
 function tuiPresenter<T>(show: T): Presenter<T> { return { mode: "tui", show }; }
@@ -94,6 +95,7 @@ export function createTuiExtensions(startup: ToolStartupOptions = {}): InlineExt
 			});
 		} },
 		{ name: "tui", factory: tui },
+		{ name: "notifications", factory: terminalNotifications },
 	);
 	return extensions;
 }

@@ -47,6 +47,7 @@ if (!(await runChildProcess())) {
 	let connection: ReturnType<typeof client.connect> | undefined;
 	process.parentPort.on("message", ({ data }: { data: BackendCommand }) => {
 		switch (data.kind) {
+			case "attention": connection?.attend(data.value); return;
 			case "subscribe":
 				connection?.close();
 				connection = client.connect((value) => process.parentPort.postMessage({ kind: "delivery", value, at: Date.now() } satisfies BackendMessage));
