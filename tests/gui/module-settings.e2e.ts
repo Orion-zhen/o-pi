@@ -13,7 +13,7 @@ async function open(page: Page, category: string) {
 }
 async function save(page: Page) {
 	await settings(page).getByRole("button", { name: "保存", exact: true }).click();
-	await expect(settings(page).locator(".settings-actions").getByRole("status")).toHaveText("已保存");
+	await expect(settings(page).locator(".settings-actions").getByRole("status")).toHaveAccessibleName("已保存");
 }
 async function expectOptions(page: Page, label: string, options: string[]) {
 	const control = settings(page).getByRole("combobox", { name: label, exact: true });

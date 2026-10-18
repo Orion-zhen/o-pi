@@ -1,4 +1,5 @@
 import type { ContextBreakdownItem, StatsSnapshot } from "../../../harness/stats/types.ts";
+import { AnimatedNumber } from "../components/motion-primitives/animated-number";
 import { Bar, duration, Empty, Facts, Metrics, money, number, percent, ReportStamp, Section } from "./shared.tsx";
 
 const contextLabels: Record<ContextBreakdownItem["id"], string> = {
@@ -14,10 +15,10 @@ export function StatsReport({ value }: { value: StatsSnapshot }) {
 	return <div className="report-dashboard">
 		<div className="report-intro"><span className="report-badge">{session.status === "running" ? "运行中" : "会话快照"}</span><h2>{session.modelId ?? "尚未选择模型"}</h2><p>{session.modelProvider}{session.thinkingLevel && ` · 思考级别 ${session.thinkingLevel}`}</p></div>
 		<Metrics items={[
-			{ label: "累计 Token", value: number(usage.totalObservedTokens), hint: "会话中已记录的用量" },
+			{ label: "累计 Token", value: <AnimatedNumber value={usage.totalObservedTokens} />, hint: "会话中已记录的用量" },
 			{ label: "估算费用", value: money(usage.costUsd), hint: session.usingSubscription ? "订阅套餐 · 非实际账单" : "USD · 非实际账单" },
-			{ label: "用户轮次", value: number(session.userTurns) },
-			{ label: "助手轮次", value: number(session.assistantTurns) },
+			{ label: "用户轮次", value: <AnimatedNumber value={session.userTurns} /> },
+			{ label: "助手轮次", value: <AnimatedNumber value={session.assistantTurns} /> },
 		]} />
 		<Section title="上下文窗口">
 			<Bar label="上下文占用" value={context.percent} tone={context.percent != null && context.percent >= 80 ? "warning" : "accent"} />

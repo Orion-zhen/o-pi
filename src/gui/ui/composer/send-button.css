@@ -1,0 +1,9 @@
+.sling-button { display: inline-grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); flex-shrink: 0; margin-inline-start: var(--space-1); isolation: isolate; }
+.sling-button > * { grid-area: 1 / 1; }
+.sling-button[data-dragging="true"] { z-index: 1; }
+.send-button[data-sling-enabled="true"] { touch-action: none; user-select: none; }
+.sling-art { inline-size: 100%; block-size: 100%; min-inline-size: 0; min-block-size: 0; contain: size; overflow: visible; pointer-events: none; }
+.sling-band, .sling-power { fill: none; stroke: var(--primary); stroke-linecap: round; }
+.sling-well { fill: var(--secondary); stroke: var(--border); }
+.sling-icon { display: flex; }
+.sling-particle { fill: var(--primary); }

@@ -4,6 +4,7 @@ import { Button } from "../components/ui/button";
 import { IconButton } from "../components/icon-button";
 import { Disclosure } from "../components/disclosure";
 import { Hint } from "../components/ui/tooltip";
+import { TextMorph } from "../components/motion-primitives/text-morph";
 import "./settings.css";
 
 export function SettingsHeading({ title, children }: { title: string; children?: ReactNode }) {
@@ -55,8 +56,9 @@ export function SettingsActions({ count, saving, disabled, blocked, error, statu
 	count: number; saving: boolean; disabled: boolean; blocked: boolean; error: string; status: string;
 	save: () => void; discard: () => void;
 }) {
+	const message = saving ? "保存中…" : count ? `${count} 个页面未保存` : status;
 	return <footer className="settings-actions">
-		<div className="settings-save-status" role="status">{saving ? "保存中…" : count ? `${count} 个页面未保存` : status}</div>
+		<div className="settings-save-status" role="status" aria-label={message}><TextMorph>{message}</TextMorph></div>
 		{error && <p role="alert">{error}</p>}
 		<div className="settings-action-buttons">
 			<Button disabled={disabled || saving || blocked || count === 0} aria-busy={saving} onClick={save}>保存</Button>

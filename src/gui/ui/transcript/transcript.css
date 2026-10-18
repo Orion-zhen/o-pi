@@ -13,7 +13,7 @@
 .welcome h1 { font-size: clamp(calc(var(--text-ui) * 12 / 7), calc(var(--text-ui) * 9 / 7 + 1.25vw), calc(var(--text-ui) * 16 / 7)); letter-spacing: -0.025em; font-weight: 500; line-height: 1.5; }
 .welcome p { color: var(--muted-foreground); margin-block-start: var(--space-3); font-size: var(--text-ui); }
 .starter-grid { display: flex; flex-wrap: wrap; gap: var(--space-3); inline-size: min(100%, 64ch); margin: var(--space-8) 0 var(--space-4); }
-.starter { flex: 1 1 14ch; gap: var(--space-2); padding: var(--space-4); background: var(--surface); border-color: var(--divider); border-radius: var(--radius-lg); font-size: var(--text-small); font-weight: 400; box-shadow: var(--shadow); }
+.starter { position: relative; isolation: isolate; overflow: hidden; flex: 1 1 14ch; gap: var(--space-2); padding: var(--space-4); background: var(--surface); border-color: var(--divider); border-radius: var(--radius-lg); font-size: var(--text-small); font-weight: 400; box-shadow: var(--shadow); }
 .starter:hover { background: var(--accent); }
 .starter > svg:first-child { color: var(--muted-foreground); }
 .starter > svg:last-child { margin-inline-start: auto; inline-size: 0.875em; block-size: 0.875em; color: var(--muted-foreground); }

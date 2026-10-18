@@ -5,7 +5,8 @@
 .session-tab-list { display: flex; flex: 1; flex-wrap: wrap; gap: var(--space-1); }
 .session-tab-list > button { flex: 1 0 auto; padding: 0.625em 0.75em; border: 1px solid transparent; border-radius: var(--radius-md); color: var(--muted-foreground); transition: background 150ms, color 150ms; }
 .session-tab-list > button:hover { background: var(--accent); color: var(--foreground); }
-.session-tab-list > button[data-state="active"] { background: var(--control-surface); color: var(--link); border-color: var(--divider); }
+.session-tab-list > button[data-state="active"] { background: transparent; color: var(--link); }
+.session-tab-list .animated-background { background: var(--control-surface); border-color: var(--divider); }
 .session-tab-list > button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .session-tab-list > button:disabled { opacity: 0.45; }
 .session-tab-body { grid-area: 2 / 1; min-inline-size: 0; min-block-size: 0; overflow: auto; padding: var(--space-4); overscroll-behavior: contain; transition: visibility var(--motion-normal); }

@@ -1,5 +1,8 @@
 import { memo, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { TextMorph } from "../components/motion-primitives/text-morph";
+import { fade } from "../lib/motion";
 import { Hint } from "../components/ui/tooltip";
 import { SyntaxHighlighter } from "./code-highlight.ts";
 
@@ -13,6 +16,7 @@ export const CodeBlock = memo(function CodeBlock({ text, label = "代码", langu
 }) {
 	const [copied, setCopied] = useState<string | null>(null);
 	const [error, setError] = useState(false);
+	const complete = copied === text && !error;
 	return (
 		<div className={`code-block${diff ? " diff-block" : ""}`}>
 			<div className="code-toolbar">
@@ -26,8 +30,11 @@ export const CodeBlock = memo(function CodeBlock({ text, label = "代码", langu
 						setError(true);
 					}
 				}}>
-					{copied === text ? <Check /> : <Copy />}
-					{error ? "复制失败" : copied === text ? "已复制" : "复制"}
+					<span className="copy-icon" aria-hidden="true"><AnimatePresence initial={false}>
+						<motion.span key={String(complete)} {...fade} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+							transition={fade.transition}>{complete ? <Check /> : <Copy />}</motion.span>
+					</AnimatePresence></span>
+					<TextMorph>{error ? "复制失败" : complete ? "已复制" : "复制"}</TextMorph>
 				</button>
 			</div>
 			{!highlight ? <pre tabIndex={0} aria-label={label}><code>{text.replace(/\n$/, "")}</code></pre> : <SyntaxHighlighter language={diff ? "diff" : language} useInlineStyles={false}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Tabs } from "radix-ui";
 import { motion } from "motion/react";
 import type { GuiSnapshot, Query, GlobalQuery } from "../../contract.ts";
@@ -6,6 +6,7 @@ import type { GuiConfigDocument } from "../../preferences.ts";
 import type { ModuleConfigId } from "../../module-config.ts";
 import type { Send } from "../runtime/connection.ts";
 import { Button } from "../components/ui/button";
+import { AnimatedBackground } from "../components/motion-primitives/animated-background";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { AgentSettings } from "./agent-settings.tsx";
 import { GuiSettings } from "../preferences/gui-settings.tsx";
@@ -26,12 +27,22 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 }) {
 	useEffect(() => { void refreshGuiConfig(); }, [refreshGuiConfig]);
 	const initial = initialCategory === "mcp" ? "connections" : "appearance";
-	const [category, setCategory] = useState<string>(initial);
+	const [{ category, direction }, setSelection] = useState<{ category: string; direction: number }>({ category: initial, direction: 0 });
+	const highlightId = useId();
 	const [visited, setVisited] = useState<Set<string>>(() => new Set([initial]));
 	const coordinator = useSettingsCoordinator(onDirty);
 	const { register, saving, dirtyPages } = coordinator;
 	const state = useMemo(() => ({ register, saving }), [register, saving]);
-	const selectCategory = (id: string) => { setCategory(id); setVisited((previous) => new Set([...previous, id])); };
+	const selectCategory = (id: string) => {
+		setSelection((previous) => {
+			// Radix 的聚焦与点击可连续通知同一分类，保留首次计算的方向。
+			if (previous.category === id) return previous;
+			return { category: id, direction: Math.sign(
+				settingsCategories.findIndex((item) => item.id === id) - settingsCategories.findIndex((item) => item.id === previous.category),
+			) };
+		});
+		setVisited((previous) => new Set([...previous, id]));
+	};
 	const module = (id: ModuleConfigId, title: string) => <ModuleSettings id={id} title={title} query={globalQuery} send={send}
 		disabled={!connected} models={snapshot?.models ?? []} tools={snapshot?.tools ?? null} />;
 	const guiProps = { document: guiConfig, send, query: globalQuery, disabled: !connected, refresh: refreshGuiConfig, restoreFocus };
@@ -64,12 +75,13 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 	return <SettingsStateContext value={state}>
 		<Tabs.Root className="settings-shell" orientation="vertical" value={category} onValueChange={selectCategory}>
 			<aside className="settings-navigation">
-				<div className="settings-navigation-scroll">
+				<motion.div className="settings-navigation-scroll" layoutScroll>
 					<Tabs.List className="settings-tabs" aria-label="设置分类">
 						{[...new Set(settingsCategories.map(({ group }) => group))].map((group) => <div className="settings-nav-group" key={group}>
 							<span className="settings-nav-heading">{group}</span>
 							{settingsCategories.filter((item) => item.group === group).map(({ id, label, icon: Icon }) => <Tabs.Trigger key={id} value={id} asChild>
-								<Button variant="ghost" aria-label={label} aria-description={dirtyPages.has(id) ? "未保存" : undefined}><Icon aria-hidden="true" /><span>{label}</span>
+								<Button variant="ghost" className="animated-background-target" aria-label={label} aria-description={dirtyPages.has(id) ? "未保存" : undefined}>
+									<AnimatedBackground active={category === id} layoutId={highlightId} /><Icon aria-hidden="true" /><span>{label}</span>
 									{dirtyPages.has(id) && <span className="settings-unsaved" aria-hidden="true">•</span>}
 								</Button>
 							</Tabs.Trigger>)}
@@ -81,14 +93,14 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 							<SelectContent>{settingsCategories.map(({ id, label }) => <SelectItem key={id} value={id}>{label}{dirtyPages.has(id) ? " •" : ""}</SelectItem>)}</SelectContent>
 						</Select>
 					</div>
-				</div>
+				</motion.div>
 				<SettingsActions count={dirtyPages.size} saving={saving} disabled={!connected} blocked={coordinator.blocked}
 					error={coordinator.error} status={coordinator.status} save={() => void coordinator.save()} discard={coordinator.discard} />
 			</aside>
 			{settingsCategories.map(({ id, label }) => <Tabs.Content key={id} value={id} forceMount asChild><motion.div className="settings-content" layoutScroll>
-				{visited.has(id) && <SettingsCategoryContext value={id}><div className="gui-settings">
-					{id !== "storage" && <SettingsHeading title={label} />}{content(id)}
-				</div></SettingsCategoryContext>}
+				<SettingsCategoryContext value={id}><div className="gui-settings" data-direction={direction}>
+					{visited.has(id) && <>{id !== "storage" && <SettingsHeading title={label} />}{content(id)}</>}
+				</div></SettingsCategoryContext>
 			</motion.div></Tabs.Content>)}
 		</Tabs.Root>
 	</SettingsStateContext>;

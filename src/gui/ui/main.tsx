@@ -11,6 +11,7 @@ import "./tools/tools.css";
 import "./tools/rich-tools.css";
 import "./content/code.css";
 import "./app/motion.css";
+import "./components/motion-primitives/motion-primitives.css";
 import "./app/layout.css";
 
 installGlobalDiagnostics();

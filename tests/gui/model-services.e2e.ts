@@ -19,7 +19,7 @@ async function save(page: Page) {
 	const button = settings(page).getByRole("button", { name: "保存", exact: true });
 	await button.click();
 	await expect(button).toBeDisabled();
-	await expect(settings(page).locator(".settings-actions").getByRole("status")).toHaveText("已保存");
+	await expect(settings(page).locator(".settings-actions").getByRole("status")).toHaveAccessibleName("已保存");
 }
 test.beforeEach(async ({ workspace: { agentDir } }) => { await writeFile(path.join(agentDir, "models.json"), original); });
 

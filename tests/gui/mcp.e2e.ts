@@ -123,7 +123,7 @@ test.describe("MCP", () => {
 		await config.fill("{}");
 		expect(await readFile(file, "utf8")).toBe(original);
 		await settings.getByRole("button", { name: "保存", exact: true }).click();
-		await expect(settings.getByRole("status")).toHaveText("已保存");
+		await expect(settings.getByRole("status")).toHaveAccessibleName("已保存");
 		expect(await readFile(file, "utf8")).toBe("{}");
 		await settings.getByRole("button", { name: "关闭面板", exact: true }).click();
 		await page.locator(".tool-count").click();

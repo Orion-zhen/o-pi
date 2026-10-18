@@ -4,6 +4,7 @@ import type { GuiControls, EditorControls } from "../gui-controls.ts";
 import { Button } from "../../components/ui/button";
 import { modelSetup } from "../../models/model-setup.ts";
 import { WelcomeMark } from "./welcome-mark.tsx";
+import { Spotlight } from "../../components/motion-primitives/spotlight";
 
 const starters = [
 	{ icon: FolderSearch, title: "了解项目", text: "梳理这个项目的结构，介绍主要模块和运行方式。" },
@@ -25,7 +26,7 @@ export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: Pick<Gu
 				key={title} variant="outline" className="starter"
 				onClick={() => { gui.setDraft(text); gui.editor.current?.focus(); }}
 			>
-				<Icon /><span>{title}</span><ArrowUpRight />
+				<Icon /><span>{title}</span><Spotlight /><ArrowUpRight />
 			</Button>)}
 		</div>}
 	</>;

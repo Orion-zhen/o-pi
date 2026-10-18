@@ -1,13 +1,15 @@
 import { useRef } from "react";
 import { AnimatePresence } from "motion/react";
 import { ListItem, Reveal } from "../components/animated";
+import { AnimatedNumber } from "../components/motion-primitives/animated-number";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
-import { ArrowUp, Blocks, CodeXml, CornerUpRight, ListEnd, Paperclip, Square, Trash2, Wrench, X } from "lucide-react";
+import { Blocks, CodeXml, CornerUpRight, ListEnd, Paperclip, Trash2, Wrench, X } from "lucide-react";
 import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { InputHistory } from "./input-history.tsx";
+import { SendButton } from "./send-button.tsx";
 import type { RefObject } from "react";
 import type { GuiPreferences } from "../../preferences.ts";
 import type { GuiControls } from "../app/gui-controls.ts";
@@ -135,11 +137,12 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 					editor.current?.focus({ preventScroll: true });
 				}}
 			>
+				<div className="composer-scroll">
 				<AnimatePresence initial={false}>
 				{queuedCount > 0 && (
 					<Reveal key="queue"><Collapsible defaultOpen className="queue">
 						<div className="queue-heading">
-							<CollapsibleTrigger>待发送消息 ({queuedCount})</CollapsibleTrigger>
+							<CollapsibleTrigger>待发送消息 (<AnimatedNumber value={queuedCount} />)</CollapsibleTrigger>
 							<IconButton
 								label="清空队列"
 								onClick={(event) => {
@@ -273,6 +276,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 					<span>{fileDrop.state === "over" ? "松开即可添加" : "拖到此处添加附件"}</span>
 				</div>
 				</div>
+				</div>
 				<div className="composer-bottom">
 					<div className="composer-actions">
 						<IconButton label="附件" onClick={() => upload.current?.click()}>
@@ -298,7 +302,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 							disabled={!gui.canSubmit}
 							onClick={() => gui.setPanel({ kind: "tools" })}
 						>
-							<ToolIcon />{toolCount}
+							<ToolIcon /><AnimatedNumber value={toolCount} />
 						</Button></Hint>
 						<IconButton
 							label={`当前：${behaviorLabel}（${steering ? "引导" : "跟进"}），点击切换为 ${steering ? "Follow-up" : "Steering"}`}
@@ -313,15 +317,11 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 					<div className="composer-controls">
 						<ModelControls snapshot={snapshot} send={send} disabled={!gui.canChangeSession} openManager={() => gui.setPanel({ kind: "model" })} />
 						<ContextUsage snapshot={snapshot} />
-						<IconButton
-							label={snapshot.compacting ? "停止压缩" : stopping ? "停止" : "发送"}
-							variant="default"
-							className="send-button"
-							onClick={stopping ? () => void send({ action: "abort" }) : submit}
+						<SendButton
+							mode={snapshot.compacting ? "stop-compaction" : stopping ? "stop" : running ? steering ? "steer" : "follow-up" : "send"}
+							onActivate={stopping ? () => void send({ action: "abort" }) : submit}
 							disabled={!connected || (!stopping && (!gui.canSubmit || !hasContent))}
-						>
-							{stopping ? <Square fill="currentColor" /> : running ? <BehaviorIcon /> : <ArrowUp />}
-						</IconButton>
+						/>
 					</div>
 				</div>
 			</div>

@@ -82,7 +82,7 @@ test("开关支持键盘、禁用联动、放弃草稿和跨分类保存", async
 	expect(parse(await readFile(file, "utf8"))).toEqual({});
 	const save = panel.getByRole("button", { name: "保存", exact: true });
 	await save.click();
-	await expect(panel.locator(".settings-actions").getByRole("status")).toHaveText("已保存");
+	await expect(panel.locator(".settings-actions").getByRole("status")).toHaveAccessibleName("已保存");
 	await expect(save).toBeDisabled();
 	expect(parse(await readFile(file, "utf8"))).toMatchObject({ desktopWeb: { enabled: true } });
 

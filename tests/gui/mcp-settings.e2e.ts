@@ -108,7 +108,7 @@ test("参数和环境变量逐行动画增删，删除首项不替换后续行",
 	await addAnimatedRow("添加环境变量", ".mcp-pair");
 	await form(page).getByRole("button", { name: "删除环境变量 2", exact: true }).click();
 	await settings(page).getByRole("button", { name: "保存", exact: true }).click();
-	await expect(settings(page).getByRole("status")).toHaveText("已保存");
+	await expect(settings(page).getByRole("status")).toHaveAccessibleName("已保存");
 	const stored = JSON.parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"));
 	expect(stored.mcpServers.animated).toEqual({ command: "node", args: ["second"], env: { KEY: "${ENV_KEY}" } });
 });

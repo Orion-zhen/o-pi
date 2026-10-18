@@ -1,7 +1,9 @@
-import { useMemo, useRef } from "react";
+import { useId, useMemo, useRef } from "react";
 import { Tabs } from "radix-ui";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "../components/animated";
+import { AnimatedBackground } from "../components/motion-primitives/animated-background";
+import { TransitionPanel } from "../components/motion-primitives/transition-panel";
 import type { GuiSessionTab, GuiSnapshot } from "../../contract.ts";
 import type { GuiControls } from "../app/gui-controls.ts";
 import type { WorkbenchView } from "../workspace/use-workbench.ts";
@@ -32,6 +34,7 @@ interface SessionSidebarView extends Pick<GuiControls, "send"> {
 }
 export function SessionSidebar({ gui, locate }: { gui: SessionSidebarView; locate: (entryId: string) => void }) {
 	const root = useRef<HTMLDivElement>(null);
+	const highlightId = useId();
 	const { sessionTab, snapshot, sessionStats, telemetry, workbench, selectTab } = gui;
 	const tree = useMemo(() => snapshot ? sessionTree(snapshot.entries, snapshot.leafId) : undefined, [snapshot?.entries, snapshot?.leafId]);
 	const loading = <p role="status">正在读取会话信息…</p>;
@@ -46,17 +49,21 @@ export function SessionSidebar({ gui, locate }: { gui: SessionSidebarView; locat
 		}}>
 			<div className="session-sidebar-header">
 				<Tabs.List aria-label="会话信息" className="session-tab-list">
-					{tabs.map(({ id, title }) => <Tabs.Trigger key={id} value={id}>{title}</Tabs.Trigger>)}
-					{workbench.preview && <Tabs.Trigger value="file">文件</Tabs.Trigger>}
+					{tabs.map(({ id, title }) => <Tabs.Trigger key={id} value={id} className="animated-background-target">
+						<AnimatedBackground active={active === id} layoutId={highlightId} />{title}
+					</Tabs.Trigger>)}
+					{workbench.preview && <Tabs.Trigger value="file" className="animated-background-target">
+						<AnimatedBackground active={active === "file"} layoutId={highlightId} />文件
+					</Tabs.Trigger>}
 				</Tabs.List>
 			</div>
 			<Tabs.Content value={sessionTab} forceMount asChild>
 				<Fade initial={false} animate={{ opacity: active === "file" ? 0 : 1 }} className="session-tab-body" data-list-scroll data-active={active !== "file"} inert={active === "file"} aria-hidden={active === "file"}>
-				<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}><Fade key={sessionTab}>
-				{sessionTab === "tree" ? tree ? <SessionTree value={tree} send={gui.send} locate={locate} /> : loading
-					: sessionTab === "stats" ? sessionStats ? <StatsReport value={sessionStats} /> : loading
-					: telemetry ? <TelemetryReport value={telemetry} /> : loading}
-				</Fade></AnimatePresence>
+				<TransitionPanel activeIndex={tabs.findIndex(({ id }) => id === sessionTab)}>
+					{sessionTab === "tree" ? tree ? <SessionTree value={tree} send={gui.send} locate={locate} /> : loading
+						: sessionTab === "stats" ? sessionStats ? <StatsReport value={sessionStats} /> : loading
+						: telemetry ? <TelemetryReport value={telemetry} /> : loading}
+				</TransitionPanel>
 				</Fade>
 			</Tabs.Content>
 			<AnimatePresence initial={false}>
