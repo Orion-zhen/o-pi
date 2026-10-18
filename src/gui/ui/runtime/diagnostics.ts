@@ -34,6 +34,9 @@ export function reportDiagnostic(kind: GuiDiagnostic["kind"], scope: GuiDiagnost
 
 export function installGlobalDiagnostics(): void {
 	const script = (event: ErrorEvent) => {
+		// 布局通知未在本帧送完，不等同于脚本抛错。保留浏览器默认控制台输出。
+		if (event.message === "ResizeObserver loop completed with undelivered notifications."
+			&& event.error == null && event.lineno === 0 && event.colno === 0) return;
 		reportDiagnostic("script", "application", event.error ?? `${event.message}\n${event.filename}:${event.lineno}:${event.colno}`);
 	};
 	const promise = (event: PromiseRejectionEvent) => { reportDiagnostic("promise", "application", event.reason); };
