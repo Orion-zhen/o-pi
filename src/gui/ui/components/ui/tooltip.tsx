@@ -49,7 +49,10 @@ function Hint({ content, children, side = "top", disabled = false, followPointer
 				setPointerOffset(side === "top" || side === "bottom" ? event.clientX - bounds.left : event.clientY - bounds.top);
 			} : undefined}
 			onPointerLeave={followPointer ? () => setPointerOffset(null) : undefined}
-			onFocus={followPointer ? () => setPointerOffset(null) : undefined}
+			onFocus={(event) => {
+				if (!event.currentTarget.matches(":focus-visible")) event.preventDefault();
+				if (followPointer) setPointerOffset(null);
+			}}
 		>{children}</TooltipPrimitive.Trigger>
 		<TooltipContent side={side} align={pointerOffset === null ? "center" : "start"} alignOffset={pointerOffset ?? 0}>{content}</TooltipContent>
 	</TooltipPrimitive.Root>;
