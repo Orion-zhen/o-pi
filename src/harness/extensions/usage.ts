@@ -4,10 +4,10 @@ import { canPresent, type Presenter } from "../presentation.ts";
 import { UsageService } from "../usage/service.ts";
 import { UsageRequestError, type UsageSnapshot } from "../usage/types.ts";
 
-const COMMAND_DESCRIPTION = "Show OAuth plan usage.";
-const COMMAND_USAGE = "Usage: /usage [--refresh]";
+const COMMAND_DESCRIPTION = "Show plan usage and API balances.";
+const COMMAND_USAGE = "Usage: /usage [refresh]";
 
-/** 注册 /usage。查询 Pi OAuth plan 的当前消耗，并以只读浮层展示。 */
+/** 注册 /usage。查询套餐用量与 API 余额，并以只读浮层展示。 */
 export default function usageExtension(
 	pi: Pick<ExtensionAPI, "registerCommand">,
 	present?: Presenter<(ctx: ExtensionCommandContext, result: UsageSnapshot | "aborted") => Promise<void>>,
@@ -16,11 +16,11 @@ export default function usageExtension(
 	pi.registerCommand("usage", {
 		description: COMMAND_DESCRIPTION,
 		getArgumentCompletions: (prefix) => [
-			{ value: "--refresh", label: "--refresh", description: "跳过缓存，刷新套餐用量" },
+			{ value: "refresh", label: "refresh", description: "跳过缓存，刷新用量情况" },
 		].filter((item) => item.value.startsWith(prefix.trimStart())),
 		async handler(args, ctx) {
 			const argument = args.trim();
-			if (argument !== "" && argument !== "--refresh") {
+			if (argument !== "" && argument !== "refresh") {
 				ctx.ui.notify(COMMAND_USAGE, "warning");
 				return;
 			}
@@ -28,7 +28,7 @@ export default function usageExtension(
 			let result: UsageSnapshot | "aborted";
 			try {
 				result = await service.load(ctx, {
-					refresh: argument === "--refresh",
+					refresh: argument === "refresh",
 					signal: ctx.signal,
 				});
 			} catch (error) {

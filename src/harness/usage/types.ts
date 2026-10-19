@@ -1,4 +1,4 @@
-export type UsageProviderId = "anthropic" | "openai-codex" | "kimi-coding" | "xai";
+export type UsageProviderId = "anthropic" | "openai-codex" | "kimi-coding" | "xai" | "deepseek";
 
 export interface UsageWindow {
 	label: string;
@@ -29,17 +29,29 @@ interface ProviderIdentity {
 	name: string;
 }
 
-export type ProviderUsage =
-	| (ProviderIdentity & {
-		status: "ok";
+export interface UsageBalance {
+	currency: "CNY" | "USD";
+	total: string;
+	granted: string;
+	toppedUp: string;
+}
+
+export type ProviderUsageData =
+	| {
+		kind: "plan";
 		plan: string | undefined;
 		windows: UsageWindow[];
 		details: UsageDetail[];
 		resetCredits: UsageResetCredits | undefined;
-	})
-	| (ProviderIdentity & {
-		status: "not_logged_in";
-	})
+	}
+	| {
+		kind: "balance";
+		isAvailable: boolean;
+		balances: UsageBalance[];
+	};
+
+export type ProviderUsage =
+	| (ProviderIdentity & { status: "ok" } & ProviderUsageData)
 	| (ProviderIdentity & {
 		status: "error";
 		error: UsageProviderError;
@@ -57,7 +69,7 @@ export interface UsageSnapshot {
 
 export type UsageRequestErrorCode = "aborted" | "timeout" | "response_too_large" | "invalid_response" | "request_failed";
 
-/** 网络边界只保留稳定错误码，不携带响应正文或 OAuth token。 */
+/** 网络边界只保留稳定错误码，不携带响应正文或凭据。 */
 export class UsageRequestError extends Error {
 	constructor(readonly code: UsageRequestErrorCode) {
 		super(code);

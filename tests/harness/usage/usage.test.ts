@@ -23,7 +23,7 @@ describe("usage client", () => {
 		const requests: CapturedRequest[] = [];
 		const snapshot = await collectUsageSnapshot(oauthContext(), clientOptions(fixtureFetch(requests)));
 
-		expect(snapshot.providers).toHaveLength(4);
+		expect(snapshot.providers.map(({ id }) => id)).toEqual(["anthropic", "openai-codex", "kimi-coding", "xai"]);
 		expect(provider(snapshot, "anthropic")).toMatchObject({
 			status: "ok",
 			plan: undefined,
@@ -68,17 +68,17 @@ describe("usage client", () => {
 		expect(new Headers(grokRequest?.request.headers).get("X-XAI-Token-Auth")).toBe("xai-grok-cli");
 	});
 
-	it("拒绝 API key，并且不访问订阅端点", async () => {
+	it("订阅服务拒绝 API key，并且不访问订阅端点", async () => {
 		const fetchImpl = vi.fn<typeof fetch>();
 		const context: UsageContext = {
 			modelRegistry: {
-				getProviderAuth: async (): Promise<AuthResult> => ({ source: "ANTHROPIC_API_KEY", auth: { apiKey: "secret-api-key" } }),
+				getProviderAuth: async (id): Promise<AuthResult | undefined> => id === "deepseek" ? undefined : ({ source: "ANTHROPIC_API_KEY", auth: { apiKey: "secret-api-key" } }),
 			},
 		};
 
 		const snapshot = await collectUsageSnapshot(context, clientOptions(fetchImpl));
 
-		expect(snapshot.providers.every((value) => value.status === "not_logged_in")).toBe(true);
+		expect(snapshot.providers).toEqual([]);
 		expect(fetchImpl).not.toHaveBeenCalled();
 	});
 
@@ -180,40 +180,41 @@ describe("usage service", () => {
 		const service = new UsageService({ clock: () => now });
 
 		const first = await service.load(context, loadOptions());
+		const readsPerLoad = authReads;
+		expect(readsPerLoad).toBeGreaterThan(0);
 		const cached = await service.load(context, loadOptions());
 		expect(cached).toBe(first);
-		expect(authReads).toBe(4);
+		expect(authReads).toBe(readsPerLoad);
 
 		await service.load(context, loadOptions(true));
-		expect(authReads).toBe(8);
+		expect(authReads).toBe(readsPerLoad * 2);
 
 		now += 60_001;
 		await service.load(context, loadOptions());
-		expect(authReads).toBe(12);
+		expect(authReads).toBe(readsPerLoad * 3);
 	});
 
-	it("合并并发刷新，避免重复读取 OAuth", async () => {
-		let release: (() => void) | undefined;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
+	it("合并并发刷新，避免重复读取凭据", async () => {
+		const gate = Promise.withResolvers<void>();
 		let authReads = 0;
 		const context: UsageContext = {
 			modelRegistry: {
 				async getProviderAuth() {
 					authReads += 1;
-					await gate;
+					await gate.promise;
 					return undefined;
 				},
 			},
 		};
 		const service = new UsageService();
 		const first = service.load(context, loadOptions(true));
+		const readsPerLoad = authReads;
+		expect(readsPerLoad).toBeGreaterThan(0);
 		const second = service.load(context, loadOptions(true));
-		release?.();
+		gate.resolve();
 		const [firstSnapshot, secondSnapshot] = await Promise.all([first, second]);
 		expect(secondSnapshot).toBe(firstSnapshot);
-		expect(authReads).toBe(4);
+		expect(authReads).toBe(readsPerLoad);
 	});
 });
 
@@ -225,13 +226,14 @@ describe("usage renderer", () => {
 		expect(lines.join("\n")).toContain("GPT-5.3-Codex-Spark quota");
 	});
 
-	it("隐藏未登录 provider", async () => {
+	it("没有配置服务商时显示空状态", async () => {
 		const snapshot = await collectUsageSnapshot(
 			{ modelRegistry: { getProviderAuth: async () => undefined } },
 			clientOptions(fixtureFetch()),
 		);
 		const output = renderUsage(snapshot, 80).join("\n");
-		expect(output.length).toBeGreaterThan(0);
+		expect(snapshot.providers).toEqual([]);
+		expect(output).toContain("No configured supported plan or balance providers.");
 		expect(output).not.toContain("Claude");
 		expect(output).not.toContain("Codex");
 	});
@@ -270,13 +272,14 @@ describe("usage extension", () => {
 		usageExtension(pi, presentation.usage);
 		const complete = commandOptions?.getArgumentCompletions;
 		if (!complete) throw new Error("usage completions not registered");
-		for (const prefix of ["", "--re"]) {
+		for (const prefix of ["", "re"]) {
 			expect(await complete(prefix)).toEqual([
-				{ value: "--refresh", label: "--refresh", description: expect.any(String) },
+				{ value: "refresh", label: "refresh", description: expect.any(String) },
 			]);
 		}
 		expect(await complete("bad")).toEqual([]);
-		expect(await complete("--refresh ")).toEqual([]);
+		expect(await complete("refresh ")).toEqual([]);
+		expect(await complete("--re")).toEqual([]);
 		expect(notifications).toEqual([]);
 
 		const context = fixture<Parameters<CommandOptions["handler"]>[1]>({
@@ -292,15 +295,20 @@ describe("usage extension", () => {
 				},
 			},
 		});
-		await commandOptions?.handler("bad", context);
-		expect(notifications).toHaveLength(1);
+		for (const argument of ["bad", "--refresh"]) {
+			await commandOptions?.handler(argument, context);
+		}
+		expect(notifications).toEqual([
+			"Usage: /usage [refresh]",
+			"Usage: /usage [refresh]",
+		]);
 
 		await commandOptions?.handler("", context);
 		expect(commandName).toBe("usage");
 		expect(customCalled).toBe(true);
 
 		let printNotification: { message: string; type: string | undefined } | undefined;
-		await commandOptions?.handler("--refresh", fixture<Parameters<CommandOptions["handler"]>[1]>({
+		await commandOptions?.handler("refresh", fixture<Parameters<CommandOptions["handler"]>[1]>({
 			mode: "print",
 			signal: undefined,
 			modelRegistry: { getProviderAuth: async () => undefined },
@@ -325,7 +333,7 @@ function loadOptions(refresh = false): Parameters<UsageService["load"]>[1] {
 function oauthContext(defaultToken = "oauth-token"): UsageContext {
 	return {
 		modelRegistry: {
-			getProviderAuth: async (providerId): Promise<AuthResult> => ({
+			getProviderAuth: async (providerId): Promise<AuthResult | undefined> => providerId === "deepseek" ? undefined : ({
 				source: "OAuth",
 				auth: providerId === "kimi-coding"
 					? { headers: { Authorization: `Bearer ${defaultToken}` } }

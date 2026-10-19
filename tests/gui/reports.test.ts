@@ -23,18 +23,45 @@ describe("报告数据呈现", () => {
 		expect(doc.querySelector('[aria-label="上下文占用"]')).toBeNull();
 	});
 
-	it("套餐显示剩余额度，区分耗尽、未知窗口、查询失败和未登录", () => {
+	it("套餐显示剩余额度，区分耗尽、未知窗口和查询失败", () => {
 		const doc = documentOf(createElement(UsageReport, { value: usageReport }));
 		expect(doc.querySelector('[aria-label="5 小时"]')?.getAttribute("value")).toBe("65");
 		expect(doc.querySelector('[aria-label="Codex"] meter')?.getAttribute("value")).toBe("0");
 		expect(doc.querySelector('[aria-label="额外额度"]')).toBeNull();
 		expect(doc.querySelector('[aria-label="Kimi"] [role="status"]')).not.toBeNull();
-		expect(doc.querySelector('[aria-label="Grok"]')).toBeNull();
 		expect(doc.querySelectorAll(".reset-credits li")).toHaveLength(3);
 	});
 
-	it("没有已登录套餐时不展示服务商额度", () => {
-		const doc = documentOf(createElement(UsageReport, { value: { ...usageReport, providers: [{ id: "xai", name: "Grok", status: "not_logged_in" }] } }));
+	it("DeepSeek 显示连接状态、原始余额和分项，不显示套餐进度", () => {
+		const doc = documentOf(createElement(UsageReport, { value: usageReport }));
+		const card = doc.querySelector('[aria-label="DeepSeek"]');
+		expect(card?.querySelector("h3")?.textContent).toBe("DeepSeek");
+		expect(card?.querySelector('[data-tone="success"]')?.textContent).toBe("已连接");
+		expect(card?.textContent).toContain("API 余额");
+		expect(Array.from(card?.querySelectorAll("dt") ?? [], (label) => [label.textContent, label.nextElementSibling?.textContent])).toEqual([
+			["可用余额", "CNY 12.3456"],
+			["充值余额", "CNY 10.0000"],
+			["赠金余额", "CNY 2.3456"],
+		]);
+		expect(card?.querySelector("meter")).toBeNull();
+		expect(card?.textContent).not.toMatch(/套餐名称未提供|额度窗口/);
+	});
+
+	it("按返回币种显示多份余额，余额不足保留已连接状态", () => {
+		const doc = documentOf(createElement(UsageReport, { value: { ...usageReport, providers: [{
+			id: "deepseek", name: "DeepSeek", status: "ok", kind: "balance", isAvailable: false, balances: [
+				{ currency: "CNY", total: "0.00", granted: "0.00", toppedUp: "0.00" },
+				{ currency: "USD", total: "-0.00001", granted: "0", toppedUp: "-0.00001" },
+			],
+		}] } }));
+		expect(Array.from(doc.querySelectorAll(".report-metric dd"), (element) => element.textContent)).toEqual(["CNY 0.00", "USD -0.00001"]);
+		expect(doc.querySelector('.report-badge[data-tone="success"]')?.textContent).toBe("已连接");
+		expect(doc.querySelector('[role="status"]')?.textContent).toBe("余额不足，暂不可调用 API。");
+	});
+
+	it("没有配置服务商时显示空状态", () => {
+		const doc = documentOf(createElement(UsageReport, { value: { ...usageReport, providers: [] } }));
+		expect(doc.querySelector(".report-empty")?.textContent).toBe("暂无已配置的套餐或 API 余额服务。");
 		expect(doc.querySelector(".report-section")).toBeNull();
 		expect(doc.querySelector("meter")).toBeNull();
 	});

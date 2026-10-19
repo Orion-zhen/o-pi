@@ -13,7 +13,7 @@ export interface UsageLoadOptions {
 	signal: AbortSignal | undefined;
 }
 
-/** 为 /usage 提供短期内存缓存和并发请求合并。缓存中不含 OAuth 凭据。 */
+/** 为 /usage 提供短期内存缓存和并发请求合并。缓存中不含凭据。 */
 export class UsageService {
 	private cached: { loadedAt: number; snapshot: UsageSnapshot } | undefined;
 	private inFlight: Promise<UsageSnapshot> | undefined;

@@ -14,7 +14,7 @@ import "../reports/reports.css";
 const titles: Record<GuiPanel["kind"], string> = {
 	model: "模型", tools: "工具选择", sessions: "会话列表", settings: "设置", auth: "认证",
 	subagents: "子代理任务", import: "导入会话", system: "系统提示词", help: "命令帮助",
-	lastReply: "最后回复", usage: "套餐用量",
+	lastReply: "最后回复", usage: "用量情况",
 };
 
 export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSession, close, restoreFocus }: {
@@ -61,7 +61,11 @@ export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSessio
 		case "system": body = <pre className="system-prompt">{panel.text}</pre>; break;
 		case "help": body = snapshot.commands.map((command) => <p key={command.name}><code>/{command.name}</code> {command.description}</p>); break;
 		case "lastReply": body = <Content value={panel.text} />; break;
-		case "usage": body = <UsageReport value={panel.value} />; break;
+		case "usage":
+			body = <UsageReport value={panel.value} disabled={!snapshot.canSubmit} onRefresh={async () => {
+				await send({ action: "view", view: "usage", refresh: true });
+			}} />;
+			break;
 	}
 	return <PanelDialog ref={ref} title={titles[panel.kind]} close={close} restoreFocus={restoreFocus}>{body}</PanelDialog>;
 }

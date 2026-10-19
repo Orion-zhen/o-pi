@@ -15,22 +15,20 @@ const INDEX_WIDTH = 3;
 const STATE_WIDTH = 12;
 const TABLE_GAP = "   ";
 
-type VisibleProvider = Exclude<ProviderUsage, { status: "not_logged_in" }>;
-
 export interface UsageRenderOptions {
 	formatProviderHeading?: (heading: string) => string;
 }
 
-/** 用剩余额度进度条和响应式重置卡列表渲染所有 OAuth plan。 */
+/** 渲染套餐剩余额度、重置卡和 API 余额。 */
 export function renderUsage(snapshot: UsageSnapshot, width: number, options: UsageRenderOptions = {}): string[] {
 	const lines = [
-		`Plan Usage · Queried ${formatDateTime(snapshot.generatedAt, snapshot.timeZone)}`,
+		`Usage · Queried ${formatDateTime(snapshot.generatedAt, snapshot.timeZone)}`,
 		`Timezone: ${snapshot.timeZone}`,
 		"",
 	];
-	const providers = snapshot.providers.filter(isVisibleProvider);
+	const providers = snapshot.providers;
 	if (providers.length === 0) {
-		lines.push("No logged-in supported plan providers.");
+		lines.push("No configured supported plan or balance providers.");
 	} else {
 		for (const [index, provider] of providers.entries()) {
 			if (index > 0) lines.push("");
@@ -42,22 +40,31 @@ export function renderUsage(snapshot: UsageSnapshot, width: number, options: Usa
 }
 
 export function renderUsageCancelled(width: number): string[] {
-	return ["Plan Usage · Request cancelled", "", "The usage request was cancelled.", "", "Esc / Enter / q to close"]
+	return ["Usage · Request cancelled", "", "The usage request was cancelled.", "", "Esc / Enter / q to close"]
 		.flatMap((line) => wrapPresentationText(line, width));
 }
 
-function isVisibleProvider(provider: ProviderUsage): provider is VisibleProvider {
-	return provider.status !== "not_logged_in";
-}
-
 function renderProvider(
-	provider: VisibleProvider,
+	provider: ProviderUsage,
 	snapshot: UsageSnapshot,
 	width: number,
 	formatHeading: (heading: string) => string,
 ): string[] {
 	if (provider.status === "error") {
 		return joinBlocks([[formatHeading(`${provider.name} · Request failed`)], [formatProviderError(provider.error)]]);
+	}
+
+	if (provider.kind === "balance") {
+		const blocks = [[formatHeading(`${provider.name} · API balance`)]];
+		for (const balance of provider.balances) {
+			blocks.push([
+				`Available balance: ${balance.currency} ${balance.total}`,
+				`Topped-up balance: ${balance.currency} ${balance.toppedUp} | Granted balance: ${balance.currency} ${balance.granted}`,
+			]);
+		}
+		if (provider.balances.length === 0) blocks.push(["Balance details unavailable."]);
+		if (!provider.isAvailable) blocks.push(["Insufficient balance for API calls."]);
+		return joinBlocks(blocks);
 	}
 
 	const heading = `${provider.name} · ${provider.plan ?? "plan unknown"}`;
@@ -157,7 +164,7 @@ function renderProgress(percent: number | undefined): string {
 }
 
 function formatProviderError(error: UsageProviderError): string {
-	if (error.code === "auth") return "Could not resolve Pi OAuth credentials. Run /login again.";
+	if (error.code === "auth") return "Could not resolve credentials. Check API key settings or run /login again.";
 	if (error.code === "timeout") return "The provider usage request timed out.";
 	if (error.code === "http") return `The provider returned HTTP ${error.httpStatus}.`;
 	if (error.code === "response_too_large") return "The provider returned an oversized usage response.";

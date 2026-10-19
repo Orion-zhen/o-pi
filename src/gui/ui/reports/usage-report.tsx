@@ -1,9 +1,12 @@
-import type { ProviderUsage, UsageProviderError, UsageResetCredits, UsageSnapshot } from "../../../harness/usage/types.ts";
-import { Bar, dateTime, Empty, Facts, number, percent, ReportStamp, Section } from "./shared.tsx";
+import { useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { Button } from "../components/ui/button";
+import type { ProviderUsage, ProviderUsageData, UsageProviderError, UsageResetCredits, UsageSnapshot } from "../../../harness/usage/types.ts";
+import { Bar, dateTime, Empty, Facts, Metrics, number, percent, ReportStamp, Section } from "./shared.tsx";
 
 function errorText(error: UsageProviderError): string {
 	switch (error.code) {
-		case "auth": return "认证失败，请重新登录该服务商。";
+		case "auth": return "认证失败，请检查凭据或重新登录。";
 		case "timeout": return "查询超时，请稍后重试。";
 		case "http": return `服务商返回 HTTP ${error.httpStatus}，请稍后重试。`;
 		case "response_too_large": return "服务商响应过大，无法读取用量。";
@@ -12,35 +15,69 @@ function errorText(error: UsageProviderError): string {
 	}
 }
 
-export function UsageReport({ value }: { value: UsageSnapshot | "aborted" }) {
-	if (value === "aborted") return <div className="report-dashboard"><Empty>套餐用量查询已取消。</Empty></div>;
-	const providers = value.providers.filter((provider) => provider.status !== "not_logged_in");
+export function UsageReport({ value, onRefresh, disabled }: {
+	value: UsageSnapshot | "aborted";
+	onRefresh?: () => Promise<void>;
+	disabled?: boolean;
+}) {
+	const [refreshing, setRefreshing] = useState(false);
+	const refresh = async (load: () => Promise<void>) => {
+		setRefreshing(true);
+		try { await load(); }
+		finally { setRefreshing(false); }
+	};
+	if (value === "aborted") return <div className="report-dashboard"><Empty>用量情况查询已取消。</Empty></div>;
+	const providers = value.providers;
 	return <div className="report-dashboard">
-		{providers.length === 0 && <Empty>暂无已登录的套餐。</Empty>}
+		{providers.length === 0 && <Empty>暂无已配置的套餐或 API 余额服务。</Empty>}
 		{providers.map((provider) => <ProviderCard key={provider.id} provider={provider} timeZone={value.timeZone} generatedAt={value.generatedAt} />)}
-		<ReportStamp at={value.generatedAt} timeZone={value.timeZone} />
+		<div className="usage-report-footer">
+			<ReportStamp at={value.generatedAt} timeZone={value.timeZone} />
+			{onRefresh && <Button variant="outline" size="sm" disabled={disabled || refreshing} onClick={() => void refresh(onRefresh)}>
+				<RefreshCw aria-hidden="true" />{refreshing ? "刷新中…" : "刷新"}
+			</Button>}
+		</div>
 	</div>;
 }
 
-function ProviderCard({ provider, timeZone, generatedAt }: { provider: Exclude<ProviderUsage, { status: "not_logged_in" }>; timeZone: string; generatedAt: string }) {
+function ProviderCard({ provider, timeZone, generatedAt }: { provider: ProviderUsage; timeZone: string; generatedAt: string }) {
 	return <Section title={provider.name}>
 		{provider.status === "error" ? <p className="report-message" data-tone="danger" role="status">{errorText(provider.error)}</p>
-			: <>
-				<div className="report-inline"><span className="report-badge" data-tone="success">已连接</span><strong>{provider.plan ?? "套餐名称未提供"}</strong></div>
-				{provider.windows.length === 0 ? <Empty>服务商暂未提供额度窗口。</Empty> : <div className="report-bars">{provider.windows.map((window, index) => {
-					const remaining = window.usedPercent === undefined ? undefined : 100 - window.usedPercent;
-					return <div className="report-usage-window" key={index}>
-						<Bar label={[window.sectionLabel, window.label].filter(Boolean).join(" · ")} value={remaining} text={remaining === undefined ? "用量暂不可用" : `剩余 ${percent(remaining)}`} tone={remaining === undefined || remaining > 20 ? "success" : remaining > 5 ? "warning" : "danger"} />
-						<dl className="usage-reset">
-							<dt>重置时间</dt>
-							<dd>{window.resetsAt === undefined ? "未提供" : <time dateTime={window.resetsAt}>{dateTime(window.resetsAt, timeZone)}</time>}</dd>
-						</dl>
-					</div>;
-				})}</div>}
-				{provider.details.length > 0 && <Facts items={provider.details.map((detail) => [detail.label, detail.value])} />}
-				{provider.resetCredits !== undefined && <ResetCredits value={provider.resetCredits} timeZone={timeZone} generatedAt={generatedAt} />}
-			</>}
+			: provider.kind === "balance" ? <ApiBalance value={provider} />
+				: <PlanUsage value={provider} timeZone={timeZone} generatedAt={generatedAt} />}
 	</Section>;
+}
+
+function PlanUsage({ value, timeZone, generatedAt }: { value: Extract<ProviderUsageData, { kind: "plan" }>; timeZone: string; generatedAt: string }) {
+	return <>
+		<div className="report-inline"><span className="report-badge" data-tone="success">已连接</span><strong>{value.plan ?? "套餐名称未提供"}</strong></div>
+		{value.windows.length === 0 ? <Empty>服务商暂未提供额度窗口。</Empty> : <div className="report-bars">{value.windows.map((window, index) => {
+			const remaining = window.usedPercent === undefined ? undefined : 100 - window.usedPercent;
+			return <div className="report-usage-window" key={index}>
+				<Bar label={[window.sectionLabel, window.label].filter(Boolean).join(" · ")} value={remaining} text={remaining === undefined ? "用量暂不可用" : `剩余 ${percent(remaining)}`} tone={remaining === undefined || remaining > 20 ? "success" : remaining > 5 ? "warning" : "danger"} />
+				<dl className="usage-reset">
+					<dt>重置时间</dt>
+					<dd>{window.resetsAt === undefined ? "未提供" : <time dateTime={window.resetsAt}>{dateTime(window.resetsAt, timeZone)}</time>}</dd>
+				</dl>
+			</div>;
+		})}</div>}
+		{value.details.length > 0 && <Facts items={value.details.map((detail) => [detail.label, detail.value])} />}
+		{value.resetCredits !== undefined && <ResetCredits value={value.resetCredits} timeZone={timeZone} generatedAt={generatedAt} />}
+	</>;
+}
+
+function ApiBalance({ value }: { value: Extract<ProviderUsageData, { kind: "balance" }> }) {
+	return <>
+		<div className="report-inline"><span className="report-badge" data-tone="success">已连接</span><strong>API 余额</strong></div>
+		{value.balances.length === 0 ? <Empty>服务商未提供余额明细。</Empty> : value.balances.map((balance, index) => <div className="usage-balance" key={index}>
+			<Metrics items={[{ label: "可用余额", value: `${balance.currency} ${balance.total}` }]} />
+			<div className="usage-balance-details">
+				<Facts items={[["充值余额", `${balance.currency} ${balance.toppedUp}`]]} />
+				<Facts items={[["赠金余额", `${balance.currency} ${balance.granted}`]]} />
+			</div>
+		</div>)}
+		{!value.isAvailable && <p className="report-message" data-tone="warning" role="status">余额不足，暂不可调用 API。</p>}
+	</>;
 }
 
 function expiryDistance(expiresAt: string | undefined, generatedAt: string): string {

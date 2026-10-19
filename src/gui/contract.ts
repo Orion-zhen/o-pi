@@ -66,8 +66,10 @@ export const actionSchema = Type.Union([
 	}),
 	object({
 		action: Type.Literal("view"),
-		view: Type.Union([Type.Literal("usage"), Type.Literal("system")]),
+		view: Type.Literal("usage"),
+		refresh: Type.Optional(Type.Boolean()),
 	}),
+	object({ action: Type.Literal("view"), view: Type.Literal("system") }),
 	object({ action: Type.Literal("workspace"), path: short }),
 	object({ action: Type.Literal("removeWorkspace"), path: short }),
 	object({ action: Type.Literal("openSession"), path: short }),

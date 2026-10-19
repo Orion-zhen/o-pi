@@ -179,26 +179,27 @@
 
 来源：`src/harness/extensions/usage.ts`
 
-用途：查询已通过 Pi OAuth 登录的官方套餐当前消耗和额度窗口。
+用途：查询已通过 Pi OAuth 登录的官方套餐用量，以及已配置凭据的 DeepSeek API 余额。
 
 用法：
 
 ```text
 /usage
-/usage --refresh
+/usage refresh
 ```
 
 行为：
 
-- 支持 Claude (`anthropic`)、Codex (`openai-codex`)、Kimi Code (`kimi-coding`) 和 Grok (`xai`)。只展示已通过 OAuth 登录的提供方，未登录项隐藏。全部未登录时显示统一空状态。GitHub Copilot、OpenRouter、Radius 暂无相同的额度窗口查询。
-- 凭据仅通过 `ctx.modelRegistry.getProviderAuth()` 获取。只有 OAuth 凭据用于请求，API key 凭据不会用于额度请求。
+- 套餐查询支持 Claude (`anthropic`)、Codex (`openai-codex`)、Kimi Code (`kimi-coding`) 和 Grok (`xai`)。只展示已通过 OAuth 登录的套餐，未登录项隐藏。GitHub Copilot、OpenRouter、Radius 暂无相同的额度窗口查询。
+- DeepSeek (`deepseek`) 使用已有 API key 查询[官方余额接口](https://api-docs.deepseek.com/zh-cn/api/get-user-balance/)，未配置凭据时隐藏。GUI 在“DeepSeek”标题下显示绿色“已连接”标记和“API 余额”，首行大字显示可用余额，下方的充值余额与赠金余额在空间充足时并列，空间不足时自动堆叠。字号复用报告面板样式。金额保留接口返回的币种和精度，多币种分别展示，不换算为百分比。
+- 凭据仅通过 `ctx.modelRegistry.getProviderAuth()` 获取。套餐查询只接受 OAuth 凭据，DeepSeek 余额查询接受 API key，包括 `DEEPSEEK_API_KEY`。不根据模型名识别第三方 DeepSeek 服务。
 - 并发查询各提供方。单个提供方失败只在对应区块显示脱敏错误。
 - 使用 ASCII 进度条展示剩余和已用百分比、窗口周期和重置时间。只有当前提供方响应明确给出的套餐和额外用量字段才会显示。
 - Codex 直接使用 Pi OAuth 查询用量和累积重置额度，不依赖 `codex` 命令或 `app-server`。宽屏使用表格，窄屏使用分块列表，展示状态、发放时间、到期时间和相对到期时间。详情查询失败时仍保留额度窗口与可用数量。
-- 结果缓存 60 秒。`--refresh` 绕过已完成的缓存。并发调用仍共享同一个在途请求。
-- TUI 使用只读浮层。非 TUI 模式通过界面通知输出。结果、OAuth 令牌和响应正文不写入会话历史或模型上下文。
-- 提供方的额度接口没有公开的稳定性承诺。解析器只接受当前第一方客户端使用的字段，不猜测旧字段或替代名称。请求保留超时、实际响应大小、输出数量和结构限制。接口变化只会使对应提供方降级失败。
-- 客户端在 HTTP 边界把日期转换为 ISO 8601 字符串，并返回可安全序列化为 JSON 的快照。TUI 与纯文本格式化器不接触 `Date` 对象。
+- 结果缓存 60 秒。`refresh` 绕过已完成的缓存。GUI 用量面板底部快照信息右侧的“刷新”按钮执行相同操作，刷新期间保留当前内容并禁用按钮。并发调用仍共享同一个在途请求。
+- TUI 使用只读浮层。非 TUI 模式通过界面通知输出。结果、凭据和响应正文不写入会话历史或模型上下文。
+- OAuth 套餐额度接口没有公开的稳定性承诺，解析器只接受当前第一方客户端使用的字段。DeepSeek 余额按官方公开文档解析。不猜测旧字段或替代名称。请求保留超时、实际响应大小、输出数量和结构限制。接口变化只会使对应提供方降级失败。
+- 客户端在 HTTP 边界把日期转换为 ISO 8601 字符串，并返回可安全序列化为 JSON 的快照。未配置或凭据类型不适用的提供方不进入快照，凭据解析错误仍保留。TUI 与纯文本格式化器不接触 `Date` 对象。
 - 关闭：`Esc`、`q` 或 `Enter`。内容较长时可滚动。
 
 ## `/presence`

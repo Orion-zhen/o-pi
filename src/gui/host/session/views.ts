@@ -1,9 +1,10 @@
 import type { GuiAction } from "../../contract.ts";
 import type { GuiExecution } from "./execution.ts";
 
-type View = Extract<GuiAction, { action: "view" }>["view"];
+type ViewAction = Extract<GuiAction, { action: "view" }>;
 
-export async function openView(host: GuiExecution, view: View, signal: AbortSignal): Promise<void> {
+export async function openView(host: GuiExecution, action: ViewAction, signal: AbortSignal): Promise<void> {
+	const { view } = action;
 	const runner = host.runtime.session.extensionRunner;
 	const command = runner.getCommand(view);
 	if (!command) throw new Error(`视图不可用: ${view}`);
@@ -13,5 +14,5 @@ export async function openView(host: GuiExecution, view: View, signal: AbortSign
 	Object.defineProperty(context, "signal", {
 		value: sessionSignal ? AbortSignal.any([sessionSignal, signal]) : signal,
 	});
-	await command.handler("", context);
+	await command.handler(action.view === "usage" && action.refresh ? "refresh" : "", context);
 }

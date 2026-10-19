@@ -301,7 +301,7 @@ export class GuiExecution {
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
 		const { session, services } = this.runtime;
 		switch (action.action) {
-			case "view": await openView(this, action.view, this.commandController.signal); return;
+			case "view": await openView(this, action, this.commandController.signal); return;
 			case "prompt": await this.prompt(action, client); return;
 			case "clearQueue": session.clearQueue(); this.publish(); return;
 			case "export": await exportSession(session, action.format, (event) => this.emit(event)); return;

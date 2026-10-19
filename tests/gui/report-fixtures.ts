@@ -21,18 +21,20 @@ export const statsReport: StatsSnapshot = {
 export const usageReport: UsageSnapshot = {
 	generatedAt: "2026-09-15T10:00:00Z", timeZone: "Asia/Shanghai",
 	providers: [
-		{ id: "anthropic", name: "Claude", status: "ok", plan: "Max", details: [], resetCredits: undefined, windows: [
+		{ id: "anthropic", name: "Claude", status: "ok", kind: "plan", plan: "Max", details: [], resetCredits: undefined, windows: [
 			{ label: "5 小时", usedPercent: 35, windowDurationMins: 300, resetsAt: "2026-09-15T12:00:00Z" },
 			{ label: "每周", usedPercent: 92, windowDurationMins: 10080, resetsAt: "2026-09-20T00:00:00Z" },
 			{ label: "额外额度", usedPercent: undefined, windowDurationMins: undefined, resetsAt: undefined },
 		] },
-		{ id: "openai-codex", name: "Codex", status: "ok", plan: "Pro", windows: [{ label: "每周", usedPercent: 100, windowDurationMins: 10080, resetsAt: "2026-09-20T00:00:00Z" }], details: [{ label: "计费模式", value: "订阅" }], resetCredits: { availableCount: 3, credits: [
+		{ id: "openai-codex", name: "Codex", status: "ok", kind: "plan", plan: "Pro", windows: [{ label: "每周", usedPercent: 100, windowDurationMins: 10080, resetsAt: "2026-09-20T00:00:00Z" }], details: [{ label: "计费模式", value: "订阅" }], resetCredits: { availableCount: 3, credits: [
 			{ status: "available", grantedAt: "2026-08-22T00:02:00Z", expiresAt: "2026-09-21T00:02:00Z" },
 			{ status: "available", grantedAt: "2026-09-04T02:06:00Z", expiresAt: "2026-10-04T02:06:00Z" },
 			{ status: "available", grantedAt: "2026-09-05T04:21:00Z", expiresAt: "2026-10-05T04:21:00Z" },
 		] } },
 		{ id: "kimi-coding", name: "Kimi", status: "error", error: { code: "timeout" } },
-		{ id: "xai", name: "Grok", status: "not_logged_in" },
+		{ id: "deepseek", name: "DeepSeek", status: "ok", kind: "balance", isAvailable: true, balances: [
+			{ currency: "CNY", total: "12.3456", granted: "2.3456", toppedUp: "10.0000" },
+		] },
 	],
 };
 

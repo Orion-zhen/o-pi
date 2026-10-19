@@ -36,7 +36,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 			<IconButton label="设置" disabled={!gui.connected} onClick={() => open("settings")}><Settings /></IconButton>
 			<IconButton label="认证" disabled={!gui.canSubmit} onClick={() => open("auth")}><KeyRound /></IconButton>
 			<IconButton label="模型" disabled={!gui.canSubmit} onClick={() => open("model")}><Cpu /></IconButton>
-			<IconButton label="套餐用量" disabled={!gui.canSubmit} onClick={() => act({ action: "view", view: "usage" })}><Gauge /></IconButton>
+			<IconButton label="用量情况" disabled={!gui.canSubmit} onClick={() => act({ action: "view", view: "usage" })}><Gauge /></IconButton>
 			<IconButton label="重载资源" disabled={!gui.canChangeSession} onClick={() => act({ action: "reload" })}><RefreshCw /></IconButton>
 		</div>
 	</>;

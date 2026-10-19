@@ -1,7 +1,10 @@
 import type { AuthResult } from "@earendil-works/pi-ai";
+import { getJson, UsageHttpError, type JsonRequestContext, type JsonRequestOptions } from "./request.ts";
 import {
 	UsageRequestError,
 	type ProviderUsage,
+	type ProviderUsageData,
+	type UsageBalance,
 	type UsageDetail,
 	type UsageProviderError,
 	type UsageProviderId,
@@ -11,9 +14,7 @@ import {
 	type UsageWindow,
 } from "./types.ts";
 
-const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_OPTIONAL_TIMEOUT_MS = 2_500;
-const MAX_RESPONSE_BYTES = 1_048_576;
 const FIVE_HOURS_MINS = 5 * 60;
 const SEVEN_DAYS_MINS = 7 * 24 * 60;
 const MAX_PROVIDER_ITEMS = 10;
@@ -27,53 +28,32 @@ export interface UsageContext {
 	};
 }
 
-export interface UsageClientOptions {
-	fetchImpl: typeof fetch;
-	signal: AbortSignal | undefined;
+export interface UsageClientOptions extends JsonRequestContext {
 	now: Date;
-}
-
-interface ProviderUsageData {
-	plan: string | undefined;
-	windows: UsageWindow[];
-	details: UsageDetail[];
-	resetCredits: UsageResetCredits | undefined;
 }
 
 interface ProviderDefinition {
 	id: UsageProviderId;
 	name: string;
+	auth: "oauth" | "api_key";
 	fetchUsage(token: string, options: UsageClientOptions): Promise<ProviderUsageData>;
 }
 
-interface JsonRequestOptions {
-	fetchImpl: typeof fetch;
-	parentSignal: AbortSignal | undefined;
-	timeoutMs: number;
-	headers: Record<string, string>;
-}
-
-class UsageHttpError extends Error {
-	constructor(readonly status: number) {
-		super(`http_${status}`);
-		this.name = "UsageHttpError";
-	}
-}
-
 const PROVIDERS: readonly ProviderDefinition[] = [
-	{ id: "anthropic", name: "Claude", fetchUsage: fetchAnthropicUsage },
-	{ id: "openai-codex", name: "Codex", fetchUsage: fetchCodexUsage },
-	{ id: "kimi-coding", name: "Kimi", fetchUsage: fetchKimiUsage },
-	{ id: "xai", name: "Grok", fetchUsage: fetchXaiUsage },
+	{ id: "anthropic", name: "Claude", auth: "oauth", fetchUsage: fetchAnthropicUsage },
+	{ id: "openai-codex", name: "Codex", auth: "oauth", fetchUsage: fetchCodexUsage },
+	{ id: "kimi-coding", name: "Kimi", auth: "oauth", fetchUsage: fetchKimiUsage },
+	{ id: "xai", name: "Grok", auth: "oauth", fetchUsage: fetchXaiUsage },
+	{ id: "deepseek", name: "DeepSeek", auth: "api_key", fetchUsage: fetchDeepSeekBalance },
 ];
 
-/** 并发读取 Pi 官方 OAuth plan 的额度。单个 provider 失败不会遮蔽其他结果。 */
+/** 并发读取官方套餐额度与 API 余额。单个 provider 失败不会遮蔽其他结果。 */
 export async function collectUsageSnapshot(context: UsageContext, options: UsageClientOptions): Promise<UsageSnapshot> {
 	const providers = await Promise.all(PROVIDERS.map((provider) => collectProviderUsage(provider, context, options)));
 	return {
 		generatedAt: options.now.toISOString(),
 		timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-		providers,
+		providers: providers.filter((provider) => provider !== undefined),
 	};
 }
 
@@ -81,14 +61,14 @@ async function collectProviderUsage(
 	provider: ProviderDefinition,
 	context: UsageContext,
 	options: UsageClientOptions,
-): Promise<ProviderUsage> {
+): Promise<ProviderUsage | undefined> {
 	let token: string | undefined;
 	try {
-		token = await getOAuthToken(context, provider.id);
+		token = await getUsageToken(context, provider);
 	} catch {
 		return providerError(provider, { code: "auth" });
 	}
-	if (token === undefined) return { id: provider.id, name: provider.name, status: "not_logged_in" };
+	if (token === undefined) return undefined;
 
 	try {
 		const usage = await provider.fetchUsage(token, options);
@@ -99,11 +79,11 @@ async function collectProviderUsage(
 	}
 }
 
-async function getOAuthToken(context: UsageContext, provider: UsageProviderId): Promise<string | undefined> {
-	const result = await context.modelRegistry.getProviderAuth(provider);
-	if (result?.source !== "OAuth") return undefined;
-	const token = provider === "kimi-coding" ? kimiBearerToken(result) : result.auth.apiKey;
-	if (typeof token !== "string" || token.length === 0) throw new Error(`Missing OAuth token for ${provider}`);
+async function getUsageToken(context: UsageContext, provider: ProviderDefinition): Promise<string | undefined> {
+	const result = await context.modelRegistry.getProviderAuth(provider.id);
+	if (result === undefined || (result.source === "OAuth") !== (provider.auth === "oauth")) return undefined;
+	const token = provider.id === "kimi-coding" ? kimiBearerToken(result) : result.auth.apiKey;
+	if (typeof token !== "string" || token.length === 0) throw new Error(`Missing credentials for ${provider.id}`);
 	return token;
 }
 
@@ -118,7 +98,7 @@ async function fetchAnthropicUsage(token: string, options: UsageClientOptions): 
 	const usage = requireRecord(await getJson(
 		"https://api.anthropic.com/api/oauth/usage",
 		token,
-		requestOptions(options, DEFAULT_TIMEOUT_MS),
+		options,
 	));
 	const windows: UsageWindow[] = [];
 	pushAnthropicWindow(windows, "Session (5h)", usage.five_hour, FIVE_HOURS_MINS);
@@ -140,6 +120,7 @@ async function fetchAnthropicUsage(token: string, options: UsageClientOptions): 
 	}
 
 	return {
+		kind: "plan",
 		plan: undefined,
 		windows,
 		details: anthropicDetails(usage),
@@ -174,11 +155,12 @@ async function fetchCodexUsage(token: string, options: UsageClientOptions): Prom
 	const accountId = codexAccountId(token);
 	const headers = { "ChatGPT-Account-Id": accountId };
 	const [usageValue, resetValue] = await Promise.all([
-		getJson("https://chatgpt.com/backend-api/wham/usage", token, requestOptions(options, DEFAULT_TIMEOUT_MS, headers)),
+		getJson("https://chatgpt.com/backend-api/wham/usage", token, options, { headers }),
 		getOptionalJson(
 			"https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
 			token,
-			requestOptions(options, DEFAULT_OPTIONAL_TIMEOUT_MS, headers),
+			options,
+			{ timeoutMs: DEFAULT_OPTIONAL_TIMEOUT_MS, headers },
 		),
 	]);
 	const usage = requireRecord(usageValue);
@@ -203,6 +185,7 @@ async function fetchCodexUsage(token: string, options: UsageClientOptions): Prom
 	const summaryCount = summary === undefined ? undefined : requiredCount(summary.available_count);
 
 	return {
+		kind: "plan",
 		plan: requireDisplayString(usage.plan_type, MAX_LABEL_LENGTH),
 		windows,
 		details,
@@ -260,7 +243,7 @@ async function fetchKimiUsage(token: string, options: UsageClientOptions): Promi
 	const usage = requireRecord(await getJson(
 		"https://api.kimi.com/coding/v1/usages",
 		token,
-		requestOptions(options, DEFAULT_TIMEOUT_MS),
+		options,
 	));
 	const windows: UsageWindow[] = [];
 	for (const value of optionalArray(usage.limits).slice(0, MAX_PROVIDER_ITEMS)) {
@@ -286,7 +269,7 @@ async function fetchKimiUsage(token: string, options: UsageClientOptions): Promi
 			resetsAt: toIsoString(optionalDate(weekly.resetTime)),
 		});
 	}
-	return { plan: undefined, windows, details: [], resetCredits: undefined };
+	return { kind: "plan", plan: undefined, windows, details: [], resetCredits: undefined };
 }
 
 async function fetchXaiUsage(token: string, options: UsageClientOptions): Promise<ProviderUsageData> {
@@ -295,12 +278,13 @@ async function fetchXaiUsage(token: string, options: UsageClientOptions): Promis
 		getJson(
 			"https://cli-chat-proxy.grok.com/v1/billing?format=credits",
 			token,
-			requestOptions(options, DEFAULT_TIMEOUT_MS, headers),
+			options, { headers },
 		),
 		getOptionalJson(
 			"https://cli-chat-proxy.grok.com/v1/settings",
 			token,
-			requestOptions(options, DEFAULT_OPTIONAL_TIMEOUT_MS, headers),
+			options,
+			{ timeoutMs: DEFAULT_OPTIONAL_TIMEOUT_MS, headers },
 		),
 	]);
 	const payload = requireRecord(creditsValue);
@@ -345,11 +329,37 @@ async function fetchXaiUsage(token: string, options: UsageClientOptions): Promis
 
 	const settings = recordValue(settingsValue);
 	return {
+		kind: "plan",
 		plan: displayString(settings?.subscription_tier_display, MAX_LABEL_LENGTH),
 		windows,
 		details,
 		resetCredits: undefined,
 	};
+}
+
+async function fetchDeepSeekBalance(token: string, options: UsageClientOptions): Promise<ProviderUsageData> {
+	const usage = requireRecord(await getJson(
+		"https://api.deepseek.com/user/balance",
+		token,
+		options,
+	));
+	if (typeof usage.is_available !== "boolean" || !Array.isArray(usage.balance_infos)) invalidResponse();
+	const balances = usage.balance_infos.slice(0, MAX_PROVIDER_ITEMS).map((value: unknown): UsageBalance => {
+		const balance = requireRecord(value);
+		if (balance.currency !== "CNY" && balance.currency !== "USD") invalidResponse();
+		return {
+			currency: balance.currency,
+			total: requiredAmount(balance.total_balance),
+			granted: requiredAmount(balance.granted_balance),
+			toppedUp: requiredAmount(balance.topped_up_balance),
+		};
+	});
+	return { kind: "balance", isAvailable: usage.is_available, balances };
+}
+
+function requiredAmount(value: unknown): string {
+	if (typeof value !== "string" || value.length > MAX_LABEL_LENGTH || !/^-?\d+(?:\.\d+)?$/u.test(value)) invalidResponse();
+	return value;
 }
 
 function xaiPeriodLabel(value: unknown): string {
@@ -366,17 +376,14 @@ function durationMinutes(start: Date | undefined, end: Date | undefined): number
 	return duration;
 }
 
-function requestOptions(
-	options: UsageClientOptions,
-	timeoutMs: number,
-	headers: Record<string, string> = {},
-): JsonRequestOptions {
-	return { fetchImpl: options.fetchImpl, parentSignal: options.signal, timeoutMs, headers };
-}
-
-async function getOptionalJson(url: string, token: string, options: JsonRequestOptions): Promise<unknown | undefined> {
+async function getOptionalJson(
+	url: string,
+	token: string,
+	context: JsonRequestContext,
+	options: JsonRequestOptions,
+): Promise<unknown> {
 	try {
-		return await getJson(url, token, options);
+		return await getJson(url, token, context, options);
 	} catch (error) {
 		if (error instanceof UsageRequestError) {
 			if (error.code === "aborted") throw error;
@@ -385,63 +392,6 @@ async function getOptionalJson(url: string, token: string, options: JsonRequestO
 		if (error instanceof UsageHttpError) return undefined;
 		throw error;
 	}
-}
-
-async function getJson(url: string, token: string, options: JsonRequestOptions): Promise<unknown> {
-	const timeoutSignal = AbortSignal.timeout(options.timeoutMs);
-	const signal = options.parentSignal === undefined
-		? timeoutSignal
-		: AbortSignal.any([options.parentSignal, timeoutSignal]);
-	let response: Response;
-	try {
-		response = await options.fetchImpl(url, {
-			signal,
-			headers: { ...options.headers, Authorization: `Bearer ${token}`, Accept: "application/json" },
-			redirect: "error",
-		});
-	} catch {
-		throw requestFailure(options.parentSignal, timeoutSignal);
-	}
-	if (response.status < 200 || response.status >= 300) {
-		await response.body?.cancel().catch(() => undefined);
-		throw new UsageHttpError(response.status);
-	}
-	let text: string;
-	try {
-		text = await readBody(response, MAX_RESPONSE_BYTES);
-	} catch (error) {
-		if (error instanceof UsageRequestError) throw error;
-		throw requestFailure(options.parentSignal, timeoutSignal);
-	}
-	try {
-		return JSON.parse(text) as unknown;
-	} catch {
-		throw new UsageRequestError("invalid_response");
-	}
-}
-
-function requestFailure(parentSignal: AbortSignal | undefined, timeoutSignal: AbortSignal): UsageRequestError {
-	if (parentSignal?.aborted) return new UsageRequestError("aborted");
-	if (timeoutSignal.aborted) return new UsageRequestError("timeout");
-	return new UsageRequestError("request_failed");
-}
-
-async function readBody(response: Response, maxBytes: number): Promise<string> {
-	if (response.body === null) return "";
-	const reader = response.body.getReader();
-	const chunks: Buffer[] = [];
-	let bytes = 0;
-	while (true) {
-		const chunk = await reader.read();
-		if (chunk.done) break;
-		bytes += chunk.value.byteLength;
-		if (bytes > maxBytes) {
-			await reader.cancel().catch(() => undefined);
-			throw new UsageRequestError("response_too_large");
-		}
-		chunks.push(Buffer.from(chunk.value));
-	}
-	return Buffer.concat(chunks, bytes).toString("utf8");
 }
 
 function providerError(provider: ProviderDefinition, error: UsageProviderError): ProviderUsage {
