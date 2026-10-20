@@ -107,6 +107,13 @@ changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"
 notificationTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("认证能力区分仅 OAuth、仅 API Key 和两者兼有的 provider", () => {
+		expect(readSnapshot(host).providers).toEqual(expect.arrayContaining([
+			expect.objectContaining({ id: "openai-codex", apiKey: false, oauth: true }),
+			expect.objectContaining({ id: "gui-fixture", apiKey: true, oauth: false }),
+			expect.objectContaining({ id: "anthropic", apiKey: true, oauth: true }),
+		]));
+	});
 	it.each([
 		{ defaults: undefined, expected: ["bash", "edit", "find", "grep", "ls", "read", "skill", "webfetch", "websearch", "write"] },
 		{ defaults: [], expected: [] },

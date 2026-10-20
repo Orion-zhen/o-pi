@@ -281,7 +281,7 @@ export interface GuiSnapshot {
 	tools: (GuiToolSelectionItem & { callable: boolean })[];
 	modelTools: string[];
 	toolDefaultsChanged: boolean;
-	providers: { id: string; name: string; oauth: boolean; authenticated: boolean }[];
+	providers: { id: string; name: string; apiKey: boolean; oauth: boolean; authenticated: boolean }[];
 	bashOutput: string;
 }
 export type GuiSessionTab = "tree" | "stats" | "telemetry";

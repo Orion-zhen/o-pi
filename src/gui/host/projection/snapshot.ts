@@ -87,6 +87,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 			.map((provider) => ({
 				id: provider.id,
 				name: provider.name,
+				apiKey: provider.auth.apiKey?.login !== undefined,
 				oauth: provider.auth.oauth !== undefined,
 				authenticated: services.modelRuntime.hasConfiguredAuth(provider.id),
 			})),
