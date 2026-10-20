@@ -6,6 +6,7 @@ import bashTool from "./extensions/bash-tool.ts";
 import tools, { createToolsExtension } from "./extensions/cmd-slash-tools.ts";
 import type { ToolStartupOptions } from "./tool-defaults/initial.ts";
 import codemode from "./extensions/codemode.ts";
+import codexSpeed from "./extensions/codex-speed.ts";
 import toolSearch from "./extensions/tool-search.ts";
 import discordPresence from "./extensions/discord-presence.ts";
 import fileTools from "./extensions/file-tools.ts";
@@ -34,6 +35,7 @@ export const extensions: InlineExtension[] = [
 	{ name: "auto-title", factory: autoTitle },
 	{ name: "bash-tool", factory: bashTool },
 	{ name: "cmd-slash-tools", factory: tools },
+	{ name: "codex-speed", factory: codexSpeed },
 	{ name: "discord-presence", factory: discordPresence },
 	{ name: "file-tools", factory: fileTools },
 	{ name: "lsp", factory: lsp },

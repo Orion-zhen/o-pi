@@ -1,5 +1,6 @@
 import { useRef } from "react";
-import { Cpu } from "lucide-react";
+import { Cpu, Rocket, Zap } from "lucide-react";
+import { CODEX_SPEEDS, type CodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { GuiSnapshot } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
 import { Hint } from "../components/ui/tooltip";
@@ -7,6 +8,23 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import "./models.css";
 
 const manageModels = "manage-models";
+
+function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send: Send; disabled: boolean }) {
+	const Icon = speed === "ultrafast" ? Rocket : Zap;
+	return (
+		<Select value={speed} disabled={disabled} onValueChange={(value) => {
+			const next = CODEX_SPEEDS.find((speed) => speed === value);
+			if (next) void send({ action: "codexSpeed", speed: next });
+		}}>
+			<Hint content={`模型速度：${speed}`}><SelectTrigger className="codex-speed" data-speed={speed} aria-label={`模型速度：${speed}`}>
+				<span className="codex-speed-label"><Icon aria-hidden="true" />{speed !== "normal" && <span>{speed}</span>}</span>
+			</SelectTrigger></Hint>
+			<SelectContent>
+				{CODEX_SPEEDS.map((speed) => <SelectItem key={speed} value={speed}>{speed}</SelectItem>)}
+			</SelectContent>
+		</Select>
+	);
+}
 
 export function ThinkingControl({
 	snapshot,
@@ -50,6 +68,7 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 		models.push(snapshot.model);
 	return (
 		<div className="model-controls">
+			{snapshot.codexSpeed !== null && <CodexSpeedControl speed={snapshot.codexSpeed} send={send} disabled={disabled} />}
 			<Select
 				value={current}
 				disabled={disabled}
@@ -62,7 +81,7 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 					if (model) void send({ action: "model", provider: model.provider, id: model.id });
 				}}
 			>
-				<Hint content={current || "选择模型"}><SelectTrigger aria-label="模型">
+				<Hint content={current || "选择模型"}><SelectTrigger className="model-control" aria-label="模型">
 					<SelectValue placeholder="选择模型" />
 				</SelectTrigger></Hint>
 				<SelectContent onCloseAutoFocus={(event) => {

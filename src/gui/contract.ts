@@ -1,5 +1,6 @@
 import { Type, type Static, type TProperties } from "typebox";
 import type { Attention } from "../harness/attention.ts";
+import { CODEX_SPEEDS, type CodexSpeed } from "../harness/codex-speed/state.ts";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession, AgentSessionEvent, SessionStats } from "@earendil-works/pi-coding-agent";
 import type { StatsSnapshot } from "../harness/stats/types.ts";
@@ -84,6 +85,7 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("import"), content: text }),
 	object({ action: Type.Literal("export"), format: Type.Union([Type.Literal("jsonl"), Type.Literal("html")]) }),
 	object({ action: Type.Literal("model"), provider: short, id: short }),
+	object({ action: Type.Literal("codexSpeed"), speed: Type.Enum(CODEX_SPEEDS) }),
 	object({
 		action: Type.Literal("thinking"),
 		level: Type.Union([
@@ -256,6 +258,7 @@ export interface GuiSnapshot {
 	messageDurations: Record<string, number>;
 	entries: GuiEntry[];
 	model: GuiModel | null;
+	codexSpeed: CodexSpeed | null;
 	routedModel: { model: GuiModel; thinkingLevel?: string } | null;
 	models: GuiModel[];
 	scopedModels: string[];

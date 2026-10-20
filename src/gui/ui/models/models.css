@@ -11,10 +11,12 @@
 .model-select-label { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
 .model-select-label small { display: block; color: var(--muted-foreground); font-size: var(--text-caption); }
 .model-select-empty { color: var(--muted-foreground); font-size: var(--text-small); }
-.model-controls { display: flex; flex: 1; align-items: center; gap: 0.25rem; min-width: 0; }
-.model-controls [data-slot="select-trigger"] { min-inline-size: 0; max-inline-size: 100%; font-size: var(--text-caption); }
-.model-controls [data-slot="select-trigger"]:first-child { flex: 0 1 auto; }
-.model-controls [data-slot="select-trigger"]:last-of-type { flex-shrink: 0; }
+.model-controls { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-width: 0; max-inline-size: 100%; }
+.model-controls [data-slot="select-trigger"] { flex-shrink: 0; min-inline-size: 0; max-inline-size: 100%; font-size: var(--text-caption); }
+.model-controls [data-slot="select-trigger"].model-control { flex-shrink: 1; }
+.codex-speed [data-slot="select-icon"] { display: none; }
+.codex-speed-label { display: inline-flex; align-items: center; gap: 0.5em; }
+.codex-speed-label > svg { inline-size: 1.15em; block-size: 1.15em; flex-shrink: 0; }
 .panel:has(.model-manager) { max-inline-size: 76ch; }
 .panel-body:has(.model-manager) { display: flex; align-items: flex-start; }
 .model-manager { container-type: inline-size; display: flex; flex: 1; flex-direction: column; min-block-size: 0; min-inline-size: 0; gap: var(--space-4); }

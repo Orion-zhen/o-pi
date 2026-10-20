@@ -1,4 +1,5 @@
 import type { ContextUsage, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { CodexSpeed } from "../../harness/codex-speed/state.ts";
 
 /** TUI 状态图标来源。 */
 export type TuiIconMode = "unicode" | "ascii" | "nerd";
@@ -77,6 +78,7 @@ export interface TuiSnapshot {
 	modelId?: string;
 	modelProvider?: string;
 	modelReasoning?: boolean;
+	codexSpeed: CodexSpeed | null;
 	routedModel?: { provider: string; id: string; thinkingLevel?: string };
 	thinkingLevel: string;
 	availableProviderCount: number;

@@ -4,6 +4,19 @@
 
 斜杠命令处理器是展示适配器，不是图形用户界面 API。可复用逻辑位于对应功能的查询、服务或控制器。其他适配器应直接消费可安全序列化为 JSON 的快照、结果或进度，不要解析本页所列的通知文本。
 
+## `/codex-speed`
+
+来源：`src/harness/extensions/codex-speed.ts`
+
+```text
+/codex-speed normal|fast|ultrafast
+```
+
+- 仅对 `openai` 和 `openai-codex` 生效。默认 `normal`，选择保存在当前会话分支，恢复会话和切换分支时同步恢复。
+- `fast` 设置请求体 `service_tier: "priority"`，`ultrafast` 设置 `service_tier: "ultrafast"`。`normal` 对 OpenAI API 设置 `"default"`，对 Codex 省略该字段。不添加旧 alpha 协议的调速请求头。
+- TUI 在模型 ID 后显示非 normal 档位。GUI 在模型名左侧提供与思考级别相同的下拉选择器：normal 只显示普通闪电图标，fast 显示强调色闪电和文字，ultrafast 显示强调色火箭和文字。其他提供方隐藏入口。
+- 加速档位可能提高费用或套餐消耗，可用性取决于模型和账号权限。界面显示请求的档位，不代表服务端实际采用的档位。协议见 [Fast mode](https://developers.openai.com/api/docs/guides/fast-mode) 和 [Ultrafast mode](https://developers.openai.com/api/docs/guides/ultrafast-mode)。
+
 ## `/tools`
 
 来源：`src/harness/extensions/cmd-slash-tools.ts`

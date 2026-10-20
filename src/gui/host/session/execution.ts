@@ -20,6 +20,7 @@ import { nestedMutation, NESTED_MUTATION_ENTRY } from "../projection/nested-muta
 import type { GuiMcpTools } from "./mcp-tools.ts";
 import type { ModelsConfig } from "../../../harness/openai-compatible-provider/schema.ts";
 import { readModelServiceCatalog } from "./model-services.ts";
+import { setCodexSpeed } from "../../../harness/codex-speed/state.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -396,6 +397,10 @@ export class GuiExecution {
 				await session.setModel(model, { persist: false }); break;
 			}
 			case "thinking": session.setThinkingLevel(action.level); break;
+			case "codexSpeed":
+				setCodexSpeed(session.model?.provider, action.speed, session.sessionManager.getBranch(),
+					(type, data) => session.sessionManager.appendCustomEntry(type, data));
+				break;
 			case "scopeModels": this.modelScope.set(runtime, action.models); break;
 			case "persistModels": await this.modelScope.persist(runtime); break;
 			case "persistDefaultModel": await persistDefaultModel(runtime); break;

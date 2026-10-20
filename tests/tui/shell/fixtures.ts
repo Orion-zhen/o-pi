@@ -19,6 +19,7 @@ export function tuiSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
 		cwd: "/repo",
 		status: "ready",
 		thinkingLevel: "off",
+		codexSpeed: null,
 		availableProviderCount: 0,
 		hasPendingMessages: false,
 		tools: { activeNames: [], allNames: [] },

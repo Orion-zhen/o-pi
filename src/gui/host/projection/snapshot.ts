@@ -2,6 +2,7 @@ import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
 import type { GuiToolSelectionItem } from "../../mcp.ts";
 import { codemodeHiddenDeclarations } from "../../../harness/codemode/loadout.ts";
+import { getCodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { GuiSnapshot } from "../../contract.ts";
 import { guiModel } from "../session/runtime.ts";
 import { builtinCommands } from "../session/commands.ts";
@@ -54,6 +55,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		...history.project(session.sessionManager),
 		streamingMessage: payloads.stream(session.state.streamingMessage ?? null),
 		model: session.model ? guiModel(session.model) : null,
+		codexSpeed: getCodexSpeed(session.model?.provider, session.sessionManager.getBranch()),
 		routedModel: routed ? { model: guiModel(routed.model), ...(routed.thinkingLevel === undefined ? {} : { thinkingLevel: routed.thinkingLevel }) } : null,
 		models: services.modelRuntime.getAvailableSnapshot().map(guiModel),
 		defaultModel: {

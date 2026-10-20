@@ -7,6 +7,7 @@ import { recordUserMessageTimestamp, resetUserMessageTimestamps } from "../chat/
 import { TuiSession } from "./session.ts";
 import { collectUserMessages } from "./snapshot.ts";
 import { UserHistoryStore } from "../../harness/user-history.ts";
+import { CODEX_SPEED_CHANGED } from "../../harness/codex-speed/state.ts";
 
 export interface TuiRuntime {
 	startSession(ctx: ExtensionContext, replaySessionMessages: boolean): Promise<void>;
@@ -58,11 +59,15 @@ export function createTuiRuntime(pi: ExtensionAPI): TuiRuntime {
 		if (session !== undefined) resetUserMessageTimestamps(collectUserMessages(ctx));
 	});
 	pi.on("session_tree", (_event, ctx) => {
-		if (session !== undefined) resetUserMessageTimestamps(collectUserMessages(ctx));
+		if (session !== undefined) {
+			resetUserMessageTimestamps(collectUserMessages(ctx));
+			session.refresh();
+		}
 	});
 	pi.on("session_info_changed", () => session?.refresh());
 	pi.on("model_select", () => session?.refresh());
 	pi.on("thinking_level_select", () => session?.refresh());
+	pi.events.on(CODEX_SPEED_CHANGED, () => session?.refresh());
 	pi.on("session_shutdown", resetSession);
 
 	return {
