@@ -2,5 +2,7 @@
 [data-slot="search-input"]:focus-within { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent); }
 [data-slot="search-input"]:has(input[aria-invalid="true"]) { border-color: var(--destructive); }
 [data-slot="search-input"]:has(input[aria-invalid="true"]):focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--destructive) 20%, transparent); }
+[data-slot="search-input"] > svg { flex: none; inline-size: 1.15em; block-size: 1.15em; margin-inline-start: 0.75em; color: var(--muted-foreground); }
+[data-slot="search-input"] > svg + input { padding-inline-start: 0.5em; }
 [data-slot="search-input"] > input { flex: 1; border: 0; background: transparent; box-shadow: none; }
 [data-slot="search-input"] > button { margin-inline-end: var(--space-1); }

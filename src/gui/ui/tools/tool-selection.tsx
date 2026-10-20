@@ -38,8 +38,7 @@ export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot:
 	return <LayoutGroup id={groupId}><div className="tool-selection">
 		<div className="tool-selection-toolbar">
 			<div className="tool-selection-search">
-				<Search aria-hidden="true" />
-				<SearchInput aria-label="筛选工具" placeholder="筛选工具或 MCP 服务" value={filter} onValueChange={setFilter} />
+				<SearchInput icon={Search} aria-label="筛选工具" placeholder="筛选工具或 MCP 服务" value={filter} onValueChange={setFilter} />
 			</div>
 			<Button title="保存为用户默认" disabled={disabled || !snapshot.toolDefaultsChanged} aria-busy={saving} onClick={() => void persist()}>
 				{saving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Save aria-hidden="true" />}保存默认
