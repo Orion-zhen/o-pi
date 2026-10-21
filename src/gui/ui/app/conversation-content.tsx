@@ -17,7 +17,7 @@ import type { useGui } from "./use-gui.ts";
 
 type ConversationControls = Pick<ReturnType<typeof useGui>,
 	"snapshot" | "notices" | "send" | "cwd" | "openFile" | "view" | "availableVersion" | "changelog" | "changelogShown"
-	| "canChangeSession" | "setPanel" | "editor" | "setDraft"
+	| "canSubmit" | "setPanel" | "editor" | "setDraft"
 	| "activity" | "workspaceRoot" | "workspaces" | "connected" | "canNavigate" | "globalQuery" | "error" | "setError">;
 
 /** 消息投影与渲染位于同一个异常边界内，不影响会话连接和输入草稿。 */

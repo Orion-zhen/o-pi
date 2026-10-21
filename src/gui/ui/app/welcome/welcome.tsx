@@ -12,14 +12,14 @@ const starters = [
 	{ icon: Terminal, title: "开始构建", text: "我想实现一个新功能，请先了解项目并和我讨论实现方案。" },
 ];
 
-export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: Pick<GuiControls, "canChangeSession" | "setPanel"> & EditorControls }) {
+export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: Pick<GuiControls, "canSubmit" | "setPanel"> & EditorControls }) {
 	const setup = modelSetup(snapshot);
 	return <>
 		<WelcomeMark />
 		{!setup && <p className="welcome-eyebrow">你的代码工作空间</p>}
 		<h1>{setup?.title ?? "今天，想构建什么？"}</h1>
 		{!setup && <p>从一个想法开始，一起把它变成现实。</p>}
-		{setup ? <Button className="mt-6" disabled={!gui.canChangeSession} onClick={() => gui.setPanel({ kind: setup.kind })}>
+		{setup ? <Button className="mt-6" disabled={!gui.canSubmit} onClick={() => gui.setPanel({ kind: setup.kind })}>
 			{setup.action}
 		</Button> : <div className="starter-grid">
 			{starters.map(({ icon: Icon, title, text }) => <Button

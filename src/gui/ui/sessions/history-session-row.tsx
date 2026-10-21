@@ -37,8 +37,8 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, disable
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
 		</Button></Hint>}
 		{path && <div className="row-actions">
-			{!busy && <IconButton label={`重命名会话 ${title}`} tooltip="重命名" className="row-action-button" disabled={disabled || pending || editing}
-				onClick={() => setEditing(true)}><Pencil /></IconButton>}
+			<IconButton label={`重命名会话 ${title}`} tooltip="重命名" className="row-action-button" disabled={disabled || pending || editing}
+				onClick={() => setEditing(true)}><Pencil /></IconButton>
 			{!busy && !waiting && !unread && <ConfirmAction label={`删除会话 ${title}`}
 				disabled={disabled || pending || editing} allowShortcut confirm={() => send({ action: "deleteSession", path })} />}
 		</div>}

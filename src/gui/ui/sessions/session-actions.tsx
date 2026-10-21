@@ -8,7 +8,7 @@ import {
 	DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 
-export function SessionActions({ gui }: { gui: Pick<GuiControls, "canSubmit" | "canChangeSession" | "send" | "setPanel"> }) {
+export function SessionActions({ gui }: { gui: Pick<GuiControls, "canSubmit" | "send" | "setPanel"> }) {
 	const panel = useRef<GuiPanel | undefined>(undefined);
 	return <DropdownMenu>
 		<DropdownMenuTrigger asChild>
@@ -26,7 +26,7 @@ export function SessionActions({ gui }: { gui: Pick<GuiControls, "canSubmit" | "
 			</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => { panel.current = { kind: "help" }; }}><BookOpen />命令帮助</DropdownMenuItem>
 			<DropdownMenuSeparator />
-			<DropdownMenuItem disabled={!gui.canChangeSession} onSelect={() => { panel.current = { kind: "import" }; }}><Import />导入会话</DropdownMenuItem>
+			<DropdownMenuItem disabled={!gui.canSubmit} onSelect={() => { panel.current = { kind: "import" }; }}><Import />导入会话</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "jsonl" })}><Braces />导出 JSONL</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "html" })}><AppWindow />导出 HTML</DropdownMenuItem>
 		</DropdownMenuContent>

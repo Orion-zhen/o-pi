@@ -29,6 +29,10 @@ export interface SessionClient extends Pick<ExtensionCommandContext, "newSession
 	dispatch(action: GuiAction): Promise<void>;
 }
 type Listener = (event: GuiEvent) => void;
+const liveMutations = new Set<GuiAction["action"]>([
+	"model", "thinking", "codexSpeed", "scopeModels", "persistModels", "persistDefaultModel",
+	"tool", "mcpServers", "persistTools", "label", "rename",
+]);
 
 /** 可整体释放的 SDK 执行资源。导航和会话身份由 GuiSession 持有。 */
 export class GuiExecution {
@@ -320,11 +324,11 @@ export class GuiExecution {
 				if (session.isCompacting) throw new Error("压缩已在进行。");
 				try { await session.compact(action.instructions || undefined); } finally { this.publish(); } return;
 		}
-		await this.change(() => this.mutate(action));
+		await this.change(() => this.mutate(action), liveMutations.has(action.action));
 	}
 
-	async change<T>(operation: () => Promise<T>): Promise<T> {
-		if (this.changing || !this.idle) throw new Error("请先停止或等待当前操作结束。");
+	async change<T>(operation: () => Promise<T>, allowRunning = false): Promise<T> {
+		if (this.changing || !allowRunning && !this.idle) throw new Error("请先停止或等待当前操作结束。");
 		this.changing = true;
 		this.reports.invalidate();
 		this.publish();

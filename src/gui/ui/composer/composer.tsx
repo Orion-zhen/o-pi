@@ -28,7 +28,7 @@ import { useFileDrop } from "./use-file-drop.ts";
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
 let nextAttachmentId = 0;
 
-interface ComposerControls extends Pick<GuiControls, "connected" | "query" | "send" | "setError" | "canSubmit" | "canChangeSession" | "setPanel"> {
+interface ComposerControls extends Pick<GuiControls, "connected" | "query" | "send" | "setError" | "canSubmit" | "setPanel"> {
 	editor: RefObject<HTMLTextAreaElement | null>;
 	views: SessionViews;
 }
@@ -123,7 +123,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 		<footer className="composer">
 			{setup && hasContextMessages(snapshot) && <div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
 				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>
-				<Button variant="link" size="sm" disabled={!gui.canChangeSession} onClick={() => gui.setPanel({ kind: setup.kind })}>{setup.action}</Button>
+				<Button variant="link" size="sm" disabled={!gui.canSubmit} onClick={() => gui.setPanel({ kind: setup.kind })}>{setup.action}</Button>
 			</div>}
 			<div
 				className="composer-card"
@@ -315,7 +315,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 						</IconButton>
 					</div>
 					<div className="composer-controls">
-						<ModelControls snapshot={snapshot} send={send} disabled={!gui.canChangeSession} openManager={() => gui.setPanel({ kind: "model" })} />
+						<ModelControls snapshot={snapshot} send={send} disabled={!gui.canSubmit} openManager={() => gui.setPanel({ kind: "model" })} />
 						<ContextUsage snapshot={snapshot} />
 						<SendButton
 							mode={snapshot.compacting ? "stop-compaction" : stopping ? "stop" : running ? steering ? "steer" : "follow-up" : "send"}

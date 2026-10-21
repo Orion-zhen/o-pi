@@ -17,21 +17,21 @@ const titles: Record<GuiPanel["kind"], string> = {
 	lastReply: "最后回复", usage: "用量情况",
 };
 
-export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSession, close, restoreFocus }: {
+export function Panel({ ref, panel, snapshot, sessionList, send, canSubmit, close, restoreFocus }: {
 	ref: Ref<HTMLDivElement>;
 	panel: Exclude<GuiPanel, { kind: "settings" }>;
 	snapshot: GuiSnapshot;
 	sessionList: ReactNode;
 	send: Send;
-	canChangeSession: boolean;
+	canSubmit: boolean;
 	close: () => void;
 	restoreFocus: () => void;
 }) {
 	let body: ReactNode;
 	switch (panel.kind) {
-		case "model": body = <ModelManager snapshot={snapshot} send={send} disabled={!canChangeSession} />; break;
+		case "model": body = <ModelManager snapshot={snapshot} send={send} disabled={!canSubmit} />; break;
 		case "tools":
-			body = <ToolSelection snapshot={snapshot} send={send} disabled={!canChangeSession} />;
+			body = <ToolSelection snapshot={snapshot} send={send} disabled={!canSubmit} />;
 			break;
 		case "sessions": body = sessionList; break;
 		case "auth":
@@ -39,8 +39,8 @@ export function Panel({ ref, panel, snapshot, sessionList, send, canChangeSessio
 				<p>OAuth 会打开浏览器，完成认证后自动继续。凭据保存在后端，不返回到界面。</p>
 				{snapshot.providers.map((provider) => <div className="list-row" data-authenticated={provider.authenticated} key={provider.id}>
 					<span>{provider.name}<small>{provider.authenticated ? "已配置" : "未配置"}</small></span>
-					{provider.apiKey && <Button variant="outline" size="sm" disabled={!canChangeSession} onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}>API Key</Button>}
-					{provider.oauth && <Button variant="outline" size="sm" disabled={!canChangeSession} onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}>OAuth</Button>}
+					{provider.apiKey && <Button variant="outline" size="sm" disabled={!canSubmit} onClick={() => void send({ action: "login", provider: provider.id, type: "api_key" })}>API Key</Button>}
+					{provider.oauth && <Button variant="outline" size="sm" disabled={!canSubmit} onClick={() => void send({ action: "login", provider: provider.id, type: "oauth" })}>OAuth</Button>}
 					{provider.authenticated && <Button variant="outline" size="sm" className="bg-secondary text-foreground" onClick={() => void send({ action: "logout", provider: provider.id })}>退出</Button>}
 				</div>)}
 			</>;
