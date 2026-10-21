@@ -53,7 +53,6 @@
 - `write_max_file_bytes`：`write` 的现有文件快照和提交内容上限。
 - `edit_max_file_bytes`：`edit` 的现有文件快照和提交内容上限。
 - `edit_match_hint_limit`：一次 `edit` 全部错误共享的恢复候选数，包括唯一上下文、格式等价和锚点候选。默认配置为 5，取值范围为 1 到 10。最多展示 8 个验证错误，该数量不接受配置。
-- `find_output_token_budget`：`find` 模型可见输出的词元预算，最小值为 32。
 - `find_result_limit`：`find` 最多保留的具体结果数。
 - `find_max_depth`：`find` 相对每个搜索范围的最大路径深度。范围根目录的深度为 0，直属子项为 1。
 - `find_max_entries`：一次 `find` 在所有范围间共享的最大遍历条目数，默认 20000。

@@ -59,7 +59,6 @@ next: narrow path to "src/auth" (12 candidates)
 | depth_limit | 达到搜索深度 |
 | entry_limit | 达到共享遍历量 |
 | result_limit | 达到结果数 |
-| output_limit | 完整路径行超过词元预算 |
 
 navigation 最多提供三个缩小范围建议和三个已知未完成范围。数量来自已扫描结果。修改 path 后，需要相应调整带锚点的 query 和 glob。
 

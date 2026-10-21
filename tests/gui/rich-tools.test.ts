@@ -29,8 +29,8 @@ describe("文件列表图标", () => {
 		const ls = render("ls", { path: "/workspace", truncated: false, entries: [{ name: "package.json", path: "/workspace/package.json", type: "file" }] });
 		const find = render("find", {
 			status: "success", query: "package", path: "/workspace", paths: ["/workspace"],
-			total_candidates: 1, total_matches: 1, returned_matches: 1, matches: [], stats: {}, truncated_by: [],
-			displayed_matches: [{ path: "nested/package.json", kind: "file" }],
+			total_candidates: 1, total_matches: 1, returned_matches: 1, stats: {}, truncated_by: [],
+			matches: [{ path: "nested/package.json", kind: "file" }],
 		});
 		expect(find.querySelector(".file-type-icon")?.outerHTML).toBe(ls.querySelector(".file-type-icon")?.outerHTML);
 	});

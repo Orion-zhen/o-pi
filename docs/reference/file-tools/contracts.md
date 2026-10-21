@@ -26,12 +26,12 @@ find 的 query 使用 fzf 语法，glob 独立筛选候选。grep 默认使用�
 | --- | --- |
 | ls | 直属成员数 |
 | read | 文本行数、字节数和 PDF 页数 |
-| find | 遍历量、深度、结果数和文本词元预算 |
+| find | 遍历量、深度和结果数 |
 | grep | 遍历量、正文字节、深度、相关结果和总区域数 |
 
 read 的所有区间共享预算，continuation.lines 和 continuation.pages 可直接用于续读。
 
-find.truncated_by 包括 depth_limit、entry_limit、result_limit、output_limit。grep 包括 depth_limit、entry_limit、byte_limit、result_limit。grep 的结构增强与相关结果内部容量保存在统计中。
+find.truncated_by 包括 depth_limit、entry_limit、result_limit。grep 包括 depth_limit、entry_limit、byte_limit、result_limit。grep 的结构增强与相关结果内部容量保存在统计中。
 
 计数方法见[词元估算](../statistics/token-counter.md)。
 

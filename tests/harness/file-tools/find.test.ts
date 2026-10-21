@@ -9,7 +9,6 @@ import type { PathDiscovery } from "../../../src/harness/filesystem/contracts/di
 import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
 import type { FindParams, FindSuccess } from "../../../src/harness/file-tools/find/types.ts";
 import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
-import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
 import { findWorkspaceFiles } from "../../helpers/find-tool.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 import { expectFailure } from "./result-fixtures.ts";
@@ -331,11 +330,10 @@ describe("find", () => {
 		expect(result.content).toContain("truncated=entry_limit");
 	});
 
-	it("结果、深度和输出限制来自配置，截断原因准确且顺序稳定", async () => {
+	it("结果和深度限制来自配置，截断原因准确且顺序稳定", async () => {
 		await useConfig("limits", {
 			ignore: { builtin_profile: "none", gitignore: false },
 			limits: {
-				find_output_token_budget: 40,
 				find_result_limit: 3,
 				find_max_depth: 2,
 			},
@@ -353,9 +351,8 @@ describe("find", () => {
 		expect(first).toEqual(second);
 		expect(first.details.total_matches).toBe(20);
 		expect(first.details.returned_matches).toBe(3);
-		expect(first.details.truncated_by).toEqual(["depth_limit", "result_limit", "output_limit"]);
+		expect(first.details.truncated_by).toEqual(["depth_limit", "result_limit"]);
 		expect(paths(first)).not.toContain("many/deep/auth-hidden.ts");
-		expect(countTextTokensSync(first.content).tokens).toBeLessThanOrEqual(40);
 	});
 
 	it("截断时保留相关性头部，并覆盖原本落在限制外的正向 OR 分支", async () => {

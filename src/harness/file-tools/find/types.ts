@@ -27,7 +27,7 @@ export interface FindScopeError {
 	error: FileToolError;
 }
 
-export type FindTruncationReason = "depth_limit" | "entry_limit" | "result_limit" | "output_limit";
+export type FindTruncationReason = "depth_limit" | "entry_limit" | "result_limit";
 
 export interface FindStats {
 	traversed_entries: number;
@@ -46,7 +46,6 @@ export interface FindDetails {
 	total_matches: number;
 	returned_matches: number;
 	matches: FindMatch[];
-	displayed_matches: FindMatch[];
 	stats: FindStats;
 	truncated_by: FindTruncationReason[];
 	navigation?: SearchNavigation;

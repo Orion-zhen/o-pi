@@ -61,7 +61,7 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 		...(contextWindow !== undefined && totalTokens !== undefined ? { remainingTokens: Math.max(0, contextWindow - totalTokens) } : {}),
 		confidence: totalTokens === undefined ? "estimated" : "mixed",
 		items: applyShares(items, displayTotal),
-		notes: ["Context breakdown uses provider-aware tokenization where available; exact total still comes from Pi/provider usage."],
+		notes: ["Context breakdown uses model tokenizers where known, otherwise generic BPE estimates. Total uses Pi context usage when available."],
 	};
 }
 
@@ -199,15 +199,11 @@ async function estimateAssistant(message: AssistantMessage, counter: TokenCounte
 }
 
 async function estimateToolResult(message: ToolResultMessage, counter: TokenCounterScope): Promise<number> {
-	return estimateTokens(`${message.toolName}\n${contentToText(message.content)}`, counter);
+	return await estimateTokens(message.toolName, counter) + await estimateContent(message.content, counter);
 }
 
 async function estimateContent(content: string | Array<TextContent | ImageContent>, counter: TokenCounterScope): Promise<number> {
 	return (await countContentTokens(content, counter)).tokens;
-}
-
-function contentToText(content: Array<TextContent | ImageContent>): string {
-	return content.map((part) => (part.type === "text" ? part.text : `[image ${part.mimeType} ${part.data.length} chars]`)).join("\n");
 }
 
 /** provider-aware token 估算入口；测试和 breakdown 共用。 */

@@ -1,5 +1,5 @@
 import { formatSearchNavigation, SearchScopeCounts } from "../shared/search-navigation.ts";
-import { countTextTokensSync } from "../../token-counter.ts";
+import { countTextTokensSync, type TokenCounterScope } from "../../token-counter.ts";
 import type { RankedRegion } from "./candidates.ts";
 import { selectNavigation } from "./navigation.ts";
 import {
@@ -46,7 +46,7 @@ export interface GrepPackInput {
 }
 
 /** 先保留 relevance head，再从同 tier 候选中选择互补结果。 */
-export function packGrepResults(input: GrepPackInput): GrepSuccess {
+export function packGrepResults(input: GrepPackInput, tokenScope: TokenCounterScope = {}): GrepSuccess {
 	const knownReasons = orderedReasons(input.truncationReasons);
 	const limited = limitRelatedResults(input.regions, input.relatedResultLimit);
 	const candidates = limited.regions;
@@ -68,7 +68,7 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 		}
 		result.navigation = { narrow: counts.result(), incomplete: input.incomplete };
 	}
-	return { ...result, approx_tokens: tokenCount(renderGrepSuccess(result)) };
+	return { ...result, approx_tokens: countTextTokensSync(renderGrepSuccess(result), tokenScope).tokens };
 }
 
 function limitRelatedResults(
@@ -315,10 +315,6 @@ function orderedReasons(reasons: readonly TruncationReason[]): TruncationReason[
 
 function unique<T>(values: readonly T[]): T[] {
 	return [...new Set(values)];
-}
-
-function tokenCount(text: string): number {
-	return countTextTokensSync(text).tokens;
 }
 
 function formatSkipped(skipped: GrepSkippedFiles): string {

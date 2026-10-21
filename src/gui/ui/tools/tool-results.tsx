@@ -64,7 +64,7 @@ export function ToolResult({ tool }: { tool: Omit<ToolActivity, "output"> & { ou
 			<SearchNotes details={details} />
 		</>;
 		if (tool.name === "find" && isFindDetails(details)) return <>
-			<PathList entries={details.displayed_matches.map((entry) => ({ path: entry.path, kind: entry.kind }))} />
+			<PathList entries={details.matches} />
 			<SearchNotes details={details} />
 		</>;
 		if (tool.name === "ls" && isLsSuccess(details)) return <>

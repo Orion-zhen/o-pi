@@ -331,7 +331,7 @@ function estimateContentTokensWithConfidence(
 }
 
 function countTextWithConfidence(text: string, scope: TokenCounterScope): PruneTokenEstimate {
-	if (text.trim().length === 0) return emptyEstimate();
+	if (text.length === 0) return emptyEstimate();
 	const counted = countTextTokensSync(text, scope);
 	return { tokens: counted.tokens, confidence: counted.confidence };
 }

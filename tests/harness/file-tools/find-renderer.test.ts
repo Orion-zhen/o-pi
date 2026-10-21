@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { renderFindResults } from "../../../src/harness/file-tools/find/renderer.ts";
-import { countTextTokensSync } from "../../../src/harness/token-counter.ts";
 
 const stats = {
 	traversed_entries: 2,
@@ -26,7 +25,6 @@ describe("find renderer", () => {
 			entryLimited: false,
 			resultLimited: false,
 			navigation: { narrow: [], incomplete: [] },
-			outputTokenBudget: 1_000,
 		});
 
 		expect(result.content).toBe([
@@ -42,34 +40,6 @@ describe("find renderer", () => {
 		});
 		expect(result.details).not.toHaveProperty("ranking");
 		expect(result.content).not.toContain("score");
-	});
-
-	it("预算不足时保留完整路径行并把截断状态放在首行", () => {
-		const matches = Array.from({ length: 20 }, (_value, index) => ({
-			path: `src/features/very-long-directory/handler-${String(index).padStart(2, "0")}.ts`,
-			kind: "file" as const,
-		}));
-		const result = renderFindResults({
-			query: "handler",
-			path: ".",
-			paths: ["."],
-			totalCandidates: 40,
-			totalMatches: 40,
-			matches,
-			stats: { ...stats, traversed_entries: 40 },
-			depthLimited: true,
-			entryLimited: false,
-			resultLimited: true,
-			navigation: { narrow: [], incomplete: [] },
-			outputTokenBudget: 48,
-		});
-
-		expect(result.details.truncated_by).toEqual(["depth_limit", "result_limit", "output_limit"]);
-		expect(result.details.displayed_matches.length).toBeLessThan(matches.length);
-		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(48);
-		for (const line of result.content.split("\n").slice(1).filter((line) => !line.startsWith("next:"))) {
-			expect(matches.some((match) => match.path === line)).toBe(true);
-		}
 	});
 
 	it("零结果保留扫描摘要、glob 和部分 scope 错误", () => {
@@ -91,12 +61,11 @@ describe("find renderer", () => {
 			entryLimited: false,
 			resultLimited: false,
 			navigation: { narrow: [], incomplete: [] },
-			outputTokenBudget: 1_000,
 		});
 
 		expect(result.details).toMatchObject({
 			glob: "**/*.ts",
-			displayed_matches: [],
+			matches: [],
 			truncated_by: [],
 		});
 	});

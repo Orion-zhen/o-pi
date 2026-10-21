@@ -1,5 +1,6 @@
 import { grepStructuredOutput } from "../search-output.ts";
 import type { LoadLsp } from "../../../lsp/file-operations.ts";
+import type { TokenCounterScope } from "../../../token-counter.ts";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.ts";
 import type { GrepParams } from "../../grep/types.ts";
 import { isFailed } from "../../shared/result.ts";
@@ -8,6 +9,7 @@ import { bindFileLsp } from "../lsp.ts";
 
 export interface ExecuteGrepOptions extends FileToolRuntime {
 	readonly lsp: LoadLsp;
+	readonly tokenScope?: TokenCounterScope;
 }
 
 export function createGrepAdapter() {
@@ -17,6 +19,7 @@ export function createGrepAdapter() {
 			return withFileToolsInvocation(options, async (opened) => {
 				const result = await tool.execute(params, {
 					...opened,
+					tokenScope: options.tokenScope ?? {},
 					...bindFileLsp(opened, options.lsp),
 				});
 				if (isFailed(result)) return result;

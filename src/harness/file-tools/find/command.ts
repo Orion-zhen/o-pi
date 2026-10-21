@@ -33,7 +33,7 @@ interface ScopeDiscovery {
 export interface FindCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth" | "find_max_entries">;
+	readonly limits: Pick<FileToolLimits, "find_result_limit" | "find_max_depth" | "find_max_entries">;
 }
 
 /** 路径发现与排名只使用本次调用的状态和取消信号。 */
@@ -106,7 +106,6 @@ export async function findFiles(params: FindParams, context: FindCommandContext)
 		depthLimited: discoveries.some(({ result }) => result.depthLimited),
 		entryLimited: discoveries.some(({ result }) => result.entryLimited),
 		resultLimited: selected.length < ranking.totalMatches,
-		outputTokenBudget: context.limits.find_output_token_budget,
 		navigation: { narrow: scopeCounts.result(), incomplete },
 	});
 }

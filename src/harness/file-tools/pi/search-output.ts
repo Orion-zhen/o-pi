@@ -26,7 +26,7 @@ export function findStructuredOutput(details: FindDetails): Static<typeof findOu
 	return {
 		matches: details.matches.map(({ path, kind }) => ({ path, kind })),
 		total_matches: details.total_matches,
-		truncated: details.truncated_by.some((reason) => reason !== "output_limit"),
+		truncated: details.truncated_by.length > 0,
 		...(details.scope_errors?.length ? { scope_errors: details.scope_errors.map(({ path, error }) => ({ path, code: error.code })) } : {}),
 	};
 }

@@ -5,6 +5,7 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
 import { combineOperationContext } from "../shared/operation-context.ts";
 import type { FileToolLimits } from "../../file-tool-limits.ts";
+import type { TokenCounterScope } from "../../token-counter.ts";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.ts";
 import { GrepContentCache, type GrepContentCacheLease } from "./content-cache.ts";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.ts";
@@ -22,6 +23,7 @@ type GrepSkippedStats = NonNullable<GrepSuccess["stats"]["skipped_files"]>;
 export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
+	readonly tokenScope?: TokenCounterScope;
 	readonly limits: Pick<FileToolLimits,
 		"grep_max_depth" | "grep_max_entries" | "grep_max_search_bytes" | "grep_ast_max_file_bytes" | "grep_content_cache_bytes" | "grep_content_cache_entries" | "grep_result_limit" | "grep_related_result_limit" | "grep_regional_display_limit">;
 	readonly prepareCodeAnalysis?: PrepareCodeAnalysis;
@@ -132,7 +134,7 @@ export class GrepTool {
 			resultLimit: context.limits.grep_result_limit,
 			relatedResultLimit: context.limits.grep_related_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
-		});
+		}, context.tokenScope);
 	}
 }
 

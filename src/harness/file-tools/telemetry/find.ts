@@ -26,7 +26,7 @@ export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | Faile
 });
 
 function findCandidates(details: FindDetails): Candidate[] {
-	return details.displayed_matches.map((match, index) => ({
+	return details.matches.map((match, index) => ({
 		kind: match.kind,
 		value: match.path,
 		rank: index + 1,

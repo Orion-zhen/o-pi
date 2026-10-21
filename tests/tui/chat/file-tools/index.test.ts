@@ -68,7 +68,6 @@ describe("file-tools extension renderers", () => {
 			total_matches: 1,
 			returned_matches: 1,
 			matches: [{ path: "src/main.ts", kind: "file" }],
-			displayed_matches: [{ path: "src/main.ts", kind: "file" }],
 			stats: { traversed_entries: 1, ignored_entries: 0, skipped_entries: 0 },
 			truncated_by: [],
 			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],

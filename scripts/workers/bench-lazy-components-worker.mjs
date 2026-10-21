@@ -12,9 +12,9 @@ if (mode === "tokenizer") {
 	const firstO200kCompleted = performance.now();
 	const warmO200k = await module.countTextTokens("second benchmark input", { provider: "openai", modelId: "gpt-5" });
 	const warmO200kCompleted = performance.now();
-	const firstCl100k = await module.countTextTokens("benchmark qwen tokenizer", { provider: "dashscope", modelId: "qwen-max" });
+	const firstCl100k = await module.countTextTokens("benchmark legacy GPT tokenizer", { provider: "openai", modelId: "gpt-4" });
 	const firstCl100kCompleted = performance.now();
-	const warmCl100k = await module.countTextTokens("second qwen input", { provider: "dashscope", modelId: "qwen-max" });
+	const warmCl100k = await module.countTextTokens("second legacy GPT input", { provider: "openai", modelId: "gpt-4" });
 	const warmCl100kCompleted = performance.now();
 	if (firstO200k.method !== "o200k_base" || warmO200k.method !== "o200k_base") throw new Error("o200k benchmark used an unexpected tokenizer");
 	if (firstCl100k.method !== "cl100k_base" || warmCl100k.method !== "cl100k_base") throw new Error("cl100k benchmark used an unexpected tokenizer");

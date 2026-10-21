@@ -13,7 +13,6 @@ export function isFindDetails(value: unknown): value is FindDetails {
 		&& typeof value["total_matches"] === "number"
 		&& typeof value["returned_matches"] === "number"
 		&& Array.isArray(value["matches"])
-		&& Array.isArray(value["displayed_matches"])
 		&& isPlainRecord(value["stats"])
 		&& Array.isArray(value["truncated_by"]);
 }

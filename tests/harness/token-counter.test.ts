@@ -71,14 +71,14 @@ describe("stats token counter", () => {
 		}
 	});
 
-	it("公网 provider 不触发远程 tokenize，按 provider 规则降级", async () => {
+	it("公网 provider 不触发远程 tokenize，未匹配模型使用通用 BPE 估算", async () => {
 		const deepseek = await countTextTokens("abc中文", { provider: "deepseek", modelId: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" });
 		const qwen = await countTextTokens("hello world", { provider: "dashscope", modelId: "qwen-max" });
 		const unknown = await countTextTokens("hello world", { provider: "custom", modelId: "llama" });
 
-		expect(deepseek.method).toBe("deepseek_ratio");
-		expect(qwen.method).toBe("cl100k_base");
-		expect(unknown.method).toBe("char_ratio");
+		expect(deepseek).toMatchObject({ method: "o200k_base", confidence: "low" });
+		expect(qwen).toMatchObject({ method: "o200k_base", confidence: "low" });
+		expect(unknown).toMatchObject({ method: "o200k_base", confidence: "low" });
 	});
 
 	it("同步计数不触发网络请求，未知 provider 使用通用 BPE 预算估算", () => {

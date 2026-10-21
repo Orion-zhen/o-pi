@@ -217,7 +217,11 @@ export default function fileTools(pi: ExtensionAPI): void {
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [adapter, runtime] = await Promise.all([loadGrep(), runtimeForInvocation(ctx, signal)]);
-				return adapter.execute(params as GrepParams, { ...runtime, lsp });
+				return adapter.execute(params as GrepParams, {
+					...runtime,
+					lsp,
+					tokenScope: ctx.model ? { provider: ctx.model.provider, modelId: ctx.model.id } : {},
+				});
 			},
 		},
 		repair: { singleStringField: "query", pathFields: ["path"], pathListFields: ["path"] },

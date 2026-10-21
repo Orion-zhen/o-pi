@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import { chatModelParams, DEFAULT_ENCODING, modelToEncodingMap } from "gpt-tokenizer/mapping";
 import ipaddr from "ipaddr.js";
 
 const REMOTE_TIMEOUT_MS = 350;
@@ -10,8 +11,10 @@ const remoteCache = new Map<string, TokenCount>();
 const unavailableRemoteBases = new Set<string>();
 const require = createRequire(import.meta.url);
 
-type BpeMethod = "o200k_base" | "cl100k_base";
-type BpeCounter = (input: string) => number;
+type BpeMethod = "o200k_base" | "cl100k_base" | "o200k_harmony";
+type BpeCounter = typeof import("gpt-tokenizer/encoding/o200k_base").countTokens;
+const modelEncodings: Readonly<Record<string, string | undefined>> = modelToEncodingMap;
+const literalTextOptions = { disallowedSpecial: new Set<string>() };
 interface BpeState {
 	counter: BpeCounter | undefined;
 	load: Promise<BpeCounter> | undefined;
@@ -20,6 +23,7 @@ interface BpeState {
 const bpeStates: Record<BpeMethod, BpeState> = {
 	o200k_base: { counter: undefined, load: undefined },
 	cl100k_base: { counter: undefined, load: undefined },
+	o200k_harmony: { counter: undefined, load: undefined },
 };
 
 export type TokenCounterConfidence = "exact" | "high" | "medium" | "low";
@@ -33,34 +37,32 @@ export interface TokenCounterScope {
 export interface TokenCount {
 	tokens: number;
 	confidence: TokenCounterConfidence;
-	method: "remote_tokenize" | "o200k_base" | "cl100k_base" | "deepseek_ratio" | "char_ratio";
+	method: BpeMethod | "remote_tokenize" | "content_estimate";
 	note: string;
 }
 
-/** provider-aware token 计数；优先本地 tokenizer endpoint，其次模型族 tokenizer，最后保守字符估算。 */
+interface BpeProfile {
+	method: BpeMethod;
+	confidence: TokenCounterConfidence;
+	note: string;
+}
+
+/** 优先使用本机或私网计数服务，本地计数与同步入口共用模型规则。 */
 export async function countTextTokens(text: string, scope: TokenCounterScope = {}): Promise<TokenCount> {
-	if (text.trim().length === 0) return { tokens: 0, confidence: "high", method: "char_ratio", note: "empty text" };
+	const profile = resolveBpeProfile(scope);
+	if (text.length === 0) return { ...profile, tokens: 0, confidence: "exact" };
 
 	const remote = await countWithLocalTokenizer(text, scope);
 	if (remote !== undefined) return remote;
 
-	const family = detectTokenizerFamily(scope);
-	if (family === "o200k") return countWithBpe(text, "o200k_base", "OpenAI-compatible BPE tokenizer");
-	if (family === "cl100k") return countWithBpe(text, "cl100k_base", "cl100k-compatible BPE tokenizer");
-	if (family === "deepseek_ratio") return countWithDeepSeekRatio(text);
-	return countWithCharRatio(text, "unknown tokenizer fallback");
+	return bpeResult(text, profile, await loadBpeCounter(profile.method));
 }
 
-/** 同步模型可见文本计数；用于工具输出预算，不触发任何网络请求。 */
+/** 同步计算模型可见文本，用于工具输出预算，不触发网络请求。 */
 export function countTextTokensSync(text: string, scope: TokenCounterScope = {}): TokenCount {
-	if (text.trim().length === 0) return { tokens: 0, confidence: "high", method: "char_ratio", note: "empty text" };
-	const family = detectTokenizerFamily(scope);
-	if (family === "o200k") return countWithBpeSync(text, "o200k_base", "OpenAI-compatible BPE tokenizer");
-	if (family === "cl100k") return countWithBpeSync(text, "cl100k_base", "cl100k-compatible BPE tokenizer");
-	if (family === "deepseek_ratio") return countWithDeepSeekRatio(text);
-	// Unknown model families still use o200k as a stronger budget estimator than chars/4, but keep confidence low.
-	const counted = countWithBpeSync(text, "o200k_base", "generic BPE budget estimate");
-	return { ...counted, confidence: "low", note: "generic BPE budget estimate" };
+	const profile = resolveBpeProfile(scope);
+	if (text.length === 0) return { ...profile, tokens: 0, confidence: "exact" };
+	return bpeResult(text, profile, loadBpeCounterSync(profile.method));
 }
 
 export async function countContentTokens(content: string | Array<TextContent | ImageContent>, scope: TokenCounterScope = {}): Promise<TokenCount> {
@@ -80,28 +82,12 @@ export async function countContentTokens(content: string | Array<TextContent | I
 		confidence = minConfidence(confidence, counted.confidence);
 		notes.add(counted.note);
 	}
-	return { tokens: total, confidence, method: "char_ratio", note: [...notes].join("; ") || "content estimate" };
+	return { tokens: total, confidence, method: "content_estimate", note: [...notes].join("; ") || "content estimate" };
 }
 
-async function countWithBpe(text: string, method: BpeMethod, note: string): Promise<TokenCount> {
-	try {
-		const count = await loadBpeCounter(method);
-		return bpeResult(text, method, count, note);
-	} catch {
-		return countWithCharRatio(text, `${method} failed`);
-	}
-}
-
-function countWithBpeSync(text: string, method: BpeMethod, note: string): TokenCount {
-	try {
-		return bpeResult(text, method, loadBpeCounterSync(method), note);
-	} catch {
-		return countWithCharRatio(text, `${method} failed`);
-	}
-}
-
-function bpeResult(text: string, method: BpeMethod, count: BpeCounter, note: string): TokenCount {
-	return { tokens: count(text), confidence: method === "o200k_base" ? "high" : "medium", method, note };
+function bpeResult(text: string, profile: BpeProfile, count: BpeCounter): TokenCount {
+	// 文件和工具输出中的特殊 token 标记是普通文本，不作为协议控制符解析。
+	return { ...profile, tokens: count(text, literalTextOptions) };
 }
 
 function loadBpeCounter(method: BpeMethod): Promise<BpeCounter> {
@@ -111,7 +97,9 @@ function loadBpeCounter(method: BpeMethod): Promise<BpeCounter> {
 
 	const created = (method === "o200k_base"
 		? import("gpt-tokenizer/encoding/o200k_base")
-		: import("gpt-tokenizer/encoding/cl100k_base"))
+		: method === "cl100k_base"
+			? import("gpt-tokenizer/encoding/cl100k_base")
+			: import("gpt-tokenizer/encoding/o200k_harmony"))
 		.then((module) => {
 			const counter = requireBpeCounter(module);
 			state.counter = counter;
@@ -130,7 +118,9 @@ function loadBpeCounterSync(method: BpeMethod): BpeCounter {
 	if (state.counter !== undefined) return state.counter;
 	const counter = requireBpeCounter(method === "o200k_base"
 		? require("gpt-tokenizer/encoding/o200k_base")
-		: require("gpt-tokenizer/encoding/cl100k_base"));
+		: method === "cl100k_base"
+			? require("gpt-tokenizer/encoding/cl100k_base")
+			: require("gpt-tokenizer/encoding/o200k_harmony"));
 	state.counter = counter;
 	return counter;
 }
@@ -146,46 +136,15 @@ function isBpeModule(value: unknown): value is { countTokens: BpeCounter } {
 	return typeof value === "object" && value !== null && "countTokens" in value && typeof value.countTokens === "function";
 }
 
-function countWithDeepSeekRatio(text: string): TokenCount {
-	let tokens = 0;
-	for (const char of text) {
-		if (/\p{Script=Han}/u.test(char)) tokens += 0.6;
-		else if (/[A-Za-z0-9]/.test(char)) tokens += 0.3;
-		else if (/\s/.test(char)) tokens += 0.15;
-		else tokens += 0.5;
+function resolveBpeProfile(scope: TokenCounterScope): BpeProfile {
+	const modelId = scope.modelId?.toLowerCase().split("/").at(-1) ?? "";
+	const model = modelId.split(":")[modelId.startsWith("ft:") ? 1 : 0] ?? "";
+	// 库的编码表只列出覆盖项，已知聊天模型未列出时使用库的默认编码。
+	const method = modelEncodings[model] ?? (Object.hasOwn(chatModelParams, model) ? DEFAULT_ENCODING : undefined);
+	if (method === "o200k_base" || method === "cl100k_base" || method === "o200k_harmony") {
+		return { method, confidence: "high", note: "model BPE tokenizer" };
 	}
-	return {
-		tokens: Math.max(1, Math.ceil(tokens)),
-		confidence: "medium",
-		method: "deepseek_ratio",
-		note: "DeepSeek published character ratio estimate",
-	};
-}
-
-function countWithCharRatio(text: string, note: string): TokenCount {
-	return {
-		tokens: Math.max(1, Math.ceil([...text.trim()].length / 4)),
-		confidence: "low",
-		method: "char_ratio",
-		note,
-	};
-}
-
-type TokenizerFamily = "o200k" | "cl100k" | "deepseek_ratio" | "char_ratio";
-
-function detectTokenizerFamily(scope: TokenCounterScope): TokenizerFamily {
-	const provider = normalize(scope.provider);
-	const model = normalize(scope.modelId);
-	const combined = `${provider} ${model}`;
-	if (/\b(openai|openai-codex)\b/.test(provider) || /\b(gpt|o[1345])[-\w.]*/.test(model)) return "o200k";
-	if (combined.includes("deepseek")) return "deepseek_ratio";
-	if (combined.includes("qwen") || combined.includes("dashscope") || combined.includes("alibaba")) return "cl100k";
-	if (combined.includes("kimi") || combined.includes("moonshot") || combined.includes("zai")) return "cl100k";
-	return "char_ratio";
-}
-
-function normalize(value: string | undefined): string {
-	return (value ?? "").toLowerCase();
+	return { method: "o200k_base", confidence: "low", note: "generic BPE estimate" };
 }
 
 async function countWithLocalTokenizer(text: string, scope: TokenCounterScope): Promise<TokenCount | undefined> {
@@ -228,7 +187,7 @@ function setRemoteCache(key: string, value: TokenCount): void {
 
 function localTokenizerRequests(baseUrl: string, text: string, modelId: string | undefined): Array<{ kind: string; url: string; body: Record<string, unknown> }> {
 	return [
-		{ kind: "llama.cpp", url: `${baseUrl}/tokenize`, body: { content: text, add_special: false, parse_special: true } },
+		{ kind: "llama.cpp", url: `${baseUrl}/tokenize`, body: { content: text, add_special: false, parse_special: false } },
 		{ kind: "vLLM", url: `${baseUrl}/tokenize`, body: { model: modelId, prompt: text, add_special_tokens: false } },
 		{ kind: "OpenAI-compatible", url: `${baseUrl}/v1/tokenize`, body: { model: modelId, input: text, prompt: text, content: text } },
 	];
