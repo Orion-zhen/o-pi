@@ -21,11 +21,9 @@ function promptOptions(
 	extraSections: Record<string, string> = {},
 ): BuildSystemPromptOptions {
 	const cwd = options.cwd.replace(/\\/g, "/");
-	const sections: Record<string, string> = {
-		...options.sections,
-		tool_policy: formatToolPolicy(options),
-	};
-	if (skills.length > 0) {
+	const sections: Record<string, string> = { ...options.sections };
+	if (options.selectedTools?.length) sections.tool_policy = formatToolPolicy(options);
+	if (options.selectedTools?.includes("skill") && skills.length > 0) {
 		sections.skill_policy = SKILL_POLICY;
 		sections.skills = formatSkillIndex(skills);
 	}
