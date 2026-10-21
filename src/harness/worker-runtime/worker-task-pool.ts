@@ -40,7 +40,8 @@ interface WorkerSlot<TRequest, TResult> {
 
 /** 有界 worker 任务生命周期：队列、request ID、abort、崩溃、ref/unref 和 dispose。 */
 export class WorkerTaskPool<TRequest, TResult> {
-	private readonly queue: WorkerTask<TRequest, TResult>[] = [];
+	private readonly queue = new Map<number, WorkerTask<TRequest, TResult>>();
+	private queueHeadId = 1;
 	private readonly slots = new Set<WorkerSlot<TRequest, TResult>>();
 	private nextTaskId = 1;
 	private disposed = false;
@@ -70,7 +71,7 @@ export class WorkerTaskPool<TRequest, TResult> {
 				task.onAbort = () => this.abortTask(task);
 				signal.addEventListener("abort", task.onAbort, { once: true });
 			}
-			this.queue.push(task);
+			this.queue.set(task.id, task);
 			this.dispatch();
 		});
 	}
@@ -78,7 +79,8 @@ export class WorkerTaskPool<TRequest, TResult> {
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
-		for (const task of this.queue.splice(0)) this.rejectTask(task, new WorkerTaskAbortedError());
+		for (const task of this.queue.values()) this.rejectTask(task, new WorkerTaskAbortedError());
+		this.queue.clear();
 		for (const slot of this.slots) {
 			if (slot.task !== undefined) this.rejectTask(slot.task, new WorkerTaskAbortedError());
 			slot.stopping = true;
@@ -90,18 +92,18 @@ export class WorkerTaskPool<TRequest, TResult> {
 	private dispatch(): void {
 		if (this.disposed) return;
 		let idleWorkers = Array.from(this.slots).filter((slot) => slot.task === undefined && !slot.stopping).length;
-		while (this.slots.size < this.options.workerLimit && idleWorkers < this.queue.length) {
+		while (this.slots.size < this.options.workerLimit && idleWorkers < this.queue.size) {
 			try {
 				this.spawnWorker();
 				idleWorkers += 1;
 			} catch (error) {
-				const task = this.queue.shift();
+				const task = this.dequeue();
 				if (task !== undefined) this.rejectTask(task, error instanceof Error ? error : new Error(String(error)));
 			}
 		}
 		for (const slot of this.slots) {
 			if (slot.task !== undefined || slot.stopping) continue;
-			const task = this.queue.shift();
+			const task = this.dequeue();
 			if (task === undefined) return;
 			slot.task = task;
 			slot.worker.ref();
@@ -111,6 +113,17 @@ export class WorkerTaskPool<TRequest, TResult> {
 				this.failWorker(slot, error instanceof Error ? error : new Error(String(error)));
 			}
 		}
+	}
+
+	private dequeue(): WorkerTask<TRequest, TResult> | undefined {
+		while (this.queueHeadId < this.nextTaskId) {
+			const id = this.queueHeadId++;
+			const task = this.queue.get(id);
+			if (task === undefined) continue;
+			this.queue.delete(id);
+			return task;
+		}
+		return undefined;
 	}
 
 	private spawnWorker(): void {
@@ -148,9 +161,7 @@ export class WorkerTaskPool<TRequest, TResult> {
 
 	private abortTask(task: WorkerTask<TRequest, TResult>): void {
 		if (task.settled) return;
-		const queuedIndex = this.queue.indexOf(task);
-		if (queuedIndex >= 0) {
-			this.queue.splice(queuedIndex, 1);
+		if (this.queue.delete(task.id)) {
 			this.rejectTask(task, new WorkerTaskAbortedError());
 			return;
 		}

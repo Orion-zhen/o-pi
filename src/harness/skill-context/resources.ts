@@ -4,7 +4,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { FilesystemPathAccess } from "../filesystem/contracts/access.ts";
 import { isValidSkillName } from "./frontmatter.ts";
 import { loadedSkillsByName } from "./state.ts";
-import type { SkillCandidate } from "./types.ts";
+import type { SkillCandidate, SkillLoadEntry } from "./types.ts";
 
 export interface SkillPath {
 	kind: "skill";
@@ -44,10 +44,10 @@ export function buildSkillPathIndex(candidates: SkillCandidate[]): SkillPathInde
 
 /** 构建文件系统调用所需的已授权技能挂载和普通路径绕过保护。 */
 export async function buildSkillFilesystemAccess(
-	branch: SessionEntry[],
+	loads: ReadonlyMap<string, SkillLoadEntry>,
 	index: SkillPathIndex,
 ): Promise<FilesystemPathAccess> {
-	const mounts = [...loadedSkillsByName(branch).values()].map((skill) => ({
+	const mounts = [...loads.values()].map((skill) => ({
 		logicalRoot: `skill://${skill.name}`,
 		nativeRoot: path.resolve(skill.root),
 	}));

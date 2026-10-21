@@ -125,6 +125,17 @@ describe("遥测报告业务流程", () => {
 		expect(report(calls).candidate_ranking.file_level.broad.adopted_lists).toBe(expected);
 	});
 
+	it("首次消费超过 broad 窗口后仍保留即时归因，下一次搜索会结束 pre-refinement", () => {
+		const value = report([
+			search(), call(1, "grep"),
+			...Array.from({ length: 10 }, (_, index) => call(index + 2, "bash")),
+			read(12),
+		]).candidate_ranking.file_level;
+		expect(value.immediate.adopted_lists).toBe(1);
+		expect(value.broad.adopted_lists).toBe(0);
+		expect(value.pre_refinement.adopted_lists).toBe(0);
+	});
+
 	it("搜索、读取、修改组成有效采用，重复来源不重复计数", () => {
 		const value = report([
 			call(0, "read", { targets: [file("src/known.ts")] }),
@@ -150,6 +161,46 @@ describe("遥测报告业务流程", () => {
 		expect(value.immediate.ndcg_at_k.at(-1)?.value).toBeCloseTo(1 / Math.log2(5));
 		expect(value.pre_refinement.retention_at_k.map((item) => item.rate)).toEqual([0, 1 / 3, 2 / 3, 1]);
 		expect(value.productive.mrr.value).toBe(1 / 6);
+	});
+
+	it("重复读取保留事件次数，候选动作和排名只统计一次", () => {
+		const value = report([
+			call(0, "find", { candidates: [candidate(1), candidate(2, "src/c.ts"), candidate(3, "src/b.ts")] }),
+			read(1, { targets: [file("src/b.ts")] }), read(2, { targets: [file("src/b.ts")] }), read(3),
+		]).candidate_ranking.file_level;
+		expect(value.actions).toEqual({ inspection: 2, mutation: 0, productive: 0, inspection_only: 2 });
+		expect(value.pre_refinement.retention_at_k[0]).toMatchObject({ adopted_events: 3, retained_events: 1, rate: 1 / 3 });
+		expect(value.pre_refinement.ndcg_at_k[1]?.value).toBeCloseTo((1 + 1 / Math.log2(4)) / (1 + 1 / Math.log2(3)));
+	});
+
+	it("不同运行中的同名候选分别统计", () => {
+		const secondRun = { ...run, run_id: "second" };
+		const value = report([
+			search(), read(),
+			{ ...search(), run_id: secondRun.run_id, call_id: "second-find" },
+			{ ...read(), run_id: secondRun.run_id, call_id: "second-read" },
+		], {}, [run, secondRun]).candidate_ranking.file_level;
+		expect(value.exposures).toBe(2);
+		expect(value.broad).toMatchObject({ lists: 2, adopted_lists: 2, mrr: { samples: 2, value: 1 } });
+		expect(value.actions).toEqual({ inspection: 2, mutation: 0, productive: 0, inspection_only: 2 });
+	});
+
+	it("同文件的新搜索独占后续修改，不将旧搜索的读取标为有效采用", () => {
+		const value = report([search(), read(), search(2), call(3, "edit", { targets: [file()] })]).candidate_ranking.file_level;
+		expect(value.actions).toEqual({ inspection: 1, mutation: 1, productive: 1, inspection_only: 1 });
+		expect(value.productive).toMatchObject({ lists: 2, adopted_lists: 1 });
+	});
+
+	it("区域读取后修改只计入文件级有效采用", () => {
+		const target = { ...file(), kind: "region", start_line: 12, end_line: 13 };
+		const value = report([
+			call(0, "grep", { candidates: [candidate(1, "src/a.ts", { kind: "region", start_line: 10, end_line: 20 })] }),
+			read(1, { targets: [target] }), call(2, "edit", { targets: [file()] }),
+		]).candidate_ranking;
+		expect(value.file_level.actions).toEqual({ inspection: 1, mutation: 1, productive: 1, inspection_only: 0 });
+		expect(value.region_level.actions).toEqual({ inspection: 1, mutation: 0, productive: 0, inspection_only: 1 });
+		expect(value.region_level.productive.adopted_lists).toBe(0);
+		expect(value.region_level.novelty.novel_productive).toBe(0);
 	});
 
 	it("区分 grep 的直接命中、关联恢复、空结果与缺失观测", () => {

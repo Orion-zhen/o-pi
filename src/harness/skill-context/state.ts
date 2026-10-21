@@ -1,5 +1,38 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { SKILL_CONTEXT_ENTRY, type SkillLoadEntry, type SkillStatusSnapshot } from "./types.ts";
+
+/** 追加分支只读取新增条目，切换分支或会话时从当前叶节点重建。 */
+export class SkillBranchState {
+	private sessionId: string | undefined;
+	private leafId: string | null = null;
+	private readonly loads = new Map<string, SkillLoadEntry>();
+
+	read(manager: Pick<ExtensionContext["sessionManager"], "getSessionId" | "getLeafId" | "getEntry">): ReadonlyMap<string, SkillLoadEntry> {
+		const sessionId = manager.getSessionId();
+		if (sessionId !== this.sessionId) {
+			this.loads.clear();
+			this.leafId = null;
+			this.sessionId = sessionId;
+		}
+		const leaf = manager.getLeafId();
+		const pending: SessionEntry[] = [];
+		let cursor = leaf;
+		while (cursor !== null && cursor !== this.leafId) {
+			const entry = manager.getEntry(cursor);
+			if (entry === undefined) throw new Error(`Missing session entry: ${cursor}`);
+			pending.push(entry);
+			cursor = entry.parentId;
+		}
+		if (cursor !== this.leafId) this.loads.clear();
+		for (const entry of pending.reverse()) {
+			if (entry.type === "custom" && entry.customType === SKILL_CONTEXT_ENTRY && isSkillLoadEntry(entry.data)) {
+				this.loads.set(entry.data.name, entry.data);
+			}
+		}
+		this.leafId = leaf;
+		return this.loads;
+	}
+}
 
 export function extractSkillLoads(branchEntries: SessionEntry[]): SkillLoadEntry[] {
 	const loads: SkillLoadEntry[] = [];

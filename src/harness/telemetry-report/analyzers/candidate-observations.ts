@@ -1,5 +1,6 @@
 import type { CallRecord, Candidate, Resource } from "../../telemetry/types.ts";
 import { callsByRun, requireRunCwd, resourceKey, sameBatch, withinMillis } from "../shared.ts";
+import { markReadThenMutationProductive } from "./productive-attributions.ts";
 
 const CALL_WINDOW = 10;
 const TIME_WINDOW_MS = 5 * 60_000;
@@ -88,21 +89,26 @@ export function collectCandidateObservations(
 
 function buildProducers(calls: readonly CallRecord[], cwd: string): ProducerObservation[] {
 	const result: ProducerObservation[] = [];
+	const priorFiles = new Set<string>();
+	const searches = nextOutsideBatch(calls, (call) => SEARCH_TOOLS.has(call.tool));
+	const consumers = nextOutsideBatch(calls, isConsumer);
 	for (const [index, producer] of calls.entries()) {
 		const candidates = producer.candidates;
-		if (candidates === undefined || candidates.length === 0) continue;
-		const priorFiles = priorAccessedFiles(calls, index, cwd);
-		const facts = normalizeCandidates(candidates, cwd, priorFiles, false);
-		const files = normalizeCandidates(candidates, cwd, priorFiles, true);
-		result.push({
-			producer,
-			chain_index: index,
-			fact_candidates: facts,
-			file_candidates: files,
-			region_candidates: facts.filter(hasRange),
-			...nextSearchIndex(calls, index, producer),
-			...firstConsumerIndex(calls, index, producer),
-		});
+		if (candidates !== undefined && candidates.length > 0) {
+			const facts = normalizeCandidates(candidates, cwd, priorFiles, false);
+			const files = normalizeCandidates(candidates, cwd, priorFiles, true);
+			const next = searches[index];
+			const first = consumers[index];
+			result.push({
+				producer, chain_index: index, fact_candidates: facts, file_candidates: files,
+				region_candidates: facts.filter(hasRange),
+				...(next === undefined ? {} : { next_search_index: next }),
+				...(first === undefined ? {} : { first_consumer_index: first }),
+			});
+		}
+		if (producer.status === "success" && PRIOR_ACCESS_TOOLS.has(producer.tool)) {
+			for (const target of producer.targets ?? []) priorFiles.add(resourceKey(target, cwd));
+		}
 	}
 	return result;
 }
@@ -174,22 +180,42 @@ function attributeConsumers(
 	cwd: string,
 ): CandidateAttribution[] {
 	const result: CandidateAttribution[] = [];
+	type Exposure = { producer: ProducerObservation; candidate: NormalizedCandidate };
+	const byFile = new Map<string, Set<Exposure>>();
+	const expires = new Map<number, Exposure[]>();
+	const starts = new Map<number, Exposure[]>();
+	for (const producer of producers) {
+		const items = producer.fact_candidates.map((candidate) => ({ producer, candidate }));
+		starts.set(producer.chain_index + 1, items);
+		const end = Math.max(producer.next_search_index ?? calls.length,
+			(producer.first_consumer_index ?? -1) + 1, producer.chain_index + CALL_WINDOW + 1);
+		const bucket = expires.get(end) ?? [];
+		bucket.push(...items);
+		expires.set(end, bucket);
+	}
 	for (const [consumerIndex, consumer] of calls.entries()) {
+		for (const item of expires.get(consumerIndex) ?? []) {
+			const bucket = byFile.get(item.candidate.file_key);
+			bucket?.delete(item);
+			if (bucket?.size === 0) byFile.delete(item.candidate.file_key);
+		}
+		for (const item of starts.get(consumerIndex) ?? []) {
+			const bucket = byFile.get(item.candidate.file_key) ?? new Set<Exposure>();
+			bucket.add(item);
+			byFile.set(item.candidate.file_key, bucket);
+		}
 		if (!isConsumer(consumer)) continue;
-		const matches: AttributionMatch[] = [];
-		for (const producer of producers) {
-			if (producer.chain_index >= consumerIndex || sameBatch(producer.producer, consumer)) continue;
-			const windows = windowsFor(producer, producer.chain_index, consumer, consumerIndex);
-			if (!windows.immediate && !windows.pre_refinement && !windows.broad) continue;
-			for (const target of consumer.targets) {
-				const targetKey = resourceKey(target, cwd);
-				for (const candidate of candidateFacts(producer)) {
-					if (candidate.file_key !== targetKey) continue;
-					matches.push({ producer, candidate, target, windows, intersects: rangesIntersect(candidate, target) });
-				}
+		let selected: AttributionMatch | undefined;
+		for (const target of consumer.targets) {
+			for (const { producer, candidate } of byFile.get(resourceKey(target, cwd)) ?? []) {
+				if (sameBatch(producer.producer, consumer)) continue;
+				const windows = windowsFor(producer, producer.chain_index, consumer, consumerIndex);
+				if (!windows.immediate && !windows.pre_refinement && !windows.broad) continue;
+				const match = { producer, candidate, target, windows, intersects: rangesIntersect(candidate, target) };
+				if (selected === undefined || (compareMatches(match, selected)
+					|| producer.chain_index - selected.producer.chain_index) < 0) selected = match;
 			}
 		}
-		const selected = matches.sort(compareMatches)[0];
 		if (selected === undefined) continue;
 		const fileCandidate = requireFileCandidate(selected.producer, selected.candidate.file_key);
 		const regionCandidate = selected.intersects && hasRange(selected.target) && hasRange(selected.candidate)
@@ -243,51 +269,31 @@ function windowsFor(
 	};
 }
 
-function candidateFacts(producer: ProducerObservation): NormalizedCandidate[] {
-	return producer.fact_candidates;
-}
-
 function candidateObservations(
 	producers: readonly ProducerObservation[],
 	attributions: readonly CandidateAttribution[],
 	level: CandidateLevel,
 ): CandidateObservation[] {
-	return producers.flatMap((producer) => {
-		const candidates = level === "file" ? producer.file_candidates : producer.region_candidates;
-		return candidates.map((candidate) => {
-			const matches = attributions.filter((item) => item.producer === producer.producer
-				&& (level === "file" ? item.file_candidate.fact_key === candidate.fact_key : item.region_candidate?.fact_key === candidate.fact_key));
-			const broad = matches.find((item) => item.broad);
-			return {
-				producer: producer.producer,
-				candidate,
-				...(broad === undefined ? {} : { consumer: broad.consumer }),
-				immediate: matches.some((item) => item.immediate),
-				pre_refinement: matches.some((item) => item.pre_refinement),
-				productive: matches.some((item) => item.productive),
-				inspection: matches.some((item) => item.inspection),
-				mutation: matches.some((item) => item.mutation),
-			};
-		});
-	});
-}
-
-function markReadThenMutationProductive(
-	calls: readonly CallRecord[],
-	attributions: CandidateAttribution[],
-	cwd: string,
-): void {
-	for (const mutation of calls) {
-		if (mutation.status !== "success" || !MUTATION_TOOLS.has(mutation.tool)) continue;
-		const mutationFiles = new Set((mutation.targets ?? []).map((target) => resourceKey(target, cwd)));
-		const direct = attributions.find((item) => item.consumer === mutation);
-		const inspections = attributions.filter((item) => item.inspection
-			&& item.consumer.call_index < mutation.call_index
-			&& mutationFiles.has(item.file_candidate.file_key)
-			&& (direct === undefined || (item.producer === direct.producer && item.file_candidate.fact_key === direct.file_candidate.fact_key)));
-		const selected = inspections.sort((left, right) => right.consumer.call_index - left.consumer.call_index)[0];
-		if (selected !== undefined) selected.productive = true;
+	const observed = new Map<NormalizedCandidate, CandidateObservation>();
+	for (const producer of producers) {
+		for (const candidate of level === "file" ? producer.file_candidates : producer.region_candidates) {
+			observed.set(candidate, { producer: producer.producer, candidate,
+				immediate: false, pre_refinement: false, productive: false, inspection: false, mutation: false });
+		}
 	}
+	for (const item of attributions) {
+		const candidate = level === "file" ? item.file_candidate : item.region_candidate;
+		if (candidate === undefined) continue;
+		// 归因保留规范化候选的原始引用，必定对应上面创建的观测。
+		const value = observed.get(candidate) as CandidateObservation;
+		if (item.broad && value.consumer === undefined) value.consumer = item.consumer;
+		value.immediate ||= item.immediate;
+		value.pre_refinement ||= item.pre_refinement;
+		value.productive ||= level === "file" && item.productive;
+		value.inspection ||= item.inspection;
+		value.mutation ||= level === "file" && item.mutation;
+	}
+	return [...observed.values()];
 }
 
 function requireFileCandidate(producer: ProducerObservation, fileKey: string): NormalizedCandidate {
@@ -296,24 +302,20 @@ function requireFileCandidate(producer: ProducerObservation, fileKey: string): N
 	return candidate;
 }
 
-function priorAccessedFiles(calls: readonly CallRecord[], producerIndex: number, cwd: string): Set<string> {
-	return new Set(calls.slice(0, producerIndex)
-		.filter((call) => call.status === "success" && PRIOR_ACCESS_TOOLS.has(call.tool))
-		.flatMap((call) => (call.targets ?? []).map((target) => resourceKey(target, cwd))));
-}
-
-function nextSearchIndex(calls: readonly CallRecord[], producerIndex: number, producer: CallRecord): { next_search_index?: number } {
-	const offset = calls.slice(producerIndex + 1).findIndex((call) => SEARCH_TOOLS.has(call.tool) && !sameBatch(producer, call));
-	return offset < 0 ? {} : { next_search_index: producerIndex + offset + 1 };
-}
-
-function firstConsumerIndex(
-	calls: readonly CallRecord[],
-	producerIndex: number,
-	producer: CallRecord,
-): { first_consumer_index?: number } {
-	const offset = calls.slice(producerIndex + 1).findIndex((call) => isConsumer(call) && !sameBatch(producer, call));
-	return offset < 0 ? {} : { first_consumer_index: producerIndex + offset + 1 };
+/** 反向扫描只保留最近两个不同批次，避免逐个复制、搜索后缀。 */
+function nextOutsideBatch(calls: readonly CallRecord[], accepts: (call: CallRecord) => boolean): Array<number | undefined> {
+	const result: Array<number | undefined> = new Array(calls.length);
+	let first: { call: CallRecord; index: number } | undefined;
+	let second: typeof first;
+	for (let index = calls.length - 1; index >= 0; index -= 1) {
+		const call = calls[index];
+		if (call === undefined) continue;
+		result[index] = first !== undefined && sameBatch(call, first.call) ? second?.index : first?.index;
+		if (!accepts(call)) continue;
+		if (first !== undefined && !sameBatch(call, first.call)) second = first;
+		first = { call, index };
+	}
+	return result;
 }
 
 function isConsumer(call: CallRecord): call is CallRecord & { targets: [Resource, ...Resource[]] } {

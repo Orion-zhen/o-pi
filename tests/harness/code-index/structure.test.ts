@@ -45,6 +45,22 @@ describe("code structure anchors and bindings", () => {
 		expect(same.find((unit) => unit.startLine === 1)?.symbol).toBeUndefined();
 	});
 
+	it("LSP 选择整个匿名回调时与语法范围关联", async () => {
+		const text = "items.map(() => work());\n";
+		const syntax = await analyzeCodeFile("a.ts", text);
+		const callback = syntax.units.find((unit) => unit.name === undefined && unit.syntax?.callable === true);
+		if (callback === undefined) throw new Error("missing anonymous callback");
+		const range = span(text, callback.startByte, callback.endByte);
+		const semantic = analyzeLspDocument({ path: "a.ts", text }, [{
+			name: "callback", kind: SymbolKind.Function, range,
+			selectionRange: range,
+		}], "file:///a.ts");
+		const merged = mergeCodeStructure(syntax, semantic);
+		expect(merged.units).toHaveLength(1);
+		expect(merged.units[0]).toMatchObject({ name: "callback", syntax: callback.syntax, symbol: { type: "document" } });
+		expect(merged.units[0]?.structureConflict).toBeUndefined();
+	});
+
 	it("UTF-16 LSP 坐标与 UTF-8 调用点在中文、非 BMP 字符和 CRLF 下对齐", async () => {
 		const text = '// 😀中文\r\nfunction 执行() {\r\n  调用("😀");\r\n}\r\n';
 		const start = text.indexOf("执行");

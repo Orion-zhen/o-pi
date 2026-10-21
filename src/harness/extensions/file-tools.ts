@@ -29,6 +29,7 @@ import { type MutationProgressDetails } from "../file-tools/pi/progress.ts";
 import { registerTool } from "../register-tool.ts";
 import { collectSkillCandidates } from "../skill-context/loader.ts";
 import { buildSkillFilesystemAccess, buildSkillPathIndex } from "../skill-context/resources.ts";
+import { SkillBranchState } from "../skill-context/state.ts";
 
 const lsParameters = Type.Object(
 	{ path: Type.Optional(Type.String({ minLength: 1, description: "Directory; default workspace." })) },
@@ -150,6 +151,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 	const lsp = async () => (await import("../lsp/index.ts")).lspManager;
 	const mutationBatches = new MutationBatchCoordinator();
 	const sessionMutations = new Map<string, SessionMutationScope>();
+	const skills = new SkillBranchState();
 	const skillPathIndex = createRetryableLoader(async () =>
 		buildSkillPathIndex(
 			collectSkillCandidates(undefined, pi.getCommands()),
@@ -166,7 +168,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			sessionId: ctx.sessionManager.getSessionId(),
 			...(signal === undefined ? {} : { signal }),
 			host: invocationHost,
-			pathAccess: await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index),
+			pathAccess: await buildSkillFilesystemAccess(skills.read(ctx.sessionManager), index),
 		};
 	};
 
@@ -334,7 +336,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "bash" || host === undefined) return;
 		const index = await skillPathIndex();
-		const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
+		const pathAccess = await buildSkillFilesystemAccess(skills.read(ctx.sessionManager), index);
 		const scope = await host.beginSessionMutation({
 			cwd: ctx.cwd,
 			sessionId: ctx.sessionManager.getSessionId(),

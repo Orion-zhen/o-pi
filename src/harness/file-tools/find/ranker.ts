@@ -123,9 +123,11 @@ function fuzzyMatch(search: SearchText, text: readonly string[], pattern: readon
 		return { matched: false, score: 0, positions: [] };
 	}
 	// 评分和连续奖励只依赖上一行；仅回溯前驱需要保留全部行。
-	let scores = new Array<number>(text.length).fill(NEGATIVE_INFINITY);
-	let runBonuses = new Array<number>(text.length).fill(0);
-	const previous: number[][] = [];
+	let scores = new Float64Array(text.length).fill(NEGATIVE_INFINITY);
+	let runBonuses = new Uint8Array(text.length);
+	let currentScores = new Float64Array(text.length);
+	let currentRunBonuses = new Uint8Array(text.length);
+	const previous: Int32Array[] = [];
 
 	for (let column = 0; column < text.length; column += 1) {
 		if (text[column] !== pattern[0]) continue;
@@ -135,9 +137,9 @@ function fuzzyMatch(search: SearchText, text: readonly string[], pattern: readon
 	}
 
 	for (let row = 1; row < pattern.length; row += 1) {
-		const currentScores = new Array<number>(text.length).fill(NEGATIVE_INFINITY);
-		const currentRunBonuses = new Array<number>(text.length).fill(0);
-		const currentPrevious = new Array<number>(text.length).fill(-1);
+		currentScores.fill(NEGATIVE_INFINITY);
+		currentRunBonuses.fill(0);
+		const currentPrevious = new Int32Array(text.length).fill(-1);
 		previous.push(currentPrevious);
 		let bestGapValue = NEGATIVE_INFINITY;
 		let bestGapColumn = -1;
@@ -183,8 +185,8 @@ function fuzzyMatch(search: SearchText, text: readonly string[], pattern: readon
 			currentPrevious[column] = predecessor;
 			currentRunBonuses[column] = runBonus;
 		}
-		scores = currentScores;
-		runBonuses = currentRunBonuses;
+		[scores, currentScores] = [currentScores, scores];
+		[runBonuses, currentRunBonuses] = [currentRunBonuses, runBonuses];
 	}
 
 	let end = -1;

@@ -13,7 +13,8 @@ import type {
 	IndexedCodeUnit,
 } from "../../code-index/types.ts";
 import type { CodeRelation } from "../../code-index/relation-types.ts";
-import { compareCodeUnitNesting, queryAnchor } from "../../code-index/units.ts";
+import { queryAnchor } from "../../code-index/units.ts";
+import { enclosingCodeUnits } from "../../code-index/enclosing-units.ts";
 import { LspClient } from "../client/client.ts";
 import type { LspServerConfig } from "../types.ts";
 import { analyzeLspDocument } from "./document.ts";
@@ -229,10 +230,8 @@ function unitForSeed(units: readonly IndexedCodeUnit[], seed: WorkspaceSymbolSee
 }
 
 function unitsForRanges(units: readonly IndexedCodeUnit[], ranges: CodeAnalysisTarget["ranges"]): IndexedCodeUnit[] {
-	const ordered = [...units].sort(compareCodeUnitNesting);
 	const selected = new Map<string, IndexedCodeUnit>();
-	for (const range of ranges) {
-		const unit = ordered.find((candidate) => candidate.startByte <= range.startByte && range.endByte <= candidate.endByte);
+	for (const unit of enclosingCodeUnits(units, ranges)) {
 		if (unit !== undefined) selected.set(unit.id, unit);
 	}
 	return [...selected.values()];

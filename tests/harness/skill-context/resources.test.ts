@@ -10,6 +10,7 @@ import {
 	resolveSkillResourceLocator,
 	type SkillPathIndex,
 } from "../../../src/harness/skill-context/resources.ts";
+import { loadedSkillsByName } from "../../../src/harness/skill-context/state.ts";
 import { executeRead } from "../../../src/harness/file-tools/pi/adapters/read.ts";
 import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
 import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
@@ -34,7 +35,7 @@ beforeEach(async () => {
 	candidate = { name: "demo", path: path.join(root, "SKILL.md"), scope: "project" };
 	branch = [custom(load("demo", root))];
 	skillIndex = buildSkillPathIndex([candidate]);
-	pathAccess = await buildSkillFilesystemAccess(branch, skillIndex);
+	pathAccess = await buildSkillFilesystemAccess(loadedSkillsByName(branch), skillIndex);
 });
 
 describe("技能资源定位符", () => {
@@ -91,7 +92,8 @@ describe("技能资源定位符", () => {
 		const { registered, handlers } = registerExtension(fileTools, { getCommands: () => [command] });
 		const ctx = {
 			cwd: temp.path,
-			sessionManager: { getSessionId: () => "skill-filesystem", getBranch: () => branch },
+			sessionManager: { getSessionId: () => "skill-filesystem", getBranch: () => branch,
+				getLeafId: () => branch.at(-1)?.id ?? null, getEntry: (id: string) => branch.find((entry) => entry.id === id) },
 		};
 		try {
 			const listed = await executeTool(registered, "ls", { path: "skill://demo" }, ctx);

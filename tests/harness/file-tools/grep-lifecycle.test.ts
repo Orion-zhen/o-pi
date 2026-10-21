@@ -93,6 +93,23 @@ describe("grep lifecycle", () => {
 		});
 	});
 
+	it("多文件正则搜索可取消，取消后仍能执行后向引用查询", async () => {
+		await Promise.all(["a", "b", "c", "d"].map((name) =>
+			writeFile(path.join(testContext.workspace, `${name}.txt`), `${"a".repeat(40)}!\n`)));
+
+		await withGrepRuntime(testContext.workspace, "grep-regex-cancel", async ({ execute }) => {
+			const controller = new AbortController();
+			const pending = execute({ query: "^(a+)+$" }, { operation: { signal: controller.signal } });
+			const timer = setTimeout(() => controller.abort(), 100);
+			try {
+				await expect(pending).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+			} finally { clearTimeout(timer); }
+			await writeFile(path.join(testContext.workspace, "regex-cancel.txt"), "word word\nword other\n");
+			await expect(execute({ path: ["regex-cancel.txt"], query: "(?<term>word) \\k<term>" }))
+				.resolves.toMatchObject({ status: "success", returned_regions: 1 });
+		});
+	});
+
 	it("regex 只执行一次稳定 line scan，不完整读取正文", async () => {
 		await writeFile(path.join(testContext.workspace, "stream.txt"), `needle\n${"tail\n".repeat(200)}`);
 		await withGrepRuntime(testContext.workspace, "grep-stream", async ({ execute, opened }) => {

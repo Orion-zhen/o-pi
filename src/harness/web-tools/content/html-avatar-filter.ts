@@ -19,9 +19,10 @@ const MAX_PORTRAIT_EDGE = 512;
 const MAX_PROFILE_LINK_SCOPE_DEPTH = 3;
 
 /** Remove avatar media before HTML is converted to Markdown. */
-export function removeAvatarImages(root: Document | Element, baseUrl?: string): void {
-	for (const image of [...root.querySelectorAll("img")]) {
-		if (!isAvatarImage(image, baseUrl)) continue;
+export function removeAvatarImages(root: Document | Element): void {
+	const isAvatar = createAvatarClassifier();
+	const avatars = [...root.querySelectorAll("img")].filter(isAvatar);
+	for (const image of avatars) {
 		const imageLink = image.closest("a[href]");
 		const removeImageLink = imageLink !== null && hasOnlyImageContent(imageLink, image);
 		const picture = image.closest("picture");
@@ -31,23 +32,24 @@ export function removeAvatarImages(root: Document | Element, baseUrl?: string): 
 	}
 }
 
-/**
- * Classify avatars from independent DOM signals. Image URL text never
- * participates, and accessible labels cannot trigger removal by themselves.
- */
-export function isAvatarImage(image: Element, baseUrl?: string): boolean {
-	if (image.tagName.toLowerCase() !== "img") return false;
+/** 同一 DOM 快照的 img 共用文本链接索引，图片 URL 不参与头像判断。 */
+export function createAvatarClassifier(baseUrl?: string): (image: HTMLImageElement) => boolean {
+	const textLinks = new WeakMap<Element, ReadonlySet<string>>();
+	return (image) => isAvatarImage(image, baseUrl, textLinks);
+}
+
+function isAvatarImage(image: HTMLImageElement, baseUrl: string | undefined, textLinks: WeakMap<Element, ReadonlySet<string>>): boolean {
 	const link = image.closest("a[href]");
 	const imageOnlyLink = link !== null && hasOnlyImageContent(link, image);
 	const structuredAuthor = hasStructuredAuthorContext(image);
 	const profileLink = link !== null && isProfileDestination(link.getAttribute("href"), baseUrl);
-	const pairedAuthorLink = link !== null && hasNearbyTextLinkToSameTarget(link, baseUrl);
 	const portraitGeometry = hasCompactPortraitGeometry(image);
 	const avatarRole = hasAvatarRoleAttribute(image);
 	const accessibleAvatar = hasAccessibleAvatarLabel(image);
 
 	if (structuredAuthor && (imageOnlyLink || avatarRole || portraitGeometry)) return true;
-	if (profileLink && imageOnlyLink && (pairedAuthorLink || portraitGeometry || avatarRole || accessibleAvatar)) return true;
+	if (profileLink && imageOnlyLink && (portraitGeometry || avatarRole || accessibleAvatar
+		|| hasNearbyTextLinkToSameTarget(link, baseUrl, textLinks))) return true;
 	return avatarRole && (link === null || imageOnlyLink);
 }
 
@@ -113,16 +115,28 @@ function hasOnlyImageContent(link: Element, image: Element): boolean {
 	return link.querySelector("video, audio, svg, canvas") === null;
 }
 
-function hasNearbyTextLinkToSameTarget(imageLink: Element, baseUrl: string | undefined): boolean {
+function hasNearbyTextLinkToSameTarget(
+	imageLink: Element,
+	baseUrl: string | undefined,
+	textLinks: WeakMap<Element, ReadonlySet<string>>,
+): boolean {
 	const target = normalizedLinkTarget(imageLink.getAttribute("href"), baseUrl);
 	if (target === undefined) return false;
 	let scope = imageLink.parentElement;
 	for (let depth = 0; scope !== null && depth < MAX_PROFILE_LINK_SCOPE_DEPTH; depth += 1) {
-		for (const candidate of scope.querySelectorAll("a[href]")) {
-			if (candidate === imageLink || candidate.querySelector("img, picture, video, svg") !== null) continue;
-			if (normalizedText(candidate.textContent).length === 0) continue;
-			if (normalizedLinkTarget(candidate.getAttribute("href"), baseUrl) === target) return true;
+		let targets = textLinks.get(scope);
+		if (targets === undefined) {
+			const indexed = new Set<string>();
+			for (const candidate of scope.querySelectorAll("a[href]")) {
+				if (candidate.querySelector("img, picture, video, svg") !== null
+					|| normalizedText(candidate.textContent).length === 0) continue;
+				const href = normalizedLinkTarget(candidate.getAttribute("href"), baseUrl);
+				if (href !== undefined) indexed.add(href);
+			}
+			targets = indexed;
+			textLinks.set(scope, targets);
 		}
+		if (targets.has(target)) return true;
 		if (scope.matches("article, main, body")) break;
 		scope = scope.parentElement;
 	}

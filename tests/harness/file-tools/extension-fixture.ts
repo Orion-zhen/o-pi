@@ -3,7 +3,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 export type ExecuteResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown; structuredContent?: unknown };
 export interface ExecuteToolContext {
 	cwd: string;
-	sessionManager: { getSessionId(): string; getBranch(): SessionEntry[] };
+	sessionManager: { getSessionId(): string; getBranch(): SessionEntry[]; getLeafId(): string | null; getEntry(id: string): SessionEntry | undefined };
 	model?: { api: string; input: string[] };
 }
 

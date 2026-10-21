@@ -13,7 +13,7 @@ afterEach(() => vi.restoreAllMocks());
 it.each([false, true])("文件修改在并发或顺序执行时都能完成，诊断对应各自文件：%s", async (parallel) => {
 	const { registered, handlers } = registerExtension(fileTools);
 	const cwd = workspace.path;
-	const ctx = { cwd, sessionManager: { getSessionId: () => "batch", getBranch: () => [] } };
+	const ctx = { cwd, sessionManager: { getSessionId: () => "batch", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined } };
 	const diagnostics = (message: string) => ({
 		status: "errors" as const, file_errors: 1, file_warnings: 0, new_errors: 1, new_warnings: 0,
 		resolved_errors: 0, resolved_warnings: 0, baseline: "unknown" as const, total_items: 1,

@@ -7,6 +7,7 @@ import { extractCallSites } from "./relations.ts";
 import { SourceIndex } from "./source-index.ts";
 import { compactDeclaration } from "./text.ts";
 import { linkCodeUnits } from "./structure.ts";
+import { RangeIndex } from "./range-index.ts";
 import type { AnalyzedFileIndex, IndexedCodeUnit, SourceRange } from "./types.ts";
 
 /** 解析结果保留错误区域。取消直接传播，调用方不把恢复节点当作可靠边界。 */
@@ -23,6 +24,7 @@ export async function analyzeCodeFile(filePath: string, text: string, signal?: A
 		const { root, control } = document;
 		const sourceIndex = new SourceIndex(text, control);
 		const parseErrors = syntaxErrors(root, sourceIndex, control);
+		const errors = new RangeIndex(parseErrors, (range) => range);
 		const rawUnits = extractor.extractUnits(root, text, control);
 		const owners = new Map<number, string>();
 		const units: IndexedCodeUnit[] = rawUnits.map((unit) => {
@@ -44,7 +46,7 @@ export async function analyzeCodeFile(filePath: string, text: string, signal?: A
 					range,
 					...(unit.nameNode === undefined ? {} : { nameRange: sourceIndex.range(unit.nameNode.startIndex, unit.nameNode.endIndex) }),
 					...(unit.bodyNode === undefined ? {} : { body: sourceIndex.range(unit.bodyNode.startIndex, unit.bodyNode.endIndex) }),
-					errors: parseErrors.filter((error) => error.startByte <= range.endByte && range.startByte <= error.endByte),
+					errors: [...errors.intersecting(range)],
 				},
 			};
 		});

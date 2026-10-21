@@ -1,4 +1,5 @@
 import { findAll } from "./matches.ts";
+import { EditContextIndex, type CodePointRange } from "./common-context.ts";
 import type {
 	EditAnchorCandidate,
 	EditMatchHint,
@@ -11,7 +12,7 @@ const MAX_ANCHOR_OCCURRENCES = 64;
 const CONTEXT_RADIUS = 2;
 const COMPARISON_RADIUS = 3;
 
-/** Builds shortest unique retryable replacements for ambiguous matches. */
+/** 为歧义匹配生成包含最短唯一上下文、可直接重试的替换。 */
 export function buildEditMatchHints(
 	text: string,
 	old: string,
@@ -19,11 +20,14 @@ export function buildEditMatchHints(
 	starts: readonly number[],
 	limit: number,
 ): EditMatchHint[] {
-	return starts.slice(0, limit).map((start) => {
-		const context = shortestUniqueContext(text, old, start, starts);
-		const relativeStart = start - context.start;
+	if (limit === 0) return [];
+	const index = new EditContextIndex(text);
+	const ranges = starts.map((offset) => ({ offset, start: index.pointIndex(offset), end: index.pointIndex(offset + old.length) }));
+	return ranges.slice(0, limit).map((range) => {
+		const context = shortestUniqueContext(text, index, range, ranges);
+		const relativeStart = range.offset - context.start;
 		return {
-			line: lineNumber(text, start),
+			line: lineNumber(text, range.offset),
 			old: context.text,
 			new: `${context.text.slice(0, relativeStart)}${replacement}${context.text.slice(relativeStart + old.length)}`,
 		};
@@ -32,60 +36,46 @@ export function buildEditMatchHints(
 
 interface Context { start: number; text: string }
 
-function shortestUniqueContext(text: string, old: string, start: number, starts: readonly number[]): Context {
-	const end = start + old.length;
-	const left = boundariesBefore(text, start);
-	const right = boundariesAfter(text, end);
-	const requiredRightCounts = buildRequiredRightCounts(text, old.length, start, starts, left.length);
+function shortestUniqueContext(text: string, index: EditContextIndex, range: CodePointRange, ranges: readonly CodePointRange[]): Context {
+	const { offsets } = index;
+	const requiredRightCounts = index.requiredRightCounts(range, ranges);
 	let best: { start: number; end: number; length: number; leftCount: number } | undefined;
-	for (const leftBoundary of left) {
-		const requiredRightCount = requiredRightCounts[leftBoundary.count] ?? 0;
-		const rightBoundary = right[requiredRightCount];
+	for (let point = range.start, leftBoundary = offsets[point]; leftBoundary !== undefined; leftBoundary = offsets[--point]) {
+		const leftCount = range.start - point;
+		const requiredRightCount = requiredRightCounts[leftCount] ?? 0;
+		const rightBoundary = offsets[range.end + requiredRightCount];
 		if (rightBoundary === undefined) continue;
-		const length = leftBoundary.count + rightBoundary.count;
-		if (best === undefined || length < best.length || (length === best.length && leftBoundary.count < best.leftCount)) {
-			best = { start: leftBoundary.index, end: rightBoundary.index, length, leftCount: leftBoundary.count };
+		const length = leftCount + requiredRightCount;
+		if (best === undefined || length < best.length || (length === best.length && leftCount < best.leftCount)) {
+			best = { start: leftBoundary, end: rightBoundary, length, leftCount };
 		}
 	}
 	if (best !== undefined) {
 		const candidate = text.slice(best.start, best.end);
 		if (isUniqueOccurrenceAt(text, candidate, best.start)) return { start: best.start, text: candidate };
 	}
-	const maxLeftCount = left.length - 1;
-	const maxRightCount = right.length - 1;
-	for (let length = 0; length <= maxLeftCount + maxRightCount; length += 1) {
-		const firstLeftCount = Math.max(0, length - maxRightCount);
-		const lastLeftCount = Math.min(length, maxLeftCount);
-		for (let leftCount = firstLeftCount; leftCount <= lastLeftCount; leftCount += 1) {
-			const leftBoundary = left[leftCount];
-			const rightBoundary = right[length - leftCount];
-			if (leftBoundary === undefined || rightBoundary === undefined) continue;
-			const candidate = text.slice(leftBoundary.index, rightBoundary.index);
-			if (isUniqueOccurrenceAt(text, candidate, leftBoundary.index)) return { start: leftBoundary.index, text: candidate };
+	const maxLeftCount = range.start;
+	const maxRightCount = offsets.length - 1 - range.end;
+	best = { start: 0, end: text.length, length: maxLeftCount + maxRightCount, leftCount: maxLeftCount };
+	let rightCount = maxRightCount;
+	// 唯一上下文向左扩展后仍唯一，因此最少右侧上下文只会减少。
+	for (let point = range.start, leftBoundary = offsets[point]; leftBoundary !== undefined; leftBoundary = offsets[--point]) {
+		const leftCount = range.start - point;
+		if (leftCount > best.length) break;
+		let end = offsets[range.end + rightCount];
+		if (end === undefined || !isUniqueOccurrenceAt(text, text.slice(leftBoundary, end), leftBoundary)) continue;
+		while (rightCount > 0) {
+			const shorterEnd = offsets[range.end + rightCount - 1];
+			if (shorterEnd === undefined || !isUniqueOccurrenceAt(text, text.slice(leftBoundary, shorterEnd), leftBoundary)) break;
+			rightCount -= 1;
+			end = shorterEnd;
+		}
+		const length = leftCount + rightCount;
+		if (length < best.length || length === best.length && leftCount < best.leftCount) {
+			best = { start: leftBoundary, end, length, leftCount };
 		}
 	}
-	return { start: 0, text };
-}
-
-function buildRequiredRightCounts(
-	text: string,
-	oldLength: number,
-	start: number,
-	starts: readonly number[],
-	leftBoundaryCount: number,
-): Uint32Array {
-	const required = new Uint32Array(leftBoundaryCount);
-	const end = start + oldLength;
-	for (const otherStart of starts) {
-		if (otherStart === start) continue;
-		const commonLeft = Math.min(commonSuffixCodePoints(text, start, otherStart), leftBoundaryCount - 1);
-		const commonRight = commonPrefixCodePoints(text, end, otherStart + oldLength) + 1;
-		required[commonLeft] = Math.max(required[commonLeft] ?? 0, commonRight);
-	}
-	for (let leftCount = required.length - 2; leftCount >= 0; leftCount -= 1) {
-		required[leftCount] = Math.max(required[leftCount] ?? 0, required[leftCount + 1] ?? 0);
-	}
-	return required;
+	return { start: best.start, text: text.slice(best.start, best.end) };
 }
 
 function isUniqueOccurrenceAt(text: string, candidate: string, expectedStart: number): boolean {
@@ -93,66 +83,6 @@ function isUniqueOccurrenceAt(text: string, candidate: string, expectedStart: nu
 	return first === expectedStart && text.indexOf(candidate, first + candidate.length) === -1;
 }
 
-function boundariesBefore(text: string, index: number): Array<{ index: number; count: number }> {
-	const result = [{ index, count: 0 }];
-	let current = index;
-	let count = 0;
-	while (current > 0) {
-		current = previousCodePointIndex(text, current);
-		result.push({ index: current, count: ++count });
-	}
-	return result;
-}
-
-function boundariesAfter(text: string, index: number): Array<{ index: number; count: number }> {
-	const result = [{ index, count: 0 }];
-	let current = index;
-	let count = 0;
-	while (current < text.length) {
-		current = nextCodePointIndex(text, current);
-		result.push({ index: current, count: ++count });
-	}
-	return result;
-}
-
-function commonSuffixCodePoints(text: string, firstEnd: number, secondEnd: number): number {
-	let first = firstEnd;
-	let second = secondEnd;
-	let count = 0;
-	while (first > 0 && second > 0) {
-		const firstStart = previousCodePointIndex(text, first);
-		const secondStart = previousCodePointIndex(text, second);
-		if (text.slice(firstStart, first) !== text.slice(secondStart, second)) break;
-		first = firstStart;
-		second = secondStart;
-		count += 1;
-	}
-	return count;
-}
-
-function commonPrefixCodePoints(text: string, firstStart: number, secondStart: number): number {
-	let first = firstStart;
-	let second = secondStart;
-	let count = 0;
-	while (first < text.length && second < text.length) {
-		const firstEnd = nextCodePointIndex(text, first);
-		const secondEnd = nextCodePointIndex(text, second);
-		if (text.slice(first, firstEnd) !== text.slice(second, secondEnd)) break;
-		first = firstEnd;
-		second = secondEnd;
-		count += 1;
-	}
-	return count;
-}
-
-function previousCodePointIndex(text: string, index: number): number {
-	const code = text.charCodeAt(index - 1);
-	return code >= 0xdc00 && code <= 0xdfff ? index - 2 : index - 1;
-}
-function nextCodePointIndex(text: string, index: number): number {
-	const code = text.charCodeAt(index);
-	return code >= 0xd800 && code <= 0xdbff && index + 1 < text.length ? index + 2 : index + 1;
-}
 function lineNumber(text: string, offset: number): number {
 	let line = 1;
 	for (let index = 0; index < offset; index += 1) {
@@ -216,14 +146,18 @@ function findUniqueFormatCandidate(text: string, old: string): { line: number; o
 	const source = normalizeFormatting(text);
 	const normalizedOld = normalizeFormatting(old).text;
 	if (normalizedOld.length === 0) return undefined;
-	const exactShape = normalizedCandidates(text, source, normalizedOld);
-	if (exactShape.length === 1) return exactShape[0];
-	if (exactShape.length > 1) return undefined;
+	let exactShape: { line: number; old: string } | undefined;
+	for (const candidate of normalizedCandidates(text, source, normalizedOld)) {
+		if (exactShape !== undefined) return undefined;
+		exactShape = candidate;
+	}
+	if (exactShape !== undefined) return exactShape;
 
 	const boundaryCandidates = new Map<string, { line: number; old: string }>();
 	for (const variant of boundaryLineVariants(normalizedOld)) {
 		for (const candidate of normalizedCandidates(text, source, variant)) {
 			boundaryCandidates.set(`${candidate.line}\0${candidate.old}`, candidate);
+			if (boundaryCandidates.size > 1) return undefined;
 		}
 	}
 	return boundaryCandidates.size === 1 ? boundaryCandidates.values().next().value : undefined;
@@ -298,19 +232,23 @@ function isHorizontalWhitespace(value: string | undefined): boolean {
 	return value !== undefined && value !== "\r" && value !== "\n" && /\s/u.test(value);
 }
 
-function normalizedCandidates(
+function* normalizedCandidates(
 	original: string,
 	normalized: NormalizedSource,
 	needle: string,
-): Array<{ line: number; old: string }> {
-	if (needle.length === 0) return [];
-	const candidates: Array<{ line: number; old: string }> = [];
-	for (const start of findAll(normalized.text, needle)) {
+): Generator<{ line: number; old: string }> {
+	let cursor = 0;
+	let line = 1;
+	for (let start = normalized.text.indexOf(needle); start !== -1; start = normalized.text.indexOf(needle, start + needle.length)) {
 		const sourceStart = sourceStartAt(normalized, start);
 		const sourceEnd = sourceEndAt(normalized, start + needle.length);
-		candidates.push({ line: lineNumber(original, sourceStart), old: original.slice(sourceStart, sourceEnd) });
+		while (cursor < sourceStart) {
+			const end = lineEndingEnd(original, cursor);
+			if (end !== undefined) line += 1;
+			cursor = end ?? cursor + 1;
+		}
+		yield { line, old: original.slice(sourceStart, sourceEnd) };
 	}
-	return candidates;
 }
 
 function sourceStartAt(normalized: NormalizedSource, offset: number): number {
@@ -436,14 +374,25 @@ function collectAnchors(text: string, fileLines: readonly SourceLine[], oldLines
 		}
 	}
 
+	const lineCounts = new Map<string, number>();
+	for (const line of fileLines) lineCounts.set(line.normalized, (lineCounts.get(line.normalized) ?? 0) + 1);
+	const occurrenceCounts = new Map<string, number>();
+	const occurrences = (value: string): number => {
+		let count = occurrenceCounts.get(value);
+		if (count === undefined) {
+			count = findAll(text, value).length;
+			occurrenceCounts.set(value, count);
+		}
+		return count;
+	};
 	const unique = new Map<string, Omit<Anchor, "count">>();
 	for (const candidate of candidates) unique.set(`${candidate.kind}\0${candidate.value}\0${candidate.oldLine}`, candidate);
 	return [...unique.values()]
 		.map((candidate): Anchor => ({
 			...candidate,
 			count: candidate.kind === "line"
-				? fileLines.reduce((count, line) => count + (line.normalized === candidate.value ? 1 : 0), 0)
-				: findAll(text, candidate.value).length,
+				? lineCounts.get(candidate.value) ?? 0
+				: occurrences(candidate.value),
 		}))
 		.filter((anchor) => anchor.count > 0)
 		.sort((left, right) => left.count - right.count

@@ -42,8 +42,8 @@ function pathNameSimilarity(query: string, candidate: string): number {
 	if (candidateBase.startsWith(queryBase) || queryBase.startsWith(candidateBase)) return 0.9;
 	if (candidateBase.includes(queryBase) || queryBase.includes(candidateBase)) return 0.86;
 	return Math.max(
-		editSimilarity(queryBase, candidateBase),
-		editSimilarity(queryPath, candidatePath) * 0.9,
+		editSimilarity(queryBase, candidateBase, 0.42),
+		editSimilarity(queryPath, candidatePath, 0.42 / 0.9) * 0.9,
 		diceSimilarity(queryBase, candidateBase) * 0.88,
 	);
 }
@@ -60,21 +60,42 @@ function comparePath(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function editSimilarity(left: string, right: string): number {
+function editSimilarity(left: string, right: string, minimum: number): number {
 	if (left === right) return 1;
-	let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-	for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
-		const current = [leftIndex];
-		for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
-			const substitution = previous[rightIndex - 1] ?? 0;
-			const deletion = previous[rightIndex] ?? 0;
-			const insertion = current[rightIndex - 1] ?? 0;
-			current.push(Math.min(deletion + 1, insertion + 1,
-				substitution + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)));
+	const length = Math.max(left.length, right.length);
+	const budget = Math.ceil((1 - minimum) * length);
+	if (Math.abs(left.length - right.length) > budget) return 0;
+	let start = 0;
+	while (start < left.length && start < right.length && left[start] === right[start]) start += 1;
+	let leftEnd = left.length;
+	let rightEnd = right.length;
+	while (leftEnd > start && rightEnd > start && left[leftEnd - 1] === right[rightEnd - 1]) { leftEnd -= 1; rightEnd -= 1; }
+	left = left.slice(start, leftEnd);
+	right = right.slice(start, rightEnd);
+	if (right.length > left.length) [left, right] = [right, left];
+	if (right.length === 0) return 1 - left.length / length;
+
+	// 只计算仍可能达到建议阈值的对角带，两行数组反复复用。
+	const unreachable = budget + 1;
+	let previous = Uint32Array.from({ length: right.length + 1 }, (_, index) => Math.min(index, unreachable));
+	let current = new Uint32Array(right.length + 1).fill(unreachable);
+	for (let row = 1; row <= left.length; row += 1) {
+		const low = Math.max(1, row - budget);
+		const high = Math.min(right.length, row + budget);
+		current[0] = row;
+		if (low > 1) current[low - 1] = unreachable;
+		if (high < right.length) current[high + 1] = unreachable;
+		let best = unreachable;
+		for (let column = low; column <= high; column += 1) {
+			const distance = Math.min((previous[column] as number) + 1, (current[column - 1] as number) + 1,
+				(previous[column - 1] as number) + Number(left[row - 1] !== right[column - 1]));
+			current[column] = distance;
+			best = Math.min(best, distance);
 		}
-		previous = current;
+		if (best > budget) return 0;
+		[previous, current] = [current, previous];
 	}
-	return 1 - (previous[right.length] ?? Math.max(left.length, right.length)) / Math.max(left.length, right.length);
+	return 1 - (previous[right.length] as number) / length;
 }
 
 function diceSimilarity(left: string, right: string): number {

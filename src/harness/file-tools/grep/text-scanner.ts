@@ -13,6 +13,8 @@ import type { ScopeInventory, ScopedFile } from "./inventory.ts";
 import type { QueryPlan } from "./query-plan.ts";
 import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.ts";
 import type { GrepScopeError, GrepSkippedFiles } from "./types.ts";
+import { GrepLineMatcher, type LineMatch } from "./regex-matcher.ts";
+import { WorkerTaskAbortedError } from "../../worker-runtime/worker-task-pool.ts";
 
 const MAX_ANCHORS_PER_FILE = 64;
 const FILE_SCAN_CONCURRENCY = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2)));
@@ -44,14 +46,9 @@ export interface TextScannerContext {
 	readonly contentCache?: GrepContentCacheLease;
 }
 
-interface LineMatch {
-	readonly start: number;
-	readonly end: number;
-}
-
 interface PreparedTextQuery {
 	readonly queryMode: QueryPlan["queryMode"];
-	readonly matcher: (line: string) => LineMatch | undefined;
+	readonly matcher: GrepLineMatcher;
 	readonly queryTerms: readonly string[];
 	readonly matchTerms: (line: string) => readonly string[];
 	readonly phrase: string;
@@ -71,7 +68,18 @@ export async function scanInventoryText(
 	plan: Pick<QueryPlan, "queryMode" | "regex" | "targetTerms" | "targetQuery">,
 	context: TextScannerContext,
 ): Promise<ToolOutcome<TextScanResult>> {
-	const query = prepareTextQuery(plan);
+	const matcher = new GrepLineMatcher(plan.regex, plan.queryMode === "literal");
+	try {
+		return await scanText(inventory, prepareTextQuery(plan, matcher), context);
+	} catch (error) {
+		if (context.operation.signal?.aborted === true || error instanceof WorkerTaskAbortedError) return aborted(inventory.scopes[0]?.input ?? ".");
+		throw error;
+	} finally {
+		matcher.dispose();
+	}
+}
+
+async function scanText(inventory: ScopeInventory, query: PreparedTextQuery, context: TextScannerContext): Promise<ToolOutcome<TextScanResult>> {
 	const hits: TextHit[] = [];
 	const fileEvidence: TextFileEvidence[] = [];
 	const contents = new Map<string, TextContent>();
@@ -87,11 +95,20 @@ export async function scanInventoryText(
 	for (let start = 0; start < inventory.files.length; start += FILE_SCAN_CONCURRENCY) {
 		if (context.operation.signal?.aborted === true) return aborted(inventory.files[start]?.path ?? inventory.scopes[0]?.input ?? ".");
 		const batch = inventory.files.slice(start, start + FILE_SCAN_CONCURRENCY);
-		const scannedBatch = await Promise.all(batch.map(async (file) => await scanFile(
-			file,
-			query,
-			context,
-		)));
+		const cancellation = new AbortController();
+		const signal = context.operation.signal === undefined ? cancellation.signal
+			: AbortSignal.any([context.operation.signal, cancellation.signal]);
+		const scans = batch.map((file) => scanFile(file, query, { ...context, operation: { ...context.operation, signal } }));
+		let scannedBatch: Awaited<ReturnType<typeof scanFile>>[];
+		try {
+			scannedBatch = await Promise.all(scans);
+		} catch (error) {
+			cancellation.abort();
+			await Promise.allSettled(scans);
+			throw error;
+		} finally {
+			cancellation.abort();
+		}
 		for (const [index, scanned] of scannedBatch.entries()) {
 			const file = batch[index];
 			if (file === undefined) continue;
@@ -167,8 +184,7 @@ async function scanFile(
 	const matchedTerms = new Set<string>();
 	let totalHits = 0;
 	let totalAnchors = 0;
-	const consumeLine = (line: ScannedLine): void => {
-		const match = query.matcher(line.text);
+	const consumeLine = (line: ScannedLine, match: LineMatch | undefined): void => {
 		if (match !== undefined) {
 			totalHits += 1;
 			if (fileHits.length < MAX_STORED_TEXT_HITS) {
@@ -187,8 +203,25 @@ async function scanFile(
 			}
 		}
 	};
+	let pending: ScannedLine[] = [];
+	let pendingChars = 0;
+	const appendLine = (line: ScannedLine): boolean => {
+		pending.push(line);
+		pendingChars += line.text.length;
+		return pending.length >= 256 || pendingChars >= 64 * 1024;
+	};
+	const flush = async (): Promise<void> => {
+		if (pending.length === 0) return;
+		const matches = await query.matcher.match(pending.map((line) => line.text), context.operation.signal);
+		for (const [index, line] of pending.entries()) consumeLine(line, matches[index]);
+		pending = [];
+		pendingChars = 0;
+	};
 	if (retained !== undefined) {
-		for (const line of scannedTextLines(retained.text)) consumeLine(line);
+		for (const line of scannedTextLines(retained.text)) {
+			if (context.operation.signal?.aborted === true) throw new WorkerTaskAbortedError();
+			if (appendLine(line)) await flush();
+		}
 	} else {
 		const opened = await context.filesystem.content.scanLines(
 			file.ref,
@@ -202,13 +235,14 @@ async function scanFile(
 					failure = result.error;
 					break;
 				}
-				consumeLine(result.value);
+				if (appendLine(result.value)) await flush();
 			}
 		} finally {
 			await opened.value.close();
 		}
 		if (failure !== undefined) return { ok: false, error: failure };
 	}
+	await flush();
 	return {
 		ok: true,
 		value: {
@@ -227,27 +261,15 @@ async function scanFile(
 
 function prepareTextQuery(
 	plan: Pick<QueryPlan, "queryMode" | "regex" | "targetTerms" | "targetQuery">,
+	matcher: GrepLineMatcher,
 ): PreparedTextQuery {
 	const queryTerms = uniqueLowerTerms(plan.targetTerms.flatMap(splitTokens));
 	return {
 		queryMode: plan.queryMode,
-		matcher: createLineMatcher(plan.regex),
+		matcher,
 		queryTerms,
 		matchTerms: createTextTokenMatcher(queryTerms),
 		phrase: plan.targetQuery.trim().toLocaleLowerCase(),
-	};
-}
-
-function createLineMatcher(
-	regex: RegExp,
-): (line: string) => LineMatch | undefined {
-	const source = regex.source;
-	const flags = regex.flags.replaceAll("g", "").replaceAll("y", "");
-	const expression = new RegExp(source, flags);
-	return (line) => {
-		const match = expression.exec(line);
-		if (match === null) return undefined;
-		return { start: match.index, end: match.index + match[0].length };
 	};
 }
 

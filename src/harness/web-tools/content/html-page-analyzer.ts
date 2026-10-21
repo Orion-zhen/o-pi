@@ -1,5 +1,5 @@
 import type { WebFetchPageKind } from "../core/types.ts";
-import { isAvatarImage } from "./html-avatar-filter.ts";
+import { createAvatarClassifier } from "./html-avatar-filter.ts";
 import { parseImageSrcset, type ImageCandidate } from "./html-image-selection.ts";
 
 export type PageKind = WebFetchPageKind;
@@ -318,6 +318,7 @@ function collectJsonLdImages(value: unknown, role: ImageCandidate["role"], baseU
 }
 
 function collectDomImages(document: Document, baseUrl: string, primaryHeading: Element | undefined): ImageCandidate[] {
+	const isAvatar = createAvatarClassifier(baseUrl);
 	const candidates: ImageCandidate[] = [];
 	const mediaElements = [...document.querySelectorAll("img, video[poster], picture source")];
 	const images = mediaElements.filter((element) =>
@@ -328,13 +329,13 @@ function collectDomImages(document: Document, baseUrl: string, primaryHeading: E
 	for (const image of images) {
 		const candidate = imageCandidate("source", "dom", image.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
-			copyImageAttributes(image, candidate, primaryHeading, baseUrl);
+			copyImageAttributes(image, candidate, primaryHeading, isAvatar);
 			candidates.push(candidate);
 		}
 		for (const item of parseImageSrcset(image.getAttribute("srcset"))) {
 			const srcsetCandidate = imageCandidate("source", "dom", item.url, baseUrl);
 			if (srcsetCandidate === undefined) continue;
-			copyImageAttributes(image, srcsetCandidate, primaryHeading, baseUrl);
+			copyImageAttributes(image, srcsetCandidate, primaryHeading, isAvatar);
 			if (item.width !== undefined) srcsetCandidate.width = item.width;
 			candidates.push(srcsetCandidate);
 		}
@@ -342,7 +343,7 @@ function collectDomImages(document: Document, baseUrl: string, primaryHeading: E
 	for (const video of videos) {
 		const poster = imageCandidate("poster", "dom", video.getAttribute("poster"), baseUrl);
 		if (poster !== undefined) {
-			copyImageAttributes(video, poster, primaryHeading, baseUrl);
+			copyImageAttributes(video, poster, primaryHeading, isAvatar);
 			candidates.push(poster);
 		}
 	}
@@ -355,8 +356,8 @@ function collectDomImages(document: Document, baseUrl: string, primaryHeading: E
 		for (const item of items) {
 			const candidate = imageCandidate("source", "dom", item.url, baseUrl);
 			if (candidate !== undefined) {
-				if (fallback !== undefined) copyImageAttributes(fallback, candidate, primaryHeading, baseUrl);
-				copyImageAttributes(source, candidate, primaryHeading, baseUrl);
+				if (fallback !== undefined) copyImageAttributes(fallback, candidate, primaryHeading, isAvatar);
+				copyImageAttributes(source, candidate, primaryHeading, isAvatar);
 				if (item.width !== undefined) candidate.width = item.width;
 				candidates.push(candidate);
 			}
@@ -467,7 +468,7 @@ function copyImageAttributes(
 	node: Element,
 	candidate: ImageCandidate,
 	primaryHeading: Element | undefined,
-	baseUrl: string,
+	isAvatar: (image: HTMLImageElement) => boolean,
 ): void {
 	const width = positiveDimension(node.getAttribute("width"));
 	const height = positiveDimension(node.getAttribute("height"));
@@ -487,7 +488,7 @@ function copyImageAttributes(
 		|| node.closest('[hidden], [aria-hidden="true"]') !== null
 		|| /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:;|$)/iu.test(node.getAttribute("style") ?? "");
 	candidate.likelyAvatar = candidate.likelyAvatar === true
-		|| node.tagName.toLowerCase() === "img" && isAvatarImage(node, baseUrl);
+		|| node.tagName.toLowerCase() === "img" && isAvatar(node as HTMLImageElement);
 	const hints = [
 		node.getAttribute("id"),
 		node.getAttribute("class"),

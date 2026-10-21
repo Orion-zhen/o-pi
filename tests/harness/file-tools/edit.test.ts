@@ -437,6 +437,29 @@ describe("edit", () => {
 		expect(await readFile(path.join(workspace, "overlap.txt"), "utf8")).toBe("aaX");
 	});
 
+	it("重复清单的提示受数量限制，重试只修改一处并保留 Unicode 和 CRLF", async () => {
+		const source = "- [ ] 😀检查配置\r\n".repeat(9);
+		await testContext.useConfig({ limits: { edit_match_hint_limit: 2 } });
+		await writeFile(path.join(workspace, "checklist.md"), source);
+		await testContext.read({ path: "checklist.md" });
+		const result = expectFailure(await testContext.edit({ path: "checklist.md", edits: [{ old: "检查配置", new: "检查完成" }] }), "OLD_TEXT_NOT_UNIQUE");
+		expect(result.error.details).toMatchObject({ matches: 9, shown: 2 });
+		const hints = result.error.details?.["hints"];
+		const first = Array.isArray(hints) ? hints[0] : undefined;
+		if (!isPlainRecord(first) || typeof first["old"] !== "string" || typeof first["new"] !== "string") throw new Error("Invalid edit hint");
+		expect(first["line"]).toBe(1);
+		expect(await testContext.edit({ path: "checklist.md", edits: [{ old: first["old"], new: first["new"] }] }))
+			.toMatchObject({ status: "applied", replacements: 1 });
+		expect(await readFile(path.join(workspace, "checklist.md"), "utf8")).toBe(source.replace("检查配置", "检查完成"));
+	});
+
+	it("边界恢复不会把同一行的重复候选和后续行误判为唯一候选", async () => {
+		await writeFile(path.join(workspace, "boundary.txt"), "target target\r\ntarget\r\n");
+		await testContext.read({ path: "boundary.txt" });
+		const result = expectFailure(await testContext.edit({ path: "boundary.txt", edits: [{ old: "missing\ntarget", new: "replacement" }] }), "OLD_TEXT_NOT_FOUND");
+		expect(result.error.details?.["reason"]).not.toBe("format_drift");
+	});
+
 	it("拒绝不存在、不唯一和重叠的 old", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "abc same same xyz\n");
 		const before = await testContext.read({ path: "a.txt" });

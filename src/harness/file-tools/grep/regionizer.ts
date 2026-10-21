@@ -1,4 +1,4 @@
-import { compareCodeUnitNesting } from "../../code-index/units.ts";
+import { enclosingCodeUnits } from "../../code-index/enclosing-units.ts";
 import { codeRegionMetadata } from "./unit-metadata.ts";
 import { languageFromPath } from "../../syntax-tree/grammars.ts";
 import type { AnalyzedFileIndex, CodeDocument, IndexedCodeUnit } from "../../code-index/types.ts";
@@ -289,10 +289,11 @@ function parsedRegions(
 	hits: readonly [TextHit, ...TextHit[]],
 	units: ReadonlyMap<string, IndexedCodeUnit>,
 ): VerifiedCodeRegion[] {
-	const sortedUnits = [...units.values()].filter(hasStructuralRange).sort(compareCodeUnitNesting);
+	const enclosing = enclosingCodeUnits([...units.values()].filter(hasStructuralRange),
+		hits.map((hit) => ({ startByte: hit.byteStart, endByte: hit.byteEnd })));
 	const grouped = new Map<string, { readonly unit: IndexedCodeUnit; readonly hits: TextHit[] }>();
-	for (const hit of hits) {
-		const unit = sortedUnits.find((candidate) => candidate.startByte <= hit.byteStart && hit.byteEnd <= candidate.endByte);
+	for (const [index, hit] of hits.entries()) {
+		const unit = enclosing[index];
 		if (unit === undefined) continue;
 		const existing = grouped.get(unit.id);
 		if (existing === undefined) grouped.set(unit.id, { unit, hits: [hit] });

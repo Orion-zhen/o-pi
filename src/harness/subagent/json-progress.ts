@@ -25,6 +25,7 @@ export class PiJsonProgressAccumulator {
 	private readonly textBlocks = new Map<number, string>();
 	private readonly textEventIndexes = new Map<number, number>();
 	private readonly toolEventIndexes = new Map<string, number>();
+	private readonly liveToolIds = new Set<string>();
 
 	consume(event: JsonAgentSessionEvent): boolean {
 		switch (event.type) {
@@ -115,6 +116,7 @@ export class PiJsonProgressAccumulator {
 		this.turnOpen = true;
 		this.liveUsage = undefined;
 		this.messageEventStart = this.events.length;
+		this.liveToolIds.clear();
 		this.textBlocks.clear();
 		this.textEventIndexes.clear();
 	}
@@ -151,9 +153,8 @@ export class PiJsonProgressAccumulator {
 		const start = this.messageEventStart;
 		if (start === undefined) throw new Error("assistant message has no event boundary");
 		this.events.splice(start);
-		for (const [id, index] of this.toolEventIndexes) {
-			if (index >= start) this.toolEventIndexes.delete(id);
-		}
+		for (const id of this.liveToolIds) this.toolEventIndexes.delete(id);
+		this.liveToolIds.clear();
 		this.textEventIndexes.clear();
 	}
 
@@ -165,6 +166,7 @@ export class PiJsonProgressAccumulator {
 	private upsertTool(id: string, name: string, args: Record<string, unknown>, status: ToolProgressStatus): void {
 		const index = this.toolEventIndexes.get(id);
 		if (index === undefined) {
+			if (this.turnOpen) this.liveToolIds.add(id);
 			this.toolEventIndexes.set(id, this.events.length);
 			this.events.push({ type: "tool", name, args, status });
 			return;

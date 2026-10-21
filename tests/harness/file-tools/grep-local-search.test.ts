@@ -45,6 +45,25 @@ describe("grep local search", () => {
 		await assertStrictMatches(testContext.workspace, result, "needle");
 	});
 
+	it("嵌套函数中的命中归属最小函数，外层命中仍归属外层", async () => {
+		await writeFile(path.join(testContext.workspace, "nested.ts"), [
+			"export function outer() {",
+			"  console.log('needle');",
+			"  function inner() {",
+			"    return 'needle';",
+			"  }",
+			"  return inner() + 'needle';",
+			"}",
+		].join("\n"));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
+		expect(result.regions).toHaveLength(2);
+		expect(result.regions).toEqual(expect.arrayContaining([
+			expect.objectContaining({ start_line: 1, end_line: 7, match_lines: [2, 6] }),
+			expect.objectContaining({ start_line: 3, end_line: 5, match_lines: [4] }),
+		]));
+		await assertStrictMatches(testContext.workspace, result, "needle");
+	});
+
 	it("结构化路径命中不会被靠前文件中的重复正文命中挤出结果窗口", async () => {
 		await testContext.useConfig({ grep_result_limit: 6 }, "structured-path-ranking");
 		await mkdir(path.join(testContext.workspace, "aaa"), { recursive: true });

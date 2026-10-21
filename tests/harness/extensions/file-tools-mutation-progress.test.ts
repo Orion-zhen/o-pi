@@ -28,7 +28,7 @@ describe("file-tools extension mutation progress", () => {
 	it("edit/write 在提交前报告实时 diff，并报告 LSP 后处理状态", async () => {
 		const { registered, handlers } = registerExtension(fileTools);
 		const cwd = workspace.path;
-		const ctx = { cwd, sessionManager: { getSessionId: () => "mutation-progress", getBranch: () => [] } };
+		const ctx = { cwd, sessionManager: { getSessionId: () => "mutation-progress", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined } };
 		const originalAfterMutation = lspFileHooks.afterMutation;
 		try {
 			for (const operation of [

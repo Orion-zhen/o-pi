@@ -1,7 +1,7 @@
 import type { CodeRelation, CodeRelationLocation } from "./relation-types.ts";
 import type { AnalyzedFileIndex, CodeAuthority, CodeNavigation, IndexedCodeUnit } from "./types.ts";
 import { containsRange } from "./structure.ts";
-import { matchesDeclaration } from "./units.ts";
+import { declarationAnchor, matchesDeclaration } from "./units.ts";
 
 /** 去重并保留同一调用点的多目标歧义。 */
 export function normalizeRelationEvidence(relations: readonly CodeRelation[]): CodeRelation[] {
@@ -19,45 +19,69 @@ export function normalizeRelationEvidence(relations: readonly CodeRelation[]): C
 		&& (targets.get(siteKey(relation.site))?.size ?? 0) > 1 ? { ...relation, resolution: "ambiguous" } : relation);
 }
 
-/** 等级和导航只由关系证据派生，不根据同名符号或导入猜测目标。 */
+/** 按声明位置分发关系，保留每个单元原有的证据顺序。 */
 export function applyRelationEvidence(analysis: AnalyzedFileIndex, relations: readonly CodeRelation[], hash: string): AnalyzedFileIndex {
-	relations = relations.filter((relation) => {
+	const states = analysis.units.map((unit) => ({ unit, authority: "defined" as CodeAuthority, navigation: [] as CodeNavigation[] }));
+	type Evidence = (typeof states)[number];
+	const byId = new Map(states.map((state) => [state.unit.id, state]));
+	const byStart = new Map<number, Evidence[]>();
+	for (const state of states) {
+		const { unit } = state;
+		for (const start of new Set([declarationAnchor(unit)?.startByte, unit.syntax?.range.startByte])) {
+			if (start === undefined) continue;
+			const bucket = byStart.get(start) ?? [];
+			bucket.push(state);
+			byStart.set(start, bucket);
+		}
+	}
+	const matching = (location: CodeRelationLocation): Set<Evidence> => {
+		const matches = new Set<Evidence>();
+		if (location.path !== analysis.path) return matches;
+		const identified = location.unitId === undefined ? undefined : byId.get(location.unitId);
+		if (identified !== undefined) matches.add(identified);
+		for (const state of byStart.get(location.range.startByte) ?? []) {
+			if (matchesDeclaration(state.unit, location.range)) matches.add(state);
+		}
+		return matches;
+	};
+	for (const relation of relations) {
 		const locations = relation.kind === "reference" ? [relation.site, relation.target]
 			: [relation.site, relation.caller, ...relation.targets.flatMap((target) => target.status === "ok" ? [target.location] : [])];
-		return locations.every((location) => location === undefined || location.path !== analysis.path || location.hash === hash);
-	});
-	return { ...analysis, units: analysis.units.map((unit) => {
-		let authority: CodeAuthority = "defined";
-		const navigation: CodeNavigation[] = [];
-		for (const relation of relations) {
-			if (relation.kind === "reference") {
-				if (!matchesUnit(relation.target, unit) || !outsideUnit(relation.site, unit)) continue;
-				if (authority !== "called") authority = "referenced";
-				navigation.push(navigate("reference", "references", relation.site));
-				continue;
+		if (locations.some((location) => location !== undefined && location.path === analysis.path && location.hash !== hash)) continue;
+		if (relation.kind === "reference") {
+			for (const state of matching(relation.target)) {
+				if (!outsideUnit(relation.site, state.unit)) continue;
+				if (state.authority !== "called") state.authority = "referenced";
+				state.navigation.push(navigate("reference", "references", relation.site));
 			}
-			const caller = relation.caller ?? relation.site;
-			const targetMatches = relation.targets.some((target) => target.status === "ok" && target.binding === "callable" && matchesUnit(target.location, unit));
-			if (targetMatches && caller !== undefined && outsideUnit(caller, unit)) {
-				if (relation.resolution === "resolved" && relation.status === "ok") authority = "called";
-				if (relation.site !== undefined && relation.source !== "syntax") {
-					navigation.push(navigate("caller", relation.source, relation.site, relation.resolution === "ambiguous"));
-				}
-			}
-			if (caller === undefined || !matchesUnit(caller, unit) || relation.source === "syntax") continue;
-			for (const target of relation.targets) {
-				if (target.status !== "ok" || target.binding !== "callable") continue;
-				navigation.push(navigate("callee", relation.source, target.location, relation.resolution === "ambiguous"));
+			continue;
+		}
+		const caller = relation.caller ?? relation.site;
+		if (caller === undefined) continue;
+		const targets = relation.targets.flatMap((target) => target.status === "ok" && target.binding === "callable" ? [target.location] : []);
+		const incoming = new Set(targets.flatMap((target) => [...matching(target)]));
+		for (const state of incoming) {
+			if (!outsideUnit(caller, state.unit)) continue;
+			if (relation.resolution === "resolved" && relation.status === "ok") state.authority = "called";
+			if (relation.site !== undefined && relation.source !== "syntax") {
+				state.navigation.push(navigate("caller", relation.source, relation.site, relation.resolution === "ambiguous"));
 			}
 		}
-		const { navigation: _previous, ...base } = unit;
-		return { ...base, authority, ...(navigation.length === 0 ? {} : { navigation }) };
+		if (relation.source === "syntax") continue;
+		for (const state of matching(caller)) {
+			for (const target of targets) {
+				state.navigation.push(navigate("callee", relation.source, target, relation.resolution === "ambiguous"));
+			}
+		}
+	}
+	return { ...analysis, units: states.map((state) => {
+		const { navigation: _previous, ...base } = state.unit;
+		return { ...base, authority: state.authority, ...(state.navigation.length === 0 ? {} : { navigation: state.navigation }) };
 	}) };
 }
 
 function matchesUnit(location: CodeRelationLocation, unit: IndexedCodeUnit): boolean {
-	if (location.path !== unit.path) return false;
-	return location.unitId === unit.id || matchesDeclaration(unit, location.range);
+	return location.path === unit.path && (location.unitId === unit.id || matchesDeclaration(unit, location.range));
 }
 
 function outsideUnit(location: CodeRelationLocation, unit: IndexedCodeUnit): boolean {

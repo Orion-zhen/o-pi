@@ -1,4 +1,5 @@
-import type { AnalyzedFileIndex, CodeStructureIssue, IndexedCodeUnit, SourceRange } from "./types.ts";
+import type { AnalyzedFileIndex, CodeStructureIssue, CodeSymbolStructure, CodeSyntaxStructure, IndexedCodeUnit, SourceRange } from "./types.ts";
+import { RangeIndex } from "./range-index.ts";
 
 export function containsRange(outer: SourceRange, inner: SourceRange): boolean {
 	return outer.startByte <= inner.startByte && inner.endByte <= outer.endByte;
@@ -36,19 +37,31 @@ export function linkCodeUnits(units: readonly IndexedCodeUnit[]): IndexedCodeUni
 /** 同一快照内按声明锚点关联。LSP 范围优先，冲突和歧义保留双方，不按名称猜测。 */
 export function mergeCodeStructure(syntax: AnalyzedFileIndex, semantic?: AnalyzedFileIndex): AnalyzedFileIndex {
 	if (semantic === undefined) return syntax;
+	const anchors = syntax.units.flatMap((unit) => {
+		const value = unit.syntax;
+		if (value === undefined || value.errors.length > 0) return [];
+		const range = value.nameRange ?? (value.body === undefined ? undefined
+			: value.callable === true ? value.range : { ...value.range, endByte: value.body.startByte });
+		return range === undefined ? [] : [{ unit, syntax: value, range }];
+	});
+	const index = new RangeIndex(anchors, (item) => item.range);
 	const owners = new Map<string, number>();
+	const conflicts = new Map<string, "range" | "ambiguous">();
 	const matches = semantic.units.map((unit) => {
-		const candidates = syntax.units.filter((candidate) => matchesAnchor(unit, candidate));
-		for (const candidate of candidates) owners.set(candidate.id, (owners.get(candidate.id) ?? 0) + 1);
-		return { unit, candidates };
+		const symbol = unit.symbol;
+		const candidates = symbol === undefined ? [] : [...index.intersecting(symbol.type === "document" ? symbol.selection : symbol.range)]
+			.filter((item) => matchesAnchor(symbol, item.syntax)).map((item) => item.unit);
+		for (const candidate of candidates) {
+			owners.set(candidate.id, (owners.get(candidate.id) ?? 0) + 1);
+			if (candidates.length > 1) conflicts.set(candidate.id, "ambiguous");
+		}
+		return { unit, candidate: candidates[0], ambiguous: candidates.length > 1 };
 	});
 	const consumed = new Map<string, string>();
-	const conflicts = new Map<string, "range" | "ambiguous">();
-	const units = matches.map(({ unit, candidates }): IndexedCodeUnit => {
-		const candidate = candidates[0];
+	const units = matches.map(({ unit, candidate, ambiguous }): IndexedCodeUnit => {
 		if (candidate === undefined) return unit;
-		if (candidates.length !== 1 || owners.get(candidate.id) !== 1) {
-			for (const candidate of candidates) conflicts.set(candidate.id, "ambiguous");
+		if (ambiguous || owners.get(candidate.id) !== 1) {
+			conflicts.set(candidate.id, "ambiguous");
 			return { ...unit, structureConflict: "ambiguous" };
 		}
 		if (unit.symbol?.type === "document" && candidate.syntax?.body !== undefined
@@ -90,10 +103,7 @@ export function structureIssues(analysis: AnalyzedFileIndex): CodeStructureIssue
 	return issues;
 }
 
-function matchesAnchor(semantic: IndexedCodeUnit, candidate: IndexedCodeUnit): boolean {
-	const symbol = semantic.symbol;
-	const syntax = candidate.syntax;
-	if (symbol === undefined || syntax === undefined || syntax.errors.length > 0) return false;
+function matchesAnchor(symbol: CodeSymbolStructure, syntax: CodeSyntaxStructure): boolean {
 	const anchor = symbol.type === "document" ? symbol.selection : symbol.range;
 	if (syntax.nameRange !== undefined) {
 		return containsRange(anchor, syntax.nameRange) || containsRange(syntax.nameRange, anchor);

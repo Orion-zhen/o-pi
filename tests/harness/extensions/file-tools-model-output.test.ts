@@ -87,7 +87,7 @@ describe("file-tools extension model output", () => {
 		const { registered } = registerExtension(fileTools);
 		const cwd = workspace.path;
 		await writeFile(join(cwd, "ranges.txt"), "one\nskipped\nthree\nfour\n");
-		const ctx = { cwd, sessionManager: { getSessionId: () => "ranges", getBranch: () => [] } };
+		const ctx = { cwd, sessionManager: { getSessionId: () => "ranges", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined } };
 		const result = await executeTool(registered, "read", { path: "ranges.txt", lines: "3-4,1" }, ctx);
 		expect(result.details).toMatchObject({ segments: [{ start_line: 1, end_line: 1 }, { start_line: 3, end_line: 4 }] });
 	});
@@ -99,7 +99,7 @@ describe("file-tools extension model output", () => {
 		try {
 			lspFileHooks.afterMutation = async () => undefined;
 			await writeFile(join(cwd, "a.ts"), "one\ntwo\n", "utf8");
-			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [] } };
+			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined } };
 			const read = await executeTool(registered, "read", { path: "a.ts" }, ctx);
 			const readText = textResult(read);
 			expect(read.structuredContent).toBe(readText);
@@ -133,7 +133,7 @@ describe("file-tools extension model output", () => {
 		await writeFile(join(cwd, "document.pdf"), pdfBytes);
 		const ctx = {
 			cwd,
-			sessionManager: { getSessionId: () => "session-pdf", getBranch: () => [] },
+			sessionManager: { getSessionId: () => "session-pdf", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined },
 			model: { api: "anthropic-messages", input: ["text", "image"] },
 		};
 
@@ -215,7 +215,7 @@ describe("file-tools extension model output", () => {
 		await writeFile(join(cwd, "document.pdf"), await readFile(new URL("../file-tools/fixtures/read/two-page.pdf", import.meta.url)));
 		const ctx = {
 			cwd,
-			sessionManager: { getSessionId: () => "session-completions", getBranch: () => [] },
+			sessionManager: { getSessionId: () => "session-completions", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined },
 			model: { api: "openai-completions", input: ["text", "image"] },
 		};
 
@@ -303,7 +303,7 @@ describe("file-tools extension model output", () => {
 		const { registered } = registerExtension(fileTools);
 		const cwd = workspace.path;
 		await writeFile(join(cwd, "a.ts"), "const one = 1;\n", "utf8");
-		const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [] } };
+		const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined } };
 		for (const [tool, params] of [
 			["ls", { path: "missing" }],
 			["find", { query: " " }],

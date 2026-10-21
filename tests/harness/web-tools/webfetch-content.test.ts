@@ -58,8 +58,11 @@ describe("webfetch content conversion", () => {
 			<html><body><article>
 				<h1>Discussion</h1>
 				<section>
-					<a href="/user/alice"><img src="/assets/opaque-a.png" width="48" height="48" alt="Alice"></a>
+					<a href="/user/alice"><img src="/assets/opaque-a.png" alt="Alice"></a>
 					<a href="/user/alice">Alice</a>
+					<a href="/user/dave"><img src="/assets/opaque-d.png" alt="Dave"></a>
+					<a href="/user/dave">Dave</a>
+					<a href="/user/unknown"><img src="/assets/unknown.png"></a>
 					<p>${"Alice wrote a useful technical comment. ".repeat(12)}</p>
 				</section>
 				<section itemprop="author" itemscope itemtype="https://schema.org/Person">
@@ -75,8 +78,9 @@ describe("webfetch content conversion", () => {
 			</article></body></html>`;
 		const result = await convertHtml(html, "https://example.com/thread");
 		expectText(result.text, {
-			includes: ["[Alice](https://example.com/user/alice)", "[Bob](https://example.com/people/bob)"],
-			excludes: ["opaque-a.png", "opaque-b.png", "opaque-c.png"],
+			includes: ["[Alice](https://example.com/user/alice)", "[Bob](https://example.com/people/bob)",
+				"[Dave](https://example.com/user/dave)", "https://example.com/assets/unknown.png"],
+			excludes: ["opaque-a.png", "opaque-b.png", "opaque-c.png", "opaque-d.png"],
 		});
 		expect(occurrences(result.text, "https://example.com/user/alice")).toBe(1);
 		expect(occurrences(result.text, "https://example.com/people/bob")).toBe(1);

@@ -12,7 +12,6 @@ import type {
 import {
 	type CandidateAttribution,
 	type CandidateLevel,
-	type CandidateObservation,
 	type CandidateObservationSet,
 	type NormalizedCandidate,
 	type ProducerObservation,
@@ -57,43 +56,33 @@ function levelStatistics(observed: CandidateObservationSet, level: CandidateLeve
 	const productiveEvents = adoptionEvents(productiveAttributions, level);
 	const unknown = (window: "immediate" | "pre_refinement" | "broad") => new Set(observed.attributions
 		.filter((item) => item.region_unknown && item[window])
-		.map((item) => callKey(item.producer)));
-	const candidateActions = new Map<string, { inspection: boolean; mutation: boolean; productive: boolean }>();
-	for (const item of attributions) {
-		const candidate = candidateFor(item, level);
-		if (candidate === undefined) continue;
-		const key = `${callKey(item.producer)}\0${candidate.fact_key}`;
-		const current = candidateActions.get(key) ?? { inspection: false, mutation: false, productive: false };
-		current.inspection ||= item.inspection;
-		current.mutation ||= item.mutation && level === "file";
-		current.productive ||= item.productive && level === "file";
-		candidateActions.set(key, current);
-	}
+		.map((item) => item.producer)).size;
 	const novel = candidateObservations.filter((item) => item.candidate.novel);
-	const immediateKeys = eventKeys(immediateEvents);
-	const productiveKeys = eventKeys(productiveEvents);
+	const novelImmediate = novel.filter((item) => item.immediate).length;
+	const novelProductive = novel.filter((item) => item.productive).length;
+	const preProducers = new Set(preEvents.map((event) => event.producer));
 	const abandoned = producerItems.filter((producer) => producer.next_search_index !== undefined
-		&& !preEvents.some((event) => event.producer === producer.producer)).length;
+		&& !preProducers.has(producer.producer)).length;
 	return {
 		producer_calls: producers.length,
 		exposures: candidateObservations.length,
-		immediate: rankingWindow(producers, immediateEvents, level === "region" ? unknown("immediate") : new Set()),
-		pre_refinement: rankingWindow(producers, preEvents, level === "region" ? unknown("pre_refinement") : new Set()),
-		broad: rankingWindow(producers, broadEvents, level === "region" ? unknown("broad") : new Set()),
-		productive: rankingWindow(producers, productiveEvents, new Set()),
+		immediate: rankingWindow(producers, immediateEvents, level === "region" ? unknown("immediate") : 0),
+		pre_refinement: rankingWindow(producers, preEvents, level === "region" ? unknown("pre_refinement") : 0),
+		broad: rankingWindow(producers, broadEvents, level === "region" ? unknown("broad") : 0),
+		productive: rankingWindow(producers, productiveEvents),
 		actions: {
-			inspection: [...candidateActions.values()].filter((item) => item.inspection).length,
-			mutation: [...candidateActions.values()].filter((item) => item.mutation).length,
-			productive: [...candidateActions.values()].filter((item) => item.productive).length,
-			inspection_only: [...candidateActions.values()].filter((item) => item.inspection && !item.productive).length,
+			inspection: candidateObservations.filter((item) => item.inspection).length,
+			mutation: candidateObservations.filter((item) => item.mutation).length,
+			productive: candidateObservations.filter((item) => item.productive).length,
+			inspection_only: candidateObservations.filter((item) => item.inspection && !item.productive).length,
 		},
 		novelty: {
 			novel_exposures: novel.length,
 			novel_exposure_rate: ratio(novel.length, candidateObservations.length),
-			novel_immediate_adopted: novel.filter((item) => immediateKeys.has(observationKey(item))).length,
-			novel_immediate_adoption_rate: ratio(novel.filter((item) => immediateKeys.has(observationKey(item))).length, novel.length),
-			novel_productive: novel.filter((item) => productiveKeys.has(observationKey(item))).length,
-			novel_productive_adoption_rate: ratio(novel.filter((item) => productiveKeys.has(observationKey(item))).length, novel.length),
+			novel_immediate_adopted: novelImmediate,
+			novel_immediate_adoption_rate: ratio(novelImmediate, novel.length),
+			novel_productive: novelProductive,
+			novel_productive_adoption_rate: ratio(novelProductive, novel.length),
 			prior_known_exposures: candidateObservations.length - novel.length,
 			prior_known_rate: ratio(candidateObservations.length - novel.length, candidateObservations.length),
 		},
@@ -110,48 +99,39 @@ interface AdoptionEvent {
 function rankingWindow(
 	producers: readonly CallRecord[],
 	events: readonly AdoptionEvent[],
-	unknownLists: ReadonlySet<string>,
+	unknownLists = 0,
 ): AdoptionWindowStatistics {
-	const producerKeys = new Set(producers.map(callKey));
-	const relevant = events.filter((event) => producerKeys.has(callKey(event.producer)));
-	const adoptedProducerKeys = new Set(relevant.map((event) => callKey(event.producer)));
-	const reciprocalRanks = producers.map((producer) => {
-		const ranks = relevant.filter((event) => event.producer === producer).map((event) => event.candidate.rank);
-		return ranks.length === 0 ? 0 : 1 / Math.min(...ranks);
-	});
+	const grouped = new Map<CallRecord, Set<NormalizedCandidate>>();
+	for (const event of events) {
+		const candidates = grouped.get(event.producer) ?? new Set<NormalizedCandidate>();
+		candidates.add(event.candidate);
+		grouped.set(event.producer, candidates);
+	}
+	const ranks = producers.map((producer) => Array.from(grouped.get(producer) ?? [], (candidate) => candidate.rank));
+	const reciprocalRanks = ranks.map((values) => 1 / values.reduce((minimum, rank) => Math.min(minimum, rank), Infinity));
 	return {
 		lists: producers.length,
-		adopted_lists: adoptedProducerKeys.size,
-		adoption_rate: ratio(adoptedProducerKeys.size, producers.length),
-		unknown_lists: [...unknownLists].filter((key) => producerKeys.has(key)).length,
-		hit_at_k: K_VALUES.map((k) => hitAtK(k, producers, relevant)),
+		adopted_lists: grouped.size,
+		adoption_rate: ratio(grouped.size, producers.length),
+		unknown_lists: unknownLists,
+		hit_at_k: K_VALUES.map((k) => hitAtK(k, ranks)),
 		mrr: {
 			samples: reciprocalRanks.length,
 			value: ratio(reciprocalRanks.reduce((sum, value) => sum + value, 0), reciprocalRanks.length),
 		},
-		ndcg_at_k: K_VALUES.map((k) => ndcgAtK(k, producers, relevant)),
+		ndcg_at_k: K_VALUES.map((k) => ndcgAtK(k, ranks)),
 		retention_at_k: K_VALUES.map((k) => {
-			const retained = relevant.filter((event) => event.candidate.rank <= k).length;
-			return { k, adopted_events: relevant.length, retained_events: retained, rate: ratio(retained, relevant.length) };
+			const retained = events.filter((event) => event.candidate.rank <= k).length;
+			return { k, adopted_events: events.length, retained_events: retained, rate: ratio(retained, events.length) };
 		}),
 	};
 }
 
 function ndcgAtK(
 	k: number,
-	producers: readonly CallRecord[],
-	events: readonly AdoptionEvent[],
+	ranksByProducer: readonly (readonly number[])[],
 ): { k: number; lists: number; value: number } {
-	const values = producers.map((producer) => {
-		const byCandidate = new Map<string, number>();
-		for (const event of events) {
-			if (event.producer !== producer) continue;
-			const current = byCandidate.get(event.candidate.fact_key);
-			if (current === undefined || event.candidate.rank < current) {
-				byCandidate.set(event.candidate.fact_key, event.candidate.rank);
-			}
-		}
-		const ranks = [...byCandidate.values()];
+	const values = ranksByProducer.map((ranks) => {
 		const dcg = ranks
 			.filter((rank) => rank <= k)
 			.reduce((sum, rank) => sum + discountedGain(rank), 0);
@@ -163,7 +143,7 @@ function ndcgAtK(
 	});
 	return {
 		k,
-		lists: producers.length,
+		lists: ranksByProducer.length,
 		value: ratio(values.reduce((sum, value) => sum + value, 0), values.length),
 	};
 }
@@ -172,9 +152,9 @@ function discountedGain(rank: number): number {
 	return 1 / Math.log2(rank + 1);
 }
 
-function hitAtK(k: number, producers: readonly CallRecord[], events: readonly AdoptionEvent[]): ConversionAtK {
-	const converted = producers.filter((producer) => events.some((event) => event.producer === producer && event.candidate.rank <= k)).length;
-	return { k, lists: producers.length, converted_lists: converted, rate: ratio(converted, producers.length) };
+function hitAtK(k: number, ranks: readonly (readonly number[])[]): ConversionAtK {
+	const converted = ranks.filter((values) => values.some((rank) => rank <= k)).length;
+	return { k, lists: ranks.length, converted_lists: converted, rate: ratio(converted, ranks.length) };
 }
 
 function statisticsBySource(
@@ -182,14 +162,12 @@ function statisticsBySource(
 	sourcesFor: (candidate: Candidate) => readonly string[],
 ): Record<string, SourceContributionStatistics> {
 	const candidates = observed.observations;
-	const productive = new Set(adoptionEvents(observed.attributions.filter((item) => item.productive), "file")
-		.map((event) => `${callKey(event.producer)}\0${event.candidate.fact_key}`));
 	const names = [...new Set(candidates.flatMap((item) => sourcesFor(item.candidate)))].sort();
 	return Object.fromEntries(names.map((name) => {
 		const participation = candidates.filter((item) => new Set(sourcesFor(item.candidate)).has(name));
 		const exclusive = participation.filter((item) => new Set(sourcesFor(item.candidate)).size === 1);
-		const participationProductive = participation.filter((item) => productive.has(observationKey(item))).length;
-		const exclusiveProductive = exclusive.filter((item) => productive.has(observationKey(item))).length;
+		const participationProductive = participation.filter((item) => item.productive).length;
+		const exclusiveProductive = exclusive.filter((item) => item.productive).length;
 		const redundant = participation.length - exclusive.length;
 		return [name, {
 			participation_exposures: participation.length,
@@ -249,14 +227,6 @@ function candidateFor(attribution: CandidateAttribution, level: CandidateLevel):
 
 function candidatesFor(producer: ProducerObservation, level: CandidateLevel): readonly NormalizedCandidate[] {
 	return level === "file" ? producer.file_candidates : producer.region_candidates;
-}
-
-function eventKeys(events: readonly AdoptionEvent[]): Set<string> {
-	return new Set(events.map((event) => `${callKey(event.producer)}\0${event.candidate.fact_key}`));
-}
-
-function observationKey(observation: CandidateObservation): string {
-	return `${callKey(observation.producer)}\0${observation.candidate.fact_key}`;
 }
 
 function callKey(call: CallRecord): string {
