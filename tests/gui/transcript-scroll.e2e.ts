@@ -36,14 +36,14 @@ test("中断返回最新后保留位置，恢复后跟随流式内容", async ({
 		expect(await distance()).toBeGreaterThan(200);
 		await page.waitForTimeout(500);
 		expect(await reader.evaluate((element) => element.scrollTop)).toBeCloseTo(stopped, 0);
-		channel.accept({ type: "stream", sessionId: snapshot.sessionId,
+		channel.accept({ type: "stream", sessionId: snapshot.sessionId, appendOnly: false,
 			value: { ...snapshot.streamingMessage, content: [{ type: "text", text: "暂停期间追加。\n\n".repeat(30) }] } });
 		await expect(latest).toBeVisible();
 		await page.waitForTimeout(200);
 		expect(await reader.evaluate((element) => element.scrollTop)).toBeCloseTo(stopped, 0);
 		await latest.click();
 		await expect.poll(distance).toBeLessThan(3);
-		channel.accept({ type: "stream", sessionId: snapshot.sessionId,
+		channel.accept({ type: "stream", sessionId: snapshot.sessionId, appendOnly: false,
 			value: { ...snapshot.streamingMessage, content: [{ type: "text", text: "恢复后追加。\n\n".repeat(60) }] } });
 		await expect(reader.locator(".reply-answer").last()).toContainText("恢复后追加");
 		await expect.poll(distance).toBeLessThan(3);
@@ -81,7 +81,7 @@ test("追加新轮次时保持置底，展开过程后暂停跟随", async ({ pa
 		await expect(process).toHaveAttribute("data-state", "open");
 		await page.waitForTimeout(350);
 		const top = await reader.evaluate((element) => element.scrollTop);
-		channel.accept({ type: "stream", sessionId: snapshot.sessionId,
+		channel.accept({ type: "stream", sessionId: snapshot.sessionId, appendOnly: false,
 			value: { ...streamingMessage, content: [
 				{ type: "thinking", thinking: "检查滚动状态" }, { type: "text", text: "暂停后增长。\n\n".repeat(30) },
 			] } });

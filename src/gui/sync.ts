@@ -31,7 +31,7 @@ function tail<T>(before: T[], after: T[]): Tail<T> | undefined {
 	return keep === before.length && keep === after.length ? undefined : { keep, items: after.slice(keep) };
 }
 
-function streamPatch(before: GuiSnapshot["streamingMessage"], after: GuiSnapshot["streamingMessage"]): StreamingPatch | undefined {
+function streamPatch(before: GuiSnapshot["streamingMessage"], after: GuiSnapshot["streamingMessage"], appendOnly: boolean): StreamingPatch | undefined {
 	if (before === after) return undefined;
 	if (before?.role !== "assistant" || after?.role !== "assistant" || before.timestamp !== after.timestamp)
 		return { kind: "replace", value: after };
@@ -39,10 +39,10 @@ function streamPatch(before: GuiSnapshot["streamingMessage"], after: GuiSnapshot
 	for (const [index, block] of after.content.entries()) {
 		const old = before.content[index];
 		if (old === block) continue;
-		if (old?.type === "text" && block.type === "text" && old.textSignature === block.textSignature && block.text.startsWith(old.text)) {
+		if (old?.type === "text" && block.type === "text" && old.textSignature === block.textSignature && (appendOnly || block.text.startsWith(old.text))) {
 			if (block.text !== old.text) blocks.push({ index, field: "text", delta: block.text.slice(old.text.length) });
 		} else if (old?.type === "thinking" && block.type === "thinking" && old.thinkingSignature === block.thinkingSignature
-			&& old.redacted === block.redacted && block.thinking.startsWith(old.thinking)) {
+			&& old.redacted === block.redacted && (appendOnly || block.thinking.startsWith(old.thinking))) {
 			if (block.thinking !== old.thinking) blocks.push({ index, field: "thinking", delta: block.thinking.slice(old.thinking.length) });
 		} else if (JSON.stringify(old) !== JSON.stringify(block)) blocks.push({ index, value: block });
 	}
@@ -54,7 +54,7 @@ function streamPatch(before: GuiSnapshot["streamingMessage"], after: GuiSnapshot
 }
 
 /** 已完成消息沿用引用，只传变化的尾部。流式正文和思考只传新增字符。 */
-export function diffSnapshot(before: GuiSnapshot, after: GuiSnapshot): GuiPatch {
+export function diffSnapshot(before: GuiSnapshot, after: GuiSnapshot, appendOnly: boolean): GuiPatch {
 	const { entries, streamingMessage, ...fields } = after;
 	const value: GuiPatch["value"] = {};
 	for (const key of Object.keys(fields) as (keyof typeof fields)[]) {
@@ -64,7 +64,7 @@ export function diffSnapshot(before: GuiSnapshot, after: GuiSnapshot): GuiPatch 
 	return {
 		type: "patch", sessionId: after.sessionId, value,
 		entries: tail(before.entries, entries),
-		streamingMessage: streamPatch(before.streamingMessage, streamingMessage),
+		streamingMessage: streamPatch(before.streamingMessage, streamingMessage, appendOnly),
 	};
 }
 

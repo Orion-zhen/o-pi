@@ -26,7 +26,8 @@ export function ServiceModels({ providerId, provider, candidates, disabled, chan
 	const [expanded, setExpanded] = useState<string>();
 	const models = configuredModels(provider, candidates);
 	const definitions = models.filter((model) => model.manualIndex !== undefined).map(({ id }) => id);
-	const available = candidates.filter(({ id }) => !definitions.includes(id));
+	const defined = new Set(definitions);
+	const available = candidates.filter(({ id }) => !defined.has(id));
 	const add = (id: string) => {
 		const model = available.find((model) => model.id === id) ?? { id };
 		const index = Array.isArray(provider.models) ? provider.models.length : 0;

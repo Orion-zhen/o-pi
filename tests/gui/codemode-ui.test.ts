@@ -140,15 +140,28 @@ describe("codemode 执行容器", () => {
 
 	it("成功后收起，手动展开优先，父成功不掩盖已捕获的子失败", () => {
 		const completed: Activity = { ...tool, state: "completed", nestedCalls: { complete: true, calls: [
-			{ id: "code-1/1", name: "read", arguments: { path: "missing.ts" }, status: "error", error: "File not found" },
+			{ id: "code-1/1", name: "read", arguments: { path: "missing.ts" }, status: "error", error: "\x1b[31mFile not found\x1b[0m", durationMs: 8 },
 		] }, output: { kind: "inline", value: { content: "processed" } } };
 		expect(renderTool(completed).querySelector('.codemode-activity > [data-slot="collapsible"]')?.getAttribute("data-state")).toBe("closed");
 		const doc = renderTool(completed, true);
 		expect(doc.querySelector(".codemode-activity")?.getAttribute("data-state")).toBe("completed");
 		expect(doc.querySelector("[data-nested-tool-call-id] .activity-state")?.getAttribute("data-state")).toBe("failed");
 		expect(doc.querySelector('[role="alert"]')?.textContent).toBe("File not found");
+		expect(doc.querySelector("[data-nested-tool-call-id] .activity-summary")?.textContent).toContain("8 ms");
 		expect(doc.querySelector("[data-nested-tool-call-id] .tool-parameters")?.getAttribute("data-state")).toBe("closed");
 		expect(doc.querySelector(".tool-note")).toBeNull();
+	});
+
+	it("运行中的脚本从子调用输出展示错误摘要和耗时", () => {
+		const value: Activity = { ...tool, nestedCalls: { complete: false, calls: [
+			{ id: "code-1/1", name: "read", status: "error", durationMs: 8,
+				output: { kind: "inline", value: { content: [{ type: "text", text: "原始错误" }], details: { error: { message: "\x1b[31m读取失败\x1b[0m" } } } },
+			},
+		] } };
+		const doc = renderTool(value, true);
+		expect(doc.querySelector('[data-nested-tool-call-id="code-1/1"]')?.getAttribute("data-state")).toBe("failed");
+		expect(doc.querySelector('[role="alert"]')?.textContent).toBe("读取失败");
+		expect(doc.querySelector('[data-nested-tool-call-id="code-1/1"] .activity-summary')?.textContent).toContain("8 ms");
 	});
 
 	it("停止后保留已完成子调用，在途子调用标为停止", () => {

@@ -49,7 +49,7 @@ describe("当前轮次中的稳定内容", () => {
 			await render({ ...initial, streamingMessage: assistant([{ type: "text", text }], "pending") });
 			expect(document.body.textContent).toContain(text);
 		}
-		await render({ ...initial, liveTools: [{ toolCallId: "next", toolName: "bash", args: { command: "pwd" }, status: "running", output: undefined }] });
+		await render({ ...initial, liveTools: [{ toolCallId: "next", toolName: "bash", args: { command: "pwd" }, output: undefined }] });
 		expect(document.querySelector('[data-tool-call-id="next"]')?.getAttribute("data-state")).toBe("running");
 		expect(number).not.toHaveBeenCalled();
 	});

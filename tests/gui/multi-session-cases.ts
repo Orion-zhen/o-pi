@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHost } from "../../src/gui/host/host.ts";
+import { GuiStream } from "../../src/gui/host/projection/stream.ts";
 import type { GuiClient } from "../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../src/gui/contract.ts";
 import { storeSession } from "./session-fixture.ts";
@@ -17,7 +18,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 		it("无人观察时不投影流式消息，恢复观察后结果完整", async () => {
 			const { host } = context();
 			await host.dispatch({ action: "observe", visible: false });
-			const stream = vi.spyOn(host.execution.payloads, "stream");
+			const stream = vi.spyOn(GuiStream.prototype, "project");
 			try {
 				await host.dispatch(prompt("后台检查文件并写入结果"));
 				expect(stream).not.toHaveBeenCalled();

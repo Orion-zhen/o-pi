@@ -10,6 +10,9 @@ export function useReactFixture(cleanup?: () => void) {
 		const { window, document } = parseHTML("<html><body></body></html>");
 		vi.stubGlobal("window", window);
 		vi.stubGlobal("document", document);
+		vi.stubGlobal("Element", window.Element);
+		vi.stubGlobal("HTMLElement", window.HTMLElement);
+		vi.stubGlobal("SVGElement", window.SVGElement);
 		vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 		root = createRoot(document.body);
 	});

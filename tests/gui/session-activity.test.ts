@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { WorkspacePicker } from "../../src/gui/ui/workspace/workspace-picker.tsx";
 import { HistorySessionRow } from "../../src/gui/ui/sessions/history-session-row.tsx";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { workspaceActivity, type SessionActivity } from "../../src/gui/ui/sessions/use-session-activity.ts";
+import { workspaceActivities, type SessionActivity } from "../../src/gui/ui/sessions/use-session-activity.ts";
 
 function row(busy: boolean, waiting: boolean, unread: boolean) {
 	return parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, createElement(HistorySessionRow, {
@@ -65,31 +65,31 @@ describe("工作区切换边框", () => {
 describe("工作区状态汇总", () => {
 	it("仅汇总对应工作区，运行结束后仍提示其他未读会话", () => {
 		const items = [activity("A", "/a", "running"), activity("B", "/a", "idle", true), activity("C", "/b", "waiting")];
-		expect(workspaceActivity(items, "/a")).toBe("running");
-		expect(workspaceActivity(items, "/b")).toBe("waiting");
-		expect(workspaceActivity(items, "/empty")).toBe("idle");
+		expect(workspaceActivities(items).get("/a")).toBe("running");
+		expect(workspaceActivities(items).get("/b")).toBe("waiting");
+		expect(workspaceActivities(items).has("/empty")).toBe(false);
 		items[0] = activity("A", "/a", "idle");
-		expect(workspaceActivity(items, "/a")).toBe("unread");
+		expect(workspaceActivities(items).get("/a")).toBe("unread");
 		items[1] = activity("B", "/a", "idle");
-		expect(workspaceActivity(items, "/a")).toBe("idle");
+		expect(workspaceActivities(items).get("/a")).toBe("idle");
 	});
 
 	it("审批优先于同工作区的运行状态，处理后恢复运行或未读提示", () => {
 		const items = [activity("A", "/a", "running"), activity("B", "/a", "waiting"), activity("C", "/a", "idle", true)];
-		expect(workspaceActivity(items, "/a")).toBe("waiting");
+		expect(workspaceActivities(items).get("/a")).toBe("waiting");
 		items[0] = activity("A", "/a", "loading");
-		expect(workspaceActivity(items, "/a")).toBe("waiting");
+		expect(workspaceActivities(items).get("/a")).toBe("waiting");
 		items[1] = activity("B", "/a", "idle");
-		expect(workspaceActivity(items, "/a")).toBe("running");
+		expect(workspaceActivities(items).get("/a")).toBe("running");
 		items[0] = activity("A", "/a", "idle");
-		expect(workspaceActivity(items, "/a")).toBe("unread");
+		expect(workspaceActivities(items).get("/a")).toBe("unread");
 	});
 
 	it("加载中的会话也属于进行中，审批等待不清除未读", () => {
-		expect(workspaceActivity([activity("A", "/a", "loading")], "/a")).toBe("running");
+		expect(workspaceActivities([activity("A", "/a", "loading")]).get("/a")).toBe("running");
 		const items = [activity("A", "/a", "waiting"), activity("B", "/a", "idle", true)];
-		expect(workspaceActivity(items, "/a")).toBe("waiting");
+		expect(workspaceActivities(items).get("/a")).toBe("waiting");
 		items[0] = activity("A", "/a", "idle");
-		expect(workspaceActivity(items, "/a")).toBe("unread");
+		expect(workspaceActivities(items).get("/a")).toBe("unread");
 	});
 });

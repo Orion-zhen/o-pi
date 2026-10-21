@@ -1,6 +1,5 @@
 import { outputPreview } from "../../messages.ts";
 import { replyMetrics } from "../../message-metrics.ts";
-import { errorSummary } from "../tools/tool-display.tsx";
 import { SKILL_CONTEXT_MESSAGE } from "../../../harness/skill-context/types.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TranscriptItem, TranscriptSource, ToolState } from "./transcript-items.ts";
@@ -29,7 +28,7 @@ interface ReplyDraft {
 	messageIndices: number[];
 	assistants: AssistantMessage[];
 	followedByUser: boolean;
-	lastAssistant: { message: AssistantMessage; index: number } | undefined;
+	lastAssistant: { message: AssistantMessage; index: number; identity: { model: string; timestamp: number } } | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -44,6 +43,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 	const live = new Map(source.liveTools.map((event) => [event.toolCallId, event]));
 	const calls = new Set(messages.flatMap((message) => message.role === "assistant"
 		? message.content.flatMap((block) => block.type === "toolCall" ? [block.id] : []) : []));
+	const models = new Map(source.models.map((model) => [`${model.provider}/${model.id}`, model]));
 	const rows: (Extract<TranscriptItem, { kind: "message" }> | ReplyDraft)[] = [];
 	let current: ReplyDraft | undefined;
 	const begin = (key: string) => {
@@ -55,17 +55,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		const result = results.get(id);
 		const event = live.get(id);
 		const details = outputPreview(result?.output)?.details;
-		const children = source.liveTools.filter((child) => child.parentToolCallId === id || child.parentToolCallId?.startsWith(`${id}/`));
-		const nestedCalls = result?.nestedCalls ?? (children.length ? {
-			complete: false,
-			calls: children.map((child) => ({
-				id: child.toolCallId, name: child.toolName, arguments: child.args,
-				...(child.output ? { output: child.output } : {}),
-				...(child.durationMs === undefined ? {} : { durationMs: child.durationMs }),
-				status: child.status === "running" ? "unfinished" as const : child.status,
-				...(child.status === "error" ? { error: errorSummary(child) } : {}),
-			})),
-		} : undefined);
+		const nestedCalls = result?.nestedCalls ?? event?.nestedCalls;
 		const state = result
 			? isRecord(details) && details.status === "aborted" ? "stopped" : result.isError ? "failed" : "completed"
 			: event ? "running" : idle;
@@ -103,11 +93,11 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			// 压缩或导入的历史可能只保留结果，仍允许查看。
 			if (!calls.has(message.toolCallId)) reply.items.push(activity(message.toolCallId, message.toolName, undefined, "unavailable", messageIndex));
 		} else if (message.role === "assistant") {
-			reply.lastAssistant = { message, index: messageIndex };
 			reply.assistants.push(message);
 			const streaming = message === source.streamingMessage;
-			const model = source.models.find((model) => model.provider === message.provider && model.id === message.model);
+			const model = models.get(`${message.provider}/${message.model}`);
 			const identity = { model: model?.name ?? message.model, timestamp: message.timestamp };
+			reply.lastAssistant = { message, index: messageIndex, identity };
 			const metrics = replyMetrics([message], source.messageDurations);
 			message.content.forEach((block, blockIndex) => {
 				const blockKey = `${key}:${blockIndex}`;
@@ -126,7 +116,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);
 	});
 	for (const event of source.liveTools) {
-		if (!event.parentToolCallId && !calls.has(event.toolCallId) && !results.has(event.toolCallId))
+		if (!calls.has(event.toolCallId) && !results.has(event.toolCallId))
 			(current ?? begin("live")).items.push(activity(event.toolCallId, event.toolName, event.args, "running", messages.length + offset));
 	}
 	return rows.flatMap((row): TranscriptRow[] => {
@@ -159,8 +149,7 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		: message?.stopReason === "error" ? "failed"
 		: message?.stopReason === "stop" && answer.length > 0 ? "completed"
 		: continued ? "continued" : "incomplete";
-	const model = message && source.models.find((model) => model.provider === message.provider && model.id === message.model);
-	const identity = message ? { model: model?.name ?? message.model, timestamp: message.timestamp } : undefined;
+	const identity = last?.identity;
 	const metrics = replyMetrics(draft.assistants, source.messageDurations);
 	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, compacting: active && source.compacting, process, answer, error };
 }

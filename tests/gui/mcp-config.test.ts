@@ -90,10 +90,23 @@ it("草稿保留重名和未完成的键值行，阻止静默覆盖", () => {
 	if (!first || !second) throw new Error("服务未加载");
 	second.name = "a_b";
 	first.maps.env?.push({ id: 1, key: "KEY", value: "two" }, { id: 2, key: "", value: "unfinished" });
-	expect(mcpDraftIssues(draft, first)).toEqual(expect.arrayContaining([
+	expect(mcpDraftIssues(draft.servers)[0]?.issues).toEqual(expect.arrayContaining([
 		expect.objectContaining({ field: "name" }), expect.objectContaining({ field: "env" }),
 	]));
 	expect(first.maps.env).toHaveLength(3);
+});
+
+it("新增服务自动避开等价名称，手动改名冲突时表单与源码均阻止保存", () => {
+	const draft = createMcpDraft(parseMcpConfig('{"mcpServers":{"new_server":{"command":"node"},"docs":{"command":"uvx"}}}'));
+	const added = createMcpServer(nextMcpName(draft), { command: "node" });
+	expect(added.name).toBe("new-server-2");
+	draft.servers.push(added);
+	expect(validateMcpConfig(parseMcpConfig(writeMcpDraft(draft)))).toEqual([]);
+	added.name = "new-server";
+	expect(mcpDraftIssues(draft.servers).map(({ issues }) => issues.map(({ field }) => field)))
+		.toEqual([["name"], [], ["name"]]);
+	expect(validateMcpConfig(parseMcpConfig(writeMcpDraft(draft))))
+		.toEqual(["服务 new-server 与 new_server 名称冲突。"]);
 });
 
 it("工具通配规则顺序和精确规则在表单回写中保留", () => {
@@ -172,7 +185,7 @@ it("源码与表单共用键名校验，表单额外拒绝 JSON 无法表达的�
 		const content = JSON.stringify({ mcpServers: { one: config } });
 		const draft = createMcpDraft(parseMcpConfig(content));
 		expect(validateMcpConfig(parseMcpConfig(content)).length).toBeGreaterThan(0);
-		expect(draft.servers.flatMap((server) => mcpDraftIssues(draft, server)).length).toBeGreaterThan(0);
+		expect(mcpDraftIssues(draft.servers).flatMap(({ issues }) => issues).length).toBeGreaterThan(0);
 	}
 });
 

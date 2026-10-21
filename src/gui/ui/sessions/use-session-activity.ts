@@ -4,11 +4,17 @@ import type { GuiSessionActivity } from "../../contract.ts";
 export type SessionActivity = GuiSessionActivity & { unread: boolean };
 export type ActivityState = "running" | "waiting" | "unread" | "idle";
 
-export function workspaceActivity(items: SessionActivity[], cwd: string): ActivityState {
-	const sessions = items.filter((item) => item.cwd === cwd);
-	if (sessions.some((item) => item.state === "waiting")) return "waiting";
-	if (sessions.some((item) => item.state === "running" || item.state === "loading")) return "running";
-	return sessions.some((item) => item.unread) ? "unread" : "idle";
+const priority: Record<ActivityState, number> = { idle: 0, unread: 1, running: 2, waiting: 3 };
+
+export function workspaceActivities(items: SessionActivity[]): Map<string, ActivityState> {
+	const states = new Map<string, ActivityState>();
+	for (const item of items) {
+		const state = item.state === "waiting" ? "waiting"
+			: item.state === "running" || item.state === "loading" ? "running" : item.unread ? "unread" : "idle";
+		const previous = states.get(item.cwd);
+		if (previous === undefined || priority[state] > priority[previous]) states.set(item.cwd, state);
+	}
+	return states;
 }
 
 function readSeen(): Record<string, number> {
@@ -34,8 +40,9 @@ export function useSessionActivity(items: GuiSessionActivity[], reportError: (me
 	}, [reportError]);
 	const activity = useMemo(() => items.map((item): SessionActivity => ({ ...item, unread: item.completedAt > (seen[item.sessionId] ?? 0) })), [items, seen]);
 	const forget = useCallback((ids: string[]) => {
+		const removed = new Set(ids);
 		setSeen((current) => {
-			const next = Object.fromEntries(Object.entries(current).filter(([id]) => !ids.includes(id)));
+			const next = Object.fromEntries(Object.entries(current).filter(([id]) => !removed.has(id)));
 			try { sessionStorage.setItem("opi.read", JSON.stringify(next)); }
 			catch (error) { queueMicrotask(() => reportError(`已读记录保存失败: ${String(error)}`)); }
 			return next;

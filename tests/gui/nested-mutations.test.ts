@@ -20,7 +20,7 @@ function appendResult(manager: SessionManager, name = "edit") {
 it.each(["edit", "write"])("%s 的真实 diff 落盘恢复，不进入模型上下文", (name) => {
 	const manager = SessionManager.create(temp.path, temp.path);
 	manager.appendMessage(parent);
-	const data = nestedMutation("code", "code/1", name, { content: [], details: { diff } });
+	const data = nestedMutation("code/1", name, { content: [], details: { diff } });
 	expect(data).toBeDefined();
 	manager.appendCustomEntry(NESTED_MUTATION_ENTRY, data);
 	appendResult(manager, name);
@@ -36,7 +36,7 @@ it.each(["edit", "write"])("%s 的真实 diff 落盘恢复，不进入模型上�
 it("切换分支不会把另一分支的同名调用 diff 带入结果", () => {
 	const manager = SessionManager.inMemory();
 	const root = manager.appendMessage(parent);
-	manager.appendCustomEntry(NESTED_MUTATION_ENTRY, nestedMutation("code", "code/1", "edit", { content: [], details: { diff } }));
+	manager.appendCustomEntry(NESTED_MUTATION_ENTRY, nestedMutation("code/1", "edit", { content: [], details: { diff } }));
 	const first = appendResult(manager);
 	manager.branch(root);
 	const second = appendResult(manager);
@@ -51,7 +51,7 @@ it("大 diff 使用既有载荷引用，不塞入历史快照", () => {
 	const manager = SessionManager.inMemory();
 	manager.appendMessage(parent);
 	const large = "+ inserted line\n".repeat(10_000);
-	manager.appendCustomEntry(NESTED_MUTATION_ENTRY, nestedMutation("code", "code/1", "write", { content: [], details: { diff: large } }));
+	manager.appendCustomEntry(NESTED_MUTATION_ENTRY, nestedMutation("code/1", "write", { content: [], details: { diff: large } }));
 	appendResult(manager, "write");
 	const payloads = new GuiPayloads();
 	const history = new GuiHistory(payloads).project(manager);

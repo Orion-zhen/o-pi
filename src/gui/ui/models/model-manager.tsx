@@ -20,7 +20,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 	const defaults = snapshot.defaultModel;
 	const scope = snapshot.scopedModels;
 	const signature = JSON.stringify(scope);
-	const selected = new Set(scope);
+	const selected = new Map(scope.map((id, index) => [id, index]));
 	const available = new Map(snapshot.models.map((model) => [`${model.provider}/${model.id}`, model]));
 	const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
 	const matches = (id: string) =>
@@ -41,8 +41,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 	const update = (models: string[]) => {
 		void run({ action: "scopeModels", models });
 	};
-	const move = (id: string, direction: -1 | 1) => {
-		const index = scope.indexOf(id);
+	const move = (id: string, index: number, direction: -1 | 1) => {
 		const next = [...scope];
 		next.splice(index, 1);
 		next.splice(index + direction, 0, id);
@@ -50,7 +49,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 	};
 	const row = (id: string) => {
 		const model = available.get(id);
-		const index = scope.indexOf(id);
+		const index = selected.get(id);
 		const active = model && snapshot.model?.provider === model.provider && snapshot.model.id === model.id;
 		return (
 			<ListItem className={`model-row${model ? "" : " model-row-unavailable"}`} key={id}>
@@ -67,13 +66,13 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 					<small>{model ? id : "不可用"}</small>
 				</div>
 				<div className="model-row-actions">
-					{index >= 0 && (
+					{index !== undefined && (
 						<>
 							<IconButton
 								label={`上移 ${id}`} tooltip="上移"
 								size="icon-sm"
 								disabled={disabled || index === 0}
-								onClick={() => move(id, -1)}
+								onClick={() => move(id, index, -1)}
 							>
 								<ArrowUp />
 							</IconButton>
@@ -81,7 +80,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 								label={`下移 ${id}`} tooltip="下移"
 								size="icon-sm"
 								disabled={disabled || index === scope.length - 1}
-								onClick={() => move(id, 1)}
+								onClick={() => move(id, index, 1)}
 							>
 								<ArrowDown />
 							</IconButton>

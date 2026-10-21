@@ -47,8 +47,9 @@ export class SessionViews {
 	}
 	remove(event: Extract<GuiEvent, { type: "sessionsDeleted" }>): string[] {
 		const ids = new Set(event.ids);
+		const paths = new Set(event.paths);
 		for (const record of this.records.values()) {
-			if (ids.has(record.id) || record.path && event.paths.includes(record.path)) {
+			if (ids.has(record.id) || record.path && paths.has(record.path)) {
 				ids.add(record.id);
 				this.records.delete(record.id);
 			}

@@ -7,15 +7,14 @@ import type { GuiSnapshot } from "../../contract.ts";
 import { guiModel } from "../session/runtime.ts";
 import { builtinCommands } from "../session/commands.ts";
 import type { GuiHistory } from "./history.ts";
-import type { GuiPayloads } from "./payloads.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
-	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "bashOutput" | "scopedModels" | "modelScopeChanged"
+	"canSubmit" | "canChangeSession" | "commandRunning" | "messageDurations" | "liveTools" | "history" | "bashOutput" | "scopedModels" | "modelScopeChanged" | "streamingMessage"
 >;
 
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
-export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, payloads: GuiPayloads, selection: ToolSelectionController, mcpTools: GuiToolSelectionItem[]): GuiSnapshot {
+export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, selection: ToolSelectionController, mcpTools: GuiToolSelectionItem[]): GuiSnapshot {
 	const { session, services, cwd } = runtime;
 	const stats = session.getSessionStats();
 	const routed = session.routedModel;
@@ -53,7 +52,6 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		running: !session.isIdle || session.isBashRunning || presentation.commandRunning,
 		// context_edit 只改变模型上下文，聊天区继续展示原始历史。
 		...history.project(session.sessionManager),
-		streamingMessage: payloads.stream(session.state.streamingMessage ?? null),
 		model: session.model ? guiModel(session.model) : null,
 		codexSpeed: getCodexSpeed(session.model?.provider, session.sessionManager.getBranch()),
 		routedModel: routed ? { model: guiModel(routed.model), ...(routed.thinkingLevel === undefined ? {} : { thinkingLevel: routed.thinkingLevel }) } : null,

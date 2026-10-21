@@ -6,10 +6,17 @@ import { useWindowRefresh } from "../runtime/use-window-refresh.ts";
 export type Remote<T> = { state: "loading" } | { state: "ready"; value: T } | { state: "error"; message: string };
 
 function visibleExpanded(expanded: Set<string>) {
-	return [...expanded].filter((path) => {
-		const parents = path.split("/").slice(0, -1);
-		return parents.every((_, index) => expanded.has(parents.slice(0, index + 1).join("/")));
-	});
+	const visible = new Map<string, boolean>();
+	const check = (path: string): boolean => {
+		const known = visible.get(path);
+		if (known !== undefined) return known;
+		const separator = path.lastIndexOf("/");
+		const parent = path.slice(0, separator);
+		const value = separator < 0 || expanded.has(parent) && check(parent);
+		visible.set(path, value);
+		return value;
+	};
+	return [...expanded].filter(check);
 }
 
 export function useWorkbench(cwd: string | undefined, connected: boolean, running: boolean, query: Query<WorkspaceQuery>) {

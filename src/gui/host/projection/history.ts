@@ -1,6 +1,6 @@
 import { sessionEntryToContextMessages, type SessionEntry, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { PRUNE_STATE, parsePruneState } from "../../../harness/prune/prune.ts";
-import type { GuiEntry } from "../../messages.ts";
+import type { GuiEntry, GuiNestedCalls } from "../../messages.ts";
 import type { GuiPayloads } from "./payloads.ts";
 import { restoreNestedMutations } from "./nested-mutations.ts";
 
@@ -27,7 +27,14 @@ export class GuiHistory {
 		// 标签和上下文编辑也会追加条目，重载则更换 header。分支切换单独比较叶节点。
 		if (previous?.manager === manager && previous.header === header && previous.count === count && previous.leafId === leafId)
 			return previous.value;
-		const entries = manager.getEntries().map((entry) => {
+		const source = manager.getEntries();
+		const targets = new Map<string, GuiNestedCalls>();
+		for (const entry of source) {
+			if (!this.cache.has(entry) && entry.type === "message" && entry.message.role === "toolResult" && entry.message.nestedCalls)
+				targets.set(entry.id, entry.message.nestedCalls);
+		}
+		const nested = restoreNestedMutations(source, targets, this.payloads);
+		const entries = source.map((entry) => {
 			const label = manager.getLabel(entry.id);
 			let value = this.cache.get(entry);
 			if (!value) {
@@ -35,8 +42,8 @@ export class GuiHistory {
 				value = { id: entry.id, parentId: entry.parentId, type: entry.type, timestamp: entry.timestamp, label,
 					messages: sessionEntryToContextMessages(entry).map((message) => {
 						const projected = this.payloads.message(message);
-						return message.role === "toolResult" && message.nestedCalls
-							? restoreNestedMutations(projected, manager.getBranch(entry.id), this.payloads) : projected;
+						const nestedCalls = nested.get(entry.id);
+						return projected.role === "toolResult" && nestedCalls ? { ...projected, nestedCalls } : projected;
 					}),
 					...(pruned ? { prunedToolCallIds: pruned.toolCallIds } : {}),
 				};

@@ -2,7 +2,7 @@ import { Type, type Static, type TProperties } from "typebox";
 import type { Attention } from "../harness/attention.ts";
 import { CODEX_SPEEDS, type CodexSpeed } from "../harness/codex-speed/state.ts";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { AgentSession, AgentSessionEvent, SessionStats } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, SessionStats } from "@earendil-works/pi-coding-agent";
 import type { StatsSnapshot } from "../harness/stats/types.ts";
 import type { UsageSnapshot } from "../harness/usage/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
@@ -10,7 +10,7 @@ import type { SubagentDetails } from "../harness/subagent/types.ts";
 import type { ApprovalUnit } from "../harness/approval/types.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "./workbench.ts";
 import type { GuiConfigDocument } from "./preferences.ts";
-import type { GuiEntry, GuiMessage, GuiToolOutput, ToolOutput } from "./messages.ts";
+import type { GuiEntry, GuiMessage, GuiNestedCalls, GuiToolOutput, ToolOutput } from "./messages.ts";
 
 import { moduleConfigIds, type ModuleConfigDocument } from "./module-config.ts";
 import type { GuiToolSelectionItem, McpConfigDocument } from "./mcp.ts";
@@ -236,7 +236,13 @@ export interface GuiSessionInfo {
 	title: string;
 	modified: string;
 }
-export type GuiLiveTool = Omit<Extract<AgentSessionEvent, { type: "tool_execution_start" }>, "type"> & { output: GuiToolOutput | undefined; status: "running" | "ok" | "error"; durationMs?: number };
+export interface GuiLiveTool {
+	toolCallId: string;
+	toolName: string;
+	args: unknown;
+	output: GuiToolOutput | undefined;
+	nestedCalls?: GuiNestedCalls;
+}
 
 export interface GuiSnapshot {
 	cwd: string;
@@ -311,7 +317,8 @@ export type GuiEvent =
 	| { type: "telemetry"; sessionId: string; value: LiveTelemetryReport }
 	| { type: "sessionTab"; tab: GuiSessionTab }
 	| { type: "snapshot"; value: GuiSnapshot | null }
-	| { type: "stream"; sessionId: string; value: GuiSnapshot["streamingMessage"] }
+	// appendOnly 标记相对上次投影的纯追加，不进入传输协议。
+	| { type: "stream"; sessionId: string; value: GuiSnapshot["streamingMessage"]; appendOnly: boolean }
 	| { type: "sessions"; value: GuiSessionInfo[] }
 	| { type: "workspaces"; value: GuiWorkspaceInfo[] }
 	| { type: "dialogs"; value: GuiDialog[] }

@@ -9,6 +9,8 @@ export class GuiChannel {
 	private sessions: GuiSessionInfo[] | undefined;
 	private workspaces: GuiWorkspaceInfo[] | undefined;
 	private dirty = false;
+	// 本批混入替换后，发送时检查正文前缀。
+	private appendOnly = true;
 	private pending: Exclude<GuiEvent, { type: "snapshot" | "stream" | "notification" }>[] = [];
 	private sequence = 0;
 	private acknowledged = 0;
@@ -22,10 +24,12 @@ export class GuiChannel {
 		// 提醒不进入绘制流控窗口，后台页面可能暂停确认快照。
 		if (event.type === "notification") { this.send({ kind: "notification", value: event.value }); return; }
 		if (event.type === "snapshot") {
+			if (this.current?.streamingMessage !== event.value?.streamingMessage) this.appendOnly = false;
 			this.current = event.value;
 			this.dirty = true;
 		} else if (event.type === "stream") {
 			if (!this.current || this.current.sessionId !== event.sessionId) return;
+			this.appendOnly &&= event.appendOnly;
 			this.current = { ...this.current, streamingMessage: event.value };
 			this.dirty = true;
 		} else {
@@ -70,10 +74,11 @@ export class GuiChannel {
 			this.pending = [];
 			if (this.dirty) {
 				const event = this.sent && this.current && this.sent.sessionId === this.current.sessionId
-					? diffSnapshot(this.sent, this.current) : { type: "snapshot" as const, value: this.current };
+					? diffSnapshot(this.sent, this.current, this.appendOnly) : { type: "snapshot" as const, value: this.current };
 				events.push(event);
 				this.sent = this.current;
 				this.dirty = false;
+				this.appendOnly = true;
 			}
 			if (events.length) this.send({ kind: "frame", id: ++this.sequence, events });
 		});

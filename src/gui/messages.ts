@@ -22,9 +22,10 @@ export function outputPreview(output: GuiToolOutput | undefined): ToolOutput | u
 	return output?.kind === "inline" ? output.value : output?.preview;
 }
 
+export type GuiNestedCall = Omit<NestedToolCallRecord, "arguments"> & { arguments?: unknown; output?: GuiToolOutput };
 export interface GuiNestedCalls {
 	complete: boolean;
-	calls: (Omit<NestedToolCallRecord, "arguments"> & { arguments?: unknown; output?: GuiToolOutput })[];
+	calls: GuiNestedCall[];
 }
 
 type ContentMessage = Extract<AgentMessage, { role: "user" | "custom" }>;

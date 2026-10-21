@@ -57,6 +57,27 @@ describe("会话树遍历", () => {
 	});
 });
 
+it("多层分叉的连线和后续兄弟节点保持原有位置", () => {
+	const manager = SessionManager.inMemory();
+	const root = manager.appendMessage({ role: "user", content: "分支起点", timestamp: 0 });
+	const append = (text: string) => manager.appendMessage(assistant([{ type: "text", text }], "stop"));
+	const first = append("第一分支");
+	append("第一个子分支");
+	manager.branch(first);
+	append("第二个子分支");
+	manager.branch(root);
+	append("第二分支");
+	manager.branch(root);
+	append("第三分支");
+	const value = sessionTree(new GuiHistory(new GuiPayloads()).project(manager).entries, manager.getLeafId());
+	const document = parseHTML(renderWithMemory(createElement(SessionTree, { value, send: async () => true, locate() {} }))).document;
+	const graphs = [...document.querySelectorAll(".tree-graph")];
+	expect(graphs.map((graph) => graph.getAttribute("width"))).toEqual(["18", "46", "60", "46", "32", "18"]);
+	expect(graphs.map((graph) => graph.querySelectorAll('path[d$="0V32"]').length)).toEqual([0, 2, 3, 2, 1, 0]);
+	expect([...graphs[0]?.querySelectorAll("path") ?? []].map((line) => line.getAttribute("d")))
+		.toEqual(["M9 16L37 32", "M9 16L23 32", "M9 16L9 32"]);
+});
+
 describe("会话树技能消息", () => {
 	it("隐藏 system、usage 和 context_edit 节点，不隐藏被上下文删除的原始消息", () => {
 		const manager = SessionManager.inMemory();

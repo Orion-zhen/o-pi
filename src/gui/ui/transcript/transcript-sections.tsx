@@ -38,10 +38,11 @@ export function ReplyItems({ items, entryIds, tracking = false, followedByBody =
 			else sections.push({ key: item.key, kind: "activity", items: [item] });
 		} else sections.push({ key: item.key, kind: "item", item });
 	}
+	const lastBody = sections.findLastIndex((section) => section.kind === "body");
 	return <>{sections.map((section, index) => {
 		if (section.kind === "item") return <Item key={section.key} item={section.item} entryId={entryIds[section.item.messageIndex]} />;
 		if (section.kind === "activity") return <Activity key={section.key} id={section.key} items={section.items} entryIds={entryIds}
-			tracking={tracking && !followedByBody && !sections.slice(index + 1).some((next) => next.kind === "body")} />;
+			tracking={tracking && !followedByBody && index > lastBody} />;
 		return <Body key={section.key} first={section.first} items={section.items} entryIds={entryIds} showMetrics={showMetrics} />;
 	})}</>;
 }

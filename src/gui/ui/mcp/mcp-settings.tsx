@@ -38,7 +38,7 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 		catch (error) { return { canEdit: false, errors: [error instanceof Error ? error.message : String(error)] }; }
 		return { canEdit: true, errors: validateMcpConfig(value) };
 	}, [state, document?.content]);
-	const servers = state.mode === "form" ? state.draft.servers.map((server) => ({ server, issues: mcpDraftIssues(state.draft, server) })) : [];
+	const servers = state.mode === "form" ? mcpDraftIssues(state.draft.servers) : [];
 	const rootErrors = state.mode === "form" ? validateMcpConfig(state.draft.root) : [];
 	const invalid = sourceView ? source.errors.length > 0 : rootErrors.length > 0 || servers.some(({ issues }) => issues.length > 0);
 	const discard = () => {

@@ -13,25 +13,21 @@ import "./session-tree.css";
 interface GraphRow {
 	node: GuiTreeNode;
 	lane: number;
-	rails: number[];
 	incoming: boolean;
-	outgoing: number[];
 }
 
 function graphRows(roots: GuiTreeNode[]): GraphRow[] {
-	const pending: Omit<GraphRow, "outgoing">[] = roots.map((node) => ({ node, lane: 0, rails: [], incoming: false })).reverse();
+	const pending: GraphRow[] = roots.map((node) => ({ node, lane: 0, incoming: false })).reverse();
 	const rows: GraphRow[] = [];
 	while (true) {
 		const row = pending.pop();
 		if (!row) break;
 		const children = row.node.children;
-		const outgoing = children.map((_, index) => row.lane + children.length - 1 - index);
-		rows.push({ ...row, outgoing });
+		rows.push(row);
 		for (const [index, node] of [...children.entries()].reverse()) {
 			pending.push({
 				node,
 				lane: row.lane + children.length - 1 - index,
-				rails: [...row.rails, ...outgoing.slice(index + 1)],
 				incoming: true,
 			});
 		}
@@ -59,9 +55,12 @@ function Graph({ row }: { row: GraphRow }) {
 	return (
 		<svg className="tree-graph" width={width} height="32" viewBox={`0 0 ${width} 32`} preserveAspectRatio="none" aria-hidden="true">
 			<g fill="none" stroke="currentColor" strokeWidth="1.5">
-				{row.rails.map((lane) => <path key={lane} d={`M${lane * 14 + 9} 0V32`} />)}
+				{Array.from({ length: row.lane }, (_, lane) => <path key={lane} d={`M${lane * 14 + 9} 0V32`} />)}
 				{row.incoming && <path className="tree-node" d={`M${x} 0V16`} />}
-				{row.outgoing.map((lane) => <path className={lane === row.lane ? "tree-node" : undefined} key={lane} d={`M${x} 16L${lane * 14 + 9} 32`} />)}
+				{row.node.children.map((_, index) => {
+					const lane = row.lane + row.node.children.length - 1 - index;
+					return <path className={lane === row.lane ? "tree-node" : undefined} key={lane} d={`M${x} 16L${lane * 14 + 9} 32`} />;
+				})}
 			</g>
 			<circle className="tree-node" cx={x} cy="16" r="3" fill="currentColor" />
 		</svg>

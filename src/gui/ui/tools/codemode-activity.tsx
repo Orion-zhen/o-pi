@@ -1,19 +1,17 @@
 import { ChevronRight, CodeXml } from "lucide-react";
-import { outputPreview } from "../../messages.ts";
+import { outputPreview, type GuiNestedCall } from "../../messages.ts";
 import { ActivityState, errorSummary } from "./tool-display.tsx";
 import { useDisclosureMemory } from "../components/disclosure-memory.ts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
 import { Disclosure } from "../components/disclosure";
 import { CodeBlock } from "../content/code-block.tsx";
-import { clean, record } from "../content/content.tsx";
+import { record } from "../content/content.tsx";
 import { ParameterValue } from "./tool-parameters.tsx";
 import { RawToolContent } from "./tool-results.tsx";
 import { ToolBody } from "./tool-body.tsx";
 import { ToolSummary } from "./tool-summary.tsx";
 import { useToolOutput } from "../runtime/payload.tsx";
 import type { ToolActivity, ToolState } from "../transcript/transcript-items.ts";
-
-type NestedCall = NonNullable<ToolActivity["nestedCalls"]>["calls"][number];
 
 export function CodemodeActivity({ tool }: { tool: ToolActivity }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);
@@ -50,16 +48,17 @@ export function CodemodeActivity({ tool }: { tool: ToolActivity }) {
 	</section>;
 }
 
-function NestedCallRow({ call, active, stopped }: { call: NestedCall; active: boolean; stopped: boolean }) {
+function NestedCallRow({ call, active, stopped }: { call: GuiNestedCall; active: boolean; stopped: boolean }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`nested:${call.id}`, null);
 	const state: ToolState = call.status === "ok" ? "completed" : call.status === "error" ? "failed"
 		: active ? "running" : stopped ? "stopped" : "unavailable";
 	const tool: ToolActivity = { id: call.id, name: call.name, args: call.arguments, state, output: call.output, ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }) };
 	const open = expanded ?? state === "failed";
+	const error = call.status === "error" ? errorSummary(call) : "";
 	return <Collapsible className="tool-activity nested-tool-call" data-nested-tool-call-id={call.id} data-state={state}
 		open={open} onOpenChange={setExpanded}>
 		<ToolSummary tool={tool} open={open} {...(state === "unavailable" ? { stateLabel: "未完成" } : {})} />
-		{call.error && <p className="activity-error" role="alert">{clean(call.error)}</p>}
+		{error && <p className="activity-error" role="alert">{error}</p>}
 		<CollapsibleContent lazy><div className="nested-call-details">
 			{call.output ? <ToolBody tool={tool} /> : <div className="activity-body">
 				{call.arguments !== undefined ? <Disclosure className="tool-parameters" summary="参数" lazy>

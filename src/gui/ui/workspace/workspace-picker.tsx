@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "../components/animated";
 import { fade, settle } from "../lib/motion";
@@ -11,7 +11,7 @@ import { DirectoryBrowser } from "./directory-browser.tsx";
 import { Hint } from "../components/ui/tooltip";
 import { ConfirmAction } from "../components/confirm-action.tsx";
 import { ListScroll } from "../components/list-scroll";
-import { workspaceActivity, type ActivityState } from "../sessions/use-session-activity.ts";
+import { workspaceActivities, type ActivityState } from "../sessions/use-session-activity.ts";
 import { ActivityBorder } from "../components/activity-border.tsx";
 import "./workspace-picker.css";
 
@@ -28,6 +28,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 		: elsewhere.some((item) => item.state === "running" || item.state === "loading") ? "running" : "idle";
 	const status = state === "waiting" ? "有会话等待审批" : state === "unread" ? "有未读结果" : "其他工作区有会话运行中";
 	const workspaces = gui.workspaces;
+	const activity = useMemo(() => workspaceActivities(gui.activity), [gui.activity]);
 	const open = async (directory: string) => {
 		setPending(true);
 		try {
@@ -55,7 +56,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 				<div role="listbox" aria-label="工作区列表" className="workspace-list">
 					<AnimatePresence initial={false}>
 					{workspaces.filter(({ path }) => path.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map(({ path, exists, home }) => {
-						const state = workspaceActivity(gui.activity, path);
+						const state = activity.get(path) ?? "idle";
 						const status = state === "running" ? "运行中" : state === "waiting" ? "等待审批" : "有未读结果";
 						return <Fade layout="position" transition={{ ...fade.transition, layout: settle }} className="workspace-option-row overlay-list-row" key={path}>
 							<Hint content={path}><Button role="option" aria-label={path} aria-selected={path === cwd} variant="ghost"

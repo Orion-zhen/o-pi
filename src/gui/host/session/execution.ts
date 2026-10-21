@@ -16,7 +16,9 @@ import { GuiModelScope, persistDefaultModel } from "./models.ts";
 import { GuiReports } from "../projection/reports.ts";
 import { GuiPayloads } from "../projection/payloads.ts";
 import { GuiHistory } from "../projection/history.ts";
-import { nestedMutation, NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
+import { GuiStream } from "../projection/stream.ts";
+import { GuiLiveTools } from "../projection/live-tools.ts";
+import { NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
 import type { GuiMcpTools } from "./mcp-tools.ts";
 import type { ModelsConfig } from "../../../harness/openai-compatible-provider/schema.ts";
 import { readModelServiceCatalog } from "./model-services.ts";
@@ -50,8 +52,9 @@ export class GuiExecution {
 	readonly payloads = new GuiPayloads();
 	readonly modelScope = new GuiModelScope();
 	private guiHistory = new GuiHistory(this.payloads);
+	private stream = new GuiStream(this.payloads);
 	private bashOutput = "";
-	private liveTools = new Map<string, GuiSnapshot["liveTools"][number]>();
+	private liveTools = new GuiLiveTools(this.payloads);
 	private disposed = false;
 	private tasks = new Set<Promise<unknown>>();
 	private background = new Set<() => void>();
@@ -159,34 +162,20 @@ export class GuiExecution {
 		} catch (error) { this.historyError(error); }
 		this.unsubscribe = session.subscribe((event) => {
 			this.messageTiming.accept(event);
+			if (event.type === "message_start") this.stream.start(event.message);
+			if (event.type === "message_end") this.stream.end();
 			if (event.type === "message_start" && event.message.role === "user") this.submitted();
 			if (event.type === "message_update") {
-				if (this.observed) this.emit({ type: "stream", sessionId: session.sessionId, value: this.payloads.stream(event.message) });
+				const update = event.assistantMessageEvent;
+				if (!("contentIndex" in update)) throw new Error("SDK message_update 缺少内容块。");
+				const appendOnly = this.stream.update(update);
+				if (this.observed) this.emit({ type: "stream", sessionId: session.sessionId, value: this.stream.project(), appendOnly });
 				return;
 			}
-			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") this.liveTools.set(event.toolCallId, {
-				toolCallId: event.toolCallId, toolName: event.toolName, args: structuredClone(event.args), status: "running",
-				...(event.parentToolCallId === undefined ? {} : { parentToolCallId: event.parentToolCallId }),
-				output: event.type === "tool_execution_update" ? this.payloads.progress(event.toolCallId, event.toolName, structuredClone(event.partialResult)) : undefined,
-			});
-			if (event.type === "tool_execution_end") {
+			if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") {
+				const mutation = this.liveTools.accept(event);
 				// 变更 diff 作为界面专用条目落盘，父结果完成后仍可恢复。
-				const mutation = event.parentToolCallId && !event.isError
-					? nestedMutation(event.parentToolCallId, event.toolCallId, event.toolName, event.result) : undefined;
 				if (mutation) session.sessionManager.appendCustomEntry(NESTED_MUTATION_ENTRY, mutation);
-				const started = this.liveTools.get(event.toolCallId);
-				if (event.parentToolCallId && started) this.liveTools.set(event.toolCallId, {
-					...started, status: event.isError ? "error" : "ok",
-					...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
-					output: mutation ? this.payloads.complete(event.toolCallId, event.toolName, { content: [], details: { diff: mutation.diff } })
-						: event.isError ? this.payloads.complete(event.toolCallId, event.toolName, structuredClone(event.result)) : undefined,
-				});
-				else {
-					this.liveTools.delete(event.toolCallId);
-					for (const [id, child] of this.liveTools) {
-						if (child.parentToolCallId === event.toolCallId || child.parentToolCallId?.startsWith(`${event.toolCallId}/`)) this.liveTools.delete(id);
-					}
-				}
 			}
 			if (event.type === "agent_end" || event.type === "session_info_changed") this.refreshSessions();
 			this.schedule();
@@ -221,9 +210,9 @@ export class GuiExecution {
 			canSubmit: !this.changing,
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
-			liveTools: [...this.liveTools.values()], messageDurations: { ...this.messageTiming.durations },
-			history: this.historyTexts, bashOutput: this.bashOutput,
-		}, this.guiHistory, this.payloads, this.toolController, this.mcpTools?.list(this.runtime.session.getActiveToolNames()) ?? []);
+			liveTools: this.liveTools.project(), messageDurations: { ...this.messageTiming.durations },
+			history: this.historyTexts, bashOutput: this.bashOutput, streamingMessage: this.stream.project(),
+		}, this.guiHistory, this.toolController, this.mcpTools?.list(this.runtime.session.getActiveToolNames()) ?? []);
 	}
 	private schedule(): void {
 		if (!this.timer && !this.disposed) this.timer = setTimeout(() => { this.timer = undefined; this.publish(); }, 0);

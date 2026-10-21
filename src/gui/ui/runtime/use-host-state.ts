@@ -28,11 +28,14 @@ function reduce(state: HostState, event: GuiEvent): HostState {
 		case "workspaces": return { ...state, workspaces: event.value };
 		case "sessionStats": return { ...state, stats: event };
 		case "telemetry": return { ...state, telemetry: event };
-		case "sessionsDeleted": return { ...state,
-			activities: state.activities.filter((item) => !event.ids.includes(item.sessionId)),
-			sessions: state.sessions?.filter((item) => !event.paths.includes(item.path)),
-			snapshot: state.snapshot && event.ids.includes(state.snapshot.sessionId) ? null : state.snapshot,
-		};
+		case "sessionsDeleted": {
+			const ids = new Set(event.ids), paths = new Set(event.paths);
+			return { ...state,
+				activities: state.activities.filter((item) => !ids.has(item.sessionId)),
+				sessions: state.sessions?.filter((item) => !paths.has(item.path)),
+				snapshot: state.snapshot && ids.has(state.snapshot.sessionId) ? null : state.snapshot,
+			};
+		}
 		default: return state;
 	}
 }

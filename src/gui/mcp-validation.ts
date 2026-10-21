@@ -99,18 +99,19 @@ function validateOAuth(value: unknown, error: (field: string, message: string) =
 	}
 }
 
-export function mcpNameConflict(name: string, others: readonly string[]): string | undefined {
-	return others.find((other) => other.replaceAll("-", "_") === name.replaceAll("-", "_"));
+export function mcpNameKey(name: string): string {
+	return name.replaceAll("-", "_");
 }
 
 export function validateMcpConfig(value: McpConfig): string[] {
 	const errors: string[] = [];
 	if (value.autoEnableCodemode !== undefined && typeof value.autoEnableCodemode !== "boolean") errors.push("autoEnableCodemode 必须是布尔值。");
-	const names: string[] = [];
+	const names = new Map<string, string>();
 	if (value.mcpServers !== undefined) for (const [name, config] of Object.entries(value.mcpServers)) {
-		const conflict = mcpNameConflict(name, names);
+		const key = mcpNameKey(name);
+		const conflict = names.get(key);
 		if (conflict !== undefined) errors.push(`服务 ${name} 与 ${conflict} 名称冲突。`);
-		names.push(name);
+		else names.set(key, name);
 		for (const issue of validateMcpServer(name, config)) errors.push(`服务 ${name}${issue.field ? ` / ${issue.field}` : ""}：${issue.message}`);
 	}
 	return errors;

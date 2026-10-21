@@ -19,7 +19,7 @@ describe("聊天活动投影", () => {
 	it("参数生成、执行更新和完成沿用一个节点，不重复展示结果", () => {
 		const message = assistant([call]);
 		const preparing = transcriptItems(source({ streamingMessage: message, streaming: true }));
-		const running = transcriptItems(source({ messages: [message], streaming: true, liveTools: [{ type: "tool_execution_update", toolCallId: call.id, toolName: "read", args: call.arguments, partialResult: { content: [{ type: "text", text: "partial" }] } }] }));
+		const running = transcriptItems(source({ messages: [message], streaming: true, liveTools: [{ toolCallId: call.id, toolName: "read", args: call.arguments, output: { kind: "inline", value: { content: [{ type: "text", text: "partial" }] } } }] }));
 		const finished = transcriptItems(source({ messages: [message, result] }));
 		expect(preparing).toHaveLength(1);
 		expect(running).toHaveLength(1);
@@ -27,18 +27,6 @@ describe("聊天活动投影", () => {
 		expect(preparing[0]).toMatchObject({ key: running[0]?.key, kind: "tool", tool: { state: "preparing" } });
 		expect(running[0]).toMatchObject({ key: finished[0]?.key, kind: "tool", tool: { state: "running", output: { kind: "inline", value: { content: [{ text: "partial" }] } } } });
 		expect(finished[0]).toMatchObject({ kind: "tool", tool: { state: "completed", output: { kind: "inline", value: { content: result.content, details: result.details } } } });
-	});
-
-	it("父调用未完成时保留子调用执行耗时，完成后读取 SDK 嵌套记录", () => {
-		const parent = { ...call, id: "code", name: "codemode", arguments: { code: "await tools.read(...)" } };
-		const input = source({ messages: [assistant([parent])], streaming: true });
-		input.liveTools = [{ toolCallId: "code/1", toolName: "read", args: call.arguments, parentToolCallId: "code", status: "ok", output: undefined, durationMs: 8 }];
-		expect(transcriptItems(input)[0]).toMatchObject({ tool: { nestedCalls: { complete: false, calls: [{ durationMs: 8 }] } } });
-		const persisted = { ...result, toolCallId: "code", toolName: "codemode", durationMs: 20,
-			nestedCalls: { complete: true, calls: [{ id: "code/1", name: "read", status: "ok" as const, durationMs: 9 }] } };
-		expect(transcriptItems(source({ messages: [assistant([parent]), persisted] }))[0]).toMatchObject({ tool: {
-			durationMs: 20, nestedCalls: { complete: true, calls: [{ durationMs: 9 }] },
-		} });
 	});
 
 	it("工具卡片使用持久化执行耗时，缺失耗时不补零", () => {

@@ -283,8 +283,11 @@ it("父脚本仍在运行时保存子调用 SDK 耗时，完成并重载后仍�
 		const task = host.dispatch(prompt("查看子调用耗时"));
 		try {
 			await ended.promise;
-			await expect.poll(() => readSnapshot(host).liveTools.find((tool) => tool.toolName === probe)).toMatchObject({ status: "ok", durationMs: expect.any(Number) });
+			await expect.poll(() => readSnapshot(host).liveTools.find((tool) => tool.toolName === "codemode")?.nestedCalls?.calls.find((call) => call.name === probe))
+				.toMatchObject({ status: "ok", durationMs: expect.any(Number) });
+			expect(readSnapshot(host).liveTools.map((tool) => tool.toolName)).toEqual(["codemode"]);
 		} finally { continueParent.resolve({ text: "done" }); stop(); await task; }
+		expect(readSnapshot(host).liveTools).toEqual([]);
 		const complete = readSnapshot(host).messages.find((message) => message.role === "toolResult" && message.toolName === "codemode");
 		expect(complete).toMatchObject({ durationMs: expect.any(Number), nestedCalls: { calls: expect.arrayContaining([expect.objectContaining({ name: probe, durationMs: expect.any(Number) })]) } });
 		await host.dispatch({ action: "reload" });

@@ -74,10 +74,10 @@ for (const mode of ["idle", "stream", "progress"] as const) test(`长轮次在 $
 		const start = performance.now();
 		if (mode !== "idle") timer = setInterval(() => {
 			updates++;
-			if (mode === "stream") channel.accept({ type: "stream", sessionId: snapshot.sessionId,
+			if (mode === "stream") channel.accept({ type: "stream", sessionId: snapshot.sessionId, appendOnly: false,
 				value: { ...assistant([{ type: "thinking", thinking: "继续检查。".repeat(updates) }], "pending"), timestamp: 1000 } });
 			else channel.accept({ type: "snapshot", value: { ...snapshot, streamingMessage: null, liveTools: [{
-				toolCallId: "live", toolName: "bash", args: { command: "fixture-progress" }, status: "running",
+				toolCallId: "live", toolName: "bash", args: { command: "fixture-progress" },
 				output: { kind: "inline", value: { content: [{ type: "text", text: `执行进度 ${updates}` }] } },
 			}] } });
 		}, 25);
@@ -139,7 +139,7 @@ for (const mode of ["idle", "stream", "progress"] as const) test(`长轮次在 $
 		});
 		const selected = await page.evaluate(() => document.getSelection()?.toString());
 		const top = await reader.evaluate((element) => element.scrollTop);
-		channel.accept({ type: "stream", sessionId: snapshot.sessionId, value: { ...assistant([{ type: "thinking", thinking: "新的进度" }], "pending"), timestamp: 1000 } });
+		channel.accept({ type: "stream", sessionId: snapshot.sessionId, appendOnly: false, value: { ...assistant([{ type: "thinking", thinking: "新的进度" }], "pending"), timestamp: 1000 } });
 		await expect.poll(() => reply.locator(".thinking-content").last().textContent()).toContain("新的进度");
 		expect(await reader.evaluate((element) => element.scrollTop)).toBeCloseTo(top, 0);
 		expect(await page.evaluate(() => document.getSelection()?.toString())).toBe(selected);

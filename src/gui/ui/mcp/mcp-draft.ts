@@ -1,4 +1,4 @@
-import { mcpDuplicateKeys, mcpNameConflict, mcpObject, parseMcpConfig, validateMcpServer, type McpConfig, type McpIssue, type McpObject } from "../../mcp-validation.ts";
+import { mcpDuplicateKeys, mcpNameKey, mcpObject, parseMcpConfig, validateMcpServer, type McpConfig, type McpIssue, type McpObject } from "../../mcp-validation.ts";
 
 export const mcpMapFields = ["env", "headers", "toolExposure"] as const;
 export type McpMapField = typeof mcpMapFields[number];
@@ -59,14 +59,27 @@ export function mcpServerValue(server: McpServerDraft): unknown {
 	return config;
 }
 
-export function mcpDraftIssues(draft: McpDraft, server: McpServerDraft): McpIssue[] {
-	const issues = validateMcpServer(server.name, mcpServerValue(server));
-	const conflict = mcpNameConflict(server.name, draft.servers.filter((other) => other.id !== server.id).map(({ name }) => name));
-	if (conflict !== undefined) issues.push({ field: "name", message: `与 ${conflict} 名称冲突，- 与 _ 视为相同。` });
-	for (const field of mcpMapFields) {
-		if (mcpDuplicateKeys((server.maps[field] ?? []).map(({ key }) => key))) issues.push({ field, message: "名称不能重复。" });
-	}
-	return issues;
+export function mcpDraftIssues(servers: readonly McpServerDraft[]): { server: McpServerDraft; issues: McpIssue[] }[] {
+	const names = new Map<string, [McpServerDraft, ...McpServerDraft[]]>();
+	const grouped = servers.map((server) => {
+		const key = mcpNameKey(server.name);
+		let group = names.get(key);
+		if (group) group.push(server);
+		else {
+			group = [server];
+			names.set(key, group);
+		}
+		return { server, group };
+	});
+	return grouped.map(({ server, group: [first, second] }) => {
+		const issues = validateMcpServer(server.name, mcpServerValue(server));
+		const conflict = first.id === server.id ? second : first;
+		if (conflict) issues.push({ field: "name", message: `与 ${conflict.name} 名称冲突，- 与 _ 视为相同。` });
+		for (const field of mcpMapFields) {
+			if (mcpDuplicateKeys((server.maps[field] ?? []).map(({ key }) => key))) issues.push({ field, message: "名称不能重复。" });
+		}
+		return { server, issues };
+	});
 }
 
 /** 重复键属于编辑中间态，不能静默转换成 JSON 对象。 */
@@ -81,9 +94,9 @@ export function writeMcpDraft(draft: McpDraft): string {
 }
 
 export function nextMcpName(draft: McpDraft, base = "new-server"): string {
-	const names = draft.servers.map(({ name }) => name);
+	const names = new Set(draft.servers.map(({ name }) => mcpNameKey(name)));
 	let name = base;
-	for (let index = 2; mcpNameConflict(name, names) !== undefined; index++) name = `${base}-${index}`;
+	for (let index = 2; names.has(mcpNameKey(name)); index++) name = `${base}-${index}`;
 	return name;
 }
 

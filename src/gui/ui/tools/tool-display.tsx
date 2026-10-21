@@ -1,6 +1,6 @@
 import { Bot, Check, CircleDashed, CircleStop, CodeXml, FilePenLine, FileSearch, FolderSearch, Globe, LoaderCircle, Search, Terminal, Wrench, X } from "lucide-react";
-import type { ToolActivity, ToolState } from "../transcript/transcript-items.ts";
-import { outputPreview } from "../../messages.ts";
+import type { ToolState } from "../transcript/transcript-items.ts";
+import { outputPreview, type GuiToolOutput } from "../../messages.ts";
 import { clean, record } from "../content/content.tsx";
 
 export const toolStates: Record<ToolState, string> = {
@@ -12,7 +12,8 @@ const tools = {
 	subagent: { label: "子代理", icon: Bot }, codemode: { label: "codemode", icon: CodeXml },
 	bash: { label: "运行", icon: Terminal }, websearch: { label: "搜索网页", icon: Globe }, webfetch: { label: "读取网页", icon: Globe },
 };
-export function errorSummary(tool: Pick<ToolActivity, "output">): string {
+export function errorSummary(tool: { output?: GuiToolOutput | undefined; error?: string }): string {
+	if (tool.error !== undefined) return clean(tool.error);
 	const output = outputPreview(tool.output);
 	const details = output?.details;
 	if (record(details) && record(details.error) && typeof details.error.message === "string") return clean(details.error.message);

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { mcpNameConflict } from "../../mcp-validation.ts";
+import { mcpNameKey } from "../../mcp-validation.ts";
 import { Button } from "../components/ui/button";
 import { Switch } from "../components/ui/switch";
 import { Input } from "../components/ui/input";
@@ -13,9 +13,16 @@ export function McpImport({ draft, disabled, apply, cancel }: {
 	const [servers, setServers] = useState<McpServerDraft[]>();
 	const [replace, setReplace] = useState(new Set<number>());
 	const [error, setError] = useState("");
-	const preview = servers?.map((server) => {
-		const errors = mcpDraftIssues({ root: {}, servers }, server).map(({ message }) => message);
-		const conflict = mcpNameConflict(server.name, draft.servers.map(({ name }) => name));
+	const names = new Map<string, string>();
+	const existingByName = new Map<string, { server: McpServerDraft; index: number }>();
+	for (const [index, server] of draft.servers.entries()) {
+		const key = mcpNameKey(server.name);
+		if (!names.has(key)) names.set(key, server.name);
+		if (!existingByName.has(server.name)) existingByName.set(server.name, { server, index });
+	}
+	const preview = servers && mcpDraftIssues(servers).map(({ server, issues }) => {
+		const errors = issues.map(({ message }) => message);
+		const conflict = names.get(mcpNameKey(server.name));
 		if (conflict !== undefined && (conflict !== server.name || !replace.has(server.id))) errors.push(`与已有服务 ${conflict} 冲突，请改名${conflict === server.name ? "或确认替换" : ""}。`);
 		return { server, errors };
 	});
@@ -37,7 +44,7 @@ export function McpImport({ draft, disabled, apply, cancel }: {
 					setReplace(new Set([...replace].filter((id) => id !== server.id)));
 				}} />
 				<span className="settings-description">{mcpServerSummary(server)}</span>
-				{draft.servers.some(({ name }) => name === server.name) && <label className="mcp-replace">替换已有服务<Switch aria-label={`替换 ${server.name}`} checked={replace.has(server.id)} onCheckedChange={(checked) => setReplace((previous) => {
+				{existingByName.has(server.name) && <label className="mcp-replace">替换已有服务<Switch aria-label={`替换 ${server.name}`} checked={replace.has(server.id)} onCheckedChange={(checked) => setReplace((previous) => {
 					const next = new Set(previous); if (checked) next.add(server.id); else next.delete(server.id); return next;
 				})} /></label>}
 				{errors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
@@ -45,9 +52,8 @@ export function McpImport({ draft, disabled, apply, cancel }: {
 			<div className="settings-action-buttons"><Button size="sm" disabled={preview.some(({ errors }) => errors.length > 0)} onClick={() => {
 				const next = [...draft.servers];
 				for (const { server } of preview) {
-					const index = next.findIndex(({ name }) => name === server.name);
-					const existing = next[index];
-					if (existing) next[index] = { ...server, id: existing.id };
+					const existing = existingByName.get(server.name);
+					if (existing) next[existing.index] = { ...server, id: existing.server.id };
 					else next.push(server);
 				}
 				apply({ ...draft, servers: next });

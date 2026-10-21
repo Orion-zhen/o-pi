@@ -98,10 +98,6 @@ export class GuiPayloads {
 			},
 		};
 	}
-	stream(message: AgentMessage | null): GuiMessage | null {
-		// SDK 的进行中对象可变，历史缓存只能用于已落盘消息。
-		return message ? this.message(structuredClone(message)) : null;
-	}
 	message(message: AgentMessage): GuiMessage {
 		switch (message.role) {
 			case "user":
