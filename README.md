@@ -2,68 +2,38 @@
 
 Orion's Pi Agent.
 
-## 安装使用
+基于 Pi SDK 的编码代理，以精简上下文和专用工具，提升 Pi 编码代理的 Token 效率。
 
-`opi` 是具有定制工具和前端的 Pi 封装，沿用 Pi 的版本、身份和更新提示。构建需要 Bun >= 1.4.0，无需单独安装 Pi。仓库可放在任意目录。
+## 快速开始
+
+构建需要 Bun >= 1.4.0。
 
 ```bash
 git clone https://github.com/Orion-zhen/o-pi.git
 cd o-pi
 bun install --no-save
-bun run build:tui
+bun run build:tui # 本命令构建 TUI 软件
 ./dist/tui/opi
 ```
 
-三端可独立构建，也可用 `bun run build` 一次构建全部目标：
+| 应用 | 构建命令 | 产物 |
+| --- | --- | --- |
+| TUI | `bun run build:tui` | `dist/tui/opi`，Windows 为 `opi.exe` |
+| Web | `bun run build:web` | `dist/web/opi-web`，Windows 为 `opi-web.exe` |
+| Desktop | `bun run build:desktop` | `dist/desktop/release/` 下的平台安装包 |
 
-| 目标 | 入口 / 应用名 | 构建命令 | 产物 |
-| --- | --- | --- | --- |
-| TUI | `opi` | `bun run build:tui` | `dist/tui/opi`，Windows 为 `opi.exe` |
-| WebUI | `opi-web` | `bun run build:web` | `dist/web/opi-web`，Windows 为 `opi-web.exe` |
-| Desktop | `opi-desktop` | `bun run build:desktop` | `dist/desktop/release/opi-desktop.AppImage`、`.dmg` 或 `.exe` |
-
-TUI 和 WebUI 是包含 Bun 运行时及必需资源的单文件程序。Desktop 包含 Electron 及应用资源，不是裸单文件程序。三端互不依赖，运行产物无需另装 Node.js、Bun 或仓库中的 `node_modules`，仍需平台基础库及 Bash、Git 等实际使用的外部工具。构建面向当前系统与 CPU 架构。当前已在 Linux x64 验证，其他平台尚未实机验证。
-
-TUI 开发使用 `bun run dev:tui`，Web 开发使用 `bun run dev:web`。项目不固定 Bun 版本或提交锁文件。构建使用 PATH 中的 Bun，制作通用分发产物时使用官方 Bun，避免引入系统发行版特有的动态库依赖。
-
-可复用的体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需合并到 `~/.pi/agent/settings.json`，不要覆盖已有 provider、model 等个人设置。运行与升级边界见 [CLI](docs/cli.md)。
-
-## 组合技
-
-搭配以下仓库使用效果更佳:
-
-* [Orion-zhen/dot-agents](https://github.com/Orion-zhen/dot-agents): skill, prompt template 预设仓库.
-* [Orion-zhen/o-pet](https://github.com/Orion-zhen/o-pet): 适配欧派的桌面宠物 App.
+配置和会话沿用 `~/.pi/agent/`。完整步骤见[安装与启动](docs/guides/getting-started.md)。
 
 ## 文档
 
-* [CLI 入口](docs/cli.md)
-* [GUI 入口](docs/gui.md)
-* [前端与 SDK 约定](docs/frontends.md)
-* [配置分层](docs/configuration.md)
-* [自动会话标题](docs/auto-title.md)
-* [性能 Benchmark](docs/benchmark.md)
-* [文件工具设计](docs/file-tools/README.md)
-* [Bash 工具](docs/bash-tool.md)
-* [LSP 内部增强](docs/lsp.md)
-* [Web 工具](docs/web-tools.md)
-* [Codemode](docs/codemode.md)
-* [Tool Input Repair](docs/tool-repair.md)
-* [Approval Gate](docs/approval-gate.md)
-* [本地遥测](docs/telemetry.md)
-* [Discord Rich Presence](docs/discord-presence.md)
-* [o-pet 桌宠集成](docs/o-pet.md)
-* [OpenAI-compatible provider](docs/openai-compatible-provider/README.md)
-* [TUI V1](docs/tui.md)
-* [Slash commands](docs/slash-cmds.md)
-* [Skill Context](docs/skill-context.md)
-* [Subagent](docs/subagent.md)
-* [RPC 支持矩阵](docs/rpc.md)
-* [Prompt Templates](docs/prompt-templates.md)
-* [提示词设计](docs/prompt-design.md)
-* [Pi 工具提示词字段](docs/tool-prompt-fields.md)
-* [Token counter](docs/token-counter.md)
+- [用户使用指南](docs/README.md#用户使用指南)：安装、配置、TUI、GUI、远程访问和排障。
+- [Reference](docs/reference/README.md)：按模块查询配置、接口、行为和实现机制。
+
+## 搭配使用
+
+- [dot-agents](https://github.com/Orion-zhen/dot-agents)：技能与提示词模板。
+- [o-pet](https://github.com/Orion-zhen/o-pet)：桌面宠物。
 
 ## 致谢
 
-特别感谢 [lzhao013](https://github.com/lzhao013-web) 在本项目开发过程中提供的测试反馈, 想法讨论和代码提交, 他为本项目做出了不可磨灭的贡献.
+感谢 [lzhao013](https://github.com/lzhao013-web) 提供测试反馈、想法讨论和代码贡献。
