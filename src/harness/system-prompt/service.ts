@@ -7,12 +7,10 @@ import { collectModelInvocableSkillIndex } from "../skill-context/loader.ts";
 
 type SkillIndex = Array<{ name: string; description: string }>;
 
-const ROLE = "<role>You are an interactive agent that helps users with coding tasks. You ALWAYS respond in user's language.</role>";
+const ROLE = "<role>You are an agent working with the user toward their goals. You ALWAYS respond in user's language.</role>";
 const SKILL_POLICY = [
-	"Filesystem tools resolve paths mentioned by a loaded skill under skill://<skill-name>/.",
-	"Load the narrowest skill that clearly matches the user's requested outcome.",
-	"Classify by the requested outcome, not incidental steps such as reading or editing a repository.",
-	"Do NOT load the same skill repeatedly.",
+	"Load the narrowest skill matching the requested outcome, not incidental steps.",
+	"Resolve loaded-skill references under skill://<name>/ using file tools.",
 ].map((rule) => `- ${rule}`).join("\n");
 
 /** 使用 Pi 的命名段落持久化提示词，避免每轮强制替换 leading prompt。 */
@@ -29,7 +27,7 @@ function promptOptions(
 	};
 	if (skills.length > 0) {
 		sections.skill_policy = SKILL_POLICY;
-		sections.model_invocable_skills = formatSkillIndex(skills);
+		sections.skills = formatSkillIndex(skills);
 	}
 	const append = options.appendSystemPrompt?.trim();
 	if (append) sections.append_system_prompt = normalizeLineEndings(append);
@@ -66,10 +64,9 @@ function subagentRole(options: BuildSystemPromptOptions): string {
 
 function formatToolPolicy(options: BuildSystemPromptOptions): string {
 	const rules = [
-		"Use the narrowest active tool that directly matches the operation.",
-		"Minimize redundant tool calls; maximize evidence efficiency.",
-		"Run independent tool operations concurrently. Keep dependent operations sequential.",
-		"Do not retrieve unchanged content already in context unless omitted details, an intervening write, or a stale result requires it.",
+		"Use the narrowest suitable tool.",
+		"Parallelize independent tool calls. Sequence dependent calls.",
+		"Retrieve again only if context is incomplete or stale.",
 		...(options.selectedTools ?? []).flatMap((name) => options.toolGuidelines?.[name] ?? []),
 		...(options.promptGuidelines ?? []),
 	].map((rule) => rule.trim()).filter(Boolean);
@@ -83,7 +80,7 @@ function formatSkillIndex(skills: SkillIndex): string {
 function formatProjectContext(files: NonNullable<BuildSystemPromptOptions["contextFiles"]>, cwd: string): string {
 	return files.map(({ path, content }) => {
 		const relative = path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
-		return `<project_instructions path="${escapeXml(relative.replace(/\\/g, "/"))}">\n${normalizeLineEndings(content).trim()}\n</project_instructions>`;
+		return `<file path="${escapeXml(relative.replace(/\\/g, "/"))}">\n${normalizeLineEndings(content).trim()}\n</file>`;
 	}).join("\n\n");
 }
 

@@ -35,7 +35,7 @@ export default function bashTool(pi: ExtensionAPI): void {
 			label: "bash",
 			description: "Run commands in bash.",
 			promptSnippet: "run commands in bash",
-			promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
+			promptGuidelines: ["Use bash only when no dedicated tool applies."],
 			parameters: bashParameters,
 			outputSchema: bashOutputSchema,
 			executionMode: "sequential",

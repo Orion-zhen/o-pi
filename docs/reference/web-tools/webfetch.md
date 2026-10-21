@@ -30,7 +30,7 @@ Page content.
 
 `offset` 从 0 开始，按转换后文本的 UTF-16 位置切片。字符预算来自 `webfetch.limits.default_output_chars`。继续读取时保留 URL、模式、页范围和查找词，并把 `next` 原样传回 `offset`。
 
-`partial` 表示静态响应中检测到的遗漏，例如 iframe、客户端空壳、未解析声明、主图失败或视频本体。文本续读用 `next` 表示，与内容遗漏分开。使用结果时应说明实际取得的范围。
+`partial` 表示静态响应中检测到的遗漏，例如 iframe、客户端空壳、未解析声明、主图失败或视频本体。文本续读用 `next` 表示，与内容遗漏分开。
 
 `details` 包含 `scope: "static_response"`、页面类型、正文来源、范围和遗漏。只在发生跳转时显示不同的最终 URL。
 

@@ -9,7 +9,7 @@ custom_prompt 或 role
 cwd
 工具策略 tool_policy
 技能策略 skill_policy
-可调用技能 model_invocable_skills
+可调用技能 skills
 append_system_prompt
 项目规则 project_context
 子代理索引 subagents

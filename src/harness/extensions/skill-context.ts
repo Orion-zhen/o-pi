@@ -12,7 +12,7 @@ const skillParameters = Type.Object(
 	{
 		name: Type.String({
 			minLength: 1,
-			description: "Skill name from <model_invocable_skills>; use filesystem tools for skill:// paths.",
+			description: "Skill name from <skills>.",
 		}),
 	},
 	{ additionalProperties: false },

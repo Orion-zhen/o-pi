@@ -122,12 +122,9 @@ export default function webTools(pi: ExtensionAPI): void {
 		tool: {
 			name: "webfetch",
 			label: "webfetch",
-			description: "Read one HTTP(S) URL: web text, images, or PDF text/pages.",
+			description: "Read static HTTP(S) content: web text, images, or PDF text/pages.",
 			promptSnippet: "read a known URL",
-			promptGuidelines: [
-				WEB_CONTENT_GUIDELINE,
-				"Webfetch covers only detected static response content. Remind user of limitation if content is partial.",
-			],
+			promptGuidelines: [WEB_CONTENT_GUIDELINE],
 			parameters: webFetchParameters,
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const acceptsImages = ctx.model?.input.includes("image") === true;
