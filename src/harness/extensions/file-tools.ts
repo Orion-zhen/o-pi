@@ -95,7 +95,7 @@ const readParameters = Type.Object(
 			}),
 		),
 	},
-	{ additionalProperties: false, not: { required: ["lines", "pages"] } },
+	{ additionalProperties: false },
 );
 const writeParameters = Type.Object(
 	{

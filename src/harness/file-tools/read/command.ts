@@ -313,6 +313,9 @@ function shortIgnoreSource(source: string | undefined): string | undefined {
 }
 
 function parseRanges(params: ReadParams): ParsedReadRanges | ToolOutcome<never> {
+	if (params.lines !== undefined && params.pages !== undefined) {
+		return fail("INVALID_OPERATION", "lines and pages are mutually exclusive.", { path: params.path });
+	}
 	if (params.lines !== undefined) {
 		const parsed = parseReadRanges(params.lines, "lines");
 		if (!parsed.ok) return fail("INVALID_PATH", parsed.message, { path: params.path });
