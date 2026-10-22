@@ -127,6 +127,7 @@ void app
 			return setAppearance(value);
 		});
 		window.removeMenu();
+		window.on("focus", () => window?.flashFrame(false));
 		window.webContents.on("will-navigate", (event) => event.preventDefault());
 		window.webContents.setWindowOpenHandler(({ url }) => {
 			void openExternal(url).catch((error: unknown) => dialog.showErrorBox("无法打开链接", String(error)));
@@ -139,6 +140,7 @@ void app
 			}),
 			(delivery, at) => {
 				if (delivery.kind === "notification") {
+					if (window && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true);
 					showDesktopNotification(delivery.value, icon, () => {
 						if (window && !window.isDestroyed()) {
 							if (window.isMinimized()) window.restore();
