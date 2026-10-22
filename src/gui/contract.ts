@@ -261,7 +261,6 @@ export interface GuiSnapshot {
 	contextEntryIds: string[];
 	history: string[];
 	streamingMessage: GuiMessage | null;
-	messageDurations: Record<string, number>;
 	entries: GuiEntry[];
 	model: GuiModel | null;
 	codexSpeed: CodexSpeed | null;

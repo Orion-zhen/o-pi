@@ -4,7 +4,6 @@ import { UserHistoryStore, buildInitialHistory, normalizeHistoryText } from "../
 import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
 import type { GuiAction, GuiEvent, SessionQuery, GuiQueryResults, GuiSnapshot } from "../../contract.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
-import { MessageTiming } from "../projection/message-timing.ts";
 import { GuiDialogs } from "./dialogs.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
@@ -48,7 +47,6 @@ export class GuiExecution {
 	private changing = false;
 	private preparing = 0;
 	private commandController = new AbortController();
-	private messageTiming = new MessageTiming();
 	readonly payloads = new GuiPayloads();
 	readonly modelScope = new GuiModelScope();
 	private guiHistory = new GuiHistory(this.payloads);
@@ -161,7 +159,6 @@ export class GuiExecution {
 			this.historyTexts = buildInitialHistory(records, messages, session.sessionId);
 		} catch (error) { this.historyError(error); }
 		this.unsubscribe = session.subscribe((event) => {
-			this.messageTiming.accept(event);
 			if (event.type === "message_start") this.stream.start(event.message);
 			if (event.type === "message_end") this.stream.end();
 			if (event.type === "message_start" && event.message.role === "user") this.submitted();
@@ -210,7 +207,7 @@ export class GuiExecution {
 			canSubmit: !this.changing,
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
-			liveTools: this.liveTools.project(), messageDurations: { ...this.messageTiming.durations },
+			liveTools: this.liveTools.project(),
 			history: this.historyTexts, bashOutput: this.bashOutput, streamingMessage: this.stream.project(),
 		}, this.guiHistory, this.toolController, this.mcpTools?.list(this.runtime.session.getActiveToolNames()) ?? []);
 	}

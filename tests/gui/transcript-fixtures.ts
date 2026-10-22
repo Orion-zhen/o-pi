@@ -15,7 +15,7 @@ export function source(value: Partial<Omit<TranscriptSource, "messages" | "strea
 	messages?: AgentMessage[]; streamingMessage?: AgentMessage | null;
 }): TranscriptSource {
 	const payloads = new GuiPayloads();
-	return { models: [], messageDurations: {}, liveTools: [], streaming: false, retrying: false, compacting: false, ...value,
+	return { models: [], liveTools: [], streaming: false, retrying: false, compacting: false, ...value,
 		messages: (value.messages ?? []).map((message) => payloads.message(message)),
 		streamingMessage: value.streamingMessage ? payloads.message(structuredClone(value.streamingMessage)) : null,
 	};

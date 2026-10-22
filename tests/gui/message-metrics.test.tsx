@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { MessageTiming } from "../../src/gui/host/projection/message-timing.ts";
-import { assistantKey, replyMetrics } from "../../src/gui/message-metrics.ts";
+import { describe, expect, it } from "vitest";
+import { replyMetrics } from "../../src/gui/message-metrics.ts";
 import { transcriptReplies } from "../../src/gui/ui/transcript/transcript-replies.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 
@@ -10,29 +9,15 @@ const last = { ...assistant([{ type: "text", text: "完成" }], "stop"), timesta
 	usage: { input: 120, output: 40, cacheRead: 80, cacheWrite: 10, totalTokens: 250,
 		cost: { input: 0.01, output: 0.02, cacheRead: 0.001, cacheWrite: 0.002, total: 0.033 } } };
 
-afterEach(() => vi.restoreAllMocks());
-
 describe("消息身份和本轮统计", () => {
 	it("跨工具调用汇总 tokens、缓存、费用，速度排除工具耗时", () => {
-		let now = 0;
-		vi.spyOn(performance, "now").mockImplementation(() => now);
-		const timing = new MessageTiming();
-		timing.accept({ type: "turn_start" });
-		now = 1000;
-		timing.accept({ type: "message_end", message: first });
-		now = 11000;
-		timing.accept({ type: "message_end", message: result });
-		timing.accept({ type: "turn_start" });
-		now = 12000;
-		timing.accept({ type: "message_end", message: last });
-		expect(replyMetrics([first, last], timing.durations)).toEqual({
+		expect(replyMetrics([{ ...first, durationMs: 1000 }, { ...last, durationMs: 1000 }])).toEqual({
 			input: 121, output: 41, cacheRead: 80, cacheWrite: 10, cost: 0.033, speed: 20.5,
 		});
 	});
 
 	it("历史缺少任一调用计时时不计算误导性的速度", () => {
-		expect(replyMetrics([first, last], { [assistantKey(last)]: 1000 }).speed).toBeNull();
-
+		expect(replyMetrics([first, { ...last, durationMs: 1000 }]).speed).toBeNull();
 	});
 
 	it("每轮独立统计，已移除模型仍显示消息记录中的模型标识", () => {

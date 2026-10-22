@@ -26,7 +26,7 @@ export function useTranscriptRows(source: TranscriptSource, pruned: ReadonlySet<
 			.filter((row) => row.kind === "message" ? row.messageIndex < offset : row.messageIndices.every((index) => index < offset));
 		const tools = new Set([...calls, ...results].filter(([, index]) => index < offset).map(([id]) => id));
 		return { rows, offset, messages: source.messages.slice(offset), tools };
-	}, [source.messages, source.models, source.messageDurations, pruned]);
+	}, [source.messages, source.models, pruned]);
 	return useMemo(() => {
 		// 历史分组中的在途工具仍需接收进度，缺失结果本身不触发全量投影。
 		if (source.liveTools.some((event) => history.tools.has(event.toolCallId))) return transcriptReplies(source, pruned);

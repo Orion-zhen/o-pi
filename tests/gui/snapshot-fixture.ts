@@ -5,7 +5,7 @@ export function guiSnapshot(): GuiSnapshot {
 		cwd: "/fixture", leafId: null, sessionId: "fixture", sessionFile: null, name: "测试会话",
 		canSubmit: true, canChangeSession: true, running: false, commandRunning: false,
 		liveTools: [], streaming: false, retrying: false, compacting: false,
-		contextEntryIds: [], history: [], entries: [], messageDurations: {}, streamingMessage: null,
+		contextEntryIds: [], history: [], entries: [], streamingMessage: null,
 		model: null, codexSpeed: null, routedModel: null, models: [], scopedModels: [], modelScopeChanged: false,
 		defaultModel: { provider: null, id: null, thinking: null },
 		thinking: "off", thinkingLevels: ["off", "high"], context: null,

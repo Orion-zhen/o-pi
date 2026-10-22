@@ -98,7 +98,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			const model = models.get(`${message.provider}/${message.model}`);
 			const identity = { model: model?.name ?? message.model, timestamp: message.timestamp };
 			reply.lastAssistant = { message, index: messageIndex, identity };
-			const metrics = replyMetrics([message], source.messageDurations);
+			const metrics = replyMetrics([message]);
 			message.content.forEach((block, blockIndex) => {
 				const blockKey = `${key}:${blockIndex}`;
 				if (block.type === "toolCall") {
@@ -150,7 +150,7 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		: message?.stopReason === "stop" && answer.length > 0 ? "completed"
 		: continued ? "continued" : "incomplete";
 	const identity = last?.identity;
-	const metrics = replyMetrics(draft.assistants, source.messageDurations);
+	const metrics = replyMetrics(draft.assistants);
 	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, compacting: active && source.compacting, process, answer, error };
 }
 

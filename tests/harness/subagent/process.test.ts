@@ -358,19 +358,21 @@ describe("subagent execution", () => {
 		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered" });
 	});
 
-	it("provider 瞬时失败不依赖空输出开关也会重试", async () => {
-		await writeConfig({ retry_delay_ms: 0, retry_on_empty_output: false });
+	it("provider 错误由 SDK 处理，外层不因空输出重跑任务", async () => {
+		await writeConfig({ retry_delay_ms: 0 });
 		let calls = 0;
 		childProcess.spawn.mockImplementation(() => {
 			calls += 1;
 			if (calls > 1) return completedProcess([messageStart(), messageEnd([{ type: "text", text: "recovered" }])]);
-			return completedProcess([], { stderr: "provider error: rate limit" });
+			return completedProcess([messageStart(), {
+				type: "message_end", message: { ...assistantMessage([], "error", wireUsage()), errorMessage: "rate limit" },
+			}], { stderr: "provider error: rate limit" });
 		});
 
 		const result = await runTasks([{ agent: "scout", task: "provider" }]);
 
-		expect(calls).toBe(2);
-		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered" });
+		expect(calls).toBe(1);
+		expect(result.details.results[0]).toMatchObject({ attempts: 1, error: "rate limit", stderr: "provider error: rate limit" });
 	});
 
 	it("写能力任务失败后不重试", async () => {

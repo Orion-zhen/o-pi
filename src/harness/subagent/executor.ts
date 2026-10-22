@@ -184,7 +184,7 @@ async function executeOne(
 			onUpdate: (progress) => onProgress(runningResult(base, attempts, progress)),
 		});
 		failure = validateProcessOutput(output);
-		if (failure === undefined || !shouldRetry(failure, output, attempts, maxAttempts, prepared.tools, config)) break;
+		if (failure === undefined || !shouldRetry(output, attempts, maxAttempts, prepared.tools, config)) break;
 	}
 	return persistResult({
 		...base,
@@ -288,7 +288,6 @@ function validateProcessOutput(output: ProcessRunOutput): string | undefined {
 	if (output.timedOut) return "subagent timed out";
 	if (output.aborted) return "subagent aborted";
 	if (output.parseErrors > 0) return `Pi JSON protocol error: ${output.parseErrors} malformed event${output.parseErrors === 1 ? "" : "s"}`;
-	if (output.providerError !== undefined) return `provider error: ${truncateError(output.providerError)}`;
 	if (output.error !== undefined) return output.error;
 	if (output.stopReason === "length") return "subagent output truncated: model output token limit reached";
 	if (output.exitCode !== 0) return `subagent exited with code ${output.exitCode}`;
@@ -298,18 +297,18 @@ function validateProcessOutput(output: ProcessRunOutput): string | undefined {
 }
 
 function shouldRetry(
-	failure: string,
 	output: ProcessRunOutput,
 	attempt: number,
 	maxAttempts: number,
 	tools: string[],
 	config: SubagentConfig,
 ): boolean {
-	if (attempt >= maxAttempts || output.aborted || output.stopReason === "length") return false;
+	if (attempt >= maxAttempts || output.aborted || output.stopReason === "aborted" || output.stopReason === "length" || output.parseErrors > 0) return false;
 	if (output.wrote || hasWriteCapability(tools)) return false;
-	if (failure === "subagent timed out") return config.retryOnTimeout;
-	if (failure === "empty output") return config.retryOnEmptyOutput;
-	return output.exitCode !== 0 || output.stopReason === "error" || output.providerError !== undefined;
+	if (output.timedOut) return config.retryOnTimeout;
+	// 提供方错误由 SDK 重试，外层只重跑正常退出但没有正文的任务。
+	return config.retryOnEmptyOutput && output.exitCode === 0 && output.error === undefined
+		&& output.stopReason !== "error" && output.output.trim() === "";
 }
 
 async function retryDelay(ms: number, signal: AbortSignal | undefined): Promise<void> {

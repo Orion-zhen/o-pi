@@ -1,7 +1,6 @@
 import { act, createElement, Fragment } from "react";
 import { useReactFixture } from "./react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { assistantKey } from "../../src/gui/message-metrics.ts";
 import { DisclosureMemoryContext } from "../../src/gui/ui/components/disclosure-memory.ts";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 import { GuiQueryContext } from "../../src/gui/ui/runtime/payload.tsx";
@@ -77,8 +76,9 @@ describe("当前轮次中的稳定内容", () => {
 		const summary = button(".activity-summary");
 		const output = document.querySelector(".activity-body pre");
 		expect(output?.textContent).toContain("file content");
-		const updated = { ...initial, messageDurations: { [assistantKey(completed)]: 500 },
-			messages: [...initial.messages, assistant([{ type: "text", text: "新说明" }, { ...call, id: "next" }])] };
+		const updated = { ...initial,
+			messages: [...initial.messages.map((message) => message === completed ? { ...message, durationMs: 500 } : message),
+				assistant([{ type: "text", text: "新说明" }, { ...call, id: "next" }])] };
 		await render(updated, ["user", "renamed-entry", "result", "next-entry"], new Set([call.id]));
 		expect(document.querySelector('.reply-body [data-entry-id="renamed-entry"]')?.textContent).toBe("已检查组件");
 		expect(document.querySelector(".reply-metrics")?.textContent).toContain("速度 2.0 tok/s");

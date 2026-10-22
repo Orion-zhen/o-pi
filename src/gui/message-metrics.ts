@@ -1,10 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 
-export function assistantKey(message: AssistantMessage): string {
-	return `${message.timestamp}:${message.provider}:${message.model}`;
-}
-
-export function replyMetrics(messages: AssistantMessage[], durations: Record<string, number>) {
+export function replyMetrics(messages: AssistantMessage[]) {
 	let input = 0, output = 0, cacheRead = 0, cacheWrite = 0, cost = 0, duration = 0;
 	let timed = messages.length > 0;
 	for (const message of messages) {
@@ -13,7 +9,7 @@ export function replyMetrics(messages: AssistantMessage[], durations: Record<str
 		cacheRead += message.usage.cacheRead;
 		cacheWrite += message.usage.cacheWrite;
 		cost += message.usage.cost.total;
-		const ms = durations[assistantKey(message)];
+		const ms = message.durationMs;
 		if (ms === undefined) timed = false;
 		else duration += ms;
 	}

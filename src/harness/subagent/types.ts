@@ -187,7 +187,6 @@ export interface ProcessRunOutput {
 	durationMs: number;
 	timedOut: boolean;
 	aborted: boolean;
-	providerError?: string;
 	parseErrors: number;
 	wrote: boolean;
 }

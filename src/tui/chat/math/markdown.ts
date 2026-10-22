@@ -27,6 +27,7 @@ interface SourceLine {
 
 const DISPLAY_OPEN_PATTERN = /^ {0,3}(\$\$|\\\[|\\begin\{(align\*?|aligned|alignedat|alignat\*?|equation\*?|gather\*?|multline\*?|split)\})/;
 const FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+const TABLE_DELIMITER_ROW_PATTERN = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 
 let installed = false;
 let activeConfig: TuiMathConfig;
@@ -144,7 +145,11 @@ function* unfencedLines(source: string, start = 0): Generator<SourceLine> {
 }
 
 function findClosingDelimiter(source: string, token: string, lineStart: number, afterOpening: number): number | undefined {
+	let previousLine = "";
 	for (const line of unfencedLines(source, lineStart)) {
+		// 与 Pi 原生解析一致，表格分隔行阻止公式跨越后续表格。
+		if ((previousLine.includes("|") || line.text.includes("|")) && TABLE_DELIMITER_ROW_PATTERN.test(line.text)) return undefined;
+		previousLine = line.text;
 		let column = line.text.indexOf(token, Math.max(0, afterOpening - line.start));
 		while (column !== -1) {
 			const close = line.start + column;
