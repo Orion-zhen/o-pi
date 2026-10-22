@@ -10,6 +10,7 @@ export interface GuiPreferences {
 	fonts: { ui: string[]; code: string[] };
 	fontSizes: { ui: number; chat: number; code: number };
 	sendShortcut: "mod-enter" | "enter";
+	openFileLinksExternally: boolean;
 	sessionCache: { idleLimit: number; idleMs: number };
 	desktopWeb: { enabled: boolean; host: string; port: number };
 }

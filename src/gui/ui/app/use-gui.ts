@@ -24,6 +24,7 @@ export function useGui() {
 	const [views] = useState(() => new SessionViews());
 	const [view, setView] = useState<SessionViewState>();
 	const editor = useRef<HTMLTextAreaElement>(null);
+	const [referenceVersion, setReferenceVersion] = useState(0);
 	const panels = usePanels(selectedId);
 	const { activity, markRead: recordRead, forget } = useSessionActivity(host.activities, setError);
 	const markRead = useCallback((id: string, completedAt: number) => { if (views.get(id)) recordRead(id, completedAt); }, [views, recordRead]);
@@ -92,10 +93,13 @@ export function useGui() {
 	const openFile = useCallback((path: string) => { workbench.openFile(path); panels.selectTab("file"); panels.setSessionPanelOpen(true); }, [workbench.openFile, panels.selectTab]);
 	const setDraft = useCallback((text: string) => { if (view) views.writeText(view.id, text); }, [view, views]);
 	const referenceFile = useCallback((path: string) => {
-		if (/[\r\n]/.test(path) || (path.includes('"') && path.includes("'"))) { setError("此文件名不能表示为 @ 引用。"); return; }
+		if (/[\r\n]/.test(path) || (path.includes('"') && path.includes("'"))) { setError("此文件名不能表示为 @ 引用。"); return false; }
+		if (!view) return false;
 		const quoted = /[\s'"]/.test(path) ? (path.includes('"') ? `'${path}'` : `"${path}"`) : path;
-		if (view) views.update(view, (draft) => ({ ...draft, text: `${draft.text}${draft.text && !/\s$/.test(draft.text) ? " " : ""}@${quoted} ` }));
+		views.update(view, (draft) => ({ ...draft, text: `${draft.text}${draft.text && !/\s$/.test(draft.text) ? " " : ""}@${quoted} ` }));
 		editor.current?.focus();
+		setReferenceVersion((version) => version + 1);
+		return true;
 	}, [view, views]);
 	const canSubmit = connected && snapshot?.canSubmit === true;
 	const canChangeSession = connected && snapshot?.canChangeSession === true;
@@ -106,7 +110,7 @@ export function useGui() {
 	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession,
 		workbench, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
 	return {
-		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor, dispatch: dispatchSelected,
+		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected,
 		guiConfig: config.document, refreshGuiConfig: config.refresh, availableVersion,
 		dialogs: host.dialogs, notices: host.notices, status, reconnect: connection.reconnect, running: snapshot?.running ?? false,
 		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode,

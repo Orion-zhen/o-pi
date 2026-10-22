@@ -5,6 +5,8 @@ import type { SessionViewState } from "../sessions/session-views.ts";
 export function useTranscriptScroll(sessionId: string | undefined, view: SessionViewState | undefined) {
 	const scroll = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
+	const [highlight, setHighlight] = useState<{ key: number; bounds: Pick<DOMRect, "left" | "top" | "width" | "height"> } | null>(null);
+	const landing = useRef<{ target: HTMLElement; top: number } | null>(null);
 	const mode = useRef<"follow" | "paused" | "returning">("follow");
 	const locationVersion = useRef(0);
 	const restoring = useRef<number | undefined>(undefined);
@@ -17,14 +19,31 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 		lastScrollTop.current = scroll.current?.scrollTop ?? 0;
 	};
 	const pinToBottom = () => { if (scroll.current) jumpTo(scroll.current.scrollHeight); };
-	const cancelLocation = () => { locationVersion.current++; };
+	const cancelLocation = () => { locationVersion.current++; landing.current = null; setHighlight(null); };
+	const finishLocation = () => {
+		const viewport = scroll.current;
+		const destination = landing.current;
+		const body = content.current;
+		if (!viewport || !body || !destination || Math.abs(viewport.scrollTop - destination.top) > 1) return;
+		landing.current = null;
+		if (!body.contains(destination.target)) return;
+		const targetBounds = destination.target.getBoundingClientRect();
+		const bodyBounds = body.getBoundingClientRect();
+		setHighlight({ key: locationVersion.current, bounds: {
+			left: targetBounds.left - bodyBounds.left, top: targetBounds.top - bodyBounds.top,
+			width: targetBounds.width, height: targetBounds.height,
+		} });
+	};
 	const centerTarget = (target: HTMLElement) => {
 		const viewport = scroll.current;
 		if (!viewport?.contains(target)) return;
 		const bounds = target.getBoundingClientRect();
 		const top = viewport.scrollTop + bounds.top - viewport.getBoundingClientRect().top
 			- (viewport.clientHeight - Math.min(bounds.height, viewport.clientHeight)) / 2;
-		viewport.scrollTo({ top, behavior: "smooth" });
+		const destination = Math.max(0, Math.min(top, viewport.scrollHeight - viewport.clientHeight));
+		landing.current = { target, top: destination };
+		viewport.scrollTo({ top: destination, behavior: "smooth" });
+		finishLocation();
 	};
 	const followLatest = () => {
 		cancelLocation();
@@ -68,12 +87,14 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 		const body = content.current;
 		if (!viewport || !body) return;
 		const observer = new ResizeObserver(() => {
+			setHighlight(null);
 			if (mode.current === "returning") return;
 			if (restoring.current !== undefined) jumpTo(restoring.current);
 			else if (mode.current === "follow") pinToBottom();
 			setShowLatest(mode.current !== "follow" && !atEnd());
 		});
 		const finishReturn = () => {
+			finishLocation();
 			if (mode.current !== "returning") return;
 			if (atEnd(1)) {
 				mode.current = "follow";
@@ -89,7 +110,7 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 		};
 	}, [sessionId, view]);
 	return {
-		scroll, content, showLatest, toLatest, followLatest,
+		scroll, content, highlight, showLatest, toLatest, followLatest,
 		readFromStart: () => {
 			cancelLocation();
 			mode.current = "paused";

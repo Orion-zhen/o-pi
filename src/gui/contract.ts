@@ -358,4 +358,5 @@ export interface DesktopBridge extends Omit<GuiConnection, "subscribe"> {
 	acknowledge(id: number): void;
 	chooseDirectory(): Promise<string | null>;
 	openExternal(url: string): Promise<void>;
+	openFile(cwd: string, path: string): Promise<void>;
 }

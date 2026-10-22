@@ -1,7 +1,8 @@
 import { lazy, Suspense, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "../../components/animated";
-import { AtSign, WrapText, X } from "lucide-react";
+import { WrapText, X } from "lucide-react";
+import { ReferenceFileButton } from "../reference-file-button";
 import type { FilePreview as Preview } from "../../../workbench.ts";
 import type { Remote } from "../use-workbench.ts";
 import { fileLanguage, SyntaxHighlighter } from "../../content/code-highlight.ts";
@@ -40,7 +41,7 @@ function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean
 }
 
 export function FilePreviewPanel({ preview: selection, referenceFile, close }: {
-	preview: { path: string; result: Remote<Preview> }; referenceFile: (path: string) => void; close: () => void;
+	preview: { path: string; result: Remote<Preview> }; referenceFile: (path: string) => boolean; close: () => void;
 }) {
 	const [mode, setMode] = useState<"content" | "diff" | null>(null);
 	const [wrap, setWrap] = useState(true);
@@ -57,8 +58,7 @@ export function FilePreviewPanel({ preview: selection, referenceFile, close }: {
 				<Button variant="ghost" size="sm" aria-pressed={diff} onClick={() => setMode("diff")}>差异</Button>
 			</div>}
 			{!media && <IconButton label="自动折行" size="icon-sm" aria-pressed={wrap} onClick={() => setWrap(!wrap)}><WrapText /></IconButton>}
-			<IconButton label="引用文件" size="icon-sm" disabled={!preview || preview.content.kind === "deleted"}
-				onClick={() => referenceFile(selection.path)}><AtSign /></IconButton>
+			<ReferenceFileButton path={selection.path} referenceFile={referenceFile} direction={-1} disabled={!preview || preview.content.kind === "deleted"} />
 			<IconButton label="关闭文件预览" size="icon-sm" onClick={close}><X /></IconButton>
 		</div>
 		<div className="file-preview-body" tabIndex={0} aria-label="文件正文">

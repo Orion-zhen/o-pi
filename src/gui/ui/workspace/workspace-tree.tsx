@@ -1,5 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { AtSign, Check, ChevronRight, Copy } from "lucide-react";
+import { Check, ChevronRight, Copy } from "lucide-react";
+import { ReferenceFileButton } from "./reference-file-button";
 import { FileIcon } from "../components/file-icon.tsx";
 import { gitStatusLabels, indexWorkspaceGit, type WorkspaceGit } from "../../workbench.ts";
 import type { WorkbenchView } from "./use-workbench.ts";
@@ -8,7 +9,7 @@ import { useVirtualRows } from "../lib/use-virtual-rows.ts";
 import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 
-function FileRowActions({ path, referenceFile }: { path: string; referenceFile: (path: string) => void }) {
+function FileRowActions({ path, referenceFile }: { path: string; referenceFile: (path: string) => boolean }) {
 	const [copyState, setCopyState] = useState<{ status: "idle" | "copied" | "error" }>({ status: "idle" });
 	useEffect(() => {
 		if (copyState.status !== "copied") return;
@@ -27,12 +28,11 @@ function FileRowActions({ path, referenceFile }: { path: string; referenceFile: 
 					setCopyState({ status: "error" });
 				}
 			}}>{copyState.status === "copied" ? <Check /> : <Copy />}</IconButton>
-		<IconButton label={`引用路径 ${path}`} tooltip="引用路径" className="row-action-button"
-			onClick={() => referenceFile(path)}><AtSign /></IconButton>
+		<ReferenceFileButton path={path} referenceFile={referenceFile} direction={1} />
 	</div>;
 }
 
-type FileActions = { openFile: (path: string) => void; referenceFile: (path: string) => void };
+type FileActions = { openFile: (path: string) => void; referenceFile: (path: string) => boolean };
 export const WorkspaceChanges = memo(function WorkspaceChanges({ git, selected, openFile, referenceFile }: FileActions & {
 	git: WorkspaceGit; selected: string | undefined;
 }) {

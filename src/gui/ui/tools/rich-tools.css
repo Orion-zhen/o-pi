@@ -35,8 +35,7 @@
 .subagent-task-description { color: var(--foreground); white-space: pre-wrap; overflow-wrap: anywhere; }
 .subagent-task-summary[aria-expanded="false"] .subagent-task-description, .subagent-current { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .subagent-current { color: var(--muted-foreground); overflow-wrap: anywhere; line-height: 1.6; }
-.subagent-task[data-state="completed"] .subagent-task-heading > svg { color: var(--success); }
-.subagent-task[data-state="failed"] .subagent-task-state, .subagent-task[data-state="failed"] .subagent-task-heading > svg, .subagent-error { color: var(--destructive); }
+.subagent-task[data-state="failed"] .subagent-task-state, .subagent-error { color: var(--destructive); }
 .subagent-task[data-state="stopped"] .subagent-task-state { color: var(--warning); }
 .subagent-error { margin: 0 0.75rem 0.75rem; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-caption); }
 .subagent-task-body { padding: 0 0.75rem 0.75rem; min-width: 0; }

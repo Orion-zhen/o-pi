@@ -30,7 +30,7 @@ interface SessionSidebarView extends Pick<GuiControls, "send"> {
 	sessionPanelOpen: boolean;
 	selectTab: (tab: GuiSessionTab | "file") => void;
 	workbench: WorkbenchView;
-	referenceFile: (path: string) => void;
+	referenceFile: (path: string) => boolean;
 }
 export function SessionSidebar({ gui, locate }: { gui: SessionSidebarView; locate: (entryId: string) => void }) {
 	const root = useRef<HTMLDivElement>(null);

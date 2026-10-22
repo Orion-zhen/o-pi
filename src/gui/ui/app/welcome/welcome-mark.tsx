@@ -1,65 +1,41 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { motion, useAnimationControls } from "motion/react";
+import { settle } from "../../lib/motion";
+import { useAnimationVisibility } from "../../lib/use-animation-visibility";
 
-const stretch: Keyframe[] = [
-	{ transform: "translateY(0px) scaleY(1) rotate(0deg)", offset: 0, easing: "ease-in-out" },
-	{ transform: "translateY(1px) scaleY(0.96) rotate(0deg)", offset: 0.16, easing: "ease-in-out" },
-	{ transform: "translateY(-5px) scaleY(1.08) rotate(-4deg)", offset: 0.55, easing: "ease-in-out" },
-	{ transform: "translateY(-5px) scaleY(1.08) rotate(-4deg)", offset: 0.68, easing: "ease-in-out" },
-	{ transform: "translateY(0px) scaleY(1) rotate(0deg)", offset: 1 },
-];
+const resting = { y: 0, scaleY: 1, rotate: 0 };
 
 export function WelcomeMark() {
-	const logo = useRef<HTMLSpanElement>(null);
+	const { ref, playing } = useAnimationVisibility<HTMLSpanElement>();
+	const animation = useAnimationControls();
 	useEffect(() => {
-		const element = logo.current;
-		if (!element) return;
-		let timer: number | undefined;
-		let animation: Animation | undefined;
+		if (!playing) { animation.set(resting); return; }
+		let timer: number;
 		let stretching = false;
-		const canPlay = () => !document.hidden && document.hasFocus();
-		const stop = () => { animation?.cancel(); animation = undefined; stretching = false; };
-		const animate = (frames: Keyframe[], options: KeyframeAnimationOptions) => {
-			animation?.cancel();
-			const current = element.animate(frames, options);
-			animation = current;
-			current.onfinish = () => { if (animation === current) stop(); };
-		};
-		const schedule = (delay: number) => {
-			window.clearTimeout(timer);
-			if (canPlay()) timer = window.setTimeout(play, delay);
-		};
+		const schedule = (delay: number) => { window.clearTimeout(timer); timer = window.setTimeout(play, delay); };
 		const play = () => {
-			if (!canPlay()) return;
 			stretching = true;
-			animate(stretch, { duration: 3200 });
+			void animation.start({ y: [0, 1, -5, -5, 0], scaleY: [1, 0.96, 1.08, 1.08, 1], rotate: [0, 0, -4, -4, 0],
+				transition: { duration: 3.2, times: [0, 0.16, 0.55, 0.68, 1], ease: "easeInOut" },
+			}).then(() => { stretching = false; });
 			schedule(20_000 + Math.random() * 10_000);
 		};
 		const activity = () => {
 			if (stretching) {
-				const transform = getComputedStyle(element).transform;
 				stretching = false;
-				animate([{ transform }, { transform: "none" }], { duration: 280, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+				void animation.start({ ...resting, transition: settle });
 			}
 			schedule(5_000);
 		};
-		const availabilityChanged = () => { stop(); schedule(5_000); };
 		const events = ["pointerdown", "keydown", "input", "wheel"] as const;
 		for (const event of events) window.addEventListener(event, activity, { capture: true, passive: true });
-		window.addEventListener("focus", availabilityChanged);
-		window.addEventListener("blur", availabilityChanged);
-		document.addEventListener("visibilitychange", availabilityChanged);
-		availabilityChanged();
+		schedule(5_000);
 		return () => {
 			window.clearTimeout(timer);
-			stop();
+			animation.stop();
 			for (const event of events) window.removeEventListener(event, activity, true);
-			window.removeEventListener("focus", availabilityChanged);
-			window.removeEventListener("blur", availabilityChanged);
-			document.removeEventListener("visibilitychange", availabilityChanged);
 		};
-	}, []);
+	}, [playing, animation]);
 
-	return <div className="welcome-mark">
-		<span ref={logo} className="app-logo" role="img" aria-label="opi" />
-	</div>;
+	return <div className="welcome-mark"><motion.span ref={ref} animate={animation} className="app-logo" role="img" aria-label="opi" /></div>;
 }

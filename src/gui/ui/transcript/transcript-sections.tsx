@@ -1,4 +1,6 @@
 import { memo, useEffect } from "react";
+import { AnimatePresence } from "motion/react";
+import { Reveal } from "../components/animated";
 import { useDisclosureMemory } from "../components/disclosure-memory.ts";
 import { Disclosure } from "../components/disclosure";
 import { StreamingText, Message } from "../content/content.tsx";
@@ -53,7 +55,7 @@ const Body = memo(function Body({ first, items, entryIds, showMetrics }: {
 	return <div className="reply-body">
 		<MessageIdentity name={first.identity.model} timestamp={first.identity.timestamp} />
 		{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}
-		{showMetrics && !first.active && <ReplyMetrics {...first.metrics} scope="本条" />}
+		<AnimatePresence initial={false}>{showMetrics && !first.active && <Reveal><ReplyMetrics {...first.metrics} scope="本条" /></Reveal>}</AnimatePresence>
 	</div>;
 }, (before, after) => before.showMetrics === after.showMetrics && sameTranscriptItem(before.first, after.first) && sameContent(before, after));
 

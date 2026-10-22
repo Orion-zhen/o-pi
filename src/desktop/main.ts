@@ -10,7 +10,7 @@ import {
 } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import type { GuiEvent } from "../gui/contract.ts";
 import { GUI_BACKGROUNDS } from "../gui/theme-base.ts";
 import { BackendClient } from "./backend-client.ts";
@@ -24,6 +24,7 @@ import { installDesktopAppearance } from "./appearance.ts";
 import { installDesktopShutdown } from "./shutdown.ts";
 import { createDesktopWindowState } from "./window-state.ts";
 import { fileResourceResponse, type FileResource } from "../gui/host/workspace/file-resource.ts";
+import { workspacePath } from "../gui/host/workspace/workspace-path.ts";
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -218,6 +219,14 @@ void app
 			trusted(event);
 			if (typeof url !== "string") throw new Error("无效 URL");
 			await openExternal(url);
+		});
+		ipcMain.handle("gui:openFile", async (event, cwd: unknown, name: unknown) => {
+			trusted(event);
+			if (typeof cwd !== "string" || !path.isAbsolute(cwd) || typeof name !== "string") throw new Error("无效文件路径");
+			const file = await workspacePath(cwd, name);
+			if (!(await stat(file)).isFile()) throw new Error("仅支持打开普通文件。");
+			const error = await shell.openPath(file);
+			if (error) throw new Error(error);
 		});
 		app.on("window-all-closed", () => app.quit());
 		installDesktopShutdown(window, client, diagnostics);

@@ -25,5 +25,6 @@ const bridge: DesktopBridge = {
 	},
 	chooseDirectory: () => ipcRenderer.invoke("gui:directory"),
 	openExternal: (url) => ipcRenderer.invoke("gui:external", url),
+	openFile: (cwd, path) => ipcRenderer.invoke("gui:openFile", cwd, path),
 };
 contextBridge.exposeInMainWorld("opi", bridge);

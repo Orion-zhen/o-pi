@@ -17,7 +17,7 @@ import type { useGui } from "./use-gui.ts";
 
 type ConversationControls = Pick<ReturnType<typeof useGui>,
 	"snapshot" | "notices" | "send" | "cwd" | "openFile" | "view" | "availableVersion" | "changelog" | "changelogShown"
-	| "canSubmit" | "setPanel" | "editor" | "setDraft"
+	| "canSubmit" | "setPanel" | "editor" | "setDraft" | "guiConfig"
 	| "activity" | "workspaceRoot" | "workspaces" | "connected" | "canNavigate" | "globalQuery" | "error" | "setError">;
 
 /** 消息投影与渲染位于同一个异常边界内，不影响会话连接和输入草稿。 */
@@ -30,7 +30,12 @@ export function ConversationContent({ gui, target, workspaceWelcome, closeSideba
 	transcript: Pick<ReturnType<typeof useTranscriptScroll>, "toEntry" | "followLatest">;
 }) {
 	const { snapshot, notices, send } = gui;
-	const fileLinks = useMemo(() => ({ cwd: gui.cwd, openFile: gui.openFile }), [gui.cwd, gui.openFile]);
+	const openFileLinksExternally = gui.guiConfig?.state === "ready" && gui.guiConfig.value.openFileLinksExternally;
+	const fileLinks = useMemo(() => ({ cwd: gui.cwd, openFile: (path: string) => {
+		if (openFileLinksExternally && window.opi) {
+			void window.opi.openFile(gui.cwd, path).catch((error: unknown) => gui.setError(`无法打开文件：${error instanceof Error ? error.message : String(error)}`));
+		} else gui.openFile(path);
+	} }), [gui.cwd, gui.openFile, gui.setError, openFileLinksExternally]);
 	const located = useMemo(() => snapshot ? locateTranscript(snapshot, target) : undefined, [snapshot?.entries, snapshot?.contextEntryIds, snapshot?.leafId, target]);
 	const conversation = useMemo(() => snapshot && located ? {
 		snapshot, ...located,

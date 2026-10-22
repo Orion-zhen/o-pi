@@ -1,22 +1,29 @@
-import { useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type RefObject } from "react";
 
 export function useSuggestionNavigation(editor: RefObject<HTMLTextAreaElement | null>) {
 	const ref = useRef<HTMLUListElement>(null);
 	const focused = useRef<HTMLButtonElement | null>(null);
+	const [active, setActive] = useState<string | null>(null);
 	useLayoutEffect(() => {
 		const button = focused.current;
 		if (button && (!button.isConnected || button.closest("[inert]"))) {
 			focused.current = null;
+			setActive(null);
 			if (document.activeElement === document.body || document.activeElement === button) editor.current?.focus();
 		}
 	});
 	return {
 		ref,
+		active,
 		onFocus(event: FocusEvent<HTMLUListElement>) {
-			if (event.target instanceof HTMLButtonElement) focused.current = event.target;
+			if (event.target instanceof HTMLButtonElement) {
+				focused.current = event.target;
+				setActive(event.target.dataset.suggestion ?? null);
+			}
 		},
-		onBlur() {
+		onBlur(event: FocusEvent<HTMLUListElement>) {
 			focused.current = null;
+			if (!event.currentTarget.contains(event.relatedTarget)) setActive(null);
 		},
 		onKeyDown(event: KeyboardEvent<HTMLElement>): boolean {
 			if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return false;

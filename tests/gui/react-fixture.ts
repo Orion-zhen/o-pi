@@ -1,4 +1,5 @@
-import { act, type ReactNode } from "react";
+import { act, createElement, type ReactNode } from "react";
+import { MotionConfig } from "motion/react";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, vi } from "vitest";
@@ -21,5 +22,5 @@ export function useReactFixture(cleanup?: () => void) {
 		cleanup?.();
 		vi.unstubAllGlobals();
 	});
-	return (node: ReactNode) => act(async () => root.render(node));
+	return (node: ReactNode) => act(async () => root.render(createElement(MotionConfig, { isStatic: true }, node)));
 }

@@ -6,7 +6,7 @@ export type GuiSection = "appearance" | "interaction" | "desktopWeb";
 export type ReadyGuiConfig = Extract<GuiConfigDocument, { state: "ready" }>;
 const sectionKeys = {
 	appearance: ["theme", "themeColor", "fonts", "fontSizes", "materials"],
-	interaction: ["sendShortcut"],
+	interaction: ["sendShortcut", "openFileLinksExternally"],
 	desktopWeb: ["desktopWeb"],
 } as const;
 

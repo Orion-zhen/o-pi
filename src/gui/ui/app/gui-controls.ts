@@ -33,6 +33,6 @@ export interface SidebarView extends GuiControls {
 	workbench: WorkbenchView;
 	layout: ReturnType<typeof useLayout>;
 	openFile: (path: string) => void;
-	referenceFile: (path: string) => void;
+	referenceFile: (path: string) => boolean;
 	error: string;
 }

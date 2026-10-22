@@ -18,7 +18,7 @@ import { useSettingsDraft, useSettingsState } from "../settings/settings-state.t
 import { SettingsNumber } from "../settings/settings-number.tsx";
 import "./gui-settings.css";
 
-type PreferencePath = MaterialPreferencePath | ["theme"] | ["themeColor"] | ["sendShortcut"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
+type PreferencePath = MaterialPreferencePath | ["theme"] | ["themeColor"] | ["sendShortcut"] | ["openFileLinksExternally"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
 
 export function GuiSettings({ title, section, document: latest, send, query, disabled, refresh, restoreFocus }: {
 	title: string; section: GuiSection;
@@ -116,12 +116,16 @@ export function GuiSettings({ title, section, document: latest, send, query, dis
 					</SettingsRow>
 				</div>
 				<p className="settings-warning">免登录，勿暴露到公网。</p>
-			</SettingsSection> : <SettingsSection title="发送方式" actions={actions}><div className="settings-fields">
+			</SettingsSection> : <SettingsSection title={title} actions={actions}><div className="settings-fields">
 				<SettingsRow label="发送快捷键" reset={{ value: document.value.sendShortcut, defaultValue: document.defaults.sendShortcut, apply: () => change(["sendShortcut"], undefined) }} disabled={blocked}>
 					<Select value={document.value.sendShortcut} disabled={blocked} onValueChange={(value) => void change(["sendShortcut"], value === document.defaults.sendShortcut ? undefined : value)}>
 						<SelectTrigger aria-label="发送快捷键"><SelectValue /></SelectTrigger>
 						<SelectContent><SelectItem value="mod-enter">Ctrl / ⌘ + Enter</SelectItem><SelectItem value="enter">Enter</SelectItem></SelectContent>
 					</Select>
+				</SettingsRow>
+				<SettingsRow label="使用外部应用打开文件链接" reset={{ value: document.value.openFileLinksExternally, defaultValue: document.defaults.openFileLinksExternally, apply: () => change(["openFileLinksExternally"], undefined) }} disabled={blocked}>
+					<Switch aria-label="使用外部应用打开文件链接" checked={document.value.openFileLinksExternally} disabled={blocked}
+						onCheckedChange={(value) => void change(["openFileLinksExternally"], value === document.defaults.openFileLinksExternally ? undefined : value)} />
 				</SettingsRow>
 			</div></SettingsSection>}
 		{error && <p role="alert">{error}</p>}

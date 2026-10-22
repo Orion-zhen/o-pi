@@ -2,7 +2,8 @@ import { memo, useContext, useState } from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger, ContentVisible } from "../components/ui/collapsible";
 import { Disclosure } from "../components/disclosure";
 import Markdown from "react-markdown";
-import { Bot, Check, ChevronRight, CircleDashed, CircleStop, LoaderCircle, X } from "lucide-react";
+import { Bot, ChevronRight } from "lucide-react";
+import { ActivityError, ActivityIcon } from "./tool-display.tsx";
 import type { SubagentDetails, SubagentRunResult, SubagentTask } from "../../../harness/subagent/types.ts";
 import { CodeBlock } from "../content/code-block.tsx";
 import { MarkdownText, StreamingText, clean } from "../content/content.tsx";
@@ -36,20 +37,19 @@ function Task({ task, result, state }: { task: SubagentTask; result: SubagentRun
 	const [expanded, setExpanded] = useState<boolean | null>(null);
 	const open = expanded ?? state === "failed";
 	const active = state === "running";
-	const Icon = active ? LoaderCircle : state === "completed" ? Check : state === "failed" ? X : state === "stopped" ? CircleStop : CircleDashed;
 	const latest = result?.events.at(-1);
 	const current = latest?.type === "tool" ? `${latest.name} ${toolTarget(latest.name, latest.args)}` : result?.output;
 	return <section className="subagent-task" data-state={state}>
 		<Collapsible open={open} onOpenChange={setExpanded}>
 		<CollapsibleTrigger className="subagent-task-summary">
-			<span className="subagent-task-heading"><Icon className={active ? "animate-spin" : ""} aria-hidden="true" /><strong>{task.agent}</strong>
+			<span className="subagent-task-heading"><ActivityIcon state={state} /><strong>{task.agent}</strong>
 				<span className="subagent-task-state">{labels[state]}</span><ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 			</span>
 			<span className="subagent-task-description">{task.task}</span>
 			{current && !open && <span className="subagent-current">{latest?.type === "tool" ? clean(current)
 				: <Markdown allowedElements={["strong", "em", "del", "code"]} unwrapDisallowed>{clean(current).slice(0, 2048)}</Markdown>}</span>}
 		</CollapsibleTrigger>
-		{result?.error && <p className="subagent-error">{clean(result.error)}</p>}
+		<ActivityError className="subagent-error">{result?.error ? clean(result.error) : ""}</ActivityError>
 		{result && <CollapsibleContent lazy><TaskBody result={result} active={active} visible={visible && open} /></CollapsibleContent>}
 		</Collapsible>
 	</section>;

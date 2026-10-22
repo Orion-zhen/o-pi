@@ -1,6 +1,6 @@
 import { ChevronRight, CodeXml } from "lucide-react";
 import { outputPreview, type GuiNestedCall } from "../../messages.ts";
-import { ActivityState, errorSummary } from "./tool-display.tsx";
+import { ActivityError, ActivityState, errorSummary } from "./tool-display.tsx";
 import { useDisclosureMemory } from "../components/disclosure-memory.ts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
 import { Disclosure } from "../components/disclosure";
@@ -24,12 +24,13 @@ export function CodemodeActivity({ tool }: { tool: ToolActivity }) {
 		<Collapsible open={open} onOpenChange={setExpanded}>
 			<CollapsibleTrigger className="activity-summary">
 				<CodeXml className="activity-icon" aria-hidden="true" /><span className="activity-label">codemode</span>
-				<span className="activity-facts">{tool.nestedCalls ? `${calls.length} 次调用` : "执行脚本"}{failures > 0 && <span className="nested-failures"> · {failures} 次失败</span>}</span>
-				{tool.durationMs !== undefined && <span className="activity-facts">{tool.durationMs} ms</span>}
-				<ActivityState state={tool.state} label={tool.state === "completed" ? "脚本完成" : undefined} />
-				<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
+				<span className="activity-tail">
+					<ActivityState state={tool.state} label={tool.state === "completed" ? "脚本完成" : undefined} durationMs={tool.durationMs}
+						facts={<>{tool.nestedCalls ? `${calls.length} 次调用` : "执行脚本"}{failures > 0 && <span className="nested-failures"> · {failures} 次失败</span>}</>} />
+					<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
+				</span>
 			</CollapsibleTrigger>
-			{error && <p className="activity-error">{error}</p>}
+			<ActivityError>{error}</ActivityError>
 			<CollapsibleContent lazy>
 				<div className="activity-body codemode-body">
 					<div className="codemode-calls">
@@ -58,7 +59,7 @@ function NestedCallRow({ call, active, stopped }: { call: GuiNestedCall; active:
 	return <Collapsible className="tool-activity nested-tool-call" data-nested-tool-call-id={call.id} data-state={state}
 		open={open} onOpenChange={setExpanded}>
 		<ToolSummary tool={tool} open={open} {...(state === "unavailable" ? { stateLabel: "未完成" } : {})} />
-		{error && <p className="activity-error" role="alert">{error}</p>}
+		<ActivityError>{error}</ActivityError>
 		<CollapsibleContent lazy><div className="nested-call-details">
 			{call.output ? <ToolBody tool={tool} /> : <div className="activity-body">
 				{call.arguments !== undefined ? <Disclosure className="tool-parameters" summary="参数" lazy>

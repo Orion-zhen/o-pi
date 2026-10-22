@@ -3,7 +3,7 @@ import { memo } from "react";
 import { useDisclosureMemory } from "../components/disclosure-memory.ts";
 import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Disclosure } from "../components/disclosure";
-import { errorSummary } from "./tool-display.tsx";
+import { ActivityError, errorSummary } from "./tool-display.tsx";
 import { ToolSummary } from "./tool-summary.tsx";
 import { CodemodeActivity } from "./codemode-activity.tsx";
 import { ToolBody } from "./tool-body.tsx";
@@ -29,7 +29,7 @@ function StandardToolActivity({ tool }: { tool: Activity }) {
 		<section className="tool-activity" data-state={tool.state} data-tool={tool.name} data-tool-call-id={tool.id}>
 			<Collapsible open={open} onOpenChange={setExpanded}>
 			<ToolSummary tool={tool} open={open} />
-			{error && <p className="activity-error">{error}</p>}
+			<ActivityError>{error}</ActivityError>
 			{tool.nestedCalls && <Disclosure className="tool-nested" summary={`${tool.nestedCalls.calls.length} 次嵌套调用`} lazy>
 				{tool.nestedCalls.calls.map((call) => {
 					const error = call.status === "error" ? errorSummary(call) : "";

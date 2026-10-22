@@ -3,8 +3,6 @@ import { Children, createContext, isValidElement, lazy, memo, Suspense, useConte
 import { Hint } from "../components/ui/tooltip";
 import { MessageIdentity } from "./message-meta.tsx";
 import { CodeBlock } from "./code-block.tsx";
-import { motion } from "motion/react";
-import { fade } from "../lib/motion";
 import { Disclosure } from "../components/disclosure";
 import Markdown, { defaultUrlTransform, type Components, type ExtraProps, type UrlTransform } from "react-markdown";
 import { FileLinksContext, fileLinkPath } from "./file-links.ts";
@@ -117,13 +115,13 @@ export const Message = memo(function Message({ value, entryId }: { value: GuiMes
 	const role = value.role;
 	if (value.role === "custom" && !value.display) return null;
 	if (value.role === "custom" && value.customType === SKILL_CONTEXT_MESSAGE && isSkillLoadDetails(value.details)) {
-		return <motion.article {...fade} className="message skill-message" data-entry-id={entryId}>
+		return <article className="message skill-message" data-entry-id={entryId}>
 			<SkillCard id={`message:${entryId ?? value.timestamp}`} name={value.details.name} loadedBy={value.details.loadedBy}
 				state="completed" output={{ kind: "inline", value: { content: value.content, details: value.details } }} />
-		</motion.article>;
+		</article>;
 	}
 	return (
-		<motion.article {...fade} className={`message ${role}`} data-entry-id={entryId}>
+		<article className={`message ${role}`} data-entry-id={entryId}>
 			{role === "user" && typeof value.timestamp === "number" && <MessageIdentity name="You" timestamp={value.timestamp} />}
 			{role !== "user" && <header><strong>{value.role === "custom" ? value.customType : role}</strong></header>}
 			{value.role === "bashExecution" ? <>
@@ -134,6 +132,6 @@ export const Message = memo(function Message({ value, entryId }: { value: GuiMes
 				: value.role === "toolResult" ? <Content value={value.output.kind === "inline" ? value.output.value.content : value.output.preview.content} />
 				: <Content value={value.content} />}
 			{value.role === "assistant" && value.errorMessage && <pre className="error">{value.errorMessage}</pre>}
-		</motion.article>
+		</article>
 	);
 });

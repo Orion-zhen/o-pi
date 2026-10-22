@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, CornerUpRight, ListEnd, Square } from "lucide-react";
 import { animate, motion, useDragControls, useMotionValue, useReducedMotion, useTransform } from "motion/react";
+import { Crossfade } from "../components/animated";
 import { Button } from "../components/ui/button";
 import { Hint } from "../components/ui/tooltip";
 import "./send-button.css";
@@ -151,7 +152,9 @@ export function SendButton({ mode, disabled, onActivate }: SendButtonProps) {
 						onActivate();
 					}}
 				>
-					<motion.span className="sling-icon" style={{ rotate: angle }}><Icon fill={mode === "stop" || mode === "stop-compaction" ? "currentColor" : "none"} /></motion.span>
+					<motion.span className="sling-icon" style={{ rotate: angle }}><Crossfade value={mode}>
+						<Icon fill={mode === "stop" || mode === "stop-compaction" ? "currentColor" : "none"} />
+					</Crossfade></motion.span>
 				</motion.button>
 			</Button>
 		</Hint>

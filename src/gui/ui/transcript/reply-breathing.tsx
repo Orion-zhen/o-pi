@@ -1,5 +1,6 @@
-import { memo, useLayoutEffect } from "react";
-import { animate, motion, transform, useMotionValue, useTransform, type MotionStyle } from "motion/react";
+import { memo, useLayoutEffect, type CSSProperties } from "react";
+import { animate, motion, transform, useMotionValue, useTransform } from "motion/react";
+import { Reveal } from "../components/animated";
 import { breathingSegments } from "./breathing-segments.ts";
 import { useReplyAnimation } from "./use-reply-animation.ts";
 import "./reply-breathing.css";
@@ -11,7 +12,7 @@ const holdFraction = 0.16;
 const beatDuration = duration / segmentCount;
 const rotationDuration = beatDuration * 4;
 const breathingDuration = duration / 4;
-export const replyTiming: MotionStyle & Record<`--reply-${string}-duration`, string> = {
+export const replyTiming: CSSProperties & Record<`--reply-${string}-duration`, string> = {
 	"--reply-beat-duration": `${beatDuration}s`,
 	"--reply-rotation-duration": `${rotationDuration}s`,
 	"--reply-breathing-duration": `${breathingDuration}s`,
@@ -45,12 +46,10 @@ export const ReplyBreathing = memo(function ReplyBreathing({ compacting }: { com
 		return () => animation.stop();
 	}, [progress, playing]);
 
-	return <motion.div ref={ref} className="reply-breathing" role="status" aria-label={label}
-		initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.85 }}
-		transition={{ duration: 0.2 }}>
+	return <Reveal ref={ref} className="reply-breathing" role="status" aria-label={label}>
 		<svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
 			<motion.path d={path} fill="currentColor" />
 		</svg>
 		<span className="reply-status-label" data-active="true" aria-hidden="true">{label}</span>
-	</motion.div>;
+	</Reveal>;
 });

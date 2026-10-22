@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { Fade, Reveal } from "../components/animated";
+import { Crossfade, Fade, Reveal } from "../components/animated";
+import { FeedbackHighlight } from "../components/feedback-highlight";
 import { ConversationContent } from "./conversation-content.tsx";
 import { RegionBoundary } from "../runtime/region-boundary.tsx";
 import { ErrorBanner } from "./error-banner.tsx";
@@ -131,12 +132,14 @@ export function App() {
 								<div className="session-heading"><strong className="session-name">选择工作区</strong></div>
 							)}
 							<div role="status" className="connection-status" data-state={state}>
+								<Crossfade value={state}>
 								{state === "运行中" || state === "正在压缩上下文" ? (
 									<LoaderCircle className="animate-spin" aria-hidden="true" />
 								) : (
 									<span className="status-dot" aria-hidden="true" />
 								)}
 								<span>{state}</span>
+								</Crossfade>
 							</div>
 							{!gui.connected && (
 								<IconButton label="重新连接" onClick={gui.reconnect}>
@@ -205,6 +208,7 @@ export function App() {
 						<div className="transcript-shell">
 						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
 							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
+								{transcript.highlight && <FeedbackHighlight key={transcript.highlight.key} style={transcript.highlight.bounds} />}
 								<RegionBoundary scope="messages">
 									<ConversationContent gui={gui} target={target} workspaceWelcome={workspaceWelcome} closeSidebar={closeSidebar}
 										clearLocation={() => setLocation(undefined)} transcript={transcript} />
@@ -227,7 +231,7 @@ export function App() {
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
-						{snapshot && gui.view && <RegionBoundary scope="composer" key={snapshot.sessionId}><Composer gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} /></RegionBoundary>}
+						{snapshot && gui.view && <RegionBoundary scope="composer" key={snapshot.sessionId}><Composer gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} /></RegionBoundary>}
 						</div>
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {

@@ -51,7 +51,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 		switch (id) {
 			case "appearance": return <GuiSettings title="外观" section="appearance" {...guiProps} />;
 			case "conversation": return <>
-				<GuiSettings title="发送方式" section="interaction" {...guiProps} />
+				<GuiSettings title="对话交互" section="interaction" {...guiProps} />
 				<NotificationSettings />
 				{snapshot ? <AgentSettings key={snapshot.sessionId} snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} />
 					: <SettingsSection title="会话行为"><p className="settings-empty">未选择工作区</p></SettingsSection>}

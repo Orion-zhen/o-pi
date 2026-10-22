@@ -1,9 +1,13 @@
-import { useRef } from "react";
-import { AnimatePresence } from "motion/react";
-import { ListItem, Reveal } from "../components/animated";
+import { useEffect, useId, useRef, useState } from "react";
+import { resize } from "motion";
+import { AnimatePresence, motion } from "motion/react";
+import { fade, settle } from "../lib/motion";
+import { Crossfade, ListItem, Reveal } from "../components/animated";
+import { FeedbackHighlight } from "../components/feedback-highlight";
 import { AnimatedNumber } from "../components/motion-primitives/animated-number";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
-import { Blocks, CodeXml, CornerUpRight, ListEnd, Paperclip, Trash2, Wrench, X } from "lucide-react";
+import { AnimatedBackground } from "../components/motion-primitives/animated-background";
+import { Blocks, CodeXml, CornerUpRight, ListEnd, Paperclip, Wrench, X } from "lucide-react";
+import { QueuedMessages } from "./queued-messages";
 import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
@@ -27,13 +31,17 @@ import { useFileDrop } from "./use-file-drop.ts";
 
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
 let nextAttachmentId = 0;
+const attachmentOrigin = { y: 6, rotate: -2, scale: 0.98 };
 
 interface ComposerControls extends Pick<GuiControls, "connected" | "query" | "send" | "setError" | "canSubmit" | "setPanel"> {
 	editor: RefObject<HTMLTextAreaElement | null>;
 	views: SessionViews;
 }
-export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: ComposerControls; view: SessionViewState; snapshot: GuiSnapshot; preferences: GuiPreferences | undefined; onSubmit: () => void }) {
+export function Composer({ gui, view, snapshot, preferences, onSubmit, referenceVersion = 0 }: { gui: ComposerControls; view: SessionViewState; snapshot: GuiSnapshot; preferences: GuiPreferences | undefined; onSubmit: () => void; referenceVersion?: number }) {
 	const { draft, setDraft, images, setImages, behavior, setBehavior } = useSessionDraft(view, gui.views);
+	const initialReferenceVersion = useRef(referenceVersion);
+	const seenImages = useRef(new Set(images.map((image) => image.id)));
+	useEffect(() => { for (const image of images) seenImages.current.add(image.id); }, [images]);
 	const running = snapshot.running;
 	const codemode = snapshot.modelTools.includes("codemode");
 	const toolCount = codemode ? snapshot.tools.filter((tool) => tool.name !== "codemode"
@@ -47,7 +55,12 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 		editor,
 		setError,
 	} = gui;
-	const suggestions = useSuggestionNavigation(editor);
+	const [inputHeight, setInputHeight] = useState<number>();
+	useEffect(() => {
+		if (editor.current) return resize(editor.current, (_, { height }) => setInputHeight(height));
+	}, [editor]);
+	const { active: activeSuggestion, ...suggestions } = useSuggestionNavigation(editor);
+	const suggestionHighlight = useId();
 	const { argumentChoices, fileChoices, completeFiles, clearFiles } = useComposerQueries({
 		draft, sessionId: snapshot.sessionId, connected, send, query, setError,
 	});
@@ -121,10 +134,12 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 			: [];
 	return (
 		<footer className="composer">
-			{setup && hasContextMessages(snapshot) && <div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
+			<AnimatePresence initial={false}>
+			{setup && hasContextMessages(snapshot) && <Reveal><div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
 				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>
 				<Button variant="link" size="sm" disabled={!gui.canSubmit} onClick={() => gui.setPanel({ kind: setup.kind })}>{setup.action}</Button>
-			</div>}
+			</div></Reveal>}
+			</AnimatePresence>
 			<div
 				className="composer-card"
 				ref={fileDrop.ref}
@@ -137,42 +152,20 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 					editor.current?.focus({ preventScroll: true });
 				}}
 			>
+				{referenceVersion !== initialReferenceVersion.current && <FeedbackHighlight key={referenceVersion} />}
 				<div className="composer-scroll">
 				<AnimatePresence initial={false}>
 				{queuedCount > 0 && (
-					<Reveal key="queue"><Collapsible defaultOpen className="queue">
-						<div className="queue-heading">
-							<CollapsibleTrigger>待发送消息 (<AnimatedNumber value={queuedCount} />)</CollapsibleTrigger>
-							<IconButton
-								label="清空队列"
-								onClick={(event) => {
-									event.preventDefault();
-									void send({ action: "clearQueue" });
-								}}
-							>
-								<Trash2 />
-							</IconButton>
-						</div>
-						<CollapsibleContent>
-							<ol className="queue-list" aria-label="待发送消息">
-								{(["steering", "followUp"] as const).flatMap((kind) => snapshot.queue[kind].map((text, index) => (
-									<li key={`${kind}-${index}`}>
-										<div className="queue-item">
-											<span className="queue-kind">{kind === "steering" ? "引导" : "跟进"}</span>
-											<span className="queue-message">{text || "（无文本）"}</span>
-										</div>
-									</li>
-								)))}
-							</ol>
-						</CollapsibleContent>
-					</Collapsible></Reveal>
+					<Reveal key="queue"><QueuedMessages queue={snapshot.queue} clear={() => { void send({ action: "clearQueue" }); }} /></Reveal>
 				)}
 				{images.length > 0 && (
 					<Reveal key="images"><ul className="image-previews">
-						<AnimatePresence initial={false}>
+						<AnimatePresence propagate>
 						{images.map((image, index) => (
-							<ListItem className="image-preview" key={image.id}>
-								<img src={`data:${image.mimeType};base64,${image.data}`} alt="待发送图片" />
+							<ListItem className="image-preview" key={image.id} initial={seenImages.current.has(image.id) ? false : fade.initial}>
+								<motion.img src={`data:${image.mimeType};base64,${image.data}`} alt="待发送图片"
+									initial={seenImages.current.has(image.id) ? false : attachmentOrigin}
+									animate={{ y: 0, rotate: 0, scale: 1 }} exit={attachmentOrigin} transition={settle} />
 								<IconButton
 									label={`移除附件 ${index + 1}`}
 									size="icon-sm"
@@ -188,18 +181,20 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 				</AnimatePresence>
 				<AnimatePresence initial={false}>
 				{choices.length + argumentChoices.length + fileChoices.length > 0 && <Reveal>
-				<ul {...suggestions} className="suggestions" aria-label="输入建议">
+				<motion.ul layoutScroll {...suggestions} className="suggestions" aria-label="输入建议">
 					{choices.map((choice) => (
 						<li key={choice.name}>
 							<Button
 								variant="ghost"
 								tabIndex={-1}
-								className="suggestion-command"
+								className="suggestion-command animated-background-target"
+								data-suggestion={`command:${choice.name}`}
 								onClick={() => {
 									setDraft(`/${choice.name} `);
 									editor.current?.focus();
 								}}
 							>
+								<AnimatedBackground active={activeSuggestion === `command:${choice.name}`} layoutId={suggestionHighlight} />
 								<span className="suggestion-label">/{choice.name}</span>
 								<span className="suggestion-description">{choice.description}</span>
 							</Button>
@@ -210,12 +205,14 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 							<Button
 								variant="ghost"
 								tabIndex={-1}
-								className={item.description ? "suggestion-command" : undefined}
+								className={`animated-background-target${item.description ? " suggestion-command" : ""}`}
+								data-suggestion={`argument:${item.value}`}
 								onClick={() => {
 									setDraft(`${draft.replace(/\s.*$/s, "")} ${item.value}`);
 									editor.current?.focus();
 								}}
 							>
+								<AnimatedBackground active={activeSuggestion === `argument:${item.value}`} layoutId={suggestionHighlight} />
 								<span className="suggestion-label">{item.label}</span>
 								{item.description && <span className="suggestion-description">{item.description}</span>}
 							</Button>
@@ -226,20 +223,23 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 							<Hint content={file}><Button
 								variant="ghost"
 								tabIndex={-1}
+								className="animated-background-target"
+								data-suggestion={`file:${file}`}
 								onClick={() => {
 									setDraft((text) => text.replace(/@[^\s]*$/, () => `@"${file}" `));
 									clearFiles();
 									editor.current?.focus();
 								}}
 							>
+								<AnimatedBackground active={activeSuggestion === `file:${file}`} layoutId={suggestionHighlight} />
 								<span className="suggestion-label">{file}</span>
 							</Button></Hint>
 						</li>
 					))}
-				</ul>
+				</motion.ul>
 				</Reveal>}
 				</AnimatePresence>
-				<div className="composer-input">
+				<motion.div className="composer-input" initial={false} animate={{ height: inputHeight ?? "auto" }} transition={settle}>
 				<Textarea
 					className="message-editor"
 					ref={editor}
@@ -275,7 +275,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 					<Paperclip aria-hidden="true" />
 					<span>{fileDrop.state === "over" ? "松开即可添加" : "拖到此处添加附件"}</span>
 				</div>
-				</div>
+				</motion.div>
 				</div>
 				<div className="composer-bottom">
 					<div className="composer-actions">
@@ -302,7 +302,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 							disabled={!gui.canSubmit}
 							onClick={() => gui.setPanel({ kind: "tools" })}
 						>
-							<ToolIcon /><AnimatedNumber value={toolCount} />
+							<Crossfade value={codemode ? "codemode" : mcpEnabled ? "mcp" : "tools"}><ToolIcon /></Crossfade><AnimatedNumber value={toolCount} />
 						</Button></Hint>
 						<IconButton
 							label={`当前：${behaviorLabel}（${steering ? "引导" : "跟进"}），点击切换为 ${steering ? "Follow-up" : "Steering"}`}
@@ -311,7 +311,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit }: { gui: 
 							className="message-behavior"
 							onClick={() => setBehavior((current) => current === "steer" ? "followUp" : "steer")}
 						>
-							<BehaviorIcon /><span className="message-behavior-label">{behaviorLabel}</span>
+							<Crossfade value={behavior}><BehaviorIcon /><span className="message-behavior-label">{behaviorLabel}</span></Crossfade>
 						</IconButton>
 					</div>
 					<div className="composer-controls">
