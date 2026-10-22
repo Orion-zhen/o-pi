@@ -6,6 +6,7 @@ import { registerAttention } from "../../../harness/attention.ts";
 import { collectContextStats } from "../../../harness/extensions/stats.ts";
 import systemPrompt from "../../../harness/extensions/system-prompt.ts";
 import usage from "../../../harness/extensions/usage.ts";
+import type { UsageService } from "../../../harness/usage/service.ts";
 import { registerTelemetry } from "../../../harness/telemetry/service.ts";
 import { createLiveTelemetryReport } from "../../../harness/telemetry-report/live.ts";
 import { createSubagentExtension } from "../../../harness/extensions/subagent.ts";
@@ -34,9 +35,10 @@ export interface GuiExtensionBindings {
 	toolsChanged(): void;
 	commandSignal(): AbortSignal;
 	reports: GuiReports;
+	usageService: UsageService;
 }
 
-export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, approvalStores, approvalRules, trackBackground }: GuiExtensionBindings): InlineExtension[] {
+export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, usageService, approvalStores, approvalRules, trackBackground }: GuiExtensionBindings): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "openai-compatible-provider", factory: (pi) => openAICompatibleProvider(pi, bindModelServices) },
 		{ name: "mcp", builtin: true, factory: createGuiMcpExtension({
@@ -79,7 +81,7 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindMod
 			name: "usage",
 			factory: (pi) => usage(pi, {
 				mode: "gui", show: async (_ctx, value) => emit({ type: "panel", panel: { kind: "usage", value } }),
-			}),
+			}, usageService),
 		},
 		{
 			name: "telemetry",

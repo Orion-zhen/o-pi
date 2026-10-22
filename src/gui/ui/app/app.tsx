@@ -253,6 +253,7 @@ export function App() {
 					sessionList={<SessionHistory cwd={gui.cwd} sessionRows={gui.sessionRows} sessions={gui.sessions} sessionsLoading={gui.sessionsLoading}
 						refreshSessions={gui.refreshSessions} send={gui.send} canNavigate={gui.canNavigate} connected={gui.connected} close={gui.closePanel} full />}
 					send={send}
+					dispatch={gui.dispatch}
 					canSubmit={gui.canSubmit}
 					close={gui.closePanel}
 				/></RegionBoundary>

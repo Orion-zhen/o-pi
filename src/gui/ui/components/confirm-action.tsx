@@ -1,29 +1,20 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Trash2 } from "lucide-react";
 import { IconButton } from "./icon-button";
+import { useConfirmation } from "./use-confirmation.ts";
 
 export function ConfirmAction({ label, tooltip = "永久删除", disabled, confirm, allowShortcut = false }: {
 	label: string; tooltip?: string; disabled: boolean; confirm: () => Promise<unknown>; allowShortcut?: boolean;
 }) {
-	const [armed, setArmed] = useState(false);
+	const confirmation = useConfirmation();
+	const armed = confirmation.armed !== undefined;
 	const [pending, setPending] = useState(false);
-	useEffect(() => {
-		if (!armed) return;
-		const cancel = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			setArmed(false);
-		};
-		window.addEventListener("keydown", cancel, true);
-		return () => window.removeEventListener("keydown", cancel, true);
-	}, [armed]);
-	return <IconButton label={armed ? `确认${label}` : label} tooltip={armed ? "确认删除" : tooltip}
+	return <IconButton ref={confirmation.button} label={armed ? `确认${label}` : label} tooltip={armed ? "确认删除" : tooltip}
 		className="row-action-button" disabled={disabled || pending} data-confirming={armed}
-		onBlur={() => setArmed(false)}
+		onBlur={confirmation.cancel}
 		onClick={(event) => {
-			if (!armed && !(allowShortcut && (event.ctrlKey || event.metaKey))) { setArmed(true); return; }
-			setArmed(false);
+			if (!armed && !(allowShortcut && (event.ctrlKey || event.metaKey))) { confirmation.arm(label); return; }
+			confirmation.cancel();
 			setPending(true);
 			void confirm().finally(() => setPending(false));
 		}}>{armed ? <Check /> : <Trash2 />}</IconButton>;

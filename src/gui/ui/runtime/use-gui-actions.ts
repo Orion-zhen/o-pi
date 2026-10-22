@@ -3,7 +3,7 @@ import type { GuiAction, GuiEvent } from "../../contract.ts";
 import { OAuthBrowser } from "./oauth-browser.ts";
 import type { Send } from "./connection.ts";
 
-export function useGuiActions(dispatch: (action: GuiAction) => Promise<void>, reportError: (message: string) => void, closePanel: () => void) {
+export function useGuiActions(dispatch: (action: GuiAction) => Promise<unknown>, reportError: (message: string) => void, closePanel: () => void) {
 	const [auth, setAuth] = useState<Extract<GuiEvent, { type: "auth" }>["value"]>();
 	const [authUrl, setAuthUrl] = useState<string>();
 	const [deviceCode, setDeviceCode] = useState<string>();
@@ -37,7 +37,6 @@ export function useGuiActions(dispatch: (action: GuiAction) => Promise<void>, re
 			await dispatch(action);
 			return true;
 		} catch (error) {
-			if (login) finish();
 			reportError(error instanceof Error ? error.message : String(error));
 			return false;
 		} finally { if (login) { pending.current = false; finish(); } }

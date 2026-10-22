@@ -4,7 +4,7 @@ import { CODEX_SPEEDS, type CodexSpeed } from "../harness/codex-speed/state.ts";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession, SessionStats } from "@earendil-works/pi-coding-agent";
 import type { StatsSnapshot } from "../harness/stats/types.ts";
-import type { UsageSnapshot } from "../harness/usage/types.ts";
+import type { UsageSnapshot, UsageResetOutcome } from "../harness/usage/types.ts";
 import type { LiveTelemetryReport } from "../harness/telemetry-report/live.ts";
 import type { SubagentDetails } from "../harness/subagent/types.ts";
 import type { ApprovalUnit } from "../harness/approval/types.ts";
@@ -71,6 +71,11 @@ export const actionSchema = Type.Union([
 		refresh: Type.Optional(Type.Boolean()),
 	}),
 	object({ action: Type.Literal("view"), view: Type.Literal("system") }),
+	object({
+		action: Type.Literal("consumeCodexCredit"),
+		creditId: Type.String({ minLength: 1, maxLength: 4096 }),
+		requestId: Type.String({ minLength: 1, maxLength: 128 }),
+	}),
 	object({ action: Type.Literal("workspace"), path: short }),
 	object({ action: Type.Literal("removeWorkspace"), path: short }),
 	object({ action: Type.Literal("openSession"), path: short }),
@@ -129,6 +134,12 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
+export interface GuiUsageResetResult {
+	outcome: UsageResetOutcome;
+	refreshed: boolean;
+}
+export type GuiActionResult<A extends GuiAction = GuiAction> = A extends { action: "consumeCodexCredit" } ? GuiUsageResetResult : void;
+
 export type SessionTarget = { id: string } | { path: string };
 export const requestSchema = object({ sessionId: Type.Union([short, Type.Null()]), value: Type.Unknown() });
 export type GuiRequest = Static<typeof requestSchema>;
@@ -330,7 +341,7 @@ export type GuiEvent =
 
 export interface GuiConnection {
 	attend(sessionId: string | null): void;
-	send(action: GuiAction, sessionId: string | null): Promise<void>;
+	send<A extends GuiAction>(action: A, sessionId: string | null): Promise<GuiActionResult<A>>;
 	query<Q extends GuiQuery>(query: Q, sessionId: string | null): Promise<GuiQueryResults[Q["query"]]>;
 	subscribe(listener: (event: GuiEvent) => void): () => void;
 	close(): void;

@@ -4,11 +4,17 @@ import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import { StatsReport } from "../../src/gui/ui/reports/stats-report.tsx";
 import { UsageReport } from "../../src/gui/ui/reports/usage-report.tsx";
+import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
 import { TelemetryReport } from "../../src/gui/ui/reports/telemetry-report.tsx";
 import { createLiveTelemetryReport } from "../../src/harness/telemetry-report/live.ts";
 import { statsReport, telemetryReport, usageReport } from "./report-fixtures.ts";
 
-const documentOf = (element: Parameters<typeof renderToStaticMarkup>[0]) => parseHTML(renderToStaticMarkup(element)).document;
+const usageActions = {
+	disabled: false,
+	onRefresh: async () => {},
+	onUse: async () => ({ outcome: "reset" as const, refreshed: true }),
+};
+const documentOf = (element: Parameters<typeof renderToStaticMarkup>[0]) => parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, element))).document;
 
 describe("报告数据呈现", () => {
 	it("会话统计区分上下文占比、缓存命中率和工具输出占比", () => {
@@ -24,7 +30,7 @@ describe("报告数据呈现", () => {
 	});
 
 	it("套餐显示剩余额度，区分耗尽、未知窗口和查询失败", () => {
-		const doc = documentOf(createElement(UsageReport, { value: usageReport }));
+		const doc = documentOf(createElement(UsageReport, { ...usageActions, value: usageReport }));
 		expect(doc.querySelector('[aria-label="5 小时"]')?.getAttribute("value")).toBe("65");
 		expect(doc.querySelector('[aria-label="Codex"] meter')?.getAttribute("value")).toBe("0");
 		expect(doc.querySelector('[aria-label="额外额度"]')).toBeNull();
@@ -32,8 +38,24 @@ describe("报告数据呈现", () => {
 		expect(doc.querySelectorAll(".reset-credits li")).toHaveLength(3);
 	});
 
+	it("重置卡缺少 ID 时只展示，已过期或已消费时禁用按钮", () => {
+		const value = { ...usageReport, providers: usageReport.providers.map((provider) => provider.id === "openai-codex" && provider.status === "ok" && provider.kind === "plan" ? {
+			...provider, resetCredits: { availableCount: 1, credits: [
+				{ id: "available", status: "available", grantedAt: "2025-12-01T00:00:00Z", expiresAt: undefined },
+				{ id: undefined, status: "available", grantedAt: "2025-12-01T00:00:00Z", expiresAt: undefined },
+				{ id: "expired", status: "available", grantedAt: "2025-12-01T00:00:00Z", expiresAt: "2026-01-01T00:00:00Z" },
+				{ id: "consumed", status: "consumed", grantedAt: "2025-12-01T00:00:00Z", expiresAt: undefined },
+			] },
+		} : provider) };
+		const doc = documentOf(createElement(UsageReport, { ...usageActions, value }));
+		const buttons = Array.from(doc.querySelectorAll(".reset-credit-use"));
+		expect(buttons).toHaveLength(3);
+		expect(buttons.every((button) => !button.hasAttribute("title"))).toBe(true);
+		expect(buttons.map((button) => button.hasAttribute("disabled"))).toEqual([false, true, true]);
+	});
+
 	it("DeepSeek 显示连接状态、原始余额和分项，不显示套餐进度", () => {
-		const doc = documentOf(createElement(UsageReport, { value: usageReport }));
+		const doc = documentOf(createElement(UsageReport, { ...usageActions, value: usageReport }));
 		const card = doc.querySelector('[aria-label="DeepSeek"]');
 		expect(card?.querySelector("h3")?.textContent).toBe("DeepSeek");
 		expect(card?.querySelector('[data-tone="success"]')?.textContent).toBe("已连接");
@@ -48,7 +70,7 @@ describe("报告数据呈现", () => {
 	});
 
 	it("按返回币种显示多份余额，余额不足保留已连接状态", () => {
-		const doc = documentOf(createElement(UsageReport, { value: { ...usageReport, providers: [{
+		const doc = documentOf(createElement(UsageReport, { ...usageActions, value: { ...usageReport, providers: [{
 			id: "deepseek", name: "DeepSeek", status: "ok", kind: "balance", isAvailable: false, balances: [
 				{ currency: "CNY", total: "0.00", granted: "0.00", toppedUp: "0.00" },
 				{ currency: "USD", total: "-0.00001", granted: "0", toppedUp: "-0.00001" },
@@ -60,7 +82,7 @@ describe("报告数据呈现", () => {
 	});
 
 	it("没有配置服务商时显示空状态", () => {
-		const doc = documentOf(createElement(UsageReport, { value: { ...usageReport, providers: [] } }));
+		const doc = documentOf(createElement(UsageReport, { ...usageActions, value: { ...usageReport, providers: [] } }));
 		expect(doc.querySelector(".report-empty")?.textContent).toBe("暂无已配置的套餐或 API 余额服务。");
 		expect(doc.querySelector(".report-section")).toBeNull();
 		expect(doc.querySelector("meter")).toBeNull();

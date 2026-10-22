@@ -27,9 +27,9 @@ export const usageReport: UsageSnapshot = {
 			{ label: "额外额度", usedPercent: undefined, windowDurationMins: undefined, resetsAt: undefined },
 		] },
 		{ id: "openai-codex", name: "Codex", status: "ok", kind: "plan", plan: "Pro", windows: [{ label: "每周", usedPercent: 100, windowDurationMins: 10080, resetsAt: "2026-09-20T00:00:00Z" }], details: [{ label: "计费模式", value: "订阅" }], resetCredits: { availableCount: 3, credits: [
-			{ status: "available", grantedAt: "2026-08-22T00:02:00Z", expiresAt: "2026-09-21T00:02:00Z" },
-			{ status: "available", grantedAt: "2026-09-04T02:06:00Z", expiresAt: "2026-10-04T02:06:00Z" },
-			{ status: "available", grantedAt: "2026-09-05T04:21:00Z", expiresAt: "2026-10-05T04:21:00Z" },
+			{ id: "credit-1", status: "available", grantedAt: "2026-08-22T00:02:00Z", expiresAt: "2026-09-21T00:02:00Z" },
+			{ id: "credit-2", status: "available", grantedAt: "2026-09-04T02:06:00Z", expiresAt: "2026-10-04T02:06:00Z" },
+			{ id: "credit-3", status: "available", grantedAt: "2026-09-05T04:21:00Z", expiresAt: "2026-10-05T04:21:00Z" },
 		] } },
 		{ id: "kimi-coding", name: "Kimi", status: "error", error: { code: "timeout" } },
 		{ id: "deepseek", name: "DeepSeek", status: "ok", kind: "balance", isAvailable: true, balances: [

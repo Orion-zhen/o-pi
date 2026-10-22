@@ -57,8 +57,9 @@ export async function startWebServer(
 					const result = await client.query(value, sessionId);
 					response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(result));
 				} else {
-					await client.dispatch(value, sessionId);
-					response.writeHead(204).end();
+					const result = await client.dispatch(value, sessionId);
+					if (result === undefined) response.writeHead(204).end();
+					else response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(result));
 				}
 				return;
 			}

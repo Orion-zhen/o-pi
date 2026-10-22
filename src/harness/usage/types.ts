@@ -14,8 +14,9 @@ export interface UsageDetail {
 }
 
 export interface UsageResetCredit {
+	id: string | undefined;
 	status: string;
-	grantedAt: string | undefined;
+	grantedAt: string;
 	expiresAt: string | undefined;
 }
 
@@ -67,9 +68,16 @@ export interface UsageSnapshot {
 	providers: ProviderUsage[];
 }
 
-export type UsageRequestErrorCode = "aborted" | "timeout" | "response_too_large" | "invalid_response" | "request_failed";
+export type UsageResetOutcome = "reset" | "nothing_to_reset" | "no_credit" | "already_redeemed";
 
-/** 网络边界只保留稳定错误码，不携带响应正文或凭据。 */
+export interface UsageResetRequest {
+	creditId: string;
+	requestId: string;
+}
+
+export type UsageRequestErrorCode = "auth" | "busy" | "aborted" | "timeout" | "response_too_large" | "invalid_response" | "request_failed";
+
+/** 用量操作只保留稳定错误码，不携带响应正文或凭据。 */
 export class UsageRequestError extends Error {
 	constructor(readonly code: UsageRequestErrorCode) {
 		super(code);

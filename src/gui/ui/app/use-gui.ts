@@ -52,7 +52,7 @@ export function useGui() {
 		}
 	});
 	const { connected, status, attend, send: dispatch, query: readQuery } = connection;
-	const dispatchSelected = useCallback((action: GuiAction) => dispatch(action, selectedId), [dispatch, selectedId]);
+	const dispatchSelected = useCallback(<A extends GuiAction>(action: A) => dispatch(action, selectedId), [dispatch, selectedId]);
 	const auth = useGuiActions(dispatchSelected, setError, panels.closePanel);
 	useEffect(() => { if (!connected) auth.finish(); }, [connected, auth.finish]);
 	const send = auth.send;
@@ -106,7 +106,7 @@ export function useGui() {
 	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession,
 		workbench, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
 	return {
-		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor,
+		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor, dispatch: dispatchSelected,
 		guiConfig: config.document, refreshGuiConfig: config.refresh, availableVersion,
 		dialogs: host.dialogs, notices: host.notices, status, reconnect: connection.reconnect, running: snapshot?.running ?? false,
 		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode,

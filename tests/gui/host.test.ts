@@ -20,6 +20,7 @@ import { multiSessionTests } from "./multi-session-cases.ts";
 import { newSessionTests } from "./new-session-cases.ts";
 import { changelogTests } from "./changelog-cases.ts";
 import { notificationTests } from "./notification-cases.ts";
+import { usageCreditTests } from "./usage-credit-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-gui-");
@@ -105,6 +106,7 @@ multiSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "age
 newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 notificationTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
+usageCreditTests(() => ({ host, events }));
 
 describe("GUI 直接使用 SDK", () => {
 	it("认证能力区分仅 OAuth、仅 API Key 和两者兼有的 provider", () => {

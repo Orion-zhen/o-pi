@@ -53,6 +53,7 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 	const success = readable(hex(dark ? "#30D158" : "#248A3D"), surfaces, dark);
 	const warning = readable(hex(dark ? "#FFCC00" : "#936B22"), surfaces, dark);
 	const dangerForeground = onColor(danger);
+	const warningForeground = onColor(warning);
 	const surfaceShine = hex(dark ? "#FFFFFF08" : "#FFFFFF80");
 	const scrollbarBackgrounds = [...surfaces, userBackground];
 	const scrollbar = (minimum: number) => readable(mix(background, primary, 0.04), scrollbarBackgrounds, dark, minimum);
@@ -77,6 +78,9 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 		"destructive-hover": interaction(danger, dangerForeground, white, 0.07),
 		"destructive-active": interaction(danger, dangerForeground, black, 0.1),
 		"danger-soft": alpha(danger, dark ? 0.14 : 0.095), success, warning,
+		"warning-foreground": warningForeground,
+		"warning-hover": interaction(warning, warningForeground, white, 0.07),
+		"warning-active": interaction(warning, warningForeground, black, 0.1),
 		"git-added": success, "git-deleted": danger, "git-modified": warning,
 		"floating-shadow": hex(dark ? "#0000005C" : "#1D1D1F24"),
 		"surface-shine": surfaceShine,

@@ -2,14 +2,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { SessionManager, AgentSessionRuntime, SessionStartEvent, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { UserHistoryStore, buildInitialHistory, normalizeHistoryText } from "../../../harness/user-history.ts";
 import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
-import type { GuiAction, GuiEvent, SessionQuery, GuiQueryResults, GuiSnapshot } from "../../contract.ts";
+import type { GuiAction, GuiActionResult, GuiEvent, SessionQuery, GuiQueryResults, GuiSnapshot } from "../../contract.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import { GuiDialogs } from "./dialogs.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
 import { completeCommand, runBuiltin } from "./commands.ts";
-import { openView } from "./views.ts";
+import { openView, consumeUsageCredit } from "./views.ts";
+import { UsageService } from "../../../harness/usage/service.ts";
 import { collectGuiSnapshot } from "../projection/snapshot.ts";
 import { GuiModelScope, persistDefaultModel } from "./models.ts";
 import { GuiReports } from "../projection/reports.ts";
@@ -27,7 +28,7 @@ export interface SessionClient extends Pick<ExtensionCommandContext, "newSession
 	emit(event: GuiEvent): void;
 	readDraft(): string;
 	writeDraft(text: string): void;
-	dispatch(action: GuiAction): Promise<void>;
+	dispatch<A extends GuiAction>(action: A): Promise<GuiActionResult<A>>;
 }
 type Listener = (event: GuiEvent) => void;
 const liveMutations = new Set<GuiAction["action"]>([
@@ -48,6 +49,7 @@ export class GuiExecution {
 	private preparing = 0;
 	private commandController = new AbortController();
 	readonly payloads = new GuiPayloads();
+	readonly usageService = new UsageService();
 	readonly modelScope = new GuiModelScope();
 	private guiHistory = new GuiHistory(this.payloads);
 	private stream = new GuiStream(this.payloads);
@@ -132,6 +134,7 @@ export class GuiExecution {
 					toolsChanged: () => this.schedule(),
 					commandSignal: () => this.commandController.signal,
 					reports: this.reports,
+					usageService: this.usageService,
 					approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
 					trackBackground: (task, cancel) => {
 						this.background.add(cancel);
@@ -239,7 +242,8 @@ export class GuiExecution {
 		return this.track(refresh());
 	}
 
-	dispatch(action: GuiAction, client: SessionClient): Promise<void> {
+	dispatch<A extends GuiAction>(action: A, client: SessionClient): Promise<GuiActionResult<A>>;
+	dispatch(action: GuiAction, client: SessionClient): Promise<GuiActionResult> {
 		if (this.disposed) return Promise.reject(new Error("会话实例已释放。"));
 		return this.track(this.origin.run(client, () => this.perform(action, client)));
 	}
@@ -261,7 +265,7 @@ export class GuiExecution {
 		}
 	}
 
-	private async perform(action: GuiAction, client: SessionClient): Promise<void> {
+	private async perform(action: GuiAction, client: SessionClient): Promise<GuiActionResult> {
 		switch (action.action) {
 			case "dialog": this.dialogs.respond(action.id, action.value); return;
 			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
@@ -293,6 +297,7 @@ export class GuiExecution {
 		const { session, services } = this.runtime;
 		switch (action.action) {
 			case "view": await openView(this, action, this.commandController.signal); return;
+			case "consumeCodexCredit": return consumeUsageCredit(this, action, this.commandController.signal);
 			case "prompt": await this.prompt(action, client); return;
 			case "clearQueue": session.clearQueue(); this.publish(); return;
 			case "export": await exportSession(session, action.format, (event) => this.emit(event)); return;
@@ -330,7 +335,7 @@ export class GuiExecution {
 			void this.history.append({ cwd: runtime.cwd, session: session.sessionId, text }).catch((error: unknown) => this.historyError(error));
 		}
 		this.publish();
-		if (await runBuiltin(this, action.text, (next) => client.dispatch(next))) return;
+		if (await runBuiltin(this, action.text, async (next) => { await client.dispatch(next); })) return;
 		this.preparing++;
 		const mcpLogin = /^\/mcp\s+login(?:\s|$)/.test(action.text);
 		if (mcpLogin) this.mcpLoggingIn = true;

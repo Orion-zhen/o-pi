@@ -1,5 +1,5 @@
 import type { AuthResult } from "@earendil-works/pi-ai";
-import { getJson, UsageHttpError, type JsonRequestContext, type JsonRequestOptions } from "./request.ts";
+import { requestJson, UsageHttpError, type JsonRequestContext, type JsonRequestOptions } from "./request.ts";
 import {
 	UsageRequestError,
 	type ProviderUsage,
@@ -11,6 +11,8 @@ import {
 	type UsageResetCredit,
 	type UsageResetCredits,
 	type UsageSnapshot,
+	type UsageResetRequest,
+	type UsageResetOutcome,
 	type UsageWindow,
 } from "./types.ts";
 
@@ -79,7 +81,7 @@ async function collectProviderUsage(
 	}
 }
 
-async function getUsageToken(context: UsageContext, provider: ProviderDefinition): Promise<string | undefined> {
+async function getUsageToken(context: UsageContext, provider: Pick<ProviderDefinition, "id" | "auth">): Promise<string | undefined> {
 	const result = await context.modelRegistry.getProviderAuth(provider.id);
 	if (result === undefined || (result.source === "OAuth") !== (provider.auth === "oauth")) return undefined;
 	const token = provider.id === "kimi-coding" ? kimiBearerToken(result) : result.auth.apiKey;
@@ -95,7 +97,7 @@ function kimiBearerToken(result: AuthResult): string | undefined {
 }
 
 async function fetchAnthropicUsage(token: string, options: UsageClientOptions): Promise<ProviderUsageData> {
-	const usage = requireRecord(await getJson(
+	const usage = requireRecord(await requestJson(
 		"https://api.anthropic.com/api/oauth/usage",
 		token,
 		options,
@@ -155,7 +157,7 @@ async function fetchCodexUsage(token: string, options: UsageClientOptions): Prom
 	const accountId = codexAccountId(token);
 	const headers = { "ChatGPT-Account-Id": accountId };
 	const [usageValue, resetValue] = await Promise.all([
-		getJson("https://chatgpt.com/backend-api/wham/usage", token, options, { headers }),
+		requestJson("https://chatgpt.com/backend-api/wham/usage", token, options, { headers }),
 		getOptionalJson(
 			"https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
 			token,
@@ -191,6 +193,32 @@ async function fetchCodexUsage(token: string, options: UsageClientOptions): Prom
 		details,
 		resetCredits: parseResetCredits(resetValue, summaryCount),
 	};
+}
+
+export async function consumeCodexResetCredit(
+	context: UsageContext,
+	request: UsageResetRequest,
+	options: JsonRequestContext,
+): Promise<UsageResetOutcome> {
+	let token: string | undefined;
+	let accountId: string;
+	try {
+		token = await getUsageToken(context, { id: "openai-codex", auth: "oauth" });
+		if (token === undefined) throw new UsageRequestError("auth");
+		accountId = codexAccountId(token);
+	} catch {
+		throw new UsageRequestError("auth");
+	}
+	const payload = requireRecord(await requestJson(
+		"https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume", token, options, {
+			method: "POST",
+			headers: { "ChatGPT-Account-Id": accountId },
+			body: { credit_id: request.creditId, redeem_request_id: request.requestId },
+		},
+	));
+	const code = payload.code;
+	if (code !== "reset" && code !== "nothing_to_reset" && code !== "no_credit" && code !== "already_redeemed") invalidResponse();
+	return code;
 }
 
 function pushCodexRateLimitWindows(
@@ -233,14 +261,15 @@ function parseResetCredit(value: unknown): UsageResetCredit | undefined {
 	const grantedAt = safeDateString(credit?.granted_at);
 	if (credit === undefined || status === undefined || grantedAt === undefined) return undefined;
 	return {
+		id: typeof credit.id === "string" && credit.id.length > 0 && credit.id.length <= 4096 ? credit.id : undefined,
 		status,
 		grantedAt,
-		expiresAt: credit.expires_at === null ? undefined : safeDateString(credit.expires_at),
+		expiresAt: safeDateString(credit.expires_at),
 	};
 }
 
 async function fetchKimiUsage(token: string, options: UsageClientOptions): Promise<ProviderUsageData> {
-	const usage = requireRecord(await getJson(
+	const usage = requireRecord(await requestJson(
 		"https://api.kimi.com/coding/v1/usages",
 		token,
 		options,
@@ -275,7 +304,7 @@ async function fetchKimiUsage(token: string, options: UsageClientOptions): Promi
 async function fetchXaiUsage(token: string, options: UsageClientOptions): Promise<ProviderUsageData> {
 	const headers = { "X-XAI-Token-Auth": "xai-grok-cli" };
 	const [creditsValue, settingsValue] = await Promise.all([
-		getJson(
+		requestJson(
 			"https://cli-chat-proxy.grok.com/v1/billing?format=credits",
 			token,
 			options, { headers },
@@ -338,7 +367,7 @@ async function fetchXaiUsage(token: string, options: UsageClientOptions): Promis
 }
 
 async function fetchDeepSeekBalance(token: string, options: UsageClientOptions): Promise<ProviderUsageData> {
-	const usage = requireRecord(await getJson(
+	const usage = requireRecord(await requestJson(
 		"https://api.deepseek.com/user/balance",
 		token,
 		options,
@@ -383,7 +412,7 @@ async function getOptionalJson(
 	options: JsonRequestOptions,
 ): Promise<unknown> {
 	try {
-		return await getJson(url, token, context, options);
+		return await requestJson(url, token, context, options);
 	} catch (error) {
 		if (error instanceof UsageRequestError) {
 			if (error.code === "aborted") throw error;

@@ -1,5 +1,5 @@
-import { collectUsageSnapshot, type UsageContext } from "./client.ts";
-import type { UsageSnapshot } from "./types.ts";
+import { collectUsageSnapshot, consumeCodexResetCredit, type UsageContext } from "./client.ts";
+import { UsageRequestError, type UsageResetRequest, type UsageResetOutcome, type UsageSnapshot } from "./types.ts";
 
 const DEFAULT_CACHE_MS = 60_000;
 
@@ -17,10 +17,32 @@ export interface UsageLoadOptions {
 export class UsageService {
 	private cached: { loadedAt: number; snapshot: UsageSnapshot } | undefined;
 	private inFlight: Promise<UsageSnapshot> | undefined;
+	private consuming = false;
 	private readonly clock: () => number;
 
 	constructor(private readonly options: UsageServiceOptions = {}) {
 		this.clock = options.clock ?? Date.now;
+	}
+
+	async consumeCodexCredit(context: UsageContext, options: UsageResetRequest & { signal: AbortSignal | undefined }): Promise<UsageResetOutcome> {
+		if (this.consuming) throw new UsageRequestError("busy");
+		this.consuming = true;
+		this.invalidate();
+		try {
+			return await consumeCodexResetCredit(context, options, {
+				fetchImpl: this.options.fetchImpl ?? fetch,
+				signal: options.signal,
+			});
+		} finally {
+			// 超时或取消也可能已在服务端消费，不能继续使用旧缓存。
+			this.invalidate();
+			this.consuming = false;
+		}
+	}
+
+	private invalidate(): void {
+		this.cached = undefined;
+		this.inFlight = undefined;
 	}
 
 	async load(context: UsageContext, options: UsageLoadOptions): Promise<UsageSnapshot> {
@@ -39,12 +61,12 @@ export class UsageService {
 		this.inFlight = request;
 		try {
 			const snapshot = await request;
-			if (snapshot.providers.every((provider) => provider.status !== "error")) {
+			if (this.inFlight === request && !this.consuming && snapshot.providers.every((provider) => provider.status !== "error")) {
 				this.cached = { loadedAt: this.clock(), snapshot };
 			}
 			return snapshot;
 		} finally {
-			this.inFlight = undefined;
+			if (this.inFlight === request) this.inFlight = undefined;
 		}
 	}
 }

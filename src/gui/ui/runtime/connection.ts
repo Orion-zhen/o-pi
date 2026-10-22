@@ -1,4 +1,4 @@
-import type { DesktopBridge, GuiAction, GuiConnection, GuiControl, GuiEvent, GuiQuery, GuiQueryResults } from "../../contract.ts";
+import type { DesktopBridge, GuiAction, GuiActionResult, GuiConnection, GuiControl, GuiEvent, GuiQuery, GuiQueryResults } from "../../contract.ts";
 import { GuiReceiver, type GuiDelivery, type GuiFrame } from "../../sync.ts";
 import { diagnosticContext } from "./diagnostics.ts";
 import { notificationDestination, NOTIFICATION_PERMISSION_CHANGED } from "./browser-notifications.ts";
@@ -115,7 +115,12 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	open();
 	return {
 		attend(sessionId) { viewedSession = sessionId; reportAttention(); },
-		async send(value, sessionId) { diagnosticContext({ lastAction: value.action }); await post("action", { value, sessionId }); },
+		async send<A extends GuiAction>(value: A, sessionId: string | null): Promise<GuiActionResult<A>> {
+			diagnosticContext({ lastAction: value.action });
+			const response = await post("action", { value, sessionId });
+			const result: unknown = value.action === "consumeCodexCredit" ? await response.json() : undefined;
+			return result as GuiActionResult<A>;
+		},
 		async query<Q extends GuiQuery>(query: Q, sessionId: string | null): Promise<GuiQueryResults[Q["query"]]> {
 			const value: unknown = await (await post("query", { value: query, sessionId })).json();
 			return value as GuiQueryResults[Q["query"]];

@@ -7,12 +7,12 @@ import { UsageRequestError, type UsageSnapshot } from "../usage/types.ts";
 const COMMAND_DESCRIPTION = "Show plan usage and API balances.";
 const COMMAND_USAGE = "Usage: /usage [refresh]";
 
-/** 注册 /usage。查询套餐用量与 API 余额，并以只读浮层展示。 */
+/** 注册 /usage，查询套餐用量与 API 余额。 */
 export default function usageExtension(
 	pi: Pick<ExtensionAPI, "registerCommand">,
 	present?: Presenter<(ctx: ExtensionCommandContext, result: UsageSnapshot | "aborted") => Promise<void>>,
+	service = new UsageService(),
 ): void {
-	const service = new UsageService();
 	pi.registerCommand("usage", {
 		description: COMMAND_DESCRIPTION,
 		getArgumentCompletions: (prefix) => [

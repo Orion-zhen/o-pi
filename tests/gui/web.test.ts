@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { once } from "node:events";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { GuiHost } from "../../src/gui/host/host.ts";
 import type { GuiClient } from "../../src/gui/host/client.ts";
@@ -143,6 +143,26 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
 		expect(page.headers.get("referrer-policy")).toBe("no-referrer");
 		expect((await fetch(`${server.url}/%2e%2e%2fpackage.json`)).status).toBe(403);
+	});
+
+	it("兑换动作通过 HTTP 返回明确结果，刷新快照通过 WebSocket 更新", async () => {
+		const token = `header.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "account-test" } })).toString("base64url")}.signature`;
+		const auth = vi.spyOn(local.runtime.session.extensionRunner.createCommandContext().modelRegistry, "getProviderAuth").mockImplementation(async (provider) => provider === "openai-codex" ? { source: "OAuth", auth: { apiKey: token } } : undefined);
+		const request = fetch;
+		const upstream = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const url = String(input);
+			if (!url.startsWith("https://chatgpt.com/")) return request(input, init);
+			if (url.endsWith("/consume")) return Response.json({ code: "nothing_to_reset" });
+			if (url.endsWith("/usage")) return Response.json({ plan_type: "pro" });
+			return Response.json({ available_count: 1, credits: [] });
+		});
+		try {
+			const response = await request(`${server.url}/api/action`, { method: "POST", headers: headers(), body: body({ action: "consumeCodexCredit", creditId: "credit-1", requestId: "web-test" }) });
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ outcome: "nothing_to_reset", refreshed: true });
+			await expect.poll(() => peer.events.filter((event) => event.type === "panel").at(-1)).toMatchObject({ panel: { kind: "usage", value: { providers: [{ id: "openai-codex", status: "ok" }] } } });
+			expect(upstream.mock.calls.filter(([input]) => String(input).endsWith("/consume"))).toHaveLength(1);
+		} finally { auth.mockRestore(); upstream.mockRestore(); }
 	});
 
 	it("WebSocket 断开不取消审批，重连只消费一次", async () => {

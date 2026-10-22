@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "../components/ui/button";
-import type { ProviderUsage, ProviderUsageData, UsageProviderError, UsageResetCredits, UsageSnapshot } from "../../../harness/usage/types.ts";
-import { Bar, dateTime, Empty, Facts, Metrics, number, percent, ReportStamp, Section } from "./shared.tsx";
+import type { GuiUsageResetResult } from "../../contract.ts";
+import type { ProviderUsage, ProviderUsageData, UsageProviderError, UsageResetOutcome, UsageSnapshot } from "../../../harness/usage/types.ts";
+import { Bar, dateTime, Empty, Facts, Metrics, percent, ReportStamp, Section } from "./shared.tsx";
+import { ResetCredits, type ResetCreditAction } from "./reset-credits.tsx";
 
 function errorText(error: UsageProviderError): string {
 	switch (error.code) {
@@ -15,40 +17,70 @@ function errorText(error: UsageProviderError): string {
 	}
 }
 
-export function UsageReport({ value, onRefresh, disabled }: {
+const resetMessages: Record<UsageResetOutcome, string> = {
+	reset: "重置卡已使用，Codex 额度已重置。",
+	already_redeemed: "这次请求已处理，无需重复消耗重置卡。",
+	nothing_to_reset: "当前没有需要重置的额度，未消耗重置卡。",
+	no_credit: "这张重置卡已不可用，请查看最新卡片列表。",
+};
+type Operation = { kind: "refresh" } | { kind: "use"; creditId: string };
+
+export function UsageReport({ value, onRefresh, onUse, disabled }: {
 	value: UsageSnapshot | "aborted";
-	onRefresh?: () => Promise<void>;
-	disabled?: boolean;
+	onRefresh: () => Promise<void>;
+	onUse: (creditId: string, requestId: string) => Promise<GuiUsageResetResult>;
+	disabled: boolean;
 }) {
-	const [refreshing, setRefreshing] = useState(false);
-	const refresh = async (load: () => Promise<void>) => {
-		setRefreshing(true);
-		try { await load(); }
-		finally { setRefreshing(false); }
+	const [operation, setOperation] = useState<Operation>();
+	const [message, setMessage] = useState<{ text: string; tone: "success" | "warning" }>();
+	// 请求 ID 与面板同寿命，不随服务商查询失败而丢失。
+	const requests = useRef(new Map<string, string>());
+	const run = async (next: Operation, task: () => Promise<void>) => {
+		setOperation(next);
+		setMessage(undefined);
+		try { await task(); }
+		catch (error) { setMessage({ text: error instanceof Error ? error.message : String(error), tone: "warning" }); }
+		finally { setOperation(undefined); }
 	};
-	if (value === "aborted") return <div className="report-dashboard"><Empty>用量情况查询已取消。</Empty></div>;
-	const providers = value.providers;
+	const useCredit = (creditId: string) => run({ kind: "use", creditId }, async () => {
+		const requestId = requests.current.get(creditId) ?? crypto.randomUUID();
+		requests.current.set(creditId, requestId);
+		const { outcome, refreshed } = await onUse(creditId, requestId);
+		// 明确的兑换结果决定是否更换请求 ID，刷新失败不改变兑换结果。
+		requests.current.delete(creditId);
+		setMessage({
+			text: resetMessages[outcome] + (refreshed ? "" : " 用量刷新失败，请刷新后查看最新额度。"),
+			tone: refreshed && (outcome === "reset" || outcome === "already_redeemed") ? "success" : "warning",
+		});
+	});
+	const actionDisabled = Boolean(disabled || operation);
+	const resetAction = { use: useCredit, pendingId: operation?.kind === "use" ? operation.creditId : undefined, disabled: actionDisabled };
 	return <div className="report-dashboard">
-		{providers.length === 0 && <Empty>暂无已配置的套餐或 API 余额服务。</Empty>}
-		{providers.map((provider) => <ProviderCard key={provider.id} provider={provider} timeZone={value.timeZone} generatedAt={value.generatedAt} />)}
+		{value === "aborted" ? <Empty>用量情况查询已取消。</Empty> : <>
+			{value.providers.length === 0 && <Empty>暂无已配置的套餐或 API 余额服务。</Empty>}
+			{value.providers.map((provider) => <ProviderCard key={provider.id} provider={provider} timeZone={value.timeZone} generatedAt={value.generatedAt} resetAction={resetAction} />)}
+		</>}
+		{message && <p className="report-message" data-tone={message.tone} role="status">{message.text}</p>}
 		<div className="usage-report-footer">
-			<ReportStamp at={value.generatedAt} timeZone={value.timeZone} />
-			{onRefresh && <Button variant="outline" size="sm" disabled={disabled || refreshing} onClick={() => void refresh(onRefresh)}>
-				<RefreshCw aria-hidden="true" />{refreshing ? "刷新中…" : "刷新"}
-			</Button>}
+			{value !== "aborted" && <ReportStamp at={value.generatedAt} timeZone={value.timeZone} />}
+			<Button variant="outline" size="sm" disabled={actionDisabled} onClick={() => void run({ kind: "refresh" }, onRefresh)}>
+				<RefreshCw aria-hidden="true" />{operation?.kind === "refresh" ? "刷新中…" : "刷新"}
+			</Button>
 		</div>
 	</div>;
 }
 
-function ProviderCard({ provider, timeZone, generatedAt }: { provider: ProviderUsage; timeZone: string; generatedAt: string }) {
+function ProviderCard({ provider, timeZone, generatedAt, resetAction }: { provider: ProviderUsage; timeZone: string; generatedAt: string; resetAction: ResetCreditAction }) {
 	return <Section title={provider.name}>
 		{provider.status === "error" ? <p className="report-message" data-tone="danger" role="status">{errorText(provider.error)}</p>
-			: provider.kind === "balance" ? <ApiBalance value={provider} />
-				: <PlanUsage value={provider} timeZone={timeZone} generatedAt={generatedAt} />}
+			: provider.kind === "balance" ? <ApiBalance value={provider} /> : <>
+				<PlanUsage value={provider} timeZone={timeZone} />
+				{provider.resetCredits !== undefined && <ResetCredits value={provider.resetCredits} timeZone={timeZone} generatedAt={generatedAt} action={provider.id === "openai-codex" ? resetAction : undefined} />}
+			</>}
 	</Section>;
 }
 
-function PlanUsage({ value, timeZone, generatedAt }: { value: Extract<ProviderUsageData, { kind: "plan" }>; timeZone: string; generatedAt: string }) {
+function PlanUsage({ value, timeZone }: { value: Extract<ProviderUsageData, { kind: "plan" }>; timeZone: string }) {
 	return <>
 		<div className="report-inline"><span className="report-badge" data-tone="success">已连接</span><strong>{value.plan ?? "套餐名称未提供"}</strong></div>
 		{value.windows.length === 0 ? <Empty>服务商暂未提供额度窗口。</Empty> : <div className="report-bars">{value.windows.map((window, index) => {
@@ -62,7 +94,6 @@ function PlanUsage({ value, timeZone, generatedAt }: { value: Extract<ProviderUs
 			</div>;
 		})}</div>}
 		{value.details.length > 0 && <Facts items={value.details.map((detail) => [detail.label, detail.value])} />}
-		{value.resetCredits !== undefined && <ResetCredits value={value.resetCredits} timeZone={timeZone} generatedAt={generatedAt} />}
 	</>;
 }
 
@@ -78,33 +109,4 @@ function ApiBalance({ value }: { value: Extract<ProviderUsageData, { kind: "bala
 		</div>)}
 		{!value.isAvailable && <p className="report-message" data-tone="warning" role="status">余额不足，暂不可调用 API。</p>}
 	</>;
-}
-
-function expiryDistance(expiresAt: string | undefined, generatedAt: string): string {
-	if (expiresAt === undefined) return "无到期时间";
-	const ms = Date.parse(expiresAt) - Date.parse(generatedAt);
-	if (ms <= 0) return "已到期";
-	const minutes = Math.floor(ms / 60000);
-	if (minutes === 0) return "不足 1 分钟";
-	const hours = Math.floor(minutes / 60);
-	const days = Math.floor(hours / 24);
-	if (days > 0) return `${days} 天 ${hours % 24} 小时`;
-	if (hours > 0) return `${hours} 小时 ${minutes % 60} 分钟`;
-	return `${minutes} 分钟`;
-}
-
-function ResetCredits({ value, timeZone, generatedAt }: { value: UsageResetCredits; timeZone: string; generatedAt: string }) {
-	return <section className="reset-credits" aria-label="重置额度">
-		<header><h4>重置额度</h4><span>{number(value.availableCount)} 次可用</span></header>
-		{value.credits === undefined ? <Empty>服务商未提供重置额度明细。</Empty>
-			: value.credits.length === 0 ? <Empty>暂无重置额度记录。</Empty>
-			: <ol>{value.credits.map((credit, index) => <li key={index}>
-				{credit.status !== "available" && <span className="reset-credit-status">{credit.status}</span>}
-				<dl>
-					<div><dt>发放时间</dt><dd>{credit.grantedAt === undefined ? "未提供" : <time dateTime={credit.grantedAt}>{dateTime(credit.grantedAt, timeZone)}</time>}</dd></div>
-					<div><dt>到期时间</dt><dd>{credit.expiresAt === undefined ? "无到期时间" : <time dateTime={credit.expiresAt}>{dateTime(credit.expiresAt, timeZone)}</time>}</dd></div>
-					<div className="reset-credit-remaining"><dt>距到期</dt><dd>{expiryDistance(credit.expiresAt, generatedAt)}</dd></div>
-				</dl>
-			</li>)}</ol>}
-	</section>;
 }

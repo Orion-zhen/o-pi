@@ -1,5 +1,5 @@
 import type { ReactNode, Ref } from "react";
-import type { GuiPanel, GuiSnapshot } from "../../contract.ts";
+import type { GuiAction, GuiActionResult, GuiPanel, GuiSnapshot } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
 import { Content } from "../content/content.tsx";
 import { Button } from "../components/ui/button";
@@ -17,12 +17,13 @@ const titles: Record<GuiPanel["kind"], string> = {
 	lastReply: "最后回复", usage: "用量情况",
 };
 
-export function Panel({ ref, panel, snapshot, sessionList, send, canSubmit, close, restoreFocus }: {
+export function Panel({ ref, panel, snapshot, sessionList, send, dispatch, canSubmit, close, restoreFocus }: {
 	ref: Ref<HTMLDivElement>;
 	panel: Exclude<GuiPanel, { kind: "settings" }>;
 	snapshot: GuiSnapshot;
 	sessionList: ReactNode;
 	send: Send;
+	dispatch<A extends GuiAction>(action: A): Promise<GuiActionResult<A>>;
 	canSubmit: boolean;
 	close: () => void;
 	restoreFocus: () => void;
@@ -61,9 +62,9 @@ export function Panel({ ref, panel, snapshot, sessionList, send, canSubmit, clos
 		case "help": body = snapshot.commands.map((command) => <p key={command.name}><code>/{command.name}</code> {command.description}</p>); break;
 		case "lastReply": body = <Content value={panel.text} />; break;
 		case "usage":
-			body = <UsageReport value={panel.value} disabled={!snapshot.canSubmit} onRefresh={async () => {
-				await send({ action: "view", view: "usage", refresh: true });
-			}} />;
+			body = <UsageReport value={panel.value} disabled={!canSubmit}
+				onUse={(creditId, requestId) => dispatch({ action: "consumeCodexCredit", creditId, requestId })}
+				onRefresh={() => dispatch({ action: "view", view: "usage", refresh: true })} />;
 			break;
 	}
 	return <PanelDialog ref={ref} title={titles[panel.kind]} close={close} restoreFocus={restoreFocus}>{body}</PanelDialog>;

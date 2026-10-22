@@ -20,11 +20,11 @@ export class UsageHttpError extends Error {
 	}
 }
 
-export async function getJson(
+export async function requestJson(
 	url: string,
 	token: string,
 	context: JsonRequestContext,
-	options: JsonRequestOptions = {},
+	options: JsonRequestOptions & ({ method?: "GET"; body?: never } | { method: "POST"; body: Record<string, string> }) = {},
 ): Promise<unknown> {
 	const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 	const signal = context.signal === undefined
@@ -34,7 +34,11 @@ export async function getJson(
 	try {
 		response = await context.fetchImpl(url, {
 			signal,
-			headers: { ...options.headers, Authorization: `Bearer ${token}`, Accept: "application/json" },
+			...(options.method === "POST" ? { method: "POST", body: JSON.stringify(options.body) } : {}),
+			headers: {
+				...options.headers, Authorization: `Bearer ${token}`, Accept: "application/json",
+				...(options.method === "POST" ? { "Content-Type": "application/json" } : {}),
+			},
 			redirect: "error",
 		});
 	} catch {

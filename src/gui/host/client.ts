@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { SessionManager, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { compileSchemaValidator } from "../../harness/schema-validator.ts";
-import { actionSchema, querySchema, type SessionTarget, type GuiAction, type GuiAttention, type GuiEvent, type GuiQuery, type GuiQueryResults } from "../contract.ts";
+import { actionSchema, querySchema, type SessionTarget, type GuiAction, type GuiActionResult, type GuiAttention, type GuiEvent, type GuiQuery, type GuiQueryResults } from "../contract.ts";
 import type { GuiDelivery } from "../sync.ts";
 import type { GuiHost } from "./host.ts";
 import type { GuiSession } from "./session/session.ts";
@@ -214,10 +214,12 @@ export class GuiClient {
 		}));
 	}
 
-	dispatch(value: unknown, sessionId: string | null = this.selected?.id ?? null): Promise<void> {
+	dispatch<A extends GuiAction>(action: A, sessionId?: string | null): Promise<GuiActionResult<A>>;
+	dispatch(value: unknown, sessionId?: string | null): Promise<GuiActionResult>;
+	dispatch(value: unknown, sessionId: string | null = this.selected?.id ?? null): Promise<GuiActionResult> {
 		return this.host.track(this.perform(value, sessionId));
 	}
-	private async perform(value: unknown, sessionId: string | null): Promise<void> {
+	private async perform(value: unknown, sessionId: string | null): Promise<GuiActionResult> {
 		if (!validateAction(value)) throw new Error("无效 GUI 操作参数。");
 		if (this.closed) throw new Error("客户端已断开。");
 		const action = value as GuiAction;
@@ -273,9 +275,9 @@ export class GuiClient {
 		const client = this.forSession(source);
 		// 启动中的信任确认不能等待被该确认阻塞的启动 Promise。
 		if (["dialog", "abort", "cancelLogin"].includes(action.action) && source.execution) {
-			await source.execution.dispatch(action, client); return;
+			return source.execution.dispatch(action, client);
 		}
-		await source.use(client, (execution) => execution.dispatch(action, client));
+		return source.use(client, (execution) => execution.dispatch(action, client));
 	}
 	query<Q extends GuiQuery>(query: Q, sessionId?: string | null): Promise<GuiQueryResults[Q["query"]]>;
 	query(query: unknown, sessionId?: string | null): Promise<GuiQueryResults[GuiQuery["query"]]>;
