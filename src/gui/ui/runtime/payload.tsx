@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { GuiQueryResults, Query } from "../../contract.ts";
 import { ContentVisible } from "../components/ui/collapsible.tsx";
 import { payloadKey } from "../../messages.ts";
+import { ImagePreviewButton } from "../media/image-preview.tsx";
 
 export const GuiQueryContext = createContext<Query | undefined>(undefined);
 
@@ -52,5 +53,8 @@ export function SessionImage({ id, mime }: { id: string; mime: string }) {
 		return () => { cancelled = true; observer.disconnect(); };
 	}, [id, query]);
 	const value = loaded?.id === id ? loaded.data : undefined;
-	return <>{error && <span role="alert">{error}</span>}<img ref={element} className="attachment" src={value ? `data:${mime};base64,${value}` : undefined} alt="会话图片" loading="lazy" /></>;
+	const src = value ? `data:${mime};base64,${value}` : undefined;
+	return <>{error && <span role="alert">{error}</span>}<ImagePreviewButton src={src} alt="会话图片">
+		<img ref={element} className="attachment" src={src} alt="会话图片" loading="lazy" />
+	</ImagePreviewButton></>;
 }

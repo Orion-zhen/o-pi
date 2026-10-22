@@ -9,7 +9,7 @@ import { fileLanguage, SyntaxHighlighter } from "../../content/code-highlight.ts
 import { Hint } from "../../components/ui/tooltip";
 import { IconButton } from "../../components/icon-button";
 import { Button } from "../../components/ui/button";
-import ImagePreview from "./image-preview.tsx";
+import { ImageViewer } from "../../media/image-viewer.tsx";
 import "./file-preview.css";
 
 const PdfPreview = lazy(() => import("./pdf-preview.tsx"));
@@ -33,7 +33,7 @@ function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean
 	const content = preview.content;
 	if (content.kind === "deleted") return <p className="file-hint">文件已删除，可查看差异。</p>;
 	if (content.kind === "unavailable") return <p className="file-hint">{content.reason}</p>;
-	if (content.kind === "image") return <ImagePreview key={content.url} url={content.url} path={preview.path} size={content.size} />;
+	if (content.kind === "image") return <ImageViewer key={content.url} url={content.url} alt={preview.path} size={content.size} />;
 	if (content.kind === "pdf") return <Suspense fallback={<p className="file-hint" role="status">正在加载 PDF 阅读器…</p>}>
 		<PdfPreview url={content.url} size={content.size} />
 	</Suspense>;

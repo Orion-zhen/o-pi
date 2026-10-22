@@ -28,6 +28,7 @@ import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
 import { useFileDrop } from "./use-file-drop.ts";
+import { ImagePreviewButton } from "../media/image-preview.tsx";
 
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
 let nextAttachmentId = 0;
@@ -163,9 +164,11 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 						<AnimatePresence propagate>
 						{images.map((image, index) => (
 							<ListItem className="image-preview" key={image.id} initial={seenImages.current.has(image.id) ? false : fade.initial}>
-								<motion.img src={`data:${image.mimeType};base64,${image.data}`} alt="待发送图片"
-									initial={seenImages.current.has(image.id) ? false : attachmentOrigin}
-									animate={{ y: 0, rotate: 0, scale: 1 }} exit={attachmentOrigin} transition={settle} />
+								<ImagePreviewButton src={`data:${image.mimeType};base64,${image.data}`} alt={`待发送图片 ${index + 1}`}>
+									<motion.img src={`data:${image.mimeType};base64,${image.data}`} alt="待发送图片"
+										initial={seenImages.current.has(image.id) ? false : attachmentOrigin}
+										animate={{ y: 0, rotate: 0, scale: 1 }} exit={attachmentOrigin} transition={settle} />
+								</ImagePreviewButton>
 								<IconButton
 									label={`移除附件 ${index + 1}`}
 									size="icon-sm"

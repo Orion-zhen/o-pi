@@ -5,9 +5,10 @@ import pLimit from "p-limit";
 import { ChevronLeft, ChevronRight, Minus, Plus, Scan, ScanLine } from "lucide-react";
 import { IconButton } from "../../components/icon-button";
 import { Button } from "../../components/ui/button";
-import { fileSize, usePreviewViewport } from "./preview-viewport.ts";
+import { fileSize, usePreviewViewport } from "../../media/preview-viewport.ts";
 import { PdfPage } from "./pdf-page.tsx";
-import { stepZoom, ZoomInput } from "./zoom-input.tsx";
+import { stepZoom, ZoomInput } from "../../media/zoom-input.tsx";
+import "../../media/media.css";
 import "./pdf-preview.css";
 
 const assets = new URL("pdf/", document.baseURI).href;

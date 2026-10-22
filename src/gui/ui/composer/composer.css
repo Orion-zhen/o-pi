@@ -44,7 +44,8 @@
 .image-preview { display: grid; min-inline-size: 0; }
 .image-preview > * { grid-area: 1 / 1; }
 .image-preview img { inline-size: 100%; block-size: auto; aspect-ratio: 5 / 4; object-fit: cover; border-radius: 0.5rem; border: 1px solid var(--border); }
-.image-preview button { align-self: start; justify-self: end; background: var(--surface); }
+.image-preview > .image-preview-trigger { inline-size: 100%; }
+.image-preview > button:not(.image-preview-trigger) { align-self: start; justify-self: end; background: var(--surface); }
 .suggestions { display: flex; flex-direction: column; gap: 0.125em; max-block-size: 30dvh; overflow: auto; overscroll-behavior: contain; list-style: none; margin: 0; padding: 0; }
 .suggestions:not(:empty) { padding: 0.375em; border-bottom: thin solid var(--border); }
 .suggestions > li { flex-shrink: 0; min-inline-size: 0; }

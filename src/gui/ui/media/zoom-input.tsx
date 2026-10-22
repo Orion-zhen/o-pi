@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Input } from "../../components/ui/input";
+import { Input } from "../components/ui/input";
 
 export function stepZoom(scale: number, direction: 1 | -1): number {
 	const percent = Number((scale * 100).toFixed(2));

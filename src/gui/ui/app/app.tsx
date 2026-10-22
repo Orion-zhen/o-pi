@@ -36,6 +36,7 @@ import { ResizeHandle } from "../components/resize-handle";
 import { Button } from "../components/ui/button";
 import { Sheet, SheetTrigger } from "../components/ui/sheet";
 import { TooltipProvider } from "../components/ui/tooltip";
+import { ImagePreviewProvider } from "../media/image-preview.tsx";
 
 /** 条件持续满足 delay 毫秒后才转真; 正常启动时会话先于超时到达, 工作区欢迎页不再闪现. */
 function useDelayed(value: boolean, delay: number): boolean {
@@ -100,6 +101,7 @@ export function App() {
 	const state = !gui.connected ? connectionLabels[status] : dialogs.length ? "等待操作" : snapshot?.compacting ? "正在压缩上下文" : gui.running ? "运行中" : "就绪";
 	return (
 		<GuiQueryContext value={gui.query}><TooltipProvider delayDuration={350}>
+			<ImagePreviewProvider sessionId={gui.selectedId} fallbackFocus={main}>
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
 				<div className="app" data-collapsed={collapsed} ref={app} style={gui.layout.style}>
 					<RegionBoundary scope="sidebar"><Sidebar
@@ -245,6 +247,7 @@ export function App() {
 					</div>
 				</div>
 			</Sheet>
+			</ImagePreviewProvider>
 			<AnimatePresence mode="wait">
 			{panel?.kind === "settings" ? <RegionBoundary scope="settings" inline={false} key="settings" onFailure={gui.closePanel}>
 				<SettingsDialog ref={panelContent} close={gui.closePanel} initialCategory={panel.category} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
