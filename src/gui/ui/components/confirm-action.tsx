@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Check, Trash2 } from "lucide-react";
+import { Check, Trash2 } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { IconButton } from "./icon-button";
 import { useConfirmation } from "./use-confirmation.ts";
 
@@ -17,5 +18,5 @@ export function ConfirmAction({ label, tooltip = "永久删除", disabled, confi
 			confirmation.cancel();
 			setPending(true);
 			void confirm().finally(() => setPending(false));
-		}}>{armed ? <Check /> : <Trash2 />}</IconButton>;
+		}}><MorphIcon icon={armed ? Check : Trash2} spring="smooth" size="1em" /></IconButton>;
 }

@@ -1,7 +1,10 @@
 import { memo, useState } from "react";
 import { Fade } from "../components/animated";
 import { fade, settle } from "../lib/motion";
-import { MessageSquare, Pencil, Shield } from "lucide-react";
+import { Pencil } from "lucide-react";
+import { MessageSquare } from "lucide";
+import { MorphIcon } from "morphicons/react";
+import { FilledShield } from "../lib/icon-shapes";
 import type { Send } from "../runtime/connection.ts";
 import type { SessionListItem } from "./session-list.ts";
 import { Hint } from "../components/ui/tooltip";
@@ -33,7 +36,8 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, disable
 		}} /> : <Hint content={modified ? new Date(modified).toLocaleString("zh-CN") : undefined}><Button variant="ghost" className="history-session" aria-label={title}
 			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || pending}
 			onClick={() => open(item)}>
-			{waiting ? <Shield className="approval-marker" fill="currentColor" role="img" aria-label="等待审批" /> : <MessageSquare />}<span className="history-session-title">{title}</span>
+			<MorphIcon icon={waiting ? FilledShield : MessageSquare} spring="smooth" size="1em"
+				className={waiting ? "approval-marker" : undefined} {...(waiting ? { label: "等待审批" } : {})} /><span className="history-session-title">{title}</span>
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
 		</Button></Hint>}
 		{path && <div className="row-actions">

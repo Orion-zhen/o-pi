@@ -1,8 +1,7 @@
 import { memo, useState } from "react";
-import { Check, Copy } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { Check, Copy } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { TextMorph } from "../components/motion-primitives/text-morph";
-import { fade } from "../lib/motion";
 import { Hint } from "../components/ui/tooltip";
 import { SyntaxHighlighter } from "./code-highlight.ts";
 
@@ -30,10 +29,7 @@ export const CodeBlock = memo(function CodeBlock({ text, label = "代码", langu
 						setError(true);
 					}
 				}}>
-					<span className="copy-icon" aria-hidden="true"><AnimatePresence initial={false}>
-						<motion.span key={String(complete)} {...fade} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
-							transition={fade.transition}>{complete ? <Check /> : <Copy />}</motion.span>
-					</AnimatePresence></span>
+					<MorphIcon icon={complete ? Check : Copy} spring="smooth" size="1em" />
 					<TextMorph>{error ? "复制失败" : complete ? "已复制" : "复制"}</TextMorph>
 				</button>
 			</div>

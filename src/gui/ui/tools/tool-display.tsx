@@ -1,7 +1,9 @@
-import { Bot, Check, CircleDashed, CircleStop, CodeXml, FilePenLine, FileSearch, FolderSearch, Globe, LoaderCircle, Search, Terminal, Wrench, X } from "lucide-react";
+import { Bot, CodeXml, FilePenLine, FileSearch, FolderSearch, Globe, Search, Terminal, Wrench } from "lucide-react";
+import { Check, CircleDashed, CircleStop, LoaderCircle, X } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import type { ReactNode } from "react";
 import { AnimatePresence } from "motion/react";
-import { Crossfade, Reveal } from "../components/animated";
+import { Reveal } from "../components/animated";
 import { fade, settle } from "../lib/motion";
 import type { ToolState } from "../transcript/transcript-items.ts";
 import { outputPreview, type GuiToolOutput } from "../../messages.ts";
@@ -35,12 +37,9 @@ export function toolDisplay(name: string) {
 
 export function ActivityIcon({ state }: { state: ToolState | "skipped" }) {
 	const active = state === "running" || state === "preparing";
-	const Icon = active ? LoaderCircle : state === "completed" ? Check : state === "failed" ? X : state === "stopped" ? CircleStop : CircleDashed;
-	return <span className="activity-state-icon" data-state={state}>
-		<Crossfade value={active ? "active" : state} layout={false}>
-			<Icon className={active ? "animate-spin" : undefined} aria-hidden="true" />
-		</Crossfade>
-	</span>;
+	const icon = active ? LoaderCircle : state === "completed" ? Check : state === "failed" ? X : state === "stopped" ? CircleStop : CircleDashed;
+	return <MorphIcon icon={icon} spring="smooth" size="1em" data-state={state}
+		className={`activity-state-icon${active ? " animate-spin" : ""}`} />;
 }
 
 export function ActivityState({ state, label = toolStates[state], facts, durationMs }: {

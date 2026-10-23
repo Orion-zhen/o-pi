@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { ListItem } from "../components/animated";
-import { ArrowDown, ArrowUp, Check, Cpu, ListX, LoaderCircle, Play, Save, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Cpu, ListX, LoaderCircle, Search } from "lucide-react";
+import { Check, LoaderCircle as LoaderCircleData, Play, Save } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import type { GuiAction, GuiSnapshot } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
 import { ThinkingControl } from "./model-controls.tsx";
@@ -94,7 +96,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 						disabled={disabled || !model || active}
 						onClick={() => { if (model) void run({ action: "model", provider: model.provider, id: model.id }); }}
 					>
-						{active ? <Check /> : <Play />}
+						<MorphIcon icon={active ? Check : Play} spring="smooth" size="1em" />
 					</IconButton>
 				</div>
 			</ListItem>
@@ -164,7 +166,8 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 								: "切换仅影响当前会话；设为默认后供下次启动使用。"}
 				</p>
 				<Button disabled={disabled || !snapshot.modelScopeChanged} aria-busy={pending === "persistModels"} onClick={() => void run({ action: "persistModels" })}>
-					{pending === "persistModels" ? <LoaderCircle className="animate-spin" /> : <Save />}
+					<MorphIcon icon={pending === "persistModels" ? LoaderCircleData : Save} spring="smooth" size="1em"
+						className={pending === "persistModels" ? "animate-spin" : undefined} />
 					保存常用模型
 				</Button>
 			</footer>

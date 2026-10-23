@@ -1,5 +1,6 @@
 import { outputPreview } from "../../messages.ts";
-import { BookOpen, Check, ChevronRight, CircleDashed, CircleStop, LoaderCircle, X } from "lucide-react";
+import { BookOpen, ChevronRight } from "lucide-react";
+import { ActivityIcon } from "../tools/tool-display.tsx";
 import type { SkillLoadDetails } from "../../../harness/skill-context/types.ts";
 import { isSkillLoadDetails, skillLoaders, skillScopes } from "../../skill-facts.ts";
 import type { ToolActivity, ToolState } from "../transcript/transcript-items.ts";
@@ -19,8 +20,6 @@ export function SkillCard({ id, name, loadedBy, state, output }: SkillCardProps)
 	const [open, setOpen] = useDisclosureMemory(`skill:${id}`, false);
 	const preview = outputPreview(output);
 	const details = isSkillLoadDetails(preview?.details) ? preview.details : undefined;
-	const active = state === "running" || state === "preparing";
-	const Status = active ? LoaderCircle : state === "completed" ? Check : state === "failed" ? X : state === "stopped" ? CircleStop : CircleDashed;
 	const status = state === "completed" && details?.deduplicated ? "已加载过" : states[state];
 	const error = state === "failed" && record(preview?.details) && record(preview.details.error) && typeof preview.details.error.message === "string"
 		? clean(preview.details.error.message) : "";
@@ -31,7 +30,7 @@ export function SkillCard({ id, name, loadedBy, state, output }: SkillCardProps)
 				<span className="activity-label">技能</span>
 				<code className="activity-target">{name}</code>
 				<span className="skill-loader">{skillLoaders[loadedBy]}</span>
-				<span className="activity-state" data-state={state}><Status className={active ? "animate-spin" : ""} aria-hidden="true" />{status && <span>{status}</span>}</span>
+				<span className="activity-state" data-state={state}>{status && <span>{status}</span>}<ActivityIcon state={state} /></span>
 				<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 			</CollapsibleTrigger>
 			{error && <p className="activity-error">{error}</p>}

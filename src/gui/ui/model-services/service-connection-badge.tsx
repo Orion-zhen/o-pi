@@ -1,4 +1,6 @@
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide";
+import { MorphIcon } from "morphicons/react";
+import { StatusDot } from "../lib/icon-shapes";
 import type { ModelServiceConnection } from "../../model-services.ts";
 import { serviceConnectionTimeoutMs } from "../../../harness/openai-compatible-provider/service-connection.ts";
 import { Hint } from "../components/ui/tooltip.tsx";
@@ -40,7 +42,7 @@ export function ServiceConnectionBadge({ id, connection, disabled, retry }: {
 	return <Hint content={lines.join("\n")}>
 		<button type="button" className="service-connection" data-tone={tone} aria-label={`检测服务 ${id}，${label}`}
 			aria-disabled={disabled} aria-busy={checking} onClick={() => { void retry(); }}>
-			{checking ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <span className="service-connection-dot" aria-hidden="true" />}
+			<MorphIcon icon={checking ? LoaderCircle : StatusDot} spring="smooth" size="1em" className={checking ? "animate-spin" : undefined} />
 			<span aria-live="polite">{label}</span>
 		</button>
 	</Hint>;

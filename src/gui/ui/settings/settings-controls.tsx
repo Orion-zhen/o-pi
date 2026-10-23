@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
-import { Code, List, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
+import { Code, List } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { Button } from "../components/ui/button";
 import { IconButton } from "../components/icon-button";
 import { Disclosure } from "../components/disclosure";
@@ -31,7 +33,7 @@ export function SettingsSourceButton({ file, source = false, disabled, onClick }
 }) {
 	return <Hint content={source ? "表单编辑" : "编辑配置文件"}>
 		<Button variant="ghost" size="sm" disabled={disabled} onClick={onClick}>
-			{source ? <List aria-hidden="true" /> : <Code aria-hidden="true" />}
+			<MorphIcon icon={source ? List : Code} spring="smooth" size="1em" />
 			{source ? "表单" : file.endsWith(".jsonc") ? "JSONC" : "JSON"}
 		</Button>
 	</Hint>;

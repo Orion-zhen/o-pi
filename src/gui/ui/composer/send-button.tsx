@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, CornerUpRight, ListEnd, Square } from "lucide-react";
+import { ArrowUp, CornerUpRight, ListEnd } from "lucide";
+import { MorphIcon } from "morphicons/react";
+import { FilledSquare } from "../lib/icon-shapes";
 import { animate, motion, useDragControls, useMotionValue, useReducedMotion, useTransform } from "motion/react";
-import { Crossfade } from "../components/animated";
 import { Button } from "../components/ui/button";
 import { Hint } from "../components/ui/tooltip";
 import "./send-button.css";
@@ -18,8 +19,8 @@ const variants = {
 	send: { label: "发送", icon: ArrowUp },
 	steer: { label: "发送", icon: CornerUpRight },
 	"follow-up": { label: "发送", icon: ListEnd },
-	stop: { label: "停止", icon: Square },
-	"stop-compaction": { label: "停止压缩", icon: Square },
+	stop: { label: "停止", icon: FilledSquare },
+	"stop-compaction": { label: "停止压缩", icon: FilledSquare },
 };
 
 interface SendButtonProps {
@@ -57,7 +58,7 @@ export function SendButton({ mode, disabled, onActivate }: SendButtonProps) {
 	const gestureMode = useRef(mode);
 	const pull = useRef({ x: 0, y: 0 });
 	const enabled = !disabled && !reducedMotion;
-	const { label, icon: Icon } = variants[mode];
+	const { label, icon } = variants[mode];
 	const maxPull = diameter * armRatio * 1.1;
 	const distance = useTransform(() => Math.hypot(x.get(), y.get()));
 	const power = useTransform(() => distance.get() === 0 ? 0 : Math.min(1, distance.get() / (diameter * armRatio)));
@@ -152,9 +153,9 @@ export function SendButton({ mode, disabled, onActivate }: SendButtonProps) {
 						onActivate();
 					}}
 				>
-					<motion.span className="sling-icon" style={{ rotate: angle }}><Crossfade value={mode}>
-						<Icon fill={mode === "stop" || mode === "stop-compaction" ? "currentColor" : "none"} />
-					</Crossfade></motion.span>
+					<motion.span className="sling-icon" style={{ rotate: angle }}>
+						<MorphIcon icon={icon} spring="smooth" size="1em" />
+					</motion.span>
 				</motion.button>
 			</Button>
 		</Hint>

@@ -4,8 +4,6 @@
 .code-toolbar button { display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; padding: 0.125rem 0.25rem; border-radius: 0.25rem; }
 .code-toolbar button:hover { color: var(--foreground); background: var(--accent); }
 .code-toolbar button svg { width: 0.75rem; height: 0.75rem; }
-.copy-icon { display: grid; inline-size: 0.75rem; block-size: 0.75rem; }
-.copy-icon > span { grid-area: 1 / 1; }
 .code-block pre { margin: 0; padding: 0.875rem; max-block-size: 60dvh; overflow: auto; border: 0; border-radius: 0; background: transparent; white-space: pre; overflow-wrap: normal; line-height: 1.65; tab-size: 4; }
 .code-block code { font-size: var(--text-code); }
 :is(.code-block, .file-diff) .token:is(.comment, .prolog, .doctype) { color: var(--muted-foreground); font-style: italic; }

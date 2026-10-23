@@ -2,7 +2,10 @@ import { useMemo, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "../components/animated";
 import { fade, settle } from "../lib/motion";
-import { Check, ChevronsUpDown, FolderOpen, Home, Shield } from "lucide-react";
+import { ChevronsUpDown, FolderOpen, Home, Shield } from "lucide-react";
+import { Check, FolderOpen as FolderOpenData } from "lucide";
+import { MorphIcon } from "morphicons/react";
+import { FilledShield, StatusDot } from "../lib/icon-shapes";
 import type { SidebarView } from "../app/gui-controls.ts";
 import { Button } from "../components/ui/button";
 import { SearchInput } from "../components/search-input";
@@ -45,9 +48,10 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 			<Hint content={cwd} disabled={expanded}><PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="工作区" aria-expanded={expanded}
 				className="workspace-select activity-frame" aria-description={state === "idle" ? cwd : `${cwd}\n${status}`} disabled={disabled}>
 				<ActivityBorder state={state} />
-				{(!compact || !elsewhereWaiting) && <FolderOpen />}
+				{compact ? <MorphIcon icon={elsewhereWaiting ? FilledShield : FolderOpenData} spring="smooth" size="1em"
+					className={elsewhereWaiting ? "approval-marker" : undefined} {...(elsewhereWaiting ? { label: "其他工作区等待审批" } : {})} /> : <FolderOpen />}
 				{!compact && <span>{cwd.split(/[/\\]/).filter(Boolean).at(-1) || "选择工作区"}</span>}
-				{elsewhereWaiting && <Shield className="approval-marker" fill="currentColor" role="img" aria-label="其他工作区等待审批" />}
+				{!compact && elsewhereWaiting && <Shield className="approval-marker" fill="currentColor" role="img" aria-label="其他工作区等待审批" />}
 				{!compact && <ChevronsUpDown />}
 			</Button></PopoverTrigger></Hint>
 			<PopoverContent className="workspace-options">
@@ -64,8 +68,9 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Pick<Sid
 								<span className="workspace-option-label"><span className="workspace-option-path"><bdi dir="ltr">{home
 									? <><span className="workspace-option-home"><Home aria-hidden="true" />{home.username}</span>{home.suffix}</>
 									: path}</bdi></span>{!exists && <small>目录不存在</small>}</span>
-								{path === cwd ? <Check /> : state === "waiting" ? <Shield className="approval-marker" fill="currentColor" role="img" aria-label={status} />
-									: state !== "idle" && <span className="workspace-option-status" data-activity={state} role="img" aria-label={status} />}
+								{(path === cwd || state !== "idle") && <MorphIcon icon={path === cwd ? Check : state === "waiting" ? FilledShield : StatusDot}
+									spring="smooth" size="1em" data-activity={state} {...(path === cwd ? {} : { label: status })}
+									className={path === cwd ? undefined : state === "waiting" ? "approval-marker" : "workspace-option-status"} />}
 							</Button></Hint>
 							{path !== gui.workspaceRoot && path !== cwd && state === "idle" && <div className="row-actions">
 								<ConfirmAction label={`移除工作区 ${path}`} tooltip="清空会话 · 保留文件"

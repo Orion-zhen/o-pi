@@ -22,6 +22,8 @@ export interface EditorControls {
 	setDraft: (text: string) => void;
 }
 export interface SidebarView extends GuiControls {
+	usageLoading: boolean;
+	openUsage: (mobile: boolean) => Promise<void>;
 	cwd: string;
 	activity: SessionActivity[];
 	sessionRows: SessionListItem[];

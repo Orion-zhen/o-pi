@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide, ChevronRight, Trash2 } from "lucide-react";
+import { ChevronRight, Trash2 } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpDown, ArrowUpNarrowWide } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import type { StorageEntry, StorageGroup } from "../../storage.ts";
 import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
@@ -34,7 +36,6 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 	const [page, setPage] = useState(0);
 	const [sizeSort, setSizeSort] = useState<keyof typeof sizeSortModes>("none");
 	const sortMode = sizeSortModes[sizeSort];
-	const SortIcon = sortMode.icon;
 	const [selected, setSelected] = useState<Set<string>>(() => new Set());
 	useEffect(() => { setSelected(new Set()); }, [group]);
 	const query = filter.trim().toLocaleLowerCase();
@@ -65,7 +66,7 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 					<label className="storage-select"><Checkbox aria-label={`选择本页可删除的${group.title}`} disabled={disabled || available.length === 0}
 						checked={checked ? true : partial ? "indeterminate" : false} onCheckedChange={(value) => select(available.map((entry) => entry.id), value === true)} />选择本页可删除项</label>
 					<Hint content={sizeSortModes[sortMode.next].label}><Button variant="outline" size="sm" onClick={() => { setSizeSort(sortMode.next); setPage(0); }}>
-						<SortIcon aria-hidden="true" />{sortMode.label}</Button></Hint>
+						<MorphIcon icon={sortMode.icon} spring="smooth" size="1em" />{sortMode.label}</Button></Hint>
 					<Button variant="outline" size="sm" className="storage-delete" disabled={disabled || chosen.length === 0 || chosen.length > 1000}
 						onClick={(event) => requestRemoval(chosen, event.currentTarget, heading.current)}><Trash2 aria-hidden="true" />删除所选{chosen.length ? ` (${chosen.length})` : ""}</Button>
 				</div>

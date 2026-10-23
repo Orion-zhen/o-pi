@@ -1,5 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Check, ChevronRight, Copy } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import { Check, Copy } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { ReferenceFileButton } from "./reference-file-button";
 import { FileIcon } from "../components/file-icon.tsx";
 import { gitStatusLabels, indexWorkspaceGit, type WorkspaceGit } from "../../workbench.ts";
@@ -27,7 +29,7 @@ function FileRowActions({ path, referenceFile }: { path: string; referenceFile: 
 				} catch {
 					setCopyState({ status: "error" });
 				}
-			}}>{copyState.status === "copied" ? <Check /> : <Copy />}</IconButton>
+			}}><MorphIcon icon={copyState.status === "copied" ? Check : Copy} spring="smooth" size="1em" /></IconButton>
 		<ReferenceFileButton path={path} referenceFile={referenceFile} direction={1} />
 	</div>;
 }

@@ -1,4 +1,5 @@
-import { Check, Flame, LoaderCircle } from "lucide-react";
+import { Check, Flame, LoaderCircle } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import type { UsageResetCredits } from "../../../harness/usage/types.ts";
 import { Button } from "../components/ui/button";
 import { Hint } from "../components/ui/tooltip";
@@ -59,7 +60,8 @@ export function ResetCredits({ value, timeZone, generatedAt, action }: {
 							onBlur={() => { if (confirming) confirmation.cancel(); }}
 							onClick={() => activate(id, action)}
 						>
-							{pending ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : confirming ? <Check aria-hidden="true" /> : <Flame aria-hidden="true" />}
+							<MorphIcon icon={pending ? LoaderCircle : confirming ? Check : Flame} spring="smooth" size="1em"
+								className={pending ? "animate-spin motion-reduce:animate-none" : undefined} />
 							{pending ? "使用中" : confirming ? "确定" : "使用"}
 						</Button></Hint>}
 					</li>;

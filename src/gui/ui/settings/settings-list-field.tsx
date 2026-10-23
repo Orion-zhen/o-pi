@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { ChevronUp, Pencil, Plus } from "lucide-react";
+import { ChevronUp, Pencil, Plus } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
@@ -20,7 +21,7 @@ export function SettingsListField({ label, value, disabled, change }: {
 				<span className="settings-list-count">{entries.length} 项</span>
 			</> : <span className="settings-description">未配置</span>}
 			<CollapsibleTrigger asChild><Button ref={trigger} variant="ghost" size="sm" aria-label={`${action}${label}`} disabled={disabled}>
-				{expanded ? <ChevronUp aria-hidden="true" /> : entries.length ? <Pencil aria-hidden="true" /> : <Plus aria-hidden="true" />}{action}
+				<MorphIcon icon={expanded ? ChevronUp : entries.length ? Pencil : Plus} spring="smooth" size="1em" />{action}
 			</Button></CollapsibleTrigger>
 		</div>
 		<CollapsibleContent lazy onTransitionEnd={(event) => {

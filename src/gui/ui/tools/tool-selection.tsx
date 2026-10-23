@@ -1,5 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, LoaderCircle, Save, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Search } from "lucide-react";
+import { LoaderCircle, Save } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { LayoutGroup, motion } from "motion/react";
 import type { GuiSnapshot } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
@@ -41,7 +43,7 @@ export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot:
 				<SearchInput icon={Search} aria-label="筛选工具" placeholder="筛选工具或 MCP 服务" value={filter} onValueChange={setFilter} />
 			</div>
 			<Button title="保存为用户默认" disabled={disabled || !snapshot.toolDefaultsChanged} aria-busy={saving} onClick={() => void persist()}>
-				{saving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Save aria-hidden="true" />}保存默认
+				<MorphIcon icon={saving ? LoaderCircle : Save} spring="smooth" size="1em" className={saving ? "animate-spin" : undefined} />保存默认
 			</Button>
 		</div>
 		{!hasResults && <p className="tool-selection-empty" role="status">没有匹配的工具</p>}

@@ -1,7 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState, type PointerEvent } from "react";
 import { Minus, Plus, Scan } from "lucide-react";
+import { motion } from "motion/react";
 import { IconButton } from "../components/icon-button";
 import { Button } from "../components/ui/button";
+import { fade } from "../lib/motion";
+import { ImageTransition } from "./image-transition.tsx";
 import { fileSize, usePreviewViewport } from "./preview-viewport.ts";
 import { stepZoom, ZoomInput } from "./zoom-input.tsx";
 import "./media.css";
@@ -9,8 +12,11 @@ import "./media.css";
 type Point = { x: number; y: number };
 const origin: Point = { x: 0, y: 0 };
 
-export function ImageViewer({ url, alt, size, onBackgroundClick }: { url: string; alt: string; size?: number; onBackgroundClick?: () => void }) {
+export function ImageViewer({ url, alt, size, transitionSource, onBackgroundClick }: {
+	url: string; alt: string; size?: number; transitionSource?: HTMLImageElement; onBackgroundClick?: () => void;
+}) {
 	const viewport = usePreviewViewport();
+	const image = useRef<HTMLImageElement>(null);
 	const [dimensions, setDimensions] = useState<Point>();
 	const [error, setError] = useState(false);
 	const [attempt, setAttempt] = useState(0);
@@ -62,15 +68,18 @@ export function ImageViewer({ url, alt, size, onBackgroundClick }: { url: string
 			zoomAt(scale * Math.hypot(c.x - d.x, c.y - d.y) / distance, { x: (c.x + d.x) / 2 - rect.x - rect.width / 2, y: (c.y + d.y) / 2 - rect.y - rect.height / 2 });
 		} else setPan(clamp({ x: shownPan.x + next.x - previous.x, y: shownPan.y + next.y - previous.y }, scale));
 	};
+	const picture = <img key={attempt} ref={image} src={url} alt={alt} decoding="async" draggable={false} className="file-preview-image"
+		onLoad={(event) => setDimensions({ x: event.currentTarget.naturalWidth, y: event.currentTarget.naturalHeight })} onError={() => setError(true)}
+		style={{ visibility: dimensions ? "visible" : "hidden", width: dimensions ? dimensions.x * scale : undefined, height: dimensions ? dimensions.y * scale : undefined, transform: `translate(calc(-50% + ${shownPan.x}px), calc(-50% + ${shownPan.y}px))` }} />;
 	return <div className="image-reader media-reader">
-		<div className="media-toolbar" aria-label="图片工具栏">
+		<motion.div {...(transitionSource ? fade : {})} className="media-toolbar" aria-label="图片工具栏">
 			<IconButton label="缩小图片" size="icon-sm" disabled={!dimensions || scale <= 0.01} onClick={() => zoomAt(stepZoom(scale, -1))}><Minus /></IconButton>
 			<ZoomInput label="图片缩放比例" scale={scale} min={0.01} max={32} disabled={!dimensions || error} onChange={zoomAt} />
 			<IconButton label="放大图片" size="icon-sm" disabled={!dimensions || scale >= 32} onClick={() => zoomAt(stepZoom(scale, 1))}><Plus /></IconButton>
 			<IconButton label="适应窗口" size="icon-sm" aria-pressed={zoom === "fit"} onClick={() => { setZoom("fit"); setPan(origin); }}><Scan /></IconButton>
 			<IconButton label="实际大小" size="icon-sm" aria-pressed={zoom === 1} onClick={() => zoomAt(1)}><span className="text-xs">1:1</span></IconButton>
 			<span className="media-details">{dimensions && `${dimensions.x} × ${dimensions.y}`}{size !== undefined && `${dimensions ? " · " : ""}${fileSize(size)}`}</span>
-		</div>
+		</motion.div>
 		<div className="image-viewport" ref={viewport.ref} tabIndex={0} aria-label="图片正文"
 			onKeyDown={(event) => {
 				if (event.key === "+" || event.key === "=") zoomAt(stepZoom(scale, 1));
@@ -97,9 +106,9 @@ export function ImageViewer({ url, alt, size, onBackgroundClick }: { url: string
 			{error ? <div className="media-hint"><p role="alert">图片无法解码或读取失败。</p>
 				<Button variant="outline" size="sm" onClick={() => { setError(false); setDimensions(undefined); setAttempt(attempt + 1); }}>重试图片</Button></div> : <>
 				{!dimensions && <p className="media-hint" role="status">正在加载图片…</p>}
-				<img key={attempt} src={url} alt={alt} decoding="async" draggable={false} className="file-preview-image"
-					onLoad={(event) => setDimensions({ x: event.currentTarget.naturalWidth, y: event.currentTarget.naturalHeight })} onError={() => setError(true)}
-					style={{ visibility: dimensions ? "visible" : "hidden", width: dimensions ? dimensions.x * scale : undefined, height: dimensions ? dimensions.y * scale : undefined, transform: `translate(calc(-50% + ${shownPan.x}px), calc(-50% + ${shownPan.y}px))` }} />
+				{transitionSource ? <ImageTransition source={transitionSource} image={image} ready={!!dimensions && viewport.width > 0 && viewport.height > 0}>
+					{picture}
+				</ImageTransition> : picture}
 			</>}
 		</div>
 	</div>;

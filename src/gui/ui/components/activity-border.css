@@ -8,9 +8,8 @@
 	rx: max(0px, calc(var(--radius-md) - 1px)); fill: none; stroke: currentColor; stroke-width: 2; stroke-opacity: 0.1;
 }
 .activity-border[data-activity="running"][data-playing="true"] { animation-play-state: running; }
-.workspace-option-status { display: inline-grid; place-items: center; flex-shrink: 0; inline-size: 1.15em; block-size: 1.15em; color: var(--ring); }
-.workspace-option-status::before { content: ""; inline-size: 0.5em; block-size: 0.5em; border-radius: 50%; background: currentColor; }
-.workspace-option-status[data-activity="running"]::before { animation: activity-pulse 1.8s ease-in-out infinite; }
+.workspace-option-status { flex-shrink: 0; inline-size: 1.15em; block-size: 1.15em; color: var(--ring); }
+.workspace-option-status[data-activity="running"] { animation: activity-pulse 1.8s ease-in-out infinite; }
 .history-session[data-unread="true"] .history-session-title { color: var(--foreground); font-weight: 600; }
 .approval-marker { color: var(--ring); }
 @keyframes activity-orbit { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }

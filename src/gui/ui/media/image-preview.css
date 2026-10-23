@@ -3,14 +3,20 @@
 .image-preview-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .image-preview-trigger:has(.attachment) { margin-block: 0.75rem; }
 .image-preview-trigger > .attachment { margin: 0; }
+.image-preview-trigger[data-previewing] > img { visibility: hidden; }
+.image-preview-layer { position: relative; background: none; backdrop-filter: none; }
+.image-preview-backdrop { position: absolute; inset: 0; background: var(--overlay); backdrop-filter: var(--overlay-filter); pointer-events: none; }
 .image-preview-dialog { position: relative; display: flex; flex-direction: column; inline-size: 100%; block-size: 100%; min-inline-size: 0; min-block-size: 0; padding: max(3.5rem, env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right)) max(var(--space-4), env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left)); overflow: hidden; outline: none; font-size: var(--text-ui); }
 .image-preview-close { position: absolute; inset-block-start: max(var(--space-3), env(safe-area-inset-top)); inset-inline-end: max(var(--space-3), env(safe-area-inset-right)); z-index: 1; border-radius: 50%; background: var(--popover); color: var(--popover-foreground); }
 .image-preview-dialog .image-reader { flex-direction: column-reverse; pointer-events: none; }
 .image-preview-dialog .image-viewport { background: none; cursor: default; pointer-events: auto; }
+.image-preview-dialog .image-viewport:has(.image-preview-motion[data-moving="true"]) { overflow: visible; }
+.image-preview-motion { position: absolute; inset: 0; pointer-events: none; }
+.image-preview-motion > img { pointer-events: auto; }
 .image-preview-dialog .image-viewport:focus-visible { outline: none; }
 .image-preview-dialog .image-viewport:focus-visible .file-preview-image { outline: 2px solid var(--ring); outline-offset: 4px; }
 .image-preview-dialog .file-preview-image { cursor: grab; }
 .image-preview-dialog .image-viewport:active .file-preview-image { cursor: grabbing; }
-.image-preview-dialog .media-toolbar { align-self: center; justify-content: center; max-inline-size: 100%; margin-block-start: var(--space-3); border: 0; border-radius: var(--radius-xl); background: var(--popover); color: var(--popover-foreground); box-shadow: var(--shadow); pointer-events: auto; }
+.image-preview-dialog .media-toolbar { position: relative; z-index: 1; align-self: center; justify-content: center; max-inline-size: 100%; margin-block-start: var(--space-3); border: 0; border-radius: var(--radius-xl); background: var(--popover); color: var(--popover-foreground); box-shadow: var(--shadow); pointer-events: auto; }
 .image-preview-dialog .media-details { display: none; }
 .image-preview-dialog .media-hint { inline-size: fit-content; max-inline-size: 100%; margin-inline: auto; border-radius: var(--radius-lg); background: var(--popover); }

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
+import { LoaderCircle } from "lucide";
+import { MorphIcon } from "morphicons/react";
+import { StatusDot } from "../lib/icon-shapes";
 import { Crossfade, Fade, Reveal } from "../components/animated";
 import { FeedbackHighlight } from "../components/feedback-highlight";
 import { ConversationContent } from "./conversation-content.tsx";
@@ -8,7 +11,6 @@ import { ErrorBanner } from "./error-banner.tsx";
 import {
 	ArrowDown,
 	ExternalLink,
-	LoaderCircle,
 	PanelLeft,
 	PanelRight,
 	RefreshCw,
@@ -99,6 +101,7 @@ export function App() {
 		return () => desktop.removeEventListener("change", closeMobileSidebar);
 	}, []);
 	const state = !gui.connected ? connectionLabels[status] : dialogs.length ? "等待操作" : snapshot?.compacting ? "正在压缩上下文" : gui.running ? "运行中" : "就绪";
+	const active = state === "运行中" || state === "正在压缩上下文";
 	return (
 		<GuiQueryContext value={gui.query}><TooltipProvider delayDuration={350}>
 			<ImagePreviewProvider sessionId={gui.selectedId} fallbackFocus={main}>
@@ -134,14 +137,8 @@ export function App() {
 								<div className="session-heading"><strong className="session-name">选择工作区</strong></div>
 							)}
 							<div role="status" className="connection-status" data-state={state}>
-								<Crossfade value={state}>
-								{state === "运行中" || state === "正在压缩上下文" ? (
-									<LoaderCircle className="animate-spin" aria-hidden="true" />
-								) : (
-									<span className="status-dot" aria-hidden="true" />
-								)}
-								<span>{state}</span>
-								</Crossfade>
+								<MorphIcon icon={active ? LoaderCircle : StatusDot} spring="smooth" size="1em" className={active ? "animate-spin" : undefined} />
+								<Crossfade value={state}>{state}</Crossfade>
 							</div>
 							{!gui.connected && (
 								<IconButton label="重新连接" onClick={gui.reconnect}>

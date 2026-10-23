@@ -6,7 +6,9 @@ import { Crossfade, ListItem, Reveal } from "../components/animated";
 import { FeedbackHighlight } from "../components/feedback-highlight";
 import { AnimatedNumber } from "../components/motion-primitives/animated-number";
 import { AnimatedBackground } from "../components/motion-primitives/animated-background";
-import { Blocks, CodeXml, CornerUpRight, ListEnd, Paperclip, Wrench, X } from "lucide-react";
+import { Paperclip, X } from "lucide-react";
+import { Blocks, CodeXml, CornerUpRight, ListEnd, Wrench } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { QueuedMessages } from "./queued-messages";
 import { Hint } from "../components/ui/tooltip";
 import { IconButton } from "../components/icon-button";
@@ -48,7 +50,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 	const toolCount = codemode ? snapshot.tools.filter((tool) => tool.name !== "codemode"
 		&& (tool.callable || tool.exposure === "model-only" && tool.enabled)).length : snapshot.modelTools.length;
 	const mcpEnabled = snapshot.tools.some((tool) => tool.mcp && tool.enabled);
-	const ToolIcon = codemode ? CodeXml : mcpEnabled ? Blocks : Wrench;
+	const toolIcon = codemode ? CodeXml : mcpEnabled ? Blocks : Wrench;
 	const {
 		connected,
 		query,
@@ -72,7 +74,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
 	const stopping = snapshot.compacting || running && !hasContent;
 	const steering = behavior === "steer";
-	const BehaviorIcon = steering ? CornerUpRight : ListEnd;
+	const behaviorIcon = steering ? CornerUpRight : ListEnd;
 	const behaviorLabel = steering ? "Steering" : "Follow-up";
 	const submit = () => {
 		if (!hasContent || !gui.canSubmit) return;
@@ -305,7 +307,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 							disabled={!gui.canSubmit}
 							onClick={() => gui.setPanel({ kind: "tools" })}
 						>
-							<Crossfade value={codemode ? "codemode" : mcpEnabled ? "mcp" : "tools"}><ToolIcon /></Crossfade><AnimatedNumber value={toolCount} />
+							<MorphIcon icon={toolIcon} spring="smooth" size="1em" /><AnimatedNumber value={toolCount} />
 						</Button></Hint>
 						<IconButton
 							label={`当前：${behaviorLabel}（${steering ? "引导" : "跟进"}），点击切换为 ${steering ? "Follow-up" : "Steering"}`}
@@ -314,7 +316,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 							className="message-behavior"
 							onClick={() => setBehavior((current) => current === "steer" ? "followUp" : "steer")}
 						>
-							<Crossfade value={behavior}><BehaviorIcon /><span className="message-behavior-label">{behaviorLabel}</span></Crossfade>
+							<MorphIcon icon={behaviorIcon} spring="smooth" size="1em" /><span className="message-behavior-label"><Crossfade value={behavior}>{behaviorLabel}</Crossfade></span>
 						</IconButton>
 					</div>
 					<div className="composer-controls">

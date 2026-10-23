@@ -1,4 +1,6 @@
 import type { ReactNode, Ref } from "react";
+import { LoaderCircle } from "lucide-react";
+import type { ViewPanel } from "./use-panels.ts";
 import type { GuiAction, GuiActionResult, GuiPanel, GuiSnapshot } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
 import { Content } from "../content/content.tsx";
@@ -19,7 +21,7 @@ const titles: Record<GuiPanel["kind"], string> = {
 
 export function Panel({ ref, panel, snapshot, sessionList, send, dispatch, canSubmit, close, restoreFocus }: {
 	ref: Ref<HTMLDivElement>;
-	panel: Exclude<GuiPanel, { kind: "settings" }>;
+	panel: Exclude<ViewPanel, { kind: "settings" }>;
 	snapshot: GuiSnapshot;
 	sessionList: ReactNode;
 	send: Send;
@@ -62,7 +64,9 @@ export function Panel({ ref, panel, snapshot, sessionList, send, dispatch, canSu
 		case "help": body = snapshot.commands.map((command) => <p key={command.name}><code>/{command.name}</code> {command.description}</p>); break;
 		case "lastReply": body = <Content value={panel.text} />; break;
 		case "usage":
-			body = <UsageReport value={panel.value} disabled={!canSubmit}
+			body = panel.value === "loading" ? <div className="report-inline report-empty" role="status">
+				<LoaderCircle className="animate-spin shrink-0 size-[1em]" aria-hidden="true" /><span>正在查询用量…</span>
+			</div> : <UsageReport value={panel.value} disabled={!canSubmit}
 				onUse={(creditId, requestId) => dispatch({ action: "consumeCodexCredit", creditId, requestId })}
 				onRefresh={() => dispatch({ action: "view", view: "usage", refresh: true })} />;
 			break;

@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useMemo } from "react";
-import { LoaderCircle, RefreshCw } from "lucide-react";
+import { LoaderCircle, RefreshCw } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { editProviderField } from "../../../harness/openai-compatible-provider/config-edits.ts";
 import { serviceCompatDefaults } from "../../../harness/openai-compatible-provider/compat-defaults.ts";
 import type { ConfigObject } from "../../../harness/openai-compatible-provider/document.ts";
@@ -54,7 +55,7 @@ export function ServiceForm({ id, config, disabled, catalog: state, status, chan
 		</div></Disclosure>
 		<ServiceModels providerId={id} provider={config} candidates={candidates} disabled={disabled} change={change} status={status}
 			actions={<Button size="sm" variant="outline" disabled={!canRetry} onClick={retry}>
-				{loading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}重新获取
+				<MorphIcon icon={loading ? LoaderCircle : RefreshCw} spring="smooth" size="1em" className={loading ? "animate-spin" : undefined} />重新获取
 			</Button>} />
 	</div>;
 }

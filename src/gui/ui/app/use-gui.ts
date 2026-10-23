@@ -103,11 +103,27 @@ export function useGui() {
 	}, [view, views]);
 	const canSubmit = connected && snapshot?.canSubmit === true;
 	const canChangeSession = connected && snapshot?.canChangeSession === true;
+	const [usageLoading, setUsageLoading] = useState(false);
+	const usagePending = useRef(false);
+	const openUsage = useCallback(async (mobile: boolean) => {
+		if (!canSubmit || usagePending.current) return;
+		usagePending.current = true;
+		setUsageLoading(true);
+		if (mobile) panels.setPanel({ kind: "usage", value: "loading" });
+		try {
+			if (!await send({ action: "view", view: "usage" })) {
+				panels.setPanel((panel) => panel?.kind === "usage" && panel.value === "loading" ? undefined : panel);
+			}
+		} finally {
+			usagePending.current = false;
+			setUsageLoading(false);
+		}
+	}, [canSubmit, send, panels.setPanel]);
 	const sessionRows = useMemo(() => sessionList(host.sessions ?? [], activity, selectedId), [host.sessions, activity, selectedId]);
 	const sidebar = useMemo<SidebarView>(() => ({
-		cwd, activity, sessionRows, sessions: host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, canNavigate: connected,
+		cwd, activity, sessionRows, sessions: host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, canNavigate: connected, usageLoading, openUsage,
 		workbench, layout, openFile, referenceFile, send, query, globalQuery, setPanel: panels.setPanel, workspaceRoot: host.workspaceRoot, workspaces: host.workspaces, error, setError,
-	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession,
+	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, usageLoading, openUsage,
 		workbench, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
 	return {
 		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected,

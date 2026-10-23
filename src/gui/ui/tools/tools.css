@@ -10,12 +10,11 @@
 .activity-state { display: flex; align-items: center; min-inline-size: 0; max-inline-size: 100%; gap: 0.375rem; margin-left: auto; font-size: calc(var(--text-ui) * 11 / 14); }
 .activity-details { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5em; min-inline-size: 0; }
 .activity-state-label { white-space: nowrap; }
-.activity-state-icon { display: inline-grid; flex: none; inline-size: 1.2em; block-size: 1.2em; transition: color var(--motion-fast) var(--motion-ease); }
+.activity-state-icon { flex: none; inline-size: 1.2em; block-size: 1.2em; transition: color var(--motion-fast) var(--motion-ease); }
 .activity-state svg { inline-size: 1.2em; block-size: 1.2em; }
 :is(.activity-state, .activity-state-icon)[data-state="completed"] { color: var(--success); }
 :is(.activity-state, .activity-state-icon)[data-state="failed"], .activity-error { color: var(--destructive); }
 :is(.activity-state, .activity-state-icon)[data-state="stopped"] { color: var(--warning); }
-.activity-state-icon:not([data-state="preparing"], [data-state="running"]) .animate-spin { animation-play-state: paused; }
 .activity-chevron { opacity: 0.5; }
 .activity-chevron.expanded { transform: rotate(90deg); }
 .activity-body { min-width: 0; margin: 0.125rem 0 0.75rem 0.8125rem; padding: 0.25rem 0 0.25rem 1rem; border-left: 1px solid var(--border); color: var(--foreground); }

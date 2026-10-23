@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import type { GuiPanel, GuiSessionTab } from "../../contract.ts";
 import { isTouchInput } from "../lib/input-mode.ts";
 
+export type ViewPanel = GuiPanel | { kind: "usage"; value: "loading" };
+
 export function usePanels(sessionId: string | null) {
-	const [panel, setPanel] = useState<GuiPanel>();
+	const [panel, setPanel] = useState<ViewPanel>();
 	const [sessionTab, setSessionTab] = useState<GuiSessionTab>("tree");
 	const [activeTab, setActiveTab] = useState<GuiSessionTab | "file">("tree");
 	const [sessionPanelOpen, setSessionPanelOpen] = useState(() => !isTouchInput());

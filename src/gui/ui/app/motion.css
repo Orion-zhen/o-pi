@@ -54,7 +54,7 @@
 
 :is(.disclosure-chevron, .activity-chevron, .workspace-chevron, .file-chevron, .files-toggle > svg, .tool-description-toggle > svg, [data-slot="select-icon"]) { transition: transform var(--motion-layout) var(--motion-ease); }
 [data-slot="select-trigger"][data-state="open"] [data-slot="select-icon"] { transform: rotate(180deg); }
-:is(button, a, [role="menuitem"], [role="option"], .row-actions, .status-dot, .activity-state) {
+:is(button, a, [role="menuitem"], [role="option"], .row-actions, .connection-status > svg, .activity-state) {
 	transition-property: background-color, color, border-color, box-shadow, opacity;
 	transition-duration: var(--motion-fast);
 	transition-timing-function: var(--motion-ease);
@@ -70,4 +70,3 @@
 .composer-card > .feedback-highlight { inset: -1px; border-radius: inherit; background: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 35%, transparent); }
 .context-usage circle { transition: stroke-dasharray var(--motion-layout) var(--motion-ease); }
 .report-bar meter::-webkit-meter-optimum-value { transition: width var(--motion-layout) var(--motion-ease); }
-:is(.row-action-button, .send-button, .code-toolbar button) > svg { animation: fade-in var(--motion-fast) var(--motion-ease); }

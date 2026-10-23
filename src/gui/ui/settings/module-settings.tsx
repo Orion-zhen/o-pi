@@ -61,7 +61,7 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 		editor.change(next);
 	};
 	const change = (path: string, value: unknown) => changeFields({ [path]: value });
-	const sourceButton = <SettingsSourceButton file={document.path} source={source} disabled={blocked} onClick={() => setSource(!source)} />;
+	const sourceButton = <SettingsSourceButton key="source" file={document.path} source={source} disabled={blocked} onClick={() => setSource(!source)} />;
 	const fields = (items: ConfigField[], fromSchema = false) => <div className="settings-fields">{items.map((field) => {
 		if (field.type === "searchProviders") return <SearchProviderSettings key={field.path} path={field.path} choices={document.arrayOptions[field.path]}
 			valueAt={valueAt} defaultAt={(path) => at(defaults, path)} change={change} changeGroups={changeFields} disabled={blocked}
@@ -87,12 +87,12 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 		</SettingsRow>;
 	})}</div>;
 	return <div className="settings-module">
-		{source || parseError ? <SettingsSection title={title} actions={sourceButton}>
+		{source || parseError ? <SettingsSection key="main" title={title} actions={sourceButton}>
 			{parseError && <p role="alert">{parseError}</p>}
 			{source && <Textarea aria-label={`${id} 全局 JSONC`} className="settings-source" value={draft} disabled={blocked} onChange={(event) => editor.change(event.target.value)} />}
 		</SettingsSection> : moduleGroups[id].map((group, index) => group.advanced
 			? <SettingsDisclosure key={group.title} title={group.title}>{fields(group.fields)}</SettingsDisclosure>
-			: <SettingsSection key={group.title} title={group.title} actions={<>
+			: <SettingsSection key={index === 0 ? "main" : group.title} title={group.title} actions={<>
 				{index === 0 && sourceButton}
 				{group.fields.filter((field) => field.type === "searchProviders").map((field) => {
 					const paths = [field.path, field.path.replace(/primary_providers$/, "auxiliary_providers")];

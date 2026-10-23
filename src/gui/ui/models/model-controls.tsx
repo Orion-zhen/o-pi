@@ -1,5 +1,7 @@
 import { useRef } from "react";
-import { Cpu, Rocket, Zap } from "lucide-react";
+import { Cpu } from "lucide-react";
+import { Rocket, Zap } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { CODEX_SPEEDS, type CodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { GuiSnapshot } from "../../contract.ts";
 import type { Send } from "../runtime/connection.ts";
@@ -10,14 +12,13 @@ import "./models.css";
 const manageModels = "manage-models";
 
 function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send: Send; disabled: boolean }) {
-	const Icon = speed === "ultrafast" ? Rocket : Zap;
 	return (
 		<Select value={speed} disabled={disabled} onValueChange={(value) => {
 			const next = CODEX_SPEEDS.find((speed) => speed === value);
 			if (next) void send({ action: "codexSpeed", speed: next });
 		}}>
 			<Hint content={`模型速度：${speed}`}><SelectTrigger className="codex-speed" data-speed={speed} aria-label={`模型速度：${speed}`}>
-				<span className="codex-speed-label"><Icon aria-hidden="true" />{speed !== "normal" && <span>{speed}</span>}</span>
+				<span className="codex-speed-label"><MorphIcon icon={speed === "ultrafast" ? Rocket : Zap} spring="smooth" size="1em" />{speed !== "normal" && <span>{speed}</span>}</span>
 			</SelectTrigger></Hint>
 			<SelectContent>
 				{CODEX_SPEEDS.map((speed) => <SelectItem key={speed} value={speed}>{speed}</SelectItem>)}

@@ -2,8 +2,8 @@ import { act, createElement } from "react";
 import { useReactFixture } from "./react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StorageEntry, StorageGroup } from "../../src/gui/storage.ts";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { StorageGroupView } from "../../src/gui/ui/storage/storage-group.tsx";
+let TooltipProvider: typeof import("../../src/gui/ui/components/ui/tooltip.tsx")["TooltipProvider"];
+let StorageGroupView: typeof import("../../src/gui/ui/storage/storage-group.tsx")["StorageGroupView"];
 
 const renderRoot = useReactFixture();
 const requestRemoval = vi.fn();
@@ -38,14 +38,36 @@ async function expand(container = section()) {
 }
 const names = (container = section()) => [...container.querySelectorAll(".storage-entry:not([aria-hidden=true]) strong")].map((element) => element.textContent);
 
-beforeEach(() => {
+beforeEach(async () => {
 	vi.stubGlobal("getComputedStyle", (element: HTMLElement) => element.style);
-	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0));
-	vi.stubGlobal("cancelAnimationFrame", clearTimeout);
+	({ TooltipProvider } = await import("../../src/gui/ui/components/ui/tooltip.tsx"));
+	({ StorageGroupView } = await import("../../src/gui/ui/storage/storage-group.tsx"));
 	requestRemoval.mockClear();
 });
 
-describe("存储分类按文件大小排序", () => {
+describe("存储分类选择与排序", () => {
+	it("选择条目后分组半选，点击分组全选并提交删除，再点击取消全选", async () => {
+		const entries = [entry("甲", 10), entry("乙", 20)];
+		await render([group(entries)]);
+		await expand();
+		const checkboxes = [...section().querySelectorAll<HTMLButtonElement>('[role="checkbox"]')];
+		const [all, first] = checkboxes;
+		if (!all || !first) throw new Error("缺少存储选择框");
+		await click(first);
+		expect(all.getAttribute("aria-checked")).toBe("mixed");
+		const svg = all.querySelector("svg");
+		expect(svg).not.toBeNull();
+		await click(all);
+		expect(checkboxes.map((checkbox) => checkbox.getAttribute("aria-checked"))).toEqual(["true", "true", "true"]);
+		expect(all.querySelector("svg")).toBe(svg);
+		await click(button("删除所选 (2)"));
+		expect(requestRemoval.mock.calls[0]?.[0]).toEqual(entries);
+		await click(all);
+		expect(checkboxes.map((checkbox) => checkbox.getAttribute("aria-checked"))).toEqual(["false", "false", "false"]);
+		expect(all.querySelector("svg")).toBeNull();
+		expect(button("删除所选").disabled).toBe(true);
+	});
+
 	it("循环切换默认、降序、升序，同大小保持原序，各分类独立", async () => {
 		const entries = [entry("中", 20), entry("小", 0), entry("大甲", 100), entry("大乙", 100)];
 		await render([group(entries), group(entries, "desktop")]);
