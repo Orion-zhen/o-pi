@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
 import type { ModelResponse } from "../cli/model-server.ts";
 import { deferred } from "../helpers/async.ts";
 import { readSnapshot } from "./read-snapshot.ts";

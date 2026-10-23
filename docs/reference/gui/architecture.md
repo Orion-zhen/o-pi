@@ -31,29 +31,51 @@ Desktop 通过受限 preload 桥接连接 Electron utility process。渲染进�
 
 绘制帧携带序号并等待确认，背压时合并状态。通知使用独立通道。重连重新建立全量基线，随后只发送变更记录和顺序变化。
 
-## 前端目录
+## 模块组织
 
-`src/gui/ui/` 按功能组织组件、Hook 和样式：
+`src/gui/` 首先按运行边界划分：
 
 | 目录 | 职责 |
 | --- | --- |
-| `app/` | 应用组装、布局、弹窗、欢迎页与更新日志 |
-| `runtime/` | 宿主连接、事件、查询和认证 |
-| `composer/` | 输入、历史、建议和附件 |
-| `sessions/` | 列表、树、草稿、活动与信息栏 |
-| `transcript/` | 消息流、回复阶段和滚动 |
-| `tools/` | 选择、审批和结果展示 |
-| `workspace/` | 工作区、文件树、Git 与预览 |
-| `preferences/` | GUI 偏好、主题、字体与材质 |
-| `settings/` | 设置导航、保存协调、公共表单和模块设置 |
-| `models/`、`model-services/` | 模型选择与服务配置 |
-| `mcp/` | MCP 配置 |
-| `storage/` | 存储管理 |
-| `reports/` | 统计、用量与遥测 |
-| `content/` | Markdown、代码、公式和技能卡片 |
-| `components/`、`lib/` | 共用组件与逻辑 |
+| `shared/` | 跨端契约与共享纯逻辑，不包含 Node、DOM 或 React 执行逻辑 |
+| `host/` | SDK 宿主、会话执行、文件系统与资源管理 |
+| `frontend/` | 浏览器和 Electron 渲染进程共用的 React 应用 |
 
-业务样式与组件放在同一功能目录。语义配色由 `preferences/palette.ts` 生成，变量映射位于 `preferences/theme.css`。
+`shared/protocol/` 按操作、查询、状态、事件、连接、桌面桥接和增量同步拆分。消息与工具输出模型归 `shared/messages/`，配置契约归 `shared/config/`，诊断数据与校验归 `shared/diagnostics/`。仅供前端使用的会话树、消息指标和 Git 展示索引归对应业务模块，不因其是纯函数而放进共享层。
+
+### 前端
+
+`frontend/` 区分应用组装、基础能力和业务功能：
+
+| 目录 | 职责 |
+| --- | --- |
+| `app/` | 应用组装、布局、侧栏、全局弹窗、欢迎页与更新日志 |
+| `app/settings/` | 设置窗口、分类导航和编辑器组装 |
+| `connection/` | 宿主连接、事件订阅、请求、查询上下文和浏览器通知 |
+| `diagnostics/` | 前端异常采集、错误边界和诊断展示 |
+| `forms/` | 共用配置表单、草稿注册和保存协调 |
+| `ui/` | 基础控件、通用交互，以及 `motion/`、`theme/`、`content/`、`media/` 呈现能力 |
+| `features/chat/` | `composer/` 输入、`transcript/` 消息流、`messages/` 消息与技能卡片、`tools/` 工具交互与结果 |
+| `features/sessions/` | 会话列表、树、草稿、活动与会话设置 |
+| `features/workspace/` | 工作区、文件树、Git、LSP 状态与 `preview/` 文件预览 |
+| `features/models/` | 模型选择与 `services/` 模型服务配置 |
+| `features/auth/` | 认证状态、浏览器授权流程与认证界面 |
+| `features/preferences/` | GUI 偏好读取、编辑与应用 |
+| `features/modules/` | harness 模块配置编辑器 |
+| `features/mcp/`、`features/storage/`、`features/reports/` | MCP 配置、存储管理、统计与用量报告 |
+
+设置窗口只组装编辑器。各编辑器依赖 `forms/`，不依赖设置窗口。Markdown、代码、公式和图片查看器不认识会话。消息角色、技能卡片及需要查询宿主的会话图片归聊天模块。
+
+### 依赖与文件规则
+
+- `shared/` 不依赖 `host/` 或 `frontend/`，包括类型引用。宿主与前端不互相导入实现，通过共享契约通信。
+- `app/` 组合功能，`features/` 不引用 `app/`。同时组合会话、文件预览和报告的侧栏属于应用层。
+- `ui/` 不引用业务模块或连接模块。`forms/` 不引用具体编辑器或应用导航。组件就近声明所需属性，不依赖应用状态总类型。
+- 功能之间允许明确、单向的复用。共享会话草稿、模型选择器等能力保留在所属功能，不统一提升到公共层。
+- 组件、Hook、逻辑和样式按功能就近放置，不另建全局 `hooks/`、`types/` 或 `utils/`。不强制为目录添加 `index.ts`。
+- `@/` 指向 `frontend/`。跨前端模块使用别名，模块内部使用相对路径。跨端代码使用相对路径。
+
+语义配色由 `frontend/ui/theme/palette.ts` 生成，变量映射位于 `frontend/ui/theme/theme.css`。Vite、Vitest、TypeScript 和 `components.json` 的前端路径保持一致。
 
 ## 模型上下文
 

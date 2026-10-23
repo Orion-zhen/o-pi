@@ -1,7 +1,7 @@
 import path from "node:path";
 import which from "which";
 import { loadLspConfig } from "../../../harness/lsp/config/loader.ts";
-import type { GuiLspServers } from "../../lsp.ts";
+import type { GuiLspServers } from "../../shared/lsp.ts";
 
 export async function readLspServers(cwd: string): Promise<GuiLspServers> {
 	const loaded = await loadLspConfig(cwd);

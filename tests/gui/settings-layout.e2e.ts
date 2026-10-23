@@ -3,7 +3,7 @@ import path from "node:path";
 import { parse } from "jsonc-parser";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixture.ts";
-import { selectSettingsCategory } from "./settings-steps.ts";
+import { selectSetting, selectSettingsCategory } from "./settings-steps.ts";
 
 const settings = (page: Page) => page.getByRole("dialog", { name: "设置", exact: true });
 async function open(page: Page) {
@@ -94,4 +94,43 @@ test("开关支持键盘、禁用联动、放弃草稿和跨分类保存", async
 	await expect(proxy).toBeChecked();
 	await selectSettingsCategory(page, "对话与输入");
 	await expect(resize).toBeChecked({ checked: !original });
+});
+
+test("设置模块加载、跨分类保存、布局与刷新恢复", async ({ gui: { page }, workspace: { agentDir } }) => {
+	await page.emulateMedia({ colorScheme: "light" });
+	if ((page.viewportSize()?.width ?? 1200) < 768) await page.getByRole("button", { name: "菜单", exact: true }).click();
+	await page.getByRole("button", { name: "设置", exact: true }).click();
+	const settings = page.getByRole("dialog", { name: "设置", exact: true });
+	await expect(settings).toBeVisible();
+	await selectSetting(page, "主题", "深色");
+	await selectSettingsCategory(page, "对话与输入");
+	await selectSetting(page, "发送快捷键", "Enter");
+	for (const category of ["模型服务", "工具与代码", "网络与网页", "子代理", "权限与安全", "连接与集成", "存储管理", "终端界面", "外观"]) {
+		await selectSettingsCategory(page, category);
+		await expect(settings.getByRole("tabpanel", { name: category, exact: true })).toBeVisible();
+	}
+	await expect(settings.getByRole("combobox", { name: "主题", exact: true })).toContainText("深色");
+	await settings.getByRole("button", { name: "分区域调整", exact: true }).click();
+	await settings.getByRole("spinbutton", { name: "内容画布不透明度", exact: true }).fill("82");
+	await settings.getByRole("spinbutton", { name: "内容画布模糊", exact: true }).fill("28");
+	const bounds = await settings.boundingBox();
+	expect(bounds).not.toBeNull();
+	if (bounds) {
+		expect(bounds.x).toBeGreaterThanOrEqual(0);
+		expect(bounds.y).toBeGreaterThanOrEqual(0);
+		expect(bounds.x + bounds.width).toBeLessThanOrEqual(page.viewportSize()?.width ?? 1200);
+		expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()?.height ?? 820);
+	}
+	const save = settings.getByRole("button", { name: "保存", exact: true });
+	await save.click();
+	await expect(settings.getByRole("status", { name: "已保存", exact: true })).toBeVisible();
+	await expect(save).toBeDisabled();
+	expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toMatchObject({ theme: "dark", sendShortcut: "enter", materials: { canvas: { opacity: 82, blur: 28 } } });
+	await page.reload();
+	await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+	await expect(page.locator(".conversation-canvas")).toHaveCSS("backdrop-filter", /blur\(28px\)/);
+	const editor = page.getByRole("textbox", { name: "消息", exact: true });
+	await editor.fill("/name 结构迁移验证");
+	await editor.press("Enter");
+	await expect(page.locator(".topbar .session-name")).toHaveText("结构迁移验证");
 });

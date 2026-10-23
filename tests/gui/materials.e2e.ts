@@ -13,10 +13,12 @@ const field = (page: Page, region: string, parameter = "不透明度") => settin
 async function openSettings(page: Page) {
 	if ((page.viewportSize()?.width ?? 1200) < 768) await page.getByRole("button", { name: "菜单", exact: true }).click();
 	await page.getByRole("button", { name: "设置", exact: true }).click();
+	await settings(page).getByRole("button", { name: "分区域调整", exact: true }).click();
 }
 async function save(page: Page) {
 	const button = settings(page).getByRole("button", { name: "保存", exact: true });
 	await button.click();
+	await expect(settings(page).getByRole("status", { name: "已保存", exact: true })).toBeVisible();
 	await expect(button).toBeDisabled();
 }
 
@@ -44,10 +46,10 @@ test.describe("页面材质", () => {
 		await field(page, "弹窗").fill("35");
 		await expect(settings(page)).toHaveCSS("background-color", alpha(35));
 		expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toEqual({});
-		await selectSettingsCategory(page, "交互");
+		await selectSettingsCategory(page, "对话与输入");
 		await selectSettingsCategory(page, "外观");
 		await expect(opacity).toHaveValue("55");
-		await settings(page).getByRole("button", { name: "放弃修改", exact: true }).click();
+		await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
 		await expect(page.locator(".sidebar")).toHaveCSS("background-color", alpha(defaults.sidebar.opacity));
 		await expect(opacity).toHaveValue(String(defaults.sidebar.opacity));
 		await opacity.fill("20");
@@ -80,7 +82,7 @@ test.describe("页面材质", () => {
 		await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--primary"))).not.toBe(primary);
 		await expect(field(page, "左侧栏")).toHaveValue("20");
 		await expect(page.locator(".sidebar")).toHaveCSS("background-color", alpha(20));
-		await settings(page).getByRole("button", { name: "放弃修改", exact: true }).click();
+		await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
 		await expect(field(page, "左侧栏")).toHaveValue("65");
 		await expect(page.locator(".sidebar")).toHaveCSS("background-color", alpha(65));
 	});
@@ -135,7 +137,7 @@ test.describe("页面材质", () => {
 			await expect(page.locator(selector)).not.toHaveCSS("background-color", /[/,] 0\./);
 		}
 		await openSettings(page);
-		await settings(page).getByRole("button", { name: "恢复本页默认设置", exact: true }).click();
+		await settings(page).getByRole("button", { name: "重置外观", exact: true }).click();
 		await expect(field(page, "左侧栏")).toHaveValue(String(defaults.sidebar.opacity));
 		await expect(page.locator(".sidebar")).toHaveCSS("background-color", alpha(defaults.sidebar.opacity));
 		await save(page);

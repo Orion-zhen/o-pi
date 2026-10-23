@@ -1,7 +1,7 @@
 import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import path from "node:path";
-import type { GuiFrame } from "../gui/sync.ts";
-import type { DiagnosticReceipt, GuiDiagnostic } from "../gui/diagnostics.ts";
+import type { GuiFrame } from "../gui/shared/protocol/sync.ts";
+import type { DiagnosticReceipt, GuiDiagnostic } from "../gui/shared/diagnostics/diagnostics.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 type Fields = Record<string, string | number | boolean | null>;

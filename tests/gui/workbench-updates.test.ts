@@ -1,8 +1,8 @@
 import { act, createElement } from "react";
 import { expect, it, vi } from "vitest";
-import type { Query, WorkspaceQuery } from "../../src/gui/contract.ts";
-import type { WorkspaceEntry } from "../../src/gui/workbench.ts";
-import { useWorkbench, type WorkbenchView } from "../../src/gui/ui/workspace/use-workbench.ts";
+import type { Query, WorkspaceQuery } from "../../src/gui/shared/protocol/queries.ts";
+import type { WorkspaceEntry } from "../../src/gui/shared/workspace.ts";
+import { useWorkbench, type WorkbenchView } from "../../src/gui/frontend/features/workspace/use-workbench.ts";
 import { useReactFixture } from "./react-fixture.ts";
 
 const render = useReactFixture();

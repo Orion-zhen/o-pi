@@ -1,6 +1,6 @@
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
-import { locateTranscript } from "../../src/gui/ui/transcript/transcript-location.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
+import { locateTranscript } from "../../src/gui/frontend/features/chat/transcript/transcript-location.ts";
 
 export function readSnapshot(client: GuiClient) {
 	const events: GuiEvent[] = [];

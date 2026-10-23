@@ -1,0 +1,11 @@
+import type { ComponentProps } from "react";
+import { Button } from "./button.tsx";
+import { Hint } from "./tooltip.tsx";
+
+export function IconButton({ label, tooltip = label, children, ...props }: Omit<ComponentProps<typeof Button>, "title"> & { label: string; tooltip?: string }) {
+	return <Hint content={tooltip}>
+		<Button type="button" variant="ghost" size="icon" aria-label={label} {...props}>
+			{children}
+		</Button>
+	</Hint>;
+}

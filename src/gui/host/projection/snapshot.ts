@@ -1,9 +1,9 @@
 import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
-import type { GuiToolSelectionItem } from "../../mcp.ts";
+import type { GuiToolSelectionItem } from "../../shared/config/mcp.ts";
 import { codemodeHiddenDeclarations } from "../../../harness/codemode/loadout.ts";
 import { getCodexSpeed } from "../../../harness/codex-speed/state.ts";
-import type { GuiSnapshot } from "../../contract.ts";
+import type { GuiSnapshot } from "../../shared/protocol/state.ts";
 import { guiModel } from "../session/runtime.ts";
 import { builtinCommands } from "../session/commands.ts";
 import type { GuiHistory } from "./history.ts";

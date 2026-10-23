@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import type { GuiEntry, GuiMessage } from "../../src/gui/messages.ts";
+import type { GuiEntry, GuiMessage } from "../../src/gui/shared/messages/types.ts";
 import { liveSnapshot, replayTranscript } from "./transcript-live-fixture.ts";
 import { assistant } from "./transcript-fixtures.ts";
 

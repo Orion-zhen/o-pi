@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GuiHost } from "../../src/gui/host/host.ts";
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { StorageEntry } from "../../src/gui/storage.ts";
+import type { StorageEntry } from "../../src/gui/shared/storage.ts";
 import { JsonlTelemetryWriter } from "../../src/harness/telemetry/writer.ts";
 import { telemetryRunsDirectory, userHistoryPath } from "../../src/harness/storage/paths.ts";
 import { UserHistoryStore } from "../../src/harness/user-history.ts";

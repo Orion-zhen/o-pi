@@ -5,7 +5,7 @@ import {
 	defaultAgentConfigPath, userAgentConfigPath,
 } from "../../../harness/config-loader.ts";
 import { replaceConfigFile } from "../session/files.ts";
-import { type ModuleConfigId, type ModuleConfigDocument } from "../../module-config.ts";
+import { type ModuleConfigId, type ModuleConfigDocument } from "../../shared/config/modules.ts";
 import { moduleConfigOptions } from "./module-config-options.ts";
 
 function paths(id: ModuleConfigId) {

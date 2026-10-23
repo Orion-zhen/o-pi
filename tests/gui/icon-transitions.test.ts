@@ -1,8 +1,8 @@
 import { act, createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { ActivityState } from "../../src/gui/ui/tools/tool-display.tsx";
-import { ConfirmAction } from "../../src/gui/ui/components/confirm-action.tsx";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
+import { ActivityState } from "../../src/gui/frontend/features/chat/tools/tool-display.tsx";
+import { ConfirmAction } from "../../src/gui/frontend/ui/confirm-action.tsx";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
 import { useReactFixture } from "./react-fixture.ts";
 
 const render = useReactFixture();

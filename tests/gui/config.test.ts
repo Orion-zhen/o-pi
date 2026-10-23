@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { GuiHost } from "../../src/gui/host/host.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-gui-config-");

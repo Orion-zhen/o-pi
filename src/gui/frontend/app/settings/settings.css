@@ -1,0 +1,34 @@
+.panel:has(.settings-shell) { container: settings-panel / inline-size; flex: 1; align-self: stretch; max-inline-size: 132ch; max-block-size: none; margin: max(var(--space-5), 6dvb) var(--space-4); }
+.panel-body:has(> .settings-shell) { display: flex; min-inline-size: 0; overflow: hidden; padding: 0; background: transparent; }
+.settings-shell { flex: 1; display: flex; min-inline-size: 0; min-block-size: 0; }
+.settings-navigation { display: flex; flex-direction: column; flex: 0 0 22%; min-inline-size: min-content; max-inline-size: 30%; min-block-size: 0; border-inline-end: thin solid var(--divider); background: var(--control-surface); }
+.settings-navigation-scroll { flex: 1; min-block-size: 0; overflow: auto; padding: var(--space-4); }
+.settings-tabs { display: flex; flex-direction: column; gap: var(--space-5); }
+.settings-nav-group { display: flex; flex-direction: column; gap: var(--space-1); }
+.settings-nav-heading { padding: var(--space-2) var(--space-3); font-size: var(--text-caption); color: var(--muted-foreground); }
+.settings-tabs button { justify-content: flex-start; white-space: normal; text-align: start; }
+.settings-tabs button[aria-selected="true"] { background: transparent; color: var(--selected-foreground); }
+.settings-unsaved { margin-inline-start: auto; color: var(--primary); }
+.settings-category-select { display: none; }
+.settings-content { --settings-control-width: 40ch; --settings-form-max: 80ch; flex: 1; min-inline-size: 0; min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: var(--content-inset); background: var(--background); }
+.settings-content[data-state="inactive"] { display: none; }
+.settings-content > .gui-settings { --settings-enter-y: 16px; inline-size: 100%; max-inline-size: var(--settings-form-max); margin-inline: auto; }
+.settings-content > .gui-settings[data-direction="-1"] { --settings-enter-y: -16px; }
+.settings-content[data-state="active"] > .gui-settings:not([data-direction="0"]) { animation: settings-enter 240ms var(--motion-ease); }
+@keyframes settings-enter {
+	from { opacity: 0; transform: translateY(var(--settings-enter-y)); }
+	to { opacity: 1; transform: translateY(0); }
+}
+.settings-navigation > .settings-actions { flex-shrink: 0; padding: var(--space-4); }
+.settings-navigation .settings-action-buttons { flex-direction: row; align-items: stretch; }
+.settings-navigation .settings-action-buttons > button { flex: 1; min-inline-size: 0; }
+@container settings-panel (max-width: 48em) {
+	.settings-shell { flex-direction: column; }
+	.settings-navigation { flex: none; flex-direction: row; flex-wrap: wrap; align-items: center; min-inline-size: 0; max-inline-size: none; border-inline-end: 0; border-block-end: thin solid var(--divider); padding: var(--space-2) var(--space-3); gap: var(--space-2) var(--space-3); }
+	.settings-navigation-scroll { flex: 1 1 auto; padding: 0; overflow: visible; }
+	.settings-tabs { display: none; }
+	.settings-category-select { display: flex; min-inline-size: 0; }
+	.settings-category-select [data-slot="select-trigger"] { flex: 1; min-inline-size: 0; }
+	.settings-navigation > .settings-actions { flex: 1 1 auto; padding: 0; border: 0; gap: var(--space-2); }
+	.settings-content { padding: var(--space-4); }
+}

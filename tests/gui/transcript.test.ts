@@ -3,12 +3,13 @@ import { renderWithMemory } from "./render.ts";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import type { ToolActivity, TranscriptSource, TranscriptItem } from "../../src/gui/ui/transcript/transcript-items.ts";
-import { transcriptReplies } from "../../src/gui/ui/transcript/transcript-replies.ts";
-import { ToolResult } from "../../src/gui/ui/tools/tool-results.tsx";
-import { ToolActivity as ToolActivityView } from "../../src/gui/ui/tools/tool-activity.tsx";
-import { ParameterValue } from "../../src/gui/ui/tools/tool-parameters.tsx";
-import { MarkdownText } from "../../src/gui/ui/content/content.tsx";
+import type { ToolActivity } from "../../src/gui/frontend/features/chat/tools/activity.ts";
+import type { TranscriptSource, TranscriptItem } from "../../src/gui/frontend/features/chat/transcript/transcript-items.ts";
+import { transcriptReplies } from "../../src/gui/frontend/features/chat/transcript/transcript-replies.ts";
+import { ToolResult } from "../../src/gui/frontend/features/chat/tools/tool-results.tsx";
+import { ToolActivity as ToolActivityView } from "../../src/gui/frontend/features/chat/tools/tool-activity.tsx";
+import { ParameterValue } from "../../src/gui/frontend/features/chat/tools/tool-parameters.tsx";
+import { MarkdownText } from "../../src/gui/frontend/ui/content/markdown.tsx";
 
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 

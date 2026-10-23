@@ -6,7 +6,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHost } from "../../src/gui/host/host.ts";
 import { GuiStream } from "../../src/gui/host/projection/stream.ts";
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
 import { storeSession } from "./session-fixture.ts";
 
 const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });

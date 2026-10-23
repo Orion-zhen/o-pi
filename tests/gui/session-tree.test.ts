@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 import { SessionManager, type CustomMessageEntry, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails } from "../../src/harness/skill-context/types.ts";
 import { formatSkillDisclosure } from "../../src/harness/skill-context/executor.ts";
-import { sessionTree } from "../../src/gui/messages.ts";
+import { sessionTree } from "../../src/gui/frontend/features/sessions/tree.ts";
 import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
 import { GuiHistory } from "../../src/gui/host/projection/history.ts";
 import { assistant, call, result } from "./transcript-fixtures.ts";
-import { SessionTree } from "../../src/gui/ui/sessions/session-tree.tsx";
+import { SessionTree } from "../../src/gui/frontend/features/sessions/session-tree.tsx";
 import { renderWithMemory } from "./render.ts";
 
 const body = "先检查任务范围。";

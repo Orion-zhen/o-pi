@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { modelCandidates, modelCandidateEdits, type ModelCandidate } from "../../src/harness/openai-compatible-provider/model-candidates.ts";
 import { configuredModels } from "../../src/harness/openai-compatible-provider/model-settings.ts";
 import { completeProviderModels, editProviderField } from "../../src/harness/openai-compatible-provider/config-edits.ts";
-import { receiveServiceCandidates } from "../../src/gui/ui/model-services/service-draft.ts";
+import { receiveServiceCandidates } from "../../src/gui/frontend/features/models/services/service-draft.ts";
 import { parseModelsDocument, type ConfigObject } from "../../src/harness/openai-compatible-provider/document.ts";
 import { modelSettingsView } from "../../src/harness/openai-compatible-provider/settings-view.ts";
 

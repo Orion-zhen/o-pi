@@ -51,4 +51,4 @@ GUI 工具面板提供服务总开关和单工具开关。关闭服务隐藏其�
 
 普通模式中，未加载的可用延迟工具触发 tool_search。Codemode 使用 searchTools，见 [Codemode](../codemode/README.md)。
 
-服务启停开关表示配置状态，实际连接由 SDK 管理。实现位于 `src/harness/extensions/mcp.ts` 和 `src/gui/ui/mcp/`。
+服务启停开关表示配置状态，实际连接由 SDK 管理。实现位于 `src/harness/extensions/mcp.ts` 和 `src/gui/frontend/features/mcp/`。

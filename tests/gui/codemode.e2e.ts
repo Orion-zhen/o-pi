@@ -57,33 +57,37 @@ test.describe("codemode", () => {
 
 	test("可用工具计数、层级选择与实时调用在刷新后保持一致", async ({ gui: { page } }, info) => {
 		const counter = page.locator(".tool-count");
-		await expect(counter.locator(".lucide-code-xml")).toHaveCount(1);
+		const count = counter.locator(".animated-number-target");
+		await expect(counter).toHaveAccessibleName(/^工具：可用 \d+ 个，codemode 模式$/);
 		await counter.click();
 		const panel = page.getByRole("dialog");
 		await expect(panel.locator('.tool-selection-children [data-tool-option="find"]')).toBeVisible();
 		await expect(panel.locator('.tool-selection > [data-tool-option="skill"]')).toBeVisible();
 		await expect(panel.getByRole("checkbox", { name: "subagent", exact: true })).toBeDisabled();
-		await expect(panel.locator('[data-tool-option="script_probe"] [role="checkbox"]')).toHaveCount(0);
-		const codemodeCount = await panel.locator('[role="checkbox"][aria-checked="true"]:not([aria-label="codemode"])').count()
-			+ await panel.locator(".tool-callable-state").count();
-		await expect(counter).toHaveText(String(codemodeCount));
+		for (const name of ["script_probe", "deferred_probe"]) {
+			const checkbox = panel.getByRole("checkbox", { name, exact: true });
+			await expect(checkbox).toBeChecked();
+			await expect(checkbox).toBeDisabled();
+		}
+		const codemodeCount = await panel.locator('[role="checkbox"][aria-checked="true"]:not([aria-label="codemode"])').count();
+		await expect(count).toHaveText(String(codemodeCount));
 		await panel.getByRole("checkbox", { name: "skill", exact: true }).click();
-		await expect(counter).toHaveText(String(codemodeCount - 1));
+		await expect(count).toHaveText(String(codemodeCount - 1));
 		await panel.getByRole("checkbox", { name: "skill", exact: true }).click();
-		await expect(counter).toHaveText(String(codemodeCount));
+		await expect(count).toHaveText(String(codemodeCount));
 		await panel.getByRole("checkbox", { name: "find", exact: true }).click();
 		await expect(panel.getByRole("checkbox", { name: "find", exact: true })).not.toBeChecked();
-		await expect(counter).toHaveText(String(codemodeCount - 1));
+		await expect(count).toHaveText(String(codemodeCount - 1));
 		await panel.getByRole("checkbox", { name: "codemode", exact: true }).click();
 		await expect(panel.getByRole("checkbox", { name: "codemode", exact: true })).not.toBeChecked();
 		const normalCount = await panel.locator('[role="checkbox"][aria-checked="true"]').count();
-		await expect(counter).toHaveText(String(normalCount));
-		await expect(counter.locator(".lucide-wrench")).toHaveCount(1);
+		await expect(count).toHaveText(String(normalCount));
+		await expect(counter).toHaveAttribute("aria-label", /^工具：可用 \d+ 个$/);
 		await expect(panel.locator(".tool-selection-children")).toHaveCount(0);
 		await expect(panel.getByRole("checkbox", { name: "find", exact: true })).not.toBeChecked();
 		await panel.getByRole("checkbox", { name: "find", exact: true }).click();
 		await expect(panel.getByRole("checkbox", { name: "find", exact: true })).toBeChecked();
-		await expect(counter).toHaveText(String(normalCount + 1));
+		await expect(count).toHaveText(String(normalCount + 1));
 		for (const name of ["script_probe", "deferred_probe"]) {
 			await expect(panel.getByRole("checkbox", { name, exact: true })).toBeChecked();
 			await panel.getByRole("checkbox", { name, exact: true }).click();
@@ -91,13 +95,14 @@ test.describe("codemode", () => {
 		}
 		await expect(panel.getByRole("checkbox", { name: "tool_search", exact: true })).toBeChecked();
 		await expect(panel.getByRole("checkbox", { name: "tool_search", exact: true })).toBeDisabled();
-		await expect(counter).toHaveText(String(normalCount));
+		await expect(count).toHaveText(String(normalCount));
 		await panel.getByRole("checkbox", { name: "codemode", exact: true }).click();
 		await expect(panel.getByRole("checkbox", { name: "codemode", exact: true })).toBeChecked();
-		await expect(counter).toHaveText(String(codemodeCount));
+		await expect(count).toHaveText(String(codemodeCount));
 		for (const name of ["script_probe", "deferred_probe"]) {
 			const child = panel.locator(`.tool-selection-children [data-tool-option="${name}"]`);
-			await expect(child.locator('[role="checkbox"]')).toHaveCount(0);
+			await expect(child.getByRole("checkbox")).toBeChecked();
+			await expect(child.getByRole("checkbox")).toBeDisabled();
 		}
 		await page.screenshot({ path: info.outputPath("tool-selection.png") });
 		await page.getByRole("button", { name: "关闭面板", exact: true }).click();
@@ -117,12 +122,12 @@ test.describe("codemode", () => {
 		expect(description).toContain("find(args:");
 		expect(description).toContain("`models`");
 		expect(description).toContain("searchTools");
-		await expect(counter).toHaveText(String(codemodeCount));
+		await expect(count).toHaveText(String(codemodeCount));
 		const toolResult = model.requests.findLast((request) => Array.isArray(request.messages))?.messages.find((message) => message.role === "tool");
 		expect(JSON.stringify(toolResult)).toContain("sample.ts");
 		expect(JSON.stringify(toolResult)).not.toContain("Script failed");
 		await page.reload();
-		await expect(counter).toHaveText(String(codemodeCount));
+		await expect(count).toHaveText(String(codemodeCount));
 		await expect(page.locator(".reply-answer")).toContainText("嵌套验证完成");
 		await page.locator(".assistant-reply .reply-activity > .disclosure-trigger").click();
 		await tool.locator(':scope > [data-slot="collapsible"] > .activity-summary').click();
@@ -141,6 +146,6 @@ test.describe("codemode", () => {
 		await editor.press("ControlOrMeta+Enter");
 		await expect.poll(() => model.requests.findLast((request) => Array.isArray(request.messages))?.tools?.length).toBe(normalCount);
 		expect(model.requests.findLast((request) => Array.isArray(request.messages))?.tools?.map((tool) => tool.function.name)).toContain("tool_search");
-		expect(model.requests.findLast((request) => Array.isArray(request.messages))?.tools).toHaveLength(Number(await counter.textContent()));
+		expect(model.requests.findLast((request) => Array.isArray(request.messages))?.tools).toHaveLength(Number(await count.textContent()));
 	});
 });

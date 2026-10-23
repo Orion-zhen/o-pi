@@ -3,8 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
-import { sessionList } from "../../src/gui/ui/sessions/session-list.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
+import { sessionList } from "../../src/gui/frontend/features/sessions/session-list.ts";
 import { storeSession } from "./session-fixture.ts";
 
 const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });

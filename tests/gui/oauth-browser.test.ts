@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OAuthBrowser } from "../../src/gui/ui/runtime/oauth-browser.ts";
+import { OAuthBrowser } from "../../src/gui/frontend/features/auth/oauth-browser.ts";
 
 function browser() {
 	const popup = {

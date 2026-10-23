@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
-import type { GuiMessage } from "../../messages.ts";
+import type { GuiMessage } from "../../shared/messages/types.ts";
 import type { GuiPayloads } from "./payloads.ts";
 
 type ContentEvent = Extract<AssistantMessageEvent, { contentIndex: number }>;

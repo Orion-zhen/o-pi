@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import path from "node:path";
 import { getSessionsDir } from "../../../harness/storage/sdk-paths.ts";
 import pLimit from "p-limit";
-import type { GuiSessionInfo } from "../../contract.ts";
+import type { GuiSessionInfo } from "../../shared/protocol/state.ts";
 
 const missing = (error: unknown) => error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
 const object = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;

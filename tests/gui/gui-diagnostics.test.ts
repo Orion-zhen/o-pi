@@ -3,11 +3,11 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { RegionBoundary } from "../../src/gui/ui/runtime/region-boundary.tsx";
-import { diagnosticContext, installGlobalDiagnostics, reportDiagnostic } from "../../src/gui/ui/runtime/diagnostics.ts";
-import type { DesktopBridge } from "../../src/gui/contract.ts";
-import { connectGui } from "../../src/gui/ui/runtime/connection.ts";
-import type { GuiDelivery } from "../../src/gui/sync.ts";
+import { RegionBoundary } from "../../src/gui/frontend/diagnostics/region-boundary.tsx";
+import { diagnosticContext, installGlobalDiagnostics, reportDiagnostic } from "../../src/gui/frontend/diagnostics/diagnostics.ts";
+import type { DesktopBridge } from "../../src/gui/shared/protocol/desktop.ts";
+import { connectGui } from "../../src/gui/frontend/connection/connection.ts";
+import type { GuiDelivery } from "../../src/gui/shared/protocol/sync.ts";
 
 let root: Root;
 const report = vi.fn<DesktopBridge["reportDiagnostic"]>();

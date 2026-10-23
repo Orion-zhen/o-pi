@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { GuiBashApproval, GuiDialog, GuiEvent, GuiNotice } from "../../contract.ts";
+import type { GuiBashApproval, GuiDialog, GuiNotice } from "../../shared/protocol/state.ts";
+import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { ApprovalInteractionPort } from "../../../harness/approval/runtime/interaction.ts";
 import { approvalText, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
 import { plainTheme } from "./theme.ts";

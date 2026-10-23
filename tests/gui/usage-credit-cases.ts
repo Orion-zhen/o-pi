@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
 import { readSnapshot } from "./read-snapshot.ts";
 
 export function usageCreditTests(context: () => { host: GuiClient; events: GuiEvent[] }): void {

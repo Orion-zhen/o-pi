@@ -3,7 +3,7 @@ import os from "node:os";
 import { lstat } from "node:fs/promises";
 import { getAgentDir, getSessionsDir, getDebugLogPath } from "../../../harness/storage/sdk-paths.ts";
 import { bashOutputDirectory, exportDirectoryPrefix, forkDirectoryPrefix, resourceCacheDirectory, telemetryReportDirectory, telemetryRunsDirectory, userHistoryPath } from "../../../harness/storage/paths.ts";
-import type { StorageSourceId } from "../../storage.ts";
+import type { StorageSourceId } from "../../shared/storage.ts";
 import type { GuiHost } from "../host.ts";
 import { missingStorage, storageChildren } from "./files.ts";
 

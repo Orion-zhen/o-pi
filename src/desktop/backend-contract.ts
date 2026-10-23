@@ -1,5 +1,5 @@
-import type { GuiDelivery } from "../gui/sync.ts";
-import type { GuiControl } from "../gui/contract.ts";
+import type { GuiDelivery } from "../gui/shared/protocol/sync.ts";
+import type { GuiControl } from "../gui/shared/protocol/connection.ts";
 
 export type BackendRequest = { kind: "action" | "query" | "resource" | "activeSessions"; id: number; value: unknown; traced: boolean };
 

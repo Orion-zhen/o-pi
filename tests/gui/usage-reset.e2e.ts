@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import type { GuiAction } from "../../src/gui/contract.ts";
+import type { GuiAction } from "../../src/gui/shared/protocol/actions.ts";
 import { usageReport } from "./report-fixtures.ts";
 import { guiSnapshot } from "./snapshot-fixture.ts";
 import { replayTranscript } from "./transcript-live-fixture.ts";

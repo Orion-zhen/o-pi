@@ -3,8 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { expect, it } from "vitest";
 import { moduleConfigOptions } from "../../src/gui/host/config/module-config-options.ts";
-import { SearchProviderSettings } from "../../src/gui/ui/settings/search-provider-settings.tsx";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
+import { SearchProviderSettings } from "../../src/gui/frontend/features/modules/search-provider-settings.tsx";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
 
 function render(order: unknown, auxiliary: unknown = []) {
 	const schema = { properties: { websearch: { properties: { primary_providers: { type: "array", items: { oneOf: [

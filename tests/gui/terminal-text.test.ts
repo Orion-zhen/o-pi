@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { clean } from "../../src/gui/ui/content/content.tsx";
+import { clean } from "../../src/gui/frontend/ui/content/format.ts";
 
 it.each(["\x07", "\x1b\\"])("清理命令输出中的颜色、光标和窗口标题，保留正文与换行: %j", (end) => {
 	const output = `\x1b]0;构建${end}\x1b[?25l\x1b[32m构建成功🙂\x1b[0m\n\x1b]0;测试${end}测试通过\n`;

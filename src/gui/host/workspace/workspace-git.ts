@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { realpath } from "node:fs/promises";
-import type { GitChange, GitStatus, WorkspaceGit } from "../../workbench.ts";
+import type { GitChange, GitStatus, WorkspaceGit } from "../../shared/workspace.ts";
 
 export function runGit(cwd: string, args: string[], signal: AbortSignal): Promise<{ code: number; stdout: string; stderr: string }> {
 	return new Promise((resolve, reject) => {

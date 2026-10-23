@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
-import type { GuiControl } from "../../src/gui/contract.ts";
-import { connectGui } from "../../src/gui/ui/runtime/connection.ts";
-import { NOTIFICATION_PERMISSION_CHANGED } from "../../src/gui/ui/runtime/browser-notifications.ts";
+import type { GuiControl } from "../../src/gui/shared/protocol/connection.ts";
+import { connectGui } from "../../src/gui/frontend/connection/connection.ts";
+import { NOTIFICATION_PERMISSION_CHANGED } from "../../src/gui/frontend/connection/notifications.ts";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 

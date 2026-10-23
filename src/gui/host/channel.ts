@@ -1,6 +1,7 @@
-import { diffList } from "../list-patch.ts";
-import type { GuiEvent, GuiSnapshot, GuiSessionInfo, GuiWorkspaceInfo } from "../contract.ts";
-import { diffSnapshot, type GuiDelivery, type GuiWireEvent } from "../sync.ts";
+import { diffList } from "../shared/protocol/list-patch.ts";
+import type { GuiEvent } from "../shared/protocol/events.ts";
+import type { GuiSnapshot, GuiSessionInfo, GuiWorkspaceInfo } from "../shared/protocol/state.ts";
+import { diffSnapshot, type GuiDelivery, type GuiWireEvent } from "../shared/protocol/sync.ts";
 
 /** 有界发送窗口允许连续推送。窗口满时保留最新状态，不积压 token 事件。 */
 export class GuiChannel {

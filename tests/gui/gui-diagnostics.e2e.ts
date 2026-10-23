@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import type { GuiModel } from "../../src/gui/contract.ts";
+import type { GuiModel } from "../../src/gui/shared/protocol/state.ts";
 import { liveSnapshot, replayTranscript } from "./transcript-live-fixture.ts";
 
 function emptySnapshot() {
@@ -17,7 +17,7 @@ test("打开设置时资源加载失败只卸载弹窗，保留草稿且不发�
 	try {
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await editor.fill("设置失败也不能丢的草稿");
-		await page.route("**/settings-panel-*.js", (route) => route.abort("failed"));
+		await page.route("**/panel-*.js", (route) => route.abort("failed"));
 		if ((page.viewportSize()?.width ?? 1200) < 768) await page.getByRole("button", { name: "菜单", exact: true }).click();
 		await page.getByRole("button", { name: "设置", exact: true }).click();
 		const diagnostic = page.getByRole("region", { name: "界面异常诊断" });
@@ -29,14 +29,14 @@ test("打开设置时资源加载失败只卸载弹窗，保留草稿且不发�
 		await expect(diagnostic.locator("pre")).toBeHidden();
 		await diagnostic.locator("summary").click();
 		await expect(diagnostic.locator("pre")).toBeVisible();
-		await expect(diagnostic.locator("pre")).toContainText("settings-panel-");
+		await expect(diagnostic.locator("pre")).toContainText("panel-");
 		expect(await page.locator("body").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 		expect(actions).not.toContain("prompt");
 		expect(actions).not.toContain("dialog");
 	} finally { channel.close(); }
 });
 
-test("普通操作错误保留摘要，长文本可展开、折叠和关闭", async ({ page }) => {
+test("普通操作错误保留摘要，长文本可展开、键盘折叠和关闭", async ({ page }) => {
 	const channel = await replayTranscript(page, emptySnapshot());
 	try {
 		await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
@@ -47,7 +47,8 @@ test("普通操作错误保留摘要，长文本可展开、折叠和关闭", as
 		await banner.locator("summary").click();
 		await expect(banner.locator("pre")).toBeVisible();
 		expect(await page.locator("body").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-		await banner.locator("summary").click();
+		await expect(banner.locator("summary")).toBeFocused();
+		await page.keyboard.press("Enter");
 		await expect(banner.locator("pre")).toBeHidden();
 		await banner.getByRole("button", { name: "关闭错误提示" }).click();
 		await expect(banner).toHaveCount(0);

@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-	resolve: { alias: { "@": fileURLToPath(new URL("./src/gui/ui", import.meta.url)) } },
+	resolve: { alias: { "@": fileURLToPath(new URL("./src/gui/frontend", import.meta.url)) } },
 	test: {
 		testTimeout: 15_000,
 		setupFiles: ["./tests/helpers/worker-setup.ts"],

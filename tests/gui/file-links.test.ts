@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { MarkdownText } from "../../src/gui/ui/content/content.tsx";
-import { FileLinksContext, fileLinkPath } from "../../src/gui/ui/content/file-links.ts";
+import { MarkdownText } from "../../src/gui/frontend/ui/content/markdown.tsx";
+import { FileLinksContext, fileLinkPath } from "../../src/gui/frontend/ui/content/file-links.ts";
 import { renderWithMemory } from "./render.ts";
 
 function render(text: string) {

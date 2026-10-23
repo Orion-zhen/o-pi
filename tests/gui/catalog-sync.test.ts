@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { GuiEvent, GuiSessionInfo } from "../../src/gui/contract.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
+import type { GuiSessionInfo } from "../../src/gui/shared/protocol/state.ts";
 import { GuiChannel } from "../../src/gui/host/channel.ts";
-import { GuiReceiver, type GuiDelivery } from "../../src/gui/sync.ts";
+import { GuiReceiver, type GuiDelivery } from "../../src/gui/shared/protocol/sync.ts";
 
 function connection() {
 	const deliveries: GuiDelivery[] = [];

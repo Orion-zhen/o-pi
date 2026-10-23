@@ -1,12 +1,12 @@
 import { act, createElement, Fragment } from "react";
 import { useReactFixture } from "./react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DisclosureMemoryContext } from "../../src/gui/ui/components/disclosure-memory.ts";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { GuiQueryContext } from "../../src/gui/ui/runtime/payload.tsx";
-import { ReplyItems } from "../../src/gui/ui/transcript/transcript-sections.tsx";
-import { transcriptReplies } from "../../src/gui/ui/transcript/transcript-replies.ts";
-import type { TranscriptSource } from "../../src/gui/ui/transcript/transcript-items.ts";
+import { DisclosureMemoryContext } from "../../src/gui/frontend/ui/disclosure-memory.ts";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
+import { GuiQueryContext } from "../../src/gui/frontend/connection/query-context.ts";
+import { ReplyItems } from "../../src/gui/frontend/features/chat/transcript/transcript-sections.tsx";
+import { transcriptReplies } from "../../src/gui/frontend/features/chat/transcript/transcript-replies.ts";
+import type { TranscriptSource } from "../../src/gui/frontend/features/chat/transcript/transcript-items.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 
 const renderRoot = useReactFixture(() => {

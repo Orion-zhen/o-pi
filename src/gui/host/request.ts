@@ -1,5 +1,5 @@
 import { compileSchemaValidator } from "../../harness/schema-validator.ts";
-import { requestSchema, type GuiRequest } from "../contract.ts";
+import { requestSchema, type GuiRequest } from "../shared/protocol/connection.ts";
 
 const validate = compileSchemaValidator(requestSchema);
 

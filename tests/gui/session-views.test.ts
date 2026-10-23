@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { SessionViews } from "../../src/gui/ui/sessions/session-views.ts";
-import { sessionList } from "../../src/gui/ui/sessions/session-list.ts";
-import type { SessionActivity } from "../../src/gui/ui/sessions/use-session-activity.ts";
+import { SessionViews } from "../../src/gui/frontend/features/sessions/session-views.ts";
+import { sessionList } from "../../src/gui/frontend/features/sessions/session-list.ts";
+import type { SessionActivity } from "../../src/gui/frontend/features/sessions/use-session-activity.ts";
 
 describe("会话视图记忆", () => {
 	it.each(["", "已有草稿\n继续编辑"])("队列回填合并最新草稿并保留附件和发送模式：%j", (text) => {

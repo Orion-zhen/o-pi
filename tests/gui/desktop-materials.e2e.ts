@@ -4,7 +4,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { test, expect } from "./desktop-fixture.ts";
 import { selectSetting } from "./settings-steps.ts";
 import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
-import { GUI_BACKGROUNDS } from "../../src/gui/theme-base.ts";
+import { GUI_BACKGROUNDS } from "../../src/gui/shared/theme.ts";
 
 test("原生窗口透明度不被重复叠加，关闭桌面透明后仍保留页面材质", async ({ gui: { app, page }, workspace: { agentDir } }) => {
 	const defaults = readGuiDefaults().materials;

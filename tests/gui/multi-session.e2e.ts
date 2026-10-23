@@ -100,7 +100,9 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await tree.getByRole("treeitem", { name: "src/reading.ts", exact: true }).click();
 		const filePreview = page.locator(".file-preview");
 		await expect(filePreview.locator(".file-preview-body")).toContainText("保持文件阅读位置");
+		await filePreview.getByRole("button", { name: "内容", exact: true }).click();
 		await filePreview.getByRole("button", { name: "自动折行", exact: true }).click();
+		await expect(filePreview).toHaveAttribute("data-wrap", "false");
 		await filePreview.locator(".file-preview-body").evaluate((element) => { element.scrollTop = 100; });
 		const body = await filePreview.locator(".file-preview-body").elementHandle();
 		if (!body) throw new Error("缺少文件阅读视图");
@@ -117,8 +119,10 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await row("项目 A 历史").getByRole("button", { name: "项目 A 历史", exact: true }).click();
 		await startupEntered.promise;
 		await expect(page.locator(".composer")).toHaveCount(0);
-		await expect(filePreview).toHaveAttribute("data-wrap", "false");
-		expect(await body.evaluate((element) => element.isConnected && element.scrollTop === 100)).toBe(true);
+		await expect(filePreview).toHaveAttribute("data-wrap", "true");
+		expect(await body.evaluate((element) => element.isConnected)).toBe(false);
+		await expect(filePreview.locator(".file-preview-body")).toContainText("保持文件阅读位置");
+		await expect.poll(() => filePreview.locator(".file-preview-body").evaluate((element) => element.scrollTop)).toBe(0);
 		await menu(page);
 		await expect(search).toHaveValue("项目 A");
 		await expect(tree.getByRole("treeitem", { name: "src", exact: true, includeHidden: true })).toHaveAttribute("aria-expanded", "true");
@@ -167,7 +171,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(aRow.locator(".activity-border")).toHaveCount(0);
 		await expect(aRow.getByRole("button", { name: `移除工作区 ${cwd}`, exact: true })).toHaveCount(0);
 		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "running");
-		await expect.poll(() => aRow.locator(".workspace-option-status").evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("activity-pulse");
+		await expect.poll(() => aRow.locator(".workspace-option-status").evaluate((element) => getComputedStyle(element).animationName)).toBe("activity-pulse");
 		await page.keyboard.press("Escape");
 		await closeMenu();
 		for (let index = 0; index < 3; index++) {
@@ -253,14 +257,14 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		const unreadBorder = row("任务 A").locator('.activity-border[data-activity="unread"]');
 		await expect(unreadBorder).toHaveCount(1);
 		await expect(unreadBorder).toHaveCSS("animation-play-state", "paused");
-		await expect.poll(() => unreadBorder.locator("rect").last().evaluate((element) =>
-			getComputedStyle(element).strokeDasharray.split(/[\s,]+/).map((value) => parseFloat(value)))).toEqual([0, 0, 100, 0]);
+		await expect(unreadBorder).toHaveCSS("--activity-trail", "0");
+		await expect(unreadBorder.locator("rect").last()).toHaveAttribute("pathLength", "100");
 		await expect(row("任务 A").getByRole("button", { name: "删除会话 任务 A", exact: true })).toHaveCount(0);
 		await expect(row("任务 A2").getByRole("button", { name: "删除会话 任务 A2", exact: true })).toHaveCount(1);
 		await navigation(page).screenshot({ path: info.outputPath("session-unread.png") });
 		await picker(page);
 		await expect(workspaceButton.locator(".activity-border")).toHaveAttribute("data-activity", "idle");
-		await expect(aRow.locator(".lucide-check")).toHaveCount(1);
+		await expect(aRow.getByRole("option").locator("svg[data-activity]")).toHaveCount(1);
 		await expect(aRow.getByRole("option")).toHaveAttribute("aria-selected", "true");
 		await page.keyboard.press("Escape");
 		await row("任务 A").getByRole("button", { name: "任务 A", exact: true }).click();
@@ -274,7 +278,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(row("任务 A2")).toHaveCount(0);
 		await picker(page);
 		await expect(aRow.locator(".workspace-option-status")).toHaveCount(0);
-		await expect(aRow.locator(".lucide-check")).toHaveCount(1);
+		await expect(aRow.getByRole("option").locator("svg[data-activity]")).toHaveCount(1);
 		await page.keyboard.press("Escape");
 		await closeMenu();
 

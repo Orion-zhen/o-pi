@@ -7,9 +7,9 @@ import type { ModelRequest, ModelResponse } from "../cli/model-server.ts";
 export async function prepareRichTools(agentDir: string) {
 	const server = createServer((request, response) => {
 		if (new URL(request.url ?? "/", "http://fixture").pathname === "/search") {
-			response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ web: { results: [
-				{ title: "React 文档", url: "https://react.dev/learn", description: "React 组件与状态管理文档，了解如何组织交互界面。" },
-				{ title: "聊天界面设计", url: "https://example.com/design", description: "展示工具活动与最终回复，保持流式进度清晰可读。" },
+			response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ grounding: { generic: [
+				{ title: "React 文档", url: "https://react.dev/learn", snippets: ["React 组件与状态管理文档，了解如何组织交互界面。"] },
+				{ title: "聊天界面设计", url: "https://example.com/design", snippets: ["展示工具活动与最终回复，保持流式进度清晰可读。"] },
 			] } }));
 		} else {
 			response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(`<!doctype html><html><head><title>聊天界面设计</title></head><body><article><h1>聊天界面设计</h1><p>让用户专注于最终回复。</p>${"<p>模型执行任务时展示真实进度，完成后折叠处理过程。工具调用和结果在同一个位置更新，保留手动展开的状态。</p>".repeat(18)}<iframe src="https://example.com/embed"></iframe></article></body></html>`);
@@ -28,7 +28,11 @@ export async function prepareRichTools(agentDir: string) {
 	const url = `http://127.0.0.1:${address.port}`;
 	await writeFile(path.join(agentDir, "configs", "web-tools.jsonc"), JSON.stringify({
 		network: { proxy: { enabled: true, http_proxy: url } },
-		websearch: { brave_api: { enabled: true, endpoint: "http://search.example/search", api_key: "local-fixture" }, exa_api: { enabled: false }, tavily: { enabled: false } },
+		websearch: {
+			brave_api: { enabled: true, endpoint: "http://search.example/search", api_key: "local-fixture" },
+			exa_api: { enabled: false }, exa_mcp: { enabled: false }, tavily: { enabled: false },
+			tinyfish: { enabled: false }, anysearch: { enabled: false },
+		},
 		webfetch: { media: { mode: "off" } },
 	}));
 	await writeFile(path.join(agentDir, "configs", "subagent.jsonc"), JSON.stringify({ max_concurrency: 2 }));

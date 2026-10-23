@@ -2,10 +2,10 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { expect, it, vi } from "vitest";
-import { Panel } from "../../src/gui/ui/app/panels.tsx";
+import { Panel } from "../../src/gui/frontend/app/panels.tsx";
 import { guiSnapshot } from "./snapshot-fixture.ts";
 
-vi.mock("../../src/gui/ui/components/panel-dialog.tsx", () => ({
+vi.mock("../../src/gui/frontend/ui/panel-dialog.tsx", () => ({
 	PanelDialog: ({ children }: { children: ReactNode }) => children,
 }));
 

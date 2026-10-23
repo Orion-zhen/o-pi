@@ -2,11 +2,11 @@ import { act, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { parseModelsDocument, type ConfigObject } from "../../src/harness/openai-compatible-provider/document.ts";
 import { editModelsDocument } from "../../src/harness/openai-compatible-provider/config-edits.ts";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { ServiceCompat } from "../../src/gui/ui/model-services/service-compat.tsx";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
+import { ServiceCompat } from "../../src/gui/frontend/features/models/services/service-compat.tsx";
 import { serviceCompatDefaults } from "../../src/harness/openai-compatible-provider/compat-defaults.ts";
-import { ServiceModels } from "../../src/gui/ui/model-services/service-models.tsx";
-import { ServiceBoolean } from "../../src/gui/ui/model-services/service-fields.tsx";
+import { ServiceModels } from "../../src/gui/frontend/features/models/services/service-models.tsx";
+import { ServiceBoolean } from "../../src/gui/frontend/features/models/services/service-fields.tsx";
 import { useReactFixture } from "./react-fixture.ts";
 
 const render = useReactFixture();

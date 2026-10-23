@@ -6,7 +6,7 @@ import { WebSocketServer } from "ws";
 import type { GuiHost } from "../gui/host/host.ts";
 import type { GuiClient } from "../gui/host/client.ts";
 import { decodeGuiRequest } from "../gui/host/request.ts";
-import { controlSchema, type GuiControl } from "../gui/contract.ts";
+import { controlSchema, type GuiControl } from "../gui/shared/protocol/connection.ts";
 import { compileSchemaValidator } from "../harness/schema-validator.ts";
 import { fileResourceResponse } from "../gui/host/workspace/file-resource.ts";
 import { Readable } from "node:stream";

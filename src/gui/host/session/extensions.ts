@@ -12,7 +12,7 @@ import { createSubagentExtension } from "../../../harness/extensions/subagent.ts
 import { createToolsExtension } from "../../../harness/extensions/cmd-slash-tools.ts";
 import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
 import type { GuiDialogs } from "./dialogs.ts";
-import type { GuiEvent } from "../../contract.ts";
+import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { GuiReports } from "../projection/reports.ts";
 import { createApprovalGate } from "../../../harness/approval/runtime/gate.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";

@@ -10,8 +10,11 @@ export async function exerciseTooltips(page: Page, cwd: string) {
 	await expect(tooltip).toHaveText("工具 · 普通模式");
 	await expect(page.locator("[title]")).toHaveCount(0);
 	await editor.click();
-	await counter.focus();
+	await editor.press("Tab");
+	await page.keyboard.press("Tab");
+	await expect(counter).toBeFocused();
 	await expect(tooltip).toHaveText("工具 · 普通模式");
+	await expect(page.locator('[data-slot="tooltip-content"][data-state="closed"]')).toHaveCount(0);
 	await counter.press("Escape");
 	await expect(tooltip).toHaveCount(0);
 	await counter.click();
@@ -99,7 +102,7 @@ export async function exerciseTooltips(page: Page, cwd: string) {
 
 async function exerciseResizeTooltip(page: Page, name: string) {
 	const handle = page.getByRole("separator", { name, exact: true });
-	const tooltip = page.getByRole("tooltip");
+	const tooltip = page.getByRole("tooltip").and(page.locator(':not([data-state="closed"])'));
 	await handle.scrollIntoViewIfNeeded();
 	const bounds = await handle.boundingBox();
 	if (!bounds) throw new Error(`缺少调整手柄：${name}`);
@@ -119,6 +122,7 @@ async function exerciseResizeTooltip(page: Page, name: string) {
 	}
 	await page.mouse.move(0, 0);
 	await expect(tooltip).toHaveCount(0);
+	await page.keyboard.press("Tab");
 	await handle.focus();
 	await expect(tooltip).toHaveText("拖动调整 · 双击重置");
 	await expect.poll(async () => {
@@ -128,6 +132,7 @@ async function exerciseResizeTooltip(page: Page, name: string) {
 			? Math.abs(hint.y + hint.height / 2 - bounds.y - bounds.height / 2)
 			: Math.abs(hint.x + hint.width / 2 - bounds.x - bounds.width / 2);
 	}).toBeLessThan(2);
+	await expect(page.locator('[data-slot="tooltip-content"][data-state="closed"]')).toHaveCount(0);
 	await handle.press("Escape");
 	await expect(tooltip).toHaveCount(0);
 	await page.getByRole("textbox", { name: "消息", exact: true }).focus();

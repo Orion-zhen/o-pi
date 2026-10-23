@@ -2,10 +2,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { WorkspacePicker } from "../../src/gui/ui/workspace/workspace-picker.tsx";
-import { HistorySessionRow } from "../../src/gui/ui/sessions/history-session-row.tsx";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { workspaceActivities, type SessionActivity } from "../../src/gui/ui/sessions/use-session-activity.ts";
+import { WorkspacePicker } from "../../src/gui/frontend/features/workspace/workspace-picker.tsx";
+import { HistorySessionRow } from "../../src/gui/frontend/features/sessions/history-session-row.tsx";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
+import { workspaceActivities, type SessionActivity } from "../../src/gui/frontend/features/sessions/use-session-activity.ts";
 
 function row(busy: boolean, waiting: boolean, unread: boolean) {
 	return parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, createElement(HistorySessionRow, {
@@ -32,7 +32,10 @@ describe("会话列表状态", () => {
 		expect(document.querySelector(".history-session-row > .activity-border")?.getAttribute("data-activity")).toBe(state);
 		expect(document.querySelector('[aria-label="删除会话 任务 A"]') !== null).toBe(deletable);
 		expect(document.querySelector(".approval-marker") !== null).toBe(waiting);
-		if (waiting) expect(document.querySelector(".approval-marker")?.getAttribute("fill")).toBe("currentColor");
+		if (waiting) {
+			expect(document.querySelector(".approval-marker title")?.textContent).toBe("等待审批");
+			expect(document.querySelector(".approval-marker path")?.getAttribute("fill")).toBe("currentColor");
+		}
 		expect(document.querySelector(".history-session")?.hasAttribute("disabled")).toBe(false);
 		expect(document.querySelector(".history-session")?.getAttribute("data-unread")).toBe(String(unread));
 	});

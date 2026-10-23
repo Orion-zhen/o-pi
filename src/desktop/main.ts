@@ -11,8 +11,8 @@ import {
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stat, writeFile } from "node:fs/promises";
-import type { GuiEvent } from "../gui/contract.ts";
-import { GUI_BACKGROUNDS } from "../gui/theme-base.ts";
+import type { GuiEvent } from "../gui/shared/protocol/events.ts";
+import { GUI_BACKGROUNDS } from "../gui/shared/theme.ts";
 import { BackendClient } from "./backend-client.ts";
 import { showDesktopNotification, trackDesktopAttention } from "./notifications.ts";
 import { resolveShellEnvironment } from "./shell-environment.ts";

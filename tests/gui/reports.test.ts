@@ -2,10 +2,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { StatsReport } from "../../src/gui/ui/reports/stats-report.tsx";
-import { UsageReport } from "../../src/gui/ui/reports/usage-report.tsx";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { TelemetryReport } from "../../src/gui/ui/reports/telemetry-report.tsx";
+import { StatsReport } from "../../src/gui/frontend/features/reports/stats-report.tsx";
+import { UsageReport } from "../../src/gui/frontend/features/reports/usage-report.tsx";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
+import { TelemetryReport } from "../../src/gui/frontend/features/reports/telemetry-report.tsx";
 import { createLiveTelemetryReport } from "../../src/harness/telemetry-report/live.ts";
 import { statsReport, telemetryReport, usageReport } from "./report-fixtures.ts";
 

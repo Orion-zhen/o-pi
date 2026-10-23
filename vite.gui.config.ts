@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
 import { mathjaxFontChunks } from "./scripts/build/mathjax.ts";
 
 export default defineConfig({
-	root: "src/gui/ui",
+	root: "src/gui/frontend",
 	base: "./",
 	plugins: [tailwindcss(), mathjaxFontChunks(), {
 		name: "pdf-reader-assets",
@@ -22,7 +22,7 @@ export default defineConfig({
 		},
 	}],
 	resolve: { alias: {
-		"@": fileURLToPath(new URL("./src/gui/ui", import.meta.url)),
+		"@": fileURLToPath(new URL("./src/gui/frontend", import.meta.url)),
 		// 与显式 fontData 保持一致，避免额外打包 NewCM 字体。
 		"#default-font/svg/default.js": "@mathjax/mathjax-tex-font/js/svg/default.js",
 	} },

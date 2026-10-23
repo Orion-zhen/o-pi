@@ -1,7 +1,7 @@
 import { app, session } from "electron";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { StorageEntry, StorageGroup } from "../gui/storage.ts";
+import type { StorageEntry, StorageGroup } from "../gui/shared/storage.ts";
 import { inspectStorageTree, missingStorage, removeStorageTree, type StorageTree } from "../gui/host/storage/files.ts";
 import type { DesktopDiagnostics } from "./diagnostics.ts";
 

@@ -1,6 +1,6 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { GuiLiveTool } from "../../contract.ts";
-import type { GuiNestedCall } from "../../messages.ts";
+import type { GuiLiveTool } from "../../shared/protocol/state.ts";
+import type { GuiNestedCall } from "../../shared/messages/types.ts";
 import type { GuiPayloads } from "./payloads.ts";
 import { nestedMutation, type NestedMutation } from "./nested-mutations.ts";
 

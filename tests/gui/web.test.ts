@@ -7,9 +7,10 @@ import { GuiHost } from "../../src/gui/host/host.ts";
 import type { GuiClient } from "../../src/gui/host/client.ts";
 import { startWebServer } from "../../src/web/server.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
-import type { GuiControl, GuiEvent } from "../../src/gui/contract.ts";
-import type { FilePreview } from "../../src/gui/workbench.ts";
-import { GuiReceiver, type GuiDelivery } from "../../src/gui/sync.ts";
+import type { GuiControl } from "../../src/gui/shared/protocol/connection.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
+import type { FilePreview } from "../../src/gui/shared/workspace.ts";
+import { GuiReceiver, type GuiDelivery } from "../../src/gui/shared/protocol/sync.ts";
 import { startModelServer } from "../cli/model-server.ts";
 
 const temp = useTempDir("opi-web-boundary-");
@@ -69,7 +70,7 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		["logo.svg", "image/svg+xml"], ["favicon.svg", "image/svg+xml"], ["favicon.ico", "image/x-icon"],
 		["apple-touch-icon.png", "image/png"], ["site.webmanifest", "application/manifest+json"],
 	])("按正确类型提供品牌资源 %s", async (filename, contentType) => {
-		const source = new URL(`../../src/gui/ui/public/${filename}`, import.meta.url);
+		const source = new URL(`../../src/gui/frontend/public/${filename}`, import.meta.url);
 		await copyFile(source, path.join(temp.path, filename));
 		const response = await fetch(`${server.url}/${filename}`);
 		expect(response.status).toBe(200);

@@ -1,12 +1,12 @@
 import { act, createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GuiEvent } from "../../src/gui/contract.ts";
-import { connectGui } from "../../src/gui/ui/runtime/connection.ts";
-import { useConnection } from "../../src/gui/ui/runtime/use-connection.ts";
-import { useWindowRefresh } from "../../src/gui/ui/runtime/use-window-refresh.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
+import { connectGui } from "../../src/gui/frontend/connection/connection.ts";
+import { useConnection } from "../../src/gui/frontend/connection/use-connection.ts";
+import { useWindowRefresh } from "../../src/gui/frontend/connection/use-window-refresh.ts";
 import { useReactFixture } from "./react-fixture.ts";
 
-vi.mock("../../src/gui/ui/runtime/connection.ts", () => ({ connectGui: vi.fn() }));
+vi.mock("../../src/gui/frontend/connection/connection.ts", () => ({ connectGui: vi.fn() }));
 const renderRoot = useReactFixture(() => { vi.useRealTimers(); vi.resetAllMocks(); });
 
 function Refresh({ connected, refresh }: { connected: boolean; refresh: () => void }) {

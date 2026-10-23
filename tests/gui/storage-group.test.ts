@@ -1,9 +1,9 @@
 import { act, createElement } from "react";
 import { useReactFixture } from "./react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { StorageEntry, StorageGroup } from "../../src/gui/storage.ts";
-let TooltipProvider: typeof import("../../src/gui/ui/components/ui/tooltip.tsx")["TooltipProvider"];
-let StorageGroupView: typeof import("../../src/gui/ui/storage/storage-group.tsx")["StorageGroupView"];
+import type { StorageEntry, StorageGroup } from "../../src/gui/shared/storage.ts";
+let TooltipProvider: typeof import("../../src/gui/frontend/ui/tooltip.tsx")["TooltipProvider"];
+let StorageGroupView: typeof import("../../src/gui/frontend/features/storage/storage-group.tsx")["StorageGroupView"];
 
 const renderRoot = useReactFixture();
 const requestRemoval = vi.fn();
@@ -40,8 +40,8 @@ const names = (container = section()) => [...container.querySelectorAll(".storag
 
 beforeEach(async () => {
 	vi.stubGlobal("getComputedStyle", (element: HTMLElement) => element.style);
-	({ TooltipProvider } = await import("../../src/gui/ui/components/ui/tooltip.tsx"));
-	({ StorageGroupView } = await import("../../src/gui/ui/storage/storage-group.tsx"));
+	({ TooltipProvider } = await import("../../src/gui/frontend/ui/tooltip.tsx"));
+	({ StorageGroupView } = await import("../../src/gui/frontend/features/storage/storage-group.tsx"));
 	requestRemoval.mockClear();
 });
 

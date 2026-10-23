@@ -1,5 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { GuiNestedCalls, ToolOutput } from "../../messages.ts";
+import type { GuiNestedCalls, ToolOutput } from "../../shared/messages/types.ts";
 import type { GuiPayloads } from "./payloads.ts";
 
 export const NESTED_MUTATION_ENTRY = "opi.gui.nested-mutation";

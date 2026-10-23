@@ -1,7 +1,9 @@
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import type { GuiEvent, GuiQuery, GuiSnapshot } from "../../src/gui/contract.ts";
-import type { GuiEntry, GuiMessage } from "../../src/gui/messages.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
+import type { GuiQuery } from "../../src/gui/shared/protocol/queries.ts";
+import type { GuiSnapshot } from "../../src/gui/shared/protocol/state.ts";
+import type { GuiEntry, GuiMessage } from "../../src/gui/shared/messages/types.ts";
 import { GuiChannel } from "../../src/gui/host/channel.ts";
 import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
 import { assistant } from "./transcript-fixtures.ts";

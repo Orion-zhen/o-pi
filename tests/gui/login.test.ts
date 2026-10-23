@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AuthInteraction } from "@earendil-works/pi-ai";
 import { runLogin } from "../../src/gui/host/session/login.ts";
 import { GuiDialogs } from "../../src/gui/host/session/dialogs.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
 import { deferred } from "../helpers/async.ts";
 
 describe("GUI OAuth", () => {

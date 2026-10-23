@@ -32,7 +32,7 @@ test("编辑服务、增删模型和切换 JSON 共用草稿，保存与放弃�
 	const local = pane.getByRole("article", { name: "模型服务 local", exact: true });
 	await local.getByLabel("服务名称", { exact: true }).fill("本地模型");
 	await local.getByLabel("API 地址", { exact: true }).fill("https://user:password@example.com/v1?key=secret");
-	await expect(local.getByRole("button", { name: "编辑服务 local", exact: true })).toHaveText("本地模型local · example.com");
+	await expect(local.getByRole("button", { name: "编辑服务 local", exact: true })).toHaveText("本地模型local · example.com · Chat Completions");
 	await local.getByRole("button", { name: "添加模型", exact: true }).click();
 	await local.getByLabel("模型 ID", { exact: true }).fill("reasoning-model");
 	await local.getByRole("button", { name: "添加", exact: true }).click();

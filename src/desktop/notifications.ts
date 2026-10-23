@@ -1,7 +1,7 @@
 import { Notification, type BrowserWindow } from "electron";
-import type { GuiAttention } from "../gui/contract.ts";
+import type { GuiAttention } from "../gui/shared/protocol/connection.ts";
 import type { Attention } from "../harness/attention.ts";
-import { notificationContent } from "../gui/notification.ts";
+import { notificationContent } from "../gui/shared/notification.ts";
 
 const active = new Set<Notification>();
 

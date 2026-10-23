@@ -5,10 +5,10 @@ import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails } from "../../src/harness/skill-context/types.ts";
 import { formatSkillDisclosure } from "../../src/harness/skill-context/executor.ts";
 import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
-import { Message } from "../../src/gui/ui/content/content.tsx";
-import { ToolActivity } from "../../src/gui/ui/tools/tool-activity.tsx";
-import { Transcript } from "../../src/gui/ui/transcript/transcript.tsx";
-import type { ToolState } from "../../src/gui/ui/transcript/transcript-items.ts";
+import { Message } from "../../src/gui/frontend/features/chat/messages/message.tsx";
+import { ToolActivity } from "../../src/gui/frontend/features/chat/tools/tool-activity.tsx";
+import { Transcript } from "../../src/gui/frontend/features/chat/transcript/transcript.tsx";
+import type { ToolState } from "../../src/gui/shared/messages/types.ts";
 import { renderWithMemory } from "./render.ts";
 import { assistant, source } from "./transcript-fixtures.ts";
 

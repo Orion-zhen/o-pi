@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import type { GuiSnapshot } from "../../src/gui/contract.ts";
-import { ToolSelection } from "../../src/gui/ui/tools/tool-selection.tsx";
-import { ToolActivity } from "../../src/gui/ui/tools/tool-activity.tsx";
-import type { ToolActivity as Activity } from "../../src/gui/ui/transcript/transcript-items.ts";
+import type { GuiSnapshot } from "../../src/gui/shared/protocol/state.ts";
+import { ToolSelection } from "../../src/gui/frontend/features/chat/tools/tool-selection.tsx";
+import { ToolActivity } from "../../src/gui/frontend/features/chat/tools/tool-activity.tsx";
+import type { ToolActivity as Activity } from "../../src/gui/frontend/features/chat/tools/activity.ts";
 import { renderWithMemory } from "./render.ts";
 
 const tools: GuiSnapshot["tools"] = [

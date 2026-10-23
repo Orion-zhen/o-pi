@@ -7,7 +7,7 @@ import {
 	isNotFound, readDefaultJsoncConfigSync, stripUtf8Bom,
 } from "../../../harness/config-loader.ts";
 import { mergeConfigValues } from "../../../harness/config-values.ts";
-import type { GuiConfigDocument, GuiPreferences } from "../../preferences.ts";
+import type { GuiConfigDocument, GuiPreferences } from "../../shared/config/preferences.ts";
 import { replaceConfigFile } from "../session/files.ts";
 
 const definition = CONFIG_DEFINITIONS.gui;

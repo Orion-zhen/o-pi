@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { parse } from "jsonc-parser";
 import { GuiHost } from "../../src/gui/host/host.ts";
 import { CONFIG_DEFINITIONS } from "../../src/harness/config-loader.ts";
-import { moduleConfigIds } from "../../src/gui/module-config.ts";
+import { moduleConfigIds } from "../../src/gui/shared/config/modules.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-module-config-");

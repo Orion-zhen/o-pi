@@ -2,10 +2,11 @@ import { act, createElement, useLayoutEffect } from "react";
 import { useReactFixture } from "./react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
-import type { GuiToolOutput, ToolOutput } from "../../src/gui/messages.ts";
-import type { Query } from "../../src/gui/contract.ts";
-import { ContentVisible } from "../../src/gui/ui/components/ui/collapsible.tsx";
-import { GuiQueryContext, useToolOutput } from "../../src/gui/ui/runtime/payload.tsx";
+import type { GuiToolOutput, ToolOutput } from "../../src/gui/shared/messages/types.ts";
+import type { Query } from "../../src/gui/shared/protocol/queries.ts";
+import { ContentVisible } from "../../src/gui/frontend/ui/collapsible.tsx";
+import { GuiQueryContext } from "../../src/gui/frontend/connection/query-context.ts";
+import { useToolOutput } from "../../src/gui/frontend/features/chat/tools/use-tool-output.ts";
 import { deferred } from "../helpers/async.ts";
 
 const renderRoot = useReactFixture();

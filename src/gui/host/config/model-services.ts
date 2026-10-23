@@ -4,7 +4,7 @@ import { parseModelsDocument } from "../../../harness/openai-compatible-provider
 import { modelsConfigIssues } from "../../../harness/openai-compatible-provider/validation.ts";
 import { isNotFound } from "../../../harness/config-loader.ts";
 import { replaceConfigFile } from "../../../harness/config-file.ts";
-import type { ModelServicesDocument } from "../../model-services.ts";
+import type { ModelServicesDocument } from "../../shared/config/model-services.ts";
 
 export async function readModelServices(): Promise<ModelServicesDocument> {
 	const path = defaultModelsPath();

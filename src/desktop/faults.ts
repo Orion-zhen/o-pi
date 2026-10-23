@@ -2,8 +2,8 @@ import { app, clipboard, dialog, type BrowserWindow } from "electron";
 import { release } from "node:os";
 import { randomUUID } from "node:crypto";
 import { Check } from "typebox/value";
-import { diagnosticText, type GuiDiagnostic } from "../gui/diagnostics.ts";
-import { guiDiagnosticSchema } from "../gui/diagnostic-schema.ts";
+import { diagnosticText, type GuiDiagnostic } from "../gui/shared/diagnostics/diagnostics.ts";
+import { guiDiagnosticSchema } from "../gui/shared/diagnostics/schema.ts";
 import type { DesktopDiagnostics } from "./diagnostics.ts";
 
 export function installDesktopFaults(window: BrowserWindow, diagnostics: DesktopDiagnostics) {

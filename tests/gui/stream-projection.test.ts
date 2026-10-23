@@ -1,10 +1,11 @@
 import { expect, it } from "vitest";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { GuiEvent, GuiSnapshot } from "../../src/gui/contract.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
+import type { GuiSnapshot } from "../../src/gui/shared/protocol/state.ts";
 import { GuiChannel } from "../../src/gui/host/channel.ts";
 import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
 import { GuiStream } from "../../src/gui/host/projection/stream.ts";
-import { GuiReceiver, type GuiDelivery, type GuiFrame } from "../../src/gui/sync.ts";
+import { GuiReceiver, type GuiDelivery, type GuiFrame } from "../../src/gui/shared/protocol/sync.ts";
 import { assistant, call } from "./transcript-fixtures.ts";
 import { guiSnapshot } from "./snapshot-fixture.ts";
 

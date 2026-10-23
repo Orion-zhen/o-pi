@@ -1,12 +1,12 @@
 import { act, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
-import type { ModelServiceCatalog } from "../../src/gui/model-services.ts";
+import type { ModelServiceCatalog } from "../../src/gui/shared/config/model-services.ts";
 import { parseModelsDocument } from "../../src/harness/openai-compatible-provider/document.ts";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { ServiceItem } from "../../src/gui/ui/model-services/service-item.tsx";
-import { ServiceModels } from "../../src/gui/ui/model-services/service-models.tsx";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
+import { ServiceItem } from "../../src/gui/frontend/features/models/services/service-item.tsx";
+import { ServiceModels } from "../../src/gui/frontend/features/models/services/service-models.tsx";
 import { modelCandidates } from "../../src/harness/openai-compatible-provider/model-candidates.ts";
-import type { CatalogQuery } from "../../src/gui/ui/model-services/use-service-catalog.ts";
+import type { CatalogQuery } from "../../src/gui/frontend/features/models/services/use-service-catalog.ts";
 import { deferred } from "../helpers/async.ts";
 import { useReactFixture } from "./react-fixture.ts";
 

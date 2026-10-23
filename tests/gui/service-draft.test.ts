@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { editModelsDocument } from "../../src/harness/openai-compatible-provider/config-edits.ts";
-import { serviceDraftChanged } from "../../src/gui/ui/model-services/service-draft.ts";
+import { serviceDraftChanged } from "../../src/gui/frontend/features/models/services/service-draft.ts";
 
 const provider = { api: "openai-completions", baseUrl: "http://localhost/v1", models: [{ id: "m" }] };
 const document = (value: Record<string, unknown> = provider) => JSON.stringify({ providers: { local: value } });

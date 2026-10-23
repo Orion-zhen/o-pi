@@ -1,7 +1,7 @@
 import { SettingsManager, VERSION } from "@earendil-works/pi-coding-agent";
 // SDK 包入口未导出日志工具，直接复用其解析、版本筛选和链接规范化逻辑。
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/utils/changelog.js";
-import type { GuiChangelog } from "../contract.ts";
+import type { GuiChangelog } from "../shared/protocol/queries.ts";
 
 /** 待展示日志由一个连接持有，断开或切换会话时归还，实际展示后才记为已读。 */
 export class StartupChangelog {

@@ -4,8 +4,8 @@ import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import type { ApprovalDecision, ApprovalUnit, BashApprovalRequest } from "../../src/harness/approval/types.ts";
 import { GuiDialogs } from "../../src/gui/host/session/dialogs.ts";
-import { BashApproval, bashPreview } from "../../src/gui/ui/tools/bash-approval.tsx";
-import type { GuiBashApproval } from "../../src/gui/contract.ts";
+import { BashApproval, bashPreview } from "../../src/gui/frontend/features/chat/tools/bash-approval.tsx";
+import type { GuiBashApproval } from "../../src/gui/shared/protocol/state.ts";
 
 const command = `printf '%s' '${"中文🧪".repeat(90)}' > output.txt`;
 const request: BashApprovalRequest = {

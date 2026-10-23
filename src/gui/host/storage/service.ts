@@ -1,6 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { StorageEntry, StorageGroup, StorageSnapshot, StorageSourceId } from "../../storage.ts";
+import type { StorageEntry, StorageGroup, StorageSnapshot, StorageSourceId } from "../../shared/storage.ts";
 import { storagePathInUse } from "../../../harness/storage/active.ts";
 import { withHistoryLock } from "../../../harness/user-history.ts";
 import type { GuiHost } from "../host.ts";

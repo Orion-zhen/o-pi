@@ -4,7 +4,7 @@ import { BrowserWindow, clipboard, dialog } from "electron";
 import { describe, expect, it, vi } from "vitest";
 import { installDesktopFaults } from "../../src/desktop/faults.ts";
 import { DesktopDiagnostics } from "../../src/desktop/diagnostics.ts";
-import type { GuiDiagnostic } from "../../src/gui/diagnostics.ts";
+import type { GuiDiagnostic } from "../../src/gui/shared/diagnostics/diagnostics.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 
 vi.mock("electron", async () => {

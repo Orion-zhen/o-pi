@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { GuiEvent } from "../../src/gui/contract.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
 import { prepareSessionDeletion } from "../../src/gui/host/catalog/delete-session.ts";
 import { GuiSessionIndex } from "../../src/gui/host/catalog/session-index.ts";
 import { storeSession } from "./session-fixture.ts";

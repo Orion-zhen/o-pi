@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { Attention } from "../../src/harness/attention.ts";
-import type { GuiControl } from "../../src/gui/contract.ts";
+import type { GuiControl } from "../../src/gui/shared/protocol/connection.ts";
 import { GuiChannel } from "../../src/gui/host/channel.ts";
-import { connectGui } from "../../src/gui/ui/runtime/connection.ts";
-import { notificationDestination, showBrowserNotification } from "../../src/gui/ui/runtime/browser-notifications.ts";
+import { connectGui } from "../../src/gui/frontend/connection/connection.ts";
+import { notificationDestination, showBrowserNotification } from "../../src/gui/frontend/connection/notifications.ts";
 
 const electron = vi.hoisted(() => ({ shown: vi.fn(), instances: [] as EventEmitter[] }));
 vi.mock("electron", () => ({ BrowserWindow: class extends EventEmitter {

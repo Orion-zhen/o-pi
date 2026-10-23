@@ -4,7 +4,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ModelsConfig } from "../../../harness/openai-compatible-provider/schema.ts";
 import { isCompatibleService, parseModelsDocument } from "../../../harness/openai-compatible-provider/document.ts";
 import { serviceConnectionKey } from "../../../harness/openai-compatible-provider/service-connection.ts";
-import type { ModelServiceCatalog } from "../../model-services.ts";
+import type { ModelServiceCatalog } from "../../shared/config/model-services.ts";
 import { readModelServices } from "../config/model-services.ts";
 import { fetchModelCandidates } from "../../../harness/openai-compatible-provider/fetch-candidates.ts";
 

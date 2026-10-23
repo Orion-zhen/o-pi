@@ -1,8 +1,8 @@
 import { act } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { ModelManager } from "../../src/gui/ui/models/model-manager.tsx";
-import type { Send } from "../../src/gui/ui/runtime/connection.ts";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
+import { ModelManager } from "../../src/gui/frontend/features/models/model-manager.tsx";
+import type { Send } from "../../src/gui/frontend/connection/connection.ts";
 import { useReactFixture } from "./react-fixture.ts";
 import { guiSnapshot } from "./snapshot-fixture.ts";
 

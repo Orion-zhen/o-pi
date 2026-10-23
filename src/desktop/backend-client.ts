@@ -1,6 +1,6 @@
 import type { UtilityProcess } from "electron";
 import type { DesktopDiagnostics } from "./diagnostics.ts";
-import type { GuiDelivery } from "../gui/sync.ts";
+import type { GuiDelivery } from "../gui/shared/protocol/sync.ts";
 import type { BackendCommand, BackendControl, BackendMessage, BackendRequest } from "./backend-contract.ts";
 
 export class BackendClient {

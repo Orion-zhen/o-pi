@@ -1,6 +1,6 @@
 import { act, createElement } from "react";
 import { expect, it, vi } from "vitest";
-import { ActivityBorder } from "../../src/gui/ui/components/activity-border.tsx";
+import { ActivityBorder } from "../../src/gui/frontend/features/sessions/activity-border.tsx";
 import { useReactFixture } from "./react-fixture.ts";
 
 vi.mock("motion/react", async (importOriginal) => ({

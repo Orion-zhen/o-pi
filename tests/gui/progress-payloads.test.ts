@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
-import type { GuiToolOutput } from "../../src/gui/messages.ts";
+import type { GuiToolOutput } from "../../src/gui/shared/messages/types.ts";
 
 function reference(output: GuiToolOutput): string {
 	if (output.kind !== "reference") throw new Error("缺少载荷引用");

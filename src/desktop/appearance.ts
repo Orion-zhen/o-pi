@@ -1,7 +1,7 @@
 import { nativeTheme, type BrowserWindow } from "electron";
 import { release } from "node:os";
-import type { DesktopAppearance, DesktopMaterial } from "../gui/contract.ts";
-import { GUI_BACKGROUNDS } from "../gui/theme-base.ts";
+import type { DesktopAppearance, DesktopMaterial } from "../gui/shared/protocol/desktop.ts";
+import { GUI_BACKGROUNDS } from "../gui/shared/theme.ts";
 
 function parseAppearance(value: unknown): DesktopAppearance {
 	if (typeof value !== "object" || value === null || !("theme" in value) || !("transparent" in value)

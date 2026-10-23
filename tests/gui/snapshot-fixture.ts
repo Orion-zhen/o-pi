@@ -1,4 +1,4 @@
-import type { GuiSnapshot } from "../../src/gui/contract.ts";
+import type { GuiSnapshot } from "../../src/gui/shared/protocol/state.ts";
 
 export function guiSnapshot(): GuiSnapshot {
 	return {

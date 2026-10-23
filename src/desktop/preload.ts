@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge } from "../gui/contract.ts";
-import type { GuiDelivery } from "../gui/sync.ts";
+import type { DesktopBridge } from "../gui/shared/protocol/desktop.ts";
+import type { GuiDelivery } from "../gui/shared/protocol/sync.ts";
 
 const bridge: DesktopBridge = {
 	attend: (sessionId) => ipcRenderer.send("gui:attention", sessionId),

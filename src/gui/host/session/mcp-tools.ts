@@ -2,7 +2,7 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionFa
 import { getMcpToolExposure, loadMcpConfig } from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/config.js";
 import { createModeMcpExtension } from "../../../harness/extensions/mcp.ts";
 import { syncToolSearch } from "../../../harness/tool-search/loadout.ts";
-import type { GuiToolSelectionItem } from "../../mcp.ts";
+import type { GuiToolSelectionItem } from "../../shared/config/mcp.ts";
 
 const ENTRY = "gui-mcp-tools";
 const SERVERS_ENTRY = "gui-mcp-servers";

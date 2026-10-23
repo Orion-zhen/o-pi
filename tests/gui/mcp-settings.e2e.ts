@@ -227,12 +227,13 @@ test("新建远程服务，编辑认证头、OAuth 和有序工具规则", async
 	await mcp(page).getByRole("button", { name: "工具与高级设置", exact: true }).click();
 	await mcp(page).getByRole("button", { name: "添加工具规则", exact: true }).click();
 	await form(page).getByLabel("工具规则名称 1", { exact: true }).fill("get_*");
-	await selectSetting(page, "工具规则方式 1", "搜索后加载");
+	await selectSetting(page, "工具规则方式 1", "搜索后加载(deferred)");
 	await mcp(page).getByRole("button", { name: "添加工具规则", exact: true }).click();
 	await form(page).getByLabel("工具规则名称 2", { exact: true }).fill("*");
-	await selectSetting(page, "工具规则方式 2", "隐藏");
+	await selectSetting(page, "工具规则方式 2", "隐藏(hidden)");
 	await mcp(page).getByRole("button", { name: "上移规则 2", exact: true }).click();
 	await save.click();
+	await expect(settings(page).getByRole("status", { name: "已保存", exact: true })).toBeVisible();
 	await expect(save).toBeDisabled();
 	const saved = JSON.parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"));
 	expect(saved.mcpServers.remote).toEqual({ type: "http", url: "https://remote.example/mcp", enabled: false,

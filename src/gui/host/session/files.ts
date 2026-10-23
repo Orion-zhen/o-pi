@@ -12,7 +12,7 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
-import type { GuiEvent } from "../../contract.ts";
+import type { GuiEvent } from "../../shared/protocol/events.ts";
 
 export async function expandAttachments(text: string, cwd: string): Promise<{ text: string; images: ImageContent[] }> {
 	const images: ImageContent[] = [];

@@ -1,8 +1,8 @@
 import { act, createElement, createRef, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Composer } from "../../src/gui/ui/composer/composer.tsx";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { SessionViews } from "../../src/gui/ui/sessions/session-views.ts";
+import { Composer } from "../../src/gui/frontend/features/chat/composer/composer.tsx";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
+import { SessionViews } from "../../src/gui/frontend/features/sessions/session-views.ts";
 import { useReactFixture } from "./react-fixture.ts";
 import { guiSnapshot } from "./snapshot-fixture.ts";
 

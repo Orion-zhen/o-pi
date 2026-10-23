@@ -1,7 +1,7 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { UsageRequestError, type UsageResetOutcome, type UsageSnapshot } from "../../../harness/usage/types.ts";
 import { UsageHttpError } from "../../../harness/usage/request.ts";
-import type { GuiAction, GuiUsageResetResult } from "../../contract.ts";
+import type { GuiAction, GuiUsageResetResult } from "../../shared/protocol/actions.ts";
 import type { GuiExecution } from "./execution.ts";
 
 type ViewAction = Extract<GuiAction, { action: "view" }>;

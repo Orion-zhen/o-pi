@@ -1,8 +1,8 @@
 import { act } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
-import type { GuiUsageResetResult } from "../../src/gui/contract.ts";
-import { UsageReport } from "../../src/gui/ui/reports/usage-report.tsx";
-import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
+import type { GuiUsageResetResult } from "../../src/gui/shared/protocol/actions.ts";
+import { UsageReport } from "../../src/gui/frontend/features/reports/usage-report.tsx";
+import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
 import { useReactFixture } from "./react-fixture.ts";
 import { usageReport } from "./report-fixtures.ts";
 

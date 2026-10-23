@@ -20,6 +20,8 @@ it("GUI 生产构建保留排错名称和映射，分块不超限且不加载 IP
 	for (const chunk of chunks) {
 		expect(Buffer.byteLength(chunk.code), chunk.fileName).toBeLessThanOrEqual(500_000);
 		expect(Object.keys(chunk.modules).some((id) => id.includes("mathjax-newcm-font")), chunk.fileName).toBe(false);
-		expect(Object.entries(chunk.modules).some(([id, module]) => id.includes("/typebox/") && module.renderedLength > 0), chunk.fileName).toBe(false);
+		expect(Object.entries(chunk.modules).some(([id, module]) =>
+			/\/src\/(?:gui\/shared\/protocol\/(?:actions|queries|connection|schema)|harness\/schema-validator)\.ts$/.test(id)
+			&& module.renderedLength > 0), chunk.fileName).toBe(false);
 	}
 });

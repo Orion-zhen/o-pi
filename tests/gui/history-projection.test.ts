@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHistory } from "../../src/gui/host/projection/history.ts";
 import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
-import { sessionTree } from "../../src/gui/messages.ts";
-import { contextMessages, hasContextMessages, isTranscriptPreview, locateTranscript } from "../../src/gui/ui/transcript/transcript-location.ts";
+import { sessionTree } from "../../src/gui/frontend/features/sessions/tree.ts";
+import { contextMessages, hasContextMessages, isTranscriptPreview, locateTranscript } from "../../src/gui/frontend/features/chat/transcript/transcript-location.ts";
 import { assistant } from "./transcript-fixtures.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 

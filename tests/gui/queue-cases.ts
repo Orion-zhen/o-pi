@@ -2,9 +2,10 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { GuiClient } from "../../src/gui/host/client.ts";
-import type { GuiEvent, GuiSnapshot } from "../../src/gui/contract.ts";
-import { SessionViews } from "../../src/gui/ui/sessions/session-views.ts";
-import { GuiReceiver } from "../../src/gui/sync.ts";
+import type { GuiEvent } from "../../src/gui/shared/protocol/events.ts";
+import type { GuiSnapshot } from "../../src/gui/shared/protocol/state.ts";
+import { SessionViews } from "../../src/gui/frontend/features/sessions/session-views.ts";
+import { GuiReceiver } from "../../src/gui/shared/protocol/sync.ts";
 
 export function queueTests(context: () => { host: GuiClient; agentDir: string }) {
 	describe("GUI 消息队列同步", () => {

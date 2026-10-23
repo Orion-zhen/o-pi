@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { replyMetrics } from "../../src/gui/message-metrics.ts";
-import { transcriptReplies } from "../../src/gui/ui/transcript/transcript-replies.ts";
+import { replyMetrics } from "../../src/gui/frontend/features/chat/messages/metrics.ts";
+import { transcriptReplies } from "../../src/gui/frontend/features/chat/transcript/transcript-replies.ts";
 import { assistant, call, result, source } from "./transcript-fixtures.ts";
 
 const user = { role: "user", content: "检查项目", timestamp: 1 } as const;
