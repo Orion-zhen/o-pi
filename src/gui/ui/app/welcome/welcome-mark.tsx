@@ -6,7 +6,7 @@ import { useAnimationVisibility } from "../../lib/use-animation-visibility";
 const resting = { y: 0, scaleY: 1, rotate: 0 };
 
 export function WelcomeMark() {
-	const { ref, playing } = useAnimationVisibility<HTMLSpanElement>();
+	const { ref, playing } = useAnimationVisibility<HTMLSpanElement>({ requireFocus: true });
 	const animation = useAnimationControls();
 	useEffect(() => {
 		if (!playing) { animation.set(resting); return; }
