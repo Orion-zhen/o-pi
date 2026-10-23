@@ -165,7 +165,10 @@ export class GuiExecution {
 		} catch (error) { this.historyError(error); }
 		this.unsubscribe = session.subscribe((event) => {
 			if (event.type === "message_start") this.stream.start(event.message);
-			if (event.type === "message_end") this.stream.end();
+			if (event.type === "message_end") {
+				this.stream.end();
+				if (event.message.role === "toolResult") this.liveTools.settle(event.message.toolCallId);
+			}
 			if (event.type === "message_start" && event.message.role === "user") this.submitted();
 			if (event.type === "message_update") {
 				const update = event.assistantMessageEvent;

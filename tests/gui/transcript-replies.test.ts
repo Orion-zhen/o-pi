@@ -57,6 +57,21 @@ describe("回复末尾活动标记", () => {
 });
 
 describe("整轮处理过程折叠", () => {
+	it.each([
+		{ isError: false, status: "completed", state: "completed" },
+		{ isError: true, status: "failed", state: "failed" },
+		{ isError: true, status: "aborted", state: "stopped" },
+	])("并行工具等待历史交接时显示 $state 和耗时", ({ isError, status, state }) => {
+		const snapshot = source({ messages: [user, assistant([call])], streaming: true,
+			liveTools: [{ toolCallId: call.id, toolName: call.name, args: call.arguments,
+				output: { kind: "inline", value: { content: [{ type: "text", text: "工具结果" }], details: { status } } },
+				completion: { isError, durationMs: 12 } }],
+		});
+		expect(replies(snapshot)[0]?.process.filter((item) => item.kind === "tool")).toMatchObject([
+			{ tool: { id: call.id, state, durationMs: 12, output: snapshot.liveTools[0]?.output } },
+		]);
+	});
+
 	it("嵌套调用附着父工具，完成后从 SDK 记录恢复而不伪造工具结果", () => {
 		const parent = { ...call, name: "codemode", id: "code-1" };
 		const pending = replies(source({ messages: [user, assistant([parent])], streaming: true,

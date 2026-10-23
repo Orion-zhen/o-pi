@@ -55,17 +55,19 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 	function activity(id: string, name: string, args: unknown, idle: ToolState, messageIndex: number): TranscriptItem {
 		const result = results.get(id);
 		const event = live.get(id);
-		const details = outputPreview(result?.output)?.details;
+		const output = result?.output ?? event?.output;
+		const completion = result ?? event?.completion;
+		const details = outputPreview(output)?.details;
 		const nestedCalls = result?.nestedCalls ?? event?.nestedCalls;
-		const state = result
-			? isRecord(details) && details.status === "aborted" ? "stopped" : result.isError ? "failed" : "completed"
+		const state = completion
+			? isRecord(details) && details.status === "aborted" ? "stopped" : completion.isError ? "failed" : "completed"
 			: event ? "running" : idle;
 		return {
 			key: `tool:${id}`, kind: "tool", messageIndex, pruned: prunedToolCallIds.has(id),
 			tool: {
 				id, name, args, state,
-				output: result?.output ?? event?.output,
-				...(result?.durationMs === undefined ? {} : { durationMs: result.durationMs }),
+				output,
+				...(completion?.durationMs === undefined ? {} : { durationMs: completion.durationMs }),
 				...(nestedCalls === undefined ? {} : { nestedCalls }),
 			},
 		};

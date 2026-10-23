@@ -2,6 +2,8 @@ import { act, createElement, useLayoutEffect } from "react";
 import { useReactFixture } from "./react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
+import { GuiHistory } from "../../src/gui/host/projection/history.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { GuiToolOutput, ToolOutput } from "../../src/gui/shared/messages/types.ts";
 import type { Query } from "../../src/gui/shared/protocol/queries.ts";
 import { ContentVisible } from "../../src/gui/frontend/ui/collapsible.tsx";
@@ -48,6 +50,23 @@ describe("大工具结果按需查询", () => {
 		expect(state.value).toEqual(large("a"));
 		await act(async () => pending.resolve(payloads.toolOutput(next)));
 		expect(state.value).toEqual(large("b"));
+	});
+
+	it("已展开的完成结果进入历史时不重新读取或清空正文", async () => {
+		const content = [{ type: "text" as const, text: "x".repeat(70_000) }];
+		const live = reference(payloads.retainResult("call", "extension", { content }));
+		query.mockResolvedValueOnce(payloads.toolOutput(live));
+		await render(live);
+		const loaded = state.value;
+		expect(loaded).toEqual({ content });
+		const manager = SessionManager.inMemory();
+		manager.appendMessage({ role: "toolResult", toolCallId: "call", toolName: "extension", content, isError: false, timestamp: 1 });
+		const history = new GuiHistory(payloads).project(manager);
+		const message = history.entries.flatMap((entry) => entry.messages).find((item) => item.role === "toolResult");
+		if (!message) throw new Error("缺少历史结果");
+		await render(reference(message.output));
+		expect(query).toHaveBeenCalledOnce();
+		expect(state.value).toBe(loaded);
 	});
 
 	it("折叠后停止读取，展开时补齐最新进度，最终内联结果不沿用旧载荷", async () => {

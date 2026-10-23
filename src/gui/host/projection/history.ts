@@ -42,6 +42,7 @@ export class GuiHistory {
 				value = { id: entry.id, parentId: entry.parentId, type: entry.type, timestamp: entry.timestamp, label,
 					messages: sessionEntryToContextMessages(entry).map((message) => {
 						const projected = this.payloads.message(message);
+						if (message.role === "toolResult") this.payloads.releaseResult(message.toolCallId);
 						const nestedCalls = nested.get(entry.id);
 						return projected.role === "toolResult" && nestedCalls ? { ...projected, nestedCalls } : projected;
 					}),

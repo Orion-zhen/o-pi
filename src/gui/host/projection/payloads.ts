@@ -39,6 +39,7 @@ export class GuiPayloads {
 	private images = new Map<string, string>();
 	private outputs = new Map<string, ToolOutput>();
 	private progressSlots = new Map<string, ProgressSlot>();
+	private pendingResults = new Map<string, GuiToolOutput>();
 
 	image(id: string): string {
 		const data = this.images.get(payloadKey(id));
@@ -75,6 +76,15 @@ export class GuiPayloads {
 		this.progressSlots.delete(toolCallId);
 		return value;
 	}
+	/** 顶层结果供实时消息和历史共用，历史接管后释放暂存。 */
+	retainResult(toolCallId: string, name: string, output: ToolOutput): GuiToolOutput {
+		const value = this.complete(toolCallId, name, output);
+		this.pendingResults.set(toolCallId, value);
+		return value;
+	}
+	releaseResult(toolCallId: string): void {
+		this.pendingResults.delete(toolCallId);
+	}
 	output(name: string, output: ToolOutput, slot?: ProgressSlot): GuiToolOutput {
 		// 工具结果的 content 是扩展边界，只识别顶层的标准图片块。
 		let imageIndex = 0;
@@ -105,7 +115,8 @@ export class GuiPayloads {
 			case "custom": return { ...message, content: this.content(message.content) };
 			case "toolResult": {
 				const { content, details, ...fields } = message;
-				return { ...fields, output: this.complete(message.toolCallId, message.toolName, { content, details }) };
+				return { ...fields, output: this.pendingResults.get(message.toolCallId)
+					?? this.complete(message.toolCallId, message.toolName, { content, details }) };
 			}
 			default: return message;
 		}

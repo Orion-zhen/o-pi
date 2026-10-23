@@ -203,7 +203,6 @@ export function App() {
 					</div>
 				</div>
 			</Sheet>
-			</ImagePreviewProvider>
 			<AnimatePresence mode="wait">
 			{panel?.kind === "settings" ? <RegionBoundary scope="settings" inline={false} key="settings" onFailure={gui.closePanel}>
 				<SettingsDialog ref={panelContent} close={gui.closePanel} initialCategory={panel.category} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
@@ -225,6 +224,7 @@ export function App() {
 			<AnimatePresence mode="wait">
 			{dialogs[0] && <RegionBoundary scope="dialog" inline={false} key={dialogs[0].id}><Dialog restoreFocus={restoreFocus} dialog={dialogs[0]} send={send} /></RegionBoundary>}
 			</AnimatePresence>
+			</ImagePreviewProvider>
 		</TooltipProvider></GuiQueryContext>
 	);
 }

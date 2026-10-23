@@ -1,6 +1,6 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { GuiLiveTool } from "../../shared/protocol/state.ts";
-import type { GuiNestedCall } from "../../shared/messages/types.ts";
+import type { GuiNestedCall, GuiToolOutput } from "../../shared/messages/types.ts";
 import type { GuiPayloads } from "./payloads.ts";
 import { nestedMutation, type NestedMutation } from "./nested-mutations.ts";
 
@@ -13,7 +13,11 @@ export class GuiLiveTools {
 
 	constructor(private payloads: GuiPayloads) {}
 
-	get size(): number { return this.calls.size; }
+	get size(): number {
+		let size = 0;
+		for (const { rootId } of this.calls.values()) if (this.get(rootId).value.status === "unfinished") size++;
+		return size;
+	}
 
 	accept(event: ToolEvent): NestedMutation | undefined {
 		const id = event.toolCallId;
@@ -28,19 +32,22 @@ export class GuiLiveTools {
 				output: this.payloads.progress(id, event.toolName, structuredClone(event.partialResult)) } });
 			return;
 		}
-		if (current.rootId === id) {
-			for (const [callId, call] of this.calls) if (call.rootId === id) this.calls.delete(callId);
-			return;
-		}
-		const mutation = event.isError ? undefined : nestedMutation(id, event.toolName, event.result);
-		const output = mutation ? this.payloads.complete(id, event.toolName, { content: [], details: { diff: mutation.diff } })
-			: event.isError ? this.payloads.complete(id, event.toolName, structuredClone(event.result)) : undefined;
+		const root = current.rootId === id;
+		const mutation = root || event.isError ? undefined : nestedMutation(id, event.toolName, event.result);
+		let output: GuiToolOutput | undefined;
+		if (root) output = this.payloads.retainResult(id, event.toolName, structuredClone(event.result));
+		else if (mutation) output = this.payloads.complete(id, event.toolName, { content: [], details: { diff: mutation.diff } });
+		else if (event.isError) output = this.payloads.complete(id, event.toolName, structuredClone(event.result));
 		const { output: _progress, ...value } = current.value;
 		this.calls.set(id, { ...current, value: { ...value, status: event.isError ? "error" : "ok",
 			...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
 			...(output ? { output } : {}),
 		} });
 		return mutation;
+	}
+
+	settle(id: string): void {
+		for (const [callId, call] of this.calls) if (call.rootId === id) this.calls.delete(callId);
 	}
 
 	private get(id: string): LiveCall {
@@ -53,7 +60,12 @@ export class GuiLiveTools {
 		const tools: GuiLiveTool[] = [];
 		const nested = new Map<string, GuiNestedCall[]>();
 		for (const { rootId, value } of this.calls.values()) {
-			if (value.id === rootId) tools.push({ toolCallId: value.id, toolName: value.name, args: value.arguments, output: value.output });
+			if (value.id === rootId) tools.push({
+				toolCallId: value.id, toolName: value.name, args: value.arguments, output: value.output,
+				...(value.status === "unfinished" ? {} : { completion: {
+					isError: value.status === "error", ...(value.durationMs === undefined ? {} : { durationMs: value.durationMs }),
+				} }),
+			});
 			else {
 				const calls = nested.get(rootId);
 				if (calls) calls.push(value);

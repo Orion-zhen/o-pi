@@ -4,11 +4,23 @@ import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { mathjaxFontChunks } from "./scripts/build/mathjax.ts";
+import { mermaidGrammarChunks } from "./scripts/build/mermaid.ts";
+import { applicationNames } from "./scripts/build/names.ts";
 
 export default defineConfig({
 	root: "src/gui/frontend",
 	base: "./",
-	plugins: [tailwindcss(), mathjaxFontChunks(), {
+	plugins: [tailwindcss(), applicationNames(), mathjaxFontChunks(), mermaidGrammarChunks(), {
+		name: "chunk-budgets",
+		generateBundle(_, bundle) {
+			for (const chunk of Object.values(bundle)) {
+				if (chunk.type !== "chunk") continue;
+				const limit = chunk.fileName.startsWith("assets/mermaid-elk-") ? 1_450_000 : 500_000;
+				const size = Buffer.byteLength(chunk.code);
+				if (size > limit) this.warn(`${chunk.fileName}: ${(size / 1000).toFixed(2)} kB exceeds ${limit / 1000} kB budget.`);
+			}
+		},
+	}, {
 		name: "pdf-reader-assets",
 		async writeBundle(options) {
 			if (!options.dir) throw new Error("缺少 GUI 输出目录。");
@@ -30,12 +42,14 @@ export default defineConfig({
 		outDir: "../../../dist/gui",
 		sourcemap: "hidden",
 		emptyOutDir: true,
+		chunkSizeWarningLimit: Infinity,
 		rolldownOptions: {
 			checks: { moduleLevelDirective: false },
 			output: {
-				keepNames: true,
 				codeSplitting: {
 					groups: [
+						{ name: "mermaid-grammar", test: /\0mermaid-grammar-/, maxSize: 200_000, includeDependenciesRecursively: false },
+						{ name: "mermaid-elk", test: /node_modules[\\/]elkjs[\\/]/, includeDependenciesRecursively: false },
 						// 只拆纯字形数据，字体类和方向枚举留在引擎内，避免跨块初始化循环。
 						{ name: "mathjax-font", test: /(?:node_modules[\\/]@mathjax[\\/]mathjax-tex-font[\\/]mjs[\\/]svg[\\/](?!default\.|delimiters\.)|\0mathjax-font-)/, maxSize: 450_000, includeDependenciesRecursively: false },
 						{ name: "mathjax", test: /node_modules[\\/]@mathjax[\\/]/, includeDependenciesRecursively: false },

@@ -64,6 +64,7 @@ export interface GuiLiveTool {
 	args: unknown;
 	output: GuiToolOutput | undefined;
 	nestedCalls?: GuiNestedCalls;
+	completion?: { isError: boolean; durationMs?: number };
 }
 
 export interface GuiSnapshot {

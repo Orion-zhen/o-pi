@@ -1,0 +1,19 @@
+.mermaid-block { font-family: var(--gui-font-ui); font-size: var(--text-body); }
+.mermaid-block .code-toolbar { flex-wrap: wrap; }
+.mermaid-block .code-toolbar-actions { align-items: center; min-inline-size: 0; max-inline-size: 100%; }
+.mermaid-view-toggle { display: flex; flex: 1 1 auto; min-inline-size: 0; gap: calc(var(--space-1) / 2); padding: calc(var(--space-1) / 2); border-radius: var(--radius-sm); background: var(--control-surface); }
+.mermaid-view-toggle button { flex: 1 1 0; min-inline-size: 0; justify-content: center; gap: var(--space-1); padding: var(--space-1) var(--space-2); border: 0; border-radius: calc(var(--radius-sm) - var(--space-1) / 2); font-size: inherit; font-weight: 500; color: var(--muted-foreground); background: transparent; }
+.mermaid-view-toggle button:hover:not(:disabled):not([data-state="on"]) { color: var(--foreground); background: var(--accent); }
+.mermaid-view-toggle button[data-state="on"] { color: var(--foreground); background: transparent; }
+.mermaid-view-toggle .animated-background { inset: 0; background: var(--panel-base); box-shadow: var(--soft-highlight); }
+.mermaid-view-toggle button svg { inline-size: 1.15em; block-size: 1.15em; flex-shrink: 0; }
+.mermaid-view-toggle button:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
+.mermaid-view-toggle button:disabled { opacity: 0.45; cursor: default; }
+.mermaid-status { margin: 0; padding: var(--space-2) var(--space-3); color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }
+.mermaid-error { color: var(--destructive); white-space: pre-wrap; }
+.mermaid-picture { display: flex; justify-content: center; min-inline-size: 0; padding: var(--space-3); }
+.mermaid-viewport { overflow: clip; }
+.mermaid-views { position: relative; }
+.mermaid-view[aria-hidden="true"] { position: absolute; inset: 0 0 auto; pointer-events: none; }
+.mermaid-picture img { display: block; inline-size: auto; block-size: auto; max-inline-size: 100%; max-block-size: 60dvh; border-radius: var(--radius-md); }
+.mermaid-measure { block-size: 0; overflow: hidden; visibility: hidden; pointer-events: none; }

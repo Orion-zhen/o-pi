@@ -3,6 +3,7 @@ import Markdown, { defaultUrlTransform, type Components, type ExtraProps, type U
 import remarkGfm from "remark-gfm";
 import { Hint } from "../tooltip.tsx";
 import { CodeBlock } from "./code-block.tsx";
+import { MermaidBlock } from "./mermaid-block.tsx";
 import { FileLinksContext, fileLinkPath } from "./file-links.ts";
 import { remarkMath } from "./remark-math.ts";
 import { clean } from "./format.ts";
@@ -37,7 +38,7 @@ function MarkdownLink({ href, children }: ComponentProps<"a">) {
 }
 
 const Streaming = createContext(false);
-const markdownPlugins = [remarkGfm, remarkMath];
+const markdownPlugins: ComponentProps<typeof Markdown>["remarkPlugins"] = [[remarkGfm, { singleTilde: false }], remarkMath];
 const markdownUrl: UrlTransform = (url, key, node) => node.tagName === "a" && key === "href" ? url : defaultUrlTransform(url);
 const markdownComponents: Components = {
 	span: MarkdownSpan,
@@ -51,6 +52,7 @@ function MarkdownCode({ children }: ComponentProps<"pre">) {
 	const child = Children.only(children);
 	if (!isValidElement<{ children?: string; className?: string }>(child)) return <pre>{children}</pre>;
 	const language = child.props.className?.replace(/^language-/, "") ?? "text";
+	if (language.toLowerCase() === "mermaid") return <MermaidBlock text={child.props.children ?? ""} streaming={streaming} />;
 	return <CodeBlock text={child.props.children ?? ""} label={language === "text" ? "代码" : language} language={language} highlight={!streaming} />;
 }
 

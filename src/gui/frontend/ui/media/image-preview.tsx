@@ -9,7 +9,11 @@ import { ImageViewer } from "./image-viewer.tsx";
 import "./image-preview.css";
 
 type Preview = { id: string; src: string; alt: string; trigger: HTMLButtonElement; source: HTMLImageElement };
-const ImagePreviewContext = createContext<{ open: (image: Preview) => void; activeId: string | undefined } | undefined>(undefined);
+const ImagePreviewContext = createContext<{
+	open: (image: Preview) => void;
+	update: (id: string, src: string, alt: string) => void;
+	activeId: string | undefined;
+} | undefined>(undefined);
 
 export function ImagePreviewProvider({ sessionId, fallbackFocus, children }: {
 	sessionId: string | null; fallbackFocus: RefObject<HTMLElement | null>; children: ReactNode;
@@ -18,7 +22,10 @@ export function ImagePreviewProvider({ sessionId, fallbackFocus, children }: {
 	const [visible, setVisible] = useState(false);
 	useEffect(() => setVisible(false), [sessionId]);
 	const open = useCallback((image: Preview) => { setImage({ ...image, sessionId }); setVisible(true); }, [sessionId]);
-	const preview = useMemo(() => ({ open, activeId: image?.id }), [open, image?.id]);
+	const update = useCallback((id: string, src: string, alt: string) => {
+		setImage((current) => current?.id === id && (current.src !== src || current.alt !== alt) ? { ...current, src, alt } : current);
+	}, []);
+	const preview = useMemo(() => ({ open, update, activeId: image?.id }), [open, update, image?.id]);
 	return <ImagePreviewContext value={preview}>
 		{children}
 		<AnimatePresence onExitComplete={() => { if (!visible) setImage(undefined); }}>
@@ -31,6 +38,8 @@ export function ImagePreviewProvider({ sessionId, fallbackFocus, children }: {
 export function ImagePreviewButton({ src, alt, children }: { src: string | undefined; alt: string; children: ReactNode }) {
 	const preview = useContext(ImagePreviewContext);
 	const id = useId();
+	const update = preview?.update;
+	useEffect(() => { if (src) update?.(id, src, alt); }, [id, src, alt, update]);
 	if (!preview) throw new Error("缺少图片预览上下文。");
 	return <button type="button" className="image-preview-trigger" aria-label={`查看大图：${alt}`} aria-haspopup="dialog" disabled={!src}
 		data-previewing={preview.activeId === id || undefined}
