@@ -1,12 +1,10 @@
 import type { SearchNavigation } from "../shared/search-navigation.ts";
 import type { FileToolError } from "../shared/result.ts";
 
-/** 模型只提供查询、候选 scope 和可选候选 glob；其余匹配策略由 find runtime 固定。 */
-export interface FindParams {
-	query: string;
-	path?: string[];
-	glob?: string;
-}
+import type { Static } from "typebox";
+import type { findParameters } from "./schema.ts";
+
+export type FindParams = Static<typeof findParameters>;
 
 export type FindEntryKind = "file" | "directory";
 

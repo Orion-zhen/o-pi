@@ -121,26 +121,26 @@ describe("workspace lease operation context", () => {
 			const active = lease.filesystem.mutations.run(target, { createParents: false }, async () => {
 				entered.resolve();
 				await release.promise;
-				return { type: "commit", prepared: undefined, bytes: textBytes("active") };
+				return { prepared: undefined, bytes: textBytes("active") };
 			});
 			await entered.promise;
 			const waiting = lease.filesystem.mutations.run(
 				target,
 				{ createParents: false },
-				() => ({ type: "commit", prepared: undefined, bytes: textBytes("waiting") }),
+				() => ({ prepared: undefined, bytes: textBytes("waiting") }),
 			);
 			lease.dispose();
-			await expect(waiting).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+			await expect(waiting).rejects.toMatchObject({ error: { code: "aborted" } });
 			release.resolve();
-			await expect(active).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+			await expect(active).rejects.toMatchObject({ error: { code: "aborted" } });
 
 			const nextLease = await openLease(runtime);
 			const nextTarget = await resolveTarget(nextLease, "queued.txt");
-			expect(expectFsOk(await nextLease.filesystem.mutations.run(
+			expect(await nextLease.filesystem.mutations.run(
 				nextTarget,
 				{ createParents: false },
-				() => ({ type: "commit", prepared: undefined, bytes: textBytes("next") }),
-			))).toMatchObject({ committed: true });
+				() => ({ prepared: undefined, bytes: textBytes("next") }),
+			)).toMatchObject({ receipt: { created: true, sizeBytes: 4 } });
 		} finally {
 			runtime.dispose();
 		}

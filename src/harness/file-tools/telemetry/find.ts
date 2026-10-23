@@ -1,11 +1,11 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
-import type { Candidate } from "../../telemetry/types.ts";
+import { fields } from "../../telemetry/projection.ts";
+import type { Candidate, ToolTelemetry } from "../../telemetry/types.ts";
 import type { FailedResult } from "../shared/result.ts";
 import { isFailed } from "../shared/result.ts";
 import type { FindDetails, FindParams } from "../find/types.ts";
 import { failureFields, failureScopeFields, projectFileInput } from "./common.ts";
 
-export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | FailedResult>({
+export const findTelemetry = {
 	input: projectFileInput<FindParams>(["query", "path", "glob"], "directory", { pathList: true }),
 	result(_params, details) {
 		if (isFailed(details)) {
@@ -23,7 +23,7 @@ export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | Faile
 			candidates: findCandidates(details),
 		};
 	},
-});
+} satisfies ToolTelemetry<FindParams, FindDetails | FailedResult>;
 
 function findCandidates(details: FindDetails): Candidate[] {
 	return details.matches.map((match, index) => ({

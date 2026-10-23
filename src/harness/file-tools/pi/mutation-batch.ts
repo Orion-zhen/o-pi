@@ -2,17 +2,11 @@ import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.ts";
 import type { LspDiagnosticsSummary } from "../../lsp/types.ts";
 import type { MutationPostProcessObserver } from "./progress.ts";
 
-interface Deferred<T> {
-	promise: Promise<T>;
-	resolve(value: T): void;
-}
-
 interface LspSubmission {
 	order: number;
 	input: LspMutationInput | undefined;
-	operations: LoadLsp;
 	progress?: MutationPostProcessObserver;
-	deferred: Deferred<LspDiagnosticsSummary | undefined>;
+	deferred: PromiseWithResolvers<LspDiagnosticsSummary | undefined>;
 }
 
 interface MutationCallState {
@@ -32,7 +26,6 @@ interface MutationBatch {
 export interface MutationBatchInvocation {
 	lsp(
 		input: LspMutationInput | undefined,
-		operations: LoadLsp,
 		progress?: MutationPostProcessObserver,
 	): Promise<LspDiagnosticsSummary | undefined>;
 	settle(): void;
@@ -43,6 +36,8 @@ export class MutationBatchCoordinator {
 	private readonly batchesByCall = new Map<string, MutationBatch>();
 	private nextSubmissionOrder = 0;
 	private disposed = false;
+
+	constructor(private readonly loadLsp: LoadLsp) {}
 
 	capture(toolCalls: readonly { id: string; name: string }[]): void {
 		if (this.disposed) return;
@@ -78,7 +73,7 @@ export class MutationBatchCoordinator {
 		}
 		if (batch.mode === "disabled") return undefined;
 		return {
-			lsp: (input, operations, progress) => this.submitLsp(batch, toolCallId, input, operations, progress),
+			lsp: (input, progress) => this.submitLsp(batch, toolCallId, input, progress),
 			settle: () => this.settle(batch, toolCallId),
 		};
 	}
@@ -98,15 +93,14 @@ export class MutationBatchCoordinator {
 		batch: MutationBatch,
 		toolCallId: string,
 		input: LspMutationInput | undefined,
-		operations: LoadLsp,
 		progress: MutationPostProcessObserver | undefined,
 	): Promise<LspDiagnosticsSummary | undefined> {
 		const call = batch.calls.get(toolCallId);
 		if (call === undefined || this.disposed) return Promise.resolve(undefined);
 		if (call.lsp !== undefined) return call.lsp.deferred.promise;
-		const deferred = createDeferred<LspDiagnosticsSummary | undefined>();
+		const deferred = Promise.withResolvers<LspDiagnosticsSummary | undefined>();
 		this.nextSubmissionOrder += 1;
-		call.lsp = { order: this.nextSubmissionOrder, input, operations, ...(progress === undefined ? {} : { progress }), deferred };
+		call.lsp = { order: this.nextSubmissionOrder, input, ...(progress === undefined ? {} : { progress }), deferred };
 		this.maybeFinalize(batch);
 		return deferred.promise;
 	}
@@ -133,7 +127,7 @@ export class MutationBatchCoordinator {
 			const submission = batch.calls.get(id)?.lsp;
 			return submission === undefined ? [] : [submission];
 		}).sort((left, right) => left.order - right.order);
-		await processLspSubmissions(lsp);
+		await processLspSubmissions(lsp, this.loadLsp);
 	}
 
 	private remove(batch: MutationBatch): void {
@@ -143,72 +137,40 @@ export class MutationBatchCoordinator {
 	}
 }
 
-async function processLspSubmissions(submissions: readonly LspSubmission[]): Promise<void> {
-	for (const submission of submissions) safeNotify(() => submission.progress?.lspStarted());
-	const groups = groupByIdentity(submissions, (submission) => submission.operations);
-	await Promise.all(Array.from(groups, async ([operations, grouped]) => {
-		const buckets = deduplicate(grouped, (submission) => submission.input === undefined
-			? undefined
-			: `${submission.input.workspaceRoot}\0${submission.input.filePath}`);
-		for (const bucket of buckets.skipped) completeLsp(bucket, undefined);
-		const inputs = buckets.unique.map((bucket) => bucket.latest.input).filter((input): input is LspMutationInput => input !== undefined);
-		let results: readonly (LspDiagnosticsSummary | undefined)[];
-		try {
-			results = await (await operations()).afterMutationBatch(inputs);
-		} catch {
-			results = inputs.map(() => undefined);
-		}
-		for (let index = 0; index < buckets.unique.length; index += 1) {
-			const result = results[index];
-			for (const submission of buckets.unique[index]?.all ?? []) completeLsp(submission, result);
-		}
-	}));
-}
-
-function groupByIdentity<T, K>(items: readonly T[], keyFor: (item: T) => K): Map<K, T[]> {
-	const groups = new Map<K, T[]>();
-	for (const item of items) {
-		const key = keyFor(item);
-		const group = groups.get(key);
-		if (group === undefined) groups.set(key, [item]);
-		else group.push(item);
-	}
-	return groups;
-}
-
-function deduplicate<T>(
-	items: readonly T[],
-	keyFor: (item: T) => string | undefined,
-): { unique: Array<{ latest: T; all: T[] }>; skipped: T[] } {
-	const keyed = new Map<string, { latest: T; all: T[] }>();
-	const skipped: T[] = [];
-	for (const item of items) {
-		const key = keyFor(item);
-		if (key === undefined) {
-			skipped.push(item);
+async function processLspSubmissions(submissions: readonly LspSubmission[], loadLsp: LoadLsp): Promise<void> {
+	const files = new Map<string, { input: LspMutationInput; submissions: LspSubmission[] }>();
+	for (const submission of submissions) {
+		safeNotify(() => submission.progress?.lspStarted());
+		const input = submission.input;
+		if (input === undefined) {
+			completeLsp(submission, undefined);
 			continue;
 		}
-		const existing = keyed.get(key);
-		if (existing === undefined) keyed.set(key, { latest: item, all: [item] });
+		const key = `${input.workspaceRoot}\0${input.filePath}`;
+		const file = files.get(key);
+		if (file === undefined) files.set(key, { input, submissions: [submission] });
 		else {
-			existing.latest = item;
-			existing.all.push(item);
+			file.input = input;
+			file.submissions.push(submission);
 		}
 	}
-	return { unique: Array.from(keyed.values()), skipped };
+	if (files.size === 0) return;
+	const batches = [...files.values()];
+	let results: readonly (LspDiagnosticsSummary | undefined)[];
+	try {
+		results = await (await loadLsp()).afterMutationBatch(batches.map((file) => file.input));
+	} catch {
+		// 文件已经提交，诊断失败只影响增强结果。
+		results = [];
+	}
+	for (const [index, file] of batches.entries()) {
+		for (const submission of file.submissions) completeLsp(submission, results[index]);
+	}
 }
 
 function completeLsp(submission: LspSubmission, result: LspDiagnosticsSummary | undefined): void {
 	safeNotify(() => submission.progress?.lspCompleted(result));
 	submission.deferred.resolve(result);
-}
-
-function createDeferred<T>(): Deferred<T> {
-	let resolvePromise: (value: T) => void = () => undefined;
-	const promise = new Promise<T>((resolve) => {
-		resolvePromise = resolve;
-	});
-	return { promise, resolve: resolvePromise };
 }
 
 function safeNotify(observer: () => void): void {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { Candidate, Fields, FieldValue, Resource, TelemetryFacts, ToolTelemetry } from "./types.ts";
+import type { Candidate, Fields, FieldValue, Resource, TelemetryFacts } from "./types.ts";
 
 const MAX_FIELDS = 48;
 const MAX_FIELD_STRING_CHARS = 256;
@@ -13,12 +13,6 @@ export interface SafeFacts {
 	facts: TelemetryFacts;
 	error?: string;
 	limited: boolean;
-}
-
-export function defineToolTelemetry<TParams, TDetails>(
-	telemetry: ToolTelemetry<TParams, TDetails>,
-): ToolTelemetry<TParams, TDetails> {
-	return telemetry;
 }
 
 export function fields(values: Record<string, FieldValue | undefined>): Fields {

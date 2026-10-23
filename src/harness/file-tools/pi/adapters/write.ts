@@ -4,7 +4,7 @@ import { isFailed } from "../../shared/result.ts";
 import { formatWriteModelResult } from "../../write/presenter.ts";
 import { withFileToolsInvocation, type MutationRuntime } from "../invocation.ts";
 import { bindFileLsp } from "../lsp.ts";
-import { piTextDiffGenerator } from "../ports/text-diff.ts";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import { createMutationPostProcessObserver, mutationProgress } from "../progress.ts";
 
 export async function executeWrite(params: WriteParams, runtime: MutationRuntime) {
@@ -16,7 +16,7 @@ export async function executeWrite(params: WriteParams, runtime: MutationRuntime
 		const diagnostics = bindFileLsp(opened, runtime.lsp).diagnostics(progress, runtime.batch);
 		const result = await writeFile(params, {
 			...opened,
-			diff: piTextDiffGenerator,
+			diff: generateDiffString,
 			diagnostics,
 			onPrepared(preview) {
 				latestPreview = preview;

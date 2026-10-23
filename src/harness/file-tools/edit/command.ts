@@ -2,7 +2,7 @@ import type { FileToolLimits } from "../../file-tool-limits.ts";
 import type { ContentVersion, TextContent } from "../../filesystem/contracts/content.ts";
 import type { MutationSnapshot } from "../../filesystem/contracts/mutation.ts";
 import type { FileRef, TargetRef } from "../../filesystem/contracts/path.ts";
-import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import { FileSystemError, type FsOperationContext } from "../../filesystem/contracts/result.ts";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
 import type { LspMutationBaseline as DiagnosticSnapshot } from "../../lsp/types.ts";
 import {
@@ -29,6 +29,12 @@ interface PreparedEdit extends EditedContent {
 	readonly baseline: DiagnosticSnapshot | undefined;
 }
 
+class EditPreparationError extends Error {
+	constructor(readonly result: FailedResult) {
+		super(result.error.message);
+	}
+}
+
 interface EditObservationStore {
 	get(target: TargetRef): ContentVersion | undefined;
 }
@@ -51,7 +57,7 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 	const target = await resolveEditMutationTarget(params.path, context.filesystem);
 	if (isFailed(target)) return target;
 
-	const mutated = await context.filesystem.mutations.run<PreparedEdit, FailedResult>(
+	const mutated = await context.filesystem.mutations.run<PreparedEdit>(
 		target,
 		{
 			createParents: false,
@@ -60,18 +66,21 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 		},
 		async (snapshot) => {
 			const file = validateSnapshot(snapshot, target, context);
-			if (isFailed(file)) return { type: "reject", reason: file };
+			if (isFailed(file)) throw new EditPreparationError(file);
 			const prepared = await prepareEdit(file, target.displayPath, params.edits, context);
-			if (isFailed(prepared)) return { type: "reject", reason: prepared };
+			if (isFailed(prepared)) throw new EditPreparationError(prepared);
 			const bytes = buildTextBytes(prepared.updatedText, file.hasBom);
 			safePrepared(context.onPrepared, { ...prepared.preview });
 			const baseline = await captureMutationDiagnostics(context.diagnostics, target, context.operation.signal);
-			return { type: "commit", bytes, prepared: { ...prepared, baseline } };
+			return { bytes, prepared: { ...prepared, baseline } };
 		},
-	);
-	if (!mutated.ok) return mapMutationError(mutated.error);
-	if (!mutated.value.committed) return mutated.value.reason;
-	const { receipt, prepared } = mutated.value;
+	).catch((error: unknown) => {
+		if (error instanceof EditPreparationError) return error.result;
+		if (error instanceof FileSystemError) return mapMutationError(error.error);
+		throw error;
+	});
+	if (isFailed(mutated)) return mutated;
+	const { receipt, prepared } = mutated;
 	const { file: before, updatedText, changedRanges, preview, baseline } = prepared;
 	const result: EditSuccess = {
 		...preview,
@@ -120,12 +129,15 @@ async function prepareEdit(
 	if (isFailed(updated)) return updated;
 	const outputError = validateTextSize(updated.text, file.hasBom, path, context.limits.edit_max_file_bytes);
 	if (outputError !== undefined) return outputError;
-	const rendered = await context.diff.generate(normalizeLineEndings(file.text), normalizeLineEndings(updated.text));
+	const rendered = await context.diff(normalizeLineEndings(file.text), normalizeLineEndings(updated.text));
 	return {
 		file,
 		updatedText: updated.text,
 		changedRanges: updated.changedRanges,
-		preview: { status: "preview", path, replacements: updated.replacements, ...rendered },
+		preview: {
+			status: "preview", path, replacements: updated.replacements, diff: rendered.diff,
+			...(rendered.firstChangedLine === undefined ? {} : { firstChangedLine: rendered.firstChangedLine }),
+		},
 	};
 }
 

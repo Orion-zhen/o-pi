@@ -5,8 +5,6 @@ import type {
 	LineScan,
 	ScannedLine,
 	TextContent,
-	TextSlice,
-	TextSliceOptions,
 } from "../contracts/content.ts";
 import type { FileSnapshot } from "../contracts/metadata.ts";
 import type { FileRef } from "../contracts/path.ts";
@@ -18,7 +16,7 @@ import type {
 	NativeMetadata,
 	NativeOpenFile,
 } from "../platform/node/native-filesystem.ts";
-import { contentHash, decodeUtf8, describeText, hasUtf8Bom, sliceTextByLineRange } from "./text.ts";
+import { contentHash, decodeUtf8, describeText, hasUtf8Bom } from "./text.ts";
 import { nativeIdentity } from "./ref.ts";
 
 const READ_CHUNK_BYTES = 64 * 1024;
@@ -47,10 +45,6 @@ export class WorkspaceContentService implements ContentOperations {
 		const decoded = decodeUtf8(content.bytes, path);
 		if (!decoded.ok) return decoded;
 		return fsSuccess({ ...content, text: decoded.value, ...describeText(content.bytes, decoded.value) });
-	}
-
-	sliceText(content: TextContent, options: TextSliceOptions): FsResult<TextSlice> {
-		return sliceTextByLineRange(content, options);
 	}
 
 	async scanLines(file: FileRef, options: ReadOptions): Promise<FsResult<LineScan>> {

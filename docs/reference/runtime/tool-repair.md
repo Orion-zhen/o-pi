@@ -6,7 +6,6 @@
 
 ```text
 原始参数
--> 工具原有 prepareArguments
 -> schema 校验
 -> 定向结构修复
 -> 再次校验
@@ -26,11 +25,10 @@
 | `singleStringField` | 将单字符串放入指定字段 |
 | `pathFields` | 清理路径开头的 `@` |
 | `pathListFields` | 将搜索路径字符串转换为数组 |
-| `maxPathCount` | 路径数量上限，默认 32 |
 | `aliases`、`nestedAliases` | 根字段与嵌套字段别名 |
 | `objectArrayFromFields` | 将根字段组合为对象数组 |
 
-路径列表支持逗号、空白和换行分隔，单引号与双引号保护路径中的空白和逗号。解析失败或超限时保留原参数。
+路径列表最多 32 项，支持逗号、空白和换行分隔，单引号与双引号保护路径中的空白和逗号。解析失败或超限时保留原参数。
 
 例如：
 
@@ -48,7 +46,7 @@
 
 ## 注册与遥测
 
-`src/harness/register-tool.ts` 为工具组合严格采样、修复和遥测。默认采样为 `constrainedSampling: { type: "json_schema", strict: "prefer" }`，工具可覆盖。
+`src/harness/extensions.ts` 在同一个 factory 内创建工具和遥测服务。`src/harness/register-tool.ts` 直接绑定服务，为工具组合严格采样、修复和遥测，不使用注册广播或就绪握手。默认采样为 `constrainedSampling: { type: "json_schema", strict: "prefer" }`，工具可覆盖。
 
 修复观察器只报告状态、操作和路径列表数量摘要，原始参数不由修复层落盘。工具执行计时沿用 SDK。
 

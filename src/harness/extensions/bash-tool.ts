@@ -10,7 +10,7 @@ import { executeBashCommand } from "../bash-tool/bash-tool.ts";
 import { loadBashToolConfig } from "../bash-tool/config.ts";
 import { type BashSessionMetadata, type BashToolDetails } from "../bash-tool/types.ts";
 import { bashTelemetry } from "../bash-tool/telemetry.ts";
-import { registerTool } from "../register-tool.ts";
+import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
 
 const bashParameters = Type.Object(
 	{
@@ -27,9 +27,10 @@ const bashParameters = Type.Object(
 );
 
 /** 注册覆盖版 bash。执行后端用 Pi 本地 shell，输出管理由本项目控制。 */
-export default function bashTool(pi: ExtensionAPI): void {
+export default function bashTool(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
+	const registerTool = createToolRegistrar(pi, telemetry);
 	const operations = createLocalBashOperations();
-	registerTool<typeof bashParameters, NativeBashDetails | undefined, unknown>(pi, {
+	registerTool<typeof bashParameters, NativeBashDetails | undefined, unknown>({
 		tool: {
 			name: "bash",
 			label: "bash",

@@ -1,11 +1,11 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
-import type { TelemetryFacts } from "../../telemetry/types.ts";
+import { fields } from "../../telemetry/projection.ts";
+import type { TelemetryFacts, ToolTelemetry } from "../../telemetry/types.ts";
 import { parseReadRanges } from "../../content-ranges.ts";
 import type { ReadFileSuccess, ReadParams } from "../read/types.ts";
 import { isFailed, type ToolOutcome } from "../shared/result.ts";
 import { failureFields, pathTarget, projectFileInput } from "./common.ts";
 
-export const readTelemetry = defineToolTelemetry<ReadParams, ToolOutcome<ReadFileSuccess>>({
+export const readTelemetry = {
 	input: projectReadInput,
 	result(_params, details) {
 		if (isFailed(details)) return { fields: failureFields(details) };
@@ -42,7 +42,7 @@ export const readTelemetry = defineToolTelemetry<ReadParams, ToolOutcome<ReadFil
 			}),
 		};
 	},
-});
+} satisfies ToolTelemetry<ReadParams, ToolOutcome<ReadFileSuccess>>;
 
 const projectReadInputBase = projectFileInput<ReadParams>(["path", "lines", "pages"], "file");
 

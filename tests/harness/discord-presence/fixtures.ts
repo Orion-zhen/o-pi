@@ -1,15 +1,11 @@
 import type { CoordinatedPresenceConfig } from "../../../src/harness/discord-presence/coordinator-protocol.ts";
 import type { DiscordCoordinatorOutput } from "../../../src/harness/discord-presence/output.ts";
-import { agentSchemaPath, defaultAgentConfigPath, readDefaultJsoncConfigSync } from "../../../src/harness/config-loader.ts";
+import { CONFIG_DEFINITIONS, readDefaultJsoncConfigSync } from "../../../src/harness/config-loader.ts";
 import type { DiscordPresenceTransport } from "../../../src/harness/discord-presence/transport.ts";
 import type { DiscordActivityPayload, DiscordPresenceConfig, PresenceProfileConfig, PresenceConnectionStatus } from "../../../src/harness/discord-presence/types.ts";
 
 export function enabledConfig(): DiscordPresenceConfig {
-	const config = readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath("discord-presence.jsonc"),
-		schemaPath: agentSchemaPath("discord-presence.schema.json"),
-		label: "discord-presence", createError: (message) => new Error(message),
-	}) as DiscordPresenceConfig;
+	const config = readDefaultJsoncConfigSync<DiscordPresenceConfig>(CONFIG_DEFINITIONS.discordPresence);
 	config.enabled = true;
 	config.application_id = "123456789012345678";
 	config.profile = "detailed";

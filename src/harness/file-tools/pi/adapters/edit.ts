@@ -6,7 +6,7 @@ import { isPlainRecord } from "../guards.ts";
 import { formatEditModelResult } from "../../edit/presenter.ts";
 import { withFileToolsInvocation, type MutationRuntime } from "../invocation.ts";
 import { bindFileLsp } from "../lsp.ts";
-import { piTextDiffGenerator } from "../ports/text-diff.ts";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import { createMutationPostProcessObserver, mutationProgress } from "../progress.ts";
 
 export async function executeEdit(
@@ -23,7 +23,7 @@ export async function executeEdit(
 		const result = await editFile(params, {
 			...opened,
 			diagnostics,
-			diff: piTextDiffGenerator,
+			diff: generateDiffString,
 			onPrepared(preview) {
 				latestPreview = preview;
 				runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
@@ -44,7 +44,7 @@ export async function previewEditWorkspace(cwd: string, params: unknown) {
 		try {
 			return await previewEdit(params, {
 				...opened,
-				diff: piTextDiffGenerator,
+				diff: generateDiffString,
 			});
 		} finally {
 			opened.dispose();

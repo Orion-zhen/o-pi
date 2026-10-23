@@ -16,7 +16,7 @@ import {
 	type SubagentToolParams,
 } from "../subagent/index.ts";
 import { subagentTelemetry } from "../subagent/telemetry.ts";
-import { registerTool } from "../register-tool.ts";
+import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
 import { readCurrentSystemPrompt } from "../system-prompt/current.ts";
 
 interface SubagentTuiModule {
@@ -52,10 +52,11 @@ const subagentParams = Type.Object(
 );
 
 /** 注册 subagent 工具和命令，/run 进度呈现按需加载。 */
-export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModule>, presentation?: SubagentCommandPresentation): (pi: ExtensionAPI) => void {
-	return function subagentExtension(pi: ExtensionAPI): void {
+export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModule>, presentation?: SubagentCommandPresentation): (pi: ExtensionAPI, telemetry?: ToolTelemetrySink) => void {
+	return function subagentExtension(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
+		const registerTool = createToolRegistrar(pi, telemetry);
 		const executions = new SubagentExecutionRegistry();
-		registerTool(pi, {
+		registerTool({
 			tool: {
 				name: "subagent",
 				exposure: "model-only",

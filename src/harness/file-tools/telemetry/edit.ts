@@ -1,10 +1,11 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
+import { fields } from "../../telemetry/projection.ts";
+import type { ToolTelemetry } from "../../telemetry/types.ts";
 import type { ToolOutcome } from "../shared/result.ts";
 import { isFailed } from "../shared/result.ts";
 import type { EditParams, EditSuccess } from "../edit/types.ts";
 import { failureFields, pathTarget } from "./common.ts";
 
-export const editTelemetry = defineToolTelemetry<EditParams, ToolOutcome<EditSuccess>>({
+export const editTelemetry = {
 	input(params) {
 		let oldChars = 0;
 		let newChars = 0;
@@ -39,7 +40,7 @@ export const editTelemetry = defineToolTelemetry<EditParams, ToolOutcome<EditSuc
 			}),
 		};
 	},
-});
+} satisfies ToolTelemetry<EditParams, ToolOutcome<EditSuccess>>;
 
 function lineCount(value: string): number {
 	if (value.length === 0) return 0;

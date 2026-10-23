@@ -1,14 +1,14 @@
 import type { ContentVersion } from "./content.ts";
 import type { TargetRef } from "./path.ts";
-import type { FsResult } from "./result.ts";
 
 export type MutationSnapshot =
 	| { readonly exists: false }
 	| { readonly exists: true; readonly bytes: Uint8Array; readonly hash: string; readonly sizeBytes: number };
 
-export type MutationTransform<TPrepared, TRejected = never> =
-	| { readonly type: "commit"; readonly bytes: Uint8Array; readonly prepared: TPrepared }
-	| { readonly type: "reject"; readonly reason: TRejected };
+export interface PreparedMutation<T> {
+	readonly bytes: Uint8Array;
+	readonly prepared: T;
+}
 
 export interface MutationReceipt extends ContentVersion {
 	readonly before?: ContentVersion;
@@ -17,9 +17,10 @@ export interface MutationReceipt extends ContentVersion {
 	readonly target: TargetRef;
 }
 
-export type MutationRunResult<TPrepared, TRejected = never> =
-	| { readonly committed: true; readonly receipt: MutationReceipt; readonly prepared: TPrepared }
-	| { readonly committed: false; readonly reason: TRejected; readonly snapshot: MutationSnapshot };
+export interface CommittedMutation<T> {
+	readonly receipt: MutationReceipt;
+	readonly prepared: T;
+}
 
 export interface MutationOptions {
 	readonly createParents: boolean;
@@ -28,10 +29,10 @@ export interface MutationOptions {
 }
 
 export interface MutationOperations {
-	/** 只有成功提交才返回准备结果，回调不需要通过外部可变状态传递数据。 */
-	run<TPrepared, TRejected = never>(
+	/** 返回即表示已提交，准备或提交失败通过异常退出并释放目标队列。 */
+	run<T>(
 		target: TargetRef,
 		options: MutationOptions,
-		transform: (snapshot: MutationSnapshot) => MutationTransform<TPrepared, TRejected> | Promise<MutationTransform<TPrepared, TRejected>>,
-	): Promise<FsResult<MutationRunResult<TPrepared, TRejected>>>;
+		prepare: (snapshot: MutationSnapshot) => PreparedMutation<T> | Promise<PreparedMutation<T>>,
+	): Promise<CommittedMutation<T>>;
 }

@@ -6,13 +6,12 @@ type TelemetryPresenter = Presenter<(
 	report: ReturnType<typeof createLiveTelemetryReport>,
 ) => Promise<void>>;
 
-import { registerTelemetry, type TelemetryService } from "../telemetry/service.ts";
+import type { TelemetryService } from "../telemetry/service.ts";
 
 const COMMAND_DESCRIPTION = "Show telemetry of current session.";
 
 /** 启用本地工具调用遥测，并注册当前 session 的只读分析视图。 */
-export default function telemetryExtension(pi: ExtensionAPI, present?: TelemetryPresenter): void {
-	const service = registerTelemetry(pi);
+export default function telemetryExtension(pi: ExtensionAPI, service: TelemetryService, present?: TelemetryPresenter): void {
 	registerTelemetryCommand(pi, service, present);
 }
 

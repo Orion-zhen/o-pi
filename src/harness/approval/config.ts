@@ -2,8 +2,7 @@ import { readFileSync } from "node:fs";
 import {
 	CONFIG_DEFINITIONS,
 	agentSchemaPath,
-	createCompleteSchemaValidator,
-	createSchemaValidator,
+	ConfigError,
 	expandHomePath,
 	loadValidatedMergedConfig,
 } from "../config-loader.ts";
@@ -11,9 +10,6 @@ import { compileSchemaValidator, type SchemaValidateFunction } from "../schema-v
 import type { ApprovalGateConfig, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyConfig, BashPolicyFact } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("approval-gate.schema.json");
-const schemaOptions = { schemaPath: SCHEMA_PATH, label: "approval-gate", createError };
-const loadValidator = createSchemaValidator(schemaOptions);
-const loadDefaultValidator = createCompleteSchemaValidator(schemaOptions);
 let validateComplete: SchemaValidateFunction | undefined;
 
 type FileCommandRule = string | false | {
@@ -35,24 +31,15 @@ interface ConfigFile extends Omit<ApprovalGateConfig, "tools"> {
 	};
 }
 
-class ApprovalConfigError extends Error {
-	constructor(message: string, readonly details?: Record<string, unknown>) {
-		super(message);
-		this.name = "ApprovalConfigError";
-	}
-}
-
 export async function loadApprovalGateConfig(): Promise<ApprovalGateConfig> {
-	const loaded = await loadValidatedMergedConfig(CONFIG_DEFINITIONS.approvalGate, process.cwd(), createError, {
-		partial: loadValidator, complete: loadDefaultValidator,
-	});
+	const loaded = await loadValidatedMergedConfig(CONFIG_DEFINITIONS.approvalGate, process.cwd());
 	return compileConfig(loaded.merged);
 }
 
 function compileConfig(value: unknown): ApprovalGateConfig {
 	validateComplete ??= completeSchemaValidator();
 	if (!validateComplete(value)) {
-		throw new ApprovalConfigError("approval-gate merged config does not match schema.", { errors: validateComplete.errors });
+		throw new ConfigError("approval-gate merged config does not match schema.", { errors: validateComplete.errors });
 	}
 	const file = value as ConfigFile;
 	return {
@@ -73,7 +60,7 @@ function compileBashPolicy(file: ConfigFile["tools"]["bash"]): BashPolicyConfig 
 			try {
 				regex = new RegExp(matcher.regex, "iu");
 			} catch (error) {
-				throw new ApprovalConfigError(`approval bash command regex is invalid: ${factId}/${classifier}.`, {
+				throw new ConfigError(`approval bash command regex is invalid: ${factId}/${classifier}.`, {
 					fact: factId, classifier, regex: matcher.regex, error: String(error),
 				});
 			}
@@ -86,7 +73,7 @@ function compileBashPolicy(file: ConfigFile["tools"]["bash"]): BashPolicyConfig 
 		if (combination === false) continue;
 		for (const factId of combination.all) {
 			if (!Object.hasOwn(file.facts, factId)) {
-				throw new ApprovalConfigError("approval bash policy combination references an unknown fact.", { combination: name, fact: factId });
+				throw new ConfigError("approval bash policy combination references an unknown fact.", { combination: name, fact: factId });
 			}
 		}
 		if (combination.enabled !== false) combinations[name] = { all: combination.all, action: combination.action };
@@ -115,8 +102,4 @@ function completeSchemaValidator(): SchemaValidateFunction {
 		bashCombination: ["all", "action"],
 	})) schema.$defs[name] = { ...schema.$defs[name], required };
 	return compileSchemaValidator(schema, { allErrors: true });
-}
-
-function createError(message: string, details?: Record<string, unknown>): ApprovalConfigError {
-	return new ApprovalConfigError(message, details);
 }

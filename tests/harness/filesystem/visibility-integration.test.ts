@@ -6,7 +6,7 @@ import { editFile } from "../../../src/harness/file-tools/edit/command.ts";
 import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.ts";
 import { listDirectory } from "../../../src/harness/file-tools/ls/command.ts";
 import type { LsParams, LsSuccess } from "../../../src/harness/file-tools/ls/types.ts";
-import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.ts";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
 import { isFailed, type ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
@@ -45,7 +45,7 @@ async function editWorkspace(cwd: string, params: EditParams): Promise<ToolOutco
 	try {
 		return await editFile(params, {
 			...opened,
-			diff: piTextDiffGenerator,
+			diff: generateDiffString,
 		});
 	} finally {
 		opened.dispose();

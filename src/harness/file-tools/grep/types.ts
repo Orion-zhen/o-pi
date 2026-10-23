@@ -2,6 +2,9 @@ import type { CodeAnalysisCoverage, CodeNavigation, CodeRelationStatus, CodeStru
 import type { SearchNavigation } from "../shared/search-navigation.ts";
 import type { FileToolError } from "../shared/result.ts";
 
+import type { Static } from "typebox";
+import type { grepParameters } from "./schema.ts";
+
 export type GrepMatchedBy =
 	| "exact-qualified-symbol"
 	| "exact-symbol"
@@ -10,19 +13,14 @@ export type GrepMatchedBy =
 	| "regex"
 	| "lexical"
 	| "related";
-export type GrepQueryMode = "regex" | "literal";
+export type GrepQueryMode = NonNullable<GrepParams["mode"]>;
 export type TruncationReason =
 	| "depth_limit"
 	| "entry_limit"
 	| "byte_limit"
 	| "result_limit";
 
-export interface GrepParams {
-	query: string;
-	mode?: GrepQueryMode;
-	path?: string[];
-	glob?: string;
-}
+export type GrepParams = Static<typeof grepParameters>;
 
 export interface GrepSkippedFiles {
 	binary?: number;

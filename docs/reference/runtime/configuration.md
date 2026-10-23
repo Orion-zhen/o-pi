@@ -76,4 +76,6 @@ SDK 在下次模型请求时记录当前分支的工具声明，恢复与导航�
 
 ## 配置来源
 
+`CONFIG_DEFINITIONS` 集中声明路径、配置范围和项目专用 schema。加载器按定义缓存校验器，统一使用 `ConfigError` 携带路径和校验详情，模块只处理自身的合并规则与语义检查。
+
 实现位于 `src/harness/config-loader.ts`、`src/harness/config-values.ts` 和 `src/harness/config-cache.ts`。GUI 文件编辑位于 `src/gui/host/config/`。字段约束见 [`agent/schemas/`](../../../agent/schemas/)，默认值见 [`agent/defaults/`](../../../agent/defaults/)。

@@ -41,7 +41,6 @@ interface WorkerSlot<TRequest, TResult> {
 /** 有界 worker 任务生命周期：队列、request ID、abort、崩溃、ref/unref 和 dispose。 */
 export class WorkerTaskPool<TRequest, TResult> {
 	private readonly queue = new Map<number, WorkerTask<TRequest, TResult>>();
-	private queueHeadId = 1;
 	private readonly slots = new Set<WorkerSlot<TRequest, TResult>>();
 	private nextTaskId = 1;
 	private disposed = false;
@@ -116,14 +115,9 @@ export class WorkerTaskPool<TRequest, TResult> {
 	}
 
 	private dequeue(): WorkerTask<TRequest, TResult> | undefined {
-		while (this.queueHeadId < this.nextTaskId) {
-			const id = this.queueHeadId++;
-			const task = this.queue.get(id);
-			if (task === undefined) continue;
-			this.queue.delete(id);
-			return task;
-		}
-		return undefined;
+		const task = this.queue.values().next().value;
+		if (task !== undefined) this.queue.delete(task.id);
+		return task;
 	}
 
 	private spawnWorker(): void {

@@ -1,47 +1,16 @@
-import {
-	CONFIG_DEFINITIONS,
-	agentSchemaPath,
-	createCompleteSchemaValidator,
-	createSchemaValidator,
-	loadValidatedMergedConfig,
-} from "../config-loader.ts";
+import { CONFIG_DEFINITIONS, ConfigError, loadValidatedMergedConfig } from "../config-loader.ts";
 import type { BashToolConfig } from "./types.ts";
 
-const SCHEMA_PATH = agentSchemaPath("bash-tool.schema.json");
-
-class BashConfigError extends Error {
-	constructor(message: string, readonly details?: Record<string, unknown>) {
-		super(message);
-		this.name = "BashConfigError";
-	}
-}
-
-/** 读取独立 bash JSONC 配置。配置错误直接失败。 */
+/** 配置错误直接失败，环境过滤规则在使用前编译校验。 */
 export async function loadBashToolConfig(): Promise<BashToolConfig> {
-	const loaded = await loadValidatedMergedConfig(
-		CONFIG_DEFINITIONS.bashTool, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
-	);
-	const { $schema: _schema, ...config } = loaded.merged as BashToolConfig & { $schema?: string };
-	validateEnvironment(config.environment.remove_name_regex);
-	return config;
-}
-
-function validateEnvironment(rules: readonly string[]): void {
-	for (const rule of rules) {
+	const loaded = await loadValidatedMergedConfig<BashToolConfig & { $schema?: string }>(CONFIG_DEFINITIONS.bashTool, process.cwd());
+	const { $schema: _schema, ...config } = loaded.merged;
+	for (const rule of config.environment.remove_name_regex) {
 		try {
 			new RegExp(rule, process.platform === "win32" ? "iu" : "u");
 		} catch (error) {
-			throw new BashConfigError("bash environment remove_name_regex is invalid.", {
-				regex: rule,
-				error: String(error),
-			});
+			throw new ConfigError("bash environment remove_name_regex is invalid.", { regex: rule, error: String(error) });
 		}
 	}
+	return config;
 }
-
-function createError(message: string, details?: Record<string, unknown>): BashConfigError {
-	return new BashConfigError(message, details);
-}
-
-const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "bash-tool", createError });
-const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "bash-tool", createError });

@@ -74,7 +74,7 @@ export function bindFileLsp(invocation: FileToolsInvocation, load: LoadLsp) {
 					}),
 					...(input.baseline === undefined ? {} : { baseline: input.baseline }),
 				};
-				if (batch !== undefined) return filterRelated(await batch.lsp(lspInput, load, progress));
+				if (batch !== undefined) return filterRelated(await batch.lsp(lspInput, progress));
 				progress?.lspStarted();
 				try {
 					const result = await filterRelated(lspInput === undefined ? undefined : await (await load()).afterMutation(lspInput));

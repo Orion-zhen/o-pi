@@ -1,9 +1,10 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
+import { fields } from "../../telemetry/projection.ts";
+import type { ToolTelemetry } from "../../telemetry/types.ts";
 import type { LsParams, LsSuccess } from "../ls/types.ts";
 import { isFailed, type ToolOutcome } from "../shared/result.ts";
 import { failureFields, projectFileInput } from "./common.ts";
 
-export const lsTelemetry = defineToolTelemetry<LsParams, ToolOutcome<LsSuccess>>({
+export const lsTelemetry = {
 	input: projectFileInput<LsParams>(["path"], "directory"),
 	result(_params, details) {
 		if (isFailed(details)) return { fields: failureFields(details) };
@@ -14,4 +15,4 @@ export const lsTelemetry = defineToolTelemetry<LsParams, ToolOutcome<LsSuccess>>
 			}),
 		};
 	},
-});
+} satisfies ToolTelemetry<LsParams, ToolOutcome<LsSuccess>>;

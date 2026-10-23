@@ -17,41 +17,34 @@ interface SchemaNode {
 
 type JsonObject = Record<string, unknown>;
 
+export type ToolArguments<TParams extends TSchema> = Parameters<ToolDefinition<TParams>["execute"]>[1];
+
+export type RepairableToolDefinition<TParams extends TSchema, TDetails = unknown, TState = unknown> =
+	Omit<ToolDefinition<TParams, TDetails, TState>, "prepareArguments"> & { prepareArguments?: never };
+
 export function repairableTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
-	tool: ToolDefinition<TParams, TDetails, TState>,
+	tool: RepairableToolDefinition<TParams, TDetails, TState>,
 	hints: RepairSpecHints = {},
 	observer?: RepairObserver,
 ): ToolDefinition<TParams, TDetails, TState> {
-	const originalPrepareArguments = tool.prepareArguments;
 	const spec = createRepairSpec(tool.parameters, hints);
 	const prepareArguments: ToolDefinition<TParams, TDetails, TState>["prepareArguments"] = (args) => {
 		const operations: RepairOperation[] = [];
-		const rawWasValid = isValid(tool.parameters, args);
-		const rawJson = structuralJson(args);
-		let prepared: unknown;
-		try {
-			prepared = originalPrepareArguments ? originalPrepareArguments(args) : args;
-		} catch (error) {
-			notify(observer, tool.name, args, args, "invalid", operations);
-			throw error;
-		}
-		if (originalPrepareArguments !== undefined && !matchesStructuralJson(rawJson, args, prepared)) operations.push("original_prepare");
-
-		if (isValid(tool.parameters, prepared)) {
-			const status: ToolArgumentStatus = rawWasValid ? "accepted" : "repaired";
-			notify(observer, tool.name, args, prepared, status, operations);
-			return prepared as PreparedArguments<TParams, TDetails, TState>;
+		if (Check(tool.parameters, args)) {
+			notify(observer, tool.name, args, args, "accepted", operations);
+			return args as ToolArguments<TParams>;
 		}
 
 		const fanout: RepairFanout[] = [];
-		const repaired = repairArguments(prepared, spec, operations, fanout);
-		if (isValid(tool.parameters, repaired)) {
+		const repaired = repairArguments(args, spec, operations, fanout);
+		if (Check(tool.parameters, repaired)) {
 			notify(observer, tool.name, args, repaired, "repaired", operations, fanout[0]);
-			return repaired as PreparedArguments<TParams, TDetails, TState>;
+			return repaired as ToolArguments<TParams>;
 		}
 
-		notify(observer, tool.name, args, prepared, "invalid", operations);
-		return prepared as PreparedArguments<TParams, TDetails, TState>;
+		notify(observer, tool.name, args, args, "invalid", operations);
+		// 无法修复时保留原参数，错误格式由 SDK 的最终校验统一生成。
+		return args as ToolArguments<TParams>;
 	};
 	return {
 		...tool,
@@ -71,7 +64,7 @@ function notify(
 	try {
 		observer?.onPreparation({ toolName, rawArgs, preparedArgs, status, operations, ...(fanout === undefined ? {} : { fanout }) });
 	} catch {
-		// Observers are diagnostic only and cannot affect argument preparation.
+		// 遥测失败不能阻止参数准备。
 	}
 }
 
@@ -97,12 +90,8 @@ export function repairArguments(args: unknown, spec: RepairSpec, operations: Rep
 	return candidate;
 }
 
-export function isValid<T extends TSchema>(schema: T, value: unknown): boolean {
-	return Check(schema, value);
-}
-
 function migrateRootAliases(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
-	for (const [sourceKey, targetKey] of Object.entries(spec.aliases ?? {})) {
+	for (const [sourceKey, targetKey] of Object.entries(spec.aliases)) {
 		if (!Object.hasOwn(target, sourceKey) || Object.hasOwn(target, targetKey)) continue;
 		target[targetKey] = target[sourceKey];
 		delete target[sourceKey];
@@ -111,7 +100,7 @@ function migrateRootAliases(target: JsonObject, spec: RepairSpec, operations: Re
 }
 
 function migrateNestedAliases(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
-	for (const [sourcePath, targetKey] of Object.entries(spec.nestedAliases ?? {})) {
+	for (const [sourcePath, targetKey] of Object.entries(spec.nestedAliases)) {
 		const segments = splitPath(sourcePath);
 		const sourceKey = segments.at(-1);
 		if (sourceKey === undefined) continue;
@@ -129,7 +118,7 @@ function migrateNestedAliases(target: JsonObject, spec: RepairSpec, operations: 
 }
 
 function materializeObjectArrays(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
-	for (const { arrayField, fields } of spec.objectArrayFromFields ?? []) {
+	for (const { arrayField, fields } of spec.objectArrayFromFields) {
 		if (Object.hasOwn(target, arrayField)) continue;
 		const entry: JsonObject = {};
 		for (const field of fields) {
@@ -166,7 +155,6 @@ function repairArrayFields(target: JsonObject, spec: RepairSpec, operations: Rep
 }
 
 function dropOptionalNullFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
-	if (spec.dropOptionalNull !== true) return;
 	for (const path of spec.optionalFields) {
 		forEachParentAtPath(target, splitPath(path), (parent, key) => {
 			if (parent[key] === null) {
@@ -189,13 +177,12 @@ function repairNumericFields(target: JsonObject, spec: RepairSpec, operations: R
 }
 
 function repairPathListFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[], fanout: RepairFanout[]): void {
-	const pathListFields = new Set(spec.pathListFields ?? []);
-	const maxPathCount = normalizeMaxPathCount(spec.maxPathCount);
+	const pathListFields = new Set(spec.pathListFields);
 	for (const path of pathListFields) {
 		forEachParentAtPath(target, splitPath(path), (parent, key) => {
 			const value = parent[key];
 			if (typeof value !== "string") return;
-			const paths = parsePathList(value, maxPathCount);
+			const paths = parsePathList(value);
 			if (paths === undefined) return;
 			const uniquePaths = unique(paths);
 			parent[key] = uniquePaths;
@@ -206,8 +193,8 @@ function repairPathListFields(target: JsonObject, spec: RepairSpec, operations: 
 }
 
 function repairPathFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
-	const pathListFields = new Set(spec.pathListFields ?? []);
-	for (const path of spec.pathFields ?? []) {
+	const pathListFields = new Set(spec.pathListFields);
+	for (const path of spec.pathFields) {
 		forEachParentAtPath(target, splitPath(path), (parent, key) => {
 			const value = parent[key];
 			if (typeof value === "string" && pathListFields.has(path)) return;
@@ -300,18 +287,6 @@ function cloneValue(value: unknown): unknown {
 	return result;
 }
 
-function structuralJson(value: unknown): string | undefined {
-	try {
-		return JSON.stringify(value);
-	} catch {
-		return undefined;
-	}
-}
-
-function matchesStructuralJson(rawJson: string | undefined, raw: unknown, prepared: unknown): boolean {
-	return rawJson === undefined ? raw === prepared : rawJson === structuralJson(prepared);
-}
-
 function isPlainObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -329,17 +304,12 @@ function isPlainNumericString(value: string): boolean {
 	return /^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(value);
 }
 
-type PreparedArguments<TParams extends TSchema, TDetails, TState> = ReturnType<
-	NonNullable<ToolDefinition<TParams, TDetails, TState>["prepareArguments"]>
->;
-
 function splitPath(path: string): string[] {
 	return path.split(".").filter((segment) => segment.length > 0);
 }
 
-/** Parse the conservative path-list syntax used only by configured path fields. */
-export function parsePathList(value: string, maxPathCount = DEFAULT_MAX_PATH_COUNT): string[] | undefined {
-	const limit = normalizeMaxPathCount(maxPathCount);
+/** 仅解析明确声明为路径列表的字段，保留引号内的逗号和空格。 */
+export function parsePathList(value: string): string[] | undefined {
 	const paths: string[] = [];
 	let token = "";
 	let tokenStarted = false;
@@ -349,7 +319,7 @@ export function parsePathList(value: string, maxPathCount = DEFAULT_MAX_PATH_COU
 
 	const pushToken = (): boolean => {
 		if (!tokenStarted || token.length === 0) return false;
-		if (paths.length >= limit) return false;
+		if (paths.length >= DEFAULT_MAX_PATH_COUNT) return false;
 		paths.push(token);
 		token = "";
 		tokenStarted = false;
@@ -407,10 +377,6 @@ function pathListSeparator(value: string, count: number): RepairSeparator {
 	if (hasComma) return "comma";
 	if (hasNewline) return "newline";
 	return "whitespace";
-}
-
-function normalizeMaxPathCount(value: number | undefined): number {
-	return value !== undefined && Number.isInteger(value) && value > 0 ? value : DEFAULT_MAX_PATH_COUNT;
 }
 
 function unique<T>(values: readonly T[]): T[] {

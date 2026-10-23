@@ -1,9 +1,4 @@
-export interface TextDiff {
-	readonly diff: string;
-	readonly firstChangedLine?: number;
-}
+import type { EditDiffResult } from "@earendil-works/pi-coding-agent";
 
-/** Host-provided diff renderer; commands remain independent of Pi. */
-export interface TextDiffGenerator {
-	generate(before: string, after: string): TextDiff | Promise<TextDiff>;
-}
+/** 生产环境直接使用 SDK 差异函数，测试可在准备阶段控制竞态。 */
+export type TextDiffGenerator = (before: string, after: string) => EditDiffResult | Promise<EditDiffResult>;

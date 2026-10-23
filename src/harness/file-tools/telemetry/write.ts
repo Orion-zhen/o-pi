@@ -1,10 +1,11 @@
-import { defineToolTelemetry, fields, textFields } from "../../telemetry/projection.ts";
+import { fields, textFields } from "../../telemetry/projection.ts";
+import type { ToolTelemetry } from "../../telemetry/types.ts";
 import type { ToolOutcome } from "../shared/result.ts";
 import { isFailed } from "../shared/result.ts";
 import type { WriteParams, WriteSuccess } from "../write/types.ts";
 import { failureFields, pathTarget } from "./common.ts";
 
-export const writeTelemetry = defineToolTelemetry<WriteParams, ToolOutcome<WriteSuccess>>({
+export const writeTelemetry = {
 	input(params) {
 		return {
 			fields: fields(textFields("input_content", params.content)),
@@ -22,4 +23,4 @@ export const writeTelemetry = defineToolTelemetry<WriteParams, ToolOutcome<Write
 			}),
 		};
 	},
-});
+} satisfies ToolTelemetry<WriteParams, ToolOutcome<WriteSuccess>>;

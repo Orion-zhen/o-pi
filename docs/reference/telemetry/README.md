@@ -55,7 +55,7 @@ bun scripts/generate-telemetry-report.mjs --input /path/to/runs --output /path/t
 
 ## 接入
 
-工具通过 `registerTool()` 提供 `defineToolTelemetry()` 投影，字段分为：
+工具通过 `createToolRegistrar()` 绑定当前遥测服务，投影使用 `satisfies ToolTelemetry<...>` 校验类型。注册信息和修复观察直接传递，不经事件总线。字段分为：
 
 - `fields`：少量标量或字符串数组。
 - `targets`：调用访问的文件、目录、区域或 URL。

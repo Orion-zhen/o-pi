@@ -12,15 +12,7 @@ import type {
 import { randomUUID } from "node:crypto";
 
 import type { RepairObservation } from "../tool-repair/types.ts";
-import {
-	repairObservation,
-	TELEMETRY_READY_CHANNEL,
-	TELEMETRY_REPAIR_CHANNEL,
-	TELEMETRY_TOOL_CHANNEL,
-	telemetryToolRegistration,
-	type TelemetryToolDefinition,
-	type TelemetryToolRegistration,
-} from "./events.ts";
+import type { TelemetryToolDefinition, TelemetryToolRegistration } from "./types.ts";
 import { mergeFacts, safeProject, stableHash } from "./projection.ts";
 import type {
 	CallBatch,
@@ -33,7 +25,7 @@ import type {
 import type { JsonlTelemetryWriter as TelemetryWriter } from "./writer.ts";
 import { attachTelemetryService } from "./pi-adapter.ts";
 
-export type TelemetryPi = Pick<ExtensionAPI, "events" | "getAllTools" | "getThinkingLevel" | "on">;
+export type TelemetryPi = Pick<ExtensionAPI, "getAllTools" | "getThinkingLevel" | "on">;
 
 export interface TelemetrySessionContext {
 	cwd: string;
@@ -99,10 +91,7 @@ export interface TelemetryServiceSnapshot {
 
 export function registerTelemetry(pi: TelemetryPi): TelemetryService {
 	const service = new TelemetryService(pi);
-	pi.events.on(TELEMETRY_TOOL_CHANNEL, (value) => service.registerTool(telemetryToolRegistration(value)));
-	pi.events.on(TELEMETRY_REPAIR_CHANNEL, (value) => service.prepared(repairObservation(value)));
 	attachTelemetryService(pi, service);
-	pi.events.emit(TELEMETRY_READY_CHANNEL, undefined);
 	return service;
 }
 
@@ -238,7 +227,7 @@ export class TelemetryService {
 		this.projectPreparedInput(call, event.input);
 		const resultProjector = call.resultProjector;
 		if (resultProjector === undefined || !hasProjectableDetails(event)) return;
-		const projected = safeProject(() => resultProjector(readonlyView(call.params), readonlyView(event.details)));
+		const projected = safeProject(() => resultProjector(call.params, event.details));
 		call.resultFacts = mergeFacts(projected.facts, projectionAnnotations("result", projected));
 		call.resultProjected = true;
 	}
@@ -298,7 +287,7 @@ export class TelemetryService {
 		call.inputProjected = true;
 		const inputProjector = call.inputProjector;
 		if (inputProjector === undefined) return;
-		const projected = safeProject(() => inputProjector(readonlyView(params)));
+		const projected = safeProject(() => inputProjector(params));
 		call.inputFacts = mergeFacts(projected.facts, projectionAnnotations("input", projected));
 	}
 
@@ -473,33 +462,6 @@ function definitionHash(tool: TelemetryToolDefinition): string {
 	});
 }
 
-/** 惰性隔离 projector 输入，不复制未访问的 JSON-like payload 分支。 */
-function readonlyView<T>(value: T): T {
-	if (!isObject(value)) return value;
-	const proxies = new WeakMap<object, object>();
-	const wrap = (current: unknown): unknown => {
-		if (!isObject(current)) return current;
-		const existing = proxies.get(current);
-		if (existing !== undefined) return existing;
-		const proxy = new Proxy(current, {
-			get(target, property, receiver) {
-				return wrap(Reflect.get(target, property, receiver));
-			},
-			set: () => false,
-			deleteProperty: () => false,
-			defineProperty: () => false,
-			setPrototypeOf: () => false,
-		});
-		proxies.set(current, proxy);
-		return proxy;
-	};
-	return wrap(value) as T;
-}
-
-function isObject(value: unknown): value is object {
-	return typeof value === "object" && value !== null;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return isObject(value) && !Array.isArray(value);
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

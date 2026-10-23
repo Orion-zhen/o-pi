@@ -96,7 +96,7 @@ describe("Discord presence 配置", () => {
 
 		await writeFile(configPath, '{ "profiles": { "minimal": { "state": "{secret}" } } }');
 		await expect(loadDiscordPresenceConfig(temp.path)).rejects.toMatchObject({
-			name: "DiscordPresenceConfigError",
+			message: "Discord presence template contains an unknown placeholder.",
 			details: { path: "profiles.minimal.state", placeholder: "secret" },
 		});
 	});

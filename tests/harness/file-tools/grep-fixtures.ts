@@ -147,7 +147,6 @@ export function overrideContent(
 			readBytes: content.readBytes.bind(content),
 			readText: content.readText.bind(content),
 			decodeText: content.decodeText.bind(content),
-			sliceText: content.sliceText.bind(content),
 			scanLines: content.scanLines.bind(content),
 			...build(content),
 		},

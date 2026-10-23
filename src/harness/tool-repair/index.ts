@@ -1,4 +1,4 @@
-export { DEFAULT_MAX_PATH_COUNT, parsePathList, repairableTool, repairArguments, isValid } from "./repair.ts";
+export { DEFAULT_MAX_PATH_COUNT, parsePathList, repairableTool, repairArguments } from "./repair.ts";
 export { createRepairSpec } from "./specs.ts";
 export type {
 	ObjectArrayFromFieldsSpec,

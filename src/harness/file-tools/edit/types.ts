@@ -1,11 +1,10 @@
 import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.ts";
 import type { MutationLineRange } from "../shared/mutation-diagnostics.ts";
 
-export interface EditReplacement {
-	old: string;
-	new: string;
-	replace_all?: boolean;
-}
+import type { Static } from "typebox";
+import type { editParameters } from "./schema.ts";
+
+export type EditReplacement = EditParams["edits"][number];
 
 export type EditLineRange = MutationLineRange;
 
@@ -31,10 +30,7 @@ export type EditNotFoundRecovery =
 	| { kind: "anchors"; candidates: EditAnchorCandidate[] }
 	| { kind: "none" };
 
-export interface EditParams {
-	path: string;
-	edits: EditReplacement[];
-}
+export type EditParams = Static<typeof editParameters>;
 
 export interface EditSuccess {
 	status: "applied";

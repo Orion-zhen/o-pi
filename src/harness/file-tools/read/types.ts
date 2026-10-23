@@ -1,11 +1,10 @@
 import type { NewlineKind } from "../../filesystem/contracts/content.ts";
 import type { CodeStructureIssue, SourceRange } from "../../code-index/types.ts";
 
-export interface ReadParams {
-	path: string;
-	lines?: string;
-	pages?: string;
-}
+import type { Static } from "typebox";
+import type { readParameters } from "./schema.ts";
+
+export type ReadParams = Static<typeof readParameters>;
 
 export interface ReadStructureSummary {
 	name: string;

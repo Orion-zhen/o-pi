@@ -4,12 +4,11 @@ import { afterEach, beforeEach } from "vitest";
 
 import type {
 	MutationOptions,
-	MutationRunResult,
+	CommittedMutation,
 	MutationSnapshot,
-	MutationTransform,
+	PreparedMutation,
 } from "../../../src/harness/filesystem/contracts/mutation.ts";
 import type { TargetRef } from "../../../src/harness/filesystem/contracts/path.ts";
-import type { FsResult } from "../../../src/harness/filesystem/contracts/result.ts";
 import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.ts";
 import { FileSystemRuntime, type WorkspaceFileSystemLease } from "../../../src/harness/filesystem/runtime.ts";
 import type { NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
@@ -22,8 +21,8 @@ export function commitBytes(
 	target: TargetRef,
 	bytes: Uint8Array,
 	options: MutationOptions,
-): Promise<FsResult<MutationRunResult<undefined>>> {
-	return opened.filesystem.mutations.run(target, options, () => ({ type: "commit", bytes, prepared: undefined }));
+): Promise<CommittedMutation<undefined>> {
+	return opened.filesystem.mutations.run(target, options, () => ({ bytes, prepared: undefined }));
 }
 
 type OpenMutationOptions = Readonly<{
@@ -80,9 +79,9 @@ export function useMutationFixture(prefix: string) {
 		const target = await resolveTarget(opened, input);
 		return {
 			opened,
-			run<TPrepared, TRejected = never>(
+			run<TPrepared>(
 				mutationOptions: MutationOptions,
-				transform: (snapshot: MutationSnapshot) => MutationTransform<TPrepared, TRejected> | Promise<MutationTransform<TPrepared, TRejected>>,
+				transform: (snapshot: MutationSnapshot) => PreparedMutation<TPrepared> | Promise<PreparedMutation<TPrepared>>,
 			) { return opened.filesystem.mutations.run(target, mutationOptions, transform); },
 			commit: (bytes: Uint8Array, mutationOptions: MutationOptions) => commitBytes(opened, target, bytes, mutationOptions),
 		};

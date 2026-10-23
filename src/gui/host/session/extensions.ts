@@ -1,13 +1,12 @@
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import llamaExtension from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/llama/index.js";
 import { createGuiMcpExtension, type GuiMcpTools } from "./mcp-tools.ts";
-import { extensions } from "../../../harness/extensions.ts";
+import { createHarnessExtensions } from "../../../harness/extensions.ts";
 import { registerAttention } from "../../../harness/attention.ts";
 import { collectContextStats } from "../../../harness/extensions/stats.ts";
 import systemPrompt from "../../../harness/extensions/system-prompt.ts";
 import usage from "../../../harness/extensions/usage.ts";
 import type { UsageService } from "../../../harness/usage/service.ts";
-import { registerTelemetry } from "../../../harness/telemetry/service.ts";
 import { createLiveTelemetryReport } from "../../../harness/telemetry-report/live.ts";
 import { createSubagentExtension } from "../../../harness/extensions/subagent.ts";
 import { createToolsExtension } from "../../../harness/extensions/cmd-slash-tools.ts";
@@ -54,14 +53,6 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindMod
 			pi.on("session_shutdown", async (event) => { if (event.reason === "reload") await lspManager.reload(); });
 		} },
 		{
-			name: "subagent",
-			factory: createSubagentExtension(undefined, {
-				signal: commandSignal,
-				onProgress: ({ result }) => emit({ type: "panel", panel: { kind: "subagents", details: result.details } }),
-				present: (result) => emit({ type: "panel", panel: { kind: "subagents", details: result.details } }),
-			}),
-		},
-		{
 			name: "stats",
 			factory: (pi) => {
 				reports.bindStats((ctx) => collectContextStats(ctx, pi));
@@ -84,23 +75,27 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindMod
 			}, usageService),
 		},
 		{
-			name: "telemetry",
-			factory: (pi) => {
-				const service = registerTelemetry(pi);
-				pi.registerCommand("telemetry", {
-					description: "Show telemetry of current session.",
-					handler: async () => emit({ type: "sessionTab", tab: "telemetry" }),
-				});
-				reports.bindTelemetry(() => createLiveTelemetryReport(service.snapshot()));
-			},
-		},
-		{
 			name: "cmd-slash-tools",
-			factory: createToolsExtension(undefined, {
-				mode: "gui", show: () => emit({ type: "panel", panel: { kind: "tools" } }),
-			}, bindTools),
+			factory: createToolsExtension({
+				gui: { mode: "gui", show: () => emit({ type: "panel", panel: { kind: "tools" } }) },
+				bindController: bindTools,
+			}),
 		},
 	];
+	const extensions = createHarnessExtensions({
+		subagent: createSubagentExtension(undefined, {
+			signal: commandSignal,
+			onProgress: ({ result }) => emit({ type: "panel", panel: { kind: "subagents", details: result.details } }),
+			present: (result) => emit({ type: "panel", panel: { kind: "subagents", details: result.details } }),
+		}),
+		telemetry(pi, service) {
+			pi.registerCommand("telemetry", {
+				description: "Show telemetry of current session.",
+				handler: async () => emit({ type: "sessionTab", tab: "telemetry" }),
+			});
+			reports.bindTelemetry(() => createLiveTelemetryReport(service.snapshot()));
+		},
+	});
 	return [
 		{ name: "notifications", factory: (pi) => registerAttention(pi, (value) => emit({ type: "notification", value })) },
 		{ name: "llama.cpp", builtin: true, factory: llamaExtension },

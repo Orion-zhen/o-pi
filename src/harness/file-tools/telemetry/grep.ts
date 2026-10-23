@@ -1,10 +1,10 @@
-import { defineToolTelemetry, fields } from "../../telemetry/projection.ts";
-import type { Candidate, Fields } from "../../telemetry/types.ts";
+import { fields } from "../../telemetry/projection.ts";
+import type { Candidate, Fields, ToolTelemetry } from "../../telemetry/types.ts";
 import type { GrepParams, GrepRegionRanking, GrepSuccess } from "../grep/types.ts";
 import { isFailed, type ToolOutcome } from "../shared/result.ts";
 import { failureFields, failureScopeFields, projectFileInput } from "./common.ts";
 
-export const grepTelemetry = defineToolTelemetry<GrepParams, ToolOutcome<GrepSuccess>>({
+export const grepTelemetry = {
 	input: projectFileInput<GrepParams>(["query", "mode", "path", "glob"], "path", { pathList: true }),
 	result(_params, details) {
 		if (isFailed(details)) {
@@ -12,7 +12,7 @@ export const grepTelemetry = defineToolTelemetry<GrepParams, ToolOutcome<GrepSuc
 		}
 		return { fields: grepResultFields(details), candidates: grepCandidates(details) };
 	},
-});
+} satisfies ToolTelemetry<GrepParams, ToolOutcome<GrepSuccess>>;
 
 function grepResultFields(details: GrepSuccess): Fields {
 	const ranking = details.ranking;

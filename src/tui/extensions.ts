@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext, InlineExtension } from "@earendil-works/pi-coding-agent";
-import { extensions as harnessExtensions } from "../harness/extensions.ts";
+import { createHarnessExtensions } from "../harness/extensions.ts";
 import approvalGate from "../harness/extensions/approval-gate.ts";
 import { createToolsExtension } from "../harness/extensions/cmd-slash-tools.ts";
 import { createPruneExtension } from "../harness/extensions/prune.ts";
@@ -72,15 +72,17 @@ export const presentation = {
 export function createTuiExtensions(startup: ToolStartupOptions = {}): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "approval-gate", factory: (pi) => approvalGate(pi, presentation.approvalGate) },
-		{ name: "cmd-slash-tools", factory: createToolsExtension(presentation.tools, undefined, undefined, startup) },
+		{ name: "cmd-slash-tools", factory: createToolsExtension({ loadTui: presentation.tools, startup }) },
 		{ name: "prune", factory: createPruneExtension(presentation.prune) },
 		{ name: "stats", factory: (pi) => stats(pi, presentation.stats) },
-		{ name: "subagent", factory: createSubagentExtension(presentation.subagent) },
 		{ name: "system-prompt", factory: (pi) => systemPrompt(pi, presentation.systemPrompt) },
-		{ name: "telemetry", factory: (pi) => telemetry(pi, presentation.telemetry) },
 		{ name: "usage", factory: (pi) => usage(pi, presentation.usage) },
 	];
-	const extensions = harnessExtensions.map(
+	const extensions = createHarnessExtensions({
+		startup,
+		subagent: createSubagentExtension(presentation.subagent),
+		telemetry: (pi, service) => telemetry(pi, service, presentation.telemetry),
+	}).map(
 		(extension) => views.find((view) => view.name === extension.name) ?? extension,
 	);
 	extensions.splice(

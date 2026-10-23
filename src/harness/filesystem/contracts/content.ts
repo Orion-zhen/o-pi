@@ -60,6 +60,5 @@ export interface ContentOperations {
 	readText(file: FileRef, options: ReadOptions): Promise<FsResult<TextContent>>;
 	/** Decodes bytes already loaded through this filesystem without a second disk read. */
 	decodeText(content: ByteContent, path: string): FsResult<TextContent>;
-	sliceText(content: TextContent, options: TextSliceOptions): FsResult<TextSlice>;
 	scanLines(file: FileRef, options: ReadOptions): Promise<FsResult<LineScan>>;
 }

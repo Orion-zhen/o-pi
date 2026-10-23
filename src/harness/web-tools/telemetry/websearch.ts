@@ -1,9 +1,9 @@
-import { defineToolTelemetry, fields, textFields } from "../../telemetry/projection.ts";
-import type { Candidate } from "../../telemetry/types.ts";
+import { fields, textFields } from "../../telemetry/projection.ts";
+import type { Candidate, ToolTelemetry } from "../../telemetry/types.ts";
 import type { WebSearchDetails, WebSearchParams, WebSearchSuccessDetails } from "../core/types.ts";
 import { webResultFields } from "./common.ts";
 
-export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearchDetails>({
+export const webSearchTelemetry = {
 	input(params) {
 		return { fields: fields({ ...textFields("input_query", params.query), input_limit: params.limit }) };
 	},
@@ -19,7 +19,7 @@ export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearch
 			candidates: details.status === "success" ? webCandidates(details) : [],
 		};
 	},
-});
+} satisfies ToolTelemetry<WebSearchParams, WebSearchDetails>;
 
 function webCandidates(details: WebSearchSuccessDetails): Candidate[] {
 	return details.results.map((item, index) => ({

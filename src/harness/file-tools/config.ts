@@ -1,19 +1,14 @@
 import {
 	CONFIG_DEFINITIONS,
-	agentSchemaPath,
+	ConfigError,
 	configLayerFingerprint,
-	createCompleteSchemaValidator,
-	createSchemaValidator,
-	loadConfigLayers,
+	loadValidatedConfigLayers,
 	resolveConfigLayerPaths,
-	validateConfigValue,
 } from "../config-loader.ts";
 import { ConfigCache, type ConfigSnapshot } from "../config-cache.ts";
 import type { FilesystemPolicy } from "../filesystem/contracts/policy.ts";
 import type { BuiltinIgnoreProfile } from "../filesystem/contracts/visibility.ts";
 import type { FileToolLimits } from "../file-tool-limits.ts";
-
-const SCHEMA_PATH = agentSchemaPath("file-tools.schema.json");
 
 export interface FileToolsConfig {
 	filesystem: FilesystemPolicy;
@@ -46,13 +41,6 @@ export type FileToolsConfigResult =
 	| { readonly ok: true; readonly value: FileToolsConfig }
 	| FileToolsConfigFailure;
 
-class FileToolsConfigError extends Error {
-	constructor(message: string, readonly details?: Record<string, unknown>) {
-		super(message);
-		this.name = "FileToolsConfigError";
-	}
-}
-
 /** 拥有一个文件工具运行时的配置元数据缓存。 */
 export class FileToolsConfigProvider {
 	private readonly cache = new ConfigCache(CONFIG_DEFINITIONS.fileTools, loadMergedConfig);
@@ -68,26 +56,10 @@ export class FileToolsConfigProvider {
 
 async function loadMergedConfig(cwd: string): Promise<ConfigSnapshot<FileToolsConfigResult>> {
 	try {
-		const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.fileTools, cwd, createError);
+		const loaded = await loadValidatedConfigLayers(CONFIG_DEFINITIONS.fileTools, cwd);
 		const [defaultLayer, ...overlayLayers] = loaded.layers;
-		await validateConfigValue({
-			path: defaultLayer.path,
-			label: "file-tools default",
-			value: defaultLayer.value,
-			layer: "default",
-			loadValidator: loadCompleteValidator,
-			createError,
-		});
 		let merged = defaultLayer.value as CompleteFileToolsConfig;
 		for (const layer of overlayLayers) {
-			await validateConfigValue({
-				path: layer.path,
-				label: `file-tools ${layer.kind}`,
-				value: layer.value,
-				layer: layer.kind,
-				loadValidator,
-				createError,
-			});
 			const raw = layer.value as RawFileToolsConfig;
 			const project = layer.kind === "project";
 			const projectFailure = project ? projectIgnoreFailure(raw, layer.path) : undefined;
@@ -104,7 +76,7 @@ async function loadMergedConfig(cwd: string): Promise<ConfigSnapshot<FileToolsCo
 			value: { ok: true, value: materializeConfig(merged) },
 		};
 	} catch (error) {
-		if (!(error instanceof FileToolsConfigError)) throw error;
+		if (!(error instanceof ConfigError)) throw error;
 		return {
 			fingerprint: await configLayerFingerprint(resolveConfigLayerPaths(CONFIG_DEFINITIONS.fileTools, cwd)),
 			value: configFailure(error.message, error.details),
@@ -138,13 +110,6 @@ function projectIgnoreFailure(raw: RawFileToolsConfig, sourcePath: string): File
 		});
 	}
 }
-
-function createError(message: string, details?: Record<string, unknown>): FileToolsConfigError {
-	return new FileToolsConfigError(message, details);
-}
-
-const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "file-tools", createError });
-const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "file-tools", createError });
 
 function configFailure(message: string, details?: Record<string, unknown>): FileToolsConfigFailure {
 	return { ok: false, error: { message, ...(details === undefined ? {} : { details }) } };

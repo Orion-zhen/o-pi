@@ -50,6 +50,6 @@ describe("tui config", () => {
 		const file = path.join(dir, "bad.jsonc");
 		await writeFile(file, text);
 		process.env.PI_TUI_CONFIG = file;
-		await expect(loadTuiConfig()).rejects.toMatchObject({ name: "TuiConfigError" });
+		await expect(loadTuiConfig()).rejects.toMatchObject({ message: "tui user config does not match schema." });
 	});
 });

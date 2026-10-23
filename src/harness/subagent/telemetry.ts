@@ -1,8 +1,8 @@
-import { defineToolTelemetry, fields } from "../telemetry/projection.ts";
-import type { Resource, TelemetryFacts } from "../telemetry/types.ts";
+import { fields } from "../telemetry/projection.ts";
+import type { Resource, TelemetryFacts, ToolTelemetry } from "../telemetry/types.ts";
 import type { SubagentDetails, SubagentToolParams } from "./types.ts";
 
-export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, SubagentDetails>({
+export const subagentTelemetry = {
 	input: projectInput,
 	result(_params, details) {
 		let failed = 0;
@@ -29,7 +29,7 @@ export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, Subagen
 			}),
 		};
 	},
-});
+} satisfies ToolTelemetry<SubagentToolParams, SubagentDetails>;
 
 function projectInput(params: SubagentToolParams): TelemetryFacts {
 	let chars = 0;

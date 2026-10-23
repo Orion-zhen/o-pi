@@ -2,9 +2,7 @@ import ipaddr from "ipaddr.js";
 import {
 	CONFIG_DEFINITIONS,
 	userAgentPath,
-	agentSchemaPath,
-	createCompleteSchemaValidator,
-	createSchemaValidator,
+	ConfigError,
 	loadValidatedMergedConfig,
 } from "../config-loader.ts";
 import { ConfigCache, type ConfigSnapshot } from "../config-cache.ts";
@@ -13,14 +11,6 @@ import { guardPublicHttpUrlLiteral } from "./network/url-guard.ts";
 import { normalizeDomains } from "./search-providers/query.ts";
 
 const COOKIES_PATH_ENV = "PI_WEB_TOOLS_COOKIES";
-const SCHEMA_PATH = agentSchemaPath("web-tools.schema.json");
-
-export class WebToolsConfigError extends Error {
-	constructor(message: string, readonly details?: Record<string, unknown>) {
-		super(message);
-		this.name = "WebToolsConfigError";
-	}
-}
 
 const configCache = new ConfigCache(CONFIG_DEFINITIONS.webTools, loadConfigFile);
 
@@ -30,10 +20,8 @@ export function loadWebToolsConfig(): Promise<WebToolsConfig> {
 }
 
 async function loadConfigFile(): Promise<ConfigSnapshot<WebToolsConfig>> {
-	const loaded = await loadValidatedMergedConfig(
-		CONFIG_DEFINITIONS.webTools, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
-	);
-	return { fingerprint: loaded.fingerprint, value: materializeConfig(loaded.merged as WebToolsConfig) };
+	const loaded = await loadValidatedMergedConfig<WebToolsConfig>(CONFIG_DEFINITIONS.webTools, process.cwd());
+	return { fingerprint: loaded.fingerprint, value: materializeConfig(loaded.merged) };
 }
 
 export function defaultCookiePath(): string {
@@ -46,14 +34,14 @@ function materializeConfig(raw: WebToolsConfig): WebToolsConfig {
 	config.websearch.include_domains = normalizeDomains(config.websearch.include_domains);
 	config.websearch.exclude_domains = normalizeDomains(config.websearch.exclude_domains);
 	if (config.websearch.include_domains.some((domain) => config.websearch.exclude_domains.includes(domain))) {
-		throw new WebToolsConfigError("websearch include_domains and exclude_domains must not overlap.");
+		throw new ConfigError("websearch include_domains and exclude_domains must not overlap.");
 	}
 	validateProxyConfig(config.network.proxy);
 	validateFakeIpRanges(config.network.fake_ip_ranges);
 	const providers = [...websearch.primary_providers, ...websearch.auxiliary_providers];
 	const providerCount = Object.values(websearch).filter((value) => typeof value === "object" && value !== null && "enabled" in value).length;
 	if (providers.length !== providerCount || new Set(providers).size !== providers.length) {
-		throw new WebToolsConfigError("websearch provider groups must contain every provider exactly once.");
+		throw new ConfigError("websearch provider groups must contain every provider exactly once.");
 	}
 	validateProviderUrl("brave_api", config.websearch.brave_api.endpoint);
 	validateProviderUrl("exa_api", config.websearch.exa_api.endpoint);
@@ -71,7 +59,7 @@ function validateProxyConfig(proxy: WebToolsConfig["network"]["proxy"]): void {
 		["socks5_proxy", proxy.socks5_proxy, new Set(["socks5:"])],
 	] as const;
 	if (proxy.enabled && endpoints.every(([, value]) => value === "")) {
-		throw new WebToolsConfigError("network.proxy.enabled requires at least one proxy endpoint.");
+		throw new ConfigError("network.proxy.enabled requires at least one proxy endpoint.");
 	}
 	for (const [field, value, protocols] of endpoints) validateProxyUrl(field, value, protocols);
 }
@@ -82,7 +70,7 @@ function validateProxyUrl(field: string, value: string, protocols: ReadonlySet<s
 	try {
 		url = new URL(value);
 	} catch {
-		throw new WebToolsConfigError(`network.proxy.${field} must be a valid proxy URL.`);
+		throw new ConfigError(`network.proxy.${field} must be a valid proxy URL.`);
 	}
 	if (
 		!protocols.has(url.protocol)
@@ -92,7 +80,7 @@ function validateProxyUrl(field: string, value: string, protocols: ReadonlySet<s
 		|| url.search !== ""
 		|| url.hash !== ""
 	) {
-		throw new WebToolsConfigError(`network.proxy.${field} must be a valid proxy URL.`);
+		throw new ConfigError(`network.proxy.${field} must be a valid proxy URL.`);
 	}
 }
 
@@ -106,7 +94,7 @@ function validateProviderUrl(provider: string, value: string): void {
 	try {
 		guardPublicHttpUrlLiteral(value);
 	} catch (error) {
-		throw new WebToolsConfigError(`${provider}.endpoint is not an allowed public HTTP URL.`, {
+		throw new ConfigError(`${provider}.endpoint is not an allowed public HTTP URL.`, {
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}
@@ -119,10 +107,10 @@ function validateFakeIpRanges(ranges: string[]): void {
 		try {
 			parsed = ipaddr.parseCIDR(range);
 		} catch {
-			throw new WebToolsConfigError("fake_ip_ranges must contain valid CIDR ranges.");
+			throw new ConfigError("fake_ip_ranges must contain valid CIDR ranges.");
 		}
 		if (parsed[0].kind() !== "ipv4" || !cidrInside(parsed, benchmark)) {
-			throw new WebToolsConfigError("fake_ip_ranges only supports subnets inside 198.18.0.0/15.");
+			throw new ConfigError("fake_ip_ranges only supports subnets inside 198.18.0.0/15.");
 		}
 	}
 }
@@ -131,14 +119,3 @@ function cidrInside(child: [ipaddr.IPv4 | ipaddr.IPv6, number], parent: [ipaddr.
 	if (child[0].kind() !== parent[0].kind() || child[1] < parent[1]) return false;
 	return child[0].match(parent);
 }
-
-function createError(message: string, details?: Record<string, unknown>): WebToolsConfigError {
-	return new WebToolsConfigError(message, details);
-}
-
-const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "web-tools", createError });
-const loadCompleteValidator = createCompleteSchemaValidator({
-	schemaPath: SCHEMA_PATH,
-	label: "web-tools",
-	createError,
-});

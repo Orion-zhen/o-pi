@@ -1,6 +1,10 @@
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { type LsParams } from "../file-tools/ls/types.ts";
+import { lsParameters } from "../file-tools/ls/schema.ts";
+import { findParameters } from "../file-tools/find/schema.ts";
+import { grepParameters } from "../file-tools/grep/schema.ts";
+import { readParameters } from "../file-tools/read/schema.ts";
+import { writeParameters } from "../file-tools/write/schema.ts";
+import { editParameters } from "../file-tools/edit/schema.ts";
 import { type FileToolRuntime } from "../file-tools/pi/invocation.ts";
 import { type FileToolsHost, type SessionObservationSeed } from "../file-tools/runtime/host.ts";
 import { type SessionMutationScope } from "../file-tools/runtime/session-mutation.ts";
@@ -9,12 +13,8 @@ import {
 	FILE_TOOLS_OBSERVATION_STATE,
 	readPersistedObservationState,
 } from "../file-tools/runtime/session-observation-state.ts";
-import { READ_RANGE_PATTERN } from "../content-ranges.ts";
-import { type ReadParams } from "../file-tools/read/types.ts";
-import { type EditParams, type EditSuccess } from "../file-tools/edit/types.ts";
-import { type FindParams } from "../file-tools/find/types.ts";
-import { type GrepParams } from "../file-tools/grep/types.ts";
-import { type WriteParams, type WriteSuccess } from "../file-tools/write/types.ts";
+import { type EditSuccess } from "../file-tools/edit/types.ts";
+import { type WriteSuccess } from "../file-tools/write/types.ts";
 import { editTelemetry } from "../file-tools/telemetry/edit.ts";
 import { findTelemetry } from "../file-tools/telemetry/find.ts";
 import { grepTelemetry } from "../file-tools/telemetry/grep.ts";
@@ -26,108 +26,13 @@ import { findOutputSchema, grepOutputSchema } from "../file-tools/pi/search-outp
 import { readOutputSchema } from "../file-tools/pi/read-output.ts";
 import { MutationBatchCoordinator } from "../file-tools/pi/mutation-batch.ts";
 import { type MutationProgressDetails } from "../file-tools/pi/progress.ts";
-import { registerTool } from "../register-tool.ts";
+import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
 import { collectSkillCandidates } from "../skill-context/loader.ts";
 import { buildSkillFilesystemAccess, buildSkillPathIndex } from "../skill-context/resources.ts";
 import { SkillBranchState } from "../skill-context/state.ts";
 
-const lsParameters = Type.Object(
-	{ path: Type.Optional(Type.String({ minLength: 1, description: "Directory; default workspace." })) },
-	{ additionalProperties: false },
-);
-const findParameters = Type.Object(
-	{
-		query: Type.String({
-			minLength: 1,
-			maxLength: 512,
-			description: "fzf query: spaces AND; | OR; ' exact; ^ prefix; $ suffix; ! inverse.",
-		}),
-		path: Type.Optional(
-			Type.Array(Type.String({ minLength: 1 }), {
-				minItems: 1,
-				description: "Search roots; OR/union scope; default workspace.",
-			}),
-		),
-		glob: Type.Optional(Type.String({ minLength: 1, description: "Candidate path glob relative to each scope." })),
-	},
-	{ additionalProperties: false },
-);
-const grepParameters = Type.Object(
-	{
-		query: Type.String({ minLength: 1, description: "Case-sensitive line query." }),
-		mode: Type.Optional(
-			Type.Union([Type.Literal("regex"), Type.Literal("literal")], {
-				default: "regex",
-				description: "ECMAScript regex or exact text.",
-			}),
-		),
-		path: Type.Optional(
-			Type.Array(Type.String({ minLength: 1 }), {
-				minItems: 1,
-				description: "File or directory scopes; OR/union scope; default workspace.",
-			}),
-		),
-		glob: Type.Optional(
-			Type.String({
-				minLength: 1,
-				description:
-					"Relative to each scope; without / matches basenames recursively; use a path pattern such as src/**/*.ts for scoped paths.",
-			}),
-		),
-	},
-	{ additionalProperties: false },
-);
-const readParameters = Type.Object(
-	{
-		path: Type.String({ description: "Text, image or PDF file path." }),
-		lines: Type.Optional(
-			Type.String({
-				minLength: 1,
-				pattern: READ_RANGE_PATTERN,
-				description: "Text line ranges: N, N-M, or N-, supports multiple comma-separated ranges; 1-based inclusive.",
-			}),
-		),
-		pages: Type.Optional(
-			Type.String({
-				minLength: 1,
-				pattern: READ_RANGE_PATTERN,
-				description: "PDF page ranges: N, N-M, or N-, supports multiple comma-separated ranges; 1-based inclusive.",
-			}),
-		),
-	},
-	{ additionalProperties: false },
-);
-const writeParameters = Type.Object(
-	{
-		path: Type.String({ description: "Destination path." }),
-		content: Type.String(),
-	},
-	{ additionalProperties: false },
-);
-const editParameters = Type.Object(
-	{
-		path: Type.String({ description: "Previously read or written file." }),
-		edits: Type.Array(
-			Type.Object(
-				{
-					old: Type.String({
-						minLength: 1,
-						description: "Exact text in original content. Must be unique unless replace_all is true.",
-					}),
-					new: Type.String(),
-					replace_all: Type.Optional(
-						Type.Boolean({ default: false, description: "Replace ALL old matches." }),
-					),
-				},
-				{ additionalProperties: false },
-			),
-			{ minItems: 1, description: "Non-overlapping replacements against original content." },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-export default function fileTools(pi: ExtensionAPI): void {
+export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
+	const registerTool = createToolRegistrar(pi, telemetry);
 	type GrepAdapter = ReturnType<(typeof import("../file-tools/pi/adapters/grep.ts"))["createGrepAdapter"]>;
 	let grep: Promise<GrepAdapter> | undefined;
 	let grepAdapter: GrepAdapter | undefined;
@@ -149,7 +54,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		return host;
 	};
 	const lsp = async () => (await import("../lsp/index.ts")).lspManager;
-	const mutationBatches = new MutationBatchCoordinator();
+	const mutationBatches = new MutationBatchCoordinator(lsp);
 	const sessionMutations = new Map<string, SessionMutationScope>();
 	const skills = new SkillBranchState();
 	const skillPathIndex = createRetryableLoader(async () =>
@@ -172,7 +77,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		};
 	};
 
-	registerTool(pi, {
+	registerTool({
 		tool: {
 			name: "ls",
 			label: "ls",
@@ -181,14 +86,14 @@ export default function fileTools(pi: ExtensionAPI): void {
 			parameters: lsParameters,
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/ls.ts"), runtimeForInvocation(ctx, signal)]);
-				return module.executeLs(params as LsParams, runtime);
+				return module.executeLs(params, runtime);
 			},
 		},
 		repair: { singleStringField: "path", pathFields: ["path"] },
 		telemetry: lsTelemetry,
 	});
 
-	registerTool(pi, {
+	registerTool({
 		tool: {
 			name: "find",
 			label: "find",
@@ -199,14 +104,14 @@ export default function fileTools(pi: ExtensionAPI): void {
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/find.ts"), runtimeForInvocation(ctx, signal)]);
-				return module.executeFind(params as FindParams, runtime);
+				return module.executeFind(params, runtime);
 			},
 		},
 		repair: { singleStringField: "query", pathFields: ["path"], pathListFields: ["path"] },
 		telemetry: findTelemetry,
 	});
 
-	registerTool(pi, {
+	registerTool({
 		tool: {
 			name: "grep",
 			label: "grep",
@@ -217,7 +122,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [adapter, runtime] = await Promise.all([loadGrep(), runtimeForInvocation(ctx, signal)]);
-				return adapter.execute(params as GrepParams, {
+				return adapter.execute(params, {
 					...runtime,
 					lsp,
 					tokenScope: ctx.model ? { provider: ctx.model.provider, modelId: ctx.model.id } : {},
@@ -228,7 +133,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		telemetry: grepTelemetry,
 	});
 
-	registerTool(pi, {
+	registerTool({
 		tool: {
 			name: "read",
 			label: "read",
@@ -238,7 +143,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			outputSchema: readOutputSchema,
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/read.ts"), runtimeForInvocation(ctx, signal)]);
-				return module.executeRead(params as ReadParams, { ...runtime, model: ctx.model, lsp });
+				return module.executeRead(params, { ...runtime, model: ctx.model, lsp });
 			},
 		},
 		repair: {
@@ -248,7 +153,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		telemetry: readTelemetry,
 	});
 
-	registerTool<typeof writeParameters, ToolOutcome<WriteSuccess> | MutationProgressDetails>(pi, {
+	registerTool<typeof writeParameters, ToolOutcome<WriteSuccess> | MutationProgressDetails>({
 		tool: {
 			name: "write",
 			label: "write",
@@ -259,7 +164,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 				const batch = mutationBatches.invocation(toolCallId);
 				try {
 					const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/write.ts"), runtimeForInvocation(ctx, signal)]);
-					return await module.executeWrite(params as WriteParams, {
+					return await module.executeWrite(params, {
 						...runtime,
 						lsp,
 						...(onUpdate === undefined ? {} : { onUpdate }),
@@ -280,7 +185,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		telemetry: writeTelemetry,
 	});
 
-	registerTool<typeof editParameters, ToolOutcome<EditSuccess> | MutationProgressDetails>(pi, {
+	registerTool<typeof editParameters, ToolOutcome<EditSuccess> | MutationProgressDetails>({
 		tool: {
 			name: "edit",
 			label: "edit",
@@ -291,7 +196,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 				const batch = mutationBatches.invocation(toolCallId);
 				try {
 					const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/edit.ts"), runtimeForInvocation(ctx, signal)]);
-					return await module.executeEdit(params as EditParams, {
+					return await module.executeEdit(params, {
 						...runtime,
 						lsp,
 						...(onUpdate === undefined ? {} : { onUpdate }),

@@ -1,5 +1,6 @@
 import type { TextContent, TextSlice } from "../../filesystem/contracts/content.ts";
 import type { FileRef } from "../../filesystem/contracts/path.ts";
+import { sliceTextByLineRange } from "../../filesystem/services/text.ts";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
 import type { ReadCommandContext } from "./command.ts";
 import { formatReadSegment, formatReadStructureContext } from "./presenter.ts";
@@ -29,7 +30,7 @@ export async function readTextRanges(
 			break;
 		}
 		const options = { startLine: range.start, endLine: range.end, maxBytes, maxLines: remainingLines, path: file.displayPath };
-		const initial = context.filesystem.content.sliceText(content, options);
+		const initial = sliceTextByLineRange(content, options);
 		if (!initial.ok) {
 			// 前面的片段已消耗预算，下一整行留给后续调用，而不是丢弃已有结果。
 			if (initial.error.code === "too-large" && segments.length > 0) {
@@ -48,7 +49,7 @@ export async function readTextRanges(
 			if (structureText === undefined) break;
 			const bytes = Buffer.byteLength(`${structureText}\n`);
 			const reserved = bytes < maxBytes
-				? context.filesystem.content.sliceText(content, {
+				? sliceTextByLineRange(content, {
 					...options, maxBytes: maxBytes - bytes,
 					maxLines: slice.endLine - slice.startLine + 1,
 				})

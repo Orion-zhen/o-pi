@@ -1,6 +1,7 @@
-export interface LsParams {
-	path?: string;
-}
+import type { Static } from "typebox";
+import type { lsParameters } from "./schema.ts";
+
+export type LsParams = Static<typeof lsParameters>;
 
 export type LsEntryType = "directory" | "file" | "symlink" | "other";
 

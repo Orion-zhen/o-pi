@@ -12,7 +12,7 @@ opi 通过 Pi SDK 提供 TUI、Web 和 Desktop。工具与业务扩展位于 `sr
 | `src/web/` | HTTP、WebSocket 和静态资源 |
 | `src/desktop/` | Electron 窗口、preload 和后台进程 |
 
-`src/harness/extensions.ts` 导出原生 `InlineExtension[]`。SDK 通过 `resourceLoaderOptions.extensionFactories` 加载，每个工厂创建会话状态。TUI 用 `src/tui/extensions.ts` 注入工具呈现器和界面。
+`src/harness/extensions.ts` 导出原生 `InlineExtension[]`。SDK 通过 `resourceLoaderOptions.extensionFactories` 加载，每个工厂创建会话状态。`tools-runtime` 工厂统一创建内置工具和遥测服务，通过参数传递依赖，重载和并存会话不共享状态。前端通过 `createHarnessExtensions()` 注入子代理和遥测呈现，其余界面在应用入口装配。
 
 子代理和 Discord 协调进程使用 `src/harness/runtime/headless.ts`。单文件程序重启自身，Desktop 使用 Electron 的 Node 模式，源码开发由 Bun 运行共享入口。
 

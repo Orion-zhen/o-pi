@@ -15,7 +15,8 @@ Pi 扩展与前端呈现
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/harness/extensions/file-tools.ts` | 注册定义、遥测和延迟加载 |
+| `src/harness/extensions/file-tools.ts` | 注册工具、绑定遥测和延迟加载 |
+| `src/harness/file-tools/*/schema.ts` | 参数 schema，参数类型由 schema 推导 |
 | `src/harness/file-tools/pi/` | Pi、LSP、技能与媒体适配 |
 | `src/harness/file-tools/runtime/` | 主机、版本观测与 Bash 变更作用域 |
 | `src/harness/filesystem/contracts/` | 路径引用和能力契约 |
@@ -40,7 +41,7 @@ Pi 扩展与前端呈现
 ## 工具端口
 
 - `read` 使用结构、图片和 PDF 端口，缺失路径建议由自身排名。
-- `write`、`edit` 使用差异、修改观察和诊断端口。
+- `write`、`edit` 直接使用 SDK `generateDiffString`，保留可替换的差异函数和诊断端口。
 - `grep` 使用绑定范围与快照的代码分析端口。
 - `find` 在路径发现结果上执行本地 fzf 排名。
 
@@ -59,6 +60,10 @@ LSP、代码语法、图片和 PDF 按增强路径加载。TUI 呈现器在终�
 稳定读取在打开和读取后检查文件身份。原始字节版本写入会话的 `ObservationStore`，成功修改通过提交回调记录新版本。
 
 修改按规范目标在进程内串行。进入队列后重新检查路径策略、符号链接和父目录身份，`edit` 再校验观测版本与当前快照。提交前取消终止写入，提交后诊断失败保留修改成功结果。
+
+`mutations.run()` 返回提交回执和准备结果，返回即表示成功。准备和提交失败通过异常退出，文件工具边界仅转换已知领域错误，模型输出沿用原协议。查询保留 `FsResult`，用于搜索中的局部失败处理。
+
+SDK `withFileMutationQueue` 不提供等待取消和宿主关闭接口，因此此处保留可取消的目标队列。同批次写入共用一个 LSP 加载器，全部提交后按文件合并诊断。
 
 当前会话执行 Bash 时，扩展在命令前后稳定读取已观察文件。开始时版本仍一致的文件可以采纳命令期间的变化。作用域按调用时间归因，无法区分同期其他进程的写入。
 

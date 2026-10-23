@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import fileTools from "../../../src/harness/extensions/file-tools.ts";
 import subagentExtension from "../../../src/harness/extensions/subagent.ts";
-import { repairableTool, type RepairObservation } from "../../../src/harness/tool-repair/index.ts";
+import { DEFAULT_MAX_PATH_COUNT, repairableTool, type RepairObservation } from "../../../src/harness/tool-repair/index.ts";
+import type { RepairableToolDefinition } from "../../../src/harness/tool-repair/repair.ts";
 import { registerExtension } from "../../helpers/extension.ts";
 
 const simpleSchema = Type.Object(
@@ -25,13 +26,9 @@ const pathListSchema = Type.Object(
 );
 
 describe("tool-input repair", () => {
-	it("在原 prepareArguments 后修复别名、数字字符串、optional null、路径前缀和 unknown fields", () => {
+	it("修复别名、数字字符串、optional null、路径前缀和 unknown fields", () => {
 		const tool = repairableTool(
-			defineNoopTool(simpleSchema, {
-				prepareArguments(args) {
-					return args as { path: string; start_line?: number; end_line?: number };
-				},
-			}),
+			defineNoopTool(simpleSchema),
 			{
 				pathFields: ["path"],
 				aliases: {
@@ -63,32 +60,18 @@ describe("tool-input repair", () => {
 		expect(tool.prepareArguments?.(invalid)).toBe(invalid);
 	});
 
-	it("识别原 prepareArguments 原地修复并返回同一对象", () => {
+	it("合法参数原样传递，修复不修改原输入", () => {
 		let observation: RepairObservation | undefined;
-		const tool = repairableTool(
-			defineNoopTool(simpleSchema, {
-				prepareArguments(args) {
-					const mutable = args as Record<string, unknown>;
-					mutable.path = mutable.file;
-					delete mutable.file;
-					return mutable as { path: string; start_line?: number; end_line?: number };
-				},
-			}),
-			{},
-			{
-				onPreparation(value) {
-					observation = value;
-				},
-			},
-		);
-		const raw = { file: "src/a.ts" };
-
-		expect(tool.prepareArguments?.(raw)).toBe(raw);
-		expect(raw).toEqual({ path: "src/a.ts" });
-		expect(observation).toMatchObject({
-			status: "repaired",
-			operations: ["original_prepare"],
+		const tool = repairableTool(defineNoopTool(simpleSchema), { aliases: { file: "path" } }, {
+			onPreparation(value) { observation = value; },
 		});
+		const valid = { path: "src/a.ts" };
+		expect(tool.prepareArguments?.(valid)).toBe(valid);
+		expect(observation).toMatchObject({ status: "accepted", operations: [] });
+		const invalid = { file: "src/a.ts" };
+		expect(tool.prepareArguments?.(invalid)).toEqual(valid);
+		expect(invalid).toEqual({ file: "src/a.ts" });
+		expect(observation).toMatchObject({ status: "repaired", operations: ["root_alias"] });
 	});
 
 	it.each([
@@ -123,12 +106,14 @@ describe("tool-input repair", () => {
 		const tool = repairableTool(defineNoopTool(pathListSchema), {
 			pathFields: ["path"],
 			pathListFields: ["path"],
-			maxPathCount: 2,
 		});
 
 		expect(tool.prepareArguments?.({ query: "foo bar", path: "src a" })).toEqual({ query: "foo bar", path: ["src", "a"] });
 		expect(tool.prepareArguments?.({ query: "foo bar", path: "src,,a" })).toEqual({ query: "foo bar", path: "src,,a" });
-		expect(tool.prepareArguments?.({ query: "foo bar", path: "src a b" })).toEqual({ query: "foo bar", path: "src a b" });
+		const paths = Array.from({ length: DEFAULT_MAX_PATH_COUNT }, (_, index) => `src/${index}`);
+		expect(tool.prepareArguments?.({ query: "foo bar", path: paths.join(" ") })).toEqual({ query: "foo bar", path: paths });
+		const overflow = [...paths, "extra"].join(" ");
+		expect(tool.prepareArguments?.({ query: "foo bar", path: overflow })).toEqual({ query: "foo bar", path: overflow });
 		expect(tool.prepareArguments?.({ query: "foo bar", path: "\"src/a" })).toEqual({ query: "foo bar", path: "\"src/a" });
 
 		const ordinary = repairableTool(defineNoopTool(Type.Object({ query: Type.String() }, { additionalProperties: false })), {
@@ -227,8 +212,7 @@ describe("tool-input repair", () => {
 
 function defineNoopTool<TParams extends TSchema>(
 	parameters: TParams,
-	extras: Partial<ToolDefinition<TParams>> = {},
-): ToolDefinition<TParams> {
+): RepairableToolDefinition<TParams> {
 	return {
 		name: "noop",
 		label: "noop",
@@ -237,6 +221,5 @@ function defineNoopTool<TParams extends TSchema>(
 		async execute() {
 			return { content: [{ type: "text", text: "" }], details: undefined };
 		},
-		...extras,
 	};
 }

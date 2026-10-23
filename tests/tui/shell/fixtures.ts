@@ -1,15 +1,10 @@
 import os from "node:os";
 import path from "node:path";
-import { agentSchemaPath, defaultAgentConfigPath, readDefaultJsoncConfigSync } from "../../../src/harness/config-loader.ts";
+import { CONFIG_DEFINITIONS, readDefaultJsoncConfigSync } from "../../../src/harness/config-loader.ts";
 import type { TuiConfig, TuiSnapshot } from "../../../src/tui/shell/types.ts";
 
 export function defaultTuiConfig(): TuiConfig {
-	const raw = readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath("tui.jsonc"),
-		schemaPath: agentSchemaPath("tui.schema.json"),
-		label: "tui",
-		createError: (message) => new Error(message),
-	}) as TuiConfig & { $schema?: string };
+	const raw = readDefaultJsoncConfigSync<TuiConfig & { $schema?: string }>(CONFIG_DEFINITIONS.tui);
 	const { $schema: _schema, ...config } = raw;
 	return config;
 }

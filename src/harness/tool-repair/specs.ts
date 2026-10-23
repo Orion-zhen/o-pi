@@ -13,7 +13,6 @@ export function createRepairSpec(schema: TSchema, hints: RepairSpecHints = {}): 
 	const inferred = inferSchemaRepairFields(schema);
 	return {
 		...hints,
-		dropOptionalNull: hints.dropOptionalNull ?? true,
 		pathFields: hints.pathFields ?? [],
 		pathListFields: hints.pathListFields ?? [],
 		aliases: hints.aliases ?? {},
@@ -22,7 +21,7 @@ export function createRepairSpec(schema: TSchema, hints: RepairSpecHints = {}): 
 		optionalFields: inferred.optionalFields,
 		numericFields: inferred.numericFields,
 		arrayFields: inferred.arrayFields,
-		objectToArrayFields: unique([...inferred.objectArrayFields, ...(hints.objectToArrayFields ?? [])]),
+		objectToArrayFields: inferred.objectArrayFields,
 		schema,
 	};
 }

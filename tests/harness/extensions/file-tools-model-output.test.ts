@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../../src/harness/extensions/file-tools.ts";
+import { NativeFileSystemError, NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
 import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.ts";
 import { formatErrorModelResult } from "../../../src/harness/file-tools/pi/model-output.ts";
 import { formatEditModelResult } from "../../../src/harness/file-tools/edit/presenter.ts";
@@ -81,6 +82,22 @@ describe("file-tools extension model output", () => {
 			"next: Retry with one shown old/new pair; read only if the file changed.",
 			"</error>",
 		]) expect(output).toContain(value);
+	});
+
+	it("写入失败沿用简短提示，不泄漏原生操作、异常名或内部路径", async () => {
+		const { registered, handlers } = registerExtension(fileTools);
+		const ctx = { cwd: workspace.path, sessionManager: { getSessionId: () => "failed-write", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined } };
+		vi.spyOn(NodeNativeFileSystem.prototype, "atomicReplace").mockRejectedValue(
+			new NativeFileSystemError("access-denied", "internal-atomic-operation", "/private/internal-path"),
+		);
+		try {
+			const result = await executeTool(registered, "write", { path: "denied.txt", content: "private content" }, ctx);
+			expect(result).toMatchObject({ isError: true });
+			expect(textResult(result)).toBe("<error>\nFile could not be written.\n</error>");
+			expect(result.details).toMatchObject({ status: "failed", error: { code: "ACCESS_DENIED" } });
+		} finally {
+			await handlers.get("session_shutdown")?.({}, ctx);
+		}
 	});
 
 	it("多范围 read 通过扩展返回有原始坐标的片段，不输出间隔正文", async () => {

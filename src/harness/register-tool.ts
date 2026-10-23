@@ -2,17 +2,10 @@ import type { ConstrainedSamplingConfig } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 
-import { repairableTool } from "./tool-repair/repair.ts";
+import { repairableTool, type RepairableToolDefinition, type ToolArguments } from "./tool-repair/repair.ts";
 import type { RepairSpecHints } from "./tool-repair/types.ts";
-import {
-	TELEMETRY_READY_CHANNEL,
-	TELEMETRY_REPAIR_CHANNEL,
-	TELEMETRY_TOOL_CHANNEL,
-	type TelemetryToolRegistration,
-} from "./telemetry/events.ts";
-import type { ToolTelemetry } from "./telemetry/types.ts";
-
-type ExecutedParams<TParams extends TSchema, TDetails, TState> = Parameters<ToolDefinition<TParams, TDetails, TState>["execute"]>[1];
+import type { TelemetryService } from "./telemetry/service.ts";
+import type { TelemetryToolRegistration, ToolTelemetry } from "./telemetry/types.ts";
 
 const PREFERRED_STRICT_SAMPLING = {
 	type: "json_schema",
@@ -20,34 +13,32 @@ const PREFERRED_STRICT_SAMPLING = {
 } satisfies ConstrainedSamplingConfig;
 
 interface RegisterToolOptions<TParams extends TSchema, TDetails, TState> {
-	tool: ToolDefinition<TParams, TDetails, TState>;
-	telemetry?: ToolTelemetry<ExecutedParams<TParams, TDetails, TState>, TDetails>;
+	tool: RepairableToolDefinition<TParams, TDetails, TState>;
+	telemetry?: ToolTelemetry<ToolArguments<TParams>, TDetails>;
 	repair?: RepairSpecHints;
 }
 
-/** 组合采样策略、参数修复和遥测，只注册工具执行定义。 */
-export function registerTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
-	pi: Pick<ExtensionAPI, "events" | "registerTool">,
-	options: RegisterToolOptions<TParams, TDetails, TState>,
-): void {
-	const prepared = repairableTool({
-		...options.tool,
-		constrainedSampling: options.tool.constrainedSampling ?? PREFERRED_STRICT_SAMPLING,
-	}, options.repair, {
-		onPreparation(observation) {
-			pi.events.emit(TELEMETRY_REPAIR_CHANNEL, observation);
-		},
-	});
-	const registration = eraseRegistration(prepared, options.telemetry);
-	const announce = () => pi.events.emit(TELEMETRY_TOOL_CHANNEL, registration);
-	pi.events.on(TELEMETRY_READY_CHANNEL, announce);
-	pi.registerTool(prepared);
-	announce();
+export type ToolTelemetrySink = Pick<TelemetryService, "registerTool" | "prepared">;
+
+/** 装配时绑定遥测，注册与参数准备不再经过事件总线。 */
+export function createToolRegistrar(pi: Pick<ExtensionAPI, "registerTool">, telemetry?: ToolTelemetrySink) {
+	return function registerTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
+		options: RegisterToolOptions<TParams, TDetails, TState>,
+	): void {
+		const prepared = repairableTool({
+			...options.tool,
+			constrainedSampling: options.tool.constrainedSampling ?? PREFERRED_STRICT_SAMPLING,
+		}, options.repair, telemetry === undefined ? undefined : {
+			onPreparation: (observation) => telemetry.prepared(observation),
+		});
+		telemetry?.registerTool(eraseRegistration<TParams, TDetails, TState>(prepared, options.telemetry));
+		pi.registerTool(prepared);
+	};
 }
 
 function eraseRegistration<TParams extends TSchema, TDetails, TState>(
 	tool: ToolDefinition<TParams, TDetails, TState>,
-	telemetry: ToolTelemetry<ExecutedParams<TParams, TDetails, TState>, TDetails> | undefined,
+	telemetry: ToolTelemetry<ToolArguments<TParams>, TDetails> | undefined,
 ): TelemetryToolRegistration {
 	const input = telemetry?.input;
 	const result = telemetry?.result;
@@ -60,11 +51,11 @@ function eraseRegistration<TParams extends TSchema, TDetails, TState>(
 			...(tool.promptGuidelines === undefined ? {} : { promptGuidelines: tool.promptGuidelines }),
 		},
 		...(input === undefined ? {} : {
-			input: (params: unknown) => input(params as ExecutedParams<TParams, TDetails, TState>),
+			input: (params: unknown) => input(params as ToolArguments<TParams>),
 		}),
 		...(result === undefined ? {} : {
 			result: (params: unknown, details: unknown) => result(
-				params as ExecutedParams<TParams, TDetails, TState>,
+				params as ToolArguments<TParams>,
 				details as TDetails,
 			),
 		}),

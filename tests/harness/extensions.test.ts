@@ -137,6 +137,28 @@ describe("通过原生 SDK 复用 harness 业务扩展", () => {
 		expect(records.filter((record) => record.type === "run")).toHaveLength(1);
 	});
 
+	it("同一组内置 factory 被两个 SDK 会话复用时，遥测与工具状态彼此独立", async () => {
+		const first = await createRuntime();
+		try {
+			const second = await createRuntime();
+			await call(first, { tool: "read", args: { path: "input.txt" } });
+			await call(second, { tool: "write", args: { path: "second.txt", content: "second" } });
+			await call(first, { tool: "edit", args: { path: "input.txt", edits: [{ old: "SDK fixture", new: "first" }] } });
+			await first.dispose();
+			await second.dispose();
+			runtime = undefined;
+			const { records } = await readTelemetryDirectory(path.join(temp.path, ".pi", "telemetry", "runs"));
+			const runs = records.filter((record) => record.type === "run");
+			expect(runs).toHaveLength(2);
+			const toolsByRun = runs.map((run) => records.filter((record) => record.type === "call" && record.run_id === run.run_id)
+				.map((record) => record.type === "call" ? record.tool : ""));
+			expect(toolsByRun).toEqual(expect.arrayContaining([["read", "edit"], ["write"]]));
+			expect(await readFile(path.join(cwd, "input.txt"), "utf8")).toBe("first\n");
+		} finally {
+			await first.dispose();
+		}
+	});
+
 	it.each([
 		{ tool: "edit", args: { path: "input.txt", edits: [] } },
 		{ tool: "edit", args: { path: "input.txt", edits: [{ old: "SDK fixture" }] } },

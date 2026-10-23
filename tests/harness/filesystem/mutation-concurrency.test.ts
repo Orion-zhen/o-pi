@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MutationQueue } from "../../../src/harness/filesystem/platform/node/mutation-queue.ts";
 import { contentHash } from "../../../src/harness/filesystem/services/text.ts";
 import { deferredVoid as deferred } from "../../helpers/async.ts";
-import { expectFsOk as expectOk, textBytes as bytes } from "./fixtures.ts";
+import { textBytes as bytes } from "./fixtures.ts";
 import { commitBytes, useMutationFixture } from "./mutation-fixtures.ts";
 
 const test = useMutationFixture("o-pi-mutation-concurrency-");
@@ -52,27 +52,27 @@ describe("filesystem mutation concurrency", () => {
 		const first = opened.filesystem.mutations.run(same, { createParents: false }, async () => {
 			firstEntered.resolve();
 			await firstRelease.promise;
-			return { type: "commit", prepared: undefined, bytes: bytes("one") };
+			return { prepared: undefined, bytes: bytes("one") };
 		});
 		await firstEntered.promise;
 		const second = opened.filesystem.mutations.run(same, { createParents: false }, () => {
 			secondEntered = true;
-			return { type: "commit", prepared: undefined, bytes: bytes("two") };
+			return { prepared: undefined, bytes: bytes("two") };
 		});
 		const otherEntered = deferred();
 		const otherRelease = deferred();
 		const parallel = opened.filesystem.mutations.run(other, { createParents: false }, async () => {
 			otherEntered.resolve();
 			await otherRelease.promise;
-			return { type: "reject", reason: "parallel-done" };
+			return { prepared: undefined, bytes: bytes("parallel") };
 		});
 		await otherEntered.promise;
 		expect(secondEntered).toBe(false);
 		otherRelease.resolve();
 		firstRelease.resolve();
-		expect(expectOk(await first)).toMatchObject({ committed: true });
-		expect(expectOk(await second)).toMatchObject({ committed: true });
-		expect(expectOk(await parallel)).toMatchObject({ committed: false, reason: "parallel-done" });
+		expect((await first).receipt.hash).toBe(contentHash(bytes("one")));
+		expect((await second).receipt.hash).toBe(contentHash(bytes("two")));
+		expect((await parallel).receipt.hash).toBe(contentHash(bytes("parallel")));
 
 		const failureEntered = deferred();
 		const failureRelease = deferred();
@@ -85,8 +85,7 @@ describe("filesystem mutation concurrency", () => {
 		const afterFailure = commitBytes(opened, same, bytes("recovered"), { createParents: false });
 		failureRelease.resolve();
 		await expect(failure).rejects.toThrow();
-		expect(expectOk(await afterFailure)).toMatchObject({
-			committed: true,
+		expect(await afterFailure).toMatchObject({
 			receipt: { hash: contentHash(bytes("recovered")) },
 		});
 	});
@@ -98,19 +97,18 @@ describe("filesystem mutation concurrency", () => {
 		const active = mutation.run({ createParents: false }, async () => {
 			activeEntered.resolve();
 			await activeRelease.promise;
-			return { type: "reject", reason: "released" };
+			return { prepared: undefined, bytes: bytes("active") };
 		});
 		await activeEntered.promise;
 
 		const cancelled = mutation.commit(bytes("cancelled"), { createParents: false });
 		controller.abort();
-		await expect(cancelled).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+		await expect(cancelled).rejects.toMatchObject({ error: { code: "aborted" } });
 		activeRelease.resolve();
-		expect(expectOk(await active)).toMatchObject({ committed: false });
+		await expect(active).rejects.toMatchObject({ error: { code: "aborted" } });
 		const laterMutation = await openMutation("queued.txt");
 		const later = laterMutation.commit(bytes("later"), { createParents: false });
-		expect(expectOk(await later)).toMatchObject({
-			committed: true,
+		expect(await later).toMatchObject({
 			receipt: { hash: contentHash(bytes("later")) },
 		});
 	});
@@ -125,15 +123,15 @@ describe("filesystem mutation concurrency", () => {
 		const active = mutation.run({ createParents: false }, async () => {
 			entered.resolve();
 			await release.promise;
-			return { type: "reject", reason: "no-op" };
+			return { prepared: undefined, bytes: bytes("unsafe") };
 		});
 		await entered.promise;
 		const queued = mutation.commit(bytes("unsafe"), { createParents: false });
 		await rm(path.join(workspace, "queued.txt"));
 		await symlink(protectedFile, path.join(workspace, "queued.txt"));
 		release.resolve();
-		expect(expectOk(await active)).toMatchObject({ committed: false });
-		await expect(queued).resolves.toMatchObject({ ok: false, error: { code: "blocked" } });
+		await expect(active).rejects.toMatchObject({ error: { code: "blocked" } });
+		await expect(queued).rejects.toMatchObject({ error: { code: "blocked" } });
 		expect(await readFile(protectedFile, "utf8")).toBe("secret");
 	});
 	it.skipIf(process.platform === "win32")("serializes stale refs that freshly converge on one canonical target", async () => {
@@ -161,13 +159,13 @@ describe("filesystem mutation concurrency", () => {
 			maxActive = Math.max(maxActive, active);
 			await new Promise<void>((resolve) => setImmediate(resolve));
 			active -= 1;
-			return { type: "commit" as const, prepared: undefined, bytes: bytes("updated") };
+			return { prepared: undefined, bytes: bytes("updated") };
 		};
 		const results = await Promise.all([
 			opened.filesystem.mutations.run(first, { createParents: false }, transform),
 			opened.filesystem.mutations.run(second, { createParents: false }, transform),
 		]);
-		for (const result of results) expect(expectOk(result)).toMatchObject({ committed: true });
+		for (const result of results) expect(result.receipt.hash).toBe(contentHash(bytes("updated")));
 		expect(maxActive).toBe(1);
 		expect(await readFile(shared, "utf8")).toBe("updated");
 	});

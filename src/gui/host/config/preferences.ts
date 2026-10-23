@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import {
-	CONFIG_DEFINITIONS, agentSchemaPath, createSchemaValidator, defaultAgentConfigPath,
+	CONFIG_DEFINITIONS, configValidator,
 	isNotFound, readDefaultJsoncConfigSync, stripUtf8Bom,
 } from "../../../harness/config-loader.ts";
 import { mergeConfigValues } from "../../../harness/config-values.ts";
@@ -11,18 +11,13 @@ import type { GuiConfigDocument, GuiPreferences } from "../../preferences.ts";
 import { replaceConfigFile } from "../session/files.ts";
 
 const definition = CONFIG_DEFINITIONS.gui;
-const schemaPath = agentSchemaPath("gui.schema.json");
-const createError = (message: string, details?: Record<string, unknown>) => new Error(`${message}${details ? ` ${JSON.stringify(details)}` : ""}`);
-const validator = createSchemaValidator({ schemaPath, label: "gui", createError });
 
 function configPath(): string {
 	return process.env[definition.userEnv] ?? path.join(getAgentDir(), "configs", definition.fileName);
 }
 
 export function readGuiDefaults(): GuiPreferences {
-	const { $schema: _schema, ...value } = readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath(definition.fileName), schemaPath, label: "gui", createError,
-	}) as GuiPreferences & { $schema?: string };
+	const { $schema: _schema, ...value } = readDefaultJsoncConfigSync<GuiPreferences & { $schema?: string }>(definition);
 	return value;
 }
 
@@ -31,7 +26,7 @@ async function parsePreferences(content: string, base: GuiPreferences): Promise<
 	const value: unknown = parse(stripUtf8Bom(content), errors, { allowTrailingComma: true });
 	const first = errors[0];
 	if (first) throw new Error(`gui.jsonc: ${printParseErrorCode(first.error)} (offset ${first.offset})`);
-	const validate = await validator();
+	const validate = configValidator(definition);
 	if (!validate(value)) throw new Error(`gui.jsonc: ${JSON.stringify(validate.errors)}`);
 	const { $schema: _schema, ...merged } = mergeConfigValues(base, value) as GuiPreferences & { $schema?: string };
 	return merged;

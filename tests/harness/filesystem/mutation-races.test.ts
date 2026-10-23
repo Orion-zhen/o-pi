@@ -23,12 +23,12 @@ describe("filesystem mutation commit boundaries", () => {
 			expect(snapshot).toMatchObject({ exists: true, hash: contentHash(bytes("before")) });
 			entered.resolve();
 			await release.promise;
-			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
+			return { prepared: undefined, bytes: bytes("unsafe") };
 		});
 		await entered.promise;
 		await writeFile(path.join(workspace, "stale.txt"), "external");
 		release.resolve();
-		await expect(pending).resolves.toMatchObject({ ok: false, error: { code: "changed-during-read" } });
+		await expect(pending).rejects.toMatchObject({ error: { code: "changed-during-read" } });
 		expect(await readFile(path.join(workspace, "stale.txt"), "utf8")).toBe("external");
 	});
 	it("rechecks live existence and read failures", async () => {
@@ -37,9 +37,9 @@ describe("filesystem mutation commit boundaries", () => {
 			{ createParents: false },
 			async () => {
 				await rm(path.join(workspace, "removed.txt"));
-				return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
+				return { prepared: undefined, bytes: bytes("unsafe") };
 			},
-		)).resolves.toMatchObject({ ok: false, error: { code: "changed-during-read" } });
+		)).rejects.toMatchObject({ error: { code: "changed-during-read" } });
 
 		let reads = 0;
 		const base = new NodeNativeFileSystem();
@@ -52,7 +52,7 @@ describe("filesystem mutation commit boundaries", () => {
 		});
 		const liveRead = await openMutation("live-read.txt", { initial: "before", native: liveReadNative });
 		await expect(liveRead.commit(bytes("unsafe"), { createParents: false }))
-			.resolves.toMatchObject({ ok: false, error: { code: "access-denied" } });
+			.rejects.toMatchObject({ error: { code: "access-denied" } });
 
 		const finalReadAbort = new AbortController();
 		let abortReads = 0;
@@ -66,7 +66,7 @@ describe("filesystem mutation commit boundaries", () => {
 		});
 		const liveAbort = await openMutation("live-abort.txt", { initial: "before", native: liveAbortNative, signal: finalReadAbort.signal });
 		await expect(liveAbort.commit(bytes("unsafe"), { createParents: false }))
-			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+			.rejects.toMatchObject({ error: { code: "aborted" } });
 	});
 	it.skipIf(process.platform === "win32")("rejects a blocked destination introduced during transform", async () => {
 		const protectedDirectory = path.join(test.root, "transform-protected");
@@ -74,12 +74,12 @@ describe("filesystem mutation commit boundaries", () => {
 		await mkdir(protectedDirectory);
 		await writeFile(protectedFile, "secret");
 		const mutation = await openMutation("transform-link.txt", { initial: "safe", blockedPaths: [`${protectedDirectory}/`] });
-		const result = await mutation.run({ createParents: false }, async () => {
+		const result = mutation.run({ createParents: false }, async () => {
 			await rm(path.join(workspace, "transform-link.txt"));
 			await symlink(protectedFile, path.join(workspace, "transform-link.txt"));
-			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
+			return { prepared: undefined, bytes: bytes("unsafe") };
 		});
-		expect(result).toMatchObject({ ok: false, error: { code: "blocked" } });
+		await expect(result).rejects.toMatchObject({ error: { code: "blocked" } });
 		expect(await readFile(protectedFile, "utf8")).toBe("secret");
 	});
 	it.skipIf(process.platform === "win32")("rejects a commit when a target symlink changes canonical identity", async () => {
@@ -92,14 +92,13 @@ describe("filesystem mutation commit boundaries", () => {
 		const pending = mutation.run({ createParents: false }, async () => {
 			entered.resolve();
 			await release.promise;
-			return { type: "commit", prepared: undefined, bytes: bytes("unsafe") };
+			return { prepared: undefined, bytes: bytes("unsafe") };
 		});
 		await entered.promise;
 		await rm(path.join(workspace, "link.txt"));
 		await symlink(path.join(workspace, "two.txt"), path.join(workspace, "link.txt"));
 		release.resolve();
-		await expect(pending).resolves.toMatchObject({
-			ok: false,
+		await expect(pending).rejects.toMatchObject({
 			error: { code: "changed-during-read", details: { actual: "different-target" } },
 		});
 		expect(await readFile(path.join(workspace, "one.txt"), "utf8")).toBe("same");
@@ -126,8 +125,8 @@ describe("filesystem mutation commit boundaries", () => {
 			},
 		});
 		const mutation = await openMutation("commit-race.txt", { initial: "safe", blockedPaths: [`${protectedDirectory}${path.sep}`], native: racingNative });
-		const result = expectOk(await mutation.commit(bytes("replacement"), { createParents: false }));
-		expect(result).toMatchObject({ committed: true, receipt: { created: false } });
+		const result = await mutation.commit(bytes("replacement"), { createParents: false });
+		expect(result).toMatchObject({ receipt: { created: false } });
 		expect(await readFile(protectedFile, "utf8")).toBe("secret");
 		expect(await readFile(racedFile, "utf8")).toBe("replacement");
 	});
@@ -149,7 +148,7 @@ describe("filesystem mutation commit boundaries", () => {
 		});
 		const mutation = await openMutation("cancel-temp.txt", { initial: "before", native: cancellingNative, signal: controller.signal });
 		await expect(mutation.commit(bytes("unsafe"), { createParents: false }))
-			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+			.rejects.toMatchObject({ error: { code: "aborted" } });
 		expect(await readFile(file, "utf8")).toBe("before");
 		expect((await readdir(workspace)).filter((name) => name.startsWith(".pi-") && name.endsWith(".tmp"))).toEqual([]);
 	});
@@ -157,8 +156,8 @@ describe("filesystem mutation commit boundaries", () => {
 		const file = path.join(workspace, "mode.txt");
 		const mutation = await openMutation("mode.txt", { initial: "before" });
 		await chmod(file, 0o640);
-		expect(expectOk(await mutation.commit(bytes("after"), { createParents: false })))
-			.toMatchObject({ committed: true, receipt: { created: false } });
+		expect(await mutation.commit(bytes("after"), { createParents: false }))
+			.toMatchObject({ receipt: { created: false } });
 		expect((await stat(file)).mode & 0o7777).toBe(0o640);
 	});
 	it("maps write failures and keeps committed writes successful after cancellation or observer failure", async () => {
@@ -169,12 +168,12 @@ describe("filesystem mutation commit boundaries", () => {
 			onCommitted() { throw new Error("observer unavailable"); },
 		}));
 		const observedTarget = await resolveTarget(observerOpen, "observed.txt");
-		expect(expectOk(await commitBytes(
+		expect(await commitBytes(
 			observerOpen,
 			observedTarget,
 			bytes("observed"),
 			{ createParents: false },
-		))).toMatchObject({ committed: true, receipt: { created: true } });
+		)).toMatchObject({ receipt: { created: true } });
 		expect(await readFile(path.join(workspace, "observed.txt"), "utf8")).toBe("observed");
 
 		const failingNative = nativeOverride({
@@ -182,7 +181,7 @@ describe("filesystem mutation commit boundaries", () => {
 		});
 		const failed = await openMutation("failed.txt", { native: failingNative });
 		await expect(failed.commit(bytes("no"), { createParents: false }))
-			.resolves.toMatchObject({ ok: false, error: { code: "write-failed" } });
+			.rejects.toMatchObject({ error: { code: "write-failed" } });
 
 		const brokenNative = nativeOverride({
 			async atomicReplace() { throw new Error("injected implementation failure"); },
@@ -201,8 +200,7 @@ describe("filesystem mutation commit boundaries", () => {
 		});
 		const committing = await openMutation("committed.txt", { native: committingNative, signal: controller.signal });
 		const committed = await committing.commit(bytes("yes"), { createParents: false });
-		expect(expectOk(committed)).toMatchObject({
-			committed: true,
+		expect(committed).toMatchObject({
 			receipt: { hash: contentHash(bytes("yes")) },
 		});
 		expect(await readFile(path.join(workspace, "committed.txt"), "utf8")).toBe("yes");

@@ -3,7 +3,7 @@ export {
 	hasWriteCapability,
 	resolveSubagentTools,
 } from "./agents.ts";
-export { loadSubagentConfig, SubagentConfigError } from "./config.ts";
+export { loadSubagentConfig } from "./config.ts";
 export {
 	captureExecutorContext,
 	completeAgents,

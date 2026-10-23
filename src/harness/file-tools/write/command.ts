@@ -1,13 +1,13 @@
 import type { FileToolLimits } from "../../file-tool-limits.ts";
 import type { MutationSnapshot } from "../../filesystem/contracts/mutation.ts";
-import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import { FileSystemError, type FsOperationContext } from "../../filesystem/contracts/result.ts";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
 import {
 	captureMutationDiagnostics,
 	collectMutationDiagnostics,
 	type MutationDiagnosticsSource,
 } from "../shared/mutation-diagnostics.ts";
-import { fail, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
 import type { TextDiffGenerator } from "../shared/text-diff.ts";
 import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.ts";
 
@@ -42,7 +42,7 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 			maxOutputBytes: context.limits.write_max_file_bytes,
 		},
 		async (current) => {
-			const renderedDiff = await context.diff.generate(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));
+			const renderedDiff = await context.diff(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));
 			safePrepared(context.onPrepared, {
 				status: "preview",
 				path: target.value.displayPath,
@@ -50,12 +50,14 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 			});
 			const baseline = await captureMutationDiagnostics(context.diagnostics, target.value, context.operation.signal);
-			return { type: "commit", bytes, prepared: { renderedDiff, baseline } };
+			return { bytes, prepared: { renderedDiff, baseline } };
 		},
-	);
-	if (!mutated.ok) return mapFsError(mutated.error);
-	if (!mutated.value.committed) return mutated.value.reason;
-	const { receipt, prepared: { renderedDiff, baseline } } = mutated.value;
+	).catch((error: unknown) => {
+		if (error instanceof FileSystemError) return mapFsError(error.error);
+		throw error;
+	});
+	if (isFailed(mutated)) return mutated;
+	const { receipt, prepared: { renderedDiff, baseline } } = mutated;
 	const result: WriteSuccess = {
 		status: "written",
 		path: receipt.target.displayPath,

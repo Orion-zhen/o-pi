@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
 import { NodeNativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
-import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.ts";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import { editFile } from "../../../src/harness/file-tools/edit/command.ts";
 import { writeFile as writeCommand } from "../../../src/harness/file-tools/write/command.ts";
 import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
@@ -30,7 +30,7 @@ async function open(sessionId: string, signal?: AbortSignal) {
 async function edit(sessionId: string, file: string) {
 	const opened = await open(sessionId);
 	try {
-		return await editFile({ path: file, edits: [{ old: "before", new: "after" }] }, { ...opened, diff: piTextDiffGenerator });
+		return await editFile({ path: file, edits: [{ old: "before", new: "after" }] }, { ...opened, diff: generateDiffString });
 	} finally { opened.dispose(); }
 }
 
@@ -61,7 +61,7 @@ describe("文件工具会话", () => {
 		});
 		const opened = await open("one", controller.signal);
 		try {
-			await expect(writeCommand({ path: "file.txt", content: "before" }, { ...opened, diff: piTextDiffGenerator }))
+			await expect(writeCommand({ path: "file.txt", content: "before" }, { ...opened, diff: generateDiffString }))
 				.resolves.toMatchObject({ status: "written" });
 		} finally { opened.dispose(); }
 		await expect(edit("one", "file.txt")).resolves.toMatchObject({ status: "applied" });

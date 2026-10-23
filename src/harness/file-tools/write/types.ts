@@ -1,9 +1,9 @@
 import type { LspDiagnosticsSummary as DiagnosticsSummary } from "../../lsp/types.ts";
 
-export interface WriteParams {
-	path: string;
-	content: string;
-}
+import type { Static } from "typebox";
+import type { writeParameters } from "./schema.ts";
+
+export type WriteParams = Static<typeof writeParameters>;
 
 export interface WritePreviewSuccess {
 	status: "preview";

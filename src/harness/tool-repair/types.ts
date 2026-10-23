@@ -12,7 +12,6 @@ export interface RepairFanout {
 }
 
 export type RepairOperation =
-	| "original_prepare"
 	| "single_string_to_object"
 	| "root_alias"
 	| "object_array_from_fields"
@@ -48,15 +47,13 @@ export interface RepairSpecHints {
 	singleStringField?: string;
 	pathFields?: readonly RepairPath[];
 	pathListFields?: readonly RepairPath[];
-	maxPathCount?: number;
 	aliases?: Readonly<Record<string, string>>;
 	nestedAliases?: Readonly<Record<RepairPath, string>>;
-	objectToArrayFields?: readonly RepairPath[];
 	objectArrayFromFields?: readonly ObjectArrayFromFieldsSpec[];
-	dropOptionalNull?: boolean;
 }
 
-export interface RepairSpec extends RepairSpecHints {
+export interface RepairSpec extends Required<Omit<RepairSpecHints, "singleStringField">> {
+	singleStringField?: string;
 	optionalFields: readonly RepairPath[];
 	numericFields: readonly RepairPath[];
 	arrayFields: readonly RepairPath[];

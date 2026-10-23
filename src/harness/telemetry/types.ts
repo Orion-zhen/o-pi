@@ -33,8 +33,22 @@ export interface TelemetryFacts {
 }
 
 export interface ToolTelemetry<TParams, TDetails> {
-	input?(params: TParams): TelemetryFacts;
-	result?(params: TParams, details: TDetails): TelemetryFacts;
+	input?(params: Readonly<TParams>): TelemetryFacts;
+	result?(params: Readonly<TParams>, details: Readonly<TDetails>): TelemetryFacts;
+}
+
+export interface TelemetryToolDefinition {
+	name: string;
+	description: string;
+	parameters: unknown;
+	promptSnippet?: string;
+	promptGuidelines?: string[];
+}
+
+export interface TelemetryToolRegistration {
+	definition: TelemetryToolDefinition;
+	input?: (params: unknown) => TelemetryFacts;
+	result?: (params: unknown, details: unknown) => TelemetryFacts;
 }
 
 export type GitRevision =

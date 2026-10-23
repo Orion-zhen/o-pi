@@ -5,8 +5,8 @@ import { executeSkillLoad, SkillLoadError } from "../skill-context/executor.ts";
 import { collectSkillCandidates } from "../skill-context/loader.ts";
 import { findVisibleToolCallIds } from "../prune/prune.ts";
 import { type SkillCandidate, type SkillLoadDetails, type SkillToolErrorDetails } from "../skill-context/types.ts";
-import { defineToolTelemetry } from "../telemetry/projection.ts";
-import { registerTool } from "../register-tool.ts";
+import type { ToolTelemetry } from "../telemetry/types.ts";
+import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
 
 const skillParameters = Type.Object(
 	{
@@ -21,14 +21,15 @@ const skillParameters = Type.Object(
 type SkillToolDetails = SkillLoadDetails | SkillToolErrorDetails;
 
 /** 注册模型与手动技能披露，并维护分支内的资源权限。 */
-export default function skillContextExtension(pi: ExtensionAPI): void {
+export default function skillContextExtension(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
+	const registerTool = createToolRegistrar(pi, telemetry);
 	registerSkillCommands(pi);
 	let modelCandidates: SkillCandidate[] = [];
 	pi.on("before_agent_start", (event) => {
 		modelCandidates = collectSkillCandidates(event.systemPromptOptions, []);
 	});
 
-	registerTool(pi, {
+	registerTool({
 		tool: {
 			name: "skill",
 			exposure: "model-only",
@@ -69,7 +70,7 @@ export default function skillContextExtension(pi: ExtensionAPI): void {
 				}
 			},
 		},
-		telemetry: defineToolTelemetry<{ name: string }, SkillToolDetails>({
+		telemetry: {
 			input: ({ name }) => ({ fields: { skill: name } }),
 			result: (_params, details) =>
 				"deduplicated" in details
@@ -83,7 +84,7 @@ export default function skillContextExtension(pi: ExtensionAPI): void {
 							},
 						}
 					: { fields: { status: "failed" } },
-		}),
+		} satisfies ToolTelemetry<{ name: string }, SkillToolDetails>,
 	});
 }
 

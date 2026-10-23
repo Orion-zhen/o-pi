@@ -48,7 +48,7 @@ export function fail(code: FileToolErrorCode, message: string, options: FailureO
 	return { status: "failed", error: { code, message, ...options } };
 }
 
-export function isFailed<T>(result: T | FailedResult): result is FailedResult {
+export function isFailed(result: unknown): result is Readonly<FailedResult> {
 	return typeof result === "object" && result !== null && "status" in result && result.status === "failed";
 }
 

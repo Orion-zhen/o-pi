@@ -24,6 +24,19 @@ export type FsResult<T> =
 	| { readonly ok: true; readonly value: T }
 	| { readonly ok: false; readonly error: FsError };
 
+/** 写入事务通过异常中断，查询仍可把局部失败作为结果返回。 */
+export class FileSystemError extends Error {
+	constructor(readonly error: FsError) {
+		super(error.message);
+		this.name = "FileSystemError";
+	}
+}
+
+export function fsValue<T>(result: FsResult<T>): T {
+	if (!result.ok) throw new FileSystemError(result.error);
+	return result.value;
+}
+
 export interface FsOperationContext {
 	readonly signal?: AbortSignal;
 }

@@ -2,7 +2,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { registerTool } from "../register-tool.ts";
+import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
 import { READ_RANGE_PATTERN } from "../content-ranges.ts";
 import { webFetchTelemetry } from "../web-tools/telemetry/webfetch.ts";
 import { webSearchTelemetry } from "../web-tools/telemetry/websearch.ts";
@@ -70,7 +70,8 @@ const webFetchParameters = Type.Object(
 );
 
 /** 注册轻量工具壳，执行时按需加载 runtime。 */
-export default function webTools(pi: ExtensionAPI): void {
+export default function webTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
+	const registerTool = createToolRegistrar(pi, telemetry);
 	let runtimePromise: Promise<WebToolsRuntime> | undefined;
 	let shuttingDown = false;
 	const getRuntime = (): Promise<WebToolsRuntime> => {
@@ -84,7 +85,7 @@ export default function webTools(pi: ExtensionAPI): void {
 		return pending;
 	};
 
-	registerTool(pi, {
+	registerTool({
 		tool: {
 			name: "websearch",
 			label: "websearch",
@@ -118,7 +119,7 @@ export default function webTools(pi: ExtensionAPI): void {
 		telemetry: webSearchTelemetry,
 	});
 
-	registerTool(pi, {
+	registerTool({
 		tool: {
 			name: "webfetch",
 			label: "webfetch",

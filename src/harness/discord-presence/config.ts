@@ -1,21 +1,11 @@
 import {
 	CONFIG_DEFINITIONS,
-	agentSchemaPath,
-	createCompleteSchemaValidator,
-	createSchemaValidator,
+	ConfigError,
 	loadValidatedMergedConfig,
 } from "../config-loader.ts";
 import { PRESENCE_TEMPLATE_KEYS, PRESENCE_TEMPLATE_PATTERN, type DiscordPresenceConfig, type PresenceProfileConfig } from "./types.ts";
 
-const SCHEMA_PATH = agentSchemaPath("discord-presence.schema.json");
 const TEMPLATE_KEYS = new Set<string>(PRESENCE_TEMPLATE_KEYS);
-
-class DiscordPresenceConfigError extends Error {
-	constructor(message: string, readonly details?: Record<string, unknown>) {
-		super(message);
-		this.name = "DiscordPresenceConfigError";
-	}
-}
 
 // 分层 Schema 允许档位稀疏覆盖，合并后再检查每个档位是否完整。
 type LoadedConfig = Omit<DiscordPresenceConfig, "profiles"> & {
@@ -24,13 +14,8 @@ type LoadedConfig = Omit<DiscordPresenceConfig, "profiles"> & {
 };
 
 export async function loadDiscordPresenceConfig(cwd: string): Promise<DiscordPresenceConfig> {
-	const loaded = await loadValidatedMergedConfig(
-		CONFIG_DEFINITIONS.discordPresence,
-		cwd,
-		createError,
-		{ partial: loadValidator, complete: loadCompleteValidator },
-	);
-	const raw = loaded.merged as LoadedConfig;
+	const loaded = await loadValidatedMergedConfig<LoadedConfig>(CONFIG_DEFINITIONS.discordPresence, cwd);
+	const raw = loaded.merged;
 	// 通用加载器已经完成合并，只修正 details 的整对象替换语义。
 	for (const layer of loaded.layers) {
 		const overlay = layer.value as Partial<LoadedConfig>;
@@ -42,10 +27,10 @@ export async function loadDiscordPresenceConfig(cwd: string): Promise<DiscordPre
 	validateProfiles(profiles);
 	const config: DiscordPresenceConfig = { ...rest, profiles };
 	if (config.enabled && config.application_id.length === 0) {
-		throw new DiscordPresenceConfigError("application_id is required when Discord presence is enabled.");
+		throw new ConfigError("application_id is required when Discord presence is enabled.");
 	}
 	if (!Object.hasOwn(config.profiles, config.profile)) {
-		throw new DiscordPresenceConfigError("Selected Discord presence profile does not exist.", { profile: config.profile });
+		throw new ConfigError("Selected Discord presence profile does not exist.", { profile: config.profile });
 	}
 	validateTemplates(config);
 	return config;
@@ -56,7 +41,7 @@ function validateProfiles(
 ): asserts profiles is Record<string, PresenceProfileConfig> {
 	for (const [name, profile] of Object.entries(profiles)) {
 		if (profile.details === undefined || profile.state === undefined || profile.show_elapsed === undefined) {
-			throw new DiscordPresenceConfigError("Discord presence profile is incomplete.", { profile: name });
+			throw new ConfigError("Discord presence profile is incomplete.", { profile: name });
 		}
 	}
 }
@@ -76,17 +61,10 @@ function validateTemplates(config: DiscordPresenceConfig): void {
 		for (const match of template.value.matchAll(PRESENCE_TEMPLATE_PATTERN)) {
 			const placeholder = match[0].slice(1, -1);
 			if (!TEMPLATE_KEYS.has(placeholder)) {
-				throw new DiscordPresenceConfigError("Discord presence template contains an unknown placeholder.", {
+				throw new ConfigError("Discord presence template contains an unknown placeholder.", {
 					path: template.path, placeholder,
 				});
 			}
 		}
 	}
 }
-
-function createError(message: string, details?: Record<string, unknown>): DiscordPresenceConfigError {
-	return new DiscordPresenceConfigError(message, details);
-}
-
-const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "discord-presence", createError });
-const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "discord-presence", createError });

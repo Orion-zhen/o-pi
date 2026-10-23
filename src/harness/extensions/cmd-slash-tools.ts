@@ -21,12 +21,12 @@ interface ToolSelectorModule {
 type ToolSelectorLoader = () => Promise<ToolSelectorModule>;
 
 /** 注册选择器与本地可用性约束，会话恢复由 SDK 负责。 */
-export function createToolsExtension(
-	loadTui?: ToolSelectorLoader,
-	gui?: Presenter<(controller: ToolSelectionController) => void>,
-	bindController?: (controller: ToolSelectionController) => void,
-	startup: ToolStartupOptions = {},
-): (pi: ExtensionAPI) => void {
+export function createToolsExtension({ loadTui, gui, bindController, startup = {} }: {
+	loadTui?: ToolSelectorLoader;
+	gui?: Presenter<(controller: ToolSelectionController) => void>;
+	bindController?: (controller: ToolSelectionController) => void;
+	startup?: ToolStartupOptions;
+} = {}): (pi: ExtensionAPI) => void {
 	return function toolsExtension(pi: ExtensionAPI): void {
 		const controller = new ToolSelectionController(pi);
 		bindController?.(controller);

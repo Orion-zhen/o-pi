@@ -5,7 +5,7 @@ import { afterEach, beforeEach } from "vitest";
 import { editFile, previewEdit } from "../../../src/harness/file-tools/edit/command.ts";
 import type { MutationDiagnosticsSource } from "../../../src/harness/file-tools/shared/mutation-diagnostics.ts";
 import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.ts";
-import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.ts";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.ts";
 import type { ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
 import type { TextDiffGenerator } from "../../../src/harness/file-tools/shared/text-diff.ts";
@@ -45,7 +45,7 @@ export function createCrudTestContext(): CrudTestContext {
 		read(params, options = {}) {
 			return readWorkspaceFile(workspaceTemp.path, params, { ...options, host, sessionId: "crud" });
 		},
-		async write(params, diff = piTextDiffGenerator) {
+		async write(params, diff = generateDiffString) {
 			const opened = await open();
 			if ("status" in opened) return opened;
 			try {
@@ -63,7 +63,7 @@ export function createCrudTestContext(): CrudTestContext {
 			try {
 				return await editFile(params, {
 					...opened,
-					diff: runtime.diff ?? piTextDiffGenerator,
+					diff: runtime.diff ?? generateDiffString,
 					...(runtime.diagnostics === undefined ? {} : { diagnostics: runtime.diagnostics }),
 				});
 			} finally {
@@ -76,7 +76,7 @@ export function createCrudTestContext(): CrudTestContext {
 			try {
 				return await previewEdit(params, {
 					...opened,
-					diff: piTextDiffGenerator,
+					diff: generateDiffString,
 				});
 			} finally {
 				opened.dispose();

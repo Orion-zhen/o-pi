@@ -7,7 +7,7 @@ import { FileChangeType } from "vscode-languageserver-protocol";
 import { editFile } from "../../../src/harness/file-tools/edit/command.ts";
 import { grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
 import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
-import { piTextDiffGenerator } from "../../../src/harness/file-tools/pi/ports/text-diff.ts";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import { bindFileLsp } from "../../../src/harness/file-tools/pi/lsp.ts";
 import { readWorkspaceFile } from "../../helpers/read-tool.ts";
 import { writeFile as writeFileCommand } from "../../../src/harness/file-tools/write/command.ts";
@@ -321,7 +321,7 @@ async function writeWithHooks(params: { path: string; content: string }, hooks: 
 		const diagnostics = bindFileLsp(opened, async () => lspOperations(hooks)).diagnostics();
 		return await writeFileCommand(params, {
 			...opened,
-			diff: piTextDiffGenerator,
+			diff: generateDiffString,
 			diagnostics,
 		});
 	} finally {
@@ -336,7 +336,7 @@ async function editWithHooks(params: { path: string; edits: Array<{ old: string;
 		const diagnostics = bindFileLsp(opened, async () => lspOperations(hooks)).diagnostics();
 		return await editFile(params, {
 			...opened,
-			diff: piTextDiffGenerator,
+			diff: generateDiffString,
 			diagnostics,
 		});
 	} finally {
