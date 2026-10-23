@@ -48,7 +48,6 @@ function Hint({ content, children, side = "top", disabled = false, followPointer
 				const bounds = event.currentTarget.getBoundingClientRect();
 				setPointerOffset(side === "top" || side === "bottom" ? event.clientX - bounds.left : event.clientY - bounds.top);
 			} : undefined}
-			onPointerLeave={followPointer ? () => setPointerOffset(null) : undefined}
 			onFocus={(event) => {
 				if (!event.currentTarget.matches(":focus-visible")) event.preventDefault();
 				if (followPointer) setPointerOffset(null);
