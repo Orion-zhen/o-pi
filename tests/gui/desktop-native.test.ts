@@ -158,10 +158,12 @@ describe("任务状态与电源", () => {
 });
 
 describe("原生菜单", () => {
-	it("菜单新建会话，并从更新后的最近工作区导航", () => {
+	it("macOS 菜单新建会话，并从更新后的最近工作区导航", () => {
+		Object.defineProperty(process, "platform", { value: "darwin" });
 		const window = new BrowserWindow();
 		const open = vi.fn();
 		const menu = installDesktopMenu(window, open);
+		expect(Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(vi.mocked(Menu.buildFromTemplate).mock.results[0]?.value);
 		const paths = [{ path: "/first", exists: true }, { path: "/current", exists: true }, { path: "/missing", exists: false }];
 		menu.workspaces(paths);
 		menu.select("/current");
@@ -185,7 +187,17 @@ describe("原生菜单", () => {
 		Reflect.apply(item.click, undefined, []);
 		expect(open).toHaveBeenCalledWith("/current");
 	});
-	it("输入框右键提供拼写替换和标准编辑能力", () => {
+	it.each(["win32", "linux"])("%s 移除应用菜单，工作区更新不重新创建", (platform) => {
+		Object.defineProperty(process, "platform", { value: platform });
+		const menu = installDesktopMenu(new BrowserWindow(), vi.fn());
+		expect(Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(null);
+		menu.workspaces([{ path: "/work", exists: true }]);
+		menu.select("/work");
+		expect(Menu.buildFromTemplate).not.toHaveBeenCalled();
+		expect(vi.mocked(Menu.setApplicationMenu).mock.calls).toEqual([[null], [null], [null]]);
+	});
+	it.each(["darwin", "win32", "linux"])("%s 输入框右键提供拼写替换和标准编辑能力", (platform) => {
+		Object.defineProperty(process, "platform", { value: platform });
 		const window = new BrowserWindow();
 		installDesktopMenu(window, vi.fn());
 		window.webContents.emit("context-menu", {}, { isEditable: true, misspelledWord: "helo", dictionarySuggestions: ["hello"],

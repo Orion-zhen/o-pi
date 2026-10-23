@@ -8,23 +8,25 @@ export function installDesktopMenu(window: BrowserWindow, openWorkspace: (path?:
 	const command = (value: DesktopCommand) => window.webContents.send("gui:command", value);
 	const settings: MenuItemConstructorOptions = { label: "设置…", accelerator: "CmdOrCtrl+,", click: () => command("settings") };
 	const update = () => {
+		if (process.platform !== "darwin") {
+			Menu.setApplicationMenu(null);
+			return;
+		}
 		const recent: MenuItemConstructorOptions[] = workspaces.filter((item) => item.exists)
 			.sort((a, b) => Number(b.path === currentDirectory) - Number(a.path === currentDirectory)).slice(0, 12).map((item) => ({
 				label: item.path.replaceAll("&", "&&"), click: () => openWorkspace(item.path),
 			}));
 		Menu.setApplicationMenu(Menu.buildFromTemplate([
-			...(process.platform === "darwin" ? [{ label: app.name, submenu: [
+			{ label: app.name, submenu: [
 				{ role: "about" }, { type: "separator" }, settings, { type: "separator" },
 				{ role: "services" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" },
 				{ role: "unhide" }, { type: "separator" }, { role: "quit" },
-			] } satisfies MenuItemConstructorOptions] : []),
+			] },
 			{ label: "文件", submenu: [
 				{ label: "新建会话", accelerator: "CmdOrCtrl+N", click: () => command("new") },
 				{ label: "打开工作区…", accelerator: "CmdOrCtrl+O", click: () => openWorkspace() },
 				{ label: "最近工作区", submenu: recent.length ? recent : [{ label: "无最近工作区", enabled: false }] },
-				...(process.platform === "darwin" ? [] : [settings]),
 				{ type: "separator" }, { role: "close" },
-				...(process.platform === "darwin" ? [] : [{ role: "quit" } satisfies MenuItemConstructorOptions]),
 			] },
 			{ label: "编辑", submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" },
 				{ role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "pasteAndMatchStyle" }, { role: "selectAll" }] },
