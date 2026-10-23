@@ -21,6 +21,15 @@ export function parseLaunchUrl(value: string): DesktopLaunch {
 	throw new Error("Desktop 链接仅支持工作区绝对路径、会话绝对路径或会话 ID。");
 }
 
+function launchArguments(argv: string[], cwd: string): string[] {
+	const args = argv.slice(1);
+	if (!process.defaultApp) return args;
+	const index = args.findIndex((arg) => !arg.startsWith("-") && path.resolve(cwd, arg) === app.getAppPath());
+	if (index === -1) throw new Error("无法定位 Desktop 应用入口。");
+	args.splice(index, 1);
+	return args;
+}
+
 function parseLaunchArguments(args: string[], cwd: string): DesktopLaunch[] {
 	const targets: DesktopLaunch[] = [];
 	for (let index = 0; index < args.length; index++) {
@@ -60,10 +69,10 @@ export function installDesktopLaunch(focus: () => void, report: (error: unknown)
 	app.on("open-url", (event, url) => { event.preventDefault(); receive(() => [parseLaunchUrl(url)]); focus(); });
 	app.on("open-file", (event, file) => { event.preventDefault(); enqueue({ kind: "file", path: file }); focus(); });
 	app.on("second-instance", (_event, argv, cwd) => {
-		receive(() => parseLaunchArguments(argv.slice(app.isPackaged ? 1 : 2), cwd));
+		receive(() => parseLaunchArguments(launchArguments(argv, cwd), cwd));
 		focus();
 	});
 	app.on("activate", focus);
-	receive(() => parseLaunchArguments(process.argv.slice(app.isPackaged ? 1 : 2), process.cwd()));
+	receive(() => parseLaunchArguments(launchArguments(process.argv, process.cwd()), process.cwd()));
 	return { enqueue, ready: ready.resolve };
 }
