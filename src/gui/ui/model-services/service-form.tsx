@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useEffectEvent, useMemo } from "react";
 import { LoaderCircle, RefreshCw } from "lucide-react";
 import { editProviderField } from "../../../harness/openai-compatible-provider/config-edits.ts";
 import { serviceCompatDefaults } from "../../../harness/openai-compatible-provider/compat-defaults.ts";
@@ -10,31 +10,32 @@ import { apiChoices, ServiceBoolean, ServiceChoice, ServiceNumber, ServiceText }
 import { receiveServiceCandidates, type ChangeConfig, type ChangeDraft } from "./service-draft.ts";
 import { ServiceCompat } from "./service-compat.tsx";
 import { ServiceModels } from "./service-models.tsx";
-import { useServiceCatalog, type CatalogQuery } from "./use-service-catalog.ts";
+import type { ServiceCatalogState } from "./use-service-catalog.ts";
 
-export interface ServiceFormProps {
+interface ServiceFormProps {
 	id: string;
 	config: ConfigObject;
 	disabled: boolean;
-	sessionId: string | undefined;
-	savedContent: string;
-	query: CatalogQuery;
+	catalog: ServiceCatalogState;
+	status: string;
 	changeDraft: ChangeDraft;
 }
 
-export function ServiceForm({ id, config, disabled, sessionId, savedContent, query, changeDraft }: ServiceFormProps) {
-	const { value: catalog, loading, error, retry } = useServiceCatalog(id, sessionId, savedContent, query, (value) => {
-		changeDraft((current) => receiveServiceCandidates(current, id, value.candidates));
+export function ServiceForm({ id, config, disabled, catalog: state, status, changeDraft }: ServiceFormProps) {
+	const { value: catalog, canRetry, retry } = state;
+	const loading = state.phase === "loading";
+	const receiveCandidates = useEffectEvent(() => {
+		if (catalog) changeDraft((current) => receiveServiceCandidates(current, id, catalog.candidates));
 	});
+	useEffect(() => { receiveCandidates(); }, [id, catalog]);
 	const candidates = useMemo(() => modelCandidates(config, catalog?.candidates ?? []), [config, catalog?.candidates]);
 	const defaults = serviceCompatDefaults(id, config);
 	const change: ChangeConfig = (path, value) => {
 		changeDraft((current) => editProviderField(current, id, path, value, catalog?.candidates ?? []));
 	};
-	const status = !sessionId ? "选择会话后获取候选模型" : loading ? "获取候选模型…" : error;
 
 	return <div className="service-form">
-		{catalog?.reloadRequired && <span role="status" className="service-tag">待重载</span>}
+		{catalog?.changes === "models" && <span role="status" className="service-tag">待重载</span>}
 		<div className="settings-fields">
 			<ServiceText label="服务名称" value={config.name} defaultValue={id} placeholder={id}
 				disabled={disabled} change={(value) => change(["name"], value)} />
@@ -52,7 +53,7 @@ export function ServiceForm({ id, config, disabled, sessionId, savedContent, que
 				disabled={disabled} change={(value) => change(["authHeader"], value)} />
 		</div></Disclosure>
 		<ServiceModels providerId={id} provider={config} candidates={candidates} disabled={disabled} change={change} status={status}
-			actions={<Button size="sm" variant="outline" disabled={disabled || !sessionId || loading} onClick={retry}>
+			actions={<Button size="sm" variant="outline" disabled={!canRetry} onClick={retry}>
 				{loading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}重新获取
 			</Button>} />
 	</div>;

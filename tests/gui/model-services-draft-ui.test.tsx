@@ -9,6 +9,9 @@ import { SettingsStateContext, useSettingsCoordinator } from "../../src/gui/ui/s
 import { SettingsActions } from "../../src/gui/ui/settings/settings-controls.tsx";
 import type { Send } from "../../src/gui/ui/runtime/connection.ts";
 import { useReactFixture } from "./react-fixture.ts";
+import type { CatalogQuery } from "../../src/gui/ui/model-services/use-service-catalog.ts";
+import type { ModelServiceCatalog } from "../../src/gui/model-services.ts";
+import { deferred } from "../helpers/async.ts";
 
 const render = useReactFixture();
 beforeEach(() => {
@@ -25,10 +28,13 @@ const click = async (element: HTMLButtonElement | undefined | null) => {
 };
 const dirty = vi.fn();
 const sessionQuery: Query = async () => { throw new Error("无会话不应查询候选"); };
-function View({ query, send }: { query: Query<{ query: "modelServices" }>; send: Send }) {
+function View({ query, send, catalogQuery = sessionQuery, sessionId, revision = 0, ready = !!sessionId }: {
+	query: Query<{ query: "modelServices" }>; send: Send; catalogQuery?: CatalogQuery; sessionId?: string; revision?: number; ready?: boolean;
+}) {
 	const state = useSettingsCoordinator(dirty);
 	return <TooltipProvider><SettingsStateContext.Provider value={state}>
-		<ModelServicesSettings globalQuery={query} query={sessionQuery} send={send} disabled={false} sessionId={undefined} />
+		<ModelServicesSettings globalQuery={query} query={catalogQuery} send={send} disabled={false} sessionId={sessionId}
+			sessionRevision={revision} sessionReady={ready} />
 		<SettingsActions count={state.dirtyPages.size} saving={state.saving} blocked={state.blocked} disabled={false}
 			error={state.error} status={state.status} save={state.save} discard={state.discard} />
 	</SettingsStateContext.Provider></TooltipProvider>;
@@ -129,4 +135,201 @@ it("改回默认值不同于已保存值时隐藏重置按钮，但仍需保存"
 	expect(action.original).toBe(content);
 	expect(JSON.parse(action.content).providers.local.authHeader).toBeUndefined();
 	expect(named("保存")?.disabled).toBe(true);
+});
+
+const badge = () => document.querySelector<HTMLButtonElement>(".service-connection");
+function connectionFixture() {
+	const content = JSON.stringify({ providers: { local: {
+		api: "openai-completions", baseUrl: "http://localhost/v1", apiKey: "local", models: [{ id: "m" }],
+	} } });
+	const value: ModelServiceCatalog = {
+		candidates: [{ id: "m", contextWindow: 8192 }, { id: "remote" }], changes: "none",
+		connection: { status: "connected", httpStatus: 200, checkedAt: Date.now(), latencyMs: 12 },
+	};
+	return {
+		query: vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: Type.Unknown() }),
+		catalogQuery: vi.fn<CatalogQuery>().mockResolvedValue(value), send: vi.fn<Send>().mockResolvedValue(true), value,
+	};
+}
+
+it("收起的服务自动检测但不修改草稿，点击 badge 重测不会展开，表单复用候选", async () => {
+	const fixture = connectionFixture();
+	await render(<View {...fixture} sessionId="first" />);
+	expect(badge()?.textContent).toBe("已连接");
+	expect(badge()?.getAttribute("data-tone")).toBe("success");
+	expect(button("编辑服务 local")?.getAttribute("aria-expanded")).toBe("false");
+	expect(named("保存")?.disabled).toBe(true);
+	expect(fixture.catalogQuery).toHaveBeenCalledOnce();
+	await click(badge());
+	expect(fixture.catalogQuery).toHaveBeenCalledTimes(2);
+	expect(button("编辑服务 local")?.getAttribute("aria-expanded")).toBe("false");
+	expect(named("保存")?.disabled).toBe(true);
+	await click(button("编辑服务 local"));
+	expect(button("编辑服务 local")?.getAttribute("aria-expanded")).toBe("true");
+	expect(fixture.catalogQuery).toHaveBeenCalledTimes(2);
+	await click(named("添加模型"));
+	await act(async () => document.querySelector<HTMLInputElement>('[aria-label="模型 ID"]')?.click());
+	expect(document.querySelector('[role="option"]')?.textContent).toBe("remote");
+	const pending = deferred<ModelServiceCatalog>();
+	fixture.catalogQuery.mockReturnValueOnce(pending.promise);
+	await click(named("重新获取"));
+	expect(badge()?.textContent).toBe("检测中");
+	expect(named("重新获取")?.disabled).toBe(true);
+	expect(document.querySelector('[role="option"]')?.textContent).toBe("remote");
+	await act(async () => { pending.resolve(fixture.value); });
+	expect(badge()?.textContent).toBe("已连接");
+});
+
+it("连接修改后显示待保存，保存后显示待重载，重载后自动更新状态", async () => {
+	const fixture = connectionFixture();
+	await render(<View {...fixture} sessionId="first" />);
+	await click(button("编辑服务 local"));
+	await click(named("请求设置"));
+	await click(button("强制 Bearer 认证"));
+	expect(badge()?.textContent).toBe("待保存");
+	expect(badge()?.getAttribute("aria-disabled")).toBe("true");
+	expect(named("重新获取")?.disabled).toBe(true);
+	await click(badge());
+	expect(fixture.catalogQuery).toHaveBeenCalledOnce();
+	fixture.catalogQuery.mockResolvedValueOnce({ ...fixture.value, changes: "connection" });
+	await click(named("保存"));
+	expect(badge()?.textContent).toBe("待重载");
+	expect(fixture.catalogQuery).toHaveBeenCalledTimes(2);
+	await render(<View {...fixture} sessionId="first" revision={1} ready={false} />);
+	expect(fixture.catalogQuery).toHaveBeenCalledTimes(2);
+	expect(badge()?.getAttribute("aria-disabled")).toBe("true");
+	await render(<View {...fixture} sessionId="first" revision={1} ready />);
+	expect(badge()?.textContent).toBe("已连接");
+	expect(fixture.catalogQuery).toHaveBeenCalledTimes(3);
+});
+
+it("会话未就绪或正在检测时，两个重试入口都禁用，就绪变化不重复检测", async () => {
+	const fixture = connectionFixture();
+	const pending = deferred<ModelServiceCatalog>();
+	fixture.catalogQuery.mockReturnValueOnce(pending.promise);
+	await render(<View {...fixture} sessionId="first" ready={false} />);
+	await click(button("编辑服务 local"));
+	const expectRetryDisabled = (disabled: boolean) => {
+		expect(badge()?.getAttribute("aria-disabled")).toBe(String(disabled));
+		expect(named("重新获取")?.disabled).toBe(disabled);
+	};
+	expectRetryDisabled(true);
+	await click(badge());
+	expect(fixture.catalogQuery).not.toHaveBeenCalled();
+	await render(<View {...fixture} sessionId="first" ready />);
+	expect(badge()?.textContent).toBe("检测中");
+	expectRetryDisabled(true);
+	await act(async () => { pending.resolve(fixture.value); });
+	expectRetryDisabled(false);
+	await render(<View {...fixture} sessionId="first" ready={false} />);
+	expectRetryDisabled(true);
+	await render(<View {...fixture} sessionId="first" ready />);
+	expectRetryDisabled(false);
+	expect(fixture.catalogQuery).toHaveBeenCalledOnce();
+	await click(named("重新获取"));
+	expect(fixture.catalogQuery).toHaveBeenCalledTimes(2);
+	expect(badge()?.textContent).toBe("已连接");
+});
+
+it("仅模型配置待重载时保留连接状态，表单单独提示重载", async () => {
+	const fixture = connectionFixture();
+	fixture.catalogQuery.mockResolvedValue({ ...fixture.value, changes: "models" });
+	await render(<View {...fixture} sessionId="first" />);
+	expect(badge()?.textContent).toBe("已连接");
+	await click(button("编辑服务 local"));
+	expect(document.querySelector(".service-form > .service-tag")?.textContent).toBe("待重载");
+});
+
+it.each([
+	["unavailable", "connection", "待重载", "请先保存并重载新服务"],
+	["unconfigured", "none", "未配置认证", "请先配置认证"],
+] as const)("%s 检测结果与 %s 配置差异分别决定提示", async (status, changes, label, message) => {
+	const fixture = connectionFixture();
+	fixture.catalogQuery.mockResolvedValue({ ...fixture.value, candidates: [], changes, connection: { status } });
+	await render(<View {...fixture} sessionId="first" />);
+	expect(badge()?.textContent).toBe(label);
+	await click(button("编辑服务 local"));
+	expect(document.querySelector(".service-form")?.textContent).toContain(message);
+	expect(document.querySelector(".service-form > .service-tag")).toBeNull();
+});
+
+it("查询失败显示安全文案，手动重试恢复连接状态", async () => {
+	const fixture = connectionFixture();
+	fixture.catalogQuery.mockRejectedValueOnce(new Error("sk-secret"));
+	await render(<View {...fixture} sessionId="first" />);
+	expect(badge()?.textContent).toBe("检测失败");
+	await click(button("编辑服务 local"));
+	expect(document.querySelector(".service-form")?.textContent).toContain("获取候选模型失败，可重试或手动填写模型 ID");
+	expect(document.body.textContent).not.toContain("sk-secret");
+	await render(<View {...fixture} sessionId="first" ready={false} />);
+	await render(<View {...fixture} sessionId="first" ready />);
+	expect(fixture.catalogQuery).toHaveBeenCalledOnce();
+	await click(named("重新获取"));
+	expect(badge()?.textContent).toBe("已连接");
+	expect(document.querySelector(".service-form")?.textContent).not.toContain("获取候选模型失败");
+});
+
+it("无会话显示未检测，不发起请求", async () => {
+	const fixture = connectionFixture();
+	await render(<View {...fixture} />);
+	expect(badge()?.textContent).toBe("未检测");
+	await click(badge());
+	expect(fixture.catalogQuery).not.toHaveBeenCalled();
+	await render(<View {...fixture} sessionId="first" />);
+	expect(badge()?.textContent).toBe("已连接");
+	expect(fixture.catalogQuery).toHaveBeenCalledOnce();
+});
+
+it("在途检测不能覆盖连接草稿的待保存状态", async () => {
+	const fixture = connectionFixture();
+	const pending = deferred<ModelServiceCatalog>();
+	fixture.catalogQuery.mockReturnValueOnce(pending.promise);
+	await render(<View {...fixture} sessionId="first" />);
+	expect(badge()?.textContent).toBe("检测中");
+	await click(button("编辑服务 local"));
+	await click(named("请求设置"));
+	await click(button("强制 Bearer 认证"));
+	await act(async () => { pending.resolve(fixture.value); });
+	expect(badge()?.textContent).toBe("待保存");
+	expect(button("强制 Bearer 认证")?.getAttribute("aria-checked")).toBe("true");
+	await click(named("放弃"));
+	expect(badge()?.textContent).toBe("已连接");
+	expect(fixture.catalogQuery).toHaveBeenCalledTimes(2);
+});
+
+it("服务拒绝认证后显示失败提示，重试成功后恢复连接状态", async () => {
+	const fixture = connectionFixture();
+	fixture.catalogQuery.mockResolvedValueOnce({ ...fixture.value, candidates: [], connection: {
+		status: "auth-failed", checkedAt: Date.now(), latencyMs: 10, httpStatus: 401,
+	} });
+	await render(<View {...fixture} sessionId="first" />);
+	expect(badge()?.textContent).toBe("认证失败");
+	expect(badge()?.getAttribute("data-tone")).toBe("error");
+	await click(button("编辑服务 local"));
+	expect(document.querySelector(".service-form")?.textContent).toContain("获取候选模型失败，可重试或手动填写模型 ID");
+	await click(named("重新获取"));
+	expect(badge()?.textContent).toBe("已连接");
+});
+
+it.each(["success", "failure"] as const)("切换会话清除旧候选，旧检测的 %s 不覆盖新会话", async (outcome) => {
+	const fixture = connectionFixture();
+	const previous = Promise.withResolvers<ModelServiceCatalog>();
+	const current = deferred<ModelServiceCatalog>();
+	await render(<View {...fixture} sessionId="first" />);
+	await click(button("编辑服务 local"));
+	await click(named("添加模型"));
+	await act(async () => document.querySelector<HTMLInputElement>('[aria-label="模型 ID"]')?.click());
+	expect(document.querySelector('[role="option"]')?.textContent).toBe("remote");
+	fixture.catalogQuery.mockReturnValueOnce(previous.promise).mockReturnValueOnce(current.promise);
+	await click(badge());
+	await render(<View {...fixture} sessionId="second" />);
+	expect(badge()?.textContent).toBe("检测中");
+	expect(document.querySelector('[role="listbox"]:not([aria-hidden="true"])')).toBeNull();
+	await act(async () => { current.resolve({ ...fixture.value, candidates: [{ id: "current" }] }); });
+	await act(async () => {
+		if (outcome === "success") previous.resolve({ ...fixture.value, candidates: [{ id: "previous" }] });
+		else previous.reject(new Error("旧会话请求失败"));
+	});
+	expect(badge()?.textContent).toBe("已连接");
+	expect(document.querySelector('[role="listbox"]:not([aria-hidden="true"])')?.textContent).toBe("current");
 });

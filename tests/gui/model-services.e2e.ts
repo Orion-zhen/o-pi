@@ -258,6 +258,15 @@ test("模型 ID 输入筛选候选，也可直接添加自定义模型", async (
 		await page.getByRole("button", { name: "重载资源", exact: true }).click();
 		expect((await reloaded).ok()).toBe(true);
 		await open(page);
+		const badge = service.getByRole("button", { name: "检测服务 catalog，已连接", exact: true });
+		await expect(badge).toBeVisible();
+		requests.length = 0;
+		await badge.press("Enter");
+		await expect.poll(() => requests.length).toBe(1);
+		await expect(badge).toHaveText("已连接");
+		await expect(service.getByRole("button", { name: "编辑服务 catalog", exact: true })).toHaveAttribute("aria-expanded", "false");
+		await badge.hover();
+		await expect(page.getByRole("tooltip")).toContainText("ms");
 		await service.getByRole("button", { name: "编辑服务 catalog", exact: true }).click();
 		await expect(service.getByRole("button", { name: "重新获取", exact: true })).toBeEnabled();
 		await expect(service.getByText("0 个模型", { exact: true })).toBeVisible();

@@ -54,7 +54,7 @@ function Hint({ content, children, side = "top", disabled = false, followPointer
 				if (followPointer) setPointerOffset(null);
 			}}
 		>{children}</TooltipPrimitive.Trigger>
-		<TooltipContent side={side} align={pointerOffset === null ? "center" : "start"} alignOffset={pointerOffset ?? 0}>{content}</TooltipContent>
+		<TooltipContent className="whitespace-pre-line" side={side} align={pointerOffset === null ? "center" : "start"} alignOffset={pointerOffset ?? 0}>{content}</TooltipContent>
 	</TooltipPrimitive.Root>;
 }
 

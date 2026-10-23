@@ -7,6 +7,15 @@
 .model-service { min-inline-size: 0; padding-inline: var(--space-4); border: thin solid var(--divider); border-radius: var(--radius-lg); background: var(--control-surface); }
 .service-model { min-inline-size: 0; border-block-start: thin solid var(--divider); }
 .service-item-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-1); min-inline-size: 0; }
+.service-connection { display: inline-flex; flex: none; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); color: var(--connection-color, var(--muted-foreground)); background: color-mix(in srgb, var(--connection-color, var(--muted-foreground)) 10%, transparent); font-size: var(--text-caption); white-space: nowrap; cursor: pointer; }
+.service-connection[data-tone="success"] { --connection-color: var(--success); }
+.service-connection[data-tone="warning"] { --connection-color: var(--warning); }
+.service-connection[data-tone="error"] { --connection-color: var(--destructive); }
+.service-connection:hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--connection-color, var(--muted-foreground)) 18%, transparent); }
+.service-connection:focus-visible { outline: 0.125rem solid var(--ring); outline-offset: 0.125rem; }
+.service-connection[aria-disabled="true"] { cursor: default; }
+.service-connection > svg { inline-size: 1em; block-size: 1em; }
+.service-connection-dot { inline-size: 0.5em; block-size: 0.5em; border-radius: 50%; background: currentColor; }
 .service-summary { display: flex; flex: 1 1 16ch; flex-direction: column; gap: var(--space-1); min-inline-size: 0; padding: var(--space-1) var(--space-2); text-align: start; cursor: pointer; border-radius: var(--radius-sm); }
 .model-service > .service-item-heading, .model-service > .service-item-heading > .service-summary { padding-inline-start: 0; }
 .service-summary strong { font-size: var(--text-ui); font-weight: 500; overflow-wrap: anywhere; }

@@ -15,14 +15,17 @@ import { useSettingsDraft, useSettingsState } from "../settings/settings-state.t
 import { AddServiceItem } from "./add-service-item.tsx";
 import { parseServiceDraft, serviceDraftChanged } from "./service-draft.ts";
 import { ServiceItem } from "./service-item.tsx";
+import type { CatalogQuery } from "./use-service-catalog.ts";
 import "./model-services.css";
 
-export function ModelServicesSettings({ globalQuery, query, send, disabled, sessionId }: {
+export function ModelServicesSettings({ globalQuery, query, send, disabled, sessionId, sessionRevision, sessionReady }: {
 	globalQuery: Query<{ query: "modelServices" }>;
-	query: Query;
+	query: CatalogQuery;
 	send: Send;
 	disabled: boolean;
 	sessionId: string | undefined;
+	sessionRevision: number | undefined;
+	sessionReady: boolean;
 }) {
 	const editor = useConfigDraft(useCallback(() => globalQuery({ query: "modelServices" }), [globalQuery]), String);
 	const { document, draft, error } = editor;
@@ -69,6 +72,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 	useSettingsDraft("modelServices", {
 		title: "模型服务", dirty, blocked: disabled, invalid: !!parsed.error || issues.length > 0, save, discard,
 	});
+	const saved = useMemo(() => parseServiceDraft(document?.content || emptyModelsDocument).value, [document?.content]);
 	const providers = parsed.value?.providers ?? {};
 	const services = Object.entries(providers).filter(([, config]) => isCompatibleService(config));
 
@@ -92,7 +96,8 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 				<div className="model-service-list"><AnimatePresence initial={false}>
 					{services.map(([id, config]) => <ServiceItem key={id} id={id} config={config} disabled={blocked}
 						open={expanded === id} setOpen={(open) => setExpanded(open ? id : undefined)}
-						savedContent={document.content} sessionId={sessionId} query={query} changeDraft={editor.change} />)}
+						savedConfig={saved?.providers[id]} sessionId={sessionId} sessionRevision={sessionRevision} sessionReady={sessionReady}
+						query={query} changeDraft={editor.change} />)}
 				</AnimatePresence></div>
 				{!services.length && !adding && <p className="settings-empty">暂无服务</p>}
 			</>}

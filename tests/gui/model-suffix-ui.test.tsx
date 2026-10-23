@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import type { ModelServiceCatalog } from "../../src/gui/model-services.ts";
 import { parseModelsDocument } from "../../src/harness/openai-compatible-provider/document.ts";
 import { TooltipProvider } from "../../src/gui/ui/components/ui/tooltip.tsx";
-import { ServiceForm } from "../../src/gui/ui/model-services/service-form.tsx";
+import { ServiceItem } from "../../src/gui/ui/model-services/service-item.tsx";
 import { ServiceModels } from "../../src/gui/ui/model-services/service-models.tsx";
 import { modelCandidates } from "../../src/harness/openai-compatible-provider/model-candidates.ts";
 import type { CatalogQuery } from "../../src/gui/ui/model-services/use-service-catalog.ts";
@@ -35,14 +35,17 @@ it("候选异步到达时只更新一次草稿，恢复默认映射在同一次�
 		const [content, setContent] = useState(JSON.stringify({ providers: { local: provider } }));
 		const config = parseModelsDocument(content).providers.local;
 		if (!config) throw new Error("缺少服务");
-		return <TooltipProvider><ServiceForm id="local" config={config} disabled={false} sessionId="session" savedContent="saved" query={query}
+		return <TooltipProvider><ServiceItem id="local" config={config} disabled={false} sessionId="session" savedConfig={provider} query={query}
+			open setOpen={() => {}} sessionRevision={0} sessionReady
 			changeDraft={(update) => {
 				updates(); setContent(update);
 			}} /><output>{content}</output></TooltipProvider>;
 	}
 	await render(<View />);
 	expect(document.querySelector("output")?.textContent).not.toContain("thinkingLevelMap");
-	await act(async () => pending.resolve({ candidates, error: "", reloadRequired: false }));
+	await act(async () => pending.resolve({ candidates, changes: "none",
+		connection: { status: "connected", httpStatus: 200, latencyMs: 10, checkedAt: Date.now() },
+	}));
 	expect(updates).toHaveBeenCalledOnce();
 	expect(JSON.parse(document.querySelector("output")?.textContent ?? "")).toMatchObject({ providers: { local: { models: [{ id: "m", reasoning: true,
 		thinkingLevelMap: { minimal: null, low: "low", medium: null, high: null, xhigh: "xhigh", max: null },

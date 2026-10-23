@@ -279,6 +279,7 @@ export interface GuiSnapshot {
 	models: GuiModel[];
 	scopedModels: string[];
 	modelScopeChanged: boolean;
+	modelServicesRevision: number;
 	defaultModel: { provider: string | null; id: string | null; thinking: ThinkingLevel | null };
 	thinking: ThinkingLevel;
 	thinkingLevels: ThinkingLevel[];

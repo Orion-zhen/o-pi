@@ -1,36 +1,44 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Query } from "../../contract.ts";
 import type { ModelServiceCatalog } from "../../model-services.ts";
 
 export type CatalogQuery = Query<{ query: "modelServiceCatalog"; provider: string }>;
-type CatalogState = { value: ModelServiceCatalog | undefined; loading: boolean; error: string };
-const initial: CatalogState = { value: undefined, loading: false, error: "" };
+type CatalogState =
+	| { phase: "idle" | "failed"; value: undefined }
+	| { phase: "loading"; value: ModelServiceCatalog | undefined }
+	| { phase: "ready"; value: ModelServiceCatalog };
+const initial: CatalogState = { phase: "idle", value: undefined };
+export type ServiceCatalogState = CatalogState & { canRetry: boolean; retry: () => Promise<void> };
 
-export function useServiceCatalog(id: string, sessionId: string | undefined, savedContent: string, query: CatalogQuery, receive: (value: ModelServiceCatalog) => void) {
-	const [state, setState] = useState(initial);
+export function useServiceCatalog({ id, sessionId, revision, savedContent, enabled, ready, query }: {
+	id: string;
+	sessionId: string | undefined;
+	revision: number | undefined;
+	savedContent: string;
+	enabled: boolean;
+	ready: boolean;
+	query: CatalogQuery;
+}): ServiceCatalogState {
+	const scope = useMemo(() => Symbol(), [id, sessionId, revision, savedContent, enabled, query]);
+	const [state, setState] = useState<CatalogState & { scope: symbol }>({ ...initial, scope });
 	const active = useRef<symbol | undefined>(undefined);
-	const receiver = useRef(receive);
-	useLayoutEffect(() => { receiver.current = receive; }, [receive]);
-	const load = useCallback(async () => {
+	const current = state.scope === scope ? state : initial;
+	const canRetry = !!sessionId && enabled && ready && current.phase !== "loading";
+	const retry = useCallback(async () => {
+		if (!canRetry) return;
 		const request = Symbol();
 		active.current = request;
-		setState((current) => ({ ...current, loading: true, error: "" }));
-		let value: ModelServiceCatalog;
+		setState((previous) => ({ scope, phase: "loading", value: previous.scope === scope ? previous.value : undefined }));
 		try {
-			value = await query({ query: "modelServiceCatalog", provider: id });
+			const value = await query({ query: "modelServiceCatalog", provider: id });
+			if (active.current === request) setState({ scope, phase: "ready", value });
 		} catch {
-			if (active.current === request) setState({ value: undefined, loading: false, error: "获取候选模型失败，可重试或手动填写模型 ID" });
-			return;
+			if (active.current === request) setState({ scope, phase: "failed", value: undefined });
 		}
-		if (active.current === request) {
-			setState({ value, loading: false, error: value.error });
-			receiver.current(value);
-		}
-	}, [id, query]);
-	useEffect(() => { setState(initial); }, [load, sessionId]);
+	}, [id, query, scope, canRetry]);
+	useEffect(() => () => { active.current = undefined; }, [scope]);
 	useEffect(() => {
-		if (sessionId) void load();
-		return () => { active.current = undefined; };
-	}, [load, sessionId, savedContent]);
-	return { ...state, retry: load };
+		if (current.phase === "idle") void retry();
+	}, [current.phase, retry]);
+	return { ...current, canRetry, retry };
 }

@@ -6,7 +6,7 @@ export function guiSnapshot(): GuiSnapshot {
 		canSubmit: true, canChangeSession: true, running: false, commandRunning: false,
 		liveTools: [], streaming: false, retrying: false, compacting: false,
 		contextEntryIds: [], history: [], entries: [], streamingMessage: null,
-		model: null, codexSpeed: null, routedModel: null, models: [], scopedModels: [], modelScopeChanged: false,
+		model: null, codexSpeed: null, routedModel: null, models: [], scopedModels: [], modelScopeChanged: false, modelServicesRevision: 0,
 		defaultModel: { provider: null, id: null, thinking: null },
 		thinking: "off", thinkingLevels: ["off", "high"], context: null,
 		stats: { sessionId: "fixture", sessionFile: undefined, userMessages: 0, assistantMessages: 0, toolCalls: 0, toolResults: 0,

@@ -78,10 +78,10 @@ it("模型列表只展示显式配置，保留原生覆盖优先级，新增模�
 	expect(parseModelsDocument(reset).providers.local).toMatchObject({ models: [...config.models, added], modelOverrides: { offline: { name: "离线" } } });
 });
 
-async function startSession(config: Record<string, unknown>) {
+async function startSession(config: Record<string, unknown>, ids = ["local"]) {
 	process.env.PI_OFFLINE = "1";
 	const document = await client.query({ query: "modelServices" });
-	await client.dispatch({ action: "saveModelServices", original: "", content: JSON.stringify({ providers: { local: config } }) });
+	await client.dispatch({ action: "saveModelServices", original: "", content: JSON.stringify({ providers: Object.fromEntries(ids.map((id) => [id, config])) }) });
 	const agentDir = path.dirname(document.path);
 	await mkdir(path.join(agentDir, "configs"));
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProjectTrust: "never", defaultProvider: "local", defaultModel: "model" }));
@@ -105,11 +105,11 @@ it("添加并保存后仍可获取候选、继续添加，统一重载才注册�
 	const document = await client.query({ query: "modelServices" });
 	const content = editModelsDocument(document.content, ["providers", "local", "models", 1], candidates[0]);
 	await client.dispatch({ action: "saveModelServices", original: document.content, content });
-	expect(await catalog()).toMatchObject({ candidates, reloadRequired: true, error: "" });
+	expect(await catalog()).toMatchObject({ candidates, changes: "models", connection: { status: "connected" } });
 	expect(fetch).toHaveBeenCalledTimes(2);
 	const second = editModelsDocument(content, ["providers", "local", "models", 2], candidates[2]);
 	await client.dispatch({ action: "saveModelServices", original: content, content: second });
-	expect(await catalog()).toMatchObject({ candidates, reloadRequired: true, error: "" });
+	expect(await catalog()).toMatchObject({ candidates, changes: "models", connection: { status: "connected" } });
 	expect(runtime.getModels("local").map(({ id }) => id)).toEqual(["model"]);
 	await client.dispatch({ action: "reload" });
 	expect(runtime.getModel("local", "second")).toBeDefined();
@@ -118,7 +118,7 @@ it("添加并保存后仍可获取候选、继续添加，统一重载才注册�
 	expect((await catalog()).candidates).toEqual(candidates);
 	const removed = editModelsDocument(second, ["providers", "local", "models", 1], undefined);
 	await client.dispatch({ action: "saveModelServices", original: second, content: removed });
-	expect(await catalog()).toMatchObject({ candidates, reloadRequired: true, error: "" });
+	expect(await catalog()).toMatchObject({ candidates, changes: "models", connection: { status: "connected" } });
 	await client.dispatch({ action: "reload" });
 	expect((await catalog()).candidates).toEqual(candidates);
 	expect(runtime.getModel("local", "remote")).toBeUndefined();
@@ -132,14 +132,32 @@ it("待重载时查询仍使用会话的地址和认证，重载后才切换连�
 	content = editModelsDocument(content, ["providers", "local", "apiKey"], "new-key");
 	await client.dispatch({ action: "saveModelServices", original: document.content, content });
 	const query = { query: "modelServiceCatalog", provider: "local" } as const;
-	expect(await client.query(query)).toMatchObject({ candidates: [{ id: "remote" }], reloadRequired: true, error: "" });
+	expect(await client.query(query)).toMatchObject({
+		candidates: [{ id: "remote" }], changes: "connection",
+		connection: { status: "connected", httpStatus: 200, checkedAt: expect.any(Number), latencyMs: expect.any(Number) },
+	});
 	expect(String(fetch.mock.calls[0]?.[0])).toBe("http://localhost:8080/v1/models");
 	expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe("Bearer local");
 	fetch.mockResolvedValue(Response.json({ data: [{ id: "new-remote" }] }));
 	await client.dispatch({ action: "reload" });
-	expect(await client.query(query)).toMatchObject({ candidates: [{ id: "new-remote" }], reloadRequired: false, error: "" });
+	expect(await client.query(query)).toMatchObject({ candidates: [{ id: "new-remote" }], changes: "none", connection: { status: "connected" } });
 	expect(String(fetch.mock.calls[1]?.[0])).toBe("https://new.test/v1/models");
 	expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("Authorization")).toBe("Bearer new-key");
+});
+
+it("未配置认证时不请求服务，保存认证并重载后可获取候选", async () => {
+	await startSession({ ...provider, apiKey: undefined });
+	const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ data: [{ id: "remote" }] }));
+	const query = { query: "modelServiceCatalog", provider: "local" } as const;
+	expect(await client.query(query)).toMatchObject({ candidates: [], connection: { status: "unconfigured" } });
+	const document = await client.query({ query: "modelServices" });
+	const content = editModelsDocument(document.content, ["providers", "local", "apiKey"], "new-key");
+	await client.dispatch({ action: "saveModelServices", original: document.content, content });
+	expect(await client.query(query)).toMatchObject({ changes: "connection", connection: { status: "unconfigured" } });
+	expect(fetch).not.toHaveBeenCalled();
+	await client.dispatch({ action: "reload" });
+	expect(await client.query(query)).toMatchObject({ candidates: [{ id: "remote" }], connection: { status: "connected" } });
+	expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe("Bearer new-key");
 });
 
 it("尚未加载的新服务明确提示初始化连接，不影响已有服务查询", async () => {
@@ -149,23 +167,23 @@ it("尚未加载的新服务明确提示初始化连接，不影响已有服务�
 	await client.dispatch({ action: "saveModelServices", original: document.content, content });
 	const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ data: [{ id: "remote" }] }));
 	expect(await client.query({ query: "modelServiceCatalog", provider: "new" })).toMatchObject({
-		candidates: [], reloadRequired: true, error: "请先保存并重载新服务，再获取候选模型",
+		candidates: [], changes: "connection", connection: { status: "unavailable" },
 	});
 	expect(fetch).not.toHaveBeenCalled();
-	expect(await client.query({ query: "modelServiceCatalog", provider: "local" })).toMatchObject({ candidates: [{ id: "remote" }], error: "" });
+	expect(await client.query({ query: "modelServiceCatalog", provider: "local" })).toMatchObject({ candidates: [{ id: "remote" }], connection: { status: "connected" } });
 	await client.dispatch({ action: "reload" });
-	expect(await client.query({ query: "modelServiceCatalog", provider: "new" })).toMatchObject({ candidates: [{ id: "remote" }], reloadRequired: false, error: "" });
+	expect(await client.query({ query: "modelServiceCatalog", provider: "new" })).toMatchObject({ candidates: [{ id: "remote" }], changes: "none" });
 });
 
 it("候选获取失败或返回空列表不影响已配置模型和保存", async () => {
 	await startSession(provider);
-	const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("sk-secret"))
+	const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("https://secret:password@models.test/v1 sk-secret"))
 		.mockResolvedValueOnce(Response.json({ data: [] }));
 	const query = { query: "modelServiceCatalog", provider: "local" } as const;
 	const failed = await client.query(query);
-	expect(failed.error).toContain("可重试或手动填写");
-	expect(failed.error).not.toContain("sk-secret");
-	expect(await client.query(query)).toMatchObject({ candidates: [], error: "" });
+	expect(JSON.stringify(failed)).not.toMatch(/secret|password/);
+	expect(failed.connection).toMatchObject({ status: "network-error", httpStatus: null });
+	expect(await client.query(query)).toMatchObject({ candidates: [], connection: { status: "connected" } });
 	expect(fetch).toHaveBeenCalledTimes(2);
 	expect(client.runtime.services.modelRuntime.getModels("local").map(({ id }) => id)).toEqual(["model"]);
 });
@@ -176,9 +194,60 @@ it("静态服务保存后提示重载，重载更新当前模型", async () => {
 	const document = await client.query({ query: "modelServices" });
 	const content = editModelsDocument(document.content, ["providers", "local", "models", 0, "maxTokens"], 2048);
 	await client.dispatch({ action: "saveModelServices", original: document.content, content });
-	expect(await client.query({ query: "modelServiceCatalog", provider: "local" })).toMatchObject({ reloadRequired: true });
+	expect(await client.query({ query: "modelServiceCatalog", provider: "local" })).toMatchObject({ changes: "models" });
 	await client.dispatch({ action: "reload" });
-	expect(await client.query({ query: "modelServiceCatalog", provider: "local" })).toMatchObject({ reloadRequired: false });
+	expect(await client.query({ query: "modelServiceCatalog", provider: "local" })).toMatchObject({ changes: "none" });
 	expect(client.runtime.services.modelRuntime.getModel("local", "model")?.maxTokens).toBe(2048);
 	expect(client.runtime.session.model?.maxTokens).toBe(2048);
+});
+
+it("多个服务同时检测时限制并发，排队服务最终也能获取候选", async () => {
+	const ids = ["local", "second", "third", "fourth"];
+	await startSession(provider, ids);
+	const pending: ReturnType<typeof Promise.withResolvers<Response>>[] = [];
+	vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+		const request = Promise.withResolvers<Response>();
+		pending.push(request);
+		return request.promise;
+	});
+	const results = Promise.all(ids.map((provider) => client.query({ query: "modelServiceCatalog", provider })));
+	await vi.waitFor(() => expect(pending).toHaveLength(3));
+	for (const request of pending.slice()) request.resolve(Response.json({ data: [{ id: "remote" }] }));
+	await vi.waitFor(() => expect(pending).toHaveLength(4));
+	pending[3]?.resolve(Response.json({ data: [{ id: "remote" }] }));
+	for (const result of await results) expect(result).toMatchObject({ candidates: [{ id: "remote" }], connection: { status: "connected" } });
+});
+
+it("宿主退出取消多个服务的在途和排队检测，不启动剩余请求", async () => {
+	const ids = ["local", "second", "third", "fourth"];
+	await startSession(provider, ids);
+	const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => new Promise<Response>((_resolve, reject) => {
+		const signal = init?.signal;
+		if (!signal) throw new Error("缺少取消信号");
+		signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+	}));
+	const results = Promise.allSettled(ids.map((provider) => client.query({ query: "modelServiceCatalog", provider })));
+	await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+	await client.host.dispose();
+	expect((await results).map(({ status }) => status)).toEqual(Array(4).fill("rejected"));
+	expect(fetch).toHaveBeenCalledTimes(3);
+});
+
+it("重载取消多个服务的旧检测和排队请求，之后可检测新配置", async () => {
+	const ids = ["local", "second", "third", "fourth"];
+	await startSession(provider, ids);
+	const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => new Promise<Response>((_resolve, reject) => {
+		const signal = init?.signal;
+		if (!signal) throw new Error("缺少取消信号");
+		signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+	}));
+	const revision = client.execution.snapshot().modelServicesRevision;
+	const results = Promise.allSettled(ids.map((provider) => client.query({ query: "modelServiceCatalog", provider })));
+	await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+	await client.dispatch({ action: "reload" });
+	expect((await results).map(({ status }) => status)).toEqual(Array(4).fill("rejected"));
+	expect(fetch).toHaveBeenCalledTimes(3);
+	expect(client.execution.snapshot().modelServicesRevision).toBeGreaterThan(revision);
+	fetch.mockImplementation(async () => Response.json({ data: [] }));
+	expect(await client.query({ query: "modelServiceCatalog", provider: "local" })).toMatchObject({ connection: { status: "connected" } });
 });

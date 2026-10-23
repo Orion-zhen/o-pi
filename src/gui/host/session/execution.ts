@@ -20,8 +20,7 @@ import { GuiStream } from "../projection/stream.ts";
 import { GuiLiveTools } from "../projection/live-tools.ts";
 import { NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
 import type { GuiMcpTools } from "./mcp-tools.ts";
-import type { ModelsConfig } from "../../../harness/openai-compatible-provider/schema.ts";
-import { readModelServiceCatalog } from "./model-services.ts";
+import { GuiModelServices } from "./model-services.ts";
 import { setCodexSpeed } from "../../../harness/codex-speed/state.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
@@ -60,7 +59,7 @@ export class GuiExecution {
 	private background = new Set<() => void>();
 	private toolController: ToolSelectionController | undefined;
 	private mcpTools: GuiMcpTools | undefined;
-	private modelsConfig: ModelsConfig | undefined;
+	private modelServices = new GuiModelServices();
 	private loginController: AbortController | undefined;
 	private mcpLoggingIn = false;
 	private origin = new AsyncLocalStorage<SessionClient>();
@@ -130,7 +129,7 @@ export class GuiExecution {
 					emit: (event) => this.emit(event),
 					bindTools: (controller) => { this.toolController = controller; },
 					bindMcp: (tools) => { this.mcpTools = tools; },
-					bindModelServices: (config) => { this.modelsConfig = config; },
+					bindModelServices: (config) => { this.modelServices.bind(config); },
 					toolsChanged: () => this.schedule(),
 					commandSignal: () => this.commandController.signal,
 					reports: this.reports,
@@ -207,6 +206,7 @@ export class GuiExecution {
 		return collectGuiSnapshot(this.runtime, {
 			scopedModels: this.modelScope.ids,
 			modelScopeChanged: this.modelScope.hasDefaultChanges(this.runtime),
+			modelServicesRevision: this.modelServices.revision,
 			canSubmit: !this.changing,
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
@@ -258,7 +258,7 @@ export class GuiExecution {
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
 		const runtime = this.runtime;
 		switch (query.query) {
-			case "modelServiceCatalog": return readModelServiceCatalog(runtime.services.modelRuntime, this.modelsConfig, query.provider, this.commandController.signal);
+			case "modelServiceCatalog": return this.modelServices.read(runtime.services.modelRuntime, query.provider, this.commandController.signal);
 			case "complete": return completeCommand(runtime.session, query.text);
 			case "files": return completeFiles(runtime.cwd, query.prefix);
 			case "config": await runtime.services.settingsManager.flush(); return readConfig(query.file);
