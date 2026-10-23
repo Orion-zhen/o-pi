@@ -47,10 +47,15 @@ it("深浅色不透明度独立修改和重置，不相互覆盖", () => {
 it("不同页面的草稿分别保存，不覆盖已经保存的其它页面", () => {
 	const base = initial();
 	const appearance = editPreference(base, ["theme"], "dark");
-	const interaction = editPreference(base, ["sendShortcut"], "enter");
+	const interaction = editPreference(editPreference(base, ["sendShortcut"], "enter"), ["preventSleepWhileRunning"], true);
 	const saved = sectionSave(base, appearance, interaction, "appearance");
 	expect(saved.original).toBe(interaction.content);
-	expect(parse(saved.content)).toEqual({ theme: "dark", sendShortcut: "enter" });
+	expect(parse(saved.content)).toEqual({ theme: "dark", sendShortcut: "enter", preventSleepWhileRunning: true });
+	expect(parse(sectionSave(base, interaction, appearance, "interaction").content)).toEqual({ theme: "dark", sendShortcut: "enter", preventSleepWhileRunning: true });
+	const combined = editPreference(interaction, ["theme"], "dark");
+	const reset = resetSection(combined, "interaction");
+	expect(reset.value.preventSleepWhileRunning).toBe(false);
+	expect(parse(sectionSave(combined, reset, combined, "interaction").content)).toEqual({ theme: "dark" });
 });
 
 it("同页外部修改保留原始版本用于保存冲突检查", () => {

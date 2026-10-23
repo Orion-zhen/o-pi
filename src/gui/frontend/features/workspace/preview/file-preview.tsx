@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "@/ui/motion/animated.tsx";
 import { WrapText, X } from "lucide-react";
+import { nativeFileEvents } from "../native-file.ts";
 import { ReferenceFileButton } from "../reference-file-button.tsx";
 import type { FilePreview as Preview } from "../../../../shared/workspace.ts";
 import type { Remote } from "../use-workbench.ts";
@@ -40,7 +41,8 @@ function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean
 	return <FileCode path={preview.path} text={content.text} wrap={wrap} />;
 }
 
-export function FilePreviewPanel({ preview: selection, referenceFile, close }: {
+export function FilePreviewPanel({ cwd, setError, preview: selection, referenceFile, close }: {
+	cwd: string; setError: (message: string) => void;
 	preview: { path: string; result: Remote<Preview> }; referenceFile: (path: string) => boolean; close: () => void;
 }) {
 	const [mode, setMode] = useState<"content" | "diff" | null>(null);
@@ -52,7 +54,7 @@ export function FilePreviewPanel({ preview: selection, referenceFile, close }: {
 	const name = selection.path.split("/").at(-1);
 	return <div className="file-preview" data-wrap={wrap} data-media={media}>
 		<div className="file-preview-heading">
-			<Hint content={selection.path}><strong className="file-preview-path">{name}</strong></Hint>
+			<Hint content={selection.path}><strong className="file-preview-path" {...(preview && preview.content.kind !== "deleted" ? nativeFileEvents(cwd, selection.path, true, setError) : {})}>{name}</strong></Hint>
 			{preview && preview.diffs.length > 0 && <div className="file-preview-modes" aria-label="文件视图">
 				<Button variant="ghost" size="sm" aria-pressed={!diff} onClick={() => setMode("content")}>内容</Button>
 				<Button variant="ghost" size="sm" aria-pressed={diff} onClick={() => setMode("diff")}>差异</Button>

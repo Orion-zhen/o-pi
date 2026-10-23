@@ -11,6 +11,7 @@ export interface GuiPreferences {
 	fontSizes: { ui: number; chat: number; code: number };
 	sendShortcut: "mod-enter" | "enter";
 	openFileLinksExternally: boolean;
+	preventSleepWhileRunning: boolean;
 	sessionCache: { idleLimit: number; idleMs: number };
 	desktopWeb: { enabled: boolean; host: string; port: number };
 }

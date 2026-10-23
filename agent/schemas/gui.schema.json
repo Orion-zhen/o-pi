@@ -59,6 +59,7 @@
 		},
 		"sendShortcut": { "enum": ["mod-enter", "enter"] },
 		"openFileLinksExternally": { "type": "boolean", "description": "Desktop 使用系统默认应用打开聊天中的文件链接，Web 仍使用预览。" },
+		"preventSleepWhileRunning": { "type": "boolean", "description": "Desktop 执行任务时防止空闲睡眠，不阻止显示器熄灭或用户主动睡眠。" },
 		"desktopWeb": {
 			"type": "object",
 			"additionalProperties": false,

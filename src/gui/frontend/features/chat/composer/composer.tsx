@@ -31,6 +31,7 @@ import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
 import { useFileDrop } from "./use-file-drop.ts";
+import { fileReference } from "../../../../shared/file-reference.ts";
 import { ImagePreviewButton } from "@/ui/media/image-preview.tsx";
 
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
@@ -138,6 +139,20 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 			setError(error instanceof Error ? error.message : String(error));
 		}
 	};
+	const drop = async (files: File[]) => {
+		if (!window.opi) { await attach(files); return; }
+		try {
+			const items = await window.opi.prepareDrop(snapshot.cwd, files);
+			const attachments = files.filter((_file, index) => items[index]?.kind === "attachment");
+			const references: string[] = [];
+			for (const item of items) {
+				if (item.kind === "workspace") { await send({ action: "workspace", path: item.path }); return; }
+				if (item.kind === "reference") references.push(fileReference(item.path));
+			}
+			if (references.length) setDraft((text) => `${text}${text && !/\s$/.test(text) ? " " : ""}${references.join("")}`);
+			if (attachments.length) await attach(attachments);
+		} catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+	};
 	const choices =
 		argumentChoices.length === 0 && /^\/\S*$/.test(draft)
 			? snapshot.commands.filter((command) => `/${command.name}`.startsWith(draft))
@@ -158,7 +173,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 					const files = [...event.dataTransfer.files];
 					if (!files.length) return;
 					event.preventDefault();
-					void attach(files);
+					void drop(files);
 					editor.current?.focus({ preventScroll: true });
 				}}
 			>

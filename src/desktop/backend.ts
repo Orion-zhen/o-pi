@@ -35,6 +35,8 @@ if (!(await runChildProcess())) {
 	}
 	let latestUser: { sessionId: string; timestamp: number } | undefined;
 	client.subscribe((event) => {
+		if (event.type === "activity" || event.type === "guiConfig" || event.type === "selected" || event.type === "workspaces")
+			process.parentPort.postMessage({ kind: "desktopState", value: event } satisfies BackendMessage);
 		if (event.type === "selected") latestUser = undefined;
 		if (event.type !== "snapshot" || !event.value) return;
 		const user = event.value.entries.flatMap((entry) => entry.messages).findLast((message) => message.role === "user");
@@ -95,7 +97,8 @@ if (!(await runChildProcess())) {
 	}
 	void gui
 		.start(process.argv[2] ?? process.cwd())
-		.catch((error: unknown) => gui.reportError(error));
+		.catch((error: unknown) => gui.reportError(error))
+		.then(() => process.parentPort.postMessage({ kind: "ready" } satisfies BackendMessage));
 } else {
 	closeServices?.();
 	// SDK 已释放会话并排空输出，Utility Process 不再保留宿主消息循环。

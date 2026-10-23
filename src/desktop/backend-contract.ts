@@ -1,3 +1,4 @@
+import type { GuiEvent } from "../gui/shared/protocol/events.ts";
 import type { GuiDelivery } from "../gui/shared/protocol/sync.ts";
 import type { GuiControl } from "../gui/shared/protocol/connection.ts";
 
@@ -9,7 +10,11 @@ export type BackendControl = GuiControl
 
 export type BackendCommand = BackendRequest | BackendControl | { kind: "dispose" };
 
+export type DesktopStateEvent = Extract<GuiEvent, { type: "activity" | "guiConfig" | "selected" | "workspaces" }>;
+
 export type BackendMessage =
+	| { kind: "ready" }
+	| { kind: "desktopState"; value: DesktopStateEvent }
 	| { kind: "webError"; message: string }
 	| { kind: "delivery"; value: GuiDelivery; at: number }
 	| { kind: "requestReceived"; id: number; at: number }

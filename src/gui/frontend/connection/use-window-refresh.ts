@@ -11,10 +11,12 @@ export function useWindowRefresh(connected: boolean, refresh: () => void) {
 			clearTimeout(timer);
 			timer = setTimeout(() => onRefresh(), 150);
 		};
+		const unsubscribe = window.opi?.onCommand((command) => { if (command === "resume") onFocus(); });
 		window.addEventListener("focus", onFocus);
 		document.addEventListener("visibilitychange", onFocus);
 		return () => {
 			clearTimeout(timer);
+			unsubscribe?.();
 			window.removeEventListener("focus", onFocus);
 			document.removeEventListener("visibilitychange", onFocus);
 		};

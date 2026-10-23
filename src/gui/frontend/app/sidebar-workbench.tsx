@@ -69,8 +69,8 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 					<div className="workspace-files-scroll" data-list-scroll>
 						<AnimatePresence initial={false} mode="wait"><Fade key={onlyChanges ? "changes" : "tree"}>
 						{!gui.cwd ? <p className="file-hint">请先选择工作区</p> : onlyChanges && git
-							? <WorkspaceChanges git={git} selected={workbench.preview?.path} referenceFile={referenceFile} openFile={openFile} />
-							: <WorkspaceTree workbench={workbench} referenceFile={referenceFile} openFile={openFile} />}
+							? <WorkspaceChanges cwd={gui.cwd} setError={gui.setError} git={git} selected={workbench.preview?.path} referenceFile={referenceFile} openFile={openFile} />
+							: <WorkspaceTree cwd={gui.cwd} setError={gui.setError} workbench={workbench} referenceFile={referenceFile} openFile={openFile} />}
 						</Fade></AnimatePresence>
 					</div>
 				</div>

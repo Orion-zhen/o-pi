@@ -18,7 +18,8 @@ export function trackDesktopAttention(window: BrowserWindow, report: (value: Gui
 	return (id) => { sessionId = id; update(); };
 }
 
-export function showDesktopNotification(event: Attention, icon: string, open: () => void): void {
+export function showDesktopNotification(window: BrowserWindow, event: Attention, icon: string, open: () => void): void {
+	if (event.kind === "approval" && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true);
 	if (!Notification.isSupported()) return;
 	let notification: Notification | undefined;
 	try {

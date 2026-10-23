@@ -25,6 +25,7 @@
 | `fontSizes.code` | `14` | 代码字号 |
 | `sendShortcut` | `"mod-enter"` | Ctrl/⌘+Enter 发送，也可设为 `enter` |
 | `openFileLinksExternally` | `false` | Desktop 使用系统默认应用打开聊天中的文件链接 |
+| `preventSleepWhileRunning` | `false` | Desktop 执行任务时防止空闲睡眠，保存后立即生效 |
 | `materials.enabled` | `true` | 页面磨砂材质 |
 | `materials.desktop` | `true` | Desktop 窗口背景透明 |
 | `desktopWeb.enabled` | `false` | 启用桌面 Web 服务 |
@@ -36,6 +37,8 @@
 字号范围为 8–48，支持小数。选择 Enter 发送时，Shift+Enter 换行，Ctrl/⌘+Enter 仍可发送。输入法组字和补全优先处理键盘事件。
 
 “对话与输入”中的“使用外部应用打开文件链接”在 Web 和 Desktop 均可设置，保存后仅在 Desktop 生效。文件须位于当前工作区内，符号链接不能指向工作区外。关闭时、使用 Web 时或点击文件树时仍使用右侧预览。
+
+`preventSleepWhileRunning` 仅在 Desktop 生效。执行或加载任务时阻止空闲睡眠，全部任务结束或等待输入时释放，不阻止显示器熄灭。用户主动睡眠、合盖或系统强制睡眠仍可能中断任务。唤醒只刷新系统代理和界面状态，不重放工具调用。
 
 ## 字体
 

@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge } from "../gui/shared/protocol/desktop.ts";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
+import type { DesktopBridge, DesktopCommand } from "../gui/shared/protocol/desktop.ts";
 import type { GuiDelivery } from "../gui/shared/protocol/sync.ts";
 
 const bridge: DesktopBridge = {
@@ -23,6 +23,15 @@ const bridge: DesktopBridge = {
 	close() {
 		ipcRenderer.send("gui:unsubscribe");
 	},
+	onCommand(listener) {
+		const handle = (_event: Electron.IpcRendererEvent, value: DesktopCommand) => listener(value);
+		ipcRenderer.on("gui:command", handle);
+		return () => ipcRenderer.removeListener("gui:command", handle);
+	},
+	fileMenu: (cwd, path) => ipcRenderer.invoke("gui:fileMenu", cwd, path),
+	startDrag: (cwd, path) => ipcRenderer.invoke("gui:startDrag", cwd, path),
+	prepareDrop: (cwd, files) => ipcRenderer.invoke("gui:drop", cwd, files.map((file) => webUtils.getPathForFile(file))),
+	markRead: (sessionId, completedAt) => ipcRenderer.send("gui:markRead", sessionId, completedAt),
 	chooseDirectory: () => ipcRenderer.invoke("gui:directory"),
 	openExternal: (url) => ipcRenderer.invoke("gui:external", url),
 	openFile: (cwd, path) => ipcRenderer.invoke("gui:openFile", cwd, path),

@@ -32,6 +32,7 @@
 	},
 	"sendShortcut": "mod-enter",
 	"openFileLinksExternally": false,
+	"preventSleepWhileRunning": false,
 	"desktopWeb": {
 		"enabled": false,
 		"host": "127.0.0.1",

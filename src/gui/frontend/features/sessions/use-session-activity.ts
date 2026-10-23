@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { GuiSessionActivity } from "../../../shared/protocol/state.ts";
 
 export type SessionActivity = GuiSessionActivity & { unread: boolean };
@@ -28,25 +28,22 @@ export function useSessionActivity(items: GuiSessionActivity[], reportError: (me
 		try { return readSeen(); }
 		catch { return {}; }
 	});
-	const markRead = useCallback((sessionId: string, completedAt: number) => {
-		if (!completedAt) return;
-		setSeen((current) => {
-			if ((current[sessionId] ?? 0) >= completedAt) return current;
-			const next = { ...current, [sessionId]: completedAt };
-			try { sessionStorage.setItem("opi.read", JSON.stringify(next)); }
-			catch (error) { queueMicrotask(() => reportError(`已读记录保存失败: ${String(error)}`)); }
-			return next;
-		});
+	const seenRef = useRef(seen);
+	const saveSeen = useCallback((next: Record<string, number>) => {
+		seenRef.current = next;
+		setSeen(next);
+		try { sessionStorage.setItem("opi.read", JSON.stringify(next)); }
+		catch (error) { reportError(`已读记录保存失败: ${String(error)}`); }
 	}, [reportError]);
+	const markRead = useCallback((sessionId: string, completedAt: number) => {
+		if (!completedAt || (seenRef.current[sessionId] ?? 0) >= completedAt) return;
+		saveSeen({ ...seenRef.current, [sessionId]: completedAt });
+		window.opi?.markRead(sessionId, completedAt);
+	}, [saveSeen]);
 	const activity = useMemo(() => items.map((item): SessionActivity => ({ ...item, unread: item.completedAt > (seen[item.sessionId] ?? 0) })), [items, seen]);
 	const forget = useCallback((ids: string[]) => {
 		const removed = new Set(ids);
-		setSeen((current) => {
-			const next = Object.fromEntries(Object.entries(current).filter(([id]) => !removed.has(id)));
-			try { sessionStorage.setItem("opi.read", JSON.stringify(next)); }
-			catch (error) { queueMicrotask(() => reportError(`已读记录保存失败: ${String(error)}`)); }
-			return next;
-		});
-	}, [reportError]);
+		saveSeen(Object.fromEntries(Object.entries(seenRef.current).filter(([id]) => !removed.has(id))));
+	}, [saveSeen]);
 	return { activity, markRead, forget };
 }

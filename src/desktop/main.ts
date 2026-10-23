@@ -10,7 +10,7 @@ import {
 } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { stat, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import type { GuiEvent } from "../gui/shared/protocol/events.ts";
 import { GUI_BACKGROUNDS } from "../gui/shared/theme.ts";
 import { BackendClient } from "./backend-client.ts";
@@ -24,7 +24,11 @@ import { installDesktopAppearance } from "./appearance.ts";
 import { installDesktopShutdown } from "./shutdown.ts";
 import { createDesktopWindowState } from "./window-state.ts";
 import { fileResourceResponse, type FileResource } from "../gui/host/workspace/file-resource.ts";
-import { workspacePath } from "../gui/host/workspace/workspace-path.ts";
+import { desktopFile, openDesktopFile, showFileMenu, startFileDrag, prepareFileDrop } from "./file-integration.ts";
+import { installDesktopMenu } from "./menu.ts";
+import { DesktopTaskStatus } from "./task-status.ts";
+import { installDesktopPower } from "./power.ts";
+import { desktopScheme, installDesktopLaunch, launchAction, parseLaunchUrl } from "./launch.ts";
 
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -33,35 +37,43 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const icon = path.join(directory, "icons", process.platform === "win32" ? "icon.ico" : process.platform === "darwin" ? "icon-macos.png" : "icon.png");
 if (process.platform === "win32") app.setAppUserModelId("dev.orion.opi");
 const entryUrl = "opi://app/index.html";
-let window: BrowserWindow | undefined;
-let backend: BackendClient | undefined;
+const report = (error: unknown) => dialog.showErrorBox("Desktop 操作失败", error instanceof Error ? error.message : String(error));
 
-function trusted(event: IpcMainInvokeEvent): void {
-	if (
-		!window ||
-		event.sender !== window.webContents ||
-		event.senderFrame !== window.webContents.mainFrame ||
-		event.senderFrame.url !== entryUrl
-	)
-		throw new Error("Untrusted renderer");
-}
-async function openExternal(url: string): Promise<void> {
-	if (!["https:", "http:", "mailto:"].includes(new URL(url).protocol)) throw new Error("不允许打开此协议。");
-	return shell.openExternal(url);
-}
-
-async function saveDownload(event: Extract<GuiEvent, { type: "download" }>): Promise<void> {
+async function saveDownload(event: Extract<GuiEvent, { type: "download" }>, client: BackendClient): Promise<void> {
 	const result = await dialog.showSaveDialog({
 		defaultPath: path.join(app.getPath("downloads"), path.basename(event.name)),
 	});
 	if (result.canceled || !result.filePath) return;
 	await writeFile(result.filePath, event.content, { mode: 0o600 });
-	backend?.send({ kind: "notice", text: `已导出: ${result.filePath}` });
+	client.send({ kind: "notice", text: `已导出: ${result.filePath}` });
 }
 
-void app
-	.whenReady()
-	.then(async () => {
+function startDesktop(): void {
+	let window: BrowserWindow | undefined;
+	function focusWindow(): void {
+		if (!window || window.isDestroyed()) return;
+		if (window.isMinimized()) window.restore();
+		window.show(); window.focus();
+	}
+	function trusted(event: IpcMainInvokeEvent): void {
+		if (
+			!window ||
+			event.sender !== window.webContents ||
+			event.senderFrame !== window.webContents.mainFrame ||
+			event.senderFrame.url !== entryUrl
+		)
+			throw new Error("Untrusted renderer");
+	}
+	const launches = installDesktopLaunch(focusWindow, report);
+	async function openExternal(url: string): Promise<void> {
+		const scheme = new URL(url).protocol;
+		if (scheme === `${desktopScheme}:`) { launches.enqueue(parseLaunchUrl(url)); return; }
+		if (!["https:", "http:", "mailto:"].includes(scheme)) throw new Error("不允许打开此协议。");
+		return shell.openExternal(url);
+	}
+
+	void app.whenReady().then(async () => {
+		if (app.isPackaged && !app.setAsDefaultProtocolClient(desktopScheme)) console.error("无法注册 Desktop 链接协议。");
 		const diagnostics = new DesktopDiagnostics(path.join(app.getPath("logs"), "gui-timing.jsonl"));
 		const storage = new DesktopStorage(diagnostics);
 		ipcMain.handle("gui:storage", (event) => { trusted(event); return storage.read(); });
@@ -84,8 +96,7 @@ void app
 			if (url.hostname !== "app") return new Response("Forbidden", { status: 403 });
 			if (url.pathname === "/api/file") {
 				try {
-					if (!backend) throw new Error("SDK 后端不可用。");
-					const resource = await backend.request("resource", url.searchParams.get("token"), undefined) as FileResource;
+					const resource = await client.request("resource", url.searchParams.get("token"), undefined) as FileResource;
 					return await fileResourceResponse(resource, request);
 				} catch (error) {
 					return new Response(error instanceof Error ? error.message : String(error), { status: 403 });
@@ -127,8 +138,32 @@ void app
 			trusted(event);
 			return setAppearance(value);
 		});
-		window.removeMenu();
-		window.on("focus", () => window?.flashFrame(false));
+		const desktopWindow = window;
+		const taskStatus = new DesktopTaskStatus(desktopWindow, path.join(directory, "icons", "attention.png"));
+		const power = installDesktopPower(() => desktopWindow.webContents.send("gui:command", "resume"),
+			(text) => client.send({ kind: "notice", text }));
+		const menu = installDesktopMenu(desktopWindow, (directory) => {
+			void (async () => {
+				if (!directory) {
+					const result = await dialog.showOpenDialog(desktopWindow, { properties: ["openDirectory"] });
+					if (result.canceled) return;
+					directory = result.filePaths[0];
+				}
+				if (directory) launches.enqueue({ kind: "workspace", path: directory });
+			})().catch(report);
+		});
+		window.once("closed", () => power.dispose());
+		ipcMain.on("gui:markRead", (event, id: unknown, at: unknown) => { trusted(event); taskStatus.markRead(id, at); });
+		ipcMain.handle("gui:fileMenu", async (event, cwd: unknown, name: unknown) => {
+			trusted(event); await showFileMenu(desktopWindow, await desktopFile(cwd, name), report);
+		});
+		ipcMain.handle("gui:startDrag", async (event, cwd: unknown, name: unknown) => {
+			trusted(event); await startFileDrag(desktopWindow, await desktopFile(cwd, name));
+		});
+		ipcMain.handle("gui:drop", async (event, cwd: unknown, files: unknown) => {
+			trusted(event); return prepareFileDrop(desktopWindow, cwd, files);
+		});
+		window.on("focus", () => desktopWindow.flashFrame(false));
 		window.webContents.on("will-navigate", (event) => event.preventDefault());
 		window.webContents.setWindowOpenHandler(({ url }) => {
 			void openExternal(url).catch((error: unknown) => dialog.showErrorBox("无法打开链接", String(error)));
@@ -139,43 +174,57 @@ void app
 			forkDesktopWorker(path.join(backendDirectory, "backend.mjs"), [app.getPath("home")], {
 				stdio: "pipe", serviceName: "opi-desktop SDK", env: environment,
 			}),
-			(delivery, at) => {
-				if (delivery.kind === "notification") {
-					if (window && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true);
-					showDesktopNotification(delivery.value, icon, () => {
-						if (window && !window.isDestroyed()) {
-							if (window.isMinimized()) window.restore();
-							window.show(); window.focus();
-						}
-						void backend?.request("action", { sessionId: null, value: { action: "openSession", id: delivery.value.sessionId } }, undefined)
-							.catch((error: unknown) => backend?.send({ kind: "notice", text: String(error) }));
-					});
-					return;
-				}
-				const events = delivery.events.filter((event) => {
-					if (event.type === "close") { app.quit(); return false; }
-					if (event.type !== "download") return true;
-					void saveDownload(event).catch((error: unknown) => dialog.showErrorBox("导出失败", String(error)));
-					return false;
-				});
-				if (window && !window.isDestroyed()) {
-					const traced = diagnostics.delivery(delivery, at);
-					window.webContents.send("gui:event", { ...delivery, events }, traced);
-				}
-			},
-			(code, stopping) => {
-				if (stopping) app.quit();
-				else dialog.showErrorBox("SDK 后端已退出", `退出码 ${code}。请重启应用。`);
-			},
 			diagnostics,
-			(message) => {
-				void dialog.showMessageBox({
-					type: "warning", message: "Web 访问未启动",
-					detail: `${message}\n桌面端可继续使用。请在设置中修正 Web 访问配置后重启 Desktop。`,
-				});
+			{
+				onDelivery: (delivery, at) => {
+					if (delivery.kind === "notification") {
+						showDesktopNotification(desktopWindow, delivery.value, icon, () => {
+							focusWindow();
+							void client.request("action", { sessionId: null, value: { action: "openSession", id: delivery.value.sessionId } }, undefined)
+								.catch((error: unknown) => client.send({ kind: "notice", text: String(error) }));
+						});
+						return;
+					}
+					const events = delivery.events.filter((event) => {
+						if (event.type === "close") { app.quit(); return false; }
+						if (event.type !== "download") return true;
+						void saveDownload(event, client).catch((error: unknown) => dialog.showErrorBox("导出失败", String(error)));
+						return false;
+					});
+					if (!desktopWindow.isDestroyed()) {
+						const traced = diagnostics.delivery(delivery, at);
+						desktopWindow.webContents.send("gui:event", { ...delivery, events }, traced);
+					}
+				},
+				onExit: (code, stopping) => {
+					power.dispose();
+					if (!desktopWindow.isDestroyed()) taskStatus.clear();
+					if (stopping) app.quit();
+					else dialog.showErrorBox("SDK 后端已退出", `退出码 ${code}。请重启应用。`);
+				},
+				onWebError: (message) => {
+					void dialog.showMessageBox({
+						type: "warning", message: "Web 访问未启动",
+						detail: `${message}\n桌面端可继续使用。请在设置中修正 Web 访问配置后重启 Desktop。`,
+					});
+				},
+				onState: (event) => {
+					if (desktopWindow.isDestroyed()) return;
+					switch (event.type) {
+						case "activity": power.activity(taskStatus.update(event.value)); break;
+						case "guiConfig": if (event.value.state === "ready") power.configure(event.value.value.preventSleepWhileRunning); break;
+						case "selected":
+							if (event.session) menu.select(event.session.cwd);
+							break;
+						case "workspaces": menu.workspaces(event.value); break;
+					}
+				},
+				onReady: () => launches.ready(async (target) => {
+					await client.request("action", { sessionId: null, value: await launchAction(target) }, undefined);
+					focusWindow();
+				}),
 			},
 		);
-		backend = client;
 		const attend = trackDesktopAttention(window, (value) => client.send({ kind: "attention", value }));
 		ipcMain.on("gui:attention", (event, sessionId: unknown) => {
 			trusted(event);
@@ -212,7 +261,7 @@ void app
 		});
 		ipcMain.handle("gui:directory", async (event) => {
 			trusted(event);
-			const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+			const result = await dialog.showOpenDialog(desktopWindow, { properties: ["openDirectory"] });
 			return result.canceled ? null : (result.filePaths[0] ?? null);
 		});
 		ipcMain.handle("gui:external", async (event, url: unknown) => {
@@ -222,17 +271,16 @@ void app
 		});
 		ipcMain.handle("gui:openFile", async (event, cwd: unknown, name: unknown) => {
 			trusted(event);
-			if (typeof cwd !== "string" || !path.isAbsolute(cwd) || typeof name !== "string") throw new Error("无效文件路径");
-			const file = await workspacePath(cwd, name);
-			if (!(await stat(file)).isFile()) throw new Error("仅支持打开普通文件。");
-			const error = await shell.openPath(file);
-			if (error) throw new Error(error);
+			await openDesktopFile(await desktopFile(cwd, name));
 		});
 		app.on("window-all-closed", () => app.quit());
 		installDesktopShutdown(window, client, diagnostics);
 		await window.loadURL(entryUrl);
-	})
-	.catch((error: unknown) => {
+	}).catch((error: unknown) => {
 		dialog.showErrorBox("启动失败", String(error));
 		app.quit();
 	});
+}
+
+if (app.requestSingleInstanceLock()) startDesktop();
+else app.quit();

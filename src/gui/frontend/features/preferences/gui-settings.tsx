@@ -18,7 +18,7 @@ import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
 import { SettingsNumber } from "@/forms/number.tsx";
 import "./gui-settings.css";
 
-type PreferencePath = MaterialPreferencePath | ["theme"] | ["themeColor"] | ["sendShortcut"] | ["openFileLinksExternally"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
+type PreferencePath = MaterialPreferencePath | ["theme"] | ["themeColor"] | ["sendShortcut"] | ["openFileLinksExternally"] | ["preventSleepWhileRunning"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
 
 export function GuiSettings({ title, section, document: latest, send, query, disabled, refresh, restoreFocus }: {
 	title: string; section: GuiSection;
@@ -122,6 +122,10 @@ export function GuiSettings({ title, section, document: latest, send, query, dis
 						<SelectTrigger aria-label="发送快捷键"><SelectValue /></SelectTrigger>
 						<SelectContent><SelectItem value="mod-enter">Ctrl / ⌘ + Enter</SelectItem><SelectItem value="enter">Enter</SelectItem></SelectContent>
 					</Select>
+				</SettingsRow>
+				<SettingsRow label="执行任务时防止空闲睡眠" reset={{ value: document.value.preventSleepWhileRunning, defaultValue: document.defaults.preventSleepWhileRunning, apply: () => change(["preventSleepWhileRunning"], undefined) }} disabled={blocked}>
+					<Switch aria-label="执行任务时防止空闲睡眠" checked={document.value.preventSleepWhileRunning} disabled={blocked}
+						onCheckedChange={(value) => void change(["preventSleepWhileRunning"], value === document.defaults.preventSleepWhileRunning ? undefined : value)} />
 				</SettingsRow>
 				<SettingsRow label="使用外部应用打开文件链接" reset={{ value: document.value.openFileLinksExternally, defaultValue: document.defaults.openFileLinksExternally, apply: () => change(["openFileLinksExternally"], undefined) }} disabled={blocked}>
 					<Switch aria-label="使用外部应用打开文件链接" checked={document.value.openFileLinksExternally} disabled={blocked}

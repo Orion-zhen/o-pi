@@ -21,7 +21,8 @@ const tabs: { id: GuiSessionTab; title: string }[] = [
 	{ id: "tree", title: "会话树" }, { id: "stats", title: "会话统计" }, { id: "telemetry", title: "遥测" },
 ];
 
-interface SessionSidebarView extends Pick<GuiControls, "send"> {
+interface SessionSidebarView extends Pick<GuiControls, "send" | "setError"> {
+	cwd: string;
 	snapshot: GuiSnapshot | null;
 	sessionStats: StatsSnapshot | undefined;
 	telemetry: LiveTelemetryReport | undefined;
@@ -70,7 +71,7 @@ export function SessionSidebar({ gui, locate }: { gui: SessionSidebarView; locat
 			{workbench.preview && <Tabs.Content value="file" forceMount asChild>
 				<Fade animate={{ opacity: active === "file" ? 1 : 0 }} data-active={active === "file"} inert={active !== "file"} aria-hidden={active !== "file"} className="session-tab-body" data-file="true">
 				<AnimatePresence initial={false} mode="wait"><Fade key={workbench.preview.path} className="file-preview-frame">
-				<FilePreviewPanel preview={workbench.preview} referenceFile={gui.referenceFile} close={() => {
+				<FilePreviewPanel cwd={gui.cwd} setError={gui.setError} preview={workbench.preview} referenceFile={gui.referenceFile} close={() => {
 					const focusVisible = document.activeElement?.matches(":focus-visible") ?? false;
 					workbench.closePreview();
 					selectTab(sessionTab);

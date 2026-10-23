@@ -8,6 +8,8 @@ import { notificationDestination, showBrowserNotification } from "../../src/gui/
 
 const electron = vi.hoisted(() => ({ shown: vi.fn(), instances: [] as EventEmitter[] }));
 vi.mock("electron", () => ({ BrowserWindow: class extends EventEmitter {
+	isDestroyed() { return false; }
+	flashFrame = vi.fn();
 	isFocused() { return true; }
 	isVisible() { return true; }
 	isMinimized() { return false; }
@@ -114,15 +116,29 @@ it("Desktop 关注状态随原生窗口焦点、最小化和隐藏更新", () =>
 	expect(report).toHaveBeenLastCalledWith({ sessionId: "b", focused: false, destination: "desktop" });
 });
 
+it("后台任务完成不闪烁，审批请求提醒窗口，回到前台后不再闪烁", () => {
+	const window = new BrowserWindow();
+	const focused = vi.spyOn(window, "isFocused").mockReturnValue(false);
+	const approval: Attention = { ...value, kind: "approval", toolName: "bash" };
+	showDesktopNotification(window, value, "icon.png", vi.fn());
+	expect(window.flashFrame).not.toHaveBeenCalled();
+	showDesktopNotification(window, approval, "icon.png", vi.fn());
+	expect(window.flashFrame).toHaveBeenCalledExactlyOnceWith(true);
+	focused.mockReturnValue(true);
+	showDesktopNotification(window, approval, "icon.png", vi.fn());
+	expect(window.flashFrame).toHaveBeenCalledOnce();
+});
+
 it("Electron 审批通知使用会话名，点击定位会话，系统拒绝不影响后续通知", () => {
 	const open = vi.fn();
-	showDesktopNotification({ ...value, name: "检查文件", kind: "approval", toolName: "bash" }, "icon.png", open);
+	const window = new BrowserWindow();
+	showDesktopNotification(window, { ...value, name: "检查文件", kind: "approval", toolName: "bash" }, "icon.png", open);
 	expect(electron.shown).toHaveBeenCalledWith({ title: "OPi 需要审批", body: "检查文件\nbash 请求执行权限", silent: false, icon: "icon.png" });
 	electron.instances[0]?.emit("click");
 	expect(open).toHaveBeenCalledOnce();
 	electron.shown.mockImplementationOnce(() => { throw new Error("backend unavailable"); });
-	expect(() => showDesktopNotification(value, "icon.png", open)).not.toThrow();
-	showDesktopNotification(value, "icon.png", open);
+	expect(() => showDesktopNotification(window, value, "icon.png", open)).not.toThrow();
+	showDesktopNotification(window, value, "icon.png", open);
 	expect(electron.shown).toHaveBeenLastCalledWith({ title: "OPi 任务完成", body: "检查后台任务", silent: true, icon: "icon.png" });
 	electron.instances[2]?.emit("close");
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { GlobalQuery, Query, WorkspaceQuery } from "../../shared/protocol/queries.ts";
 import type { GuiAction } from "../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
@@ -16,6 +16,8 @@ import { useAuthActions } from "@/features/auth/use-auth-actions.ts";
 import { usePanels } from "./use-panels.ts";
 import { isTouchInput } from "@/ui/input-mode.ts";
 import type { SidebarView } from "./controls.ts";
+import { fileReference } from "../../shared/file-reference.ts";
+import type { DesktopCommand } from "../../shared/protocol/desktop.ts";
 
 /** 连接功能区域。草稿由编辑器订阅，宿主事件不持有本地交互状态。 */
 export function useGui() {
@@ -59,6 +61,11 @@ export function useGui() {
 	const auth = useAuthActions(dispatchSelected, setError, panels.closePanel);
 	useEffect(() => { if (!connected) auth.finish(); }, [connected, auth.finish]);
 	const send = auth.send;
+	const desktopCommand = useEffectEvent((command: DesktopCommand) => {
+		if (command === "settings") panels.setPanel({ kind: "settings" });
+		if (command === "new" && connected) void send({ action: "new" });
+	});
+	useEffect(() => window.opi?.onCommand(desktopCommand), []);
 	const query = useCallback<Query>((request) => readQuery(request, selectedId), [readQuery, selectedId]);
 	const sharedQuery = useCallback<Query<GlobalQuery | WorkspaceQuery>>((request) => readQuery(request, null), [readQuery]);
 	const globalQuery: Query<GlobalQuery> = sharedQuery;
@@ -95,10 +102,11 @@ export function useGui() {
 	const openFile = useCallback((path: string) => { workbench.openFile(path); panels.selectTab("file"); panels.setSessionPanelOpen(true); }, [workbench.openFile, panels.selectTab]);
 	const setDraft = useCallback((text: string) => { if (view) views.writeText(view.id, text); }, [view, views]);
 	const referenceFile = useCallback((path: string) => {
-		if (/[\r\n]/.test(path) || (path.includes('"') && path.includes("'"))) { setError("此文件名不能表示为 @ 引用。"); return false; }
 		if (!view) return false;
-		const quoted = /[\s'"]/.test(path) ? (path.includes('"') ? `'${path}'` : `"${path}"`) : path;
-		views.update(view, (draft) => ({ ...draft, text: `${draft.text}${draft.text && !/\s$/.test(draft.text) ? " " : ""}@${quoted} ` }));
+		let reference: string;
+		try { reference = fileReference(path); }
+		catch (error) { setError(String(error)); return false; }
+		views.update(view, (draft) => ({ ...draft, text: `${draft.text}${draft.text && !/\s$/.test(draft.text) ? " " : ""}${reference}` }));
 		editor.current?.focus();
 		setReferenceVersion((version) => version + 1);
 		return true;

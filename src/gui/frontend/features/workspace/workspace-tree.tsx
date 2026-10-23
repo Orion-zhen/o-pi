@@ -11,6 +11,7 @@ import { workspaceTreeRows } from "./workspace-tree-rows.ts";
 import { useVirtualRows } from "@/ui/use-virtual-rows.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
+import { nativeFileEvents } from "./native-file.ts";
 
 function FileRowActions({ path, referenceFile }: { path: string; referenceFile: (path: string) => boolean }) {
 	const [copyState, setCopyState] = useState<{ status: "idle" | "copied" | "error" }>({ status: "idle" });
@@ -35,8 +36,8 @@ function FileRowActions({ path, referenceFile }: { path: string; referenceFile: 
 	</div>;
 }
 
-type FileActions = { openFile: (path: string) => void; referenceFile: (path: string) => boolean };
-export const WorkspaceChanges = memo(function WorkspaceChanges({ git, selected, openFile, referenceFile }: FileActions & {
+type FileActions = { cwd: string; setError: (message: string) => void; openFile: (path: string) => void; referenceFile: (path: string) => boolean };
+export const WorkspaceChanges = memo(function WorkspaceChanges({ cwd, setError, git, selected, openFile, referenceFile }: FileActions & {
 	git: WorkspaceGit; selected: string | undefined;
 }) {
 	const changes = useMemo(() => [...git.changes].sort((a, b) => a.path.localeCompare(b.path)), [git]);
@@ -50,6 +51,7 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ git, selected, 
 			<div className="file-entry-row overlay-list-row">
 			<Hint content={`${change.originalPath ? `${change.originalPath} -> ` : ""}${change.path}`}><button type="button" className="file-row file-change-row" data-status={change.status} aria-label={change.path}
 				aria-pressed={selected === change.path} aria-description={gitStatusLabels[change.status]}
+				{...(change.status !== "D" ? nativeFileEvents(cwd, change.path, true, setError) : {})}
 				onClick={() => openFile(change.path)}>
 				<span className="git-status" data-status={change.status} aria-hidden="true">{change.status}</span>
 				<FileIcon name={change.path} kind="file" />
@@ -62,7 +64,7 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ git, selected, 
 	</ul>;
 });
 
-export const WorkspaceTree = memo(function WorkspaceTree({ workbench, openFile, referenceFile }: FileActions & { workbench: WorkbenchView }) {
+export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbench, openFile, referenceFile }: FileActions & { workbench: WorkbenchView }) {
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
 	const index = useMemo(() => indexWorkspaceGit(git), [git]);
 	const rows = useMemo(() => workspaceTreeRows(workbench.directories, workbench.expanded, index), [workbench.directories, workbench.expanded, index]);
@@ -119,6 +121,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ workbench, openFile, 
 						aria-expanded={entry.kind === "directory" ? open : undefined} aria-selected={workbench.preview?.path === entry.path}
 						tabIndex={-1} aria-description={state}
 						className="file-row" data-ignored={ignored} data-status={change?.status} style={{ paddingInlineStart: `${0.25 + depth}em` }}
+						{...(!entry.virtual && change?.status !== "D" ? nativeFileEvents(cwd, entry.path, entry.kind === "file", setError) : {})}
 						onClick={() => entry.kind === "directory" ? workbench.toggleDirectory(entry.path, entry.virtual) : openFile(entry.path)}>
 						<ChevronRight className="file-chevron" data-directory={entry.kind === "directory"} data-open={open} aria-hidden="true" />
 						<FileIcon name={entry.name} kind={entry.kind} open={open} /><span className="file-name">{entry.name}</span>
