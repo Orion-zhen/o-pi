@@ -79,7 +79,7 @@ await import(${JSON.stringify(path.join(root, "src/desktop/backend.ts"))});\n`);
 			protocols: [{ name: "opi-desktop", schemes: ["opi-desktop"] }],
 			fileAssociations: [{ ext: "jsonl", name: "Pi session", role: "Viewer", rank: "Alternate" }],
 			directories: { output: path.join(output, "release") },
-			files: ["**/*"],
+			files: ["**/*", "!**/*.map"],
 			linux: { target: ["AppImage"], category: "Development", icon: "icons/linux", syncDesktopName: true },
 			mac: {
 				target: ["dmg"],
