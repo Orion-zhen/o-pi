@@ -34,9 +34,17 @@ export class ToolSelectionController {
 	}
 
 	set(name: string, enabled: boolean): void {
-		if (!this.selectableNames().has(name)) return;
+		this.setMany([{ name, enabled }]);
+	}
+
+	setMany(choices: readonly { name: string; enabled: boolean }[]): void {
+		const available = this.selectableNames();
+		const selectable = choices.filter(({ name }) => available.has(name));
+		if (selectable.length === 0) return;
 		const names = new Set(this.pi.getActiveTools());
-		if (enabled) names.add(name); else names.delete(name);
+		for (const { name, enabled } of selectable) {
+			if (enabled) names.add(name); else names.delete(name);
+		}
 		this.apply([...names]);
 	}
 

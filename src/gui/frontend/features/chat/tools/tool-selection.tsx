@@ -4,26 +4,40 @@ import { LoaderCircle, Save } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { LayoutGroup, motion } from "motion/react";
 import type { GuiSnapshot } from "../../../../shared/protocol/state.ts";
+import { TOOL_PRESETS, type ToolPreset } from "../../../../../harness/tool-defaults/types.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Button } from "@/ui/button.tsx";
 import { Checkbox } from "@/ui/checkbox.tsx";
+import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
 import { settle } from "@/ui/motion/transitions.ts";
+import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { McpExposureLabel } from "@/features/mcp/mcp-exposure.tsx";
 
 type Tool = GuiSnapshot["tools"][number];
 type McpGroup = { name: string; enabled: boolean; tools: Tool[] };
+const presetLabels: Record<ToolPreset, string> = {
+	vanilla: "Vanilla", "web-chat": "Web Chat", offline: "Offline", "no-tools": "No Tools",
+};
 
-export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot: Pick<GuiSnapshot, "tools" | "modelTools" | "toolDefaultsChanged">; send: Send; disabled: boolean }) {
+export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot: Pick<GuiSnapshot, "tools" | "modelTools" | "toolDefaultsChanged" | "toolPreset">; send: Send; disabled: boolean }) {
 	const groupId = useId();
+	const presetHighlightId = useId();
 	const [filter, setFilter] = useState("");
-	const [saving, setSaving] = useState(false);
-	const disabled = blocked || saving;
+	const [pending, setPending] = useState<"save" | "preset" | null>(null);
+	const saving = pending === "save";
+	const applying = pending === "preset";
+	const disabled = blocked || pending !== null;
+	const applyPreset = async (preset: ToolPreset) => {
+		setPending("preset");
+		await send({ action: "toolPreset", preset });
+		setPending(null);
+	};
 	const persist = async () => {
-		setSaving(true);
-		try { await send({ action: "persistTools" }); }
-		finally { setSaving(false); }
+		setPending("save");
+		await send({ action: "persistTools" });
+		setPending(null);
 	};
 	const query = filter.trim().toLocaleLowerCase();
 	const matches = new Set(snapshot.tools.filter((tool) =>
@@ -46,6 +60,17 @@ export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot:
 				<MorphIcon icon={saving ? LoaderCircle : Save} spring="smooth" size="1em" className={saving ? "animate-spin" : undefined} />保存默认
 			</Button>
 		</div>
+		<ToggleGroup className="tool-selection-presets" type="single" size="sm" value={snapshot.toolPreset ?? ""}
+			disabled={disabled} aria-label="内置工具预设" aria-busy={applying}
+			onValueChange={(value) => {
+				const preset = TOOL_PRESETS.find((preset) => preset === value);
+				if (preset) void applyPreset(preset);
+			}}>
+			{TOOL_PRESETS.map((preset) => <ToggleGroupItem key={preset} value={preset} className="animated-background-target">
+				<AnimatedBackground active={snapshot.toolPreset === preset} layoutId={presetHighlightId} />
+				{presetLabels[preset]}
+			</ToggleGroupItem>)}
+		</ToggleGroup>
 		{!hasResults && <p className="tool-selection-empty" role="status">没有匹配的工具</p>}
 		{showCodemode && <ToolChoice tool={codemode} send={send} disabled={disabled} nested={false} />}
 		{enabled && children.length > 0 && <div className="tool-selection-children">

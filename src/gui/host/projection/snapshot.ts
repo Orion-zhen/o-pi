@@ -6,6 +6,7 @@ import { getCodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { GuiSnapshot } from "../../shared/protocol/state.ts";
 import { guiModel } from "../session/runtime.ts";
 import { builtinCommands } from "../session/commands.ts";
+import { matchingToolPreset } from "../../../harness/tool-defaults/presets.ts";
 import type { GuiHistory } from "./history.ts";
 
 type PresentationState = Pick<
@@ -80,6 +81,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		tools: [...ordinaryTools, ...mcpTools].map((tool) => ({ ...tool, description: descriptions.get(tool.name) ?? tool.description, callable: callableTools.has(tool.name) })),
 		modelTools: activeTools.filter((name) => !hidden.has(name)),
 		toolDefaultsChanged: selection.hasUserDefaultChanges(defaults.defaultTools),
+		toolPreset: matchingToolPreset(session, ordinaryTools),
 		providers: services.modelRuntime
 			.getProviders()
 			.map((provider) => ({

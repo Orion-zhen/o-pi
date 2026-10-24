@@ -22,5 +22,5 @@ export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", speed
 });
 
 export const GenerationSpeed = memo(function GenerationSpeed({ speed }: { speed: number | null }) {
-	return <Hint content="本段正文生成速度估算 · 不含首字等待"><span className="generation-speed" aria-description="本段正文 tokens 减去首片段 tokens，除以首末片段到达间隔">速度 {speed === null ? "—" : `${speed.toFixed(1)} tok/s`}</span></Hint>;
+	return <span className="generation-speed" aria-description="本段正文 tokens 减去首片段 tokens，除以首末片段到达间隔">速度 {speed === null ? "—" : `${speed.toFixed(1)} tok/s`}</span>;
 });

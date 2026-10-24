@@ -13,6 +13,6 @@ export function guiSnapshot(): GuiSnapshot {
 			totalMessages: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 },
 		queue: { steering: [], followUp: [] },
 		settings: { compaction: false, retry: false, steering: "all", followUp: "all", autoResize: true, blockImages: false },
-		commands: [], tools: [], modelTools: [], toolDefaultsChanged: false, providers: [], bashOutput: "",
+		commands: [], tools: [], modelTools: [], toolDefaultsChanged: false, toolPreset: null, providers: [], bashOutput: "",
 	};
 }

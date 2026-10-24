@@ -25,6 +25,7 @@ import { NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
 import type { GuiMcpTools } from "./mcp-tools.ts";
 import { GuiModelServices } from "./model-services.ts";
 import { setCodexSpeed } from "../../../harness/codex-speed/state.ts";
+import { applyToolPreset } from "../../../harness/tool-defaults/presets.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -35,7 +36,7 @@ export interface SessionClient extends Pick<ExtensionCommandContext, "newSession
 type Listener = (event: GuiEvent) => void;
 const liveMutations = new Set<GuiAction["action"]>([
 	"model", "thinking", "codexSpeed", "scopeModels", "persistModels", "persistDefaultModel",
-	"tool", "mcpServers", "persistTools", "label", "rename",
+	"tool", "toolPreset", "mcpServers", "persistTools", "label", "rename",
 ]);
 
 /** 可整体释放的 SDK 执行资源。导航和会话身份由 GuiSession 持有。 */
@@ -415,12 +416,15 @@ export class GuiExecution {
 				this.mcpTools.setServers(action.names, action.enabled);
 				break;
 			case "tool":
+			case "toolPreset":
 			case "persistTools":
 				if (!this.toolController) throw new Error("工具选择未绑定。");
 				if (action.action === "tool") {
 					if (!this.mcpTools?.set(action.name, action.enabled)) this.toolController.set(action.name, action.enabled);
-				}
-				else {
+				} else if (action.action === "toolPreset") {
+					const mcpNames = new Set(this.mcpTools?.list(session.getActiveToolNames()).map((tool) => tool.name));
+					applyToolPreset(session, this.toolController, action.preset, mcpNames);
+				} else {
 					const file = await this.toolController.persistUserDefaults();
 					await runtime.services.settingsManager.reload();
 					this.dialogs.notify(`已保存: ${file}`);

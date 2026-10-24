@@ -6,6 +6,7 @@ import type { SubagentDetails } from "../../../harness/subagent/types.ts";
 import type { ApprovalUnit } from "../../../harness/approval/types.ts";
 import type { GuiEntry, GuiMessage, GuiNestedCalls, GuiToolOutput } from "../messages/types.ts";
 import type { GuiToolSelectionItem } from "../config/mcp.ts";
+import type { ToolPreset } from "../../../harness/tool-defaults/types.ts";
 
 export type SessionTarget = { id: string } | { path: string };
 
@@ -110,6 +111,7 @@ export interface GuiSnapshot {
 	tools: (GuiToolSelectionItem & { callable: boolean })[];
 	modelTools: string[];
 	toolDefaultsChanged: boolean;
+	toolPreset: ToolPreset | null;
 	providers: { id: string; name: string; apiKey: boolean; oauth: boolean; authenticated: boolean }[];
 	bashOutput: string;
 }

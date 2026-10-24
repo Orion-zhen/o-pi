@@ -57,6 +57,52 @@ async function start(exposure: string, codemode = true, servers = ["fixture"]) {
 	await expect.poll(() => readSnapshot(host).tools.find((tool) => tool.mcp)).toMatchObject({ enabled: true, callable: true });
 }
 
+it("禁用 MCP 后，内置预设替换当前选择并用于模型请求，不改写用户默认值", async () => {
+	const settingsFile = path.join(agentDir, "settings.json");
+	await writeFile(settingsFile, JSON.stringify({
+		defaultProjectTrust: "never", defaultProvider: "fixture", defaultModel: "test", defaultTools: ["read"],
+		extensions: ["-builtin:mcp"], compaction: { enabled: false }, retry: { enabled: false },
+	}));
+	await host.host.start(temp.path);
+	const original = await readFile(settingsFile, "utf8");
+	expect(readSnapshot(host).tools.some((tool) => tool.mcp)).toBe(false);
+	await host.dispatch({ action: "tool", name: "codemode", enabled: true });
+	expect(readSnapshot(host).toolPreset).toBeNull();
+	const offline = ["bash", "edit", "find", "grep", "ls", "read", "skill", "write"];
+	for (const [preset, expected] of [
+		["vanilla", [...offline, "websearch", "webfetch"]],
+		["web-chat", ["websearch", "webfetch"]],
+		["offline", offline],
+		["no-tools", []],
+	] as const) {
+		await host.dispatch({ action: "toolPreset", preset });
+		const snapshot = readSnapshot(host);
+		expect(snapshot.toolPreset).toBe(preset);
+		expect(snapshot.tools.filter((tool) => tool.enabled).map((tool) => tool.name).sort()).toEqual([...expected].sort());
+		await host.dispatch(prompt(`使用 ${preset} 预设`));
+		expect((model.requests.at(-1)?.tools ?? []).map((tool) => tool.function.name).sort()).toEqual([...expected].sort());
+	}
+	expect(await readFile(settingsFile, "utf8")).toBe(original);
+});
+
+it.each(["deferred", "direct"])("%s 工具在切换内置预设后保留选择，不参与预设匹配", async (exposure) => {
+	await start(exposure, false);
+	await host.dispatch({ action: "tool", name: probe, enabled: false });
+	const choices = () => readSnapshot(host).tools.filter((tool) => tool.mcp)
+		.map(({ name, enabled, available }) => ({ name, enabled, available }));
+	const original = choices();
+	for (const preset of ["vanilla", "web-chat", "offline", "no-tools"] as const) {
+		await host.dispatch({ action: "toolPreset", preset });
+		expect(readSnapshot(host).toolPreset).toBe(preset);
+		expect(choices()).toEqual(original);
+	}
+	expect(readSnapshot(host).tools.filter((tool) => !tool.mcp && tool.name !== "tool_search").every((tool) => !tool.enabled)).toBe(true);
+	expect(host.runtime.session.getActiveToolNames()).not.toContain(probe);
+	expect(host.runtime.session.getActiveToolNames()).toContain(exposure === "direct" ? refresh : "tool_search");
+	await host.dispatch({ action: "tool", name: "read", enabled: true });
+	expect(readSnapshot(host).toolPreset).toBeNull();
+});
+
 it.each(["deferred", "direct"])("%s 服务总开关保留单工具选择和排列，批量关闭隔离搜索和调用", async (exposure) => {
 	await start(exposure, false, ["fixture", "other"]);
 	const original = await readFile(mcpFile, "utf8");

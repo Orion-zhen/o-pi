@@ -27,7 +27,7 @@ const renderTool = (value: Activity, expanded?: boolean) => parseHTML(renderWith
 describe("codemode 工具层级", () => {
 	it.each([false, true])("搜索入口只在普通模式显示禁用的复选框：codemode=%s", (enabled) => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { toolDefaultsChanged: false,
+			snapshot: { toolDefaultsChanged: false, toolPreset: null,
 				tools: [
 					...tools.map((tool) => tool.name === "codemode" ? { ...tool, available: true as const, enabled } : tool),
 					{ name: "tool_search", exposure: "model-only", description: "Search", callable: false,
@@ -47,7 +47,7 @@ describe("codemode 工具层级", () => {
 	});
 	it("只有模型专用工具平级，自动可调用工具统一显示禁用态勾选框", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { toolDefaultsChanged: false, tools, modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
+			snapshot: { toolDefaultsChanged: false, toolPreset: null, tools, modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
 		}))).document;
 		expect([...doc.querySelectorAll(".tool-selection-children [data-tool-option]")].map((row) => row.getAttribute("data-tool-option")))
 			.toEqual(["read", "bash", "search"]);
@@ -65,7 +65,7 @@ describe("codemode 工具层级", () => {
 			{ name: "mcp__demo__off", description: "Probe", exposure: "deferred", mcp: true, available: true, enabled: false, callable: false },
 		];
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { toolDefaultsChanged: false, tools: [...tools, ...mcp], modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
+			snapshot: { toolDefaultsChanged: false, toolPreset: null, tools: [...tools, ...mcp], modelTools: ["codemode", "skill"] }, send: async () => true, disabled: false,
 		}))).document;
 		expect(doc.querySelector('[aria-label="mcp__demo__on"]')?.getAttribute("aria-checked")).toBe("true");
 		expect(doc.querySelector('[aria-label="mcp__demo__off"]')?.getAttribute("aria-checked")).toBe("false");
@@ -78,7 +78,7 @@ describe("codemode 工具层级", () => {
 			{ name: "read_mcp_resource", description: "Read resource", exposure: "codemode", mcp: true, available: true, enabled: true, callable: true },
 		];
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { toolDefaultsChanged: false, tools: [...tools, ...mcp], modelTools: ["codemode"] }, send: async () => true, disabled: false,
+			snapshot: { toolDefaultsChanged: false, toolPreset: null, tools: [...tools, ...mcp], modelTools: ["codemode"] }, send: async () => true, disabled: false,
 		}))).document;
 		const row = doc.querySelector(".mcp-tool-group-row");
 		expect(row?.querySelector('[aria-label="demo 服务工具"]')?.getAttribute("aria-checked")).toBe(String(available));
@@ -89,7 +89,7 @@ describe("codemode 工具层级", () => {
 
 	it("关闭模式恢复平级选择，保留普通工具的勾选", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { toolDefaultsChanged: false, tools: tools.map((item) => item.name === "codemode" ? { ...item, enabled: false as const } : item), modelTools: ["skill", "read"] },
+			snapshot: { toolDefaultsChanged: false, toolPreset: null, tools: tools.map((item) => item.name === "codemode" ? { ...item, enabled: false as const } : item), modelTools: ["skill", "read"] },
 			send: async () => true, disabled: false,
 		}))).document;
 		expect(doc.querySelector(".tool-selection-children")).toBeNull();

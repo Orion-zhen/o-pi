@@ -99,6 +99,8 @@ describe("当前轮次中的稳定内容", () => {
 
 	it("追加消息和裁剪工具结果后，已完成正文的速度与工具展开状态保持不变", async () => {
 		await render(initial);
+		expect(document.querySelector('[data-entry-id="checked"]')?.closest(".reply-body")
+			?.querySelector(".reply-metrics .generation-speed")?.textContent).toBe("速度 2.0 tok/s");
 		await act(async () => button(".reply-activity > .disclosure-trigger").click());
 		await act(async () => button(".activity-summary").click());
 		const summary = button(".activity-summary");
@@ -108,9 +110,9 @@ describe("当前轮次中的稳定内容", () => {
 			messages: [...initial.messages, assistant([{ type: "text", text: "新说明" }, { ...call, id: "next" }])] };
 		await render(updated, ["user", "checked", "result", "next-entry"], new Set([call.id]));
 		expect(document.querySelector('.reply-body [data-entry-id="checked"] > p')?.textContent).toBe("已检查组件");
-		expect(document.querySelector('.reply-body [data-entry-id="checked"] .generation-speed')?.textContent).toBe("速度 2.0 tok/s");
-		expect(document.querySelector(".reply-metrics")?.textContent).toContain("输出");
-		expect(document.querySelector(".reply-metrics")?.textContent).not.toContain("速度");
+		const metrics = document.querySelector('[data-entry-id="checked"]')?.closest(".reply-body")?.querySelector(".reply-metrics");
+		expect(metrics?.querySelector(".generation-speed")?.textContent).toBe("速度 2.0 tok/s");
+		expect(metrics?.textContent).toContain("输出");
 		expect(document.querySelector(".pruned-text-active")).not.toBeNull();
 		expect(button(".activity-summary")).toBe(summary);
 		expect(summary.getAttribute("aria-expanded")).toBe("true");
