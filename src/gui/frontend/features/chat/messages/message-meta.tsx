@@ -17,6 +17,9 @@ export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", ...me
 		<span>缓存读取 {number(metrics.cacheRead)}</span>
 		<span>缓存写入 {number(metrics.cacheWrite)}</span>
 		<Hint content="预估费用 · USD"><span>${metrics.cost.toFixed(4)}</span></Hint>
-		<Hint content="输出速度 · 含首字等待"><span aria-description={`${scope}输出 tokens / 模型请求耗时，不含工具执行`}>速度 {metrics.speed === null ? "—" : `${metrics.speed.toFixed(1)} tok/s`}</span></Hint>
 	</footer>;
+});
+
+export const GenerationSpeed = memo(function GenerationSpeed({ speed }: { speed: number | null }) {
+	return <Hint content="本段正文生成速度估算 · 不含首字等待"><span className="generation-speed" aria-description="本段正文 tokens 减去首片段 tokens，除以首末片段到达间隔">速度 {speed === null ? "—" : `${speed.toFixed(1)} tok/s`}</span></Hint>;
 });

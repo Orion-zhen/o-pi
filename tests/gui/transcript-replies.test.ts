@@ -132,7 +132,7 @@ describe("整轮处理过程折叠", () => {
 		expect(rows[0]?.answer).toHaveLength(2);
 		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear: () => {} }))).document;
 		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("closed");
-		expect([...document.querySelectorAll(".reply-turn-content > .reply-body")].map((body) => body.querySelector("article")?.textContent))
+		expect([...document.querySelectorAll(".reply-turn-content > .reply-body")].map((body) => body.querySelector("article > p")?.textContent))
 			.toEqual(["先检查组件", "接下来检查样式"]);
 		expect(document.querySelectorAll(".reply-activity .reply-body")).toHaveLength(0);
 		expect([...document.querySelectorAll(".reply-activity .reply-counts")].map((counts) => counts.textContent))
@@ -140,7 +140,8 @@ describe("整轮处理过程折叠", () => {
 		expect([...document.querySelectorAll(".reply-activity")].every((activity) => activity.getAttribute("data-state") === "closed")).toBe(true);
 		expect(document.querySelectorAll(".reply-body > .message-identity")).toHaveLength(3);
 		expect(document.querySelectorAll('.reply-turn-content [aria-label="本条消息统计"]')).toHaveLength(2);
-		expect(document.querySelector(".reply-answer")?.textContent).toContain("检查完成没有发现问题");
+		expect([...document.querySelectorAll(".reply-answer article > p")].map((paragraph) => paragraph.textContent))
+			.toEqual(["检查完成", "没有发现问题"]);
 	});
 
 	it("阶段标记区分同一条消息中的 commentary 和 final_answer", () => {
@@ -177,7 +178,7 @@ describe("整轮处理过程折叠", () => {
 		}))).document;
 		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("open");
 		expect([...document.querySelectorAll(".reply-activity")].map((activity) => activity.getAttribute("data-state"))).toEqual(["closed", "open"]);
-		expect(document.querySelector(".reply-turn-content > .reply-body article")?.textContent).toBe("我先检查");
+		expect(document.querySelector(".reply-turn-content > .reply-body article > p")?.textContent).toBe("我先检查");
 		const completed = replies(source({ messages: [user, assistant([...live.content, call]), result, assistant([text("最终报告")], "stop")] }));
 		expect(completed[0]).toMatchObject({ key: streaming[0]?.key, answer: [{ text: "最终报告" }] });
 	});

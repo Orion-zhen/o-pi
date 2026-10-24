@@ -2,7 +2,6 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { clearChrome } from "./chrome.ts";
 import { loadTuiConfig } from "./config.ts";
 import { MathInitialization } from "../chat/math/initialization.ts";
-import { createAssistantPerformanceTracker } from "../chat/message-performance.ts";
 import { recordUserMessageTimestamp, resetUserMessageTimestamps } from "../chat/message-timestamp.ts";
 import { TuiSession } from "./session.ts";
 import { collectUserMessages } from "./snapshot.ts";
@@ -19,7 +18,6 @@ export function createTuiRuntime(pi: ExtensionAPI): TuiRuntime {
 	let session: TuiSession | undefined;
 	let sessionGeneration = 0;
 	const math = new MathInitialization();
-	const assistantPerformance = createAssistantPerformanceTracker();
 	const userHistory = new UserHistoryStore();
 
 	pi.on("agent_start", () => {
@@ -39,21 +37,9 @@ export function createTuiRuntime(pi: ExtensionAPI): TuiRuntime {
 		math.schedule();
 	});
 
-	pi.on("before_provider_headers", () => {
-		if (session !== undefined) assistantPerformance.startRequest();
-	});
 	pi.on("message_start", (event) => {
 		if (session === undefined) return;
 		if (event.message.role === "user") recordUserMessageTimestamp(event.message);
-		else if (event.message.role === "assistant") assistantPerformance.startMessage(event.message);
-	});
-	pi.on("message_update", (event) => {
-		if (session !== undefined && event.message.role === "assistant") {
-			assistantPerformance.updateMessage(event.message, event.assistantMessageEvent);
-		}
-	});
-	pi.on("message_end", (event) => {
-		if (session !== undefined && event.message.role === "assistant") assistantPerformance.endMessage(event.message);
 	});
 	pi.on("session_compact", (_event, ctx) => {
 		if (session !== undefined) resetUserMessageTimestamps(collectUserMessages(ctx));
@@ -97,7 +83,6 @@ export function createTuiRuntime(pi: ExtensionAPI): TuiRuntime {
 		math.reset();
 		session?.dispose();
 		session = undefined;
-		assistantPerformance.reset();
 		return userHistory.flush();
 	}
 }

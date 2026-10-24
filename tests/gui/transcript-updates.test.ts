@@ -15,8 +15,12 @@ const renderRoot = useReactFixture(() => {
 });
 const memory = new Map<string, boolean | null>();
 const query = async () => { throw new Error("内联结果不应请求载荷"); };
-const completed = assistant([{ type: "text", text: "已检查组件" }, call]);
-const initial = source({ messages: [{ role: "user", content: "检查项目", timestamp: 1 }, completed, result], streaming: true });
+const user = { role: "user", content: "检查项目", timestamp: 1 } as const;
+const completed = {
+	...assistant([{ type: "text", text: "已检查组件" }, call]),
+	opiPerformance: { bodyTps: { 0: 2 }, ttftWithThinkingMs: 100, ttftWithoutThinkingMs: 100 },
+};
+const initial = source({ messages: [user, completed, result], streaming: true });
 async function render(value: TranscriptSource, entryIds = ["user", "checked", "result", "live"], pruned: ReadonlySet<string> = new Set()) {
 	const reply = transcriptReplies(value, pruned).find((row) => row.kind === "reply");
 	if (!reply) throw new Error("缺少回复");
@@ -41,35 +45,59 @@ beforeEach(() => {
 });
 
 describe("当前轮次中的稳定内容", () => {
-	it("新正文和工具进度不重复格式化已完成消息的统计", async () => {
+	it("正文结束时更新速度，后续分块独立结算，最终回答不依赖消息统计显示速度", async () => {
+		const message = assistant([{ type: "text", text: "第一段" }], "pending");
+		await render(source({ messages: [user], streaming: true, streamingMessage: message }));
+		expect(document.querySelector(".generation-speed")?.textContent).toBe("速度 —");
+
+		const firstEnded = { ...message,
+			opiPerformance: { bodyTps: { 0: 10 }, ttftWithThinkingMs: 100, ttftWithoutThinkingMs: 100 } };
+		await render(source({ messages: [user], streaming: true, streamingMessage: firstEnded }));
+		expect(document.querySelector(".generation-speed")?.textContent).toBe("速度 10.0 tok/s");
+
+		const next = { ...firstEnded, content: [...message.content, { type: "text", text: "第二段" } as const] };
+		await render(source({ messages: [user], streaming: true, streamingMessage: next }));
+		expect([...document.querySelectorAll(".generation-speed")].map((speed) => speed.textContent))
+			.toEqual(["速度 10.0 tok/s", "速度 —"]);
+
+		const ended = { ...next, opiPerformance: { ...next.opiPerformance, bodyTps: { 0: 10, 1: 20 } } };
+		await render(source({ messages: [user], streaming: true, streamingMessage: ended }));
+		expect([...document.querySelectorAll(".generation-speed")].map((speed) => speed.textContent))
+			.toEqual(["速度 10.0 tok/s", "速度 20.0 tok/s"]);
+		await render(source({ messages: [user, { ...ended, stopReason: "stop" }] }));
+		expect([...document.querySelectorAll(".generation-speed")].map((speed) => speed.textContent))
+			.toEqual(["速度 10.0 tok/s", "速度 20.0 tok/s"]);
+		expect(document.querySelector(".reply-metrics")).toBeNull();
+	});
+
+	it("后续正文流式生成时不重复格式化已完成消息的统计", async () => {
 		await render(initial);
 		const number = vi.spyOn(Number.prototype, "toLocaleString");
 		for (const text of ["继续", "继续检查"]) {
 			await render({ ...initial, streamingMessage: assistant([{ type: "text", text }], "pending") });
 			expect(document.body.textContent).toContain(text);
 		}
-		await render({ ...initial, liveTools: [{ toolCallId: "next", toolName: "bash", args: { command: "pwd" }, output: undefined }] });
-		expect(document.querySelector('[data-tool-call-id="next"]')?.getAttribute("data-state")).toBe("running");
 		expect(number).not.toHaveBeenCalled();
 	});
 
-	it("模型、用量及工具错误变化不会被稳定内容比较忽略", async () => {
-		await render(initial);
-		const updated: TranscriptSource = { ...initial, messages: initial.messages.map((message) => {
-			if (message.role === "assistant") return { ...message, model: "更新后的模型", usage: { ...message.usage, output: 42 } };
-			if (message.role === "toolResult") return { ...message, isError: true,
-				output: { kind: "inline", value: { content: [{ type: "text", text: "读取失败" }], details: { error: { code: "FAILED", message: "读取失败" } } } } };
-			return message;
-		}) };
-		await render(updated);
-		expect(document.querySelector(".message-identity")?.textContent).toContain("更新后的模型");
+	it("消息结束后显示用量，工具执行失败后更新状态和错误", async () => {
+		const message = assistant([{ type: "text", text: "检查组件" }, call], "pending");
+		await render(source({ messages: [user], streaming: true, streamingMessage: message }));
+		expect(document.querySelector(".reply-metrics")).toBeNull();
+		const ended = { ...message, stopReason: "toolUse" as const, usage: { ...message.usage, output: 42, totalTokens: 43 },
+			opiPerformance: { bodyTps: { 0: 2 }, ttftWithThinkingMs: 100, ttftWithoutThinkingMs: 100 } };
+		await render(source({ messages: [user, ended], streaming: true,
+			liveTools: [{ toolCallId: call.id, toolName: call.name, args: call.arguments, output: undefined }] }));
 		expect(document.querySelector(".reply-metrics")?.textContent).toContain("输出 42");
+		expect(document.querySelector(".tool-activity")?.getAttribute("data-state")).toBe("running");
+		await render(source({ messages: [user, ended, { ...result, isError: true,
+			content: [{ type: "text", text: "读取失败" }], details: { error: { code: "FAILED", message: "读取失败" } } }], streaming: true }));
 		expect(document.querySelector(".activity-error")?.textContent).toBe("读取失败");
 		expect(document.querySelector(".tool-activity")?.getAttribute("data-state")).toBe("failed");
 		expect(document.querySelector(".reply-counts")?.textContent).toContain("1 次失败");
 	});
 
-	it("统计耗时与条目定位变化仍更新，展开状态跨消息追加保留", async () => {
+	it("追加消息和裁剪工具结果后，已完成正文的速度与工具展开状态保持不变", async () => {
 		await render(initial);
 		await act(async () => button(".reply-activity > .disclosure-trigger").click());
 		await act(async () => button(".activity-summary").click());
@@ -77,11 +105,12 @@ describe("当前轮次中的稳定内容", () => {
 		const output = document.querySelector(".activity-body pre");
 		expect(output?.textContent).toContain("file content");
 		const updated = { ...initial,
-			messages: [...initial.messages.map((message) => message === completed ? { ...message, durationMs: 500 } : message),
-				assistant([{ type: "text", text: "新说明" }, { ...call, id: "next" }])] };
-		await render(updated, ["user", "renamed-entry", "result", "next-entry"], new Set([call.id]));
-		expect(document.querySelector('.reply-body [data-entry-id="renamed-entry"]')?.textContent).toBe("已检查组件");
-		expect(document.querySelector(".reply-metrics")?.textContent).toContain("速度 2.0 tok/s");
+			messages: [...initial.messages, assistant([{ type: "text", text: "新说明" }, { ...call, id: "next" }])] };
+		await render(updated, ["user", "checked", "result", "next-entry"], new Set([call.id]));
+		expect(document.querySelector('.reply-body [data-entry-id="checked"] > p')?.textContent).toBe("已检查组件");
+		expect(document.querySelector('.reply-body [data-entry-id="checked"] .generation-speed')?.textContent).toBe("速度 2.0 tok/s");
+		expect(document.querySelector(".reply-metrics")?.textContent).toContain("输出");
+		expect(document.querySelector(".reply-metrics")?.textContent).not.toContain("速度");
 		expect(document.querySelector(".pruned-text-active")).not.toBeNull();
 		expect(button(".activity-summary")).toBe(summary);
 		expect(summary.getAttribute("aria-expanded")).toBe("true");

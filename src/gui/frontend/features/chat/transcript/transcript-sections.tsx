@@ -5,7 +5,7 @@ import { useDisclosureMemory } from "@/ui/disclosure-memory.ts";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { StreamingText } from "@/ui/content/markdown.tsx";
 import { Message } from "../messages/message.tsx";
-import { MessageIdentity, ReplyMetrics } from "../messages/message-meta.tsx";
+import { GenerationSpeed, MessageIdentity, ReplyMetrics } from "../messages/message-meta.tsx";
 import { ToolActivity } from "../tools/tool-activity.tsx";
 import { skillCount } from "./skill-summary.tsx";
 import { ReplyStatusLabel } from "./reply-status-label.tsx";
@@ -56,7 +56,8 @@ const Body = memo(function Body({ first, items, entryIds, showMetrics }: {
 	return <div className="reply-body">
 		<MessageIdentity name={first.identity.model} timestamp={first.identity.timestamp} />
 		{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}
-		<AnimatePresence initial={false}>{showMetrics && !first.active && <Reveal><ReplyMetrics {...first.metrics} scope="本条" /></Reveal>}</AnimatePresence>
+		<AnimatePresence initial={false}>{showMetrics && !items.some((item) => item.active)
+			&& <Reveal><ReplyMetrics {...first.metrics} scope="本条" /></Reveal>}</AnimatePresence>
 	</div>;
 }, (before, after) => before.showMetrics === after.showMetrics && sameTranscriptItem(before.first, after.first) && sameContent(before, after));
 
@@ -94,7 +95,10 @@ const Activity = memo(function Activity({ id, items, entryIds, tracking }: Secti
 const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entryId: string | undefined }) {
 	switch (item.kind) {
 		case "message": return <Message value={item.message} entryId={entryId} />;
-		case "text": return <article data-entry-id={entryId} className="message assistant"><StreamingText text={item.text} active={item.active} /></article>;
+		case "text": return <article data-entry-id={entryId} className="message assistant">
+			<StreamingText text={item.text} active={item.active} />
+			<GenerationSpeed speed={item.speed} />
+		</article>;
 		case "thinking": return <Thinking id={item.key} text={item.text} active={item.active} entryId={entryId} />;
 		case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} /></div>;
 		case "error": return <pre data-entry-id={entryId} className="message error">{item.text}</pre>;

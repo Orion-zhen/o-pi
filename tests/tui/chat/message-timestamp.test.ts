@@ -5,11 +5,8 @@ import {
 	SkillInvocationMessageComponent,
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	createAssistantPerformanceTracker,
-} from "../../../src/tui/chat/message-performance.ts";
+import { type MarkdownTheme, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
 	configureMessageTimestampRenderer,
 	recordUserMessageTimestamp,
@@ -45,12 +42,6 @@ beforeAll(() => {
 	});
 });
 
-beforeEach(() => {
-	createAssistantPerformanceTracker().reset();
-});
-
-afterEach(() => vi.restoreAllMocks());
-
 describe("message timestamp", () => {
 	it("用户消息完整重建时复用原始时间且不丢失时间戳", () => {
 		resetUserMessageTimestamps([userMessage("first", timestamp), userMessage("second", timestamp + 1_000)]);
@@ -76,8 +67,9 @@ describe("message timestamp", () => {
 		const assistant = new AssistantMessageComponent(assistantMessage([{ type: "text", text: "answer" }], timestamp), false, markdownTheme);
 		for (const component of [user, assistant]) {
 			component.setOutputPad(padding);
-			const line = component.render(40).find((line) => line.includes(label));
-			expect(line).toBe(`${" ".repeat(40 - label.length - padding)}${label}${" ".repeat(padding)}`);
+			const line = component.render(40).map(stripTerminalSequences).find((line) => line.includes(label));
+			const fullLabel = component === assistant ? `[TPS: —]${label}` : label;
+			expect(line).toBe(`${" ".repeat(40 - fullLabel.length - padding)}${fullLabel}${" ".repeat(padding)}`);
 		}
 	});
 
@@ -139,32 +131,29 @@ describe("message timestamp", () => {
 		assertTimestamp(component.render(40), 40);
 	});
 
-	it("隐藏思考时使用首个正文 token 的 TTFT，并在窄宽下安全降级", () => {
-		let now = 0;
-		vi.spyOn(performance, "now").mockImplementation(() => now);
-		const tracker = createAssistantPerformanceTracker();
-		const message = assistantMessage([
-			{ type: "thinking", thinking: "summary" },
-			{ type: "text", text: "Hello world" },
-		], timestamp);
-		tracker.startRequest();
-		tracker.startMessage(message);
-		now = 100;
-		tracker.updateMessage(message, { type: "thinking_delta", contentIndex: 0, delta: "summary", partial: message });
-		now = 500;
-		tracker.updateMessage(message, { type: "text_delta", contentIndex: 1, delta: "Hello", partial: message });
-		now = 600;
-		tracker.updateMessage(message, { type: "text_delta", contentIndex: 1, delta: " world", partial: message });
-		tracker.endMessage(message);
-
-		const shown = new AssistantMessageComponent(message, false, markdownTheme, "Thinking...", 1).render(80).join("\n");
-		const hidden = new AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1).render(80).join("\n");
-		const narrow = new AssistantMessageComponent(message, false, markdownTheme, "Thinking...", 1).render(40);
-		expect(shown).toContain("[TPS: 20.0, TTFT: 100ms]");
-		expect(shown).toContain(label);
-		expect(hidden).toContain("[TPS: 20.0, TTFT: 500ms]");
-		expect(hidden).toContain(label);
-		expect(narrow.join("\n")).toContain(label);
+	it("正文分块显示速度，切换思考可见性更新 TTFT，窄宽仅显示时间戳", () => {
+		const message = {
+			...assistantMessage([
+				{ type: "thinking", thinking: "reasoning" },
+				{ type: "text", text: "first body" },
+				{ type: "text", text: "second body" },
+			], timestamp),
+			opiPerformance: { bodyTps: { 1: 10, 2: 20 }, ttftWithThinkingMs: 100, ttftWithoutThinkingMs: 500 },
+		};
+		const component = new AssistantMessageComponent(message, false, markdownTheme);
+		for (const [hide, ttft] of [[false, "100ms"], [true, "500ms"]] as const) {
+			component.setHideThinkingBlock(hide);
+			const lines = component.render(80).map(stripTerminalSequences);
+			expect(lines.filter((line) => line.includes("[TPS:")).map((line) => line.trim())).toEqual([
+				`[TPS: 10.0, TTFT: ${ttft}]${label}`,
+				`[TPS: 20.0, TTFT: ${ttft}]${label}`,
+			]);
+			expect(lines.findIndex((line) => line.includes("first body"))).toBeLessThan(lines.findIndex((line) => line.includes("TPS: 10.0")));
+			expect(lines.findIndex((line) => line.includes("TPS: 10.0"))).toBeLessThan(lines.findIndex((line) => line.includes("second body")));
+			expect(lines.findIndex((line) => line.includes("second body"))).toBeLessThan(lines.findIndex((line) => line.includes("TPS: 20.0")));
+		}
+		const narrow = component.render(40);
+		expect(narrow.filter((line) => line.includes(label))).toHaveLength(2);
 		expect(narrow.join("\n")).not.toContain("[TPS:");
 		expect(narrow.every((line) => visibleWidth(line) <= 40)).toBe(true);
 	});

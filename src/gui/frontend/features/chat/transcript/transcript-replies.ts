@@ -1,5 +1,6 @@
 import { outputPreview } from "../../../../shared/messages/output.ts";
 import { replyMetrics } from "../messages/metrics.ts";
+import { getAssistantPerformance } from "../../../../../harness/message-performance/types.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../../../../harness/skill-context/types.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TranscriptItem, TranscriptSource } from "./transcript-items.ts";
@@ -102,6 +103,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			const identity = { model: model?.name ?? message.model, timestamp: message.timestamp };
 			reply.lastAssistant = { message, index: messageIndex, identity };
 			const metrics = replyMetrics([message]);
+			const bodyTps = getAssistantPerformance(message)?.bodyTps;
 			message.content.forEach((block, blockIndex) => {
 				const blockKey = `${key}:${blockIndex}`;
 				if (block.type === "toolCall") {
@@ -113,7 +115,9 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 						key: blockKey, messageIndex, kind: "thinking", text: block.thinking,
 						active: streaming && blockIndex === message.content.length - 1,
 					});
-				} else if (block.text.trim()) reply.items.push({ key: blockKey, messageIndex, blockIndex, kind: "text", text: block.text, active: streaming, identity, metrics });
+				} else if (block.text.trim()) reply.items.push({ key: blockKey, messageIndex, blockIndex, kind: "text", text: block.text,
+					active: streaming && bodyTps?.[blockIndex] === undefined, identity, metrics,
+					speed: bodyTps?.[blockIndex] ?? null });
 			});
 			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex, kind: "error", text: message.errorMessage });
 		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);

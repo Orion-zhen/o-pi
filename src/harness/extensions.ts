@@ -12,6 +12,7 @@ import discordPresence from "./extensions/discord-presence.ts";
 import fileTools from "./extensions/file-tools.ts";
 import lsp from "./extensions/lsp.ts";
 import mcp from "./extensions/mcp.ts";
+import messagePerformance from "./extensions/message-performance.ts";
 import oPet from "./extensions/o-pet.ts";
 import openAICompatibleProvider from "./extensions/openai-compatible-provider.ts";
 import projectSkills from "./extensions/project-skills.ts";
@@ -35,6 +36,7 @@ interface HarnessOptions {
 /** 工具与遥测在同一个 factory 内装配，每次加载独立创建状态。 */
 export function createHarnessExtensions(options: HarnessOptions = {}): InlineExtension[] {
 	return [
+		{ name: "message-performance", factory: messagePerformance },
 		{ name: "tool-search", builtin: true, factory: toolSearch },
 		{ name: "codemode", builtin: true, factory: codemode },
 		{ name: "mcp", builtin: true, factory: mcp },

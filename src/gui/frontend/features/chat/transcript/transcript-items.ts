@@ -8,7 +8,7 @@ export type TranscriptSource = Pick<GuiSnapshot, "models" | "streamingMessage" |
 export type TranscriptItem = { key: string; messageIndex: number } & (
 	| { kind: "message"; message: GuiMessage }
 	| { kind: "text"; text: string; blockIndex: number; active: boolean;
-		identity: { model: string; timestamp: number }; metrics: ReturnType<typeof replyMetrics> }
+		identity: { model: string; timestamp: number }; metrics: ReturnType<typeof replyMetrics>; speed: number | null }
 	| { kind: "thinking"; text: string; active: boolean }
 	| { kind: "tool"; tool: ToolActivity; pruned: boolean }
 	| { kind: "error"; text: string }
@@ -27,6 +27,6 @@ export function sameTranscriptItem(before: TranscriptItem, after: TranscriptItem
 			&& before.identity.model === after.identity.model && before.identity.timestamp === after.identity.timestamp
 			&& before.metrics.input === after.metrics.input && before.metrics.output === after.metrics.output
 			&& before.metrics.cacheRead === after.metrics.cacheRead && before.metrics.cacheWrite === after.metrics.cacheWrite
-			&& before.metrics.cost === after.metrics.cost && before.metrics.speed === after.metrics.speed;
+			&& before.metrics.cost === after.metrics.cost && before.speed === after.speed;
 	}
 }
