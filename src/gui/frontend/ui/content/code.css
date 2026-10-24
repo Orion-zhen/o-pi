@@ -1,10 +1,10 @@
 .code-block { margin-block: 0.75rem; min-width: 0; border: 1px solid var(--divider); border-radius: var(--radius-md); overflow: hidden; background: var(--content-surface); color: var(--foreground); }
-.code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.4375rem 0.75rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); font-size: calc(var(--text-ui) * 11 / 14); color: var(--muted-foreground); }
+.code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.4375rem 0.75rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); font-size: var(--text-small); color: var(--muted-foreground); }
 .code-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
 .code-toolbar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.code-toolbar button { display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; padding: 0.125rem 0.25rem; border-radius: 0.25rem; }
+.code-toolbar button { display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; padding: 0.125rem 0.25rem; border-radius: 0.25rem; font-size: inherit; }
 .code-toolbar button:hover { color: var(--foreground); background: var(--accent); }
-.code-toolbar button svg { width: 0.75rem; height: 0.75rem; }
+.code-toolbar button svg { width: 1em; height: 1em; }
 .code-block pre { margin: 0; padding: 0.875rem; max-block-size: 60dvh; overflow: auto; border: 0; border-radius: 0; background: transparent; white-space: pre; overflow-wrap: normal; line-height: 1.65; tab-size: 4; }
 .code-block code { font-size: var(--text-code); }
 :is(.code-block, .file-diff) .token:is(.comment, .prolog, .doctype) { color: var(--muted-foreground); font-style: italic; }

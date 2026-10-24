@@ -1,4 +1,5 @@
 import { animate } from "motion/mini";
+import { listDepth } from "@/ui/motion/transitions.ts";
 
 export const startupContentDuration = 900;
 export const startupListDuration = 600;
@@ -34,19 +35,19 @@ export function startupLists(sidebar: HTMLElement) {
 					const rect = row.getBoundingClientRect();
 					return rect.height > 0 && rect.width > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom;
 				});
-				const duration = rows.length === 1 ? startupListDuration : 320;
+				const duration = rows.length === 1 ? startupListDuration : listDepth.transition.duration * 1000;
 				const interval = rows.length > 1 ? (startupListDuration - duration) / (rows.length - 1) : 0;
 				rows.forEach((row, index) => {
 					if (active.has(row)) return;
 					const { transform, filter, visibility } = row.style;
 					const animation = animate(row, {
 						visibility: ["visible", "visible"],
-						transform: ["perspective(700px) translateZ(-32px)", "perspective(700px) translateZ(0px)"],
-						filter: ["blur(3px) opacity(0)", "blur(0px) opacity(1)"],
+						transform: [listDepth.hidden.transform, listDepth.visible.transform],
+						filter: [listDepth.hidden.filter, listDepth.visible.filter],
 					}, {
 						duration: duration / 1000,
 						delay: (startsAt + index * interval - performance.now()) / 1000,
-						ease: [0.2, 0.65, 0.3, 1],
+						ease: listDepth.transition.ease,
 					});
 					active.set(row, { animation, transform, filter, visibility });
 				});

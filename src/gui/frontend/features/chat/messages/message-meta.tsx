@@ -9,7 +9,7 @@ export const MessageIdentity = memo(function MessageIdentity({ name, timestamp }
 	return <header className="message-identity"><strong>{name}</strong><time dateTime={date.toISOString()}>{time}</time></header>;
 });
 
-export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", speed, ...metrics }: ReturnType<typeof replyMetrics> & { scope?: "本轮" | "本条"; speed?: number | null | undefined }) {
+export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", speed, ...metrics }: ReturnType<typeof replyMetrics> & { scope?: "本轮" | "本条"; speed: number | null }) {
 	const number = (value: number) => value.toLocaleString("en-US");
 	return <footer className="reply-metrics" aria-label={`${scope}消息统计`}>
 		<span>输入 {number(metrics.input)}</span>
@@ -17,10 +17,6 @@ export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", speed
 		<span>缓存读取 {number(metrics.cacheRead)}</span>
 		<span>缓存写入 {number(metrics.cacheWrite)}</span>
 		<Hint content="预估费用 · USD"><span>${metrics.cost.toFixed(4)}</span></Hint>
-		{speed !== undefined && <GenerationSpeed speed={speed} />}
+		<Hint content="正文生成速度 · 不含首字等待"><span aria-description="本段正文 tokens 减去首片段 tokens，除以首末片段到达间隔">速度 {speed === null ? "—" : `${speed.toFixed(1)} tok/s`}</span></Hint>
 	</footer>;
-});
-
-export const GenerationSpeed = memo(function GenerationSpeed({ speed }: { speed: number | null }) {
-	return <span className="generation-speed" aria-description="本段正文 tokens 减去首片段 tokens，除以首末片段到达间隔">速度 {speed === null ? "—" : `${speed.toFixed(1)} tok/s`}</span>;
 });

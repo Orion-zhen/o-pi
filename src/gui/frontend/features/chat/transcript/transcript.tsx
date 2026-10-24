@@ -79,7 +79,6 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 	].filter(Boolean).join(" · ");
 	const hasAnswer = reply.answer.length > 0;
 	const lastAnswer = reply.answer.at(-1);
-	const footerSpeed = !running && reply.identity && lastAnswer?.kind === "text" ? lastAnswer : undefined;
 	const processTail = running && !hasAnswer;
 	const pruned = reply.process.some((item) => item.kind === "tool" && item.pruned);
 	const showProcess = reply.process.length > 0 || processTail;
@@ -94,7 +93,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 			</>}>
 			{processContent}
 		</Disclosure>}
-		<div className="reply-answer" data-tail={running} hidden={running && !hasAnswer}><ReplyItems items={reply.answer} entryIds={entryIds} showMetrics={false} footerSpeedKey={footerSpeed?.key} /></div>
+		<div className="reply-answer" data-tail={running} hidden={running && !hasAnswer}><ReplyItems items={reply.answer} entryIds={entryIds} showMetrics={false} /></div>
 		<AnimatePresence initial={false}>
 			{running ? <ReplyBreathing key="breathing" compacting={reply.compacting} />
 				: <Reveal key="result">
@@ -103,7 +102,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 						<span>{outcome}</span>
 						{reply.error && <pre>{reply.error}</pre>}
 					</div>}
-					{reply.identity && <ReplyMetrics {...reply.metrics} speed={footerSpeed?.speed} />}
+					{reply.identity && <ReplyMetrics {...reply.metrics} speed={lastAnswer?.kind === "text" ? lastAnswer.speed : null} />}
 				</Reveal>}
 		</AnimatePresence>
 	</section>;

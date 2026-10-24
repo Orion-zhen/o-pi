@@ -68,8 +68,7 @@ describe("message timestamp", () => {
 		for (const component of [user, assistant]) {
 			component.setOutputPad(padding);
 			const line = component.render(40).map(stripTerminalSequences).find((line) => line.includes(label));
-			const fullLabel = component === assistant ? `[TPS: —]${label}` : label;
-			expect(line).toBe(`${" ".repeat(40 - fullLabel.length - padding)}${fullLabel}${" ".repeat(padding)}`);
+			expect(line).toBe(`${" ".repeat(40 - label.length - padding)}${label}${" ".repeat(padding)}`);
 		}
 	});
 
@@ -131,7 +130,7 @@ describe("message timestamp", () => {
 		assertTimestamp(component.render(40), 40);
 	});
 
-	it("正文分块显示速度，切换思考可见性更新 TTFT，窄宽仅显示时间戳", () => {
+	it("消息末尾只显示最后正文块的速度，切换思考可见性更新 TTFT，窄宽仅显示时间戳", () => {
 		const message = {
 			...assistantMessage([
 				{ type: "thinking", thinking: "reasoning" },
@@ -145,15 +144,13 @@ describe("message timestamp", () => {
 			component.setHideThinkingBlock(hide);
 			const lines = component.render(80).map(stripTerminalSequences);
 			expect(lines.filter((line) => line.includes("[TPS:")).map((line) => line.trim())).toEqual([
-				`[TPS: 10.0, TTFT: ${ttft}]${label}`,
 				`[TPS: 20.0, TTFT: ${ttft}]${label}`,
 			]);
-			expect(lines.findIndex((line) => line.includes("first body"))).toBeLessThan(lines.findIndex((line) => line.includes("TPS: 10.0")));
-			expect(lines.findIndex((line) => line.includes("TPS: 10.0"))).toBeLessThan(lines.findIndex((line) => line.includes("second body")));
+			expect(lines.filter((line) => line.includes(label))).toHaveLength(1);
 			expect(lines.findIndex((line) => line.includes("second body"))).toBeLessThan(lines.findIndex((line) => line.includes("TPS: 20.0")));
 		}
 		const narrow = component.render(40);
-		expect(narrow.filter((line) => line.includes(label))).toHaveLength(2);
+		expect(narrow.filter((line) => line.includes(label))).toHaveLength(1);
 		expect(narrow.join("\n")).not.toContain("[TPS:");
 		expect(narrow.every((line) => visibleWidth(line) <= 40)).toBe(true);
 	});

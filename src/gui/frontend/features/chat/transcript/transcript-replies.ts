@@ -116,7 +116,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 						active: streaming && blockIndex === message.content.length - 1,
 					});
 				} else if (block.text.trim()) reply.items.push({ key: blockKey, messageIndex, blockIndex, kind: "text", text: block.text,
-					active: streaming && bodyTps?.[blockIndex] === undefined, identity, metrics,
+					active: streaming, identity, metrics,
 					speed: bodyTps?.[blockIndex] ?? null });
 			});
 			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex, kind: "error", text: message.errorMessage });

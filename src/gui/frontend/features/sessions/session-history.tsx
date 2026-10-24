@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { settle } from "@/ui/motion/transitions.ts";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
@@ -44,10 +45,10 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 				<RefreshCw className={gui.sessionsLoading ? "animate-spin" : undefined} />
 			</IconButton>
 		</div>
-		<ListScroll className="history-scroll">
+		<ListScroll className="history-scroll">{(refreshScroll) => <>
 			{!gui.sessions && <p className="history-hint" role="status">正在读取历史会话…</p>}
 			{groups.filter(([cwd]) => full || cwd === gui.cwd).map(([cwd, items]) => {
-				const rows = <SessionRows items={items} gui={gui} close={close} search={search} />;
+				const rows = <SessionRows items={items} gui={gui} close={close} search={search} refreshScroll={refreshScroll} />;
 				return full ? <Collapsible key={cwd} defaultOpen className="workspace-sessions">
 					<Hint content={cwd}><CollapsibleTrigger asChild><Button variant="ghost" className="workspace-toggle">
 						<ChevronRight className="workspace-chevron" /><FolderClosed /><span className="workspace-label">{workspaceName(cwd)}</span>
@@ -55,15 +56,16 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 					<CollapsibleContent>{rows}</CollapsibleContent>
 				</Collapsible> : <div key={cwd}>{rows}</div>;
 			})}
-		</ListScroll>
+		</>}</ListScroll>
 	</section>;
 });
 
-function SessionRows({ items, gui, close, search }: {
-	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: string;
+function SessionRows({ items, gui, close, search, refreshScroll }: {
+	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: string; refreshScroll: () => void;
 }) {
 	const [switching, setSwitching] = useState(false);
 	const visible = useMemo(() => items.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [items, search]);
+	const visibleKeys = useMemo(() => new Set(visible.map((item) => item.key)), [visible]);
 	const list = useVirtualRows<HTMLDivElement>(visible.length, (index) => visible[index]?.key ?? "", 44);
 	const open = useCallback((item: SessionListItem) => {
 		close();
@@ -74,12 +76,15 @@ function SessionRows({ items, gui, close, search }: {
 	const rows = list.rows.map((row) => {
 		const item = visible[row.index];
 		if (!item) return null;
-		const content = <HistorySessionRow key={item.key} item={item} disabled={switching || !gui.canNavigate}
-			send={gui.send} animated={!list.windowed} open={open} />;
-		return list.windowed ? <div key={row.key} data-index={row.index} className="history-virtual-row" ref={list.virtualizer.measureElement} style={list.rowStyle(row.start)}>{content}</div> : content;
+		return <motion.div key={item.key} layout="position" layoutDependency={visible} transition={settle} onLayoutAnimationComplete={refreshScroll}
+			data-index={list.windowed ? row.index : undefined} className={list.windowed ? "history-virtual-row" : undefined}
+			ref={list.windowed ? list.virtualizer.measureElement : undefined}
+			style={{ minWidth: 0, ...(list.windowed ? { position: "absolute", top: row.start - list.virtualizer.options.scrollMargin, left: 0, width: "100%" } : {}) }}>
+			<HistorySessionRow item={item} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} />
+		</motion.div>;
 	});
 	return <div ref={list.root} style={list.style} className="workspace-session-list">
-		{list.windowed ? rows : <AnimatePresence initial={false}>{rows}</AnimatePresence>}
+		<AnimatePresence initial={false} custom={visibleKeys} onExitComplete={() => { if (!list.windowed) refreshScroll(); }}>{rows}</AnimatePresence>
 		{!visible.length && gui.sessions && <p className="history-hint">{search.trim() ? "没有匹配的会话" : "暂无历史会话"}</p>}
 	</div>;
 }

@@ -6,7 +6,7 @@
 .mermaid-view-toggle button:hover:not(:disabled):not([data-state="on"]) { color: var(--foreground); background: var(--accent); }
 .mermaid-view-toggle button[data-state="on"] { color: var(--foreground); background: transparent; }
 .mermaid-view-toggle .animated-background { inset: 0; background: var(--panel-base); box-shadow: var(--soft-highlight); }
-.mermaid-view-toggle button svg { inline-size: 1.15em; block-size: 1.15em; flex-shrink: 0; }
+.mermaid-view-toggle button svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; }
 .mermaid-view-toggle button:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
 .mermaid-view-toggle button:disabled { opacity: 0.45; cursor: default; }
 .mermaid-status { margin: 0; padding: var(--space-2) var(--space-3); color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }

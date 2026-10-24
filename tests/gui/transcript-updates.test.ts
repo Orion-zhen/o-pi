@@ -45,29 +45,27 @@ beforeEach(() => {
 });
 
 describe("当前轮次中的稳定内容", () => {
-	it("正文结束时更新速度，后续分块独立结算，最终回答不依赖消息统计显示速度", async () => {
+	it("正文独立结算，但统计栏仍等待消息结束且不增加正文速度行", async () => {
 		const message = assistant([{ type: "text", text: "第一段" }], "pending");
 		await render(source({ messages: [user], streaming: true, streamingMessage: message }));
-		expect(document.querySelector(".generation-speed")?.textContent).toBe("速度 —");
+		expect(document.querySelector(".reply-metrics")).toBeNull();
 
 		const firstEnded = { ...message,
 			opiPerformance: { bodyTps: { 0: 10 }, ttftWithThinkingMs: 100, ttftWithoutThinkingMs: 100 } };
 		await render(source({ messages: [user], streaming: true, streamingMessage: firstEnded }));
-		expect(document.querySelector(".generation-speed")?.textContent).toBe("速度 10.0 tok/s");
+		expect(document.body.textContent).not.toContain("速度");
 
-		const next = { ...firstEnded, content: [...message.content, { type: "text", text: "第二段" } as const] };
+		const next = { ...firstEnded, content: [...message.content, { type: "text", text: "第二段" } as const, call] };
 		await render(source({ messages: [user], streaming: true, streamingMessage: next }));
-		expect([...document.querySelectorAll(".generation-speed")].map((speed) => speed.textContent))
-			.toEqual(["速度 10.0 tok/s", "速度 —"]);
+		expect(document.querySelector(".reply-metrics")).toBeNull();
 
 		const ended = { ...next, opiPerformance: { ...next.opiPerformance, bodyTps: { 0: 10, 1: 20 } } };
 		await render(source({ messages: [user], streaming: true, streamingMessage: ended }));
-		expect([...document.querySelectorAll(".generation-speed")].map((speed) => speed.textContent))
-			.toEqual(["速度 10.0 tok/s", "速度 20.0 tok/s"]);
-		await render(source({ messages: [user, { ...ended, stopReason: "stop" }] }));
-		expect([...document.querySelectorAll(".generation-speed")].map((speed) => speed.textContent))
-			.toEqual(["速度 10.0 tok/s", "速度 20.0 tok/s"]);
-		expect(document.querySelector(".reply-metrics")).toBeNull();
+		expect(document.body.textContent).not.toContain("速度");
+		await render(source({ messages: [user, { ...ended, stopReason: "toolUse" }] }));
+		expect(document.querySelectorAll(".reply-metrics")).toHaveLength(1);
+		expect(document.querySelector(".reply-metrics [aria-description]")?.textContent).toBe("速度 20.0 tok/s");
+		expect(document.querySelector("article [aria-description]")).toBeNull();
 	});
 
 	it("后续正文流式生成时不重复格式化已完成消息的统计", async () => {
@@ -100,7 +98,7 @@ describe("当前轮次中的稳定内容", () => {
 	it("追加消息和裁剪工具结果后，已完成正文的速度与工具展开状态保持不变", async () => {
 		await render(initial);
 		expect(document.querySelector('[data-entry-id="checked"]')?.closest(".reply-body")
-			?.querySelector(".reply-metrics .generation-speed")?.textContent).toBe("速度 2.0 tok/s");
+			?.querySelector(".reply-metrics [aria-description]")?.textContent).toBe("速度 2.0 tok/s");
 		await act(async () => button(".reply-activity > .disclosure-trigger").click());
 		await act(async () => button(".activity-summary").click());
 		const summary = button(".activity-summary");
@@ -111,7 +109,7 @@ describe("当前轮次中的稳定内容", () => {
 		await render(updated, ["user", "checked", "result", "next-entry"], new Set([call.id]));
 		expect(document.querySelector('.reply-body [data-entry-id="checked"] > p')?.textContent).toBe("已检查组件");
 		const metrics = document.querySelector('[data-entry-id="checked"]')?.closest(".reply-body")?.querySelector(".reply-metrics");
-		expect(metrics?.querySelector(".generation-speed")?.textContent).toBe("速度 2.0 tok/s");
+		expect(metrics?.querySelector("[aria-description]")?.textContent).toBe("速度 2.0 tok/s");
 		expect(metrics?.textContent).toContain("输出");
 		expect(document.querySelector(".pruned-text-active")).not.toBeNull();
 		expect(button(".activity-summary")).toBe(summary);

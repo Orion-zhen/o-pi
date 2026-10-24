@@ -1,11 +1,11 @@
-import type { UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
 import {
 	AssistantMessageComponent,
 	parseSkillBlock,
 	SkillInvocationMessageComponent,
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { getAssistantPerformance, type AssistantPerformance } from "../../harness/message-performance/types.ts";
 
 const DEFAULT_PADDING_X = 1;
@@ -29,6 +29,7 @@ let userTimestamps: UserTimestamp[] = [];
 let nextUserTimestamp = 0;
 
 const renderedTimestamps = new WeakMap<object, number>();
+const assistantMessages = new WeakMap<AssistantMessageComponent, AssistantMessage>();
 
 /** 安装内置消息组件补丁；重复调用只更新当前主题样式。 */
 export function configureMessageTimestampRenderer(nextStyles: MessageTimestampStyles | undefined): void {
@@ -58,12 +59,12 @@ function formatMessageTimestamp(timestamp: number): string | undefined {
 	return `[${String(date.getFullYear()).padStart(4, "0")}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}]`;
 }
 
-/** TPS 属于当前正文块，TTFT 保留请求级口径。 */
-function formatAssistantPerformance(performance: AssistantPerformance | undefined, blockIndex: number, hideThinking: boolean): string {
+/** TPS 使用最后一个正文块的独立结果，TTFT 保留请求级口径。 */
+function formatAssistantPerformance(performance: AssistantPerformance | undefined, blockIndex: number, hideThinking: boolean): string | undefined {
 	const speed = performance?.bodyTps[blockIndex];
-	const tps = speed == null ? "—" : speed.toFixed(speed >= 100 ? 0 : 1);
 	const ttftMs = hideThinking ? performance?.ttftWithoutThinkingMs : performance?.ttftWithThinkingMs;
-	if (ttftMs == null) return `[TPS: ${tps}]`;
+	if (speed == null || ttftMs == null) return undefined;
+	const tps = speed.toFixed(speed >= 100 ? 0 : 1);
 	const ttft = ttftMs < 1_000 ? `${Math.round(ttftMs)}ms` : `${(ttftMs / 1_000).toFixed(ttftMs < 10_000 ? 2 : 1)}s`;
 	return `[TPS: ${tps}, TTFT: ${ttft}]`;
 }
@@ -95,22 +96,22 @@ function patchAssistantMessages(): void {
 	AssistantMessageComponent.prototype.updateContent = function updateContentWithTimestamp(
 		...args: Parameters<AssistantMessageComponent["updateContent"]>
 	): void {
+		assistantMessages.set(this, args[0]);
 		originalUpdateContent.apply(this, args);
-		const message = args[0];
-		const content = this.children[0];
-		if (!(content instanceof Container)) throw new Error("SDK 助手消息缺少正文容器。");
-		// 思考内容位于 MouseRegion 内，顶层 Markdown 与可见正文块一一对应。
-		const bodies = content.children.filter((child) => child instanceof Markdown);
-		let bodyIndex = 0;
-		for (const [blockIndex, block] of message.content.entries()) {
-			if (block.type !== "text" || !block.text.trim()) continue;
-			const body = bodies[bodyIndex++];
-			if (!body) throw new Error("SDK 助手正文块与组件不匹配。");
-			body.render = (width: number): string[] => insertTimestamp(
-				Markdown.prototype.render.call(body, width), width, message.timestamp, readOutputPadding(this), undefined, false,
-				formatAssistantPerformance(getAssistantPerformance(message), blockIndex, readHideThinking(this)),
-			);
-		}
+	};
+
+	const originalRender = AssistantMessageComponent.prototype.render;
+	AssistantMessageComponent.prototype.render = function renderWithTimestamp(width: number): string[] {
+		const lines = originalRender.call(this, width);
+		const message = assistantMessages.get(this);
+		if (message === undefined) return lines;
+		const blockIndex = message.content.findLastIndex((block) => block.type === "text" && block.text.trim().length > 0);
+		if (blockIndex < 0) return lines;
+		const performanceLabel = Reflect.get(this, "isStreaming") === true || message.stopReason === "pending"
+			|| message.stopReason === "error" || message.stopReason === "aborted"
+			? undefined
+			: formatAssistantPerformance(getAssistantPerformance(message), blockIndex, readHideThinking(this));
+		return insertTimestamp(lines, width, message.timestamp, readOutputPadding(this), undefined, false, performanceLabel);
 	};
 }
 
