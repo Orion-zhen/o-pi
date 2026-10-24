@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { IconButton } from "@/ui/icon-button.tsx";
-import { editPreference, resetSection, sectionSave, type GuiSection, type ReadyGuiConfig } from "./gui-settings-draft.ts";
+import { editPreference, resetSection, sectionChanged, sectionSave, type GuiSection, type ReadyGuiConfig } from "./gui-settings-draft.ts";
 import type { GuiConfigDocument, GuiPreferences } from "../../../shared/config/preferences.ts";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import type { Send } from "@/connection/connection.ts";
@@ -32,7 +32,7 @@ export function GuiSettings({ title, section, document: latest, send, query, dis
 	const localFonts = useLocalFonts();
 	const [draft, setDraft] = useState<{ base: ReadyGuiConfig; document: ReadyGuiConfig }>();
 	const [error, setError] = useState("");
-	const dirty = draft !== undefined && draft.document.content !== draft.base.content;
+	const dirty = draft !== undefined;
 	useSettingsDraft(section, {
 		title, dirty, blocked: disabled,
 		save: async () => {
@@ -55,7 +55,7 @@ export function GuiSettings({ title, section, document: latest, send, query, dis
 	const update = (next: ReadyGuiConfig) => {
 		if (document.state !== "ready") return;
 		const base = draft?.base ?? document;
-		setDraft(next.content === base.content ? undefined : { base, document: next });
+		setDraft(sectionChanged(base.value, next.value, section) ? { base, document: next } : undefined);
 		setError("");
 	};
 	const change = async (path: PreferencePath, value: string | string[] | number | boolean | undefined) => {
@@ -66,8 +66,9 @@ export function GuiSettings({ title, section, document: latest, send, query, dis
 	const blocked = disabled || saving;
 	const actions = <>
 		<SettingsSourceButton file="gui.jsonc" disabled={blocked || dirty} onClick={() => setEditing(true)} />
-		<IconButton size="icon-sm" label={`重置${title}`} tooltip="恢复默认" disabled={blocked || document.state !== "ready"}
-			onClick={() => { if (document.state === "ready") update(resetSection(document, section)); }}><RotateCcw /></IconButton>
+		{document.state === "ready" && sectionChanged(document.defaults, document.value, section)
+			&& <IconButton size="icon-sm" label={`重置${title}`} tooltip="恢复默认" disabled={blocked}
+				onClick={() => update(resetSection(document, section))}><RotateCcw /></IconButton>}
 	</>;
 	return <div className="settings-module">
 		{document.state === "error" ? <SettingsSection title={title} actions={actions}><p role="alert">{document.message}</p></SettingsSection>

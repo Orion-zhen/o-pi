@@ -7,6 +7,7 @@ import { IconButton } from "@/ui/icon-button.tsx";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
 import { TextMorph } from "@/ui/motion/text-morph.tsx";
+import { equalConfigValues } from "../../../harness/config-values.ts";
 import "./settings.css";
 
 export function SettingsHeading({ title, children }: { title: string; children?: ReactNode }) {
@@ -47,7 +48,7 @@ export function SettingsRow({ label, htmlFor, children, reset, disabled, layout 
 	return <div className="preference-row" data-layout={layout}>
 		<div className="preference-label">
 			<label htmlFor={htmlFor}>{label}</label>
-			{reset && JSON.stringify(reset.value) !== JSON.stringify(reset.defaultValue)
+			{reset && !equalConfigValues(reset.value, reset.defaultValue)
 				&& <IconButton size="icon-sm" label={`重置${label}`} tooltip="恢复默认" disabled={disabled} onClick={reset.apply}><RotateCcw /></IconButton>}
 		</div>
 		<div className="preference-control">{children}</div>

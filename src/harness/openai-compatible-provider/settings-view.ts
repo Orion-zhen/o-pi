@@ -1,3 +1,4 @@
+import { equalConfigValues } from "../config-values.ts";
 import { serviceCompatDefaults } from "./compat-defaults.ts";
 import { configObject, isCompatibleService, type ConfigObject, type ModelsDocument } from "./document.ts";
 import { configuredModels, type ModelSettings } from "./model-settings.ts";
@@ -10,7 +11,7 @@ function withoutDefaults(config: ConfigObject, defaults: ConfigObject): ConfigOb
 		if (configObject(value) && configObject(fallback)) {
 			const nested = withoutDefaults(value, fallback);
 			if (Object.keys(nested).length) result[key] = nested;
-		} else if (JSON.stringify(value) !== JSON.stringify(fallback)) {
+		} else if (!equalConfigValues(value, fallback)) {
 			result[key] = value;
 		}
 	}
@@ -68,14 +69,8 @@ function serviceValues(id: string, provider: ConfigObject): ConfigObject {
 	return value;
 }
 
-function sortedValue(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(sortedValue);
-	if (configObject(value)) return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedValue(value[key])]));
-	return value;
-}
-
 /** 仅用于配置值比较。保留原始文档中的显式值、注释和未知字段。 */
-export function comparableModelsDocument(document: ModelsDocument): string {
+export function comparableModelsDocument(document: ModelsDocument): ModelsDocument {
 	const providers = Object.fromEntries(Object.entries(document.providers).map(([id, provider]) => [id, serviceValues(id, provider)]));
-	return JSON.stringify(sortedValue({ ...document, providers }));
+	return { ...document, providers };
 }

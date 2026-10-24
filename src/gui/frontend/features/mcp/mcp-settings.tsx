@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { ChevronRight, Copy, Import, Plus, Server } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
-import { mcpObject, parseMcpConfig, validateMcpConfig, type McpConfig } from "../../../shared/config/mcp-validation.ts";
+import { mcpObject, validateMcpConfig } from "../../../shared/config/mcp-validation.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Button } from "@/ui/button.tsx";
 import { Switch } from "@/ui/switch.tsx";
@@ -14,8 +14,8 @@ import { IconButton } from "@/ui/icon-button.tsx";
 import { useConfigDraft } from "@/forms/use-config-draft.ts";
 import { SettingsSection, SettingsSourceButton } from "@/forms/settings-controls.tsx";
 import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
-import { copyMcpServer, createMcpServer, mcpDraftIssues, mcpServerSummary, nextMcpName, writeMcpDraft, type McpDraft, type McpServerDraft } from "./mcp-draft.ts";
-import { discardMcpEditor, mcpEditorContent, readMcpEditor } from "./mcp-editor.ts";
+import { copyMcpServer, createMcpServer, mcpDraftIssues, mcpServerSummary, nextMcpName, type McpDraft, type McpServerDraft } from "./mcp-draft.ts";
+import { discardMcpEditor, mcpDraftChanged, mcpEditorView, readMcpEditor, readMcpSource } from "./mcp-editor.ts";
 import { McpServerForm } from "./mcp-server-form.tsx";
 import { McpImport } from "./mcp-import.tsx";
 import "./mcp-settings.css";
@@ -28,19 +28,14 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 	const [importing, setImporting] = useState(false);
 	const state = editor.draft;
 	const sourceView = state.mode === "source";
-	const content = mcpEditorContent(state);
-	const dirty = document !== undefined && content !== document.content;
+	const { content, value } = useMemo(() => mcpEditorView(state), [state]);
+	const original = useMemo(() => readMcpSource(document?.content ?? "", document?.content ?? "").value, [document?.content]);
+	const dirty = document !== undefined && content !== document.content && (state.sourceEdited || mcpDraftChanged(original, value));
 	const blocked = disabled || saving;
-	const source = useMemo(() => {
-		if (state.mode !== "source") return { canEdit: false, errors: [] };
-		let value: McpConfig;
-		try { value = state.content === "" && document?.content === "" ? {} : parseMcpConfig(state.content); }
-		catch (error) { return { canEdit: false, errors: [error instanceof Error ? error.message : String(error)] }; }
-		return { canEdit: true, errors: validateMcpConfig(value) };
-	}, [state, document?.content]);
+	const sourceErrors = state.mode === "source" ? (state.value ? validateMcpConfig(state.value) : [state.error]) : [];
 	const servers = state.mode === "form" ? mcpDraftIssues(state.draft.servers) : [];
 	const rootErrors = state.mode === "form" ? validateMcpConfig(state.draft.root) : [];
-	const invalid = sourceView ? source.errors.length > 0 : rootErrors.length > 0 || servers.some(({ issues }) => issues.length > 0);
+	const invalid = sourceView ? sourceErrors.length > 0 : rootErrors.length > 0 || servers.some(({ issues }) => issues.length > 0);
 	const discard = () => {
 		if (document) editor.change(discardMcpEditor(document.content, state));
 		setImporting(false);
@@ -51,7 +46,9 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 			if (content === undefined) return false;
 			const saved = await editor.save(content, async (document, content) => await send({ action: "saveMcpConfig", original: document.content, content })
 				? { ...document, content } : undefined);
-			if (saved && state.mode === "form") editor.change({ ...state, source: content, baseline: writeMcpDraft(state.draft), baselineDraft: state.draft });
+			if (saved) editor.change(state.mode === "form"
+				? { ...state, source: content, baselineDraft: state.draft, sourceEdited: false }
+				: { ...state, sourceEdited: false });
 			return saved;
 		},
 		discard,
@@ -105,9 +102,11 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 			{content === undefined && <p role="alert">请修正重复的服务名或键，再切换 JSON。</p>}
 		</>;
 	}
-	return <SettingsSection title="MCP 服务" actions={document && <SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || content === undefined || (sourceView && !source.canEdit)} onClick={() => {
+	return <SettingsSection title="MCP 服务" actions={document && <SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || content === undefined || (sourceView && value === undefined)} onClick={() => {
 		if (content === undefined) return;
-		editor.change(sourceView ? readMcpEditor(content) : { mode: "source", content });
+		const next = dirty ? content : document.content;
+		const sourceEdited = dirty && state.sourceEdited;
+		editor.change(sourceView ? readMcpEditor(next, sourceEdited) : readMcpSource(next, document.content, sourceEdited));
 		setImporting(false); setExpanded(undefined);
 	}} />}>
 		{!document ? <>
@@ -117,8 +116,8 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 			<p className="settings-description">全局配置 · 新会话或 /reload 后生效。此处开关不表示连接状态。</p>
 			{sourceView ? <>
 				<p className="settings-warning">JSON 会显示明文凭据。语法损坏时请先修复，再切换到表单。</p>
-				<Textarea className="settings-source" aria-label="全局 MCP JSON" value={content} disabled={blocked} onChange={(event) => editor.change({ mode: "source", content: event.target.value })} />
-				{source.errors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
+				<Textarea className="settings-source" aria-label="全局 MCP JSON" value={content} disabled={blocked} onChange={(event) => editor.change(readMcpSource(event.target.value, document.content))} />
+				{sourceErrors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
 			</> : form}
 			<p className="settings-description">仅配置可信服务。遮蔽不加密配置文件，凭据建议使用 ${"{ENV_NAME}"}。受信任项目的同名配置可能覆盖全局配置。</p>
 			{dirty && <p className="settings-description">修改尚未保存，请使用设置页的“保存”。</p>}

@@ -23,7 +23,7 @@ export function ConfigEditor({ file, content, send, close, restoreFocus }: {
 		<div className="gui-settings settings-config-editor">
 		<Textarea aria-label={file === "gui.jsonc" ? "GUI 设置 JSONC" : "设置 JSON"} className="settings-source" value={text} onChange={(event) => setText(event.target.value)} />
 		<footer className="settings-actions"><div className="settings-action-buttons">
-			<Button disabled={saving} onClick={() => void save()}>{saving ? "保存中…" : file === "gui.jsonc" ? "保存并应用" : "保存并重载"}</Button>
+			<Button disabled={saving || text === (original || "{}\n")} onClick={() => void save()}>{saving ? "保存中…" : file === "gui.jsonc" ? "保存并应用" : "保存并重载"}</Button>
 		</div></footer>
 		</div>
 	</PanelDialog>;

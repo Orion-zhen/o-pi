@@ -1,5 +1,5 @@
 import { applyEdits, modify, parse } from "jsonc-parser";
-import { mergeConfigValues } from "../../../../harness/config-values.ts";
+import { equalConfigValues, mergeConfigValues } from "../../../../harness/config-values.ts";
 import type { GuiConfigDocument, GuiPreferences } from "../../../shared/config/preferences.ts";
 
 export type GuiSection = "appearance" | "interaction" | "desktopWeb";
@@ -9,6 +9,12 @@ const sectionKeys = {
 	interaction: ["sendShortcut", "openFileLinksExternally", "preventSleepWhileRunning"],
 	desktopWeb: ["desktopWeb"],
 } as const;
+
+export function sectionChanged(before: GuiPreferences, after: GuiPreferences, section: GuiSection): boolean {
+	return sectionKeys[section].some((key) => key === "themeColor"
+		? before.themeColor.toUpperCase() !== after.themeColor.toUpperCase()
+		: !equalConfigValues(before[key], after[key]));
+}
 
 export function editPreference(document: ReadyGuiConfig, path: string[], value: unknown): ReadyGuiConfig {
 	const content = document.content || "{}\n";

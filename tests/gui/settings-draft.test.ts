@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { parse } from "jsonc-parser";
 import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
-import { editPreference, resetSection, sectionSave, type ReadyGuiConfig } from "../../src/gui/frontend/features/preferences/gui-settings-draft.ts";
+import { editPreference, resetSection, sectionChanged, sectionSave, type ReadyGuiConfig } from "../../src/gui/frontend/features/preferences/gui-settings-draft.ts";
 
 function initial(): ReadyGuiConfig {
 	const defaults = readGuiDefaults();
@@ -14,7 +14,11 @@ it("表单修改只更新草稿，嵌套字段保留默认值", () => {
 	expect(base.content).toBe("");
 	expect(draft.value.fontSizes).toEqual({ ...base.defaults.fontSizes, chat: 20 });
 	expect(parse(draft.content)).toEqual({ fontSizes: { chat: 20 } });
-	expect(editPreference(draft, ["fontSizes", "chat"], undefined).value.fontSizes).toEqual(base.defaults.fontSizes);
+	expect(sectionChanged(base.value, draft.value, "appearance")).toBe(true);
+	expect(sectionChanged(base.value, draft.value, "interaction")).toBe(false);
+	const restored = editPreference(draft, ["fontSizes", "chat"], undefined);
+	expect(restored.value.fontSizes).toEqual(base.defaults.fontSizes);
+	expect(sectionChanged(base.value, restored.value, "appearance")).toBe(false);
 });
 
 it("材质草稿保留同一区域默认字段，恢复默认只清除外观覆盖", () => {

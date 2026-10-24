@@ -84,7 +84,7 @@ it("展示与比较共用继承规则，不清洗显式值或未知字段", () =
 	expect(view.compat.compat.maxTokensField).toBe("max_tokens");
 	expect(view.thinking.rows.find((row) => row.level === "high")).toMatchObject({ defaultValue: "custom", modified: false });
 	expect(view.overrides).toEqual({ extra: { keep: true } });
-	expect(JSON.parse(comparableModelsDocument(document))).toMatchObject({ providers: { local: {
+	expect(comparableModelsDocument(document)).toMatchObject({ providers: { local: {
 		custom: { keep: true }, modelOverrides: { m: { extra: { keep: true } } },
 	} } });
 	expect(JSON.stringify(document)).toBe(original);

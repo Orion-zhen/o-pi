@@ -10,7 +10,7 @@ import { Button } from "@/ui/button.tsx";
 import { Textarea } from "@/ui/textarea.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
 import { SettingsSourceButton } from "@/forms/settings-controls.tsx";
-import { useConfigDraft } from "@/forms/use-config-draft.ts";
+import { useTextConfigDraft } from "@/forms/use-text-config-draft.ts";
 import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
 import { AddServiceItem } from "./add-service-item.tsx";
 import { parseServiceDraft, serviceDraftChanged } from "./service-draft.ts";
@@ -27,12 +27,10 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 	sessionRevision: number | undefined;
 	sessionReady: boolean;
 }) {
-	const editor = useConfigDraft(useCallback(() => globalQuery({ query: "modelServices" }), [globalQuery]), String);
+	const editor = useTextConfigDraft(useCallback(() => globalQuery({ query: "modelServices" }), [globalQuery]));
 	const { document, draft, error } = editor;
 	const { saving } = useSettingsState();
 	const [source, setSource] = useState(false);
-	// 源码编辑保留注释和格式修改，表单只比较配置值。
-	const [sourceEdited, setSourceEdited] = useState(false);
 	const [adding, setAdding] = useState(false);
 	const addButton = useRef<HTMLButtonElement>(null);
 	const cancel = () => { setAdding(false); addButton.current?.focus(); };
@@ -40,23 +38,21 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 	const parsed = useMemo(() => parseServiceDraft(draft === "" && document?.content === "" ? emptyModelsDocument : draft),
 		[draft, document?.content]);
 	const issues = useMemo(() => parsed.value && document ? modelsConfigIssues(parsed.value, document.schema) : [], [parsed.value, document]);
-	const dirty = useMemo(() => document !== undefined && (sourceEdited ? draft !== document.content : serviceDraftChanged(document.content, draft)),
-		[document, draft, sourceEdited]);
+	const saved = useMemo(() => parseServiceDraft(document?.content || emptyModelsDocument).value, [document?.content]);
+	const dirty = useMemo(() => document !== undefined && draft !== document.content
+		&& (editor.sourceEdited || serviceDraftChanged(saved, parsed.value)), [document, draft, editor.sourceEdited, saved, parsed.value]);
 	const blocked = disabled || saving;
 	const sourceView = source || !!parsed.error;
 	if (document && parsed.error && !source) setSource(true);
 
 	async function save() {
-		const saved = await editor.save(draft, async (document, content) => {
+		return editor.save(draft, async (document, content) => {
 			const success = await send({ action: "saveModelServices", original: document.content, content });
 			return success ? { ...document, content } : undefined;
 		});
-		if (saved) setSourceEdited(false);
-		return saved;
 	}
 	function discard() {
 		editor.discard();
-		setSourceEdited(false);
 		setAdding(false);
 	}
 	function toggleSource() {
@@ -72,7 +68,6 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 	useSettingsDraft("modelServices", {
 		title: "模型服务", dirty, blocked: disabled, invalid: !!parsed.error || issues.length > 0, save, discard,
 	});
-	const saved = useMemo(() => parseServiceDraft(document?.content || emptyModelsDocument).value, [document?.content]);
 	const providers = parsed.value?.providers ?? {};
 	const services = Object.entries(providers).filter(([, config]) => isCompatibleService(config));
 
@@ -89,7 +84,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 			{error ? <><p role="alert">{error}</p><Button variant="ghost" onClick={editor.reload}>重试</Button></> : <p role="status">读取中…</p>}
 		</> : <>
 			{sourceView ? <Textarea className="settings-source" aria-label="模型服务 JSON" value={draft} disabled={blocked} spellCheck={false}
-				onChange={(event) => { setSourceEdited(true); editor.change(event.target.value); }} /> : <>
+				onChange={(event) => editor.changeSource(event.target.value)} /> : <>
 				<AnimatePresence initial={false}>{adding && <Reveal key="add">
 					<AddServiceItem label="服务 ID" existing={Object.keys(providers)} disabled={blocked} cancel={cancel} add={addService} />
 				</Reveal>}</AnimatePresence>

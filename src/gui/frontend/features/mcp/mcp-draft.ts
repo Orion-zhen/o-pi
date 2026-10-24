@@ -88,9 +88,9 @@ export function mcpDraftSerializable(draft: McpDraft): boolean {
 		&& draft.servers.every((server) => Object.values(server.maps).every((rows) => !mcpDuplicateKeys(rows.map(({ key }) => key))));
 }
 
-export function writeMcpDraft(draft: McpDraft): string {
+export function mcpDraftValue(draft: McpDraft): McpConfig {
 	const mcpServers = Object.fromEntries(draft.servers.map((server) => [server.name, mcpServerValue(server)]));
-	return `${JSON.stringify({ ...draft.root, mcpServers }, null, 2)}\n`;
+	return { ...draft.root, mcpServers };
 }
 
 export function nextMcpName(draft: McpDraft, base = "new-server"): string {

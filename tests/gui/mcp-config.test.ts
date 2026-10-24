@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { mcpObject, parseMcpConfig, validateMcpConfig, validateMcpServer } from "../../src/gui/shared/config/mcp-validation.ts";
-import { changeMcpTransport, copyMcpServer, createMcpDraft, createMcpServer, importMcpServers, mcpDraftIssues, mcpId, mcpServerSummary, mcpServerValue, nextMcpName, writeMcpDraft } from "../../src/gui/frontend/features/mcp/mcp-draft.ts";
+import { changeMcpTransport, copyMcpServer, createMcpDraft, createMcpServer, importMcpServers, mcpDraftIssues, mcpId, mcpServerSummary, mcpServerValue, nextMcpName, mcpDraftValue } from "../../src/gui/frontend/features/mcp/mcp-draft.ts";
 import { parseMcpCommand } from "../../src/gui/frontend/features/mcp/mcp-command.ts";
-import { discardMcpEditor, mcpEditorContent, readMcpEditor } from "../../src/gui/frontend/features/mcp/mcp-editor.ts";
+import { discardMcpEditor, mcpEditorView, readMcpEditor, readMcpSource } from "../../src/gui/frontend/features/mcp/mcp-editor.ts";
 
 it("编辑、复制、删除服务保留凭据、未知字段与全局选项", () => {
 	const original = {
@@ -19,22 +19,22 @@ it("编辑、复制、删除服务保留凭据、未知字段与全局选项", (
 	const server = draft.servers[0];
 	if (!server) throw new Error("服务未加载");
 	expect(mcpServerSummary(server)).toBe("example.com");
-	expect(JSON.parse(writeMcpDraft(draft))).toEqual(original);
+	expect(mcpDraftValue(draft)).toEqual(original);
 	const copy = copyMcpServer(server, nextMcpName(draft, "docs-copy"));
 	const changed = { ...editor, draft: { ...draft, servers: [{ ...server, name: "renamed" }, copy] } };
-	expect(JSON.parse(mcpEditorContent(changed) ?? "null")).toEqual({ ...original, mcpServers: { renamed: original.mcpServers.docs, "docs-copy": original.mcpServers.docs } });
+	expect(JSON.parse(mcpEditorView(changed).content ?? "null")).toEqual({ ...original, mcpServers: { renamed: original.mcpServers.docs, "docs-copy": original.mcpServers.docs } });
 	const restored = discardMcpEditor(content, changed);
 	if (restored.mode !== "form") throw new Error("表单未恢复");
 	expect(restored.draft).toBe(draft);
 	expect(restored.draft.servers[0]).toBe(server);
-	expect(mcpEditorContent(restored)).toBe(content);
+	expect(mcpEditorView(restored).content).toBe(content);
 	const fromSource = readMcpEditor(JSON.stringify({ ...original, autoEnableCodemode: true }));
 	if (fromSource.mode !== "form") throw new Error("表单未加载");
 	const sourceRestored = discardMcpEditor(content, fromSource);
 	if (sourceRestored.mode !== "form") throw new Error("表单未恢复");
 	expect(sourceRestored.draft.servers.map(({ id, args, maps }) => ({ id, args, maps })))
 		.toEqual(fromSource.draft.servers.map(({ id, args, maps }) => ({ id, args, maps })));
-	expect(mcpEditorContent(sourceRestored)).toBe(content);
+	expect(mcpEditorView(sourceRestored).content).toBe(content);
 });
 
 it("草稿比较忽略界面状态与行 ID，保留未知字段中的同名属性", () => {
@@ -44,10 +44,10 @@ it("草稿比较忽略界面状态与行 ID，保留未知字段中的同名属�
 	expect(editor.draft.root).not.toHaveProperty("mcpServers");
 	const server = editor.draft.servers[0];
 	if (!server) throw new Error("服务未加载");
-	editor.draft.servers = [{ ...copyMcpServer(server, server.name), authMode: "headers" }];
-	expect(mcpEditorContent(editor)).toBe(content);
-	editor.draft.root.id = 3;
-	expect(JSON.parse(mcpEditorContent(editor) ?? "null").id).toBe(3);
+	editor.draft = { ...editor.draft, servers: [{ ...copyMcpServer(server, server.name), authMode: "headers" }] };
+	expect(mcpEditorView(editor).content).toBe(content);
+	editor.draft = { ...editor.draft, root: { ...editor.draft.root, id: 3 } };
+	expect(JSON.parse(mcpEditorView(editor).content ?? "null").id).toBe(3);
 });
 
 it("复制与编辑中间态保留重复行，不能序列化时仍有未保存修改", () => {
@@ -55,14 +55,26 @@ it("复制与编辑中间态保留重复行，不能序列化时仍有未保存�
 	if (editor.mode !== "form") throw new Error("表单未加载");
 	const server = editor.draft.servers[0];
 	if (!server?.maps.env) throw new Error("服务未加载");
-	server.maps.env.push({ id: mcpId(), key: "KEY", value: "value" });
-	const copy = copyMcpServer(server, "copy");
+	const repeated = { ...server, maps: { ...server.maps, env: [...server.maps.env, { id: mcpId(), key: "KEY", value: "value" }] } };
+	editor.draft = { ...editor.draft, servers: [repeated] };
+	const copy = copyMcpServer(repeated, "copy");
 	expect(copy.maps.env?.map(({ key, value }) => ({ key, value }))).toEqual([
 		{ key: "KEY", value: "value" }, { key: "KEY", value: "value" },
 	]);
-	expect(mcpEditorContent(editor)).toBeUndefined();
-	server.maps.env.pop();
-	expect(mcpEditorContent(editor)).toBe(editor.source);
+	expect(mcpEditorView(editor).content).toBeUndefined();
+	expect(mcpEditorView(discardMcpEditor(editor.source, editor)).content).toBe(editor.source);
+});
+
+it("请求超时改回默认值后保留原文，无需保存", () => {
+	const content = '{ "mcpServers": { "one": { "command": "node" } } }';
+	const editor = readMcpEditor(content);
+	if (editor.mode !== "form") throw new Error("表单未加载");
+	const server = editor.draft.servers[0];
+	if (!server || !mcpObject(server.config)) throw new Error("服务未加载");
+	const changed = { ...editor, draft: { ...editor.draft, servers: [{ ...server, config: { ...server.config, timeout: 30 } }] } };
+	expect(JSON.parse(mcpEditorView(changed).content ?? "null").mcpServers.one.timeout).toBe(30);
+	const restored = { ...changed, draft: { ...changed.draft, servers: [{ ...server, config: { ...server.config, timeout: 60 } }] } };
+	expect(mcpEditorView(restored).content).toBe(content);
 });
 
 it("认证模式只在读取时初始化，保存不包含界面状态", () => {
@@ -74,14 +86,14 @@ it("认证模式只在读取时初始化，保存不包含界面状态", () => {
 	} });
 	const draft = createMcpDraft(parseMcpConfig(content));
 	expect(draft.servers.map(({ authMode }) => authMode)).toEqual(["auto", "bearer", "headers", "provider"]);
-	expect(JSON.parse(writeMcpDraft(draft))).toEqual(JSON.parse(content));
+	expect(mcpDraftValue(draft)).toEqual(JSON.parse(content));
 });
 
 it("损坏和空文件保留原文，显式源码编辑不改变格式", () => {
-	for (const content of ["", "{", '{"mcpServers":false}']) expect(mcpEditorContent(readMcpEditor(content))).toBe(content);
+	for (const content of ["", "{", '{"mcpServers":false}']) expect(mcpEditorView(readMcpEditor(content)).content).toBe(content);
 	const content = ' \n{"mcpServers":{}}\n';
-	expect(mcpEditorContent(readMcpEditor(content))).toBe(content);
-	expect(mcpEditorContent({ mode: "source", content })).toBe(content);
+	expect(mcpEditorView(readMcpEditor(content)).content).toBe(content);
+	expect(mcpEditorView(readMcpSource(content, content)).content).toBe(content);
 });
 
 it("草稿保留重名和未完成的键值行，阻止静默覆盖", () => {
@@ -101,22 +113,29 @@ it("新增服务自动避开等价名称，手动改名冲突时表单与源码�
 	const added = createMcpServer(nextMcpName(draft), { command: "node" });
 	expect(added.name).toBe("new-server-2");
 	draft.servers.push(added);
-	expect(validateMcpConfig(parseMcpConfig(writeMcpDraft(draft)))).toEqual([]);
+	expect(validateMcpConfig(mcpDraftValue(draft))).toEqual([]);
 	added.name = "new-server";
 	expect(mcpDraftIssues(draft.servers).map(({ issues }) => issues.map(({ field }) => field)))
 		.toEqual([["name"], [], ["name"]]);
-	expect(validateMcpConfig(parseMcpConfig(writeMcpDraft(draft))))
+	expect(validateMcpConfig(mcpDraftValue(draft)))
 		.toEqual(["服务 new-server 与 new_server 名称冲突。"]);
 });
 
-it("工具通配规则顺序和精确规则在表单回写中保留", () => {
-	const draft = createMcpDraft(parseMcpConfig('{"mcpServers":{"tools":{"command":"node","exposure":"codemode-deferred","toolExposure":{"get_*":"deferred","*":"hidden","get_one":"direct"}}}}'));
-	const server = draft.servers[0];
+it("调整工具规则顺序需要保存，表单回写保留规则优先级", () => {
+	const content = '{"mcpServers":{"tools":{"command":"node","exposure":"codemode-deferred","toolExposure":{"get_*":"deferred","*":"hidden","get_one":"direct"}}}}';
+	const editor = readMcpEditor(content);
+	if (editor.mode !== "form") throw new Error("表单未加载");
+	const server = editor.draft.servers[0];
 	if (!server?.maps.toolExposure) throw new Error("规则未加载");
-	server.maps.toolExposure.reverse();
-	const saved = parseMcpConfig(writeMcpDraft(draft));
+	const reordered = { ...server, maps: { ...server.maps, toolExposure: [...server.maps.toolExposure].reverse() } };
+	const changed = { ...editor, draft: { ...editor.draft, servers: [reordered] } };
+	const view = mcpEditorView(changed);
+	expect(view.content).not.toBe(content);
+	const saved = parseMcpConfig(view.content ?? "");
 	expect(validateMcpConfig(saved)).toEqual([]);
-	expect(Object.keys(JSON.parse(writeMcpDraft(draft)).mcpServers.tools.toolExposure)).toEqual(["get_one", "*", "get_*"]);
+	const tools = saved.mcpServers?.tools;
+	if (!mcpObject(tools) || !mcpObject(tools.toolExposure)) throw new Error("规则未保存");
+	expect(Object.keys(tools.toolExposure)).toEqual(["get_one", "*", "get_*"]);
 });
 
 it("切换传输只清理不适用的连接字段", () => {
@@ -142,8 +161,8 @@ it("损坏配置不能被当成空列表覆盖，单个损坏服务可保留修�
 	for (const text of ["{", "[]", '{"mcpServers":true}']) expect(() => parseMcpConfig(text)).toThrow();
 	const draft = createMcpDraft(parseMcpConfig('{"mcpServers":{"bad":false,"valid":{"command":"node"}}}'));
 	expect(draft.servers).toHaveLength(2);
-	expect(JSON.parse(writeMcpDraft(draft)).mcpServers.bad).toBe(false);
-	expect(validateMcpConfig(parseMcpConfig(writeMcpDraft(draft)))).toHaveLength(1);
+	expect(mcpDraftValue(draft).mcpServers?.bad).toBe(false);
+	expect(validateMcpConfig(mcpDraftValue(draft))).toHaveLength(1);
 });
 
 describe("保存前校验服务字段", () => {
@@ -190,7 +209,15 @@ it("源码与表单共用键名校验，表单额外拒绝 JSON 无法表达的�
 });
 
 it("源码拒绝空文本，不能通过切换表单绕过清空配置的要求", () => {
-	for (const content of ["", " ", "\n\t"]) expect(() => parseMcpConfig(content)).toThrow("请使用 {} 清空配置");
+	for (const content of ["", " ", "\n\t"]) {
+		expect(() => parseMcpConfig(content)).toThrow("请使用 {} 清空配置");
+		const source = readMcpSource(content, "{}");
+		expect(source.value).toBeUndefined();
+		expect(source.error).toContain("请使用 {} 清空配置");
+		expect(source.sourceEdited).toBe(true);
+		expect(mcpEditorView(source).content).toBe(content);
+	}
+	expect(readMcpSource("", "")).toMatchObject({ value: {}, error: "", sourceEdited: false });
 });
 
 it("启动命令粘贴保留引号内空格和空参数，不执行 shell", () => {
