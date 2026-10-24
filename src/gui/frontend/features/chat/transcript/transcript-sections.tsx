@@ -27,8 +27,8 @@ type Section = { key: string } & (
 	| { kind: "item"; item: TranscriptItem }
 );
 
-export function ReplyItems({ items, entryIds, tracking = false, followedByBody = false, showMetrics = true }: {
-	items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking?: boolean; followedByBody?: boolean; showMetrics?: boolean;
+export function ReplyItems({ items, entryIds, tracking = false, followedByBody = false, showMetrics = true, footerSpeedKey }: {
+	items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking?: boolean; followedByBody?: boolean; showMetrics?: boolean; footerSpeedKey?: string | undefined;
 }) {
 	const sections: Section[] = [];
 	for (const item of items) {
@@ -46,20 +46,23 @@ export function ReplyItems({ items, entryIds, tracking = false, followedByBody =
 		if (section.kind === "item") return <Item key={section.key} item={section.item} entryId={entryIds[section.item.messageIndex]} />;
 		if (section.kind === "activity") return <Activity key={section.key} id={section.key} items={section.items} entryIds={entryIds}
 			tracking={tracking && !followedByBody && index > lastBody} />;
-		return <Body key={section.key} first={section.first} items={section.items} entryIds={entryIds} showMetrics={showMetrics} />;
+		return <Body key={section.key} first={section.first} items={section.items} entryIds={entryIds} showMetrics={showMetrics} footerSpeedKey={footerSpeedKey} />;
 	})}</>;
 }
 
-const Body = memo(function Body({ first, items, entryIds, showMetrics }: {
-	first: TextItem; items: TextItem[]; entryIds: (string | undefined)[]; showMetrics: boolean;
+const Body = memo(function Body({ first, items, entryIds, showMetrics, footerSpeedKey }: {
+	first: TextItem; items: TextItem[]; entryIds: (string | undefined)[]; showMetrics: boolean; footerSpeedKey?: string | undefined;
 }) {
+	const metricsVisible = showMetrics && !items.some((item) => item.active);
+	const last = items.at(-1);
 	return <div className="reply-body">
 		<MessageIdentity name={first.identity.model} timestamp={first.identity.timestamp} />
-		{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}
-		<AnimatePresence initial={false}>{showMetrics && !items.some((item) => item.active)
-			&& <Reveal><ReplyMetrics {...first.metrics} scope="本条" /></Reveal>}</AnimatePresence>
+		{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]}
+			hideSpeed={item.key === footerSpeedKey || (metricsVisible && item === last)} />)}
+		<AnimatePresence initial={false}>{metricsVisible
+			&& <Reveal><ReplyMetrics {...first.metrics} scope="本条" speed={last?.speed} /></Reveal>}</AnimatePresence>
 	</div>;
-}, (before, after) => before.showMetrics === after.showMetrics && sameTranscriptItem(before.first, after.first) && sameContent(before, after));
+}, (before, after) => before.showMetrics === after.showMetrics && before.footerSpeedKey === after.footerSpeedKey && sameTranscriptItem(before.first, after.first) && sameContent(before, after));
 
 export function useAutoFold(key: string, tracking: boolean) {
 	const [open, setOpen] = useDisclosureMemory(`${key}:open`, tracking);
@@ -92,18 +95,18 @@ const Activity = memo(function Activity({ id, items, entryIds, tracking }: Secti
 	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div></Disclosure>;
 }, (before, after) => before.id === after.id && before.tracking === after.tracking && sameContent(before, after));
 
-const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entryId: string | undefined }) {
+const Item = memo(function Item({ item, entryId, hideSpeed = false }: { item: TranscriptItem; entryId: string | undefined; hideSpeed?: boolean }) {
 	switch (item.kind) {
 		case "message": return <Message value={item.message} entryId={entryId} />;
 		case "text": return <article data-entry-id={entryId} className="message assistant">
 			<StreamingText text={item.text} active={item.active} />
-			<GenerationSpeed speed={item.speed} />
+			{!hideSpeed && <GenerationSpeed speed={item.speed} />}
 		</article>;
 		case "thinking": return <Thinking id={item.key} text={item.text} active={item.active} entryId={entryId} />;
 		case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} /></div>;
 		case "error": return <pre data-entry-id={entryId} className="message error">{item.text}</pre>;
 	}
-}, (before, after) => before.entryId === after.entryId && sameTranscriptItem(before.item, after.item));
+}, (before, after) => before.entryId === after.entryId && before.hideSpeed === after.hideSpeed && sameTranscriptItem(before.item, after.item));
 
 function Thinking({ id, text, active, entryId }: { id: string; text: string; active: boolean; entryId: string | undefined }) {
 	const [open, setOpen] = useDisclosureMemory(`${id}:open`, active);

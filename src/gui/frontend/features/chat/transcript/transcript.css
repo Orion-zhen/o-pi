@@ -41,6 +41,7 @@
 .reply-metrics, .generation-speed { margin-block-start: var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); line-height: 1.6; font-variant-numeric: tabular-nums; }
 .reply-metrics { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) var(--space-3); }
 .generation-speed { display: block; text-align: end; }
+.reply-metrics .generation-speed { margin-block-start: 0; white-space: nowrap; }
 .reply-metrics span { overflow-wrap: anywhere; }
 .transcript-rows, .transcript-row { display: flex; flex-direction: column; min-width: 0; }
 .transcript-row[data-first="false"] > .message.user { margin-top: 2.5rem; }

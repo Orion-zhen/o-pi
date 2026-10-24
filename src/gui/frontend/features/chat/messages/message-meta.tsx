@@ -9,7 +9,7 @@ export const MessageIdentity = memo(function MessageIdentity({ name, timestamp }
 	return <header className="message-identity"><strong>{name}</strong><time dateTime={date.toISOString()}>{time}</time></header>;
 });
 
-export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", ...metrics }: ReturnType<typeof replyMetrics> & { scope?: "本轮" | "本条" }) {
+export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", speed, ...metrics }: ReturnType<typeof replyMetrics> & { scope?: "本轮" | "本条"; speed?: number | null | undefined }) {
 	const number = (value: number) => value.toLocaleString("en-US");
 	return <footer className="reply-metrics" aria-label={`${scope}消息统计`}>
 		<span>输入 {number(metrics.input)}</span>
@@ -17,6 +17,7 @@ export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", ...me
 		<span>缓存读取 {number(metrics.cacheRead)}</span>
 		<span>缓存写入 {number(metrics.cacheWrite)}</span>
 		<Hint content="预估费用 · USD"><span>${metrics.cost.toFixed(4)}</span></Hint>
+		{speed !== undefined && <GenerationSpeed speed={speed} />}
 	</footer>;
 });
 
