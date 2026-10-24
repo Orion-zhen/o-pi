@@ -1,14 +1,16 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { TREE_SITTER_LANGUAGES } from "../../src/harness/syntax-tree/grammars.ts";
 import { runtimePlugin } from "./plugins.mjs";
+import { hostPlatform } from "./platform.mjs";
+import { prepareNativeModules } from "./native.mjs";
 
 const require = createRequire(import.meta.url);
 const piRoot = fileURLToPath(new URL("../", import.meta.resolve("@earendil-works/pi-coding-agent")));
-export async function collectAssets(root, staging, { target = "bun", extra = [] } = {}) {
+export async function collectAssets(root, staging, { target = "bun", platform = hostPlatform(), extra = [] } = {}) {
 	const files = [];
 	async function add(source, destination) {
 		const metadata = await stat(source);
@@ -35,12 +37,14 @@ export async function collectAssets(root, staging, { target = "bun", extra = [] 
 	for (const directory of ["cmaps", "standard_fonts", "wasm"]) await add(path.join(path.dirname(require.resolve("pdfjs-dist/package.json")), directory), `pdf/${directory}`);
 	await add(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs"), "pdf/pdf.worker.mjs");
 
-	const libc = process.platform === "linux" ? (process.report.getReport().header.glibcVersionRuntime ? "gnu" : "musl") : undefined;
-	const suffix = [process.platform, process.arch, libc, ...(process.platform === "win32" ? ["msvc"] : [])].filter(Boolean).join("-");
-	for (const [name, spec] of [
-		["canvas", `@napi-rs/canvas-${suffix}`],
-		["resvg", `@resvg/resvg-js-${suffix}`],
-	]) await add(require.resolve(spec), `native/${name}.node`);
+	const nativePackages = path.join(staging, "native-packages");
+	try {
+		for (const [name, source] of await prepareNativeModules(platform, nativePackages)) {
+			await add(source, `native/${name}.node`);
+		}
+	} finally {
+		await rm(nativePackages, { recursive: true, force: true });
+	}
 
 	for (const [name, entry] of [
 		["parser-worker", path.join(root, "src/harness/file-tools/grep/parser-worker.ts")],

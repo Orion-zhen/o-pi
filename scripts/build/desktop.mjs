@@ -4,12 +4,11 @@ import { fileURLToPath } from "node:url";
 import { collectAssets } from "./assets.mjs";
 import { runtimePlugin } from "./plugins.mjs";
 
-export async function buildDesktop({ root, ui, directoryOnly }) {
-	const output = path.join(root, "dist/desktop");
+export async function buildDesktop({ root, ui, platform, output, directoryOnly }) {
 	const appDir = path.join(output, "app");
 	await rm(output, { recursive: true, force: true });
 	await mkdir(appDir, { recursive: true });
-	await collectAssets(root, path.join(appDir, "resources"), { target: "node" });
+	await collectAssets(root, path.join(appDir, "resources"), { target: "node", platform });
 	const piRoot = new URL("../", import.meta.resolve("@earendil-works/pi-coding-agent"));
 	const backendEntry = path.join(output, "backend-entry.ts");
 	await writeFile(backendEntry, `import { fileURLToPath } from "node:url";
@@ -60,12 +59,14 @@ await import(${JSON.stringify(path.join(root, "src/desktop/backend.ts"))});\n`);
 	);
 	console.log(`Built desktop app: ${appDir}`);
 	if (directoryOnly) return;
-	const { build } = await import("electron-builder");
+	if (platform.os === "win32" && process.platform !== "win32") process.env.USE_SYSTEM_WINE = "true";
+	const { build, createTargets, Platform } = await import("electron-builder");
 	const electronVersion = JSON.parse(
 		await readFile(path.join(root, "node_modules/electron/package.json"), "utf8"),
 	).version;
 	await build({
 		projectDir: appDir,
+		targets: createTargets([Platform.fromString(platform.os)], undefined, platform.arch),
 		config: {
 			appId: "dev.orion.opi",
 			productName: "opi-desktop",

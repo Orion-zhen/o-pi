@@ -4,11 +4,10 @@ import { fileURLToPath } from "node:url";
 import { assetModule, collectAssets } from "./assets.mjs";
 import { runtimePlugin } from "./plugins.mjs";
 
-export async function buildBinary({ root, target, staging, ui }) {
-	const output = path.join(root, "dist", target);
+export async function buildBinary({ root, target, staging, ui, platform, output }) {
 	await rm(output, { recursive: true, force: true });
 	await mkdir(output, { recursive: true });
-	const resources = await collectAssets(root, staging, { extra: target === "web" ? [[ui, "gui"]] : [] });
+	const resources = await collectAssets(root, staging, { platform, extra: target === "web" ? [[ui, "gui"]] : [] });
 	const generated = path.join(staging, "assets.ts");
 	await writeFile(generated, assetModule(resources));
 	const entry = path.join(staging, "entry.ts");
@@ -31,7 +30,8 @@ await import(${JSON.stringify(path.join(root, "src", target, "binary.ts"))});\n`
 		entrypoints: [entry, ...workers],
 		root: staging,
 		compile: {
-			outfile: path.join(output, process.platform === "win32" ? `${name}.exe` : name),
+			target: platform.bunTarget,
+			outfile: path.join(output, platform.os === "win32" ? `${name}.exe` : name),
 			autoloadDotenv: false,
 			autoloadBunfig: false,
 		},
