@@ -20,6 +20,8 @@
 .service-summary strong { font-size: var(--text-ui); font-weight: 500; overflow-wrap: anywhere; }
 .service-summary span, .service-tag { color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }
 .service-summary span { font-family: var(--font-mono); }
+.service-summary-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
+.service-summary-line > span { font-weight: 400; }
 .service-summary:focus-visible { outline: 0.125rem solid var(--ring); outline-offset: -0.125rem; }
 .service-summary:hover strong { color: var(--muted-foreground); }
 .service-item-actions { display: flex; align-items: center; gap: var(--space-2); margin-inline-start: auto; }

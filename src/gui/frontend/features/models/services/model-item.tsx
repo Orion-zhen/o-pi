@@ -1,4 +1,4 @@
-import { ChevronRight, RotateCcw } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, RotateCcw } from "lucide-react";
 import { configObject } from "../../../../../harness/openai-compatible-provider/document.ts";
 import type { ModelSettings } from "../../../../../harness/openai-compatible-provider/model-settings.ts";
 import type { ModelSettingsView } from "../../../../../harness/openai-compatible-provider/settings-view.ts";
@@ -14,13 +14,15 @@ import { ServiceCompat } from "./service-compat.tsx";
 import { ServiceThinking } from "./service-thinking.tsx";
 import { ServiceThinkingFormat } from "./service-thinking-format.tsx";
 
-export function ModelItem({ model, settings, open, setOpen, disabled, change }: {
+export function ModelItem({ model, settings, open, setOpen, disabled, change, modelCount, move }: {
 	model: ModelSettings;
 	settings: ModelSettingsView;
 	open: boolean;
 	setOpen: (open: boolean) => void;
 	disabled: boolean;
 	change: ChangeConfig;
+	modelCount: number;
+	move: (index: number, direction: -1 | 1) => void;
 }) {
 	const { defaults, compat, thinking, overrides } = settings;
 	const { id, configured: fields, manualIndex } = model;
@@ -32,13 +34,19 @@ export function ModelItem({ model, settings, open, setOpen, disabled, change }: 
 	const defaultLevel = fields.defaultThinkingLevel ?? defaults.defaultThinkingLevel;
 	const defaultUnavailable = defaultLevel !== undefined && !thinking.rows.some((row) => row.level === defaultLevel && row.available);
 
-	return <Reveal><Collapsible open={open} onOpenChange={setOpen} asChild>
+	return <Reveal layout="position"><Collapsible open={open} onOpenChange={setOpen} asChild>
 		<article className="service-model" aria-label={`模型 ${id}`}>
 			<div className="service-item-heading">
 				<CollapsibleTrigger className="service-summary" aria-label={`编辑模型 ${id}`}>
 					<strong>{name}</strong>{name !== id && <span>{id}</span>}
 				</CollapsibleTrigger>
 				<div className="service-item-actions">
+					{manualIndex !== undefined && <>
+						<IconButton label={`上移 ${id}`} tooltip="上移" size="icon-sm"
+							disabled={disabled || manualIndex === 0} onClick={() => move(manualIndex, -1)}><ArrowUp /></IconButton>
+						<IconButton label={`下移 ${id}`} tooltip="下移" size="icon-sm"
+							disabled={disabled || manualIndex === modelCount - 1} onClick={() => move(manualIndex, 1)}><ArrowDown /></IconButton>
+					</>}
 					{model.overridden && Object.keys(overrides).length > 0 && <IconButton size="icon-sm"
 						label={`还原模型设置 ${id}`} tooltip="还原模型设置" disabled={disabled}
 						onClick={() => change(["modelOverrides", id], undefined)}><RotateCcw /></IconButton>}

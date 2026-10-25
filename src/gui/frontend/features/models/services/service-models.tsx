@@ -26,6 +26,11 @@ export function ServiceModels({ providerId, provider, candidates, disabled, chan
 	const [expanded, setExpanded] = useState<string>();
 	const models = configuredModels(provider);
 	const definitions = models.filter((model) => model.manualIndex !== undefined).map(({ id }) => id);
+	const move = (index: number, direction: -1 | 1) => {
+		const next = [...provider.models as ConfigObject[]];
+		next.splice(index + direction, 0, ...next.splice(index, 1));
+		change(["models"], next);
+	};
 	const defined = new Set(definitions);
 	const available = candidates.filter(({ id }) => !defined.has(id));
 	const add = (id: string) => {
@@ -54,7 +59,7 @@ export function ServiceModels({ providerId, provider, candidates, disabled, chan
 		<div className="service-model-list"><AnimatePresence initial={false}>
 			{models.map((model) => <ModelItem key={model.id} model={model} settings={modelSettingsView(providerId, provider, model)}
 				open={expanded === model.id} setOpen={(open) => setExpanded(open ? model.id : undefined)}
-				disabled={disabled} change={change} />)}
+				disabled={disabled} change={change} modelCount={definitions.length} move={move} />)}
 		</AnimatePresence></div>
 		{models.length === 0 && !adding && <p className="settings-empty">暂无模型</p>}
 	</section>;

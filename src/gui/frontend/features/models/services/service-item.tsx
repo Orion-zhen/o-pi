@@ -62,8 +62,11 @@ export function ServiceItem({ id, config, disabled, open, setOpen, savedConfig, 
 		<article className="model-service" aria-label={`模型服务 ${id}`}>
 			<div className="service-item-heading">
 				<CollapsibleTrigger className="service-summary" aria-label={`编辑服务 ${id}`}>
-					<strong>{name}</strong>
-					<span>{id}{address ? ` · ${address}` : ""} · {config.api === "openai-responses" ? "Responses" : "Chat Completions"}</span>
+					<strong className="service-summary-line">{name}{name !== id && <span>{id}</span>}</strong>
+					<span className="service-summary-line">
+						{address && <><span>{address}</span><span>·</span></>}
+						<span>{config.api === "openai-responses" ? "Responses" : "Chat Completions"}</span>
+					</span>
 				</CollapsibleTrigger>
 				<ServiceConnectionBadge id={id} connection={connection} retry={catalog.retry}
 					disabled={!catalog.canRetry} />
