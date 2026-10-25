@@ -41,7 +41,11 @@ export async function searchExaMcp(options: {
 	});
 	// SDK 的可空 sessionId getter 不满足 exactOptionalPropertyTypes，转发本次连接所需接口。
 	const connection: Transport = {
-		start: () => transport.start(), send: (message, sendOptions) => transport.send(message, sendOptions),
+		start: () => transport.start(),
+		send: (message, sendOptions) => transport.send(message, {
+			...(sendOptions?.resumptionToken !== undefined && { resumptionToken: sendOptions.resumptionToken }),
+			...(sendOptions?.onresumptiontoken !== undefined && { onresumptiontoken: sendOptions.onresumptiontoken }),
+		}),
 		close: () => transport.close(), setProtocolVersion: (version) => transport.setProtocolVersion(version),
 	};
 	transport.onmessage = (message) => connection.onmessage?.(message);
