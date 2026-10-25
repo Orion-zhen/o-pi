@@ -47,7 +47,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 		setVisited((previous) => new Set([...previous, id]));
 	};
 	const module = (id: ModuleConfigId, title: string) => <ModuleSettings id={id} title={title} query={globalQuery} send={send}
-		disabled={!connected} models={snapshot?.models ?? []} tools={snapshot?.tools ?? null} />;
+		disabled={!connected} models={snapshot?.models ?? []} tools={snapshot?.tools ?? null} currentModel={snapshot?.model ?? null} />;
 	const guiProps = { document: guiConfig, send, query: globalQuery, disabled: !connected, refresh: refreshGuiConfig, restoreFocus };
 	const content = (id: SettingsCategory) => {
 		switch (id) {

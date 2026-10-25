@@ -60,7 +60,8 @@ export class GuiExecution {
 	private liveTools = new GuiLiveTools(this.payloads);
 	private disposed = false;
 	private tasks = new Set<Promise<unknown>>();
-	private background = new Set<() => void>();
+	private lifetime = new AbortController();
+	titleGeneration: GuiSnapshot["titleGeneration"];
 	private toolController: ToolSelectionController | undefined;
 	private mcpTools: GuiMcpTools | undefined;
 	private modelServices = new GuiModelServices();
@@ -139,10 +140,8 @@ export class GuiExecution {
 					reports: this.reports,
 					usageService: this.usageService,
 					approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
-					trackBackground: (task, cancel) => {
-						this.background.add(cancel);
-						return this.track(task.finally(() => this.background.delete(cancel)));
-					},
+					titleGenerationChanged: (state) => { this.titleGeneration = state; this.schedule(); },
+					signal: this.lifetime.signal,
 				}, manager, initial.event, initial.models, this.modelScope);
 				if (this.disposed) { await runtime.dispose(); return; }
 				this.current = runtime;
@@ -211,6 +210,7 @@ export class GuiExecution {
 	snapshot(): GuiSnapshot {
 		if (!this.toolController) throw new Error("工具选择未绑定。");
 		return collectGuiSnapshot(this.runtime, {
+			titleGeneration: this.titleGeneration,
 			scopedModels: this.modelScope.ids,
 			modelScopeChanged: this.modelScope.hasDefaultChanges(this.runtime),
 			modelServicesRevision: this.modelServices.revision,
@@ -445,7 +445,7 @@ export class GuiExecution {
 		if (this.disposed) return;
 		this.disposed = true;
 		const infoClosed = this.reports.dispose();
-		for (const cancel of this.background) cancel();
+		this.lifetime.abort();
 		clearTimeout(this.timer);
 		this.loginController?.abort(); this.commandController.abort(); this.dialogs.cancel();
 		if (this.current) {

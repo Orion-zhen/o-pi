@@ -4,7 +4,7 @@ import { Switch } from "@/ui/switch.tsx";
 import { Input } from "@/ui/input.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
 import { ModelSelect } from "@/features/models/model-select.tsx";
-import { optionLabels, type ConfigField } from "./module-fields.ts";
+import type { ConfigField } from "./module-fields.ts";
 import { SettingsListField } from "@/forms/list-field.tsx";
 import { SubagentToolPicker } from "./subagent-tool-picker.tsx";
 import { SettingsNumber } from "@/forms/number.tsx";
@@ -17,7 +17,7 @@ export function FieldControl({ field, schema, options, value, nullable, disabled
 	if (field.type === "model") return <ModelSelect label={field.label} models={models} disabled={disabled}
 		value={typeof value === "string" && value !== "" ? value : null} change={change} />;
 	if (options) return <Select value={value === undefined ? "" : String(value)} disabled={disabled} onValueChange={change}>
-		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{optionLabels[option] ?? option}</SelectItem>)}</SelectContent>
+		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
 	</Select>;
 	if (Array.isArray(value) || schema?.type === "array") return field.type === "tools"
 		? <SubagentToolPicker label={field.label} value={Array.isArray(value) ? value : []} tools={tools} disabled={disabled} change={change} />

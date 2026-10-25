@@ -3,7 +3,7 @@ import type { ModuleConfigId } from "../../../shared/config/modules.ts";
 export interface ConfigField {
 	path: string;
 	label: string;
-	type?: "model" | "tools" | "profile" | "searchProviders";
+	type?: "model" | "thinking" | "tools" | "profile" | "searchProviders";
 	enabledBy?: string;
 }
 interface ConfigGroup {
@@ -14,17 +14,10 @@ interface ConfigGroup {
 const field = (path: string, label: string, type?: ConfigField["type"]): ConfigField =>
 	({ path, label, ...(type ? { type } : {}) });
 
-export const optionLabels: Record<string, string> = {
-	off: "关闭", auto: "自动", on: "开启", always: "每次确认", session: "每个会话确认", never: "不确认",
-	block: "阻止", allow: "允许", ask: "询问", deny: "拒绝",
-	error: "错误", warning: "警告", information: "信息", hint: "提示",
-	minimal: "最少信息", standard: "标准", detailed: "详细信息",
-	nerd: "Nerd Font", unicode: "Unicode", ascii: "ASCII",
-};
-
 export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 	autoTitle: [{ title: "自动标题", fields: [
 		field("enabled", "自动生成标题"), { ...field("model", "标题模型", "model"), enabledBy: "enabled" },
+		{ ...field("thinking_level", "思考等级", "thinking"), enabledBy: "enabled" },
 	] }],
 	bashTool: [
 		{ title: "终端执行", fields: [field("default_timeout_seconds", "超时（秒）"), field("python_venv_paths", "Python 虚拟环境")] },

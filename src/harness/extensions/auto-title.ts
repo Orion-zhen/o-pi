@@ -2,7 +2,13 @@ import type { ExtensionAPI, InputEvent } from "@earendil-works/pi-coding-agent";
 import { loadAutoTitleConfig, type AutoTitleConfig } from "../auto-title/config.ts";
 import { generateTitle } from "../auto-title/generate.ts";
 
-export default function autoTitle(pi: ExtensionAPI, track?: (task: Promise<void>, cancel: () => void) => Promise<void>): void {
+export type AutoTitleState = "generating" | "complete" | undefined;
+
+export default function autoTitle(
+	pi: ExtensionAPI,
+	hostSignal?: AbortSignal,
+	changed?: (state: AutoTitleState) => void,
+): void {
 	let config: AutoTitleConfig | undefined;
 	let eligible = false;
 	let input: InputEvent | undefined;
@@ -10,14 +16,18 @@ export default function autoTitle(pi: ExtensionAPI, track?: (task: Promise<void>
 	let controller: AbortController | undefined;
 
 	function cancel(): void {
-		controller?.abort();
-		controller = undefined;
+		if (controller) {
+			controller.abort();
+			controller = undefined;
+			changed?.(undefined);
+		}
 		prompt = undefined;
 		input = undefined;
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		cancel();
+		changed?.(undefined);
 		config = undefined;
 		eligible = false;
 		if (process.env.PI_SUBAGENT_CHILD === "1") return;
@@ -28,7 +38,7 @@ export default function autoTitle(pi: ExtensionAPI, track?: (task: Promise<void>
 	pi.on("input", (event) => { input = event; });
 	pi.on("before_agent_start", (event) => {
 		// input 在技能展开前触发，message_start 确认用户请求已进入会话。
-		prompt = event.messageType === "user" && eligible && input?.source !== "extension" ? input?.text : undefined;
+		prompt = event.messageType === "user" && eligible && input?.source !== "extension" ? event.prompt : undefined;
 		input = undefined;
 	});
 	pi.on("message_start", (event, ctx) => {
@@ -40,20 +50,28 @@ export default function autoTitle(pi: ExtensionAPI, track?: (task: Promise<void>
 		const sessionId = ctx.sessionManager.getSessionId();
 		const pending = new AbortController();
 		controller = pending;
+		changed?.("generating");
 		const timeout = setTimeout(() => pending.abort(), 30_000);
 		timeout.unref();
-		const task = generateTitle(config, text, ctx, pending.signal).then((title) => {
-			if (pending.signal.aborted || controller !== pending
+		const signal = hostSignal ? AbortSignal.any([hostSignal, pending.signal]) : pending.signal;
+		void generateTitle(config, text, ctx, signal).then((title) => {
+			if (signal.aborted || controller !== pending
 				|| ctx.sessionManager.getSessionId() !== sessionId || pi.getSessionName() !== undefined) return;
-			pi.setSessionName(title);
+			controller = undefined;
+			let state: AutoTitleState;
+			try {
+				pi.setSessionName(title);
+				state = "complete";
+			} finally { changed?.(state); }
 		}).finally(() => {
 			clearTimeout(timeout);
-			if (controller === pending) controller = undefined;
-		});
-		const tracked = track ? track(task, () => pending.abort()) : task;
-		void tracked.catch((error: unknown) => {
+			if (controller === pending) {
+				controller = undefined;
+				changed?.(undefined);
+			}
+		}).catch((error: unknown) => {
 			// 命名是可选后台任务，失败只通知宿主，不中断主会话。
-			if (!pending.signal.aborted) ctx.ui.notify(`Auto-title: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			if (!signal.aborted) ctx.ui.notify(`Auto-title: ${error instanceof Error ? error.message : String(error)}`, "warning");
 		});
 	});
 	pi.on("session_info_changed", () => { eligible = false; cancel(); });

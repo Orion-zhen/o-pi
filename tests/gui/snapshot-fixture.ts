@@ -1,4 +1,12 @@
-import type { GuiSnapshot } from "../../src/gui/shared/protocol/state.ts";
+import type { GuiModel, GuiSnapshot } from "../../src/gui/shared/protocol/state.ts";
+
+export function guiModelFixture(overrides: Partial<GuiModel> = {}): GuiModel {
+	return {
+		provider: "test", id: "test", name: "Test", contextWindow: 128000,
+		thinking: { levels: ["off"], resolved: { off: "off", minimal: "off", low: "off", medium: "off", high: "off", xhigh: "off", max: "off" } },
+		...overrides,
+	};
+}
 
 export function guiSnapshot(): GuiSnapshot {
 	return {

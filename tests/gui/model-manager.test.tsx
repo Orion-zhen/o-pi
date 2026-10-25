@@ -4,7 +4,7 @@ import { TooltipProvider } from "../../src/gui/frontend/ui/tooltip.tsx";
 import { ModelManager } from "../../src/gui/frontend/features/models/model-manager.tsx";
 import type { Send } from "../../src/gui/frontend/connection/connection.ts";
 import { useReactFixture } from "./react-fixture.ts";
-import { guiSnapshot } from "./snapshot-fixture.ts";
+import { guiModelFixture, guiSnapshot } from "./snapshot-fixture.ts";
 
 const render = useReactFixture();
 beforeEach(() => {
@@ -16,7 +16,7 @@ const button = (label: string) => document.querySelector<HTMLButtonElement>(`but
 it("已选模型按实际索引移动，目录外模型仍可排序，未选模型没有移动操作", async () => {
 	const send = vi.fn<Send>().mockResolvedValue(true);
 	const snapshot = { ...guiSnapshot(), scopedModels: ["local/first", "local/missing", "local/last"],
-		models: ["first", "last", "other"].map((id) => ({ provider: "local", id, name: id, contextWindow: 1000 })) };
+		models: ["first", "last", "other"].map((id) => guiModelFixture({ provider: "local", id, name: id, contextWindow: 1000 })) };
 	const view = () => <TooltipProvider><ModelManager snapshot={snapshot} send={send} disabled={false} /></TooltipProvider>;
 	await render(view());
 	expect(button("上移 local/first")?.disabled).toBe(true);

@@ -26,8 +26,8 @@ function at(value: unknown, path: string): unknown {
 	return value;
 }
 
-export function ModuleSettings({ title, id, query, send, disabled, models, tools }: {
-	title: string; id: ModuleConfigId; query: Query<GlobalQuery>; send: Send; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null;
+export function ModuleSettings({ title, id, query, send, disabled, models, tools, currentModel }: {
+	title: string; id: ModuleConfigId; query: Query<GlobalQuery>; send: Send; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; currentModel: GuiModel | null;
 }) {
 	const editor = useTextConfigDraft(useCallback(() => query({ query: "moduleConfig", id }), [id, query]));
 	const { document, draft, error } = editor;
@@ -70,12 +70,21 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 		const defaultValue = configuredDefault === undefined ? schema?.default : configuredDefault;
 		const configuredValue = valueAt(field.path);
 		const value = configuredValue === undefined ? defaultValue : configuredValue;
-		const options = field.type === "profile"
+		const locked = blocked || (field.enabledBy !== undefined && valueAt(field.enabledBy) !== true);
+		let options = field.type === "profile"
 			? [...new Set([defaults.profiles, parsed.overrides?.profiles].flatMap((profiles) =>
 				typeof profiles === "object" && profiles !== null && !Array.isArray(profiles) ? Object.keys(profiles) : []))]
 			: document.options[field.path];
-		const locked = blocked || (field.enabledBy !== undefined && valueAt(field.enabledBy) !== true);
-		const control = <FieldControl field={field} schema={schema} options={options} value={value} nullable={defaultValue === null} disabled={locked} models={models} tools={tools} change={(value) => change(field.path, value)} />;
+		let displayValue = value;
+		let controlDisabled = locked;
+		if (field.type === "thinking") {
+			const configuredModel = valueAt("model");
+			const model = configuredModel === null ? currentModel : models.find((model) => `${model.provider}/${model.id}` === configuredModel);
+			options = model?.thinking.levels ?? [];
+			displayValue = typeof value === "string" ? model?.thinking.resolved[value] : undefined;
+			controlDisabled ||= options.length === 0;
+		}
+		const control = <FieldControl field={field} schema={schema} options={options} value={displayValue} nullable={defaultValue === null} disabled={controlDisabled} models={models} tools={tools} change={(value) => change(field.path, value)} />;
 		return <SettingsRow key={field.path} label={field.label}
 			layout={Array.isArray(value) || schema?.type === "array" ? "wide" : field.type === "model" || (!options && (schema?.type === "string" || typeof value === "string" || value === null)) ? "fluid" : "inline"}
 			reset={{ value, defaultValue, apply: () => change(field.path, undefined) }} disabled={locked}>

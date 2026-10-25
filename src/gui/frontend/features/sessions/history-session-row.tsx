@@ -12,6 +12,7 @@ import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
 import { ConfirmAction } from "@/ui/confirm-action.tsx";
 import { SessionNameInput } from "./session-name-input.tsx";
+import { SessionTitle } from "./session-title.tsx";
 import { ActivityBorder } from "./activity-border.tsx";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" });
@@ -37,7 +38,7 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, disable
 			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || pending}
 			onClick={() => open(item)}>
 			<MorphIcon icon={waiting ? FilledShield : MessageSquare} spring="smooth" size="1em"
-				className={waiting ? "approval-marker" : undefined} {...(waiting ? { label: "等待审批" } : {})} /><span className="history-session-title">{title}</span>
+				className={waiting ? "approval-marker" : undefined} {...(waiting ? { label: "等待审批" } : {})} /><span className="history-session-title"><SessionTitle title={title} state={activity?.titleGeneration} /></span>
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
 		</Button></Hint>}
 		{path && <div className="row-actions">

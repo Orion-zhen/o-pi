@@ -10,6 +10,7 @@
 {
   "enabled": true,
   "model": "your-provider/your-small-model",
+  "thinking_level": "off",
   "system_prompt": "概括用户请求的主要任务，用用户的语言只输出一行简短标题，最多 50 个字符。"
 }
 ```
@@ -18,7 +19,7 @@
 
 ## 请求与结果
 
-请求包含独立系统提示词和首条用户文本，最多 2000 个 Unicode 字符。使用模型支持的最低思考等级，输出上限 1024 tokens，30 秒超时。
+请求包含独立系统提示词和首条用户文本，最多 2000 个 Unicode 字符。`thinking_level` 按 SDK 规则调整为模型支持的等级，默认 `off` 取最低可用等级，不影响主会话设置。输出上限 1024 tokens，30 秒超时。
 
 标题清理控制字符、引号和空白后最多保留 50 个 Unicode 字符，通过 SDK 会话名称接口保存。
 

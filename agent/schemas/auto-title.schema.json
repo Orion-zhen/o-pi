@@ -11,6 +11,7 @@
 				{ "type": "string", "pattern": "^[^/\\s]+/[^\\s]+$" }
 			]
 		},
+		"thinking_level": { "type": "string", "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
 		"system_prompt": { "type": "string", "pattern": "\\S" }
 	}
 }

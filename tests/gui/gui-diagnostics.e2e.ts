@@ -1,9 +1,9 @@
 import { test, expect } from "@playwright/test";
-import type { GuiModel } from "../../src/gui/shared/protocol/state.ts";
+import { guiModelFixture } from "./snapshot-fixture.ts";
 import { liveSnapshot, replayTranscript } from "./transcript-live-fixture.ts";
 
 function emptySnapshot() {
-	const model: GuiModel = { provider: "test", id: "test", name: "Test", contextWindow: 128000 };
+	const model = guiModelFixture();
 	return { ...liveSnapshot(), entries: [], contextEntryIds: [], leafId: null, streamingMessage: null,
 		model, models: [model], running: false, streaming: false, canChangeSession: true };
 }

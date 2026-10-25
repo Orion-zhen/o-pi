@@ -1,4 +1,4 @@
-import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutoTitleConfig } from "./config.ts";
 
@@ -15,7 +15,7 @@ export async function generateTitle(
 	}
 	if (!model) throw new Error("Auto-title model is unavailable.");
 	signal.throwIfAborted();
-	const reasoning = getSupportedThinkingLevels(model)[0];
+	const reasoning = clampThinkingLevel(model, config.thinking_level);
 	const response = await ctx.modelRegistry.streamSimple(
 		model,
 		{
@@ -24,7 +24,7 @@ export async function generateTitle(
 		},
 		{
 			signal,
-			...(reasoning === undefined || reasoning === "off" ? {} : { reasoning }),
+			...(reasoning === "off" ? {} : { reasoning }),
 			maxTokens: 1024,
 			maxRetries: 0,
 		},

@@ -94,8 +94,9 @@ export class GuiSession {
 		this.wasRunning = running;
 		const title = (execution?.ready ? execution.runtime.session.sessionName : undefined) ?? this.summary.title;
 		const state = execution?.dialogs.list().length ? "waiting" : this.resources.state === "starting" ? "loading" : running ? "running" : "idle";
-		if (title !== this.summary.title || state !== this.summary.state || completedAt !== this.summary.completedAt) {
-			this.summary = { ...this.summary, title, state, completedAt,
+		const titleGeneration = execution?.titleGeneration;
+		if (title !== this.summary.title || state !== this.summary.state || completedAt !== this.summary.completedAt || titleGeneration !== this.summary.titleGeneration) {
+			this.summary = { ...this.summary, title, state, completedAt, titleGeneration,
 				modified: completedAt !== this.summary.completedAt ? new Date(completedAt).toISOString() : this.summary.modified };
 			this.notify(true);
 		}

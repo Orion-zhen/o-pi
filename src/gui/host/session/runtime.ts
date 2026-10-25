@@ -1,4 +1,6 @@
 import { EventEmitter } from "node:events";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { stat } from "node:fs/promises";
 import path from "node:path";
@@ -18,6 +20,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
 import type { GuiModelScope } from "./models.ts";
+import type { GuiModel } from "../../shared/protocol/state.ts";
 
 EventEmitter.defaultMaxListeners = 20;
 
@@ -117,6 +120,12 @@ export async function createGuiRuntime(
 	});
 }
 
-export function guiModel(model: NonNullable<AgentSession["model"]>) {
-	return { id: model.id, provider: model.provider, name: model.name, contextWindow: model.contextWindow };
+export function guiModel(model: NonNullable<AgentSession["model"]>): GuiModel {
+	return {
+		id: model.id, provider: model.provider, name: model.name, contextWindow: model.contextWindow,
+		thinking: {
+			levels: getSupportedThinkingLevels(model),
+			resolved: Object.fromEntries(MODEL_THINKING_LEVELS.map((level) => [level, clampThinkingLevel(model, level)])),
+		},
+	};
 }

@@ -1,5 +1,7 @@
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AgentSession, SessionStats } from "@earendil-works/pi-coding-agent";
+import type { AutoTitleState } from "../../../harness/extensions/auto-title.ts";
 import type { CodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { UsageSnapshot } from "../../../harness/usage/types.ts";
 import type { SubagentDetails } from "../../../harness/subagent/types.ts";
@@ -37,6 +39,10 @@ export interface GuiModel {
 	id: string;
 	name: string;
 	contextWindow: number;
+	thinking: {
+		levels: ModelThinkingLevel[];
+		resolved: Record<string, ModelThinkingLevel>;
+	};
 }
 export interface GuiWorkspaceInfo {
 	path: string;
@@ -49,6 +55,7 @@ export interface GuiSessionActivity {
 	cwd: string;
 	/** 仅显式会话名；空串表示未命名，由列表回退到历史派生标题。 */
 	title: string;
+	titleGeneration?: AutoTitleState;
 	state: "loading" | "running" | "waiting" | "idle";
 	completedAt: number;
 	modified: string;
@@ -74,6 +81,7 @@ export interface GuiSnapshot {
 	sessionId: string;
 	sessionFile: string | null;
 	name: string;
+	titleGeneration?: AutoTitleState;
 	canSubmit: boolean;
 	canChangeSession: boolean;
 	running: boolean;

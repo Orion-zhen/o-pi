@@ -1,4 +1,8 @@
 .session-heading { display: flex; flex: 1; min-inline-size: 0; font-size: var(--text-heading); }
+.session-title-text { position: relative; display: block; min-inline-size: 0; }
+.session-title-target, .session-title-display { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-title-target { opacity: 0; }
+.session-title-display { position: absolute; inset: 0; }
 .session-name { min-inline-size: 0; max-inline-size: 100%; padding: 0.25em 0.375em; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; font-weight: 500; line-height: 1.5; text-align: start; }
 button.session-name, strong.session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.session-name:hover { background: var(--accent); }

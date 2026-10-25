@@ -48,7 +48,7 @@ it("模块开关改回初始值后无需保存，默认值隐藏重置", async (
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content,
 		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
 	const send = vi.fn<Send>().mockResolvedValue(true);
-	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query} send={send} disabled={false} models={[]} tools={null} /></View>);
+	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
 	expectDirty(false);
 	expect(button("重置自动生成标题")).toBeNull();
 	await click(button("自动生成标题"));
@@ -66,7 +66,7 @@ it("模块保存失败保留草稿，放弃恢复原值，保存成功采用新�
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content,
 		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
 	const send = vi.fn<Send>().mockResolvedValueOnce(false).mockResolvedValue(true);
-	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query} send={send} disabled={false} models={[]} tools={null} /></View>);
+	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
 	await click(button("重置自动生成标题"));
 	expectDirty(true);
 	expect(button("重置自动生成标题")).toBeNull();

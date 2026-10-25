@@ -130,7 +130,7 @@ export function App() {
 								</IconButton>
 							</SheetTrigger>
 							{snapshot ? (
-								<SessionHeading key={snapshot.sessionId} name={snapshot.name} send={send} />
+								<SessionHeading key={snapshot.sessionId} name={snapshot.name} titleGeneration={snapshot.titleGeneration} send={send} />
 							) : (
 								<div className="session-heading"><strong className="session-name">选择工作区</strong></div>
 							)}

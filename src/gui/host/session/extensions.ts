@@ -17,7 +17,7 @@ import type { GuiReports } from "../projection/reports.ts";
 import { createApprovalGate } from "../../../harness/approval/runtime/gate.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import approvalGate from "../../../harness/extensions/approval-gate.ts";
-import autoTitle from "../../../harness/extensions/auto-title.ts";
+import autoTitle, { type AutoTitleState } from "../../../harness/extensions/auto-title.ts";
 import openAICompatibleProvider from "../../../harness/extensions/openai-compatible-provider.ts";
 import type { ModelsConfig } from "../../../harness/openai-compatible-provider/schema.ts";
 import { lspManager, registerLspCommands } from "../../../harness/lsp/index.ts";
@@ -26,7 +26,8 @@ export interface GuiExtensionBindings {
 	dialogs: GuiDialogs;
 	approvalStores: ApprovalStores;
 	approvalRules: SessionApprovalRules;
-	trackBackground(task: Promise<void>, cancel: () => void): Promise<void>;
+	signal: AbortSignal;
+	titleGenerationChanged(state: AutoTitleState): void;
 	emit(event: GuiEvent): void;
 	bindTools(controller: ToolSelectionController): void;
 	bindMcp(tools: GuiMcpTools): void;
@@ -37,7 +38,7 @@ export interface GuiExtensionBindings {
 	usageService: UsageService;
 }
 
-export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, usageService, approvalStores, approvalRules, trackBackground }: GuiExtensionBindings): InlineExtension[] {
+export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, usageService, approvalStores, approvalRules, signal, titleGenerationChanged }: GuiExtensionBindings): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "openai-compatible-provider", factory: (pi) => openAICompatibleProvider(pi, bindModelServices) },
 		{ name: "mcp", builtin: true, factory: createGuiMcpExtension({
@@ -45,7 +46,7 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindMod
 			openUrl: (url) => emit({ type: "auth", value: { type: "auth_url", url } }),
 			showConfig: () => emit({ type: "panel", panel: { kind: "settings", category: "mcp" } }),
 		}) },
-		{ name: "auto-title", factory: (pi) => autoTitle(pi, trackBackground) },
+		{ name: "auto-title", factory: (pi) => autoTitle(pi, signal, titleGenerationChanged) },
 		{ name: "approval-gate", factory: (pi) => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }, createApprovalGate(approvalStores, approvalRules)) },
 		// LSP 由宿主统一释放，回收单个会话不能重置其他会话的服务。
 		{ name: "lsp", factory: (pi) => {
