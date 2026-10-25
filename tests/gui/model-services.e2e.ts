@@ -5,7 +5,7 @@ import type { Page } from "@playwright/test";
 import { parse } from "jsonc-parser";
 import { test, expect } from "./fixture.ts";
 import { selectSetting, selectSettingsCategory } from "./settings-steps.ts";
-import { THINKING_PRESETS } from "../../src/harness/openai-compatible-provider/schema.ts";
+import { THINKING_FORMATS } from "../../src/harness/openai-compatible-provider/schema.ts";
 
 const settings = (page: Page) => page.getByRole("dialog", { name: "设置", exact: true });
 const services = (page: Page) => settings(page).getByRole("region", { name: "OpenAI 兼容服务", exact: true });
@@ -99,37 +99,37 @@ test("表单显示实际默认值，修改及重置保留继承行为", async ({
 	await expect(model.getByRole("toolbar", { name: "输入类型", exact: true }).getByRole("button", { name: "文本", exact: true })).toHaveAttribute("aria-pressed", "true");
 	await expect(model.getByRole("toolbar", { name: "输入类型", exact: true }).getByRole("button", { name: "图片", exact: true })).toHaveAttribute("aria-pressed", "false");
 	await model.getByRole("button", { name: "协议与思考", exact: true }).click();
-	await expect(field("思考传递方式")).toHaveText("auto");
+	await expect(field("思考格式")).toHaveText("openai");
+	await expect(field("思考请求扩展")).toHaveCount(0);
 	await expect(field("输出上限字段")).toHaveText("max_completion_tokens");
 	await expect(toggle("Developer 角色")).toBeChecked();
 	await expect(toggle("服务端存储")).toBeChecked();
-	await expect(toggle("思考强度参数")).toBeChecked();
+	await expect(toggle("独立 reasoning_effort 参数")).toBeChecked();
 	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();
 	await toggle("服务端存储").uncheck();
 	await model.getByRole("button", { name: "重置服务端存储", exact: true }).click();
 	await expect(toggle("服务端存储")).toBeChecked();
 	await expect(model.getByRole("button", { name: "重置服务端存储", exact: true })).toHaveCount(0);
-	await choose("思考传递方式", "qwen");
+	await choose("思考格式", "qwen");
 	await pane.getByLabel("API 地址", { exact: true }).fill("https://api.deepseek.com/v1");
-	await expect(field("思考传递方式")).toHaveText("qwen");
+	await expect(field("思考格式")).toHaveText("qwen");
 	await expect(field("输出上限字段")).toHaveText("max_tokens");
 	await expect(toggle("Developer 角色")).not.toBeChecked();
 	await save(page);
 	const file = path.join(agentDir, "models.json");
-	expect(parse(await readFile(file, "utf8")).providers.local.models[0].thinkingPreset).toBe("qwen");
-	await model.getByRole("button", { name: "重置思考传递方式", exact: true }).click();
-	await expect(field("思考传递方式")).toHaveText("auto");
+	expect(parse(await readFile(file, "utf8")).providers.local.models[0].compat.thinkingFormat).toBe("qwen");
+	await model.getByRole("button", { name: "重置思考格式", exact: true }).click();
+	await expect(field("思考格式")).toHaveText("deepseek");
 	await save(page);
 	const content = await readFile(file, "utf8");
 	expect(content).toContain("// 保留注释");
 	const saved = parse(content).providers.local.models[0];
 	expect(saved).not.toHaveProperty("reasoning");
 	expect(saved).not.toHaveProperty("input");
-	expect(saved).not.toHaveProperty("thinkingPreset");
 	expect(saved).not.toHaveProperty("compat.thinkingFormat");
 });
 
-test("表单不额外限制合法预设、预先编辑映射或为覆盖项添加模型定义", async ({ gui: { page }, workspace: { agentDir } }) => {
+test("开启思考能力后编辑映射，保留原生格式和模型覆盖层", async ({ gui: { page }, workspace: { agentDir } }) => {
 	const file = path.join(agentDir, "models.json");
 	await writeFile(file, JSON.stringify({ providers: { local: {
 		api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", apiKey: "local",
@@ -144,15 +144,17 @@ test("表单不额外限制合法预设、预先编辑映射或为覆盖项添�
 	const model = pane.getByRole("article", { name: "模型 m", exact: true });
 	await expect(model.getByRole("switch", { name: "思考能力", exact: true })).not.toBeChecked();
 	await model.getByRole("button", { name: "思考等级映射", exact: true }).click();
+	await expect(model.getByRole("checkbox", { name: "在 opi 中启用 xhigh", exact: true })).toBeDisabled();
+	await model.getByRole("switch", { name: "思考能力", exact: true }).check();
 	await model.getByRole("checkbox", { name: "在 opi 中启用 xhigh", exact: true }).check();
 	await model.getByRole("textbox", { name: "opi xhigh 对应的服务商值", exact: true }).fill("max");
 	await model.getByRole("button", { name: "协议与思考", exact: true }).click();
-	await model.getByRole("combobox", { name: "思考传递方式", exact: true }).click();
-	await expect(page.getByRole("option")).toHaveText([...THINKING_PRESETS]);
+	await model.getByRole("combobox", { name: "思考格式", exact: true }).click();
+	await expect(page.getByRole("option")).toHaveText(THINKING_FORMATS);
 	await page.getByRole("option", { name: "deepseek", exact: true }).click();
 	await save(page);
 	expect(parse(await readFile(file, "utf8")).providers.local).toMatchObject({
-		models: [{ id: "m" }], modelOverrides: { m: { maxTokens: 4096, thinkingPreset: "deepseek", thinkingLevelMap: { xhigh: "max" } } },
+		models: [{ id: "m" }], modelOverrides: { m: { maxTokens: 4096, reasoning: true, compat: { thinkingFormat: "deepseek" }, thinkingLevelMap: { xhigh: "max" } } },
 	});
 });
 
@@ -182,49 +184,178 @@ test("思考映射表编辑服务商值，禁用、单项还原和整体还原�
 	await expect(value("off")).toHaveAttribute("placeholder", "none");
 	await save(page);
 	expect(parse(await readFile(file, "utf8")).providers.local.models[0].thinkingLevelMap).toEqual({ xhigh: "max", minimal: null });
-	await model.getByRole("button", { name: "恢复默认映射", exact: true }).click();
+	const reset = table.getByRole("button", { name: "恢复默认映射", exact: true });
+	await expect(reset).toBeVisible();
+	await reset.click();
 	await expect(enabled("minimal")).toBeChecked();
 	await expect(enabled("xhigh")).not.toBeChecked();
 	await save(page);
 	expect(parse(await readFile(file, "utf8")).providers.local.models[0]).not.toHaveProperty("thinkingLevelMap");
 });
 
-test("思考映射在窄容器和大字号下完整显示并可编辑", async ({ gui: { page }, workspace: { agentDir } }) => {
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { local: {
-		api: "openai-responses", baseUrl: "http://localhost:11451/v1", apiKey: "local", models: [{ id: "reasoner", reasoning: true }],
+test("思考模板联动映射、默认等级和 API 可用选项，切换后保留配置", async ({ gui: { page }, workspace: { agentDir } }) => {
+	const file = path.join(agentDir, "models.json");
+	await writeFile(file, JSON.stringify({ providers: { local: {
+		api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", apiKey: "local", compat: { thinkingFormat: "qwen-chat-template" },
+		models: [{ id: "m", reasoning: true, defaultThinkingLevel: "minimal", thinkingLevelMap: { high: "custom", minimal: null } }],
 	} } }));
 	await open(page);
 	const pane = services(page);
 	await pane.getByRole("button", { name: "编辑服务 local", exact: true }).click();
-	await pane.getByRole("button", { name: "编辑模型 reasoner", exact: true }).click();
-	await pane.getByRole("button", { name: "思考等级映射", exact: true }).click();
-	const table = pane.getByRole("table", { name: "思考等级映射", exact: true });
-	await pane.locator(".service-thinking").evaluate((element) => { element.style.maxInlineSize = "260px"; });
-	for (const scale of ["normal", "root", "ui"] as const) {
-		await page.evaluate((scale) => {
-			document.documentElement.style.fontSize = scale === "root" ? "200%" : "100%";
-			document.documentElement.style.setProperty("--text-ui", scale === "ui" ? "1.75rem" : "0.875rem");
-		}, scale);
-		const value = table.getByRole("textbox", { name: "opi high 对应的服务商值", exact: true });
-		await value.fill("provider-high-value");
-		await expect.poll(() => table.evaluate((element) => {
-			const container = element.closest(".service-thinking");
-			if (!container) throw new Error("缺少映射容器");
-			const bounds = container.getBoundingClientRect();
-			return element.getBoundingClientRect().width <= bounds.width
-				&& [...element.querySelectorAll("input, button")].every((control) => {
-					const rect = control.getBoundingClientRect();
-					return rect.left >= bounds.left && rect.right <= bounds.right;
-				});
-		})).toBe(true);
-		expect(await value.evaluate((element) => {
-			const table = element.closest("table");
-			if (!table) throw new Error("缺少映射表");
-			return element.clientWidth >= table.clientWidth * 0.8;
-		})).toBe(true);
-		await table.getByRole("button", { name: "恢复 high 默认映射", exact: true }).click();
-		await expect(value).toHaveValue("");
+	await pane.getByRole("button", { name: "编辑模型 m", exact: true }).click();
+	const model = pane.getByRole("article", { name: "模型 m", exact: true });
+	await model.getByRole("button", { name: "协议与思考", exact: true }).click();
+	await model.getByRole("button", { name: "思考等级映射", exact: true }).click();
+	const table = model.getByRole("table", { name: "思考等级映射", exact: true });
+	const effort = model.getByRole("switch", { name: "独立 reasoning_effort 参数", exact: true });
+	await expect(table.getByRole("textbox")).toHaveCount(0);
+	await expect(table).toContainText("开启思考");
+	await expect(table).not.toContainText("custom");
+	await expect(effort).toBeDisabled();
+	await expect(model.getByText("已配置的等级当前不可选，运行时会自动调整。请改选或重置。", { exact: true })).toBeVisible();
+	await model.getByRole("combobox", { name: "默认思考等级", exact: true }).click();
+	for (const level of ["minimal", "xhigh", "max"]) await expect(page.getByRole("option", { name: level, exact: true })).toBeDisabled();
+	await page.getByRole("option", { name: "high", exact: true }).click();
+	await table.getByRole("checkbox", { name: "在 opi 中启用 xhigh", exact: true }).check();
+	await selectSetting(page, "默认思考等级", "xhigh");
+	await selectSetting(page, "API 协议", "Responses");
+	await expect(model.getByRole("combobox", { name: "思考格式", exact: true })).toHaveCount(0);
+	await expect(effort).toHaveCount(0);
+	await expect(table.getByRole("textbox", { name: "opi high 对应的服务商值", exact: true })).toHaveValue("custom");
+	await expect(table.getByRole("textbox", { name: "opi off 对应的服务商值", exact: true })).toHaveAttribute("placeholder", "none");
+	await save(page);
+	expect(parse(await readFile(file, "utf8")).providers.local).toMatchObject({ api: "openai-responses", compat: { thinkingFormat: "qwen-chat-template" }, models: [{
+		id: "m", defaultThinkingLevel: "xhigh", thinkingLevelMap: { high: "custom", minimal: null, xhigh: "xhigh" },
+	}] });
+	await selectSetting(page, "API 协议", "Chat Completions");
+	await expect(model.getByRole("combobox", { name: "思考格式", exact: true })).toHaveText("qwen-chat-template");
+	await expect(effort).toBeDisabled();
+	await expect(table.getByRole("textbox")).toHaveCount(0);
+});
+
+test("原生思考格式切换保留模板参数，重置恢复继承", async ({ gui: { page }, workspace: { agentDir } }) => {
+	const file = path.join(agentDir, "models.json");
+	const inherited = { enable_thinking: { $var: "thinking.enabled" } };
+	await writeFile(file, JSON.stringify({ providers: { local: {
+		api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", apiKey: "local",
+		compat: { thinkingFormat: "chat-template", chatTemplateKwargs: inherited, supportsReasoningEffort: false },
+		models: [{ id: "m", reasoning: true, thinkingLevelMap: { high: "custom" } }],
+	} } }));
+	await open(page);
+	const pane = services(page);
+	await pane.getByRole("button", { name: "编辑服务 local", exact: true }).click();
+	await pane.getByRole("button", { name: "编辑模型 m", exact: true }).click();
+	const model = pane.getByRole("article", { name: "模型 m", exact: true });
+	await model.getByRole("button", { name: "协议与思考", exact: true }).click();
+	await model.getByRole("button", { name: "思考等级映射", exact: true }).click();
+	const template = model.getByRole("group", { name: "chatTemplateKwargs", exact: true });
+	const high = model.getByRole("textbox", { name: "opi high 对应的服务商值", exact: true });
+	const format = model.getByRole("combobox", { name: "思考格式", exact: true });
+	await expect(format).toHaveText("chat-template");
+	await expect(template.getByRole("row", { name: "enable_thinking", exact: true })).toContainText("继承");
+	await expect(high).toHaveCount(0);
+	await template.getByRole("button", { name: "添加 reasoning_effort", exact: true }).click();
+	await template.getByRole("button", { name: "编辑参数 reasoning_effort", exact: true }).click();
+	const editor = page.getByRole("dialog", { name: "编辑参数 reasoning_effort", exact: true });
+	await editor.getByRole("checkbox", { name: "omitWhenOff", exact: true }).check();
+	await editor.getByRole("button", { name: "应用", exact: true }).click();
+	const templateValue = { reasoning_effort: { $var: "thinking.effort", omitWhenOff: true } };
+	await expect(template.getByRole("row", { name: "reasoning_effort", exact: true })).toContainText("omitWhenOff");
+	await expect(high).toHaveValue("custom");
+	await expect(model.getByRole("textbox", { name: "opi off 对应的服务商值", exact: true })).toHaveCount(0);
+	for (const value of ["qwen-chat-template", "baseten"]) {
+		await format.click();
+		await expect(page.getByRole("option")).toHaveText(THINKING_FORMATS);
+		await page.getByRole("option", { name: value, exact: true }).click();
+		await expect(format).toHaveText(value);
+		await expect(format).toBeEnabled();
+		await expect(template).toHaveCount(0);
+		await expect(high).toHaveCount(0);
+		await expect(model.getByRole("combobox", { name: "思考请求扩展", exact: true })).toHaveCount(0);
+		await format.click();
+		await page.getByRole("option", { name: "chat-template", exact: true }).click();
+		await expect(template).toBeVisible();
+		await expect(template.getByRole("row", { name: "reasoning_effort", exact: true })).toContainText("thinking.effort");
+		await expect(high).toHaveValue("custom");
 	}
+	await save(page);
+	const saved = parse(await readFile(file, "utf8")).providers.local;
+	expect(saved.models[0].compat).toEqual({ chatTemplateKwargs: templateValue });
+	expect(saved.compat.chatTemplateKwargs).toEqual(inherited);
+	await model.getByRole("button", { name: "重置chatTemplateKwargs", exact: true }).click();
+	await expect(template.getByRole("row", { name: "reasoning_effort", exact: true })).toHaveCount(0);
+	await expect(template.getByRole("row", { name: "enable_thinking", exact: true })).toContainText("继承");
+	await expect(high).toHaveCount(0);
+	await save(page);
+	expect(parse(await readFile(file, "utf8")).providers.local.models[0]).not.toHaveProperty("compat.chatTemplateKwargs");
+	await format.click();
+	await page.getByRole("option", { name: "qwen-chat-template", exact: true }).click();
+	await model.getByRole("button", { name: "重置思考格式", exact: true }).click();
+	await expect(format).toHaveText("chat-template");
+	await expect(template).toBeVisible();
+	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+});
+
+test("模板参数覆盖、重置和重命名可保存，关闭编辑器恢复焦点", async ({ gui: { page }, workspace: { agentDir } }) => {
+	const file = path.join(agentDir, "models.json");
+	const inherited = { enable_thinking: { $var: "thinking.enabled", omitWhenOff: true } };
+	await writeFile(file, JSON.stringify({ providers: { local: {
+		api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", apiKey: "local",
+		compat: { thinkingFormat: "chat-template", chatTemplateKwargs: inherited }, models: [{ id: "m", reasoning: true }],
+	} } }));
+	await open(page);
+	const pane = services(page);
+	await pane.getByRole("button", { name: "编辑服务 local", exact: true }).click();
+	await pane.getByRole("button", { name: "编辑模型 m", exact: true }).click();
+	const model = pane.getByRole("article", { name: "模型 m", exact: true });
+	const template = model.getByRole("group", { name: "chatTemplateKwargs", exact: true });
+	const addButton = template.getByRole("button", { name: "添加参数", exact: true });
+	const editor = page.getByRole("dialog", { name: "添加参数", exact: true });
+	const chooseType = async (type: string) => {
+		await page.getByRole("combobox", { name: "取值类型", exact: true }).click();
+		await page.getByRole("option", { name: type, exact: true }).click();
+	};
+	await template.getByRole("button", { name: "编辑参数 enable_thinking", exact: true }).click();
+	const inheritedEditor = page.getByRole("dialog", { name: "编辑参数 enable_thinking", exact: true });
+	await expect(inheritedEditor.getByLabel("参数名", { exact: true })).toHaveAttribute("readonly", "");
+	await inheritedEditor.getByRole("checkbox", { name: "omitWhenOff", exact: true }).uncheck();
+	await inheritedEditor.getByRole("button", { name: "应用", exact: true }).click();
+	await expect(template.getByRole("row", { name: "enable_thinking", exact: true })).not.toContainText("omitWhenOff");
+	await save(page);
+	expect(parse(await readFile(file, "utf8")).providers.local.models[0].compat.chatTemplateKwargs).toEqual({ enable_thinking: { $var: "thinking.enabled" } });
+	await template.getByRole("button", { name: "重置参数 enable_thinking", exact: true }).click();
+	await expect(template.getByRole("row", { name: "enable_thinking", exact: true })).toContainText("继承");
+
+	await addButton.click();
+	await editor.getByLabel("参数名", { exact: true }).fill("enable_thinking");
+	await expect(editor.getByRole("alert")).toHaveText("参数名已存在");
+	await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeDisabled();
+	await editor.getByLabel("参数名", { exact: true }).fill("scale");
+	await chooseType("number");
+	const number = editor.getByLabel("值", { exact: true });
+	await number.fill("-");
+	await expect(editor.getByRole("button", { name: "添加", exact: true })).toBeDisabled();
+	await number.fill("-0.");
+	await number.pressSequentially("25");
+	await expect(number).toHaveValue("-0.25");
+	await editor.getByRole("button", { name: "添加", exact: true }).click();
+	await expect(addButton).toBeFocused();
+
+	await template.getByRole("button", { name: "编辑参数 scale", exact: true }).click();
+	const renameEditor = page.getByRole("dialog", { name: "编辑参数 scale", exact: true });
+	await renameEditor.getByLabel("参数名", { exact: true }).fill("factor");
+	await renameEditor.getByRole("button", { name: "应用", exact: true }).click();
+	await expect(template.getByRole("button", { name: "编辑参数 factor", exact: true })).toBeFocused();
+	for (const [name, type] of [["prefix", "string"], ["preserve_thinking", "boolean"], ["budget", "null"]] as const) {
+		await addButton.click();
+		await editor.getByLabel("参数名", { exact: true }).fill(name);
+		await chooseType(type);
+		await editor.getByRole("button", { name: "添加", exact: true }).click();
+	}
+	await save(page);
+	const saved = parse(await readFile(file, "utf8")).providers.local;
+	expect(saved.models[0].compat.chatTemplateKwargs).toEqual({ factor: -0.25, prefix: "", preserve_thinking: false, budget: null });
+	expect(saved.compat.chatTemplateKwargs).toEqual(inherited);
 });
 
 test("模型 ID 输入筛选候选，也可直接添加自定义模型", async ({ gui: { page }, workspace: { agentDir } }) => {
@@ -311,35 +442,65 @@ test("模型 ID 输入筛选候选，也可直接添加自定义模型", async (
 		await expect(candidates).toHaveCount(0);
 		await input.press("Enter");
 		await expect(service.getByRole("article", { name: "模型 custom-id", exact: true })).toBeVisible();
+		await service.getByRole("button", { name: "添加模型", exact: true }).click();
+		await input.fill("remote:high");
+		await service.getByRole("button", { name: "添加", exact: true }).click();
+		const variant = service.getByRole("article", { name: "模型 remote:high", exact: true });
+		await expect(variant).toBeVisible();
+		await expect(variant.getByRole("switch", { name: "思考能力", exact: true })).not.toBeChecked();
 		await save(page);
-		expect(parse(await readFile(file, "utf8")).providers.catalog.models).toEqual([{ id: "remote", contextWindow: 32768, maxTokens: 4096 }, { id: "custom-id" }]);
+		expect(parse(await readFile(file, "utf8")).providers.catalog.models).toEqual([{ id: "remote", contextWindow: 32768, maxTokens: 4096 }, { id: "custom-id" }, { id: "remote:high" }]);
 		await model.getByRole("button", { name: "删除模型 remote", exact: true }).click();
 		await model.getByRole("button", { name: "确认删除模型 remote", exact: true }).click();
 		await expect(model).toHaveCount(0);
 		await save(page);
-		expect(parse(await readFile(file, "utf8")).providers.catalog.models).toEqual([{ id: "custom-id" }]);
+		expect(parse(await readFile(file, "utf8")).providers.catalog.models).toEqual([{ id: "custom-id" }, { id: "remote:high" }]);
 	} finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });
 
 test("损坏配置可修复，冲突和非法字段保留草稿", async ({ gui: { page }, workspace: { agentDir } }) => {
 	const file = path.join(agentDir, "models.json");
-	await writeFile(file, "{");
+	const invalid = parse(original);
+	invalid.providers.local.maxRetries = -1;
+	const initial = JSON.stringify(invalid);
+	await writeFile(file, initial);
 	await open(page);
 	const pane = services(page);
 	const source = pane.getByLabel("模型服务 JSON");
-	await expect(source).toHaveValue("{");
-	await source.fill(original);
+	await expect(source).toHaveValue(initial);
+	const form = pane.getByRole("button", { name: "表单", exact: true });
+	await expect(form).toBeDisabled();
+	await source.fill("{");
+	await expect(form).toBeDisabled();
+	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+	await expect(pane.getByRole("button", { name: "编辑服务 local", exact: true })).toHaveCount(0);
+	await source.fill(initial.replace('"maxRetries":-1', '"maxRetries":0'));
 	await pane.getByRole("button", { name: "表单", exact: true }).click();
 	await pane.getByRole("button", { name: "编辑服务 local", exact: true }).click();
 	await pane.getByRole("button", { name: "请求设置", exact: true }).click();
-	await pane.getByLabel("重试次数", { exact: true }).fill("-1");
+	const retries = pane.getByLabel("重试次数", { exact: true });
+	await retries.fill("-");
+	await expect(retries).toHaveValue("-");
+	await expect(source).toHaveCount(0);
 	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();
-	await pane.getByLabel("重试次数", { exact: true }).fill("0");
+	await retries.fill("-1");
+	await expect(retries).toHaveValue("-1");
+	await expect(source).toHaveCount(0);
+	await pane.getByRole("button", { name: "JSON", exact: true }).click();
+	await expect(source).toHaveValue(initial);
+	await expect(form).toBeDisabled();
+	const repaired = parse(await source.inputValue());
+	repaired.providers.local.maxRetries = 0;
+	await source.fill(JSON.stringify(repaired));
+	await form.click();
+	await pane.getByRole("button", { name: "请求设置", exact: true }).click();
+	await expect(retries).toHaveValue("0");
 	await writeFile(file, '{"providers":{}}');
 	await settings(page).getByRole("button", { name: "保存", exact: true }).click();
 	await expect(settings(page).locator(".settings-actions").getByRole("alert")).toContainText("未保存");
 	await expect(pane.getByLabel("重试次数", { exact: true })).toHaveValue("0");
 	expect(await readFile(file, "utf8")).toBe('{"providers":{}}');
 	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
-	await expect(source).toHaveValue("{");
+	await expect(source).toHaveValue(initial);
+	await expect(form).toBeDisabled();
 });

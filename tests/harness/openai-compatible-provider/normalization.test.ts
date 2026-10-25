@@ -12,8 +12,8 @@ const invalidConfigs = [
 	["zero maxTokens", { models: [{ id: "m", maxTokens: 0 }] }],
 	["zero override maxTokens", { modelOverrides: { m: { maxTokens: 0 } } }],
 	["missing baseUrl", { baseUrl: undefined }],
-	["unknown provider thinking preset", { thinkingPreset: "unknown" }],
-	["unknown model thinking preset", { models: [{ id: "m", thinkingPreset: "unknown" }] }],
+	["unknown provider thinking format", { compat: { thinkingFormat: "unknown" } }],
+	["unknown model thinking format", { models: [{ id: "m", compat: { thinkingFormat: "unknown" } }] }],
 	["unknown default thinking level", { models: [{ id: "m", defaultThinkingLevel: "turbo" }] }],
 ] as const;
 

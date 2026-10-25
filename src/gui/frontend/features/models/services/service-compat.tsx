@@ -1,30 +1,34 @@
-import type { ServiceCompatDefaults } from "../../../../../harness/openai-compatible-provider/compat-defaults.ts";
-import { configObject, type ConfigObject } from "../../../../../harness/openai-compatible-provider/document.ts";
+import type { ServiceCompatSettings } from "../../../../../harness/openai-compatible-provider/compat-settings.ts";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import type { ChangeConfig } from "./service-draft.ts";
-import { presetChoices, ServiceBoolean, ServiceChoice } from "./service-fields.tsx";
+import { ServiceBoolean, ServiceChoice } from "./service-fields.tsx";
 
-export function ServiceCompat({ config, defaults, disabled, change }: {
-	config: ConfigObject;
-	defaults: ServiceCompatDefaults;
+export function ServiceCompat({ settings, reasoning, disabled, change }: {
+	settings: ServiceCompatSettings;
+	reasoning?: boolean;
 	disabled: boolean;
 	change: ChangeConfig;
 }) {
-	const completions = defaults.api === "openai-completions";
-	const compat = configObject(config.compat) ? config.compat : {};
+	const { api, own, defaults, capabilities } = settings;
+	if (capabilities === undefined) return null;
+	const completions = api === "openai-completions";
+	const effortUnavailable = capabilities.effortControl === "unused" ? "当前模板不使用独立 reasoning_effort 参数。"
+		: reasoning === false ? "开启思考能力后可配置此参数。" : undefined;
 	const flags = completions
-		? [["supportsDeveloperRole", "Developer 角色"], ["supportsStore", "服务端存储"], ["supportsReasoningEffort", "思考强度参数"]] as const
+		? [["supportsDeveloperRole", "Developer 角色"], ["supportsStore", "服务端存储"]] as const
 		: [["supportsDeveloperRole", "Developer 角色"]] as const;
 	return <Disclosure className="service-disclosure" summary="协议与思考" lazy>
 		<div className="settings-fields">
-			<ServiceChoice label="思考传递方式" value={config.thinkingPreset} defaultValue={defaults.thinkingPreset}
-				options={presetChoices} disabled={disabled} change={(value) => change(["thinkingPreset"], value)} />
-			{completions && <ServiceChoice label="输出上限字段" value={compat.maxTokensField} defaultValue={defaults.compat.maxTokensField}
+			{completions && <ServiceChoice label="输出上限字段" value={own.maxTokensField} defaultValue={defaults.maxTokensField}
 				options={[["max_tokens", "max_tokens"], ["max_completion_tokens", "max_completion_tokens"]]}
 				disabled={disabled} change={(value) => change(["compat", "maxTokensField"], value)} />}
 			{flags.map(([key, label]) => <ServiceBoolean key={key} label={label}
-				value={compat[key]} defaultValue={defaults.compat[key]} placeholder="因模型而异"
+				value={own[key]} defaultValue={defaults[key]} placeholder="因模型而异"
 				disabled={disabled} change={(value) => change(["compat", key], value)} />)}
+			{completions && <ServiceBoolean label="独立 reasoning_effort 参数" value={own.supportsReasoningEffort}
+				defaultValue={defaults.supportsReasoningEffort} unavailable={effortUnavailable}
+				hint={capabilities.effortControl === "off-only" ? "仅影响 off 等级，其余等级使用 reasoning.effort。" : undefined}
+				disabled={disabled} change={(value) => change(["compat", "supportsReasoningEffort"], value)} />}
 		</div>
 	</Disclosure>;
 }

@@ -9,8 +9,6 @@
       // EMPTY 不再有特殊含义。实际密钥可写为 "$LOCAL_API_KEY" 或 "!获取密钥的命令"。
       "apiKey": "local",
       "api": "openai-completions",
-      // 两种 API 共用思考传递方式，省略时继承，auto 使用 SDK 默认行为。
-      "thinkingPreset": "chat-template",
       // provider 请求头由 SDK 解析，也支持环境变量和命令。
       // "headers": { "X-Account": "$ACCOUNT_ID" },
       // "authHeader": true,
@@ -21,6 +19,8 @@
       // 以下启用常用本地 Chat Completions 配置，其余字段作为可选示例。
       // 只有确认服务需要或支持对应行为后才取消注释。
       "compat": {
+        // SDK 原生思考格式，未配置时继承或由 SDK 根据服务地址选择。
+        "thinkingFormat": "chat-template",
         // 是否接受 store 字段，不支持时 Pi 不发送 store。
         "supportsStore": false,
         // 是否接受 developer role，false 时 Pi 改用 system role。
@@ -48,7 +48,7 @@
         // 重放 reasoning assistant 消息时是否必须补空 reasoning_content。
         // "requiresReasoningContentOnAssistantMessages": true,
 
-        // thinkingPreset=chat-template 时发送的 chat_template_kwargs。
+        // thinkingFormat=chat-template 时发送的 chat_template_kwargs。
         // $var 在请求时替换为 Pi 当前的 thinking 开关或 effort。
         "chatTemplateKwargs": {
           "enable_thinking": { "$var": "thinking.enabled" }
@@ -130,36 +130,12 @@
       ]
     },
 
-    "llama-swap": {
-      "name": "Local llama-swap",
-      "baseUrl": "http://127.0.0.1:8080/v1",
-      "apiKey": "local",
-      "api": "openai-completions",
-      // 只注册基础模型，请求时按 Pi 等级名追加后缀，不使用映射值作为后缀。
-      "thinkingPreset": "model-suffix",
-      "models": [{
-        "id": "deepseek-v4-flash",
-        "name": "DeepSeek Flash",
-        "reasoning": true,
-        // 显式启用服务支持的后缀，其余等级设为 null。
-        "thinkingLevelMap": {
-          "off": "off", "minimal": null, "low": null, "medium": null,
-          "high": "high", "xhigh": null, "max": "max"
-        }
-        // , "defaultThinkingLevel": "high"
-      }]
-    },
-
     "responses-demo": {
       "name": "Responses Demo",
       "baseUrl": "http://127.0.0.1:11451/v1",
       "apiKey": "$RESPONSES_API_KEY",
       "api": "openai-responses",
-      // 两种 API 共用 thinkingPreset，未配置时保留 SDK 默认行为。
-      // 可选 auto/none/openai/openrouter/deepseek/together/zai/qwen/qwen-chat-template/
-      // chat-template-enabled/chat-template-effort/string-thinking/ant-ling。
-      // model-suffix 则对 Chat Completions 和 Responses 两种 API 都有效。
-      "thinkingPreset": "chat-template-effort",
+      // Responses 使用 SDK 原生 reasoning 和 thinkingLevelMap。
       // 可选流式请求默认值，单次请求选项优先，不控制模型目录请求。
       // "timeoutMs": 120000,
       // "maxRetries": 0,
@@ -168,7 +144,7 @@
       // "extraBody": { "custom_option": true },
       // "dropParams": ["store"],
 
-      // Responses transport 只消费自己认识的 compat 字段，不从预设自动生成 compat。
+      // Responses transport 只消费自己认识的 compat 字段。
       "compat": {
         // 是否接受 developer role，false 时使用 system role。
         "supportsDeveloperRole": false
@@ -191,8 +167,6 @@
           "contextWindow": 65536,
           "defaultThinkingLevel": "xhigh",
           // 映射到上游 effort，null 表示该 Pi 等级不受支持。
-          // 模型级 thinkingPreset 可覆盖 provider 预设，例如 openai 保留原生编码。
-          // "thinkingPreset": "openai",
           "thinkingLevelMap": {
             "off": "none",
             "minimal": null,
@@ -207,9 +181,10 @@
       "baseUrl": "http://127.0.0.1:9000/v1",
       "apiKey": "local",
       "api": "openai-completions",
-      // 固定布尔模板由预设生成，自定义模板使用 chat-template。
-      "thinkingPreset": "chat-template-enabled",
+      // 布尔思考模板直接使用 SDK 原生配置。
       "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": { "enable_thinking": { "$var": "thinking.enabled" } },
         "supportsStore": false,
         "supportsDeveloperRole": false,
         "supportsReasoningEffort": false,

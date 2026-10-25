@@ -3,7 +3,6 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 export type ConfigObject = Record<string, unknown>;
 export type ModelsDocument = ConfigObject & { providers: Record<string, ConfigObject> };
 export type ConfigPath = (string | number)[];
-export interface ConfigEdit { path: ConfigPath; value: unknown }
 
 export const emptyModelsDocument = '{\n\t"providers": {}\n}\n';
 

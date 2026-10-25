@@ -31,6 +31,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 	const { document, draft, error } = editor;
 	const { saving } = useSettingsState();
 	const [source, setSource] = useState(false);
+	const [viewDocument, setViewDocument] = useState(document);
 	const [adding, setAdding] = useState(false);
 	const addButton = useRef<HTMLButtonElement>(null);
 	const cancel = () => { setAdding(false); addButton.current?.focus(); };
@@ -42,8 +43,13 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 	const dirty = useMemo(() => document !== undefined && draft !== document.content
 		&& (editor.sourceEdited || serviceDraftChanged(saved, parsed.value)), [document, draft, editor.sourceEdited, saved, parsed.value]);
 	const blocked = disabled || saving;
-	const sourceView = source || !!parsed.error;
-	if (document && parsed.error && !source) setSource(true);
+	const invalid = !!parsed.error || issues.length > 0;
+	const newDocument = document !== viewDocument;
+	const sourceView = source || document !== undefined && newDocument && invalid;
+	if (newDocument) {
+		setViewDocument(document);
+		if (document && invalid) setSource(true);
+	}
 
 	async function save() {
 		return editor.save(draft, async (document, content) => {
@@ -53,6 +59,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 	}
 	function discard() {
 		editor.discard();
+		if (document && (!saved || modelsConfigIssues(saved, document.schema).length > 0)) setSource(true);
 		setAdding(false);
 	}
 	function toggleSource() {
@@ -66,7 +73,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 		setAdding(false);
 	}
 	useSettingsDraft("modelServices", {
-		title: "模型服务", dirty, blocked: disabled, invalid: !!parsed.error || issues.length > 0, save, discard,
+		title: "模型服务", dirty, blocked: disabled, invalid, save, discard,
 	});
 	const providers = parsed.value?.providers ?? {};
 	const services = Object.entries(providers).filter(([, config]) => isCompatibleService(config));
@@ -76,7 +83,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 			<h3>OpenAI 兼容服务</h3>
 			{document && <div className="settings-heading-actions">
 				{!sourceView && <Button ref={addButton} variant="outline" size="sm" disabled={blocked} aria-expanded={adding} onClick={() => setAdding(!adding)}><Plus />添加服务</Button>}
-				<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || !!parsed.error} onClick={toggleSource} />
+				<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || sourceView && invalid} onClick={toggleSource} />
 			</div>}
 		</header>
 		<p className="settings-description">保存后使用“重载资源”或 /reload 应用到当前会话。</p>

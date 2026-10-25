@@ -33,14 +33,13 @@ provider 使用 `baseUrl`、`api`、`apiKey`、`headers`、`compat`、`models` �
 
 | 字段 | 位置 | 含义 |
 | --- | --- | --- |
-| `thinkingPreset` | provider、model、modelOverrides | 思考传递方式 |
 | `timeoutMs` | provider | 流式请求默认超时 |
 | `maxRetries` | provider | 默认重试次数 |
 | `extraBody` | provider | 请求体附加字段 |
 | `dropParams` | provider、model、modelOverrides | 删除请求字段 |
 | `defaultThinkingLevel` | model、modelOverrides | 选择模型时采用的等级 |
 
-思考和删除参数按 provider、model、modelOverrides 顺序解析。请求改写需要声明 `baseUrl` 和 `api`，支持 `openai-completions` 与 `openai-responses`。
+provider 的 `dropParams` 与有效模型的 `dropParams` 依次应用，模型覆盖优先于模型定义。请求改写需要声明 `baseUrl` 和 `api`，支持 `openai-completions` 与 `openai-responses`。
 
 只设置 `defaultThinkingLevel` 时直接处理模型选择事件，恢复会话保留历史等级。推理能力需显式声明 `reasoning: true`。
 
@@ -71,20 +70,22 @@ chmod 600 ~/.pi/agent/models.json
 
 ```json
 {
-  "thinkingPreset": "chat-template",
   "compat": {
+    "thinkingFormat": "chat-template",
     "supportsReasoningEffort": false,
     "chatTemplateKwargs": { "enable_thinking": { "$var": "thinking.enabled" } }
   }
 }
 ```
 
-显式预设优先于 SDK 检测格式。预设表见[思考传递](thinking.md)，改写顺序见[请求体](payload.md)。
+Chat Completions 的标准格式直接设置 `compat.thinkingFormat`，未配置时继承或使用 SDK 检测结果。Responses 使用 SDK 原生 reasoning。思考配置见[思考传递](thinking.md)，改写顺序见[请求体](payload.md)。
 
 ## GUI 模型服务
+
+加载配置或从 JSON 切换到表单前，必须通过语法和 schema 校验。无效配置留在源码编辑器中修正。表单编辑中的临时无效输入会提示错误并禁止保存，不自动切换到源码。
 
 表单保留注释、未修改字段和其他服务配置。输入模型 ID 可筛选候选，也可手动添加。只有 `modelOverrides` 的 ID 也可加入 models。
 
 候选请求使用当前会话已加载的地址、认证和 provider 请求头。首次添加服务或修改连接信息后，保存并重载再查询。添加模型可以连续保存后统一重载。
 
-配置与会话不一致时显示“待重载”。model-suffix 模式根据真实候选 ID 补全尚未配置的能力与映射，已有配置优先。
+配置与会话不一致时显示“待重载”。候选 ID 原样展示，只在用户添加模型时写入配置。刷新候选不会修改已配置模型的能力或等级映射。

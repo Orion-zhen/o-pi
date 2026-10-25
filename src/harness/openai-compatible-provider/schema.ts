@@ -1,32 +1,19 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ModelsDocument } from "./document.ts";
-import { MODEL_THINKING_LEVELS, ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
+import { ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
 import { OpenAICompletionsCompatSchema } from "@earendil-works/pi-ai/providers/compat-schema";
 import { Type, type Static } from "typebox";
 
-export const THINKING_PRESETS = [
-	"auto", "none", "model-suffix",
-	...OpenAICompletionsCompatSchema.properties.thinkingFormat.anyOf.map(({ const: format }) => format),
-	"chat-template-enabled", "chat-template-effort",
-] as const;
-const ThinkingPresetSchema = Type.Enum(THINKING_PRESETS);
-
-export function thinkingPresetIssue(api: unknown, preset: unknown): string | undefined {
-	if (api === "openai-responses" && (preset === "baseten" || preset === "chat-template"))
-		return `${preset} requires openai-completions`;
-}
+export const THINKING_FORMATS = OpenAICompletionsCompatSchema.properties.thinkingFormat.anyOf.map(({ const: format }) => format);
 const OpenAIApiSchema = Type.Enum(["openai-completions", "openai-responses"]);
-export const MODEL_THINKING_LEVEL_VALUES = MODEL_THINKING_LEVELS;
 
 const ModelExtensionProperties = {
-	thinkingPreset: Type.Optional(ThinkingPresetSchema),
 	defaultThinkingLevel: Type.Optional(ModelThinkingLevelSchema),
 	dropParams: Type.Optional(Type.Array(Type.String())),
 };
 const ModelOptionsSchema = Type.Object(ModelExtensionProperties);
 const ModelIdentitySchema = Type.Object({ id: Type.String({ minLength: 1 }), ...ModelExtensionProperties });
 const ProviderExtensionProperties = {
-	thinkingPreset: Type.Optional(ThinkingPresetSchema),
 	timeoutMs: Type.Optional(Type.Number({ minimum: 0 })),
 	maxRetries: Type.Optional(Type.Integer({ minimum: 0 })),
 	dropParams: Type.Optional(Type.Array(Type.String())),
@@ -55,10 +42,9 @@ export const ProviderConfigSchema = Type.Object({
 export function hasRequestExtensions(config: ProviderOptions): boolean {
 	return config.timeoutMs !== undefined || config.maxRetries !== undefined || config.extraBody !== undefined
 		|| [config, ...(config.models ?? []), ...Object.values(config.modelOverrides ?? {})]
-			.some((entry) => entry.thinkingPreset !== undefined || entry.dropParams !== undefined);
+			.some((entry) => entry.dropParams !== undefined);
 }
 
-export type ThinkingPresetName = Static<typeof ThinkingPresetSchema>;
 export type OpenAIApiName = Static<typeof OpenAIApiSchema>;
 export type ProviderOptions = Static<typeof ProviderOptionsSchema>;
 export type ProviderConfig = Static<typeof ProviderConfigSchema>;

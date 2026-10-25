@@ -1,6 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { MODEL_INPUT_MODALITIES, MODEL_THINKING_LEVELS, type ModelInputModality } from "@earendil-works/pi-ai/providers/model-schema";
-import { THINKING_PRESETS } from "../../../../../harness/openai-compatible-provider/schema.ts";
+import { MODEL_INPUT_MODALITIES, type ModelInputModality } from "@earendil-works/pi-ai/providers/model-schema";
 import { Input } from "@/ui/input.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
 import { Switch } from "@/ui/switch.tsx";
@@ -9,8 +8,6 @@ import { SettingsRow } from "@/forms/settings-controls.tsx";
 
 export const textValue = (value: unknown): string => typeof value === "string" || typeof value === "number" ? String(value) : "";
 export const apiChoices = [["openai-completions", "Chat Completions"], ["openai-responses", "Responses"]] as const;
-export const thinkingChoices = MODEL_THINKING_LEVELS.map((key) => [key, key] as const);
-export const presetChoices = THINKING_PRESETS.map((key) => [key, key] as const);
 const unset = "@unset";
 
 type FieldProps<T> = {
@@ -21,6 +18,7 @@ type FieldProps<T> = {
 	disabled: boolean;
 };
 type TextProps = { required?: boolean; placeholder?: string; inputMode?: "decimal" };
+type AvailabilityProps = { unavailable?: string | undefined; hint?: string | undefined };
 
 // 离散选项选回默认值时恢复继承。文本保留输入值，避免截断数字和名称的编辑中间态。
 function inheritedValue<T>(value: T, defaults: unknown): T | undefined {
@@ -44,12 +42,14 @@ export function ServiceNumber({ change, ...props }: FieldProps<string | number> 
 	}} />;
 }
 
-export function ServiceChoice({ label, value, change, disabled, options, required = false, defaultValue, unsetLabel, placeholder }: FieldProps<string> & {
-	options: readonly (readonly [string, ReactNode])[];
+export function ServiceChoice({ label, value, change, disabled, options, required = false, defaultValue, unsetLabel, placeholder, unavailable, hint }: FieldProps<string> & AvailabilityProps & {
+	options: readonly (readonly [string, ReactNode, boolean?])[];
 	required?: boolean;
 	unsetLabel?: string;
 	placeholder?: string;
 }) {
+	const id = useId();
+	const description = unavailable ?? hint;
 	const effective = value ?? defaultValue;
 	const current = effective === undefined ? unsetLabel ? unset : "" : String(effective);
 	const choices = unsetLabel && defaultValue === undefined ? [[unset, unsetLabel] as const, ...options] : options;
@@ -58,12 +58,13 @@ export function ServiceChoice({ label, value, change, disabled, options, require
 		else change(required ? next : inheritedValue(next, defaultValue));
 	};
 	return <SettingsRow label={label} layout="fluid" disabled={disabled}
+		description={description && <span id={id}>{description}</span>}
 		{...(!required && { reset: { value: effective, defaultValue, apply: () => change(undefined) } })}>
-		<Select value={current} disabled={disabled} onValueChange={select}>
-			<SelectTrigger aria-label={label}>
+		<Select value={current} disabled={disabled || Boolean(unavailable)} onValueChange={select}>
+			<SelectTrigger aria-label={label} aria-describedby={description ? id : undefined}>
 				<SelectValue placeholder={placeholder}>{choices.find(([key]) => key === current)?.[1] ?? (current || undefined)}</SelectValue>
 			</SelectTrigger>
-			<SelectContent>{choices.map(([key, title]) => <SelectItem key={key} value={key}>{title}</SelectItem>)}</SelectContent>
+			<SelectContent>{choices.map(([key, title, unavailable]) => <SelectItem key={key} value={key} disabled={unavailable}>{title}</SelectItem>)}</SelectContent>
 		</Select>
 	</SettingsRow>;
 }
@@ -86,14 +87,14 @@ export function ServiceInput({ label, value, defaultValue, disabled, change }: F
 	</SettingsRow>;
 }
 
-export function ServiceBoolean({ label, value, defaultValue, placeholder, disabled, change }: FieldProps<boolean> & { placeholder?: string }) {
+export function ServiceBoolean({ label, value, defaultValue, placeholder, disabled, change, unavailable, hint }: FieldProps<boolean> & AvailabilityProps & { placeholder?: string }) {
 	const id = useId();
 	const effective = value ?? defaultValue;
-	const hint = effective === undefined ? placeholder : undefined;
+	const description = unavailable ?? hint ?? (effective === undefined ? placeholder : undefined);
 	return <SettingsRow label={label} htmlFor={id} disabled={disabled}
+		description={description && <span id={`${id}-hint`}>{description}</span>}
 		reset={{ value: effective, defaultValue, apply: () => change(undefined) }}>
-		{hint && <span id={`${id}-hint`} className="service-tag">{hint}</span>}
-		<Switch id={id} aria-label={label} aria-describedby={hint ? `${id}-hint` : undefined}
-			checked={effective === true} disabled={disabled} onCheckedChange={(next) => change(inheritedValue(next, defaultValue))} />
+		<Switch id={id} aria-label={label} aria-describedby={description ? `${id}-hint` : undefined}
+			checked={effective === true} disabled={disabled || Boolean(unavailable)} onCheckedChange={(next) => change(inheritedValue(next, defaultValue))} />
 	</SettingsRow>;
 }

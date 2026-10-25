@@ -1,15 +1,14 @@
-import { useEffect, useEffectEvent, useMemo } from "react";
 import { LoaderCircle, RefreshCw } from "lucide";
 import { MorphIcon } from "morphicons/react";
-import { editProviderField } from "../../../../../harness/openai-compatible-provider/config-edits.ts";
-import { serviceCompatDefaults } from "../../../../../harness/openai-compatible-provider/compat-defaults.ts";
+import { editModelsDocument } from "../../../../../harness/openai-compatible-provider/config-edits.ts";
+import { serviceCompatSettings } from "../../../../../harness/openai-compatible-provider/compat-settings.ts";
 import type { ConfigObject } from "../../../../../harness/openai-compatible-provider/document.ts";
-import { modelCandidates } from "../../../../../harness/openai-compatible-provider/model-candidates.ts";
 import { Button } from "@/ui/button.tsx";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { apiChoices, ServiceBoolean, ServiceChoice, ServiceNumber, ServiceText } from "./service-fields.tsx";
-import { receiveServiceCandidates, type ChangeConfig, type ChangeDraft } from "./service-draft.ts";
+import type { ChangeConfig, ChangeDraft } from "./service-draft.ts";
 import { ServiceCompat } from "./service-compat.tsx";
+import { ServiceThinkingFormat } from "./service-thinking-format.tsx";
 import { ServiceModels } from "./service-models.tsx";
 import type { ServiceCatalogState } from "./use-service-catalog.ts";
 
@@ -25,14 +24,10 @@ interface ServiceFormProps {
 export function ServiceForm({ id, config, disabled, catalog: state, status, changeDraft }: ServiceFormProps) {
 	const { value: catalog, canRetry, retry } = state;
 	const loading = state.phase === "loading";
-	const receiveCandidates = useEffectEvent(() => {
-		if (catalog) changeDraft((current) => receiveServiceCandidates(current, id, catalog.candidates));
-	});
-	useEffect(() => { receiveCandidates(); }, [id, catalog]);
-	const candidates = useMemo(() => modelCandidates(config, catalog?.candidates ?? []), [config, catalog?.candidates]);
-	const defaults = serviceCompatDefaults(id, config);
+	const candidates = catalog?.candidates ?? [];
+	const compat = serviceCompatSettings(id, config);
 	const change: ChangeConfig = (path, value) => {
-		changeDraft((current) => editProviderField(current, id, path, value, catalog?.candidates ?? []));
+		changeDraft((current) => editModelsDocument(current, ["providers", id, ...path], value));
 	};
 
 	return <div className="service-form">
@@ -45,8 +40,9 @@ export function ServiceForm({ id, config, disabled, catalog: state, status, chan
 			<ServiceChoice label="API 协议" value={config.api} required options={apiChoices}
 				disabled={disabled} change={(value) => change(["api"], value)} />
 			<ServiceText label="API Key" value={config.apiKey} disabled={disabled} change={(value) => change(["apiKey"], value)} />
+			<ServiceThinkingFormat settings={compat} disabled={disabled} change={change} />
 		</div>
-		<ServiceCompat config={config} defaults={defaults} disabled={disabled} change={change} />
+		<ServiceCompat settings={compat} disabled={disabled} change={change} />
 		<Disclosure className="service-disclosure" summary="请求设置" lazy><div className="settings-fields">
 			<ServiceNumber label="请求超时（毫秒）" value={config.timeoutMs} disabled={disabled} change={(value) => change(["timeoutMs"], value)} />
 			<ServiceNumber label="重试次数" value={config.maxRetries} disabled={disabled} change={(value) => change(["maxRetries"], value)} />

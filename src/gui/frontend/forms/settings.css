@@ -22,6 +22,7 @@
 .preference-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); min-inline-size: 0; inline-size: 100%; padding-block: var(--space-3); }
 .preference-row + .preference-row { border-block-start: thin solid var(--divider); }
 .preference-label { display: flex; flex: 1 1 12ch; align-items: center; gap: var(--space-1); min-inline-size: 0; max-inline-size: 100%; min-block-size: 2em; overflow-wrap: anywhere; }
+.preference-description { flex: 1 1 100%; }
 .preference-label > label { min-inline-size: 0; }
 .preference-label > button { flex-shrink: 0; inline-size: 2em; block-size: 2em; padding: 0; }
 .preference-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-inline-size: 0; max-inline-size: 100%; margin-inline-start: auto; }

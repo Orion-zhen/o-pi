@@ -9,11 +9,11 @@
 
 启用扩展请求改写的服务需要 baseUrl 和 OpenAI API 类型，详见[配置](configuration.md)。
 
-## 思考或路由错误
+## 思考控制不生效
 
-检查 reasoning、thinkingLevelMap 和 thinkingPreset。auto 使用 SDK 默认，none 清理思考控制字段，model-suffix 按当前等级选择模型 ID。
+检查 reasoning 和 thinkingLevelMap。Chat Completions 使用 compat.thinkingFormat，未配置时由 SDK 根据服务商和地址选择。Responses 使用原生 reasoning。
 
-后缀模式只注册基础模型。GUI 可从候选补全映射，已有配置优先，重新推导时点击“恢复默认映射”。
+chat-template 的 off 通过 thinking.enabled 传递 false，未映射 off 的 thinking.effort 会省略。确认模板包含服务端识别的开关参数。
 
 ## 上游拒绝请求
 

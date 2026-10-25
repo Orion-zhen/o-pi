@@ -36,71 +36,8 @@ describe("openai-compatible-provider payload", () => {
 		}
 	});
 
-	it("model-suffix 使用受模型支持的等级，没有 off 变体时使用裸模型", async () => {
-		const fixture = await loadProvider(temp.path, {
-			api: "openai-responses", thinkingPreset: "model-suffix",
-			models: [{ id: "m", reasoning: true, thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", xhigh: null, max: null } }],
-			extraBody: { reasoning: { effort: "high" }, include: ["reasoning.encrypted_content", "message.output_text.logprobs"] },
-		});
-		expect(await capturePayload(fixture, { reasoning: "max" })).toHaveProperty("model", "m:high");
-		const request = await capturePayload(fixture);
-		expect(request).toMatchObject({ model: "m", include: ["message.output_text.logprobs"] });
-		expect(request).not.toHaveProperty("reasoning");
-	});
-
-	it.each([
-		["openrouter", "high", { reasoning: { effort: "high" } }],
-		["deepseek", "high", { thinking: { type: "enabled" } }],
-		["together", "off", { reasoning: { enabled: false } }],
-		["zai", "high", { thinking: { type: "enabled", clear_thinking: false } }],
-		["qwen", "off", { enable_thinking: false }],
-		["qwen-chat-template", "high", { chat_template_kwargs: { enable_thinking: true, preserve_thinking: true } }],
-		["chat-template-enabled", "medium", { chat_template_kwargs: { enable_thinking: true } }],
-		["chat-template-enabled", "off", { chat_template_kwargs: { enable_thinking: false } }],
-		["chat-template-effort", "high", { chat_template_kwargs: { reasoning_effort: "high" } }],
-		["string-thinking", "off", { thinking: "none" }],
-		["ant-ling", "high", { reasoning: { effort: "high" } }],
-	] as const)("Responses 将 %s 预设编码到实际请求", async (thinkingPreset, reasoning, expected) => {
-		const fixture = await loadProvider(temp.path, {
-			api: "openai-responses", thinkingPreset,
-			models: [{ id: "m", reasoning: true, thinkingLevelMap: { high: "high" } }],
-		});
-		const request = await capturePayload(fixture, reasoning === "off" ? {} : { reasoning });
-		expect(request).toMatchObject(expected);
-		expect(request).not.toHaveProperty("include");
-	});
-
-	it("Responses 预设使用模型的等级映射", async () => {
-		const fixture = await loadProvider(temp.path, {
-			api: "openai-responses", thinkingPreset: "deepseek",
-			models: [{ id: "m", reasoning: true, thinkingLevelMap: { xhigh: "max" }, compat: { supportsReasoningEffort: true } }],
-		});
-		expect(await capturePayload(fixture, { reasoning: "xhigh" })).toMatchObject({ thinking: { type: "enabled" }, reasoning_effort: "max" });
-	});
-
-	it("模型预设与 modelOverrides 覆盖 provider，未覆盖时保留原生 reasoning", async () => {
-		const fixture = await loadProvider(temp.path, {
-			api: "openai-responses", thinkingPreset: "openai",
-			models: [
-				{ id: "inherited", reasoning: true },
-				{ id: "boolean", thinkingPreset: "chat-template-enabled", reasoning: true },
-				{ id: "none", thinkingPreset: "chat-template-enabled", reasoning: true },
-			],
-			modelOverrides: { none: { thinkingPreset: "none" } },
-		});
-		const inherited = await capturePayload(fixture, { reasoning: "high" }, { modelId: "inherited" });
-		expect(inherited).toMatchObject({ reasoning: { effort: "high" }, include: ["reasoning.encrypted_content"] });
-		const overridden = await capturePayload(fixture, { reasoning: "high" }, { modelId: "boolean" });
-		expect(overridden).toHaveProperty("chat_template_kwargs.enable_thinking", true);
-		expect(overridden).not.toHaveProperty("reasoning");
-		const disabled = await capturePayload(fixture, { reasoning: "high" }, { modelId: "none" });
-		expect(disabled).not.toHaveProperty("reasoning");
-		expect(disabled).not.toHaveProperty("chat_template_kwargs");
-		expect(disabled).not.toHaveProperty("include");
-	});
-
-	it("调用方 onPayload 在扩展后运行，可修改或替换请求体", async () => {
-		const fixture = await loadProvider(temp.path, { extraBody: { custom: true }, dropParams: ["store"] });
+	it.each(["openai-completions", "openai-responses"] as const)("%s 的调用方 onPayload 在扩展后运行，可修改或替换请求体", async (api) => {
+		const fixture = await loadProvider(temp.path, { api, extraBody: { custom: true }, dropParams: ["store"] });
 		const request = await capturePayload(fixture, { onPayload: (payload) => {
 			expect(payload).toHaveProperty("custom", true);
 			expect(payload).not.toHaveProperty("store");

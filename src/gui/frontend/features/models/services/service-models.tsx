@@ -24,7 +24,7 @@ export function ServiceModels({ providerId, provider, candidates, disabled, chan
 	const addButton = useRef<HTMLButtonElement>(null);
 	const cancel = () => { setAdding(false); addButton.current?.focus(); };
 	const [expanded, setExpanded] = useState<string>();
-	const models = configuredModels(provider, candidates);
+	const models = configuredModels(provider);
 	const definitions = models.filter((model) => model.manualIndex !== undefined).map(({ id }) => id);
 	const defined = new Set(definitions);
 	const available = candidates.filter(({ id }) => !defined.has(id));

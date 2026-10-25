@@ -30,11 +30,19 @@ it("无会话时保存全局服务，保留注释、未知字段和非 OpenAI �
 
 it("保存不执行密钥命令，前后端共用 SDK 与扩展字段校验", async () => {
 	const marker = path.join(temp.path, "executed");
-	const content = JSON.stringify({ providers: { local: { ...provider, apiKey: `!touch ${marker}`, thinkingPreset: "model-suffix" } } });
+	const content = JSON.stringify({ providers: { local: { ...provider, apiKey: `!touch ${marker}`, maxRetries: 0 } } });
 	const document = await client.query({ query: "modelServices" });
 	expect(modelsConfigIssues(parseModelsDocument(content), document.schema)).toEqual([]);
 	await client.dispatch({ action: "saveModelServices", original: "", content });
 	await expect(access(marker)).rejects.toThrow();
+});
+
+it.each(["anthropic-messages", "unknown-api"])("保存保留模型的 %s API，不因设置页仅支持 OpenAI 而拒绝", async (api) => {
+	const content = JSON.stringify({ providers: { local: { ...provider, models: [{ id: "model", api }] } } });
+	const document = await client.query({ query: "modelServices" });
+	expect(modelsConfigIssues(parseModelsDocument(content), document.schema)).toEqual([]);
+	await client.dispatch({ action: "saveModelServices", original: "", content });
+	expect(await readFile(document.path, "utf8")).toBe(content);
 });
 
 it.each([
@@ -93,7 +101,7 @@ it("添加并保存后仍可获取候选、继续添加，统一重载才注册�
 	const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ data: [
 		{ id: "remote", context_length: 32768, architecture: { input_modalities: ["text", "image"] } }, { id: "remote:high" }, { id: "second" },
 	] }));
-	await startSession({ ...provider, thinkingPreset: "model-suffix" });
+	await startSession(provider);
 	expect(fetch).not.toHaveBeenCalled();
 	const catalog = () => client.query({ query: "modelServiceCatalog", provider: "local" });
 	const candidates = (await catalog()).candidates;

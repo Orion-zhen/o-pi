@@ -5,14 +5,12 @@
 ## 顺序
 
 ```text
-解析 thinkingPreset 与运行时 compat
+SDK 解析原生 compat
 -> SDK 合并模型、等级和单次请求采样参数
 -> SDK 生成请求体
--> Responses 非标准思考转换
 -> provider extraBody
 -> provider dropParams
 -> model dropParams
--> model-suffix 路由或 none 清理
 -> 调用方 onPayload
 ```
 

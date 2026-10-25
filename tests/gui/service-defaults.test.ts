@@ -2,7 +2,7 @@ import type { Model, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { afterEach, expect, it, vi } from "vitest";
-import { detectedServiceCompat, serviceCompatDefaults } from "../../src/harness/openai-compatible-provider/compat-defaults.ts";
+import { serviceCompatSettings } from "../../src/harness/openai-compatible-provider/compat-settings.ts";
 import { configuredModels } from "../../src/harness/openai-compatible-provider/model-settings.ts";
 import { comparableModelsDocument, modelSettingsView } from "../../src/harness/openai-compatible-provider/settings-view.ts";
 
@@ -34,9 +34,8 @@ it.each([
 		contextWindow: 128000, maxTokens: 16384, thinkingLevelMap: { high: "high" },
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	};
-	const { supportsDeveloperRole, ...detected } = detectedServiceCompat(provider, baseUrl, id);
-	if (supportsDeveloperRole === undefined) throw new Error("模型默认值未解析");
-	const compat: OpenAICompletionsCompat = { ...detected, supportsDeveloperRole };
+	const { defaults } = serviceCompatSettings(provider, { api: model.api, baseUrl }, { id, defaults: {}, configured: {} });
+	const compat: OpenAICompletionsCompat = defaults;
 	const requests: unknown[] = [];
 	vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
 		requests.push(JSON.parse(String(init?.body)));
@@ -52,21 +51,34 @@ it.each([
 });
 
 it("模型字段按服务、模型定义继承，但不把自身覆盖当成重置值", () => {
-	const provider = { api: "openai-completions", baseUrl: "https://api.deepseek.com/v1", thinkingPreset: "model-suffix",
+	const provider = { api: "openai-completions", baseUrl: "https://api.deepseek.com/v1",
 		compat: { supportsStore: true } };
-	const defaults = serviceCompatDefaults("local", provider, { id: "m",
-		defaults: { thinkingPreset: "qwen", compat: { supportsStore: false } }, configured: { thinkingPreset: "openai" },
+	const defaults = serviceCompatSettings("local", provider, { id: "m",
+		defaults: { compat: { thinkingFormat: "qwen", supportsStore: false } }, configured: { compat: { thinkingFormat: "openai" } },
 	});
-	expect(defaults).toMatchObject({ thinkingPreset: "qwen", compat: { thinkingFormat: "deepseek", supportsStore: false, maxTokensField: "max_tokens" } });
-	expect(serviceCompatDefaults("local", provider).compat).toMatchObject({ thinkingFormat: "deepseek", supportsStore: false });
+	expect(defaults.defaults).toMatchObject({ thinkingFormat: "qwen", supportsStore: false, maxTokensField: "max_tokens" });
+	expect(defaults.own).toEqual({ thinkingFormat: "openai" });
+	expect(serviceCompatSettings("local", provider).defaults).toMatchObject({ thinkingFormat: "deepseek", supportsStore: false });
 });
 
 it("修改模型地址或协议立即重新解析默认值", () => {
 	const provider = { api: "openai-completions", baseUrl: "https://api.deepseek.com/v1" };
-	expect(serviceCompatDefaults("local", provider, { id: "m", defaults: {}, configured: { baseUrl: "http://localhost/v1" } }).compat)
+	expect(serviceCompatSettings("local", provider, { id: "m", defaults: {}, configured: { baseUrl: "http://localhost/v1" } }).defaults)
 		.toMatchObject({ thinkingFormat: "openai", maxTokensField: "max_completion_tokens", supportsDeveloperRole: true });
-	expect(serviceCompatDefaults("local", provider, { id: "m", defaults: {}, configured: { api: "openai-responses" } }))
-		.toEqual({ api: "openai-responses", thinkingPreset: "auto", compat: { supportsDeveloperRole: true } });
+	expect(serviceCompatSettings("local", provider, { id: "m", defaults: {}, configured: { api: "openai-responses" } }))
+		.toMatchObject({ api: "openai-responses", defaults: { supportsDeveloperRole: true, supportsReasoningEffort: false },
+			capabilities: { effortControl: "unused", on: { effort: "level" }, off: { effort: "none" } } });
+});
+
+it.each(["anthropic-messages", "unknown-api"])("模型使用 %s 时不推导 OpenAI 默认值", (api) => {
+	const provider = { api: "openai-completions", baseUrl: "https://api.deepseek.com/v1" };
+	const configured = { api, reasoning: true, compat: { supportsDeveloperRole: true }, thinkingLevelMap: { off: "none", high: "high" } };
+	const view = modelSettingsView("local", provider, { id: "m", defaults: {}, configured });
+	expect(view.compat.api).toBeUndefined();
+	expect(view.compat.capabilities).toBeUndefined();
+	expect(view.compat.defaults).toEqual({});
+	expect(view.thinking.rows.every((row) => row.defaultValue === undefined && !row.mapsEffort)).toBe(true);
+	expect(view.overrides).toEqual(configured);
 });
 
 it("展示与比较共用继承规则，不清洗显式值或未知字段", () => {
@@ -81,7 +93,7 @@ it("展示与比较共用继承规则，不清洗显式值或未知字段", () =
 	if (!model) throw new Error("缺少模型");
 	const view = modelSettingsView("local", provider, model);
 	expect(view.defaults.maxTokens).toBe(8192);
-	expect(view.compat.compat.maxTokensField).toBe("max_tokens");
+	expect(view.compat.defaults.maxTokensField).toBe("max_tokens");
 	expect(view.thinking.rows.find((row) => row.level === "high")).toMatchObject({ defaultValue: "custom", modified: false });
 	expect(view.overrides).toEqual({ extra: { keep: true } });
 	expect(comparableModelsDocument(document)).toMatchObject({ providers: { local: {
@@ -92,9 +104,9 @@ it("展示与比较共用继承规则，不清洗显式值或未知字段", () =
 
 it("服务级模型默认值不一致时不伪造布尔值，模型内显示具体值", () => {
 	const provider = { api: "openai-completions", baseUrl: "https://openrouter.ai/api/v1", models: [{ id: "openai/m" }, { id: "other/m" }] };
-	expect(serviceCompatDefaults("local", provider).compat.supportsDeveloperRole).toBeUndefined();
+	expect(serviceCompatSettings("local", provider).defaults.supportsDeveloperRole).toBeUndefined();
 	for (const id of ["openai/m", "other/m"]) {
-		expect(serviceCompatDefaults("local", provider, { id, defaults: {}, configured: {} }).compat.supportsDeveloperRole).toBe(id === "openai/m");
+		expect(serviceCompatSettings("local", provider, { id, defaults: {}, configured: {} }).defaults.supportsDeveloperRole).toBe(id === "openai/m");
 	}
-	expect(serviceCompatDefaults("local", { ...provider, models: [{ id: "openai/m" }] }).compat.supportsDeveloperRole).toBe(true);
+	expect(serviceCompatSettings("local", { ...provider, models: [{ id: "openai/m" }] }).defaults.supportsDeveloperRole).toBe(true);
 });

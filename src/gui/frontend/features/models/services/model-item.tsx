@@ -9,9 +9,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collap
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
 import type { ChangeConfig } from "./service-draft.ts";
-import { ServiceBoolean, ServiceChoice, ServiceInput, ServiceNumber, ServiceText, textValue, thinkingChoices } from "./service-fields.tsx";
+import { ServiceBoolean, ServiceChoice, ServiceInput, ServiceNumber, ServiceText, textValue } from "./service-fields.tsx";
 import { ServiceCompat } from "./service-compat.tsx";
 import { ServiceThinking } from "./service-thinking.tsx";
+import { ServiceThinkingFormat } from "./service-thinking-format.tsx";
 
 export function ModelItem({ model, settings, open, setOpen, disabled, change }: {
 	model: ModelSettings;
@@ -28,6 +29,8 @@ export function ModelItem({ model, settings, open, setOpen, disabled, change }: 
 	const defaultSampling = configObject(defaults.samplingParams) ? defaults.samplingParams : {};
 	const edit: ChangeConfig = (path, value) => change([...model.path, ...path], value);
 	const outputHint = model.defaults.maxTokens === undefined ? "不限制（由服务端决定）" : `继承：${textValue(model.defaults.maxTokens)}`;
+	const defaultLevel = fields.defaultThinkingLevel ?? defaults.defaultThinkingLevel;
+	const defaultUnavailable = defaultLevel !== undefined && !thinking.rows.some((row) => row.level === defaultLevel && row.available);
 
 	return <Reveal><Collapsible open={open} onOpenChange={setOpen} asChild>
 		<article className="service-model" aria-label={`模型 ${id}`}>
@@ -59,15 +62,19 @@ export function ModelItem({ model, settings, open, setOpen, disabled, change }: 
 					disabled={disabled} change={(value) => edit(["input"], value)} />
 				<ServiceBoolean label="思考能力" value={fields.reasoning} defaultValue={defaults.reasoning}
 					disabled={disabled} change={(value) => edit(["reasoning"], value)} />
+				<ServiceThinkingFormat settings={compat} disabled={disabled} change={edit} />
 				<ServiceChoice label="默认思考等级" value={fields.defaultThinkingLevel} defaultValue={defaults.defaultThinkingLevel}
-					options={thinkingChoices} unsetLabel="不指定" disabled={disabled} change={(value) => edit(["defaultThinkingLevel"], value)} />
+					options={thinking.rows.map((row) => [row.level, row.level, !row.available] as const)} unsetLabel="不指定"
+					unavailable={!thinking.reasoning ? "开启思考能力后可设置默认等级。" : undefined}
+					hint={defaultUnavailable ? "已配置的等级当前不可选，运行时会自动调整。请改选或重置。" : undefined}
+					disabled={disabled} change={(value) => edit(["defaultThinkingLevel"], value)} />
 				<Disclosure className="service-disclosure" summary="采样参数" lazy><div className="settings-fields">
 					{([["temperature", "温度"], ["top_p", "Top P"], ["top_k", "Top K"]] as const).map(([key, label]) =>
 						<ServiceNumber key={key} label={label} value={sampling[key]} defaultValue={defaultSampling[key]}
 							placeholder={textValue(defaultSampling[key])} disabled={disabled} change={(value) => edit(["samplingParams", key], value)} />)}
 				</div></Disclosure>
-				<ServiceCompat config={fields} defaults={compat} disabled={disabled} change={edit} />
-				<ServiceThinking mapping={thinking} disabled={disabled} change={edit} />
+				<ServiceCompat settings={compat} reasoning={thinking.reasoning} disabled={disabled} change={edit} />
+				{compat.api !== undefined && <ServiceThinking mapping={thinking} disabled={disabled} change={edit} />}
 			</div></CollapsibleContent>
 		</article>
 	</Collapsible></Reveal>;

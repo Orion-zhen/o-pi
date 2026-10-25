@@ -40,8 +40,8 @@ export function SettingsSourceButton({ file, source = false, disabled, onClick }
 	</Hint>;
 }
 
-export function SettingsRow({ label, htmlFor, children, reset, disabled, layout = "inline" }: {
-	label: string; htmlFor?: string; children: ReactNode; disabled?: boolean;
+export function SettingsRow({ label, htmlFor, children, reset, disabled, description, layout = "inline" }: {
+	label: string; htmlFor?: string; children: ReactNode; disabled?: boolean; description?: ReactNode;
 	layout?: "inline" | "fluid" | "wide";
 	reset?: { value: unknown; defaultValue: unknown; apply: () => void };
 }) {
@@ -52,6 +52,7 @@ export function SettingsRow({ label, htmlFor, children, reset, disabled, layout 
 				&& <IconButton size="icon-sm" label={`重置${label}`} tooltip="恢复默认" disabled={disabled} onClick={reset.apply}><RotateCcw /></IconButton>}
 		</div>
 		<div className="preference-control">{children}</div>
+		{description && <div className="preference-description settings-description">{description}</div>}
 	</div>;
 }
 

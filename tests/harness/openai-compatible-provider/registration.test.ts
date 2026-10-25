@@ -16,9 +16,10 @@ describe("openai-compatible-provider registration", () => {
 	it("仓库示例配置与当前 schema 同步", async () => {
 		const config = await loadModelsConfig(path.resolve("agent/models.example.jsonc"));
 		if (!config) throw new Error("example config missing");
-		expect(config.providers["llama-cpp"]?.thinkingPreset).toBe("chat-template");
-		expect(config.providers["llama-swap"]?.thinkingPreset).toBe("model-suffix");
-		expect(config.providers["responses-demo"]?.api).toBe("openai-responses");
+		expect(config.providers).not.toHaveProperty("llama-cpp");
+		expect(config.source.providers["llama-cpp"]).toHaveProperty("compat.thinkingFormat", "chat-template");
+		expect(config.source.providers["responses-demo"]?.api).toBe("openai-responses");
+		expect(config.providers).not.toHaveProperty("responses-demo");
 	});
 
 	it("扩展只注册完整原生 Provider，启动阶段不自行联网", async () => {
@@ -42,7 +43,7 @@ describe("openai-compatible-provider registration", () => {
 
 	it("联网刷新只保留显式模型，不请求服务模型列表", async () => {
 		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
-			gateway: providerConfig({ thinkingPreset: "model-suffix" }),
+			gateway: providerConfig({ maxRetries: 0 }),
 		} }));
 		const fetch = vi.spyOn(globalThis, "fetch");
 		const { runtime } = await registerProvider(config, temp.path, "gateway");

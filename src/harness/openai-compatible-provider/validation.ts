@@ -1,7 +1,6 @@
 import type { TSchema } from "typebox";
 import { Errors } from "typebox/value";
-import { hasRequestExtensions, ProviderConfigSchema, thinkingPresetIssue, type ProviderOptions } from "./schema.ts";
-import { configuredModels } from "./model-settings.ts";
+import { hasRequestExtensions, ProviderConfigSchema, type ProviderOptions } from "./schema.ts";
 import type { ModelsDocument } from "./document.ts";
 
 const corePayloadFields = new Set(["model", "messages", "input", "tools", "stream"]);
@@ -14,15 +13,6 @@ export function modelsConfigIssues(config: ModelsDocument, schema: TSchema): str
 		const options = value as ProviderOptions;
 		if (hasRequestExtensions(options)) {
 			for (const error of Errors(ProviderConfigSchema, value)) issues.push(`providers.${id}${error.instancePath}: ${error.message}`);
-		}
-		const providerIssue = thinkingPresetIssue(value.api, options.thinkingPreset);
-		if (providerIssue) issues.push(`${id}.thinkingPreset: ${providerIssue}`);
-		for (const model of configuredModels(value)) {
-			const issue = thinkingPresetIssue(
-				model.configured.api ?? model.defaults.api ?? value.api,
-				model.configured.thinkingPreset ?? model.defaults.thinkingPreset ?? options.thinkingPreset,
-			);
-			if (issue) issues.push(`${id}.${model.path.join(".")}.thinkingPreset: ${issue}`);
 		}
 		for (const key of Object.keys(options.extraBody ?? {})) {
 			if (corePayloadFields.has(key)) issues.push(`${id}.extraBody cannot override "${key}"`);

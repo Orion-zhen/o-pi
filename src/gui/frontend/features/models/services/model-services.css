@@ -41,16 +41,51 @@
 .service-model-form { padding-inline-start: var(--space-3); padding-block-end: var(--space-3); }
 .service-disclosure { min-inline-size: 0; border-block-start: thin solid var(--divider); }
 .service-disclosure > .disclosure-trigger { display: flex; flex-direction: row-reverse; align-items: center; justify-content: space-between; gap: var(--space-2); inline-size: 100%; padding-block: var(--space-3); border-radius: var(--radius-sm); outline-offset: -0.125rem; cursor: pointer; font-size: var(--text-ui); text-align: start; }
+.service-template-section { min-inline-size: 0; }
+.service-template-section, .service-template-section + .preference-row { border-block-start: thin solid var(--divider); }
+.service-template-body { min-inline-size: 0; }
+.service-template-params { container: template-params / inline-size; display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-ui); }
+.service-template-table { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; column-gap: var(--space-3); inline-size: 100%; min-inline-size: 0; }
+.service-template-table :is(thead, tbody, tr) { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; min-inline-size: 0; }
+.service-template-table :is(th, td) { min-inline-size: 0; overflow-wrap: anywhere; }
+.service-template-table th { text-align: start; font-weight: 400; }
+.service-template-table .service-template-entry { align-items: start; }
+.service-template-table thead { color: var(--muted-foreground); font-size: var(--text-small); }
+.service-template-table thead th { padding-block-end: var(--space-2); }
+.service-template-param { gap: var(--space-2) var(--space-3); padding-block: var(--space-3); border-block-start: thin solid var(--divider); }
+.service-template-name, .service-template-value { display: flex; flex-direction: column; gap: var(--space-1); min-inline-size: 0; overflow-wrap: anywhere; }
+.service-template-actions, .service-template-option { display: flex; align-items: center; gap: var(--space-2); }
+.service-template-actions { flex-wrap: wrap; justify-self: end; min-inline-size: 0; }
+.service-template-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.service-template-toolbar > button { min-inline-size: 0; max-inline-size: 100%; white-space: normal; }
+.service-template-params code, .service-template-editor code { padding: 0; background: none; font-family: var(--font-mono); font-size: inherit; overflow-wrap: anywhere; }
+.service-template-editor { inline-size: fit-content; font-size: var(--text-ui); }
+.service-template-param-form { display: flex; flex-direction: column; gap: var(--space-2); min-inline-size: 0; }
+.service-template-param-form > label:not(:first-child), .service-template-param-form > .settings-action-buttons, .service-template-option { margin-block-start: var(--space-2); }
+.service-template-param-form > :is(input, [data-slot="select-trigger"]) { inline-size: 100%; font-family: var(--font-mono); }
+.service-template-param-form input[readonly] { color: var(--muted-foreground); }
+.service-template-param-form [role="alert"] { color: var(--destructive); font-size: var(--text-small); overflow-wrap: anywhere; }
+.service-template-option > label { min-inline-size: 0; overflow-wrap: anywhere; }
+@container template-params (max-width: 32em) {
+	.service-template-table, .service-template-table tbody { grid-template-columns: minmax(0, 1fr); }
+	.service-template-table thead { display: none; }
+	.service-template-table .service-template-param { grid-template-columns: minmax(0, 1fr) auto; }
+	.service-template-actions { grid-area: 1 / 2; }
+	.service-template-value { grid-column: 1 / -1; }
+	.service-template-name::before, .service-template-value::before { content: attr(data-label); color: var(--muted-foreground); font-size: var(--text-small); }
+}
+@container template-params (max-width: 16em) {
+	.service-template-table .service-template-param { grid-template-columns: minmax(0, 1fr); }
+	.service-template-actions { grid-area: auto; }
+}
 .service-thinking { container: thinking-map / inline-size; font-size: var(--text-ui); }
-.service-thinking-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-4); padding-block: var(--space-2) var(--space-4); }
-.service-thinking-toolbar > .service-tag { flex: 1 1 24ch; line-height: 1.6; }
-.service-thinking-toolbar > button { margin-inline-start: auto; }
 .service-thinking-table { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; column-gap: var(--space-3); inline-size: 100%; line-height: 1.6; }
 .service-thinking-table :is(thead, tbody, tr) { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; min-inline-size: 0; }
 .service-thinking-table th { text-align: start; font-weight: 400; }
 .service-thinking-table :is(th, td) { min-inline-size: 0; padding-block: var(--space-3); overflow-wrap: anywhere; }
 .service-thinking-table thead { color: var(--muted-foreground); font-size: var(--text-small); }
 .service-thinking-table thead th { padding-block-start: var(--space-2); }
+.service-thinking-table .service-thinking-heading { display: flex; align-items: center; justify-content: space-between; grid-column: 4 / -1; gap: var(--space-3); }
 .service-thinking-table tbody tr { border-block-start: thin solid color-mix(in srgb, var(--divider) 65%, transparent); }
 .service-thinking-table td:last-child { justify-self: end; }
 .service-thinking-table td:last-child > .service-tag { font-size: var(--text-caption); }
@@ -60,12 +95,15 @@
 .service-thinking-table code { padding: 0; border-radius: 0; background: none; }
 .service-thinking-table input { padding: var(--space-2) var(--space-3); }
 .service-thinking-table tr[data-available="false"] th code { color: var(--muted-foreground); }
-.service-thinking-target { display: block; overflow-wrap: anywhere; }
 @container thinking-map (max-width: 32em) {
 	.service-thinking-table, .service-thinking-table tbody { grid-template-columns: minmax(0, 1fr); }
-	.service-thinking-table thead, .service-thinking-table td:nth-child(3) { display: none; }
+	.service-thinking-table thead tr { grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); }
+	.service-thinking-table thead th:is(:first-child, :nth-child(3)), .service-thinking-table td:nth-child(3) { display: none; }
+	.service-thinking-table .service-thinking-heading { grid-column: 2; justify-content: flex-end; }
+	.service-thinking-heading > span, .service-thinking-reset > span { display: none; }
 	.service-thinking-table tbody tr { grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-2) var(--space-3); padding-block: var(--space-3); }
 	.service-thinking-table :is(th, td) { padding: 0; }
+	.service-thinking-table thead th { padding-block: var(--space-2) var(--space-3); }
 	.service-thinking-table td:nth-child(4) { grid-area: 2 / 1 / 3 / -1; }
 	.service-thinking-table td:nth-child(4)::before { content: attr(data-label); display: block; margin-block-end: var(--space-1); font-size: var(--text-small); color: var(--muted-foreground); }
 	.service-thinking-table td:last-child { grid-area: 1 / 3; }

@@ -5,9 +5,8 @@
 示例包含：
 
 - `llama-cpp`：静态模型和自定义思考模板。
-- `llama-swap`：显式模型定义和 `model-suffix` 路由。
-- `responses-demo`：非标准 Responses 思考转换及模型级默认思考等级。
-- `chat-template-enabled-demo`：布尔思考预设，由 SDK 展开模板。
+- `responses-demo`：原生 Responses reasoning 及模型级默认思考等级。
+- `chat-template-enabled-demo`：使用原生 chatTemplateKwargs 的布尔思考模板。
 
 可选 compat 字段放在注释中，按服务实际能力启用。
 
@@ -22,7 +21,7 @@
     "off": { "temperature": 0.7 },
     "high": { "top_k": 20 }
   },
-  "thinkingPreset": "qwen"
+  "compat": { "thinkingFormat": "qwen" }
 }
 ```
 
@@ -33,12 +32,12 @@
   "models": [{
     "id": "reasoning-model",
     "reasoning": true,
-    "thinkingPreset": "deepseek",
+    "compat": { "thinkingFormat": "deepseek" },
     "defaultThinkingLevel": "high"
   }]
 }
 ```
 
-两个示例的 `thinkingPreset` 均适用于 Chat Completions 和 Responses。
+两个示例的 `compat.thinkingFormat` 用于 Chat Completions。Responses 使用 SDK 原生编码，等级映射见[思考传递](thinking.md)。
 
 压缩预算和全局思考默认值放在 Pi 原生 settings.json 中。
