@@ -48,6 +48,7 @@ export default defineConfig({
 			output: {
 				codeSplitting: {
 					groups: [
+						{ name: "welcome-art", test: /app[\\/]welcome[\\/]art[\\/]/, maxSize: 450_000, includeDependenciesRecursively: false },
 						{ name: "mermaid-grammar", test: /\0mermaid-grammar-/, maxSize: 200_000, includeDependenciesRecursively: false },
 						{ name: "mermaid-elk", test: /node_modules[\\/]elkjs[\\/]/, includeDependenciesRecursively: false },
 						// 只拆纯字形数据，字体类和方向枚举留在引擎内，避免跨块初始化循环。

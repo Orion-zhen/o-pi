@@ -1,45 +1,69 @@
-import { useLayoutEffect, useRef, type RefObject } from "react";
-import { startupLists, startupContentDuration, startupListDuration, startupSidebarDuration } from "./startup-lists.ts";
+import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
+import { animate, cubicBezier, useMotionValue, useTransform } from "motion/react";
+import { feedback } from "@/ui/motion/transitions.ts";
+import { startupLists, startupSidebarDuration } from "./startup-lists.ts";
+import { welcomeComposerFadeDuration, welcomeContentDuration, welcomeContentStart, welcomeDuration } from "./welcome-timing.ts";
 import "./startup-motion.css";
 
-const regions = [
+const sidebars = [
 	{ name: "left", selector: ".sidebar" },
-	{ name: "right", selector: ".session-sidebar" },
-	{ name: "composer", selector: ".composer" },
-	{ name: "welcome", selector: ".welcome" },
+	{ name: "right", selector: ".session-sidebar .session-tabs" },
 ] as const;
-type Region = typeof regions[number]["name"];
+const composerEase = cubicBezier(...feedback.ease);
 
-/** 入场按区域只播放一次，不等待异步数据，也不随会话组件重新挂载而重播。 */
+function finishSidebar(target: HTMLElement) {
+	target.removeAttribute("data-startup");
+	target.style.removeProperty("--startup-duration");
+}
+
+/** 入场在 App 内只消费一次，欢迎页和输入框通过组件生命周期参与。 */
 export function useStartupMotion(root: RefObject<HTMLElement | null>, sessionReady: boolean) {
+	const time = useMotionValue(welcomeDuration);
+	const opacity = useTransform(time, [welcomeContentStart, welcomeContentStart + welcomeComposerFadeDuration], [0, 1], { ease: composerEase });
+	const y = useTransform(time, [welcomeContentStart, welcomeContentStart + welcomeContentDuration], [12, 0], { ease: composerEase });
 	const state = useRef<{
-		seen: Set<Region>; active: Set<HTMLElement>; stopped: boolean; sidebarEndsAt: number;
-		lists?: ReturnType<typeof startupLists>; refractionTimer?: ReturnType<typeof setTimeout>;
+		seen: Set<"left" | "right" | "welcome" | "composer">; active: Set<HTMLElement>; stopped: boolean; sidebarEndsAt: number;
+		lists?: ReturnType<typeof startupLists>;
 	}>({ seen: new Set(), active: new Set(), stopped: false, sidebarEndsAt: 0 });
+	const finishWelcome = useCallback(() => { time.stop(); time.set(welcomeDuration); }, [time]);
+	const finishComposer = useCallback(() => { opacity.jump(1); y.jump(0); }, [opacity, y]);
+	const enterWelcome = useCallback(() => {
+		const startup = state.current;
+		if (startup.stopped || startup.seen.has("welcome")) return;
+		startup.seen.add("welcome");
+		time.set(0);
+		animate(time, welcomeDuration, { duration: welcomeDuration, ease: "linear" });
+		return finishWelcome;
+	}, [time, finishWelcome]);
+	const composerRef = useCallback((element: HTMLElement | null) => {
+		const startup = state.current;
+		if (!element || startup.stopped || startup.seen.has("composer")) return;
+		startup.seen.add("composer");
+		// 欢迎页播放中直接使用共享时间。其余首次挂载只播放短入场。
+		if (time.get() >= welcomeDuration) {
+			animate(opacity, [0, 1], { duration: 0.16, ease: feedback.ease });
+			animate(y, [12, 0], { duration: 0.24, ease: feedback.ease });
+		}
+		return finishComposer;
+	}, [time, opacity, y, finishComposer]);
+
 	useLayoutEffect(() => {
 		const element = root.current;
 		if (!element) return;
 		const startup = state.current;
-		const finish = (target: HTMLElement) => {
-			target.removeAttribute("data-startup");
-			target.style.removeProperty("--startup-duration");
-			target.style.removeProperty("--startup-delay");
-			target.querySelector<SVGAnimateElement>(".welcome-refraction animate")?.endElement();
-		};
 		const stop = () => {
+			if (startup.stopped) return;
 			startup.stopped = true;
-			clearTimeout(startup.refractionTimer);
+			finishWelcome();
+			finishComposer();
 			startup.lists?.stop();
-			for (const target of startup.active) finish(target);
+			for (const target of startup.active) finishSidebar(target);
 			startup.active.clear();
 		};
 		const finished = (event: AnimationEvent) => {
-			if ((event.animationName !== "startup-settle" && event.animationName !== "welcome-emerge") || !(event.target instanceof HTMLElement)) return;
+			if (event.animationName !== "startup-settle" || !(event.target instanceof HTMLElement)) return;
 			const target = event.target.closest<HTMLElement>("[data-startup]");
-			if (target && startup.active.delete(target)) {
-				if (target.dataset.startup === "welcome") startup.lists?.stop();
-				finish(target);
-			}
+			if (target && startup.active.delete(target)) finishSidebar(target);
 		};
 		element.addEventListener("animationend", finished);
 		window.addEventListener("pointerdown", stop, true);
@@ -54,44 +78,29 @@ export function useStartupMotion(root: RefObject<HTMLElement | null>, sessionRea
 			window.removeEventListener("wheel", stop, true);
 			window.removeEventListener("resize", stop);
 		};
-	}, [root]);
+	}, [root, finishWelcome, finishComposer]);
 
 	useLayoutEffect(() => {
 		const element = root.current;
 		const startup = state.current;
 		if (!element || startup.stopped) return;
-		for (const region of regions) {
+		// 子组件已完成本次挂载，历史会话不能把欢迎入场留给后续的新会话。
+		if (sessionReady) startup.seen.add("welcome");
+		for (const region of sidebars) {
 			if (startup.seen.has(region.name)) continue;
 			const target = element.querySelector<HTMLElement>(region.selector);
-			if (!target) {
-				// 恢复历史会话时不把欢迎页入场留给后续的新会话。
-				if (region.name === "welcome" && sessionReady) startup.seen.add(region.name);
-				continue;
-			}
+			if (!target) continue;
 			startup.seen.add(region.name);
-			if (target.getAttribute("data-open") === "false") continue;
-			if (region.name === "left" || region.name === "right") target.style.setProperty("--startup-duration", `${startupSidebarDuration}ms`);
+			if (target.closest('[data-open="false"]')) continue;
+			target.dataset.startup = region.name;
+			target.style.setProperty("--startup-duration", `${startupSidebarDuration}ms`);
+			startup.active.add(target);
 			if (region.name === "left") {
 				startup.sidebarEndsAt = performance.now() + startupSidebarDuration;
 				startup.lists = startupLists(target);
 			}
-			if (region.name === "welcome") {
-				const startsAt = Math.max(performance.now(), startup.sidebarEndsAt + startupListDuration - startupContentDuration);
-				const delay = startsAt - performance.now();
-				target.style.setProperty("--startup-duration", `${startupContentDuration}ms`);
-				target.style.setProperty("--startup-delay", `${Math.max(0, delay)}ms`);
-				startup.lists?.start(Math.max(performance.now(), startup.sidebarEndsAt));
-				startup.refractionTimer = setTimeout(() => {
-					const refraction = target.querySelector<SVGAnimateElement>(".welcome-refraction animate");
-					if (refraction) {
-						refraction.setAttribute("dur", `${startupContentDuration}ms`);
-						refraction.beginElement();
-					}
-				}, Math.max(0, delay));
-			}
-			target.dataset.startup = region.name;
-			startup.active.add(target);
 		}
-		if (sessionReady && !element.querySelector(".welcome")) startup.lists?.start(Math.max(performance.now(), startup.sidebarEndsAt));
+		if (startup.seen.has("welcome")) startup.lists?.start(Math.max(performance.now(), startup.sidebarEndsAt));
 	});
+	return { time, enterWelcome, composer: { ref: composerRef, style: { opacity, y } } };
 }

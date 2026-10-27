@@ -1,0 +1,113 @@
+import { DOMParser } from "linkedom";
+
+const layerIds = ["hair", "face-neck", "collar", "body", "left-sleeve", "right-sleeve", "left-hand", "right-hand"];
+const viewBox = "420 24 680 730";
+
+function required(element: Element, name: string): string {
+	const value = element.getAttribute(name);
+	if (!value?.trim()) throw new Error(`${element.id || element.localName}: 缺少 ${name}`);
+	return value;
+}
+
+function numberAttribute(element: Element, name: string, min: number, max = Infinity): number {
+	const value = Number(required(element, name));
+	if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${element.id}: ${name} 超出范围`);
+	return value;
+}
+
+function svgGroup(source: string, kind: "character" | "reveal"): Element {
+	const svg = new DOMParser().parseFromString(source, "image/svg+xml").documentElement;
+	if (svg.localName !== "svg" || svg.getAttribute("viewBox") !== viewBox) throw new Error(`${kind}: viewBox 必须为 ${viewBox}`);
+	const attributes: Record<string, readonly string[]> = {
+		svg: ["xmlns", "viewBox"], title: [],
+		g: kind === "character" ? ["id", "fill", "color"] : ["fill", "stroke", "stroke-linecap", "stroke-linejoin"],
+		path: kind === "character" ? ["id", "d", "fill-opacity"] : ["id", "d", "stroke-width", "data-start", "data-duration"],
+	};
+	// 运行时只读取路径和显式属性，拒绝会被遗漏的变换、样式及其他 SVG 元素。
+	for (const element of [svg, ...svg.querySelectorAll("*")]) {
+		const allowed = attributes[element.localName];
+		if (!allowed) throw new Error(`${kind}: 不支持 <${element.localName}>`);
+		for (const attribute of element.attributes) {
+			if (!allowed.includes(attribute.name)) throw new Error(`${kind}: 不支持 ${element.localName}[${attribute.name}]，请先展开变换和样式`);
+		}
+	}
+	const children = [...svg.children].filter((element) => element.localName !== "title");
+	const group = children[0];
+	if (children.length !== 1 || group?.localName !== "g") throw new Error(`${kind}: 根节点必须包含一个绘制分组`);
+	const expected = kind === "character"
+		? { fill: "currentColor" }
+		: { fill: "none", stroke: "white", "stroke-linecap": "round", "stroke-linejoin": "round" };
+	for (const [name, value] of Object.entries(expected)) {
+		if (group.getAttribute(name) !== value) throw new Error(`${kind}: 绘制分组必须设置 ${name}="${value}"`);
+	}
+	return group;
+}
+
+const round = (value: number) => Number(value.toFixed(2));
+const smooth = (from: number, to: number, value: number) => {
+	const t = Math.max(0, Math.min(1, (value - from) / (to - from)));
+	return t * t * (3 - 2 * t);
+};
+
+// 沿用原稿的连续变形场：头部轻转、手臂上抬，袖口与手腕共享边界位移。
+function offer(x: number, y: number): [number, number] {
+	const left = x < 770;
+	const arm = y > 580 ? 1 : left ? 1 - smooth(667, 714, x) : smooth(858, 906, x);
+	const lift = smooth(415, 593, y) * arm;
+	const head = (1 - smooth(325, 383, y)) * 0.013;
+	const dx = x - 770, dy = y - 370;
+	return [
+		770 + dx * Math.cos(head) - dy * Math.sin(head) + (left ? -2 : 2) * lift,
+		370 + dx * Math.sin(head) + dy * Math.cos(head) - 18 * lift,
+	];
+}
+
+function pathData(path: Element, project: (x: number, y: number) => [number, number] = offer): { d: string; offer: string } {
+	const d = required(path, "d");
+	const tokenPattern = /[a-zA-Z]|[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][-+]?\d+)?/g;
+	const tokens = [...d.matchAll(tokenPattern)].map((match) => match[0]);
+	if (d.replace(tokenPattern, "").replace(/[\s,]/g, "")) throw new Error(`${path.id}: 无效路径`);
+	if (tokens[0] !== "M") throw new Error(`${path.id}: 路径必须从绝对 M 指令开始`);
+	const commands: string[] = [];
+	for (let index = 0; index < tokens.length;) {
+		const command = tokens[index++];
+		const count = command === "M" || command === "L" ? 2 : command === "C" ? 6 : command === "Z" ? 0 : undefined;
+		if (count === undefined) throw new Error(`${path.id}: 仅支持显式绝对 M/L/C/Z 指令，收到 ${command}`);
+		const points = Array.from({ length: count / 2 }, (_, point) => [Number(tokens[index + point * 2]), Number(tokens[index + point * 2 + 1])] as const);
+		if (points.some((point) => point.some((value) => !Number.isFinite(value)))) throw new Error(`${path.id}: ${command} 坐标不完整`);
+		const posed = points.flatMap(([x, y]) => project(x, y).map(round));
+		commands.push(command + posed.join(" "));
+		index += count;
+	}
+	return { d, offer: commands.join(" ") };
+}
+
+export function welcomeAssets(character: string, reveal: string): Map<string, string> {
+	const layers = [...svgGroup(character, "character").children];
+	if (layers.length !== layerIds.length || layers.some((layer, index) => layer.localName !== "g" || layer.id !== layerIds[index])) {
+		throw new Error(`character: 图层顺序必须为 ${layerIds.join(", ")}`);
+	}
+	const files = new Map<string, string>();
+	const add = (name: string, value: unknown) => files.set(`${name}.json`, `${JSON.stringify(value, null, "\t")}\n`);
+	for (const layer of layers) {
+		if (layer.attributes.length !== 1) throw new Error(`${layer.id}: 图层只允许 id 属性，样式应写到路径上`);
+		const paths = [...layer.children];
+		if (!paths.length || paths.some((path) => path.localName !== "path" || path.children.length)) throw new Error(`${layer.id}: 图层必须直接包含路径`);
+		const paints = paths.map((path) => ({ ...pathData(path), opacity: numberAttribute(path, "fill-opacity", 0, 1) }));
+		if (layer.id === "left-hand") {
+			const offset = { x: -2, y: -18 };
+			const translated = paths.map((path) => pathData(path, (x, y) => [x + offset.x, y + offset.y]).offer);
+			if (paints.some((paint, index) => paint.offer !== translated[index])) throw new Error("left-hand: 轮廓已超出纯平移区域，需改为路径变形");
+			add(layer.id, { id: layer.id, offer: offset, paints: paints.map(({ d, opacity }) => ({ d, opacity })) });
+		} else add(layer.id, { id: layer.id, paints });
+	}
+	const paths = [...svgGroup(reveal, "reveal").children];
+	if (!paths.length || paths.some((path) => path.localName !== "path" || path.children.length)) throw new Error("reveal: 绘制分组必须直接包含路径");
+	add("reveal", paths.map((path) => ({
+		d: required(path, "d"),
+		start: numberAttribute(path, "data-start", 0),
+		duration: numberAttribute(path, "data-duration", Number.MIN_VALUE),
+		width: numberAttribute(path, "stroke-width", Number.MIN_VALUE),
+	})));
+	return files;
+}

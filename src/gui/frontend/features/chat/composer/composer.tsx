@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { resize } from "motion";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, type MotionStyle } from "motion/react";
 import { fade, settle } from "@/ui/motion/transitions.ts";
 import { Crossfade, ListItem, Reveal } from "@/ui/motion/animated.tsx";
 import { FeedbackHighlight } from "@/ui/feedback-highlight.tsx";
@@ -16,7 +16,7 @@ import { Button } from "@/ui/button.tsx";
 import { Textarea } from "@/ui/textarea.tsx";
 import { InputHistory } from "./input-history.tsx";
 import { SendButton } from "./send-button.tsx";
-import type { RefObject } from "react";
+import type { Ref, RefObject } from "react";
 import type { GuiPreferences } from "../../../../shared/config/preferences.ts";
 import type { Send } from "@/connection/connection.ts";
 import type { GuiPanel, GuiSnapshot } from "../../../../shared/protocol/state.ts";
@@ -48,7 +48,10 @@ interface ComposerControls {
 	editor: RefObject<HTMLTextAreaElement | null>;
 	views: SessionViews;
 }
-export function Composer({ gui, view, snapshot, preferences, onSubmit, referenceVersion = 0 }: { gui: ComposerControls; view: SessionViewState; snapshot: GuiSnapshot; preferences: GuiPreferences | undefined; onSubmit: () => void; referenceVersion?: number }) {
+export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmit, referenceVersion = 0 }: {
+	ref: Ref<HTMLElement>; style: MotionStyle; gui: ComposerControls; view: SessionViewState; snapshot: GuiSnapshot;
+	preferences: GuiPreferences | undefined; onSubmit: () => void; referenceVersion?: number;
+}) {
 	const { draft, setDraft, images, setImages, behavior, setBehavior } = useSessionDraft(view, gui.views);
 	const initialReferenceVersion = useRef(referenceVersion);
 	const seenImages = useRef(new Set(images.map((image) => image.id)));
@@ -158,7 +161,7 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 			? snapshot.commands.filter((command) => `/${command.name}`.startsWith(draft))
 			: [];
 	return (
-		<footer className="composer">
+		<motion.footer className="composer" ref={ref} style={style}>
 			<AnimatePresence initial={false}>
 			{setup && hasContextMessages(snapshot) && <Reveal><div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
 				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>
@@ -352,6 +355,6 @@ export function Composer({ gui, view, snapshot, preferences, onSubmit, reference
 					</div>
 				</div>
 			</div>
-		</footer>
+		</motion.footer>
 	);
 }

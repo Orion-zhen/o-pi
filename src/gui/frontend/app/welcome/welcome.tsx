@@ -5,7 +5,6 @@ import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { GuiControls, EditorControls } from "../controls.ts";
 import { Button } from "@/ui/button.tsx";
 import { modelSetup } from "@/features/models/model-setup.ts";
-import { WelcomeMark } from "./welcome-mark.tsx";
 import { Spotlight } from "@/ui/motion/spotlight.tsx";
 
 const starters = [
@@ -17,10 +16,7 @@ const starters = [
 export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: Pick<GuiControls, "canSubmit" | "setPanel"> & EditorControls }) {
 	const setup = modelSetup(snapshot);
 	return <>
-		<WelcomeMark />
-		{!setup && <p className="welcome-eyebrow">你的代码工作空间</p>}
 		<h1>{setup?.title ?? "今天，想构建什么？"}</h1>
-		{!setup && <p>从一个想法开始，一起把它变成现实。</p>}
 		{setup ? <Button className="mt-6" disabled={!gui.canSubmit} onClick={() => gui.setPanel({ kind: setup.kind })}>
 			{setup.action}
 		</Button> : <div className="starter-grid">

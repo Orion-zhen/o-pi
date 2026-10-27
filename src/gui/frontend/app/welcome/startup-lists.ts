@@ -1,7 +1,6 @@
 import { animate } from "motion/mini";
 import { listDepth } from "@/ui/motion/transitions.ts";
 
-export const startupContentDuration = 900;
 export const startupListDuration = 600;
 export const startupSidebarDuration = 400;
 

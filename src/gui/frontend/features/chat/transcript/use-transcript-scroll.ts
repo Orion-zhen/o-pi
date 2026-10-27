@@ -12,13 +12,15 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 	const restoring = useRef<number | undefined>(undefined);
 	const lastScrollTop = useRef(0);
 	const [showLatest, setShowLatest] = useState(false);
-	const atEnd = (threshold = 60) => Boolean(scroll.current &&
+	const atWelcome = () => Boolean(content.current?.querySelector(".welcome"));
+	const atEnd = (threshold = 60) => atWelcome() || Boolean(scroll.current &&
 		scroll.current.scrollHeight - scroll.current.clientHeight - scroll.current.scrollTop <= threshold);
 	const jumpTo = (top: number) => {
 		scroll.current?.scrollTo({ top, behavior: "instant" });
 		lastScrollTop.current = scroll.current?.scrollTop ?? 0;
 	};
-	const pinToBottom = () => { if (scroll.current) jumpTo(scroll.current.scrollHeight); };
+	// 欢迎页从顶部展示，消息流继续跟随底部。
+	const pinToBottom = () => { if (scroll.current) jumpTo(atWelcome() ? 0 : scroll.current.scrollHeight); };
 	const cancelLocation = () => { locationVersion.current++; landing.current = null; setHighlight(null); };
 	const finishLocation = () => {
 		const viewport = scroll.current;

@@ -23,7 +23,7 @@ import { SettingsDialog } from "./settings/dialog.tsx";
 import { connectionLabels } from "@/connection/connection.ts";
 import { Composer } from "@/features/chat/composer/composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
-import { SessionSidebar } from "./session-inspector.tsx";
+import { SessionInspector } from "./session-inspector.tsx";
 import { SessionActions } from "@/features/sessions/session-actions.tsx";
 import { SessionHistory } from "@/features/sessions/session-history.tsx";
 import { SessionHeading } from "@/features/sessions/session-heading.tsx";
@@ -88,7 +88,7 @@ export function App() {
 	const main = useRef<HTMLElement>(null);
 	const app = useRef<HTMLDivElement>(null);
 	const workspace = useRef<HTMLDivElement>(null);
-	useStartupMotion(app, Boolean(snapshot));
+	const startup = useStartupMotion(app, Boolean(snapshot));
 	const restoreFocus = () => (panelContent.current ?? (isTouchInput() ? null : gui.editor.current) ?? main.current)?.focus();
 	useEffect(() => {
 		const desktop = window.matchMedia("(min-width: 768px)");
@@ -168,7 +168,7 @@ export function App() {
 							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
 								{transcript.highlight && <FeedbackHighlight key={transcript.highlight.key} style={transcript.highlight.bounds} />}
 								<RegionBoundary scope="messages">
-									<ConversationContent gui={gui} target={target} workspaceWelcome={workspaceWelcome} closeSidebar={closeSidebar}
+									<ConversationContent gui={gui} target={target} workspaceWelcome={workspaceWelcome} startup={startup} closeSidebar={closeSidebar}
 										clearLocation={() => setLocation(undefined)} transcript={transcript} />
 								</RegionBoundary>
 							</div>
@@ -189,7 +189,7 @@ export function App() {
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
-						{snapshot && gui.view && <RegionBoundary scope="composer" key={snapshot.sessionId}><Composer gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} /></RegionBoundary>}
+						{snapshot && gui.view && <RegionBoundary scope="composer" key={snapshot.sessionId}><Composer {...startup.composer} gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} /></RegionBoundary>}
 						</div>
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
@@ -199,7 +199,9 @@ export function App() {
 						const min = Math.min(12 * rem, available * 0.4);
 						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - Math.min(20 * rem, available * 0.45) - 8), scale: -1 };
 					}} />
-					{gui.cwd && <RegionBoundary scope="session-sidebar" key={snapshot?.sessionId}><SessionSidebar gui={gui} locate={locate} /></RegionBoundary>}
+					<aside className="session-sidebar" aria-label="会话信息" data-open={gui.sessionPanelOpen} inert={!gui.sessionPanelOpen} aria-hidden={!gui.sessionPanelOpen}>
+						{gui.cwd && <RegionBoundary scope="session-sidebar" key={snapshot?.sessionId}><SessionInspector gui={gui} locate={locate} /></RegionBoundary>}
+					</aside>
 					</div>
 				</div>
 			</Sheet>

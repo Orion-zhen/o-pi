@@ -39,7 +39,7 @@ export function liveSnapshot(): GuiSnapshot {
 }
 
 /** 回放协议事件，保留正式 GUI、增量合并和浏览器渲染，不执行模型或工具。 */
-export async function replayTranscript(page: Page, snapshot: GuiSnapshot) {
+export async function replayTranscript(page: Page, snapshot: GuiSnapshot | null) {
 	const origin = "http://127.0.0.1:43177";
 	const defaults = readGuiDefaults();
 	await page.route(`${origin}/**`, async (route) => {
@@ -61,11 +61,13 @@ export async function replayTranscript(page: Page, snapshot: GuiSnapshot) {
 		const channel = new GuiChannel((delivery) => socket.send(JSON.stringify(delivery)));
 		socket.onMessage((message) => { const { ack } = JSON.parse(String(message)) as { ack: number }; channel.acknowledge(ack); });
 		socket.onClose(() => channel.close());
-		for (const event of [
-			{ type: "client", id: "fixture" }, { type: "workspaceRoot", path: snapshot.cwd },
-			{ type: "selected", session: { id: snapshot.sessionId, cwd: snapshot.cwd, path: null } },
-			{ type: "snapshot", value: snapshot }, { type: "sessions", value: [] },
-		] satisfies GuiEvent[]) channel.accept(event);
+		const events: GuiEvent[] = [
+			{ type: "client", id: "fixture" }, { type: "workspaceRoot", path: snapshot?.cwd ?? "/fixture" },
+			{ type: "selected", session: snapshot ? { id: snapshot.sessionId, cwd: snapshot.cwd, path: null } : null },
+		];
+		if (snapshot) events.push({ type: "snapshot", value: snapshot });
+		events.push({ type: "sessions", value: [] });
+		for (const event of events) channel.accept(event);
 		connected.resolve(channel);
 	});
 	await page.goto(origin);

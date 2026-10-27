@@ -24,11 +24,3 @@ test("流式追加正文和完成高亮不重挂已有代码块", async ({ gui: 
 	await expect(code.locator(".token").first()).toBeVisible();
 	await expect(code.getByRole("button", { name: "复制ts" })).toBeVisible();
 });
-
-test("欢迎页空闲时播放动效，交互后回到静止状态", async ({ gui: { page } }) => {
-	const logo = page.locator(".welcome-mark .app-logo");
-	await page.locator(".welcome h1").click();
-	await expect.poll(() => logo.evaluate((element) => getComputedStyle(element).transform), { timeout: 8000 }).not.toBe("none");
-	await page.locator(".welcome h1").click();
-	await expect(logo).toHaveCSS("transform", "none");
-});

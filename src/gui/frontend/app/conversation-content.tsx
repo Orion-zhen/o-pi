@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { AnimatePresence } from "motion/react";
+import type { useStartupMotion } from "./welcome/use-startup-motion.ts";
 import { Fade, Reveal } from "@/ui/motion/animated.tsx";
 import { Button } from "@/ui/button.tsx";
 import { DisclosureMemoryContext } from "@/ui/disclosure-memory.ts";
@@ -21,10 +22,11 @@ type ConversationControls = Pick<ReturnType<typeof useGui>,
 	| "activity" | "workspaceRoot" | "workspaces" | "connected" | "canNavigate" | "globalQuery" | "error" | "setError">;
 
 /** 消息投影与渲染位于同一个异常边界内，不影响会话连接和输入草稿。 */
-export function ConversationContent({ gui, target, workspaceWelcome, closeSidebar, clearLocation, transcript }: {
+export function ConversationContent({ gui, target, workspaceWelcome, startup, closeSidebar, clearLocation, transcript }: {
 	gui: ConversationControls;
 	target: string | undefined;
 	workspaceWelcome: boolean;
+	startup: Pick<ReturnType<typeof useStartupMotion>, "time" | "enterWelcome">;
 	closeSidebar: () => void;
 	clearLocation: () => void;
 	transcript: Pick<ReturnType<typeof useTranscriptScroll>, "toEntry" | "followLatest">;
@@ -54,15 +56,14 @@ export function ConversationContent({ gui, target, workspaceWelcome, closeSideba
 		{conversation && gui.changelog && !conversation.preview && <StartupChangelog value={gui.changelog} shown={gui.changelogShown} />}
 		<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
 			{workspaceWelcome && <Fade key="workspace-welcome" initial={false} className="welcome workspace-welcome">
-				<WelcomeSurface>
-					<div className="welcome-mark"><span className="app-logo" role="img" aria-label="opi" /></div>
+				<WelcomeSurface {...startup}>
 					<h1>选择工作区</h1>
 					<p>打开项目目录，或从侧栏恢复历史会话。</p>
 					<WorkspacePicker gui={gui} close={closeSidebar} />
 				</WelcomeSurface>
 			</Fade>}
 			{conversation && !count && !conversation.preview && <Fade key={`welcome-${conversation.snapshot.sessionId}`} initial={false} className="welcome">
-				<WelcomeSurface><Welcome snapshot={conversation.snapshot} gui={gui} /></WelcomeSurface>
+				<WelcomeSurface {...startup}><Welcome snapshot={conversation.snapshot} gui={gui} /></WelcomeSurface>
 			</Fade>}
 			{conversation && (count > 0 || conversation.preview) && <Fade className="flex min-w-0 flex-col" key={conversation.preview ? `${conversation.snapshot.sessionId}:${target}` : conversation.snapshot.sessionId}
 				onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>

@@ -6,10 +6,7 @@
 .jump-latest { pointer-events: auto; border-radius: var(--radius-xl); box-shadow: var(--surface-highlight), var(--shadow); }
 .jump-latest:hover { background: var(--accent); }
 .transcript-content { position: relative; display: flex; flex-direction: column; inline-size: min(100%, var(--conversation-width)); min-height: 100%; margin-inline: auto; padding: var(--space-6) var(--content-inset); }
-.welcome { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: clamp(2rem, 7dvh, 5rem) 0; text-align: center; }
-.welcome-mark { display: grid; place-items: center; padding: 1em; margin-block-end: var(--space-6); border-radius: var(--radius-xl); border: 1px solid var(--divider); background: var(--surface); box-shadow: var(--surface-highlight), var(--shadow); color: var(--muted-foreground); font-size: var(--text-heading); }
-.welcome-mark .app-logo { inline-size: 2.5em; block-size: 2.5em; color: var(--foreground); }
-.welcome .welcome-eyebrow { font-size: var(--text-caption); letter-spacing: 0.08em; margin-block-end: var(--space-3); }
+.welcome { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-4) 0; text-align: center; }
 .welcome h1 { font-size: clamp(calc(var(--text-ui) * 12 / 7), calc(var(--text-ui) * 9 / 7 + 1.25vw), calc(var(--text-ui) * 16 / 7)); letter-spacing: -0.025em; font-weight: 500; line-height: 1.5; }
 .welcome p { color: var(--muted-foreground); margin-block-start: var(--space-3); font-size: var(--text-ui); }
 .starter-grid { display: flex; flex-wrap: wrap; gap: var(--space-3); inline-size: min(100%, 64ch); margin: var(--space-8) 0 var(--space-4); }
@@ -109,8 +106,6 @@ pre:has(> code) { white-space: pre; overflow-wrap: normal; overflow-x: auto; pad
 
 @media (max-width: 767px) {
 	.transcript-content { padding: var(--space-4); }
-	.welcome { padding: var(--space-6) 0; }
-	.welcome-mark { margin-block-end: var(--space-3); padding: 0.75em; }
 	.starter-grid { gap: var(--space-2); margin-block-start: var(--space-6); }
 	.starter { flex-basis: 100%; padding: var(--space-3) var(--space-4); }
 	.message.user { max-width: 95%; }

@@ -1,30 +1,28 @@
-import { useEffect } from "react";
-import { motion, useAnimationControls } from "motion/react";
+import { useEffect, useState } from "react";
+import { animate, useMotionValue, useMotionValueEvent, type MotionValue } from "motion/react";
 import { settle } from "@/ui/motion/transitions.ts";
 import { useAnimationVisibility } from "@/ui/motion/use-animation-visibility.ts";
+import { WelcomeIllustration } from "./welcome-illustration.tsx";
+import { welcomeLogoStart } from "./welcome-timing.ts";
 
-const resting = { y: 0, scaleY: 1, rotate: 0 };
-
-export function WelcomeMark() {
-	const { ref, playing } = useAnimationVisibility<HTMLSpanElement>({ requireFocus: true });
-	const animation = useAnimationControls();
+export function WelcomeMark({ time }: { time: MotionValue<number> }) {
+	const { ref, playing } = useAnimationVisibility<HTMLDivElement>({ requireFocus: true });
+	const pose = useMotionValue(0);
+	const [complete, setComplete] = useState(time.get() >= welcomeLogoStart);
+	useMotionValueEvent(time, "change", (value) => setComplete(value >= welcomeLogoStart));
 	useEffect(() => {
-		if (!playing) { animation.set(resting); return; }
+		if (!playing || !complete) { pose.set(0); return; }
 		let timer: number;
-		let stretching = false;
 		const schedule = (delay: number) => { window.clearTimeout(timer); timer = window.setTimeout(play, delay); };
 		const play = () => {
-			stretching = true;
-			void animation.start({ y: [0, 1, -5, -5, 0], scaleY: [1, 0.96, 1.08, 1.08, 1], rotate: [0, 0, -4, -4, 0],
-				transition: { duration: 3.2, times: [0, 0.16, 0.55, 0.68, 1], ease: "easeInOut" },
-			}).then(() => { stretching = false; });
-			schedule(20_000 + Math.random() * 10_000);
+			animate(pose, [0, 1, 1, 0], {
+				duration: 3.2, times: [0, 0.4, 0.58, 1], ease: [0.3, 0, 0.3, 1],
+			});
+			schedule(18_000);
 		};
 		const activity = () => {
-			if (stretching) {
-				stretching = false;
-				void animation.start({ ...resting, transition: settle });
-			}
+			pose.stop();
+			if (pose.get() !== 0) animate(pose, 0, settle);
 			schedule(5_000);
 		};
 		const events = ["pointerdown", "keydown", "input", "wheel"] as const;
@@ -32,10 +30,10 @@ export function WelcomeMark() {
 		schedule(5_000);
 		return () => {
 			window.clearTimeout(timer);
-			animation.stop();
+			pose.stop();
 			for (const event of events) window.removeEventListener(event, activity, true);
 		};
-	}, [playing, animation]);
+	}, [playing, complete, pose]);
 
-	return <div className="welcome-mark"><motion.span ref={ref} animate={animation} className="app-logo" role="img" aria-label="opi" /></div>;
+	return <div className="welcome-mark" ref={ref}><WelcomeIllustration time={time} pose={pose} complete={complete} /></div>;
 }
