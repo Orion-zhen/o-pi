@@ -35,6 +35,22 @@ async function ready(page: Page) {
 	await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeEditable();
 }
 
+async function characterPose(page: Page) {
+	return page.locator(".welcome-illustration").evaluate((svg) => {
+		const paths = (layer: string) => [...svg.querySelectorAll(`[data-layer="${layer}"] path`)].map((path) => path.getAttribute("d")).join("");
+		return { hair: paths("hair"), face: paths("face-neck"), sleeve: paths("right-sleeve"), hand: paths("right-hand") };
+	});
+}
+
+async function idleStart(page: Page, random: number) {
+	await page.clock.runFor(1280);
+	await ready(page);
+	await page.evaluate((value) => { Math.random = () => value; }, random);
+	await page.keyboard.press("Shift");
+	await page.clock.runFor(32);
+	return characterPose(page);
+}
+
 test.beforeEach(async ({ page }) => {
 	await page.clock.install({ time: 0 });
 	await page.clock.pauseAt(1000);
@@ -116,5 +132,128 @@ test("会话信息随会话切换更新，并可收起和展开", async ({ page 
 		await expect(sidebar).toHaveCount(0);
 		await page.getByRole("button", { name: "展开会话信息", exact: true }).click();
 		await expect(sidebar.getByText("已有会话消息", { exact: true })).toBeVisible();
+	} finally { channel.close(); }
+});
+
+test("待机随机播放吹风或捧起，不叠加且允许连续选择相同动作", async ({ page }) => {
+	const channel = await replay(page, welcomeSnapshot());
+	try {
+		const base = await idleStart(page, 0.1);
+		await page.clock.runFor(4800);
+		expect(await characterPose(page)).toEqual(base);
+		await page.clock.runFor(1400);
+		const wind = await characterPose(page);
+		expect(wind.hair === base.hair).toBe(false);
+		expect(wind.sleeve === base.sleeve).toBe(false);
+		expect(wind.face === base.face).toBe(true);
+		expect(wind.hand === base.hand).toBe(true);
+		await expect(page.locator('.welcome-illustration [data-layer="right-sleeve"]')).toBeInViewport({ ratio: 1 });
+		expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+		await page.clock.runFor(500);
+		expect((await characterPose(page)).hair === wind.hair).toBe(false);
+		await page.clock.runFor(4500);
+		expect(await characterPose(page)).toEqual(base);
+
+		await page.evaluate(() => { Math.random = () => 0.9; });
+		await page.clock.runFor(13000);
+		const offer = await characterPose(page);
+		expect(offer.face === base.face).toBe(false);
+		expect(offer.hand === base.hand).toBe(false);
+		await page.clock.runFor(4000);
+		expect(await characterPose(page)).toEqual(base);
+		await page.clock.runFor(14000);
+		const repeated = await characterPose(page);
+		expect(repeated.face === base.face).toBe(false);
+		expect(repeated.hand === base.hand).toBe(false);
+	} finally { channel.close(); }
+});
+
+for (const [name, random] of [["吹风", 0.1], ["捧起", 0.9]] as const) {
+	test(`输入打断${name}后归位，重新空闲才播放下一次`, async ({ page }) => {
+		const channel = await replay(page, welcomeSnapshot());
+		try {
+			const base = await idleStart(page, random);
+			await page.clock.runFor(6200);
+			expect((await characterPose(page)).hair === base.hair).toBe(false);
+			await page.getByRole("textbox", { name: "消息", exact: true }).fill("先写下想法");
+			await page.clock.runFor(500);
+			expect(await characterPose(page)).toEqual(base);
+			await page.clock.runFor(4300);
+			expect(await characterPose(page)).toEqual(base);
+			await page.clock.runFor(1400);
+			expect((await characterPose(page)).hair === base.hair).toBe(false);
+		} finally { channel.close(); }
+	});
+}
+
+for (const [name, random] of [["吹风", 0.1], ["捧起", 0.9]] as const) {
+	test(`失焦时仍按原节奏触发${name}，焦点切换不打断播放`, async ({ page }) => {
+		const channel = await replay(page, welcomeSnapshot());
+		try {
+			const base = await idleStart(page, random);
+			await page.clock.runFor(3000);
+			await page.evaluate(() => {
+				Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+				window.dispatchEvent(new Event("blur"));
+			});
+			await page.clock.runFor(1800);
+			expect(await characterPose(page)).toEqual(base);
+			await page.clock.runFor(1400);
+			const active = await characterPose(page);
+			expect(active.hair === base.hair).toBe(false);
+			await page.evaluate(() => {
+				Reflect.deleteProperty(document, "hasFocus");
+				window.dispatchEvent(new Event("focus"));
+			});
+			await page.clock.runFor(300);
+			expect((await characterPose(page)).hair === base.hair).toBe(false);
+			await page.evaluate(() => {
+				Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+				window.dispatchEvent(new Event("blur"));
+			});
+			await page.clock.runFor(300);
+			const continued = await characterPose(page);
+			expect(continued.hair === base.hair).toBe(false);
+			expect(continued.hair === active.hair).toBe(false);
+			await page.clock.runFor(5000);
+			expect(await characterPose(page)).toEqual(base);
+			await page.clock.runFor(13000);
+			expect((await characterPose(page)).hair === base.hair).toBe(false);
+		} finally { channel.close(); }
+	});
+}
+
+test("页面隐藏时停止待机，恢复后重新等待", async ({ page }) => {
+	const channel = await replay(page, welcomeSnapshot());
+	try {
+		const base = await idleStart(page, 0.1);
+		await page.clock.runFor(6200);
+		await page.evaluate(() => {
+			Object.defineProperty(document, "hidden", { configurable: true, value: true });
+			document.dispatchEvent(new Event("visibilitychange"));
+		});
+		await page.clock.runFor(6400);
+		expect(await characterPose(page)).toEqual(base);
+		await page.evaluate(() => {
+			Reflect.deleteProperty(document, "hidden");
+			document.dispatchEvent(new Event("visibilitychange"));
+		});
+		await page.clock.runFor(4800);
+		expect(await characterPose(page)).toEqual(base);
+		await page.clock.runFor(1400);
+		expect((await characterPose(page)).hair === base.hair).toBe(false);
+	} finally { channel.close(); }
+});
+
+test("减少动态效果时不播放任一待机动作", async ({ page }) => {
+	await page.emulateMedia({ reducedMotion: "reduce" });
+	const channel = await replay(page, welcomeSnapshot());
+	try {
+		const base = await idleStart(page, 0.1);
+		await page.clock.runFor(6200);
+		expect(await characterPose(page)).toEqual(base);
+		await page.evaluate(() => { Math.random = () => 0.9; });
+		await page.clock.runFor(18000);
+		expect(await characterPose(page)).toEqual(base);
 	} finally { channel.close(); }
 });

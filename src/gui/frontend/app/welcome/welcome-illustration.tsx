@@ -1,4 +1,4 @@
-import { memo, useId } from "react";
+import { memo, useId, useMemo } from "react";
 import { motion, useTransform, type MotionValue } from "motion/react";
 // 资产由 bun run generate:welcome 生成，编辑入口见 assets/welcome/README.md。
 import hair from "./art/hair.json";
@@ -11,6 +11,8 @@ import leftHand from "./art/left-hand.json";
 import rightHand from "./art/right-hand.json";
 import guides from "./art/reveal.json";
 import { welcomeDuration, welcomeLogoDuration, welcomeLogoStart } from "./welcome-timing.ts";
+import { createWindPath } from "./welcome-wind-path.ts";
+import type { WindLayer } from "./welcome-wind.ts";
 
 const layers = [hair, face, collar, body, leftSleeve, rightSleeve, leftHand, rightHand];
 // 按比例压缩原有笔画时序，保留从上往下的勾勒顺序。
@@ -23,6 +25,19 @@ const Paint = memo(function Paint({ paint, pose }: { paint: Paint; pose: MotionV
 	return <motion.path fillOpacity={paint.opacity} style={{ d }} />;
 });
 
+const WindPaint = memo(function WindPaint({ paint, layer, pose, windTime, windAmount }: {
+	paint: Paint; layer: WindLayer; pose: MotionValue<number>; windTime: MotionValue<number>; windAmount: MotionValue<number>;
+}) {
+	const offer = useTransform(pose, [0, 1], [paint.d, paint.offer]);
+	const wind = useMemo(() => createWindPath(paint.d, layer), [paint.d, layer]);
+	const d = useTransform(() => {
+		// Motion 在渲染时收集依赖，两个动作的输入都必须订阅。
+		const amount = windAmount.get(), time = windTime.get(), offered = offer.get();
+		return amount === 0 ? offered : wind(time, amount);
+	});
+	return <motion.path fillOpacity={paint.opacity} style={{ d }} />;
+});
+
 function Guide({ guide, time }: { guide: typeof guides[number]; time: MotionValue<number> }) {
 	const start = guide.start * drawScale;
 	const length = useTransform(time, [start, start + guide.duration * drawScale], [0, 1]);
@@ -30,8 +45,8 @@ function Guide({ guide, time }: { guide: typeof guides[number]; time: MotionValu
 	return <motion.path d={guide.d} strokeWidth={guide.width} style={{ pathLength: length, opacity }} />;
 }
 
-export const WelcomeIllustration = memo(function WelcomeIllustration({ time, pose, complete }: {
-	time: MotionValue<number>; pose: MotionValue<number>; complete: boolean;
+export const WelcomeIllustration = memo(function WelcomeIllustration({ time, pose, windTime, windAmount, complete }: {
+	time: MotionValue<number>; pose: MotionValue<number>; windTime: MotionValue<number>; windAmount: MotionValue<number>; complete: boolean;
 }) {
 	const id = useId();
 	const handX = useTransform(pose, [0, 1], [0, leftHand.offer.x]);
@@ -51,11 +66,13 @@ export const WelcomeIllustration = memo(function WelcomeIllustration({ time, pos
 		</defs>
 		<g fill="currentColor" mask={complete ? undefined : `url(#${id}-draw)`}>
 			{layers.map((layer) => "offer" in layer
-				? <motion.g key={layer.id} style={{ x: handX, y: handY }}>
+				? <motion.g key={layer.id} data-layer={layer.id} style={{ x: handX, y: handY }}>
 					{layer.paints.map((paint, band) => <path key={band} d={paint.d} fillOpacity={paint.opacity} />)}
 				</motion.g>
-				: <g key={layer.id}>
-					{layer.paints.map((paint, band) => <Paint key={band} paint={paint} pose={pose} />)}
+				: <g key={layer.id} data-layer={layer.id}>
+					{layer.paints.map((paint, band) => layer.id === "hair" || layer.id === "left-sleeve" || layer.id === "right-sleeve"
+						? <WindPaint key={band} paint={paint} layer={layer.id} pose={pose} windTime={windTime} windAmount={windAmount} />
+						: <Paint key={band} paint={paint} pose={pose} />)}
 				</g>)}
 		</g>
 		<motion.g style={{ opacity: logoOpacity, y: logoY }}>

@@ -32,6 +32,8 @@ left-sleeve, right-sleeve, left-hand, right-hand
 
 每层直接包含路径，路径显式设置 `fill-opacity`。路径标识用于编辑和错误定位，图层内顺序决定叠放顺序。
 
+`hair` 只包含发丝。原本混入其中的左侧脸颊与肩颈轮廓已移入 `face-neck` 的 `face-detail-*` 路径。风吹只变形头发与袖摆，不能只根据旧图层名判断轮廓归属。
+
 角色路径只使用显式绝对 `M`、`L`、`C`、`Z` 指令，每组坐标前都写指令。生成器保留基础路径，对同一组坐标应用 `offer`，因此两个姿态的路径拓扑始终一致。目标坐标保留两位小数。
 
 左手的目标轮廓全部等价于平移 `(-2, -18)`，因此 JSON 只保存图层级 `offer: { x: -2, y: -18 }`，不重复保存每条路径的目标轮廓。运行时用 `motion.g` 移动整个左手，其余图层继续使用路径插值。生成器逐条校验两种表达是否等价，修改后的轮廓若超出纯平移区域会报错，不能静默改变动作。
@@ -52,6 +54,21 @@ left-sleeve, right-sleeve, left-hand, right-hand
 - `data-duration`：原始持续时间，单位为秒。
 
 这些时间不等于最终播放时间。`welcome-illustration.tsx` 按最后一条轨迹的结束时间统一缩放，使描绘在 `welcomeLogoStart` 时完成。整体入场节奏在 `welcome-timing.ts` 中调整，不必批量修改 SVG 时序。
+
+## 待机动画
+
+欢迎页空闲 5 秒后开始，每隔 18 秒以相同概率随机选择吹风或捧起，允许连续选中同一个动作，不叠加播放。吹风持续 6 秒，捧起持续 3.2 秒。
+
+风力为 `1.8×`，由 `src/gui/frontend/app/welcome/welcome-wind.ts` 的 `windStrength` 定义。头发沿各发束轴线做两段弧线弯曲，末段比中段晚 0.26 秒响应，改变卷尖朝向。头冠与描线接点固定，袖摆使用局部位移。
+
+`welcome-wind-path.ts` 仅保留相邻采样帧，避免挂载时生成整段动作。`welcome-illustration.tsx` 统一输出每条路径的捧起或吹风轮廓。用户操作时冻结当前风吹时间，再将轮廓柔和收回，重新等待 5 秒。窗口失焦、页面隐藏或减少动态效果设置下停止待机并归位。卸载时释放动画、计时器和事件监听。
+
+修改待机动画后验证：
+
+```sh
+bun run typecheck
+bunx vitest run tests/gui/welcome-wind.test.ts tests/gui/welcome-assets.test.ts
+```
 
 ## 来源
 
