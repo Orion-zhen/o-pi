@@ -1,23 +1,7 @@
-@keyframes startup-settle {
-	from { transform: translate(var(--startup-x, 0px), var(--startup-y, 0px)); }
-	to { transform: none; }
-}
-@keyframes startup-fade { from { opacity: 0; } }
-
+.sidebar { --startup-offset: translateX(-20px); }
+.session-tabs { --startup-offset: translateX(20px); }
 .sidebar[data-startup-lists] :is(.history-session-row, .file-entry-row) { visibility: hidden; }
 
-[data-startup="left"] { --startup-x: -20px; }
-[data-startup="right"] { --startup-x: 20px; }
-
-/* 左栏的各内容区、右栏的标签页整体入场，背景外壳和分隔条保持不动。 */
-[data-startup="left"] > *,
-[data-startup="right"] {
-	animation-name: startup-settle, startup-fade;
-	animation-duration: var(--startup-duration), 160ms;
-	animation-timing-function: var(--motion-ease);
-	animation-fill-mode: both;
-}
-
 @media (max-width: 64em) {
-	[data-startup="right"] { --startup-x: 0px; --startup-y: 12px; }
+	.session-tabs { --startup-offset: translateY(12px); }
 }

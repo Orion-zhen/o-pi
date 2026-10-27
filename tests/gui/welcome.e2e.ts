@@ -244,16 +244,3 @@ test("页面隐藏时停止待机，恢复后重新等待", async ({ page }) => 
 		expect((await characterPose(page)).hair === base.hair).toBe(false);
 	} finally { channel.close(); }
 });
-
-test("减少动态效果时不播放任一待机动作", async ({ page }) => {
-	await page.emulateMedia({ reducedMotion: "reduce" });
-	const channel = await replay(page, welcomeSnapshot());
-	try {
-		const base = await idleStart(page, 0.1);
-		await page.clock.runFor(6200);
-		expect(await characterPose(page)).toEqual(base);
-		await page.evaluate(() => { Math.random = () => 0.9; });
-		await page.clock.runFor(18000);
-		expect(await characterPose(page)).toEqual(base);
-	} finally { channel.close(); }
-});

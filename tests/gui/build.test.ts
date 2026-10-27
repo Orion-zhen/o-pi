@@ -14,6 +14,12 @@ it("GUI 生产构建保留排错名称和映射，仅 ELK 单体允许超限，�
 	if (!("output" in result)) throw new Error("预期单次 GUI 构建输出");
 	const chunks = result.output.filter((item) => item.type === "chunk");
 	expect(chunks.length).toBeGreaterThan(0);
+	const welcome = chunks.filter((chunk) => chunk.fileName.startsWith("assets/welcome-art-"));
+	expect(welcome).toHaveLength(1);
+	for (const name of ["character", "reveal"]) {
+		expect(welcome.some((chunk) => Object.keys(chunk.modules).some((id) => id.endsWith(`/assets/welcome/${name}.svg?welcome`)))).toBe(true);
+	}
+	expect(chunks.some((chunk) => Object.keys(chunk.modules).some((id) => id.includes("/node_modules/linkedom/")))).toBe(false);
 	expect(chunks.some((chunk) => chunk.code.includes("ReplyBreathing"))).toBe(true);
 	expect(chunks.some((chunk) => chunk.map?.sources.some((source) => source.endsWith("reply-breathing.tsx")))).toBe(true);
 	expect(chunks.every((chunk) => !chunk.code.includes("//# sourceMappingURL="))).toBe(true);

@@ -1,5 +1,5 @@
 import { mix } from "motion/react";
-import { windDuration, windFrame, windStep, windStrength, type WindLayer } from "./welcome-wind.ts";
+import { windDuration, windFrame, windStep, type WindLayer } from "./welcome-wind.ts";
 
 /** 只保留相邻采样帧，避免欢迎页挂载时生成全部路径和插值器。 */
 export function createWindPath(d: string, layer: WindLayer) {
@@ -12,8 +12,8 @@ export function createWindPath(d: string, layer: WindLayer) {
 		if (amount === 0 || time === 0 || time >= windDuration) return d;
 		const index = Math.floor(time / windStep);
 		if (index !== frame) {
-			const from = index === frame + 1 ? next : windFrame(d, layer, index * windStep, windStrength);
-			next = windFrame(d, layer, (index + 1) * windStep, windStrength);
+			const from = index === frame + 1 ? next : windFrame(d, layer, index * windStep);
+			next = windFrame(d, layer, (index + 1) * windStep);
 			tween = mix(from, next);
 			frame = index;
 		}

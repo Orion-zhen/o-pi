@@ -22,10 +22,10 @@ type ConversationControls = Pick<ReturnType<typeof useGui>,
 	| "activity" | "workspaceRoot" | "workspaces" | "connected" | "canNavigate" | "globalQuery" | "error" | "setError">;
 
 /** 消息投影与渲染位于同一个异常边界内，不影响会话连接和输入草稿。 */
-export function ConversationContent({ gui, target, workspaceWelcome, startup, closeSidebar, clearLocation, transcript }: {
+export function ConversationContent({ gui, target, showWelcome, startup, closeSidebar, clearLocation, transcript }: {
 	gui: ConversationControls;
 	target: string | undefined;
-	workspaceWelcome: boolean;
+	showWelcome: boolean;
 	startup: Pick<ReturnType<typeof useStartupMotion>, "time" | "enterWelcome">;
 	closeSidebar: () => void;
 	clearLocation: () => void;
@@ -55,14 +55,14 @@ export function ConversationContent({ gui, target, workspaceWelcome, startup, cl
 		{conversation && gui.availableVersion && !conversation.preview && <div className="startup-version" role="status">Pi v{gui.availableVersion} 版本可用</div>}
 		{conversation && gui.changelog && !conversation.preview && <StartupChangelog value={gui.changelog} shown={gui.changelogShown} />}
 		<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
-			{workspaceWelcome && <Fade key="workspace-welcome" initial={false} className="welcome workspace-welcome">
+			{showWelcome && !conversation && <Fade key="workspace-welcome" initial={false} className="welcome workspace-welcome">
 				<WelcomeSurface {...startup}>
 					<h1>选择工作区</h1>
 					<p>打开项目目录，或从侧栏恢复历史会话。</p>
 					<WorkspacePicker gui={gui} close={closeSidebar} />
 				</WelcomeSurface>
 			</Fade>}
-			{conversation && !count && !conversation.preview && <Fade key={`welcome-${conversation.snapshot.sessionId}`} initial={false} className="welcome">
+			{showWelcome && conversation && <Fade key={`welcome-${conversation.snapshot.sessionId}`} initial={false} className="welcome">
 				<WelcomeSurface {...startup}><Welcome snapshot={conversation.snapshot} gui={gui} /></WelcomeSurface>
 			</Fade>}
 			{conversation && (count > 0 || conversation.preview) && <Fade className="flex min-w-0 flex-col" key={conversation.preview ? `${conversation.snapshot.sessionId}:${target}` : conversation.snapshot.sessionId}

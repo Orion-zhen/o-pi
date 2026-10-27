@@ -1,7 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { welcomeSvg } from "./scripts/welcome/plugin.ts";
 
 export default defineConfig({
+	plugins: [welcomeSvg()],
 	resolve: { alias: { "@": fileURLToPath(new URL("./src/gui/frontend", import.meta.url)) } },
 	test: {
 		testTimeout: 15_000,

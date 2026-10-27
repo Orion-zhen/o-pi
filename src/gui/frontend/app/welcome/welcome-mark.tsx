@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { animate, useMotionValue, useMotionValueEvent, useReducedMotion, type MotionValue } from "motion/react";
+import { animate, useMotionValue, useMotionValueEvent, type MotionValue } from "motion/react";
 import { settle } from "@/ui/motion/transitions.ts";
 import { useAnimationVisibility } from "@/ui/motion/use-animation-visibility.ts";
 import { WelcomeIllustration } from "./welcome-illustration.tsx";
@@ -8,14 +8,13 @@ import { windDuration } from "./welcome-wind.ts";
 
 export function WelcomeMark({ time }: { time: MotionValue<number> }) {
 	const { ref, playing } = useAnimationVisibility<HTMLDivElement>();
-	const reducedMotion = useReducedMotion();
 	const pose = useMotionValue(0);
 	const windTime = useMotionValue(0);
 	const windAmount = useMotionValue(0);
 	const [complete, setComplete] = useState(time.get() >= welcomeLogoStart);
 	useMotionValueEvent(time, "change", (value) => setComplete(value >= welcomeLogoStart));
 	useEffect(() => {
-		if (!playing || !complete || reducedMotion) {
+		if (!playing || !complete) {
 			pose.jump(0);
 			windTime.jump(0);
 			windAmount.jump(0);
@@ -54,7 +53,7 @@ export function WelcomeMark({ time }: { time: MotionValue<number> }) {
 			windAmount.stop();
 			for (const event of events) window.removeEventListener(event, activity, true);
 		};
-	}, [playing, complete, reducedMotion, pose, windTime, windAmount]);
+	}, [playing, complete, pose, windTime, windAmount]);
 
 	return <div className="welcome-mark" ref={ref}>
 		<WelcomeIllustration time={time} pose={pose} windTime={windTime} windAmount={windAmount} complete={complete} />

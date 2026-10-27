@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef } from "react";
+import { useCallback, useId, useMemo, useRef, type RefCallback } from "react";
 import { Tabs } from "radix-ui";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "@/ui/motion/animated.tsx";
@@ -32,14 +32,15 @@ interface SessionInspectorView extends Pick<GuiControls, "send" | "setError"> {
 	workbench: WorkbenchView;
 	referenceFile: (path: string) => boolean;
 }
-export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; locate: (entryId: string) => void }) {
+export function SessionInspector({ ref, gui, locate }: { ref: RefCallback<HTMLDivElement>; gui: SessionInspectorView; locate: (entryId: string) => void }) {
 	const root = useRef<HTMLDivElement>(null);
+	const attach = useCallback((element: HTMLDivElement | null) => { root.current = element; return ref(element); }, [ref]);
 	const highlightId = useId();
 	const { sessionTab, snapshot, sessionStats, telemetry, workbench, selectTab } = gui;
 	const tree = useMemo(() => snapshot ? sessionTree(snapshot.entries, snapshot.leafId) : undefined, [snapshot?.entries, snapshot?.leafId]);
 	const loading = <p role="status">正在读取会话信息…</p>;
 	const active = gui.activeTab === "file" && !workbench.preview ? sessionTab : gui.activeTab;
-	return <Tabs.Root ref={root} value={active} className="session-tabs" onValueChange={(value) => {
+	return <Tabs.Root ref={attach} value={active} className="session-tabs" onValueChange={(value) => {
 		if (value === "file") selectTab(value);
 		else {
 			const tab = tabs.find((tab) => tab.id === value);

@@ -6,11 +6,12 @@ import { defineConfig } from "vite";
 import { mathjaxFontChunks } from "./scripts/build/mathjax.ts";
 import { mermaidGrammarChunks } from "./scripts/build/mermaid.ts";
 import { applicationNames } from "./scripts/build/names.ts";
+import { welcomeSvg } from "./scripts/welcome/plugin.ts";
 
 export default defineConfig({
 	root: "src/gui/frontend",
 	base: "./",
-	plugins: [tailwindcss(), applicationNames(), mathjaxFontChunks(), mermaidGrammarChunks(), {
+	plugins: [tailwindcss(), welcomeSvg(), applicationNames(), mathjaxFontChunks(), mermaidGrammarChunks(), {
 		name: "chunk-budgets",
 		generateBundle(_, bundle) {
 			for (const chunk of Object.values(bundle)) {
@@ -48,7 +49,7 @@ export default defineConfig({
 			output: {
 				codeSplitting: {
 					groups: [
-						{ name: "welcome-art", test: /app[\\/]welcome[\\/]art[\\/]/, maxSize: 450_000, includeDependenciesRecursively: false },
+						{ name: "welcome-art", test: /assets[\\/]welcome[\\/].*\.svg\?welcome$/, includeDependenciesRecursively: false },
 						{ name: "mermaid-grammar", test: /\0mermaid-grammar-/, maxSize: 200_000, includeDependenciesRecursively: false },
 						{ name: "mermaid-elk", test: /node_modules[\\/]elkjs[\\/]/, includeDependenciesRecursively: false },
 						// 只拆纯字形数据，字体类和方向枚举留在引擎内，避免跨块初始化循环。

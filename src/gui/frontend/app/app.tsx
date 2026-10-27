@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { LoaderCircle } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -15,7 +15,7 @@ import {
 	RefreshCw,
 } from "lucide-react";
 import { AuthBanner } from "@/features/auth/auth-banner.tsx";
-import { isTranscriptPreview } from "@/features/chat/transcript/transcript-location.ts";
+import { hasContextMessages, isTranscriptPreview } from "@/features/chat/transcript/transcript-location.ts";
 import { useTranscriptScroll } from "@/features/chat/transcript/use-transcript-scroll.ts";
 import { Dialog } from "./dialog.tsx";
 import { Panel } from "./panels.tsx";
@@ -88,7 +88,9 @@ export function App() {
 	const main = useRef<HTMLElement>(null);
 	const app = useRef<HTMLDivElement>(null);
 	const workspace = useRef<HTMLDivElement>(null);
-	const startup = useStartupMotion(app, Boolean(snapshot));
+	const showWelcome = useMemo(() => snapshot ? !preview && !hasContextMessages(snapshot) : workspaceWelcome,
+		[snapshot?.entries, snapshot?.contextEntryIds, preview, workspaceWelcome]);
+	const startup = useStartupMotion(showWelcome, Boolean(snapshot));
 	const restoreFocus = () => (panelContent.current ?? (isTouchInput() ? null : gui.editor.current) ?? main.current)?.focus();
 	useEffect(() => {
 		const desktop = window.matchMedia("(min-width: 768px)");
@@ -106,6 +108,7 @@ export function App() {
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
 				<div className="app" data-collapsed={collapsed} ref={app} style={gui.layout.style}>
 					<RegionBoundary scope="sidebar"><Sidebar
+						ref={startup.leftSidebar}
 						gui={gui.sidebar}
 						collapsed={collapsed}
 						toggle={toggleSidebar}
@@ -168,7 +171,7 @@ export function App() {
 							<div className="transcript-content" ref={transcript.content} key={snapshot?.sessionId ?? "loading"}>
 								{transcript.highlight && <FeedbackHighlight key={transcript.highlight.key} style={transcript.highlight.bounds} />}
 								<RegionBoundary scope="messages">
-									<ConversationContent gui={gui} target={target} workspaceWelcome={workspaceWelcome} startup={startup} closeSidebar={closeSidebar}
+									<ConversationContent gui={gui} target={target} showWelcome={showWelcome} startup={startup} closeSidebar={closeSidebar}
 										clearLocation={() => setLocation(undefined)} transcript={transcript} />
 								</RegionBoundary>
 							</div>
@@ -200,7 +203,7 @@ export function App() {
 						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - Math.min(20 * rem, available * 0.45) - 8), scale: -1 };
 					}} />
 					<aside className="session-sidebar" aria-label="会话信息" data-open={gui.sessionPanelOpen} inert={!gui.sessionPanelOpen} aria-hidden={!gui.sessionPanelOpen}>
-						{gui.cwd && <RegionBoundary scope="session-sidebar" key={snapshot?.sessionId}><SessionInspector gui={gui} locate={locate} /></RegionBoundary>}
+						{gui.cwd && <RegionBoundary scope="session-sidebar" key={snapshot?.sessionId}><SessionInspector ref={startup.rightSidebar} gui={gui} locate={locate} /></RegionBoundary>}
 					</aside>
 					</div>
 				</div>

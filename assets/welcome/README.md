@@ -1,75 +1,68 @@
-# 欢迎页资产
+# 欢迎页资产与动画
 
-SVG 是编辑源，`src/gui/frontend/app/welcome/art/*.json` 是生成结果，不手工修改 JSON。
+SVG 是唯一资产源，不维护中间 JSON。
 
-| 编辑源 | 生成结果 | 职责 |
-| --- | --- | --- |
-| `character.svg` | 各图层 JSON | 基础轮廓、透明度和绘制顺序 |
-| `scripts/welcome/svg.ts` 中的 `offer` | 路径目标轮廓或图层平移量 | 从基础轮廓生成捧起姿态 |
-| `reveal.svg` | `reveal.json` | 入场描绘轨迹、笔宽和时序 |
+| 编辑源 | 职责 |
+| --- | --- |
+| `character.svg` | 基础轮廓、透明度和绘制顺序 |
+| `src/gui/frontend/app/welcome/welcome-offer.ts` | 从基础轮廓计算捧起姿态 |
+| `reveal.svg` | 入场描绘轨迹、笔宽和时序 |
 
-`concept.png` 仅作设计参考，不参与生成。生成器不依赖 `.tmp-smoke`、Potrace 或运行时 SVG 解析。
+## 编辑与构建
 
-## 编辑与生成
+修改 SVG 或动画函数后，运行下文的定向测试。修改轮廓或动作时，另行检查视觉效果，只提交源文件。
 
-1. 修改 SVG 或 `offer` 变形函数。
-2. 运行 `bun run generate:welcome`。
-3. 运行 `bun run check:welcome` 和 `bunx vitest run tests/gui/welcome-assets.test.ts`。
-4. 将编辑源和生成结果一起提交。修改轮廓或动作后，另行检查视觉效果。
-
-生成命令从仓库根目录运行。校验命令只读文件，检查生成结果是否逐字节一致，不自动修复差异。GUI 构建直接使用已提交的 JSON。
+`welcome-illustration.tsx` 通过 `*.svg?welcome` 直接导入两个 SVG。`scripts/welcome/plugin.ts` 在 Vite 开发和生产构建时调用 `scripts/welcome/svg.ts`，将路径和元数据转换为模块，并追踪 SVG 修改。浏览器不解析 XML，构建产物不包含捧起目标路径。插画模块首次加载时计算并保存捧起姿态，后续挂载和动画复用。
 
 ## 角色轮廓
 
 `character.svg` 使用 `viewBox="420 24 680 730"`，外层绘制分组为 `fill="currentColor"`。`color` 只用于 SVG 预览，运行时继承界面颜色。
 
-图层按以下顺序绘制，与 `welcome-illustration.tsx` 一致：
+图层按以下顺序绘制。构建时校验顺序，渲染器直接遍历 SVG 提取结果：
 
 ```text
 hair, face-neck, collar, body,
 left-sleeve, right-sleeve, left-hand, right-hand
 ```
 
-每层直接包含路径，路径显式设置 `fill-opacity`。路径标识用于编辑和错误定位，图层内顺序决定叠放顺序。
+每层直接包含路径，路径显式设置 `fill-opacity`。路径标识用于编辑和错误定位，图层内顺序决定叠放顺序。`hair` 只包含发丝，脸颊与肩颈描线属于 `face-neck`，风吹不能移动这些描线。
 
-`hair` 只包含发丝。原本混入其中的左侧脸颊与肩颈轮廓已移入 `face-neck` 的 `face-detail-*` 路径。风吹只变形头发与袖摆，不能只根据旧图层名判断轮廓归属。
+角色路径只使用显式绝对 `M`、`L`、`C`、`Z` 指令，每组坐标前都写指令。构建时解析并统一序列化基础路径，运行时通过 `offerPath` 计算目标轮廓。基础姿态与捧起姿态保留相同的路径拓扑，基础坐标保留原始精度，目标坐标保留两位小数。
 
-角色路径只使用显式绝对 `M`、`L`、`C`、`Z` 指令，每组坐标前都写指令。生成器保留基础路径，对同一组坐标应用 `offer`，因此两个姿态的路径拓扑始终一致。目标坐标保留两位小数。
+编辑器导出后，应把变换应用到路径坐标，并移除 CSS 样式。构建时拒绝未支持的元素、属性、路径指令和图层结构，避免外观在转换时被静默丢弃。
 
-左手的目标轮廓全部等价于平移 `(-2, -18)`，因此 JSON 只保存图层级 `offer: { x: -2, y: -18 }`，不重复保存每条路径的目标轮廓。运行时用 `motion.g` 移动整个左手，其余图层继续使用路径插值。生成器逐条校验两种表达是否等价，修改后的轮廓若超出纯平移区域会报错，不能静默改变动作。
+`offerPoint` 使用连续变形场让头部轻转、双手上抬，并保持袖口与手腕的位移连续。坐标阈值针对当前角色，更换构图后需同步调整。
 
-编辑器导出后，应把变换应用到路径坐标，并移除 CSS 样式。生成器会拒绝未支持的元素、属性、路径指令和图层结构，避免外观在转换时被静默丢弃。增加图层或改变图层顺序时，须同时修改生成器和渲染器。
+## 入场
 
-当前 `offer` 使用连续变形场让头部轻转、双手上抬，并保持袖口与手腕的位移连续。其坐标阈值针对当前角色。更换构图后需同步调整，不是通用骨骼系统。
+`reveal.svg` 与角色使用相同坐标系。白色圆头笔画构造运行时遮罩，每条路径包含 `d`、`stroke-width`、`data-start` 和 `data-duration`。
 
-## 入场描绘
+`welcome-illustration.tsx` 统一缩放描绘时序，使最后一条轨迹在 `welcomeLogoStart` 时完成。整体节奏在 `welcome-timing.ts` 中调整，不必批量修改 SVG。
 
-`reveal.svg` 与角色使用相同的坐标系。白色圆头笔画用于构造运行时遮罩，不是角色填充轮廓的副本。
+`use-startup-motion.ts` 保存本次 App 的入场资格。欢迎页、输入框和侧栏通过挂载回调参与，恢复历史会话也消费欢迎入场资格。用户按键、点击、滚动或调整窗口大小时立即完成入场。
 
-每条路径包含：
+`startup-sidebar.ts` 使用浏览器原生动画播放侧栏位移、淡入和列表错峰。列表保留可见区域测量与短期 DOM 观察，晚到的行沿同一时间线加入。结束或中断时取消动画并断开观察器，不写回内联样式。
 
-- `d`：描绘轨迹。
-- `stroke-width`：遮罩笔宽。
-- `data-start`：原始开始时间，单位为秒。
-- `data-duration`：原始持续时间，单位为秒。
-
-这些时间不等于最终播放时间。`welcome-illustration.tsx` 按最后一条轨迹的结束时间统一缩放，使描绘在 `welcomeLogoStart` 时完成。整体入场节奏在 `welcome-timing.ts` 中调整，不必批量修改 SVG 时序。
-
-## 待机动画
+## 待机
 
 欢迎页空闲 5 秒后开始，每隔 18 秒以相同概率随机选择吹风或捧起，允许连续选中同一个动作，不叠加播放。吹风持续 6 秒，捧起持续 3.2 秒。
 
-风力为 `1.8×`，由 `src/gui/frontend/app/welcome/welcome-wind.ts` 的 `windStrength` 定义。头发沿各发束轴线做两段弧线弯曲，末段比中段晚 0.26 秒响应，改变卷尖朝向。头冠与描线接点固定，袖摆使用局部位移。
+风力为 `1.8×`，由 `welcome-wind.ts` 的 `windStrength` 定义。头发沿各发束轴线做两段弧线弯曲，末段比中段晚 0.26 秒响应。头冠与描线接点固定，袖摆使用局部位移。
 
-`welcome-wind-path.ts` 仅保留相邻采样帧，避免挂载时生成整段动作。`welcome-illustration.tsx` 统一输出每条路径的捧起或吹风轮廓。用户操作时冻结当前风吹时间，再将轮廓柔和收回，重新等待 5 秒。窗口失焦、页面隐藏或减少动态效果设置下停止待机并归位。卸载时释放动画、计时器和事件监听。
+`welcome-wind-path.ts` 仅保留相邻采样帧，避免挂载时生成整段动作。用户操作时冻结当前风吹时间，再将轮廓柔和收回，重新等待 5 秒。窗口失焦不影响待机，页面隐藏或插画离开视口时停止并归位。欢迎页不显式处理系统的减弱动态效果设置。卸载时释放动画、计时器和事件监听。
 
-修改待机动画后验证：
+## 验证
 
 ```sh
 bun run typecheck
 bunx vitest run tests/gui/welcome-wind.test.ts tests/gui/welcome-assets.test.ts
 ```
 
-## 来源
+修改入场控制或交互行为时，构建 GUI 后运行无头浏览器定向测试：
 
-现有角色轮廓和描绘轨迹来自 `.tmp-smoke/welcome-layered/vectorize.mjs` 的产物。角色基础轮廓已保存为 SVG，捧起姿态的变形函数已迁入正式生成器，描绘轨迹已保存为独立 SVG。首次迁移时校验了全部 9 个 JSON，内容保持不变。之后将左手的重复目标轮廓改为等价的图层平移。原始像素描线过程不属于日常资产生成流程。
+```sh
+bun run build:gui
+bunx playwright test --config playwright.gui.config.ts tests/gui/welcome.e2e.ts tests/gui/welcome-startup.e2e.ts
+```
+
+角色轮廓和描绘轨迹最初来自 `.tmp-smoke/welcome-layered/vectorize.mjs` 的产物，现已保存为 SVG。构建不依赖原始像素描线过程或 Potrace。

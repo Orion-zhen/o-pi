@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type Ref } from "react";
 import { KeyRound, Plus, RefreshCw, Settings, Cpu } from "lucide-react";
 import { Gauge, LoaderCircle, PanelLeftClose, PanelLeftOpen } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -11,7 +11,7 @@ import { WorkspacePicker } from "@/features/workspace/workspace-picker.tsx";
 import { SheetClose, SheetContent, SheetTitle } from "@/ui/sheet.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
 
-export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: { gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void }) {
+export const Sidebar = memo(function Sidebar({ ref, gui, collapsed, toggle, close }: { ref: Ref<HTMLElement>; gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void }) {
 	const act = (action: GuiAction) => { close(); void gui.send(action); };
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
 	const content = (compact: boolean, mobile: boolean) => <>
@@ -47,7 +47,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 		</div>
 	</>;
 	return <>
-		<aside className="sidebar" aria-label="侧栏" data-collapsed={collapsed}>{content(collapsed, false)}</aside>
+		<aside ref={ref} className="sidebar" aria-label="侧栏" data-collapsed={collapsed}>{content(collapsed, false)}</aside>
 		<SheetContent className="mobile-sidebar" aria-describedby={undefined}>
 			<SheetTitle className="sr-only">工作空间导航</SheetTitle>{content(false, true)}
 		</SheetContent>

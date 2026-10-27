@@ -1,6 +1,6 @@
 export type WindLayer = "hair" | "left-sleeve" | "right-sleeve";
 export const windDuration = 6;
-export const windStrength = 1.8;
+const windStrength = 1.8;
 export const windStep = 0.125;
 
 function smooth(from: number, to: number, value: number) {
@@ -92,7 +92,7 @@ function hairPoint(x: number, y: number, time: number, strength: number): [numbe
 	return [x + dx * weight, y + dy * weight];
 }
 
-export function windPoint(layer: WindLayer, x: number, y: number, time: number, strength: number): [number, number] {
+function windPoint(layer: WindLayer, x: number, y: number, time: number, strength: number): [number, number] {
 	if (layer === "hair") return hairPoint(x, y, time, strength);
 	// 只吹动袖子外缘，肩部、手腕附近的轮廓不动。衣料比发梢更早落定。
 	const outer = layer === "left-sleeve" ? 1 - smooth(520, 655, x) : smooth(900, 965, x);
@@ -102,11 +102,11 @@ export function windPoint(layer: WindLayer, x: number, y: number, time: number, 
 	return [x + (layer === "left-sleeve" ? 34 : 40) * amount, y - 24 * amount];
 }
 
-export function windFrame(d: string, layer: WindLayer, time: number, strength: number): string {
-	if (time === 0 || time === windDuration || strength === 0) return d;
-	// 输入直接来自已校验的角色 JSON，仅含绝对 M/L/C/Z 和显式坐标对。
+export function windFrame(d: string, layer: WindLayer, time: number): string {
+	if (time === 0 || time === windDuration) return d;
+	// 输入已在构建时规范化为绝对 M/L/C/Z 和显式坐标对。
 	return d.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, (_, rawX: string, rawY: string) => {
-		const [x, y] = windPoint(layer, Number(rawX), Number(rawY), time, strength);
+		const [x, y] = windPoint(layer, Number(rawX), Number(rawY), time, windStrength);
 		return `${Number(x.toFixed(2))} ${Number(y.toFixed(2))}`;
 	});
 }

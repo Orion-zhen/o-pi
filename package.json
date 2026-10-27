@@ -14,8 +14,6 @@
 		"dev:tui": "bun src/tui/main.ts",
 		"dev:web": "bun run build:gui && bun src/web/main.ts",
 		"build:gui": "vite build --config vite.gui.config.ts",
-		"generate:welcome": "bun scripts/welcome/generate.mjs",
-		"check:welcome": "bun scripts/welcome/generate.mjs --check",
 		"build:web": "bun scripts/build.mjs web",
 		"build:desktop": "bun scripts/build.mjs desktop",
 		"desktop": "electron dist/desktop/app",
