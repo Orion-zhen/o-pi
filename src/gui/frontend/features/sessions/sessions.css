@@ -34,7 +34,13 @@ input.session-name { flex: 1; background: var(--surface); }
 .history-session-row > input.session-name { font: inherit; }
 button[data-confirming="true"] { color: var(--destructive); }
 .history-session > svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; }
-.history-session-title { flex: 1; min-width: 0; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.history-session-label { flex: 1; min-width: 0; text-align: start; }
+.history-session-title { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.history-session-excerpt { display: block; margin-block-start: var(--space-1); font-size: var(--text-caption); color: var(--muted-foreground); }
+.search-excerpt { display: flex; min-inline-size: 0; white-space: nowrap; }
+.search-excerpt-prefix, .search-excerpt-match { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.search-excerpt-prefix { max-inline-size: 25%; }
+.history-session mark { color: var(--foreground); background: var(--selected); border-radius: var(--radius-sm); }
 .history-session time { flex-shrink: 0; font-size: var(--text-caption); font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
 .history-more { justify-self: start; color: var(--muted-foreground); font-size: var(--text-caption); }
 .history-hint { padding: var(--space-2) var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); }

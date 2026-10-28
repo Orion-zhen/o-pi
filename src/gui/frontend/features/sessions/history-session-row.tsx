@@ -9,6 +9,8 @@ import { MorphIcon } from "morphicons/react";
 import { FilledShield } from "@/ui/icon-shapes.ts";
 import type { Send } from "@/connection/connection.ts";
 import type { SessionListItem } from "./session-list.ts";
+import type { SessionSearchHit } from "../../../shared/session-search.ts";
+import { SearchExcerptText } from "./search-excerpt.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
@@ -19,8 +21,9 @@ import { ActivityBorder } from "./activity-border.tsx";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" });
 
-export const HistorySessionRow = memo(function HistorySessionRow({ item, index, count, disabled, send, open, animated }: {
+export const HistorySessionRow = memo(function HistorySessionRow({ item, index, count, disabled, send, open, animated, match }: {
 	item: SessionListItem; index: number; count: number; disabled: boolean; send: Send; open: (item: SessionListItem) => void; animated: boolean;
+	match?: SessionSearchHit | undefined;
 }) {
 	const { path, title, modified, selected, activity } = item;
 	const busy = activity !== undefined && activity.state !== "idle";
@@ -40,7 +43,11 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || pending}
 			onClick={() => open(item)}>
 			<MorphIcon icon={waiting ? FilledShield : MessageSquare} spring="smooth" size="1em"
-				className={waiting ? "approval-marker" : undefined} {...(waiting ? { label: "等待审批" } : {})} /><span className="history-session-title"><SessionTitle title={title} state={activity?.titleGeneration} /></span>
+				className={waiting ? "approval-marker" : undefined} {...(waiting ? { label: "等待审批" } : {})} /><span className="history-session-label"><span className="history-session-title">
+				{match?.source === "title" ? <SearchExcerptText value={match.excerpt} /> : <SessionTitle title={title} state={activity?.titleGeneration} />}
+			</span>{match && match.source !== "title" && <span className="history-session-excerpt">
+				<SearchExcerptText value={match.excerpt} label={`${match.source === "user" ? "用户" : "助手"}: `} />
+			</span>}</span>
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
 		</Button></Hint>}
 		{path && <div className="row-actions">

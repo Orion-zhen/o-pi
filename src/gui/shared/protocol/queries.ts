@@ -6,11 +6,14 @@ import type { ModuleConfigDocument } from "../config/modules.ts";
 import type { McpConfigDocument } from "../config/mcp.ts";
 import type { GuiLspServers } from "../lsp.ts";
 import type { StorageSnapshot } from "../storage.ts";
+import type { SessionSearchPage } from "../session-search.ts";
 import type { ModelServicesDocument, ModelServiceCatalog } from "../config/model-services.ts";
 import { moduleConfigId, object, short } from "./schema.ts";
 
 export const querySchema = Type.Union([
 	object({ query: Type.Literal("storage") }),
+	object({ query: Type.Literal("searchSessions"), cwd: short, text: Type.String({ minLength: 1, maxLength: 256 }) }),
+	object({ query: Type.Literal("continueSessionSearch"), id: short }),
 	object({ query: Type.Literal("moduleConfig"), id: moduleConfigId }),
 	object({ query: Type.Literal("searchApiKeyAvailable"), config: Type.String({ maxLength: 4096 }) }),
 	object({ query: Type.Literal("guiConfig") }),
@@ -31,10 +34,12 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
 ]);
 export type GuiQuery = Static<typeof querySchema>;
-export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "searchApiKeyAvailable" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "modelServices" | "storage" }>;
+export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "searchApiKeyAvailable" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "modelServices" | "storage" | "searchSessions" | "continueSessionSearch" }>;
 export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" | "lspServers" }>;
 export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
 export interface GuiQueryResults {
+	searchSessions: SessionSearchPage;
+	continueSessionSearch: SessionSearchPage;
 	storage: StorageSnapshot;
 	mcpConfig: McpConfigDocument;
 	modelServices: ModelServicesDocument;

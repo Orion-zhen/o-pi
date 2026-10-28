@@ -25,7 +25,6 @@ export function useWorkbench(cwd: string | undefined, connected: boolean, runnin
 	const [preview, setPreview] = useState<{ path: string; result: Remote<FilePreview> }>();
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [onlyChanges, setOnlyChanges] = useState(false);
-	const [search, setSearch] = useState("");
 	const [filesOpen, setFilesOpen] = useState(true);
 	const [pane, setPane] = useState("sessions");
 	const workspace = useRef<string | undefined>(undefined);
@@ -80,7 +79,7 @@ export function useWorkbench(cwd: string | undefined, connected: boolean, runnin
 			setPreview(undefined);
 			setExpanded(new Set());
 			setOnlyChanges(false);
-			setSearch(""); setFilesOpen(true); setPane("sessions");
+			setFilesOpen(true); setPane("sessions");
 			loadDirectory("");
 			loadGit();
 		} else onRefresh();
@@ -112,8 +111,8 @@ export function useWorkbench(cwd: string | undefined, connected: boolean, runnin
 	const collapseAll = useCallback(() => setExpanded(new Set<string>()), []);
 	return useMemo(() => ({
 		directories, git, preview, expanded, onlyChanges, setOnlyChanges, refresh,
-		search, setSearch, filesOpen, setFilesOpen, pane, setPane,
+		filesOpen, setFilesOpen, pane, setPane,
 		openFile: loadPreview, closePreview, toggleDirectory, collapseAll,
-	}), [directories, git, preview, expanded, onlyChanges, search, filesOpen, pane, refresh, loadPreview, closePreview, toggleDirectory, collapseAll]);
+	}), [directories, git, preview, expanded, onlyChanges, filesOpen, pane, refresh, loadPreview, closePreview, toggleDirectory, collapseAll]);
 }
 export type WorkbenchView = ReturnType<typeof useWorkbench>;

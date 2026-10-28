@@ -1,10 +1,12 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { listDepth, settle } from "@/ui/motion/transitions.ts";
+import { Fade } from "@/ui/motion/animated.tsx";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
 import type { SessionListItem } from "./session-list.ts";
+import type { SessionSearchResults } from "./use-session-search.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
@@ -26,8 +28,8 @@ interface HistoryGui {
 	connected: boolean;
 }
 
-export const SessionHistory = memo(function SessionHistory({ close, full = false, search = "", ...gui }: HistoryGui & {
-	close: () => void; full?: boolean; search?: string;
+export const SessionHistory = memo(function SessionHistory({ close, full = false, search, ...gui }: HistoryGui & {
+	close: () => void; full?: boolean; search?: SessionSearchResults | undefined;
 }) {
 	const groups = useMemo(() => {
 		const result = new Map<string, SessionListItem[]>();
@@ -45,7 +47,11 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 				<RefreshCw className={gui.sessionsLoading ? "animate-spin" : undefined} />
 			</IconButton>
 		</div>
+		{search?.state === "searching" && <p className="history-hint" role="status">正在搜索{search.total ? ` ${search.scanned}/${search.total}` : ""}…</p>}
+		{search?.state === "error" && <p className="history-hint" role="alert">{search.message}</p>}
 		<ListScroll className="history-scroll">
+			<AnimatePresence initial={false} mode="wait">
+			<Fade key={search ? "search" : "sessions"}>
 			{!gui.sessions && <p className="history-hint" role="status">正在读取历史会话…</p>}
 			{groups.filter(([cwd]) => full || cwd === gui.cwd).map(([cwd, items]) => {
 				const rows = <SessionRows items={items} gui={gui} close={close} search={search} />;
@@ -56,17 +62,29 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 					<CollapsibleContent>{rows}</CollapsibleContent>
 				</Collapsible> : <div key={cwd}>{rows}</div>;
 			})}
+			</Fade>
+			</AnimatePresence>
 		</ListScroll>
 	</section>;
 });
 
 function SessionRows({ items, gui, close, search }: {
-	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: string;
+	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: SessionSearchResults | undefined;
 }) {
 	const [switching, setSwitching] = useState(false);
-	const visible = useMemo(() => items.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [items, search]);
+	const matches = useMemo(() => new Map(search?.hits.map((hit) => [hit.path, hit])), [search?.hits]);
+	const searching = search !== undefined;
+	const visible = useMemo(() => {
+		if (!searching) return items;
+		const titles: SessionListItem[] = [], content: SessionListItem[] = [];
+		for (const item of items) {
+			const match = item.path ? matches.get(item.path) : undefined;
+			if (match) (match.source === "title" ? titles : content).push(item);
+		}
+		return [...titles, ...content];
+	}, [items, searching, matches]);
 	const visibleKeys = useMemo(() => new Set(visible.map((item) => item.key)), [visible]);
-	const list = useVirtualRows<HTMLDivElement>(visible.length, (index) => visible[index]?.key ?? "", 44);
+	const list = useVirtualRows<HTMLDivElement>(visible.length, (index) => visible[index]?.key ?? "", search ? 64 : 44);
 	const open = useCallback((item: SessionListItem) => {
 		close();
 		if (item.selected) return;
@@ -82,11 +100,11 @@ function SessionRows({ items, gui, close, search }: {
 			data-index={list.windowed ? row.index : undefined} className={list.windowed ? "history-virtual-row" : undefined}
 			ref={list.windowed ? list.virtualizer.measureElement : undefined}
 			style={{ minWidth: 0, ...(list.windowed ? { position: "absolute", top: row.start - list.virtualizer.options.scrollMargin, left: 0, width: "100%" } : { overflow: "clip" }) }}>
-			<HistorySessionRow item={item} index={row.index} count={visible.length} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} />
+			<HistorySessionRow item={item} index={row.index} count={visible.length} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} match={matches.get(item.path ?? "")} />
 		</motion.div>;
 	});
 	return <div ref={list.root} style={list.style} className="workspace-session-list">
 		<AnimatePresence initial={false} custom={visibleKeys}>{rows}</AnimatePresence>
-		{!visible.length && gui.sessions && <p className="history-hint">{search.trim() ? "没有匹配的会话" : "暂无历史会话"}</p>}
+		{!visible.length && gui.sessions && (!search || search.state === "done") && <p className="history-hint">{search ? "没有匹配的会话" : "暂无历史会话"}</p>}
 	</div>;
 }

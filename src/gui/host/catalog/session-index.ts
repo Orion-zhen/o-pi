@@ -1,13 +1,12 @@
-import { createReadStream, type Dirent } from "node:fs";
+import type { Dirent } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import { createInterface } from "node:readline";
 import path from "node:path";
 import { getSessionsDir } from "../../../harness/storage/sdk-paths.ts";
 import pLimit from "p-limit";
 import type { GuiSessionInfo } from "../../shared/protocol/state.ts";
+import { readSessionFile } from "./session-reader.ts";
 
 const missing = (error: unknown) => error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
-const object = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 async function finishAll<T>(tasks: Promise<T>[]): Promise<T[]> {
 	const results = await Promise.allSettled(tasks);
@@ -18,41 +17,36 @@ async function finishAll<T>(tasks: Promise<T>[]): Promise<T[]> {
 }
 
 async function summary(file: string, mtime: number): Promise<GuiSessionInfo | null> {
-	const input = createReadStream(file, { encoding: "utf8" });
-	const lines = createInterface({ input, crlfDelay: Infinity });
 	let cwd: string | undefined;
 	let created = mtime;
 	let modified = 0;
 	let name = "";
 	let first = "";
-	try {
-		for await (const line of lines) {
-			let entry: unknown;
-			try { entry = JSON.parse(line); }
-			catch (error) { if (error instanceof SyntaxError) continue; throw error; }
-			if (!object(entry)) continue;
+	let text = "";
+	let block = "";
+	let blocks = 0;
+	await readSessionFile(file, {
+		start() { text = ""; blocks = 0; },
+		textStart() { block = ""; },
+		text(chunk) { if (!first && block.length < 160) block = (block + chunk.replace(/\s+/g, " ")).replace(/ {2,}/g, " ").slice(0, 160); },
+		textEnd(type) { if (type === "text") text = (text + (blocks++ ? " " : "") + block).replace(/ {2,}/g, " ").slice(0, 160); },
+		record(entry) {
 			if (cwd === undefined) {
-				if (entry.type !== "session") return null;
-				cwd = typeof entry.cwd === "string" ? entry.cwd : "";
-				const time = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+				if (entry.type !== "session") return true;
+				cwd = entry.cwd;
+				const time = Date.parse(entry.timestamp);
 				if (Number.isFinite(time)) created = time;
-				continue;
+				return false;
 			}
-			if (entry.type === "session_info") name = typeof entry.name === "string" ? entry.name.trim() : "";
-			if (entry.type !== "message" || !object(entry.message)) continue;
-			const message = entry.message;
-			if (message.role !== "user" && message.role !== "assistant") continue;
-			const time = typeof message.timestamp === "number" ? message.timestamp
-				: typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+			if (entry.type === "session_info") name = entry.name.trim();
+			if (entry.type !== "message" || entry.role !== "user" && entry.role !== "assistant") return false;
+			const time = entry.messageTimestamp ?? Date.parse(entry.timestamp);
 			if (Number.isFinite(time)) modified = Math.max(modified, time);
-			if (!first && message.role === "user") {
-				const text = typeof message.content === "string" ? message.content
-					: Array.isArray(message.content) ? message.content.flatMap((block: unknown) => object(block) && block.type === "text" && typeof block.text === "string" ? [block.text] : []).join(" ") : "";
-				first = text.replace(/\s+/g, " ").slice(0, 160);
-			}
-		}
-		return cwd === undefined ? null : { path: file, cwd, title: name || first || "(no messages)", modified: new Date(modified || created).toISOString() };
-	} finally { lines.close(); input.destroy(); }
+			if (!first && entry.role === "user") first = text;
+			return false;
+		},
+	});
+	return cwd === undefined ? null : { path: file, cwd, title: name || first || "(no messages)", modified: new Date(modified || created).toISOString() };
 }
 
 /** 只缓存列表元数据，未变化的历史不再读取正文。 */

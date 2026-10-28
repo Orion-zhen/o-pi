@@ -46,6 +46,7 @@ export const actionSchema = Type.Union([
 		creditId: Type.String({ minLength: 1, maxLength: 4096 }),
 		requestId: Type.String({ minLength: 1, maxLength: 128 }),
 	}),
+	object({ action: Type.Literal("cancelSessionSearch"), id: short }),
 	object({ action: Type.Literal("workspace"), path: short }),
 	object({ action: Type.Literal("removeWorkspace"), path: short }),
 	object({ action: Type.Literal("openSession"), path: short }),

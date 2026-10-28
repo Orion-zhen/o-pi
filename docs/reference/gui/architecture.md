@@ -15,6 +15,12 @@ Web 与 Desktop 直接创建 Pi SDK runtime，共用 `src/gui/host/` 和 React �
 
 切换页面只改变订阅。新建、分支和导入创建独立实例。GUI 另外跟踪附件读取、命令和后台命名，以这些状态判断是否可以回收。
 
+### 会话搜索
+
+搜索交互归 `frontend/features/sessions/`，协议定义启动查询、继续拉取和取消操作。每个 `GuiClient` 只持有当前搜索任务，新搜索替换旧搜索。`GuiHost` 中的搜索服务共享文件并发预算。搜索结果通过查询返回，不写入会话快照或向其他客户端广播。
+
+`host/catalog/session-search.ts` 组织候选和扫描，`session-reader.ts` 封装流式 JSONL 读取，`search-matcher.ts` 在有界文本窗口中查找关键词，保留 Unicode 码点边界和原文高亮区间。目录摘要复用读取器，只缓存列表元数据。搜索消费最近的目录快照，不为每次输入重新刷新目录。
+
 ## 扩展交互
 
 GUI 绑定 `mode: "print"` 和真实 `uiContext`，SDK 提供 `hasUI: true`。标准确认、选择、输入和编辑接口映射为图形弹窗。终端专属的 `ctx.ui.custom()`、输入监听和组件工厂仍由 TUI 使用。

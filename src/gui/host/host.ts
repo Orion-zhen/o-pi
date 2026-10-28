@@ -12,6 +12,7 @@ import type { GuiLspServers } from "../shared/lsp.ts";
 import { readLspServers } from "./workspace/lsp-servers.ts";
 import { GuiSession } from "./session/session.ts";
 import { GuiSessionCatalog } from "./catalog/sessions.ts";
+import { SessionSearch } from "./catalog/session-search.ts";
 import { GuiClient } from "./client.ts";
 import { prepareSessionDeletion } from "./catalog/delete-session.ts";
 import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace/workspace-files.ts";
@@ -33,6 +34,7 @@ export class GuiHost {
 	readonly catalog = new GuiSessionCatalog((value, workspaces) => {
 		this.emit({ type: "sessions", value }); this.emit({ type: "workspaces", value: workspaces });
 	}, () => [this.workspaceRoot, ...[...this.sessions.values()].filter((session) => session.observed || session.activity.state !== "idle").map((session) => session.cwd)]);
+	readonly sessionSearch = new SessionSearch(this.catalog);
 	workspaceRoot = "";
 	initial: GuiSession | undefined;
 	private listeners = new Set<(event: GuiEvent) => void>();

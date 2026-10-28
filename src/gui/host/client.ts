@@ -22,6 +22,7 @@ import { listDirectories } from "./workspace/directories.ts";
 import { importSession } from "./session/files.ts";
 import { FileResources } from "./workspace/file-resource.ts";
 import { GuiStorage } from "./storage/service.ts";
+import { SessionSearchTask } from "./catalog/search-task.ts";
 
 const validateAction = compileSchemaValidator(actionSchema);
 const validateQuery = compileSchemaValidator(querySchema);
@@ -31,6 +32,7 @@ export class GuiClient {
 	readonly id = randomUUID();
 	private readonly resources = new FileResources(this.id);
 	private readonly storage: GuiStorage;
+	private readonly search: SessionSearchTask;
 	resolveFileResource(token: string) {
 		if (this.closed) throw new Error("客户端已断开。");
 		return this.resources.resolve(token, this.selected?.cwd ?? this.host.workspaceRoot);
@@ -54,6 +56,7 @@ export class GuiClient {
 
 	constructor(readonly host: GuiHost) {
 		this.storage = new GuiStorage(host);
+		this.search = new SessionSearchTask(host.sessionSearch, (error) => this.reportError(error));
 		this.unsubscribeHost = host.subscribe((event) => {
 			if (event.type === "sessionsDeleted") {
 				for (const id of event.ids) this.drafts.delete(id);
@@ -242,6 +245,7 @@ export class GuiClient {
 				}
 				return;
 			}
+			case "cancelSessionSearch": await this.search.cancel(action.id); return;
 			case "removeStorage": await this.host.manageStorage(() => this.storage.remove(action.ids)); return;
 			case "saveMcpConfig": await saveMcpConfig(action.original, action.content); return;
 			case "saveModelServices": await saveModelServices(action.original, action.content); return;
@@ -292,6 +296,11 @@ export class GuiClient {
 		if (!validateQuery(value)) throw new Error("无效 GUI 查询参数。");
 		if (this.closed) throw new Error("客户端已断开。");
 		const query = value as GuiQuery;
+		if (query.query === "searchSessions") {
+			if (query.cwd !== (this.selected?.cwd ?? this.host.workspaceRoot)) throw new Error("工作区已切换，请重新搜索。");
+			return this.search.start(query.cwd, query.text);
+		}
+		if (query.query === "continueSessionSearch") return this.search.next(query.id);
 		if (query.query === "storage") return this.host.manageStorage(() => this.storage.read());
 		if (query.query === "mcpConfig") return readMcpConfig();
 		if (query.query === "modelServices") return readModelServices();
@@ -321,6 +330,7 @@ export class GuiClient {
 		this.selection++;
 		this.unbind(); this.unsubscribeHost();
 		this.storage.dispose();
+		void this.host.track(this.search.close()).catch((error: unknown) => this.host.reportError(error));
 		this.host.changelog.release(this.id);
 		this.host.clients.delete(this);
 		this.listeners.clear();

@@ -47,6 +47,13 @@ test("大列表限制挂载数量，搜索、改名、键盘跨视口导航和�
 	const search = navigation.getByRole("textbox", { name: "搜索会话", exact: true });
 	await search.fill("已修改-0000");
 	await expect(history.getByRole("button", { name: "已修改-0000", exact: true })).toBeVisible();
+	await search.fill("历史问题");
+	await expect(history.locator(".history-session-excerpt").first()).toContainText("历史问题");
+	await expect(history.getByRole("status")).toHaveCount(0);
+	expect(await history.locator(".history-session-row").count()).toBeLessThan(80);
+	await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+	await expect(history.getByRole("button", { name: "已修改-0000", exact: true })).toBeVisible();
+	expect(await history.locator(".history-session-row").count()).toBeLessThan(80);
 	await search.fill("");
 
 	if (phone) await navigation.getByRole("button", { name: "文件", exact: true }).click();

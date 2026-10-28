@@ -7,6 +7,7 @@ import { useWindowRefresh } from "@/connection/use-window-refresh.ts";
 import { useLayout } from "./use-layout.ts";
 import { useSessionActivity } from "@/features/sessions/use-session-activity.ts";
 import { sessionList } from "@/features/sessions/session-list.ts";
+import { useSessionSearch } from "@/features/sessions/use-session-search.ts";
 import { SessionViews, type SessionViewState } from "@/features/sessions/session-views.ts";
 import { useHostState } from "@/connection/use-host-state.ts";
 import { useConnection } from "@/connection/use-connection.ts";
@@ -98,6 +99,7 @@ export function useGui() {
 	const changelog = useStartupChangelog(connected, snapshot, selectedId, globalQuery, dispatch, setError);
 	const cwd = host.navigation?.cwd ?? host.workspaceRoot;
 	const layout = useLayout(setError);
+	const sessionSearch = useSessionSearch(cwd, connected, host.sessions, globalQuery, dispatch, setError);
 	const workbench = useWorkbench(cwd, connected, activity.some((item) => item.cwd === cwd && item.state !== "idle"), sharedQuery);
 	const openFile = useCallback((path: string) => { workbench.openFile(path); panels.selectTab("file"); panels.setSessionPanelOpen(true); }, [workbench.openFile, panels.selectTab]);
 	const setDraft = useCallback((text: string) => { if (view) views.writeText(view.id, text); }, [view, views]);
@@ -132,9 +134,9 @@ export function useGui() {
 	const sessionRows = useMemo(() => sessionList(host.sessions ?? [], activity, selectedId), [host.sessions, activity, selectedId]);
 	const sidebar = useMemo<SidebarView>(() => ({
 		cwd, activity, sessionRows, sessions: host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, canNavigate: connected, usageLoading, openUsage,
-		workbench, layout, openFile, referenceFile, send, query, globalQuery, setPanel: panels.setPanel, workspaceRoot: host.workspaceRoot, workspaces: host.workspaces, error, setError,
+		workbench, sessionSearch, layout, openFile, referenceFile, send, query, globalQuery, setPanel: panels.setPanel, workspaceRoot: host.workspaceRoot, workspaces: host.workspaces, error, setError,
 	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, usageLoading, openUsage,
-		workbench, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
+		workbench, sessionSearch, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
 	return {
 		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected,
 		guiConfig: config.document, refreshGuiConfig: config.refresh, availableVersion,
