@@ -27,7 +27,6 @@ const workerBatchMs = performance.now() - workerStarted;
 
 const oracle = {
 	units: cold.units,
-	imports: cold.imports.map((item) => [item.specifier, item.importKind]),
 	warmUnits: warm.units.length,
 	workerUnits: workerBatch.reduce((total, result) => total + result.units, 0),
 };
@@ -44,7 +43,6 @@ console.log(JSON.stringify({
 	complete: [cold, warm, ...local, ...workerBatch].every((result) => result.status === "parsed"),
 	counts: {
 		units: local.reduce((total, result) => total + result.units.length, 0),
-		imports: cold.imports.length,
 		coldStatus: cold.status,
 		warmStatus: warm.status,
 		localParsed: local.filter((result) => result.status === "parsed").length,
