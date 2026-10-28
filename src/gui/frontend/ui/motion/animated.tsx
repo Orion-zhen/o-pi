@@ -7,15 +7,15 @@ export function Fade(props: HTMLMotionProps<"div">) {
 	return <motion.div {...fade} {...props} inert={!present || props.inert} aria-hidden={present ? props["aria-hidden"] : true} />;
 }
 
-export function Crossfade({ value, children, layout = true }: { value: string; children: ReactNode; layout?: boolean }) {
-	return <motion.span className="crossfade" layout={layout ? "size" : false} layoutDependency={value} transition={settle}>
-		<AnimatePresence initial={false} mode={layout ? "popLayout" : "sync"}><CrossfadeContent key={value} layout={layout}>{children}</CrossfadeContent></AnimatePresence>
+export function Crossfade({ value, children }: { value: string; children: ReactNode }) {
+	return <motion.span className="crossfade" layout="size" layoutDependency={value} transition={settle}>
+		<AnimatePresence initial={false} mode="popLayout"><CrossfadeContent key={value}>{children}</CrossfadeContent></AnimatePresence>
 	</motion.span>;
 }
 
-function CrossfadeContent({ ref, children, layout }: { ref?: Ref<HTMLSpanElement>; children: ReactNode; layout: boolean }) {
+function CrossfadeContent({ ref, children }: { ref?: Ref<HTMLSpanElement>; children: ReactNode }) {
 	const present = useIsPresent();
-	return <motion.span ref={ref} {...fade} className="crossfade-content" layout={layout ? "position" : false}
+	return <motion.span ref={ref} {...fade} className="crossfade-content" layout="position"
 		transition={{ ...fade.transition, layout: settle }} inert={!present} aria-hidden={!present}>{children}</motion.span>;
 }
 

@@ -1,7 +1,0 @@
-.sidebar { --startup-offset: translateX(-20px); }
-.session-tabs { --startup-offset: translateX(20px); }
-.sidebar[data-startup-lists] :is(.history-session-row, .file-entry-row) { visibility: hidden; }
-
-@media (max-width: 64em) {
-	.session-tabs { --startup-offset: translateY(12px); }
-}

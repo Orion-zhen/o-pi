@@ -1,6 +1,7 @@
 import { memo, useState } from "react";
 import { Fade } from "@/ui/motion/animated.tsx";
 import { fade, listDepth, listDeparture } from "@/ui/motion/transitions.ts";
+import { startupRow, useStartupLists } from "@/app/welcome/startup-entrance.tsx";
 import { Pencil } from "lucide-react";
 import { MessageSquare } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -17,8 +18,8 @@ import { ActivityBorder } from "./activity-border.tsx";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" });
 
-export const HistorySessionRow = memo(function HistorySessionRow({ item, disabled, send, open, animated }: {
-	item: SessionListItem; disabled: boolean; send: Send; open: (item: SessionListItem) => void; animated: boolean;
+export const HistorySessionRow = memo(function HistorySessionRow({ item, index, count, disabled, send, open, animated }: {
+	item: SessionListItem; index: number; count: number; disabled: boolean; send: Send; open: (item: SessionListItem) => void; animated: boolean;
 }) {
 	const { path, title, modified, selected, activity } = item;
 	const busy = activity !== undefined && activity.state !== "idle";
@@ -49,7 +50,9 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, disable
 		</div>}
 	</>;
 	const props = { className: "history-session-row overlay-list-row activity-frame", "data-current": selected, "data-editing": editing };
-	return <Fade {...props} initial={animated ? fade.initial : false} animate={{ ...fade.animate, ...listDepth.visible }}
+	const lists = useStartupLists();
+	const entrance = startupRow(lists, index, count);
+	return <Fade {...props} {...(entrance ?? { initial: animated ? fade.initial : false, animate: { ...fade.animate, ...listDepth.visible } })}
 		variants={{ exit: (visible: ReadonlySet<string>) => visible.has(item.key) ? { opacity: 1, transition: { duration: 0 } } : listDeparture }}
 		exit="exit">{content}</Fade>;
 });

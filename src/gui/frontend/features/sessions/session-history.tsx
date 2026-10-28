@@ -82,7 +82,7 @@ function SessionRows({ items, gui, close, search }: {
 			data-index={list.windowed ? row.index : undefined} className={list.windowed ? "history-virtual-row" : undefined}
 			ref={list.windowed ? list.virtualizer.measureElement : undefined}
 			style={{ minWidth: 0, ...(list.windowed ? { position: "absolute", top: row.start - list.virtualizer.options.scrollMargin, left: 0, width: "100%" } : { overflow: "clip" }) }}>
-			<HistorySessionRow item={item} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} />
+			<HistorySessionRow item={item} index={row.index} count={visible.length} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} />
 		</motion.div>;
 	});
 	return <div ref={list.root} style={list.style} className="workspace-session-list">

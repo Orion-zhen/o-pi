@@ -1,7 +1,21 @@
 import type { Transition } from "motion/react";
 
-export const settle = { type: "spring", duration: 0.28, bounce: 0 } satisfies Transition;
-export const feedback = { duration: 0.28, ease: [0.2, 0.8, 0.2, 1] } as const;
+// 动效时序与曲线只在这一处定义，CSS 变量由 applyMotionTokens 写入。
+const fast = 0.12;
+const normal = 0.18;
+const layout = 0.28;
+const ease = [0.2, 0.8, 0.2, 1] as const;
+
+export function applyMotionTokens() {
+	const style = document.documentElement.style;
+	style.setProperty("--motion-fast", `${fast}s`);
+	style.setProperty("--motion-normal", `${normal}s`);
+	style.setProperty("--motion-layout", `${layout}s`);
+	style.setProperty("--motion-ease", `cubic-bezier(${ease.join(", ")})`);
+}
+
+export const settle = { type: "spring", duration: layout, bounce: 0 } satisfies Transition;
+export const feedback = { duration: layout, ease } as const;
 export const listDepth = {
 	hidden: { transform: "perspective(700px) translateZ(-32px)", filter: "blur(3px) opacity(0)" },
 	visible: { transform: "perspective(700px) translateZ(0px)", filter: "blur(0px) opacity(1)" },

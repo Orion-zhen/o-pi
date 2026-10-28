@@ -1,30 +1,15 @@
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useIsPresent } from "motion/react";
+import { useContext, useLayoutEffect, useRef } from "react";
+import { useInView, useIsPresent, usePageInView } from "motion/react";
 import { ContentVisible } from "@/ui/collapsible.tsx";
 
+/** 折叠展开、在视口内且页面可见时才播放等待动画。 */
 export function useReplyAnimation<T extends HTMLElement>(active: boolean) {
 	const ref = useRef<T>(null);
 	const expanded = useContext(ContentVisible);
 	const present = useIsPresent();
-	const enabled = active && expanded && present;
-	const [visible, setVisible] = useState(false);
-	const playing = enabled && visible;
-	useEffect(() => {
-		const element = ref.current;
-		if (!enabled || !element) { setVisible(false); return; }
-		let intersecting = false;
-		const update = () => setVisible(intersecting && !document.hidden);
-		const observer = new IntersectionObserver(([entry]) => {
-			intersecting = entry?.isIntersecting ?? false;
-			update();
-		});
-		observer.observe(element);
-		document.addEventListener("visibilitychange", update);
-		return () => {
-			observer.disconnect();
-			document.removeEventListener("visibilitychange", update);
-		};
-	}, [enabled]);
+	const inView = useInView(ref);
+	const pageInView = usePageInView();
+	const playing = active && expanded && present && inView && pageInView;
 	useLayoutEffect(() => {
 		for (const animation of ref.current?.getAnimations({ subtree: true }) ?? []) {
 			if (!(animation instanceof CSSAnimation) || !animation.animationName.startsWith("reply-")) continue;
@@ -34,6 +19,6 @@ export function useReplyAnimation<T extends HTMLElement>(active: boolean) {
 				animation.startTime = 0;
 			} else animation.pause();
 		}
-	}, [active, playing]);
+	}, [playing]);
 	return { ref, playing };
 }

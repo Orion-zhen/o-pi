@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { AnimatePresence, useIsPresent, usePresence } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
+import { feedback } from "@/ui/motion/transitions.ts";
 import { Plus } from "lucide-react";
 import { Input } from "@/ui/input.tsx";
 import { Button } from "@/ui/button.tsx";
@@ -67,11 +68,12 @@ export function AddServiceItem({ label, existing, suggestions, disabled, add, ca
 function CandidateList({ id, label, matches, active, select }: {
 	id: string; label: string; matches: string[]; active: string | undefined; select: (value: string) => void;
 }) {
-	const [present, remove] = usePresence();
-	return <div id={id} className="service-add-options" role="listbox" aria-label={`${label}候选`}
+	const present = useIsPresent();
+	return <motion.div id={id} className="service-add-options" role="listbox" aria-label={`${label}候选`}
 		data-state={present ? "open" : "closed"} inert={!present} aria-hidden={!present}
-		onAnimationEnd={(event) => { if (!present && event.target === event.currentTarget) remove?.(); }}>
+		initial={{ opacity: 0, y: 4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+		exit={{ opacity: 0, y: 4, scale: 0.98, transition: { ...feedback, duration: 0.12 } }} transition={feedback}>
 		{matches.map((value, index) => <button key={value} id={`${id}-${index}`} type="button" role="option" tabIndex={-1}
 			aria-selected={value === active} onMouseDown={(event) => event.preventDefault()} onClick={() => select(value)}>{value}</button>)}
-	</div>;
+	</motion.div>;
 }

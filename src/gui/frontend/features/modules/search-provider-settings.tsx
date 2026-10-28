@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ChevronRight, RotateCcw } from "lucide-react";
-import { useReducedMotion } from "motion/react";
 import type { ModuleConfigChoice } from "../../../shared/config/modules.ts";
 import { ListItem } from "@/ui/motion/animated.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
@@ -30,7 +29,6 @@ export function SearchProviderSettings({ path, choices, valueAt, defaultAt, chan
 	renderDetails: (prefix: string) => ReactNode;
 }) {
 	const [expanded, setExpanded] = useState<string>();
-	const reducedMotion = useReducedMotion();
 	const providersPath = path.slice(0, path.lastIndexOf("."));
 	const auxiliaryPath = `${providersPath}.auxiliary_providers`;
 	const primary = readOrder(valueAt(path), choices);
@@ -60,8 +58,7 @@ export function SearchProviderSettings({ path, choices, valueAt, defaultAt, chan
 					const enabled = valueAt(enabledPath);
 					const open = expanded === provider;
 					const website = providerWebsites[provider];
-					return <ListItem key={provider} className="search-provider-row" initial={false}
-						{...(reducedMotion ? { transition: { duration: 0, layout: { duration: 0 } } } : {})}>
+					return <ListItem key={provider} className="search-provider-row" initial={false}>
 						<Collapsible open={open} onOpenChange={(next) => setExpanded(next ? provider : undefined)}>
 							<div className="search-provider-heading">
 								<div className="search-provider-label">

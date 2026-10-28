@@ -61,7 +61,7 @@ export function ResetCredits({ value, timeZone, generatedAt, action }: {
 							onClick={() => activate(id, action)}
 						>
 							<MorphIcon icon={pending ? LoaderCircle : confirming ? Check : Flame} spring="smooth" size="1em"
-								className={pending ? "animate-spin motion-reduce:animate-none" : undefined} />
+								className={pending ? "animate-spin" : undefined} />
 							{pending ? "使用中" : confirming ? "确定" : "使用"}
 						</Button></Hint>}
 					</li>;

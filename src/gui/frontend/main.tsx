@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { installGlobalDiagnostics, reportDiagnostic } from "@/diagnostics/diagnostics.ts";
 import "@/diagnostics/diagnostics.css";
+import { applyMotionTokens } from "@/ui/motion/transitions.ts";
 import { applyThemeColor } from "@/ui/theme/apply.ts";
 import { DEFAULT_THEME_COLOR } from "@/ui/theme/palette.ts";
 import "@/ui/theme/theme.css";
@@ -14,6 +15,7 @@ import "@/app/motion.css";
 import "@/ui/motion/motion-primitives.css";
 import "@/app/layout.css";
 
+applyMotionTokens();
 installGlobalDiagnostics();
 document.title = window.opi ? "opi-desktop" : "opi-web";
 void import("@/app/app.tsx").then(({ App }) => {

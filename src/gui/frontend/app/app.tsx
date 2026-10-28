@@ -29,6 +29,7 @@ import { SessionHistory } from "@/features/sessions/session-history.tsx";
 import { SessionHeading } from "@/features/sessions/session-heading.tsx";
 import { useGui } from "./use-gui.ts";
 import { useStartupMotion } from "./welcome/use-startup-motion.ts";
+import { StartupEntranceContext } from "./welcome/startup-entrance.tsx";
 import { isTouchInput } from "@/ui/input-mode.ts";
 import { GuiQueryContext } from "@/connection/query-context.ts";
 import { IconButton } from "@/ui/icon-button.tsx";
@@ -104,11 +105,10 @@ export function App() {
 	const active = state === "运行中" || state === "正在压缩上下文";
 	return (
 		<GuiQueryContext value={gui.query}><TooltipProvider delayDuration={350}>
-			<ImagePreviewProvider sessionId={gui.selectedId} fallbackFocus={main}>
+			<ImagePreviewProvider sessionId={gui.selectedId} fallbackFocus={main}><StartupEntranceContext value={startup.entrance}>
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
 				<div className="app" data-collapsed={collapsed} ref={app} style={gui.layout.style}>
 					<RegionBoundary scope="sidebar"><Sidebar
-						ref={startup.leftSidebar}
 						gui={gui.sidebar}
 						collapsed={collapsed}
 						toggle={toggleSidebar}
@@ -203,7 +203,7 @@ export function App() {
 						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - Math.min(20 * rem, available * 0.45) - 8), scale: -1 };
 					}} />
 					<aside className="session-sidebar" aria-label="会话信息" data-open={gui.sessionPanelOpen} inert={!gui.sessionPanelOpen} aria-hidden={!gui.sessionPanelOpen}>
-						{gui.cwd && <RegionBoundary scope="session-sidebar" key={snapshot?.sessionId}><SessionInspector ref={startup.rightSidebar} gui={gui} locate={locate} /></RegionBoundary>}
+						{gui.cwd && <RegionBoundary scope="session-sidebar" key={snapshot?.sessionId}><SessionInspector gui={gui} locate={locate} /></RegionBoundary>}
 					</aside>
 					</div>
 				</div>
@@ -229,7 +229,7 @@ export function App() {
 			<AnimatePresence mode="wait">
 			{dialogs[0] && <RegionBoundary scope="dialog" inline={false} key={dialogs[0].id}><Dialog restoreFocus={restoreFocus} dialog={dialogs[0]} send={send} /></RegionBoundary>}
 			</AnimatePresence>
-			</ImagePreviewProvider>
+			</StartupEntranceContext></ImagePreviewProvider>
 		</TooltipProvider></GuiQueryContext>
 	);
 }

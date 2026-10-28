@@ -1,9 +1,10 @@
-import { useCallback, useId, useMemo, useRef, type RefCallback } from "react";
+import { useId, useMemo, useRef } from "react";
 import { Tabs } from "radix-ui";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { Fade } from "@/ui/motion/animated.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { TransitionPanel } from "@/ui/motion/transition-panel.tsx";
+import { useSectionEntrance } from "./welcome/startup-entrance.tsx";
 import type { GuiSessionTab, GuiSnapshot } from "../../shared/protocol/state.ts";
 import type { GuiControls } from "./controls.ts";
 import type { WorkbenchView } from "@/features/workspace/use-workbench.ts";
@@ -32,21 +33,22 @@ interface SessionInspectorView extends Pick<GuiControls, "send" | "setError"> {
 	workbench: WorkbenchView;
 	referenceFile: (path: string) => boolean;
 }
-export function SessionInspector({ ref, gui, locate }: { ref: RefCallback<HTMLDivElement>; gui: SessionInspectorView; locate: (entryId: string) => void }) {
+export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; locate: (entryId: string) => void }) {
 	const root = useRef<HTMLDivElement>(null);
-	const attach = useCallback((element: HTMLDivElement | null) => { root.current = element; return ref(element); }, [ref]);
+	const entrance = useSectionEntrance("right");
 	const highlightId = useId();
 	const { sessionTab, snapshot, sessionStats, telemetry, workbench, selectTab } = gui;
 	const tree = useMemo(() => snapshot ? sessionTree(snapshot.entries, snapshot.leafId) : undefined, [snapshot?.entries, snapshot?.leafId]);
 	const loading = <p role="status">正在读取会话信息…</p>;
 	const active = gui.activeTab === "file" && !workbench.preview ? sessionTab : gui.activeTab;
-	return <Tabs.Root ref={attach} value={active} className="session-tabs" onValueChange={(value) => {
+	return <Tabs.Root asChild value={active} onValueChange={(value) => {
 		if (value === "file") selectTab(value);
 		else {
 			const tab = tabs.find((tab) => tab.id === value);
 			if (tab) selectTab(tab.id);
 		}
 	}}>
+	<motion.div ref={root} className="session-tabs" {...(entrance ? { style: entrance } : {})}>
 		<div className="session-sidebar-header">
 			<Tabs.List aria-label="会话信息" className="session-tab-list">
 				{tabs.map(({ id, title }) => <Tabs.Trigger key={id} value={id} className="animated-background-target">
@@ -80,5 +82,6 @@ export function SessionInspector({ ref, gui, locate }: { ref: RefCallback<HTMLDi
 			</Fade>
 		</Tabs.Content>}
 		</AnimatePresence>
+	</motion.div>
 	</Tabs.Root>;
 }

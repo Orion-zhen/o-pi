@@ -2,7 +2,9 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type Keybo
 import { ChevronRight } from "lucide-react";
 import { Check, Copy } from "lucide";
 import { MorphIcon } from "morphicons/react";
+import { motion } from "motion/react";
 import { ReferenceFileButton } from "./reference-file-button.tsx";
+import { startupRow, useStartupLists } from "@/app/welcome/startup-entrance.tsx";
 import { FileIcon } from "@/ui/file-icon.tsx";
 import { gitStatusLabels, indexWorkspaceGit } from "./git.ts";
 import { type WorkspaceGit } from "../../../shared/workspace.ts";
@@ -41,6 +43,7 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ cwd, setError, 
 	git: WorkspaceGit; selected: string | undefined;
 }) {
 	const changes = useMemo(() => [...git.changes].sort((a, b) => a.path.localeCompare(b.path)), [git]);
+	const lists = useStartupLists();
 	const list = useVirtualRows<HTMLUListElement>(changes.length, (index) => changes[index]?.path ?? "", 32);
 	return <ul ref={list.root} style={list.style} className="workspace-changes" aria-label="工作区变更">
 		{!changes.length && <li className="file-hint">没有文件变更</li>}
@@ -48,7 +51,7 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ cwd, setError, 
 			const change = changes[row.index];
 			if (!change) return null;
 			return <li key={row.key} data-index={row.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(row.start)}>
-			<div className="file-entry-row overlay-list-row">
+			<motion.div className="file-entry-row overlay-list-row" {...startupRow(lists, row.index, changes.length)}>
 			<Hint content={`${change.originalPath ? `${change.originalPath} -> ` : ""}${change.path}`}><button type="button" className="file-row file-change-row" data-status={change.status} aria-label={change.path}
 				aria-pressed={selected === change.path} aria-description={gitStatusLabels[change.status]}
 				{...(change.status !== "D" ? nativeFileEvents(cwd, change.path, true, setError) : {})}
@@ -58,7 +61,7 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ cwd, setError, 
 				<span className="file-name">{change.path}</span>
 			</button></Hint>
 			{change.status !== "D" && <FileRowActions path={change.path} referenceFile={referenceFile} />}
-			</div>
+			</motion.div>
 		</li>;
 		})}
 	</ul>;
@@ -68,6 +71,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
 	const index = useMemo(() => indexWorkspaceGit(git), [git]);
 	const rows = useMemo(() => workspaceTreeRows(workbench.directories, workbench.expanded, index), [workbench.directories, workbench.expanded, index]);
+	const lists = useStartupLists();
 	const list = useVirtualRows<HTMLUListElement>(rows.length, (index) => rows[index]?.key ?? "", 32);
 	const pendingFocus = useRef<string | undefined>(undefined);
 	useLayoutEffect(() => {
@@ -116,7 +120,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 				const { entry, depth, state: { change, descendants, ignored } } = row;
 				const open = workbench.expanded.has(entry.path);
 				const state = change ? gitStatusLabels[change.status] : descendants ? `${descendants} 个文件变更` : ignored ? "Git 忽略项" : "";
-				return <div className="file-entry-row overlay-list-row">
+				return <motion.div className="file-entry-row overlay-list-row" {...startupRow(lists, item.index, rows.length)}>
 					<Hint content={entry.path}><button type="button" role="treeitem" aria-label={entry.path} aria-level={depth + 1} aria-posinset={row.position} aria-setsize={row.siblings}
 						aria-expanded={entry.kind === "directory" ? open : undefined} aria-selected={workbench.preview?.path === entry.path}
 						tabIndex={-1} aria-description={state}
@@ -130,7 +134,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 						{!change && descendants > 0 && <span className="git-descendants" aria-hidden="true">{descendants}</span>}
 					</button></Hint>
 					{!entry.virtual && change?.status !== "D" && <FileRowActions path={entry.path} referenceFile={referenceFile} />}
-				</div>;
+				</motion.div>;
 			};
 			return <li key={item.key} role="none" data-index={item.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(item.start)}>{content()}</li>;
 		})}

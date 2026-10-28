@@ -55,20 +55,21 @@ export function ImageTransition({ source, image, ready, children }: {
 			opacity.set(collapsed ? 1 : 0);
 		}
 		const target = present ? expanded : collapsed ?? { x: x.get(), y: y.get(), scale: scale.get(), clipPath: clipPath.get() };
-		const animations = [
-			animate(x, target.x, feedback),
-			animate(y, target.y, feedback),
-			animate(scale, target.scale, feedback),
-			animate(clipPath, target.clipPath, feedback),
-			animate(opacity, present || collapsed ? 1 : 0, feedback),
-		];
+		// 同一时间轴上并行推进位移、缩放、裁剪和透明度。
+		const animation = animate([
+			[x, target.x, { at: 0 }],
+			[y, target.y, { at: 0 }],
+			[scale, target.scale, { at: 0 }],
+			[clipPath, target.clipPath, { at: 0 }],
+			[opacity, present || collapsed ? 1 : 0, { at: 0 }],
+		], { defaultTransition: feedback });
 		let cancelled = false;
-		void Promise.all(animations).then(() => {
+		void animation.then(() => {
 			if (cancelled) return;
 			if (present) setMoving(false);
 			else safeToRemove?.();
 		});
-		return () => { cancelled = true; for (const animation of animations) animation.stop(); };
+		return () => { cancelled = true; animation.stop(); };
 	}, [source, image, ready, present, safeToRemove, x, y, scale, clipPath, opacity]);
 
 	return <motion.div ref={frame} className="image-preview-motion" data-moving={moving || !present}

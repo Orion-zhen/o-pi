@@ -1,6 +1,6 @@
 import { CodeXml, GraphStar } from "lucide-react";
 import { resize } from "motion";
-import { motion, MotionConfig, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { memo, useEffect, useId, useRef, useState } from "react";
 import { ImagePreviewButton } from "../media/image-preview.tsx";
 import { AnimatedBackground } from "../motion/animated-background.tsx";
@@ -16,7 +16,6 @@ export const MermaidBlock = memo(function MermaidBlock({ text, streaming }: { te
 	const container = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
 	const highlightId = useId();
-	const reducedMotion = useReducedMotion();
 	const [height, setHeight] = useState<number | "auto">("auto");
 	useEffect(() => {
 		if (content.current) return resize(content.current, (_, { height }) => setHeight(height));
@@ -40,8 +39,7 @@ export const MermaidBlock = memo(function MermaidBlock({ text, streaming }: { te
 	const error = current?.appearance === appearance ? current?.error : undefined;
 	const pending = !streaming && (!current || current.appearance !== appearance);
 	const showSource = source || streaming || !url;
-	const contentTransition = reducedMotion ? { duration: 0 } : fade.transition;
-	return <MotionConfig reducedMotion="user"><div ref={container} className="code-block mermaid-block" aria-busy={pending}>
+	return <div ref={container} className="code-block mermaid-block" aria-busy={pending}>
 		<CodeToolbar text={text} label="Mermaid">
 			<ToggleGroup type="single" className="mermaid-view-toggle" aria-label="Mermaid 视图" value={showSource ? "source" : "graph"}
 				onValueChange={(value) => { if (value) setSource(value === "source"); }}>
@@ -55,22 +53,22 @@ export const MermaidBlock = memo(function MermaidBlock({ text, streaming }: { te
 				</ToggleGroupItem>
 			</ToggleGroup>
 		</CodeToolbar>
-		<motion.div className="mermaid-viewport" initial={false} animate={{ height: streaming || reducedMotion ? "auto" : height }}
-			transition={streaming || reducedMotion ? { duration: 0 } : settle}>
+		<motion.div className="mermaid-viewport" initial={false} animate={{ height: streaming ? "auto" : height }}
+			transition={streaming ? { duration: 0 } : settle}>
 			<div ref={content}>
 				{!streaming && (pending ? <p className="mermaid-status" role="status">正在渲染图表…</p>
 					: error && <p className="mermaid-status mermaid-error" role="alert">图表渲染失败：{error.slice(0, 400)}</p>)}
 				<div className="mermaid-views">
 					{url && <motion.div className="mermaid-view mermaid-picture" initial={{ opacity: 0 }} animate={{ opacity: showSource ? 0 : 1 }}
-						transition={contentTransition} inert={showSource} aria-hidden={showSource}>
+						transition={fade.transition} inert={showSource} aria-hidden={showSource}>
 						<ImagePreviewButton src={url} alt="Mermaid 图表"><img src={url} alt="Mermaid 图表" draggable={false} /></ImagePreviewButton>
 					</motion.div>}
 					<motion.div className="mermaid-view" initial={false} animate={{ opacity: showSource ? 1 : 0 }}
-						transition={contentTransition} inert={!showSource} aria-hidden={!showSource}>
+						transition={fade.transition} inert={!showSource} aria-hidden={!showSource}>
 						<pre tabIndex={0} aria-label="Mermaid 源码"><code>{text.replace(/\n$/, "")}</code></pre>
 					</motion.div>
 				</div>
 			</div>
 		</motion.div>
-	</div></MotionConfig>;
+	</div>;
 });

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
+import { animate, motion, useMotionValue } from "motion/react";
 import type { GuiSessionActivity } from "../../../shared/protocol/state.ts";
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -8,11 +8,10 @@ const characters = (text: string) => Array.from(segmenter.segment(text), ({ segm
 export function SessionTitle({ title, state }: { title: string; state: GuiSessionActivity["titleGeneration"] }) {
 	const previous = useRef({ title, state });
 	const display = useMotionValue(title);
-	const reducedMotion = useReducedMotion();
 	useLayoutEffect(() => {
 		const before = previous.current;
 		previous.current = { title, state };
-		if (reducedMotion || before.state !== "generating" || state !== "complete" || before.title === title) {
+		if (before.state !== "generating" || state !== "complete" || before.title === title) {
 			display.set(title);
 			return;
 		}
@@ -27,9 +26,9 @@ export function SessionTitle({ title, state }: { title: string; state: GuiSessio
 				: newText.slice(0, Math.floor(count)).join("")),
 		});
 		return () => animation.stop();
-	}, [title, state, reducedMotion, display]);
+	}, [title, state, display]);
 	const generating = state === "generating";
-	return <span className={`session-title-text${generating ? " motion-safe:animate-pulse" : ""}`}
+	return <span className={`session-title-text${generating ? " animate-pulse" : ""}`}
 		aria-busy={generating} title={generating ? "正在生成标题…" : undefined}>
 		<span className="session-title-target">{title}</span>
 		<motion.span className="session-title-display" aria-hidden="true">{display}</motion.span>

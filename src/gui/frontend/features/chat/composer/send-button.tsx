@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, CornerUpRight, ListEnd } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { FilledSquare } from "@/ui/icon-shapes.ts";
-import { animate, motion, useDragControls, useMotionValue, useReducedMotion, useTransform } from "motion/react";
+import { animate, motion, useDragControls, useMotionValue, useTransform } from "motion/react";
 import { Button } from "@/ui/button.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
 import "./send-button.css";
@@ -44,7 +44,6 @@ function bandPath(x: number, y: number, padRadius: number) {
 }
 
 export function SendButton({ mode, disabled, onActivate }: SendButtonProps) {
-	const reducedMotion = useReducedMotion();
 	const controls = useDragControls();
 	const x = useMotionValue(0);
 	const y = useMotionValue(0);
@@ -57,7 +56,7 @@ export function SendButton({ mode, disabled, onActivate }: SendButtonProps) {
 	const cancelled = useRef(false);
 	const gestureMode = useRef(mode);
 	const pull = useRef({ x: 0, y: 0 });
-	const enabled = !disabled && !reducedMotion;
+	const enabled = !disabled;
 	const { label, icon } = variants[mode];
 	const maxPull = diameter * armRatio * 1.1;
 	const distance = useTransform(() => Math.hypot(x.get(), y.get()));

@@ -1,26 +1,32 @@
-import { memo, type Ref } from "react";
+import { memo } from "react";
 import { KeyRound, Plus, RefreshCw, Settings, Cpu } from "lucide-react";
 import { Gauge, LoaderCircle, PanelLeftClose, PanelLeftOpen } from "lucide";
 import { MorphIcon } from "morphicons/react";
+import { motion, type MotionStyle } from "motion/react";
 import type { SidebarView } from "./controls.ts";
 import type { GuiAction } from "../../shared/protocol/actions.ts";
 import { SidebarWorkbench } from "./sidebar-workbench.tsx";
+import { useSectionEntrance } from "./welcome/startup-entrance.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
 import { WorkspacePicker } from "@/features/workspace/workspace-picker.tsx";
 import { SheetClose, SheetContent, SheetTitle } from "@/ui/sheet.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
 
-export const Sidebar = memo(function Sidebar({ ref, gui, collapsed, toggle, close }: { ref: Ref<HTMLElement>; gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void }) {
+export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: {
+	gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void;
+}) {
+	const entrance = useSectionEntrance("left");
+	const section = entrance ? { style: entrance } : undefined;
 	const act = (action: GuiAction) => { close(); void gui.send(action); };
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
-	const content = (compact: boolean, mobile: boolean) => <>
-		<div className="sidebar-brand">
+	const content = (compact: boolean, mobile: boolean, props?: { style: MotionStyle }) => <>
+		<motion.div className="sidebar-brand" {...props}>
 			<span className="brand" aria-hidden={compact}><span className="app-logo" aria-hidden="true" /><span>opi</span><small>workspace</small></span>
 			{mobile ? <SheetClose asChild><IconButton label="关闭菜单"><MorphIcon icon={PanelLeftClose} spring="smooth" size="1em" /></IconButton></SheetClose>
 				: <IconButton label={compact ? "展开侧栏" : "收起侧栏"} onClick={toggle} aria-expanded={!compact}><MorphIcon icon={compact ? PanelLeftOpen : PanelLeftClose} spring="smooth" size="1em" /></IconButton>}
-		</div>
-		<div className="sidebar-navigation">
+		</motion.div>
+		<motion.div className="sidebar-navigation" {...props}>
 			<div className="sidebar-expanded" inert={compact} aria-hidden={compact}>
 				<SidebarWorkbench key={gui.cwd} gui={gui} close={close} />
 			</div>
@@ -33,8 +39,8 @@ export const Sidebar = memo(function Sidebar({ ref, gui, collapsed, toggle, clos
 					</Hint>
 				</div>
 			</div>}
-		</div>
-		<div className="sidebar-footer">
+		</motion.div>
+		<motion.div className="sidebar-footer" {...props}>
 			<IconButton label="设置" disabled={!gui.connected} onClick={() => open("settings")}><Settings /></IconButton>
 			<IconButton label="认证" disabled={!gui.canSubmit} onClick={() => open("auth")}><KeyRound /></IconButton>
 			<IconButton label="模型" disabled={!gui.canSubmit} onClick={() => open("model")}><Cpu /></IconButton>
@@ -44,10 +50,10 @@ export const Sidebar = memo(function Sidebar({ ref, gui, collapsed, toggle, clos
 				<MorphIcon icon={gui.usageLoading ? LoaderCircle : Gauge} spring="smooth" size="1em" className={gui.usageLoading ? "animate-spin" : undefined} />
 			</IconButton>
 			<IconButton label="重载资源" disabled={!gui.canChangeSession} onClick={() => act({ action: "reload" })}><RefreshCw /></IconButton>
-		</div>
+		</motion.div>
 	</>;
 	return <>
-		<aside ref={ref} className="sidebar" aria-label="侧栏" data-collapsed={collapsed}>{content(collapsed, false)}</aside>
+		<aside className="sidebar" aria-label="侧栏" data-collapsed={collapsed}>{content(collapsed, false, section)}</aside>
 		<SheetContent className="mobile-sidebar" aria-describedby={undefined}>
 			<SheetTitle className="sr-only">工作空间导航</SheetTitle>{content(false, true)}
 		</SheetContent>
