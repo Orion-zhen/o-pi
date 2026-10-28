@@ -16,6 +16,7 @@ export function applyMotionTokens() {
 
 export const settle = { type: "spring", duration: layout, bounce: 0 } satisfies Transition;
 export const feedback = { duration: layout, ease } as const;
+export const controlShift = { duration: 0.4, ease } as const;
 export const listDepth = {
 	hidden: { transform: "perspective(700px) translateZ(-32px)", filter: "blur(3px) opacity(0)" },
 	visible: { transform: "perspective(700px) translateZ(0px)", filter: "blur(0px) opacity(1)" },

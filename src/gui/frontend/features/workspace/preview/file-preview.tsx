@@ -1,7 +1,9 @@
 import { lazy, Suspense, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "@/ui/motion/animated.tsx";
-import { WrapText, X } from "lucide-react";
+import { X } from "lucide-react";
+import { AlignLeft, WrapText } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { nativeFileEvents } from "../native-file.ts";
 import { ReferenceFileButton } from "../reference-file-button.tsx";
 import type { FilePreview as Preview } from "../../../../shared/workspace.ts";
@@ -59,7 +61,9 @@ export function FilePreviewPanel({ cwd, setError, preview: selection, referenceF
 				<Button variant="ghost" size="sm" aria-pressed={!diff} onClick={() => setMode("content")}>内容</Button>
 				<Button variant="ghost" size="sm" aria-pressed={diff} onClick={() => setMode("diff")}>差异</Button>
 			</div>}
-			{!media && <IconButton label="自动折行" size="icon-sm" aria-pressed={wrap} onClick={() => setWrap(!wrap)}><WrapText /></IconButton>}
+			{!media && <IconButton label="自动折行" size="icon-sm" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>
+				<MorphIcon icon={wrap ? WrapText : AlignLeft} spring="smooth" size="1em" />
+			</IconButton>}
 			<ReferenceFileButton path={selection.path} referenceFile={referenceFile} direction={-1} disabled={!preview || preview.content.kind === "deleted"} />
 			<IconButton label="关闭文件预览" size="icon-sm" onClick={close}><X /></IconButton>
 		</div>

@@ -1,6 +1,7 @@
 .animated-background-target { position: relative; isolation: isolate; }
 .animated-background { position: absolute; inset: -1px; z-index: -1; border: 1px solid transparent; border-radius: inherit; background: var(--selected); pointer-events: none; }
 .transition-panel { position: relative; min-inline-size: 0; overflow: clip; }
+.transition-panel[data-axis="y"] { display: inline-grid; }
 .text-morph { display: inline-block; position: relative; }
 .text-morph-character { display: inline-block; white-space: pre; }
 .animated-number { display: inline-grid; font-variant-numeric: tabular-nums; }

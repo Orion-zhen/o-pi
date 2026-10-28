@@ -1,4 +1,6 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { cancelFrame, frame, resize } from "motion";
+import { motion } from "motion/react";
 import { Cpu } from "lucide-react";
 import { Rocket, Zap } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -6,19 +8,43 @@ import { CODEX_SPEEDS, type CodexSpeed } from "../../../../harness/codex-speed/s
 import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Hint } from "@/ui/tooltip.tsx";
+import { TransitionPanel } from "@/ui/motion/transition-panel.tsx";
+import { TextMorph } from "@/ui/motion/text-morph.tsx";
+import { controlShift } from "@/ui/motion/transitions.ts";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/ui/select.tsx";
 import "./models.css";
 
 const manageModels = "manage-models";
 
 function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send: Send; disabled: boolean }) {
+	const text = useRef<HTMLSpanElement>(null);
+	const [textWidth, setTextWidth] = useState<number>();
+	const accelerated = speed !== "normal";
+	useEffect(() => {
+		if (!text.current) return;
+		let width: number;
+		const update = () => setTextWidth(width);
+		const stop = resize(text.current, (_, size) => {
+			width = size.width;
+			frame.update(update);
+		});
+		return () => { stop(); cancelFrame(update); };
+	}, []);
 	return (
 		<Select value={speed} disabled={disabled} onValueChange={(value) => {
 			const next = CODEX_SPEEDS.find((speed) => speed === value);
 			if (next) void send({ action: "codexSpeed", speed: next });
 		}}>
 			<Hint content={`模型速度：${speed}`}><SelectTrigger className="codex-speed" data-speed={speed} aria-label={`模型速度：${speed}`}>
-				<span className="codex-speed-label"><MorphIcon icon={speed === "ultrafast" ? Rocket : Zap} spring="smooth" size="1em" />{speed !== "normal" && <span>{speed}</span>}</span>
+				<span className="codex-speed-label">
+					<motion.span className="codex-speed-icon" initial={false} animate={{ x: accelerated ? -3 : 0 }} transition={controlShift}>
+						<MorphIcon icon={speed === "ultrafast" ? Rocket : Zap} spring="smooth" size="1em" />
+					</motion.span>
+					<motion.span className="codex-speed-text" initial={false}
+						animate={{ width: accelerated ? textWidth ?? "auto" : 0, marginLeft: accelerated ? "0.5em" : "0em" }} transition={controlShift}>
+						<span ref={text} className="codex-speed-text-content"><TextMorph transition={controlShift}>{accelerated ? speed : ""}</TextMorph></span>
+					</motion.span>
+				</span>
 			</SelectTrigger></Hint>
 			<SelectContent>
 				{CODEX_SPEEDS.map((speed) => <SelectItem key={speed} value={speed}>{speed}</SelectItem>)}
@@ -45,7 +71,9 @@ export function ThinkingControl({
 				if (level) void send({ action: "thinking", level });
 			}}
 		>
-			<SelectTrigger aria-label="思考级别"><SelectValue /></SelectTrigger>
+			<SelectTrigger aria-label="思考级别"><SelectValue>
+				<TransitionPanel activeIndex={snapshot.thinkingLevels.indexOf(snapshot.thinking)} axis="y">{snapshot.thinking}</TransitionPanel>
+			</SelectValue></SelectTrigger>
 			<SelectContent>
 				{snapshot.thinkingLevels.map((level) => (
 					<SelectItem key={level} value={level}>{level}</SelectItem>

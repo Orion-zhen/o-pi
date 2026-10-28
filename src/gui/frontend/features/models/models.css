@@ -15,8 +15,11 @@
 .model-controls [data-slot="select-trigger"] { flex-shrink: 0; min-inline-size: 0; max-inline-size: 100%; font-size: var(--text-caption); }
 .model-controls [data-slot="select-trigger"].model-control { flex-shrink: 1; }
 .codex-speed [data-slot="select-icon"] { display: none; }
-.codex-speed-label { display: inline-flex; align-items: center; gap: 0.5em; }
-.codex-speed-label > svg { inline-size: 1.15em; block-size: 1.15em; flex-shrink: 0; }
+.codex-speed-label { display: inline-flex; align-items: center; overflow: visible; }
+.codex-speed-icon { display: inline-flex; flex-shrink: 0; }
+.codex-speed-icon > svg { inline-size: 1.15em; block-size: 1.15em; }
+.codex-speed-text { overflow: clip; flex-shrink: 0; }
+.codex-speed-text-content { display: block; inline-size: max-content; white-space: nowrap; }
 .panel:has(.model-manager) { max-inline-size: 76ch; }
 .panel-body:has(.model-manager) { display: flex; align-items: flex-start; }
 .model-manager { container-type: inline-size; display: flex; flex: 1; flex-direction: column; min-block-size: 0; min-inline-size: 0; gap: var(--space-4); }
