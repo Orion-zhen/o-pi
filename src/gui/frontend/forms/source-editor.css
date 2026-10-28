@@ -1,0 +1,19 @@
+.settings-source-editor { min-inline-size: 0; overflow: hidden; border: thin solid var(--divider); border-radius: var(--radius-md); background: var(--surface); color: var(--foreground); }
+.settings-source-editor:focus-within { border-color: var(--ring); }
+.settings-source-file { overflow: hidden; padding: var(--space-2) var(--space-3); border-block-end: thin solid var(--divider); color: var(--muted-foreground); font-family: var(--font-mono); font-size: var(--text-small); text-overflow: ellipsis; white-space: nowrap; }
+.settings-source-code .cm-editor { font-size: var(--text-code); }
+.settings-source-code .cm-editor.cm-focused { outline: none; }
+.settings-source-loading { block-size: clamp(12rem, 48dvh, 36rem); }
+.settings-source-code .cm-scroller { overflow: auto; block-size: clamp(12rem, 48dvh, 36rem); font-family: var(--font-mono); line-height: 1.65; overscroll-behavior: contain; }
+.settings-source-code .cm-content { padding-block: var(--space-3); caret-color: var(--foreground); }
+.settings-source-code .cm-line { padding-inline: var(--space-3); }
+.settings-source-code .cm-gutters { border: 0; background: var(--surface); color: var(--muted-foreground); }
+.settings-source-code .cm-lineNumbers .cm-gutterElement { min-inline-size: 3ch; padding-inline: var(--space-3) var(--space-2); }
+.settings-source-code :is(.cm-activeLine, .cm-activeLineGutter) { background: var(--control-surface); }
+.settings-source-code .cm-cursor { border-inline-start-color: var(--foreground); }
+.settings-source-code .cm-editor .cm-selectionBackground { background: var(--accent); }
+.settings-source-code .cm-editor.cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--primary) 22%, transparent); }
+.settings-source-code .cm-editor .cm-matchingBracket { background: var(--accent); outline: thin solid var(--border); }
+.settings-source-editor[data-disabled] .cm-content { opacity: 0.6; }
+.settings-section-source > .settings-section-body { padding: 0; border: 0; background: transparent; }
+.settings-section-source > .settings-section-body > .settings-source-editor { margin: 0; }

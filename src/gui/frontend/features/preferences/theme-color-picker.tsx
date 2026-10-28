@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { ChevronDown, RotateCcw } from "lucide-react";
 import { Button } from "@/ui/button.tsx";
 import { Input } from "@/ui/input.tsx";
@@ -9,7 +9,7 @@ import { fromHsl, hex, toHex, toHsl, type Hsl } from "@/ui/theme/color.ts";
 import "./theme-color-picker.css";
 
 const presets = ["#8E8E93", "#FF3B30", "#FF9500", "#FFCC00", "#34C759", "#00C7BE", "#30B0C7", "#32ADE6", "#007AFF", "#5856D6", "#AF52DE", "#FF2D55"];
-type Props = { savedValue: string; value: string; defaultValue: string; disabled: boolean; change: (color: string) => Promise<boolean> };
+type Props = { savedValue: string; value: string; defaultValue: string; disabled: boolean; change: (color: string) => void };
 
 export function ThemeColorPicker(props: Props) {
 	return <Popover><PopoverTrigger asChild>
@@ -24,7 +24,6 @@ export function ThemeColorPicker(props: Props) {
 function ThemeColorEditor({ savedValue, value, defaultValue, disabled, change }: Props) {
 	const [hsl, setHsl] = useState<Hsl>(() => toHsl(hex(value)));
 	const [draft, setDraft] = useState(value.toUpperCase());
-	const saving = useRef(false);
 	const color = toHex(fromHsl(hsl));
 	useEffect(() => {
 		setHsl((current) => toHex(fromHsl(current)) === value.toUpperCase() ? current : toHsl(hex(value)));
@@ -35,16 +34,13 @@ function ThemeColorEditor({ savedValue, value, defaultValue, disabled, change }:
 		return () => applyThemeColor(savedValue);
 	}, [color, savedValue]);
 	const preview = (next: Hsl) => { setHsl(next); setDraft(toHex(fromHsl(next))); };
-	const save = async (next: string) => {
-		if (disabled || saving.current || next === value.toUpperCase()) return;
-		saving.current = true;
-		try {
-			if (!await change(next)) preview(toHsl(hex(value)));
-		} finally { saving.current = false; }
+	const save = (next: string) => {
+		if (disabled || next === value.toUpperCase()) return;
+		change(next);
 	};
-	const select = (next: string) => { preview(toHsl(hex(next))); void save(next); };
+	const select = (next: string) => { preview(toHsl(hex(next))); save(next); };
 	const valid = /^#[\da-f]{6}$/i.test(draft);
-	const commitHex = () => { if (valid) void save(draft.toUpperCase()); };
+	const commitHex = () => { if (valid) save(draft.toUpperCase()); };
 	const sliders = [
 		{ index: 0, label: "色相", max: 360, unit: "°", background: "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" },
 		{ index: 1, label: "饱和度", max: 100, unit: "%", background: `linear-gradient(to right, hsl(${hsl[0]} 0% ${hsl[2]}%), hsl(${hsl[0]} 100% ${hsl[2]}%))` },
@@ -66,7 +62,7 @@ function ThemeColorEditor({ savedValue, value, defaultValue, disabled, change }:
 					const next: [number, number, number] = [...hsl];
 					next[index] = Number(event.target.value);
 					preview(next);
-				}} onPointerUp={() => void save(color)} onKeyUp={() => void save(color)} onBlur={() => void save(color)} />
+				}} onPointerUp={() => save(color)} onKeyUp={() => save(color)} onBlur={() => save(color)} />
 		</label>)}
 		<label className="theme-color-hex"><span>HEX</span><Input aria-label="主题色 HEX" value={draft} disabled={disabled} spellCheck={false}
 			maxLength={7} aria-invalid={!valid} onChange={(event) => {

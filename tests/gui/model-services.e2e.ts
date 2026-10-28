@@ -32,7 +32,7 @@ test("编辑服务、增删模型和切换 JSON 共用草稿，保存与放弃�
 	const local = pane.getByRole("article", { name: "模型服务 local", exact: true });
 	await local.getByLabel("服务名称", { exact: true }).fill("本地模型");
 	await local.getByLabel("API 地址", { exact: true }).fill("https://user:password@example.com/v1?key=secret");
-	await expect(local.getByRole("button", { name: "编辑服务 local", exact: true })).toHaveText("本地模型local · example.com · Chat Completions");
+	await expect(local.getByRole("button", { name: "编辑服务 local", exact: true })).toHaveText("本地模型localexample.com·Chat Completions");
 	await local.getByRole("button", { name: "添加模型", exact: true }).click();
 	await local.getByLabel("模型 ID", { exact: true }).fill("reasoning-model");
 	await local.getByRole("button", { name: "添加", exact: true }).click();
@@ -65,7 +65,7 @@ test("编辑服务、增删模型和切换 JSON 共用草稿，保存与放弃�
 	await base.getByRole("button", { name: "确认删除模型 base", exact: true }).click();
 	await expect(base).toHaveCount(0);
 	await pane.getByRole("button", { name: "JSON", exact: true }).click();
-	expect(parse(await pane.getByLabel("模型服务 JSON").inputValue()).providers.local.models.map(({ id }: { id: string }) => id)).toEqual(["reasoning-model"]);
+	expect(parse(await pane.getByLabel("模型服务 JSON").innerText()).providers.local.models.map(({ id }: { id: string }) => id)).toEqual(["reasoning-model"]);
 	await pane.getByRole("button", { name: "表单", exact: true }).click();
 	await expect(base).toHaveCount(0);
 	await save(page);
@@ -467,7 +467,7 @@ test("损坏配置可修复，冲突和非法字段保留草稿", async ({ gui: 
 	await open(page);
 	const pane = services(page);
 	const source = pane.getByLabel("模型服务 JSON");
-	await expect(source).toHaveValue(initial);
+	await expect(source).toHaveText(initial);
 	const form = pane.getByRole("button", { name: "表单", exact: true });
 	await expect(form).toBeDisabled();
 	await source.fill("{");
@@ -487,9 +487,9 @@ test("损坏配置可修复，冲突和非法字段保留草稿", async ({ gui: 
 	await expect(retries).toHaveValue("-1");
 	await expect(source).toHaveCount(0);
 	await pane.getByRole("button", { name: "JSON", exact: true }).click();
-	await expect(source).toHaveValue(initial);
+	await expect(source).toHaveText(initial);
 	await expect(form).toBeDisabled();
-	const repaired = parse(await source.inputValue());
+	const repaired = parse(await source.innerText());
 	repaired.providers.local.maxRetries = 0;
 	await source.fill(JSON.stringify(repaired));
 	await form.click();
@@ -501,6 +501,6 @@ test("损坏配置可修复，冲突和非法字段保留草稿", async ({ gui: 
 	await expect(pane.getByLabel("重试次数", { exact: true })).toHaveValue("0");
 	expect(await readFile(file, "utf8")).toBe('{"providers":{}}');
 	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
-	await expect(source).toHaveValue(initial);
+	await expect(source).toHaveText(initial);
 	await expect(form).toBeDisabled();
 });

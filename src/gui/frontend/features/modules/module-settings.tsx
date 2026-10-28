@@ -9,7 +9,7 @@ import type { Query, GlobalQuery } from "../../../shared/protocol/queries.ts";
 import type { ModuleConfigId } from "../../../shared/config/modules.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Button } from "@/ui/button.tsx";
-import { Textarea } from "@/ui/textarea.tsx";
+import { SourceEditor } from "@/forms/source-editor.tsx";
 import { moduleGroups, type ConfigField } from "./module-fields.ts";
 import { FieldControl } from "./field-control.tsx";
 import { useTextConfigDraft } from "@/forms/use-text-config-draft.ts";
@@ -93,9 +93,9 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 		</SettingsRow>;
 	})}</div>;
 	return <div className="settings-module">
-		{source || parsed.error ? <SettingsSection key="main" title={title} actions={sourceButton}>
+		{source || parsed.error ? <SettingsSection key="main" title={title} actions={sourceButton} source={source}>
 			{parsed.error && <p role="alert">{parsed.error}</p>}
-			{source && <Textarea aria-label={`${id} 全局 JSONC`} className="settings-source" value={draft} disabled={blocked} onChange={(event) => editor.changeSource(event.target.value)} />}
+			{source && <SourceEditor file={document.path} label={`${id} 全局 JSONC`} value={draft} disabled={blocked} onChange={editor.changeSource} />}
 		</SettingsSection> : moduleGroups[id].map((group, index) => group.advanced
 			? <SettingsDisclosure key={group.title} title={group.title}>{fields(group.fields)}</SettingsDisclosure>
 			: <SettingsSection key={index === 0 ? "main" : group.title} title={group.title} actions={<>

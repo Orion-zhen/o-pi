@@ -16,8 +16,8 @@ export function SettingsHeading({ title, children }: { title: string; children?:
 	</header>;
 }
 
-export function SettingsSection({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
-	return <section className="settings-section" aria-label={title}>
+export function SettingsSection({ title, actions, children, source = false }: { title: string; actions?: ReactNode; children: ReactNode; source?: boolean }) {
+	return <section className={`settings-section${source ? " settings-section-source" : ""}`} aria-label={title}>
 		<header className="settings-group-heading"><h3>{title}</h3>{actions && <div className="settings-heading-actions">{actions}</div>}</header>
 		<div className="settings-section-body">{children}</div>
 	</section>;

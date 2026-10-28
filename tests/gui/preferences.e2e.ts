@@ -4,6 +4,61 @@ import path from "node:path";
 import { parse } from "jsonc-parser";
 import { selectSetting, selectSettingsCategory } from "./settings-steps.ts";
 
+test("主题色与字体同步更新草稿，统一保存前不写文件", async ({ gui: { page }, workspace: { agentDir } }) => {
+	const file = path.join(agentDir, "configs", "gui.jsonc");
+	const original = '{"fonts":{"ui":[]}}\n';
+	await writeFile(file, original);
+	if ((page.viewportSize()?.width ?? 1200) < 768) await page.getByRole("button", { name: "菜单", exact: true }).click();
+	await page.getByRole("button", { name: "设置", exact: true }).click();
+	const settings = page.getByRole("dialog", { name: "设置", exact: true });
+	const color = settings.getByRole("button", { name: "主题色", exact: true });
+	const originalColor = await color.innerText();
+	const primary = () => page.locator("html").evaluate((element) => element.style.getPropertyValue("--primary"));
+	const originalPrimary = await primary();
+	await color.click();
+	await page.getByRole("button", { name: "主题色 #FF3B30", exact: true }).click();
+	await expect(color).toHaveText("#FF3B30");
+	await page.getByRole("button", { name: "主题色 #34C759", exact: true }).click();
+	await expect(color).toHaveText("#34C759");
+	await expect.poll(primary).not.toBe(originalPrimary);
+	await color.click();
+	await expect.poll(primary).toBe(originalPrimary);
+	expect(await readFile(file, "utf8")).toBe(original);
+	await settings.getByRole("button", { name: "放弃", exact: true }).click();
+	await expect(color).toHaveText(originalColor);
+	await color.click();
+	await page.getByRole("button", { name: "主题色 #34C759", exact: true }).click();
+	await color.click();
+
+	const fonts = settings.getByRole("button", { name: "界面字体", exact: true });
+	await fonts.click();
+	const fontPicker = page.getByRole("dialog", { name: "界面字体链", exact: true });
+	const input = fontPicker.getByRole("combobox", { name: "添加界面字体", exact: true });
+	await input.fill("Draft Sans");
+	await input.press("Enter");
+	await expect(input).toHaveValue("");
+	await input.fill("draft sans");
+	await expect(fontPicker.getByRole("button", { name: "添加", exact: true })).toBeDisabled();
+	await input.fill("Fallback Sans");
+	await input.press("Enter");
+	await expect(input).toHaveValue("");
+	await fontPicker.getByRole("button", { name: "上移 Fallback Sans", exact: true }).click();
+	await expect(fonts).toHaveText("Fallback Sans, Draft Sans");
+	await fontPicker.getByRole("button", { name: "修改字体 Fallback Sans", exact: true }).click();
+	const editing = fontPicker.getByRole("combobox", { name: "修改界面字体", exact: true });
+	await editing.fill("Updated Sans");
+	await editing.press("Enter");
+	await expect(editing).toHaveCount(0);
+	await fontPicker.getByRole("button", { name: "删除 Draft Sans", exact: true }).click();
+	await expect(fonts).toHaveText("Updated Sans");
+	await fonts.click();
+	expect(await readFile(file, "utf8")).toBe(original);
+	await settings.getByRole("button", { name: "保存", exact: true }).click();
+	await expect(settings.getByRole("status", { name: "已保存", exact: true })).toBeVisible();
+	await expect(settings.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+	expect(parse(await readFile(file, "utf8"))).toEqual({ themeColor: "#34C759", fonts: { ui: ["Updated Sans"] } });
+});
+
 test("分类草稿、关闭确认、保存与刷新恢复", async ({ gui: { page }, workspace: { agentDir } }) => {
 	const open = async () => {
 		if ((page.viewportSize()?.width ?? 1200) < 768) await page.getByRole("button", { name: "菜单", exact: true }).click();

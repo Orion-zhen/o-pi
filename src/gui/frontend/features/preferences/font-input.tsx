@@ -7,13 +7,12 @@ import { fontFamily } from "./use-preferences.ts";
 
 export function FontInput({ kind, fonts, selected, disabled, initial = "", commit, cancel }: {
 	kind: "ui" | "code"; fonts: string[] | undefined; selected: string[]; disabled: boolean; initial?: string;
-	commit: (font: string) => Promise<boolean>; cancel?: () => void;
+	commit: (font: string) => void; cancel?: () => void;
 }) {
 	const [draft, setDraft] = useState(initial);
 	const [expanded, setExpanded] = useState(false);
 	const [active, setActive] = useState(-1);
 	const input = useRef<HTMLInputElement>(null);
-	const pending = useRef(false);
 	const id = useId();
 	const name = draft.trim();
 	const alreadySelected = (font: string) => selected.some((value) => value.toLowerCase() === font.toLowerCase());
@@ -21,17 +20,13 @@ export function FontInput({ kind, fonts, selected, disabled, initial = "", commi
 	const options = matches.map((font) => ({ font, custom: false }));
 	if (name && !matches.some((font) => font.toLowerCase() === name.toLowerCase())) options.push({ font: name, custom: true });
 	const listOpen = expanded && options.length > 0;
-	const save = async (font: string) => {
-		if (disabled || pending.current || !font || alreadySelected(font)) return;
-		pending.current = true;
-		try {
-			if (await commit(font)) {
-				setDraft("");
-				setExpanded(false);
-				setActive(-1);
-				input.current?.focus();
-			}
-		} finally { pending.current = false; }
+	const save = (font: string) => {
+		if (disabled || !font || alreadySelected(font)) return;
+		commit(font);
+		setDraft("");
+		setExpanded(false);
+		setActive(-1);
+		input.current?.focus();
 	};
 	return <div className="font-input">
 		<div className="font-input-controls">
@@ -51,7 +46,7 @@ export function FontInput({ kind, fonts, selected, disabled, initial = "", commi
 						else setDraft("");
 					} else if (event.key === "Enter") {
 						event.preventDefault();
-						void save((listOpen ? options[active]?.font : undefined) ?? name);
+						save((listOpen ? options[active]?.font : undefined) ?? name);
 					} else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 						event.preventDefault(); setExpanded(true);
 						const available = options.flatMap((option, index) => alreadySelected(option.font) ? [] : [index]);
@@ -64,14 +59,14 @@ export function FontInput({ kind, fonts, selected, disabled, initial = "", commi
 						}
 					}
 				}} />
-			{cancel ? <Button size="sm" disabled={disabled || !name || alreadySelected(name)} onClick={() => void save(name)}>保存</Button>
-				: <IconButton size="icon-sm" label="添加" disabled={disabled || !name || alreadySelected(name)} onClick={() => void save(name)}><Plus /></IconButton>}
+			{cancel ? <Button size="sm" disabled={disabled || !name || alreadySelected(name)} onClick={() => save(name)}>保存</Button>
+				: <IconButton size="icon-sm" label="添加" disabled={disabled || !name || alreadySelected(name)} onClick={() => save(name)}><Plus /></IconButton>}
 			{cancel && <IconButton size="icon-sm" label="取消修改字体" disabled={disabled} onClick={cancel}><X /></IconButton>}
 		</div>
 		{listOpen && <div id={id} className="font-list" role="listbox" aria-label="字体补全">
 			{options.map(({ font, custom }, index) => <button key={font} id={`${id}-${index}`} type="button" role="option" tabIndex={-1}
 				aria-selected={active === index} disabled={disabled || alreadySelected(font)}
-				onMouseDown={(event) => event.preventDefault()} onClick={() => void save(font)}>
+				onMouseDown={(event) => event.preventDefault()} onClick={() => save(font)}>
 				<span style={custom ? undefined : { fontFamily: fontFamily([font], kind) }}>{custom ? `使用自定义字体名 “${font}”` : font}</span>
 				{(!custom || alreadySelected(font)) && <small>{alreadySelected(font) ? "已添加" : "本机"}</small>}
 			</button>)}

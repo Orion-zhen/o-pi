@@ -9,7 +9,7 @@ import { Switch } from "@/ui/switch.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
 import { ConfirmAction } from "@/ui/confirm-action.tsx";
-import { Textarea } from "@/ui/textarea.tsx";
+import { SourceEditor } from "@/forms/source-editor.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { useConfigDraft } from "@/forms/use-config-draft.ts";
 import { SettingsSection, SettingsSourceButton } from "@/forms/settings-controls.tsx";
@@ -102,7 +102,7 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 			{content === undefined && <p role="alert">请修正重复的服务名或键，再切换 JSON。</p>}
 		</>;
 	}
-	return <SettingsSection title="MCP 服务" actions={document && <SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || content === undefined || (sourceView && value === undefined)} onClick={() => {
+	return <SettingsSection title="MCP 服务" source={sourceView} actions={document && <SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || content === undefined || (sourceView && value === undefined)} onClick={() => {
 		if (content === undefined) return;
 		const next = dirty ? content : document.content;
 		const sourceEdited = dirty && state.sourceEdited;
@@ -113,14 +113,12 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 			{error ? <p role="alert">{error}</p> : <p role="status">读取中…</p>}
 			{error && <Button variant="ghost" onClick={editor.reload}>重试</Button>}
 		</> : <>
-			<p className="settings-description">全局配置 · 新会话或 /reload 后生效。此处开关不表示连接状态。</p>
-			{sourceView ? <>
-				<p className="settings-warning">JSON 会显示明文凭据。语法损坏时请先修复，再切换到表单。</p>
-				<Textarea className="settings-source" aria-label="全局 MCP JSON" value={content} disabled={blocked} onChange={(event) => editor.change(readMcpSource(event.target.value, document.content))} />
+			{!sourceView && <p className="settings-description">全局配置 · 新会话或 /reload 后生效。此处开关不表示连接状态。</p>}
+			{state.mode === "source" ? <>
+				<SourceEditor file={document.path} label="全局 MCP JSON" value={state.content} disabled={blocked} onChange={(content) => editor.change(readMcpSource(content, document.content))} />
 				{sourceErrors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
 			</> : form}
-			<p className="settings-description">仅配置可信服务。遮蔽不加密配置文件，凭据建议使用 ${"{ENV_NAME}"}。受信任项目的同名配置可能覆盖全局配置。</p>
-			{dirty && <p className="settings-description">修改尚未保存，请使用设置页的“保存”。</p>}
+			{!sourceView && <p className="settings-description">仅配置可信服务。遮蔽不加密配置文件，凭据建议使用 ${"{ENV_NAME}"}。受信任项目的同名配置可能覆盖全局配置。</p>}
 			{error && <p role="alert">{error}</p>}
 		</>}
 	</SettingsSection>;

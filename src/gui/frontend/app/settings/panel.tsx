@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AgentSettings } from "@/features/sessions/settings.tsx";
 import { NotificationSettings } from "@/features/preferences/notifications.tsx";
 import { GuiSettings } from "@/features/preferences/gui-settings.tsx";
+import { GuiSettingsProvider } from "@/features/preferences/gui-settings-state.tsx";
 import { ModuleSettings } from "@/features/modules/module-settings.tsx";
 import { LspServers } from "@/features/workspace/lsp-servers.tsx";
 import { McpSettings } from "@/features/mcp/mcp-settings.tsx";
@@ -22,9 +23,9 @@ import { settingsCategories, type SettingsCategory } from "./navigation.ts";
 import { SettingsCategoryContext, SettingsStateContext, useSettingsCoordinator } from "@/forms/drafts.tsx";
 import "./settings.css";
 
-export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabled, connected, refreshGuiConfig, restoreFocus, onDirty, initialCategory }: {
+export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabled, connected, refreshGuiConfig, onDirty, initialCategory }: {
 	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; query: Query; globalQuery: Query<GlobalQuery>;
-	disabled: boolean; connected: boolean; refreshGuiConfig: () => Promise<void>; restoreFocus: () => void;
+	disabled: boolean; connected: boolean; refreshGuiConfig: () => Promise<void>;
 	onDirty: (dirty: boolean) => void;
 	initialCategory?: "mcp" | undefined;
 }) {
@@ -48,14 +49,13 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 	};
 	const module = (id: ModuleConfigId, title: string) => <ModuleSettings id={id} title={title} query={globalQuery} send={send}
 		disabled={!connected} models={snapshot?.models ?? []} tools={snapshot?.tools ?? null} currentModel={snapshot?.model ?? null} />;
-	const guiProps = { document: guiConfig, send, query: globalQuery, disabled: !connected, refresh: refreshGuiConfig, restoreFocus };
 	const content = (id: SettingsCategory) => {
 		switch (id) {
-			case "appearance": return <GuiSettings title="外观" section="appearance" {...guiProps} />;
+			case "appearance": return <GuiSettings title="外观" section="appearance" />;
 			case "conversation": return <>
-				<GuiSettings title="对话交互" section="interaction" {...guiProps} />
+				<GuiSettings title="对话交互" section="interaction" />
 				<NotificationSettings />
-				{snapshot ? <AgentSettings key={snapshot.sessionId} snapshot={snapshot} send={send} query={query} disabled={disabled} restoreFocus={restoreFocus} />
+				{snapshot ? <AgentSettings key={snapshot.sessionId} settings={snapshot.settings} send={send} query={query} disabled={disabled} />
 					: <SettingsSection title="会话行为"><p className="settings-empty">未选择工作区</p></SettingsSection>}
 				{module("autoTitle", "自动标题")}
 			</>;
@@ -69,7 +69,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 			case "security": return module("approvalGate", "权限与安全");
 			case "connections": return <>
 				<McpSettings query={globalQuery} send={send} disabled={!connected} />
-				<GuiSettings title="桌面 Web 访问" section="desktopWeb" {...guiProps} />
+				<GuiSettings title="桌面 Web 访问" section="desktopWeb" />
 				{module("discordPresence", "Discord 状态")}
 			</>;
 			case "storage": return <StorageSettings query={globalQuery} send={send} connected={connected} active={category === "storage"} />;
@@ -77,6 +77,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 		}
 	};
 	return <SettingsStateContext value={state}>
+		<GuiSettingsProvider document={guiConfig} send={send} query={globalQuery} disabled={!connected} refresh={refreshGuiConfig}>
 		<Tabs.Root className="settings-shell" orientation="vertical" value={category} onValueChange={selectCategory}>
 			<aside className="settings-navigation">
 				<motion.div className="settings-navigation-scroll" layoutScroll>
@@ -107,5 +108,6 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 				</div></SettingsCategoryContext>
 			</motion.div></Tabs.Content>)}
 		</Tabs.Root>
+		</GuiSettingsProvider>
 	</SettingsStateContext>;
 }

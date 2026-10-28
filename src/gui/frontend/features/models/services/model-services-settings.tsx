@@ -7,7 +7,7 @@ import { emptyModelsDocument, isCompatibleService } from "../../../../../harness
 import { modelsConfigIssues } from "../../../../../harness/openai-compatible-provider/validation.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Button } from "@/ui/button.tsx";
-import { Textarea } from "@/ui/textarea.tsx";
+import { SourceEditor } from "@/forms/source-editor.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
 import { SettingsSourceButton } from "@/forms/settings-controls.tsx";
 import { useTextConfigDraft } from "@/forms/use-text-config-draft.ts";
@@ -86,12 +86,11 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 				<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || sourceView && invalid} onClick={toggleSource} />
 			</div>}
 		</header>
-		<p className="settings-description">保存后使用“重载资源”或 /reload 应用到当前会话。</p>
+		{!sourceView && <p className="settings-description">保存后使用“重载资源”或 /reload 应用到当前会话。</p>}
 		{!document ? <>
 			{error ? <><p role="alert">{error}</p><Button variant="ghost" onClick={editor.reload}>重试</Button></> : <p role="status">读取中…</p>}
 		</> : <>
-			{sourceView ? <Textarea className="settings-source" aria-label="模型服务 JSON" value={draft} disabled={blocked} spellCheck={false}
-				onChange={(event) => editor.changeSource(event.target.value)} /> : <>
+			{sourceView ? <SourceEditor file={document.path} label="模型服务 JSON" value={draft} disabled={blocked} onChange={editor.changeSource} /> : <>
 				<AnimatePresence initial={false}>{adding && <Reveal key="add">
 					<AddServiceItem label="服务 ID" existing={Object.keys(providers)} disabled={blocked} cancel={cancel} add={addService} />
 				</Reveal>}</AnimatePresence>

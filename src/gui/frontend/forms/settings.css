@@ -46,9 +46,6 @@
 .settings-list-count { flex-shrink: 0; color: var(--muted-foreground); font-size: var(--text-small); white-space: nowrap; }
 .settings-list-editor textarea { field-sizing: fixed; block-size: 7lh; max-block-size: 35dvh; min-block-size: 3lh; overflow: auto; resize: none; font-family: var(--font-mono); }
 .settings-source { field-sizing: fixed; min-block-size: 8lh; max-block-size: 50dvh; font-family: var(--font-mono); font-size: var(--text-code); resize: vertical; }
-.panel-body:has(> .settings-config-editor) { display: flex; flex-direction: column; }
-.settings-config-editor { flex: 1; }
-.settings-config-editor .settings-source { flex: 1; }
 .settings-popover { display: flex; flex-direction: column; gap: var(--space-3); min-inline-size: 0; max-inline-size: calc(100vw - 2em); max-block-size: var(--radix-popover-content-available-height); overflow: auto; font-size: var(--text-ui); }
 .settings-popover > * { flex-shrink: 0; }
 .settings-popover header p { color: var(--muted-foreground); font-size: var(--text-small); }

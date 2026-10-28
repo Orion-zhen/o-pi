@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, X } from "lucide-react";
 import { Button } from "@/ui/button.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
@@ -9,7 +9,7 @@ import type { LocalFonts } from "./use-local-fonts.ts";
 
 type Props = {
 	kind: "ui" | "code"; value: string[]; disabled: boolean; local: LocalFonts;
-	onChange: (value: string[]) => Promise<boolean>;
+	onChange: (value: string[]) => void;
 };
 
 export function FontPicker(props: Props) {
@@ -30,24 +30,12 @@ export function FontPicker(props: Props) {
 
 function FontChainEditor({ kind, value, disabled, local, onChange }: Props) {
 	const [editing, setEditing] = useState<string>();
-	const [error, setError] = useState("");
-	const pending = useRef(false);
 	useEffect(() => { if (editing && !value.includes(editing)) setEditing(undefined); }, [value, editing]);
-	const save = async (next: string[]) => {
-		if (disabled || pending.current) return false;
-		pending.current = true;
-		setError("");
-		try {
-			const saved = await onChange(next);
-			if (!saved) setError("保存失败，字体链未更改。");
-			return saved;
-		} finally { pending.current = false; }
-	};
 	const move = (font: string, index: number, direction: -1 | 1) => {
 		const next = [...value];
 		next.splice(index, 1);
 		next.splice(index + direction, 0, font);
-		void save(next);
+		onChange(next);
 	};
 	return <>
 		<header><strong>{kind === "ui" ? "界面字体" : "代码字体"}</strong></header>
@@ -61,10 +49,9 @@ function FontChainEditor({ kind, value, disabled, local, onChange }: Props) {
 		<ol className="font-chain" aria-label="字体优先顺序">
 			{value.map((font, index) => <li key={font}>
 				{editing === font ? <FontInput kind={kind} fonts={local.fonts} selected={value.filter((_, position) => position !== index)}
-					disabled={disabled} initial={font} cancel={() => setEditing(undefined)} commit={async (next) => {
-						const saved = next === font || await save(value.map((item, position) => position === index ? next : item));
-						if (saved) setEditing(undefined);
-						return saved;
+					disabled={disabled} initial={font} cancel={() => setEditing(undefined)} commit={(next) => {
+						if (next !== font) onChange(value.map((item, position) => position === index ? next : item));
+						setEditing(undefined);
 					}} /> : <>
 					<span className="font-chain-index" aria-hidden="true">{index + 1}</span>
 					<button type="button" className="font-chain-name" aria-label={`修改字体 ${font}`} disabled={disabled} onClick={() => setEditing(font)}>
@@ -74,11 +61,10 @@ function FontChainEditor({ kind, value, disabled, local, onChange }: Props) {
 					</button>
 					<IconButton size="icon-sm" label={`上移 ${font}`} tooltip="上移" disabled={disabled || index === 0} onClick={() => move(font, index, -1)}><ArrowUp /></IconButton>
 					<IconButton size="icon-sm" label={`下移 ${font}`} tooltip="下移" disabled={disabled || index === value.length - 1} onClick={() => move(font, index, 1)}><ArrowDown /></IconButton>
-					<IconButton size="icon-sm" label={`删除 ${font}`} tooltip="删除字体" disabled={disabled} onClick={() => void save(value.filter((_, position) => position !== index))}><X /></IconButton>
+					<IconButton size="icon-sm" label={`删除 ${font}`} tooltip="删除字体" disabled={disabled} onClick={() => onChange(value.filter((_, position) => position !== index))}><X /></IconButton>
 				</>}
 			</li>)}
 		</ol>
-		{!editing && <FontInput kind={kind} fonts={local.fonts} selected={value} disabled={disabled} commit={(font) => save([...value, font])} />}
-		{error && <p role="alert">{error}</p>}
+		{!editing && <FontInput kind={kind} fonts={local.fonts} selected={value} disabled={disabled} commit={(font) => onChange([...value, font])} />}
 	</>;
 }

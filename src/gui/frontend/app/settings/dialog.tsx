@@ -5,9 +5,9 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/ui/dial
 
 const Settings = lazy(() => import("./panel.tsx").then((module) => ({ default: module.Settings })));
 
-type Props = Omit<ComponentProps<typeof Settings>, "onDirty"> & { ref: Ref<HTMLDivElement>; close: () => void };
+type Props = Omit<ComponentProps<typeof Settings>, "onDirty"> & { ref: Ref<HTMLDivElement>; close: () => void; restoreFocus: () => void };
 
-export function SettingsDialog({ ref, close, ...settings }: Props) {
+export function SettingsDialog({ ref, close, restoreFocus, ...settings }: Props) {
 	const [dirty, setDirty] = useState(false);
 	const [confirmClose, setConfirmClose] = useState(false);
 	useEffect(() => {
@@ -17,7 +17,7 @@ export function SettingsDialog({ ref, close, ...settings }: Props) {
 		return () => window.removeEventListener("beforeunload", preventClose);
 	}, [dirty]);
 	return <>
-		<PanelDialog ref={ref} title="设置" close={() => dirty ? setConfirmClose(true) : close()} restoreFocus={settings.restoreFocus}>
+		<PanelDialog ref={ref} title="设置" close={() => dirty ? setConfirmClose(true) : close()} restoreFocus={restoreFocus}>
 			<Suspense fallback={<p role="status">正在加载设置…</p>}>
 				<Settings {...settings} onDirty={setDirty} />
 			</Suspense>

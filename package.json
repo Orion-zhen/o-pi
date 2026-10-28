@@ -49,10 +49,16 @@
 		"vitest": "latest"
 	},
 	"dependencies": {
+		"@codemirror/commands": "latest",
+		"@codemirror/lang-javascript": "latest",
+		"@codemirror/language": "latest",
+		"@codemirror/state": "latest",
+		"@codemirror/view": "latest",
 		"@earendil-works/pi-agent-core": "latest",
 		"@earendil-works/pi-ai": "latest",
 		"@earendil-works/pi-coding-agent": "latest",
 		"@earendil-works/pi-tui": "latest",
+		"@lezer/highlight": "latest",
 		"@mathjax/mathjax-tex-font": "latest",
 		"@mathjax/src": "latest",
 		"@modelcontextprotocol/sdk": "latest",

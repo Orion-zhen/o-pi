@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 
 type DraftActions = { save: () => Promise<boolean>; discard: () => void };
 type DraftState = DraftActions & { title: string; dirty: boolean; blocked: boolean; invalid?: boolean };
-type RegisteredDraft = DraftState & { category: string };
+type RegisteredDraft = DraftState & { categories: readonly string[] };
 type Register = (id: string, draft: RegisteredDraft) => () => void;
 
 export const SettingsStateContext = createContext<{ register: Register; saving: boolean } | null>(null);
@@ -14,15 +14,15 @@ export function useSettingsState() {
 	return context;
 }
 
-export function useSettingsDraft(id: string, { title, dirty, blocked, invalid = false, save, discard }: DraftState) {
+export function useSettingsDraft(id: string, { title, dirty, blocked, invalid = false, save, discard, categories }: DraftState & { categories?: readonly string[] }) {
 	const { register } = useSettingsState();
 	const category = useContext(SettingsCategoryContext);
 	const actions = useRef<DraftActions>({ save, discard });
 	useLayoutEffect(() => { actions.current = { save, discard }; });
 	useEffect(() => register(id, {
-		category, title, dirty, blocked, invalid,
+		categories: categories ?? [category], title, dirty, blocked, invalid,
 		save: () => actions.current.save(), discard: () => actions.current.discard(),
-	}), [id, category, title, dirty, blocked, invalid, register]);
+	}), [id, category, categories, title, dirty, blocked, invalid, register]);
 }
 
 export function useSettingsCoordinator(onDirty: (dirty: boolean) => void) {
@@ -42,7 +42,7 @@ export function useSettingsCoordinator(onDirty: (dirty: boolean) => void) {
 		});
 	}, []);
 	const dirty = [...drafts.values()].filter((draft) => draft.dirty);
-	const dirtyPages = new Set(dirty.map((draft) => draft.category));
+	const dirtyPages = new Set(dirty.flatMap((draft) => draft.categories));
 	useEffect(() => { onDirty(dirty.length > 0 || saving); }, [dirty.length, saving, onDirty]);
 	const blocked = dirty.some((draft) => draft.blocked || draft.invalid);
 	const save = async () => {

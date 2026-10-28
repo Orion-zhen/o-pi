@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { parse } from "jsonc-parser";
 import { readGuiDefaults } from "../../src/gui/host/config/preferences.ts";
-import { editPreference, resetSection, sectionChanged, sectionSave, type ReadyGuiConfig } from "../../src/gui/frontend/features/preferences/gui-settings-draft.ts";
+import { editPreference, resetSection, sectionChanged, preferenceSave, readPreferenceSource, type ReadyGuiConfig } from "../../src/gui/frontend/features/preferences/gui-settings-draft.ts";
 
 function initial(): ReadyGuiConfig {
 	const defaults = readGuiDefaults();
@@ -32,7 +32,7 @@ it("材质草稿保留同一区域默认字段，恢复默认只清除外观覆�
 	const reset = editPreference(draft, ["materials", "sidebar", "opacity"], undefined);
 	expect(reset.value.materials.sidebar).toEqual(base.defaults.materials.sidebar);
 	expect(reset.value.materials.floating.blur).toBe(0);
-	expect(parse(sectionSave(base, draft, base, "appearance").content)).toMatchObject({ materials: { canvas: { opacity: 82 }, sidebar: { opacity: 55 }, floating: { blur: 0 } }, sendShortcut: "enter" });
+	expect(parse(preferenceSave(base, draft, base).content)).toMatchObject({ materials: { canvas: { opacity: 82 }, sidebar: { opacity: 55 }, floating: { blur: 0 } }, sendShortcut: "enter" });
 	expect(resetSection(draft, "appearance").value.materials).toEqual(base.defaults.materials);
 	expect(parse(resetSection(draft, "appearance").content)).toEqual({ sendShortcut: "enter" });
 });
@@ -48,25 +48,27 @@ it("深浅色不透明度独立修改和重置，不相互覆盖", () => {
 	expect(parse(reset.content)).toEqual({ materials: { canvas: { opacity: 80 } } });
 });
 
-it("不同页面的草稿分别保存，不覆盖已经保存的其它页面", () => {
+it("一次保存多个已编辑分区，保留未编辑分区的外部修改", () => {
 	const base = initial();
-	const appearance = editPreference(base, ["theme"], "dark");
-	const interaction = editPreference(editPreference(base, ["sendShortcut"], "enter"), ["preventSleepWhileRunning"], true);
-	const saved = sectionSave(base, appearance, interaction, "appearance");
-	expect(saved.original).toBe(interaction.content);
-	expect(parse(saved.content)).toEqual({ theme: "dark", sendShortcut: "enter", preventSleepWhileRunning: true });
-	expect(parse(sectionSave(base, interaction, appearance, "interaction").content)).toEqual({ theme: "dark", sendShortcut: "enter", preventSleepWhileRunning: true });
-	const combined = editPreference(interaction, ["theme"], "dark");
-	const reset = resetSection(combined, "interaction");
-	expect(reset.value.preventSleepWhileRunning).toBe(false);
-	expect(parse(sectionSave(combined, reset, combined, "interaction").content)).toEqual({ theme: "dark" });
+	const draft = editPreference(editPreference(base, ["theme"], "dark"), ["sendShortcut"], "enter");
+	const external = editPreference(base, ["desktopWeb", "port"], 9000);
+	const saved = preferenceSave(base, draft, external);
+	expect(saved.original).toBe(external.content);
+	expect(parse(saved.content)).toEqual({ theme: "dark", sendShortcut: "enter", desktopWeb: { port: 9000 } });
+});
+
+it("编辑期间外部文件损坏，保存保留原始版本供冲突检查", () => {
+	const base = initial();
+	const draft = editPreference(base, ["theme"], "dark");
+	const external = readPreferenceSource(base, '{"theme":');
+	expect(preferenceSave(base, draft, external)).toEqual({ original: base.content, content: draft.content });
 });
 
 it("同页外部修改保留原始版本用于保存冲突检查", () => {
 	const base = initial();
 	const draft = editPreference(base, ["theme"], "dark");
 	const external = editPreference(base, ["theme"], "light");
-	expect(sectionSave(base, draft, external, "appearance").original).toBe(base.content);
+	expect(preferenceSave(base, draft, external).original).toBe(base.content);
 });
 
 it("恢复默认值只重置本页，不修改其它设置或缓存策略", () => {

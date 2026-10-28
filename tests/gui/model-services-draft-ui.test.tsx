@@ -1,4 +1,5 @@
-import { act } from "react";
+import { act, type ComponentProps } from "react";
+import type { SourceEditor } from "../../src/gui/frontend/forms/source-editor.tsx";
 import { beforeEach, expect, it, vi } from "vitest";
 import { parseModelsDocument } from "../../src/harness/openai-compatible-provider/document.ts";
 import { modelsConfigSchema } from "../../src/harness/openai-compatible-provider/config.ts";
@@ -12,6 +13,11 @@ import { useReactFixture } from "./react-fixture.ts";
 import type { CatalogQuery } from "../../src/gui/frontend/features/models/services/use-service-catalog.ts";
 import type { ModelServiceCatalog } from "../../src/gui/shared/config/model-services.ts";
 import { deferred } from "../helpers/async.ts";
+
+vi.mock("../../src/gui/frontend/forms/source-editor.tsx", () => ({
+	SourceEditor: ({ label, value, disabled, onChange }: ComponentProps<typeof SourceEditor>) =>
+		<textarea aria-label={label} value={value} disabled={disabled} onInput={(event) => onChange(event.currentTarget.value)} />,
+}));
 
 const render = useReactFixture();
 beforeEach(() => {

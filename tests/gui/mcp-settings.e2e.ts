@@ -254,12 +254,12 @@ test("重新添加相同键值不产生修改，切换视图保留 JSON 原文",
 	await form(page).getByLabel("环境变量值 1", { exact: true }).fill("value");
 	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();
 	await mcp(page).getByRole("button", { name: "JSON", exact: true }).click();
-	await expect(mcp(page).getByLabel("全局 MCP JSON", { exact: true })).toHaveValue(content);
+	await expect(mcp(page).getByLabel("全局 MCP JSON", { exact: true })).toHaveText(content);
 	const edited = `\n${content}\n`;
 	await mcp(page).getByLabel("全局 MCP JSON", { exact: true }).fill(edited);
 	await mcp(page).getByRole("button", { name: "表单", exact: true }).click();
 	await mcp(page).getByRole("button", { name: "JSON", exact: true }).click();
-	await expect(mcp(page).getByLabel("全局 MCP JSON", { exact: true })).toHaveValue(edited);
+	await expect(mcp(page).getByLabel("全局 MCP JSON", { exact: true })).toHaveText(edited);
 });
 
 test("导入替换已展开的服务时重新初始化认证编辑模式", async ({ gui: { page }, workspace: { agentDir } }) => {
@@ -302,7 +302,7 @@ test("JSON 与表单使用相同校验，空文本不能绕过保存检查", asy
 	await source.fill("{}");
 	await save.click();
 	await expect(save).toBeDisabled();
-	await expect(source).toHaveValue("{}");
+	await expect(source).toHaveText("{}");
 });
 
 test("空文件可以切换编辑视图，不产生未保存修改", async ({ gui: { page }, workspace: { agentDir } }) => {
@@ -310,7 +310,7 @@ test("空文件可以切换编辑视图，不产生未保存修改", async ({ gu
 	await open(page);
 	await mcp(page).getByRole("button", { name: "JSON", exact: true }).click();
 	await expect(mcp(page).getByRole("alert")).toHaveCount(0);
-	await expect(mcp(page).getByLabel("全局 MCP JSON", { exact: true })).toHaveValue("");
+	await expect(mcp(page).getByLabel("全局 MCP JSON", { exact: true })).toHaveText("");
 	await mcp(page).getByRole("button", { name: "表单", exact: true }).click();
 	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();
 	await expect(mcp(page).getByRole("article")).toHaveCount(0);
@@ -329,13 +329,13 @@ test("共用草稿接口的普通 JSONC 设置仍能保存、放弃与重新读�
 	await expect(save).toBeDisabled();
 	await source.fill('{"default_timeout_seconds":43}');
 	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
-	await expect(source).toHaveValue(content);
+	await expect(source).toHaveText(content);
 	await settings(page).getByRole("button", { name: "关闭面板", exact: true }).click();
 	await page.reload();
 	await open(page);
 	await selectSettingsCategory(page, "工具与代码");
 	await section.getByRole("button", { name: "JSONC", exact: true }).click();
-	await expect(source).toHaveValue(content);
+	await expect(source).toHaveText(content);
 	await expect(save).toBeDisabled();
 });
 
@@ -344,7 +344,7 @@ test("损坏 JSON 可修复，外部修改冲突不丢失表单草稿", async ({
 	await writeFile(file, "{");
 	await open(page);
 	const source = mcp(page).getByLabel("全局 MCP JSON", { exact: true });
-	await expect(source).toHaveValue("{");
+	await expect(source).toHaveText("{");
 	await source.fill(JSON.stringify(original));
 	await mcp(page).getByRole("button", { name: "表单", exact: true }).click();
 	await mcp(page).getByRole("button", { name: "编辑 docs", exact: true }).click();
@@ -355,8 +355,8 @@ test("损坏 JSON 可修复，外部修改冲突不丢失表单草稿", async ({
 	await expect(form(page).getByLabel("服务地址", { exact: true })).toHaveValue("https://edited.example/mcp");
 	expect(await readFile(file, "utf8")).toBe("{}");
 	await mcp(page).getByRole("button", { name: "JSON", exact: true }).click();
-	await expect(source).toHaveValue(/edited\.example/);
+	await expect(source).toHaveText(/edited\.example/);
 	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
-	await expect(source).toHaveValue("{");
+	await expect(source).toHaveText("{");
 	expect(await readFile(file, "utf8")).toBe("{}");
 });
