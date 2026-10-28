@@ -89,6 +89,16 @@ describe("approval request builder", () => {
 		]);
 	});
 
+	it("bash workdir 决定相对路径解析", async () => {
+		const sub = path.join(cwd, "packages", "app").replace(/\\/g, "/");
+		const request = await buildApprovalRequest(bash("echo hello > output.log", "packages/app"), cwd);
+		expect(request?.cwd).toBe(sub);
+		expect(request?.units.map((unit) => unit.target)).toEqual([
+			{ kind: "command", value: "echo hello", effective_value: "echo hello" },
+			{ kind: "path", value: `${sub}/output.log` },
+		]);
+	});
+
 	it("文件写重定向成为 path unit，fd duplication 不成为写文件 unit", async () => {
 		const redirected = await buildApprovalRequest(bash("echo hello > output.log 2>&1"), cwd);
 		expect(redirected?.units.map((unit) => unit.target)).toEqual([
@@ -343,8 +353,9 @@ function nestedShellCommand(depth: number): string {
 	return command;
 }
 
-function bash(command: string): ToolCallEvent {
-	return { type: "tool_call", toolName: "bash", toolCallId: "bash-1", input: { command } };
+function bash(command: string, workdir?: string): ToolCallEvent {
+	const input = workdir === undefined ? { command } : { command, workdir };
+	return { type: "tool_call", toolName: "bash", toolCallId: "bash-1", input };
 }
 
 function write(filePath: string): ToolCallEvent {

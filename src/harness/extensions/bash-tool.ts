@@ -8,13 +8,14 @@ import { Type } from "typebox";
 import { bashOutputSchema } from "../bash-tool/structured-output.ts";
 import { executeBashCommand } from "../bash-tool/bash-tool.ts";
 import { loadBashToolConfig } from "../bash-tool/config.ts";
+import { resolveBashWorkdir } from "../bash-tool/workdir.ts";
 import { type BashSessionMetadata, type BashToolDetails } from "../bash-tool/types.ts";
 import { bashTelemetry } from "../bash-tool/telemetry.ts";
 import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
 
 const bashParameters = Type.Object(
 	{
-		command: Type.String({ description: "Shell command; default runs in workspace." }),
+		command: Type.String({ description: "Shell command." }),
 		timeout: Type.Optional(
 			Type.Number({
 				description: "Seconds.",
@@ -22,6 +23,7 @@ const bashParameters = Type.Object(
 				maximum: 86_400,
 			}),
 		),
+		workdir: Type.Optional(Type.String({ description: "Working directory; defaults to current workspace." })),
 	},
 	{ additionalProperties: false },
 );
@@ -42,6 +44,7 @@ export default function bashTool(pi: ExtensionAPI, telemetry?: ToolTelemetrySink
 			executionMode: "sequential",
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const config = await loadBashToolConfig();
+				const cwd = resolveBashWorkdir(params.workdir, ctx.cwd);
 				const sessionFile = ctx.sessionManager.getSessionFile();
 				const session: BashSessionMetadata = {
 					sessionId: ctx.sessionManager.getSessionId(),
@@ -50,7 +53,7 @@ export default function bashTool(pi: ExtensionAPI, telemetry?: ToolTelemetrySink
 					...(ctx.thinkingLevel !== undefined ? { reasoningLevel: ctx.thinkingLevel } : {}),
 				};
 				const runtime = {
-					cwd: ctx.cwd,
+					cwd,
 					session,
 					toolCallId,
 					operations,

@@ -5,8 +5,10 @@
 ## 参数与配置
 
 ```json
-{ "command": "git status", "timeout": 30 }
+{ "command": "git status", "workdir": "packages/app", "timeout": 30 }
 ```
+
+`workdir` 相对工作区解析，省略或为空时使用工作区根目录。虚拟环境探测、相对路径和审批单元都基于该目录。
 
 `timeout` 单位为秒，范围大于 0 且不超过 86400。省略时使用 `default_timeout_seconds`，默认 300。
 

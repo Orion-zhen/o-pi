@@ -86,6 +86,24 @@ describe("bash tool execution", () => {
 
 		for (const timeout of [0.01, 86_400]) expect(validate({ command: "echo ok", timeout })).toBe(true);
 		for (const timeout of [0, -1, 86_400.01]) expect(validate({ command: "echo no", timeout })).toBe(false);
+		expect(validate({ command: "echo ok", workdir: "packages/app" })).toBe(true);
+		expect(validate({ command: "echo no", workdir: 1 })).toBe(false);
+	});
+
+	it("workdir 相对工作区解析，省略时使用工作区", async () => {
+		const sub = path.join(workspace, "packages", "app");
+		await mkdir(sub, { recursive: true });
+		const { registered: tools } = registerExtension(bashToolExtension);
+		const tool = tools[0];
+		if (tool === undefined) throw new Error("bash tool was not registered");
+		const ctx = { cwd: workspace, sessionManager: { getSessionId: () => "workdir", getSessionFile: () => undefined, getBranch: () => [] } };
+		const run = (params: { command: string; workdir?: string }) => tool.execute("tool:workdir", params, undefined, undefined, ctx);
+
+		const nested = await run({ command: "pwd", workdir: "packages/app" });
+		const fallback = await run({ command: "pwd" });
+
+		expect(nested.content[0]?.text).toContain(`${sub}\n`);
+		expect(fallback.content[0]?.text).toContain(`${workspace}\n`);
 	});
 
 	it("折叠与展开切换时复用组件，并保留可见命令", () => {

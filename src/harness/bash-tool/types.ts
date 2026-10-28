@@ -4,6 +4,7 @@ import type { BashOperations, SessionEntry } from "@earendil-works/pi-coding-age
 export interface BashParams {
 	command: string;
 	timeout?: number;
+	workdir?: string;
 }
 
 export interface BashEnvironmentConfig {
