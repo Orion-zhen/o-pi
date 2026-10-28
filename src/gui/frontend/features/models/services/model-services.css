@@ -12,7 +12,6 @@
 .service-connection[data-tone="warning"] { --connection-color: var(--warning); }
 .service-connection[data-tone="error"] { --connection-color: var(--destructive); }
 .service-connection:hover:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--connection-color, var(--muted-foreground)) 18%, transparent); }
-.service-connection:focus-visible { outline: 0.125rem solid var(--ring); outline-offset: 0.125rem; }
 .service-connection[aria-disabled="true"] { cursor: default; }
 .service-connection > svg { inline-size: 1em; block-size: 1em; }
 .service-summary { display: flex; flex: 1 1 16ch; flex-direction: column; gap: var(--space-1); min-inline-size: 0; padding: var(--space-1) var(--space-2); text-align: start; cursor: pointer; border-radius: var(--radius-sm); }
@@ -22,7 +21,6 @@
 .service-summary span { font-family: var(--font-mono); }
 .service-summary-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
 .service-summary-line > span { font-weight: 400; }
-.service-summary:focus-visible { outline: 0.125rem solid var(--ring); outline-offset: -0.125rem; }
 .service-summary:hover strong { color: var(--muted-foreground); }
 .service-item-actions { display: flex; align-items: center; gap: var(--space-2); margin-inline-start: auto; }
 .service-form { display: flex; flex-direction: column; min-inline-size: 0; padding-block-end: var(--space-3); }

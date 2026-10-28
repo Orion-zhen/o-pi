@@ -39,7 +39,6 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 :is(.sidebar, .mobile-sidebar) :is(.workspace-select, .new-session) { background: var(--control-surface); border-color: var(--divider); }
 :is(.sidebar, .mobile-sidebar) :is(.workspace-select, .new-session):is(:hover, [data-state="open"]):not(:disabled) { background: var(--accent); }
 :is(.sidebar, .mobile-sidebar) :is(.workspace-select, .new-session):active:not(:disabled) { background: var(--secondary-active); }
-:is(.sidebar, .mobile-sidebar) :is(.workspace-select, .new-session):focus-visible { border-color: var(--ring); }
 .overlay-list-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; min-inline-size: 0; border-radius: var(--radius-md); }
 .overlay-list-row > * { grid-area: 1 / 1; }
 .overlay-list-row > button { block-size: auto; }
@@ -50,8 +49,8 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 @media (hover: none) { .row-actions { opacity: 1; pointer-events: auto; } }
 .row-action-button { inline-size: auto; block-size: auto; padding: 1em; }
 .row-action-button > svg { inline-size: 1.25em; block-size: 1.25em; }
-.row-action-button:enabled:is(:hover, :focus-visible) { background: var(--accent); color: var(--foreground); border-color: var(--border); }
-.row-action-button[data-confirming]:enabled:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--destructive) 16%, var(--accent)); color: var(--destructive); border-color: color-mix(in srgb, var(--destructive) 45%, var(--border)); }
+.row-action-button:enabled:hover { background: var(--accent); color: var(--foreground); border-color: var(--border); }
+.row-action-button[data-confirming]:enabled:hover { background: color-mix(in srgb, var(--destructive) 16%, var(--accent)); color: var(--destructive); border-color: color-mix(in srgb, var(--destructive) 45%, var(--border)); }
 :is(.history-session-row, .workspace-option-row) > .row-actions { align-self: center; margin: var(--space-1); }
 :is(.history-session-row, .workspace-option-row) .row-action-button { padding: 0.5em; }
 :is(.history-session-row, .workspace-option-row) .row-action-button > svg { inline-size: 1em; block-size: 1em; }

@@ -4,13 +4,13 @@ import { cn } from "./class-names.ts";
 import { Slot } from "radix-ui";
 
 const buttonVariants = cva(
-	"inline-flex shrink-0 items-center justify-center gap-[0.5em] rounded-md border border-transparent text-sm leading-normal font-medium whitespace-nowrap transition-[background-color,color,border-color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25 disabled:pointer-events-none disabled:opacity-45 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[1.15em]",
+	"inline-flex shrink-0 items-center justify-center gap-[0.5em] rounded-md border border-transparent text-sm leading-normal font-medium whitespace-nowrap transition-[background-color,color,border-color,box-shadow] outline-none disabled:pointer-events-none disabled:opacity-45 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[1.15em]",
 	{
 		variants: {
 			variant: {
 				default: "bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active",
 				destructive:
-					"bg-destructive text-destructive-foreground hover:bg-destructive-hover active:bg-destructive-active focus-visible:ring-destructive/20",
+					"bg-destructive text-destructive-foreground hover:bg-destructive-hover active:bg-destructive-active",
 				outline:
 					"border-input bg-background hover:bg-accent active:bg-secondary-active hover:text-accent-foreground",
 				secondary: "bg-secondary text-secondary-foreground hover:bg-accent active:bg-secondary-active",

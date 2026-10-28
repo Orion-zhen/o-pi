@@ -49,7 +49,7 @@ function Hint({ content, children, side = "top", disabled = false, followPointer
 				setPointerOffset(side === "top" || side === "bottom" ? event.clientX - bounds.left : event.clientY - bounds.top);
 			} : undefined}
 			onFocus={(event) => {
-				if (!event.currentTarget.matches(":focus-visible")) event.preventDefault();
+				event.preventDefault();
 				if (followPointer) setPointerOffset(null);
 			}}
 		>{children}</TooltipPrimitive.Trigger>

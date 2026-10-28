@@ -8,4 +8,3 @@
 .image-viewport { position: relative; flex: 1; min-block-size: 0; overflow: hidden; touch-action: none; cursor: grab; background-color: var(--background); background-image: conic-gradient(#8882 25%, transparent 0 50%, #8882 0 75%, transparent 0); background-size: 20px 20px; }
 .image-viewport:active { cursor: grabbing; }
 .file-preview-image { position: absolute; inset: 50% auto auto 50%; display: block; max-inline-size: none; user-select: none; }
-:is(.image-viewport, .pdf-viewport):focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }

@@ -2,8 +2,7 @@
 .sidebar[data-collapsed="true"] { min-inline-size: 0; }
 .resize-handle { flex: 0 0 0.5rem; display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none; cursor: col-resize; outline-offset: -2px; z-index: 2; }
 .resize-handle::after { content: ""; inline-size: 1px; block-size: 100%; background: var(--divider); transition: background var(--motion-duration-2); }
-.resize-handle:is(:hover, :focus-visible, [data-dragging="true"])::after { background: var(--ring); }
-.resize-handle:focus-visible { outline: 2px solid var(--ring); }
+.resize-handle:is(:hover, [data-dragging="true"])::after { background: var(--ring); }
 .resize-handle[data-axis="y"] { cursor: row-resize; }
 .resize-handle[data-axis="y"]::after { inline-size: 100%; block-size: 1px; }
 .app[data-collapsed="true"] > .sidebar-resize { display: none; }

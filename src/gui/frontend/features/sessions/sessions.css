@@ -7,7 +7,7 @@
 button.session-name, strong.session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.session-name:hover { background: var(--accent); }
 input.session-name { flex: 1; background: var(--surface); }
-.session-name:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+input.session-name:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .session-history { margin-block: var(--space-6); min-width: 0; }
 .session-history:not(.session-history-flat) .history-scroll { max-block-size: 60vh; }
 .history-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding-inline-start: var(--space-3); color: var(--muted-foreground); }

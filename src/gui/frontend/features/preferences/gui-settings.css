@@ -12,7 +12,6 @@
 .font-chain-index { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 .font-chain-name { flex: 1; min-inline-size: 0; text-align: start; padding: var(--space-1); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
 .font-chain-name > span, .font-chain small { display: block; }
-.font-chain-name:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
 .font-chain-name:hover:not(:disabled) { background: var(--accent); }
 .font-chain > li > .font-input { flex: 1 1 100%; min-inline-size: 0; }
 .font-list { overflow: auto; max-block-size: min(14em, 30dvh); margin-block-start: var(--space-2); }

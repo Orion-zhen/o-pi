@@ -73,10 +73,9 @@ export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; l
 			<Fade animate={{ opacity: active === "file" ? 1 : 0 }} data-active={active === "file"} inert={active !== "file"} aria-hidden={active !== "file"} className="session-tab-body" data-file="true">
 			<AnimatePresence initial={false} mode="wait"><Fade key={workbench.preview.path} className="file-preview-frame">
 			<FilePreviewPanel cwd={gui.cwd} setError={gui.setError} preview={workbench.preview} referenceFile={gui.referenceFile} close={() => {
-				const focusVisible = document.activeElement?.matches(":focus-visible") ?? false;
 				workbench.closePreview();
 				selectTab(sessionTab);
-				requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('[role="tab"][data-state="active"]')?.focus({ preventScroll: true, focusVisible }));
+				requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('[role="tab"][data-state="active"]')?.focus({ preventScroll: true }));
 			}} />
 			</Fade></AnimatePresence>
 			</Fade>

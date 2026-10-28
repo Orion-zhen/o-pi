@@ -22,7 +22,6 @@
 .composer .model-controls { flex: 0 1 auto; }
 .composer .model-controls [data-slot="select-trigger"] { border-color: transparent; background: transparent; padding: 0.625em 0.75em; }
 .composer .model-controls [data-slot="select-trigger"]:is(:hover, [data-state="open"]) { border-color: var(--border); background: var(--accent); color: var(--foreground); }
-.composer .model-controls [data-slot="select-trigger"]:focus-visible { border-color: var(--ring); }
 .composer .model-controls .codex-speed:is([data-speed="fast"], [data-speed="ultrafast"]) { color: var(--primary); }
 .send-button { border-radius: 50%; }
 .context-ring-track { stroke: var(--border); }

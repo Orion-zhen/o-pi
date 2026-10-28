@@ -1,6 +1,5 @@
 .settings-tool-picker { display: flex; flex-direction: column; gap: var(--space-2); min-inline-size: 0; }
 .settings-tool-buttons { justify-content: flex-start; flex-wrap: wrap; gap: var(--space-2); }
 .settings-tool-option { display: inline-flex; min-inline-size: 0; max-inline-size: 100%; border-radius: var(--radius-md); }
-.settings-tool-option:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
 .settings-tool-option > button { min-inline-size: 0; max-inline-size: 100%; white-space: normal; overflow-wrap: anywhere; }
 .settings-tool-option [data-unavailable="true"][data-state="on"] { color: var(--destructive); border-color: var(--destructive); }

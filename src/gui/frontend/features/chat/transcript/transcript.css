@@ -1,7 +1,6 @@
 .transcript-shell { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); flex: 1; min-inline-size: 0; min-block-size: 0; }
 .transcript-shell > * { grid-area: 1 / 1; min-inline-size: 0; min-block-size: 0; }
 .transcript { overflow: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-gutter: stable both-edges; }
-.transcript .disclosure-trigger:not([data-variant]):focus-visible { outline-offset: -0.125rem; }
 .jump-latest-region { align-self: end; margin-block-end: var(--space-3); z-index: 10; display: flex; justify-content: center; pointer-events: none; }
 .jump-latest { pointer-events: auto; border-radius: var(--radius-xl); box-shadow: var(--surface-highlight), var(--shadow); }
 .jump-latest:hover { background: var(--accent); }

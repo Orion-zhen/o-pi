@@ -114,6 +114,7 @@
 	body { @apply m-0 text-foreground antialiased; background: var(--app-background, var(--background)); font-family: var(--gui-font-ui); font-size: var(--text-ui); line-height: 1.5; }
 	button:not(:disabled), summary, [role="menuitem"] { cursor: pointer; }
 	button, input, textarea, select { font: inherit; }
+	:focus-visible:not(input, textarea, [contenteditable="true"]) { outline: none; }
 	::selection { background: var(--selection); }
 	input, textarea { caret-color: var(--ring); }
 	* { scrollbar-color: var(--scrollbar-thumb) transparent; }
@@ -156,8 +157,6 @@
 	border-color: var(--surface-edge);
 	box-shadow: var(--surface-highlight), var(--shadow-floating);
 }
-
-button.floating-surface:focus-visible { border-color: var(--ring); }
 
 @media (prefers-contrast: more), (forced-colors: active) {
 	:root { --surface-highlight: inset 0 0 0 0 transparent; --soft-highlight: var(--surface-highlight); --surface-edge: var(--foreground) !important; }

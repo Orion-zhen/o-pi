@@ -12,7 +12,6 @@
 .search-provider-name { min-inline-size: 0; text-align: start; cursor: pointer; overflow-wrap: anywhere; }
 /* 展开按钮覆盖整行标题，独立控件置于点击区上方。 */
 .search-provider-name::after { content: ""; position: absolute; inset: 0; }
-.search-provider-name:focus-visible::after { outline: 2px solid var(--ring); border-radius: var(--radius); }
 .search-provider-title > button:not(.search-provider-name), .search-provider-actions > button { position: relative; z-index: 1; }
 .search-provider-title > button:disabled, .search-provider-actions > button:disabled { pointer-events: auto; }
 .search-provider-actions { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-1); }

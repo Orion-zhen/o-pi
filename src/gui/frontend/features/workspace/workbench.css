@@ -49,7 +49,6 @@
 .file-row:hover { background: var(--accent); }
 .file-row:is([aria-selected="true"], [aria-pressed="true"]) { background: var(--selected); color: var(--foreground); }
 .file-row:is([aria-selected="true"], [aria-pressed="true"]) > svg:not(.file-chevron) { color: var(--selected-foreground); }
-.file-row:focus-visible, .workspace-tree:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .file-chevron[data-directory="false"] { visibility: hidden; }
 .file-chevron[data-open="true"] { transform: rotate(90deg); }
 .git-status, .git-descendants { margin-inline-start: auto; flex-shrink: 0; font-size: var(--text-caption); }

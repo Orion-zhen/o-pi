@@ -12,7 +12,7 @@ export function SelectTrigger({ className, children, ...props }: React.Component
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"
 			className={cn(
-				"inline-flex w-fit min-w-0 items-center justify-between gap-[0.5em] rounded-md border border-input bg-(--surface) px-[0.9em] py-[0.6em] text-sm leading-normal transition-[background-color,color,border-color,box-shadow] outline-none hover:bg-accent focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25 disabled:pointer-events-none disabled:opacity-45 data-[state=open]:bg-accent [&>span:first-child]:min-w-0 [&>span:first-child]:truncate",
+				"inline-flex w-fit min-w-0 items-center justify-between gap-[0.5em] rounded-md border border-input bg-(--surface) px-[0.9em] py-[0.6em] text-sm leading-normal transition-[background-color,color,border-color,box-shadow] outline-none hover:bg-accent disabled:pointer-events-none disabled:opacity-45 data-[state=open]:bg-accent [&>span:first-child]:min-w-0 [&>span:first-child]:truncate",
 				className,
 			)}
 			{...props}

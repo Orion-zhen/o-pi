@@ -1,7 +1,6 @@
 .tool-activity { min-width: 0; color: var(--muted-foreground); font-size: var(--text-small); contain: paint; }
 .activity-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5em; width: 100%; min-width: 0; padding: 0.625em 0.375em; border-radius: 0.5em; text-align: left; transition: background var(--motion-duration-1) var(--motion-ease); }
 .activity-summary:hover { background: var(--accent); }
-.activity-summary:focus-visible { outline: 0.125em solid var(--ring); outline-offset: -0.125em; }
 .activity-summary svg { inline-size: 1.15em; block-size: 1.15em; flex-shrink: 0; }
 .activity-label { flex-shrink: 0; }
 .activity-target { flex: 1 1 0%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--foreground); font-size: var(--text-small); min-width: 0; }
@@ -79,7 +78,6 @@
 .tool-description-toggle svg { width: 0.875rem; height: 0.875rem; }
 .tool-description[data-expanded="true"] .tool-description-toggle svg { transform: rotate(180deg); }
 .tool-description-toggle:hover { color: var(--foreground); }
-.tool-description-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .tool-selection-children { margin-inline-start: calc((var(--tool-check-size) - var(--tool-line-width)) / 2); padding-inline-start: calc(var(--tool-indent) - (var(--tool-check-size) + var(--tool-line-width)) / 2); border-inline-start: var(--tool-line-width) solid var(--border); }
 .tool-callable-state { flex-shrink: 0; }
 .tool-selection-mcp { margin-block-start: 1.5em; }
@@ -97,7 +95,6 @@
 .mcp-tool-group-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--tool-row-gap); padding: 0.875rem var(--mcp-row-inset); border-radius: calc(var(--radius-lg) - var(--space-1) - var(--tool-line-width)); }
 .mcp-tool-group-trigger { display: grid; place-items: center; align-self: stretch; padding-inline: var(--space-1); border-radius: inherit; cursor: pointer; }
 .mcp-tool-group-trigger:hover { background: var(--accent); }
-.mcp-tool-group-trigger:focus-visible { outline: 0.125em solid var(--ring); outline-offset: 0.125em; }
 .mcp-tool-group-chevron { inline-size: 1em; block-size: 1em; color: var(--muted-foreground); transition: transform var(--motion-duration-3) var(--motion-ease); }
 .mcp-tool-group-trigger[data-state="open"] .mcp-tool-group-chevron { transform: rotate(90deg); }
 .mcp-tool-group-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375em 0.75em; min-inline-size: 0; }

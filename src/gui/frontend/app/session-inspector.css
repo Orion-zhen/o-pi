@@ -7,12 +7,10 @@
 .session-tab-list > button:hover { background: var(--accent); color: var(--foreground); }
 .session-tab-list > button[data-state="active"] { background: transparent; color: var(--link); }
 .session-tab-list .animated-background { background: var(--control-surface); border-color: var(--divider); }
-.session-tab-list > button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .session-tab-list > button:disabled { opacity: 0.45; }
 .session-tab-body { grid-area: 2 / 1; min-inline-size: 0; min-block-size: 0; overflow: auto; padding: var(--space-4); overscroll-behavior: contain; transition: visibility var(--motion-duration-2); }
 .session-tab-body[data-active="false"] { visibility: hidden; }
 .session-tab-body[data-active="true"] { z-index: 1; }
-.session-tab-body:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .session-tab-body .report-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .session-tab-body .report-metric { background: var(--control-surface); border-color: var(--divider); }
 .session-tab-body .report-metric dd { font-size: 1.5em; }

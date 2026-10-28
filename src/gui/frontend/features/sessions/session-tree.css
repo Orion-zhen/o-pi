@@ -6,7 +6,6 @@
 .tree-role { display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0; font-size: calc(var(--text-ui) * 11 / 14); font-weight: 500; color: var(--muted-foreground); }
 .tree-role svg { width: 1em; height: 1em; flex-shrink: 0; }
 .tree-jump { flex: 1; min-inline-size: 0; text-align: start; cursor: pointer; }
-.tree-jump:focus-visible { outline: thin solid var(--ring); }
 .tree-message-preview { flex: 1 1 0; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 2; }
 .tree-label { flex: 0 1 auto; min-width: 0; max-width: 20%; padding-inline: 0.25rem; border-radius: 0.25rem; background: var(--secondary); color: var(--muted-foreground); font-size: calc(var(--text-ui) * 5 / 7); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tree-row-actions { display: flex; align-items: center; flex-shrink: 0; margin-inline-start: auto; color: var(--muted-foreground); }
