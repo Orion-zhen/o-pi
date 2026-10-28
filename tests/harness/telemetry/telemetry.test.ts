@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { TelemetryService } from "../../../src/harness/telemetry/service.ts";
 import type { TelemetryRecord } from "../../../src/harness/telemetry/types.ts";
 import * as revision from "../../../src/harness/telemetry/revision.ts";
-import { assistant } from "../../gui/transcript-fixtures.ts";
+import { assistant } from "../../gui/helpers/transcript-fixtures.ts";
 import { deferred } from "../../helpers/async.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 

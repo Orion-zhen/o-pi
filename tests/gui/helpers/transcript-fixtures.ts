@@ -1,0 +1,22 @@
+import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { GuiPayloads } from "../../../src/gui/host/projection/payloads.ts";
+import type { TranscriptSource } from "../../../src/gui/frontend/features/chat/transcript/transcript-items.ts";
+
+export function assistant(content: AssistantMessage["content"], stopReason: AssistantMessage["stopReason"] = "toolUse"): AssistantMessage {
+	return {
+		role: "assistant", content, api: "openai-completions", provider: "test", model: "test", timestamp: 100,
+		stopReason, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+	};
+}
+export const call = { type: "toolCall", id: "read-1", name: "read", arguments: { path: "app.ts", lines: "1-3" } } as const;
+export const result: ToolResultMessage = { role: "toolResult", toolCallId: call.id, toolName: "read", isError: false, timestamp: 101, content: [{ type: "text", text: "file content" }] };
+export function source(value: Partial<Omit<TranscriptSource, "messages" | "streamingMessage">> & {
+	messages?: AgentMessage[]; streamingMessage?: AgentMessage | null;
+}): TranscriptSource {
+	const payloads = new GuiPayloads();
+	return { models: [], liveTools: [], streaming: false, retrying: false, compacting: false, ...value,
+		messages: (value.messages ?? []).map((message) => payloads.message(message)),
+		streamingMessage: value.streamingMessage ? payloads.message(structuredClone(value.streamingMessage)) : null,
+	};
+}

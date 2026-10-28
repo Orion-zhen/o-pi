@@ -58,6 +58,6 @@ GUI 按父子关系展示调用，保留手动展开状态。已完成子调用�
 
 ## 打包与验证
 
-Bun 产物内嵌 QuickJS WASM 和 worker，Desktop 分发独立 worker 与 WASM。真实二进制用例位于 `tests/cli/cli.test.ts` 和 `tests/cli/codemode-mcp.test.ts`，GUI 交互位于 `tests/gui/codemode.e2e.ts`。
+Bun 产物内嵌 QuickJS WASM 和 worker，Desktop 分发独立 worker 与 WASM。真实二进制用例位于 `tests/cli/cli.test.ts` 和 `tests/cli/codemode-mcp.test.ts`，GUI 交互位于 `tests/gui/frontend/features/chat/tools/codemode.e2e.ts`。
 
 性能比较应采集实际请求中的工具声明与结果，注册定义估算无法代表 Codemode 最终目录成本。

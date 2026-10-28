@@ -17,7 +17,12 @@ bun run test tests/cli tests/rpc
 | `tests/harness/` | 业务模块和 SDK 工具流程 |
 | `tests/tui/` | 终端界面和呈现 |
 | `tests/cli/`、`tests/rpc/` | 真实入口和协议 |
-| `tests/gui/` | GUI 宿主、页面与打包测试 |
+| `tests/gui/frontend/` | 按前端模块组织的单元测试和 Web E2E |
+| `tests/gui/host/` | GUI 宿主、配置、会话与工作区流程 |
+| `tests/gui/helpers/` | GUI 共享夹具 |
+| `tests/web/` | Web 服务和命令行入口 |
+| `tests/desktop/` | Electron 单元测试、原生 E2E 和后端集成测试 |
+| `tests/build/` | 构建产物验证 |
 | `tests/helpers/` | 共享测试辅助代码 |
 
 模型流程使用本地 HTTP 服务，配置和认证通过临时 HOME 隔离。
@@ -27,7 +32,7 @@ bun run test tests/cli tests/rpc
 需要验证页面交互或打包资源时，选择对应文件运行无头测试：
 
 ```bash
-bun run test:gui tests/gui/preferences.e2e.ts --project=desktop
+bun run test:gui tests/gui/frontend/features/preferences/preferences.e2e.ts --project=desktop
 ```
 
 此处 `desktop` 是浏览器大屏视口，`phone` 是窄屏视口。`test:gui` 只构建 Web，使用已安装的 Playwright Chromium。窄屏测试覆盖布局，触摸与真机兼容需要另行验证。
@@ -37,13 +42,13 @@ bun run test:gui tests/gui/preferences.e2e.ts --project=desktop
 `test:desktop` 构建桌面应用目录并运行原生用例，会启动可见窗口。运行前取得用户同意，并使用隔离显示环境。Linux 示例：
 
 ```bash
-xvfb-run -a bun run test:desktop tests/gui/desktop-protocol.e2e.ts
+xvfb-run -a bun run test:desktop tests/desktop/desktop-protocol.e2e.ts
 ```
 
 仅检查打包后端的 Node 模式启动与退出时，可选择不创建窗口的用例：
 
 ```bash
-bun run test:desktop tests/gui/desktop-runtime.integration.ts
+bun run test:desktop tests/desktop/desktop-runtime.integration.ts
 ```
 
 测试进程设置 `OPI_NO_NOTIFICATIONS=1`，关闭系统通知并保留审批交互。通知单元测试模拟系统 API。

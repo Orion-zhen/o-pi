@@ -1,0 +1,130 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import { GuiHost } from "../../../../src/gui/host/host.ts";
+import type { GuiEvent } from "../../../../src/gui/shared/protocol/events.ts";
+import { preserveEnv, setTestHome, useTempDir } from "../../../helpers/lifecycle.ts";
+
+const temp = useTempDir("opi-gui-config-");
+preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_GUI_CONFIG");
+let host: ReturnType<GuiHost["createClient"]>;
+let file: string;
+beforeEach(async () => {
+	setTestHome(temp.path);
+	process.env.PI_CODING_AGENT_DIR = path.join(temp.path, "custom-agent");
+	delete process.env.PI_GUI_CONFIG;
+	file = path.join(process.env.PI_CODING_AGENT_DIR, "configs", "gui.jsonc");
+	await mkdir(path.dirname(file), { recursive: true });
+	host = new GuiHost().createClient();
+});
+afterEach(async () => { await host.host.dispose(); });
+
+it("未选择工作区也能读取默认值、保存 GUI 设置并广播，不创建会话", async () => {
+	const initial = await host.query({ query: "guiConfig" });
+	expect(initial).toMatchObject({ path: file, content: "", state: "ready", value: {
+		theme: "system", themeColor: "#007AFF", fontSizes: { ui: 14, chat: 16, code: 14 }, sendShortcut: "mod-enter", preventSleepWhileRunning: false, sessionCache: { idleLimit: 3, idleMs: 60_000 },
+	} });
+	const events: GuiEvent[] = [];
+	host.subscribe((event) => events.push(event));
+	expect(events).toEqual([]);
+	host.replay((event) => events.push(event));
+	const content = '{\n // 自定义主题\n "theme": "dark",\n "themeColor": "#AF52DE",\n "fontSizes": {"chat": 20},\n "preventSleepWhileRunning": true,\n}\n';
+	await host.dispatch({ action: "saveGuiConfig", original: "", content });
+	expect(await readFile(file, "utf8")).toBe(content);
+	expect(events.filter((event) => event.type === "guiConfig").at(-1)).toMatchObject({ value: {
+		state: "ready", value: { theme: "dark", themeColor: "#AF52DE", fontSizes: { ui: 14, chat: 20, code: 14 }, preventSleepWhileRunning: true, openFileLinksExternally: false },
+	} });
+	expect(events.filter((event) => event.type === "snapshot").map((event) => event.value)).toEqual([null]);
+});
+
+it("材质参数按区域深度合并，保留零值与其它区域默认值", async () => {
+	const initial = await host.query({ query: "guiConfig" });
+	const materials = { desktop: false, canvas: { opacity: 82, darkOpacity: 97, saturation: 95 }, sidebar: { opacity: 0, darkOpacity: 0, blur: 64 }, floating: { saturation: 200 }, overlay: { blur: 0 } };
+	const content = JSON.stringify({ materials });
+	await host.dispatch({ action: "saveGuiConfig", original: "", content });
+	expect(await readFile(file, "utf8")).toBe(content);
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { materials: {
+		...initial.defaults.materials, desktop: false,
+		canvas: { ...initial.defaults.materials.canvas, opacity: 82, darkOpacity: 97, saturation: 95 },
+		sidebar: { ...initial.defaults.materials.sidebar, opacity: 0, darkOpacity: 0, blur: 64 },
+		floating: { ...initial.defaults.materials.floating, saturation: 200 },
+		overlay: { ...initial.defaults.materials.overlay, blur: 0 },
+	} } });
+});
+
+it.each([
+	{ canvas: { opacity: 101 } }, { sidebar: { darkOpacity: -1 } },
+	{ toolbar: { blur: 65 } }, { floating: { saturation: 201 } },
+	{ enabled: "true" }, { desktop: 1 }, { sidebar: null }, { overlay: { blur: "4" } },
+	{ sidebar: { unknown: 1 } }, { unknown: {} },
+])("非法材质参数不能保存: %j", async (materials) => {
+	await expect(host.dispatch({ action: "saveGuiConfig", original: "", content: JSON.stringify({ materials }) })).rejects.toThrow();
+});
+
+it("字体链按用户顺序保存，未覆盖组继承默认值，空数组覆盖默认字体", async () => {
+	const initial = await host.query({ query: "guiConfig" });
+	const ui = ["Inter", "Noto Sans SC", "Apple Color Emoji"];
+	const content = JSON.stringify({ fonts: { ui } });
+	await host.dispatch({ action: "saveGuiConfig", original: "", content });
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: {
+		fonts: { ui, code: initial.defaults.fonts.code },
+	} });
+	await host.dispatch({ action: "saveGuiConfig", original: content, content: '{"fonts":{"ui":[]}}' });
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: {
+		fonts: { ui: [], code: initial.defaults.fonts.code },
+	} });
+});
+
+it.each([
+	[{ idleLimit: 0 }, { idleLimit: 0, idleMs: 60_000 }],
+	[{ idleMs: 1 }, { idleLimit: 3, idleMs: 1 }],
+	[{ idleMs: 2_147_483_647 }, { idleLimit: 3, idleMs: 2_147_483_647 }],
+	[{}, { idleLimit: 3, idleMs: 60_000 }],
+])("回收策略允许边界值，未覆盖字段继承默认值: %j", async (sessionCache, expected) => {
+	const content = JSON.stringify({ sessionCache });
+	await host.dispatch({ action: "saveGuiConfig", original: "", content });
+	expect(await readFile(file, "utf8")).toBe(content);
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { sessionCache: expected } });
+});
+
+it.each([
+	[{ host: "0.0.0.0", port: 0 }, { enabled: false, host: "0.0.0.0", port: 0 }],
+	[{ host: "::1", port: 65535 }, { enabled: false, host: "::1", port: 65535 }],
+])("桌面 Web 访问配置支持部分覆盖和端口边界: %j", async (desktopWeb, expected) => {
+	const content = JSON.stringify({ desktopWeb });
+	await host.dispatch({ action: "saveGuiConfig", original: "", content });
+	expect(await readFile(file, "utf8")).toBe(content);
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { desktopWeb: expected } });
+});
+
+it("外部变更后重新读取生效，旧编辑内容不能覆盖新文件", async () => {
+	await writeFile(file, '{"theme":"dark"}');
+	const original = (await host.query({ query: "guiConfig" })).content;
+	await writeFile(file, '{"theme":"light"}');
+	await expect(host.dispatch({ action: "saveGuiConfig", original, content: "{}" })).rejects.toThrow();
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { theme: "light" } });
+});
+
+it.each(['{"preventSleepWhileRunning":"true"}', '{"fontSizes":{"ui":0}}', '{"theme":"blue"}', '{"unknown":true}', '{"theme":', '{"themeColor":"red"}', '{"themeColor":"#abc"}', '{"themeColor":"#12345678"}', '{"themeColor":123}',
+	'{"fonts":{"ui":"Inter"}}', '{"fonts":{"code":[""]}}', '{"fonts":{"ui":["   "]}}',
+	'{"fonts":{"ui":["Inter",1]}}', '{"fonts":{"ui":["Inter","Inter"]}}',
+	'{"sessionCache":{"idleLimit":-1}}', '{"sessionCache":{"idleLimit":1.5}}', '{"sessionCache":{"idleLimit":"3"}}',
+	'{"sessionCache":{"idleMs":0}}', '{"sessionCache":{"idleMs":-1}}', '{"sessionCache":{"idleMs":1.5}}',
+	'{"sessionCache":{"idleMs":2147483648}}', '{"sessionCache":{"idleMs":"60000"}}',
+	'{"sessionCache":{"unknown":true}}', '{"sessionCache":null}',
+	'{"desktopWeb":{"enabled":"true"}}', '{"desktopWeb":{"host":""}}', '{"desktopWeb":{"host":" "}}',
+	'{"desktopWeb":{"port":-1}}', '{"desktopWeb":{"port":65536}}', '{"desktopWeb":{"port":1.5}}',
+	'{"desktopWeb":{"port":"19199"}}', '{"desktopWeb":{"unknown":true}}', '{"desktopWeb":null}'])
+("非法配置可在编辑器中读取和修复，但不能保存: %s", async (content) => {
+	await expect(host.dispatch({ action: "saveGuiConfig", original: "", content })).rejects.toThrow();
+	await writeFile(file, content);
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "error", content });
+	await host.dispatch({ action: "saveGuiConfig", original: content, content: "{}\n" });
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ state: "ready", value: { theme: "system" } });
+});
+
+it("用户配置路径可单独覆盖", async () => {
+	process.env.PI_GUI_CONFIG = path.join(temp.path, "preferences.jsonc");
+	await writeFile(process.env.PI_GUI_CONFIG, '{"sendShortcut":"enter"}');
+	expect(await host.query({ query: "guiConfig" })).toMatchObject({ path: process.env.PI_GUI_CONFIG, state: "ready", value: { sendShortcut: "enter" } });
+});
