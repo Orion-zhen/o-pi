@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Fade } from "@/ui/motion/animated.tsx";
-import { fade, listDepth, listDeparture, settle } from "@/ui/motion/transitions.ts";
+import { fade, listDepth, listDeparture } from "@/ui/motion/transitions.ts";
 import { ChevronsUpDown, FolderOpen, Home, Shield } from "lucide-react";
 import { Check, FolderOpen as FolderOpenData } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -71,13 +71,14 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Workspac
 			</Button></PopoverTrigger></Hint>
 			<PopoverContent className="workspace-options">
 				<SearchInput aria-label="筛选工作区" placeholder="筛选工作区" value={filter} onValueChange={setFilter} />
-				<ListScroll>{(refreshScroll) =>
+				<ListScroll>
 				<div role="listbox" aria-label="工作区列表" className="workspace-list">
-					<AnimatePresence initial={false} onExitComplete={refreshScroll}>
+					<AnimatePresence initial={false}>
 					{workspaces.filter(({ path }) => path.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map(({ path, exists, home }) => {
 						const state = activity.get(path) ?? "idle";
 						const status = state === "running" ? "运行中" : state === "waiting" ? "等待审批" : "有未读结果";
-						return <motion.div layout="position" transition={settle} onLayoutAnimationComplete={refreshScroll} style={{ flexShrink: 0, minWidth: 0 }} key={path}>
+						return <motion.div initial={false} animate={{ height: "auto", paddingBottom: "var(--space-1)" }}
+							exit={{ height: 0, paddingBottom: 0 }} transition={listDepth.transition} style={{ flexShrink: 0, minWidth: 0, overflow: "clip" }} key={path}>
 							<Fade animate={{ ...fade.animate, ...listDepth.visible }} exit={listDeparture} className="workspace-option-row overlay-list-row">
 								<Hint content={path}><Button role="option" aria-label={path} aria-selected={path === cwd} variant="ghost"
 									disabled={disabled || !exists} aria-description={state === "idle" ? undefined : status} onClick={() => void open(path)}>
@@ -97,7 +98,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Workspac
 					})}
 					</AnimatePresence>
 				</div>
-				}</ListScroll>
+				</ListScroll>
 				<Button variant="outline" disabled={disabled} onClick={() => {
 					if (window.opi) {
 						void window.opi.chooseDirectory().then(async (directory) => { if (directory) await open(directory); })

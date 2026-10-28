@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { settle } from "@/ui/motion/transitions.ts";
+import { listDepth, settle } from "@/ui/motion/transitions.ts";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
@@ -45,10 +45,10 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 				<RefreshCw className={gui.sessionsLoading ? "animate-spin" : undefined} />
 			</IconButton>
 		</div>
-		<ListScroll className="history-scroll">{(refreshScroll) => <>
+		<ListScroll className="history-scroll">
 			{!gui.sessions && <p className="history-hint" role="status">正在读取历史会话…</p>}
 			{groups.filter(([cwd]) => full || cwd === gui.cwd).map(([cwd, items]) => {
-				const rows = <SessionRows items={items} gui={gui} close={close} search={search} refreshScroll={refreshScroll} />;
+				const rows = <SessionRows items={items} gui={gui} close={close} search={search} />;
 				return full ? <Collapsible key={cwd} defaultOpen className="workspace-sessions">
 					<Hint content={cwd}><CollapsibleTrigger asChild><Button variant="ghost" className="workspace-toggle">
 						<ChevronRight className="workspace-chevron" /><FolderClosed /><span className="workspace-label">{workspaceName(cwd)}</span>
@@ -56,12 +56,12 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 					<CollapsibleContent>{rows}</CollapsibleContent>
 				</Collapsible> : <div key={cwd}>{rows}</div>;
 			})}
-		</>}</ListScroll>
+		</ListScroll>
 	</section>;
 });
 
-function SessionRows({ items, gui, close, search, refreshScroll }: {
-	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: string; refreshScroll: () => void;
+function SessionRows({ items, gui, close, search }: {
+	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: string;
 }) {
 	const [switching, setSwitching] = useState(false);
 	const visible = useMemo(() => items.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [items, search]);
@@ -76,15 +76,17 @@ function SessionRows({ items, gui, close, search, refreshScroll }: {
 	const rows = list.rows.map((row) => {
 		const item = visible[row.index];
 		if (!item) return null;
-		return <motion.div key={item.key} layout="position" layoutDependency={visible} transition={settle} onLayoutAnimationComplete={refreshScroll}
+		return <motion.div key={item.key} layout={list.windowed ? "position" : false} layoutDependency={visible}
+			initial={false} {...(list.windowed ? {} : { animate: { height: "auto", paddingBottom: "var(--space-1)" }, exit: { height: 0, paddingBottom: 0 } })}
+			transition={list.windowed ? settle : listDepth.transition}
 			data-index={list.windowed ? row.index : undefined} className={list.windowed ? "history-virtual-row" : undefined}
 			ref={list.windowed ? list.virtualizer.measureElement : undefined}
-			style={{ minWidth: 0, ...(list.windowed ? { position: "absolute", top: row.start - list.virtualizer.options.scrollMargin, left: 0, width: "100%" } : {}) }}>
+			style={{ minWidth: 0, ...(list.windowed ? { position: "absolute", top: row.start - list.virtualizer.options.scrollMargin, left: 0, width: "100%" } : { overflow: "clip" }) }}>
 			<HistorySessionRow item={item} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} />
 		</motion.div>;
 	});
 	return <div ref={list.root} style={list.style} className="workspace-session-list">
-		<AnimatePresence initial={false} custom={visibleKeys} onExitComplete={() => { if (!list.windowed) refreshScroll(); }}>{rows}</AnimatePresence>
+		<AnimatePresence initial={false} custom={visibleKeys}>{rows}</AnimatePresence>
 		{!visible.length && gui.sessions && <p className="history-hint">{search.trim() ? "没有匹配的会话" : "暂无历史会话"}</p>}
 	</div>;
 }
