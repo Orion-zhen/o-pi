@@ -29,7 +29,7 @@
 .current-model strong { display: block; overflow-wrap: anywhere; font-size: var(--text-ui); font-weight: 500; }
 .current-model small { display: block; margin-block-end: var(--space-1); color: var(--muted-foreground); font-size: var(--text-caption); }
 .current-model [data-slot="select-trigger"] { max-inline-size: 100%; }
-.model-search { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-2); padding-inline: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); transition: border-color 150ms, box-shadow 150ms; }
+.model-search { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-2); padding-inline: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); transition: border-color var(--motion-duration-1) var(--motion-ease), box-shadow var(--motion-duration-1) var(--motion-ease); }
 .model-search:focus-within { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent); }
 .model-search > svg { flex-shrink: 0; inline-size: 1.15em; block-size: 1.15em; color: var(--muted-foreground); }
 .model-search [data-slot="search-input"] { border: 0; background: transparent; box-shadow: none; }

@@ -7,7 +7,7 @@
 .animated-number { display: inline-grid; font-variant-numeric: tabular-nums; }
 .animated-number > span { grid-area: 1 / 1; }
 .animated-number-target { opacity: 0; }
-.spotlight { position: absolute; inset: -5rem auto auto -5rem; z-index: -1; inline-size: 10rem; block-size: 10rem; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--primary) 14%, transparent), transparent 70%); opacity: 0; pointer-events: none; transition: opacity var(--motion-fast) var(--motion-ease); }
+.spotlight { position: absolute; inset: -5rem auto auto -5rem; z-index: -1; inline-size: 10rem; block-size: 10rem; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--primary) 14%, transparent), transparent 70%); opacity: 0; pointer-events: none; transition: opacity var(--motion-duration-1) var(--motion-ease); }
 .spotlight[data-hovered="true"] { opacity: 1; }
 @media (hover: none) {
 	.spotlight { display: none; }

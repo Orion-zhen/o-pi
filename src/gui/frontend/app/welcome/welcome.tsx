@@ -1,6 +1,6 @@
 import { ArrowUpRight, CodeXml, FolderSearch, Terminal } from "lucide-react";
 import { motion } from "motion/react";
-import { feedback } from "@/ui/motion/transitions.ts";
+import { welcomeStarterTransition } from "./welcome-timing.ts";
 import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { GuiControls, EditorControls } from "../controls.ts";
 import { Button } from "@/ui/button.tsx";
@@ -23,7 +23,7 @@ export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: Pick<Gu
 			{starters.map(({ Icon, animation, title, text }) => <Button key={title} variant="outline" className="starter" asChild>
 				<motion.button initial="idle" animate="idle" whileHover="active" whileFocus="active"
 					onClick={() => { gui.setDraft(text); gui.editor.current?.focus(); }}>
-					<Icon variants={{ idle: { x: 0, scale: 1, opacity: 1 }, active: animation }} transition={{ ...feedback, duration: 0.6 }} />
+					<Icon variants={{ idle: { x: 0, scale: 1, opacity: 1 }, active: animation }} transition={welcomeStarterTransition} />
 					<span>{title}</span><Spotlight /><ArrowUpRight />
 				</motion.button>
 			</Button>)}

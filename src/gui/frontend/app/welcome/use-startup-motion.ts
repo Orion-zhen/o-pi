@@ -1,10 +1,10 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { animate, cubicBezier, useMotionValue, useTransform } from "motion/react";
-import { feedback } from "@/ui/motion/transitions.ts";
-import { listWindow, sectionsDuration, type StartupLists, type StartupSide } from "./startup-entrance.tsx";
-import { welcomeComposerFadeDuration, welcomeContentDuration, welcomeContentStart, welcomeDuration } from "./welcome-timing.ts";
+import { fade, feedback, motionEase } from "@/ui/motion/transitions.ts";
+import type { StartupLists, StartupSide } from "./startup-entrance.tsx";
+import { listWindow, sectionsDuration, welcomeComposerFadeDuration, welcomeContentDuration, welcomeContentStart, welcomeDuration } from "./welcome-timing.ts";
 
-const composerEase = cubicBezier(...feedback.ease);
+const composerEase = cubicBezier(...motionEase);
 
 /** 入场在 App 内只消费一次，各区域通过挂载回调参与。 */
 export function useStartupMotion(showWelcome: boolean, sessionReady: boolean) {
@@ -50,8 +50,8 @@ export function useStartupMotion(showWelcome: boolean, sessionReady: boolean) {
 		startup.seen.add("composer");
 		// 欢迎页即将或正在入场时共享时间，其余首次挂载只播放短入场。
 		if (time.get() >= welcomeDuration && (!showWelcome || startup.seen.has("welcome"))) {
-			animate(opacity, [0, 1], { duration: 0.16, ease: feedback.ease });
-			animate(y, [12, 0], { duration: 0.24, ease: feedback.ease });
+			animate(opacity, [0, 1], fade.transition);
+			animate(y, [12, 0], feedback);
 		}
 		return finishComposer;
 	}, [time, opacity, y, finishComposer, showWelcome]);

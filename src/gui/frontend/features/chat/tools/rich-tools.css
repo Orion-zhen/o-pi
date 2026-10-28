@@ -21,7 +21,7 @@
 .subagent-overview > span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
 .subagent-progress > progress { appearance: none; display: block; width: 100%; height: 3px; border: 0; border-radius: 2px; overflow: hidden; margin: 0.625rem 0 0.875rem; background: var(--secondary); }
 .subagent-progress > progress::-webkit-progress-bar { background: var(--secondary); }
-.subagent-progress > progress::-webkit-progress-value { background: var(--muted-foreground); transition: width var(--motion-layout) var(--motion-ease); }
+.subagent-progress > progress::-webkit-progress-value { background: var(--muted-foreground); transition: width var(--motion-duration-3) var(--motion-ease); }
 .subagent-progress > progress::-moz-progress-bar { background: var(--muted-foreground); }
 .subagent-tasks { display: grid; gap: 0.5rem; }
 .subagent-task { min-width: 0; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface); overflow: hidden; }

@@ -14,7 +14,7 @@
 .settings-content[data-state="inactive"] { display: none; }
 .settings-content > .gui-settings { --settings-enter-y: 16px; inline-size: 100%; max-inline-size: var(--settings-form-max); margin-inline: auto; }
 .settings-content > .gui-settings[data-direction="-1"] { --settings-enter-y: -16px; }
-.settings-content[data-state="active"] > .gui-settings:not([data-direction="0"]) { animation: settings-enter 240ms var(--motion-ease); }
+.settings-content[data-state="active"] > .gui-settings:not([data-direction="0"]) { animation: settings-enter var(--motion-duration-3) var(--motion-ease); }
 @keyframes settings-enter {
 	from { opacity: 0; transform: translateY(var(--settings-enter-y)); }
 	to { opacity: 1; transform: translateY(0); }

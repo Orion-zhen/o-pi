@@ -3,7 +3,7 @@ import { motion, useTransform, type MotionValue } from "motion/react";
 import character from "../../../../../assets/welcome/character.svg?welcome";
 import guides from "../../../../../assets/welcome/reveal.svg?welcome";
 import { offerPath } from "./welcome-offer.ts";
-import { welcomeDuration, welcomeLogoDuration, welcomeLogoStart } from "./welcome-timing.ts";
+import { welcomeLogoDuration, welcomeLogoStart } from "./welcome-timing.ts";
 import { createWindPath } from "./welcome-wind-path.ts";
 import type { WindLayer } from "./welcome-wind.ts";
 
@@ -15,6 +15,7 @@ const layers = character.map((layer) => ({
 
 // 按比例压缩原有笔画时序，保留从上往下的勾勒顺序。
 const drawScale = welcomeLogoStart / Math.max(...guides.map((guide) => guide.start + guide.duration));
+const logoEnd = welcomeLogoStart + welcomeLogoDuration;
 type Paint = typeof layers[number]["paints"][number];
 
 // 两个姿态保留相同的路径指令，手腕与衣袖沿同一变形场连续移动。
@@ -47,8 +48,8 @@ export const WelcomeIllustration = memo(function WelcomeIllustration({ time, pos
 	time: MotionValue<number>; pose: MotionValue<number>; windTime: MotionValue<number>; windAmount: MotionValue<number>; complete: boolean;
 }) {
 	const id = useId();
-	const logoOpacity = useTransform(time, [welcomeLogoStart, welcomeDuration], [0, 0.86]);
-	const logoY = useTransform(() => Math.max(0, (welcomeDuration - time.get()) / welcomeLogoDuration) * 14 - pose.get() * 18);
+	const logoOpacity = useTransform(time, [welcomeLogoStart, logoEnd], [0, 0.86]);
+	const logoY = useTransform(() => Math.max(0, (logoEnd - time.get()) / welcomeLogoDuration) * 14 - pose.get() * 18);
 	return <svg className="welcome-illustration" viewBox="420 24 680 730" role="img" aria-label="少女捧起 opi 图标">
 		<defs>
 			{!complete && <mask id={`${id}-draw`} maskUnits="userSpaceOnUse" x="420" y="24" width="680" height="730" style={{ maskType: "alpha" }}>

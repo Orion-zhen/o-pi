@@ -1,13 +1,13 @@
 import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useIsPresent, type HTMLMotionProps, type Variants } from "motion/react";
 import { Fade } from "./animated.tsx";
-import { fade, controlShift } from "./transitions.ts";
+import { fade, dismiss, controlShift } from "./transitions.ts";
 
 type Movement = { axis: "x" | "y"; direction: number };
 const variants: Variants = {
 	enter: ({ axis, direction }: Movement) => ({ opacity: 0, x: axis === "x" ? direction * 8 : 0, y: axis === "y" ? direction * 4 : 0 }),
 	center: { opacity: 1, x: 0, y: 0 },
-	exit: ({ axis, direction }: Movement) => ({ opacity: 0, x: axis === "x" ? direction * -8 : 0, y: axis === "y" ? direction * -4 : 0, transition: axis === "x" ? { duration: 0.12 } : controlShift }),
+	exit: ({ axis, direction }: Movement) => ({ opacity: 0, x: axis === "x" ? direction * -8 : 0, y: axis === "y" ? direction * -4 : 0, transition: axis === "x" ? dismiss : controlShift }),
 };
 
 function InlineFade(props: HTMLMotionProps<"span">) {

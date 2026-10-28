@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import { Fade } from "@/ui/motion/animated.tsx";
 import { fade, listDepth, listDeparture } from "@/ui/motion/transitions.ts";
 import { startupRow, useStartupLists } from "@/app/welcome/startup-entrance.tsx";
+import { sessionListTiming } from "@/app/welcome/welcome-timing.ts";
 import { Pencil } from "lucide-react";
 import { MessageSquare } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -51,7 +52,7 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 	</>;
 	const props = { className: "history-session-row overlay-list-row activity-frame", "data-current": selected, "data-editing": editing };
 	const lists = useStartupLists();
-	const entrance = startupRow(lists, index, count);
+	const entrance = startupRow(lists, index, count, sessionListTiming);
 	return <Fade {...props} {...(entrance ?? { initial: animated ? fade.initial : false, animate: { ...fade.animate, ...listDepth.visible } })}
 		variants={{ exit: (visible: ReadonlySet<string>) => visible.has(item.key) ? { opacity: 1, transition: { duration: 0 } } : listDeparture }}
 		exit="exit">{content}</Fade>;

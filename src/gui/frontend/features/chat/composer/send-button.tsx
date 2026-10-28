@@ -5,11 +5,13 @@ import { FilledSquare } from "@/ui/icon-shapes.ts";
 import { animate, motion, useDragControls, useMotionValue, useTransform } from "motion/react";
 import { Button } from "@/ui/button.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
+import { feedback, settle } from "@/ui/motion/transitions.ts";
 import "./send-button.css";
 
 // SVG 逻辑坐标不能过小，否则圆周长度测量失真。显示尺寸仍由 Grid 决定。
 const SVG_SIZE = 100;
 const fullScale = 1.06;
+const shotTransition = { ...feedback, delay: 0.06 };
 const wellRadius = SVG_SIZE * 0.6;
 const fullStrokeWidth = SVG_SIZE * 0.06;
 // 满蓄力时两个圆的外边缘分离，计入圆环线宽和按钮缩放。
@@ -104,7 +106,7 @@ export function SendButton({ mode, disabled, onActivate }: SendButtonProps) {
 				return <motion.circle key={index} className="sling-particle"
 					initial={{ cx: 0, cy: 0, opacity: 1, r: SVG_SIZE * 0.05 }}
 					animate={{ cx: Math.cos(shot + spread) * reach, cy: Math.sin(shot + spread) * reach, opacity: [1, 1, 0], r: SVG_SIZE * 0.01 }}
-					transition={{ duration: 0.32, delay: 0.06, ease: [0.2, 0.8, 0.2, 1] }}
+					transition={shotTransition}
 				/>;
 			})}
 		</svg>
@@ -137,7 +139,7 @@ export function SendButton({ mode, disabled, onActivate }: SendButtonProps) {
 						if (!held.current) return;
 						held.current = false;
 						setDragging(false);
-						void animate(angle, 0, { type: "spring", duration: 0.3, bounce: 0 });
+						void animate(angle, 0, settle);
 						if (event.type === "pointerup" && !cancelled.current && enabled && mode === gestureMode.current
 							&& Math.hypot(pull.current.x, pull.current.y) >= diameter * armRatio) {
 							setShot(Math.atan2(-pull.current.y, -pull.current.x));

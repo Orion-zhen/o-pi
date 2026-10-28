@@ -2,11 +2,11 @@
 .sidebar-workbench, .workbench-sections, .workspace-files-content { flex: 1; }
 .sidebar-workbench { container: workbench / size; }
 .workbench-workspace { display: flex; min-inline-size: 0; padding: var(--space-2) var(--space-3); flex-shrink: 0; }
-.workbench-sections { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--session-share)) auto auto minmax(0, var(--file-share)); transition: grid-template-rows var(--motion-layout) var(--motion-ease); }
+.workbench-sections { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, var(--session-share)) auto auto minmax(0, var(--file-share)); transition: grid-template-rows var(--motion-duration-3) var(--motion-ease); }
 .workbench-sections[data-files-open="false"] { grid-template-rows: minmax(0, 100fr) auto auto minmax(0, 0fr); }
 .workspace-files { display: contents; }
-.workbench-sessions { overflow: hidden; transition: opacity var(--motion-normal) var(--motion-ease), visibility var(--motion-layout); }
-.workspace-files-content { overflow: hidden; transition: opacity var(--motion-normal) var(--motion-ease), visibility var(--motion-layout); }
+.workbench-sessions { overflow: hidden; transition: opacity var(--motion-duration-2) var(--motion-ease), visibility var(--motion-duration-3); }
+.workspace-files-content { overflow: hidden; transition: opacity var(--motion-duration-2) var(--motion-ease), visibility var(--motion-duration-3); }
 .workspace-files[data-open="false"] .workspace-files-content { visibility: hidden; opacity: 0; }
 .workbench-session-controls { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-3); flex-shrink: 0; }
 .workbench-workspace .workspace-select { flex: auto; justify-content: flex-start; }
@@ -20,7 +20,7 @@
 .session-history-flat .history-heading { flex-shrink: 0; }
 .session-history-flat .history-scroll { flex: 1; }
 .session-history-flat .workspace-session-list { margin: 0; padding: 0; border: 0; }
-.workbench-separator { flex: 0 0 auto; padding-block: var(--space-1); cursor: row-resize; touch-action: none; outline-offset: -2px; transition: padding-block var(--motion-layout) var(--motion-ease); }
+.workbench-separator { flex: 0 0 auto; padding-block: var(--space-1); cursor: row-resize; touch-action: none; outline-offset: -2px; transition: padding-block var(--motion-duration-3) var(--motion-ease); }
 .workbench-sections[data-files-open="false"] .workbench-separator { padding-block: 0; visibility: hidden; }
 /* 分隔条隐藏后，由文件区标题补上同位置的横线。 */
 .workbench-sections[data-files-open="false"] .workspace-files-heading { border-block-start: 1px solid var(--divider); }

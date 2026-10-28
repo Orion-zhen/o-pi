@@ -3,7 +3,7 @@ import { animate, useMotionValue, useMotionValueEvent, type MotionValue } from "
 import { settle } from "@/ui/motion/transitions.ts";
 import { useAnimationVisibility } from "@/ui/motion/use-animation-visibility.ts";
 import { WelcomeIllustration } from "./welcome-illustration.tsx";
-import { welcomeLogoStart } from "./welcome-timing.ts";
+import { welcomeIdle, welcomeLogoStart } from "./welcome-timing.ts";
 import { windDuration } from "./welcome-wind.ts";
 
 export function WelcomeMark({ time }: { time: MotionValue<number> }) {
@@ -29,11 +29,9 @@ export function WelcomeMark({ time }: { time: MotionValue<number> }) {
 				animate(windTime, windDuration, { duration: windDuration, ease: "linear" });
 			} else {
 				windAmount.set(0);
-				animate(pose, [0, 1, 1, 0], {
-					duration: 3.2, times: [0, 0.4, 0.58, 1], ease: [0.3, 0, 0.3, 1],
-				});
+				animate(pose, [0, 1, 1, 0], welcomeIdle.offer);
 			}
-			schedule(18_000);
+			schedule(welcomeIdle.intervalMs);
 		};
 		const activity = () => {
 			pose.stop();
@@ -41,11 +39,11 @@ export function WelcomeMark({ time }: { time: MotionValue<number> }) {
 			windAmount.stop();
 			if (pose.get() !== 0) animate(pose, 0, settle);
 			if (windAmount.get() !== 0) animate(windAmount, 0, settle);
-			schedule(5_000);
+			schedule(welcomeIdle.delayMs);
 		};
 		const events = ["pointerdown", "keydown", "input", "wheel"] as const;
 		for (const event of events) window.addEventListener(event, activity, { capture: true, passive: true });
-		schedule(5_000);
+		schedule(welcomeIdle.delayMs);
 		return () => {
 			window.clearTimeout(timer);
 			pose.stop();

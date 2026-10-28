@@ -1,13 +1,7 @@
 import { createContext, useContext, useLayoutEffect, useState } from "react";
 import { animate, useMotionValue, useTransform, type HTMLMotionProps, type MotionStyle } from "motion/react";
-import { fade, feedback, listDepth } from "@/ui/motion/transitions.ts";
-
-/** 侧栏内容的位移时长；列表行在它结束后开始。 */
-export const sectionsDuration = 0.4;
-/** 侧栏内容的淡入时长，与位移共用同一曲线。 */
-const sectionFade = 0.16;
-/** 列表行入场总窗口。 */
-export const listWindow = 0.6;
+import { fade, motionEase, listDepth } from "@/ui/motion/transitions.ts";
+import { sectionFade, sectionsDuration, startupListTiming } from "./welcome-timing.ts";
 
 export type StartupSide = "left" | "right";
 
@@ -41,8 +35,8 @@ export function useSectionEntrance(side: StartupSide): MotionStyle | undefined {
 	useLayoutEffect(() => {
 		if (!animated) return;
 		const animations = [
-			animate(shift, 1, { duration: sectionsDuration, ease: feedback.ease }),
-			animate(opacity, 1, { duration: sectionFade, ease: feedback.ease }),
+			animate(shift, 1, { duration: sectionsDuration, ease: motionEase }),
+			animate(opacity, 1, { duration: sectionFade, ease: motionEase }),
 		];
 		return () => { for (const animation of animations) animation.stop(); };
 	}, [animated, shift, opacity]);
@@ -56,11 +50,11 @@ export function useStartupLists(): StartupLists | null {
 type RowEntrance = Pick<HTMLMotionProps<"div">, "initial" | "animate" | "transition" | "style">;
 
 /** 列表行的入场属性；null 表示按普通出现。 */
-export function startupRow(lists: StartupLists | null, index: number, count: number): RowEntrance | null {
+export function startupRow(lists: StartupLists | null, index: number, count: number, timing = startupListTiming): RowEntrance | null {
 	if (!lists) return null;
 	const { startAt } = lists;
-	const duration = count === 1 ? listWindow : listDepth.transition.duration;
-	const stagger = count > 1 ? (listWindow - duration) / (count - 1) : 0;
+	const duration = count === 1 ? timing.singleRow : timing.row;
+	const stagger = count > 1 ? (timing.window - duration) / (count - 1) : 0;
 	const delay = startAt === null ? 0 : Math.max(0, (startAt - performance.now()) / 1000) + index * stagger;
 	return {
 		initial: entryHidden,

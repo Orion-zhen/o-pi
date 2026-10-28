@@ -1,7 +1,7 @@
 .sidebar { flex-basis: var(--sidebar-width, 14%); flex-shrink: 1; min-inline-size: min(8rem, 25%); }
 .sidebar[data-collapsed="true"] { min-inline-size: 0; }
 .resize-handle { flex: 0 0 0.5rem; display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none; cursor: col-resize; outline-offset: -2px; z-index: 2; }
-.resize-handle::after { content: ""; inline-size: 1px; block-size: 100%; background: var(--divider); transition: background var(--motion-normal); }
+.resize-handle::after { content: ""; inline-size: 1px; block-size: 100%; background: var(--divider); transition: background var(--motion-duration-2); }
 .resize-handle:is(:hover, :focus-visible, [data-dragging="true"])::after { background: var(--ring); }
 .resize-handle:focus-visible { outline: 2px solid var(--ring); }
 .resize-handle[data-axis="y"] { cursor: row-resize; }
@@ -12,7 +12,7 @@
 .chat-workspace:has(.session-sidebar[data-open="true"]) > .info-resize { display: flex; }
 .conversation-resize-track { inline-size: min(100%, var(--conversation-width)); margin-inline: auto; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
 .conversation-resize-track > .resize-handle { position: relative; flex: 0 0 0.75rem; block-size: 100%; pointer-events: auto; overflow: clip; }
-.conversation-resize-track > .resize-handle::after { position: absolute; inset-block-start: var(--resize-y, 50%); transform: translateY(-50%); inline-size: 2px; block-size: 6rem; background: linear-gradient(transparent, var(--muted-foreground), transparent); opacity: 0; transition: opacity var(--motion-normal); pointer-events: none; }
+.conversation-resize-track > .resize-handle::after { position: absolute; inset-block-start: var(--resize-y, 50%); transform: translateY(-50%); inline-size: 2px; block-size: 6rem; background: linear-gradient(transparent, var(--muted-foreground), transparent); opacity: 0; transition: opacity var(--motion-duration-2); pointer-events: none; }
 .conversation-resize-track > .resize-handle:is(:hover, [data-dragging="true"])::after { opacity: 0.9; }
 body[data-gui-resizing] { user-select: none; }
 body[data-gui-resizing="x"] * { cursor: col-resize !important; }

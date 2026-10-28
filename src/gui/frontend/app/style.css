@@ -18,16 +18,16 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 	background: var(--glass);
 	backdrop-filter: var(--sidebar-filter);
 }
-.sidebar { flex: 0 0 20%; min-inline-size: 0; overflow: clip; transition: flex-basis var(--motion-layout) var(--motion-ease); }
+.sidebar { flex: 0 0 20%; min-inline-size: 0; overflow: clip; transition: flex-basis var(--motion-duration-3) var(--motion-ease); }
 .sidebar[data-collapsed="true"] { flex-basis: calc(2.75rem + 2 * var(--space-3)); border-inline-end: 1px solid var(--divider); }
 .sidebar-navigation { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); flex: 1; min-block-size: 0; }
-.sidebar-navigation > * { grid-area: 1 / 1; min-inline-size: 0; min-block-size: 0; transition: opacity var(--motion-normal) var(--motion-ease), visibility var(--motion-layout); }
+.sidebar-navigation > * { grid-area: 1 / 1; min-inline-size: 0; min-block-size: 0; transition: opacity var(--motion-duration-2) var(--motion-ease), visibility var(--motion-duration-3); }
 .sidebar-expanded { display: flex; }
 .sidebar-compact { opacity: 0; visibility: hidden; }
 .sidebar[data-collapsed="true"] .sidebar-expanded { opacity: 0; visibility: hidden; }
 .sidebar[data-collapsed="true"] .sidebar-compact { opacity: 1; visibility: visible; }
 .sidebar-brand { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-4) var(--space-3); }
-.brand { display: flex; white-space: nowrap; min-inline-size: 0; overflow: clip; transition: opacity var(--motion-normal) var(--motion-ease); align-items: center; gap: var(--space-2); padding-inline-start: var(--space-2); font-size: var(--text-heading); font-weight: 600; letter-spacing: -0.025em; }
+.brand { display: flex; white-space: nowrap; min-inline-size: 0; overflow: clip; transition: opacity var(--motion-duration-2) var(--motion-ease); align-items: center; gap: var(--space-2); padding-inline-start: var(--space-2); font-size: var(--text-heading); font-weight: 600; letter-spacing: -0.025em; }
 .app-logo { display: inline-block; inline-size: 1.4em; block-size: 1.4em; flex-shrink: 0; background: currentColor; mask: url("/logo.svg") center / contain no-repeat; }
 .brand small { font-size: var(--text-caption); color: var(--muted-foreground); letter-spacing: 0; font-weight: 400; }
 .sidebar-scroll { flex: 1; min-height: 0; overflow: auto; padding: var(--space-2) var(--space-3); }

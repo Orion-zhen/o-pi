@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 
 @theme inline {
+	--default-transition-duration: var(--motion-duration-1);
+	--default-transition-timing-function: var(--motion-ease);
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-primary: var(--primary);
