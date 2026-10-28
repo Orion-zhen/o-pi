@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus, Search, X } from "lucide-react";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
@@ -30,7 +30,7 @@ export function FontInput({ kind, fonts, selected, disabled, initial = "", commi
 	};
 	return <div className="font-input">
 		<div className="font-input-controls">
-			<SearchInput ref={input} autoFocus role="combobox" data-font-escape={expanded || Boolean(draft) || Boolean(cancel)} aria-label={`${cancel ? "修改" : "添加"}${kind === "ui" ? "界面" : "代码"}字体`}
+			<SearchInput icon={Search} ref={input} autoFocus role="combobox" data-font-escape={expanded || Boolean(draft) || Boolean(cancel)} aria-label={`${cancel ? "修改" : "添加"}${kind === "ui" ? "界面" : "代码"}字体`}
 				aria-autocomplete="list" aria-expanded={listOpen} aria-controls={listOpen ? id : undefined}
 				aria-activedescendant={listOpen && active >= 0 ? `${id}-${active}` : undefined}
 				placeholder="输入或搜索字体名称…" value={draft} readOnly={disabled} aria-disabled={disabled} maxLength={256} spellCheck={false}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, CornerUpRight, ListEnd } from "lucide";
+import { ArrowUp, CornerUpRight, ListEnd, Play } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { FilledSquare } from "@/ui/icon-shapes.ts";
 import { animate, motion, useDragControls, useMotionValue, useTransform } from "motion/react";
@@ -19,6 +19,7 @@ const armRatio = (wellRadius + fullStrokeWidth / 2) / SVG_SIZE + fullScale / 2;
 
 const variants = {
 	send: { label: "发送", icon: ArrowUp },
+	execute: { label: "执行命令", icon: Play },
 	steer: { label: "发送", icon: CornerUpRight },
 	"follow-up": { label: "发送", icon: ListEnd },
 	stop: { label: "停止", icon: FilledSquare },

@@ -6,7 +6,10 @@
 .message-editor:focus-visible { box-shadow: none; border: 0; }
 .composer-input { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); overflow: clip; }
 .composer-input > * { grid-area: 1 / 1; min-inline-size: 0; }
-.composer-input .message-editor { align-self: end; transition: opacity var(--motion-duration-1) var(--motion-ease); }
+.composer-input .message-editor { align-self: end; transition: opacity var(--motion-duration-1) var(--motion-ease), background-color var(--motion-duration-1) var(--motion-ease); }
+.composer-card[data-command="true"] .message-editor { font-family: var(--gui-font-code); background: color-mix(in srgb, var(--ring) 4%, transparent); }
+.composer-command-hint { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-3) var(--space-2); color: var(--muted-foreground); font-size: var(--text-ui); overflow-wrap: anywhere; }
+.composer-command-hint > svg { inline-size: 1.25em; block-size: 1.25em; flex-shrink: 0; color: var(--primary); }
 .composer-drop-hint { display: flex; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--ring) 4%, transparent); color: var(--muted-foreground); font-size: var(--text-ui); font-weight: 500; overflow-wrap: anywhere; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity var(--motion-duration-1) var(--motion-ease), visibility var(--motion-duration-1), background-color var(--motion-duration-1) var(--motion-ease), color var(--motion-duration-1) var(--motion-ease); }
 .composer-drop-hint > svg { inline-size: 1.125rem; block-size: 1.125rem; flex-shrink: 0; }
 .composer-card[data-file-drop="ready"] { border-color: color-mix(in srgb, var(--ring) 45%, var(--surface-edge)); }
@@ -45,7 +48,7 @@
 .image-preview img { inline-size: 100%; block-size: auto; aspect-ratio: 5 / 4; object-fit: cover; border-radius: 0.5rem; border: 1px solid var(--border); }
 .image-preview > .image-preview-trigger { inline-size: 100%; }
 .image-preview > button:not(.image-preview-trigger) { align-self: start; justify-self: end; background: var(--surface); }
-.suggestions { display: flex; flex-direction: column; gap: 0.125em; max-block-size: 30dvh; overflow: auto; overscroll-behavior: contain; list-style: none; margin: 0; padding: 0; }
+.suggestions { display: flex; flex-direction: column; gap: 0.125em; min-block-size: 0; max-block-size: min(calc(var(--dropdown-visible-items) * (1lh + 1.25em) + (var(--dropdown-visible-items) - 1) * 0.125em + 0.75em), 30dvh); overflow: auto; overscroll-behavior: contain; list-style: none; margin: 0; padding: 0; }
 .suggestions:not(:empty) { padding: 0.375em; border-bottom: thin solid var(--border); }
 .suggestions > li { flex-shrink: 0; min-inline-size: 0; }
 .suggestions button { display: flex; justify-content: flex-start; gap: 1em; inline-size: 100%; block-size: auto; padding: 0.625em 0.75em; text-align: start; line-height: 1.5; }
@@ -55,9 +58,10 @@
 .suggestion-label { flex: 1; }
 .suggestion-command .suggestion-label { flex: 2; font-family: var(--font-mono); }
 .suggestion-description { flex: 3; color: var(--muted-foreground); font-weight: normal; }
+.history-menu[data-slot="dropdown-menu-content"] { max-block-size: var(--radix-dropdown-menu-content-available-height); }
 .history-menu { display: flex; flex-direction: column; inline-size: 40vi; min-inline-size: 0; max-inline-size: min(90vi, var(--radix-dropdown-menu-content-available-width)); overflow: hidden; }
 .history-menu > [data-slot="dropdown-menu-label"] { flex-shrink: 0; }
-.history-menu-list { flex: 1 1 auto; min-block-size: 0; overflow-y: auto; overscroll-behavior: contain; }
+.history-menu-list { flex: 1 1 auto; min-block-size: 0; max-block-size: calc(var(--dropdown-visible-items) * (1lh + 1.25em)); overflow-y: auto; overscroll-behavior: contain; }
 .history-menu [role="menuitem"] { overflow-wrap: anywhere; white-space: pre-wrap; }
 .history-menu-search { flex-shrink: 0; padding-block-start: var(--space-2); margin-block-start: var(--space-2); border-block-start: thin solid var(--border); }
 @media (max-width: 767px) {

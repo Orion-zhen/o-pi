@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 import type { GuiModel } from "../../../shared/protocol/state.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { Button } from "@/ui/button.tsx";
@@ -37,7 +37,7 @@ export function ModelSelect({ label, models, value, disabled, change }: {
 				</Button>
 			</PopoverTrigger></Hint>
 			<PopoverContent className="settings-popover model-select-content" align="end">
-				<SearchInput aria-label="搜索模型" placeholder="搜索模型" value={filter} onValueChange={setFilter} />
+				<SearchInput icon={Search} aria-label="搜索模型" placeholder="搜索模型" value={filter} onValueChange={setFilter} />
 				<ListScroll>
 					<div role="listbox" aria-label="模型列表" className="model-select-list">
 						<AnimatePresence initial={false}>

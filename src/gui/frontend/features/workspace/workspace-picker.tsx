@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Fade } from "@/ui/motion/animated.tsx";
 import { fade, listDepth, listDeparture } from "@/ui/motion/transitions.ts";
-import { ChevronsUpDown, FolderOpen, Home, Shield } from "lucide-react";
+import { ChevronsUpDown, FolderOpen, Home, Search, Shield } from "lucide-react";
 import { Check, FolderOpen as FolderOpenData } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { FilledShield, StatusDot } from "@/ui/icon-shapes.ts";
@@ -69,8 +69,8 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Workspac
 				{!compact && elsewhereWaiting && <Shield className="approval-marker" fill="currentColor" role="img" aria-label="其他工作区等待审批" />}
 				{!compact && <ChevronsUpDown />}
 			</Button></PopoverTrigger></Hint>
-			<PopoverContent className="workspace-options">
-				<SearchInput aria-label="筛选工作区" placeholder="筛选工作区" value={filter} onValueChange={setFilter} />
+			<PopoverContent className="workspace-options" onOpenAutoFocus={(event) => event.preventDefault()}>
+				<SearchInput icon={Search} aria-label="筛选工作区" placeholder="筛选工作区" value={filter} onValueChange={setFilter} />
 				<ListScroll>
 				<div role="listbox" aria-label="工作区列表" className="workspace-list">
 					<AnimatePresence initial={false}>

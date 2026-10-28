@@ -103,6 +103,7 @@
 	--space-5: 1.25rem;
 	--space-6: 1.5rem;
 	--space-8: 2rem;
+	--dropdown-visible-items: 16;
 	--content-inset: clamp(0.875rem, 2.5vw, 2rem);
 	--conversation-width: 140ch;
 }

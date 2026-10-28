@@ -1,7 +1,8 @@
 import type * as React from "react";
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { Select as SelectPrimitive } from "radix-ui";
 import { cn } from "./class-names.ts";
+import "./dropdown.css";
 
 export const Select = SelectPrimitive.Root;
 export const SelectValue = SelectPrimitive.Value;
@@ -35,18 +36,12 @@ export function SelectContent({ className, children, align = "end", sideOffset =
 				sideOffset={sideOffset}
 				collisionPadding={8}
 				className={cn(
-					"floating-surface z-50 max-h-(--radix-select-content-available-height) min-w-[min(var(--radix-select-trigger-width),var(--radix-select-content-available-width))] max-w-(--radix-select-content-available-width) overflow-hidden rounded-lg border text-sm text-popover-foreground outline-none",
+					"floating-surface z-50 min-w-[min(var(--radix-select-trigger-width),var(--radix-select-content-available-width))] max-w-(--radix-select-content-available-width) overflow-hidden rounded-lg border text-sm leading-normal text-popover-foreground outline-none",
 					className,
 				)}
 				{...props}
 			>
-				<SelectPrimitive.ScrollUpButton className="flex justify-center py-1 text-muted-foreground">
-					<ChevronUpIcon className="size-[1em]" />
-				</SelectPrimitive.ScrollUpButton>
-				<SelectPrimitive.Viewport className="p-2">{children}</SelectPrimitive.Viewport>
-				<SelectPrimitive.ScrollDownButton className="flex justify-center py-1 text-muted-foreground">
-					<ChevronDownIcon className="size-[1em]" />
-				</SelectPrimitive.ScrollDownButton>
+				<SelectPrimitive.Viewport data-slot="select-viewport">{children}</SelectPrimitive.Viewport>
 			</SelectPrimitive.Content>
 		</SelectPrimitive.Portal>
 	);

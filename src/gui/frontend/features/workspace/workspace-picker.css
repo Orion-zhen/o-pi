@@ -1,4 +1,6 @@
-.workspace-options { --surface: var(--soft-base); --popover: var(--soft-popover); box-shadow: var(--soft-highlight), var(--shadow-floating); display: flex; flex-direction: column; gap: var(--space-3); inline-size: max-content; max-inline-size: var(--radix-popover-content-available-width); max-block-size: var(--radix-popover-content-available-height); }
+.workspace-options { --surface: var(--soft-base); --popover: var(--soft-popover); box-shadow: var(--soft-highlight), var(--shadow-floating); display: flex; flex-direction: column; gap: var(--space-3); inline-size: max-content; max-inline-size: var(--radix-popover-content-available-width); max-block-size: var(--radix-popover-content-available-height); overflow: hidden; }
+.workspace-options > :not(.list-scroll) { flex-shrink: 0; }
+.workspace-options > .list-scroll { flex: 1 1 auto; max-block-size: calc(var(--dropdown-visible-items) * (1lh + 1.2em + var(--space-1)) + 2 * var(--space-1)); }
 .workspace-list, .directory-list { display: flex; flex-direction: column; min-block-size: 0; }
 .directory-list { overflow: auto; }
 .workspace-option-row { flex-shrink: 0; }

@@ -1,6 +1,7 @@
 import type * as React from "react";
 import { cn } from "./class-names.ts";
 import { DropdownMenu as Menu } from "radix-ui";
+import "./dropdown.css";
 
 export const DropdownMenu = Menu.Root;
 export const DropdownMenuTrigger = Menu.Trigger;
@@ -8,14 +9,14 @@ export const DropdownMenuTrigger = Menu.Trigger;
 export function DropdownMenuContent({ className, sideOffset = 4, ...props }: React.ComponentProps<typeof Menu.Content>) {
 	return <Menu.Portal>
 		<Menu.Content data-slot="dropdown-menu-content" sideOffset={sideOffset} collisionPadding={8}
-			className={cn("floating-surface z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[min(12em,var(--radix-dropdown-menu-content-available-width))] max-w-(--radix-dropdown-menu-content-available-width) origin-(--radix-dropdown-menu-content-transform-origin) overflow-auto rounded-lg border p-2 text-popover-foreground", className)}
+			className={cn("floating-surface z-50 min-w-[min(12em,var(--radix-dropdown-menu-content-available-width))] max-w-(--radix-dropdown-menu-content-available-width) origin-(--radix-dropdown-menu-content-transform-origin) overflow-auto rounded-lg border p-2 text-sm leading-normal text-popover-foreground", className)}
 			{...props} />
 	</Menu.Portal>;
 }
 
 export function DropdownMenuItem({ className, ...props }: React.ComponentProps<typeof Menu.Item>) {
 	return <Menu.Item data-slot="dropdown-menu-item"
-		className={cn("flex min-w-0 cursor-default items-center gap-2 wrap-anywhere rounded-sm px-2 py-[0.625em] text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground", className)}
+		className={cn("flex min-w-0 cursor-default items-center gap-2 wrap-anywhere rounded-sm px-2 py-[0.625em] text-sm leading-normal outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground", className)}
 		{...props} />;
 }
 

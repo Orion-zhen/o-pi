@@ -1,0 +1,12 @@
+[data-slot="select-content"], [data-slot="dropdown-menu-content"] {
+	max-block-size: min(calc(var(--dropdown-visible-items) * (1lh + 1.25em) + 2 * var(--space-2)), var(--dropdown-available-height));
+}
+[data-slot="select-content"] { --dropdown-available-height: var(--radix-select-content-available-height); }
+[data-slot="dropdown-menu-content"] { --dropdown-available-height: var(--radix-dropdown-menu-content-available-height); }
+[data-slot="select-viewport"][data-radix-select-viewport] {
+	min-block-size: 0;
+	padding: var(--space-2);
+	overscroll-behavior: contain;
+	scrollbar-width: auto;
+}
+[data-slot="select-viewport"][data-radix-select-viewport]::-webkit-scrollbar { display: block; }

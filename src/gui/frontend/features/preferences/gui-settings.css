@@ -19,8 +19,8 @@
 .font-chain-name > span, .font-chain small { display: block; }
 .font-chain-name:hover:not(:disabled) { background: var(--accent); }
 .font-chain > li > .font-input { flex: 1 1 100%; min-inline-size: 0; }
-.font-list { overflow: auto; max-block-size: min(14em, 30dvh); margin-block-start: var(--space-2); }
-.font-list > button { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); inline-size: 100%; padding: var(--space-2); border-radius: var(--radius-sm); text-align: start; overflow-wrap: anywhere; }
+.font-list { display: flex; flex-direction: column; min-block-size: 0; overflow: auto; max-block-size: min(calc(var(--dropdown-visible-items) * (1lh + 2 * var(--space-2))), 30dvh); margin-block-start: var(--space-2); }
+.font-list > button { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--space-2); inline-size: 100%; padding: var(--space-2); border-radius: var(--radius-sm); text-align: start; overflow-wrap: anywhere; }
 .font-list > button:is(:hover, [aria-selected="true"]):not(:disabled) { background: var(--accent); }
 .font-chain-name:disabled, .font-list > button:disabled { opacity: 0.45; }
 .font-list small { flex-shrink: 0; color: var(--muted-foreground); }

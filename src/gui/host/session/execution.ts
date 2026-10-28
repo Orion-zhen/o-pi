@@ -56,6 +56,7 @@ export class GuiExecution {
 	readonly modelScope = new GuiModelScope();
 	private guiHistory = new GuiHistory(this.payloads);
 	private stream = new GuiStream(this.payloads);
+	private bashCommand: string | null = null;
 	private bashOutput = "";
 	private liveTools = new GuiLiveTools(this.payloads);
 	private disposed = false;
@@ -218,7 +219,7 @@ export class GuiExecution {
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
 			liveTools: this.liveTools.project(),
-			history: this.historyTexts, bashOutput: this.bashOutput, streamingMessage: this.stream.project(),
+			history: this.historyTexts, bashCommand: this.bashCommand, bashOutput: this.bashOutput, streamingMessage: this.stream.project(),
 		}, this.guiHistory, this.toolController, this.mcpTools?.list(this.runtime.session.getActiveToolNames()) ?? []);
 	}
 	private schedule(): void {
@@ -349,8 +350,10 @@ export class GuiExecution {
 		this.publish();
 		try {
 			if (action.text.startsWith("!")) {
+				this.bashCommand = action.text.replace(/^!!?/, "");
+				this.publish();
 				this.submitted();
-				await session.executeBash(action.text.replace(/^!!?/, ""), (chunk) => {
+				await session.executeBash(this.bashCommand, (chunk) => {
 					this.bashOutput = (this.bashOutput + chunk).slice(-64_000);
 					this.schedule();
 				}, { excludeFromContext: action.text.startsWith("!!") });
@@ -363,6 +366,7 @@ export class GuiExecution {
 			}
 		} finally {
 			if (mcpLogin) { this.mcpLoggingIn = false; this.emit({ type: "auth", value: null }); }
+			this.bashCommand = null;
 			this.bashOutput = "";
 			this.preparing--;
 			this.refreshSessions();

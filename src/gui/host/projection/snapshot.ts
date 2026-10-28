@@ -11,7 +11,7 @@ import type { GuiHistory } from "./history.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
-	"titleGeneration" | "canSubmit" | "canChangeSession" | "commandRunning" | "liveTools" | "history" | "bashOutput" | "scopedModels" | "modelScopeChanged" | "modelServicesRevision" | "streamingMessage"
+	"titleGeneration" | "canSubmit" | "canChangeSession" | "commandRunning" | "liveTools" | "history" | "bashCommand" | "bashOutput" | "scopedModels" | "modelScopeChanged" | "modelServicesRevision" | "streamingMessage"
 >;
 
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */

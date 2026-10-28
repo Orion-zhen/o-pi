@@ -123,6 +123,7 @@ export interface GuiSnapshot {
 	toolDefaultsChanged: boolean;
 	toolPreset: ToolPreset | null;
 	providers: { id: string; name: string; apiKey: boolean; oauth: boolean; authenticated: boolean }[];
+	bashCommand: string | null;
 	bashOutput: string;
 }
 export type GuiSessionTab = "tree" | "stats" | "telemetry";

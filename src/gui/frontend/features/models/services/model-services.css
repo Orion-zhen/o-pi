@@ -28,9 +28,9 @@
 .service-add { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-block: var(--space-3); }
 .service-add > input { flex: 1 1 20ch; min-inline-size: 0; }
 .service-add > [role="alert"] { flex-basis: 100%; }
-.service-add-options { flex: 1 1 100%; overflow: auto; max-block-size: min(14em, 30dvh); padding: var(--space-1); border: thin solid var(--divider); border-radius: var(--radius-md); background: var(--surface); transform-origin: top; }
+.service-add-options { display: flex; flex-direction: column; flex: 1 1 100%; min-block-size: 0; overflow: auto; max-block-size: min(calc(var(--dropdown-visible-items) * (1lh + 2 * var(--space-2)) + 2 * var(--space-1)), 30dvh); padding: var(--space-1); border: thin solid var(--divider); border-radius: var(--radius-md); background: var(--surface); transform-origin: top; }
 .service-add-options[data-state="closed"] { pointer-events: none; }
-.service-add-options > button { display: block; inline-size: 100%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); text-align: start; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-ui); }
+.service-add-options > button { display: block; flex-shrink: 0; inline-size: 100%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); text-align: start; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-ui); }
 .service-add-options > button:is(:hover, [aria-selected="true"]) { background: var(--accent); }
 .service-models { padding-block: var(--space-3); min-inline-size: 0; }
 .service-section-heading { padding-block-end: var(--space-2); }

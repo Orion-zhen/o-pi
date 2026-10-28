@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from "react";
 import { AnimatePresence } from "motion/react";
 import type { useStartupMotion } from "./welcome/use-startup-motion.ts";
-import { Fade, Reveal } from "@/ui/motion/animated.tsx";
+import { Fade } from "@/ui/motion/animated.tsx";
+import { BashExecution } from "@/features/chat/messages/message.tsx";
 import { Button } from "@/ui/button.tsx";
 import { DisclosureMemoryContext } from "@/ui/disclosure-memory.ts";
 import { FileLinksContext } from "@/ui/content/file-links.ts";
@@ -73,7 +74,8 @@ export function ConversationContent({ gui, target, showWelcome, startup, closeSi
 				</DisclosureMemoryContext></FileLinksContext>
 			</Fade>}
 		</AnimatePresence>
-		<AnimatePresence initial={false}>{conversation?.snapshot.bashOutput && <Reveal><pre className="live-output">{conversation.snapshot.bashOutput}</pre></Reveal>}</AnimatePresence>
+		{conversation && !conversation.preview && conversation.snapshot.bashCommand !== null &&
+			<BashExecution command={conversation.snapshot.bashCommand} output={conversation.snapshot.bashOutput} />}
 		<AnimatePresence initial={false}>{!inlineNotices && noticeGroups.map((group) =>
 			<NoticeGroupView key={group.anchor} group={group} live={group.anchor >= noticeTail} clear={clearNoticeGroup} />)}</AnimatePresence>
 	</>;

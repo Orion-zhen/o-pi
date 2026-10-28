@@ -1,5 +1,5 @@
 import { useRef, useState, type PointerEvent } from "react";
-import { History } from "lucide-react";
+import { History, Search } from "lucide-react";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
 import {
@@ -50,6 +50,7 @@ export function InputHistory({ history, select, focusEditor }: { history: string
 				</div>
 				<div className="history-menu-search">
 					<SearchInput
+						icon={Search}
 						ref={searchInput}
 						aria-label="搜索输入历史"
 						placeholder="搜索输入历史…"

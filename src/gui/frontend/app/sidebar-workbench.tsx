@@ -35,7 +35,10 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 				<div className="workbench-session-controls">
 					<div className="session-search-controls">
 						<div className="session-search"><Search aria-hidden="true" /><SearchInput aria-label="搜索会话" placeholder="搜索标题和内容…" maxLength={256} value={sessionSearch.text} onValueChange={sessionSearch.setText} /></div>
-						<Button variant="outline" aria-label="新建会话" disabled={blocked} onClick={() => { void gui.send({ action: "new" }); close(); }}><Plus />新建</Button>
+						<Hint content="新建会话"><Button variant="outline" className="session-create" aria-label="新建会话" disabled={blocked}
+							onClick={() => { void gui.send({ action: "new" }); close(); }}>
+							<Plus aria-hidden="true" /><span className="session-create-label">新建</span>
+						</Button></Hint>
 					</div>
 				</div>
 				<SessionHistory cwd={gui.cwd} sessionRows={gui.sessionRows} sessions={gui.sessions} sessionsLoading={gui.sessionsLoading}

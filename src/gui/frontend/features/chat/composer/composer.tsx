@@ -6,7 +6,7 @@ import { Crossfade, ListItem, Reveal } from "@/ui/motion/animated.tsx";
 import { FeedbackHighlight } from "@/ui/feedback-highlight.tsx";
 import { AnimatedNumber } from "@/ui/motion/animated-number.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
-import { Paperclip, X } from "lucide-react";
+import { Paperclip, Terminal, X } from "lucide-react";
 import { Blocks, CodeXml, CornerUpRight, ListEnd, Wrench } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { QueuedMessages } from "./queued-messages.tsx";
@@ -57,6 +57,8 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 	const seenImages = useRef(new Set(images.map((image) => image.id)));
 	useEffect(() => { for (const image of images) seenImages.current.add(image.id); }, [images]);
 	const running = snapshot.running;
+	const commandMode = draft.startsWith("!");
+	const commandLabel = draft.startsWith("!!") ? "执行命令且不加入模型上下文" : "执行命令";
 	const codemode = snapshot.modelTools.includes("codemode");
 	const toolCount = codemode ? snapshot.tools.filter((tool) => tool.name !== "codemode"
 		&& (tool.callable || tool.exposure === "model-only" && tool.enabled)).length : snapshot.modelTools.length;
@@ -89,7 +91,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 	const behaviorLabel = steering ? "Steering" : "Follow-up";
 	const submit = () => {
 		if (!hasContent || !gui.canSubmit) return;
-		if (setup && !draft.startsWith("/") && !draft.startsWith("!")) {
+		if (setup && !draft.startsWith("/") && !commandMode) {
 			gui.setPanel({ kind: setup.kind });
 			return;
 		}
@@ -172,6 +174,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 				className="composer-card"
 				ref={fileDrop.ref}
 				data-file-drop={fileDrop.state}
+				data-command={commandMode}
 				onDrop={(event) => {
 					const files = [...event.dataTransfer.files];
 					if (!files.length) return;
@@ -269,11 +272,17 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 				</motion.ul>
 				</Reveal>}
 				</AnimatePresence>
+				<AnimatePresence initial={false}>
+				{commandMode && <Reveal><div className="composer-command-hint" role="status">
+					<Terminal aria-hidden="true" />
+					<Crossfade value={commandLabel}>{commandLabel}</Crossfade>
+				</div></Reveal>}
+				</AnimatePresence>
 				<motion.div className="composer-input" initial={false} animate={{ height: inputHeight ?? "auto" }} transition={settle}>
 				<Textarea
 					className="message-editor"
 					ref={editor}
-					aria-label="消息"
+					aria-label={commandMode ? commandLabel : "消息"}
 					placeholder="描述你的任务，或输入 / 命令、@ 引用文件…"
 					rows={1}
 					value={draft}
@@ -348,7 +357,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 						<ModelControls snapshot={snapshot} send={send} disabled={!gui.canSubmit} openManager={() => gui.setPanel({ kind: "model" })} />
 						<ContextUsage snapshot={snapshot} />
 						<SendButton
-							mode={snapshot.compacting ? "stop-compaction" : stopping ? "stop" : running ? steering ? "steer" : "follow-up" : "send"}
+							mode={snapshot.compacting ? "stop-compaction" : stopping ? "stop" : commandMode ? "execute" : running ? steering ? "steer" : "follow-up" : "send"}
 							onActivate={stopping ? () => void send({ action: "abort" }) : submit}
 							disabled={!connected || (!stopping && (!gui.canSubmit || !hasContent))}
 						/>

@@ -103,8 +103,8 @@ test("命令输出和视口变化仍保持置底", async ({ page }) => {
 		await page.getByRole("button", { name: "回到最新", exact: true }).click();
 		await expect.poll(distance).toBeLessThan(3);
 		for (const lines of [5, 50]) {
-			channel.accept({ type: "snapshot", value: { ...snapshot, bashOutput: "命令输出\n".repeat(lines) } });
-			await expect(reader.locator(".live-output")).toContainText("命令输出");
+			channel.accept({ type: "snapshot", value: { ...snapshot, bashCommand: "echo 命令输出", bashOutput: "命令输出\n".repeat(lines) } });
+			await expect(reader.locator(".message.bashExecution")).toContainText("命令输出");
 			await expect.poll(distance).toBeLessThan(3);
 		}
 		const viewport = page.viewportSize();

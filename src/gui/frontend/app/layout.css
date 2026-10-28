@@ -9,6 +9,7 @@
 .sidebar-resize { background: var(--glass); backdrop-filter: var(--sidebar-filter); }
 .info-resize { display: none; background: var(--inspector); backdrop-filter: var(--inspector-filter); }
 .chat-workspace:has(.session-sidebar[data-open="true"]) > .info-resize { display: flex; }
+:is(.transcript-content, .composer, .conversation-resize-track) { transition: inline-size var(--motion-duration-3) var(--motion-ease); }
 .conversation-resize-track { inline-size: min(100%, var(--conversation-width)); margin-inline: auto; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
 .conversation-resize-track > .resize-handle { position: relative; flex: 0 0 0.75rem; block-size: 100%; pointer-events: auto; overflow: clip; }
 .conversation-resize-track > .resize-handle::after { position: absolute; inset-block-start: var(--resize-y, 50%); transform: translateY(-50%); inline-size: 2px; block-size: 6rem; background: linear-gradient(transparent, var(--muted-foreground), transparent); opacity: 0; transition: opacity var(--motion-duration-2); pointer-events: none; }
@@ -16,7 +17,7 @@
 body[data-gui-resizing] { user-select: none; }
 body[data-gui-resizing="x"] * { cursor: col-resize !important; }
 body[data-gui-resizing="y"] * { cursor: row-resize !important; }
-body[data-gui-resizing] :is(.sidebar, .session-sidebar, .workbench-sections) { transition: none; }
+body[data-gui-resizing] :is(.sidebar, .session-sidebar, .workbench-sections, .transcript-content, .composer, .conversation-resize-track) { transition: none; }
 @media (min-width: 64.001em) {
 	.chat-workspace { min-inline-size: min(20rem, 70%); }
 	.chat-workspace:has(.session-sidebar[data-open="true"]) { min-inline-size: min(33rem, 70%); }
