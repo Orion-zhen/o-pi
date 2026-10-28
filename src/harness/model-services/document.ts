@@ -10,10 +10,6 @@ export function configObject(value: unknown): value is ConfigObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function isCompatibleService(provider: ConfigObject): boolean {
-	return provider.api === "openai-completions" || provider.api === "openai-responses";
-}
-
 export function parseModelsDocument(content: string): ModelsDocument {
 	const errors: ParseError[] = [];
 	const value: unknown = parse(content.replace(/^\uFEFF/, ""), errors, { allowTrailingComma: true });

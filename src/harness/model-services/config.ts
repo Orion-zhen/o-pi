@@ -1,26 +1,20 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { ModelsConfigSchema } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/core/model-config.js";
-import { Type } from "typebox";
-
 import { isNotFound } from "../config-loader.ts";
-import { invalidModelsConfig } from "./errors.ts";
-import { hasRequestExtensions, ProviderOptionsSchema, type ModelsConfig, type ProviderConfig, type ProviderOptions } from "./schema.ts";
+import { modelsConfigSchema, type ModelsConfig } from "./schema.ts";
 import { parseModelsDocument } from "./document.ts";
 import { modelsConfigIssues } from "./validation.ts";
 
-const nativeProvider = Object.values(ModelsConfigSchema.properties.providers.patternProperties)[0];
-if (!nativeProvider) throw new Error("SDK 缺少模型服务 schema");
-export const modelsConfigSchema = Type.Object({ ...ModelsConfigSchema.properties,
-	providers: Type.Record(Type.String(), Type.Intersect([nativeProvider, ProviderOptionsSchema])),
-});
+function invalidModelsConfig(path: string, reason: string): Error {
+	return new Error(`Invalid ${path}:\n${reason}`);
+}
 
 export function defaultModelsPath(): string {
 	return path.join(getAgentDir(), "models.json");
 }
 
-/** 校验完整文档，只提取显式启用的扩展配置。 */
+/** 沿用 SDK 原生 schema，并校验扩展字段。 */
 export async function loadModelsConfig(configPath: string): Promise<ModelsConfig | undefined> {
 	let text: string;
 	try {
@@ -38,21 +32,7 @@ export function parseModelsConfig(text: string, configPath: string): ModelsConfi
 	catch (error) { throw invalidModelsConfig(configPath, error instanceof Error ? error.message : String(error)); }
 	const issues = modelsConfigIssues(source, modelsConfigSchema);
 	if (issues.length) throw invalidModelsConfig(configPath, issues.join("\n"));
-	const config: ModelsConfig = { source, providers: {}, defaultThinkingLevels: {} };
-	for (const [id, value] of Object.entries(source.providers)) {
-		const options = value as ProviderOptions;
-		const models = [
-			...(options.models ?? []).map((model) => [model.id, model] as const),
-			...Object.entries(options.modelOverrides ?? {}),
-		];
-		for (const [modelId, model] of models) {
-			if (model.defaultThinkingLevel !== undefined) {
-				(config.defaultThinkingLevels[id] ??= {})[modelId] = model.defaultThinkingLevel;
-			}
-		}
-		if (hasRequestExtensions(options)) config.providers[id] = value as ProviderConfig;
-	}
-	return config;
+	return source as ModelsConfig;
 }
 
 export async function ensure_private_config_permissions(configPath: string): Promise<string | undefined> {

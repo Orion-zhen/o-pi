@@ -1,11 +1,12 @@
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { getApiProviders } from "@earendil-works/pi-ai/compat";
 import { GuiHost } from "../../../../src/gui/host/host.ts";
-import { parseModelsDocument } from "../../../../src/harness/openai-compatible-provider/document.ts";
-import { modelsConfigIssues } from "../../../../src/harness/openai-compatible-provider/validation.ts";
-import { editModelsDocument } from "../../../../src/harness/openai-compatible-provider/config-edits.ts";
-import { configuredModels } from "../../../../src/harness/openai-compatible-provider/model-settings.ts";
+import { parseModelsDocument } from "../../../../src/harness/model-services/document.ts";
+import { modelsConfigIssues } from "../../../../src/harness/model-services/validation.ts";
+import { editModelsDocument } from "../../../../src/harness/model-services/config-edits.ts";
+import { configuredModels } from "../../../../src/harness/model-services/model-settings.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-model-services-");
@@ -18,6 +19,7 @@ const provider = { api: "openai-completions", baseUrl: "http://localhost:8080/v1
 it("无会话时保存全局服务，保留注释、未知字段和非 OpenAI 服务", async () => {
 	const initial = await client.query({ query: "modelServices" });
 	expect(initial.content).toBe("");
+	expect(initial.apis).toEqual(getApiProviders().map(({ api }) => api));
 	const source = '{\n// 中文注释\n"providers": {"local": {"api":"openai-completions", "baseUrl":"http://localhost/v1", "apiKey":"$KEY", "extra":true}, "anthropic": {"apiKey":"!secret-command"}}, "custom": 1\n}';
 	await client.dispatch({ action: "saveModelServices", original: "", content: source });
 	const edited = editModelsDocument(source, ["providers", "local", "name"], "本地模型");
@@ -30,14 +32,15 @@ it("无会话时保存全局服务，保留注释、未知字段和非 OpenAI �
 
 it("保存不执行密钥命令，前后端共用 SDK 与扩展字段校验", async () => {
 	const marker = path.join(temp.path, "executed");
-	const content = JSON.stringify({ providers: { local: { ...provider, apiKey: `!touch ${marker}`, maxRetries: 0 } } });
+	const content = JSON.stringify({ providers: { local: { ...provider, apiKey: `!touch ${marker}`, extraBody: { custom: true } } } });
 	const document = await client.query({ query: "modelServices" });
 	expect(modelsConfigIssues(parseModelsDocument(content), document.schema)).toEqual([]);
 	await client.dispatch({ action: "saveModelServices", original: "", content });
 	await expect(access(marker)).rejects.toThrow();
 });
 
-it.each(["anthropic-messages", "unknown-api"])("保存保留模型的 %s API，不因设置页仅支持 OpenAI 而拒绝", async (api) => {
+it("保存保留模型级 Anthropic API", async () => {
+	const api = "anthropic-messages";
 	const content = JSON.stringify({ providers: { local: { ...provider, models: [{ id: "model", api }] } } });
 	const document = await client.query({ query: "modelServices" });
 	expect(modelsConfigIssues(parseModelsDocument(content), document.schema)).toEqual([]);
@@ -77,7 +80,7 @@ it("模型列表只展示显式配置，保留原生覆盖优先级，新增模�
 	const models = configuredModels(config);
 	expect(models.map(({ id, path }) => [id, path])).toEqual([["manual", ["modelOverrides", "manual"]], ["offline", ["modelOverrides", "offline"]]]);
 	expect(models[0]?.configured.maxTokens).toBe(20);
-	expect(models[0]?.defaults.maxTokens).toBe(10);
+	expect(models[0]?.defaults?.maxTokens).toBe(10);
 	const original = JSON.stringify({ providers: { local: config } });
 	const added = { id: "remote", contextWindow: 4096 };
 	const edited = editModelsDocument(original, ["providers", "local", "models", 1], added);

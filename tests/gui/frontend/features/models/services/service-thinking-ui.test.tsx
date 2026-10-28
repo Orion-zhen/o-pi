@@ -2,7 +2,7 @@ import { act } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ServiceModels } from "../../../../../../src/gui/frontend/features/models/services/service-models.tsx";
 import { TooltipProvider } from "../../../../../../src/gui/frontend/ui/tooltip.tsx";
-import type { ConfigObject } from "../../../../../../src/harness/openai-compatible-provider/document.ts";
+import type { ConfigObject } from "../../../../../../src/harness/model-services/document.ts";
 import { useReactFixture } from "../../../../helpers/react-fixture.ts";
 
 const render = useReactFixture();
@@ -111,7 +111,8 @@ it("Responses 只展示原生等级映射，不显示格式或独立参数选择
 	expect(change).not.toHaveBeenCalled();
 });
 
-it.each(["anthropic-messages", "unknown-api"])("模型继承 %s 时隐藏 OpenAI 控件，覆盖为支持的 API 后恢复", async (api) => {
+it("模型继承 Anthropic API 时隐藏 OpenAI 控件，覆盖为 OpenAI API 后恢复", async () => {
+	const api = "anthropic-messages";
 	const change = vi.fn();
 	const override: ConfigObject = {};
 	const provider = { api: "openai-completions", models: [{ id: "m", api, reasoning: true,
@@ -123,7 +124,7 @@ it.each(["anthropic-messages", "unknown-api"])("模型继承 %s 时隐藏 OpenAI
 	await act(async () => button("编辑模型 m")?.click());
 	expect(button("思考格式")).toBeNull();
 	expect(document.querySelector('[role="group"][aria-label="chatTemplateKwargs"]')).toBeNull();
-	expect(document.querySelector(".service-thinking")).toBeNull();
+	expect(document.querySelector(".service-thinking")).not.toBeNull();
 	expect([...document.querySelectorAll("button")].some((entry) => entry.textContent === "协议与思考")).toBe(false);
 	expect(button("默认思考等级")?.disabled).toBe(false);
 	expect(JSON.stringify(provider)).toBe(original);

@@ -104,7 +104,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 			</aside>
 			{settingsCategories.map(({ id, label }) => <Tabs.Content key={id} value={id} forceMount asChild><motion.div className="settings-content" layoutScroll>
 				<SettingsCategoryContext value={id}><div className="gui-settings" data-direction={direction}>
-					{visited.has(id) && <>{id !== "storage" && <SettingsHeading title={label} />}{content(id)}</>}
+					{visited.has(id) && <>{id !== "storage" && id !== "models" && <SettingsHeading title={label} />}{content(id)}</>}
 				</div></SettingsCategoryContext>
 			</motion.div></Tabs.Content>)}
 		</Tabs.Root>

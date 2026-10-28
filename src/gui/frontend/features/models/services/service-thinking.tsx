@@ -1,5 +1,5 @@
 import { ArrowRight, RotateCcw } from "lucide-react";
-import type { ThinkingSettings } from "../../../../../harness/openai-compatible-provider/thinking-settings.ts";
+import type { ThinkingSettings } from "../../../../../harness/model-services/thinking-settings.ts";
 import { Checkbox } from "@/ui/checkbox.tsx";
 import { Input } from "@/ui/input.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
@@ -34,7 +34,7 @@ export function ServiceThinking({ mapping, disabled, change }: {
 				<td data-label={targetLabel}>
 					{!row.enabled ? <span className="service-tag">未在 opi 中启用</span>
 						: row.mapsEffort ? <Input aria-label={`opi ${row.level} 对应的服务商值`} value={row.value}
-							placeholder={row.defaultValue ?? "不发送等级值"}
+							placeholder={row.placeholder}
 							disabled={unavailable} autoComplete="off" spellCheck={false}
 							onChange={(event) => change(["thinkingLevelMap", row.level], event.target.value)} />
 						: <span>{mapping.reasoning ? row.effect : "未开启思考能力"}</span>}

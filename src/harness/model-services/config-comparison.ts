@@ -1,8 +1,8 @@
 import { equalConfigValues } from "../config-values.ts";
 import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import { MERGED_COMPAT_FIELDS, serviceCompatSettings } from "./compat-settings.ts";
-import { configObject, isCompatibleService, type ConfigObject, type ModelsDocument } from "./document.ts";
-import { configuredModels, type ModelSettings } from "./model-settings.ts";
+import { configObject, type ConfigObject, type ModelsDocument } from "./document.ts";
+import { configuredModels, modelDefaults, type ModelSettings } from "./model-settings.ts";
 import { thinkingSettings } from "./thinking-settings.ts";
 
 // 仅 SDK 按键继承的对象逐字段比较，其余对象（含模板变量）整体比较。
@@ -28,49 +28,42 @@ function withoutDefaults(config: ConfigObject, defaults: ConfigObject, path = ""
 	return result;
 }
 
-export type ModelSettingsView = ReturnType<typeof modelSettingsView>;
-
-/** 展示、重置和配置比较共用解析结果，不把默认值写入配置。 */
-export function modelSettingsView(providerId: string, provider: ConfigObject, model: Pick<ModelSettings, "id" | "defaults" | "configured">) {
-	const defaults: ConfigObject = { name: model.id, contextWindow: 128_000, input: ["text"], reasoning: false, ...model.defaults };
+/** 只消除已知默认值，供草稿比较和重置状态共用，不改写原配置。 */
+export function modelConfigOverrides(providerId: string, provider: ConfigObject, model: Pick<ModelSettings, "id" | "defaults" | "configured">): ConfigObject {
+	const defaults = modelDefaults(model);
 	const compat = serviceCompatSettings(providerId, provider, model);
-	const thinking = thinkingSettings(model, compat.capabilities);
 	const overrides = withoutDefaults(model.configured, {
 		...defaults,
 		compat: compat.defaults,
 		samplingParams: defaults.samplingParams ?? {},
 	});
-	if (configObject(overrides.thinkingLevelMap)) {
+	if (model.defaults !== undefined && configObject(overrides.thinkingLevelMap)) {
 		const map = { ...overrides.thinkingLevelMap };
-		for (const row of thinking.rows) {
+		for (const row of thinkingSettings(model, compat.capabilities).rows) {
 			if (!row.modified) delete map[row.level];
 		}
 		if (Object.keys(map).length) overrides.thinkingLevelMap = map;
 		else delete overrides.thinkingLevelMap;
 	}
-	return { defaults, compat, thinking, overrides };
+	return overrides;
 }
 
 function serviceValues(id: string, provider: ConfigObject): ConfigObject {
-	if (!isCompatibleService(provider)) return provider;
 	const compat = serviceCompatSettings(id, provider);
 	const value = withoutDefaults(provider, {
 		name: id, authHeader: false, compat: compat.defaults,
 	});
 	// 定义与覆盖分别比较，覆盖层继承原始定义。
 	if (Array.isArray(provider.models)) {
-		const definitions = { ...provider, modelOverrides: undefined };
-		const models = [...provider.models];
-		for (const model of configuredModels(definitions)) {
-			if (model.manualIndex !== undefined) models[model.manualIndex] = modelSettingsView(id, definitions, model).overrides;
-		}
+		const models = (provider.models as (ConfigObject & { id: string })[]).map((configured) =>
+			modelConfigOverrides(id, provider, { id: configured.id, defaults: {}, configured }));
 		if (models.length) value.models = models;
 		else delete value.models;
 	}
 	if (configObject(provider.modelOverrides)) {
 		const overrides = { ...provider.modelOverrides };
 		for (const model of configuredModels(provider)) {
-			if (model.overridden) overrides[model.id] = modelSettingsView(id, provider, model).overrides;
+			if (model.overridden) overrides[model.id] = modelConfigOverrides(id, provider, model);
 		}
 		if (Object.keys(overrides).length) value.modelOverrides = overrides;
 		else delete value.modelOverrides;

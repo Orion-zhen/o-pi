@@ -3,10 +3,11 @@ import path from "node:path";
 import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, expect, it, vi } from "vitest";
-import { fetchModelCandidates } from "../../../src/harness/openai-compatible-provider/fetch-candidates.ts";
+import { fetchModelCandidates } from "../../../src/harness/model-services/fetch-candidates.ts";
 import { deferred } from "../../helpers/async.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 
+const connection = { api: "openai-completions", baseUrl: "https://models.test/v1" };
 const temp = useTempDir("opi-model-candidates-");
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 async function setup(config: Record<string, unknown> = {}) {
@@ -24,7 +25,7 @@ it("无模型定义也能读取候选，认证使用 SDK 的存储及会话密�
 	const { runtime, credentials } = await setup({ headers: { "X-Token": "$TOKEN" } });
 	await credentials.modify("local", async () => ({ type: "api_key", key: "stored" }));
 	const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ data: [{ id: "m" }] }));
-	const query = () => fetchModelCandidates(runtime, "local", "https://models.test/v1", new AbortController().signal);
+	const query = () => fetchModelCandidates(runtime, "local", connection, new AbortController().signal);
 	expect(await query()).toMatchObject({ candidates: [{ id: "m" }], connection: { status: "connected", httpStatus: 200 } });
 	expect(Object.fromEntries(new Headers(fetch.mock.calls[0]?.[1]?.headers))).toEqual({ accept: "application/json", authorization: "Bearer stored", "x-token": "header-token" });
 	await runtime.setRuntimeApiKey("local", "session-key");
@@ -45,18 +46,29 @@ it("候选请求通过 SDK 每次解析 provider 请求头，保留显式 Author
 	});
 	for (const value of ["first", "second"]) {
 		await writeFile(token, value);
-		await fetchModelCandidates(runtime, "local", "https://models.test/v1/", new AbortController().signal);
+		await fetchModelCandidates(runtime, "local", { ...connection, baseUrl: "https://models.test/v1/" }, new AbortController().signal);
 	}
 	expect(headers.map((value) => value.get("X-Token"))).toEqual(["first", "second"]);
 	expect(headers.map((value) => value.get("Authorization"))).toEqual(["Custom auth", "Custom auth"]);
 });
 
+it("认证命令失败仍返回脱敏状态，不发送候选请求", async () => {
+	const { runtime } = await setup({ apiKey: `!"${process.execPath}" -e "process.exit(1)" sk-secret` });
+	expect(runtime.getProviderAuthStatus("local").configured).toBe(true);
+	await expect(runtime.getAuth("local")).rejects.toThrow("sk-secret");
+	const fetch = vi.spyOn(globalThis, "fetch");
+	const result = await fetchModelCandidates(runtime, "local", connection, new AbortController().signal);
+	expect(result).toMatchObject({ candidates: [], connection: { status: "auth-failed", httpStatus: null } });
+	expect(JSON.stringify(result)).not.toContain("sk-secret");
+	expect(fetch).not.toHaveBeenCalled();
+});
+
 it.each([
-	{ models: [] }, { data: [{}] }, { data: [{ id: " " }] }, { data: [{ id: "m" }, { id: "m" }] },
+	{ models: [] }, { data: [{}] }, { data: [{ id: 42 }] }, { data: [{ id: " " }] }, { data: [{ id: "m" }, { id: "m" }] },
 ])("拒绝无法用作添加候选的响应 %j", async (payload) => {
 	const { runtime } = await setup();
 	vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(payload));
-	expect(await fetchModelCandidates(runtime, "local", "https://models.test/v1", new AbortController().signal)).toMatchObject({
+	expect(await fetchModelCandidates(runtime, "local", connection, new AbortController().signal)).toMatchObject({
 		candidates: [], connection: { status: "invalid-response", httpStatus: 200 },
 	});
 	expect(runtime.getModels("local")).toEqual([]);
@@ -68,7 +80,7 @@ it.each([
 	const { runtime } = await setup();
 	const response = new Response("sk-secret upstream details", { status: httpStatus });
 	vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
-	const result = await fetchModelCandidates(runtime, "local", "https://models.test/v1", new AbortController().signal);
+	const result = await fetchModelCandidates(runtime, "local", connection, new AbortController().signal);
 	expect(result).toMatchObject({ candidates: [], connection: { status, httpStatus, checkedAt: expect.any(Number), latencyMs: expect.any(Number) } });
 	expect(JSON.stringify(result)).not.toContain("sk-secret");
 	expect(response.bodyUsed).toBe(true);
@@ -77,7 +89,7 @@ it.each([
 it("空模型列表也表示已连接，HTML 页面不能确认连接", async () => {
 	const { runtime } = await setup();
 	vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ data: [] })).mockResolvedValueOnce(new Response("<html>login</html>"));
-	const query = () => fetchModelCandidates(runtime, "local", "https://models.test/v1", new AbortController().signal);
+	const query = () => fetchModelCandidates(runtime, "local", connection, new AbortController().signal);
 	expect(await query()).toMatchObject({ candidates: [], connection: { status: "connected" } });
 	expect(await query()).toMatchObject({ candidates: [], connection: { status: "invalid-response" } });
 });
@@ -92,7 +104,7 @@ it("探测超时返回超时状态", async () => {
 		signal.addEventListener("abort", () => reject(signal.reason), { once: true });
 		timeout.abort(new DOMException("timeout", "TimeoutError"));
 	}));
-	expect(await fetchModelCandidates(runtime, "local", "https://models.test/v1", new AbortController().signal)).toMatchObject({
+	expect(await fetchModelCandidates(runtime, "local", connection, new AbortController().signal)).toMatchObject({
 		candidates: [], connection: { status: "timeout", httpStatus: null },
 	});
 });
@@ -107,7 +119,7 @@ it("会话取消中止候选网络请求", async () => {
 		started.resolve();
 	}));
 	const controller = new AbortController();
-	const request = fetchModelCandidates(runtime, "local", "https://models.test/v1", controller.signal);
+	const request = fetchModelCandidates(runtime, "local", connection, controller.signal);
 	await started.promise;
 	controller.abort();
 	await expect(request).rejects.toThrow();

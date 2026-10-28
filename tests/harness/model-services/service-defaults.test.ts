@@ -2,9 +2,10 @@ import type { Model, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { afterEach, expect, it, vi } from "vitest";
-import { serviceCompatSettings } from "../../../src/harness/openai-compatible-provider/compat-settings.ts";
-import { configuredModels } from "../../../src/harness/openai-compatible-provider/model-settings.ts";
-import { comparableModelsDocument, modelSettingsView } from "../../../src/harness/openai-compatible-provider/settings-view.ts";
+import { serviceCompatSettings } from "../../../src/harness/model-services/compat-settings.ts";
+import { configuredModels } from "../../../src/harness/model-services/model-settings.ts";
+import { comparableModelsDocument } from "../../../src/harness/model-services/config-comparison.ts";
+import { modelSettingsView } from "../../../src/harness/model-services/settings-view.ts";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -70,14 +71,15 @@ it("修改模型地址或协议立即重新解析默认值", () => {
 			capabilities: { effortControl: "unused", on: { effort: "level" }, off: { effort: "none" } } });
 });
 
-it.each(["anthropic-messages", "unknown-api"])("模型使用 %s 时不推导 OpenAI 默认值", (api) => {
+it("模型使用 Anthropic API 时不推导 OpenAI 默认值", () => {
+	const api = "anthropic-messages";
 	const provider = { api: "openai-completions", baseUrl: "https://api.deepseek.com/v1" };
 	const configured = { api, reasoning: true, compat: { supportsDeveloperRole: true }, thinkingLevelMap: { off: "none", high: "high" } };
 	const view = modelSettingsView("local", provider, { id: "m", defaults: {}, configured });
 	expect(view.compat.api).toBeUndefined();
 	expect(view.compat.capabilities).toBeUndefined();
 	expect(view.compat.defaults).toEqual({});
-	expect(view.thinking.rows.every((row) => row.defaultValue === undefined && !row.mapsEffort)).toBe(true);
+	expect(view.thinking.rows.every((row) => row.defaultValue === undefined && row.mapsEffort)).toBe(true);
 	expect(view.overrides).toEqual(configured);
 });
 

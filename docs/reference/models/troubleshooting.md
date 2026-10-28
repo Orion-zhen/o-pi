@@ -7,7 +7,7 @@
 3. GUI 候选需先添加到配置。
 4. 保存后重载当前会话。
 
-启用扩展请求改写的服务需要 baseUrl 和 OpenAI API 类型，详见[配置](configuration.md)。
+API、连接信息和继承规则遵循 Pi SDK，详见[配置](configuration.md)。旧 `timeoutMs`、`maxRetries` 扩展字段需删除。
 
 ## 思考控制不生效
 
@@ -17,12 +17,12 @@ chat-template 的 off 通过 thinking.enabled 传递 false，未映射 off 的 t
 
 ## 上游拒绝请求
 
-检查 API 类型、认证、compat、采样参数、extraBody 和 dropParams。输出上限只在模型定义或覆盖显式设置 maxTokens 时发送。
+检查 API 类型、认证、compat、采样参数、extraBody 和 dropParams。Chat Completions 与 Responses 的会话输出上限仅在显式设置 maxTokens 时发送。其他协议遵循 SDK 原生预算。
 
 无认证服务可使用其允许的占位密钥。EMPTY 也会作为普通密钥发送。
 
 ## 候选获取失败
 
-候选请求使用当前会话已加载的地址和认证。首次添加服务或修改连接信息后先保存并重载，再检查 `GET <baseUrl>/models`。
+候选请求使用当前会话已加载的地址和认证。首次添加服务或修改连接信息后先保存并重载，再检查对应协议的[列表接口](README.md#自定义服务)。Google 地址需包含版本路径。
 
-响应需包含 data 数组，ID 非空且唯一。查询超时为 30 秒，独立于流式请求的 timeoutMs。获取失败时可手动填写 ID。
+OpenAI 与 Anthropic 响应使用 `data` 数组，Google 使用 `models` 数组。模型 ID 必须非空且唯一。查询总超时为 8 秒，分页查询共用该预算。没有通用列表接口的协议只读取当前 SDK 目录，不触发刷新，也不能据此确认服务连接。获取失败时可手动填写 ID。

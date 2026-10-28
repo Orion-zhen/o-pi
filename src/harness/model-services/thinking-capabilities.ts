@@ -1,5 +1,5 @@
 import type { OpenAICompletionsCompat } from "@earendil-works/pi-ai";
-import type { OpenAIApiName } from "./schema.ts";
+type OpenAIApiName = "openai-completions" | "openai-responses";
 
 type EffortMapping = false | "level" | "none" | "explicit";
 export interface ThinkingCapabilities {

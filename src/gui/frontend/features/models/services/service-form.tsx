@@ -1,11 +1,11 @@
 import { LoaderCircle, RefreshCw } from "lucide";
 import { MorphIcon } from "morphicons/react";
-import { editModelsDocument } from "../../../../../harness/openai-compatible-provider/config-edits.ts";
-import { serviceCompatSettings } from "../../../../../harness/openai-compatible-provider/compat-settings.ts";
-import type { ConfigObject } from "../../../../../harness/openai-compatible-provider/document.ts";
+import { editModelsDocument } from "../../../../../harness/model-services/config-edits.ts";
+import { serviceCompatSettings } from "../../../../../harness/model-services/compat-settings.ts";
+import type { ConfigObject } from "../../../../../harness/model-services/document.ts";
 import { Button } from "@/ui/button.tsx";
 import { Disclosure } from "@/ui/disclosure.tsx";
-import { apiChoices, ServiceBoolean, ServiceChoice, ServiceNumber, ServiceText } from "./service-fields.tsx";
+import { ServiceApi, ServiceBoolean, ServiceText } from "./service-fields.tsx";
 import type { ChangeConfig, ChangeDraft } from "./service-draft.ts";
 import { ServiceCompat } from "./service-compat.tsx";
 import { ServiceThinkingFormat } from "./service-thinking-format.tsx";
@@ -35,17 +35,15 @@ export function ServiceForm({ id, config, disabled, catalog: state, status, chan
 		<div className="settings-fields">
 			<ServiceText label="服务名称" value={config.name} defaultValue={id} placeholder={id}
 				disabled={disabled} change={(value) => change(["name"], value)} />
-			<ServiceText label="API 地址" value={config.baseUrl} required placeholder="http://localhost:8080/v1"
+			<ServiceText label="API 地址" value={config.baseUrl} placeholder="继承 SDK，或填写服务地址"
 				disabled={disabled} change={(value) => change(["baseUrl"], value)} />
-			<ServiceChoice label="API 协议" value={config.api} required options={apiChoices}
+			<ServiceApi label="API 协议" value={config.api}
 				disabled={disabled} change={(value) => change(["api"], value)} />
 			<ServiceText label="API Key" value={config.apiKey} disabled={disabled} change={(value) => change(["apiKey"], value)} />
 			<ServiceThinkingFormat settings={compat} disabled={disabled} change={change} />
 		</div>
 		<ServiceCompat settings={compat} disabled={disabled} change={change} />
 		<Disclosure className="service-disclosure" summary="请求设置" lazy><div className="settings-fields">
-			<ServiceNumber label="请求超时（毫秒）" value={config.timeoutMs} disabled={disabled} change={(value) => change(["timeoutMs"], value)} />
-			<ServiceNumber label="重试次数" value={config.maxRetries} disabled={disabled} change={(value) => change(["maxRetries"], value)} />
 			<ServiceBoolean label="强制 Bearer 认证" value={config.authHeader} defaultValue={false}
 				disabled={disabled} change={(value) => change(["authHeader"], value)} />
 		</div></Disclosure>

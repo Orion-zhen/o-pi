@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { editModelsDocument } from "../../../../../../src/harness/openai-compatible-provider/config-edits.ts";
-import { emptyModelsDocument } from "../../../../../../src/harness/openai-compatible-provider/document.ts";
+import { editModelsDocument } from "../../../../../../src/harness/model-services/config-edits.ts";
+import { emptyModelsDocument } from "../../../../../../src/harness/model-services/document.ts";
 import { parseServiceDraft, serviceDraftChanged } from "../../../../../../src/gui/frontend/features/models/services/service-draft.ts";
 
 const changed = (before: string, after: string) => serviceDraftChanged(
@@ -12,7 +12,7 @@ const document = (value: Record<string, unknown> = provider) => JSON.stringify({
 const edit = (content: string, path: (string | number)[], value: unknown) => editModelsDocument(content, ["providers", "local", ...path], value);
 
 it("改回原值或移除新增设置后不再需要保存，忽略表单编辑造成的格式和键顺序差异", () => {
-	const original = document({ ...provider, name: "本地", maxRetries: 2 });
+	const original = document({ ...provider, name: "本地", extraBody: { custom: true } });
 	const edited = edit(original, ["name"], "其他");
 	expect(changed(original, edited)).toBe(true);
 	expect(changed(original, edit(edited, ["name"], "本地"))).toBe(false);
@@ -79,12 +79,27 @@ it("思考映射改回协议默认值无需保存，但新增等级和禁用已�
 	expect(changed(original, edit(original, [...path, "xhigh"], "xhigh"))).toBe(true);
 });
 
-it.each(["anthropic-messages", "unknown-api"])("%s 的显式配置不会被当作 OpenAI 默认值忽略", (api) => {
+it("Anthropic 的显式配置不会被当作 OpenAI 默认值忽略", () => {
+	const api = "anthropic-messages";
 	for (const scope of [["models", 0], ["modelOverrides", "m"]]) {
 		const original = document({ ...provider, models: [{ id: "m", api, reasoning: true }], modelOverrides: { m: {} } });
 		for (const [path, value] of [
 			[["compat", "supportsDeveloperRole"], true], [["thinkingLevelMap", "off"], "none"], [["thinkingLevelMap", "high"], "high"],
 		] as const) expect(changed(original, edit(original, [...scope, ...path], value))).toBe(true);
+	}
+});
+
+it("编辑内置 Anthropic 模型覆盖时，不将新模型默认值视作继承值", () => {
+	const id = "claude-sonnet-4-6";
+	const original = JSON.stringify({ providers: { anthropic: { modelOverrides: { [id]: {} } } } });
+	const editOverride = (content: string, key: string, value: unknown) => editModelsDocument(content, ["providers", "anthropic", "modelOverrides", id, key], value);
+	for (const [key, value] of Object.entries({
+		name: "自定义 Claude", contextWindow: 128000, reasoning: false, input: ["text"],
+		thinkingLevelMap: { max: null },
+	})) {
+		const modified = editOverride(original, key, value);
+		expect(changed(original, modified), key).toBe(true);
+		expect(changed(modified, editOverride(modified, key, undefined)), key).toBe(true);
 	}
 });
 

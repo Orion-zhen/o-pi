@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, ChevronRight, RotateCcw } from "lucide-react";
-import { configObject } from "../../../../../harness/openai-compatible-provider/document.ts";
-import type { ModelSettings } from "../../../../../harness/openai-compatible-provider/model-settings.ts";
-import type { ModelSettingsView } from "../../../../../harness/openai-compatible-provider/settings-view.ts";
+import { configObject } from "../../../../../harness/model-services/document.ts";
+import type { ModelSettings } from "../../../../../harness/model-services/model-settings.ts";
+import type { ModelSettingsView } from "../../../../../harness/model-services/settings-view.ts";
 import { Button } from "@/ui/button.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { ConfirmAction } from "@/ui/confirm-action.tsx";
@@ -24,13 +24,14 @@ export function ModelItem({ model, settings, open, setOpen, disabled, change, mo
 	modelCount: number;
 	move: (index: number, direction: -1 | 1) => void;
 }) {
-	const { defaults, compat, thinking, overrides } = settings;
+	const { defaults, compat, thinking, overrides, api } = settings;
 	const { id, configured: fields, manualIndex } = model;
-	const name = textValue(fields.name) || textValue(model.defaults.name) || id;
+	const name = textValue(fields.name) || textValue(defaults.name) || id;
 	const sampling = configObject(fields.samplingParams) ? fields.samplingParams : {};
 	const defaultSampling = configObject(defaults.samplingParams) ? defaults.samplingParams : {};
 	const edit: ChangeConfig = (path, value) => change([...model.path, ...path], value);
-	const outputHint = model.defaults.maxTokens === undefined ? "不限制（由服务端决定）" : `继承：${textValue(model.defaults.maxTokens)}`;
+	const outputHint = defaults.maxTokens !== undefined ? `继承：${textValue(defaults.maxTokens)}`
+		: api === "openai-completions" || api === "openai-responses" ? "不限制（由服务端决定）" : "继承 SDK 输出预算";
 	const defaultLevel = fields.defaultThinkingLevel ?? defaults.defaultThinkingLevel;
 	const defaultUnavailable = defaultLevel !== undefined && !thinking.rows.some((row) => row.level === defaultLevel && row.available);
 
@@ -63,12 +64,12 @@ export function ModelItem({ model, settings, open, setOpen, disabled, change, mo
 				<ServiceText label="模型名称" value={fields.name} defaultValue={defaults.name} placeholder={textValue(defaults.name)}
 					disabled={disabled} change={(value) => edit(["name"], value)} />
 				<ServiceNumber label="上下文 Token" value={fields.contextWindow} defaultValue={defaults.contextWindow}
-					placeholder={textValue(defaults.contextWindow)} disabled={disabled} change={(value) => edit(["contextWindow"], value)} />
+					placeholder={textValue(defaults.contextWindow) || "继承 SDK"} disabled={disabled} change={(value) => edit(["contextWindow"], value)} />
 				<ServiceNumber label="最大输出 Token" value={fields.maxTokens} defaultValue={defaults.maxTokens}
 					placeholder={outputHint} disabled={disabled} change={(value) => edit(["maxTokens"], value)} />
 				<ServiceInput label="输入类型" value={fields.input} defaultValue={defaults.input}
 					disabled={disabled} change={(value) => edit(["input"], value)} />
-				<ServiceBoolean label="思考能力" value={fields.reasoning} defaultValue={defaults.reasoning}
+				<ServiceBoolean label="思考能力" value={fields.reasoning} defaultValue={defaults.reasoning} placeholder="继承 SDK"
 					disabled={disabled} change={(value) => edit(["reasoning"], value)} />
 				<ServiceThinkingFormat settings={compat} disabled={disabled} change={edit} />
 				<ServiceChoice label="默认思考等级" value={fields.defaultThinkingLevel} defaultValue={defaults.defaultThinkingLevel}
@@ -82,7 +83,7 @@ export function ModelItem({ model, settings, open, setOpen, disabled, change, mo
 							placeholder={textValue(defaultSampling[key])} disabled={disabled} change={(value) => edit(["samplingParams", key], value)} />)}
 				</div></Disclosure>
 				<ServiceCompat settings={compat} reasoning={thinking.reasoning} disabled={disabled} change={edit} />
-				{compat.api !== undefined && <ServiceThinking mapping={thinking} disabled={disabled} change={edit} />}
+				<ServiceThinking mapping={thinking} disabled={disabled} change={edit} />
 			</div></CollapsibleContent>
 		</article>
 	</Collapsible></Reveal>;

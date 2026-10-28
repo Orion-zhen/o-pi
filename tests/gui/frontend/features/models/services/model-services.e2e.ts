@@ -5,10 +5,10 @@ import type { Page } from "@playwright/test";
 import { parse } from "jsonc-parser";
 import { test, expect } from "../../../../helpers/fixture.ts";
 import { selectSetting, selectSettingsCategory } from "../../../../helpers/settings-steps.ts";
-import { THINKING_FORMATS } from "../../../../../../src/harness/openai-compatible-provider/schema.ts";
+import { THINKING_FORMATS } from "../../../../../../src/harness/model-services/compat-settings.ts";
 
 const settings = (page: Page) => page.getByRole("dialog", { name: "设置", exact: true });
-const services = (page: Page) => settings(page).getByRole("region", { name: "OpenAI 兼容服务", exact: true });
+const services = (page: Page) => settings(page).getByRole("region", { name: "模型服务", exact: true });
 const original = '{\n// 保留注释\n"providers":{"local":{"name":"Local AI","api":"openai-completions","baseUrl":"http://127.0.0.1:1/v1","apiKey":"local","models":[{"id":"base","name":"Base model"}],"custom":true},"anthropic":{"headers":{"X-Keep":"value"}}}}';
 async function open(page: Page) {
 	if ((page.viewportSize()?.width ?? 1200) < 768) await page.getByRole("button", { name: "菜单", exact: true }).click();
@@ -27,12 +27,12 @@ test("编辑服务、增删模型和切换 JSON 共用草稿，保存与放弃�
 	const file = path.join(agentDir, "models.json");
 	await open(page);
 	const pane = services(page);
-	await expect(pane.getByRole("article", { name: /^模型服务 / })).toHaveCount(1);
+	await expect(pane.getByRole("article", { name: /^模型服务 / })).toHaveCount(2);
 	await pane.getByRole("button", { name: "编辑服务 local", exact: true }).click();
 	const local = pane.getByRole("article", { name: "模型服务 local", exact: true });
 	await local.getByLabel("服务名称", { exact: true }).fill("本地模型");
 	await local.getByLabel("API 地址", { exact: true }).fill("https://user:password@example.com/v1?key=secret");
-	await expect(local.getByRole("button", { name: "编辑服务 local", exact: true })).toHaveText("本地模型localexample.com·Chat Completions");
+	await expect(local.getByRole("button", { name: "编辑服务 local", exact: true })).toHaveText("本地模型localexample.com·openai-completions");
 	await local.getByRole("button", { name: "添加模型", exact: true }).click();
 	await local.getByLabel("模型 ID", { exact: true }).fill("reasoning-model");
 	await local.getByRole("button", { name: "添加", exact: true }).click();
@@ -218,7 +218,7 @@ test("思考模板联动映射、默认等级和 API 可用选项，切换后保
 	await page.getByRole("option", { name: "high", exact: true }).click();
 	await table.getByRole("checkbox", { name: "在 opi 中启用 xhigh", exact: true }).check();
 	await selectSetting(page, "默认思考等级", "xhigh");
-	await selectSetting(page, "API 协议", "Responses");
+	await selectSetting(page, "API 协议", "openai-responses");
 	await expect(model.getByRole("combobox", { name: "思考格式", exact: true })).toHaveCount(0);
 	await expect(effort).toHaveCount(0);
 	await expect(table.getByRole("textbox", { name: "opi high 对应的服务商值", exact: true })).toHaveValue("custom");
@@ -227,7 +227,7 @@ test("思考模板联动映射、默认等级和 API 可用选项，切换后保
 	expect(parse(await readFile(file, "utf8")).providers.local).toMatchObject({ api: "openai-responses", compat: { thinkingFormat: "qwen-chat-template" }, models: [{
 		id: "m", defaultThinkingLevel: "xhigh", thinkingLevelMap: { high: "custom", minimal: null, xhigh: "xhigh" },
 	}] });
-	await selectSetting(page, "API 协议", "Chat Completions");
+	await selectSetting(page, "API 协议", "openai-completions");
 	await expect(model.getByRole("combobox", { name: "思考格式", exact: true })).toHaveText("qwen-chat-template");
 	await expect(effort).toBeDisabled();
 	await expect(table.getByRole("textbox")).toHaveCount(0);
@@ -376,6 +376,7 @@ test("模型 ID 输入筛选候选，也可直接添加自定义模型", async (
 		await pane.getByRole("button", { name: "添加", exact: true }).click();
 		const service = pane.getByRole("article", { name: "模型服务 catalog", exact: true });
 		await service.getByLabel("API 地址", { exact: true }).fill(`http://127.0.0.1:${address.port}/v1`);
+		await selectSetting(page, "API 协议", "openai-completions");
 		await service.getByLabel("API Key", { exact: true }).fill("local");
 		await save(page);
 		await settings(page).getByRole("button", { name: "关闭面板", exact: true }).click();
@@ -461,7 +462,7 @@ test("模型 ID 输入筛选候选，也可直接添加自定义模型", async (
 test("损坏配置可修复，冲突和非法字段保留草稿", async ({ gui: { page }, workspace: { agentDir } }) => {
 	const file = path.join(agentDir, "models.json");
 	const invalid = parse(original);
-	invalid.providers.local.maxRetries = -1;
+	invalid.providers.local.models[0].contextWindow = -1;
 	const initial = JSON.stringify(invalid);
 	await writeFile(file, initial);
 	await open(page);
@@ -474,31 +475,30 @@ test("损坏配置可修复，冲突和非法字段保留草稿", async ({ gui: 
 	await expect(form).toBeDisabled();
 	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();
 	await expect(pane.getByRole("button", { name: "编辑服务 local", exact: true })).toHaveCount(0);
-	await source.fill(initial.replace('"maxRetries":-1', '"maxRetries":0'));
+	await source.fill(initial.replace('"contextWindow":-1', '"contextWindow":8192'));
 	await pane.getByRole("button", { name: "表单", exact: true }).click();
 	await pane.getByRole("button", { name: "编辑服务 local", exact: true }).click();
-	await pane.getByRole("button", { name: "请求设置", exact: true }).click();
-	const retries = pane.getByLabel("重试次数", { exact: true });
-	await retries.fill("-");
-	await expect(retries).toHaveValue("-");
+	await pane.getByRole("button", { name: "编辑模型 base", exact: true }).click();
+	const tokens = pane.getByLabel("上下文 Token", { exact: true });
+	await tokens.fill("-");
+	await expect(tokens).toHaveValue("-");
 	await expect(source).toHaveCount(0);
 	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();
-	await retries.fill("-1");
-	await expect(retries).toHaveValue("-1");
+	await tokens.fill("-1");
+	await expect(tokens).toHaveValue("-1");
 	await expect(source).toHaveCount(0);
 	await pane.getByRole("button", { name: "JSON", exact: true }).click();
 	await expect(source).toHaveText(initial);
 	await expect(form).toBeDisabled();
 	const repaired = parse(await source.innerText());
-	repaired.providers.local.maxRetries = 0;
+	repaired.providers.local.models[0].contextWindow = 8192;
 	await source.fill(JSON.stringify(repaired));
 	await form.click();
-	await pane.getByRole("button", { name: "请求设置", exact: true }).click();
-	await expect(retries).toHaveValue("0");
+	await expect(tokens).toHaveValue("8192");
 	await writeFile(file, '{"providers":{}}');
 	await settings(page).getByRole("button", { name: "保存", exact: true }).click();
 	await expect(settings(page).locator(".settings-actions").getByRole("alert")).toContainText("未保存");
-	await expect(pane.getByLabel("重试次数", { exact: true })).toHaveValue("0");
+	await expect(pane.getByLabel("上下文 Token", { exact: true })).toHaveValue("8192");
 	expect(await readFile(file, "utf8")).toBe('{"providers":{}}');
 	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
 	await expect(source).toHaveText(initial);

@@ -4,7 +4,9 @@
 
 ## 原生字段
 
-provider 使用 `baseUrl`、`api`、`apiKey`、`headers`、`compat`、`models` 和 `modelOverrides`。`models` 是包含 ID 的对象数组。
+provider 使用 Pi 原生 `baseUrl`、`api`、`apiKey`、`headers`、`compat`、`models` 和 `modelOverrides`。`models` 是包含 ID 的对象数组。
+
+`api` 支持 Pi 已注册的协议，包括 `anthropic-messages`、`google-generative-ai` 和自定义 API。模型可覆盖 provider 的 `api` 和 `baseUrl`。内置服务继续按 SDK 规则继承连接配置、模型目录和认证，opi 不替换 provider。
 
 模型常用字段：
 
@@ -33,13 +35,13 @@ provider 使用 `baseUrl`、`api`、`apiKey`、`headers`、`compat`、`models` �
 
 | 字段 | 位置 | 含义 |
 | --- | --- | --- |
-| `timeoutMs` | provider | 流式请求默认超时 |
-| `maxRetries` | provider | 默认重试次数 |
 | `extraBody` | provider | 请求体附加字段 |
 | `dropParams` | provider、model、modelOverrides | 删除请求字段 |
 | `defaultThinkingLevel` | model、modelOverrides | 选择模型时采用的等级 |
 
-provider 的 `dropParams` 与有效模型的 `dropParams` 依次应用，模型覆盖优先于模型定义。请求改写需要声明 `baseUrl` 和 `api`，支持 `openai-completions` 与 `openai-responses`。
+provider 的 `dropParams` 与有效模型的 `dropParams` 依次应用，模型覆盖优先于模型定义。请求改写通过 Pi 的 `before_provider_request` 会话事件处理，不限制 API，也不额外要求声明 `baseUrl` 或 `api`。具体字段遵循对应适配器的 payload 格式。
+
+`timeoutMs`、`maxRetries` 扩展已移除。请从旧配置中删除这两个字段，加载与保存会提示错误，不会静默忽略。请求超时与重试使用 SDK 原生行为。
 
 只设置 `defaultThinkingLevel` 时直接处理模型选择事件，恢复会话保留历史等级。推理能力需显式声明 `reasoning: true`。
 
@@ -56,7 +58,7 @@ provider 的 `dropParams` 与有效模型的 `dropParams` 依次应用，模型�
 
 自定义服务的环境变量需显式引用。无认证服务可使用服务允许的占位密钥，如 local。`EMPTY` 也是普通密钥字符串。
 
-自定义 Authorization 可覆盖默认 Bearer。只使用自定义请求头的服务仍需提供原生可用凭据或占位密钥。调用方可用 null 请求头移除对应字段。
+认证请求头遵循各 API 协议。自定义 Authorization 可覆盖对应默认值。只使用自定义请求头的服务仍需提供原生可用凭据或占位密钥。调用方可用 null 请求头移除对应字段。
 
 配置可能含密钥，Unix 下可限制权限：
 
@@ -84,8 +86,10 @@ Chat Completions 的标准格式直接设置 `compat.thinkingFormat`，未配置
 
 加载配置或从 JSON 切换到表单前，必须通过语法和 schema 校验。无效配置留在源码编辑器中修正。表单编辑中的临时无效输入会提示错误并禁止保存，不自动切换到源码。
 
-表单保留注释、未修改字段和其他服务配置。输入模型 ID 可筛选候选，也可手动添加。只有 `modelOverrides` 的 ID 也可加入 models。
+仅有 `modelOverrides` 而没有本地模型定义时，表单不猜测 SDK 模型的默认值，显式修改仍需保存，也可重置为继承。
+
+表单展示所有配置服务，API 选单从 SDK 注册表动态生成，只能选择已注册的协议。选中后明确写入 `api`，不提供省略字段或手动输入协议的选项。表单保留注释、未修改字段和其他服务配置。输入模型 ID 可筛选候选，也可手动添加。只有 `modelOverrides` 的 ID 也可加入 models。
 
 候选请求使用当前会话已加载的地址、认证和 provider 请求头。首次添加服务或修改连接信息后，保存并重载再查询。添加模型可以连续保存后统一重载。
 
-配置与会话不一致时显示“待重载”。候选 ID 原样展示，只在用户添加模型时写入配置。刷新候选不会修改已配置模型的能力或等级映射。
+配置与会话不一致时显示“待重载”。候选使用 Pi 调用所需的模型 ID，只在用户添加模型时写入配置。Google 返回的 `models/` 资源前缀会移除。远端候选查询不会自动注册模型或改写配置。其他协议只读取当前会话的 SDK 目录，不触发联网刷新或配置重载。目录更新沿用 SDK 和会话启动时的刷新机制。

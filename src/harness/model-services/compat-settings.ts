@@ -1,7 +1,10 @@
 import type { OpenAICompletionsCompat } from "@earendil-works/pi-ai";
+import { OpenAICompletionsCompatSchema } from "@earendil-works/pi-ai/providers/compat-schema";
 import type { ConfigObject } from "./document.ts";
 import { configuredModels, type ModelSettings } from "./model-settings.ts";
 import { thinkingCapabilities } from "./thinking-capabilities.ts";
+
+export const THINKING_FORMATS = OpenAICompletionsCompatSchema.properties.thinkingFormat.anyOf.map(({ const: format }) => format);
 
 // SDK 未导出兼容默认值解析器。只镜像设置所需字段，并用实际请求测试校验。
 function detectedServiceCompat(provider: string, baseUrl: string, modelId?: string):
@@ -47,11 +50,11 @@ function mergeServiceCompat(base: OpenAICompletionsCompat, override: OpenAICompl
 }
 
 export function serviceCompatSettings(providerId: string, provider: ConfigObject, model?: Pick<ModelSettings, "id" | "defaults" | "configured">) {
-	const configuredApi = model?.configured.api ?? model?.defaults.api ?? provider.api;
+	const configuredApi = model?.configured.api ?? model?.defaults?.api ?? provider.api;
 	const api = configuredApi === "openai-completions" || configuredApi === "openai-responses" ? configuredApi : undefined;
-	const baseUrl = model?.configured.baseUrl ?? model?.defaults.baseUrl ?? provider.baseUrl;
+	const baseUrl = model?.configured.baseUrl ?? model?.defaults?.baseUrl ?? provider.baseUrl;
 	const address = typeof baseUrl === "string" ? baseUrl : "";
-	let defaults: OpenAICompletionsCompat = api === "openai-completions"
+	let defaults: OpenAICompletionsCompat = model && model.defaults === undefined ? {} : api === "openai-completions"
 		? detectedServiceCompat(providerId, address, model?.id)
 		: api === "openai-responses" ? { supportsDeveloperRole: true, supportsReasoningEffort: false } : {};
 	if (!model && api === "openai-completions" && defaults.supportsDeveloperRole === undefined) {
@@ -61,7 +64,7 @@ export function serviceCompatSettings(providerId: string, provider: ConfigObject
 	}
 	if (model) {
 		for (const layer of [provider, model.defaults]) {
-			defaults = mergeServiceCompat(defaults, layer.compat as OpenAICompletionsCompat | undefined);
+			defaults = mergeServiceCompat(defaults, layer?.compat as OpenAICompletionsCompat | undefined);
 		}
 	}
 	const configured = model ? model.configured : provider;

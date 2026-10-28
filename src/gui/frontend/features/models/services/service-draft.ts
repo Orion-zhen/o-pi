@@ -1,6 +1,6 @@
 import { equalConfigValues } from "../../../../../harness/config-values.ts";
-import { parseModelsDocument, type ConfigPath, type ModelsDocument } from "../../../../../harness/openai-compatible-provider/document.ts";
-import { comparableModelsDocument } from "../../../../../harness/openai-compatible-provider/settings-view.ts";
+import { parseModelsDocument, type ConfigPath, type ModelsDocument } from "../../../../../harness/model-services/document.ts";
+import { comparableModelsDocument } from "../../../../../harness/model-services/config-comparison.ts";
 
 export type ChangeConfig = (path: ConfigPath, value: unknown) => void;
 export type ChangeDraft = (update: (content: string) => string) => void;

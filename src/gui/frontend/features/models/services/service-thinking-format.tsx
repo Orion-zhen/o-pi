@@ -1,7 +1,6 @@
 import { AnimatePresence } from "motion/react";
 import { Reveal } from "@/ui/motion/animated.tsx";
-import type { ServiceCompatSettings } from "../../../../../harness/openai-compatible-provider/compat-settings.ts";
-import { THINKING_FORMATS } from "../../../../../harness/openai-compatible-provider/schema.ts";
+import { THINKING_FORMATS, type ServiceCompatSettings } from "../../../../../harness/model-services/compat-settings.ts";
 import type { ChangeConfig } from "./service-draft.ts";
 import { ServiceChoice } from "./service-fields.tsx";
 import { ServiceTemplateParams } from "./service-template-params.tsx";

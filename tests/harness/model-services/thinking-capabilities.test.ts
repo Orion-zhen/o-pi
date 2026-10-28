@@ -1,11 +1,11 @@
 import { expect, it } from "vitest";
-import { serviceCompatSettings } from "../../../src/harness/openai-compatible-provider/compat-settings.ts";
-import { configuredModels } from "../../../src/harness/openai-compatible-provider/model-settings.ts";
-import { modelSettingsView } from "../../../src/harness/openai-compatible-provider/settings-view.ts";
+import { serviceCompatSettings } from "../../../src/harness/model-services/compat-settings.ts";
+import { configuredModels } from "../../../src/harness/model-services/model-settings.ts";
+import { modelSettingsView } from "../../../src/harness/model-services/settings-view.ts";
 import { capturePayload, loadProvider, providerConfig } from "./fixtures.ts";
-import { useOpenAICompatibleProviderTestSetup } from "./test-support.ts";
+import { useModelServicesTestSetup } from "./test-support.ts";
 
-const temp = useOpenAICompatibleProviderTestSetup();
+const temp = useModelServicesTestSetup();
 const model = { id: "m", reasoning: true, thinkingLevelMap: { high: "medium", off: "none" } };
 
 it.each([

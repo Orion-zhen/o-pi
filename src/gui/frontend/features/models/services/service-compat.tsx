@@ -1,4 +1,4 @@
-import type { ServiceCompatSettings } from "../../../../../harness/openai-compatible-provider/compat-settings.ts";
+import type { ServiceCompatSettings } from "../../../../../harness/model-services/compat-settings.ts";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import type { ChangeConfig } from "./service-draft.ts";
 import { ServiceBoolean, ServiceChoice } from "./service-fields.tsx";

@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
-import { parseModelsDocument } from "../../../src/harness/openai-compatible-provider/document.ts";
-import { editModelsDocument } from "../../../src/harness/openai-compatible-provider/config-edits.ts";
-import { configuredModels } from "../../../src/harness/openai-compatible-provider/model-settings.ts";
-import { modelSettingsView } from "../../../src/harness/openai-compatible-provider/settings-view.ts";
+import { parseModelsDocument } from "../../../src/harness/model-services/document.ts";
+import { editModelsDocument } from "../../../src/harness/model-services/config-edits.ts";
+import { configuredModels } from "../../../src/harness/model-services/model-settings.ts";
+import { modelSettingsView } from "../../../src/harness/model-services/settings-view.ts";
 
 const provider = { api: "openai-responses" };
 const model = { id: "m", reasoning: true };

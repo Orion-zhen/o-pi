@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
-import { editModelsDocument } from "../../../../../harness/openai-compatible-provider/config-edits.ts";
-import type { ConfigObject } from "../../../../../harness/openai-compatible-provider/document.ts";
-import { serviceConnectionKey } from "../../../../../harness/openai-compatible-provider/service-connection.ts";
+import { editModelsDocument } from "../../../../../harness/model-services/config-edits.ts";
+import type { ConfigObject } from "../../../../../harness/model-services/document.ts";
+import { serviceConnectionKey } from "../../../../../harness/model-services/service-connection.ts";
 import { Button } from "@/ui/button.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { ConfirmAction } from "@/ui/confirm-action.tsx";
@@ -24,6 +24,8 @@ function catalogMessage({ phase, value }: ServiceCatalogState): string {
 	if (!value) return "";
 	switch (value.connection.status) {
 		case "connected": return "";
+		case "catalog": return "候选来自 Pi SDK 目录，未验证服务连接";
+		case "unsupported": return "不支持当前协议的远端模型查询，可手动填写模型 ID";
 		case "unavailable": return value.changes === "connection" ? "请先保存并重载新服务，再获取候选模型" : "";
 		case "unconfigured": return "请先配置认证，也可直接手动填写模型 ID";
 		default: return failed;
@@ -65,7 +67,7 @@ export function ServiceItem({ id, config, disabled, open, setOpen, savedConfig, 
 					<strong className="service-summary-line">{name}{name !== id && <span>{id}</span>}</strong>
 					<span className="service-summary-line">
 						{address && <><span>{address}</span><span>·</span></>}
-						<span>{config.api === "openai-responses" ? "Responses" : "Chat Completions"}</span>
+						<span>{textValue(config.api) || "API 未设置"}</span>
 					</span>
 				</CollapsibleTrigger>
 				<ServiceConnectionBadge id={id} connection={connection} retry={catalog.retry}

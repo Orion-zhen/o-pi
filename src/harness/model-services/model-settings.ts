@@ -6,7 +6,12 @@ export interface ModelSettings {
 	overridden: boolean;
 	path: ConfigPath;
 	configured: ConfigObject;
-	defaults: ConfigObject;
+	// 没有本地定义时，内置模型的默认值未知，不能套用新模型默认值。
+	defaults: ConfigObject | undefined;
+}
+
+export function modelDefaults({ id, defaults }: Pick<ModelSettings, "id" | "defaults">): ConfigObject {
+	return defaults === undefined ? {} : { name: id, contextWindow: 128_000, input: ["text"], reasoning: false, ...defaults };
 }
 
 export function configuredModels(provider: ConfigObject): ModelSettings[] {
@@ -19,7 +24,7 @@ export function configuredModels(provider: ConfigObject): ModelSettings[] {
 		const definition = models.get(id);
 		models.set(id, {
 			id, manualIndex: definition?.manualIndex, overridden: true, path: ["modelOverrides", id],
-			defaults: definition?.configured ?? {}, configured,
+			defaults: definition?.configured, configured,
 		});
 	}
 	return [...models.values()];

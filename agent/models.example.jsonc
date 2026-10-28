@@ -136,9 +136,6 @@
       "apiKey": "$RESPONSES_API_KEY",
       "api": "openai-responses",
       // Responses 使用 SDK 原生 reasoning 和 thinkingLevelMap。
-      // 可选流式请求默认值，单次请求选项优先，不控制模型目录请求。
-      // "timeoutMs": 120000,
-      // "maxRetries": 0,
       // 可选请求体调整，不能覆盖或删除 model/messages/input/tools/stream。
       // extraBody 仅在 provider 层提供，dropParams 还可配置在模型条目或 modelOverrides 中。
       // "extraBody": { "custom_option": true },
@@ -174,6 +171,21 @@
           }
         }
       ]
+    },
+
+    // API 不限于 OpenAI。认证与协议请求继续由 Pi SDK 处理。
+    "anthropic-demo": {
+      "baseUrl": "https://api.anthropic.com",
+      "api": "anthropic-messages",
+      "apiKey": "$ANTHROPIC_API_KEY",
+      "models": [{ "id": "claude-sonnet-4-6", "reasoning": true }]
+    },
+    "google-demo": {
+      // 与 Pi Google 适配器一致，地址包含 API 版本路径。
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "api": "google-generative-ai",
+      "apiKey": "$GEMINI_API_KEY",
+      "models": [{ "id": "gemini-2.5-pro", "reasoning": true }]
     },
 
     "chat-template-enabled-demo": {

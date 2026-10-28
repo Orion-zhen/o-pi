@@ -4,9 +4,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { ServiceTemplateParams } from "../../../../../../src/gui/frontend/features/models/services/service-template-params.tsx";
 import { ServiceThinkingFormat } from "../../../../../../src/gui/frontend/features/models/services/service-thinking-format.tsx";
 import { TooltipProvider } from "../../../../../../src/gui/frontend/ui/tooltip.tsx";
-import { serviceCompatSettings } from "../../../../../../src/harness/openai-compatible-provider/compat-settings.ts";
-import { editModelsDocument } from "../../../../../../src/harness/openai-compatible-provider/config-edits.ts";
-import { parseModelsDocument, type ConfigObject } from "../../../../../../src/harness/openai-compatible-provider/document.ts";
+import { serviceCompatSettings } from "../../../../../../src/harness/model-services/compat-settings.ts";
+import { editModelsDocument } from "../../../../../../src/harness/model-services/config-edits.ts";
+import { parseModelsDocument, type ConfigObject } from "../../../../../../src/harness/model-services/document.ts";
 import { useReactFixture } from "../../../../helpers/react-fixture.ts";
 
 const render = useReactFixture();

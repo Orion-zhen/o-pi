@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { createContext, useContext, useId, type ReactNode } from "react";
 import { MODEL_INPUT_MODALITIES, type ModelInputModality } from "@earendil-works/pi-ai/providers/model-schema";
 import { Input } from "@/ui/input.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
@@ -7,7 +7,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
 import { SettingsRow } from "@/forms/settings-controls.tsx";
 
 export const textValue = (value: unknown): string => typeof value === "string" || typeof value === "number" ? String(value) : "";
-export const apiChoices = [["openai-completions", "Chat Completions"], ["openai-responses", "Responses"]] as const;
+export const ModelApiChoicesContext = createContext<readonly string[]>([]);
 const unset = "@unset";
 
 type FieldProps<T> = {
@@ -33,6 +33,12 @@ export function ServiceText({ label, value, change, disabled, required = false, 
 			type="text" autoComplete="off" spellCheck={false} inputMode={inputMode} placeholder={placeholder}
 			onChange={(event) => change(event.target.value === "" && !required ? undefined : event.target.value)} />
 	</SettingsRow>;
+}
+
+export function ServiceApi({ value, defaultValue, change, disabled, label = "API 协议" }: FieldProps<string>) {
+	const apis = useContext(ModelApiChoicesContext);
+	return <ServiceChoice label={label} value={value} defaultValue={defaultValue} disabled={disabled} required
+		options={apis.map((api) => [api, api])} placeholder="选择 API 协议" change={change} />;
 }
 
 export function ServiceNumber({ change, ...props }: FieldProps<string | number> & { placeholder?: string }) {

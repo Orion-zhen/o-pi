@@ -18,8 +18,8 @@ import { createApprovalGate } from "../../../harness/approval/runtime/gate.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import approvalGate from "../../../harness/extensions/approval-gate.ts";
 import autoTitle, { type AutoTitleState } from "../../../harness/extensions/auto-title.ts";
-import openAICompatibleProvider from "../../../harness/extensions/openai-compatible-provider.ts";
-import type { ModelsConfig } from "../../../harness/openai-compatible-provider/schema.ts";
+import modelServices from "../../../harness/extensions/model-services.ts";
+import type { ModelsConfig } from "../../../harness/model-services/schema.ts";
 import { lspManager, registerLspCommands } from "../../../harness/lsp/index.ts";
 
 export interface GuiExtensionBindings {
@@ -40,7 +40,7 @@ export interface GuiExtensionBindings {
 
 export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, usageService, approvalStores, approvalRules, signal, titleGenerationChanged }: GuiExtensionBindings): InlineExtension[] {
 	const views: InlineExtension[] = [
-		{ name: "openai-compatible-provider", factory: (pi) => openAICompatibleProvider(pi, bindModelServices) },
+		{ name: "model-services", factory: (pi) => modelServices(pi, bindModelServices) },
 		{ name: "mcp", builtin: true, factory: createGuiMcpExtension({
 			bind: bindMcp, changed: toolsChanged,
 			openUrl: (url) => emit({ type: "auth", value: { type: "auth_url", url } }),

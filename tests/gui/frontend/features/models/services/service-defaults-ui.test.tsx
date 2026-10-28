@@ -1,11 +1,11 @@
 import { act, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
-import { parseModelsDocument, type ConfigObject } from "../../../../../../src/harness/openai-compatible-provider/document.ts";
-import { editModelsDocument } from "../../../../../../src/harness/openai-compatible-provider/config-edits.ts";
+import { parseModelsDocument, type ConfigObject } from "../../../../../../src/harness/model-services/document.ts";
+import { editModelsDocument } from "../../../../../../src/harness/model-services/config-edits.ts";
 import { TooltipProvider } from "../../../../../../src/gui/frontend/ui/tooltip.tsx";
 import { ServiceCompat } from "../../../../../../src/gui/frontend/features/models/services/service-compat.tsx";
 import { ServiceThinkingFormat } from "../../../../../../src/gui/frontend/features/models/services/service-thinking-format.tsx";
-import { serviceCompatSettings } from "../../../../../../src/harness/openai-compatible-provider/compat-settings.ts";
+import { serviceCompatSettings } from "../../../../../../src/harness/model-services/compat-settings.ts";
 import { ServiceModels } from "../../../../../../src/gui/frontend/features/models/services/service-models.tsx";
 import { ServiceBoolean } from "../../../../../../src/gui/frontend/features/models/services/service-fields.tsx";
 import { useReactFixture } from "../../../../helpers/react-fixture.ts";
@@ -195,6 +195,21 @@ it("显式配置等于默认值时，文本、选项和模型整体不显示重�
 		expect(button(`重置${label}`), label).toBeNull();
 	}
 	expect(button("还原模型设置 m")).toBeNull();
+});
+
+it("内置模型覆盖不显示新模型的默认值，显式值仍可重置", async () => {
+	const provider = { modelOverrides: { "claude-sonnet-4-6": { contextWindow: 128000, reasoning: false, thinkingLevelMap: { max: null } } } };
+	const change = vi.fn();
+	await render(<TooltipProvider><ServiceModels providerId="anthropic" provider={provider} candidates={[]} disabled={false} change={change} /></TooltipProvider>);
+	await act(async () => button("编辑模型 claude-sonnet-4-6")?.click());
+	expect(document.querySelector<HTMLInputElement>('input[aria-label="上下文 Token"]')?.placeholder).toBe("继承 SDK");
+	expect(button("重置上下文 Token")).not.toBeNull();
+	expect(button("重置思考能力")).not.toBeNull();
+	expect(button("还原模型设置 claude-sonnet-4-6")).not.toBeNull();
+	await expand("思考等级映射");
+	expect(button("恢复 max 默认映射")).not.toBeNull();
+	await act(async () => button("重置上下文 Token")?.click());
+	expect(change).toHaveBeenLastCalledWith(["modelOverrides", "claude-sonnet-4-6", "contextWindow"], undefined);
 });
 
 it("模型默认值不一致时服务级显示因模型而异", async () => {

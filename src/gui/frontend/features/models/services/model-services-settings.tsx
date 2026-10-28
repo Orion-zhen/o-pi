@@ -2,19 +2,20 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Plus } from "lucide-react";
 import type { Query } from "../../../../shared/protocol/queries.ts";
-import { editModelsDocument } from "../../../../../harness/openai-compatible-provider/config-edits.ts";
-import { emptyModelsDocument, isCompatibleService } from "../../../../../harness/openai-compatible-provider/document.ts";
-import { modelsConfigIssues } from "../../../../../harness/openai-compatible-provider/validation.ts";
+import { editModelsDocument } from "../../../../../harness/model-services/config-edits.ts";
+import { emptyModelsDocument } from "../../../../../harness/model-services/document.ts";
+import { modelsConfigIssues } from "../../../../../harness/model-services/validation.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Button } from "@/ui/button.tsx";
 import { SourceEditor } from "@/forms/source-editor.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
-import { SettingsSourceButton } from "@/forms/settings-controls.tsx";
+import { SettingsHeading, SettingsSourceButton } from "@/forms/settings-controls.tsx";
 import { useTextConfigDraft } from "@/forms/use-text-config-draft.ts";
 import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
 import { AddServiceItem } from "./add-service-item.tsx";
 import { parseServiceDraft, serviceDraftChanged } from "./service-draft.ts";
 import { ServiceItem } from "./service-item.tsx";
+import { ModelApiChoicesContext } from "./service-fields.tsx";
 import type { CatalogQuery } from "./use-service-catalog.ts";
 import "./model-services.css";
 
@@ -68,7 +69,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 		setAdding(false);
 	}
 	function addService(id: string) {
-		editor.change((current) => editModelsDocument(current, ["providers", id], { baseUrl: "", api: "openai-completions" }));
+		editor.change((current) => editModelsDocument(current, ["providers", id], { baseUrl: "", api: "" }));
 		setExpanded(id);
 		setAdding(false);
 	}
@@ -76,20 +77,18 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 		title: "模型服务", dirty, blocked: disabled, invalid, save, discard,
 	});
 	const providers = parsed.value?.providers ?? {};
-	const services = Object.entries(providers).filter(([, config]) => isCompatibleService(config));
+	const services = Object.entries(providers);
 
-	return <section className="settings-section" aria-label="OpenAI 兼容服务">
-		<header className="settings-group-heading">
-			<h3>OpenAI 兼容服务</h3>
-			{document && <div className="settings-heading-actions">
+	return <section className="settings-module" aria-label="模型服务">
+		<SettingsHeading title="模型服务">
+			{document && <>
 				{!sourceView && <Button ref={addButton} variant="outline" size="sm" disabled={blocked} aria-expanded={adding} onClick={() => setAdding(!adding)}><Plus />添加服务</Button>}
 				<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || sourceView && invalid} onClick={toggleSource} />
-			</div>}
-		</header>
-		{!sourceView && <p className="settings-description">保存后使用“重载资源”或 /reload 应用到当前会话。</p>}
-		{!document ? <>
+			</>}
+		</SettingsHeading>
+		<div className="settings-section">{!document ? <>
 			{error ? <><p role="alert">{error}</p><Button variant="ghost" onClick={editor.reload}>重试</Button></> : <p role="status">读取中…</p>}
-		</> : <>
+		</> : <ModelApiChoicesContext value={document.apis}>
 			{sourceView ? <SourceEditor file={document.path} label="模型服务 JSON" value={draft} disabled={blocked} onChange={editor.changeSource} /> : <>
 				<AnimatePresence initial={false}>{adding && <Reveal key="add">
 					<AddServiceItem label="服务 ID" existing={Object.keys(providers)} disabled={blocked} cancel={cancel} add={addService} />
@@ -103,6 +102,6 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 				{!services.length && !adding && <p className="settings-empty">暂无服务</p>}
 			</>}
 			{[parsed.error, ...issues, error].filter(Boolean).map((message, index) => <p role="alert" key={index}>{message}</p>)}
-		</>}
+		</ModelApiChoicesContext>}</div>
 	</section>;
 }

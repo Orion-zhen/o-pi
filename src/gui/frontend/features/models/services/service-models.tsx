@@ -1,10 +1,10 @@
 import { useRef, useState, type ReactNode } from "react";
 import { AnimatePresence } from "motion/react";
 import { Plus } from "lucide-react";
-import type { ModelCandidate } from "../../../../../harness/openai-compatible-provider/model-candidates.ts";
-import { configuredModels } from "../../../../../harness/openai-compatible-provider/model-settings.ts";
-import type { ConfigObject } from "../../../../../harness/openai-compatible-provider/document.ts";
-import { modelSettingsView } from "../../../../../harness/openai-compatible-provider/settings-view.ts";
+import type { ModelCandidate } from "../../../../../harness/model-services/model-candidates.ts";
+import { configuredModels } from "../../../../../harness/model-services/model-settings.ts";
+import type { ConfigObject } from "../../../../../harness/model-services/document.ts";
+import { modelSettingsView } from "../../../../../harness/model-services/settings-view.ts";
 import { Button } from "@/ui/button.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
 import type { ChangeConfig } from "./service-draft.ts";

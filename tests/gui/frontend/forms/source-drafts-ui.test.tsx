@@ -1,10 +1,11 @@
+import { getApiProviders } from "@earendil-works/pi-ai/compat";
 import { readFileSync } from "node:fs";
 import { act, type ComponentProps, type ReactNode } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { McpSettings } from "../../../../src/gui/frontend/features/mcp/mcp-settings.tsx";
 import { ModuleSettings } from "../../../../src/gui/frontend/features/modules/module-settings.tsx";
 import { ModelServicesSettings } from "../../../../src/gui/frontend/features/models/services/model-services-settings.tsx";
-import { modelsConfigSchema } from "../../../../src/harness/openai-compatible-provider/config.ts";
+import { modelsConfigSchema } from "../../../../src/harness/model-services/schema.ts";
 import type { SourceEditor } from "../../../../src/gui/frontend/forms/source-editor.tsx";
 import { SettingsStateContext, useSettingsCoordinator } from "../../../../src/gui/frontend/forms/drafts.tsx";
 import { SettingsActions } from "../../../../src/gui/frontend/forms/settings-controls.tsx";
@@ -52,7 +53,7 @@ it.each([
 	const component = kind === "module" ? <ModuleSettings {...props} id="autoTitle" title="自动标题" models={[]} tools={null} currentModel={null}
 		query={vi.fn().mockResolvedValue({ path: "auto-title.jsonc", content: original, defaults, options: {}, arrayOptions: {}, fields: {} })} />
 		: kind === "mcp" ? <McpSettings {...props} query={vi.fn().mockResolvedValue({ path: "mcp.json", content: original })} />
-		: <ModelServicesSettings {...props} sessionId={undefined} sessionRevision={undefined} sessionReady={false} query={vi.fn()} globalQuery={vi.fn().mockResolvedValue({ path: "models.json", content: original, schema: modelsConfigSchema })} />;
+		: <ModelServicesSettings {...props} sessionId={undefined} sessionRevision={undefined} sessionReady={false} query={vi.fn()} globalQuery={vi.fn().mockResolvedValue({ path: "models.json", content: original, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) })} />;
 	await render(<View>{component}</View>);
 	await click(sourceButton);
 	expect(source()?.defaultValue).toBe(original);

@@ -1,8 +1,9 @@
+import { getApiProviders } from "@earendil-works/pi-ai/compat";
 import { act, type ComponentProps } from "react";
 import type { SourceEditor } from "../../../../../../src/gui/frontend/forms/source-editor.tsx";
 import { beforeEach, expect, it, vi } from "vitest";
-import { parseModelsDocument } from "../../../../../../src/harness/openai-compatible-provider/document.ts";
-import { modelsConfigSchema } from "../../../../../../src/harness/openai-compatible-provider/config.ts";
+import { parseModelsDocument } from "../../../../../../src/harness/model-services/document.ts";
+import { modelsConfigSchema } from "../../../../../../src/harness/model-services/schema.ts";
 import type { Query } from "../../../../../../src/gui/shared/protocol/queries.ts";
 import { TooltipProvider } from "../../../../../../src/gui/frontend/ui/tooltip.tsx";
 import { ModelServicesSettings } from "../../../../../../src/gui/frontend/features/models/services/model-services-settings.tsx";
@@ -51,7 +52,7 @@ it.each([
 	JSON.stringify({ providers: { local: { api: "openai-completions", compat: null } } }),
 	JSON.stringify({ providers: { local: { api: "openai-completions", compat: { thinkingFormat: "chat-template", chatTemplateKwargs: { enabled: [] } } } } }),
 ])("加载未通过校验的配置只能编辑源码 %#", async (content) => {
-	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema });
+	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
 	const send = vi.fn<Send>();
 	await render(<View query={query} send={send} />);
 	expect(document.querySelector<HTMLTextAreaElement>("textarea")?.defaultValue).toBe(content);
@@ -63,9 +64,27 @@ it.each([
 	expect(send).not.toHaveBeenCalled();
 });
 
+it("页面只保留大标题，添加服务与源码按钮位于标题行", async () => {
+	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({
+		path: "models.json", content: '{"providers":{}}', schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api),
+	});
+	await render(<View query={query} send={vi.fn<Send>()} />);
+	const heading = document.querySelector(".settings-section-heading");
+	expect(heading?.querySelector("h2")?.textContent).toBe("模型服务");
+	expect(document.querySelectorAll("h2, h3")).toHaveLength(1);
+	expect(heading?.contains(named("添加服务") ?? null)).toBe(true);
+	expect(heading?.contains(named("JSON") ?? null)).toBe(true);
+	expect(document.body.textContent).not.toContain("/reload");
+	await click(named("添加服务"));
+	expect(document.querySelector('input[aria-label="服务 ID"]')).not.toBeNull();
+	await click(named("JSON"));
+	expect(heading?.contains(named("表单") ?? null)).toBe(true);
+	expect(document.querySelector('textarea[aria-label="模型服务 JSON"]')).not.toBeNull();
+});
+
 it("服务级配置位于候选模型操作和模型配置上方", async () => {
 	const content = JSON.stringify({ providers: { local: { api: "openai-completions", models: [{ id: "m" }] } } });
-	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema });
+	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
 	await render(<View query={query} send={vi.fn<Send>().mockResolvedValue(true)} />);
 	await click(button("编辑服务 local"));
 	const controls = [...document.querySelectorAll("button")];
@@ -96,7 +115,7 @@ it("服务级配置位于候选模型操作和模型配置上方", async () => {
 
 it.each([undefined, false, true])("开关改回保存值 %s 后不再保存，默认值不显示重置按钮", async (authHeader) => {
 	const content = JSON.stringify({ providers: { local: { api: "openai-completions", baseUrl: "http://localhost/v1", authHeader } } });
-	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema });
+	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
 	const send = vi.fn<Send>().mockResolvedValue(true);
 	await render(<View query={query} send={send} />);
 	await click(button("编辑服务 local"));
@@ -117,7 +136,7 @@ it.each([undefined, false, true])("开关改回保存值 %s 后不再保存，�
 
 it("一个字段改回原值不会清除其他字段的待保存修改", async () => {
 	const content = '{\n// 保留注释\n"providers":{"local":{"api":"openai-completions"}}\n}';
-	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema });
+	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
 	const send = vi.fn<Send>().mockResolvedValue(true);
 	await render(<View query={query} send={send} />);
 	await click(button("编辑服务 local"));
@@ -142,7 +161,7 @@ it("一个字段改回原值不会清除其他字段的待保存修改", async (
 
 it("改回默认值不同于已保存值时隐藏重置按钮，但仍需保存", async () => {
 	const content = JSON.stringify({ providers: { local: { api: "openai-completions", authHeader: true } } });
-	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema });
+	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
 	const send = vi.fn<Send>().mockResolvedValue(true);
 	await render(<View query={query} send={send} />);
 	await click(button("编辑服务 local"));
@@ -170,7 +189,7 @@ function connectionFixture() {
 		connection: { status: "connected", httpStatus: 200, checkedAt: Date.now(), latencyMs: 12 },
 	};
 	return {
-		query: vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema }),
+		query: vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) }),
 		catalogQuery: vi.fn<CatalogQuery>().mockResolvedValue(value), send: vi.fn<Send>().mockResolvedValue(true), value,
 	};
 }
@@ -355,4 +374,29 @@ it.each(["success", "failure"] as const)("切换会话清除旧候选，旧检�
 	});
 	expect(badge()?.textContent).toBe("已连接");
 	expect(document.querySelector('[role="listbox"]:not([aria-hidden="true"])')?.textContent).toBe("current");
+});
+
+it.each([
+	["anthropic-messages", "anthropic-messages"], ["google-generative-ai", "google-generative-ai"],
+	[undefined, "API 未设置"],
+])("表单展示 %s 服务，保留通用设置并隐藏 OpenAI 专属控件", async (api, title) => {
+	const content = JSON.stringify({ providers: { native: { api, models: [{ id: "m", reasoning: true }] } } });
+	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
+	const send = vi.fn<Send>();
+	await render(<View query={query} send={send} />);
+	expect(button("编辑服务 native")?.textContent).toContain(String(title));
+	await click(button("编辑服务 native"));
+	expect(document.querySelector('[role="combobox"][aria-label="API 协议"]')).not.toBeNull();
+	expect(document.querySelector('input[aria-label="自定义API 协议"]')).toBeNull();
+	await click(named("请求设置"));
+	expect(document.querySelector('input[aria-label="请求超时（毫秒）"]')).toBeNull();
+	expect(document.querySelector('input[aria-label="重试次数"]')).toBeNull();
+	await click(button("编辑模型 m"));
+	expect(document.querySelector('[role="combobox"][aria-label="思考格式"]')).toBeNull();
+	expect(named("协议与思考")).toBeUndefined();
+	await click(named("思考等级映射"));
+	expect(document.querySelector<HTMLInputElement>('input[aria-label="opi high 对应的服务商值"]')?.placeholder).toBe("使用 SDK 默认映射");
+	expect(document.querySelector<HTMLInputElement>('input[aria-label="最大输出 Token"]')?.placeholder).toBe("继承 SDK 输出预算");
+	expect(named("保存")?.disabled).toBe(true);
+	expect(send).not.toHaveBeenCalled();
 });

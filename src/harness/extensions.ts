@@ -14,7 +14,7 @@ import lsp from "./extensions/lsp.ts";
 import mcp from "./extensions/mcp.ts";
 import messagePerformance from "./extensions/message-performance.ts";
 import oPet from "./extensions/o-pet.ts";
-import openAICompatibleProvider from "./extensions/openai-compatible-provider.ts";
+import modelServices from "./extensions/model-services.ts";
 import projectSkills from "./extensions/project-skills.ts";
 import prune from "./extensions/prune.ts";
 import skillContext from "./extensions/skill-context.ts";
@@ -57,7 +57,7 @@ export function createHarnessExtensions(options: HarnessOptions = {}): InlineExt
 		{ name: "discord-presence", factory: discordPresence },
 		{ name: "lsp", factory: lsp },
 		{ name: "o-pet", factory: oPet },
-		{ name: "openai-compatible-provider", factory: openAICompatibleProvider },
+		{ name: "model-services", factory: modelServices },
 		{ name: "project-skills", factory: projectSkills },
 		{ name: "prune", factory: prune },
 		{ name: "stats", factory: stats },

@@ -4,11 +4,11 @@ import { convertToLlm, type SessionEntry } from "@earendil-works/pi-coding-agent
 import { describe, expect, it } from "vitest";
 
 import { applyPersistedToolPruning, PRUNE_STATE } from "../../../src/harness/prune/prune.ts";
-import { capturePayload, loadProvider } from "../openai-compatible-provider/fixtures.ts";
-import { useOpenAICompatibleProviderTestSetup } from "../openai-compatible-provider/test-support.ts";
+import { capturePayload, loadProvider } from "../model-services/fixtures.ts";
+import { useModelServicesTestSetup } from "../model-services/test-support.ts";
 import { assistant, customEntry, pruneState, restoreState, toolResult, user } from "./fixtures.ts";
 
-const temp = useOpenAICompatibleProviderTestSetup();
+const temp = useModelServicesTestSetup();
 const toolImage: ImageContent = {
 	type: "image",
 	data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
