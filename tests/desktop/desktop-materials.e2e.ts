@@ -12,7 +12,7 @@ test("原生窗口透明度不被重复叠加，关闭桌面透明后仍保留�
 	await page.emulateMedia({ colorScheme: "light" });
 	await page.getByRole("button", { name: "设置", exact: true }).click();
 	const settings = page.getByRole("dialog", { name: "设置", exact: true });
-	await selectSetting(page, "主题", "浅色");
+	await selectSetting(page, "主题", "light");
 	await settings.getByRole("spinbutton", { name: "左侧栏不透明度", exact: true }).fill("55");
 	await settings.getByRole("spinbutton", { name: "内容画布不透明度", exact: true }).fill("82");
 	const save = settings.getByRole("button", { name: "保存", exact: true });

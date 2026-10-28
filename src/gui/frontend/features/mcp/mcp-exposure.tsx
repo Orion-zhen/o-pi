@@ -1,5 +1,4 @@
 import type { McpExposure } from "@earendil-works/pi-coding-agent";
-import { mcpExposures } from "../../../shared/config/mcp-validation.ts";
 
 const labels = {
 	codemode: "脚本与按需发现",
@@ -8,8 +7,6 @@ const labels = {
 	hidden: "隐藏",
 } satisfies Record<McpExposure, string>;
 
-export function McpExposureLabel({ exposure, defaultHint = false }: { exposure: McpExposure; defaultHint?: boolean }) {
-	return <span className="mcp-exposure">{labels[exposure]}(<code>{exposure}</code>){defaultHint && exposure === "codemode" && " - 默认"}</span>;
+export function McpExposureLabel({ exposure }: { exposure: McpExposure }) {
+	return <span className="mcp-exposure">{labels[exposure]}(<code>{exposure}</code>)</span>;
 }
-
-export const exposureOptions = mcpExposures.map((exposure) => [exposure, <McpExposureLabel key={exposure} exposure={exposure} defaultHint />] as const);

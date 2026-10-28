@@ -2,7 +2,8 @@ import { mcpDuplicateKeys, mcpNameKey, mcpObject, parseMcpConfig, validateMcpSer
 
 export const mcpMapFields = ["env", "headers", "toolExposure"] as const;
 export type McpMapField = typeof mcpMapFields[number];
-export type McpAuthMode = "auto" | "bearer" | "headers" | "provider";
+export const mcpAuthModes = ["auto", "bearer", "headers", "provider"] as const;
+export type McpAuthMode = typeof mcpAuthModes[number];
 export type McpPair = { id: number; key: string; value: unknown };
 export type McpArgument = { id: number; value: unknown };
 export interface McpServerDraft {

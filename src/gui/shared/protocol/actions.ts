@@ -3,6 +3,7 @@ import { CODEX_SPEEDS } from "../../../harness/codex-speed/state.ts";
 import type { UsageResetOutcome } from "../../../harness/usage/types.ts";
 import { moduleConfigId, object, short, text } from "./schema.ts";
 import { TOOL_PRESETS } from "../../../harness/tool-defaults/types.ts";
+import { queueModes } from "./state.ts";
 
 const image = object({
 	data: text,
@@ -79,8 +80,8 @@ export const actionSchema = Type.Union([
 		action: Type.Literal("settings"),
 		compaction: Type.Boolean(),
 		retry: Type.Boolean(),
-		steering: Type.Union([Type.Literal("all"), Type.Literal("one-at-a-time")]),
-		followUp: Type.Union([Type.Literal("all"), Type.Literal("one-at-a-time")]),
+		steering: Type.Enum(queueModes),
+		followUp: Type.Enum(queueModes),
 		autoResize: Type.Boolean(),
 		blockImages: Type.Boolean(),
 	}),

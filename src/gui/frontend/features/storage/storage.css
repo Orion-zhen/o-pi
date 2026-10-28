@@ -13,8 +13,8 @@
 .storage-paths { display: flex; flex-direction: column; gap: var(--space-1); min-inline-size: 0; color: var(--muted-foreground); font-size: var(--text-caption); }
 .storage-paths code, .storage-entry-text code, .storage-confirmation-list code { white-space: normal; overflow-wrap: anywhere; font-family: var(--font-mono); }
 .storage-select { display: flex; align-items: center; gap: var(--space-2); min-inline-size: 0; font-size: var(--text-small); cursor: pointer; }
-.storage-entries { display: flex; flex-direction: column; min-inline-size: 0; }
-.storage-entry { display: flex; align-items: flex-start; gap: var(--space-3); min-inline-size: 0; padding-block: var(--space-3); }
+.storage-entries { display: flex; flex-direction: column; min-inline-size: 0; max-block-size: 60dvh; overflow-y: auto; scrollbar-gutter: stable; }
+.storage-entry { display: flex; flex-shrink: 0; align-items: flex-start; gap: var(--space-3); min-inline-size: 0; padding-block: var(--space-3); }
 .storage-entry + .storage-entry { border-block-start: thin solid var(--divider); }
 .storage-entry-text { display: flex; flex: 1; flex-direction: column; gap: var(--space-1); min-inline-size: 0; overflow-wrap: anywhere; }
 .storage-entry-text > strong { font-size: var(--text-ui); font-weight: 500; }

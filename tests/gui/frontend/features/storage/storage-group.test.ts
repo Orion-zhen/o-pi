@@ -84,20 +84,29 @@ describe("存储分类选择与排序", () => {
 		expect(entries.map((entry) => entry.name)).toEqual(["中", "小", "大甲", "大乙"]);
 	});
 
-	it("对完整列表排序后分页，切换回第一页且保留所选条目", async () => {
+	it("每批加载 25 项，滚动加载后排序并保留所选条目", async () => {
 		const entries = Array.from({ length: 32 }, (_, index) => entry(`文件${index}`, index));
 		await render([group(entries)]);
 		await expand();
-		await click(button("下一页"));
-		expect(names()).toEqual(["文件30", "文件31"]);
+		expect(names()).toHaveLength(25);
+		expect(section().querySelector("nav")).toBeNull();
+		const all = section().querySelector<HTMLButtonElement>('[aria-label="全选可删除的sessions"]');
+		if (!all) throw new Error("缺少全选复选框");
+		await click(all);
+		expect(button("删除所选 (32)").disabled).toBe(false);
+		await click(all);
+		const list = section().querySelector<HTMLUListElement>(".storage-entries");
+		if (!list) throw new Error("缺少存储列表");
+		Object.defineProperties(list, { scrollTop: { value: 400, writable: true }, scrollHeight: { value: 1000 }, clientHeight: { value: 600 } });
+		await act(async () => { list.dispatchEvent(new window.Event("scroll")); });
+		expect(names()).toHaveLength(32);
 		const selected = section().querySelector<HTMLButtonElement>('[aria-label="选择 文件30"]');
 		if (!selected) throw new Error("缺少条目复选框");
 		await click(selected);
 		await click(button("文件大小：不排序"));
-		expect(names()).toHaveLength(30);
+		expect(names()).toHaveLength(25);
 		expect(names()[0]).toBe("文件31");
-		expect(names().at(-1)).toBe("文件2");
-		expect(button("上一页").disabled).toBe(true);
+		expect(names().at(-1)).toBe("文件7");
 		expect(section().querySelector('[aria-label="选择 文件30"]')?.getAttribute("aria-checked")).toBe("true");
 		await click(button("删除所选 (1)"));
 		expect(requestRemoval.mock.calls[0]?.[0]).toEqual([entries[30]]);

@@ -42,7 +42,7 @@ export function SettingsSourceButton({ file, source = false, disabled, onClick }
 
 export function SettingsRow({ label, htmlFor, children, reset, disabled, description, layout = "inline" }: {
 	label: string; htmlFor?: string; children: ReactNode; disabled?: boolean; description?: ReactNode;
-	layout?: "inline" | "fluid" | "wide";
+	layout?: "inline" | "fluid" | "wide" | "choice";
 	reset?: { value: unknown; defaultValue: unknown; apply: () => void };
 }) {
 	return <div className="preference-row" data-layout={layout}>

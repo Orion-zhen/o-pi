@@ -10,6 +10,8 @@ import type { GuiEntry, GuiMessage, GuiNestedCalls, GuiToolOutput } from "../mes
 import type { GuiToolSelectionItem } from "../config/mcp.ts";
 import type { ToolPreset } from "../../../harness/tool-defaults/types.ts";
 
+export const queueModes = ["one-at-a-time", "all"] as const;
+
 export type SessionTarget = { id: string } | { path: string };
 
 export interface GuiBashApproval {
@@ -110,8 +112,8 @@ export interface GuiSnapshot {
 	settings: {
 		compaction: boolean;
 		retry: boolean;
-		steering: "all" | "one-at-a-time";
-		followUp: "all" | "one-at-a-time";
+		steering: typeof queueModes[number];
+		followUp: typeof queueModes[number];
 		autoResize: boolean;
 		blockImages: boolean;
 	};

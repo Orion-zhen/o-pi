@@ -40,5 +40,5 @@ test("主题色失焦提交与原位 JSONC 编辑回到原值后禁用保存", a
 	await source.fill(originalSource);
 	await expect(apply).toBeDisabled();
 	await config.getByRole("button", { name: "表单", exact: true }).click();
-	await expect(config.getByRole("combobox", { name: "主题", exact: true })).toBeVisible();
+	await expect(config.getByRole("radiogroup", { name: "主题", exact: true })).toBeVisible();
 });

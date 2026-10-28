@@ -152,13 +152,13 @@ it.each([
 	await render(<View><GuiSettingsProvider document={document} send={vi.fn()} query={vi.fn()} disabled={false} refresh={vi.fn()}>
 		<Preferences title={title} section={section} /></GuiSettingsProvider></View>);
 	expectDirty(false);
-	expect(button(reset)).toBeNull();
+	expect(button(reset)?.classList.contains("invisible")).toBe(true);
 	await click(button(label));
 	expectDirty(true);
-	expect(button(reset)).not.toBeNull();
+	expect(button(reset)?.classList.contains("invisible")).toBe(false);
 	await click(button(label));
 	expectDirty(false);
-	expect(button(reset)).toBeNull();
+	expect(button(reset)?.classList.contains("invisible")).toBe(true);
 	expect(button(`重置${label}`)).toBeNull();
 });
 
@@ -194,7 +194,7 @@ it("恢复默认不同于初始值时仍需保存，另一项的修改不会被�
 	await click(button("执行任务时防止空闲睡眠"));
 	expectDirty(true);
 	expect(button("重置执行任务时防止空闲睡眠")).toBeNull();
-	expect(button("重置对话交互")).toBeNull();
+	expect(button("重置对话交互")?.classList.contains("invisible")).toBe(true);
 	await click(button("使用外部应用打开文件链接"));
 	await click(button("执行任务时防止空闲睡眠"));
 	expectDirty(true);

@@ -1,12 +1,17 @@
-import { useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { useId, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { Fade } from "@/ui/motion/animated.tsx";
+import { settle } from "@/ui/motion/transitions.ts";
+import { Monitor, Moon, RotateCcw, Sun } from "lucide-react";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { editPreference, resetSection, sectionChanged, type GuiSection } from "./gui-settings-draft.ts";
 import { useGuiSettings } from "./gui-settings-state.tsx";
 import type { GuiPreferences } from "../../../shared/config/preferences.ts";
+import guiSchema from "../../../../../agent/schemas/gui.schema.json" with { type: "json" };
 import { Input } from "@/ui/input.tsx";
 import { Switch } from "@/ui/switch.tsx";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
+import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
+import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { FontPicker } from "./font-picker.tsx";
 import { useLocalFonts } from "./use-local-fonts.ts";
 import { ThemeColorPicker } from "./theme-color-picker.tsx";
@@ -18,7 +23,15 @@ import "./gui-settings.css";
 
 type PreferencePath = MaterialPreferencePath | ["theme"] | ["themeColor"] | ["sendShortcut"] | ["openFileLinksExternally"] | ["preventSleepWhileRunning"] | ["fonts", "ui" | "code"] | ["fontSizes", "ui" | "chat" | "code"] | ["desktopWeb", "enabled" | "host" | "port"];
 
+const themeOptions = [
+	{ value: "system", label: "跟随系统", icon: Monitor },
+	{ value: "light", label: "浅色", icon: Sun },
+	{ value: "dark", label: "深色", icon: Moon },
+] as const;
+
 export function GuiSettings({ title, section }: { title: string; section: GuiSection }) {
+	const themeHighlightId = useId();
+	const shortcutHighlightId = useId();
 	const state = useGuiSettings();
 	const latest = state?.latest;
 	const [theme, setTheme] = useState<GuiPreferences["theme"]>("system");
@@ -28,12 +41,18 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 	const localFonts = useLocalFonts();
 	if (!state) return <SettingsSection title={title}><p role="status">读取中…</p></SettingsSection>;
 	const { document, blocked, error, update, changeSource } = state;
-	const actions = <>
-		<SettingsSourceButton file="gui.jsonc" source={editing} disabled={blocked || editing && document.state === "error"} onClick={() => setEditing(!editing)} />
-		{!editing && document.state === "ready" && sectionChanged(document.defaults, document.value, section)
-			&& <IconButton size="icon-sm" label={`重置${title}`} tooltip="恢复默认" disabled={blocked}
-				onClick={() => update(document, resetSection(document, section))}><RotateCcw /></IconButton>}
-	</>;
+	const changed = document.state === "ready" && sectionChanged(document.defaults, document.value, section);
+	const actions = <div className="gui-preference-actions">
+		<motion.div layout="position" transition={settle} className="settings-heading-actions">
+			<SettingsSourceButton file="gui.jsonc" source={editing} disabled={blocked || editing && document.state === "error"} onClick={() => setEditing(!editing)} />
+		</motion.div>
+		<AnimatePresence initial={false} mode="popLayout" anchorX="right">
+			{!editing && document.state === "ready" && changed && <Fade key="reset" className="settings-heading-actions">
+				<IconButton size="icon-sm" label={`重置${title}`} tooltip="恢复默认" disabled={blocked}
+					onClick={() => update(document, resetSection(document, section))}><RotateCcw /></IconButton>
+			</Fade>}
+		</AnimatePresence>
+	</div>;
 	if (editing || document.state === "error") return <div className="settings-module">
 		<SettingsSection title={title} actions={actions} source={editing}>
 			{editing && <SourceEditor file={document.path} label="GUI 设置 JSONC" value={document.content} disabled={blocked} onChange={(content) => changeSource(content, section)} />}
@@ -46,10 +65,13 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 		{section === "appearance" ? <>
 				<SettingsSection title="主题与颜色" actions={actions}><div className="settings-fields">
 					<SettingsRow label="主题" reset={{ value: document.value.theme, defaultValue: document.defaults.theme, apply: () => change(["theme"], undefined) }} disabled={blocked}>
-						<Select value={document.value.theme} disabled={blocked} onValueChange={(value) => change(["theme"], value === document.defaults.theme ? undefined : value)}>
-							<SelectTrigger aria-label="主题"><SelectValue /></SelectTrigger>
-							<SelectContent><SelectItem value="system">跟随系统</SelectItem><SelectItem value="light">浅色</SelectItem><SelectItem value="dark">深色</SelectItem></SelectContent>
-						</Select>
+						<ToggleGroup type="single" size="sm" className="settings-preference-toggle" aria-label="主题" value={document.value.theme} disabled={blocked}
+							onValueChange={(value) => { if (value) change(["theme"], value === document.defaults.theme ? undefined : value); }}>
+							{themeOptions.map(({ value, label, icon: Icon }) => <ToggleGroupItem key={value} value={value} className="animated-background-target">
+								<AnimatedBackground active={document.value.theme === value} layoutId={themeHighlightId} />
+								<Icon aria-hidden="true" />{label}
+							</ToggleGroupItem>)}
+						</ToggleGroup>
 					</SettingsRow>
 					<SettingsRow label="主题色" reset={{ value: document.value.themeColor.toUpperCase(), defaultValue: document.defaults.themeColor.toUpperCase(), apply: () => change(["themeColor"], undefined) }} disabled={blocked}>
 						<ThemeColorPicker savedValue={state.latest.state === "ready" ? state.latest.value.themeColor : document.defaults.themeColor} value={document.value.themeColor} defaultValue={document.defaults.themeColor} disabled={blocked}
@@ -90,10 +112,13 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 				<p className="settings-warning">免登录，勿暴露到公网。</p>
 			</SettingsSection> : <SettingsSection title={title} actions={actions}><div className="settings-fields">
 				<SettingsRow label="发送快捷键" reset={{ value: document.value.sendShortcut, defaultValue: document.defaults.sendShortcut, apply: () => change(["sendShortcut"], undefined) }} disabled={blocked}>
-					<Select value={document.value.sendShortcut} disabled={blocked} onValueChange={(value) => change(["sendShortcut"], value === document.defaults.sendShortcut ? undefined : value)}>
-						<SelectTrigger aria-label="发送快捷键"><SelectValue /></SelectTrigger>
-						<SelectContent><SelectItem value="mod-enter">Ctrl / ⌘ + Enter</SelectItem><SelectItem value="enter">Enter</SelectItem></SelectContent>
-					</Select>
+					<ToggleGroup type="single" size="sm" className="settings-preference-toggle" aria-label="发送快捷键" value={document.value.sendShortcut} disabled={blocked}
+						onValueChange={(value) => { if (value) change(["sendShortcut"], value === document.defaults.sendShortcut ? undefined : value); }}>
+						{guiSchema.properties.sendShortcut.enum.map((value) => <ToggleGroupItem key={value} value={value} className="animated-background-target">
+							<AnimatedBackground active={document.value.sendShortcut === value} layoutId={shortcutHighlightId} />
+							{value === "mod-enter" ? `${navigator.userAgent.includes("Macintosh") ? "⌘" : "Ctrl"}+Enter` : "Enter"}
+						</ToggleGroupItem>)}
+					</ToggleGroup>
 				</SettingsRow>
 				<SettingsRow label="执行任务时防止空闲睡眠" reset={{ value: document.value.preventSleepWhileRunning, defaultValue: document.defaults.preventSleepWhileRunning, apply: () => change(["preventSleepWhileRunning"], undefined) }} disabled={blocked}>
 					<Switch aria-label="执行任务时防止空闲睡眠" checked={document.value.preventSleepWhileRunning} disabled={blocked}

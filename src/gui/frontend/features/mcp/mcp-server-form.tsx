@@ -2,14 +2,13 @@ import { useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Reveal } from "@/ui/motion/animated.tsx";
 import { Plus, Trash2 } from "lucide-react";
-import { mcpObject, type McpIssue } from "../../../shared/config/mcp-validation.ts";
+import { mcpExposures, mcpObject, mcpTransports, type McpIssue } from "../../../shared/config/mcp-validation.ts";
 import { Button } from "@/ui/button.tsx";
 import { Input } from "@/ui/input.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { SettingsDisclosure } from "@/forms/settings-controls.tsx";
 import { changeMcpTransport, mcpId, type McpMapField, type McpPair, type McpServerDraft } from "./mcp-draft.ts";
 import { McpChoice, McpField, McpPairs, McpTextField, mcpText } from "./mcp-fields.tsx";
-import { exposureOptions } from "./mcp-exposure.tsx";
 import { McpAuthFields } from "./mcp-auth-fields.tsx";
 import { parseMcpCommand } from "./mcp-command.ts";
 
@@ -42,8 +41,8 @@ export function McpServerForm({ server, issues, disabled, change }: {
 	return <fieldset className="mcp-server-form" disabled={disabled}>
 		<div className="mcp-form-grid">
 			<McpTextField label="服务名称" field="name" issues={issues} value={server.name} onChange={(name) => change({ ...server, name })} />
-			<McpField label="连接方式" field="type" issues={issues}>
-				<McpChoice disabled={disabled} label="连接方式" value={remote ? "http" : "stdio"} options={[["stdio", "本地进程"], ["http", "远程 HTTP"]]} change={selectTransport} />
+			<McpField inline label="连接方式" field="type" issues={issues}>
+				<McpChoice disabled={disabled} label="连接方式" value={remote ? "http" : "stdio"} options={mcpTransports} change={selectTransport} />
 			</McpField>
 		</div>
 		{transport !== undefined && <div className="mcp-confirm"><p>切换连接方式会清除当前的连接与认证字段，通用设置保留。</p>
@@ -84,8 +83,8 @@ export function McpServerForm({ server, issues, disabled, change }: {
 				{!remote && <McpTextField label="工作目录" field="cwd" issues={issues} value={config.cwd} hint="留空使用会话目录，相对路径也以会话目录为基准。" onChange={(value) => field("cwd", value || undefined)} />}
 				<McpTextField label="能力描述" field="description" issues={issues} value={config.description} hint="向模型说明这个服务提供什么能力，不只是界面备注。" onChange={(value) => field("description", value || undefined)} />
 				<McpTextField label="请求超时（秒）" field="timeout" issues={issues} value={config.timeout} placeholder="60（默认）" numeric onChange={(value) => field("timeout", value === "" ? undefined : Number(value) || value)} />
-				<McpField label="工具使用方式" field="exposure" issues={issues} hint="默认不直接声明工具，可通过脚本或搜索发现。始终提供会增加上下文占用。隐藏不会停止服务连接。">
-					<McpChoice disabled={disabled} label="工具使用方式" value={config.exposure === "codemode-deferred" ? "codemode" : mcpText(config.exposure ?? "codemode")} options={exposureOptions} change={(value) => field("exposure", value === "codemode" ? undefined : value)} />
+				<McpField inline label="工具使用方式" field="exposure" issues={issues} hint="默认不直接声明工具，可通过脚本或搜索发现。始终提供会增加上下文占用。隐藏不会停止服务连接。">
+					<McpChoice disabled={disabled} label="工具使用方式" value={config.exposure === "codemode-deferred" ? "codemode" : mcpText(config.exposure ?? "codemode")} options={mcpExposures} change={(value) => field("exposure", value === "codemode" ? undefined : value)} />
 				</McpField>
 				<McpField label="单工具规则" field="toolExposure" issues={issues} hint="填写服务原始工具名或 * 通配模式。精确名称优先，通配规则从上到下匹配。">
 					<McpPairs disabled={disabled} label="工具规则" kind="exposure" rows={server.maps.toolExposure ?? []} change={(rows) => pairs("toolExposure", rows)} />

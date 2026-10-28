@@ -5,6 +5,7 @@ import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import type { StorageGroup } from "../../../shared/storage.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Button } from "@/ui/button.tsx";
+import { Crossfade } from "@/ui/motion/animated.tsx";
 import { SettingsHeading } from "@/forms/settings-controls.tsx";
 import { StorageGroupView, storageBytes, storageTotal } from "./storage-group.tsx";
 import { StorageConfirmation, type StorageRemoval } from "./storage-confirmation.tsx";
@@ -58,12 +59,15 @@ export function StorageSettings({ query, send, connected, active }: {
 		finally { setDeleting(false); setRemoval(null); setRevision((value) => value + 1); }
 	};
 	const disabled = !connected || loading || deleting;
+	const refreshing = loading && connected;
 	return <div className="storage-settings">
 		<SettingsHeading title="存储管理">
-			<Button variant="outline" size="sm" disabled={!connected || loading || deleting} onClick={() => { setStatus(""); setActionError(""); setRevision((value) => value + 1); }}><RefreshCw aria-hidden="true" />刷新</Button>
+			<Button variant="outline" size="sm" disabled={disabled} aria-busy={refreshing} onClick={() => { setStatus(""); setActionError(""); setRevision((value) => value + 1); }}>
+				<RefreshCw aria-hidden="true" className={refreshing ? "animate-spin" : undefined} />
+				<Crossfade value={refreshing ? "loading" : "idle"}>{refreshing ? "刷新中…" : "刷新"}</Crossfade>
+			</Button>
 		</SettingsHeading>
 		{!connected && <p role="status">连接已断开，恢复后重新统计。</p>}
-		{loading && connected && <p role="status">正在扫描存储…</p>}
 		{scanError && <p role="alert">{scanError}</p>}
 		{actionError && <p role="alert">{actionError}</p>}
 		{!loading && status && <p role="status">{status}</p>}

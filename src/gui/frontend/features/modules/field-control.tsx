@@ -3,6 +3,8 @@ import type { ModuleConfigField } from "../../../shared/config/modules.ts";
 import { Switch } from "@/ui/switch.tsx";
 import { Input } from "@/ui/input.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
+import { RadioGroup, RadioGroupItem } from "@/ui/radio-group.tsx";
+import { Label } from "@/ui/label.tsx";
 import { ModelSelect } from "@/features/models/model-select.tsx";
 import type { ConfigField } from "./module-fields.ts";
 import { SettingsListField } from "@/forms/list-field.tsx";
@@ -16,6 +18,10 @@ export function FieldControl({ field, schema, options, value, nullable, disabled
 	if (schema?.type === "boolean" || typeof value === "boolean") return <Switch aria-label={field.label} checked={value === true} disabled={disabled} onCheckedChange={change} />;
 	if (field.type === "model") return <ModelSelect label={field.label} models={models} disabled={disabled}
 		value={typeof value === "string" && value !== "" ? value : null} change={change} />;
+	if (options && field.type === "radio") return <RadioGroup className="settings-radio-group" orientation="horizontal"
+		aria-label={field.label} value={value === undefined ? "" : String(value)} disabled={disabled} onValueChange={change}>
+		{options.map((option) => <Label key={option} className="settings-radio-option"><RadioGroupItem value={option} />{field.optionLabels?.[option] ?? option}</Label>)}
+	</RadioGroup>;
 	if (options) return <Select value={value === undefined ? "" : String(value)} disabled={disabled} onValueChange={change}>
 		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
 	</Select>;

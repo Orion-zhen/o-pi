@@ -101,7 +101,7 @@ test("表单显示实际默认值，修改及重置保留继承行为", async ({
 	await model.getByRole("button", { name: "协议与思考", exact: true }).click();
 	await expect(field("思考格式")).toHaveText("openai");
 	await expect(field("思考请求扩展")).toHaveCount(0);
-	await expect(field("输出上限字段")).toHaveText("max_completion_tokens");
+	await expect(model.getByRole("radiogroup", { name: "输出上限字段", exact: true }).getByRole("radio", { name: "max_completion_tokens", exact: true })).toBeChecked();
 	await expect(toggle("Developer 角色")).toBeChecked();
 	await expect(toggle("服务端存储")).toBeChecked();
 	await expect(toggle("独立 reasoning_effort 参数")).toBeChecked();
@@ -113,7 +113,7 @@ test("表单显示实际默认值，修改及重置保留继承行为", async ({
 	await choose("思考格式", "qwen");
 	await pane.getByLabel("API 地址", { exact: true }).fill("https://api.deepseek.com/v1");
 	await expect(field("思考格式")).toHaveText("qwen");
-	await expect(field("输出上限字段")).toHaveText("max_tokens");
+	await expect(model.getByRole("radiogroup", { name: "输出上限字段", exact: true }).getByRole("radio", { name: "max_tokens", exact: true })).toBeChecked();
 	await expect(toggle("Developer 角色")).not.toBeChecked();
 	await save(page);
 	const file = path.join(agentDir, "models.json");

@@ -3,6 +3,7 @@
 .settings-group-heading h3 { min-inline-size: 0; overflow-wrap: anywhere; font-size: var(--text-ui); font-weight: 600; }
 .settings-heading-actions, .settings-action-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .settings-heading-actions { margin-inline-start: auto; }
+.settings-heading-actions > [data-slot="button"] { align-self: stretch; font-size: var(--text-small); line-height: 1.5; padding-block: 0.45em; }
 .gui-settings, .settings-module { display: flex; flex-direction: column; gap: var(--space-6); min-inline-size: 0; }
 .settings-section { display: flex; flex-direction: column; gap: var(--space-2); min-inline-size: 0; }
 .settings-section-body, .settings-disclosure { min-inline-size: 0; padding-inline: var(--space-4); border: thin solid var(--divider); border-radius: var(--radius-lg); background: var(--control-surface); }
@@ -32,6 +33,12 @@
 .preference-row[data-layout="wide"] { flex-direction: column; align-items: stretch; }
 .preference-row[data-layout="wide"] > .preference-label { flex: none; }
 .preference-row[data-layout="wide"] > .preference-control { inline-size: 100%; margin-inline-start: 0; }
+.preference-row[data-layout="choice"] { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+.preference-row[data-layout="choice"] > .preference-label { white-space: nowrap; }
+.preference-row[data-layout="choice"] > .preference-description { grid-column: 1 / -1; }
+.settings-radio-group { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-3); min-inline-size: 0; max-inline-size: 100%; padding: 0.25em; overflow-x: auto; }
+.settings-radio-option { flex-shrink: 0; white-space: nowrap; font-weight: 400; cursor: pointer; }
+.settings-radio-option:has([data-disabled]) { cursor: not-allowed; opacity: 0.5; }
 .preference-control > [data-slot="select-trigger"] { min-inline-size: min(18ch, 100%); }
 .settings-number-control { display: flex; align-items: center; gap: var(--space-2); min-inline-size: 0; }
 .settings-number-control > span { color: var(--muted-foreground); font-size: var(--text-small); }

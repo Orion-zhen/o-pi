@@ -86,7 +86,7 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 		}
 		const control = <FieldControl field={field} schema={schema} options={options} value={displayValue} nullable={defaultValue === null} disabled={controlDisabled} models={models} tools={tools} change={(value) => change(field.path, value)} />;
 		return <SettingsRow key={field.path} label={field.label}
-			layout={Array.isArray(value) || schema?.type === "array" ? "wide" : field.type === "model" || (!options && (schema?.type === "string" || typeof value === "string" || value === null)) ? "fluid" : "inline"}
+			layout={field.type === "radio" ? "choice" : Array.isArray(value) || schema?.type === "array" ? "wide" : field.type === "model" || (!options && (schema?.type === "string" || typeof value === "string" || value === null)) ? "fluid" : "inline"}
 			reset={{ value, defaultValue, apply: () => change(field.path, undefined) }} disabled={locked}>
 			{id === "webTools" && field.path.startsWith("websearch.") && field.path.endsWith(".api_key") && typeof value === "string"
 				? <SearchApiKeyControl config={value} query={query}>{control}</SearchApiKeyControl> : control}
@@ -111,8 +111,6 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 				{fields(group.fields)}
 				{id === "approvalGate" && index === 0 && (valueAt("enabled") === false || valueAt("ui.non_interactive") === "allow")
 					&& <p className="settings-warning">{valueAt("enabled") === false ? "权限审批已关闭。" : "非交互操作将直接放行。"}</p>}
-				{id === "webTools" && group.title === "网页读取" && valueAt("webfetch.cookies.enabled") === true
-					&& <p className="settings-warning">Cookie 可能包含登录凭据。</p>}
 				{id === "discordPresence" && index === 0 && valueAt("enabled") === true && valueAt("profile") === "detailed"
 					&& <p className="settings-warning">将向 Discord 展示项目名和文件名。</p>}
 			</SettingsSection>)}

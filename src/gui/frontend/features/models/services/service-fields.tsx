@@ -2,6 +2,8 @@ import { createContext, useContext, useId, type ReactNode } from "react";
 import { MODEL_INPUT_MODALITIES, type ModelInputModality } from "@earendil-works/pi-ai/providers/model-schema";
 import { Input } from "@/ui/input.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
+import { RadioGroup, RadioGroupItem } from "@/ui/radio-group.tsx";
+import { Label } from "@/ui/label.tsx";
 import { Switch } from "@/ui/switch.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
 import { SettingsRow } from "@/forms/settings-controls.tsx";
@@ -48,8 +50,9 @@ export function ServiceNumber({ change, ...props }: FieldProps<string | number> 
 	}} />;
 }
 
-export function ServiceChoice({ label, value, change, disabled, options, required = false, defaultValue, unsetLabel, placeholder, unavailable, hint }: FieldProps<string> & AvailabilityProps & {
+export function ServiceChoice({ label, value, change, disabled, options, radio = false, required = false, defaultValue, unsetLabel, placeholder, unavailable, hint }: FieldProps<string> & AvailabilityProps & {
 	options: readonly (readonly [string, ReactNode, boolean?])[];
+	radio?: boolean;
 	required?: boolean;
 	unsetLabel?: string;
 	placeholder?: string;
@@ -63,15 +66,18 @@ export function ServiceChoice({ label, value, change, disabled, options, require
 		if (next === unset) change(undefined);
 		else change(required ? next : inheritedValue(next, defaultValue));
 	};
-	return <SettingsRow label={label} layout="fluid" disabled={disabled}
+	return <SettingsRow label={label} layout={radio ? "choice" : "fluid"} disabled={disabled}
 		description={description && <span id={id}>{description}</span>}
 		{...(!required && { reset: { value: effective, defaultValue, apply: () => change(undefined) } })}>
-		<Select value={current} disabled={disabled || Boolean(unavailable)} onValueChange={select}>
+		{radio ? <RadioGroup className="settings-radio-group" orientation="horizontal" aria-label={label} aria-describedby={description ? id : undefined}
+			value={current} disabled={disabled || Boolean(unavailable)} onValueChange={select}>
+			{choices.map(([key, title, unavailable]) => <Label key={key} className="settings-radio-option"><RadioGroupItem value={key} disabled={unavailable} />{title}</Label>)}
+		</RadioGroup> : <Select value={current} disabled={disabled || Boolean(unavailable)} onValueChange={select}>
 			<SelectTrigger aria-label={label} aria-describedby={description ? id : undefined}>
 				<SelectValue placeholder={placeholder}>{choices.find(([key]) => key === current)?.[1] ?? (current || undefined)}</SelectValue>
 			</SelectTrigger>
 			<SelectContent>{choices.map(([key, title, unavailable]) => <SelectItem key={key} value={key} disabled={unavailable}>{title}</SelectItem>)}</SelectContent>
-		</Select>
+		</Select>}
 	</SettingsRow>;
 }
 

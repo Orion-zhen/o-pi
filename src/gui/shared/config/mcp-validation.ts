@@ -2,6 +2,8 @@ export type McpObject = Record<string, unknown>;
 export type McpConfig = McpObject & { mcpServers?: McpObject };
 export type McpIssue = { field: string; message: string };
 export const mcpExposures = ["codemode", "deferred", "direct", "hidden"] as const;
+export const mcpTransports = ["stdio", "http"] as const;
+export const mcpClientRegistrations = ["dcr", "cimd"] as const;
 
 export function mcpObject(value: unknown): value is McpObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -51,7 +53,7 @@ export function validateMcpServer(name: string, config: unknown): McpIssue[] {
 	}
 	const type = config.type;
 	if (type === "sse") error("type", "不支持旧 SSE，请使用 Streamable HTTP 地址。");
-	else if (type !== undefined && type !== "stdio" && type !== "http" && type !== "streamable-http") error("type", "连接类型必须是 stdio 或 HTTP。");
+	else if (type !== undefined && type !== "streamable-http" && !mcpTransports.some((transport) => transport === type)) error("type", "连接类型必须是 stdio 或 HTTP。");
 	const remote = typeof config.url === "string" && (type === undefined || type === "http" || type === "streamable-http");
 	if (!remote && !(typeof config.command === "string" && (type === undefined || type === "stdio"))) error("type", "请填写启动程序或 HTTP 服务地址。");
 	const map = (field: string) => {
@@ -88,7 +90,7 @@ function validateOAuth(value: unknown, error: (field: string, message: string) =
 		if (!callback || callback.protocol !== "http:" || !loopback(callback) || callback.search || callback.hash) issue("callbackUrl", "使用本机回环 HTTP 地址，不含查询参数或片段。");
 		else if (callback.port && port !== undefined && Number(callback.port) !== port) issue("callbackPort", "端口与回调地址不一致。");
 	}
-	if (value.clientRegistration !== undefined && value.clientRegistration !== "dcr" && value.clientRegistration !== "cimd") issue("clientRegistration", "请选择 DCR 或 CIMD。");
+	if (value.clientRegistration !== undefined && !mcpClientRegistrations.some((registration) => registration === value.clientRegistration)) issue("clientRegistration", "请选择 DCR 或 CIMD。");
 	if (value.clientRegistration === "cimd") {
 		if (value.clientId !== undefined || value.clientName !== undefined) issue("clientRegistration", "CIMD 不能与客户端 ID 或客户端名称同时设置。");
 		if (callback && (callback.hostname === "[::1]" || callback.pathname !== "/callback")) issue("callbackUrl", "CIMD 回调需使用 localhost 或 127.0.0.1，路径为 /callback。");

@@ -12,7 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collap
 import { SearchInput } from "@/ui/search-input.tsx";
 import { ListItem } from "@/ui/motion/animated.tsx";
 
-const PAGE_SIZE = 30;
+const BATCH_SIZE = 25;
 const sizeSortModes = {
 	none: { next: "desc", label: "文件大小：不排序", icon: ArrowUpDown },
 	desc: { next: "asc", label: "文件大小：降序", icon: ArrowDownWideNarrow },
@@ -33,7 +33,8 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 }) {
 	const heading = useRef<HTMLButtonElement>(null);
 	const [filter, setFilter] = useState("");
-	const [page, setPage] = useState(0);
+	const list = useRef<HTMLUListElement>(null);
+	const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
 	const [sizeSort, setSizeSort] = useState<keyof typeof sizeSortModes>("none");
 	const sortMode = sizeSortModes[sizeSort];
 	const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -41,9 +42,8 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 	const query = filter.trim().toLocaleLowerCase();
 	const filtered = group.entries.filter((entry) => `${entry.name}\n${entry.path}`.toLocaleLowerCase().includes(query));
 	if (sizeSort !== "none") filtered.sort((a, b) => sizeSort === "desc" ? b.bytes - a.bytes : a.bytes - b.bytes);
-	const current = Math.min(page, Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1));
-	const visible = filtered.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
-	const available = visible.filter((entry) => !entry.blocked);
+	const visible = filtered.slice(0, visibleCount);
+	const available = filtered.filter((entry) => !entry.blocked);
 	const chosen = group.entries.filter((entry) => !entry.blocked && selected.has(entry.id));
 	const checked = available.length > 0 && available.every((entry) => selected.has(entry.id));
 	const partial = available.some((entry) => selected.has(entry.id));
@@ -52,6 +52,10 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 		for (const id of ids) if (value) next.add(id); else next.delete(id);
 		return next;
 	});
+	const resetWindow = () => {
+		setVisibleCount(BATCH_SIZE);
+		if (list.current) list.current.scrollTop = 0;
+	};
 	return <Collapsible className="storage-group" asChild><section aria-label={group.title}>
 		<CollapsibleTrigger asChild><Button ref={heading} variant="ghost" className="storage-group-heading disclosure-trigger">
 			<ChevronRight className="disclosure-chevron" aria-hidden="true" />
@@ -61,17 +65,20 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 			<ul className="storage-paths" aria-label={`${group.title}路径`}>{group.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul>
 			{group.error && <p role="alert">{group.error}</p>}
 			{group.entries.length > 0 ? <>
-				<SearchInput aria-label={`筛选${group.title}`} placeholder="按名称或路径筛选" value={filter} onValueChange={(value) => { setFilter(value); setPage(0); }} />
+				<SearchInput aria-label={`筛选${group.title}`} placeholder="按名称或路径筛选" value={filter} onValueChange={(value) => { setFilter(value); resetWindow(); }} />
 				<div className="storage-list-actions">
-					<label className="storage-select"><Checkbox aria-label={`选择本页可删除的${group.title}`} disabled={disabled || available.length === 0}
-						checked={checked ? true : partial ? "indeterminate" : false} onCheckedChange={(value) => select(available.map((entry) => entry.id), value === true)} />选择本页可删除项</label>
-					<Hint content={sizeSortModes[sortMode.next].label}><Button variant="outline" size="sm" onClick={() => { setSizeSort(sortMode.next); setPage(0); }}>
+					<label className="storage-select"><Checkbox aria-label={`全选可删除的${group.title}`} disabled={disabled || available.length === 0}
+						checked={checked ? true : partial ? "indeterminate" : false} onCheckedChange={(value) => select(available.map((entry) => entry.id), value === true)} />全选</label>
+					<Hint content={sizeSortModes[sortMode.next].label}><Button variant="outline" size="sm" onClick={() => { setSizeSort(sortMode.next); resetWindow(); }}>
 						<MorphIcon icon={sortMode.icon} spring="smooth" size="1em" />{sortMode.label}</Button></Hint>
 					<Button variant="outline" size="sm" className="storage-delete" disabled={disabled || chosen.length === 0 || chosen.length > 1000}
 						onClick={(event) => requestRemoval(chosen, event.currentTarget, heading.current)}><Trash2 aria-hidden="true" />删除所选{chosen.length ? ` (${chosen.length})` : ""}</Button>
 				</div>
 				{chosen.length > 1000 && <p role="alert">每次最多删除 1000 个条目，请减少选择。</p>}
-				<ul className="storage-entries" aria-label={`${group.title}条目`}><AnimatePresence initial={false}>
+				<ul ref={list} className="storage-entries" aria-label={`${group.title}条目`} onScroll={(event) => {
+					const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
+					if (scrollHeight - scrollTop <= clientHeight * 2) setVisibleCount((count) => Math.min(count + BATCH_SIZE, filtered.length));
+				}}><AnimatePresence initial={false}>
 					{visible.map((entry) => <ListItem className="storage-entry" key={entry.path}>
 						<Checkbox aria-label={`选择 ${entry.name}`} disabled={disabled || entry.blocked !== null} checked={selected.has(entry.id)} onCheckedChange={(value) => select([entry.id], value === true)} />
 						<div className="storage-entry-text"><strong>{entry.name}</strong><code>{entry.path}</code>
@@ -84,11 +91,6 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 					</ListItem>)}
 				</AnimatePresence></ul>
 				{filtered.length === 0 && <p className="settings-empty">没有匹配的条目</p>}
-				{filtered.length > PAGE_SIZE && <nav className="storage-list-actions" aria-label={`${group.title}分页`}>
-					<span className="settings-description">第 {current + 1} / {Math.ceil(filtered.length / PAGE_SIZE)} 页</span>
-					<div className="settings-heading-actions"><Button variant="outline" size="sm" disabled={current === 0} onClick={() => setPage(current - 1)}>上一页</Button>
-						<Button variant="outline" size="sm" disabled={(current + 1) * PAGE_SIZE >= filtered.length} onClick={() => setPage(current + 1)}>下一页</Button></div>
-				</nav>}
 			</> : !group.error && <p className="settings-empty">没有已识别的条目</p>}
 		</div></CollapsibleContent>
 	</section></Collapsible>;

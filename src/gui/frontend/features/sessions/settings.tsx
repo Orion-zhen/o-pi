@@ -1,9 +1,10 @@
 import { useId, useState } from "react";
-import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
+import { queueModes, type GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Query } from "../../../shared/protocol/queries.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Switch } from "@/ui/switch.tsx";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
+import { RadioGroup, RadioGroupItem } from "@/ui/radio-group.tsx";
+import { Label } from "@/ui/label.tsx";
 import { SourceEditor } from "@/forms/source-editor.tsx";
 import { SettingsRow, SettingsSection, SettingsSourceButton } from "@/forms/settings-controls.tsx";
 import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
@@ -80,11 +81,11 @@ export function AgentSettings({ settings: savedSettings, send, query, disabled }
 			{sourceError && <p role="alert">{sourceError}</p>}
 		</SettingsSection> : <>
 			<SettingsSection title="消息队列" actions={<SettingsSourceButton file="settings.json" disabled={loading || disabled || saving || formDirty} onClick={() => void openConfig()} />}>
-				<div className="settings-fields">{([["steering", "运行中消息"], ["followUp", "后续消息"]] as const).map(([key, label]) => <SettingsRow key={key} label={label} htmlFor={`${controlId}-${key}`}>
-					<Select value={settings[key]} disabled={blocked} onValueChange={(value) => change({ ...settings, [key]: value === "all" ? "all" : "one-at-a-time" })}>
-						<SelectTrigger id={`${controlId}-${key}`} aria-label={label}><SelectValue /></SelectTrigger>
-						<SelectContent><SelectItem value="one-at-a-time">逐条发送</SelectItem><SelectItem value="all">一起发送</SelectItem></SelectContent>
-					</Select>
+				<div className="settings-fields">{([["steering", "运行中消息"], ["followUp", "后续消息"]] as const).map(([key, label]) => <SettingsRow key={key} label={label} layout="choice">
+					<RadioGroup className="settings-radio-group" orientation="horizontal" aria-label={label} value={settings[key]} disabled={blocked}
+						onValueChange={(value) => change({ ...settings, [key]: value as typeof queueModes[number] })}>
+						{queueModes.map((mode) => <Label key={mode} className="settings-radio-option"><RadioGroupItem value={mode} />{mode === "one-at-a-time" ? "逐条发送" : "一起发送"}</Label>)}
+					</RadioGroup>
 				</SettingsRow>)}</div>
 			</SettingsSection>
 			<SettingsSection title="图片处理">{toggles([["autoResize", "自动缩放图片"], ["blockImages", "阻止图片发送"]])}</SettingsSection>

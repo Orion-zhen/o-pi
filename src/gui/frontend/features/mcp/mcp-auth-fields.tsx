@@ -1,7 +1,7 @@
-import { mcpObject, type McpIssue, type McpObject } from "../../../shared/config/mcp-validation.ts";
+import { mcpClientRegistrations, mcpObject, type McpIssue, type McpObject } from "../../../shared/config/mcp-validation.ts";
 import { SettingsDisclosure } from "@/forms/settings-controls.tsx";
 import { McpChoice, McpField, McpPairs, McpTextField, mcpText } from "./mcp-fields.tsx";
-import { mcpId, type McpAuthMode, type McpPair, type McpServerDraft } from "./mcp-draft.ts";
+import { mcpAuthModes, mcpId, type McpAuthMode, type McpPair, type McpServerDraft } from "./mcp-draft.ts";
 
 export function McpAuthFields({ server, config, issues, change, disabled }: {
 	server: McpServerDraft; config: McpObject; issues: McpIssue[]; change: (server: McpServerDraft) => void; disabled: boolean;
@@ -29,8 +29,8 @@ export function McpAuthFields({ server, config, issues, change, disabled }: {
 		change({ ...server, config: updated });
 	};
 	return <>
-		<McpField label="认证方式" hint="自动模式在服务要求时使用 OAuth。切换认证方式会移除原认证头或提供商设置。">
-			<McpChoice disabled={disabled} label="认证方式" value={mode} options={[["auto", "自动 / 按需 OAuth"], ["bearer", "Bearer Token"], ["headers", "自定义认证头"], ["provider", "已登录的提供商"]]} change={setMode} />
+		<McpField inline label="认证方式" hint="自动模式在服务要求时使用 OAuth。切换认证方式会移除原认证头或提供商设置。">
+			<McpChoice disabled={disabled} label="认证方式" value={mode} options={mcpAuthModes} change={setMode} />
 		</McpField>
 		{mode === "bearer" && <McpTextField label="Bearer Token" field="headers" value={mcpText(authorization?.value).slice(7)} secret
 			hint="可填写令牌或 ${TOKEN_ENV}。环境变量来自运行 opi 的进程。"
@@ -48,8 +48,8 @@ export function McpAuthFields({ server, config, issues, change, disabled }: {
 		<SettingsDisclosure title="OAuth 高级设置">
 			<p className="settings-description">通常无需填写。提供 Authorization 或提供商凭据时，不使用 OAuth。</p>
 			<div className="mcp-form-grid">
-				<McpField label="客户端注册" field="oauth.clientRegistration" issues={issues}>
-					<McpChoice disabled={disabled} label="客户端注册" value={mcpText(oauth.clientRegistration ?? "dcr")} options={[["dcr", "动态注册（默认）"], ["cimd", "Pi 客户端元数据（CIMD）"]]} change={(value) => setOAuth("clientRegistration", value === "dcr" ? "" : value)} />
+				<McpField inline label="客户端注册" field="oauth.clientRegistration" issues={issues}>
+					<McpChoice disabled={disabled} label="客户端注册" value={mcpText(oauth.clientRegistration ?? "dcr")} options={mcpClientRegistrations} change={(value) => setOAuth("clientRegistration", value === "dcr" ? "" : value)} />
 				</McpField>
 				{([
 					["clientId", "客户端 ID"], ["clientSecret", "客户端密钥"], ["clientName", "客户端名称"], ["scope", "权限范围"],

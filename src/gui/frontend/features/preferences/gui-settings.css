@@ -1,3 +1,8 @@
+.gui-preference-actions { position: relative; display: flex; align-items: stretch; gap: var(--space-2); }
+.settings-preference-toggle { justify-content: flex-start; gap: calc(var(--space-1) / 2); padding: var(--space-1); border-radius: var(--radius-md); background: var(--secondary); overflow-x: auto; }
+.settings-preference-toggle > button { flex-shrink: 0; border-color: transparent; border-radius: calc(var(--radius-md) - var(--space-1)); background: transparent; color: var(--muted-foreground); white-space: nowrap; }
+.settings-preference-toggle > button[data-state="on"] { color: var(--foreground); }
+.settings-preference-toggle .animated-background { inset: 0; background: var(--control-base); }
 .font-trigger { justify-content: space-between; }
 .font-trigger > span { overflow: hidden; text-overflow: ellipsis; text-align: start; }
 .font-picker { inline-size: min(28em, calc(100vw - 2em)); }

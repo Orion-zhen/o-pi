@@ -6,16 +6,16 @@ import { mcpExposures, type McpIssue } from "../../../shared/config/mcp-validati
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
 import { Input } from "@/ui/input.tsx";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
+import { RadioGroup, RadioGroupItem } from "@/ui/radio-group.tsx";
+import { Label } from "@/ui/label.tsx";
 import { mcpId, type McpPair } from "./mcp-draft.ts";
-import { exposureOptions } from "./mcp-exposure.tsx";
 
 export const mcpText = (value: unknown): string => typeof value === "string" ? value : value === undefined ? "" : JSON.stringify(value);
 
-export function McpField({ label, field, issues = [], hint, children }: {
-	label: string; field?: string; issues?: readonly McpIssue[]; hint?: string; children: ReactNode;
+export function McpField({ label, field, issues = [], hint, children, inline = false }: {
+	label: string; field?: string; issues?: readonly McpIssue[]; hint?: string; children: ReactNode; inline?: boolean;
 }) {
-	return <div className="mcp-field"><span className="mcp-field-label">{label}</span>{children}
+	return <div className={`mcp-field${inline ? " mcp-field-choice" : ""}`}><span className="mcp-field-label">{label}</span>{children}
 		{hint && <p className="settings-description">{hint}</p>}
 		{issues.filter((issue) => issue.field === field).map((issue, index) => <p role="alert" key={index}>{issue.message}</p>)}
 	</div>;
@@ -55,12 +55,14 @@ export function McpSecret({ id, label, value, change }: { id?: string; label: st
 }
 
 export function McpChoice<T extends string>({ label, value, options, change, disabled }: {
-	label: string; value: string; options: readonly (readonly [T, ReactNode])[]; change: (value: T) => void; disabled: boolean;
+	label: string; value: string; options: readonly T[]; change: (value: T) => void; disabled: boolean;
 }) {
-	return <Select value={value} onValueChange={(value) => change(value as T)} disabled={disabled}>
-		<SelectTrigger aria-label={label}><SelectValue>{options.find(([key]) => key === value)?.[1] ?? `无效值：${value || "空"}`}</SelectValue></SelectTrigger>
-		<SelectContent>{options.map(([key, title]) => <SelectItem key={key} value={key}>{title}</SelectItem>)}</SelectContent>
-	</Select>;
+	return <>
+		<RadioGroup className="settings-radio-group" orientation="horizontal" aria-label={label} value={value} onValueChange={(value) => change(value as T)} disabled={disabled}>
+			{options.map((option) => <Label key={option} className="settings-radio-option"><RadioGroupItem value={option} />{option}</Label>)}
+		</RadioGroup>
+		{!options.some((option) => option === value) && <p role="alert">{`无效值：${value || "空"}`}</p>}
+	</>;
 }
 
 export function McpPairs({ label, rows, change, disabled, kind = "secret", hiddenId }: {
@@ -76,7 +78,7 @@ export function McpPairs({ label, rows, change, disabled, kind = "secret", hidde
 	return <div className="mcp-pairs">
 		<AnimatePresence initial={false}>{rows.filter((row) => row.id !== hiddenId).map((row, index) => <Reveal key={row.id}><div className="mcp-pair">
 			<Input aria-label={`${label}名称 ${index + 1}`} placeholder={kind === "exposure" ? "工具名称或 get_*" : "名称"} value={row.key} onChange={(event) => update(row.id, { key: event.target.value })} />
-			{kind === "exposure" ? <McpChoice label={`${label}方式 ${index + 1}`} value={row.value === "codemode-deferred" ? "codemode" : mcpText(row.value)} options={exposureOptions} disabled={disabled} change={(value) => update(row.id, { value })} />
+			{kind === "exposure" ? <McpChoice label={`${label}方式 ${index + 1}`} value={row.value === "codemode-deferred" ? "codemode" : mcpText(row.value)} options={mcpExposures} disabled={disabled} change={(value) => update(row.id, { value })} />
 				: <McpSecret label={`${label}值 ${index + 1}`} value={mcpText(row.value)} change={(value) => update(row.id, { value })} />}
 			<div className="mcp-row-actions">
 				{kind === "exposure" && <><IconButton size="icon-sm" label={`上移规则 ${index + 1}`} tooltip="上移规则" disabled={index === 0} onClick={() => move(row, index, -1)}><ArrowUp /></IconButton>

@@ -102,14 +102,14 @@ test("设置模块加载、跨分类保存、布局与刷新恢复", async ({ gu
 	await page.getByRole("button", { name: "设置", exact: true }).click();
 	const settings = page.getByRole("dialog", { name: "设置", exact: true });
 	await expect(settings).toBeVisible();
-	await selectSetting(page, "主题", "深色");
+	await selectSetting(page, "主题", "dark");
 	await selectSettingsCategory(page, "对话与输入");
-	await selectSetting(page, "发送快捷键", "Enter");
+	await selectSetting(page, "发送快捷键", "enter");
 	for (const category of ["模型服务", "工具与代码", "网络与网页", "子代理", "权限与安全", "连接与集成", "存储管理", "终端界面", "外观"]) {
 		await selectSettingsCategory(page, category);
 		await expect(settings.getByRole("tabpanel", { name: category, exact: true })).toBeVisible();
 	}
-	await expect(settings.getByRole("combobox", { name: "主题", exact: true })).toContainText("深色");
+	await expect(settings.getByRole("radiogroup", { name: "主题", exact: true }).getByRole("radio", { name: "dark", exact: true })).toBeChecked();
 	await settings.getByRole("button", { name: "分区域调整", exact: true }).click();
 	await settings.getByRole("spinbutton", { name: "内容画布不透明度", exact: true }).fill("82");
 	await settings.getByRole("spinbutton", { name: "内容画布模糊", exact: true }).fill("28");

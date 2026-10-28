@@ -102,7 +102,7 @@ test.describe("页面材质", () => {
 
 	test("深浅色按生效主题独立编辑，跟随系统和区域重置不覆盖另一模式", async ({ gui: { page }, workspace: { agentDir } }) => {
 		const opacity = field(page, "左侧栏");
-		await selectSetting(page, "主题", "深色");
+		await selectSetting(page, "主题", "dark");
 		await expect(opacity).toHaveValue(String(defaults.sidebar.opacity));
 		await save(page);
 		await expect(opacity).toHaveValue(String(defaults.sidebar.darkOpacity));
@@ -110,7 +110,7 @@ test.describe("页面材质", () => {
 		await save(page);
 		expect(parse(await readFile(path.join(agentDir, "configs", "gui.jsonc"), "utf8"))).toEqual({ theme: "dark", materials: { sidebar: { darkOpacity: 91 } } });
 		await expect(page.locator(".sidebar")).toHaveCSS("background-color", alpha(91));
-		await selectSetting(page, "主题", "跟随系统");
+		await selectSetting(page, "主题", "system");
 		await save(page);
 		await expect(opacity).toHaveValue(String(defaults.sidebar.opacity));
 		await opacity.fill("67");

@@ -25,7 +25,10 @@
 .mcp-args, .mcp-pairs { gap: 0; }
 .mcp-arg, .mcp-pair { padding-block-end: var(--space-2); }
 .mcp-field > label, .mcp-field-label { font-size: var(--text-small); font-weight: 500; }
-.mcp-field [data-slot="select-trigger"] { inline-size: 100%; min-inline-size: 0; }
+.mcp-field-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2) var(--space-4); grid-column: 1 / -1; }
+.mcp-field-choice > .mcp-field-label { white-space: nowrap; }
+.mcp-field-choice > .settings-radio-group { justify-self: end; }
+.mcp-field-choice > p { grid-column: 1 / -1; }
 .mcp-secret { display: flex; align-items: center; gap: var(--space-1); min-inline-size: 0; }
 .mcp-secret > input { flex: 1; }
 .mcp-secret > button, .mcp-arg > button { flex-shrink: 0; }
@@ -33,7 +36,8 @@
 .mcp-arg input { font-family: var(--font-mono); }
 .mcp-pair { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-inline-size: 0; }
 .mcp-pair > input { flex: 1 1 15ch; inline-size: 15ch; }
-.mcp-pair > .mcp-secret, .mcp-pair > [data-slot="select-trigger"] { flex: 2 1 22ch; inline-size: 22ch; }
+.mcp-pair > .mcp-secret { flex: 2 1 22ch; inline-size: 22ch; }
+.mcp-pair > .settings-radio-group { flex: 0 1 auto; }
 .mcp-pair > .settings-warning { flex: 1 1 100%; }
 .mcp-row-actions { display: flex; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
 .mcp-add-row { align-self: flex-start; }

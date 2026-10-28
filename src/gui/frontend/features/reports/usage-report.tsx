@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/ui/button.tsx";
+import { Crossfade } from "@/ui/motion/animated.tsx";
 import type { GuiUsageResetResult } from "../../../shared/protocol/actions.ts";
 import type { ProviderUsage, ProviderUsageData, UsageProviderError, UsageResetOutcome, UsageSnapshot } from "../../../../harness/usage/types.ts";
 import { Bar, dateTime, Empty, Facts, Metrics, percent, ReportStamp, Section } from "./shared.tsx";
@@ -54,6 +55,7 @@ export function UsageReport({ value, onRefresh, onUse, disabled }: {
 		});
 	});
 	const actionDisabled = Boolean(disabled || operation);
+	const refreshing = operation?.kind === "refresh";
 	const resetAction = { use: useCredit, pendingId: operation?.kind === "use" ? operation.creditId : undefined, disabled: actionDisabled };
 	return <div className="report-dashboard">
 		{value === "aborted" ? <Empty>用量情况查询已取消。</Empty> : <>
@@ -63,8 +65,9 @@ export function UsageReport({ value, onRefresh, onUse, disabled }: {
 		{message && <p className="report-message" data-tone={message.tone} role="status">{message.text}</p>}
 		<div className="usage-report-footer">
 			{value !== "aborted" && <ReportStamp at={value.generatedAt} timeZone={value.timeZone} />}
-			<Button variant="outline" size="sm" disabled={actionDisabled} onClick={() => void run({ kind: "refresh" }, onRefresh)}>
-				<RefreshCw aria-hidden="true" />{operation?.kind === "refresh" ? "刷新中…" : "刷新"}
+			<Button variant="outline" size="sm" disabled={actionDisabled} aria-busy={refreshing} onClick={() => void run({ kind: "refresh" }, onRefresh)}>
+				<RefreshCw aria-hidden="true" className={refreshing ? "animate-spin" : undefined} />
+				<Crossfade value={refreshing ? "loading" : "idle"}>{refreshing ? "刷新中…" : "刷新"}</Crossfade>
 			</Button>
 		</div>
 	</div>;

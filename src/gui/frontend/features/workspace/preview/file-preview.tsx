@@ -1,7 +1,7 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useId, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Fade } from "@/ui/motion/animated.tsx";
-import { X } from "lucide-react";
+import { FileDiff as FileDiffIcon, FileText, X } from "lucide-react";
 import { AlignLeft, WrapText } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { nativeFileEvents } from "../native-file.ts";
@@ -9,9 +9,9 @@ import { ReferenceFileButton } from "../reference-file-button.tsx";
 import type { FilePreview as Preview } from "../../../../shared/workspace.ts";
 import type { Remote } from "../use-workbench.ts";
 import { fileLanguage, SyntaxHighlighter } from "@/ui/content/code-highlight.ts";
-import { Hint } from "@/ui/tooltip.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
-import { Button } from "@/ui/button.tsx";
+import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
+import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { ImageViewer } from "@/ui/media/image-viewer.tsx";
 import "./file-preview.css";
 
@@ -47,6 +47,7 @@ export function FilePreviewPanel({ cwd, setError, preview: selection, referenceF
 	cwd: string; setError: (message: string) => void;
 	preview: { path: string; result: Remote<Preview> }; referenceFile: (path: string) => boolean; close: () => void;
 }) {
+	const modeHighlightId = useId();
 	const [mode, setMode] = useState<"content" | "diff" | null>(null);
 	const [wrap, setWrap] = useState(true);
 	const result = selection.result;
@@ -56,11 +57,18 @@ export function FilePreviewPanel({ cwd, setError, preview: selection, referenceF
 	const name = selection.path.split("/").at(-1);
 	return <div className="file-preview" data-wrap={wrap} data-media={media}>
 		<div className="file-preview-heading">
-			<Hint content={selection.path}><strong className="file-preview-path" {...(preview && preview.content.kind !== "deleted" ? nativeFileEvents(cwd, selection.path, true, setError) : {})}>{name}</strong></Hint>
-			{preview && preview.diffs.length > 0 && <div className="file-preview-modes" aria-label="文件视图">
-				<Button variant="ghost" size="sm" aria-pressed={!diff} onClick={() => setMode("content")}>内容</Button>
-				<Button variant="ghost" size="sm" aria-pressed={diff} onClick={() => setMode("diff")}>差异</Button>
-			</div>}
+			<strong className="file-preview-path" {...(preview && preview.content.kind !== "deleted" ? nativeFileEvents(cwd, selection.path, true, setError) : {})}>{name}</strong>
+			{preview && preview.diffs.length > 0 && <ToggleGroup type="single" size="sm" className="file-preview-modes" aria-label="文件视图" value={diff ? "diff" : "content"}
+				onValueChange={(value) => { if (value === "content" || value === "diff") setMode(value); }}>
+				<ToggleGroupItem value="content" className="animated-background-target">
+					<AnimatedBackground active={!diff} layoutId={modeHighlightId} />
+					<FileText aria-hidden="true" />内容
+				</ToggleGroupItem>
+				<ToggleGroupItem value="diff" className="animated-background-target">
+					<AnimatedBackground active={diff} layoutId={modeHighlightId} />
+					<FileDiffIcon aria-hidden="true" />差异
+				</ToggleGroupItem>
+			</ToggleGroup>}
 			{!media && <IconButton label="自动折行" size="icon-sm" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>
 				<MorphIcon icon={wrap ? WrapText : AlignLeft} spring="smooth" size="1em" />
 			</IconButton>}

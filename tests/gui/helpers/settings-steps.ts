@@ -1,7 +1,14 @@
 import { type Page } from "@playwright/test";
 
 export async function selectSetting(page: Page, name: string, option: string) {
-	await page.getByRole("combobox", { name, exact: true }).click();
+	const select = page.getByRole("combobox", { name, exact: true });
+	const group = page.getByRole("radiogroup", { name, exact: true });
+	await select.or(group).waitFor();
+	if (await group.count()) {
+		await group.getByRole("radio", { name: option, exact: true }).check();
+		return;
+	}
+	await select.click();
 	await page.getByRole("option", { name: option, exact: true }).click();
 }
 

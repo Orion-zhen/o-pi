@@ -16,10 +16,9 @@ async function save(page: Page) {
 	await expect(settings(page).locator(".settings-actions").getByRole("status")).toHaveAccessibleName("已保存");
 }
 async function expectOptions(page: Page, label: string, options: string[]) {
-	const control = settings(page).getByRole("combobox", { name: label, exact: true });
-	await control.click();
-	await expect(page.getByRole("option")).toHaveText(options);
-	await page.keyboard.press("Escape");
+	const control = settings(page).getByRole("radiogroup", { name: label, exact: true });
+	await expect(control.getByRole("radio")).toHaveCount(options.length);
+	for (const option of options) await expect(control.getByRole("radio", { name: option, exact: true })).toBeVisible();
 }
 
 test("模块下拉框采用 schema 选项，网页图片开启可保存、刷新和重置", async ({ gui: { page }, workspace: { agentDir } }) => {
@@ -40,9 +39,9 @@ test("模块下拉框采用 schema 选项，网页图片开启可保存、刷新
 
 	await page.reload();
 	await open(page, "网络与网页");
-	await expect(settings(page).getByRole("combobox", { name: "网页图片", exact: true })).toHaveText("on");
+	await expect(settings(page).getByRole("radiogroup", { name: "网页图片", exact: true }).getByRole("radio", { name: "on", exact: true })).toBeChecked();
 	await settings(page).getByRole("button", { name: "重置网页图片", exact: true }).click();
-	await expect(settings(page).getByRole("combobox", { name: "网页图片", exact: true })).toHaveText("auto");
+	await expect(settings(page).getByRole("radiogroup", { name: "网页图片", exact: true }).getByRole("radio", { name: "auto", exact: true })).toBeChecked();
 	await save(page);
 	expect(parse(await readFile(file, "utf8"))).not.toHaveProperty("webfetch.media.mode");
 });
@@ -65,5 +64,5 @@ test("Discord 展示内容来自配置，JSON 草稿中的自定义名称不被�
 	expect(parse(await readFile(file, "utf8"))).toMatchObject({ enabled: false, profile: "custom", profiles: { custom: { state: "Custom" } } });
 	await page.reload();
 	await open(page, "连接与集成");
-	await expect(section.getByRole("combobox", { name: "展示内容", exact: true })).toHaveText("custom");
+	await expect(section.getByRole("radiogroup", { name: "展示内容", exact: true }).getByRole("radio", { name: "custom", exact: true })).toBeChecked();
 });

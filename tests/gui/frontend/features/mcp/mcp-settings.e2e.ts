@@ -188,7 +188,7 @@ test("批量导入显式确认替换，复制、删除与放弃都只修改草�
 	await settings(page).getByRole("button", { name: "放弃", exact: true }).click();
 	await expect(mcp(page).getByRole("article")).toHaveCount(1);
 	await mcp(page).getByRole("button", { name: "编辑 docs", exact: true }).click();
-	await selectSetting(page, "认证方式", "已登录的提供商");
+	await selectSetting(page, "认证方式", "provider");
 	await form(page).getByLabel("提供商名称", { exact: true }).fill("provider");
 	await form(page).getByLabel("服务地址", { exact: true }).fill("http://example.com/mcp");
 	const save = settings(page).getByRole("button", { name: "保存", exact: true });
@@ -205,19 +205,19 @@ test("新建远程服务，编辑认证头、OAuth 和有序工具规则", async
 	await open(page);
 	await mcp(page).getByRole("button", { name: "添加服务", exact: true }).click();
 	await form(page).getByLabel("服务名称", { exact: true }).fill("remote");
-	await selectSetting(page, "连接方式", "远程 HTTP");
+	await selectSetting(page, "连接方式", "http");
 	await form(page).getByLabel("服务地址", { exact: true }).fill("https://remote.example/mcp");
 	await mcp(page).getByRole("switch", { name: "remote", exact: true }).uncheck();
-	await selectSetting(page, "认证方式", "Bearer Token");
+	await selectSetting(page, "认证方式", "bearer");
 	await form(page).getByLabel("Bearer Token", { exact: true }).fill("${REMOTE_TOKEN}");
 	await mcp(page).getByRole("button", { name: "自定义请求头", exact: true }).click();
 	await mcp(page).getByRole("button", { name: "添加请求头", exact: true }).click();
 	await form(page).getByLabel("请求头名称 1", { exact: true }).fill("X-Region");
 	await form(page).getByLabel("请求头值 1", { exact: true }).fill("local");
-	await selectSetting(page, "认证方式", "自定义认证头");
+	await selectSetting(page, "认证方式", "headers");
 	await form(page).getByLabel("请求头名称 2", { exact: true }).fill("X-API-Key");
 	await form(page).getByLabel("请求头值 2", { exact: true }).fill("${API_KEY}");
-	await expect(mcp(page).getByRole("combobox", { name: "认证方式", exact: true })).toHaveText("自定义认证头");
+	await expect(mcp(page).getByRole("radiogroup", { name: "认证方式", exact: true }).getByRole("radio", { name: "headers", exact: true })).toBeChecked();
 	await mcp(page).getByRole("button", { name: "OAuth 高级设置", exact: true }).click();
 	await form(page).getByLabel("回调端口", { exact: true }).fill("0");
 	const save = settings(page).getByRole("button", { name: "保存", exact: true });
@@ -227,10 +227,10 @@ test("新建远程服务，编辑认证头、OAuth 和有序工具规则", async
 	await mcp(page).getByRole("button", { name: "工具与高级设置", exact: true }).click();
 	await mcp(page).getByRole("button", { name: "添加工具规则", exact: true }).click();
 	await form(page).getByLabel("工具规则名称 1", { exact: true }).fill("get_*");
-	await selectSetting(page, "工具规则方式 1", "搜索后加载(deferred)");
+	await selectSetting(page, "工具规则方式 1", "deferred");
 	await mcp(page).getByRole("button", { name: "添加工具规则", exact: true }).click();
 	await form(page).getByLabel("工具规则名称 2", { exact: true }).fill("*");
-	await selectSetting(page, "工具规则方式 2", "隐藏(hidden)");
+	await selectSetting(page, "工具规则方式 2", "hidden");
 	await mcp(page).getByRole("button", { name: "上移规则 2", exact: true }).click();
 	await save.click();
 	await expect(settings(page).getByRole("status", { name: "已保存", exact: true })).toBeVisible();
@@ -268,7 +268,7 @@ test("导入替换已展开的服务时重新初始化认证编辑模式", async
 	} }));
 	await open(page);
 	await mcp(page).getByRole("button", { name: "编辑 docs", exact: true }).click();
-	await expect(form(page).getByRole("combobox", { name: "认证方式", exact: true })).toHaveText("自定义认证头");
+	await expect(form(page).getByRole("radiogroup", { name: "认证方式", exact: true }).getByRole("radio", { name: "headers", exact: true })).toBeChecked();
 	await mcp(page).getByRole("button", { name: "导入配置", exact: true }).click();
 	await mcp(page).getByLabel("导入 MCP JSON").fill(JSON.stringify({ mcpServers: {
 		docs: { url: "https://example.com/mcp", enabled: false, headers: { Authorization: "Bearer new-token" } },
@@ -276,7 +276,7 @@ test("导入替换已展开的服务时重新初始化认证编辑模式", async
 	await mcp(page).getByRole("button", { name: "预览导入", exact: true }).click();
 	await mcp(page).getByRole("switch", { name: "替换 docs", exact: true }).check();
 	await mcp(page).getByRole("button", { name: "导入到草稿", exact: true }).click();
-	await expect(form(page).getByRole("combobox", { name: "认证方式", exact: true })).toHaveText("Bearer Token");
+	await expect(form(page).getByRole("radiogroup", { name: "认证方式", exact: true }).getByRole("radio", { name: "bearer", exact: true })).toBeChecked();
 	await expect(form(page).getByLabel("Bearer Token", { exact: true })).toHaveValue("new-token");
 });
 
