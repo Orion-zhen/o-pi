@@ -1,13 +1,12 @@
-import { memo, useMemo, useCallback, useState } from "react";
-import { ArrowRight, BookOpen, Check, GitBranch, ListCollapse, Tag, X } from "lucide-react";
-import { entryMessage, type GuiTreeNode } from "./tree.ts";
+import { memo, useMemo, useCallback } from "react";
+import { BookOpen } from "lucide-react";
+import { entryMessage, messageContent, type GuiTreeNode } from "./tree.ts";
+import { EntryActions } from "./entry-actions.tsx";
 import { type GuiEntry, type GuiMessage } from "../../../shared/messages/types.ts";
 import { clean } from "@/ui/content/format.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../../../harness/skill-context/types.ts";
 import { isSkillLoadDetails, skillLoaders } from "../../../shared/messages/skill-facts.ts";
 import type { Send } from "@/connection/connection.ts";
-import { IconButton } from "@/ui/icon-button.tsx";
-import { Input } from "@/ui/input.tsx";
 import { useVirtualRows } from "@/ui/use-virtual-rows.ts";
 import "./session-tree.css";
 
@@ -84,8 +83,7 @@ function entryTitle(entry: GuiEntry, message: GuiMessage | undefined): string {
 }
 
 function MessagePreview({ message }: { message: GuiMessage | undefined }) {
-	const value = !message ? "" : message.role === "bashExecution" ? message.command
-		: message.role === "compactionSummary" || message.role === "branchSummary" ? message.summary : message.role === "toolResult" ? "" : message.content;
+	const value = messageContent(message);
 	const content = typeof value === "string" ? value : value.flatMap((block) => {
 		if (block.type === "text") return [block.text];
 		return block.type === "image" ? ["[图片]"] : [];
@@ -97,8 +95,6 @@ function MessagePreview({ message }: { message: GuiMessage | undefined }) {
 }
 
 function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate: (id: string) => void }) {
-	const [editing, setEditing] = useState(false);
-	const [saving, setSaving] = useState(false);
 	const { node } = row;
 	const entry = node.entry;
 	const id = entry.id;
@@ -109,40 +105,12 @@ function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate:
 		<div className="tree-row" role="listitem" data-role={message?.role}>
 			<Graph row={row} />
 			<strong className="tree-role">{skill && <BookOpen aria-hidden="true" />}{skill ? "技能" : entryTitle(entry, message)}</strong>
-			{editing ? (
-				<form className="tree-label-editor" onKeyDown={(event) => {
-					if (event.key === "Escape") {
-						event.stopPropagation();
-						if (!saving) setEditing(false);
-					}
-				}} onSubmit={(event) => {
-					event.preventDefault();
-					if (saving) return;
-					const label = new FormData(event.currentTarget).get("label");
-					if (typeof label !== "string") return;
-					setSaving(true);
-					void send({ action: "label", entryId: id, label }).then((ok) => {
-						if (ok) setEditing(false);
-					}).finally(() => setSaving(false));
-				}}>
-					<Input autoFocus name="label" aria-label="分支标签" placeholder="添加分支标签" disabled={saving} defaultValue={entry.label ?? ""} />
-					<IconButton label="保存标签" size="icon-xs" type="submit" disabled={saving}><Check /></IconButton>
-					<IconButton label="取消编辑" size="icon-xs" disabled={saving} onClick={() => setEditing(false)}><X /></IconButton>
-				</form>
-			) : (
-				<>
-					<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}>
-						{skill ? <p className="tree-message-preview">{skillPreview}</p> : <MessagePreview message={message} />}
-					</button>
-					{entry.label && <span className="tree-label">{entry.label}</span>}
-					<div className="tree-row-actions">
-						<IconButton label="切换到此处" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: false })}><ArrowRight /></IconButton>
-						<IconButton label="总结后切换" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: id, summarize: true })}><ListCollapse /></IconButton>
-						<IconButton label="创建分支" size="icon-xs" onClick={() => void send({ action: "fork", entryId: id })}><GitBranch /></IconButton>
-						<IconButton label="编辑标签" size="icon-xs" onClick={() => setEditing(true)}><Tag /></IconButton>
-					</div>
-				</>
-			)}
+			<EntryActions entry={entry} send={send}>
+				<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}>
+					{skill ? <p className="tree-message-preview">{skillPreview}</p> : <MessagePreview message={message} />}
+				</button>
+				{entry.label && <span className="tree-label">{entry.label}</span>}
+			</EntryActions>
 		</div>
 	);
 }

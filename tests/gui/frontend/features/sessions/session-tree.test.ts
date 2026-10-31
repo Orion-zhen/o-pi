@@ -96,8 +96,8 @@ describe("会话树技能消息", () => {
 		const doc = render(skill);
 		expect(doc.toString()).not.toContain("invoked_skill");
 		expect(doc.toString()).not.toContain(body);
-		expect([...doc.querySelectorAll(".tree-row-actions button")].map((button) => button.getAttribute("aria-label")))
-			.toEqual(["切换到此处", "总结后切换", "创建分支", "编辑标签"]);
+		expect([...doc.querySelectorAll(".entry-actions button")].map((button) => button.getAttribute("aria-label")))
+			.toEqual(["复制", "切换到此处", "总结后切换", "创建分支", "编辑标签"]);
 	});
 
 	it("重复加载使用去重状态，不显示空正文或协议标签", () => {

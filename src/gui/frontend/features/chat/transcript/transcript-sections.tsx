@@ -6,6 +6,7 @@ import { Disclosure } from "@/ui/disclosure.tsx";
 import { StreamingText } from "@/ui/content/markdown.tsx";
 import { Message } from "../messages/message.tsx";
 import { MessageIdentity, ReplyMetrics } from "../messages/message-meta.tsx";
+import { MessageFooter } from "../messages/message-footer.tsx";
 import { ToolActivity } from "../tools/tool-activity.tsx";
 import { skillCount } from "./skill-summary.tsx";
 import { ReplyStatusLabel } from "./reply-status-label.tsx";
@@ -27,9 +28,15 @@ type Section = { key: string } & (
 	| { kind: "item"; item: TranscriptItem }
 );
 
-export function ReplyItems({ items, entryIds, tracking = false, followedByBody = false, showMetrics = true }: {
-	items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking?: boolean; followedByBody?: boolean; showMetrics?: boolean;
+export function ReplyItems({ items, entryIds, tracking = false, followedByBody = false, showMetrics = true, footerMessageIndex }: {
+	items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking?: boolean; followedByBody?: boolean; showMetrics?: boolean; footerMessageIndex?: number | undefined;
 }) {
+	const targets = new Map<number, string>();
+	for (const item of items) targets.set(item.messageIndex, item.key);
+	// 有正文的消息把操作放在最后一段正文下，否则放在最后一个过程片段下。
+	for (const item of items) if (item.kind === "text") targets.set(item.messageIndex, item.key);
+	if (footerMessageIndex !== undefined) targets.delete(footerMessageIndex);
+	const actionKeys = new Set(showMetrics ? targets.values() : []);
 	const sections: Section[] = [];
 	for (const item of items) {
 		const previous = sections.at(-1);
@@ -43,22 +50,26 @@ export function ReplyItems({ items, entryIds, tracking = false, followedByBody =
 	}
 	const lastBody = sections.findLastIndex((section) => section.kind === "body");
 	return <>{sections.map((section, index) => {
-		if (section.kind === "item") return <Item key={section.key} item={section.item} entryId={entryIds[section.item.messageIndex]} />;
-		if (section.kind === "activity") return <Activity key={section.key} id={section.key} items={section.items} entryIds={entryIds}
+		if (section.kind === "item") return <Item key={section.key} item={section.item} entryId={entryIds[section.item.messageIndex]} showActions={actionKeys.has(section.item.key)} />;
+		if (section.kind === "activity") return <Activity key={section.key} id={section.key} items={section.items} entryIds={entryIds} actionKeys={actionKeys}
 			tracking={tracking && !followedByBody && index > lastBody} />;
-		return <Body key={section.key} first={section.first} items={section.items} entryIds={entryIds} showMetrics={showMetrics} />;
+		return <Body key={section.key} first={section.first} items={section.items} entryIds={entryIds} showMetrics={showMetrics} showActions={section.items.some((item) => actionKeys.has(item.key))} />;
 	})}</>;
 }
 
-const Body = memo(function Body({ first, items, entryIds, showMetrics }: {
-	first: TextItem; items: TextItem[]; entryIds: (string | undefined)[]; showMetrics: boolean;
+const Body = memo(function Body({ first, items, entryIds, showMetrics, showActions }: {
+	first: TextItem; items: TextItem[]; entryIds: (string | undefined)[]; showMetrics: boolean; showActions: boolean;
 }) {
 	return <div className="reply-body">
 		<MessageIdentity name={first.identity.model} timestamp={first.identity.timestamp} />
 		{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}
-		<AnimatePresence initial={false}>{showMetrics && !first.active && <Reveal><ReplyMetrics {...first.metrics} scope="本条" speed={items.at(-1)?.speed ?? null} /></Reveal>}</AnimatePresence>
+		<AnimatePresence initial={false}>{showMetrics && !first.active && <Reveal>
+			<MessageFooter entryId={showActions ? entryIds[first.messageIndex] : undefined}>
+				<ReplyMetrics {...first.metrics} scope="本条" speed={items.at(-1)?.speed ?? null} />
+			</MessageFooter>
+		</Reveal>}</AnimatePresence>
 	</div>;
-}, (before, after) => before.showMetrics === after.showMetrics && sameTranscriptItem(before.first, after.first) && sameContent(before, after));
+}, (before, after) => before.showMetrics === after.showMetrics && before.showActions === after.showActions && sameTranscriptItem(before.first, after.first) && sameContent(before, after));
 
 export function useAutoFold(key: string, tracking: boolean) {
 	const [open, setOpen] = useDisclosureMemory(`${key}:open`, tracking);
@@ -72,7 +83,7 @@ export function useAutoFold(key: string, tracking: boolean) {
 	return [open, setOpen] as const;
 }
 
-const Activity = memo(function Activity({ id, items, entryIds, tracking }: SectionContent & { id: string; tracking: boolean }) {
+const Activity = memo(function Activity({ id, items, entryIds, tracking, actionKeys }: SectionContent & { id: string; tracking: boolean; actionKeys: ReadonlySet<string> }) {
 	const [open, setOpen] = useAutoFold(`activity:${id}`, tracking);
 	const thoughts = items.filter((item) => item.kind === "thinking").length;
 	const tools = items.filter((item) => item.kind === "tool");
@@ -88,18 +99,19 @@ const Activity = memo(function Activity({ id, items, entryIds, tracking }: Secti
 	return <Disclosure className="reply-process reply-activity" open={open} onOpenChange={setOpen} summary={<>
 		<ReplyStatusLabel className={`pruned-text${pruned ? " pruned-text-active" : ""}`} active={tracking}>思考与工具</ReplyStatusLabel>
 		<span className={`reply-counts pruned-text${pruned ? " pruned-text-active" : ""}`}>{counts}</span>
-	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div></Disclosure>;
-}, (before, after) => before.id === after.id && before.tracking === after.tracking && sameContent(before, after));
+	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} showActions={actionKeys.has(item.key)} />)}</div></Disclosure>;
+}, (before, after) => before.id === after.id && before.tracking === after.tracking && sameContent(before, after)
+	&& before.items.every((item) => before.actionKeys.has(item.key) === after.actionKeys.has(item.key)));
 
-const Item = memo(function Item({ item, entryId }: { item: TranscriptItem; entryId: string | undefined }) {
+const Item = memo(function Item({ item, entryId, showActions = false }: { item: TranscriptItem; entryId: string | undefined; showActions?: boolean }) {
 	switch (item.kind) {
 		case "message": return <Message value={item.message} entryId={entryId} />;
 		case "text": return <article data-entry-id={entryId} className="message assistant"><StreamingText text={item.text} active={item.active} /></article>;
-		case "thinking": return <Thinking id={item.key} text={item.text} active={item.active} entryId={entryId} />;
-		case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} /></div>;
-		case "error": return <pre data-entry-id={entryId} className="message error">{item.text}</pre>;
+		case "thinking": return <><Thinking id={item.key} text={item.text} active={item.active} entryId={entryId} />{showActions && <MessageFooter entryId={entryId} />}</>;
+		case "tool": return <div data-entry-id={entryId}><ToolActivity tool={item.tool} />{showActions && <MessageFooter entryId={entryId} />}</div>;
+		case "error": return <><pre data-entry-id={entryId} className="message error">{item.text}</pre>{showActions && <MessageFooter entryId={entryId} />}</>;
 	}
-}, (before, after) => before.entryId === after.entryId && sameTranscriptItem(before.item, after.item));
+}, (before, after) => before.entryId === after.entryId && before.showActions === after.showActions && sameTranscriptItem(before.item, after.item));
 
 function Thinking({ id, text, active, entryId }: { id: string; text: string; active: boolean; entryId: string | undefined }) {
 	const [open, setOpen] = useDisclosureMemory(`${id}:open`, active);

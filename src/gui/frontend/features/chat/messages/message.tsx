@@ -2,6 +2,7 @@ import { memo } from "react";
 import type { GuiMessage } from "../../../../shared/messages/types.ts";
 import { CodeBlock } from "@/ui/content/code-block.tsx";
 import { MessageIdentity } from "./message-meta.tsx";
+import { MessageFooter } from "./message-footer.tsx";
 import { Content } from "./content.tsx";
 import { clean } from "@/ui/content/format.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../../../../harness/skill-context/types.ts";
@@ -17,6 +18,7 @@ export const BashExecution = memo(function BashExecution({ command, output, entr
 		<header><strong>bashExecution</strong></header>
 		<CodeBlock label="命令" language="bash" text={command} />
 		<CodeBlock label="输出" text={clean(output)} />
+		<MessageFooter entryId={entryId} />
 	</article>;
 });
 
@@ -28,6 +30,7 @@ export const Message = memo(function Message({ value, entryId }: { value: GuiMes
 		return <article className="message skill-message" data-entry-id={entryId}>
 			<SkillCard id={`message:${entryId ?? value.timestamp}`} name={value.details.name} loadedBy={value.details.loadedBy}
 				state="completed" output={{ kind: "inline", value: { content: value.content, details: value.details } }} />
+			<MessageFooter entryId={entryId} />
 		</article>;
 	}
 	return (
@@ -39,6 +42,7 @@ export const Message = memo(function Message({ value, entryId }: { value: GuiMes
 				: value.role === "toolResult" ? <Content value={value.output.kind === "inline" ? value.output.value.content : value.output.preview.content} />
 				: <Content value={value.content} />}
 			{value.role === "assistant" && value.errorMessage && <pre className="error">{value.errorMessage}</pre>}
+			<MessageFooter entryId={entryId} />
 		</article>
 	);
 });

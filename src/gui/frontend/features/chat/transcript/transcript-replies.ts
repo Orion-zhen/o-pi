@@ -13,6 +13,7 @@ export interface TranscriptReply {
 	kind: "reply";
 	key: string;
 	messageIndices: number[];
+	lastAssistantIndex: number | undefined;
 	identity: { model: string; timestamp: number } | undefined;
 	metrics: ReturnType<typeof replyMetrics>;
 	state: ReplyState;
@@ -158,7 +159,7 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		: continued ? "continued" : "incomplete";
 	const identity = last?.identity;
 	const metrics = replyMetrics(draft.assistants);
-	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, compacting: active && source.compacting, process, answer, error };
+	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, lastAssistantIndex: last?.index, state, retrying, compacting: active && source.compacting, process, answer, error };
 }
 
 function answerBlocks(message: AssistantMessage): Set<number> {

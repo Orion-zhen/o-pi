@@ -3,6 +3,7 @@ import { AnimatePresence } from "motion/react";
 import type { useStartupMotion } from "./welcome/use-startup-motion.ts";
 import { Fade } from "@/ui/motion/animated.tsx";
 import { BashExecution } from "@/features/chat/messages/message.tsx";
+import { MessageActionsProvider } from "@/features/chat/messages/message-footer.tsx";
 import { Button } from "@/ui/button.tsx";
 import { DisclosureMemoryContext } from "@/ui/disclosure-memory.ts";
 import { FileLinksContext } from "@/ui/content/file-links.ts";
@@ -19,7 +20,7 @@ import type { useGui } from "./use-gui.ts";
 
 type ConversationControls = Pick<ReturnType<typeof useGui>,
 	"snapshot" | "notices" | "send" | "cwd" | "openFile" | "view" | "availableVersion" | "changelog" | "changelogShown"
-	| "canSubmit" | "setPanel" | "editor" | "setDraft" | "guiConfig"
+	| "canSubmit" | "setPanel" | "editor" | "setDraft" | "guiConfig" | "sessionPanelOpen"
 	| "activity" | "workspaceRoot" | "workspaces" | "connected" | "canNavigate" | "globalQuery" | "error" | "setError">;
 
 /** 消息投影与渲染位于同一个异常边界内，不影响会话连接和输入草稿。 */
@@ -70,7 +71,9 @@ export function ConversationContent({ gui, target, showWelcome, startup, closeSi
 				onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 				{conversation.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { clearLocation(); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
 				<FileLinksContext value={fileLinks}><DisclosureMemoryContext value={gui.view?.disclosures}>
-					<Transcript source={conversation.source} entryIds={conversation.entryIds} prunedToolCallIds={conversation.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} />
+					<MessageActionsProvider entries={conversation.snapshot.entries} leafId={conversation.snapshot.leafId} visible={!gui.sessionPanelOpen} send={send}>
+						<Transcript source={conversation.source} entryIds={conversation.entryIds} prunedToolCallIds={conversation.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} />
+					</MessageActionsProvider>
 				</DisclosureMemoryContext></FileLinksContext>
 			</Fade>}
 		</AnimatePresence>

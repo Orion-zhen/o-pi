@@ -16,7 +16,6 @@ export function usePanels(sessionId: string | null) {
 	const closePanel = useCallback(() => setPanel(undefined), []);
 	useEffect(() => {
 		setPanel((panel) => panel?.kind === "settings" ? panel : undefined);
-		setSessionPanelOpen(!isTouchInput());
 	}, [sessionId]);
 	return { panel, setPanel, closePanel, sessionTab, activeTab, selectTab, sessionPanelOpen, setSessionPanelOpen };
 }

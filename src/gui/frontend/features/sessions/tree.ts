@@ -9,7 +9,12 @@ export function entryMessage(entry: GuiEntry): GuiMessage | undefined {
 	return entry.messages.find((message) => message.role !== "system");
 }
 
-function visible(entry: GuiEntry, leafId: string | null): boolean {
+export function messageContent(message: GuiMessage | undefined) {
+	return !message ? "" : message.role === "bashExecution" ? message.command
+		: message.role === "compactionSummary" || message.role === "branchSummary" ? message.summary : message.role === "toolResult" ? "" : message.content;
+}
+
+export function isTreeEntryVisible(entry: GuiEntry, leafId: string | null): boolean {
 	const message = entryMessage(entry);
 	if (!message || message.role === "toolResult" || message.role === "custom" && !message.display) return false;
 	return message.role !== "assistant" || entry.id === leafId
@@ -31,7 +36,7 @@ export function sessionTree(entries: GuiEntry[], leafId: string | null): GuiTree
 		if (!next) break;
 		const { node } = next;
 		let { target } = next;
-		if (visible(node.entry, leafId)) {
+		if (isTreeEntryVisible(node.entry, leafId)) {
 			const children: GuiTreeNode[] = [];
 			target.push({ entry: node.entry, children });
 			target = children;
