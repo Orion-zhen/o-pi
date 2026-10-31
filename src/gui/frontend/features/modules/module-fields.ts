@@ -44,7 +44,7 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 			{ ...field("webfetch.media.mode", "网页图片", "radio"), optionLabels: { auto: "自动", on: "开启", off: "关闭" } },
 			field("webfetch.cookies.enabled", "浏览器 Cookie"),
 			{ ...field("webfetch.cookies.domains", "Cookie 域名"), enabledBy: "webfetch.cookies.enabled" },
-			{ ...field("webfetch.cookies.confirmation", "发送 Cookie", "radio"), enabledBy: "webfetch.cookies.enabled", optionLabels: { always: "每次确认", session: "每个会话确认", never: "不确认" } },
+			{ ...field("webfetch.cookies.confirmation", "发送 Cookie 前询问", "radio"), enabledBy: "webfetch.cookies.enabled", optionLabels: { always: "每次询问", session: "每个会话询问", never: "不询问" } },
 		] },
 	],
 	approvalGate: [

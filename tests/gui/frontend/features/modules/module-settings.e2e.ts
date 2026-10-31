@@ -26,7 +26,7 @@ test("模块下拉框采用 schema 选项，网页图片开启可保存、刷新
 	await writeFile(file, "{}\n");
 	await open(page, "网络与网页");
 	await expectOptions(page, "网页图片", ["auto", "on", "off"]);
-	await expectOptions(page, "发送 Cookie", ["always", "session", "never"]);
+	await expectOptions(page, "发送 Cookie 前询问", ["每次询问", "每个会话询问", "不询问"]);
 	await selectSetting(page, "网页图片", "on");
 	await save(page);
 	expect(parse(await readFile(file, "utf8"))).toEqual({ webfetch: { media: { mode: "on" } } });

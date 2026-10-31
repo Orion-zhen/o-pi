@@ -15,6 +15,7 @@
 .model-controls { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-width: 0; max-inline-size: 100%; }
 .model-controls [data-slot="select-trigger"] { flex-shrink: 0; min-inline-size: 0; max-inline-size: 100%; font-size: var(--text-caption); }
 .model-controls [data-slot="select-trigger"].model-control { flex-shrink: 1; }
+.model-control-name { display: block; inline-size: max-content; white-space: nowrap; }
 .codex-speed [data-slot="select-icon"] { display: none; }
 .codex-speed-label { display: inline-flex; align-items: center; overflow: visible; }
 .codex-speed-icon { display: inline-flex; flex-shrink: 0; }

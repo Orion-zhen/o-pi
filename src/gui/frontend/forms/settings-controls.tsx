@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AnimatePresence } from "motion/react";
 import { RotateCcw } from "lucide-react";
 import { Code, List } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -7,6 +8,7 @@ import { IconButton } from "@/ui/icon-button.tsx";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
 import { TextMorph } from "@/ui/motion/text-morph.tsx";
+import { Reveal } from "@/ui/motion/animated.tsx";
 import { equalConfigValues } from "../../../harness/config-values.ts";
 import "./settings.css";
 
@@ -52,7 +54,11 @@ export function SettingsRow({ label, htmlFor, children, reset, disabled, descrip
 				&& <IconButton size="icon-sm" label={`重置${label}`} tooltip="恢复默认" disabled={disabled} onClick={reset.apply}><RotateCcw /></IconButton>}
 		</div>
 		<div className="preference-control">{children}</div>
-		{description && <div className="preference-description settings-description">{description}</div>}
+		<AnimatePresence initial={false}>
+			{description && <Reveal className="preference-description settings-description" style={{ marginTop: "calc(-1 * var(--space-2))" }}>
+				<div className="pt-[var(--space-2)]">{description}</div>
+			</Reveal>}
+		</AnimatePresence>
 	</div>;
 }
 

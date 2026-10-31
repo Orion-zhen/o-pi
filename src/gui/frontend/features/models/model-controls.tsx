@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cancelFrame, frame, resize } from "motion";
-import { motion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { Cpu } from "lucide-react";
 import { Rocket, Zap } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -10,13 +10,15 @@ import type { Send } from "@/connection/connection.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { TransitionPanel } from "@/ui/motion/transition-panel.tsx";
 import { TextMorph } from "@/ui/motion/text-morph.tsx";
-import { controlShift } from "@/ui/motion/transitions.ts";
+import { controlShift, listDepth, settle } from "@/ui/motion/transitions.ts";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/ui/select.tsx";
 import "./models.css";
 
 const manageModels = "manage-models";
+const thinkingOrder = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send: Send; disabled: boolean }) {
+	const present = useIsPresent();
 	const text = useRef<HTMLSpanElement>(null);
 	const [textWidth, setTextWidth] = useState<number>();
 	const accelerated = speed !== "normal";
@@ -31,6 +33,10 @@ function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send:
 		return () => { stop(); cancelFrame(update); };
 	}, []);
 	return (
+		<motion.div className="flex shrink-0 overflow-clip" inert={!present} aria-hidden={!present}
+			initial={{ width: 0, marginRight: "-0.25rem" }} animate={{ width: "auto", marginRight: "0rem" }}
+			exit={{ width: 0, marginRight: "-0.25rem" }} transition={listDepth.transition}>
+		<motion.div className="flex w-max shrink-0" initial={listDepth.hidden} animate={listDepth.visible} exit={listDepth.hidden} transition={listDepth.transition}>
 		<Select value={speed} disabled={disabled} onValueChange={(value) => {
 			const next = CODEX_SPEEDS.find((speed) => speed === value);
 			if (next) void send({ action: "codexSpeed", speed: next });
@@ -50,6 +56,8 @@ function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send:
 				{CODEX_SPEEDS.map((speed) => <SelectItem key={speed} value={speed}>{speed}</SelectItem>)}
 			</SelectContent>
 		</Select>
+		</motion.div>
+		</motion.div>
 	);
 }
 
@@ -72,7 +80,7 @@ export function ThinkingControl({
 			}}
 		>
 			<SelectTrigger aria-label="思考级别"><SelectValue>
-				<TransitionPanel activeIndex={snapshot.thinkingLevels.indexOf(snapshot.thinking)} axis="y">{snapshot.thinking}</TransitionPanel>
+				<TransitionPanel activeIndex={thinkingOrder.indexOf(snapshot.thinking)} axis="y">{snapshot.thinking}</TransitionPanel>
 			</SelectValue></SelectTrigger>
 			<SelectContent>
 				{snapshot.thinkingLevels.map((level) => (
@@ -87,6 +95,18 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 	snapshot: GuiSnapshot; send: Send; disabled: boolean; openManager: () => void;
 }) {
 	const manageOnClose = useRef(false);
+	const name = useRef<HTMLSpanElement>(null);
+	const [nameWidth, setNameWidth] = useState<number>();
+	useEffect(() => {
+		if (!name.current) return;
+		let width: number;
+		const update = () => setNameWidth(width);
+		const stop = resize(name.current, (_, size) => {
+			width = size.width;
+			frame.update(update);
+		});
+		return () => { stop(); cancelFrame(update); };
+	}, []);
 	const available = new Map(snapshot.models.map((model) => [`${model.provider}/${model.id}`, model]));
 	const models = snapshot.scopedModels.flatMap((id) => {
 		const model = available.get(id);
@@ -97,7 +117,9 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 		models.push(snapshot.model);
 	return (
 		<div className="model-controls">
-			{snapshot.codexSpeed !== null && <CodexSpeedControl speed={snapshot.codexSpeed} send={send} disabled={disabled} />}
+			<AnimatePresence initial={false}>
+				{snapshot.codexSpeed !== null && <CodexSpeedControl speed={snapshot.codexSpeed} send={send} disabled={disabled} />}
+			</AnimatePresence>
 			<Select
 				value={current}
 				disabled={disabled}
@@ -111,7 +133,9 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 				}}
 			>
 				<Hint content={current || "选择模型"}><SelectTrigger className="model-control" aria-label="模型">
-					<SelectValue placeholder="选择模型" />
+					<motion.span initial={false} animate={{ width: nameWidth ?? "auto" }} transition={settle}>
+						<span ref={name} className="model-control-name"><TextMorph>{snapshot.model?.name ?? "选择模型"}</TextMorph></span>
+					</motion.span>
 				</SelectTrigger></Hint>
 				<SelectContent onCloseAutoFocus={(event) => {
 					if (!manageOnClose.current) return;
