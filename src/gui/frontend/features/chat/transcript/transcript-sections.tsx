@@ -13,6 +13,7 @@ import { ReplyStatusLabel } from "./reply-status-label.tsx";
 import { sameTranscriptItem, type TranscriptItem } from "./transcript-items.ts";
 
 type TextItem = Extract<TranscriptItem, { kind: "text" }>;
+type ActivityItem = Extract<TranscriptItem, { kind: "thinking" | "tool" }> & { showActions: boolean };
 interface SectionContent { items: TranscriptItem[]; entryIds: (string | undefined)[] }
 
 function sameContent(before: SectionContent, after: SectionContent): boolean {
@@ -23,53 +24,58 @@ function sameContent(before: SectionContent, after: SectionContent): boolean {
 	});
 }
 type Section = { key: string } & (
-	| { kind: "body"; items: TextItem[]; first: TextItem }
-	| { kind: "activity"; items: TranscriptItem[] }
-	| { kind: "item"; item: TranscriptItem }
+	| { kind: "body"; items: [TextItem, ...TextItem[]]; showActions: boolean }
+	| { kind: "activity"; items: ActivityItem[] }
+	| { kind: "item"; item: TranscriptItem; showActions: boolean }
 );
 
-export function ReplyItems({ items, entryIds, tracking = false, followedByBody = false, showMetrics = true, footerMessageIndex }: {
-	items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking?: boolean; followedByBody?: boolean; showMetrics?: boolean; footerMessageIndex?: number | undefined;
+export function ReplyProcess({ items, entryIds, tracking = false, followedByBody = false, footerMessageIndex }: {
+	items: TranscriptItem[]; entryIds: (string | undefined)[]; tracking?: boolean; followedByBody?: boolean; footerMessageIndex?: number | undefined;
 }) {
 	const targets = new Map<number, string>();
 	for (const item of items) targets.set(item.messageIndex, item.key);
 	// 有正文的消息把操作放在最后一段正文下，否则放在最后一个过程片段下。
 	for (const item of items) if (item.kind === "text") targets.set(item.messageIndex, item.key);
 	if (footerMessageIndex !== undefined) targets.delete(footerMessageIndex);
-	const actionKeys = new Set(showMetrics ? targets.values() : []);
 	const sections: Section[] = [];
 	for (const item of items) {
+		const showActions = targets.get(item.messageIndex) === item.key;
 		const previous = sections.at(-1);
 		if (item.kind === "text") {
-			if (previous?.kind === "body" && previous.first.messageIndex === item.messageIndex) previous.items.push(item);
-			else sections.push({ key: item.key, kind: "body", items: [item], first: item });
+			if (previous?.kind === "body" && previous.items[0].messageIndex === item.messageIndex) {
+				previous.items.push(item);
+				previous.showActions = showActions;
+			} else sections.push({ key: item.key, kind: "body", items: [item], showActions });
 		} else if (item.kind === "thinking" || item.kind === "tool") {
-			if (previous?.kind === "activity") previous.items.push(item);
-			else sections.push({ key: item.key, kind: "activity", items: [item] });
-		} else sections.push({ key: item.key, kind: "item", item });
+			const activity = { ...item, showActions };
+			if (previous?.kind === "activity") previous.items.push(activity);
+			else sections.push({ key: item.key, kind: "activity", items: [activity] });
+		} else sections.push({ key: item.key, kind: "item", item, showActions });
 	}
 	const lastBody = sections.findLastIndex((section) => section.kind === "body");
 	return <>{sections.map((section, index) => {
-		if (section.kind === "item") return <Item key={section.key} item={section.item} entryId={entryIds[section.item.messageIndex]} showActions={actionKeys.has(section.item.key)} />;
-		if (section.kind === "activity") return <Activity key={section.key} id={section.key} items={section.items} entryIds={entryIds} actionKeys={actionKeys}
+		if (section.kind === "item") return <Item key={section.key} item={section.item} entryId={entryIds[section.item.messageIndex]} showActions={section.showActions} />;
+		if (section.kind === "activity") return <Activity key={section.key} id={section.key} items={section.items} entryIds={entryIds}
 			tracking={tracking && !followedByBody && index > lastBody} />;
-		return <Body key={section.key} first={section.first} items={section.items} entryIds={entryIds} showMetrics={showMetrics} showActions={section.items.some((item) => actionKeys.has(item.key))} />;
+		return <ReplyBody key={section.key} items={section.items} entryIds={entryIds} showMetrics showActions={section.showActions} />;
 	})}</>;
 }
 
-const Body = memo(function Body({ first, items, entryIds, showMetrics, showActions }: {
-	first: TextItem; items: TextItem[]; entryIds: (string | undefined)[]; showMetrics: boolean; showActions: boolean;
+export const ReplyBody = memo(function ReplyBody({ items, entryIds, showMetrics = false, showActions = false }: {
+	items: TextItem[]; entryIds: (string | undefined)[]; showMetrics?: boolean; showActions?: boolean;
 }) {
+	const first = items[0];
+	if (!first) return null;
 	return <div className="reply-body">
 		<MessageIdentity name={first.identity.model} timestamp={first.identity.timestamp} />
 		{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}
-		<AnimatePresence initial={false}>{showMetrics && !first.active && <Reveal>
+		<AnimatePresence initial={false}>{(showMetrics || showActions) && !first.active && <Reveal>
 			<MessageFooter entryId={showActions ? entryIds[first.messageIndex] : undefined}>
-				<ReplyMetrics {...first.metrics} scope="本条" speed={items.at(-1)?.speed ?? null} />
+				{showMetrics && <ReplyMetrics {...first.metrics} scope="本条" speed={items.at(-1)?.speed ?? null} />}
 			</MessageFooter>
 		</Reveal>}</AnimatePresence>
 	</div>;
-}, (before, after) => before.showMetrics === after.showMetrics && before.showActions === after.showActions && sameTranscriptItem(before.first, after.first) && sameContent(before, after));
+}, (before, after) => before.showMetrics === after.showMetrics && before.showActions === after.showActions && sameContent(before, after));
 
 export function useAutoFold(key: string, tracking: boolean) {
 	const [open, setOpen] = useDisclosureMemory(`${key}:open`, tracking);
@@ -83,7 +89,9 @@ export function useAutoFold(key: string, tracking: boolean) {
 	return [open, setOpen] as const;
 }
 
-const Activity = memo(function Activity({ id, items, entryIds, tracking, actionKeys }: SectionContent & { id: string; tracking: boolean; actionKeys: ReadonlySet<string> }) {
+const Activity = memo(function Activity({ id, items, entryIds, tracking }: {
+	id: string; items: ActivityItem[]; entryIds: (string | undefined)[]; tracking: boolean;
+}) {
 	const [open, setOpen] = useAutoFold(`activity:${id}`, tracking);
 	const thoughts = items.filter((item) => item.kind === "thinking").length;
 	const tools = items.filter((item) => item.kind === "tool");
@@ -99,9 +107,9 @@ const Activity = memo(function Activity({ id, items, entryIds, tracking, actionK
 	return <Disclosure className="reply-process reply-activity" open={open} onOpenChange={setOpen} summary={<>
 		<ReplyStatusLabel className={`pruned-text${pruned ? " pruned-text-active" : ""}`} active={tracking}>思考与工具</ReplyStatusLabel>
 		<span className={`reply-counts pruned-text${pruned ? " pruned-text-active" : ""}`}>{counts}</span>
-	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} showActions={actionKeys.has(item.key)} />)}</div></Disclosure>;
+	</>}><div className="reply-process-content">{items.map((item) => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} showActions={item.showActions} />)}</div></Disclosure>;
 }, (before, after) => before.id === after.id && before.tracking === after.tracking && sameContent(before, after)
-	&& before.items.every((item) => before.actionKeys.has(item.key) === after.actionKeys.has(item.key)));
+	&& before.items.every((item, index) => item.showActions === after.items[index]?.showActions));
 
 const Item = memo(function Item({ item, entryId, showActions = false }: { item: TranscriptItem; entryId: string | undefined; showActions?: boolean }) {
 	switch (item.kind) {

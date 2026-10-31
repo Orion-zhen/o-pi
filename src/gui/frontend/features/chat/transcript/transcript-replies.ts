@@ -13,8 +13,7 @@ export interface TranscriptReply {
 	kind: "reply";
 	key: string;
 	messageIndices: number[];
-	lastAssistantIndex: number | undefined;
-	identity: { model: string; timestamp: number } | undefined;
+	lastAssistant: { index: number; model: string; timestamp: number } | undefined;
 	metrics: ReturnType<typeof replyMetrics>;
 	state: ReplyState;
 	retrying: boolean;
@@ -75,21 +74,19 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		};
 	}
 	messages.forEach((message, index) => {
-		const role: string = message.role;
-		if (role === "system") return;
+		if (message.role === "system") return;
 		const messageIndex = index + offset;
 		const key = `message:${messageIndex}:${message.timestamp}`;
-		const standalone: TranscriptRow = { key, kind: "message", messageIndex, message };
 		if (message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary"
 			|| (message.role === "custom" && message.customType === SKILL_CONTEXT_MESSAGE && message.display !== false)) {
 			if (current && message.role === "user") current.followedByUser = true;
-			rows.push(standalone);
+			rows.push({ key, kind: "message", messageIndex, message });
 			current = undefined;
 			if (message.role === "user") begin(`user:${messageIndex}:${message.timestamp}`);
 			return;
 		}
 		if (!current && message.role === "custom") {
-			if (message.display !== false) rows.push(standalone);
+			if (message.display !== false) rows.push({ key, kind: "message", messageIndex, message });
 			return;
 		}
 		const reply = current ?? begin(`history:${messageIndex}:${message.timestamp}`);
@@ -121,7 +118,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 					speed: bodyTps?.[blockIndex] ?? null });
 			});
 			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex, kind: "error", text: message.errorMessage });
-		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);
+		} else if (message.display !== false) reply.items.push({ key, kind: "message", messageIndex, message });
 	});
 	for (const event of source.liveTools) {
 		if (!calls.has(event.toolCallId) && !results.has(event.toolCallId))
@@ -157,9 +154,9 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		: message?.stopReason === "error" ? "failed"
 		: message?.stopReason === "stop" && answer.length > 0 ? "completed"
 		: continued ? "continued" : "incomplete";
-	const identity = last?.identity;
+	const lastAssistant = last ? { index: last.index, ...last.identity } : undefined;
 	const metrics = replyMetrics(draft.assistants);
-	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, lastAssistantIndex: last?.index, state, retrying, compacting: active && source.compacting, process, answer, error };
+	return { kind: "reply", lastAssistant, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, compacting: active && source.compacting, process, answer, error };
 }
 
 function answerBlocks(message: AssistantMessage): Set<number> {

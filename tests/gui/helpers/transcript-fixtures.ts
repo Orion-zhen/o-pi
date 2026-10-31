@@ -1,7 +1,13 @@
+import type { ComponentProps } from "react";
+import type { Transcript } from "../../../src/gui/frontend/features/chat/transcript/transcript.tsx";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { GuiPayloads } from "../../../src/gui/host/projection/payloads.ts";
 import type { TranscriptSource } from "../../../src/gui/frontend/features/chat/transcript/transcript-items.ts";
+
+export const emptyTranscriptProps: Omit<ComponentProps<typeof Transcript>, "source" | "clear"> = {
+	entryIds: [], groups: [], tail: 0, prunedToolCallIds: new Set(),
+};
 
 export function assistant(content: AssistantMessage["content"], stopReason: AssistantMessage["stopReason"] = "toolUse"): AssistantMessage {
 	return {

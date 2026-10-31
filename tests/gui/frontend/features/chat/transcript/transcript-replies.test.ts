@@ -5,7 +5,7 @@ import { parseHTML } from "linkedom";
 import { Transcript } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript.tsx";
 import type { TextContent, UserMessage } from "@earendil-works/pi-ai";
 import { transcriptReplies } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-replies.ts";
-import { assistant, call, result, source } from "../../../../helpers/transcript-fixtures.ts";
+import { assistant, call, result, source, emptyTranscriptProps } from "../../../../helpers/transcript-fixtures.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../../../../../src/harness/skill-context/types.ts";
 
 const user: UserMessage = { role: "user", content: "检查项目", timestamp: 1 };
@@ -28,7 +28,7 @@ describe("回复末尾活动标记", () => {
 		["流式正文", source({ messages: [user], streamingMessage: assistant([text("回答中")], "pending"), streaming: true })],
 		["重试间隙", source({ messages: [user, assistant([], "error")], retrying: true })],
 	])("%s 时在回复末尾显示活动标记", (_, snapshot) => {
-		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps, source: snapshot, clear() {} }))).document;
 		const reply = document.querySelector(".assistant-reply");
 		const indicator = reply?.querySelector('[role="status"]');
 		expect(indicator).not.toBeNull();
@@ -40,7 +40,7 @@ describe("回复末尾活动标记", () => {
 	it("压缩期间复用活动标记，仅当前回复显示压缩提示", () => {
 		const snapshot = source({ messages: [user, assistant([text("上一轮")], "stop"),
 			{ ...user, timestamp: 200 }, assistant([text("本轮完成")], "stop")], compacting: true });
-		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps, source: snapshot, clear() {} }))).document;
 		const indicators = document.querySelectorAll(".reply-breathing");
 		expect(indicators).toHaveLength(1);
 		expect(indicators[0]?.getAttribute("aria-label")).toBe("正在压缩上下文");
@@ -51,7 +51,7 @@ describe("回复末尾活动标记", () => {
 
 	it.each(["stop", "aborted", "error"] as const)("结束状态 %s 不保留活动标记", (reason) => {
 		const snapshot = source({ messages: [user, assistant([text("回复")], reason)] });
-		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps, source: snapshot, clear() {} }))).document;
 		expect(document.querySelector(".reply-breathing")).toBeNull();
 	});
 });
@@ -92,7 +92,7 @@ describe("整轮处理过程折叠", () => {
 
 	it("扩展消息分隔调用和结果时，历史与当前分组仍只展示一个已完成工具", () => {
 		const snapshot = source({ messages: [user, assistant([call]), manualSkill, result, assistant([text("完成")], "stop")] });
-		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear() {} }))).document;
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps, source: snapshot, clear() {} }))).document;
 		const tools = document.querySelectorAll('[data-tool-call-id="read-1"]');
 		expect(tools).toHaveLength(1);
 		expect(tools[0]?.getAttribute("data-state")).toBe("completed");
@@ -104,7 +104,7 @@ describe("整轮处理过程折叠", () => {
 			assistant([text("先检查"), thinking, call, second]), result, secondResult,
 			assistant([text("检查完成")], "stop"),
 		] });
-		const render = (prunedToolCallIds: ReadonlySet<string>) => parseHTML(renderWithMemory(createElement(Transcript, {
+		const render = (prunedToolCallIds: ReadonlySet<string>) => parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps,
 			source: snapshot, prunedToolCallIds, clear: () => {},
 		}))).document;
 		const pruned = render(new Set([call.id, second.id]));
@@ -130,7 +130,7 @@ describe("整轮处理过程折叠", () => {
 		expect(rows[0]?.process.filter((item) => item.kind === "tool")).toHaveLength(3);
 		expect(rows[0]?.process.filter((item) => item.kind === "thinking")).toHaveLength(4);
 		expect(rows[0]?.answer).toHaveLength(2);
-		const document = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear: () => {} }))).document;
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps, source: snapshot, clear: () => {} }))).document;
 		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("closed");
 		expect([...document.querySelectorAll(".reply-turn-content > .reply-body")].map((body) => body.querySelector("article > p")?.textContent))
 			.toEqual(["先检查组件", "接下来检查样式"]);
@@ -156,7 +156,7 @@ describe("整轮处理过程折叠", () => {
 	it("流式正文出现时仅折叠前面的思考和工具，后续工具不隐藏中途正文", () => {
 		const snapshot = source({ messages: [user, assistant([thinking, text(" \n"), call]), result],
 			streamingMessage: assistant([thinking, text("\n\t")], "pending"), streaming: true });
-		const blank = parseHTML(renderWithMemory(createElement(Transcript, { source: snapshot, clear: () => {} }))).document;
+		const blank = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps, source: snapshot, clear: () => {} }))).document;
 		expect(replies(snapshot)[0]?.answer).toEqual([]);
 		expect(blank.querySelectorAll(".reply-process")).toHaveLength(1);
 		expect(blank.querySelector(".reply-activity")?.getAttribute("data-state")).toBe("open");
@@ -164,7 +164,7 @@ describe("整轮处理过程折叠", () => {
 		const live = assistant([thinking, text("我先检查")], "pending");
 		const streaming = replies(source({ messages: [user], streamingMessage: live, streaming: true }));
 		expect(streaming[0]).toMatchObject({ answer: [{ text: "我先检查" }] });
-		const merged = parseHTML(renderWithMemory(createElement(Transcript, {
+		const merged = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps,
 			source: source({ messages: [user], streamingMessage: live, streaming: true }), clear: () => {},
 		}))).document;
 		expect(merged.querySelectorAll(".reply-process")).toHaveLength(1);
@@ -173,7 +173,7 @@ describe("整轮处理过程折叠", () => {
 		const calling = replies(source({ messages: [user], streamingMessage: assistant([...live.content, call]), streaming: true }));
 		expect(calling[0]).toMatchObject({ key: streaming[0]?.key, answer: [] });
 		expect(calling[0]?.process).toContainEqual(expect.objectContaining({ kind: "text", text: "我先检查" }));
-		const document = parseHTML(renderWithMemory(createElement(Transcript, {
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps,
 			source: source({ messages: [user], streamingMessage: assistant([...live.content, call]), streaming: true }), clear: () => {},
 		}))).document;
 		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("open");
@@ -266,7 +266,7 @@ describe("整轮处理过程折叠", () => {
 		expect(noFinal[0]).toMatchObject({ state: "incomplete", answer: [] });
 		const orphan = replies(source({ messages: [result] }));
 		expect(orphan[0]?.process).toMatchObject([{ kind: "tool", tool: { output: { kind: "inline", value: { content: result.content, details: result.details } } } }]);
-		const document = parseHTML(renderWithMemory(createElement(Transcript, {
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps,
 			source: source({ messages: [result] }), clear: () => {},
 		}))).document;
 		expect(document.querySelectorAll(".reply-process")).toHaveLength(1);
@@ -293,7 +293,7 @@ describe("整轮处理过程折叠", () => {
 		expect(rows.map((row) => row.kind)).toEqual(["message", "reply", "message", "message", "reply"]);
 		expect(rows[1]).toMatchObject({ state: "completed", process: [], messageIndices: [1] });
 		expect(rows[4]).toMatchObject({ state: "running", process: [], messageIndices: [4] });
-		const document = parseHTML(renderWithMemory(createElement(Transcript, {
+		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps,
 			source: snapshot, entryIds: ["user-1", "reply-1", "skill-1", "user-2", "reply-2"], clear() {},
 		}))).document;
 		expect(document.querySelectorAll(".assistant-reply .skill-message")).toHaveLength(0);

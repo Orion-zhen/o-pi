@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import { ChevronRight } from "lucide-react";
 import { Check, Copy } from "lucide";
 import { MorphIcon } from "morphicons/react";
@@ -13,27 +13,18 @@ import { workspaceTreeRows } from "./workspace-tree-rows.ts";
 import { useVirtualRows } from "@/ui/use-virtual-rows.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
+import { useClipboard } from "@/ui/use-clipboard.ts";
 import { nativeFileEvents } from "./native-file.ts";
 
 function FileRowActions({ path, referenceFile }: { path: string; referenceFile: (path: string) => boolean }) {
-	const [copyState, setCopyState] = useState<{ status: "idle" | "copied" | "error" }>({ status: "idle" });
-	useEffect(() => {
-		if (copyState.status !== "copied") return;
-		const timer = setTimeout(() => setCopyState({ status: "idle" }), 1500);
-		return () => clearTimeout(timer);
-	}, [copyState]);
+	const clipboard = useClipboard();
 	return <div className="row-actions">
-		<IconButton label={`${copyState.status === "error" ? "复制失败，重试" : copyState.status === "copied" ? "已复制路径" : "复制路径"} ${path}`} className="row-action-button"
-			tooltip={copyState.status === "error" ? "重试复制" : copyState.status === "copied" ? "已复制" : "复制路径"}
-			onClick={async (event) => {
+		<IconButton label={`${clipboard.status === "error" ? "复制失败，重试" : clipboard.status === "copied" ? "已复制路径" : "复制路径"} ${path}`} className="row-action-button"
+			tooltip={clipboard.status === "error" ? "重试复制" : clipboard.status === "copied" ? "已复制" : "复制路径"}
+			onClick={(event) => {
 				if (event.detail > 0) event.currentTarget.blur();
-				try {
-					await navigator.clipboard.writeText(path);
-					setCopyState({ status: "copied" });
-				} catch {
-					setCopyState({ status: "error" });
-				}
-			}}><MorphIcon icon={copyState.status === "copied" ? Check : Copy} spring="smooth" size="1em" /></IconButton>
+				void clipboard.copy(path);
+			}}><MorphIcon icon={clipboard.status === "copied" ? Check : Copy} spring="smooth" size="1em" /></IconButton>
 		<ReferenceFileButton path={path} referenceFile={referenceFile} direction={1} />
 	</div>;
 }

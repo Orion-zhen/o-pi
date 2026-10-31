@@ -23,8 +23,8 @@ describe("消息身份和本轮统计", () => {
 			models: [guiModelFixture({ name: "Test Model", contextWindow: 1000 })],
 		})).filter((row) => row.kind === "reply");
 		expect(rows.map((row) => row.metrics.input)).toEqual([121, 1]);
-		expect(rows[0]?.identity).toEqual({ model: "Test Model", timestamp: 200 });
+		expect(rows[0]?.lastAssistant).toEqual({ index: 3, model: "Test Model", timestamp: 200 });
 		const history = transcriptReplies(source({ messages: [user, last] }));
-		expect(history[1]).toMatchObject({ identity: { model: "test", timestamp: 200 } });
+		expect(history[1]).toMatchObject({ lastAssistant: { index: 1, model: "test", timestamp: 200 } });
 	});
 });

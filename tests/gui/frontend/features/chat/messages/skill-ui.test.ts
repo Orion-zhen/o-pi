@@ -10,7 +10,7 @@ import { ToolActivity } from "../../../../../../src/gui/frontend/features/chat/t
 import { Transcript } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript.tsx";
 import type { ToolState } from "../../../../../../src/gui/shared/messages/types.ts";
 import { renderWithMemory } from "../../../../helpers/render.ts";
-import { assistant, source } from "../../../../helpers/transcript-fixtures.ts";
+import { assistant, source, emptyTranscriptProps } from "../../../../helpers/transcript-fixtures.ts";
 
 const body = "# 检查任务\n\n先收集证据，再修改代码。";
 const details: SkillLoadDetails = {
@@ -66,7 +66,7 @@ describe("技能语义展示", () => {
 	});
 
 	it.each([false, true])("完成后折叠在最外层摘要仅显示技能数量（含过程文字：%s）", (commentary) => {
-		const doc = document(createElement(Transcript, { clear() {}, source: source({ messages: [
+		const doc = document(createElement(Transcript, { ...emptyTranscriptProps, clear() {}, source: source({ messages: [
 			assistant([...(commentary ? [{ type: "text" as const, text: "先加载技能" }] : []), call]), result,
 			assistant([{ type: "text", text: "任务已完成" }], "stop"),
 		] }) }));

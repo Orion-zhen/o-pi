@@ -71,7 +71,7 @@ export function ConversationContent({ gui, target, showWelcome, startup, closeSi
 				onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
 				{conversation.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { clearLocation(); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
 				<FileLinksContext value={fileLinks}><DisclosureMemoryContext value={gui.view?.disclosures}>
-					<MessageActionsProvider entries={conversation.snapshot.entries} leafId={conversation.snapshot.leafId} visible={!gui.sessionPanelOpen} send={send}>
+					<MessageActionsProvider entries={conversation.entriesById} leafId={conversation.snapshot.leafId} visible={!gui.sessionPanelOpen} send={send}>
 						<Transcript source={conversation.source} entryIds={conversation.entryIds} prunedToolCallIds={conversation.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} />
 					</MessageActionsProvider>
 				</DisclosureMemoryContext></FileLinksContext>

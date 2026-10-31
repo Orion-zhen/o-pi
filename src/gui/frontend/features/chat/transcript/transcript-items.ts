@@ -1,4 +1,4 @@
-import type { GuiMessage } from "../../../../shared/messages/types.ts";
+import type { GuiMessage, GuiStandaloneMessage } from "../../../../shared/messages/types.ts";
 import type { GuiSnapshot } from "../../../../shared/protocol/state.ts";
 import type { replyMetrics } from "../messages/metrics.ts";
 import { sameToolActivity, type ToolActivity } from "../tools/activity.ts";
@@ -6,7 +6,7 @@ import { sameToolActivity, type ToolActivity } from "../tools/activity.ts";
 export type TranscriptSource = Pick<GuiSnapshot, "models" | "streamingMessage" | "liveTools" | "streaming" | "retrying" | "compacting"> & { messages: GuiMessage[] };
 
 export type TranscriptItem = { key: string; messageIndex: number } & (
-	| { kind: "message"; message: GuiMessage }
+	| { kind: "message"; message: GuiStandaloneMessage }
 	| { kind: "text"; text: string; blockIndex: number; active: boolean;
 		identity: { model: string; timestamp: number }; metrics: ReturnType<typeof replyMetrics>; speed: number | null }
 	| { kind: "thinking"; text: string; active: boolean }

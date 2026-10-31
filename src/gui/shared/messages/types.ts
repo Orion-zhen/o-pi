@@ -27,6 +27,8 @@ export type GuiMessage =
 	| WithContent<ContentMessage>
 	| (Omit<Extract<AgentMessage, { role: "toolResult" }>, "content" | "details" | "nestedCalls"> & { output: GuiToolOutput; nestedCalls?: GuiNestedCalls });
 
+export type GuiStandaloneMessage = Exclude<GuiMessage, { role: "system" | "assistant" | "toolResult" }>;
+
 /** 正文只存在于条目中。当前上下文和消息树均引用条目身份。 */
 export interface GuiEntry {
 	id: string;

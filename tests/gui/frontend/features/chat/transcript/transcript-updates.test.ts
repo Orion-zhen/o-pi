@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DisclosureMemoryContext } from "../../../../../../src/gui/frontend/ui/disclosure-memory.ts";
 import { TooltipProvider } from "../../../../../../src/gui/frontend/ui/tooltip.tsx";
 import { GuiQueryContext } from "../../../../../../src/gui/frontend/connection/query-context.ts";
-import { ReplyItems } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-sections.tsx";
+import { ReplyBody, ReplyProcess } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-sections.tsx";
 import { transcriptReplies } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-replies.ts";
 import type { TranscriptSource } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-items.ts";
 import { assistant, call, result, source } from "../../../../helpers/transcript-fixtures.ts";
@@ -27,8 +27,8 @@ async function render(value: TranscriptSource, entryIds = ["user", "checked", "r
 	await renderRoot(createElement(GuiQueryContext, { value: query },
 		createElement(TooltipProvider, null, createElement(DisclosureMemoryContext, { value: memory },
 			createElement(Fragment, null,
-				createElement(ReplyItems, { items: reply.process, entryIds }),
-				createElement(ReplyItems, { items: reply.answer, entryIds, showMetrics: false }))))));
+				createElement(ReplyProcess, { items: reply.process, entryIds }),
+				createElement(ReplyBody, { key: reply.answer[0]?.key, items: reply.answer, entryIds }))))));
 }
 function button(selector: string): HTMLButtonElement {
 	const element = document.querySelector<HTMLButtonElement>(selector);

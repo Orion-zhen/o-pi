@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { GuiMessage } from "../../../../shared/messages/types.ts";
+import type { GuiStandaloneMessage } from "../../../../shared/messages/types.ts";
 import { CodeBlock } from "@/ui/content/code-block.tsx";
 import { MessageIdentity } from "./message-meta.tsx";
 import { MessageFooter } from "./message-footer.tsx";
@@ -22,7 +22,7 @@ export const BashExecution = memo(function BashExecution({ command, output, entr
 	</article>;
 });
 
-export const Message = memo(function Message({ value, entryId }: { value: GuiMessage; entryId?: string | undefined }) {
+export const Message = memo(function Message({ value, entryId }: { value: GuiStandaloneMessage; entryId?: string | undefined }) {
 	const role = value.role;
 	if (value.role === "bashExecution") return <BashExecution command={value.command} output={value.output} entryId={entryId} />;
 	if (value.role === "custom" && !value.display) return null;
@@ -39,9 +39,7 @@ export const Message = memo(function Message({ value, entryId }: { value: GuiMes
 			{role !== "user" && <header><strong>{value.role === "custom" ? value.customType : role}</strong></header>}
 			{value.role === "user" ? <div className="user-bubble"><Content value={value.content} /></div>
 				: value.role === "compactionSummary" || value.role === "branchSummary" ? <Content value={value.summary} />
-				: value.role === "toolResult" ? <Content value={value.output.kind === "inline" ? value.output.value.content : value.output.preview.content} />
 				: <Content value={value.content} />}
-			{value.role === "assistant" && value.errorMessage && <pre className="error">{value.errorMessage}</pre>}
 			<MessageFooter entryId={entryId} />
 		</article>
 	);

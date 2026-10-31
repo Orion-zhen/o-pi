@@ -43,7 +43,7 @@ export function locateTranscript(snapshot: History, target: string | undefined) 
 		messages.push(message);
 		entryIds.push(entry.id);
 	}
-	return { messages, entryIds, preview,
+	return { messages, entryIds, entriesById: byId, preview,
 		contextCount: preview ? context.reduce((count, entry) => count + entry.messages.length, 0) : messages.length,
 		prunedToolCallIds: new Set(branch.findLast((entry) => entry.prunedToolCallIds !== undefined)?.prunedToolCallIds ?? []),
 	};

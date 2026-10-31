@@ -7,7 +7,7 @@ import { Message } from "../messages/message.tsx";
 import { skillCount } from "./skill-summary.tsx";
 import { MessageIdentity, ReplyMetrics } from "../messages/message-meta.tsx";
 import { MessageFooter } from "../messages/message-footer.tsx";
-import { ReplyItems, useAutoFold } from "./transcript-sections.tsx";
+import { ReplyBody, ReplyProcess, useAutoFold } from "./transcript-sections.tsx";
 import { ReplyBreathing, replyTiming } from "./reply-breathing.tsx";
 import { ReplyStatusLabel } from "./reply-status-label.tsx";
 import type { TranscriptSource } from "./transcript-items.ts";
@@ -16,17 +16,13 @@ import { useTranscriptRows } from "./use-transcript-rows.ts";
 import { NoticeGroupContent, type NoticeGroup } from "../messages/notices.tsx";
 
 type Row = TranscriptRow | { kind: "notices"; key: string; group: NoticeGroup };
-const noIds: (string | undefined)[] = [];
-const noGroups: NoticeGroup[] = [];
-const noPrunedToolCallIds: ReadonlySet<string> = new Set();
-
-export const Transcript = memo(function Transcript({ source, entryIds = noIds, groups = noGroups, tail = 0, clear, prunedToolCallIds = noPrunedToolCallIds }: {
+export const Transcript = memo(function Transcript({ source, entryIds, groups, tail, clear, prunedToolCallIds }: {
 	source: TranscriptSource;
-	entryIds?: (string | undefined)[];
-	groups?: NoticeGroup[];
-	tail?: number;
+	entryIds: (string | undefined)[];
+	groups: NoticeGroup[];
+	tail: number;
 	clear: (ids: string[]) => void;
-	prunedToolCallIds?: ReadonlySet<string>;
+	prunedToolCallIds: ReadonlySet<string>;
 }) {
 	const replies = useTranscriptRows(source, prunedToolCallIds);
 	const rows = useMemo(() => {
@@ -84,7 +80,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 	const pruned = reply.process.some((item) => item.kind === "tool" && item.pruned);
 	const showProcess = reply.process.length > 0 || processTail;
 	const activityOnly = reply.process.length > 0 && reply.process.every((item) => item.kind === "thinking" || item.kind === "tool");
-	const processContent = <div className="reply-turn-content" data-tail={processTail}><ReplyItems items={reply.process} entryIds={entryIds} tracking={running} followedByBody={hasAnswer} footerMessageIndex={!running || hasAnswer ? reply.lastAssistantIndex : undefined} /></div>;
+	const processContent = <div className="reply-turn-content" data-tail={processTail}><ReplyProcess items={reply.process} entryIds={entryIds} tracking={running} followedByBody={hasAnswer} footerMessageIndex={!running || hasAnswer ? reply.lastAssistant?.index : undefined} /></div>;
 	const outcome = reply.state === "failed" ? "回复失败" : reply.state === "stopped" ? "已停止" : reply.state === "continued" ? "已接续" : "未收到完整回复";
 	return <section className="assistant-reply" style={replyTiming} data-state={reply.state} data-entry-ids={reply.messageIndices.map((index) => entryIds[index]).filter(Boolean).join(" ")}>
 		{activityOnly ? processContent : <Disclosure className="reply-process" data-tail={processTail} hidden={!showProcess} open={open} onOpenChange={setOpen} summary={<>
@@ -94,17 +90,17 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 			</>}>
 			{processContent}
 		</Disclosure>}
-		<div className="reply-answer" data-tail={running} hidden={running && !hasAnswer}><ReplyItems items={reply.answer} entryIds={entryIds} showMetrics={false} /></div>
+		<div className="reply-answer" data-tail={running} hidden={running && !hasAnswer}><ReplyBody key={reply.answer[0]?.key} items={reply.answer} entryIds={entryIds} /></div>
 		<AnimatePresence initial={false}>
 			{running ? <ReplyBreathing key="breathing" compacting={reply.compacting} />
 				: <Reveal key="result">
-					{reply.identity && !hasAnswer && <MessageIdentity name={reply.identity.model} timestamp={reply.identity.timestamp} />}
+					{reply.lastAssistant && !hasAnswer && <MessageIdentity name={reply.lastAssistant.model} timestamp={reply.lastAssistant.timestamp} />}
 					{reply.state !== "completed" && <div className="reply-outcome" role={reply.state === "failed" ? "alert" : "status"}>
 						<span>{outcome}</span>
 						{reply.error && <pre>{reply.error}</pre>}
 					</div>}
-					{reply.identity && <MessageFooter entryId={reply.lastAssistantIndex === undefined ? undefined : entryIds[reply.lastAssistantIndex]}>
-						<ReplyMetrics {...reply.metrics} speed={lastAnswer?.kind === "text" ? lastAnswer.speed : null} />
+					{reply.lastAssistant && <MessageFooter entryId={entryIds[reply.lastAssistant.index]}>
+						<ReplyMetrics {...reply.metrics} speed={lastAnswer?.speed ?? null} />
 					</MessageFooter>}
 				</Reveal>}
 		</AnimatePresence>
