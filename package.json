@@ -95,6 +95,8 @@
 		"react-markdown": "latest",
 		"react-syntax-highlighter": "latest",
 		"refractor": "latest",
+		"remark-cjk-friendly": "latest",
+		"remark-cjk-friendly-gfm-strikethrough": "latest",
 		"remark-gfm": "latest",
 		"stream-chain": "latest",
 		"stream-json": "latest",

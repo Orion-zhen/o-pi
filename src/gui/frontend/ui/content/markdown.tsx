@@ -1,6 +1,8 @@
 import { Children, createContext, isValidElement, lazy, memo, Suspense, useContext, useDeferredValue, type ComponentProps } from "react";
 import Markdown, { defaultUrlTransform, type Components, type ExtraProps, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkCjkFriendly from "remark-cjk-friendly/parseOnly";
+import remarkCjkFriendlyGfmStrikethrough from "remark-cjk-friendly-gfm-strikethrough/parseOnly";
 import { Hint } from "../tooltip.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import { MermaidBlock } from "./mermaid-block.tsx";
@@ -38,7 +40,12 @@ function MarkdownLink({ href, children }: ComponentProps<"a">) {
 }
 
 const Streaming = createContext(false);
-const markdownPlugins: ComponentProps<typeof Markdown>["remarkPlugins"] = [[remarkGfm, { singleTilde: false }], remarkMath];
+const markdownPlugins: ComponentProps<typeof Markdown>["remarkPlugins"] = [
+	[remarkGfm, { singleTilde: false }],
+	remarkCjkFriendly,
+	[remarkCjkFriendlyGfmStrikethrough, { singleTilde: false }],
+	remarkMath,
+];
 const markdownUrl: UrlTransform = (url, key, node) => node.tagName === "a" && key === "href" ? url : defaultUrlTransform(url);
 const markdownComponents: Components = {
 	span: MarkdownSpan,
