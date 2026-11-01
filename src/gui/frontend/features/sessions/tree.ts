@@ -18,13 +18,16 @@ export function messageContent(message: EntryMessage) {
 		: message.role === "compactionSummary" || message.role === "branchSummary" ? message.summary : message.content;
 }
 
-export function visibleEntryMessage(entry: GuiEntry, leafId: string | null): EntryMessage | undefined {
+export function entryMessage(entry: GuiEntry): EntryMessage | undefined {
 	const message = entry.messages.find((message) => message.role !== "system");
 	if (!message || message.role === "toolResult" || message.role === "custom" && !message.display) return undefined;
-	if (message.role === "assistant" && entry.id !== leafId
-		&& !message.content.some((block) => block.type === "text" && block.text.trim().length > 0)
-		&& (message.stopReason === "stop" || message.stopReason === "toolUse")) return undefined;
 	return message;
+}
+
+export function hasEntryActions(message: EntryMessage): boolean {
+	return message.role !== "assistant"
+		|| (message.stopReason !== "stop" && message.stopReason !== "toolUse")
+		|| message.content.some((block) => block.type === "text" && block.text.trim().length > 0);
 }
 
 export function sessionTree(entries: GuiEntry[], leafId: string | null): GuiTreeNode[] {
@@ -41,8 +44,8 @@ export function sessionTree(entries: GuiEntry[], leafId: string | null): GuiTree
 		if (!next) break;
 		const { node } = next;
 		let { target } = next;
-		const message = visibleEntryMessage(node.entry, leafId);
-		if (message) {
+		const message = entryMessage(node.entry);
+		if (message && (node.entry.id === leafId || hasEntryActions(message))) {
 			const children: GuiTreeNode[] = [];
 			target.push({ entry: node.entry, message, children });
 			target = children;

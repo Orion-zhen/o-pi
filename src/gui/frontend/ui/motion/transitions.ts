@@ -25,7 +25,7 @@ export const feedback = { duration: motionDuration[3], ease: motionEase } as con
 export const dismiss = { duration: motionDuration[1], ease: motionEase } as const;
 export const controlShift = { duration: motionDuration[4], ease: motionEase } as const;
 export const streamingTextReveal = {
-	animation: "blurIn",
+	animation: "fadeIn",
 	sep: "char",
 	duration: motionDuration[1] * 1000,
 	stagger: 24,

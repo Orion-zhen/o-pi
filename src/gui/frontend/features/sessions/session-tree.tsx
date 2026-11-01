@@ -1,6 +1,6 @@
 import { memo, useMemo, useCallback } from "react";
 import { BookOpen } from "lucide-react";
-import { messageContent, type EntryMessage, type GuiTreeNode } from "./tree.ts";
+import { hasEntryActions, messageContent, sessionTree, type EntryMessage, type GuiTreeNode } from "./tree.ts";
 import { EntryActions } from "./entry-actions.tsx";
 import type { GuiEntry } from "../../../shared/messages/types.ts";
 import { clean } from "@/ui/content/format.ts";
@@ -35,8 +35,10 @@ function graphRows(roots: GuiTreeNode[]): GraphRow[] {
 	return rows;
 }
 
-export const SessionTree = memo(function SessionTree({ value, send, locate }: { value: GuiTreeNode[]; send: Send; locate: (id: string) => void }) {
-	const rows = useMemo(() => graphRows(value), [value]);
+export const SessionTree = memo(function SessionTree({ entries, leafId, send, locate }: {
+	entries: GuiEntry[]; leafId: string | null; send: Send; locate: (id: string) => void;
+}) {
+	const rows = useMemo(() => graphRows(sessionTree(entries, leafId)), [entries, leafId]);
 	const getKey = useCallback((index: number) => (rows[index] as GraphRow).node.entry.id, [rows]);
 	const list = useVirtualRows<HTMLDivElement>(rows.length, getKey, 32);
 	if (!rows.length) return <p className="tree-empty">暂无可展示的消息。</p>;
@@ -100,16 +102,17 @@ function TreeMessage({ row, send, locate }: { row: GraphRow; send: Send; locate:
 	const message = node.message;
 	const skill = message.role === "custom" && message.customType === SKILL_CONTEXT_MESSAGE && isSkillLoadDetails(message.details) ? message.details : undefined;
 	const skillPreview = skill ? `${skill.name} · ${skill.deduplicated ? "已加载过，未重复注入" : skillLoaders[skill.loadedBy]}` : undefined;
+	const content = <>
+		<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}>
+			{skill ? <p className="tree-message-preview">{skillPreview}</p> : <MessagePreview message={message} />}
+		</button>
+		{entry.label && <span className="tree-label">{entry.label}</span>}
+	</>;
 	return (
 		<div className="tree-row" role="listitem" data-role={message.role}>
 			<Graph row={row} />
 			<strong className="tree-role">{skill && <BookOpen aria-hidden="true" />}{skill ? "技能" : entryTitle(entry, message)}</strong>
-			<EntryActions entry={entry} message={message} send={send}>
-				<button className="tree-jump" onClick={() => locate(id)} aria-label={`定位消息 ${id}`}>
-					{skill ? <p className="tree-message-preview">{skillPreview}</p> : <MessagePreview message={message} />}
-				</button>
-				{entry.label && <span className="tree-label">{entry.label}</span>}
-			</EntryActions>
+			{hasEntryActions(message) ? <EntryActions entry={entry} message={message} send={send}>{content}</EntryActions> : content}
 		</div>
 	);
 }

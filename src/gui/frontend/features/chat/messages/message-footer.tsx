@@ -3,24 +3,24 @@ import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import type { GuiEntry } from "../../../../shared/messages/types.ts";
 import type { Send } from "@/connection/connection.ts";
 import { EntryActions } from "../../sessions/entry-actions.tsx";
-import { visibleEntryMessage, type EntryMessage } from "../../sessions/tree.ts";
+import { entryMessage, hasEntryActions, type EntryMessage } from "../../sessions/tree.ts";
 import { listDepth, motionDuration, motionEase } from "@/ui/motion/transitions.ts";
 
-interface MessageActions { entries: ReadonlyMap<string, GuiEntry>; leafId: string | null; visible: boolean; send: Send }
+interface MessageActions { entries: ReadonlyMap<string, GuiEntry>; visible: boolean; send: Send }
 const MessageActionsContext = createContext<MessageActions | null>(null);
 
-export function MessageActionsProvider({ entries, leafId, visible, send, children }: MessageActions & { children: ReactNode }) {
-	const value = useMemo(() => ({ entries, leafId, visible, send }), [entries, leafId, visible, send]);
+export function MessageActionsProvider({ entries, visible, send, children }: MessageActions & { children: ReactNode }) {
+	const value = useMemo(() => ({ entries, visible, send }), [entries, visible, send]);
 	return <MessageActionsContext value={value}>{children}</MessageActionsContext>;
 }
 
 export function MessageFooter({ entryId, children }: { entryId: string | undefined; children?: ReactNode }) {
 	const actions = useContext(MessageActionsContext);
 	const entry = entryId === undefined ? undefined : actions?.entries.get(entryId);
-	const message = actions && entry ? visibleEntryMessage(entry, actions.leafId) : undefined;
+	const message = entry ? entryMessage(entry) : undefined;
 	return <div className="message-footer">
 		<AnimatePresence initial={false}>
-			{actions?.visible && entry && message && <FloatingActions key={entry.id} entry={entry} message={message} send={actions.send} />}
+			{actions?.visible && entry && message && hasEntryActions(message) && <FloatingActions key={entry.id} entry={entry} message={message} send={actions.send} />}
 		</AnimatePresence>
 		{children}
 	</div>;

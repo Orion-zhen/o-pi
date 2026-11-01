@@ -3,25 +3,13 @@ import { cp, mkdir } from "node:fs/promises";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
-import { mathjaxFontChunks } from "./scripts/build/mathjax.ts";
-import { mermaidGrammarChunks } from "./scripts/build/mermaid.ts";
 import { applicationNames } from "./scripts/build/names.ts";
 import { welcomeSvg } from "./scripts/welcome/plugin.ts";
 
 export default defineConfig({
 	root: "src/gui/frontend",
 	base: "./",
-	plugins: [tailwindcss(), welcomeSvg(), applicationNames(), mathjaxFontChunks(), mermaidGrammarChunks(), {
-		name: "chunk-budgets",
-		generateBundle(_, bundle) {
-			for (const chunk of Object.values(bundle)) {
-				if (chunk.type !== "chunk") continue;
-				const limit = chunk.fileName.startsWith("assets/mermaid-elk-") ? 1_450_000 : 500_000;
-				const size = Buffer.byteLength(chunk.code);
-				if (size > limit) this.warn(`${chunk.fileName}: ${(size / 1000).toFixed(2)} kB exceeds ${limit / 1000} kB budget.`);
-			}
-		},
-	}, {
+	plugins: [tailwindcss(), welcomeSvg(), applicationNames(), {
 		name: "pdf-reader-assets",
 		async writeBundle(options) {
 			if (!options.dir) throw new Error("缺少 GUI 输出目录。");
@@ -43,6 +31,7 @@ export default defineConfig({
 		outDir: "../../../dist/gui",
 		sourcemap: "hidden",
 		emptyOutDir: true,
+		// 按功能加载分块，不为满足单块大小阈值拆分。
 		chunkSizeWarningLimit: Infinity,
 		rolldownOptions: {
 			checks: { moduleLevelDirective: false },
@@ -50,18 +39,21 @@ export default defineConfig({
 				codeSplitting: {
 					groups: [
 						{ name: "welcome-art", test: /assets[\\/]welcome[\\/].*\.svg\?welcome$/, includeDependenciesRecursively: false },
-						{ name: "mermaid-grammar", test: /\0mermaid-grammar-/, maxSize: 200_000, includeDependenciesRecursively: false },
-						{ name: "mermaid-elk", test: /node_modules[\\/]elkjs[\\/]/, includeDependenciesRecursively: false },
-						// 只拆纯字形数据，字体类和方向枚举留在引擎内，避免跨块初始化循环。
-						{ name: "mathjax-font", test: /(?:node_modules[\\/]@mathjax[\\/]mathjax-tex-font[\\/]mjs[\\/]svg[\\/](?!default\.|delimiters\.)|\0mathjax-font-)/, maxSize: 450_000, includeDependenciesRecursively: false },
-						{ name: "mathjax", test: /node_modules[\\/]@mathjax[\\/]/, includeDependenciesRecursively: false },
 						{ name: "react", test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
 						{ name: "file-icons", test: /node_modules[\\/]@react-symbols[\\/]icons[\\/]/ },
 						{ name: "ui", test: /node_modules[\\/](@radix-ui|@floating-ui)[\\/]/ },
 						{ name: "motion", test: /node_modules[\\/](motion|motion-dom|motion-utils|framer-motion)[\\/]/ },
-						// 拆出 HTML 解析器与实体解码器，使 Markdown 块保持在 500 kB 预算内。
-						{ name: "html-parser", test: /node_modules[\\/](parse5|entities)[\\/]/, includeDependenciesRecursively: false },
 						{ name: "markdown", test: /node_modules[\\/](react-markdown|remark-gfm|react-syntax-highlighter|streamdown)[\\/]/ },
+						// 解析器的转导出入口共享整套实现，合并为一个按需加载块。
+						{ name: "mermaid-parser", test: /node_modules[\\/]@mermaid-js[\\/]parser[\\/]/ },
+						// 只合并共享依赖，并按入口关系分组，避免提前加载其他图表。
+						{
+							name: "mermaid-shared",
+							test: /node_modules[\\/](?:mermaid|d3-[^/\\]+|khroma)[\\/]/,
+							minShareCount: 2,
+							entriesAware: true,
+							entriesAwareMergeThreshold: 20_000,
+						},
 					],
 				},
 			},

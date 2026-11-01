@@ -18,6 +18,12 @@
 
 TUI 和 Web 由 `scripts/build/bun.mjs` 编译，Desktop 由 `scripts/build/desktop.mjs` 打包。构建使用 PATH 中的 Bun，制作分发产物时建议使用官方 Bun。
 
+## 前端分块
+
+Web 和 Desktop 共用 `vite.gui.config.ts`。PDF、代码编辑器、设置、文件差异、公式和 Mermaid 保留功能级动态导入。公式引擎与字形一起加载，不为满足单块大小限制改写上游模块。
+
+Mermaid 解析器的内部转导出合并为一个按需加载块。共享依赖按入口使用关系分组并合并小块，保留图表类型和 ELK 布局的加载边界。分块不设统一大小上限，加载成本按启动和实际功能使用场景评估。
+
 ## 交叉编译
 
 `--target <平台>` 适用于三端，可选值：

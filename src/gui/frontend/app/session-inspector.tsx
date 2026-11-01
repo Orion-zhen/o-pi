@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef } from "react";
+import { useId, useRef } from "react";
 import { Tabs } from "radix-ui";
 import { AnimatePresence, motion } from "motion/react";
 import { Fade } from "@/ui/motion/animated.tsx";
@@ -10,7 +10,6 @@ import type { GuiControls } from "./controls.ts";
 import type { WorkbenchView } from "@/features/workspace/use-workbench.ts";
 import type { StatsSnapshot } from "../../../harness/stats/types.ts";
 import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live.ts";
-import { sessionTree } from "@/features/sessions/tree.ts";
 import { SessionTree } from "@/features/sessions/session-tree.tsx";
 import { StatsReport } from "@/features/reports/stats-report.tsx";
 import { TelemetryReport } from "@/features/reports/telemetry-report.tsx";
@@ -38,7 +37,6 @@ export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; l
 	const entrance = useSectionEntrance("right");
 	const highlightId = useId();
 	const { sessionTab, snapshot, sessionStats, telemetry, workbench, selectTab } = gui;
-	const tree = useMemo(() => snapshot ? sessionTree(snapshot.entries, snapshot.leafId) : undefined, [snapshot?.entries, snapshot?.leafId]);
 	const loading = <p role="status">正在读取会话信息…</p>;
 	const active = gui.activeTab === "file" && !workbench.preview ? sessionTab : gui.activeTab;
 	return <Tabs.Root asChild value={active} onValueChange={(value) => {
@@ -62,7 +60,7 @@ export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; l
 		<Tabs.Content value={sessionTab} forceMount asChild>
 			<Fade initial={false} animate={{ opacity: active === "file" ? 0 : 1 }} className="session-tab-body" data-list-scroll data-active={active !== "file"} inert={active === "file"} aria-hidden={active === "file"}>
 			<TransitionPanel activeIndex={tabs.findIndex(({ id }) => id === sessionTab)}>
-				{sessionTab === "tree" ? tree ? <SessionTree value={tree} send={gui.send} locate={locate} /> : loading
+				{sessionTab === "tree" ? snapshot ? <SessionTree entries={snapshot.entries} leafId={snapshot.leafId} send={gui.send} locate={locate} /> : loading
 					: sessionTab === "stats" ? sessionStats ? <StatsReport value={sessionStats} /> : loading
 					: telemetry ? <TelemetryReport value={telemetry} /> : loading}
 			</TransitionPanel>

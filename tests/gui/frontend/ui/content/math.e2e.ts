@@ -18,7 +18,7 @@ test.beforeEach(async ({ workspace: { agentDir } }) => {
 test.afterEach(async () => { await model?.close(); });
 
 test.describe("公式资源", () => {
-	test("公式按需加载拆分后的引擎和字体，刷新后仍可渲染", async ({ gui: { page } }) => {
+	test("公式资源按需加载，刷新后仍可渲染", async ({ gui: { page } }) => {
 		const resources: string[] = [];
 		page.on("request", (request) => { if (/\/math(?:jax|-formula)-/.test(request.url())) resources.push(request.url()); });
 		await page.reload();
@@ -35,7 +35,7 @@ test.describe("公式资源", () => {
 				await expect(formula.locator("path").first()).toBeAttached();
 			}
 			await expect(page.locator("[data-mjx-error], [data-mml-node='merror']")).toHaveCount(0);
-			expect(resources.some((name) => name.includes("/mathjax-font-"))).toBe(true);
+			expect(resources.some((name) => name.includes("/math-formula-"))).toBe(true);
 			if (pass === 0) { resources.length = 0; await page.reload(); }
 		}
 	});

@@ -37,7 +37,6 @@
 		"esbuild": "latest",
 		"flubber": "latest",
 		"jiti": "latest",
-		"magic-string": "latest",
 		"mdast-util-from-markdown": "latest",
 		"micromark-util-types": "latest",
 		"remark-parse": "latest",
