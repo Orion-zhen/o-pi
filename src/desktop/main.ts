@@ -122,6 +122,8 @@ function startDesktop(): void {
 			icon,
 			backgroundColor: GUI_BACKGROUNDS.dark,
 			transparent: process.platform === "linux",
+			// macOS 需在创建时初始化半透明合成，避免后期开启材质时文字动画触发闪烁。
+			...(process.platform === "darwin" ? { vibrancy: "hud" } : {}),
 			visualEffectState: "followWindow",
 			webPreferences: {
 				preload: path.join(directory, "preload.cjs"),

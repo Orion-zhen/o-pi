@@ -1,6 +1,6 @@
 import { nativeTheme, type BrowserWindow } from "electron";
 import { release } from "node:os";
-import type { DesktopAppearance, DesktopMaterial } from "../gui/shared/protocol/desktop.ts";
+import type { DesktopAppearance } from "../gui/shared/protocol/desktop.ts";
 import { GUI_BACKGROUNDS } from "../gui/shared/theme.ts";
 
 function parseAppearance(value: unknown): DesktopAppearance {
@@ -10,7 +10,7 @@ function parseAppearance(value: unknown): DesktopAppearance {
 	return { theme: value.theme, transparent: value.transparent };
 }
 
-export function installDesktopAppearance(window: BrowserWindow): (value: unknown) => DesktopMaterial {
+export function installDesktopAppearance(window: BrowserWindow): (value: unknown) => boolean {
 	const material = process.platform === "darwin" ? "vibrancy"
 		: process.platform === "linux" ? "compositor"
 		: process.platform === "win32" && Number(release().split(".")[2]) >= 22621 ? "acrylic" : "none";
@@ -28,6 +28,6 @@ export function installDesktopAppearance(window: BrowserWindow): (value: unknown
 		transparent = appearance.transparent;
 		nativeTheme.themeSource = appearance.theme;
 		update();
-		return material;
+		return material !== "none";
 	};
 }

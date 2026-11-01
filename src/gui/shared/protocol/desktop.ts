@@ -4,13 +4,12 @@ import type { StorageGroup } from "../storage.ts";
 export type DesktopCommand = "new" | "settings" | "resume";
 export type DesktopDrop = { kind: "attachment" } | { kind: "reference"; path: string } | { kind: "workspace"; path: string };
 export interface DesktopAppearance { theme: "system" | "light" | "dark"; transparent: boolean }
-export type DesktopMaterial = "vibrancy" | "acrylic" | "compositor" | "none";
 export interface DesktopBridge extends Omit<GuiConnection, "subscribe"> {
 	reportDiagnostic(value: import("../diagnostics/diagnostics.ts").GuiDiagnostic): Promise<import("../diagnostics/diagnostics.ts").DiagnosticReceipt>;
 	readStorage(): Promise<StorageGroup>;
 	clearStorage(ids: string[]): Promise<void>;
-	/** 返回平台支持的背景材质，不受当前开关或辅助功能设置影响。 */
-	setAppearance(value: DesktopAppearance): Promise<DesktopMaterial>;
+	/** 返回平台是否支持桌面透明，不受当前开关或辅助功能设置影响。 */
+	setAppearance(value: DesktopAppearance): Promise<boolean>;
 	subscribe(listener: (delivery: import("./sync.ts").GuiDelivery) => void): () => void;
 	acknowledge(id: number): void;
 	onCommand(listener: (command: DesktopCommand) => void): () => void;

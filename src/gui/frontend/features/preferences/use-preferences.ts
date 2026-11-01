@@ -22,12 +22,8 @@ export function usePreferences(value: GuiPreferences | undefined, reportError: (
 		let active = true;
 		const transparent = value.materials.enabled && value.materials.desktop;
 		void window.opi.setAppearance({ theme: value.theme, transparent }).then(
-			(material) => {
-				if (!active) return;
-				const root = document.documentElement;
-				root.dataset.desktopTransparencySupported = String(material !== "none");
-				// 兼容策略跟随已应用的原生材质，不随未保存的透明度预览提前撤销。
-				root.dataset.desktopMaterial = transparent ? material : "none";
+			(supported) => {
+				if (active) document.documentElement.dataset.desktopTransparencySupported = String(supported);
 			},
 			(error: unknown) => { if (active) reportError(error instanceof Error ? error.message : String(error)); },
 		);
