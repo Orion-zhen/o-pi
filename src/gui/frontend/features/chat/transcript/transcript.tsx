@@ -2,14 +2,11 @@ import { memo, useMemo, useRef } from "react";
 import { AnimatePresence } from "motion/react";
 import { fade } from "@/ui/motion/transitions.ts";
 import { Fade, Reveal } from "@/ui/motion/animated.tsx";
-import { Disclosure } from "@/ui/disclosure.tsx";
 import { Message } from "../messages/message.tsx";
-import { skillCount } from "./skill-summary.tsx";
 import { MessageIdentity, ReplyMetrics } from "../messages/message-meta.tsx";
 import { MessageFooter } from "../messages/message-footer.tsx";
-import { ReplyBody, ReplyProcess, useAutoFold } from "./transcript-sections.tsx";
+import { ReplyContent, useAutoFold } from "./transcript-sections.tsx";
 import { ReplyBreathing, replyTiming } from "./reply-breathing.tsx";
-import { ReplyStatusLabel } from "./reply-status-label.tsx";
 import type { TranscriptSource } from "./transcript-items.ts";
 import type { TranscriptReply, TranscriptRow } from "./transcript-replies.ts";
 import { useTranscriptRows } from "./use-transcript-rows.ts";
@@ -63,34 +60,11 @@ function rowLastIndex(row: TranscriptRow): number {
 
 const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply; entryIds: (string | undefined)[] }) {
 	const running = reply.state === "running";
-	const [open, setOpen] = useAutoFold(reply.key, running);
-	const tools = reply.process.filter((item) => item.kind === "tool");
-	const thoughts = reply.process.filter((item) => item.kind === "thinking").length;
-	const failures = tools.filter((item) => item.tool.state === "failed").length;
-	const skills = skillCount(reply.process);
-	const counts = [
-		thoughts > 0 ? `${thoughts} 段思考` : "",
-		skills > 0 ? `${skills} 个技能` : "",
-		tools.length > 0 ? `${tools.length} 次工具调用` : "",
-		failures > 0 ? `${failures} 次失败` : "",
-	].filter(Boolean).join(" · ");
 	const hasAnswer = reply.answer.length > 0;
 	const lastAnswer = reply.answer.at(-1);
-	const processTail = running && !hasAnswer;
-	const pruned = reply.process.some((item) => item.kind === "tool" && item.pruned);
-	const showProcess = reply.process.length > 0 || processTail;
-	const activityOnly = reply.process.length > 0 && reply.process.every((item) => item.kind === "thinking" || item.kind === "tool");
-	const processContent = <div className="reply-turn-content" data-tail={processTail}><ReplyProcess items={reply.process} entryIds={entryIds} tracking={running} followedByBody={hasAnswer} footerMessageIndex={!running || hasAnswer ? reply.lastAssistant?.index : undefined} /></div>;
 	const outcome = reply.state === "failed" ? "回复失败" : reply.state === "stopped" ? "已停止" : reply.state === "continued" ? "已接续" : "未收到完整回复";
 	return <section className="assistant-reply" style={replyTiming} data-state={reply.state} data-entry-ids={reply.messageIndices.map((index) => entryIds[index]).filter(Boolean).join(" ")}>
-		{activityOnly ? processContent : <Disclosure className="reply-process" data-tail={processTail} hidden={!showProcess} open={open} onOpenChange={setOpen} summary={<>
-				{pruned && <span className="reply-pruned-label">已裁剪</span>}
-				<ReplyStatusLabel active={running}>{reply.retrying ? "正在重试" : "本轮过程"}</ReplyStatusLabel>
-				{counts && <span className="reply-counts">{counts}</span>}
-			</>}>
-			{processContent}
-		</Disclosure>}
-		<div className="reply-answer" data-tail={running} hidden={running && !hasAnswer}><ReplyBody key={reply.answer[0]?.key} items={reply.answer} entryIds={entryIds} /></div>
+		<ReplyContent reply={reply} entryIds={entryIds} />
 		<AnimatePresence initial={false}>
 			{running ? <ReplyBreathing key="breathing" compacting={reply.compacting} />
 				: <Reveal key="result">

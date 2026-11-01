@@ -18,6 +18,7 @@ export interface TranscriptReply {
 	state: ReplyState;
 	retrying: boolean;
 	compacting: boolean;
+	items: TranscriptItem[];
 	process: TranscriptItem[];
 	answer: Extract<TranscriptItem, { kind: "text" }>[];
 	error: string | undefined;
@@ -141,8 +142,8 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		item.kind === "text" && item.messageIndex === last?.index && selection.has(item.blockIndex));
 	const answerKeys = new Set(answer.map((item) => item.key));
 	const error = !active ? message?.errorMessage : undefined;
-	const process = draft.items.filter((item) => !answerKeys.has(item.key)
-		&& !(error && item.kind === "error" && item.messageIndex === last?.index));
+	const items = draft.items.filter((item) => !(error && item.kind === "error" && item.messageIndex === last?.index));
+	const process = items.filter((item) => !answerKeys.has(item.key));
 	// 接续只描述消息间的关系，不把截断、缺失结果或中止的工具阶段当成正常结束。
 	const continued = draft.followedByUser && !error
 		&& (message?.stopReason === "stop" || message?.stopReason === "toolUse" || message?.stopReason === "deferred")
@@ -156,7 +157,7 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		: continued ? "continued" : "incomplete";
 	const lastAssistant = last ? { index: last.index, ...last.identity } : undefined;
 	const metrics = replyMetrics(draft.assistants);
-	return { kind: "reply", lastAssistant, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, compacting: active && source.compacting, process, answer, error };
+	return { kind: "reply", lastAssistant, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, compacting: active && source.compacting, items, process, answer, error };
 }
 
 function answerBlocks(message: AssistantMessage): Set<number> {

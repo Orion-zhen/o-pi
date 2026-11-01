@@ -151,8 +151,10 @@ export function useTranscriptScroll(sessionId: string | undefined, view: Session
 			let ancestor = target.parentElement;
 			while (ancestor && ancestor !== content.current) {
 				if (ancestor.matches('[data-slot="collapsible"][data-state="closed"]')) {
-					ancestor.querySelector<HTMLButtonElement>(':scope > [data-slot="collapsible-trigger"]')?.click();
+					const trigger = ancestor.querySelector<HTMLButtonElement>(':scope > [data-slot="collapsible-trigger"]');
+					const controls = trigger?.getAttribute("aria-controls");
 					const body = ancestor.querySelector(':scope > [data-slot="collapsible-content"] > .collapse-content');
+					if (trigger && (body?.contains(target) || controls?.split(/\s+/).some((id) => target.ownerDocument.getElementById(id)?.contains(target)))) trigger.click();
 					if (body) expanding.push(body);
 				}
 				ancestor = ancestor.parentElement;

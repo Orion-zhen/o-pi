@@ -14,6 +14,13 @@ it("GUI 生产构建保留排错名称和映射，仅 ELK 单体允许超限，�
 	if (!("output" in result)) throw new Error("预期单次 GUI 构建输出");
 	const chunks = result.output.filter((item) => item.type === "chunk");
 	expect(chunks.length).toBeGreaterThan(0);
+	const parsers = chunks.filter((chunk) => chunk.fileName.startsWith("assets/html-parser-"));
+	expect(parsers).toHaveLength(1);
+	for (const parser of parsers) {
+		expect(parser.imports).toEqual([]);
+		expect(parser.dynamicImports).toEqual([]);
+		expect(chunks.some((chunk) => chunk.fileName.startsWith("assets/markdown-") && chunk.imports.includes(parser.fileName))).toBe(true);
+	}
 	const welcome = chunks.filter((chunk) => chunk.fileName.startsWith("assets/welcome-art-"));
 	expect(welcome).toHaveLength(1);
 	for (const name of ["character", "reveal"]) {

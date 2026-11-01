@@ -1,10 +1,10 @@
-import { act, createElement, Fragment } from "react";
+import { act, createElement } from "react";
 import { useReactFixture } from "../../../../helpers/react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DisclosureMemoryContext } from "../../../../../../src/gui/frontend/ui/disclosure-memory.ts";
 import { TooltipProvider } from "../../../../../../src/gui/frontend/ui/tooltip.tsx";
 import { GuiQueryContext } from "../../../../../../src/gui/frontend/connection/query-context.ts";
-import { ReplyBody, ReplyProcess } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-sections.tsx";
+import { ReplyContent } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-sections.tsx";
 import { transcriptReplies } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-replies.ts";
 import type { TranscriptSource } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-items.ts";
 import { assistant, call, result, source } from "../../../../helpers/transcript-fixtures.ts";
@@ -26,9 +26,7 @@ async function render(value: TranscriptSource, entryIds = ["user", "checked", "r
 	if (!reply) throw new Error("缺少回复");
 	await renderRoot(createElement(GuiQueryContext, { value: query },
 		createElement(TooltipProvider, null, createElement(DisclosureMemoryContext, { value: memory },
-			createElement(Fragment, null,
-				createElement(ReplyProcess, { items: reply.process, entryIds }),
-				createElement(ReplyBody, { key: reply.answer[0]?.key, items: reply.answer, entryIds }))))));
+			createElement(ReplyContent, { reply, entryIds })))));
 }
 function button(selector: string): HTMLButtonElement {
 	const element = document.querySelector<HTMLButtonElement>(selector);
@@ -99,7 +97,6 @@ describe("当前轮次中的稳定内容", () => {
 		await render(initial);
 		expect(document.querySelector('[data-entry-id="checked"]')?.closest(".reply-body")
 			?.querySelector(".reply-metrics [aria-description]")?.textContent).toBe("速度 2.0 tok/s");
-		await act(async () => button(".reply-activity > .disclosure-trigger").click());
 		await act(async () => button(".activity-summary").click());
 		const summary = button(".activity-summary");
 		const output = document.querySelector(".activity-body pre");
@@ -107,7 +104,7 @@ describe("当前轮次中的稳定内容", () => {
 		const updated = { ...initial,
 			messages: [...initial.messages, assistant([{ type: "text", text: "新说明" }, { ...call, id: "next" }])] };
 		await render(updated, ["user", "checked", "result", "next-entry"], new Set([call.id]));
-		expect(document.querySelector('.reply-body [data-entry-id="checked"] > p')?.textContent).toBe("已检查组件");
+		expect(document.querySelector('.reply-body [data-entry-id="checked"] .streaming-markdown > p')?.textContent).toBe("已检查组件");
 		const metrics = document.querySelector('[data-entry-id="checked"]')?.closest(".reply-body")?.querySelector(".reply-metrics");
 		expect(metrics?.querySelector("[aria-description]")?.textContent).toBe("速度 2.0 tok/s");
 		expect(metrics?.textContent).toContain("输出");

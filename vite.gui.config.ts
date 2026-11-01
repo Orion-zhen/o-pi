@@ -59,7 +59,9 @@ export default defineConfig({
 						{ name: "file-icons", test: /node_modules[\\/]@react-symbols[\\/]icons[\\/]/ },
 						{ name: "ui", test: /node_modules[\\/](@radix-ui|@floating-ui)[\\/]/ },
 						{ name: "motion", test: /node_modules[\\/](motion|motion-dom|motion-utils|framer-motion)[\\/]/ },
-						{ name: "markdown", test: /node_modules[\\/](react-markdown|remark-gfm|react-syntax-highlighter)[\\/]/ },
+						// 拆出 HTML 解析器与实体解码器，使 Markdown 块保持在 500 kB 预算内。
+						{ name: "html-parser", test: /node_modules[\\/](parse5|entities)[\\/]/, includeDependenciesRecursively: false },
+						{ name: "markdown", test: /node_modules[\\/](react-markdown|remark-gfm|react-syntax-highlighter|streamdown)[\\/]/ },
 					],
 				},
 			},

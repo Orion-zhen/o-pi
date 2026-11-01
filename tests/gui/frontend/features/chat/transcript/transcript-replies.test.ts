@@ -114,7 +114,7 @@ describe("整轮处理过程折叠", () => {
 		expect(restored.querySelector(".pruned-text-active")).toBeNull();
 	});
 
-	it("完成后外层收起中途正文，内层仅折叠思考和工具，最终报告留在外面", () => {
+	it("完成后收起过程正文与活动，最终报告保持展开", () => {
 		const second = { ...call, id: "read-2" };
 		const third = { ...call, id: "read-3" };
 		const snapshot = source({ messages: [user,
@@ -131,16 +131,16 @@ describe("整轮处理过程折叠", () => {
 		expect(rows[0]?.process.filter((item) => item.kind === "thinking")).toHaveLength(4);
 		expect(rows[0]?.answer).toHaveLength(2);
 		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps, source: snapshot, clear: () => {} }))).document;
-		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("closed");
-		expect([...document.querySelectorAll(".reply-turn-content > .reply-body")].map((body) => body.querySelector("article > p")?.textContent))
+		expect(document.querySelector(".assistant-reply > .reply-content")?.getAttribute("data-state")).toBe("closed");
+		expect([...document.querySelectorAll(".reply-process-section .reply-body")].map((body) => body.querySelector("article .streaming-markdown > p")?.textContent))
 			.toEqual(["先检查组件", "接下来检查样式"]);
 		expect(document.querySelectorAll(".reply-activity .reply-body")).toHaveLength(0);
 		expect([...document.querySelectorAll(".reply-activity .reply-counts")].map((counts) => counts.textContent))
 			.toEqual(["3 段思考 · 2 次工具调用", "1 段思考 · 1 次工具调用"]);
 		expect([...document.querySelectorAll(".reply-activity")].every((activity) => activity.getAttribute("data-state") === "closed")).toBe(true);
 		expect(document.querySelectorAll(".reply-body > .message-identity")).toHaveLength(3);
-		expect(document.querySelectorAll('.reply-turn-content [aria-label="本条消息统计"]')).toHaveLength(2);
-		expect([...document.querySelectorAll(".reply-answer article > p")].map((paragraph) => paragraph.textContent))
+		expect(document.querySelectorAll('.reply-process-section [aria-label="本条消息统计"]')).toHaveLength(2);
+		expect([...document.querySelectorAll(".reply-answer article .streaming-markdown > p")].map((paragraph) => paragraph.textContent))
 			.toEqual(["检查完成", "没有发现问题"]);
 	});
 
@@ -176,9 +176,9 @@ describe("整轮处理过程折叠", () => {
 		const document = parseHTML(renderWithMemory(createElement(Transcript, { ...emptyTranscriptProps,
 			source: source({ messages: [user], streamingMessage: assistant([...live.content, call]), streaming: true }), clear: () => {},
 		}))).document;
-		expect(document.querySelector(".assistant-reply > .reply-process")?.getAttribute("data-state")).toBe("open");
+		expect(document.querySelector(".assistant-reply > .reply-content")?.getAttribute("data-state")).toBe("open");
 		expect([...document.querySelectorAll(".reply-activity")].map((activity) => activity.getAttribute("data-state"))).toEqual(["closed", "open"]);
-		expect(document.querySelector(".reply-turn-content > .reply-body article > p")?.textContent).toBe("我先检查");
+		expect(document.querySelector(".reply-process-section .reply-body article .streaming-markdown > p")?.textContent).toBe("我先检查");
 		const completed = replies(source({ messages: [user, assistant([...live.content, call]), result, assistant([text("最终报告")], "stop")] }));
 		expect(completed[0]).toMatchObject({ key: streaming[0]?.key, answer: [{ text: "最终报告" }] });
 	});

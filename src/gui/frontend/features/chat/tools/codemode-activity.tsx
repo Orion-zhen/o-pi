@@ -1,4 +1,6 @@
 import { ChevronRight, CodeXml } from "lucide-react";
+import { AnimatePresence } from "motion/react";
+import { Reveal } from "@/ui/motion/animated.tsx";
 import { outputPreview } from "../../../../shared/messages/output.ts";
 import type { GuiNestedCall, ToolState } from "../../../../shared/messages/types.ts";
 import { ActivityError, ActivityState, errorSummary } from "./tool-display.tsx";
@@ -34,9 +36,9 @@ export function CodemodeActivity({ tool }: { tool: ToolActivity }) {
 			<ActivityError>{error}</ActivityError>
 			<CollapsibleContent lazy>
 				<div className="activity-body codemode-body">
-					<div className="codemode-calls">
-						{calls.map((call) => <NestedCallRow key={call.id} call={call} active={active} stopped={tool.state === "stopped"} />)}
-					</div>
+					<div className="codemode-calls"><AnimatePresence initial={false}>
+						{calls.map((call) => <Reveal key={call.id}><NestedCallRow call={call} active={active} stopped={tool.state === "stopped"} /></Reveal>)}
+					</AnimatePresence></div>
 					{!active && tool.nestedCalls?.complete === false && <p className="tool-note">调用记录不完整，部分参数、调用或完成状态未保留。</p>}
 					{record(tool.args) && typeof tool.args.code === "string" && <Disclosure className="tool-parameters" summary="脚本" lazy>
 						<CodeBlock label="JavaScript" language="javascript" text={tool.args.code} />

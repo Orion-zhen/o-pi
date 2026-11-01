@@ -1,6 +1,6 @@
 import { act } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
-import { MarkdownText } from "../../../../../src/gui/frontend/ui/content/markdown.tsx";
+import { StreamingText } from "../../../../../src/gui/frontend/ui/content/markdown.tsx";
 import { renderMermaid } from "../../../../../src/gui/frontend/ui/content/mermaid-renderer.ts";
 import { validateMermaidSource } from "../../../../../src/gui/frontend/ui/content/mermaid-source.ts";
 import { ImagePreviewProvider } from "../../../../../src/gui/frontend/ui/media/image-preview.tsx";
@@ -18,7 +18,7 @@ const url = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox=
 
 function view(text: string, streaming = false) {
 	return <TooltipProvider><ImagePreviewProvider sessionId="session" fallbackFocus={{ current: null }}>
-		<MarkdownText text={text} streaming={streaming} />
+		<StreamingText text={text} active={streaming} />
 	</ImagePreviewProvider></TooltipProvider>;
 }
 
