@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import autoTitle from "../../../src/harness/extensions/auto-title.ts";
+import skillContext from "../../../src/harness/extensions/skill-context.ts";
 import { loadAutoTitleConfig, type AutoTitleConfig } from "../../../src/harness/auto-title/config.ts";
 import { startModelServer, type ModelRequest, type ModelResponse } from "../../cli/model-server.ts";
 import { deferred } from "../../helpers/async.ts";
@@ -71,8 +72,8 @@ async function start(manager = SessionManager.create(cwd, path.join(temp.path, "
 		const services = await createAgentSessionServices({
 			cwd, agentDir,
 			resourceLoaderOptions: {
-				extensionFactories: [{ name: "auto-title", factory: autoTitle }],
-				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+				extensionFactories: [{ name: "auto-title", factory: autoTitle }, { name: "skill-context", factory: skillContext }],
+				noSkills: false, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			},
 		});
 		models = services.modelRuntime;
@@ -114,6 +115,25 @@ describe("共享 SDK 自动标题", () => {
 		expect(SessionManager.open(file).getSessionName()).toBe("修复登录错误");
 		await current.prompt("接着优化查询");
 		expect(titleRequests).toHaveLength(1);
+	});
+
+	it("手动加载不触发命名，附带任务只用正文生成标题", async () => {
+		const dir = path.join(agentDir, "skills", "review");
+		await mkdir(dir, { recursive: true });
+		await writeFile(path.join(dir, "SKILL.md"), "---\nname: review\ndescription: 审查代码\n---\n检查代码逻辑。\n");
+		const current = await start();
+		await current.prompt("/skill:review");
+		expect(titleRequests).toHaveLength(0);
+		expect(current.messages.some((message) => message.role === "user")).toBe(false);
+		expect(JSON.stringify(current.messages)).toContain("检查代码逻辑。");
+
+		await current.prompt("/skill:review  \n  修复登录接口的 500 错误");
+		await expect.poll(() => current.sessionName).toBe("修复登录错误");
+		expect(titleRequests).toHaveLength(1);
+		expect(titleRequests[0]?.messages.at(-1)).toMatchObject({ role: "user", content: "修复登录接口的 500 错误" });
+		expect(current.messages.filter((message) => message.role === "user")).toMatchObject([
+			{ content: [{ type: "text", text: "修复登录接口的 500 错误" }] },
+		]);
 	});
 
 	it.each(["off", "minimal", "low"])("所选模型使用最低思考等级 %s，保留主会话设置", async (id) => {

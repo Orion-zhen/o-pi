@@ -48,6 +48,14 @@ describe("技能命令", () => {
 		expect(messages[0]?.options).toEqual({ triggerTurn: false });
 	});
 
+	it("加载失败时不继续处理任务", async () => {
+		const { handlers } = registerExtension(skillContextExtension);
+		const ctx = fakeCtx([]);
+		const result = await handlers.get("input")?.({ type: "input", text: "/skill:missing 执行任务", source: "interactive" }, ctx);
+		expect(result).toEqual({ action: "handled" });
+		expect(ctx.ui.notify).toHaveBeenCalledWith('skill "missing" was not found.', "error");
+	});
+
 	it("skill 工具执行模型权限、写入分支记录并标记失败结果", async () => {
 		const allowedPath = await writeSkill("allowed", false);
 		const hiddenPath = await writeSkill("hidden", true);
