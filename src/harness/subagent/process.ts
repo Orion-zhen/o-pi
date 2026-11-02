@@ -4,9 +4,9 @@ import { childInvocation } from "../runtime/invocation.ts";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { PiJsonProgressAccumulator } from "./json-progress.ts";
+import { PiJsonProgressAccumulator, type PiJsonProgressSnapshot } from "./json-progress.ts";
 import { formatModelReference } from "./model.ts";
-import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress } from "./types.ts";
+import type { ProcessOutcome, ProcessRunInput, ProcessRunOutput, ProcessRunProgress } from "./types.ts";
 
 export async function runPiProcess(input: ProcessRunInput, options: { signal?: AbortSignal; onUpdate?: (progress: ProcessRunProgress) => void } = {}): Promise<ProcessRunOutput> {
 	const start = Date.now();
@@ -15,12 +15,11 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	let stderr = "";
 	let processError: string | undefined;
 	let parseErrors = 0;
-	let timedOut = false;
-	let aborted = false;
+	let termination: "timeout" | "aborted" | undefined;
 
 	const launch = await buildLaunch(input);
 	const invocation = childInvocation(launch.args);
-	const exitCode = await new Promise<number>((resolve) => {
+	const exitCode = await new Promise<number>((resolve, reject) => {
 		const env = { ...buildChildEnv(invocation.env ?? process.env), ...launch.env };
 		const proc: AgentProcess = hostServices
 			? hostServices.spawnAgent(launch.args, launch.cwd, env)
@@ -29,6 +28,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			});
 		let settled = false;
 		let terminating = false;
+		let progressError: { error: unknown } | undefined;
 		let graceTimer: NodeJS.Timeout | undefined;
 		let abortListener: (() => void) | undefined;
 		let timeout: NodeJS.Timeout | undefined;
@@ -51,10 +51,14 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			};
 		};
 		const emitProgress = () => {
-			if (!progressDirty) return;
+			if (!progressDirty || progressError !== undefined) return;
 			progressDirty = false;
 			lastProgressAt = Date.now();
-			options.onUpdate?.(progressSnapshot());
+			try { options.onUpdate?.(progressSnapshot()); }
+			catch (error) {
+				progressError = { error };
+				terminateProcess();
+			}
 		};
 		const scheduleProgress = () => {
 			if (options.onUpdate === undefined) return;
@@ -80,55 +84,56 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 		};
 		const finish = (code: number) => {
 			if (settled) return;
+			settled = true;
 			if (stdoutBuffer.trim() !== "") processJsonLine(stdoutBuffer);
 			flushProgress();
-			settled = true;
 			if (timeout !== undefined) clearTimeout(timeout);
 			if (graceTimer !== undefined) clearTimeout(graceTimer);
 			if (abortListener !== undefined) options.signal?.removeEventListener("abort", abortListener);
-			resolve(code);
+			proc.stdout.off("data", onStdout);
+			proc.stderr.off("data", onStderr);
+			proc.off("error", onError);
+			proc.off("close", onClose);
+			if (progressError === undefined) resolve(code);
+			else reject(progressError.error);
 		};
-		const abort = () => {
-			aborted = true;
-			terminateProcess(proc);
-		};
-		const terminateProcess = (procToKill: AgentProcess) => {
+		const abort = () => terminateProcess("aborted");
+		const terminateProcess = (reason?: "timeout" | "aborted") => {
 			if (terminating || settled) return;
 			terminating = true;
-			procToKill.kill("SIGTERM");
-			if (settled || procToKill.exitCode !== null) return;
+			termination = reason;
+			proc.kill("SIGTERM");
+			if (settled || proc.exitCode !== null) return;
 			graceTimer = setTimeout(() => {
-				if (procToKill.exitCode === null) procToKill.kill("SIGKILL");
+				if (proc.exitCode === null) proc.kill("SIGKILL");
 			}, 2_000);
 		};
 		const processJsonLine = (line: string) => {
-			if (line.trim() === "") return;
+			if (progressError !== undefined || line.trim() === "") return;
+			let changed: boolean;
 			try {
-				const event = parseJsonEvent(line);
-				if (progress.consume(event)) scheduleProgress();
+				changed = progress.consume(parseJsonEvent(line));
 			} catch {
 				parseErrors++;
+				return;
 			}
+			if (changed) scheduleProgress();
 		};
-
-		timeout = setTimeout(() => {
-			timedOut = true;
-			terminateProcess(proc);
-		}, input.timeoutMs);
-		proc.stdout.on("data", (chunk) => {
+		const onStdout = (chunk: Buffer) => {
 			stdoutBuffer += chunk.toString();
 			const lines = stdoutBuffer.split(/\r?\n/);
 			stdoutBuffer = lines.pop() as string;
 			for (const line of lines) processJsonLine(line);
-		});
-		proc.stderr.on("data", (chunk) => {
-			stderr += chunk.toString();
-		});
-		proc.on("error", (spawnError) => {
-			processError = spawnError.message;
-			finish(1);
-		});
-		proc.on("close", (code) => finish(code === null ? 1 : code));
+		};
+		const onStderr = (chunk: Buffer) => { stderr += chunk.toString(); };
+		const onError = (error: Error) => { processError = error.message; };
+		const onClose = (code: number | null) => finish(code === null ? 1 : code);
+
+		timeout = setTimeout(() => terminateProcess("timeout"), input.timeoutMs);
+		proc.stdout.on("data", onStdout);
+		proc.stderr.on("data", onStderr);
+		proc.on("error", onError);
+		proc.on("close", onClose);
 		if (options.signal !== undefined) {
 			if (options.signal.aborted) abort();
 			else {
@@ -138,21 +143,43 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 		}
 	});
 	const finalProgress = progress.snapshot();
-	const finalError = processError ?? finalProgress.error;
 	return {
 		exitCode,
 		...(finalProgress.stopReason !== undefined ? { stopReason: finalProgress.stopReason } : {}),
-		...(finalError !== undefined ? { error: finalError } : {}),
+		outcome: processOutcome(finalProgress, exitCode, termination, processError, parseErrors),
 		output: finalProgress.output,
 		stderr,
 		usage: finalProgress.usage,
 		events: finalProgress.events,
 		durationMs: Date.now() - start,
-		timedOut,
-		aborted,
-		parseErrors,
 		wrote: finalProgress.wrote,
 	};
+}
+
+function processOutcome(
+	progress: PiJsonProgressSnapshot,
+	exitCode: number,
+	termination: "timeout" | "aborted" | undefined,
+	processError: string | undefined,
+	parseErrors: number,
+): ProcessOutcome {
+	if (termination === "aborted" || progress.stopReason === "aborted") {
+		return { kind: "failed", reason: "aborted", message: "subagent aborted" };
+	}
+	if (parseErrors > 0) return {
+		kind: "failed", reason: "protocol",
+		message: `Pi JSON protocol error: ${parseErrors} malformed event${parseErrors === 1 ? "" : "s"}`,
+	};
+	if (progress.stopReason === "length") return {
+		kind: "failed", reason: "length", message: "subagent output truncated: model output token limit reached",
+	};
+	if (termination === "timeout") return { kind: "failed", reason: "timeout", message: "subagent timed out" };
+	if (processError !== undefined) return { kind: "failed", reason: "process", message: processError };
+	if (progress.error !== undefined) return { kind: "failed", reason: "model", message: progress.error };
+	if (exitCode !== 0) return { kind: "failed", reason: "exit", message: `subagent exited with code ${exitCode}` };
+	if (progress.stopReason === "error") return { kind: "failed", reason: "model", message: "subagent stopReason: error" };
+	if (progress.output.trim() === "") return { kind: "failed", reason: "empty", message: "empty output" };
+	return { kind: "success" };
 }
 
 async function buildLaunch(input: ProcessRunInput): Promise<{ args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {

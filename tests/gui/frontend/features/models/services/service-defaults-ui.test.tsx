@@ -18,6 +18,7 @@ beforeEach(() => {
 	vi.stubGlobal("cancelAnimationFrame", clearTimeout);
 });
 const field = (label: string) => document.querySelector(`[role="combobox"][aria-label="${label}"]`);
+const radioValue = (label: string) => document.querySelector(`[role="radiogroup"][aria-label="${label}"] [role="radio"][aria-checked="true"]`)?.closest("label")?.textContent;
 const toggle = (label: string) => document.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`);
 const button = (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 const expand = async (label: string) => act(async () => {
@@ -37,9 +38,8 @@ it("表单直接选中实际值，渲染不把默认值写入草稿", async () =
 	expect(maxTokens?.value).toBe("");
 	expect(maxTokens?.placeholder).toBe("不限制（由服务端决定）");
 	await expand("协议与思考");
-	for (const [label, value] of [["思考格式", "openai"], ["输出上限字段", "max_completion_tokens"]]) {
-		expect(field(String(label))?.textContent).toBe(value);
-	}
+	expect(field("思考格式")?.textContent).toBe("openai");
+	expect(radioValue("输出上限字段")).toBe("max_completion_tokens");
 	for (const label of ["Developer 角色", "服务端存储", "独立 reasoning_effort 参数"]) {
 		expect(toggle(label)?.getAttribute("aria-checked")).toBe("true");
 		expect(field(label)).toBeNull();
@@ -94,12 +94,12 @@ it("模型覆盖继承模型定义及服务，服务地址改变后立即更新"
 	expect(button("文本")?.getAttribute("aria-pressed")).toBe("true");
 	expect(button("图片")?.getAttribute("aria-pressed")).toBe("true");
 	expect(field("思考格式")?.textContent).toBe("deepseek");
-	expect(field("输出上限字段")?.textContent).toBe("max_tokens");
+	expect(radioValue("输出上限字段")).toBe("max_tokens");
 	expect(toggle("服务端存储")?.getAttribute("aria-checked")).toBe("true");
 	provider.baseUrl = "http://localhost/v1";
 	await render(view());
 	expect(field("思考格式")?.textContent).toBe("openai");
-	expect(field("输出上限字段")?.textContent).toBe("max_completion_tokens");
+	expect(radioValue("输出上限字段")).toBe("max_completion_tokens");
 });
 
 it("重置思考格式清除本层覆盖，恢复模型定义", async () => {

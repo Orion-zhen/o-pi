@@ -37,14 +37,10 @@ export function repairableTool<TParams extends TSchema, TDetails = unknown, TSta
 
 		const fanout: RepairFanout[] = [];
 		const repaired = repairArguments(args, spec, operations, fanout);
-		if (Check(tool.parameters, repaired)) {
-			notify(observer, tool.name, args, repaired, "repaired", operations, fanout[0]);
-			return repaired as ToolArguments<TParams>;
-		}
-
-		notify(observer, tool.name, args, args, "invalid", operations);
-		// 无法修复时保留原参数，错误格式由 SDK 的最终校验统一生成。
-		return args as ToolArguments<TParams>;
+		const changed = operations.length > 0;
+		const prepared = changed ? repaired : args;
+		notify(observer, tool.name, args, prepared, changed ? "repaired" : "accepted", operations, fanout[0]);
+		return prepared as ToolArguments<TParams>;
 	};
 	return {
 		...tool,
@@ -82,8 +78,6 @@ export function repairArguments(args: unknown, spec: RepairSpec, operations: Rep
 	repairArrayFields(candidate, spec, operations);
 	repairPathListFields(candidate, spec, operations, fanout);
 	migrateNestedAliases(candidate, spec, operations);
-	repairNumericFields(candidate, spec, operations);
-	dropOptionalNullFields(candidate, spec, operations);
 	repairPathFields(candidate, spec, operations);
 	cleanUnknownFields(spec.schema, candidate, operations);
 
@@ -105,11 +99,9 @@ function migrateNestedAliases(target: JsonObject, spec: RepairSpec, operations: 
 		const sourceKey = segments.at(-1);
 		if (sourceKey === undefined) continue;
 		const parentPath = segments.slice(0, -1);
-		const targetSchema = getSchemaAtPath(spec.schema, [...parentPath, targetKey]);
 		forEachObjectAtPath(target, parentPath, (parent) => {
 			if (!Object.hasOwn(parent, sourceKey) || Object.hasOwn(parent, targetKey)) return;
 			const value = parent[sourceKey];
-			if (targetSchema !== undefined && !Check(targetSchema, value)) return;
 			parent[targetKey] = value;
 			delete parent[sourceKey];
 			operations.push("nested_alias");
@@ -150,28 +142,6 @@ function repairArrayFields(target: JsonObject, spec: RepairSpec, operations: Rep
 				parent[key] = [value];
 				operations.push("object_to_array");
 			}
-		});
-	}
-}
-
-function dropOptionalNullFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
-	for (const path of spec.optionalFields) {
-		forEachParentAtPath(target, splitPath(path), (parent, key) => {
-			if (parent[key] === null) {
-				delete parent[key];
-				operations.push("drop_optional_null");
-			}
-		});
-	}
-}
-
-function repairNumericFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
-	for (const path of spec.numericFields) {
-		forEachParentAtPath(target, splitPath(path), (parent, key) => {
-			const value = parent[key];
-			if (typeof value !== "string" || !isPlainNumericString(value)) return;
-			parent[key] = Number(value);
-			operations.push("numeric_string_to_number");
 		});
 	}
 }
@@ -237,25 +207,6 @@ function requiredFieldsPresent(schema: SchemaNode, value: JsonObject): boolean {
 	return (schema.required ?? []).every((key) => Object.hasOwn(value, key));
 }
 
-function getSchemaAtPath(schema: TSchema, segments: readonly string[]): TSchema | undefined {
-	let current: TSchema | undefined = schema;
-	for (const segment of segments) {
-		if (current === undefined) return undefined;
-		const node = current as SchemaNode;
-		if (segment === "*") {
-			current = node.type === "array" ? node.items : undefined;
-			continue;
-		}
-		if (node.type === "array") {
-			current = node.items;
-			if (current === undefined) return undefined;
-		}
-		const objectNode = current as SchemaNode;
-		current = objectNode.type === "object" ? objectNode.properties?.[segment] : undefined;
-	}
-	return current;
-}
-
 function forEachParentAtPath(value: unknown, segments: readonly string[], visit: (parent: JsonObject, key: string) => void): void {
 	if (segments.length === 0) return;
 	const key = segments.at(-1);
@@ -298,10 +249,6 @@ function parseJsonArray(value: string): unknown[] | undefined {
 	} catch {
 		return undefined;
 	}
-}
-
-function isPlainNumericString(value: string): boolean {
-	return /^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(value);
 }
 
 function splitPath(path: string): string[] {

@@ -6,7 +6,8 @@ import { readParameters } from "../file-tools/read/schema.ts";
 import { writeParameters } from "../file-tools/write/schema.ts";
 import { editParameters } from "../file-tools/edit/schema.ts";
 import { type FileToolRuntime } from "../file-tools/pi/invocation.ts";
-import { type FileToolsHost, type SessionObservationSeed } from "../file-tools/runtime/host.ts";
+import { FileToolsHost } from "../file-tools/runtime/host.ts";
+import { createGrepAdapter } from "../file-tools/pi/adapters/grep.ts";
 import { type SessionMutationScope } from "../file-tools/runtime/session-mutation.ts";
 import {
 	createPersistedObservationState,
@@ -33,46 +34,25 @@ import { SkillBranchState } from "../skill-context/state.ts";
 
 export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
 	const registerTool = createToolRegistrar(pi, telemetry);
-	type GrepAdapter = ReturnType<(typeof import("../file-tools/pi/adapters/grep.ts"))["createGrepAdapter"]>;
-	let grep: Promise<GrepAdapter> | undefined;
-	let grepAdapter: GrepAdapter | undefined;
-	const loadGrep = () => grep ??= import("../file-tools/pi/adapters/grep.ts").then(({ createGrepAdapter }) => {
-		grepAdapter = createGrepAdapter();
-		if (shuttingDown) grepAdapter.dispose();
-		return grepAdapter;
-	});
-	let host: FileToolsHost | undefined;
-	let restoredSession: SessionObservationSeed | undefined;
-	let shuttingDown = false;
-	const hostForInvocation = async (): Promise<FileToolsHost> => {
-		const { FileToolsHost: Host } = await import("../file-tools/runtime/host.ts");
-		if (host === undefined) {
-			host = new Host(restoredSession === undefined ? {} : { initialSession: restoredSession });
-			restoredSession = undefined;
-		}
-		if (shuttingDown) host.stop();
-		return host;
-	};
+	const host = new FileToolsHost();
+	const grep = createGrepAdapter();
 	const lsp = async () => (await import("../lsp/index.ts")).lspManager;
 	const mutationBatches = new MutationBatchCoordinator(lsp);
 	const sessionMutations = new Map<string, SessionMutationScope>();
 	const skills = new SkillBranchState();
-	const skillPathIndex = createRetryableLoader(async () =>
-		buildSkillPathIndex(
-			collectSkillCandidates(undefined, pi.getCommands()),
-		),
-	);
+	let skillIndex: ReturnType<typeof buildSkillPathIndex> | undefined;
+	const skillPathIndex = () => skillIndex ??= buildSkillPathIndex(collectSkillCandidates(undefined, pi.getCommands()));
 
 	const runtimeForInvocation = async (
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
 	): Promise<FileToolRuntime> => {
-		const [invocationHost, index] = await Promise.all([hostForInvocation(), skillPathIndex()]);
+		const index = skillPathIndex();
 		return {
 			cwd: ctx.cwd,
 			sessionId: ctx.sessionManager.getSessionId(),
 			...(signal === undefined ? {} : { signal }),
-			host: invocationHost,
+			host,
 			pathAccess: await buildSkillFilesystemAccess(skills.read(ctx.sessionManager), index),
 		};
 	};
@@ -121,8 +101,8 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 			outputSchema: grepOutputSchema,
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [adapter, runtime] = await Promise.all([loadGrep(), runtimeForInvocation(ctx, signal)]);
-				return adapter.execute(params, {
+				const runtime = await runtimeForInvocation(ctx, signal);
+				return grep.execute(params, {
 					...runtime,
 					lsp,
 					tokenScope: ctx.model ? { provider: ctx.model.provider, modelId: ctx.model.id } : {},
@@ -225,13 +205,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 	pi.on("session_start", (event, ctx) => {
 		const persisted =
 			event.reason === "reload" ? readPersistedObservationState(ctx.sessionManager.getBranch()) : undefined;
-		restoredSession =
-			persisted === undefined
-				? undefined
-				: {
-						sessionId: ctx.sessionManager.getSessionId(),
-						observations: persisted.observations,
-					};
+		if (persisted !== undefined) host.restoreSession(ctx.sessionManager.getSessionId(), persisted.observations);
 	});
 
 	pi.on("message_end", (event) => {
@@ -243,8 +217,8 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 	pi.on("tool_execution_start", (event) => mutationBatches.started(event.toolCallId));
 	// 嵌套调用在入队前发出 execution_start，参数校验和审批钩子才位于执行队列内。
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName !== "bash" || host === undefined) return;
-		const index = await skillPathIndex();
+		if (event.toolName !== "bash") return;
+		const index = skillPathIndex();
 		const pathAccess = await buildSkillFilesystemAccess(skills.read(ctx.sessionManager), index);
 		const scope = await host.beginSessionMutation({
 			cwd: ctx.cwd,
@@ -265,32 +239,16 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 		sessionMutations.delete(event.toolCallId);
 	});
 	pi.on("session_shutdown", (event, ctx) => {
-		if (event.reason === "reload" && host !== undefined) {
+		if (event.reason === "reload") {
 			const observations = host.sessionObservations(ctx.sessionManager.getSessionId());
 			if (observations.length > 0) {
 				pi.appendEntry(FILE_TOOLS_OBSERVATION_STATE, createPersistedObservationState(observations));
 			}
 		}
-		shuttingDown = true;
-		restoredSession = undefined;
 		mutationBatches.dispose();
 		for (const scope of sessionMutations.values()) scope.dispose();
 		sessionMutations.clear();
-		host?.stop();
-		grepAdapter?.dispose();
-		host?.dispose();
+		grep.dispose();
+		host.dispose();
 	});
-}
-
-function createRetryableLoader<T>(load: () => Promise<T>): () => Promise<T> {
-	let pending: Promise<T> | undefined;
-	return () => {
-		if (pending !== undefined) return pending;
-		const created = load();
-		pending = created;
-		void created.catch(() => {
-			if (pending === created) pending = undefined;
-		});
-		return created;
-	};
 }

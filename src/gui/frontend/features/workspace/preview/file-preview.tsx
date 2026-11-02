@@ -7,7 +7,7 @@ import { MorphIcon } from "morphicons/react";
 import { nativeFileEvents } from "../native-file.ts";
 import { ReferenceFileButton } from "../reference-file-button.tsx";
 import type { FilePreview as Preview } from "../../../../shared/workspace.ts";
-import type { Remote } from "../use-workbench.ts";
+import type { Remote } from "@/connection/use-remote.ts";
 import { fileLanguage, SyntaxHighlighter } from "@/ui/content/code-highlight.ts";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";

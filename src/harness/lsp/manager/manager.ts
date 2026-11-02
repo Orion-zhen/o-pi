@@ -1,7 +1,6 @@
 import path from "node:path";
 import { FileChangeType } from "vscode-languageserver-protocol";
 import type { LspMutationInput, LspDocumentAnalysisInput } from "../file-operations.ts";
-import { emptySummary } from "../diagnostics/ledger.ts";
 
 import type { AnalyzedFileIndex, CodeAnalysis } from "../../code-index/types.ts";
 import { analyzeLspDocument } from "../analysis/document.ts";
@@ -95,28 +94,20 @@ export class LspManager {
 		return (await this.afterMutationBatch([input]))[0];
 	}
 
-	/** 文件已提交。通知失败不能阻止诊断，诊断失败也不能改变提交结果。 */
+	/** 协议失败由连接层表达，意外错误交给文件工具的增强边界。 */
 	async afterMutationBatch(inputs: readonly LspMutationInput[]): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
-		try {
-			await this.didChangeWatchedFiles(inputs.map((input) => ({
-				root: input.workspaceRoot,
-				filePath: input.filePath,
-				type: input.created ? FileChangeType.Created : FileChangeType.Changed,
-			})));
-		} catch {
-			// watched-file 通知和诊断是独立的增强步骤。
-		}
-		try {
-			return await collectWriteDiagnostics(this.runtime, inputs.map((input) => ({
-				root: input.workspaceRoot,
-				filePath: input.filePath,
-				text: input.content,
-				...(input.changed_ranges === undefined ? {} : { changed_ranges: input.changed_ranges }),
-				...(input.baseline === undefined ? {} : { baseline: input.baseline }),
-			})));
-		} catch {
-			return inputs.map(() => emptySummary("unavailable"));
-		}
+		await this.didChangeWatchedFiles(inputs.map((input) => ({
+			root: input.workspaceRoot,
+			filePath: input.filePath,
+			type: input.created ? FileChangeType.Created : FileChangeType.Changed,
+		})));
+		return collectWriteDiagnostics(this.runtime, inputs.map((input) => ({
+			root: input.workspaceRoot,
+			filePath: input.filePath,
+			text: input.content,
+			...(input.changed_ranges === undefined ? {} : { changed_ranges: input.changed_ranges }),
+			...(input.baseline === undefined ? {} : { baseline: input.baseline }),
+		})));
 	}
 
 	knownDiagnostics(root: string, filePath?: string): Promise<Array<{ path: string; items: LspDiagnosticsSummary["items"] }>> {

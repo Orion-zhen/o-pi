@@ -15,7 +15,7 @@ import { incrementalContentChange } from "./text-change.ts";
 import { languageIdForServerPath } from "../config/routing.ts";
 import { requestDocumentSymbols } from "../protocol/features.ts";
 import { pathToFileUri } from "../protocol/uri.ts";
-import type { LspClientConnection } from "./connection.ts";
+import type { ReadyLspConnection } from "./connection.ts";
 import type { LspClientDocumentContext, LspConfig, LspDocumentSymbols, LspRequestOptions, LspServerConfig } from "../types.ts";
 
 interface DocumentState extends LspClientDocumentContext {
@@ -38,7 +38,7 @@ export class LspClientDocuments {
 		private readonly root: string,
 		private readonly server: LspServerConfig,
 		config: LspConfig,
-		readonly connection: LspClientConnection,
+		readonly connection: ReadyLspConnection,
 	) {
 		this.maxDocuments = config.max_open_documents;
 	}
@@ -240,8 +240,8 @@ interface TextDocumentSyncPolicy {
 	includeText: boolean;
 }
 
-function textDocumentSyncPolicy(capabilities: ServerCapabilities | undefined): TextDocumentSyncPolicy {
-	const sync: TextDocumentSyncOptions | TextDocumentSyncKind | undefined = capabilities?.textDocumentSync;
+function textDocumentSyncPolicy(capabilities: ServerCapabilities): TextDocumentSyncPolicy {
+	const sync: TextDocumentSyncOptions | TextDocumentSyncKind | undefined = capabilities.textDocumentSync;
 	if (typeof sync === "number") {
 		return { openClose: sync !== TextDocumentSyncKind.None, change: sync, save: false, includeText: false };
 	}

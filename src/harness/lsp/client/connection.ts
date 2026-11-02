@@ -13,7 +13,7 @@ import {
 } from "vscode-jsonrpc/node";
 import {
 	ConfigurationRequest, ExitNotification, InitializeRequest, RegistrationRequest, ShutdownRequest, WorkspaceFoldersRequest,
-	type InitializeParams, type ServerCapabilities,
+	type InitializeParams,
 } from "vscode-languageserver-protocol";
 
 import type { LspTransportConnection } from "../protocol/transport.ts";
@@ -26,26 +26,26 @@ const MIN_GRACEFUL_CLOSE_MS = 1000;
 const MAX_GRACEFUL_CLOSE_MS = 3000;
 const POST_CLOSE_DRAIN_MS = 1000;
 
-/** 一代协议连接独占能力、请求取消、故障信号、writer 和底层资源。 */
-export class LspClientConnection implements LspFeatureSession {
+export type ReadyLspConnection = LspClientConnection & LspFeatureSession;
+
+/** 一代协议连接独占请求取消、故障信号、writer 和底层资源。 */
+export class LspClientConnection {
 	readonly rpc: MessageConnection;
 	private readonly failure: Promise<never>;
 	private readonly failureHandled: Promise<void>;
 	private readonly writer: DrainingMessageWriter;
 	private closePromise: Promise<void> | undefined;
-	private serverCapabilities: ServerCapabilities | undefined;
 	private usable = true;
-	private rejectFailure: (error: Error) => void = () => undefined;
+	private requestError: string | undefined;
+	private readonly localFailure = Promise.withResolvers<never>();
 
 	constructor(
 		private readonly transport: LspTransportConnection,
 		private readonly requestTimeoutMs: number,
 		readonly protocol: LspProtocolInfrastructure,
 		onFailure: (message: string) => Promise<void>,
-		private readonly onRequestError: (message: string) => void,
 	) {
-		const localFailure = new Promise<never>((_resolve, reject) => { this.rejectFailure = reject; });
-		this.failure = Promise.race([localFailure, transport.failure]);
+		this.failure = Promise.race([this.localFailure.promise, transport.failure]);
 		this.failureHandled = this.failure.catch(async (error: unknown) => {
 			this.usable = false;
 			await onFailure(errorMessage(error));
@@ -64,25 +64,20 @@ export class LspClientConnection implements LspFeatureSession {
 		});
 	}
 
-	capabilities(): ServerCapabilities | undefined {
-		return this.serverCapabilities;
-	}
-
-	async initialize(params: InitializeParams, timeoutMs: number): Promise<void> {
+	async initialize(params: InitializeParams, timeoutMs: number): Promise<ReadyLspConnection> {
 		const result = await withTimeout(Promise.race([
 			this.rpc.sendRequest(InitializeRequest.type, params), this.failure,
 		]), timeoutMs);
-		this.serverCapabilities = result.capabilities;
+		return Object.assign(this, { capabilities: () => result.capabilities });
 	}
 
 	async request<P, R, E>(type: RequestType<P, R, E>, params: NoInfer<RequestParam<P>>, options: LspRequestOptions = {}): Promise<R | undefined> {
 		if (!this.usable) return undefined;
 		const source = new CancellationTokenSource();
-		let rejectCancellation: (error: Error) => void = () => undefined;
-		const cancelled = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
+		const cancelled = Promise.withResolvers<never>();
 		const cancel = (message: string): void => {
 			source.cancel();
-			rejectCancellation(new Error(message));
+			cancelled.reject(new Error(message));
 		};
 		const onAbort = (): void => cancel("request cancelled");
 		if (options.signal?.aborted === true) onAbort();
@@ -93,10 +88,10 @@ export class LspClientConnection implements LspFeatureSession {
 		}, options.timeoutMs ?? this.requestTimeoutMs);
 		try {
 			return await Promise.race([
-				this.rpc.sendRequest(type, params, source.token), this.failure, cancelled,
+				this.rpc.sendRequest(type, params, source.token), this.failure, cancelled.promise,
 			]);
 		} catch (error) {
-			this.onRequestError(errorMessage(error));
+			this.requestError = errorMessage(error);
 			return undefined;
 		} finally {
 			clearTimeout(timer);
@@ -125,7 +120,11 @@ export class LspClientConnection implements LspFeatureSession {
 	private fail(error: unknown): void {
 		if (!this.usable) return;
 		this.usable = false;
-		this.rejectFailure(error instanceof Error ? error : new Error(String(error)));
+		this.localFailure.reject(error);
+	}
+
+	lastErrorMessage(): string | undefined {
+		return this.requestError;
 	}
 
 	stderrTail(): string | undefined {
@@ -168,11 +167,11 @@ export class LspClientConnection implements LspFeatureSession {
 		const graceMs = Math.min(MAX_GRACEFUL_CLOSE_MS, Math.max(MIN_GRACEFUL_CLOSE_MS, timeoutMs));
 		const deadline = Date.now() + graceMs;
 		const shutdownDeadline = Math.min(deadline, Date.now() + Math.min(1000, Math.floor(graceMs / 2)));
-		const shutdown = callDuringClose(() => this.rpc.sendRequest(ShutdownRequest.type, undefined));
+		const shutdown = Promise.resolve().then(() => this.rpc.sendRequest(ShutdownRequest.type, undefined));
 		await settleUntil(shutdown, shutdownDeadline);
 
-		const exit = callDuringClose(() => this.rpc.sendNotification(ExitNotification.type));
-		const drained = await settleUntil(Promise.all([exit, this.writer.drain()]), deadline);
+		const exit = Promise.resolve().then(() => this.rpc.sendNotification(ExitNotification.type));
+		const drained = await settleUntil(Promise.allSettled([exit, this.writer.drain()]), deadline);
 		if (drained) {
 			try {
 				this.rpc.end();
@@ -239,14 +238,6 @@ function validatedProtocolResult<T>(factory: () => T): T {
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-function callDuringClose<T>(factory: () => Promise<T>): Promise<T | undefined> {
-	try {
-		return factory().catch(() => undefined);
-	} catch {
-		return Promise.resolve(undefined);
-	}
 }
 
 async function settleUntil(promise: Promise<unknown>, deadline: number): Promise<boolean> {

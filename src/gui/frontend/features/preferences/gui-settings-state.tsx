@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import type { Send } from "@/connection/connection.ts";
+import type { ConfigCommand } from "@/connection/connection.ts";
 import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
 import type { GuiConfigDocument } from "../../../shared/config/preferences.ts";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
@@ -12,7 +12,6 @@ type GuiSettingsState = {
 	latest: GuiConfigDocument;
 	document: GuiConfigDocument;
 	blocked: boolean;
-	error: string;
 	update: (previous: ReadyGuiConfig, next: ReadyGuiConfig) => void;
 	changeSource: (content: string, section: GuiSection) => void;
 };
@@ -26,10 +25,9 @@ export function useGuiSettings() {
 }
 
 export function GuiSettingsProvider({ document: latest, send, query, disabled, refresh, children }: {
-	document: GuiConfigDocument | undefined; send: Send; query: Query<GlobalQuery>; disabled: boolean; refresh: () => Promise<void>; children: ReactNode;
+	document: GuiConfigDocument | undefined; send: ConfigCommand; query: Query<GlobalQuery>; disabled: boolean; refresh: () => Promise<void>; children: ReactNode;
 }) {
 	const [draft, setDraft] = useState<Draft>();
-	const [error, setError] = useState("");
 	const { saving } = useSettingsState();
 	const categories = useMemo(() => {
 		if (!draft) return [];
@@ -39,37 +37,29 @@ export function GuiSettingsProvider({ document: latest, send, query, disabled, r
 			.map((section) => sectionCategories[section]);
 	}, [draft]);
 	useSettingsDraft("gui", {
-		title: "GUI 设置", categories, dirty: draft !== undefined, blocked: disabled, invalid: draft?.document.state === "error",
-		save: async () => {
-			if (!draft) return false;
-			setError("");
+		title: "GUI 设置", categories, dirty: draft !== undefined, blocked: disabled,
+		save: draft === undefined || draft.document.state === "error" ? null : async () => {
 			const content = draft.kind === "form"
 				? preferenceSave(draft.base, draft.document, await query({ query: "guiConfig" }))
 				: { original: draft.base.content, content: draft.document.content };
-			if (!await send({ action: "saveGuiConfig", ...content })) {
-				setError("保存失败，草稿已保留。");
-				return false;
-			}
+			await send({ action: "saveGuiConfig", ...content });
 			await refresh();
 			setDraft(undefined);
-			return true;
 		},
-		discard: () => { setDraft(undefined); setError(""); },
+		discard: () => setDraft(undefined),
 	});
 	const state: GuiSettingsState | undefined = latest && {
-		latest, document: draft?.document ?? latest, blocked: disabled || saving, error,
+		latest, document: draft?.document ?? latest, blocked: disabled || saving,
 		update: (previous, next) => {
 			const updated: Draft = draft?.kind === "source" ? { ...draft, document: next }
 				: { kind: "form", base: draft?.base ?? previous, document: next };
 			const changed = updated.kind === "source" ? next.content !== updated.base.content
 				: guiSections.some((section) => sectionChanged(updated.base.value, next.value, section));
 			setDraft(changed ? updated : undefined);
-			setError("");
 		},
 		changeSource: (content, section) => {
 			const base = draft?.base ?? latest;
 			setDraft(content === base.content ? undefined : { kind: "source", base, document: readPreferenceSource(base, content), section });
-			setError("");
 		},
 	};
 	return <Context value={state}>{children}</Context>;

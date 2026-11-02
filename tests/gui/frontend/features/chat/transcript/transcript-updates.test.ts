@@ -1,7 +1,7 @@
 import { act, createElement } from "react";
 import { useReactFixture } from "../../../../helpers/react-fixture.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DisclosureMemoryContext } from "../../../../../../src/gui/frontend/ui/disclosure-memory.ts";
+import { DisclosureMemory, DisclosureMemoryContext } from "../../../../../../src/gui/frontend/ui/disclosure-memory.ts";
 import { TooltipProvider } from "../../../../../../src/gui/frontend/ui/tooltip.tsx";
 import { GuiQueryContext } from "../../../../../../src/gui/frontend/connection/query-context.ts";
 import { ReplyContent } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript-sections.tsx";
@@ -13,7 +13,7 @@ const renderRoot = useReactFixture(() => {
 	Reflect.deleteProperty(window.HTMLElement.prototype, "getAnimations");
 	vi.restoreAllMocks();
 });
-const memory = new Map<string, boolean | null>();
+let memory = new DisclosureMemory();
 const query = async () => { throw new Error("内联结果不应请求载荷"); };
 const user = { role: "user", content: "检查项目", timestamp: 1 } as const;
 const completed = {
@@ -39,7 +39,7 @@ beforeEach(() => {
 	Object.defineProperty(window.HTMLElement.prototype, "getAnimations", { configurable: true, value: () => [] });
 	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0));
 	vi.stubGlobal("cancelAnimationFrame", clearTimeout);
-	memory.clear();
+	memory = new DisclosureMemory();
 });
 
 describe("当前轮次中的稳定内容", () => {

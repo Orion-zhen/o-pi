@@ -5,7 +5,7 @@ import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Query, GlobalQuery } from "../../../shared/protocol/queries.ts";
 import type { GuiConfigDocument } from "../../../shared/config/preferences.ts";
 import type { ModuleConfigId } from "../../../shared/config/modules.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { ConfigCommand, Send } from "@/connection/connection.ts";
 import { Button } from "@/ui/button.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
@@ -23,8 +23,8 @@ import { settingsCategories, type SettingsCategory } from "./navigation.ts";
 import { SettingsCategoryContext, SettingsStateContext, useSettingsCoordinator } from "@/forms/drafts.tsx";
 import "./settings.css";
 
-export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabled, connected, refreshGuiConfig, onDirty, initialCategory }: {
-	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; query: Query; globalQuery: Query<GlobalQuery>;
+export function Settings({ snapshot, guiConfig, send, dispatch, query, globalQuery, disabled, connected, refreshGuiConfig, onDirty, initialCategory }: {
+	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; dispatch: ConfigCommand; query: Query; globalQuery: Query<GlobalQuery>;
 	disabled: boolean; connected: boolean; refreshGuiConfig: () => Promise<void>;
 	onDirty: (dirty: boolean) => void;
 	initialCategory?: "mcp" | undefined;
@@ -35,8 +35,8 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 	const highlightId = useId();
 	const [visited, setVisited] = useState<Set<string>>(() => new Set([initial]));
 	const coordinator = useSettingsCoordinator(onDirty);
-	const { register, saving, dirtyPages } = coordinator;
-	const state = useMemo(() => ({ register, saving }), [register, saving]);
+	const { setDraft, saving, dirtyPages } = coordinator;
+	const state = useMemo(() => ({ setDraft, saving }), [setDraft, saving]);
 	const selectCategory = (id: string) => {
 		setSelection((previous) => {
 			// Radix 的聚焦与点击可连续通知同一分类，保留首次计算的方向。
@@ -47,7 +47,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 		});
 		setVisited((previous) => new Set([...previous, id]));
 	};
-	const module = (id: ModuleConfigId, title: string) => <ModuleSettings id={id} title={title} query={globalQuery} send={send}
+	const module = (id: ModuleConfigId, title: string) => <ModuleSettings id={id} title={title} query={globalQuery} send={dispatch}
 		disabled={!connected} models={snapshot?.models ?? []} tools={snapshot?.tools ?? null} currentModel={snapshot?.model ?? null} />;
 	const content = (id: SettingsCategory) => {
 		switch (id) {
@@ -55,20 +55,20 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 			case "conversation": return <>
 				<GuiSettings title="对话交互" section="interaction" />
 				<NotificationSettings />
-				{snapshot ? <AgentSettings key={snapshot.sessionId} settings={snapshot.settings} send={send} query={query} disabled={disabled} />
+				{snapshot ? <AgentSettings key={snapshot.sessionId} settings={snapshot.settings} send={dispatch} query={query} disabled={disabled} />
 					: <SettingsSection title="会话行为"><p className="settings-empty">未选择工作区</p></SettingsSection>}
 				{module("autoTitle", "自动标题")}
 			</>;
 			case "tools": return <>{module("bashTool", "终端执行")}{module("fileTools", "文件访问")}{module("lsp", "代码智能")}
 				<LspServers key={snapshot?.cwd} cwd={snapshot?.cwd} query={query} connected={connected} active={category === "tools"} />
 			</>;
-			case "models": return <ModelServicesSettings globalQuery={globalQuery} query={query} send={send} disabled={!connected}
+			case "models": return <ModelServicesSettings globalQuery={globalQuery} query={query} send={dispatch} disabled={!connected}
 				sessionId={snapshot?.sessionId} sessionRevision={snapshot?.modelServicesRevision} sessionReady={snapshot?.canSubmit ?? false} />;
 			case "web": return module("webTools", "网络与网页");
 			case "agents": return module("subagent", "子代理");
 			case "security": return module("approvalGate", "权限与安全");
 			case "connections": return <>
-				<McpSettings query={globalQuery} send={send} disabled={!connected} />
+				<McpSettings query={globalQuery} send={dispatch} disabled={!connected} />
 				<GuiSettings title="桌面 Web 访问" section="desktopWeb" />
 				{module("discordPresence", "Discord 状态")}
 			</>;
@@ -77,7 +77,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 		}
 	};
 	return <SettingsStateContext value={state}>
-		<GuiSettingsProvider document={guiConfig} send={send} query={globalQuery} disabled={!connected} refresh={refreshGuiConfig}>
+		<GuiSettingsProvider document={guiConfig} send={dispatch} query={globalQuery} disabled={!connected} refresh={refreshGuiConfig}>
 		<Tabs.Root className="settings-shell" orientation="vertical" value={category} onValueChange={selectCategory}>
 			<aside className="settings-navigation">
 				<motion.div className="settings-navigation-scroll" layoutScroll>

@@ -26,14 +26,14 @@ import type { LspDocumentSymbols, LspRequestOptions } from "../types.ts";
 
 /** 协议能力函数只依赖已建立连接的请求接口。 */
 export interface LspFeatureSession {
-	capabilities(): ServerCapabilities | undefined;
+	capabilities(): ServerCapabilities;
 	request<P, R, E>(type: RequestType<P, R, E>, params: NoInfer<RequestParam<P>>, options?: LspRequestOptions): Promise<R | undefined>;
 }
 
 export const providerEnabled = (provider: unknown): boolean => provider !== undefined && provider !== false;
 
 export async function requestDocumentSymbols(session: LspFeatureSession, uri: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
-	if (!providerEnabled(session.capabilities()?.documentSymbolProvider)) return undefined;
+	if (!providerEnabled(session.capabilities().documentSymbolProvider)) return undefined;
 	const result: unknown = await session.request(DocumentSymbolRequest.type, { textDocument: { uri } }, options);
 	if (result === null) return [];
 	if (!Array.isArray(result)) return undefined;
@@ -43,7 +43,7 @@ export async function requestDocumentSymbols(session: LspFeatureSession, uri: st
 }
 
 export async function requestWorkspaceSymbols(session: LspFeatureSession, query: string, options?: LspRequestOptions): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
-	if (!providerEnabled(session.capabilities()?.workspaceSymbolProvider)) return undefined;
+	if (!providerEnabled(session.capabilities().workspaceSymbolProvider)) return undefined;
 	const result: unknown = await session.request(WorkspaceSymbolRequest.type, { query }, options);
 	if (result === null) return [];
 	if (!Array.isArray(result)) return undefined;
@@ -52,7 +52,7 @@ export async function requestWorkspaceSymbols(session: LspFeatureSession, query:
 }
 
 export async function resolveWorkspaceSymbol(session: LspFeatureSession, symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
-	const provider = session.capabilities()?.workspaceSymbolProvider;
+	const provider = session.capabilities().workspaceSymbolProvider;
 	if (typeof provider !== "object" || provider === null || provider.resolveProvider !== true) return undefined;
 	const result: unknown = await session.request(WorkspaceSymbolResolveRequest.type, symbol, options);
 	return isWorkspaceSymbol(result) ? result : undefined;
@@ -64,7 +64,7 @@ export async function requestReferences(
 	position: Position,
 	options?: LspRequestOptions,
 ): Promise<Location[] | undefined> {
-	if (!providerEnabled(session.capabilities()?.referencesProvider)) return undefined;
+	if (!providerEnabled(session.capabilities().referencesProvider)) return undefined;
 	const result = await session.request(ReferencesRequest.type, {
 		textDocument: { uri }, position, context: { includeDeclaration: false },
 	}, options);
@@ -72,7 +72,7 @@ export async function requestReferences(
 }
 
 export async function prepareCalls(session: LspFeatureSession, uri: string, position: Position, options?: LspRequestOptions): Promise<CallHierarchyItem[] | undefined> {
-	if (!providerEnabled(session.capabilities()?.callHierarchyProvider)) return undefined;
+	if (!providerEnabled(session.capabilities().callHierarchyProvider)) return undefined;
 	const result: unknown = await session.request(CallHierarchyPrepareRequest.type, { textDocument: { uri }, position }, options);
 	return resultArray(result, isHierarchyItem);
 }
@@ -90,7 +90,7 @@ export async function requestOutgoingCalls(session: LspFeatureSession, item: Cal
 }
 
 export async function requestDefinition(session: LspFeatureSession, uri: string, position: Position, options?: LspRequestOptions): Promise<readonly (Location | DefinitionLink)[] | undefined> {
-	if (!providerEnabled(session.capabilities()?.definitionProvider)) return undefined;
+	if (!providerEnabled(session.capabilities().definitionProvider)) return undefined;
 	const result: unknown = await session.request(DefinitionRequest.type, { textDocument: { uri }, position }, options);
 	if (Location.is(result)) return [result];
 	return resultArray(result, (value): value is Location | DefinitionLink => Location.is(value)

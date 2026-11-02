@@ -192,7 +192,7 @@ export function App() {
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
-						{snapshot && gui.view && <RegionBoundary scope="composer" key={snapshot.sessionId}><Composer {...startup.composer} gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} /></RegionBoundary>}
+						{gui.session?.state === "ready" && <RegionBoundary scope="composer" key={gui.session.target.id}><Composer {...startup.composer} gui={gui} view={gui.session.view} snapshot={gui.session.snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} /></RegionBoundary>}
 						</div>
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
@@ -210,7 +210,7 @@ export function App() {
 			</Sheet>
 			<AnimatePresence mode="wait">
 			{panel?.kind === "settings" ? <RegionBoundary scope="settings" inline={false} key="settings" onFailure={gui.closePanel}>
-				<SettingsDialog ref={panelContent} close={gui.closePanel} initialCategory={panel.category} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+				<SettingsDialog ref={panelContent} close={gui.closePanel} initialCategory={panel.category} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} dispatch={gui.dispatch} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
 			</RegionBoundary> : panel && snapshot && (
 				<RegionBoundary scope="panel" inline={false} key={panel.kind} onFailure={gui.closePanel}><Panel
 					ref={panelContent}

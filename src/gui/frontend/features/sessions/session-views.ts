@@ -1,6 +1,6 @@
 import type { GuiAction } from "../../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../../shared/protocol/events.ts";
-import type { DisclosureMemory } from "@/ui/disclosure-memory.ts";
+import { DisclosureMemory } from "@/ui/disclosure-memory.ts";
 
 export type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number] & { id: number };
 export interface Draft { text: string; images: ImageAttachment[]; behavior: "steer" | "followUp" }
@@ -25,7 +25,7 @@ export class SessionViews {
 	open(session: { id: string; path: string | null }, draftFrom?: string): SessionViewState {
 		let record = this.records.get(session.id);
 		if (!record) {
-			record = { ...session, draft: { text: "", images: [], behavior: "steer" }, disclosures: new Map(), position: undefined };
+			record = { ...session, draft: { text: "", images: [], behavior: "steer" }, disclosures: new DisclosureMemory(), position: undefined };
 			this.records.set(session.id, record);
 		}
 		const previous = draftFrom ? this.records.get(draftFrom) : undefined;

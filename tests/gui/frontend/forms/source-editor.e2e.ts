@@ -32,7 +32,7 @@ test("GUI 源码编辑支持高亮、缩进、撤销，切回表单后统一保�
 	await expect.poll(() => source.locator(".cm-line").nth(1).textContent()).toBe("\t// 注释");
 	expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 	await panel.getByRole("button", { name: "表单", exact: true }).click();
-	await expect(panel.getByRole("radiogroup", { name: "主题", exact: true }).getByRole("radio", { name: "dark", exact: true })).toBeChecked();
+	await expect(panel.getByRole("radiogroup", { name: "主题", exact: true }).getByRole("radio", { name: "深色", exact: true })).toBeChecked();
 	await panel.getByRole("button", { name: "JSONC", exact: true }).click();
 	await panel.getByRole("button", { name: "保存", exact: true }).click();
 	await expect(panel.getByRole("button", { name: "保存", exact: true })).toBeDisabled();

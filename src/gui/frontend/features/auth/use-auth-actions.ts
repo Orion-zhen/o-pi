@@ -2,14 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GuiAction } from "../../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../../shared/protocol/events.ts";
 import { OAuthBrowser } from "./oauth-browser.ts";
-import type { Send } from "@/connection/connection.ts";
 
-export function useAuthActions(dispatch: (action: GuiAction) => Promise<unknown>, reportError: (message: string) => void, closePanel: () => void) {
+type LoginAction = Extract<GuiAction, { action: "login" | "prompt" }>;
+export function isLoginAction(action: GuiAction): action is LoginAction {
+	return action.action === "login" || action.action === "prompt" && /^\/mcp\s+login(?:\s|$)/.test(action.text);
+}
+
+export function useAuthActions(dispatch: (action: LoginAction) => Promise<void>, reportError: (message: string) => void, closePanel: () => void) {
 	const [auth, setAuth] = useState<Extract<GuiEvent, { type: "auth" }>["value"]>();
 	const [authUrl, setAuthUrl] = useState<string>();
 	const [deviceCode, setDeviceCode] = useState<string>();
 	const [browser] = useState(() => new OAuthBrowser());
-	const pending = useRef(false);
+	const pending = useRef<Promise<void> | undefined>(undefined);
 	const finish = useCallback(() => { browser.finish(); setAuth(undefined); setAuthUrl(undefined); setDeviceCode(undefined); }, [browser]);
 	useEffect(() => () => browser.finish(), [browser]);
 	const receive = (event: GuiEvent) => {
@@ -23,24 +27,17 @@ export function useAuthActions(dispatch: (action: GuiAction) => Promise<unknown>
 		if (event.value.type === "device_code") setDeviceCode(event.value.userCode);
 		if (url) { setAuthUrl(url); void browser.open(url).catch((error: unknown) => reportError(String(error))); }
 	};
-	const send: Send = useCallback(async (action) => {
-		const mcpLogin = action.action === "prompt" && /^\/mcp\s+login(?:\s|$)/.test(action.text);
-		const login = action.action === "login" || mcpLogin;
-		if (login) {
-			if (pending.current) return false;
-			pending.current = true;
-		}
-		try {
-			if (mcpLogin || action.action === "login" && action.type === "oauth") {
+	const login = useCallback((action: LoginAction): Promise<void> => {
+		if (pending.current) return pending.current;
+		const run = async () => {
+			if (action.action === "prompt" || action.type === "oauth") {
 				closePanel(); setAuthUrl(undefined); setDeviceCode(undefined); browser.prepare();
 			}
-			if (action.action === "dialog" && action.value !== null) browser.resume();
 			await dispatch(action);
-			return true;
-		} catch (error) {
-			reportError(error instanceof Error ? error.message : String(error));
-			return false;
-		} finally { if (login) { pending.current = false; finish(); } }
-	}, [dispatch, browser, finish, closePanel, reportError]);
-	return { auth, authUrl, deviceCode, receive, send, finish };
+		};
+		pending.current = run().finally(() => { pending.current = undefined; finish(); });
+		return pending.current;
+	}, [dispatch, browser, finish, closePanel]);
+	const resume = useCallback(() => browser.resume(), [browser]);
+	return { auth, authUrl, deviceCode, receive, login, resume, finish };
 }

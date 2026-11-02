@@ -2,7 +2,7 @@ import type { TSchema } from "typebox";
 
 export type RepairPath = string;
 
-export type ToolArgumentStatus = "accepted" | "repaired" | "invalid";
+export type ToolArgumentStatus = "accepted" | "repaired";
 export type RepairSeparator = "scalar" | "comma" | "whitespace" | "newline" | "mixed";
 
 export interface RepairFanout {
@@ -18,8 +18,6 @@ export type RepairOperation =
 	| "json_string_to_array"
 	| "object_to_array"
 	| "nested_alias"
-	| "drop_optional_null"
-	| "numeric_string_to_number"
 	| "strip_path_prefix"
 	| "scalar_to_array"
 	| "split_path_list"
@@ -54,8 +52,6 @@ export interface RepairSpecHints {
 
 export interface RepairSpec extends Required<Omit<RepairSpecHints, "singleStringField">> {
 	singleStringField?: string;
-	optionalFields: readonly RepairPath[];
-	numericFields: readonly RepairPath[];
 	arrayFields: readonly RepairPath[];
 	objectToArrayFields: readonly RepairPath[];
 	schema: TSchema;

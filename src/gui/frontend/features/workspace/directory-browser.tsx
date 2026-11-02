@@ -1,36 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowUp, Folder, X } from "lucide-react";
-import type { GlobalQuery, GuiDirectories, Query } from "../../../shared/protocol/queries.ts";
+import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
+import { useRemote } from "@/connection/use-remote.ts";
 import { Button } from "@/ui/button.tsx";
 import { Input } from "@/ui/input.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/ui/dialog.tsx";
 
-export function DirectoryBrowser({ gui, initial, select, close }: {
+interface Props {
 	gui: { globalQuery: Query<GlobalQuery>; error: string; setError: (message: string) => void };
 	initial: string; select: (path: string) => Promise<void>; close: () => void;
-}) {
+}
+export function DirectoryBrowser(props: Props) { return <DirectoryDialog key={props.initial} {...props} />; }
+
+function DirectoryDialog({ gui, initial, select, close }: Props) {
 	const [path, setPath] = useState(initial);
 	const [filter, setFilter] = useState("");
-	const [pending, setPending] = useState(true);
-	const [listing, setListing] = useState<GuiDirectories>();
-	const version = useRef(0);
-	const browse = useCallback(async (path: string) => {
-		const request = ++version.current;
-		gui.setError("");
-		setPending(true);
-		try {
-			const listing = await gui.globalQuery({ query: "directories", path });
-			if (request === version.current) { setListing(listing); setPath(listing.path); setFilter(""); }
-		} catch (error) {
-			if (request === version.current) gui.setError(error instanceof Error ? error.message : String(error));
-		} finally { if (request === version.current) setPending(false); }
-	}, [gui.globalQuery, gui.setError]);
+	const [request, setRequest] = useState({ path: initial });
+	const [selecting, setSelecting] = useState(false);
+	const load = useCallback(() => gui.globalQuery({ query: "directories", path: request.path }), [gui.globalQuery, request]);
+	const { result } = useRemote(load);
+	const pending = result.state === "loading" || selecting;
 	useEffect(() => {
-		void browse(initial);
-		return () => { version.current++; };
-	}, [initial, browse]);
+		if (result.state === "ready") { setPath(result.value.path); setFilter(""); }
+	}, [result]);
+	const browse = (path: string) => { gui.setError(""); setRequest({ path }); };
 	return <Dialog open onOpenChange={(open) => { if (!open) close(); }}>
 		<DialogContent className="directory-browser">
 			<header className="flex shrink-0 items-center justify-between gap-2">
@@ -39,23 +34,26 @@ export function DirectoryBrowser({ gui, initial, select, close }: {
 			</header>
 			<DialogDescription>浏览 opi-web 所在机器的目录。</DialogDescription>
 			{gui.error && <p role="alert">{gui.error}</p>}
-			<form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void browse(path); }}>
+			{result.state === "error" && <p role="alert">{result.message}</p>}
+			<form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); browse(path); }}>
 				<Input aria-label="工作目录" value={path} onChange={(event) => setPath(event.target.value)} />
 				<Button type="submit" variant="outline" disabled={pending || !path.trim()}>前往</Button>
 			</form>
 			<SearchInput aria-label="筛选目录" placeholder="筛选目录" value={filter} onValueChange={setFilter} />
-			<Button variant="ghost" className="justify-start" disabled={pending || !listing || listing.parent === listing.path}
-				onClick={() => { if (listing) void browse(listing.parent); }}><ArrowUp />上级目录</Button>
-			<div className="directory-list" aria-label="目录列表" aria-busy={pending}>
-				{listing?.children.filter((child) => child.name.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map((child) =>
-					<Button key={child.path} variant="ghost" disabled={pending} onClick={() => void browse(child.path)}><Folder /><span>{child.name}</span></Button>)}
-				{listing && !listing.children.length && <p>无子目录</p>}
-			</div>
-			<Button disabled={pending || !listing} onClick={() => {
-				if (!listing) return;
-				setPending(true);
-				void select(listing.path).finally(() => setPending(false));
-			}}>选择此目录</Button>
+			{result.state === "ready" && <>
+				<Button variant="ghost" className="justify-start" disabled={selecting || result.value.parent === result.value.path}
+					onClick={() => browse(result.value.parent)}><ArrowUp />上级目录</Button>
+				<div className="directory-list" aria-label="目录列表">
+					{result.value.children.filter((child) => child.name.toLocaleLowerCase().includes(filter.toLocaleLowerCase())).map((child) =>
+						<Button key={child.path} variant="ghost" disabled={selecting} onClick={() => browse(child.path)}><Folder /><span>{child.name}</span></Button>)}
+					{!result.value.children.length && <p>无子目录</p>}
+				</div>
+				<Button disabled={selecting} onClick={() => {
+					setSelecting(true);
+					void select(result.value.path).finally(() => setSelecting(false));
+				}}>选择此目录</Button>
+			</>}
+			{result.state === "loading" && <p role="status">读取中…</p>}
 		</DialogContent>
 	</Dialog>;
 }

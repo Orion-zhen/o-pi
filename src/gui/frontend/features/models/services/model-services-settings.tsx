@@ -5,7 +5,9 @@ import type { Query } from "../../../../shared/protocol/queries.ts";
 import { editModelsDocument } from "../../../../../harness/model-services/config-edits.ts";
 import { emptyModelsDocument } from "../../../../../harness/model-services/document.ts";
 import { modelsConfigIssues } from "../../../../../harness/model-services/validation.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { ConfigCommand } from "@/connection/connection.ts";
+import type { ModelServicesDocument } from "../../../../shared/config/model-services.ts";
+import { ConfigDocument } from "@/forms/config-document.tsx";
 import { Button } from "@/ui/button.tsx";
 import { SourceEditor } from "@/forms/source-editor.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
@@ -19,48 +21,47 @@ import { ModelApiChoicesContext } from "./service-fields.tsx";
 import type { CatalogQuery } from "./use-service-catalog.ts";
 import "./model-services.css";
 
-export function ModelServicesSettings({ globalQuery, query, send, disabled, sessionId, sessionRevision, sessionReady }: {
+interface Props {
 	globalQuery: Query<{ query: "modelServices" }>;
 	query: CatalogQuery;
-	send: Send;
+	send: ConfigCommand;
 	disabled: boolean;
 	sessionId: string | undefined;
 	sessionRevision: number | undefined;
 	sessionReady: boolean;
-}) {
-	const editor = useTextConfigDraft(useCallback(() => globalQuery({ query: "modelServices" }), [globalQuery]));
-	const { document, draft, error } = editor;
+}
+export function ModelServicesSettings({ globalQuery, ...props }: Props) {
+	const load = useCallback(() => globalQuery({ query: "modelServices" }), [globalQuery]);
+	return <ConfigDocument title="模型服务" load={load}>{(initial) => <ModelServicesEditor {...props} initial={initial} />}</ConfigDocument>;
+}
+
+function ModelServicesEditor({ initial, query, send, disabled, sessionId, sessionRevision, sessionReady }: Omit<Props, "globalQuery"> & { initial: ModelServicesDocument }) {
+	const editor = useTextConfigDraft(initial);
+	const { document, draft } = editor;
 	const { saving } = useSettingsState();
-	const [source, setSource] = useState(false);
-	const [viewDocument, setViewDocument] = useState(document);
 	const [adding, setAdding] = useState(false);
 	const addButton = useRef<HTMLButtonElement>(null);
 	const cancel = () => { setAdding(false); addButton.current?.focus(); };
 	const [expanded, setExpanded] = useState<string>();
-	const parsed = useMemo(() => parseServiceDraft(draft === "" && document?.content === "" ? emptyModelsDocument : draft),
-		[draft, document?.content]);
-	const issues = useMemo(() => parsed.value && document ? modelsConfigIssues(parsed.value, document.schema) : [], [parsed.value, document]);
-	const saved = useMemo(() => parseServiceDraft(document?.content || emptyModelsDocument).value, [document?.content]);
-	const dirty = useMemo(() => document !== undefined && draft !== document.content
+	const parsed = useMemo(() => parseServiceDraft(draft === "" && document.content === "" ? emptyModelsDocument : draft),
+		[draft, document.content]);
+	const issues = useMemo(() => parsed.value ? modelsConfigIssues(parsed.value, document.schema) : [], [parsed.value, document]);
+	const saved = useMemo(() => parseServiceDraft(document.content || emptyModelsDocument).value, [document.content]);
+	const dirty = useMemo(() => draft !== document.content
 		&& (editor.sourceEdited || serviceDraftChanged(saved, parsed.value)), [document, draft, editor.sourceEdited, saved, parsed.value]);
 	const blocked = disabled || saving;
 	const invalid = !!parsed.error || issues.length > 0;
-	const newDocument = document !== viewDocument;
-	const sourceView = source || document !== undefined && newDocument && invalid;
-	if (newDocument) {
-		setViewDocument(document);
-		if (document && invalid) setSource(true);
-	}
+	const [sourceView, setSource] = useState(invalid);
 
 	async function save() {
 		return editor.save(draft, async (document, content) => {
-			const success = await send({ action: "saveModelServices", original: document.content, content });
-			return success ? { ...document, content } : undefined;
+			await send({ action: "saveModelServices", original: document.content, content });
+			return { ...document, content };
 		});
 	}
 	function discard() {
 		editor.discard();
-		if (document && (!saved || modelsConfigIssues(saved, document.schema).length > 0)) setSource(true);
+		if (!saved || modelsConfigIssues(saved, document.schema).length > 0) setSource(true);
 		setAdding(false);
 	}
 	function toggleSource() {
@@ -74,21 +75,17 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 		setAdding(false);
 	}
 	useSettingsDraft("modelServices", {
-		title: "模型服务", dirty, blocked: disabled, invalid, save, discard,
+		title: "模型服务", dirty, blocked: disabled, save: invalid ? null : save, discard,
 	});
 	const providers = parsed.value?.providers ?? {};
 	const services = Object.entries(providers);
 
 	return <section className="settings-module" aria-label="模型服务">
 		<SettingsHeading title="模型服务">
-			{document && <>
-				{!sourceView && <Button ref={addButton} variant="outline" size="sm" disabled={blocked} aria-expanded={adding} onClick={() => setAdding(!adding)}><Plus />添加服务</Button>}
-				<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || sourceView && invalid} onClick={toggleSource} />
-			</>}
+			{!sourceView && <Button ref={addButton} variant="outline" size="sm" disabled={blocked} aria-expanded={adding} onClick={() => setAdding(!adding)}><Plus />添加服务</Button>}
+			<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || sourceView && invalid} onClick={toggleSource} />
 		</SettingsHeading>
-		<div className="settings-section">{!document ? <>
-			{error ? <><p role="alert">{error}</p><Button variant="ghost" onClick={editor.reload}>重试</Button></> : <p role="status">读取中…</p>}
-		</> : <ModelApiChoicesContext value={document.apis}>
+		<div className="settings-section"><ModelApiChoicesContext value={document.apis}>
 			{sourceView ? <SourceEditor file={document.path} label="模型服务 JSON" value={draft} disabled={blocked} onChange={editor.changeSource} /> : <>
 				<AnimatePresence initial={false}>{adding && <Reveal key="add">
 					<AddServiceItem label="服务 ID" existing={Object.keys(providers)} disabled={blocked} cancel={cancel} add={addService} />
@@ -101,7 +98,7 @@ export function ModelServicesSettings({ globalQuery, query, send, disabled, sess
 				</AnimatePresence></div>
 				{!services.length && !adding && <p className="settings-empty">暂无服务</p>}
 			</>}
-			{[parsed.error, ...issues, error].filter(Boolean).map((message, index) => <p role="alert" key={index}>{message}</p>)}
-		</ModelApiChoicesContext>}</div>
+			{[parsed.error, ...issues].filter(Boolean).map((message, index) => <p role="alert" key={index}>{message}</p>)}
+		</ModelApiChoicesContext></div>
 	</section>;
 }

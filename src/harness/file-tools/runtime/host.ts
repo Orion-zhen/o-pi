@@ -31,30 +31,15 @@ export interface FileToolsInvocation {
 	dispose(): void;
 }
 
-export interface SessionObservationSeed {
-	readonly sessionId: string;
-	readonly observations: readonly ObservationEntry[];
-}
-
-export interface FileToolsHostOptions {
-	readonly initialSession?: SessionObservationSeed;
-}
-
 /** 统一拥有配置、文件系统、调用租约和会话观测。 */
 export class FileToolsHost {
 	private readonly config = new FileToolsConfigProvider();
 	private readonly filesystem = new FileSystemRuntime();
 	private readonly sessions = new Map<string, ObservationStore>();
-	private accepting = true;
 	private disposed = false;
 
-	constructor(options: FileToolsHostOptions = {}) {
-		if (options.initialSession !== undefined && options.initialSession.observations.length > 0) {
-			this.sessions.set(
-				options.initialSession.sessionId,
-				new ObservationStore(options.initialSession.observations),
-			);
-		}
+	restoreSession(sessionId: string, observations: readonly ObservationEntry[]): void {
+		this.sessions.set(sessionId, new ObservationStore(observations));
 	}
 
 	sessionObservations(sessionId: string): readonly ObservationEntry[] {
@@ -85,11 +70,11 @@ export class FileToolsHost {
 	}
 
 	async open(options: FileToolsHostOpenOptions): Promise<ToolOutcome<FileToolsInvocation>> {
-		if (!this.accepting) return hostClosed();
+		if (this.disposed) return hostClosed();
 		if (isAborted(options.signal)) return operationAborted();
 
 		const config = await this.config.load(options.cwd);
-		if (!this.accepting) return hostClosed();
+		if (this.disposed) return hostClosed();
 		if (!config.ok) return fail("CONFIG_ERROR", config.error.message, config.error.details === undefined ? {} : { details: config.error.details });
 		if (isAborted(options.signal)) return operationAborted();
 
@@ -102,7 +87,7 @@ export class FileToolsHost {
 			onCommitted: (receipt) => { observation.remember(receipt.target, receipt); },
 		});
 		if (!opened.ok) return mapFsError(opened.error);
-		if (!this.accepting) {
+		if (this.disposed) {
 			opened.value.dispose();
 			return hostClosed();
 		}
@@ -123,13 +108,8 @@ export class FileToolsHost {
 		};
 	}
 
-	stop(): void {
-		this.accepting = false;
-	}
-
 	dispose(): void {
 		if (this.disposed) return;
-		this.stop();
 		this.disposed = true;
 		for (const observation of this.sessions.values()) observation.dispose();
 		this.sessions.clear();

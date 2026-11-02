@@ -16,6 +16,6 @@
 		"skipLibCheck": true,
 		"types": ["node", "vitest", "react-syntax-highlighter"]
 	},
-	"include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "types/**/*.d.ts"],
+	"include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx", "types/**/*.d.ts"],
 	"exclude": ["o-pet"]
 }

@@ -121,7 +121,7 @@ export function useAutoFold(key: string, tracking: boolean) {
 			setFolded(true);
 			setOpen(false);
 		}
-	}, [tracking]);
+	}, [tracking, folded, setFolded, setOpen]);
 	return [open, setOpen] as const;
 }
 
@@ -161,7 +161,7 @@ const Item = memo(function Item({ item, entryId, showActions = false }: { item: 
 function Thinking({ id, text, active, entryId }: { id: string; text: string; active: boolean; entryId: string | undefined }) {
 	const [open, setOpen] = useDisclosureMemory(`${id}:open`, active);
 	const [wasActive, setWasActive] = useDisclosureMemory(`${id}:active`, active);
-	useEffect(() => { if (wasActive !== active) { setWasActive(active); setOpen(active); } }, [active]);
+	useEffect(() => { if (wasActive !== active) { setWasActive(active); setOpen(active); } }, [active, wasActive, setWasActive, setOpen]);
 	return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy open={open} onOpenChange={setOpen} summary={<>
 		<ReplyStatusLabel active={active}>{active ? "思考中" : "思考"}</ReplyStatusLabel>
 	</>}>

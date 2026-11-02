@@ -11,21 +11,24 @@ export interface PiJsonProgressSnapshot {
 	wrote: boolean;
 }
 
+interface AssistantTurn {
+	start: number;
+	usage: UsageStats;
+	textBlocks: Map<number, string>;
+	textEvents: Map<number, Extract<RenderEvent, { type: "text" }>>;
+	toolIds: Set<string>;
+}
+
 /** 将 Pi JSON mode 事件归并成可重复读取的 subagent 进度快照。 */
 export class PiJsonProgressAccumulator {
 	private readonly committedUsage = emptyUsage();
-	private liveUsage: UsageStats | undefined;
-	private turnOpen = false;
+	private turn: AssistantTurn | undefined;
 	private output = "";
 	private stopReason: string | undefined;
 	private error: string | undefined;
 	private wrote = false;
 	private readonly events: RenderEvent[] = [];
-	private messageEventStart: number | undefined;
-	private readonly textBlocks = new Map<number, string>();
-	private readonly textEventIndexes = new Map<number, number>();
-	private readonly toolEventIndexes = new Map<string, number>();
-	private readonly liveToolIds = new Set<string>();
+	private readonly tools = new Map<string, Extract<RenderEvent, { type: "tool" }>>();
 
 	consume(event: JsonAgentSessionEvent): boolean {
 		switch (event.type) {
@@ -56,7 +59,7 @@ export class PiJsonProgressAccumulator {
 	snapshot(): PiJsonProgressSnapshot {
 		return {
 			output: this.output,
-			usage: combineUsage(this.committedUsage, this.liveUsage, this.turnOpen),
+			usage: combineUsage(this.committedUsage, this.turn),
 			events: this.events.map(cloneRenderEvent),
 			...(this.stopReason !== undefined ? { stopReason: this.stopReason } : {}),
 			...(this.error !== undefined ? { error: this.error } : {}),
@@ -65,8 +68,8 @@ export class PiJsonProgressAccumulator {
 	}
 
 	private consumeMessageUpdate(event: Extract<JsonAgentSessionEvent, { type: "message_update" }>): boolean {
-		this.requireTurn();
-		this.liveUsage = usageStats(event.usage);
+		const turn = this.requireTurn();
+		turn.usage = usageStats(event.usage);
 		const assistantEvent = event.assistantMessageEvent;
 		switch (assistantEvent.type) {
 			case "toolcall_start":
@@ -74,14 +77,16 @@ export class PiJsonProgressAccumulator {
 				this.upsertTool(assistantEvent.id, assistantEvent.toolName, {}, "pending");
 				break;
 			case "text_start":
-				this.startTextBlock(assistantEvent.contentIndex);
+				this.startTextBlock(turn, assistantEvent.contentIndex);
 				return false;
 			case "text_delta":
-				this.appendText(assistantEvent.contentIndex, assistantEvent.delta);
+			case "text_end": {
+				const { contentIndex } = assistantEvent;
+				const previous = turn.textBlocks.get(contentIndex);
+				if (previous === undefined) throw new Error(`${assistantEvent.type} arrived before text_start for content ${contentIndex}`);
+				this.setText(turn, contentIndex, assistantEvent.type === "text_delta" ? previous + assistantEvent.delta : assistantEvent.content);
 				break;
-			case "text_end":
-				this.setText(assistantEvent.contentIndex, assistantEvent.content);
-				break;
+			}
 			case "toolcall_end":
 				this.recordToolCall(assistantEvent.toolCall, "pending");
 				break;
@@ -90,8 +95,9 @@ export class PiJsonProgressAccumulator {
 	}
 
 	private consumeMessageEnd(message: Extract<Extract<JsonAgentSessionEvent, { type: "message_end" }>["message"], { role: "assistant" }>): boolean {
-		this.requireTurn();
-		this.replaceLiveMessageEvents();
+		const turn = this.requireTurn();
+		this.events.splice(turn.start);
+		for (const id of turn.toolIds) this.tools.delete(id);
 		for (const part of message.content) {
 			if (part.type === "text") {
 				this.output = part.text;
@@ -103,59 +109,40 @@ export class PiJsonProgressAccumulator {
 		this.stopReason = message.stopReason;
 		this.error = message.errorMessage;
 		commitUsage(this.committedUsage, message.usage);
-		this.liveUsage = undefined;
-		this.turnOpen = false;
-		this.messageEventStart = undefined;
-		this.textBlocks.clear();
-		this.textEventIndexes.clear();
+		this.turn = undefined;
 		return true;
 	}
 
 	private startTurn(): void {
-		if (this.turnOpen) throw new Error("nested assistant message_start");
-		this.turnOpen = true;
-		this.liveUsage = undefined;
-		this.messageEventStart = this.events.length;
-		this.liveToolIds.clear();
-		this.textBlocks.clear();
-		this.textEventIndexes.clear();
+		if (this.turn !== undefined) throw new Error("nested assistant message_start");
+		this.turn = {
+			start: this.events.length,
+			usage: emptyUsage(),
+			textBlocks: new Map(),
+			textEvents: new Map(),
+			toolIds: new Set(),
+		};
 	}
 
-	private requireTurn(): void {
-		if (!this.turnOpen) throw new Error("assistant event arrived before message_start");
+	private requireTurn(): AssistantTurn {
+		if (this.turn === undefined) throw new Error("assistant event arrived before message_start");
+		return this.turn;
 	}
 
-	private startTextBlock(contentIndex: number): void {
-		if (this.textBlocks.has(contentIndex)) throw new Error(`duplicate text_start for content ${contentIndex}`);
-		this.textBlocks.set(contentIndex, "");
+	private startTextBlock(turn: AssistantTurn, contentIndex: number): void {
+		if (turn.textBlocks.has(contentIndex)) throw new Error(`duplicate text_start for content ${contentIndex}`);
+		turn.textBlocks.set(contentIndex, "");
 	}
 
-	private appendText(contentIndex: number, delta: string): void {
-		const current = this.textBlocks.get(contentIndex);
-		if (current === undefined) throw new Error(`text_delta arrived before text_start for content ${contentIndex}`);
-		this.setText(contentIndex, `${current}${delta}`);
-	}
-
-	private setText(contentIndex: number, text: string): void {
-		if (!this.textBlocks.has(contentIndex)) throw new Error(`text_end arrived before text_start for content ${contentIndex}`);
-		this.textBlocks.set(contentIndex, text);
+	private setText(turn: AssistantTurn, contentIndex: number, text: string): void {
+		turn.textBlocks.set(contentIndex, text);
 		this.output = text;
-		const eventIndex = this.textEventIndexes.get(contentIndex);
-		if (eventIndex === undefined) {
-			this.textEventIndexes.set(contentIndex, this.events.length);
-			this.events.push({ type: "text", text });
-			return;
-		}
-		this.events[eventIndex] = { type: "text", text };
-	}
-
-	private replaceLiveMessageEvents(): void {
-		const start = this.messageEventStart;
-		if (start === undefined) throw new Error("assistant message has no event boundary");
-		this.events.splice(start);
-		for (const id of this.liveToolIds) this.toolEventIndexes.delete(id);
-		this.liveToolIds.clear();
-		this.textEventIndexes.clear();
+		const current = turn.textEvents.get(contentIndex);
+		if (current === undefined) {
+			const event = { type: "text" as const, text };
+			turn.textEvents.set(contentIndex, event);
+			this.events.push(event);
+		} else current.text = text;
 	}
 
 	private recordToolCall(toolCall: { id: string; name: string; arguments: Record<string, unknown> }, status: ToolProgressStatus): void {
@@ -164,24 +151,19 @@ export class PiJsonProgressAccumulator {
 	}
 
 	private upsertTool(id: string, name: string, args: Record<string, unknown>, status: ToolProgressStatus): void {
-		const index = this.toolEventIndexes.get(id);
-		if (index === undefined) {
-			if (this.turnOpen) this.liveToolIds.add(id);
-			this.toolEventIndexes.set(id, this.events.length);
-			this.events.push({ type: "tool", name, args, status });
-			return;
-		}
-		const current = this.events[index];
-		if (current?.type !== "tool") throw new Error(`tool event index is invalid: ${id}`);
-		this.events[index] = { type: "tool", name, args, status };
+		const current = this.tools.get(id);
+		if (current === undefined) {
+			const event = { type: "tool" as const, name, args, status };
+			this.turn?.toolIds.add(id);
+			this.tools.set(id, event);
+			this.events.push(event);
+		} else Object.assign(current, { name, args, status });
 	}
 
 	private updateTool(id: string, status: ToolProgressStatus): void {
-		const index = this.toolEventIndexes.get(id);
-		if (index === undefined) throw new Error(`tool lifecycle started without a tool call: ${id}`);
-		const current = this.events[index];
-		if (current?.type !== "tool") throw new Error(`tool event index is invalid: ${id}`);
-		this.events[index] = { ...current, status };
+		const current = this.tools.get(id);
+		if (current === undefined) throw new Error(`tool lifecycle started without a tool call: ${id}`);
+		current.status = status;
 	}
 
 	private markWrite(name: string): void {
@@ -212,8 +194,8 @@ function commitUsage(target: UsageStats, value: Usage): void {
 	if (usage.cost !== undefined) target.cost = (target.cost ?? 0) + usage.cost;
 }
 
-function combineUsage(committed: UsageStats, live: UsageStats | undefined, turnOpen: boolean): UsageStats {
-	const current = live ?? emptyUsage();
+function combineUsage(committed: UsageStats, turn: AssistantTurn | undefined): UsageStats {
+	const current = turn?.usage ?? emptyUsage();
 	const cost = (committed.cost ?? 0) + (current.cost ?? 0);
 	return {
 		input: committed.input + current.input,
@@ -221,7 +203,7 @@ function combineUsage(committed: UsageStats, live: UsageStats | undefined, turnO
 		cacheRead: committed.cacheRead + current.cacheRead,
 		cacheWrite: committed.cacheWrite + current.cacheWrite,
 		contextTokens: Math.max(committed.contextTokens, current.contextTokens),
-		turns: committed.turns + (turnOpen ? 1 : 0),
+		turns: committed.turns + (turn === undefined ? 0 : 1),
 		...(cost > 0 ? { cost } : {}),
 	};
 }

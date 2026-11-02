@@ -26,7 +26,7 @@ export async function definitionRelations(session: LspDocumentSession, analysis:
 		const parseError = (analysis.parseErrors ?? []).some((error) => error.startByte <= call.endByte && call.startByte <= error.endByte);
 		const result = position === undefined || parseError || queried >= DEFINITION_LIMIT
 			? { status: "skipped" as const }
-			: await requests.run(session.capabilities()?.definitionProvider, (options) => {
+			: await requests.run(session.capabilities().definitionProvider, (options) => {
 				queried += 1;
 				return session.definition(position, options);
 			});

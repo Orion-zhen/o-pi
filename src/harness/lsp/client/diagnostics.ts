@@ -85,7 +85,7 @@ export class LspClientDiagnostics {
 		});
 		let diagnosticDeadline = Number.POSITIVE_INFINITY;
 		const diagnosticLimit = pLimit(DIAGNOSTIC_REQUEST_CONCURRENCY);
-		const provider = connection.capabilities()?.diagnosticProvider;
+		const provider = connection.capabilities().diagnosticProvider;
 		const pullProvider = typeof provider === "object" && provider !== null ? provider : undefined;
 		const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
 

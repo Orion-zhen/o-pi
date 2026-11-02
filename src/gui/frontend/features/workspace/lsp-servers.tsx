@@ -1,44 +1,34 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
+import { useRemote } from "@/connection/use-remote.ts";
 import { ChevronRight, RefreshCw } from "lucide-react";
 import type { Query, WorkspaceQuery } from "../../../shared/protocol/queries.ts";
-import type { GuiLspServer, GuiLspServers } from "../../../shared/lsp.ts";
+import type { GuiLspServer } from "../../../shared/lsp.ts";
 import { Button } from "@/ui/button.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { SettingsSection } from "@/forms/settings-controls.tsx";
 import "./lsp-servers.css";
 
-export function LspServers({ cwd, query, connected, active }: {
-	cwd: string | undefined; query: Query<WorkspaceQuery>; connected: boolean; active: boolean;
-}) {
-	const [result, setResult] = useState<GuiLspServers>();
-	const [error, setError] = useState("");
-	const [loading, setLoading] = useState(true);
-	const [revision, setRevision] = useState(0);
-	useEffect(() => {
-		if (!cwd || !connected || !active) return;
-		let current = true;
-		setLoading(true);
-		setError("");
-		void query({ query: "lspServers", cwd }).then((value) => {
-			if (!current) return;
-			setResult(value); setLoading(false);
-		}, (error: unknown) => {
-			if (!current) return;
-			setResult(undefined); setError(error instanceof Error ? error.message : String(error)); setLoading(false);
-		});
-		return () => { current = false; };
-	}, [cwd, query, connected, active, revision]);
-	return <SettingsSection title="LSP 服务器" actions={<Button variant="ghost" size="sm" disabled={!cwd || !connected || loading} onClick={() => setRevision((value) => value + 1)}>
+interface Props { cwd: string | undefined; query: Query<WorkspaceQuery>; connected: boolean; active: boolean }
+export function LspServers({ cwd, ...props }: Props) {
+	return cwd ? <WorkspaceServers key={cwd} {...props} cwd={cwd} />
+		: <SettingsSection title="LSP 服务器"><p className="settings-empty">未选择工作区</p></SettingsSection>;
+}
+
+function WorkspaceServers({ cwd, query, connected, active }: Omit<Props, "cwd"> & { cwd: string }) {
+	const load = useCallback(() => query({ query: "lspServers", cwd }), [cwd, query]);
+	const { result, refresh } = useRemote(load, connected && active);
+	const loading = result.state === "loading";
+	return <SettingsSection title="LSP 服务器" actions={<Button variant="ghost" size="sm" disabled={!connected || loading} onClick={() => void refresh()}>
 		<RefreshCw aria-hidden="true" />刷新
 	</Button>}>
-		{!cwd ? <p className="settings-empty">未选择工作区</p> : !connected ? <p role="status">连接已断开，恢复后重新检查命令。</p> : <>
+		{!connected ? <p role="status">连接已断开，恢复后重新检查命令。</p> : <>
 			<p className="settings-description">当前工作区：<code>{cwd}</code></p>
 			{loading && <p role="status">检查中…</p>}
-			{error && <p role="alert">{error}</p>}
-			{result && <>
-				<p className="settings-description">配置来源：<code>{result.path}</code></p>
-				{result.servers.length === 0 && <p className="settings-empty">未配置 LSP 服务器</p>}
-				<div className="lsp-server-list" aria-busy={loading}>{result.servers.map((server) => <ServerRow key={server.id} server={server} />)}</div>
+			{result.state === "error" && <p role="alert">{result.message}</p>}
+			{result.state === "ready" && <>
+				<p className="settings-description">配置来源：<code>{result.value.path}</code></p>
+				{result.value.servers.length === 0 && <p className="settings-empty">未配置 LSP 服务器</p>}
+				<div className="lsp-server-list" aria-busy={loading}>{result.value.servers.map((server) => <ServerRow key={server.id} server={server} />)}</div>
 			</>}
 		</>}
 	</SettingsSection>;

@@ -16,8 +16,8 @@ export interface SymbolRelations {
 export async function symbolRelations(session: LspDocumentSession, position: Position, unit: IndexedCodeUnit, locations: RelationLocations, requests: AnalysisRequests): Promise<SymbolRelations> {
 	const capabilities = session.capabilities();
 	const [prepared, references] = await Promise.all([
-		requests.run(capabilities?.callHierarchyProvider, (options) => session.prepareCalls(position, options)),
-		requests.run(capabilities?.referencesProvider, (options) => session.references(position, options)),
+		requests.run(capabilities.callHierarchyProvider, (options) => session.prepareCalls(position, options)),
+		requests.run(capabilities.referencesProvider, (options) => session.references(position, options)),
 	]);
 	const relations: CodeRelation[] = [];
 	const incoming: CodeAnalysisStatus[] = [];

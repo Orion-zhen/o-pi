@@ -8,26 +8,25 @@ import { useLayout } from "./use-layout.ts";
 import { useSessionActivity } from "@/features/sessions/use-session-activity.ts";
 import { sessionList } from "@/features/sessions/session-list.ts";
 import { useSessionSearch } from "@/features/sessions/use-session-search.ts";
-import { SessionViews, type SessionViewState } from "@/features/sessions/session-views.ts";
-import { useHostState } from "@/connection/use-host-state.ts";
+import { useHostState } from "./use-host-state.ts";
 import { useConnection } from "@/connection/use-connection.ts";
 import { useGuiConfig } from "@/features/preferences/use-gui-config.ts";
 import { useStartupChangelog } from "./welcome/use-startup-changelog.ts";
-import { useAuthActions } from "@/features/auth/use-auth-actions.ts";
+import { isLoginAction, useAuthActions } from "@/features/auth/use-auth-actions.ts";
 import { usePanels } from "./use-panels.ts";
 import { isTouchInput } from "@/ui/input-mode.ts";
 import type { SidebarView } from "./controls.ts";
 import { fileReference } from "../../shared/file-reference.ts";
 import type { DesktopCommand } from "../../shared/protocol/desktop.ts";
+import type { Send } from "@/connection/connection.ts";
 
 /** 连接功能区域。草稿由编辑器订阅，宿主事件不持有本地交互状态。 */
 export function useGui() {
-	const [host, receive] = useHostState();
-	const selectedId = host.navigation?.id ?? null;
-	const selected = useRef<string | null>(null);
+	const { host, receive, views, current } = useHostState();
+	const session = host.selection;
+	const selectedId = session?.target.id ?? null;
+	const view = session?.view;
 	const [error, setError] = useState("");
-	const [views] = useState(() => new SessionViews());
-	const [view, setView] = useState<SessionViewState>();
 	const editor = useRef<HTMLTextAreaElement>(null);
 	const [referenceVersion, setReferenceVersion] = useState(0);
 	const panels = usePanels(selectedId);
@@ -37,14 +36,9 @@ export function useGui() {
 		receive(event);
 		auth.receive(event);
 		switch (event.type) {
-			case "selected":
-				selected.current = event.session?.id ?? null;
-				setView(event.session ? views.open(event.session, event.draftFrom) : undefined);
-				break;
 			case "sessionsDeleted": {
 				const ids = views.remove(event);
 				forget(ids);
-				if (selected.current && ids.includes(selected.current)) setView(undefined);
 				break;
 			}
 			case "error": setError(event.message); break;
@@ -53,7 +47,7 @@ export function useGui() {
 			case "sessionTab": panels.selectTab(event.tab); panels.setSessionPanelOpen(true); break;
 			case "editor":
 				views.writeText(event.sessionId, event.text, event.mode);
-				if (selected.current === event.sessionId && !isTouchInput()) editor.current?.focus();
+				if (current().selection?.target.id === event.sessionId && !isTouchInput()) editor.current?.focus();
 				break;
 		}
 	});
@@ -61,7 +55,19 @@ export function useGui() {
 	const dispatchSelected = useCallback(<A extends GuiAction>(action: A) => dispatch(action, selectedId), [dispatch, selectedId]);
 	const auth = useAuthActions(dispatchSelected, setError, panels.closePanel);
 	useEffect(() => { if (!connected) auth.finish(); }, [connected, auth.finish]);
-	const send = auth.send;
+	const send = useCallback<Send>(async (action) => {
+		try {
+			if (isLoginAction(action)) await auth.login(action);
+			else {
+				if (action.action === "dialog" && action.value !== null) auth.resume();
+				await dispatchSelected(action);
+			}
+			return true;
+		} catch (error) {
+			setError(error instanceof Error ? error.message : String(error));
+			return false;
+		}
+	}, [dispatchSelected, auth.login, auth.resume]);
 	const desktopCommand = useEffectEvent((command: DesktopCommand) => {
 		if (command === "settings") panels.setPanel({ kind: "settings" });
 		if (command === "new" && connected) void send({ action: "new" });
@@ -78,9 +84,11 @@ export function useGui() {
 		versionChecked.current = true;
 		void globalQuery({ query: "availableVersion" }).then(setAvailableVersion).catch((error: unknown) => setError(String(error)));
 	}, [connected, globalQuery]);
+	const observe = useEffectEvent(() => {
+		void dispatch({ action: "observe", visible: document.visibilityState === "visible" }, null).catch((error: unknown) => setError(String(error)));
+	});
 	useEffect(() => {
 		if (!connected) return;
-		const observe = () => { void dispatch({ action: "observe", visible: document.visibilityState === "visible" }, selected.current).catch((error: unknown) => setError(String(error))); };
 		observe();
 		document.addEventListener("visibilitychange", observe);
 		return () => document.removeEventListener("visibilitychange", observe);
@@ -95,9 +103,9 @@ export function useGui() {
 	}, [dispatch]);
 	useEffect(() => { if (connected) void refreshSessions(); }, [connected, refreshSessions]);
 	useWindowRefresh(connected, refreshSessions);
-	const snapshot = host.snapshot?.sessionId === selectedId ? host.snapshot : null;
+	const snapshot = session?.snapshot ?? null;
 	const changelog = useStartupChangelog(connected, snapshot, selectedId, globalQuery, dispatch, setError);
-	const cwd = host.navigation?.cwd ?? host.workspaceRoot;
+	const cwd = session?.target.cwd ?? host.workspaceRoot;
 	const layout = useLayout(setError);
 	const sessionSearch = useSessionSearch(cwd, connected, host.sessions, globalQuery, dispatch, setError);
 	const workbench = useWorkbench(cwd, connected, activity.some((item) => item.cwd === cwd && item.state !== "idle"), sharedQuery);
@@ -138,11 +146,11 @@ export function useGui() {
 	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, usageLoading, openUsage,
 		workbench, sessionSearch, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
 	return {
-		...panels, ...sidebar, ...changelog, sidebar, snapshot, view, views, selectedId, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected,
+		...panels, ...sidebar, ...changelog, sidebar, session, snapshot, view, views, selectedId, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected,
 		guiConfig: config.document, refreshGuiConfig: config.refresh, availableVersion,
-		dialogs: host.dialogs, notices: host.notices, status, reconnect: connection.reconnect, running: snapshot?.running ?? false,
+		dialogs: session?.dialogs ?? [], notices: session?.notices ?? [], status, reconnect: connection.reconnect, running: snapshot?.running ?? false,
 		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode,
-		sessionStats: host.stats?.sessionId === selectedId ? host.stats.value : undefined,
-		telemetry: host.telemetry?.sessionId === selectedId ? host.telemetry.value : undefined,
+		sessionStats: session?.stats,
+		telemetry: session?.telemetry,
 	};
 }

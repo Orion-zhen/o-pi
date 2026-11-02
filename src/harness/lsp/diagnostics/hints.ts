@@ -10,7 +10,7 @@ export async function diagnosticHints(
 	errors: readonly LspErrorDiagnostic[],
 	options: Required<Pick<LspRequestOptions, "signal" | "timeoutMs">>,
 ): Promise<readonly (string | undefined)[]> {
-	const provider = session.capabilities()?.codeActionProvider;
+	const provider = session.capabilities().codeActionProvider;
 	if (provider === undefined || provider === false) return [];
 	const deadline = Date.now() + options.timeoutMs;
 	const hints: Array<string | undefined> = [];

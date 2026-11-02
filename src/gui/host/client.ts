@@ -143,13 +143,12 @@ export class GuiClient {
 			writeDraft: (text) => { if (this.host.sessions.get(session.id) === session) this.drafts.set(session.id, text); },
 			emit: (event) => { if (!this.closed && (event.type === "download" || event.type === "editor" || this.selected === session)) this.emit(event); },
 			dispatch: (action) => this.dispatch(action, session.id),
-			newSession: (options) => this.newSession(options, session),
-			fork: (entryId, options) => this.fork(entryId, options, session),
+			newSession: (options) => this.newSession(session, options),
+			fork: (entryId, options) => this.fork(session, entryId, options),
 			switchSession: (file, options) => this.switchSession(file, options),
 		};
 	}
-	async newSession(options?: Parameters<ExtensionCommandContext["newSession"]>[0], source = this.selected) {
-		if (!source) throw new Error("请先选择工作区。");
+	private async newSession(source: GuiSession, options?: Parameters<ExtensionCommandContext["newSession"]>[0]) {
 		if (options === undefined) {
 			const creating = this.creatingSessions.get(source.cwd);
 			if (creating) return creating;
@@ -191,8 +190,7 @@ export class GuiClient {
 		if (options?.withSession) await options.withSession(this.runtime.session.createReplacedSessionContext());
 		return { cancelled: false };
 	}
-	async fork(entryId: string, options?: Parameters<ExtensionCommandContext["fork"]>[1], source = this.selected) {
-		if (!source) throw new Error("请先选择工作区。");
+	private async fork(source: GuiSession, entryId: string, options?: Parameters<ExtensionCommandContext["fork"]>[1]) {
 		return source.use(this.forSession(source), (execution) => execution.change(async () => {
 			const session = execution.runtime.session;
 			const position = options?.position ?? "before";
@@ -230,7 +228,6 @@ export class GuiClient {
 		if (!validateAction(value)) throw new Error("无效 GUI 操作参数。");
 		if (this.closed) throw new Error("客户端已断开。");
 		const action = value as GuiAction;
-		const source = sessionId ? this.host.sessions.get(sessionId) : undefined;
 		switch (action.action) {
 			case "observe": {
 				if (this.observing === action.visible) return;
@@ -255,15 +252,13 @@ export class GuiClient {
 			case "sessions": await this.host.catalog.refresh(); return;
 			case "openSession": await this.openSession(action); return;
 			case "workspace": {
-				const cwd = path.resolve(source?.cwd ?? this.host.workspaceRoot, action.path);
+				const cwd = path.resolve(sessionId === null ? this.host.workspaceRoot : this.resolveSession(sessionId).cwd, action.path);
 				if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
 				const remembered = this.lastViewed.get(cwd);
 				const recent = (remembered ? this.host.sessions.get(remembered) : undefined)
 					?? [...this.host.sessions.values()].filter((session) => session.cwd === cwd && !session.removing).sort((a, b) => b.lastUsed - a.lastUsed)[0];
 				await this.select(recent ?? await this.host.newSession(cwd)); return;
 			}
-			case "new": await this.newSession(undefined, source); return;
-			case "fork": await this.fork(action.entryId, undefined, source); return;
 			case "import": await this.select(this.host.register(await importSession(action.content))); return;
 			case "deleteSession": await this.host.remove([action.path]); return;
 			case "removeWorkspace": {
@@ -279,12 +274,11 @@ export class GuiClient {
 			}
 			case "renameSession": await this.host.rename(action.path, action.name, this); return;
 		}
-		if (!source) throw new Error("请先选择有效会话。");
+		const source = this.resolveSession(sessionId);
+		if (action.action === "new") { await this.newSession(source); return; }
+		if (action.action === "fork") { await this.fork(source, action.entryId); return; }
 		const client = this.forSession(source);
-		// 启动中的信任确认不能等待被该确认阻塞的启动 Promise。
-		if (["dialog", "abort", "cancelLogin"].includes(action.action) && source.execution) {
-			return source.execution.dispatch(action, client);
-		}
+		if (action.action === "dialog" || action.action === "abort" || action.action === "cancelLogin") return source.control(action, client);
 		return source.use(client, (execution) => execution.dispatch(action, client));
 	}
 	query<Q extends GuiQuery>(query: Q, sessionId?: string | null): Promise<GuiQueryResults[Q["query"]]>;
@@ -320,9 +314,13 @@ export class GuiClient {
 				? { ...content, url: this.resources.url({ cwd: query.cwd, path: query.path, version: content.version, mime: content.mime, size: content.size }) }
 				: content };
 		}
-		const session = sessionId ? this.host.sessions.get(sessionId) : undefined;
-		if (!session) throw new Error("请先选择有效会话。");
+		const session = this.resolveSession(sessionId);
 		return session.use(this.forSession(session), (execution) => execution.query(query));
+	}
+	private resolveSession(id: string | null): GuiSession {
+		const session = id === null ? undefined : this.host.sessions.get(id);
+		if (!session) throw new Error("请先选择有效会话。");
+		return session;
 	}
 	close(): void {
 		if (this.closed) return;

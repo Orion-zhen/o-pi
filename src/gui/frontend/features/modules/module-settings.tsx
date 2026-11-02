@@ -7,8 +7,9 @@ import { equalConfigValues } from "../../../../harness/config-values.ts";
 import type { GuiModel, GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Query, GlobalQuery } from "../../../shared/protocol/queries.ts";
 import type { ModuleConfigId } from "../../../shared/config/modules.ts";
-import type { Send } from "@/connection/connection.ts";
-import { Button } from "@/ui/button.tsx";
+import type { ConfigCommand } from "@/connection/connection.ts";
+import type { ModuleConfigDocument } from "../../../shared/config/modules.ts";
+import { ConfigDocument } from "@/forms/config-document.tsx";
 import { SourceEditor } from "@/forms/source-editor.tsx";
 import { moduleGroups, type ConfigField } from "./module-fields.ts";
 import { FieldControl } from "./field-control.tsx";
@@ -26,28 +27,32 @@ function at(value: unknown, path: string): unknown {
 	return value;
 }
 
-export function ModuleSettings({ title, id, query, send, disabled, models, tools, currentModel }: {
-	title: string; id: ModuleConfigId; query: Query<GlobalQuery>; send: Send; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; currentModel: GuiModel | null;
-}) {
-	const editor = useTextConfigDraft(useCallback(() => query({ query: "moduleConfig", id }), [id, query]));
-	const { document, draft, error } = editor;
+interface Props {
+	title: string; id: ModuleConfigId; query: Query<GlobalQuery>; send: ConfigCommand; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; currentModel: GuiModel | null;
+}
+export function ModuleSettings({ query, ...props }: Props) {
+	const load = useCallback(() => query({ query: "moduleConfig", id: props.id }), [props.id, query]);
+	return <ConfigDocument title={props.title} load={load}>{(initial) => <ModuleEditor {...props} query={query} initial={initial} />}</ConfigDocument>;
+}
+
+function ModuleEditor({ initial, title, id, query, send, disabled, models, tools, currentModel }: Props & { initial: ModuleConfigDocument }) {
+	const editor = useTextConfigDraft(initial);
+	const { document, draft } = editor;
 	const { saving } = useSettingsState();
 	const [source, setSource] = useState(false);
-	const defaults = useMemo(() => readModuleConfig(document?.defaults ?? "{}"), [document?.defaults]);
-	const saved = useMemo(() => parseModuleDraft(document?.content ?? "", defaults), [document?.content, defaults]);
+	const defaults = useMemo(() => readModuleConfig(document.defaults), [document.defaults]);
+	const saved = useMemo(() => parseModuleDraft(document.content, defaults), [document.content, defaults]);
 	const parsed = useMemo(() => parseModuleDraft(draft, defaults), [draft, defaults]);
-	const dirty = document !== undefined && draft !== document.content && (editor.sourceEdited
+	const dirty = draft !== document.content && (editor.sourceEdited
 		|| saved.value === undefined || parsed.value === undefined || !equalConfigValues(saved.value, parsed.value));
 	useSettingsDraft(id, {
-		title, dirty, blocked: disabled, invalid: !!parsed.error,
-		save: () => editor.save(draft, async (document, content) =>
-			await send({ action: "saveModuleConfig", id, original: document.content, content }) ? { ...document, content } : undefined),
+		title, dirty, blocked: disabled,
+		save: parsed.error ? null : () => editor.save(draft, async (document, content) => {
+			await send({ action: "saveModuleConfig", id, original: document.content, content });
+			return { ...document, content };
+		}),
 		discard: editor.discard,
 	});
-	if (!document) return <SettingsSection title={title}>
-		{error ? <p role="alert">{error}</p> : <p role="status">读取中…</p>}
-		{error && <Button variant="ghost" onClick={editor.reload}>重试</Button>}
-	</SettingsSection>;
 	const blocked = disabled || saving;
 	const valueAt = (path: string) => at(parsed.value, path);
 	const changeFields = (changes: Record<string, unknown>) => {
@@ -114,6 +119,5 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 				{id === "discordPresence" && index === 0 && valueAt("enabled") === true && valueAt("profile") === "detailed"
 					&& <p className="settings-warning">将向 Discord 展示项目名和文件名。</p>}
 			</SettingsSection>)}
-		{error && <p role="alert">{error}</p>}
 	</div>;
 }

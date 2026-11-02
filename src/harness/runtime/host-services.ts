@@ -7,6 +7,8 @@ export interface AgentProcess {
 	kill(signal?: NodeJS.Signals): boolean;
 	on(event: "error", listener: (error: Error) => void): this;
 	on(event: "close", listener: (code: number | null) => void): this;
+	off(event: "error", listener: (error: Error) => void): this;
+	off(event: "close", listener: (code: number | null) => void): this;
 }
 
 export interface HostServices {

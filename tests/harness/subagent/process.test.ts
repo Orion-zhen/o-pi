@@ -456,6 +456,7 @@ describe("subagent execution", () => {
 			messageUpdate({ input: 12, output: 0, totalTokens: 12 }, { type: "text_start", contentIndex: 0 }),
 			messageUpdate({ input: 12, output: 1, totalTokens: 13 }, { type: "text_delta", contentIndex: 0, delta: "work" }),
 			messageUpdate({ input: 12, output: 2, totalTokens: 14 }, { type: "text_delta", contentIndex: 0, delta: "ing" }),
+			messageUpdate({ input: 12, output: 2, totalTokens: 14 }, { type: "text_end", contentIndex: 0, content: "working" }),
 			messageEnd([{ type: "text", text: "done" }], { input: 12, output: 3, totalTokens: 15 }),
 		]));
 		const updates: ProcessRunProgress[] = [];
@@ -468,6 +469,80 @@ describe("subagent execution", () => {
 			usage: { input: 12, output: 3, contextTokens: 15, turns: 1 },
 			events: [{ type: "text", text: "done" }],
 		});
+	});
+
+	it.each(["立即", "节流", "结束刷新", "末行"] as const)("%s进度回调失败在关闭进程后传播原错误", async (phase) => {
+		vi.useFakeTimers();
+		const proc = new FakeChildProcess();
+		const kill = vi.spyOn(proc, "kill").mockReturnValue(true);
+		childProcess.spawn.mockReturnValue(proc);
+		const controller = new AbortController();
+		const remove = vi.spyOn(controller.signal, "removeEventListener");
+		const error = new Error("presentation failure");
+		const onUpdate = vi.fn((progress: ProcessRunProgress) => { if (progress.output === "done") throw error; });
+		const pending = runPiProcess(input(), { signal: controller.signal, onUpdate });
+		const rejected = expect(pending).rejects.toBe(error);
+		let settled = false;
+		void pending.then(() => { settled = true; }, () => { settled = true; });
+		await vi.advanceTimersByTimeAsync(0);
+
+		const send = (event: JsonAgentSessionEvent) => proc.stdout.write(`${JSON.stringify(event)}\n`);
+		send(messageStart());
+		const throttled = phase === "节流" || phase === "结束刷新";
+		if (throttled) {
+			send(messageUpdate({}, { type: "text_start", contentIndex: 0 }));
+			send(messageUpdate({}, { type: "text_delta", contentIndex: 0, delta: "working" }));
+		}
+		const done = messageEnd([{ type: "text", text: "done" }]);
+		if (phase === "末行") proc.stdout.write(JSON.stringify(done));
+		else send(done);
+		if (phase === "节流") await vi.advanceTimersByTimeAsync(50);
+		if (phase === "立即") await vi.advanceTimersByTimeAsync(2_000);
+		expect(settled).toBe(false);
+		proc.exitCode = 1;
+		proc.emit("close", 1);
+		await rejected;
+		if (phase === "立即" || phase === "节流") expect(kill).toHaveBeenCalledWith("SIGTERM");
+		else expect(kill).not.toHaveBeenCalled();
+		if (phase === "立即") expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+		expect(onUpdate).toHaveBeenCalledTimes(throttled ? 2 : 1);
+		expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+		expect(proc.stdout.listenerCount("data")).toBe(0);
+		expect(proc.stderr.listenerCount("data")).toBe(0);
+		expect(proc.listenerCount("error")).toBe(0);
+		expect(proc.listenerCount("close")).toBe(0);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it.each(["text_delta", "text_end"] as const)("JSONL 中缺少 text_start 的 %s 仍报告协议失败", async (type) => {
+		const event = type === "text_delta"
+			? { type, contentIndex: 0, delta: "done" }
+			: { type, contentIndex: 0, content: "done" };
+		childProcess.spawn.mockImplementation(() => completedProcess([
+			messageStart(), messageUpdate({}, event), messageEnd([{ type: "text", text: "done" }]),
+		]));
+		const result = await runPiProcess(input());
+		expect(result.outcome).toMatchObject({ kind: "failed", reason: "protocol", message: "Pi JSON protocol error: 1 malformed event" });
+	});
+
+	it("进程启动失败等待 close 清理后返回进程错误", async () => {
+		vi.useFakeTimers();
+		const proc = new FakeChildProcess();
+		childProcess.spawn.mockReturnValue(proc);
+		const pending = runPiProcess(input());
+		let settled = false;
+		void pending.then(() => { settled = true; });
+		await vi.advanceTimersByTimeAsync(0);
+		proc.emit("error", new Error("spawn ENOENT"));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(settled).toBe(false);
+		proc.emit("close", null);
+		await expect(pending).resolves.toMatchObject({ outcome: { kind: "failed", reason: "process", message: "spawn ENOENT" } });
+		expect(proc.stdout.listenerCount("data")).toBe(0);
+		expect(proc.stderr.listenerCount("data")).toBe(0);
+		expect(proc.listenerCount("error")).toBe(0);
+		expect(proc.listenerCount("close")).toBe(0);
+		expect(vi.getTimerCount()).toBe(0);
 	});
 
 	it("累计流式 usage 只取当前 turn 最新快照，完成后再跨 turn 求和", () => {
@@ -543,7 +618,7 @@ describe("subagent execution", () => {
 
 		const result = await runPiProcess(input(), { signal: aborted.signal });
 
-		expect(result.aborted).toBe(true);
+		expect(result.outcome).toMatchObject({ kind: "failed", reason: "aborted" });
 		expect(vi.getTimerCount()).toBe(0);
 	});
 });

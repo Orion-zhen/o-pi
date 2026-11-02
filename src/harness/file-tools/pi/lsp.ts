@@ -74,15 +74,16 @@ export function bindFileLsp(invocation: FileToolsInvocation, load: LoadLsp) {
 					}),
 					...(input.baseline === undefined ? {} : { baseline: input.baseline }),
 				};
-				if (batch !== undefined) return filterRelated(await batch.lsp(lspInput, progress));
 				progress?.lspStarted();
+				let result: LspDiagnosticsSummary | undefined;
 				try {
-					const result = await filterRelated(lspInput === undefined ? undefined : await (await load()).afterMutation(lspInput));
-					progress?.lspCompleted(result);
+					const diagnostics = batch !== undefined
+						? await batch.lsp(lspInput)
+						: lspInput === undefined ? undefined : await (await load()).afterMutation(lspInput);
+					result = await filterRelated(diagnostics);
 					return result;
-				} catch (error) {
-					progress?.lspUnavailable();
-					throw error;
+				} finally {
+					progress?.lspCompleted(result);
 				}
 			},
 		};

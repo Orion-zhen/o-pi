@@ -38,7 +38,7 @@ describe("会话视图记忆", () => {
 		const fresh = views.open({ id: "fresh", path: null }, old.id);
 		views.remove({ type: "sessionsDeleted", ids: [old.id], paths: [] });
 		expect(fresh.draft).toMatchObject({ text: "尚未同步的草稿", images: [image] });
-		expect(fresh.disclosures.size).toBe(0);
+		expect(fresh.disclosures.get("skill")).toBeUndefined();
 		expect(fresh.position).toBeUndefined();
 		expect(views.update(old, (draft) => ({ ...draft, text: "迟到更新" }))).toBe(false);
 	});

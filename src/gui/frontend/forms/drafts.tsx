@@ -1,11 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
-type DraftActions = { save: () => Promise<boolean>; discard: () => void };
-type DraftState = DraftActions & { title: string; dirty: boolean; blocked: boolean; invalid?: boolean };
-type RegisteredDraft = DraftState & { categories: readonly string[] };
-type Register = (id: string, draft: RegisteredDraft) => () => void;
+type DraftState = { title: string; dirty: boolean; blocked: boolean; save: (() => Promise<void>) | null; discard: () => void };
+type DraftCommands = Pick<DraftState, "save" | "discard">;
+type RegisteredDraft = Pick<DraftState, "title" | "dirty" | "blocked"> & {
+	categories: readonly string[];
+	invalid: boolean;
+	commands: RefObject<DraftCommands>;
+};
+type SetDraft = (id: string, draft: RegisteredDraft | null) => void;
 
-export const SettingsStateContext = createContext<{ register: Register; saving: boolean } | null>(null);
+export const SettingsStateContext = createContext<{ setDraft: SetDraft; saving: boolean } | null>(null);
 export const SettingsCategoryContext = createContext<string>("appearance");
 
 export function useSettingsState() {
@@ -14,15 +18,27 @@ export function useSettingsState() {
 	return context;
 }
 
-export function useSettingsDraft(id: string, { title, dirty, blocked, invalid = false, save, discard, categories }: DraftState & { categories?: readonly string[] }) {
-	const { register } = useSettingsState();
+export function useSettingsDraft(id: string, { categories, title, dirty, blocked, save, discard }: DraftState & { categories?: readonly string[] }) {
+	const { setDraft } = useSettingsState();
 	const category = useContext(SettingsCategoryContext);
-	const actions = useRef<DraftActions>({ save, discard });
-	useLayoutEffect(() => { actions.current = { save, discard }; });
-	useEffect(() => register(id, {
-		categories: categories ?? [category], title, dirty, blocked, invalid,
-		save: () => actions.current.save(), discard: () => actions.current.discard(),
-	}), [id, category, categories, title, dirty, blocked, invalid, register]);
+	const commands = useRef({ save, discard });
+	useLayoutEffect(() => { commands.current = { save, discard }; });
+	const invalid = save === null;
+	useLayoutEffect(() => {
+		setDraft(id, { title, dirty, blocked, invalid, categories: categories ?? [category], commands });
+	}, [id, category, categories, title, dirty, blocked, invalid, setDraft]);
+	useLayoutEffect(() => () => setDraft(id, null), [id, setDraft]);
+}
+
+function savePlan(drafts: Iterable<RegisteredDraft>) {
+	const writes: { title: string; save: () => Promise<void> }[] = [];
+	for (const draft of drafts) {
+		if (!draft.dirty) continue;
+		const { save } = draft.commands.current;
+		if (draft.blocked || save === null) return null;
+		writes.push({ title: draft.title, save });
+	}
+	return writes.length ? writes : null;
 }
 
 export function useSettingsCoordinator(onDirty: (dirty: boolean) => void) {
@@ -33,32 +49,30 @@ export function useSettingsCoordinator(onDirty: (dirty: boolean) => void) {
 	useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
 	const [status, setStatus] = useState("");
 	const [error, setError] = useState("");
-	const register = useCallback<Register>((id, draft) => {
-		setDrafts((previous) => new Map(previous).set(id, draft));
-		return () => setDrafts((previous) => {
+	const setDraft = useCallback<SetDraft>((id, draft) => {
+		setDrafts((previous) => {
 			const next = new Map(previous);
-			next.delete(id);
+			if (draft === null) next.delete(id);
+			else next.set(id, draft);
 			return next;
 		});
 	}, []);
 	const dirty = [...drafts.values()].filter((draft) => draft.dirty);
 	const dirtyPages = new Set(dirty.flatMap((draft) => draft.categories));
 	useEffect(() => { onDirty(dirty.length > 0 || saving); }, [dirty.length, saving, onDirty]);
-	const blocked = dirty.some((draft) => draft.blocked || draft.invalid);
+	const blocked = dirty.length === 0 || dirty.some((draft) => draft.blocked || draft.invalid);
 	const save = async () => {
-		if (pending.current || blocked || dirty.length === 0) return;
+		const writes = savePlan(drafts.values());
+		if (pending.current || writes === null) return;
 		pending.current = true;
 		setSaving(true); setStatus(""); setError("");
 		const failures: string[] = [];
 		try {
 			// 按文件依次提交，失败项保留草稿，其余项继续保存。
-			for (const draft of dirty) {
+			for (const draft of writes) {
 				if (!active.current) return;
-				try {
-					if (!await draft.save()) failures.push(draft.title);
-				} catch (error) {
-					failures.push(`${draft.title}：${error instanceof Error ? error.message : String(error)}`);
-				}
+				try { await draft.save(); }
+				catch (error) { failures.push(`${draft.title}：${error instanceof Error ? error.message : String(error)}`); }
 			}
 			if (!active.current) return;
 			if (failures.length) setError(`未保存：${failures.join("、")}`);
@@ -67,8 +81,8 @@ export function useSettingsCoordinator(onDirty: (dirty: boolean) => void) {
 	};
 	const discard = () => {
 		if (pending.current) return;
-		for (const draft of dirty) draft.discard();
+		for (const draft of drafts.values()) if (draft.dirty) draft.commands.current.discard();
 		setStatus(""); setError("");
 	};
-	return { register, saving, dirtyPages, blocked, status, error, save, discard };
+	return { setDraft, saving, dirtyPages, blocked, status, error, save, discard };
 }

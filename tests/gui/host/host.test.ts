@@ -499,8 +499,8 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch({ action: "sessions" });
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 		const switching = host.dispatch({ action: "openSession", path: file });
-		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
-		const dialog = host.execution.dialogs.list()[0];
+		await expect.poll(() => host.selected?.dialogs?.list().length).toBe(1);
+		const dialog = host.selected?.dialogs?.list()[0];
 		if (!dialog) throw new Error("缺少项目信任确认");
 		await host.dispatch({ action: "sessions" });
 		await host.dispatch({ action: "dialog", id: dialog.id, value: "不信任" });
@@ -631,7 +631,7 @@ describe("GUI 直接使用 SDK", () => {
 		);
 		host = new GuiHost().createClient();
 		const start = host.host.start(cwd);
-		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+		await expect.poll(() => host.selected?.dialogs?.list().length).toBe(1);
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 		await host.host.dispose();
 		await start;

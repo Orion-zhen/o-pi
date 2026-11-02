@@ -28,7 +28,7 @@ export const streamingTextReveal = {
 	animation: "blurIn",
 	sep: "char",
 	duration: motionDuration[1] * 1000,
-	stagger: 24,
+	stagger: 5,
 	easing: "ease-out",
 } as const;
 export const listDepth = {

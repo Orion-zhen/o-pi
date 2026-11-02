@@ -16,7 +16,7 @@ const send = vi.fn<GuiConnection["send"]>();
 const report = vi.fn();
 beforeEach(() => { query.mockReset(); send.mockReset().mockResolvedValue(undefined); report.mockReset(); });
 function View({ cwd = "/project", connected = true }: { cwd?: string; connected?: boolean }) {
-	const search = useSessionSearch(cwd, connected, undefined, query, send, report);
+	const search = useSessionSearch(cwd, connected, undefined, query as Query<GlobalQuery>, send as GuiConnection["send"], report);
 	return <>
 		<button onClick={() => search.setText("中文")}>中文</button>
 		<button onClick={() => search.setText("另一个")}>另一个</button>

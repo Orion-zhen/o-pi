@@ -3,7 +3,9 @@ import { ChevronRight, Copy, Import, Plus, Server } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import { mcpObject, validateMcpConfig } from "../../../shared/config/mcp-validation.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { ConfigCommand } from "@/connection/connection.ts";
+import type { McpConfigDocument } from "../../../shared/config/mcp.ts";
+import { ConfigDocument } from "@/forms/config-document.tsx";
 import { Button } from "@/ui/button.tsx";
 import { Switch } from "@/ui/switch.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
@@ -20,36 +22,41 @@ import { McpServerForm } from "./mcp-server-form.tsx";
 import { McpImport } from "./mcp-import.tsx";
 import "./mcp-settings.css";
 
-export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuery>; send: Send; disabled: boolean }) {
-	const editor = useConfigDraft(useCallback(() => query({ query: "mcpConfig" }), [query]), readMcpEditor);
-	const { document, error } = editor;
+export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuery>; send: ConfigCommand; disabled: boolean }) {
+	const load = useCallback(() => query({ query: "mcpConfig" }), [query]);
+	return <ConfigDocument title="MCP 服务" load={load}>{(initial) => <McpEditor initial={initial} send={send} disabled={disabled} />}</ConfigDocument>;
+}
+
+function McpEditor({ initial, send, disabled }: { initial: McpConfigDocument; send: ConfigCommand; disabled: boolean }) {
+	const editor = useConfigDraft(initial, readMcpEditor);
+	const { document } = editor;
 	const { saving } = useSettingsState();
 	const [expanded, setExpanded] = useState<number>();
 	const [importing, setImporting] = useState(false);
 	const state = editor.draft;
 	const sourceView = state.mode === "source";
 	const { content, value } = useMemo(() => mcpEditorView(state), [state]);
-	const original = useMemo(() => readMcpSource(document?.content ?? "", document?.content ?? "").value, [document?.content]);
-	const dirty = document !== undefined && content !== document.content && (state.sourceEdited || mcpDraftChanged(original, value));
+	const original = useMemo(() => readMcpSource(document.content, document.content).value, [document.content]);
+	const dirty = content !== document.content && (state.sourceEdited || mcpDraftChanged(original, value));
 	const blocked = disabled || saving;
 	const sourceErrors = state.mode === "source" ? (state.value ? validateMcpConfig(state.value) : [state.error]) : [];
 	const servers = state.mode === "form" ? mcpDraftIssues(state.draft.servers) : [];
 	const rootErrors = state.mode === "form" ? validateMcpConfig(state.draft.root) : [];
 	const invalid = sourceView ? sourceErrors.length > 0 : rootErrors.length > 0 || servers.some(({ issues }) => issues.length > 0);
 	const discard = () => {
-		if (document) editor.change(discardMcpEditor(document.content, state));
+		editor.change(discardMcpEditor(document.content, state));
 		setImporting(false);
 	};
 	useSettingsDraft("mcp", {
-		title: "MCP 服务", dirty, blocked: disabled, invalid,
-		save: async () => {
-			if (content === undefined) return false;
-			const saved = await editor.save(content, async (document, content) => await send({ action: "saveMcpConfig", original: document.content, content })
-				? { ...document, content } : undefined);
-			if (saved) editor.change(state.mode === "form"
+		title: "MCP 服务", dirty, blocked: disabled,
+		save: content === undefined || invalid ? null : async () => {
+			await editor.save(content, async (document, content) => {
+				await send({ action: "saveMcpConfig", original: document.content, content });
+				return { ...document, content };
+			});
+			editor.change(state.mode === "form"
 				? { ...state, source: content, baselineDraft: state.draft, sourceEdited: false }
 				: { ...state, sourceEdited: false });
-			return saved;
 		},
 		discard,
 	});
@@ -102,24 +109,17 @@ export function McpSettings({ query, send, disabled }: { query: Query<GlobalQuer
 			{content === undefined && <p role="alert">请修正重复的服务名或键，再切换 JSON。</p>}
 		</>;
 	}
-	return <SettingsSection title="MCP 服务" source={sourceView} actions={document && <SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || content === undefined || (sourceView && value === undefined)} onClick={() => {
-		if (content === undefined) return;
+	return <SettingsSection title="MCP 服务" source={sourceView} actions={<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || sourceView && value === undefined} onClick={content === undefined ? undefined : () => {
 		const next = dirty ? content : document.content;
 		const sourceEdited = dirty && state.sourceEdited;
 		editor.change(sourceView ? readMcpEditor(next, sourceEdited) : readMcpSource(next, document.content, sourceEdited));
 		setImporting(false); setExpanded(undefined);
 	}} />}>
-		{!document ? <>
-			{error ? <p role="alert">{error}</p> : <p role="status">读取中…</p>}
-			{error && <Button variant="ghost" onClick={editor.reload}>重试</Button>}
-		</> : <>
-			{!sourceView && <p className="settings-description">全局配置 · 新会话或 /reload 后生效。此处开关不表示连接状态。</p>}
-			{state.mode === "source" ? <>
-				<SourceEditor file={document.path} label="全局 MCP JSON" value={state.content} disabled={blocked} onChange={(content) => editor.change(readMcpSource(content, document.content))} />
-				{sourceErrors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
-			</> : form}
-			{!sourceView && <p className="settings-description">仅配置可信服务。遮蔽不加密配置文件，凭据建议使用 ${"{ENV_NAME}"}。受信任项目的同名配置可能覆盖全局配置。</p>}
-			{error && <p role="alert">{error}</p>}
-		</>}
+		{!sourceView && <p className="settings-description">全局配置 · 新会话或 /reload 后生效。此处开关不表示连接状态。</p>}
+		{state.mode === "source" ? <>
+			<SourceEditor file={document.path} label="全局 MCP JSON" value={state.content} disabled={blocked} onChange={(content) => editor.change(readMcpSource(content, document.content))} />
+			{sourceErrors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
+		</> : form}
+		{!sourceView && <p className="settings-description">仅配置可信服务。遮蔽不加密配置文件，凭据建议使用 ${"{ENV_NAME}"}。受信任项目的同名配置可能覆盖全局配置。</p>}
 	</SettingsSection>;
 }

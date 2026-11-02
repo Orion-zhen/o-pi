@@ -174,7 +174,7 @@ async function analyzeDocumentSelection(
 	if (loaded.status !== "ok") return loaded;
 	const { document, syntax } = loaded.value;
 	const result = await client.withDocument(document.filePath, document.text, input.signal, async (session) => {
-		const symbols = await requests.run(session.capabilities()?.documentSymbolProvider, async (options) => {
+		const symbols = await requests.run(session.capabilities().documentSymbolProvider, async (options) => {
 			const values = await session.symbols(options);
 			return values === undefined ? undefined : analyzeLspDocument(document, values, session.uri);
 		});

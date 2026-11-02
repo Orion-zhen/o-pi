@@ -171,7 +171,6 @@ async function executeOne(
 	const maxAttempts = (prepared.agent.retries ?? config.retries) + 1;
 	let attempts = 0;
 	let output: ProcessRunOutput;
-	let failure: string | undefined;
 	onProgress(runningResult(base, 0));
 	while (true) {
 		attempts += 1;
@@ -183,14 +182,13 @@ async function executeOne(
 			...(context.signal === undefined ? {} : { signal: context.signal }),
 			onUpdate: (progress) => onProgress(runningResult(base, attempts, progress)),
 		});
-		failure = validateProcessOutput(output);
-		if (failure === undefined || !shouldRetry(output, attempts, maxAttempts, prepared.tools, config)) break;
+		if (!shouldRetry(output, attempts, maxAttempts, prepared.tools, config)) break;
 	}
 	return persistResult({
 		...base,
 		status: "completed", attempts, exitCode: output.exitCode,
 		...(output.stopReason === undefined ? {} : { stopReason: output.stopReason }),
-		...(failure === undefined ? {} : { error: failure }),
+		...(output.outcome.kind === "failed" ? { error: output.outcome.message } : {}),
 		output: output.output,
 		...(output.stderr === "" ? {} : { stderr: output.stderr }),
 		durationMs: output.durationMs, usage: output.usage, events: output.events,
@@ -284,18 +282,6 @@ async function resolveCwd(input: string, workspace: string): Promise<string> {
 	return target;
 }
 
-function validateProcessOutput(output: ProcessRunOutput): string | undefined {
-	if (output.timedOut) return "subagent timed out";
-	if (output.aborted) return "subagent aborted";
-	if (output.parseErrors > 0) return `Pi JSON protocol error: ${output.parseErrors} malformed event${output.parseErrors === 1 ? "" : "s"}`;
-	if (output.error !== undefined) return output.error;
-	if (output.stopReason === "length") return "subagent output truncated: model output token limit reached";
-	if (output.exitCode !== 0) return `subagent exited with code ${output.exitCode}`;
-	if (output.stopReason === "error" || output.stopReason === "aborted") return `subagent stopReason: ${output.stopReason}`;
-	if (output.output.trim() === "") return "empty output";
-	return undefined;
-}
-
 function shouldRetry(
 	output: ProcessRunOutput,
 	attempt: number,
@@ -303,12 +289,9 @@ function shouldRetry(
 	tools: string[],
 	config: SubagentConfig,
 ): boolean {
-	if (attempt >= maxAttempts || output.aborted || output.stopReason === "aborted" || output.stopReason === "length" || output.parseErrors > 0) return false;
-	if (output.wrote || hasWriteCapability(tools)) return false;
-	if (output.timedOut) return config.retryOnTimeout;
-	// 提供方错误由 SDK 重试，外层只重跑正常退出但没有正文的任务。
-	return config.retryOnEmptyOutput && output.exitCode === 0 && output.error === undefined
-		&& output.stopReason !== "error" && output.output.trim() === "";
+	if (output.outcome.kind === "success" || attempt >= maxAttempts || output.wrote || hasWriteCapability(tools)) return false;
+	return output.outcome.reason === "timeout" && config.retryOnTimeout
+		|| output.outcome.reason === "empty" && config.retryOnEmptyOutput;
 }
 
 async function retryDelay(ms: number, signal: AbortSignal | undefined): Promise<void> {

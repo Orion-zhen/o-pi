@@ -9,7 +9,7 @@ import { TooltipProvider } from "../../../../../../src/gui/frontend/ui/tooltip.t
 import { ModelServicesSettings } from "../../../../../../src/gui/frontend/features/models/services/model-services-settings.tsx";
 import { SettingsStateContext, useSettingsCoordinator } from "../../../../../../src/gui/frontend/forms/drafts.tsx";
 import { SettingsActions } from "../../../../../../src/gui/frontend/forms/settings-controls.tsx";
-import type { Send } from "../../../../../../src/gui/frontend/connection/connection.ts";
+import type { ConfigCommand } from "../../../../../../src/gui/frontend/connection/connection.ts";
 import { useReactFixture } from "../../../../helpers/react-fixture.ts";
 import type { CatalogQuery } from "../../../../../../src/gui/frontend/features/models/services/use-service-catalog.ts";
 import type { ModelServiceCatalog } from "../../../../../../src/gui/shared/config/model-services.ts";
@@ -36,7 +36,7 @@ const click = async (element: HTMLButtonElement | undefined | null) => {
 const dirty = vi.fn();
 const sessionQuery: Query = async () => { throw new Error("无会话不应查询候选"); };
 function View({ query, send, catalogQuery = sessionQuery, sessionId, revision = 0, ready = !!sessionId }: {
-	query: Query<{ query: "modelServices" }>; send: Send; catalogQuery?: CatalogQuery; sessionId?: string; revision?: number; ready?: boolean;
+	query: Query<{ query: "modelServices" }>; send: ConfigCommand; catalogQuery?: CatalogQuery; sessionId?: string; revision?: number; ready?: boolean;
 }) {
 	const state = useSettingsCoordinator(dirty);
 	return <TooltipProvider><SettingsStateContext.Provider value={state}>
@@ -53,7 +53,7 @@ it.each([
 	JSON.stringify({ providers: { local: { api: "openai-completions", compat: { thinkingFormat: "chat-template", chatTemplateKwargs: { enabled: [] } } } } }),
 ])("加载未通过校验的配置只能编辑源码 %#", async (content) => {
 	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
-	const send = vi.fn<Send>();
+	const send = vi.fn<ConfigCommand>();
 	await render(<View query={query} send={send} />);
 	expect(document.querySelector<HTMLTextAreaElement>("textarea")?.defaultValue).toBe(content);
 	expect(named("表单")?.disabled).toBe(true);
@@ -68,7 +68,7 @@ it("页面只保留大标题，添加服务与源码按钮位于标题行", asyn
 	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({
 		path: "models.json", content: '{"providers":{}}', schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api),
 	});
-	await render(<View query={query} send={vi.fn<Send>()} />);
+	await render(<View query={query} send={vi.fn<ConfigCommand>()} />);
 	const heading = document.querySelector(".settings-section-heading");
 	expect(heading?.querySelector("h2")?.textContent).toBe("模型服务");
 	expect(document.querySelectorAll("h2, h3")).toHaveLength(1);
@@ -85,7 +85,7 @@ it("页面只保留大标题，添加服务与源码按钮位于标题行", asyn
 it("服务级配置位于候选模型操作和模型配置上方", async () => {
 	const content = JSON.stringify({ providers: { local: { api: "openai-completions", models: [{ id: "m" }] } } });
 	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
-	await render(<View query={query} send={vi.fn<Send>().mockResolvedValue(true)} />);
+	await render(<View query={query} send={vi.fn<ConfigCommand>().mockResolvedValue(undefined)} />);
 	await click(button("编辑服务 local"));
 	const controls = [...document.querySelectorAll("button")];
 	const sections = [named("协议与思考"), named("请求设置"), named("重新获取"), button("编辑模型 m")];
@@ -116,7 +116,7 @@ it("服务级配置位于候选模型操作和模型配置上方", async () => {
 it.each([undefined, false, true])("开关改回保存值 %s 后不再保存，默认值不显示重置按钮", async (authHeader) => {
 	const content = JSON.stringify({ providers: { local: { api: "openai-completions", baseUrl: "http://localhost/v1", authHeader } } });
 	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	await render(<View query={query} send={send} />);
 	await click(button("编辑服务 local"));
 	await click(named("请求设置"));
@@ -137,7 +137,7 @@ it.each([undefined, false, true])("开关改回保存值 %s 后不再保存，�
 it("一个字段改回原值不会清除其他字段的待保存修改", async () => {
 	const content = '{\n// 保留注释\n"providers":{"local":{"api":"openai-completions"}}\n}';
 	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	await render(<View query={query} send={send} />);
 	await click(button("编辑服务 local"));
 	await click(named("协议与思考"));
@@ -162,7 +162,7 @@ it("一个字段改回原值不会清除其他字段的待保存修改", async (
 it("改回默认值不同于已保存值时隐藏重置按钮，但仍需保存", async () => {
 	const content = JSON.stringify({ providers: { local: { api: "openai-completions", authHeader: true } } });
 	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	await render(<View query={query} send={send} />);
 	await click(button("编辑服务 local"));
 	await click(named("请求设置"));
@@ -190,7 +190,7 @@ function connectionFixture() {
 	};
 	return {
 		query: vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) }),
-		catalogQuery: vi.fn<CatalogQuery>().mockResolvedValue(value), send: vi.fn<Send>().mockResolvedValue(true), value,
+		catalogQuery: vi.fn<CatalogQuery>().mockResolvedValue(value), send: vi.fn<ConfigCommand>().mockResolvedValue(undefined), value,
 	};
 }
 
@@ -382,7 +382,7 @@ it.each([
 ])("表单展示 %s 服务，保留通用设置并隐藏 OpenAI 专属控件", async (api, title) => {
 	const content = JSON.stringify({ providers: { native: { api, models: [{ id: "m", reasoning: true }] } } });
 	const query = vi.fn<Query<{ query: "modelServices" }>>().mockResolvedValue({ path: "models.json", content, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) });
-	const send = vi.fn<Send>();
+	const send = vi.fn<ConfigCommand>();
 	await render(<View query={query} send={send} />);
 	expect(button("编辑服务 native")?.textContent).toContain(String(title));
 	await click(button("编辑服务 native"));

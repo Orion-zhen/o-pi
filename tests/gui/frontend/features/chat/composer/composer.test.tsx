@@ -25,7 +25,7 @@ describe("文件拖入", () => {
 			query: async () => { throw new Error("本测试不查询数据"); },
 		};
 		await renderRoot(createElement(TooltipProvider, null,
-			createElement(Composer, { gui, view, snapshot, preferences: undefined, onSubmit() {} })));
+			createElement(Composer, { ref: null, style: {}, gui, view, snapshot, preferences: undefined, onSubmit() {} })));
 		const card = document.querySelector(".composer-card");
 		if (!card) throw new Error("缺少拖入区域");
 		const event = new window.Event("drop", { bubbles: true, cancelable: true });
@@ -78,7 +78,7 @@ describe("输入框停止优先级", () => {
 		};
 		const onSubmit = vi.fn();
 		const render = () => renderRoot(createElement(TooltipProvider, null,
-			createElement(Composer, { gui, view, snapshot, preferences: undefined, onSubmit })));
+			createElement(Composer, { ref: null, style: {}, gui, view, snapshot, preferences: undefined, onSubmit })));
 		await render();
 		await act(async () => views.writeText(view.id, draft));
 		const stop = document.querySelector<HTMLButtonElement>('button[aria-label="停止压缩"]');

@@ -1,36 +1,22 @@
-import {
-	PublishDiagnosticsNotification,
-	type Diagnostic,
-	type FileChangeType,
-	type ServerCapabilities,
-	type SymbolInformation,
-	type WorkspaceSymbol,
+import type {
+	FileChangeType,
+	ServerCapabilities,
+	SymbolInformation,
+	WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import { LspClientDiagnostics, type LspSaveDiagnosticsResult } from "./diagnostics.ts";
+import type { LspSaveDiagnosticsResult } from "./diagnostics.ts";
 import type { LspDocumentSession } from "./document-session.ts";
-import { LspClientDocuments } from "./documents.ts";
 import { LspClientLifecycle } from "./lifecycle.ts";
-import type { LspClientConnection } from "./connection.ts";
 import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.ts";
-import {
-	requestWorkspaceSymbols,
-	resolveWorkspaceSymbol,
-} from "../protocol/features.ts";
+import { requestWorkspaceSymbols, resolveWorkspaceSymbol } from "../protocol/features.ts";
 import { pathToFileUri } from "../protocol/uri.ts";
 import { diagnosticHints } from "../diagnostics/hints.ts";
 import { createOperationDeadline, waitUnlessAborted } from "../analysis/deadline.ts";
 import type { LspConfig, LspErrorDiagnostic, LspDocumentSymbols, LspRequestOptions, LspServerConfig, LspServerStatus } from "../types.ts";
 
-interface ClientSession {
-	connection: LspClientConnection;
-	documents: LspClientDocuments;
-	diagnostics: LspClientDiagnostics;
-}
-
-/** 稳定客户端入口，每次连接重建时创建独立的文档与诊断状态。 */
+/** 稳定客户端入口，连接代及其业务状态由 lifecycle 统一拥有。 */
 export class LspClient {
-	private session: ClientSession | undefined;
 	private readonly lifecycle: LspClientLifecycle;
 
 	constructor(
@@ -40,27 +26,11 @@ export class LspClient {
 		private readonly ledger: DiagnosticsLedger,
 		onCrash: (message: string) => void,
 	) {
-		this.lifecycle = new LspClientLifecycle(root, server, config, {
-			onConnection: (connection) => {
-				const documents = new LspClientDocuments(root, server, config, connection);
-				const diagnostics = new LspClientDiagnostics(root, server, config, ledger, documents);
-				connection.rpc.onNotification(PublishDiagnosticsNotification.type, (params) => diagnostics.publish({
-					uri: params.uri,
-					diagnostics: params.diagnostics as Diagnostic[],
-					...(params.version === undefined ? {} : { version: params.version }),
-				}, documents.currentVersion(params.uri)));
-				this.session = { connection, documents, diagnostics };
-			},
-			onCleanup: () => {
-				this.session?.documents.clear();
-				this.session = undefined;
-			},
-			onCrash,
-		});
+		this.lifecycle = new LspClientLifecycle(root, server, config, ledger, onCrash);
 	}
 
 	capabilities(): ServerCapabilities | undefined {
-		return this.session?.connection.capabilities();
+		return this.lifecycle.session()?.connection.capabilities();
 	}
 
 	diagnosticSource(): string {
@@ -71,14 +41,14 @@ export class LspClient {
 		const lastError = this.lifecycle.lastErrorMessage();
 		return {
 			id: this.server.id, root: this.root, status: this.lifecycle.status(),
-			open_documents: this.session?.documents.openCount() ?? 0,
+			open_documents: this.lifecycle.session()?.documents.openCount() ?? 0,
 			diagnostics: this.ledger.count(this.diagnosticSource(), this.root),
 			...(lastError === undefined ? {} : { last_error: lastError }),
 		};
 	}
 
-	ensureReady(): Promise<boolean> {
-		return this.lifecycle.ensureReady();
+	async ensureReady(): Promise<boolean> {
+		return await this.lifecycle.ensureReady() !== undefined;
 	}
 
 	shutdown(): Promise<void> {
@@ -90,7 +60,7 @@ export class LspClient {
 		options: LspRequestOptions,
 	): Promise<readonly LspSaveDiagnosticsResult[]> {
 		if (inputs.length === 0) return [];
-		return await this.withSession((session) => session.diagnostics.collect(inputs, options))
+		return await this.lifecycle.withSession((session) => session.diagnostics.collect(inputs, options))
 			?? inputs.map(() => ({ kind: "unavailable" as const }));
 	}
 
@@ -103,7 +73,7 @@ export class LspClient {
 		const uri = pathToFileUri(filePath);
 		const operation = createOperationDeadline(options.signal, options.timeoutMs);
 		try {
-			return await this.withSession((session) => waitUnlessAborted(session.documents.enqueue(uri, async () => {
+			return await this.lifecycle.withSession((session) => waitUnlessAborted(session.documents.enqueue(uri, async () => {
 				if (operation.signal.aborted || !session.documents.hasContent(uri, text)) return [];
 				const snapshot = this.ledger.snapshot(this.diagnosticSource(), uri);
 				return diagnosticHints(session.connection, uri, snapshot.diagnostics, errors, operation.requestOptions());
@@ -118,25 +88,18 @@ export class LspClient {
 	}
 
 	documentSymbols(filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
-		return this.withSession((session) => session.documents.documentSymbols(filePath, text, options));
+		return this.lifecycle.withSession((session) => session.documents.documentSymbols(filePath, text, options));
 	}
 
 	workspaceSymbols(query: string, options?: LspRequestOptions): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
-		return this.withSession((session) => requestWorkspaceSymbols(session.connection, query, options));
+		return this.lifecycle.withSession((session) => requestWorkspaceSymbols(session.connection, query, options));
 	}
 
 	resolveWorkspaceSymbol(symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
-		return this.withSession((session) => resolveWorkspaceSymbol(session.connection, symbol, options));
+		return this.lifecycle.withSession((session) => resolveWorkspaceSymbol(session.connection, symbol, options));
 	}
 
 	withDocument<T>(filePath: string, text: string, signal: AbortSignal | undefined, operation: (document: LspDocumentSession) => Promise<T>): Promise<T | undefined> {
-		return this.withSession((session) => session.documents.withDocument(filePath, text, signal, operation));
-	}
-
-	private withSession<T>(operation: (session: ClientSession) => Promise<T>): Promise<T | undefined> {
-		return this.lifecycle.withOperation(async () => {
-			if (!await this.ensureReady() || this.session === undefined) return undefined;
-			return operation(this.session);
-		});
+		return this.lifecycle.withSession((session) => session.documents.withDocument(filePath, text, signal, operation));
 	}
 }

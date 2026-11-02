@@ -32,10 +32,10 @@ export function SettingsDisclosure({ title, children }: { title: string; childre
 }
 
 export function SettingsSourceButton({ file, source = false, disabled, onClick }: {
-	file: string; source?: boolean; disabled?: boolean; onClick: () => void;
+	file: string; source?: boolean; disabled?: boolean; onClick: (() => void) | undefined;
 }) {
 	return <Hint content={source ? "表单编辑" : "编辑配置文件"}>
-		<Button variant="ghost" size="sm" disabled={disabled} onClick={onClick}>
+		<Button variant="ghost" size="sm" disabled={disabled || onClick === undefined} onClick={onClick}>
 			<MorphIcon icon={source ? List : Code} spring="smooth" size="1em" />
 			{source ? "表单" : file.endsWith(".jsonc") ? "JSONC" : "JSON"}
 		</Button>

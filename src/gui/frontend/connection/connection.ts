@@ -1,5 +1,5 @@
 import type { DesktopBridge } from "../../shared/protocol/desktop.ts";
-import type { GuiAction, GuiActionResult } from "../../shared/protocol/actions.ts";
+import type { ConfigAction, GuiAction, GuiActionResult } from "../../shared/protocol/actions.ts";
 import type { GuiConnection, GuiControl } from "../../shared/protocol/connection.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { GuiQuery, GuiQueryResults } from "../../shared/protocol/queries.ts";
@@ -8,6 +8,7 @@ import { diagnosticContext } from "@/diagnostics/diagnostics.ts";
 import { notificationDestination, NOTIFICATION_PERMISSION_CHANGED } from "./notifications.ts";
 
 export type Send = (action: GuiAction) => Promise<boolean>;
+export type ConfigCommand = (action: ConfigAction) => Promise<void>;
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "closed";
 export const connectionLabels: Record<ConnectionStatus, string> = {
 	connecting: "连接中", connected: "已连接", disconnected: "已断开，后台任务不会因此停止", closed: "会话已关闭",

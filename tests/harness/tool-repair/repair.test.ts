@@ -26,7 +26,7 @@ const pathListSchema = Type.Object(
 );
 
 describe("tool-input repair", () => {
-	it("修复别名、数字字符串、optional null、路径前缀和 unknown fields", () => {
+	it("修复别名、路径前缀和未知字段，数值转换与可选 null 清理由 SDK 处理", () => {
 		const tool = repairableTool(
 			defineNoopTool(simpleSchema),
 			{
@@ -45,19 +45,20 @@ describe("tool-input repair", () => {
 			extra: true,
 		})).toEqual({
 			path: "src/a.ts",
-			start_line: 2,
+			start_line: "2",
+			end_line: null,
 		});
 	});
 
-	it("支持单字符串对象工具调用，但不会返回半修复非法参数", () => {
+	it("支持单字符串对象工具调用，未改写参数原样传递", () => {
 		const tool = repairableTool(defineNoopTool(simpleSchema), {
 			singleStringField: "path",
 			pathFields: ["path"],
 		});
 		expect(tool.prepareArguments?.("@src/a.ts")).toEqual({ path: "src/a.ts" });
 
-		const invalid = { path: 42, start_line: "3" };
-		expect(tool.prepareArguments?.(invalid)).toBe(invalid);
+		const unchanged = { path: 42, start_line: "3" };
+		expect(tool.prepareArguments?.(unchanged)).toBe(unchanged);
 	});
 
 	it("合法参数原样传递，修复不修改原输入", () => {
@@ -200,12 +201,12 @@ describe("tool-input repair", () => {
 		});
 	});
 
-	it("schema 默认值不改变空字符串或 optional null 的语义", () => {
+	it("参数准备不改写空字符串或可选 null", () => {
 		const tool = repairableTool(defineNoopTool(Type.Object({
 			query: Type.String(),
 			mode: Type.Optional(Type.String({ default: "auto" })),
 		}, { additionalProperties: false })));
-		expect(tool.prepareArguments?.({ query: "test", mode: null })).toEqual({ query: "test" });
+		expect(tool.prepareArguments?.({ query: "test", mode: null })).toEqual({ query: "test", mode: null });
 		expect(tool.prepareArguments?.({ query: "test", mode: "" })).toEqual({ query: "test", mode: "" });
 	});
 });

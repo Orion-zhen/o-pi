@@ -1,29 +1,25 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { SessionManager, AgentSessionRuntime, SessionStartEvent, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { UserHistoryStore, buildInitialHistory, normalizeHistoryText } from "../../../harness/user-history.ts";
 import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
-import type { GuiAction, GuiActionResult } from "../../shared/protocol/actions.ts";
+import type { GuiAction, GuiActionResult, SessionAction, SessionMutation } from "../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { SessionQuery, GuiQueryResults } from "../../shared/protocol/queries.ts";
 import type { GuiSnapshot } from "../../shared/protocol/state.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
-import { GuiDialogs } from "./dialogs.ts";
+import { GuiExecutionContext } from "./execution-context.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
 import { completeCommand, runBuiltin } from "./commands.ts";
 import { openView, consumeUsageCredit } from "./views.ts";
-import { UsageService } from "../../../harness/usage/service.ts";
 import { collectGuiSnapshot } from "../projection/snapshot.ts";
-import { GuiModelScope, persistDefaultModel } from "./models.ts";
-import { GuiReports } from "../projection/reports.ts";
+import { persistDefaultModel } from "./models.ts";
 import { GuiPayloads } from "../projection/payloads.ts";
 import { GuiHistory } from "../projection/history.ts";
 import { GuiStream } from "../projection/stream.ts";
 import { GuiLiveTools } from "../projection/live-tools.ts";
 import { NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
 import type { GuiMcpTools } from "./mcp-tools.ts";
-import { GuiModelServices } from "./model-services.ts";
 import { setCodexSpeed } from "../../../harness/codex-speed/state.ts";
 import { applyToolPreset } from "../../../harness/tool-defaults/presets.ts";
 
@@ -34,14 +30,13 @@ export interface SessionClient extends Pick<ExtensionCommandContext, "newSession
 	dispatch<A extends GuiAction>(action: A): Promise<GuiActionResult<A>>;
 }
 type Listener = (event: GuiEvent) => void;
-const liveMutations = new Set<GuiAction["action"]>([
+const liveMutations = new Set<SessionMutation["action"]>([
 	"model", "thinking", "codexSpeed", "scopeModels", "persistModels", "persistDefaultModel",
 	"tool", "toolPreset", "mcpServers", "persistTools", "label", "rename",
 ]);
 
 /** 可整体释放的 SDK 执行资源。导航和会话身份由 GuiSession 持有。 */
 export class GuiExecution {
-	private current: AgentSessionRuntime | undefined;
 	private history = new UserHistoryStore();
 	private historyTexts: string[] = [];
 	private historyWarned = false;
@@ -50,10 +45,7 @@ export class GuiExecution {
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private changing = false;
 	private preparing = 0;
-	private commandController = new AbortController();
 	readonly payloads = new GuiPayloads();
-	readonly usageService = new UsageService();
-	readonly modelScope = new GuiModelScope();
 	private guiHistory = new GuiHistory(this.payloads);
 	private stream = new GuiStream(this.payloads);
 	private bashCommand: string | null = null;
@@ -61,95 +53,86 @@ export class GuiExecution {
 	private liveTools = new GuiLiveTools(this.payloads);
 	private disposed = false;
 	private tasks = new Set<Promise<unknown>>();
-	private lifetime = new AbortController();
-	titleGeneration: GuiSnapshot["titleGeneration"];
-	private toolController: ToolSelectionController | undefined;
-	private mcpTools: GuiMcpTools | undefined;
-	private modelServices = new GuiModelServices();
 	private loginController: AbortController | undefined;
 	private mcpLoggingIn = false;
-	private origin = new AsyncLocalStorage<SessionClient>();
-	private reports = new GuiReports(
-		(event) => this.emit(event),
-		(error) => this.dialogs.notify(`会话信息读取失败: ${error instanceof Error ? error.message : String(error)}`, "error"),
-	);
-	readonly dialogs = new GuiDialogs((event) => {
-		this.emit(event);
-		this.changed();
-	}, () => this.current ? this.current.session.messages.length + (this.current.session.state.streamingMessage ? 1 : 0) : 0, {
-		get: () => this.origin.getStore()?.readDraft() ?? "",
-		set: (text) => {
-			this.origin.getStore()?.writeDraft(text);
-			this.emit({ type: "editor", sessionId: this.id, text, mode: "replace" });
-		},
-	});
+	readonly dialogs;
+	readonly usageService;
+	readonly modelScope;
 
-	constructor(readonly id: string, private receive: Listener, private changed: () => void, private refreshSessions: () => void, private submitted: () => void) {}
-
-	get runtime(): AgentSessionRuntime {
-		if (!this.current) throw new Error("会话尚未就绪。");
-		return this.current;
+	private constructor(readonly runtime: AgentSessionRuntime, private context: GuiExecutionContext,
+		private toolset: { controller: ToolSelectionController }, private mcpTools: GuiMcpTools | null) {
+		this.dialogs = context.dialogs;
+		this.usageService = context.usageService;
+		this.modelScope = context.modelScope;
+		context.tail = () => runtime.session.messages.length + (runtime.session.state.streamingMessage ? 1 : 0);
+		context.publish = () => this.schedule();
 	}
-	get ready(): boolean { return this.current !== undefined && !this.changing; }
+	get id(): string { return this.context.id; }
+	get titleGeneration() { return this.context.titleGeneration; }
 	get idle(): boolean {
-		return (!this.current || this.current.session.isIdle && !this.current.session.isBashRunning)
+		return (this.runtime.session.isIdle && !this.runtime.session.isBashRunning)
 			&& !this.loginController && this.preparing === 0;
 	}
 	get canRelease(): boolean {
-		return this.ready && this.idle && this.tasks.size === 0 && this.dialogs.list().length === 0
+		return !this.changing && this.idle && this.tasks.size === 0 && this.dialogs.list().length === 0
 			&& this.runtime.session.getSteeringMessages().length === 0 && this.runtime.session.getFollowUpMessages().length === 0;
 	}
 	get running(): boolean { return !this.idle; }
 
-	emit(event: GuiEvent): void {
-		if (["panel", "sessionTab", "editor", "download", "auth", "close"].includes(event.type)) {
-			this.origin.getStore()?.emit(event);
-			return;
-		}
-		this.receive(event);
-	}
+	emit(event: GuiEvent): void { this.context.emit(event); }
 	observe(value: boolean): void {
 		if (value === this.observed) return;
 		this.observed = value;
-		if (value) this.scheduleReports(); else this.reports.invalidate();
+		if (value) this.scheduleReports(); else this.context.reports.invalidate();
 	}
 
 	replay(listener: Listener): void {
 		listener({ type: "dialogs", value: this.dialogs.list() });
 		listener({ type: "notices", value: [...this.dialogs.notices] });
-		listener({ type: "snapshot", value: this.current ? this.snapshot() : null });
-		this.reports.replay(listener);
+		listener({ type: "snapshot", value: this.snapshot() });
+		this.context.reports.replay(listener);
 	}
 
 	private track<T>(task: Promise<T>): Promise<T> {
 		this.tasks.add(task);
-		return task.finally(() => { this.tasks.delete(task); this.changed(); });
+		return task.finally(() => { this.tasks.delete(task); this.context.changed(); });
 	}
 
-	start(manager: SessionManager, permissions: { stores: ApprovalStores; rules: SessionApprovalRules; trust: Map<string, boolean> }, client: SessionClient | undefined, initial: { event: SessionStartEvent; models: string[] | undefined }): Promise<void> {
+	static create(context: GuiExecutionContext, manager: SessionManager,
+		permissions: { stores: ApprovalStores; rules: SessionApprovalRules; trust: Map<string, boolean> },
+		client: SessionClient | undefined, initial: { event: SessionStartEvent; models: string[] | undefined }): Promise<GuiExecution> {
 		const initialize = async () => {
-			this.changing = true;
-			try {
-				const runtime = await createGuiRuntime(manager.getCwd(), {
-					dialogs: this.dialogs,
-					emit: (event) => this.emit(event),
-					bindTools: (controller) => { this.toolController = controller; },
-					bindMcp: (tools) => { this.mcpTools = tools; },
-					bindModelServices: (config) => { this.modelServices.bind(config); },
-					toolsChanged: () => this.schedule(),
-					commandSignal: () => this.commandController.signal,
-					reports: this.reports,
-					usageService: this.usageService,
+			const tools = Promise.withResolvers<{ controller: ToolSelectionController }>();
+			const mcp: { tools: GuiMcpTools | null } = { tools: null };
+			let bindTools = (controller: ToolSelectionController) => {
+				const selection = { controller };
+				bindTools = (controller) => { selection.controller = controller; };
+				tools.resolve(selection);
+			};
+			let bindMcp = (tools: GuiMcpTools) => { mcp.tools = tools; };
+			const [runtime, selection] = await Promise.all([
+				createGuiRuntime(manager.getCwd(), {
+					dialogs: context.dialogs,
+					emit: (event) => context.emit(event),
+					bindTools: (controller) => bindTools(controller),
+					bindMcp: (tools) => bindMcp(tools),
+					bindModelServices: (config) => context.modelServices.bind(config),
+					toolsChanged: () => context.publish(),
+					commandSignal: () => context.commandController.signal,
+					reports: context.reports, usageService: context.usageService,
 					approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
-					titleGenerationChanged: (state) => { this.titleGeneration = state; this.schedule(); },
-					signal: this.lifetime.signal,
-				}, manager, initial.event, initial.models, this.modelScope);
-				if (this.disposed) { await runtime.dispose(); return; }
-				this.current = runtime;
-				await this.bindSession();
-			} finally { this.changing = false; this.publish(); }
+					titleGenerationChanged: (state) => { context.titleGeneration = state; context.publish(); },
+					signal: context.lifetime.signal,
+				}, manager, initial.event, initial.models, context.modelScope), tools.promise,
+			]);
+			const execution = new GuiExecution(runtime, context, selection, mcp.tools);
+			bindMcp = (tools) => { execution.mcpTools = tools; };
+			try {
+				if (!context.lifetime.signal.aborted) await execution.bindSession();
+				return execution;
+			} catch (error) { await execution.dispose(); throw error; }
 		};
-		return this.track(client ? this.origin.run(client, initialize) : initialize());
+		return client ? context.origin.run(client, initialize) : initialize();
 	}
 
 	private async bindSession(): Promise<void> {
@@ -170,7 +153,7 @@ export class GuiExecution {
 				this.stream.end();
 				if (event.message.role === "toolResult") this.liveTools.settle(event.message.toolCallId);
 			}
-			if (event.type === "message_start" && event.message.role === "user") this.submitted();
+			if (event.type === "message_start" && event.message.role === "user") this.context.submitted();
 			if (event.type === "message_update") {
 				const update = event.assistantMessageEvent;
 				if (!("contentIndex" in update)) throw new Error("SDK message_update 缺少内容块。");
@@ -183,11 +166,11 @@ export class GuiExecution {
 				// 变更 diff 作为界面专用条目落盘，父结果完成后仍可恢复。
 				if (mutation) session.sessionManager.appendCustomEntry(NESTED_MUTATION_ENTRY, mutation);
 			}
-			if (event.type === "agent_end" || event.type === "session_info_changed") this.refreshSessions();
+			if (event.type === "agent_end" || event.type === "session_info_changed") this.context.refreshSessions();
 			this.schedule();
 		});
 		const client = () => {
-			const value = this.origin.getStore();
+			const value = this.context.origin.getStore();
 			if (!value) throw new Error("会话导航缺少发起客户端。");
 			return value;
 		};
@@ -205,35 +188,34 @@ export class GuiExecution {
 			shutdownHandler: () => this.emit({ type: "close" }),
 			onError: (error) => this.dialogs.notify(`${error.extensionPath}: ${error.error}`, "error"),
 		});
-		this.refreshSessions();
+		this.context.refreshSessions();
 	}
 
 	snapshot(): GuiSnapshot {
-		if (!this.toolController) throw new Error("工具选择未绑定。");
 		return collectGuiSnapshot(this.runtime, {
 			titleGeneration: this.titleGeneration,
 			scopedModels: this.modelScope.ids,
 			modelScopeChanged: this.modelScope.hasDefaultChanges(this.runtime),
-			modelServicesRevision: this.modelServices.revision,
+			modelServicesRevision: this.context.modelServices.revision,
 			canSubmit: !this.changing,
 			canChangeSession: !this.changing && this.idle,
 			commandRunning: this.preparing > 0,
 			liveTools: this.liveTools.project(),
 			history: this.historyTexts, bashCommand: this.bashCommand, bashOutput: this.bashOutput, streamingMessage: this.stream.project(),
-		}, this.guiHistory, this.toolController, this.mcpTools?.list(this.runtime.session.getActiveToolNames()) ?? []);
+		}, this.guiHistory, this.toolset.controller, this.mcpTools === null ? [] : this.mcpTools.list(this.runtime.session.getActiveToolNames()));
 	}
 	private schedule(): void {
 		if (!this.timer && !this.disposed) this.timer = setTimeout(() => { this.timer = undefined; this.publish(); }, 0);
 	}
 	private scheduleReports(): void {
-		if (!this.disposed && !this.changing && this.current && this.observed)
-			this.reports.schedule(this.current.session, this.liveTools.size);
+		if (!this.disposed && !this.changing && this.observed)
+			this.context.reports.schedule(this.runtime.session, this.liveTools.size);
 	}
 	publish(): void {
 		if (this.disposed) return;
-		this.changed();
+		this.context.changed();
 		if (this.observed) {
-			this.emit({ type: "snapshot", value: this.current ? this.snapshot() : null });
+			this.emit({ type: "snapshot", value: this.snapshot() });
 			this.scheduleReports();
 		}
 	}
@@ -250,10 +232,10 @@ export class GuiExecution {
 		return this.track(refresh());
 	}
 
-	dispatch<A extends GuiAction>(action: A, client: SessionClient): Promise<GuiActionResult<A>>;
-	dispatch(action: GuiAction, client: SessionClient): Promise<GuiActionResult> {
+	dispatch<A extends SessionAction>(action: A, client: SessionClient): Promise<GuiActionResult<A>>;
+	dispatch(action: SessionAction, client: SessionClient): Promise<GuiActionResult> {
 		if (this.disposed) return Promise.reject(new Error("会话实例已释放。"));
-		return this.track(this.origin.run(client, () => this.perform(action, client)));
+		return this.track(this.context.origin.run(client, () => this.perform(action, client)));
 	}
 	query<Q extends SessionQuery>(query: Q): Promise<GuiQueryResults[Q["query"]]>;
 	query(query: SessionQuery): Promise<GuiQueryResults[SessionQuery["query"]]> {
@@ -266,46 +248,39 @@ export class GuiExecution {
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
 		const runtime = this.runtime;
 		switch (query.query) {
-			case "modelServiceCatalog": return this.modelServices.read(runtime.services.modelRuntime, query.provider, this.commandController.signal);
+			case "modelServiceCatalog": return this.context.modelServices.read(runtime.services.modelRuntime, query.provider, this.context.commandController.signal);
 			case "complete": return completeCommand(runtime.session, query.text);
 			case "files": return completeFiles(runtime.cwd, query.prefix);
 			case "config": await runtime.services.settingsManager.flush(); return readConfig(query.file);
 		}
 	}
 
-	private async perform(action: GuiAction, client: SessionClient): Promise<GuiActionResult> {
+	private async perform(action: SessionAction, client: SessionClient): Promise<GuiActionResult> {
 		switch (action.action) {
 			case "dialog": this.dialogs.respond(action.id, action.value); return;
 			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
 			case "draft": client.writeDraft(action.text); return;
 			case "cancelLogin": this.loginController?.abort(); if (this.mcpLoggingIn) this.dialogs.cancel(); return;
 			case "abort":
-				if (this.current?.session.isCompacting) {
-					this.current.session.abortCompaction();
-					this.current.session.abortBranchSummary();
+				if (this.runtime.session.isCompacting) {
+					this.runtime.session.abortCompaction();
+					this.runtime.session.abortBranchSummary();
 					return;
 				}
-				if (this.current) {
-					const { steering, followUp } = this.current.session.clearQueue();
-					const text = [...steering, ...followUp].join("\n\n");
-					if (text) this.emit({ type: "editor", sessionId: this.id, text, mode: "prepend" });
-				}
-				this.dialogs.cancel();
-				this.commandController.abort();
-				this.commandController = new AbortController();
+				const { steering, followUp } = this.runtime.session.clearQueue();
+				const text = [...steering, ...followUp].join("\n\n");
+				if (text) this.emit({ type: "editor", sessionId: this.id, text, mode: "prepend" });
+				this.context.cancel();
 				this.loginController?.abort();
-				if (this.current) {
-					const session = this.current.session;
-					session.abortBash();
-					await session.abort();
-				}
+				this.runtime.session.abortBash();
+				await this.runtime.session.abort();
 				this.publish(); return;
 		}
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
 		const { session, services } = this.runtime;
 		switch (action.action) {
-			case "view": await openView(this, action, this.commandController.signal); return;
-			case "consumeCodexCredit": return consumeUsageCredit(this, action, this.commandController.signal);
+			case "view": await openView(this, action, this.context.commandController.signal); return;
+			case "consumeCodexCredit": return consumeUsageCredit(this, action, this.context.commandController.signal);
 			case "prompt": await this.prompt(action, client); return;
 			case "clearQueue": session.clearQueue(); this.publish(); return;
 			case "export": await exportSession(session, action.format, (event) => this.emit(event)); return;
@@ -329,7 +304,7 @@ export class GuiExecution {
 	async change<T>(operation: () => Promise<T>, allowRunning = false): Promise<T> {
 		if (this.changing || !allowRunning && !this.idle) throw new Error("请先停止或等待当前操作结束。");
 		this.changing = true;
-		this.reports.invalidate();
+		this.context.reports.invalidate();
 		this.publish();
 		try { return await operation(); } finally { this.changing = false; this.publish(); }
 	}
@@ -352,7 +327,7 @@ export class GuiExecution {
 			if (action.text.startsWith("!")) {
 				this.bashCommand = action.text.replace(/^!!?/, "");
 				this.publish();
-				this.submitted();
+				this.context.submitted();
 				await session.executeBash(this.bashCommand, (chunk) => {
 					this.bashOutput = (this.bashOutput + chunk).slice(-64_000);
 					this.schedule();
@@ -369,76 +344,78 @@ export class GuiExecution {
 			this.bashCommand = null;
 			this.bashOutput = "";
 			this.preparing--;
-			this.refreshSessions();
+			this.context.refreshSessions();
 			this.publish();
 		}
 	}
 
 	private async reload(): Promise<void> {
 		const { session, services: { modelRuntime } } = this.runtime;
-		await session.reload();
-		const result = await modelRuntime.refresh({ allowNetwork: false, signal: this.commandController.signal });
-		if (result.aborted) throw new Error("模型配置重载已取消");
-		if (result.errors.size) throw new Error("模型配置重载失败");
-		const current = session.model;
-		const model = current && modelRuntime.getModel(current.provider, current.id);
-		if (model) session.agent.state.model = model;
+		this.mcpTools = null;
+		await session.reload({ beforeSessionStart: async () => {
+			const result = await modelRuntime.refresh({ allowNetwork: false, signal: this.context.commandController.signal });
+			if (result.aborted) throw new Error("模型配置重载已取消");
+			if (result.errors.size) throw new Error("模型配置重载失败");
+			const current = session.model;
+			const model = current && modelRuntime.getModel(current.provider, current.id);
+			// 同一模型只更新目录信息，不触发模型切换或追加会话记录。
+			if (model) session.agent.state.model = model;
+		} });
 	}
 
-	private async mutate(action: GuiAction): Promise<void> {
+	private async mutate(action: SessionMutation): Promise<void> {
 		const runtime = this.runtime;
 		const session = runtime.session;
 		switch (action.action) {
 			case "navigate": {
 				const result = await session.navigateTree(action.entryId, { summarize: action.summarize });
 				if (result.editorText) this.dialogs.context().setEditorText(result.editorText);
-				break;
+				return;
 			}
-			case "label": session.sessionManager.appendLabelChange(action.entryId, action.label); break;
-			case "rename": session.setSessionName(action.name); this.refreshSessions(); break;
-			case "reload": await this.reload(); break;
+			case "label": session.sessionManager.appendLabelChange(action.entryId, action.label); return;
+			case "rename": session.setSessionName(action.name); this.context.refreshSessions(); return;
+			case "reload": await this.reload(); return;
 			case "model": {
 				const model = runtime.services.modelRuntime.getModel(action.provider, action.id);
 				if (!model) throw new Error("模型不存在。");
-				await session.setModel(model, { persist: false }); break;
+				await session.setModel(model, { persist: false }); return;
 			}
-			case "thinking": session.setThinkingLevel(action.level); break;
+			case "thinking": session.setThinkingLevel(action.level); return;
 			case "codexSpeed":
 				setCodexSpeed(session.model?.provider, action.speed, session.sessionManager.getBranch(),
 					(type, data) => session.sessionManager.appendCustomEntry(type, data));
-				break;
-			case "scopeModels": this.modelScope.set(runtime, action.models); break;
-			case "persistModels": await this.modelScope.persist(runtime); break;
-			case "persistDefaultModel": await persistDefaultModel(runtime); break;
+				return;
+			case "scopeModels": this.modelScope.set(runtime, action.models); return;
+			case "persistModels": await this.modelScope.persist(runtime); return;
+			case "persistDefaultModel": await persistDefaultModel(runtime); return;
 			case "settings":
 				session.setAutoCompactionEnabled(action.compaction); session.setAutoRetryEnabled(action.retry);
 				session.setSteeringMode(action.steering); session.setFollowUpMode(action.followUp);
 				runtime.services.settingsManager.setImageAutoResize(action.autoResize); runtime.services.settingsManager.setBlockImages(action.blockImages);
-				await runtime.services.settingsManager.flush(); break;
+				await runtime.services.settingsManager.flush(); return;
 			case "mcpServers":
-				if (!this.mcpTools) throw new Error("MCP 工具选择未绑定。");
+				if (this.mcpTools === null) throw new Error("MCP 已禁用。");
 				this.mcpTools.setServers(action.names, action.enabled);
-				break;
+				return;
 			case "tool":
 			case "toolPreset":
 			case "persistTools":
-				if (!this.toolController) throw new Error("工具选择未绑定。");
 				if (action.action === "tool") {
-					if (!this.mcpTools?.set(action.name, action.enabled)) this.toolController.set(action.name, action.enabled);
+					if (this.mcpTools === null || !this.mcpTools.set(action.name, action.enabled)) this.toolset.controller.set(action.name, action.enabled);
 				} else if (action.action === "toolPreset") {
-					const mcpNames = new Set(this.mcpTools?.list(session.getActiveToolNames()).map((tool) => tool.name));
-					applyToolPreset(session, this.toolController, action.preset, mcpNames);
+					const mcpNames = new Set(this.mcpTools === null ? [] : this.mcpTools.list(session.getActiveToolNames()).map((tool) => tool.name));
+					applyToolPreset(session, this.toolset.controller, action.preset, mcpNames);
 				} else {
-					const file = await this.toolController.persistUserDefaults();
+					const file = await this.toolset.controller.persistUserDefaults();
 					await runtime.services.settingsManager.reload();
 					this.dialogs.notify(`已保存: ${file}`);
 				}
-				break;
+				return;
 			case "saveConfig":
 				await runtime.services.settingsManager.flush(); await saveConfig(action.file, action.original, action.content);
-				await session.reload(); break;
-			default: throw new Error("非会话操作。");
+				await this.reload(); return;
 		}
+		action satisfies never;
 	}
 	private historyError(error: unknown): void {
 		if (this.historyWarned) return;
@@ -448,18 +425,16 @@ export class GuiExecution {
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
-		const infoClosed = this.reports.dispose();
-		this.lifetime.abort();
+		const infoClosed = this.context.reports.dispose();
+		this.context.close();
 		clearTimeout(this.timer);
-		this.loginController?.abort(); this.commandController.abort(); this.dialogs.cancel();
-		if (this.current) {
-			this.current.session.abortBash();
-			await this.current.session.abort();
-		}
+		this.loginController?.abort();
+		this.runtime.session.abortBash();
+		await this.runtime.session.abort();
 		// SDK shutdown 先取消 MCP 授权请求，再等待可能被该请求阻塞的命令。
-		await Promise.all([this.current?.dispose(), Promise.allSettled([...this.tasks])]);
+		await Promise.all([this.runtime.dispose(), Promise.allSettled([...this.tasks])]);
 		this.unsubscribe?.();
-		if (this.current) await this.current.services.settingsManager.flush();
+		await this.runtime.services.settingsManager.flush();
 		await this.history.flush();
 		await infoClosed;
 	}

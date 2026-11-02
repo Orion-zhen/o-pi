@@ -6,6 +6,7 @@ import { ToolSelection } from "../../../../../../src/gui/frontend/features/chat/
 import { ToolActivity } from "../../../../../../src/gui/frontend/features/chat/tools/tool-activity.tsx";
 import type { ToolActivity as Activity } from "../../../../../../src/gui/frontend/features/chat/tools/activity.ts";
 import { renderWithMemory } from "../../../../helpers/render.ts";
+import { DisclosureMemory } from "../../../../../../src/gui/frontend/ui/disclosure-memory.ts";
 
 const tools: GuiSnapshot["tools"] = [
 	{ name: "codemode", exposure: "model-only", description: "Script", enabled: true, available: true, callable: false },
@@ -22,7 +23,7 @@ const tool: Activity = {
 	] },
 };
 const renderTool = (value: Activity, expanded?: boolean) => parseHTML(renderWithMemory(createElement(ToolActivity, { tool: value }),
-	new Map(expanded === undefined ? [] : [[`tool:${value.id}`, expanded]]))).document;
+	new DisclosureMemory(expanded === undefined ? [] : [[`tool:${value.id}`, expanded]]))).document;
 
 describe("codemode 工具层级", () => {
 	it.each([false, true])("搜索入口只在普通模式显示禁用的复选框：codemode=%s", (enabled) => {
@@ -106,7 +107,7 @@ describe("codemode 执行容器", () => {
 			output: { kind: "inline", value: { content: [], details: { diff: "-1 old\n+1 new" } } },
 		}] } };
 		const doc = parseHTML(renderWithMemory(createElement(ToolActivity, { tool: value }),
-			new Map([["tool:code-1", true], ["nested:code-1/1", true]]))).document;
+			new DisclosureMemory([["tool:code-1", true], ["nested:code-1/1", true]]))).document;
 		expect(doc.querySelector(".nested-call-details .diff-block")?.textContent).toContain("+1 new");
 		expect(doc.querySelector(".nested-call-details .tool-raw")).not.toBeNull();
 	});
@@ -116,7 +117,7 @@ describe("codemode 执行容器", () => {
 			id: "code-1/1", name: "write", status: "ok", arguments: { path: "a.ts", content: "new" },
 		}] } };
 		const doc = parseHTML(renderWithMemory(createElement(ToolActivity, { tool: value }),
-			new Map([["tool:code-1", true], ["nested:code-1/1", true]]))).document;
+			new DisclosureMemory([["tool:code-1", true], ["nested:code-1/1", true]]))).document;
 		expect(doc.querySelector(".diff-block")).toBeNull();
 	});
 

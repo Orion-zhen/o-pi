@@ -5,7 +5,7 @@ import type { SourceEditor } from "../../../../../src/gui/frontend/forms/source-
 import { SettingsStateContext, useSettingsCoordinator } from "../../../../../src/gui/frontend/forms/drafts.tsx";
 import { SettingsActions } from "../../../../../src/gui/frontend/forms/settings-controls.tsx";
 import { TooltipProvider } from "../../../../../src/gui/frontend/ui/tooltip.tsx";
-import type { Send } from "../../../../../src/gui/frontend/connection/connection.ts";
+import type { ConfigCommand } from "../../../../../src/gui/frontend/connection/connection.ts";
 import { useReactFixture } from "../../../helpers/react-fixture.ts";
 
 vi.mock("../../../../../src/gui/frontend/forms/source-editor.tsx", () => ({
@@ -44,7 +44,7 @@ async function input(content: string) {
 }
 
 it("表单草稿阻止打开源码，改回原值取消修改，保存使用会话设置操作", async () => {
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	const query = vi.fn();
 	await render(<View send={send} query={query} />);
 	await click(toggle());
@@ -84,7 +84,7 @@ it("源码跨视图保留草稿，失败不清空，保存和放弃使用精确�
 	const original = "{}\n";
 	const content = '\n{ "images": { "autoResize": false } }\n';
 	const query = vi.fn().mockResolvedValue(original);
-	const send = vi.fn<Send>().mockResolvedValueOnce(false).mockResolvedValue(true);
+	const send = vi.fn<ConfigCommand>().mockRejectedValueOnce(new Error("保存失败")).mockResolvedValue(undefined);
 	await render(<View send={send} query={query} />);
 	await click(named("JSON"));
 	await input(content);

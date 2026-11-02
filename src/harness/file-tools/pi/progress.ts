@@ -33,7 +33,6 @@ export type MutationProgressCallback = (result: MutationProgressResult) => void;
 export interface MutationPostProcessObserver {
 	lspStarted(): void;
 	lspCompleted(diagnostics: DiagnosticsSummary | undefined): void;
-	lspUnavailable(): void;
 }
 
 interface MutationProgressContext {
@@ -69,10 +68,6 @@ export function createMutationPostProcessObserver(
 			lsp = diagnostics === undefined
 				? { status: "unavailable", errors: 0, warnings: 0 }
 				: { status: diagnostics.status, errors: diagnostics.file_errors, warnings: diagnostics.file_warnings };
-			emit();
-		},
-		lspUnavailable() {
-			lsp = { status: "unavailable", errors: 0, warnings: 0 };
 			emit();
 		},
 	};

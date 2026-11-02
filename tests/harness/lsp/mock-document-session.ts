@@ -9,8 +9,10 @@ export function mockDocumentSessions(): void {
 		this: LspClient, filePath: string, text: string, _signal: AbortSignal | undefined,
 		operation: (session: LspDocumentSession) => Promise<T>,
 	) {
+		const capabilities = this.capabilities();
+		if (capabilities === undefined) return undefined;
 		return operation(new LspDocumentSession(pathToFileUri(filePath), {
-			capabilities: () => this.capabilities(), request: async () => undefined,
+			capabilities: () => capabilities, request: async () => undefined,
 		}, (options) => this.documentSymbols(filePath, text, options)));
 	});
 	vi.spyOn(LspDocumentSession.prototype, "prepareCalls").mockImplementation(async function(this: LspDocumentSession, position) {

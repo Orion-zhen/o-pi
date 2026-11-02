@@ -176,19 +176,17 @@ export type ProcessRunInput = ProcessRunBase & (
 	}
 );
 
-export interface ProcessRunOutput {
+export type ProcessOutcome =
+	| { kind: "success" }
+	| {
+		kind: "failed";
+		reason: "aborted" | "protocol" | "timeout" | "process" | "model" | "length" | "exit" | "empty";
+		message: string;
+	};
+
+export interface ProcessRunOutput extends Omit<ProcessRunProgress, "error" | "parseErrors"> {
 	exitCode: number;
-	stopReason?: string;
-	error?: string;
-	output: string;
-	stderr: string;
-	usage: UsageStats;
-	events: RenderEvent[];
-	durationMs: number;
-	timedOut: boolean;
-	aborted: boolean;
-	parseErrors: number;
-	wrote: boolean;
+	outcome: ProcessOutcome;
 }
 
 export interface ProcessRunProgress {

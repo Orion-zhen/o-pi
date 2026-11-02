@@ -40,7 +40,7 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 	const [editing, setEditing] = useState(false);
 	const localFonts = useLocalFonts();
 	if (!state) return <SettingsSection title={title}><p role="status">读取中…</p></SettingsSection>;
-	const { document, blocked, error, update, changeSource } = state;
+	const { document, blocked, update, changeSource } = state;
 	const changed = document.state === "ready" && sectionChanged(document.defaults, document.value, section);
 	const actions = <div className="gui-preference-actions">
 		<motion.div layout="position" transition={settle} className="settings-heading-actions">
@@ -58,7 +58,6 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 			{editing && <SourceEditor file={document.path} label="GUI 设置 JSONC" value={document.content} disabled={blocked} onChange={(content) => changeSource(content, section)} />}
 			{document.state === "error" && <p role="alert">{document.message}</p>}
 		</SettingsSection>
-		{error && <p role="alert">{error}</p>}
 	</div>;
 	const change = (path: PreferencePath, value: string | string[] | number | boolean | undefined) => update(document, editPreference(document, path, value));
 	return <div className="settings-module">
@@ -129,7 +128,6 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 						onCheckedChange={(value) => change(["openFileLinksExternally"], value === document.defaults.openFileLinksExternally ? undefined : value)} />
 				</SettingsRow>
 			</div></SettingsSection>}
-		{error && <p role="alert">{error}</p>}
 	</div>;
 }
 

@@ -14,7 +14,7 @@ import { readGuiDefaults } from "../../../../src/gui/host/config/preferences.ts"
 import { editPreference, readPreferenceSource, type ReadyGuiConfig } from "../../../../src/gui/frontend/features/preferences/gui-settings-draft.ts";
 import type { GuiConfigDocument } from "../../../../src/gui/shared/config/preferences.ts";
 import type { GlobalQuery, Query } from "../../../../src/gui/shared/protocol/queries.ts";
-import type { Send } from "../../../../src/gui/frontend/connection/connection.ts";
+import type { ConfigCommand } from "../../../../src/gui/frontend/connection/connection.ts";
 import { useReactFixture } from "../../helpers/react-fixture.ts";
 
 vi.mock("../../../../src/gui/frontend/forms/source-editor.tsx", () => ({
@@ -42,6 +42,7 @@ function View({ children }: { children: ReactNode }) {
 	</SettingsStateContext></TooltipProvider>;
 }
 const button = (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+const visible = (label: string) => { const element = button(label); return element !== null && element.closest('[aria-hidden="true"]') === null; };
 const named = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent === text);
 async function click(element: HTMLButtonElement | undefined | null) {
 	expect(element).toBeTruthy();
@@ -56,8 +57,8 @@ it("模块开关改回初始值后无需保存，默认值隐藏重置", async (
 	const content = "{}";
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content,
 		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
-	const send = vi.fn<Send>().mockResolvedValue(true);
-	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
+	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query as Query<GlobalQuery>} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
 	expectDirty(false);
 	expect(button("重置自动生成标题")).toBeNull();
 	await click(button("自动生成标题"));
@@ -74,8 +75,8 @@ it("模块保存失败保留草稿，放弃恢复原值，保存成功采用新�
 	const content = '{"enabled":true}';
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content,
 		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
-	const send = vi.fn<Send>().mockResolvedValueOnce(false).mockResolvedValue(true);
-	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
+	const send = vi.fn<ConfigCommand>().mockRejectedValueOnce(new Error("保存失败")).mockResolvedValue(undefined);
+	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query as Query<GlobalQuery>} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
 	await click(button("重置自动生成标题"));
 	expectDirty(true);
 	expect(button("重置自动生成标题")).toBeNull();
@@ -101,7 +102,7 @@ it("模块保存失败保留草稿，放弃恢复原值，保存成功采用新�
 it.each([undefined, true])("MCP 开关 %s 跨表单和源码切换后改回初始值无需保存", async (enabled) => {
 	const content = JSON.stringify({ mcpServers: { one: { command: "node", enabled } } });
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "mcp.json", content });
-	await render(<View><McpSettings query={query} send={vi.fn()} disabled={false} /></View>);
+	await render(<View><McpSettings query={query as Query<GlobalQuery>} send={vi.fn()} disabled={false} /></View>);
 	expectDirty(false);
 	await click(button("one"));
 	expectDirty(true);
@@ -116,8 +117,8 @@ it.each([undefined, true])("MCP 开关 %s 跨表单和源码切换后改回初�
 it("MCP 保存失败保留草稿，放弃和保存保持行节点与正确基准", async () => {
 	const content = '{ "mcpServers": { "one": { "command": "node", "enabled": false, "extra": {} } } }';
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "mcp.json", content });
-	const send = vi.fn<Send>().mockResolvedValueOnce(false).mockResolvedValue(true);
-	await render(<View><McpSettings query={query} send={send} disabled={false} /></View>);
+	const send = vi.fn<ConfigCommand>().mockRejectedValueOnce(new Error("保存失败")).mockResolvedValue(undefined);
+	await render(<View><McpSettings query={query as Query<GlobalQuery>} send={send} disabled={false} /></View>);
 	const toggle = button("one");
 	await click(toggle);
 	await click(named("保存"));
@@ -152,13 +153,13 @@ it.each([
 	await render(<View><GuiSettingsProvider document={document} send={vi.fn()} query={vi.fn()} disabled={false} refresh={vi.fn()}>
 		<Preferences title={title} section={section} /></GuiSettingsProvider></View>);
 	expectDirty(false);
-	expect(button(reset)?.classList.contains("invisible")).toBe(true);
+	expect(visible(reset)).toBe(false);
 	await click(button(label));
 	expectDirty(true);
-	expect(button(reset)?.classList.contains("invisible")).toBe(false);
+	expect(visible(reset)).toBe(true);
 	await click(button(label));
 	expectDirty(false);
-	expect(button(reset)?.classList.contains("invisible")).toBe(true);
+	expect(visible(reset)).toBe(false);
 	expect(button(`重置${label}`)).toBeNull();
 });
 
@@ -194,7 +195,7 @@ it("恢复默认不同于初始值时仍需保存，另一项的修改不会被�
 	await click(button("执行任务时防止空闲睡眠"));
 	expectDirty(true);
 	expect(button("重置执行任务时防止空闲睡眠")).toBeNull();
-	expect(button("重置对话交互")?.classList.contains("invisible")).toBe(true);
+	expect(visible("重置对话交互")).toBe(false);
 	await click(button("使用外部应用打开文件链接"));
 	await click(button("执行任务时防止空闲睡眠"));
 	expectDirty(true);
@@ -211,7 +212,7 @@ async function inputSource(value: string) {
 it("GUI 源码错误阻止保存和返回表单，失败与放弃保留正确草稿", async () => {
 	const defaults = readGuiDefaults();
 	const base: ReadyGuiConfig = { state: "ready", path: "gui.jsonc", content: "{}\n", value: defaults, defaults };
-	const send = vi.fn<Send>().mockResolvedValue(false);
+	const send = vi.fn<ConfigCommand>().mockRejectedValue(new Error("保存失败"));
 	await render(<View><GuiSettingsProvider document={base} send={send} query={vi.fn()} disabled={false} refresh={vi.fn()}>
 		<Preferences title="外观" section="appearance" /></GuiSettingsProvider></View>);
 	await click(named("JSONC"));
@@ -232,7 +233,7 @@ it("GUI 源码错误阻止保存和返回表单，失败与放弃保留正确草
 it("GUI 跨页表单与源码共享草稿，切换视图后统一保存", async () => {
 	const defaults = readGuiDefaults();
 	const base: ReadyGuiConfig = { state: "ready", path: "gui.jsonc", content: "{}\n", value: defaults, defaults };
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	const query = vi.fn().mockResolvedValue(base);
 	const props = { document: base, send, query, disabled: false, refresh: vi.fn() };
 	await render(<View><GuiSettingsProvider {...props}>
@@ -257,7 +258,7 @@ it("GUI 跨页表单与源码共享草稿，切换视图后统一保存", async 
 it("GUI 三个表单共用一次保存，改回原值只清除对应页面标记", async () => {
 	const defaults = readGuiDefaults();
 	const base: ReadyGuiConfig = { state: "ready", path: "gui.jsonc", content: "{}\n", value: defaults, defaults };
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	const query = vi.fn().mockResolvedValue(base);
 	await render(<View><GuiSettingsProvider document={base} send={send} query={query} disabled={false} refresh={vi.fn()}>
 		<Preferences title="外观" section="appearance" />
@@ -283,11 +284,10 @@ it("GUI 源码保存后以新原文为基准放弃，并恢复表单的语义比
 	const defaults = readGuiDefaults();
 	const base: ReadyGuiConfig = { state: "ready", path: "gui.jsonc", content: "{}\n", value: defaults, defaults };
 	let stored = base.content;
-	const send = vi.fn<Send>(async (action) => {
+	const send = vi.fn<ConfigCommand>(async (action) => {
 		if (action.action !== "saveGuiConfig") throw new Error("错误的保存操作");
 		expect(action.original).toBe(stored);
 		stored = action.content;
-		return true;
 	});
 	function SavedView() {
 		const [latest, setLatest] = useState<GuiConfigDocument>(base);
@@ -319,7 +319,7 @@ it("GUI 源码保存后以新原文为基准放弃，并恢复表单的语义比
 it("GUI 损坏文件可通过共享源码修复，放弃恢复原来的错误文档", async () => {
 	const defaults = readGuiDefaults();
 	const base: GuiConfigDocument = { state: "error", path: "gui.jsonc", content: "{", message: "文件损坏", defaults };
-	const send = vi.fn<Send>().mockResolvedValue(false);
+	const send = vi.fn<ConfigCommand>().mockRejectedValue(new Error("保存失败"));
 	await render(<View><GuiSettingsProvider document={base} send={send} query={vi.fn()} disabled={false} refresh={vi.fn()}>
 		<Preferences title="对话交互" section="interaction" />
 	</GuiSettingsProvider></View>);

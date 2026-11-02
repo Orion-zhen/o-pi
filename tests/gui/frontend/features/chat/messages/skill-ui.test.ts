@@ -10,6 +10,7 @@ import { ToolActivity } from "../../../../../../src/gui/frontend/features/chat/t
 import { Transcript } from "../../../../../../src/gui/frontend/features/chat/transcript/transcript.tsx";
 import type { ToolState } from "../../../../../../src/gui/shared/messages/types.ts";
 import { renderWithMemory } from "../../../../helpers/render.ts";
+import { DisclosureMemory } from "../../../../../../src/gui/frontend/ui/disclosure-memory.ts";
 import { assistant, source, emptyTranscriptProps } from "../../../../helpers/transcript-fixtures.ts";
 
 const body = "# 检查任务\n\n先收集证据，再修改代码。";
@@ -21,7 +22,7 @@ const result: ToolResultMessage<SkillLoadDetails> = {
 	role: "toolResult", toolCallId: call.id, toolName: "skill", isError: false, timestamp: 101,
 	content: [{ type: "text", text: formatSkillDisclosure(details.name, body) }], details,
 };
-const document = (element: Parameters<typeof renderWithMemory>[0], memory?: Map<string, boolean | null>) =>
+const document = (element: Parameters<typeof renderWithMemory>[0], memory?: DisclosureMemory) =>
 	parseHTML(renderWithMemory(element, memory)).document;
 
 function renderTool(state: ToolState = "completed", output: { content: unknown; details?: unknown } | undefined = state === "completed" ? result : undefined) {
@@ -58,7 +59,7 @@ describe("技能语义展示", () => {
 
 	it("展开显示来源、根路径和 Markdown 正文，不显示披露标签或默认展示哈希", () => {
 		const doc = document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state: "completed", output: { kind: "inline", value: result } } }),
-			new Map([[`skill:${call.id}`, true]]));
+			new DisclosureMemory([[`skill:${call.id}`, true]]));
 		expect(doc.querySelector(".skill-metadata")?.textContent).toContain("skill://debugging");
 		expect(doc.querySelector(".skill-body h1")?.textContent).toBe("检查任务");
 		expect(doc.toString()).not.toContain("invoked_skill");
@@ -70,7 +71,7 @@ describe("技能语义展示", () => {
 			assistant([...(commentary ? [{ type: "text" as const, text: "先加载技能" }] : []), call]), result,
 			assistant([{ type: "text", text: "任务已完成" }], "stop"),
 		] }) }));
-		const outer = doc.querySelector(commentary ? ".assistant-reply > .reply-process" : ".reply-activity");
+		const outer = doc.querySelector(commentary ? ".assistant-reply > .reply-content" : ".reply-activity");
 		expect(outer?.getAttribute("data-state")).toBe("closed");
 	});
 

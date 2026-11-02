@@ -8,12 +8,17 @@ Web 与 Desktop 直接创建 Pi SDK runtime，共用 `src/gui/host/` 和 React �
 | --- | --- |
 | `GuiHost` | 会话索引、共享服务和资源管理 |
 | `GuiSession` | 逻辑会话身份、授权和执行实例归属 |
-| `GuiExecution` | 可回收的 SDK runtime、执行任务和载荷 |
+| `GuiExecutionContext` | 启动与执行共用的审批、取消和客户端交互通道 |
+| `GuiExecution` | 装配完成后创建的 SDK 执行实例、任务和载荷 |
 | `GuiClient` | 客户端导航、订阅和操作路由 |
 
-会话创建使用 `createAgentSessionServices`、`createAgentSessionFromServices` 和 `createAgentSessionRuntime`。提交、取消、引导与跟进分别调用 `prompt`、`abort`、`steer` 和 `followUp`。
+会话创建使用 `createAgentSessionServices`、`createAgentSessionFromServices` 和 `createAgentSessionRuntime`。提交、取消、引导与跟进分别调用 `prompt`、`abort`、`steer` 和 `followUp`。模型重载在 SDK 的 `beforeSessionStart` 中刷新目录与当前模型，扩展的 `session_start` 处理器读取更新后的状态。
 
 切换页面只改变订阅。新建、分支和导入创建独立实例。GUI 另外跟踪附件读取、命令和后台命名，以这些状态判断是否可以回收。
+
+`GuiSession` 区分未加载、启动、就绪和关闭阶段。启动阶段直接处理审批与取消，不等待被审批阻塞的启动任务。就绪执行实例持有必需的 runtime 和工具控制器。MCP 可以显式禁用，不属于初始化未完成。
+
+操作类型按全局、工作区、会话导航和会话执行划分。`GuiClient` 在请求入口解析目标会话，内部导航方法必须接收确定的会话对象，不回退到当前选择。
 
 ### 会话搜索
 
@@ -71,6 +76,12 @@ Desktop 通过受限 preload 桥接连接 Electron utility process。渲染进�
 | `features/mcp/`、`features/storage/`、`features/reports/` | MCP 配置、存储管理、统计与用量报告 |
 
 设置窗口只组装编辑器。各编辑器依赖 `forms/`，不依赖设置窗口。Markdown、代码、公式和图片查看器不认识会话。消息角色、技能卡片及需要查询宿主的会话图片归聊天模块。
+
+`app/use-host-state.ts` 在事件入口维护当前会话及其快照、草稿、对话框和报告。工作区状态按 `cwd` 独立创建，旧请求只能写入所属工作区。普通读取使用 `connection/use-remote.ts` 管理结果与失效，分页搜索和合并刷新保留各自的调度规则。
+
+配置加载成功后才挂载草稿编辑器。设置协调器从不可变状态计算页面标记与保存可用性，命令引用只在保存和放弃时读取。无效草稿不提供保存操作，保存异常统一展示，失败项保留草稿。源码编辑器通过新建 CodeMirror `EditorState` 应用外部重置，同时清除撤销历史。
+
+会话折叠记忆通过 `useSyncExternalStore` 订阅，不复制为组件本地状态。默认值在订阅时写入，渲染过程只读取。
 
 ### 依赖与文件规则
 

@@ -120,7 +120,7 @@ function batch(value: unknown): boolean {
 }
 
 function repair(value: unknown): boolean {
-	return isRecord(value) && ["accepted", "repaired", "invalid"].includes(String(value["status"]))
+	return isRecord(value) && ["accepted", "repaired"].includes(String(value["status"]))
 		&& Array.isArray(value["operations"]) && value["operations"].every(text)
 		&& (value["fanout"] === undefined || fanout(value["fanout"]));
 }

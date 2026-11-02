@@ -1,31 +1,15 @@
-import { useEffect, useState, type SetStateAction } from "react";
+import { useState, type SetStateAction } from "react";
 
-/** 保留打开时的版本，草稿表示由调用方决定，保存冲突由后端检查。 */
-export function useConfigDraft<D extends { content: string }, T>(load: () => Promise<D>, readDraft: (content: string) => T) {
-	const [document, setDocument] = useState<D>();
-	const [draft, setDraft] = useState(() => readDraft(""));
-	const [error, setError] = useState("");
-	const [revision, setRevision] = useState(0);
-	useEffect(() => {
-		let active = true;
-		setDocument(undefined); setError("");
-		void load().then((value) => {
-			if (active) { setDocument(value); setDraft(readDraft(value.content)); }
-		}, (error: unknown) => { if (active) setError(String(error)); });
-		return () => { active = false; };
-	}, [load, readDraft, revision]);
+/** 编辑器只接收已加载文档，保存冲突由后端检查。 */
+export function useConfigDraft<D extends { content: string }, T>(initial: D, readDraft: (content: string) => T) {
+	const [document, setDocument] = useState(initial);
+	const [draft, setDraft] = useState(() => readDraft(initial.content));
 	return {
-		document, draft, error,
-		change(value: SetStateAction<T>) { setDraft(value); setError(""); },
-		discard() { if (document) setDraft(readDraft(document.content)); setError(""); },
-		reload() { setRevision((value) => value + 1); },
-		async save(content: string, persist: (document: D, content: string) => Promise<D | undefined>) {
-			if (!document) return false;
-			setError("");
-			const saved = await persist(document, content);
-			if (saved) setDocument(saved);
-			else setError("保存失败，草稿已保留。");
-			return saved !== undefined;
+		document, draft,
+		change(value: SetStateAction<T>) { setDraft(value); },
+		discard() { setDraft(readDraft(document.content)); },
+		async save(content: string, persist: (document: D, content: string) => Promise<D>) {
+			setDocument(await persist(document, content));
 		},
 	};
 }

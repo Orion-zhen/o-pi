@@ -23,19 +23,15 @@ export const actionSchema = Type.Union([
 		images: Type.Array(image, { maxItems: 8 }),
 		behavior: Type.Union([Type.Literal("steer"), Type.Literal("followUp")]),
 	}),
-	object({
-		action: Type.Union([
-			Type.Literal("abort"),
-			Type.Literal("new"),
-			Type.Literal("reload"),
-			Type.Literal("sessions"),
-			Type.Literal("clearQueue"),
-			Type.Literal("persistTools"),
-			Type.Literal("persistModels"),
-			Type.Literal("persistDefaultModel"),
-			Type.Literal("cancelLogin"),
-		]),
-	}),
+	object({ action: Type.Literal("abort") }),
+	object({ action: Type.Literal("new") }),
+	object({ action: Type.Literal("reload") }),
+	object({ action: Type.Literal("sessions") }),
+	object({ action: Type.Literal("clearQueue") }),
+	object({ action: Type.Literal("persistTools") }),
+	object({ action: Type.Literal("persistModels") }),
+	object({ action: Type.Literal("persistDefaultModel") }),
+	object({ action: Type.Literal("cancelLogin") }),
 	object({
 		action: Type.Literal("view"),
 		view: Type.Literal("usage"),
@@ -107,6 +103,18 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("saveConfig"), file: Type.Literal("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
+export type ConfigAction = Extract<GuiAction, { action: "saveGuiConfig" | "saveMcpConfig" | "saveModelServices" | "saveModuleConfig" | "saveConfig" | "settings" }>;
+export type GlobalAction = Extract<GuiAction, { action:
+	| "observe" | "cancelSessionSearch" | "removeStorage" | "saveMcpConfig" | "saveModelServices" | "saveModuleConfig"
+	| "saveGuiConfig" | "startupChangelog" | "sessions" | "openSession" | "import" | "deleteSession" | "removeWorkspace" | "renameSession"
+}>;
+export type WorkspaceAction = Extract<GuiAction, { action: "workspace" }>;
+export type SessionNavigationAction = Extract<GuiAction, { action: "new" | "fork" }>;
+export type SessionControlAction = Extract<GuiAction, { action: "dialog" | "abort" | "cancelLogin" }>;
+export type SessionAction = Exclude<GuiAction, GlobalAction | WorkspaceAction | SessionNavigationAction>;
+export type SessionMutation = Exclude<SessionAction, SessionControlAction | { action:
+	| "clearNotices" | "draft" | "view" | "consumeCodexCredit" | "prompt" | "clearQueue" | "export" | "login" | "logout" | "compact"
+}>;
 export interface GuiUsageResetResult {
 	outcome: UsageResetOutcome;
 	refreshed: boolean;

@@ -1,39 +1,31 @@
 import type { LoadLsp, LspMutationInput } from "../../lsp/file-operations.ts";
 import type { LspDiagnosticsSummary } from "../../lsp/types.ts";
-import type { MutationPostProcessObserver } from "./progress.ts";
 
 interface LspSubmission {
 	order: number;
 	input: LspMutationInput | undefined;
-	progress?: MutationPostProcessObserver;
 	deferred: PromiseWithResolvers<LspDiagnosticsSummary | undefined>;
 }
 
-interface MutationCallState {
-	settled: boolean;
-	lsp?: LspSubmission;
+interface MutationCall {
+	id: string;
+	state: { kind: "pending" } | { kind: "submitted"; submission: LspSubmission } | { kind: "settled" };
 }
 
 interface MutationBatch {
-	ids: readonly string[];
-	started: Set<string>;
-	calls: Map<string, MutationCallState>;
-	mode?: "active" | "disabled";
-	finalizing?: Promise<void>;
-	ended: Set<string>;
+	calls: readonly MutationCall[];
+	started: number;
+	mode: "pending" | "active" | "disabled" | "finalizing";
 }
 
 export interface MutationBatchInvocation {
-	lsp(
-		input: LspMutationInput | undefined,
-		progress?: MutationPostProcessObserver,
-	): Promise<LspDiagnosticsSummary | undefined>;
+	lsp(input: LspMutationInput | undefined): Promise<LspDiagnosticsSummary | undefined>;
 	settle(): void;
 }
 
 /** 协调同一并行工具批次中的文件提交，并在全部提交后统一执行增强处理。 */
 export class MutationBatchCoordinator {
-	private readonly batchesByCall = new Map<string, MutationBatch>();
+	private readonly calls = new Map<string, { batch: MutationBatch; call: MutationCall }>();
 	private nextSubmissionOrder = 0;
 	private disposed = false;
 
@@ -41,109 +33,75 @@ export class MutationBatchCoordinator {
 
 	capture(toolCalls: readonly { id: string; name: string }[]): void {
 		if (this.disposed) return;
-		const ids = toolCalls.flatMap((call) => call.name === "write" || call.name === "edit" ? [call.id] : []);
-		if (ids.length < 2) return;
-		const batch: MutationBatch = {
-			ids,
-			started: new Set(),
-			calls: new Map(ids.map((id) => [id, { settled: false }])),
-			ended: new Set(),
-		};
-		for (const id of ids) this.batchesByCall.set(id, batch);
+		const calls: MutationCall[] = toolCalls
+			.filter((call) => call.name === "write" || call.name === "edit")
+			.map(({ id }) => ({ id, state: { kind: "pending" } }));
+		if (calls.length < 2) return;
+		const batch: MutationBatch = { calls, started: 0, mode: "pending" };
+		for (const call of calls) this.calls.set(call.id, { batch, call });
 	}
 
 	started(toolCallId: string): void {
-		this.batchesByCall.get(toolCallId)?.started.add(toolCallId);
+		const entry = this.calls.get(toolCallId);
+		if (entry !== undefined) entry.batch.started += 1;
 	}
 
 	ended(toolCallId: string): void {
-		const batch = this.batchesByCall.get(toolCallId);
-		if (batch === undefined) return;
-		batch.ended.add(toolCallId);
-		this.settle(batch, toolCallId);
-		if (batch.ended.size === batch.ids.length) this.remove(batch);
+		const entry = this.calls.get(toolCallId);
+		if (entry === undefined) return;
+		this.calls.delete(toolCallId);
+		this.settle(entry.batch, entry.call);
 	}
 
 	invocation(toolCallId: string): MutationBatchInvocation | undefined {
-		const batch = this.batchesByCall.get(toolCallId);
-		if (batch === undefined || this.disposed) return undefined;
-		if (batch.mode === undefined) {
-			// 并行模式会在首个执行函数前发出本批次全部启动事件；否则保持逐调用后处理，避免顺序模式互相等待。
-			batch.mode = batch.started.size === batch.ids.length ? "active" : "disabled";
+		const entry = this.calls.get(toolCallId);
+		if (entry === undefined) return undefined;
+		const { batch, call } = entry;
+		if (batch.mode === "pending") {
+			// 并行执行在首个 execute 前发出全部启动事件，顺序执行不能互相等待。
+			batch.mode = batch.started === batch.calls.length ? "active" : "disabled";
 		}
 		if (batch.mode === "disabled") return undefined;
 		return {
-			lsp: (input, progress) => this.submitLsp(batch, toolCallId, input, progress),
-			settle: () => this.settle(batch, toolCallId),
+			lsp: (input) => {
+				if (this.disposed) return Promise.resolve(undefined);
+				const deferred = Promise.withResolvers<LspDiagnosticsSummary | undefined>();
+				call.state = { kind: "submitted", submission: { order: this.nextSubmissionOrder++, input, deferred } };
+				this.maybeFinalize(batch);
+				return deferred.promise;
+			},
+			settle: () => this.settle(batch, call),
 		};
 	}
 
 	dispose(): void {
-		if (this.disposed) return;
 		this.disposed = true;
-		for (const batch of new Set(this.batchesByCall.values())) {
-			for (const call of batch.calls.values()) {
-				call.lsp?.deferred.resolve(undefined);
-			}
+		for (const { call } of this.calls.values()) {
+			if (call.state.kind === "submitted") call.state.submission.deferred.resolve(undefined);
 		}
-		this.batchesByCall.clear();
+		this.calls.clear();
 	}
 
-	private submitLsp(
-		batch: MutationBatch,
-		toolCallId: string,
-		input: LspMutationInput | undefined,
-		progress: MutationPostProcessObserver | undefined,
-	): Promise<LspDiagnosticsSummary | undefined> {
-		const call = batch.calls.get(toolCallId);
-		if (call === undefined || this.disposed) return Promise.resolve(undefined);
-		if (call.lsp !== undefined) return call.lsp.deferred.promise;
-		const deferred = Promise.withResolvers<LspDiagnosticsSummary | undefined>();
-		this.nextSubmissionOrder += 1;
-		call.lsp = { order: this.nextSubmissionOrder, input, ...(progress === undefined ? {} : { progress }), deferred };
-		this.maybeFinalize(batch);
-		return deferred.promise;
-	}
-
-	private settle(batch: MutationBatch, toolCallId: string): void {
-		const call = batch.calls.get(toolCallId);
-		if (call === undefined) return;
-		call.settled = true;
+	private settle(batch: MutationBatch, call: MutationCall): void {
+		call.state = { kind: "settled" };
 		this.maybeFinalize(batch);
 	}
 
 	private maybeFinalize(batch: MutationBatch): void {
-		if (this.disposed || batch.mode !== "active" || batch.finalizing !== undefined) return;
-		const ready = batch.ids.every((id) => {
-			const call = batch.calls.get(id);
-			return call !== undefined && (call.settled || call.lsp !== undefined);
-		});
-		if (!ready) return;
-		batch.finalizing = this.finalize(batch);
-	}
-
-	private async finalize(batch: MutationBatch): Promise<void> {
-		const lsp = batch.ids.flatMap((id) => {
-			const submission = batch.calls.get(id)?.lsp;
-			return submission === undefined ? [] : [submission];
-		}).sort((left, right) => left.order - right.order);
-		await processLspSubmissions(lsp, this.loadLsp);
-	}
-
-	private remove(batch: MutationBatch): void {
-		for (const id of batch.ids) {
-			if (this.batchesByCall.get(id) === batch) this.batchesByCall.delete(id);
-		}
+		if (this.disposed || batch.mode !== "active" || batch.calls.some((call) => call.state.kind === "pending")) return;
+		batch.mode = "finalizing";
+		const submissions = batch.calls.flatMap((call) => call.state.kind === "submitted" ? [call.state.submission] : [])
+			.sort((left, right) => left.order - right.order);
+		void processLspSubmissions(submissions, this.loadLsp);
 	}
 }
 
 async function processLspSubmissions(submissions: readonly LspSubmission[], loadLsp: LoadLsp): Promise<void> {
 	const files = new Map<string, { input: LspMutationInput; submissions: LspSubmission[] }>();
 	for (const submission of submissions) {
-		safeNotify(() => submission.progress?.lspStarted());
 		const input = submission.input;
 		if (input === undefined) {
-			completeLsp(submission, undefined);
+			submission.deferred.resolve(undefined);
 			continue;
 		}
 		const key = `${input.workspaceRoot}\0${input.filePath}`;
@@ -156,25 +114,15 @@ async function processLspSubmissions(submissions: readonly LspSubmission[], load
 	}
 	if (files.size === 0) return;
 	const batches = [...files.values()];
-	let results: readonly (LspDiagnosticsSummary | undefined)[];
 	try {
-		results = await (await loadLsp()).afterMutationBatch(batches.map((file) => file.input));
-	} catch {
-		// 文件已经提交，诊断失败只影响增强结果。
-		results = [];
+		const results = await (await loadLsp()).afterMutationBatch(batches.map((file) => file.input));
+		for (const [index, file] of batches.entries()) {
+			for (const submission of file.submissions) submission.deferred.resolve(results[index]);
+		}
+	} catch (error) {
+		// 批处理只转交失败，是否隔离由每次文件调用的增强边界决定。
+		for (const file of batches) {
+			for (const submission of file.submissions) submission.deferred.reject(error);
+		}
 	}
-	for (const [index, file] of batches.entries()) {
-		for (const submission of file.submissions) completeLsp(submission, results[index]);
-	}
-}
-
-function completeLsp(submission: LspSubmission, result: LspDiagnosticsSummary | undefined): void {
-	safeNotify(() => submission.progress?.lspCompleted(result));
-	submission.deferred.resolve(result);
-}
-
-function safeNotify(observer: () => void): void {
-	try {
-		observer();
-	} catch {}
 }

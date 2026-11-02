@@ -6,11 +6,13 @@ import type { GuiSessionActivity } from "../../shared/protocol/state.ts";
 import type { Attention } from "../../../harness/attention.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import { GuiExecution, type SessionClient } from "./execution.ts";
+import { GuiExecutionContext } from "./execution-context.ts";
+import type { SessionControlAction } from "../../shared/protocol/actions.ts";
 
 type Listener = (event: GuiEvent) => void;
 type Resources =
 	| { state: "unloaded" }
-	| { state: "starting"; execution: GuiExecution; task: Promise<GuiExecution> }
+	| { state: "starting"; context: GuiExecutionContext; task: Promise<GuiExecution> }
 	| { state: "ready"; execution: GuiExecution }
 	| { state: "closing"; task: Promise<void> };
 
@@ -53,8 +55,9 @@ export class GuiSession {
 	}
 
 	get execution(): GuiExecution | undefined {
-		return this.resources.state === "starting" || this.resources.state === "ready" ? this.resources.execution : undefined;
+		return this.resources.state === "ready" ? this.resources.execution : undefined;
 	}
+	get dialogs() { return this.resources.state === "starting" ? this.resources.context.dialogs : this.execution?.dialogs; }
 	get activity(): GuiSessionActivity { return this.summary; }
 	get pending(): boolean { return this.awaitingMessage; }
 	private submitted(): void {
@@ -84,7 +87,11 @@ export class GuiSession {
 	}
 	replay(listener: Listener): void {
 		if (this.execution) this.execution.replay(listener);
-		else listener({ type: "snapshot", value: null });
+		else {
+			listener({ type: "dialogs", value: this.dialogs?.list() ?? [] });
+			listener({ type: "notices", value: this.resources.state === "starting" ? [...this.resources.context.dialogs.notices] : [] });
+			listener({ type: "snapshot", value: null });
+		}
 	}
 	private touch(): void { this.used = Date.now(); this.notify(false); }
 	private changed(): void {
@@ -92,8 +99,8 @@ export class GuiSession {
 		const running = execution?.running ?? false;
 		const completedAt = this.wasRunning && !running ? Math.max(Date.now(), this.summary.completedAt + 1) : this.summary.completedAt;
 		this.wasRunning = running;
-		const title = (execution?.ready ? execution.runtime.session.sessionName : undefined) ?? this.summary.title;
-		const state = execution?.dialogs.list().length ? "waiting" : this.resources.state === "starting" ? "loading" : running ? "running" : "idle";
+		const title = execution?.runtime.session.sessionName ?? this.summary.title;
+		const state = this.dialogs?.list().length ? "waiting" : this.resources.state === "starting" ? "loading" : running ? "running" : "idle";
 		const titleGeneration = execution?.titleGeneration;
 		if (title !== this.summary.title || state !== this.summary.state || completedAt !== this.summary.completedAt || titleGeneration !== this.summary.titleGeneration) {
 			this.summary = { ...this.summary, title, state, completedAt, titleGeneration,
@@ -109,11 +116,10 @@ export class GuiSession {
 		this.assertOpen();
 		if (this.resources.state === "starting") return this.resources.task;
 		if (this.resources.state === "ready") return this.resources.execution;
-		const execution = new GuiExecution(this.id, (event) => {
+		const context = new GuiExecutionContext(this.id, (event) => {
 			if (event.type === "notification") { this.attention(event.value); return; }
 			for (const listener of this.listeners) listener(event);
 		}, () => this.changed(), this.refreshHistory, () => this.submitted());
-		execution.observe(this.observed);
 		const initialize = async () => {
 			let manager = this.manager;
 			if (!manager) {
@@ -122,23 +128,35 @@ export class GuiSession {
 				if (manager.getSessionId() !== this.id) throw new Error("会话文件已被替换，请刷新列表。");
 			}
 			this.assertOpen();
-			await execution.start(manager, { ...this.permissions, rules: this.rules }, client, { event: this.startEvent, models: this.scopedModels });
+			const execution = await GuiExecution.create(context, manager, { ...this.permissions, rules: this.rules }, client, { event: this.startEvent, models: this.scopedModels });
 			// 退出中的启动正常结算，但不重新挂载正在释放的资源。
 			if (!this.closed) {
 				this.resources = { state: "ready", execution };
 				this.startEvent = { type: "session_start", reason: "resume" };
-				this.changed();
+				execution.observe(this.observed);
+				execution.publish();
 			}
 			return execution;
 		};
 		const task = initialize().catch(async (error: unknown) => {
-			// 退出已在收尾时，不让失败的启动再等待自己的关闭任务。
-			if (this.resources.state === "starting") await this.finish();
+			context.close();
+			await context.reports.dispose();
+			if (this.resources.state === "starting") { this.resources = { state: "unloaded" }; this.changed(); }
 			throw error;
 		});
-		this.resources = { state: "starting", execution, task };
+		this.resources = { state: "starting", context, task };
 		this.changed();
 		return task;
+	}
+	control(action: SessionControlAction, client: SessionClient): Promise<void> {
+		this.assertOpen();
+		if (this.resources.state === "starting") {
+			const { context } = this.resources;
+			if (action.action === "dialog") context.dialogs.respond(action.id, action.value);
+			else if (action.action === "abort") context.cancel();
+			return Promise.resolve();
+		}
+		return this.use(client, (execution) => execution.dispatch(action, client));
 	}
 	private assertOpen(): void {
 		if (this.closed || this.deleting) throw new Error("会话已关闭或正在删除。");
@@ -197,10 +215,11 @@ export class GuiSession {
 		const resources = this.resources;
 		if (resources.state === "unloaded") return Promise.resolve();
 		if (resources.state === "closing") return resources.task;
-		const execution = resources.execution;
-		const manager = execution.ready ? execution.runtime.session.sessionManager : this.manager;
-		if (execution.ready) this.scopedModels = execution.modelScope.patterns(execution.runtime);
+		const manager = resources.state === "ready" ? resources.execution.runtime.session.sessionManager : this.manager;
+		if (resources.state === "ready") this.scopedModels = resources.execution.modelScope.patterns(resources.execution.runtime);
+		else resources.context.close();
 		const task = Promise.resolve().then(async () => {
+			const execution = resources.state === "ready" ? resources.execution : await resources.task;
 			await execution.dispose();
 			this.manager = this.stamp !== undefined || this.file && existsSync(this.file) ? undefined : manager;
 			this.resources = { state: "unloaded" };

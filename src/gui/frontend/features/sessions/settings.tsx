@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { queueModes, type GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Query } from "../../../shared/protocol/queries.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { ConfigCommand } from "@/connection/connection.ts";
 import { Switch } from "@/ui/switch.tsx";
 import { RadioGroup, RadioGroupItem } from "@/ui/radio-group.tsx";
 import { Label } from "@/ui/label.tsx";
@@ -22,7 +22,7 @@ type EditorState =
 	| { kind: "file"; view: "source" | "form"; original: string; content: string };
 
 export function AgentSettings({ settings: savedSettings, send, query, disabled }: {
-	settings: GuiSnapshot["settings"]; send: Send; query: Query; disabled: boolean;
+	settings: GuiSnapshot["settings"]; send: ConfigCommand; query: Query; disabled: boolean;
 }) {
 	const controlId = useId();
 	const [editor, setEditor] = useState<EditorState>({ kind: "form" });
@@ -34,18 +34,11 @@ export function AgentSettings({ settings: savedSettings, send, query, disabled }
 	const { saving } = useSettingsState();
 	const [error, setError] = useState("");
 	useSettingsDraft("agent", {
-		title: "会话行为", dirty: formDirty || sourceDirty, blocked: disabled, invalid: !!sourceError,
-		save: async () => {
-			setError("");
-			const saved = editor.kind === "file"
-				? await send({ action: "saveConfig", file: "settings.json", original: editor.original, content: editor.content })
-				: await send({ action: "settings", ...settings });
-			if (!saved) {
-				setError("保存失败，草稿已保留。");
-				return false;
-			}
+		title: "会话行为", dirty: formDirty || sourceDirty, blocked: disabled,
+		save: sourceError ? null : async () => {
+			if (editor.kind === "file") await send({ action: "saveConfig", file: "settings.json", original: editor.original, content: editor.content });
+			else await send({ action: "settings", ...settings });
 			setEditor(editor.kind === "file" && editor.view === "source" ? { ...editor, original: editor.content } : { kind: "form" });
-			return true;
 		},
 		discard: () => {
 			setEditor(editor.kind === "file" && editor.view === "source" ? { ...editor, content: editor.original } : { kind: "form" });

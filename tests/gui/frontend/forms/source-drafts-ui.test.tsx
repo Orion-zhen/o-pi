@@ -10,7 +10,7 @@ import type { SourceEditor } from "../../../../src/gui/frontend/forms/source-edi
 import { SettingsStateContext, useSettingsCoordinator } from "../../../../src/gui/frontend/forms/drafts.tsx";
 import { SettingsActions } from "../../../../src/gui/frontend/forms/settings-controls.tsx";
 import { TooltipProvider } from "../../../../src/gui/frontend/ui/tooltip.tsx";
-import type { Send } from "../../../../src/gui/frontend/connection/connection.ts";
+import type { ConfigCommand } from "../../../../src/gui/frontend/connection/connection.ts";
 import { useReactFixture } from "../../helpers/react-fixture.ts";
 
 vi.mock("../../../../src/gui/frontend/forms/source-editor.tsx", () => ({
@@ -48,7 +48,7 @@ it.each([
 	["mcp", "JSON", '{"mcpServers":{"one":{"command":"node","enabled":false}}}', "saveMcpConfig"],
 	["models", "JSON", '{"providers":{"local":{"api":"openai-completions"}}}', "saveModelServices"],
 ] as const)("%s 源码跨视图、保存与放弃保留精确原文", async (kind, sourceButton, original, action) => {
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	const props = { send, disabled: false };
 	const component = kind === "module" ? <ModuleSettings {...props} id="autoTitle" title="自动标题" models={[]} tools={null} currentModel={null}
 		query={vi.fn().mockResolvedValue({ path: "auto-title.jsonc", content: original, defaults, options: {}, arrayOptions: {}, fields: {} })} />

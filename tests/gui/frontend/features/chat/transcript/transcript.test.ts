@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { renderWithMemory } from "../../../../helpers/render.ts";
+import { DisclosureMemory } from "../../../../../../src/gui/frontend/ui/disclosure-memory.ts";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
@@ -99,7 +100,7 @@ describe("工具语义呈现", () => {
 	});
 
 	it("子代理保持自动展开模式，切回已完成任务时自动收起", () => {
-		const memory = new Map<string, boolean | null>();
+		const memory = new DisclosureMemory();
 		const tool: ToolActivity = { id: "subagent-1", name: "subagent", args: { task: "检查项目" }, state: "running", output: undefined };
 		const running = parseHTML(renderWithMemory(createElement(ToolActivityView, { tool }), memory)).document;
 		expect(running.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("true");
