@@ -99,7 +99,9 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			reply.assistants.push(message);
 			const streaming = message === source.streamingMessage;
 			const model = models.get(`${message.provider}/${message.model}`);
-			const identity = { model: model?.name ?? message.model, timestamp: message.timestamp };
+			const requested = model?.name ?? message.model;
+			const identity = { model: message.responseModel && message.responseModel !== message.model
+				? `${requested} → ${message.responseModel}` : requested, timestamp: message.timestamp };
 			reply.lastAssistant = { message, index: messageIndex, identity };
 			const metrics = replyMetrics([message]);
 			const bodyTps = getAssistantPerformance(message)?.bodyTps;

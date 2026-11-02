@@ -17,14 +17,16 @@ describe("stats collector", () => {
 		]));
 		expect(usage.costUsd).toBe(1);
 		expect(usage).not.toHaveProperty("lastCostUsd");
+		expect(summarizeSessionUsage(entries([assistant("free", { input: 1, output: 1, cacheRead: 0, cacheWrite: 0,
+			total: 2, cost: 0, fromProvider: true })])).usage).toMatchObject({ costUsd: 0, lastCostUsd: 0, costFromProvider: true, lastCostFromProvider: true });
 		expect(cache).toEqual({ totalHitRate: 50 });
 	});
 
 	it("从 assistant usage 汇总 token、成本和 cache", () => {
 		const messages: Message[] = [
 			userMessage("hello"),
-			assistant("a1", { input: 1000, output: 200, cacheRead: 3000, cacheWrite: 500, total: 4700, cost: 0.01 }),
-			assistant("a2", { input: 2000, output: 300, cacheRead: 6000, cacheWrite: 1000, total: 9300, cost: 0.02 }),
+			assistant("a1", { input: 1000, output: 200, cacheRead: 3000, cacheWrite: 500, total: 4700, cost: 0.01, fromProvider: true }),
+			assistant("a2", { input: 2000, output: 300, cacheRead: 6000, cacheWrite: 1000, total: 9300, cost: 0.02, fromProvider: true }),
 		];
 
 		const { usage, cache } = summarizeSessionUsage(entries(messages));
@@ -37,8 +39,8 @@ describe("stats collector", () => {
 			totalObservedTokens: 14000,
 			lastTurnTokens: 9300,
 			averageTokensPerAssistantTurn: 7000,
-			costUsd: 0.03,
-			lastCostUsd: 0.02,
+			costUsd: 0.03, costFromProvider: true,
+			lastCostUsd: 0.02, lastCostFromProvider: true,
 		});
 		expect(cache.latestHitRate).toBeCloseTo(66.666, 2);
 		expect(cache.totalHitRate).toBeCloseTo(66.666, 2);
@@ -47,10 +49,11 @@ describe("stats collector", () => {
 
 	it("保温和摘要计入总量，但不改变对话轮次与命中率，恢复后口径不变", () => {
 		const manager = SessionManager.inMemory();
-		const reply = assistant("answer", { input: 100, output: 10, cacheRead: 100, cacheWrite: 0, total: 210, cost: 1 });
+		const reply = assistant("answer", { input: 100, output: 10, cacheRead: 100, cacheWrite: 0, total: 210, cost: 1, fromProvider: true });
 		const id = manager.appendMessage(reply);
 		const baseline = summarizeSessionUsage(manager.getEntries());
-		const warming = { ...reply.usage, input: 0, output: 1, cacheRead: 500, totalTokens: 501 };
+		const warming = { ...reply.usage, input: 0, output: 1, cacheRead: 500, totalTokens: 501,
+			cost: { ...reply.usage.cost, totalFromProvider: false } };
 		manager.appendUsage("cache_warm", "openai", "gpt-test", warming);
 		manager.appendCompaction("summary", id, 200, undefined, false, reply.usage);
 		const restored = SessionManager.inMemory(manager.getCwd(), undefined, manager.getEntries());
@@ -58,8 +61,8 @@ describe("stats collector", () => {
 			const result = summarizeSessionUsage(session.getEntries());
 			expect(result.cache).toEqual(baseline.cache);
 			expect(result.usage).toMatchObject({
-				costUsd: 3, totalObservedTokens: 921, lastTurnTokens: 210,
-				lastCostUsd: 1, averageTokensPerAssistantTurn: 210,
+				costUsd: 3, costFromProvider: false, totalObservedTokens: 921, lastTurnTokens: 210,
+				lastCostUsd: 1, lastCostFromProvider: true, averageTokensPerAssistantTurn: 210,
 				cacheWarming: { requests: 1, tokens: 501, costUsd: 1 },
 			});
 		}
@@ -112,7 +115,7 @@ function entries(messages: Message[]) {
 	return manager.getEntries();
 }
 
-function assistant(text: string, usage: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; cost: number }): AssistantMessage {
+function assistant(text: string, usage: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; cost: number; fromProvider?: boolean }): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [{ type: "text", text }],
@@ -125,7 +128,8 @@ function assistant(text: string, usage: { input: number; output: number; cacheRe
 			cacheRead: usage.cacheRead,
 			cacheWrite: usage.cacheWrite,
 			totalTokens: usage.total,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: usage.cost },
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: usage.cost,
+				...(usage.fromProvider === undefined ? {} : { totalFromProvider: usage.fromProvider }) },
 		},
 		stopReason: "stop",
 		timestamp: 2,

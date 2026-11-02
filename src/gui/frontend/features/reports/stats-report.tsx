@@ -15,8 +15,8 @@ export function StatsReport({ value }: { value: StatsSnapshot }) {
 	return <div className="report-dashboard">
 		<div className="report-intro"><span className="report-badge">{session.status === "running" ? "运行中" : "会话快照"}</span><h2>{session.modelId ?? "尚未选择模型"}</h2><p>{session.modelProvider}{session.thinkingLevel && ` · 思考级别 ${session.thinkingLevel}`}</p></div>
 		<Metrics items={[
-			{ label: "累计 Token", value: <AnimatedNumber value={usage.totalObservedTokens} />, hint: "会话中已记录的用量" },
-			{ label: "估算费用", value: money(usage.costUsd), hint: session.usingSubscription ? "订阅套餐 · 非实际账单" : "USD · 非实际账单" },
+			{ label: "累计 Token", value: <AnimatedNumber value={usage.totalObservedTokens} /> },
+			{ label: usage.costFromProvider ? "费用" : "估算费用", value: money(usage.costUsd) },
 			{ label: "用户轮次", value: <AnimatedNumber value={session.userTurns} /> },
 			{ label: "助手轮次", value: <AnimatedNumber value={session.assistantTurns} /> },
 		]} />
@@ -24,18 +24,16 @@ export function StatsReport({ value }: { value: StatsSnapshot }) {
 			<Bar label="上下文占用" value={context.percent} tone={context.percent != null && context.percent >= 80 ? "warning" : "accent"} />
 			<Facts items={[["当前 Token", number(context.totalTokens)], ["窗口容量", number(context.contextWindow)], ["剩余 Token", number(context.remainingTokens)], ["计量方式", { exact: "精确", estimated: "估算", mixed: "精确总量 + 估算拆分" }[context.confidence]]]} />
 			{context.items.length ? <div className="report-bars">{context.items.map((item) => <Bar key={item.id} label={contextLabels[item.id]} value={item.share} text={`${item.estimated ? "约 " : ""}${number(item.tokens)} Token · ${percent(item.share)}`} />)}</div> : <Empty>暂无上下文来源数据。</Empty>}
-			<p className="report-note">来源拆分为估算值，可能与提供商记录的总量存在偏差。</p>
 		</Section>
 		<Section title="Token 与缓存">
 			<div className="report-bars">{([
 				["输入", usage.inputTokens], ["输出", usage.outputTokens], ["缓存读取", usage.cacheReadTokens], ["缓存写入", usage.cacheWriteTokens],
 			] as const).map(([label, tokens]) => <Bar key={label} label={label} value={usage.totalObservedTokens > 0 ? tokens / usage.totalObservedTokens * 100 : undefined} text={`${number(tokens)} Token`} />)}</div>
 			<Bar label="对话累计缓存命中率" value={cache.totalHitRate} tone="success" />
-			<Facts items={[["最近缓存命中率", percent(cache.latestHitRate)], ["缓存读写比", number(cache.readWriteRatio)], ["最近一轮 Token", number(usage.lastTurnTokens)], ["每助手轮平均 Token", number(usage.averageTokensPerAssistantTurn)], ["最近一轮估算费用", money(usage.lastCostUsd)]]} />
+			<Facts items={[["最近缓存命中率", percent(cache.latestHitRate)], ["缓存读写比", number(cache.readWriteRatio)], ["最近一轮 Token", number(usage.lastTurnTokens)], ["每助手轮平均 Token", number(usage.averageTokensPerAssistantTurn)], [usage.lastCostFromProvider ? "最近一轮费用" : "最近一轮估算费用", money(usage.lastCostUsd)]]} />
 		</Section>
 		{usage.cacheWarming && <Section title="缓存保温" detail>
-			<Facts items={[["刷新次数", number(usage.cacheWarming.requests)], ["Token", number(usage.cacheWarming.tokens)], ["估算费用", money(usage.cacheWarming.costUsd)]]} />
-			<p className="report-note">已计入会话总用量，不参与对话轮次和缓存命中率统计。</p>
+			<Facts items={[["刷新次数", number(usage.cacheWarming.requests)], ["Token", number(usage.cacheWarming.tokens)], [usage.cacheWarming.costFromProvider ? "费用" : "估算费用", money(usage.cacheWarming.costUsd)]]} />
 		</Section>}
 		<Section title="工具调用排行">
 			<Facts items={[["调用次数", number(tools.calls)], ["成功", number(tools.successes)], ["失败", number(tools.failures)], ["启用 / 可用工具", `${number(tools.activeCount)} / ${number(tools.totalCount)}`]]} />

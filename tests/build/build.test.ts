@@ -26,7 +26,7 @@ it("GUI 生产构建保留排错名称和映射，且不加载 IPC 校验器或�
 	for (const chunk of chunks) {
 		expect(Object.keys(chunk.modules).some((id) => id.includes("mathjax-newcm-font")), chunk.fileName).toBe(false);
 		expect(Object.entries(chunk.modules).some(([id, module]) =>
-			/\/src\/(?:gui\/shared\/protocol\/(?:actions|queries|connection|schema)|harness\/schema-validator)\.ts$/.test(id)
+			/\/src\/gui\/shared\/protocol\/(?:actions|queries|connection|schema)\.ts$/.test(id)
 			&& module.renderedLength > 0), chunk.fileName).toBe(false);
 	}
 });

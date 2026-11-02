@@ -27,6 +27,7 @@ export function sameTranscriptItem(before: TranscriptItem, after: TranscriptItem
 			&& before.identity.model === after.identity.model && before.identity.timestamp === after.identity.timestamp
 			&& before.metrics.input === after.metrics.input && before.metrics.output === after.metrics.output
 			&& before.metrics.cacheRead === after.metrics.cacheRead && before.metrics.cacheWrite === after.metrics.cacheWrite
-			&& before.metrics.cost === after.metrics.cost && before.speed === after.speed;
+			&& before.metrics.cost === after.metrics.cost && before.metrics.costFromProvider === after.metrics.costFromProvider
+			&& before.speed === after.speed;
 	}
 }

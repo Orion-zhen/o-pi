@@ -451,23 +451,33 @@ describe("subagent execution", () => {
 	});
 
 	it("解析 message_update delta 并发送实时进度快照", async () => {
-		childProcess.spawn.mockImplementation(() => completedProcess([
+		const events = [
 			messageStart(),
 			messageUpdate({ input: 12, output: 0, totalTokens: 12 }, { type: "text_start", contentIndex: 0 }),
 			messageUpdate({ input: 12, output: 1, totalTokens: 13 }, { type: "text_delta", contentIndex: 0, delta: "work" }),
 			messageUpdate({ input: 12, output: 2, totalTokens: 14 }, { type: "text_delta", contentIndex: 0, delta: "ing" }),
 			messageUpdate({ input: 12, output: 2, totalTokens: 14 }, { type: "text_end", contentIndex: 0, content: "working" }),
-			messageEnd([{ type: "text", text: "done" }], { input: 12, output: 3, totalTokens: 15 }),
-		]));
+			messageEnd([{ type: "text", text: "完成" }], { input: 12, output: 3, totalTokens: 15 }),
+		];
+		childProcess.spawn.mockImplementation(() => {
+			const proc = new FakeChildProcess();
+			queueMicrotask(() => {
+				for (const event of events) for (const byte of Buffer.from(`${JSON.stringify(event)}\n`)) proc.stdout.write(Buffer.from([byte]));
+				for (const byte of Buffer.from("日志")) proc.stderr.write(Buffer.from([byte]));
+				proc.exitCode = 0;
+				proc.emit("close", 0);
+			});
+			return proc;
+		});
 		const updates: ProcessRunProgress[] = [];
 
 		const output = await runPiProcess(input(), { onUpdate: (progress) => updates.push(progress) });
 
 		expect(updates.some((update) => update.output === "work" && update.usage.output === 1)).toBe(true);
 		expect(output).toMatchObject({
-			output: "done",
+			output: "完成", stderr: "日志",
 			usage: { input: 12, output: 3, contextTokens: 15, turns: 1 },
-			events: [{ type: "text", text: "done" }],
+			events: [{ type: "text", text: "完成" }],
 		});
 	});
 

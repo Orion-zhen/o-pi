@@ -13,11 +13,11 @@ import type { TuiRunStatus, TuiSkillsSnapshot, TuiSnapshot, TuiToolsSnapshot } f
 export function collectSessionState(ctx: ExtensionContext, status: TuiRunStatus) {
 	const model = ctx.model;
 	const context = ctx.getContextUsage();
-	const response = model?.api === "pi-virtual"
+	const response = model?.api === "pi-virtual" || model?.api === "pi-messages"
 		? ctx.sessionManager.buildSessionProjection().messages
 			.findLast((message) => message.role === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted")
 		: undefined;
-	const routed = response?.role === "assistant" ? response : undefined;
+	const routed = model?.api === "pi-virtual" && response?.role === "assistant" ? response : undefined;
 	const billingModel = routed ? ctx.modelRegistry.find(routed.provider, routed.model) : model;
 	return {
 		cwd: ctx.cwd,
@@ -33,6 +33,7 @@ export function collectSessionState(ctx: ExtensionContext, status: TuiRunStatus)
 			provider: routed.provider, id: routed.model,
 			...(routed.thinkingLevel === undefined ? {} : { thinkingLevel: routed.thinkingLevel }),
 		} }),
+		...(response?.role === "assistant" && response.responseModel !== undefined ? { responseModel: response.responseModel } : {}),
 		...(context === undefined ? {} : { context }),
 		...collectUsage(ctx),
 	};
@@ -69,10 +70,10 @@ export function userMessageText(message: UserMessage): string {
 
 function collectUsage(ctx: ExtensionContext): Pick<
 	TuiSnapshot,
-	"inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "latestCacheHitRate" | "totalCacheHitRate" | "costUsd"
+	"inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens" | "latestCacheHitRate" | "totalCacheHitRate" | "costUsd" | "costFromProvider"
 > {
 	const { usage, cache } = summarizeSessionUsage(ctx.sessionManager.getEntries());
-	const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd } = usage;
+	const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd, costFromProvider } = usage;
 	const { latestHitRate: latestCacheHitRate, totalHitRate: totalCacheHitRate } = cache;
 	return {
 		...(inputTokens > 0 ? { inputTokens } : {}),
@@ -81,6 +82,6 @@ function collectUsage(ctx: ExtensionContext): Pick<
 		...(cacheWriteTokens > 0 ? { cacheWriteTokens } : {}),
 		...(latestCacheHitRate !== undefined ? { latestCacheHitRate } : {}),
 		...(totalCacheHitRate !== undefined ? { totalCacheHitRate } : {}),
-		...(costUsd === undefined ? {} : { costUsd }),
+		...(costUsd === undefined ? {} : { costUsd, costFromProvider: costFromProvider === true }),
 	};
 }

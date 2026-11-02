@@ -1,5 +1,5 @@
 import type { TSchema } from "typebox";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { createRepairSpec } from "./specs.ts";
@@ -28,9 +28,10 @@ export function repairableTool<TParams extends TSchema, TDetails = unknown, TSta
 	observer?: RepairObserver,
 ): ToolDefinition<TParams, TDetails, TState> {
 	const spec = createRepairSpec(tool.parameters, hints);
+	const validate = compile(tool.parameters).check;
 	const prepareArguments: ToolDefinition<TParams, TDetails, TState>["prepareArguments"] = (args) => {
 		const operations: RepairOperation[] = [];
-		if (Check(tool.parameters, args)) {
+		if (validate(args)) {
 			notify(observer, tool.name, args, args, "accepted", operations);
 			return args as ToolArguments<TParams>;
 		}

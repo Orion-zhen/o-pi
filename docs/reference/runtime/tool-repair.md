@@ -49,4 +49,4 @@
 
 修复观察器只报告是否改写、操作和路径列表数量摘要。`accepted` 表示未做扩展修复，`repaired` 表示执行了扩展修复，均不表示已通过 SDK 校验。原始参数不由修复层落盘。工具执行计时沿用 SDK。
 
-实现位于 `src/harness/tool-repair/`：`repair.ts` 编排流程，`specs.ts` 推导规则，`types.ts` 定义提示与观察事件。TypeBox `Check()` 仅用于跳过已合法参数的修复。
+实现位于 `src/harness/tool-repair/`：`repair.ts` 编排流程，`specs.ts` 推导规则，`types.ts` 定义提示与观察事件。预检查使用 `pi-schema` 的 `compile().check()`，仅用于跳过已合法参数的修复，不启用类型转换。工具声明保留 SDK 扩展接口要求的 TypeBox schema。

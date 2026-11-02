@@ -1,9 +1,9 @@
 import { ModelsConfigSchema, ModelsJsonSchemas } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/core/model-config.js";
-import { ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
+import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import { Type, type Static } from "typebox";
 
 const modelExtensions = {
-	defaultThinkingLevel: Type.Optional(ModelThinkingLevelSchema),
+	defaultThinkingLevel: Type.Optional(Type.Union(MODEL_THINKING_LEVELS.map((level) => Type.Literal(level)))),
 	dropParams: Type.Optional(Type.Array(Type.String())),
 };
 

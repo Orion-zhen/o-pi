@@ -179,7 +179,8 @@ function usageStats(value: Usage): UsageStats {
 		cacheWrite: value.cacheWrite,
 		contextTokens: value.totalTokens,
 		turns: 0,
-		...(value.cost.total > 0 ? { cost: value.cost.total } : {}),
+		costFromProvider: value.cost.totalFromProvider === true,
+		...(value.cost.total > 0 || value.cost.totalFromProvider === true ? { cost: value.cost.total } : {}),
 	};
 }
 
@@ -190,6 +191,7 @@ function commitUsage(target: UsageStats, value: Usage): void {
 	target.cacheRead += usage.cacheRead;
 	target.cacheWrite += usage.cacheWrite;
 	target.contextTokens = Math.max(target.contextTokens, usage.contextTokens);
+	target.costFromProvider = (target.turns === 0 || target.costFromProvider === true) && usage.costFromProvider === true;
 	target.turns++;
 	if (usage.cost !== undefined) target.cost = (target.cost ?? 0) + usage.cost;
 }
@@ -204,7 +206,11 @@ function combineUsage(committed: UsageStats, turn: AssistantTurn | undefined): U
 		cacheWrite: committed.cacheWrite + current.cacheWrite,
 		contextTokens: Math.max(committed.contextTokens, current.contextTokens),
 		turns: committed.turns + (turn === undefined ? 0 : 1),
-		...(cost > 0 ? { cost } : {}),
+		...(committed.turns > 0 || turn !== undefined ? {
+			costFromProvider: (committed.turns === 0 || committed.costFromProvider === true)
+				&& (turn === undefined || current.costFromProvider === true),
+		} : {}),
+		...(committed.cost !== undefined || current.cost !== undefined ? { cost } : {}),
 	};
 }
 

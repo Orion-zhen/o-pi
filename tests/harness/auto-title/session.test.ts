@@ -156,9 +156,9 @@ describe("共享 SDK 自动标题", () => {
 	});
 
 	it("同名模型按指定提供方选择", async () => {
-		await config({ model: "other/plain" });
+		await config({ model: "local/other/plain" });
 		const current = await start();
-		models.registerProvider("other", {
+		models.registerProvider("local/other", {
 			baseUrl: server.url, api: "openai-completions", apiKey: "fixture",
 			models: [{
 				id: "plain", name: "Other plain", reasoning: true, input: ["text"],

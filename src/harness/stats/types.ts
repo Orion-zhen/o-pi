@@ -22,7 +22,7 @@ export interface SessionStats {
 	assistantTurns: number;
 }
 
-/** 会话总用量包含后台请求，轮次指标只计 assistant。成本为估算值。 */
+/** 会话总用量包含后台请求，轮次指标只计 assistant。费用来源沿用 SDK。 */
 export interface UsageStats {
 	inputTokens: number;
 	outputTokens: number;
@@ -32,8 +32,10 @@ export interface UsageStats {
 	lastTurnTokens?: number;
 	averageTokensPerAssistantTurn?: number;
 	costUsd?: number;
+	costFromProvider?: boolean;
 	lastCostUsd?: number;
-	cacheWarming?: { requests: number; tokens: number; costUsd: number };
+	lastCostFromProvider?: boolean;
+	cacheWarming?: { requests: number; tokens: number; costUsd: number; costFromProvider?: boolean };
 }
 
 /** 对话请求的缓存命中率，单位为百分比。不包含后台保温。 */

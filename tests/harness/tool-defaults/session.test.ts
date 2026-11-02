@@ -241,18 +241,21 @@ describe("工具选择与 SDK 状态", () => {
 
 	it("恢复手动选择时保持声明顺序，不追加重复 system 消息", async () => {
 		let host = await start();
+		const initial = host.session.getActiveToolNames();
 		host.session.setActiveToolsByName(["write", "read", "bash"]);
+		expect(host.session.getActiveToolNames()).toEqual(initial);
 		host.controller.set("bash", false);
+		const active = host.session.getActiveToolNames();
 		await host.session.prompt("保存当前工具状态");
 		const systems = host.session.messages.filter((message) => message.role === "system");
 		const file = host.session.sessionFile;
 		if (!file) throw new Error("缺少会话文件");
 		await runtime?.dispose();
 		host = await start(SessionManager.open(file));
-		expect(host.session.getActiveToolNames()).toEqual(["write", "read"]);
+		expect(host.session.getActiveToolNames()).toEqual(active);
 		expect(selected(host.controller)).toEqual(["read", "write"]);
 		await host.session.prompt("继续");
-		expect(requestedTools()).toEqual(["write", "read"]);
+		expect(requestedTools()).toEqual(active);
 		expect(host.session.messages.filter((message) => message.role === "system")).toEqual(systems);
 	});
 

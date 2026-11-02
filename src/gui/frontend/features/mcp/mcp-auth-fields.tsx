@@ -49,7 +49,7 @@ export function McpAuthFields({ server, config, issues, change, disabled }: {
 			<p className="settings-description">通常无需填写。提供 Authorization 或提供商凭据时，不使用 OAuth。</p>
 			<div className="mcp-form-grid">
 				<McpField inline label="客户端注册" field="oauth.clientRegistration" issues={issues}>
-					<McpChoice disabled={disabled} label="客户端注册" value={mcpText(oauth.clientRegistration ?? "dcr")} options={mcpClientRegistrations} change={(value) => setOAuth("clientRegistration", value === "dcr" ? "" : value)} />
+					<McpChoice disabled={disabled} label="客户端注册" value={mcpText(oauth.clientRegistration ?? "auto")} options={mcpClientRegistrations} change={(value) => setOAuth("clientRegistration", value === "auto" ? "" : value)} />
 				</McpField>
 				{([
 					["clientId", "客户端 ID"], ["clientSecret", "客户端密钥"], ["clientName", "客户端名称"], ["scope", "权限范围"],

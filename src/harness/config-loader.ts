@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { installationRoot } from "./runtime/paths.ts";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
-import { compileSchemaValidator, type SchemaValidateFunction } from "./schema-validator.ts";
+import { compile, type Validator } from "@earendil-works/pi-schema";
 import { mergeConfigValues } from "./config-values.ts";
 
 export class ConfigError extends Error {
@@ -78,10 +78,10 @@ function parseConfig(text: string, label: string, filePath: string, layer?: Conf
 }
 
 export function validateConfigLayer(definition: ConfigDefinition, layer: LoadedConfigLayer): void {
-	const validator = configValidator(definition, layer.kind);
-	if (!validator(layer.value)) {
+	const { validator } = configSchema(definition, layer.kind);
+	if (!validator.check(layer.value)) {
 		throw new ConfigError(`${definition.label} ${layer.kind} config does not match schema.`, {
-			layer: layer.kind, path: layer.path, errors: validator.errors ?? [],
+			layer: layer.kind, path: layer.path, errors: validator.errors(layer.value),
 		});
 	}
 }
@@ -145,9 +145,14 @@ export function stripUtf8Bom(text: string): string {
 	return text.startsWith("\uFEFF") ? text.slice(1) : text;
 }
 
-const validators = new WeakMap<ConfigDefinition, Map<ConfigLayerKind, SchemaValidateFunction>>();
+interface ConfigSchema {
+	schema: Record<string, unknown>;
+	validator: Validator;
+}
 
-export function configValidator(definition: ConfigDefinition, kind: ConfigLayerKind = "user"): SchemaValidateFunction {
+const validators = new WeakMap<ConfigDefinition, Map<ConfigLayerKind, ConfigSchema>>();
+
+export function configSchema(definition: ConfigDefinition, kind: ConfigLayerKind = "user"): ConfigSchema {
 	if (kind === "project" && definition.projectSchema === undefined) kind = "user";
 	let cached = validators.get(definition);
 	if (cached === undefined) {
@@ -175,16 +180,16 @@ export function readDefaultJsoncConfigSync<T>(definition: ConfigDefinition): T {
 		throw new ConfigError(`${definition.label} default config cannot be read.`, { path: configPath });
 	}
 	const value = parseConfig(text, `${definition.label} default`, configPath);
-	const validator = configValidator(definition, "default");
-	if (!validator(value)) {
+	const { validator } = configSchema(definition, "default");
+	if (!validator.check(value)) {
 		throw new ConfigError(`${definition.label} default config does not match schema.`, {
-			path: configPath, errors: validator.errors ?? [],
+			path: configPath, errors: validator.errors(value),
 		});
 	}
 	return value as T;
 }
 
-function compileValidator(schemaPath: string, label: string, complete: boolean): SchemaValidateFunction {
+function compileValidator(schemaPath: string, label: string, complete: boolean): ConfigSchema {
 	let schema: unknown;
 	try {
 		schema = JSON.parse(readFileSync(schemaPath, "utf8"));
@@ -193,7 +198,8 @@ function compileValidator(schemaPath: string, label: string, complete: boolean):
 	}
 	if (!isRecord(schema)) throw new ConfigError(`${label} schema is invalid.`, { path: schemaPath });
 	try {
-		return compileSchemaValidator(complete ? requireFixedProperties(schema) : schema, { allErrors: true });
+		const prepared = complete ? requireFixedProperties(schema) : schema;
+		return { schema: prepared, validator: compile(prepared) };
 	} catch (error) {
 		throw new ConfigError(`${label} schema is invalid.`, {
 			path: schemaPath, error: error instanceof Error ? error.message : String(error),

@@ -6,7 +6,15 @@ import type { StatsSnapshot } from "../../../../src/harness/stats/types.ts";
 
 describe("stats renderer", () => {
 	it.each([120, 80, 56])("宽度 %i 下不产生越界行", (width) => {
-		const lines = renderStats(snapshot(), width);
+		const data = snapshot();
+		const lines = renderStats(data, width);
+		expect(lines.join("\n")).toContain("~$0.084");
+		data.usage.costFromProvider = true;
+		data.usage.lastCostFromProvider = true;
+		const billed = renderStats(data, width).join("\n");
+		expect(billed).toContain("$0.084");
+		expect(billed).not.toContain("~$0.084");
+		expect(billed).not.toContain("~$0.006");
 		expect(lines.length).toBeGreaterThan(0);
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 	});

@@ -10,6 +10,8 @@ export function summarizeUsage(messages: readonly AgentMessage[]): { usage: Usag
 	let cacheReadTokens = 0;
 	let cacheWriteTokens = 0;
 	let costUsd = 0;
+	let costFromProvider = true;
+	let lastCostFromProvider: boolean | undefined;
 	let lastTurnTokens: number | undefined;
 	let lastCostUsd: number | undefined;
 	let latestHitRate: number | undefined;
@@ -23,6 +25,8 @@ export function summarizeUsage(messages: readonly AgentMessage[]): { usage: Usag
 		cacheReadTokens += usage.cacheRead;
 		cacheWriteTokens += usage.cacheWrite;
 		costUsd += usage.cost.total;
+		lastCostFromProvider = usage.cost.totalFromProvider === true;
+		costFromProvider &&= lastCostFromProvider;
 		const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
 		lastTurnTokens = promptTokens + usage.output;
 		lastCostUsd = usage.cost.total;
@@ -35,8 +39,10 @@ export function summarizeUsage(messages: readonly AgentMessage[]): { usage: Usag
 			inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalObservedTokens,
 			...(lastTurnTokens === undefined ? {} : { lastTurnTokens }),
 			...(assistantTurns > 0 ? { averageTokensPerAssistantTurn: totalObservedTokens / assistantTurns } : {}),
-			...(costUsd > 0 ? { costUsd } : {}),
-			...(lastCostUsd !== undefined && lastCostUsd > 0 ? { lastCostUsd } : {}),
+			...(assistantTurns > 0 ? { costFromProvider } : {}),
+			...(lastCostFromProvider === undefined ? {} : { lastCostFromProvider }),
+			...(costUsd > 0 || assistantTurns > 0 && costFromProvider ? { costUsd } : {}),
+			...(lastCostUsd !== undefined && (lastCostUsd > 0 || lastCostFromProvider) ? { lastCostUsd } : {}),
 		},
 		cache: {
 			...(latestHitRate === undefined ? {} : { latestHitRate }),
@@ -50,7 +56,7 @@ export function summarizeUsage(messages: readonly AgentMessage[]): { usage: Usag
 export function summarizeSessionUsage(entries: readonly SessionEntry[]): { usage: UsageStats; cache: CacheStats } {
 	const messages: AgentMessage[] = [];
 	const additional: Usage[] = [];
-	const cacheWarming = { requests: 0, tokens: 0, costUsd: 0 };
+	const cacheWarming = { requests: 0, tokens: 0, costUsd: 0, costFromProvider: true };
 	for (const entry of entries) {
 		if (entry.type === "message") {
 			messages.push(entry.message);
@@ -61,6 +67,7 @@ export function summarizeSessionUsage(entries: readonly SessionEntry[]): { usage
 				cacheWarming.requests += 1;
 				cacheWarming.tokens += entry.usage.input + entry.usage.output + entry.usage.cacheRead + entry.usage.cacheWrite;
 				cacheWarming.costUsd += entry.usage.cost.total;
+				cacheWarming.costFromProvider &&= entry.usage.cost.totalFromProvider === true;
 			}
 		} else if ((entry.type === "compaction" || entry.type === "branch_summary") && entry.usage) {
 			additional.push(entry.usage);
@@ -73,7 +80,9 @@ export function summarizeSessionUsage(entries: readonly SessionEntry[]): { usage
 		result.usage.cacheReadTokens += usage.cacheRead;
 		result.usage.cacheWriteTokens += usage.cacheWrite;
 		result.usage.totalObservedTokens += usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-		if (usage.cost.total > 0) result.usage.costUsd = (result.usage.costUsd ?? 0) + usage.cost.total;
+		result.usage.costFromProvider = (result.usage.costFromProvider ?? true) && usage.cost.totalFromProvider === true;
+		if (usage.cost.total > 0 || usage.cost.totalFromProvider === true)
+			result.usage.costUsd = (result.usage.costUsd ?? 0) + usage.cost.total;
 	}
 	if (cacheWarming.requests > 0) result.usage.cacheWarming = cacheWarming;
 	return result;

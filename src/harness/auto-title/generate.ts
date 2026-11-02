@@ -10,8 +10,7 @@ export async function generateTitle(
 ): Promise<string> {
 	let model: Model<Api> | undefined = ctx.model;
 	if (config.model !== null) {
-		const separator = config.model.indexOf("/");
-		model = ctx.modelRegistry.find(config.model.slice(0, separator), config.model.slice(separator + 1));
+		model = ctx.modelRegistry.getAll().find((candidate) => `${candidate.provider}/${candidate.id}` === config.model);
 	}
 	if (!model) throw new Error("Auto-title model is unavailable.");
 	signal.throwIfAborted();

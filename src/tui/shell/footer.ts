@@ -16,7 +16,7 @@ export function formatFooter(snapshot: TuiSnapshot, config: TuiFooterConfig, wid
 	const git = snapshot.git ? theme.fg(config.style.git_color, `${tuiIcon("git")} ${snapshot.git}`) : undefined;
 	const context = snapshot.context !== undefined && snapshot.context.percent !== null ? formatContext(snapshot, theme) : undefined;
 	const cost = snapshot.costUsd !== undefined || snapshot.usingSubscription
-		? theme.fg("dim", `$${(snapshot.costUsd ?? 0).toFixed(3)}${snapshot.usingSubscription ? " (sub)" : ""}`) : undefined;
+		? theme.fg("dim", `${snapshot.costFromProvider ? "" : "~"}$${(snapshot.costUsd ?? 0).toFixed(3)}${snapshot.usingSubscription ? " (sub)" : ""}`) : undefined;
 	const left: string[] = [];
 	const right: string[] = [];
 	const secondary: Array<"tokens" | "cost"> = [];

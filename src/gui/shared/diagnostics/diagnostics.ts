@@ -1,4 +1,4 @@
-import type { Static } from "typebox";
+import type { Static } from "@earendil-works/pi-schema";
 import type { guiDiagnosticSchema } from "./schema.ts";
 
 export const diagnosticScopes = {

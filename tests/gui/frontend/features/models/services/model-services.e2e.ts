@@ -5,7 +5,7 @@ import type { Page } from "@playwright/test";
 import { parse } from "jsonc-parser";
 import { test, expect } from "../../../../helpers/fixture.ts";
 import { selectSetting, selectSettingsCategory } from "../../../../helpers/settings-steps.ts";
-import { THINKING_FORMATS } from "../../../../../../src/harness/model-services/compat-settings.ts";
+import { THINKING_FORMATS } from "../../../../../../src/harness/model-services/compat-options.ts";
 
 const settings = (page: Page) => page.getByRole("dialog", { name: "设置", exact: true });
 const services = (page: Page) => settings(page).getByRole("region", { name: "模型服务", exact: true });

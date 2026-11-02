@@ -1,4 +1,3 @@
-import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
@@ -42,7 +41,7 @@ const webFetchParameters = Type.Object(
 			description: "HTTP(S) URL. #anchor selects static HTML content, except in source mode.",
 		}),
 		mode: Type.Optional(
-			StringEnum(["readable", "source", "image"] as const, {
+			Type.Union([Type.Literal("readable"), Type.Literal("source"), Type.Literal("image")], {
 				default: "readable",
 				description: "source: text source. image: image URL, web primary image, or PDF pages; no find/offset.",
 			}),

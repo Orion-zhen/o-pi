@@ -1,7 +1,8 @@
 import type { WriteSuccess } from "./types.ts";
 
 export function isWriteSuccess(value: unknown): value is WriteSuccess {
-	return isRecord(value) && value["status"] === "written" && typeof value["path"] === "string" && typeof value["bytes"] === "number";
+	return isRecord(value) && value["status"] === "written" && typeof value["path"] === "string"
+		&& typeof value["bytes"] === "number" && typeof value["diff"] === "string";
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);

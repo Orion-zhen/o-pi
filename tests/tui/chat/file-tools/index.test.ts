@@ -1,9 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { initTheme, type ToolRenderers } from "@earendil-works/pi-coding-agent";
+import { initTheme, keyHint, keyText, type ToolRenderers } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { theme } from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
-import { stripTerminalSequences, type Component } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, Text, type Component } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { registerToolRenderers } from "../../../../src/tui/chat/tool-renderers.ts";
@@ -140,21 +140,24 @@ describe("file-tools extension renderers", () => {
 		expect(expanded).not.toContain("secret-page");
 	});
 
-	rendererTest("write 从空内容流式追加到多行，完成参数后保持完整预览", ({ registered }) => {
+	rendererTest("write 流式更新和完整参数均委托原生调用渲染", ({ registered, nativeWrite }) => {
 		const write = registered.slice().reverse().find((tool) => tool.name === "write");
+		expect(write?.renderCall).toBe(nativeWrite.renderCall);
 		const state = {};
 		let lastComponent: Component | undefined;
 		for (const content of ["", "// first line", "// first line\n// second line"]) {
 			lastComponent = write?.renderCall?.({ path: "app.ts", content }, theme, renderContext({
 				cwd: editCardTemp.path, argsComplete: false, expanded: true, isPartial: true, state, lastComponent,
 			}));
-			const output = lastComponent?.render(80).join("\n");
-			for (const line of content.split("\n")) expect(output).toContain(line);
+			expect(nativeWrite.renderCall).toHaveBeenLastCalledWith({ path: "app.ts", content }, theme,
+				expect.objectContaining({ argsComplete: false, state }));
 		}
 		const completed = write?.renderCall?.({ path: "app.ts", content: "// first line\n// second line" }, theme, renderContext({
 			cwd: editCardTemp.path, argsComplete: true, expanded: true, isPartial: true, state, lastComponent,
 		}));
-		expect(completed?.render(80).join("\n")).toContain("// second line");
+		expect(completed?.render(80).join("\n")).toContain("native write");
+		expect(nativeWrite.renderCall).toHaveBeenLastCalledWith({ path: "app.ts", content: "// first line\n// second line" }, theme,
+			expect.objectContaining({ argsComplete: true, state }));
 	});
 
 	rendererTest("edit 预览异步刷新，折叠时隐藏 diff，展开时恢复", async ({ registered }) => {
@@ -226,16 +229,17 @@ function rendererTest(
 
 function registerRenderers() {
 	const registered: RenderedTool[] = [];
+	const nativeWrite = { renderCall: vi.fn(() => new Text("native write", 0, 0)) };
 	registerToolRenderers({
 		registerToolRenderer(resolve) {
 			for (const name of ["ls", "find", "grep", "read", "write", "edit"]) {
-				registered.push({ name, ...resolve(name, () => undefined) });
+				registered.push({ name, ...resolve(name, () => name === "write" ? nativeWrite : undefined) });
 			}
 		},
 		registerMessageRenderer() {},
 		registerEntryRenderer() {},
 	});
-	return { registered };
+	return { registered, nativeWrite };
 }
 
 type RenderedTool = { name: string } & ToolRenderers;
@@ -243,7 +247,7 @@ type RenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 
 function renderContext(options: Partial<RenderContext> = {}): RenderContext {
 	return {
-		toolCallId: "render-test", args: {}, cwd: editCardTemp.path, state: {}, lastComponent: undefined,
+		keyText, keyHint, toolCallId: "render-test", args: {}, cwd: editCardTemp.path, state: {}, lastComponent: undefined,
 		invalidate() {}, argsComplete: true, executionStarted: true, expanded: false, isPartial: false,
 		showImages: false, isError: false, durationMs: undefined, outputPad: 1, ...options,
 	};

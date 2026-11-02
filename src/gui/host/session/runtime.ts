@@ -18,6 +18,7 @@ import {
 	type SessionStartEvent,
 	type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
+import { resolveProjectTrusted } from "./project-trust.ts";
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
 import type { GuiModelScope } from "./models.ts";
 import type { GuiModel } from "../../shared/protocol/state.ts";
@@ -48,41 +49,16 @@ export async function createGuiRuntime(
 				resolveProjectTrust: async ({ extensionsResult }) => {
 					const cached = decisions.get(cwd);
 					if (cached !== undefined) return cached;
-					if (!hasTrustRequiringProjectResources(cwd)) return true;
-					// 此阶段 SDK 只加载用户级信任处理器，项目扩展仍未执行。
-					for (const extension of extensionsResult.extensions) {
-						for (const handler of extension.handlers.get("project_trust") ?? []) {
-							try {
-								const result: unknown = await handler(
-									{ type: "project_trust", cwd },
-									{ cwd, mode: "print", hasUI: true, ui: dialogs.context() },
-								);
-								if (typeof result !== "object" || result === null || !("trusted" in result))
-									throw new Error("无效 project_trust 返回值");
-								if (result.trusted === "undecided") continue;
-								if (result.trusted !== "yes" && result.trusted !== "no") throw new Error("无效 project_trust 决策");
-								const trusted = result.trusted === "yes";
-								if ("remember" in result && result.remember === true) trust.set(cwd, trusted);
-								decisions.set(cwd, trusted);
-								return trusted;
-							} catch (error) {
-								dialogs.notify(`${extension.path}: ${error instanceof Error ? error.message : String(error)}`, "error");
-							}
-						}
-					}
-					const saved = trust.get(cwd);
-					if (saved !== null) return saved;
-					const defaultTrust = settingsManager.getDefaultProjectTrust();
-					if (defaultTrust !== "ask") return defaultTrust === "always";
-					const answer = await dialogs.ask(
-						"select",
-						"信任项目",
-						`${cwd}\n允许加载项目配置、技能和执行项目扩展。仅信任你了解的项目。`,
-						["仅本次信任", "始终信任", "不信任"],
-					);
-					const trusted = answer === "仅本次信任" || answer === "始终信任";
-					if (answer === "始终信任") trust.set(cwd, true);
-					decisions.set(cwd, trusted);
+					const trusted = await resolveProjectTrusted({
+						cwd,
+						trustStore: trust,
+						defaultProjectTrust: settingsManager.getDefaultProjectTrust(),
+						extensionsResult,
+						projectTrustContext: { cwd, mode: "print", hasUI: true, ui: dialogs.context() },
+						onExtensionError: (message) => dialogs.notify(message, "warning"),
+					});
+					// 与原生入口一致，只缓存需要信任决策的项目。
+					if (hasTrustRequiringProjectResources(cwd)) decisions.set(cwd, trusted);
 					return trusted;
 				},
 			},

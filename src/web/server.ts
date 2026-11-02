@@ -6,14 +6,14 @@ import { WebSocketServer } from "ws";
 import type { GuiHost } from "../gui/host/host.ts";
 import type { GuiClient } from "../gui/host/client.ts";
 import { decodeGuiRequest } from "../gui/host/request.ts";
-import { controlSchema, type GuiControl } from "../gui/shared/protocol/connection.ts";
-import { compileSchemaValidator } from "../harness/schema-validator.ts";
+import { controlSchema } from "../gui/shared/protocol/connection.ts";
+import { compile } from "@earendil-works/pi-schema";
 import { fileResourceResponse } from "../gui/host/workspace/file-resource.ts";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
-const validateControl = compileSchemaValidator(controlSchema);
+const validateControl = compile(controlSchema).check;
 const MAX_BUFFERED_AMOUNT = 16 * 1024 * 1024;
 const CSP =
 	"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
@@ -157,7 +157,7 @@ export async function startWebServer(
 				try {
 					const value: unknown = JSON.parse(data.toString());
 					if (!validateControl(value)) throw new Error("Invalid control message");
-					const control = value as GuiControl;
+					const control = value;
 					if (control.kind === "ack") connection.acknowledge(control.id);
 					else connection.attend(control.value);
 				} catch { ws.close(1008, "Invalid control message"); }

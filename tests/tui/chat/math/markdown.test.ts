@@ -41,6 +41,7 @@ describe("math markdown 后端初始化", () => {
 		vi.doMock("../../../../src/tui/chat/math/renderer.ts", () => { throw error; });
 		const tui = await import("@earendil-works/pi-tui");
 		const originalRender = tui.Markdown.prototype.render;
+		const originalInvalidate = tui.Markdown.prototype.invalidate;
 		try {
 			const math = await import("../../../../src/tui/chat/math/markdown.ts");
 			tui.setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
@@ -53,6 +54,7 @@ describe("math markdown 后端初始化", () => {
 			expect(output).not.toContain("\u001b_G");
 		} finally {
 			tui.Markdown.prototype.render = originalRender;
+			tui.Markdown.prototype.invalidate = originalInvalidate;
 			tui.resetCapabilitiesCache();
 			vi.doUnmock("../../../../src/tui/chat/math/renderer.ts");
 			vi.resetModules();
@@ -140,10 +142,22 @@ describe("math markdown renderer", () => {
 	});
 
 	it("CRLF 与缩进不改变公式顺序", () => {
-		const lines = renderLines("before\r\n  $$x^2$$\r\n   \\[y^2\\]\r\nafter");
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+		installMathMarkdownRenderer(mathConfig);
+		const highlightCode = vi.fn((source: string) => source.split("\n"));
+		const source = "before\r\n\r\n```ts\r\nconst x = 1;\r\n```\r\n  $$x^2$$\r\n   \\[y^2\\]\r\nafter";
+		const markdown = new Markdown(source, 0, 0, { ...theme, highlightCode });
+		const lines = markdown.render(120);
 		expect(lines.filter((line) => getKittyImageMetadata(line) !== undefined)).toHaveLength(2);
 		expect(lines.join("\n")).toContain("before");
 		expect(lines.join("\n")).toContain("after");
+		expect(highlightCode).toHaveBeenCalledOnce();
+		markdown.setText(`${source} more`);
+		expect(markdown.render(100).join("\n")).toContain("after more");
+		expect(highlightCode).toHaveBeenCalledOnce();
+		markdown.invalidate();
+		markdown.render(100);
+		expect(highlightCode).toHaveBeenCalledTimes(2);
 	});
 
 	it("Pi 不支持的行内命令保留源码而不进入图片后端", () => {

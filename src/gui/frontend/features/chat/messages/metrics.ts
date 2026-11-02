@@ -9,5 +9,6 @@ export function replyMetrics(messages: AssistantMessage[]) {
 		cacheWrite += message.usage.cacheWrite;
 		cost += message.usage.cost.total;
 	}
-	return { input, output, cacheRead, cacheWrite, cost };
+	const costFromProvider = messages.length > 0 && messages.every((message) => message.usage.cost.totalFromProvider === true);
+	return { input, output, cacheRead, cacheWrite, cost, costFromProvider };
 }

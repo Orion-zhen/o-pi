@@ -8,6 +8,7 @@ import { guiModel } from "../session/runtime.ts";
 import { builtinCommands } from "../session/commands.ts";
 import { matchingToolPreset } from "../../../harness/tool-defaults/presets.ts";
 import type { GuiHistory } from "./history.ts";
+import { summarizeSessionUsage } from "../../../harness/stats/usage.ts";
 
 type PresentationState = Pick<
 	GuiSnapshot,
@@ -65,7 +66,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		thinking: session.thinkingLevel,
 		thinkingLevels: session.getAvailableThinkingLevels(),
 		context: stats.contextUsage ?? null,
-		stats,
+		stats: { ...stats, costFromProvider: summarizeSessionUsage(session.sessionManager.getEntries()).usage.costFromProvider === true },
 		// SDK 原地追加队列，快照必须持有独立数组供增量比较。
 		queue: { steering: [...session.getSteeringMessages()], followUp: [...session.getFollowUpMessages()] },
 		settings: {

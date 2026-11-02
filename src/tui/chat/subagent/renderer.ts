@@ -92,7 +92,7 @@ function formatSubagentSummary(details: SubagentDetails, isPartial: boolean, the
 		failed !== undefined || didNotRun ? "failed" : undefined,
 		usage.turns > 0 ? `${usage.turns} ${usage.turns === 1 ? "turn" : "turns"}` : undefined,
 		totalTokens(usage) > 0 ? `${formatTokens(totalTokens(usage))} tok` : undefined,
-		usage.cost !== undefined && usage.cost > 0 ? `$${usage.cost.toFixed(3)}` : undefined,
+		usage.cost !== undefined ? `${usage.costFromProvider ? "" : "~"}$${usage.cost.toFixed(3)}` : undefined,
 	], " · ");
 	return formatToolCard({ tool: "subagent", status, target, summary: formatTaskSummary(tasks) }, theme);
 }
@@ -201,6 +201,8 @@ function sumUsage(results: SubagentRunResult[]): UsageStats {
 		cacheWrite: sum.cacheWrite + item.usage.cacheWrite,
 		contextTokens: sum.contextTokens + item.usage.contextTokens,
 		turns: sum.turns + item.usage.turns,
+		costFromProvider: (sum.turns === 0 || sum.costFromProvider === true)
+			&& (item.usage.turns === 0 || item.usage.costFromProvider === true),
 		...(sum.cost !== undefined || item.usage.cost !== undefined ? { cost: (sum.cost ?? 0) + (item.usage.cost ?? 0) } : {}),
 	}), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, contextTokens: 0, turns: 0 });
 }

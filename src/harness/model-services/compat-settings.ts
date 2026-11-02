@@ -1,10 +1,7 @@
 import type { OpenAICompletionsCompat } from "@earendil-works/pi-ai";
-import { OpenAICompletionsCompatSchema } from "@earendil-works/pi-ai/providers/compat-schema";
 import type { ConfigObject } from "./document.ts";
 import { configuredModels, type ModelSettings } from "./model-settings.ts";
 import { thinkingCapabilities } from "./thinking-capabilities.ts";
-
-export const THINKING_FORMATS = OpenAICompletionsCompatSchema.properties.thinkingFormat.anyOf.map(({ const: format }) => format);
 
 // SDK 未导出兼容默认值解析器。只镜像设置所需字段，并用实际请求测试校验。
 function detectedServiceCompat(provider: string, baseUrl: string, modelId?: string):

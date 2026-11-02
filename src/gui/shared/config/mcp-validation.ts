@@ -3,7 +3,7 @@ export type McpConfig = McpObject & { mcpServers?: McpObject };
 export type McpIssue = { field: string; message: string };
 export const mcpExposures = ["codemode", "deferred", "direct", "hidden"] as const;
 export const mcpTransports = ["stdio", "http"] as const;
-export const mcpClientRegistrations = ["dcr", "cimd"] as const;
+export const mcpClientRegistrations = ["auto", "dcr", "cimd"] as const;
 
 export function mcpObject(value: unknown): value is McpObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -90,7 +90,7 @@ function validateOAuth(value: unknown, error: (field: string, message: string) =
 		if (!callback || callback.protocol !== "http:" || !loopback(callback) || callback.search || callback.hash) issue("callbackUrl", "使用本机回环 HTTP 地址，不含查询参数或片段。");
 		else if (callback.port && port !== undefined && Number(callback.port) !== port) issue("callbackPort", "端口与回调地址不一致。");
 	}
-	if (value.clientRegistration !== undefined && !mcpClientRegistrations.some((registration) => registration === value.clientRegistration)) issue("clientRegistration", "请选择 DCR 或 CIMD。");
+	if (value.clientRegistration !== undefined && !mcpClientRegistrations.some((registration) => registration === value.clientRegistration)) issue("clientRegistration", "请选择 auto、dcr 或 cimd。");
 	if (value.clientRegistration === "cimd") {
 		if (value.clientId !== undefined || value.clientName !== undefined) issue("clientRegistration", "CIMD 不能与客户端 ID 或客户端名称同时设置。");
 		if (callback && (callback.hostname === "[::1]" || callback.pathname !== "/callback")) issue("callbackUrl", "CIMD 回调需使用 localhost 或 127.0.0.1，路径为 /callback。");

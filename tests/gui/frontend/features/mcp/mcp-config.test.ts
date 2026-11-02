@@ -185,6 +185,11 @@ describe("保存前校验服务字段", () => {
 	])("拒绝不合法的 OAuth %j", (oauth) => expect(validateMcpServer("valid", { url: "https://example.com", oauth }).length).toBeGreaterThan(0));
 
 	it("接受完整 OAuth、回环认证与旧暴露别名", () => {
+		for (const clientRegistration of ["auto", "dcr", "cimd"]) {
+			const config = { mcpServers: { server: { url: "https://example.com/mcp", oauth: { clientRegistration } } } };
+			expect(validateMcpConfig(config)).toEqual([]);
+			expect(mcpDraftValue(createMcpDraft(config))).toEqual(config);
+		}
 		expect(validateMcpConfig(parseMcpConfig(JSON.stringify({ autoEnableCodemode: true, mcpServers: {
 			remote: { type: "streamable-http", url: "http://127.0.0.1/mcp", auth: { provider: "p" }, exposure: "codemode-deferred", toolExposure: { "*": "codemode-deferred" }, oauth: {
 				clientId: "id", clientSecret: "${SECRET}", callbackUrl: "http://localhost:8765/callback", callbackPort: 8765,

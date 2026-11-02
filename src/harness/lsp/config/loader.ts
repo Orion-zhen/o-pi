@@ -3,7 +3,7 @@ import path from "node:path";
 import {
 	CONFIG_DEFINITIONS,
 	ConfigError,
-	configValidator,
+	configSchema,
 	expandHomePath,
 	loadConfigLayers,
 	userAgentConfigPath,
@@ -62,11 +62,11 @@ export function resolveLspConfigPath(): string {
 }
 
 function validateRawConfig(raw: RawLspConfig, configPath: string): void {
-	const validator = configValidator(CONFIG_DEFINITIONS.lsp);
-	if (!validator(raw)) {
+	const { validator } = configSchema(CONFIG_DEFINITIONS.lsp);
+	if (!validator.check(raw)) {
 		throw new ConfigError("lsp config does not match schema.", {
 			path: configPath,
-			errors: validator.errors ?? [],
+			errors: validator.errors(raw),
 		});
 	}
 }

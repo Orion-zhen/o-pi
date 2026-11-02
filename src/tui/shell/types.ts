@@ -80,6 +80,7 @@ export interface TuiSnapshot {
 	modelReasoning?: boolean;
 	codexSpeed: CodexSpeed | null;
 	routedModel?: { provider: string; id: string; thinkingLevel?: string };
+	responseModel?: string;
 	thinkingLevel: string;
 	availableProviderCount: number;
 	context?: ContextUsage;
@@ -90,6 +91,7 @@ export interface TuiSnapshot {
 	latestCacheHitRate?: number;
 	totalCacheHitRate?: number;
 	costUsd?: number;
+	costFromProvider?: boolean;
 	usingSubscription?: boolean;
 	status: TuiRunStatus;
 	tools: TuiToolsSnapshot;

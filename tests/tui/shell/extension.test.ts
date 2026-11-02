@@ -84,7 +84,9 @@ it("配置错误可修复，停用增强后不再安装编辑器", async () => {
 	const file = path.join(temp.path, "tui.jsonc");
 	process.env.PI_TUI_CONFIG = file;
 	await writeFile(file, '{"enabled":"invalid"}');
-	await expect(start()).rejects.toMatchObject({ name: "TuiConfigError" });
+	await expect(start()).rejects.toMatchObject({ name: "ConfigError", details: {
+		path: file, errors: expect.arrayContaining([expect.objectContaining({ path: "/enabled", keyword: "type" })]),
+	} });
 	await writeFile(file, '{"enabled":true,"math":{"enabled":false}}');
 	const { ui, emit } = await start();
 	expect(ui.getEditorComponent()).toBeTypeOf("function");

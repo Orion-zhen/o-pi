@@ -2,7 +2,7 @@ import { access, chmod, mkdir, readFile, stat, writeFile } from "node:fs/promise
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createLocalBashOperations, type BashOperations, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import { Ajv, type AnySchema } from "ajv";
+import { compile } from "@earendil-works/pi-schema";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import bashToolExtension from "../../../src/harness/extensions/bash-tool.ts";
@@ -81,8 +81,8 @@ describe("bash tool execution", () => {
 	it("参数 schema 在执行前拒绝越界 timeout", () => {
 		const { registered: tools } = registerExtension(bashToolExtension);
 		const schema = tools[0]?.parameters;
-		if (schema === undefined) throw new Error("bash tool schema was not registered");
-		const validate = new Ajv({ strict: false }).compile(schema as AnySchema);
+		if (typeof schema !== "object" || schema === null) throw new Error("bash tool schema was not registered");
+		const validate = compile(schema).check;
 
 		for (const timeout of [0.01, 86_400]) expect(validate({ command: "echo ok", timeout })).toBe(true);
 		for (const timeout of [0, -1, 86_400.01]) expect(validate({ command: "echo no", timeout })).toBe(false);

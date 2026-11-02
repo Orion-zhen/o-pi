@@ -1,3 +1,4 @@
+import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { readSnapshot } from "./read-snapshot.ts";
 import { collectSessionState } from "../../../src/tui/shell/snapshot.ts";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -503,7 +504,7 @@ describe("GUI 直接使用 SDK", () => {
 		const dialog = host.selected?.dialogs?.list()[0];
 		if (!dialog) throw new Error("缺少项目信任确认");
 		await host.dispatch({ action: "sessions" });
-		await host.dispatch({ action: "dialog", id: dialog.id, value: "不信任" });
+		await host.dispatch({ action: "dialog", id: dialog.id, value: "仅本次不信任" });
 		await switching;
 		expect(readSnapshot(host).cwd).toBe(other);
 		expect(JSON.stringify(readSnapshot(host).messages)).toContain("历史回复");
@@ -511,6 +512,14 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch({ action: "new" });
 		expect(host.execution.dialogs.list()).toEqual([]);
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+		const denied = path.join(temp.path, "saved-untrusted");
+		await mkdir(denied);
+		await writeFile(path.join(denied, "AGENTS.md"), "Project instructions");
+		new ProjectTrustStore(agentDir).set(denied, false);
+		const deniedFile = await storeSession({ cwd: denied, agentDir, provider: "gui-fixture" });
+		await host.dispatch({ action: "openSession", path: deniedFile });
+		expect(host.runtime.services.settingsManager.isProjectTrusted()).toBe(false);
+		expect(host.execution.dialogs.list()).toEqual([]);
 	});
 
 	it("模型范围修改仅影响会话，显式保存顺序并在重启后恢复，直接切换不改默认或范围", async () => {

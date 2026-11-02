@@ -26,6 +26,7 @@ export interface UsageStats {
 	cacheWrite: number;
 	contextTokens: number;
 	cost?: number;
+	costFromProvider?: boolean;
 	turns: number;
 }
 

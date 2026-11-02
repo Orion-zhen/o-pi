@@ -2,7 +2,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { SessionManager, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { compileSchemaValidator } from "../../harness/schema-validator.ts";
+import { compile } from "@earendil-works/pi-schema";
 import { actionSchema, type GuiAction, type GuiActionResult } from "../shared/protocol/actions.ts";
 import { querySchema, type GuiQuery, type GuiQueryResults } from "../shared/protocol/queries.ts";
 import { type SessionTarget } from "../shared/protocol/state.ts";
@@ -24,8 +24,8 @@ import { FileResources } from "./workspace/file-resource.ts";
 import { GuiStorage } from "./storage/service.ts";
 import { SessionSearchTask } from "./catalog/search-task.ts";
 
-const validateAction = compileSchemaValidator(actionSchema);
-const validateQuery = compileSchemaValidator(querySchema);
+const validateAction = compile(actionSchema).check;
+const validateQuery = compile(querySchema).check;
 
 /** 每个连接独立导航。操作始终使用提交时的会话标识。 */
 export class GuiClient {
@@ -227,7 +227,7 @@ export class GuiClient {
 	private async perform(value: unknown, sessionId: string | null): Promise<GuiActionResult> {
 		if (!validateAction(value)) throw new Error("无效 GUI 操作参数。");
 		if (this.closed) throw new Error("客户端已断开。");
-		const action = value as GuiAction;
+		const action = value;
 		switch (action.action) {
 			case "observe": {
 				if (this.observing === action.visible) return;
@@ -289,7 +289,7 @@ export class GuiClient {
 	private async readQuery(value: unknown, sessionId: string | null): Promise<GuiQueryResults[GuiQuery["query"]]> {
 		if (!validateQuery(value)) throw new Error("无效 GUI 查询参数。");
 		if (this.closed) throw new Error("客户端已断开。");
-		const query = value as GuiQuery;
+		const query = value;
 		if (query.query === "searchSessions") {
 			if (query.cwd !== (this.selected?.cwd ?? this.host.workspaceRoot)) throw new Error("工作区已切换，请重新搜索。");
 			return this.search.start(query.cwd, query.text);

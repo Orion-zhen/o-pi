@@ -67,7 +67,7 @@ function formatSummaryLine(snapshot: StatsSnapshot): string {
 		context.totalTokens !== undefined && context.contextWindow !== undefined ? `ctx ${formatTokens(context.totalTokens, context.confidence !== "exact")} / ${formatTokens(context.contextWindow, false)}` : undefined,
 		context.percent !== undefined && context.percent !== null ? `${context.percent.toFixed(1)}%` : undefined,
 		snapshot.cache.latestHitRate !== undefined ? `cache hit ${snapshot.cache.latestHitRate.toFixed(1)}%` : undefined,
-		snapshot.usage.costUsd !== undefined ? `$${snapshot.usage.costUsd.toFixed(3)} est` : undefined,
+		snapshot.usage.costUsd !== undefined ? `${snapshot.usage.costFromProvider ? "" : "~"}$${snapshot.usage.costUsd.toFixed(3)}` : undefined,
 		tools,
 	]);
 }
@@ -115,9 +115,9 @@ function formatCache(snapshot: StatsSnapshot): string {
 
 function formatCost(snapshot: StatsSnapshot): string {
 	return joinParts([
-		snapshot.usage.costUsd !== undefined ? `total $${snapshot.usage.costUsd.toFixed(3)} est` : undefined,
-		snapshot.usage.lastCostUsd !== undefined ? `last $${snapshot.usage.lastCostUsd.toFixed(3)} est` : undefined,
-		snapshot.usage.cacheWarming ? `cache warming ${snapshot.usage.cacheWarming.requests} requests / ${formatTokens(snapshot.usage.cacheWarming.tokens, false)} tokens / $${snapshot.usage.cacheWarming.costUsd.toFixed(3)} (included)` : undefined,
+		snapshot.usage.costUsd !== undefined ? `total ${snapshot.usage.costFromProvider ? "" : "~"}$${snapshot.usage.costUsd.toFixed(3)}` : undefined,
+		snapshot.usage.lastCostUsd !== undefined ? `last ${snapshot.usage.lastCostFromProvider ? "" : "~"}$${snapshot.usage.lastCostUsd.toFixed(3)}` : undefined,
+		snapshot.usage.cacheWarming ? `cache warming ${snapshot.usage.cacheWarming.requests} requests / ${formatTokens(snapshot.usage.cacheWarming.tokens, false)} tokens / ${snapshot.usage.cacheWarming.costFromProvider ? "" : "~"}$${snapshot.usage.cacheWarming.costUsd.toFixed(3)}` : undefined,
 	]) || "unknown";
 }
 

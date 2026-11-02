@@ -107,7 +107,7 @@ export interface GuiSnapshot {
 	thinking: ThinkingLevel;
 	thinkingLevels: ThinkingLevel[];
 	context: ReturnType<AgentSession["getContextUsage"]> | null;
-	stats: SessionStats;
+	stats: SessionStats & { costFromProvider: boolean };
 	queue: { steering: readonly string[]; followUp: readonly string[] };
 	settings: {
 		compaction: boolean;

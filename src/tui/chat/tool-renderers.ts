@@ -2,7 +2,7 @@ import type { ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agen
 import { renderBashCall } from "./bash-tool/renderer.ts";
 import {
 	renderLsCall, renderLsResult, renderFindCall, renderFindResult, renderGrepCall, renderGrepResult,
-	renderReadCall, renderReadResult, renderWriteCall, renderWriteResult, renderEditCall, renderEditResult,
+	renderReadCall, renderReadResult, renderWriteResult, renderEditCall, renderEditResult,
 } from "./file-tools/index.ts";
 import { registerSkillMessageRenderer, renderSkillCall, renderSkillResult } from "./skill-context/renderer.ts";
 import {
@@ -16,7 +16,7 @@ const renderers = new Map<string, ToolRenderers>([
 	["find", { renderCall: renderFindCall, renderResult: renderFindResult }],
 	["grep", { renderCall: renderGrepCall, renderResult: renderGrepResult }],
 	["read", { renderCall: renderReadCall, renderResult: renderReadResult }],
-	["write", { renderCall: renderWriteCall, renderResult: renderWriteResult }],
+	["write", { renderResult: renderWriteResult }],
 	["edit", { renderShell: "self", renderCall: renderEditCall, renderResult: renderEditResult }],
 	["bash", { renderCall: renderBashCall }],
 	["websearch", { renderCall: renderWebSearchCall, renderResult: renderWebSearchResult }],

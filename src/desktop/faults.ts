@@ -1,10 +1,12 @@
 import { app, clipboard, dialog, type BrowserWindow } from "electron";
 import { release } from "node:os";
 import { randomUUID } from "node:crypto";
-import { Check } from "typebox/value";
+import { compile } from "@earendil-works/pi-schema";
 import { diagnosticText, type GuiDiagnostic } from "../gui/shared/diagnostics/diagnostics.ts";
 import { guiDiagnosticSchema } from "../gui/shared/diagnostics/schema.ts";
 import type { DesktopDiagnostics } from "./diagnostics.ts";
+
+const validateDiagnostic = compile(guiDiagnosticSchema).check;
 
 export function installDesktopFaults(window: BrowserWindow, diagnostics: DesktopDiagnostics) {
 	const environment = `opi-desktop ${app.getVersion()} / ${process.platform} ${release()} ${process.arch} / Electron ${process.versions.electron} / Chromium ${process.versions.chrome}`;
@@ -26,7 +28,7 @@ export function installDesktopFaults(window: BrowserWindow, diagnostics: Desktop
 		}).catch((error: unknown) => { console.error("Renderer failure diagnostics:", error); });
 	});
 	return (value: unknown) => {
-		if (!Check(guiDiagnosticSchema, value)) throw new Error("无效界面诊断");
+		if (!validateDiagnostic(value)) throw new Error("无效界面诊断");
 		return diagnostics.error(value, environment);
 	};
 }

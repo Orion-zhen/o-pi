@@ -1,7 +1,7 @@
-import { Type, type TProperties } from "typebox";
+import { oneOf, str } from "@earendil-works/pi-schema";
 import { moduleConfigIds } from "../config/modules.ts";
 
-export const moduleConfigId = Type.Enum(moduleConfigIds);
-export const text = Type.String();
-export const short = Type.String({ maxLength: 4096 });
-export const object = <T extends TProperties>(properties: T) => Type.Object(properties, { additionalProperties: false });
+export { obj as object } from "@earendil-works/pi-schema";
+export const moduleConfigId = oneOf(moduleConfigIds);
+export const text = str();
+export const short = str({ maxLength: 4096 });

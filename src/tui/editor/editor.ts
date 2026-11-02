@@ -177,7 +177,9 @@ function formatEngine(snapshot: TuiSnapshot): string | undefined {
 	const routed = snapshot.routedModel;
 	const speed = snapshot.codexSpeed;
 	const selected = speed === null || speed === "normal" ? model : `${model} ${speed}`;
-	const label = routed ? `${selected} → ${cleanLabel(`${routed.provider}/${routed.id}`)}` : selected;
+	let label = routed ? `${selected} → ${cleanLabel(`${routed.provider}/${routed.id}`)}` : selected;
+	const response = cleanLabel(snapshot.responseModel);
+	if (response && response !== (routed?.id ?? snapshot.modelId)) label += ` → ${response}`;
 	const thinking = routed ? cleanLabel(routed.thinkingLevel) : snapshot.modelReasoning ? cleanLabel(snapshot.thinkingLevel) : undefined;
 	return thinking === undefined ? label : `${label} · ${thinking}`;
 }

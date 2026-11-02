@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { hostServices, type AgentProcess } from "../runtime/host-services.ts";
 import { childInvocation } from "../runtime/invocation.ts";
 import { mkdir, mkdtemp } from "node:fs/promises";
@@ -11,6 +12,8 @@ import type { ProcessOutcome, ProcessRunInput, ProcessRunOutput, ProcessRunProgr
 export async function runPiProcess(input: ProcessRunInput, options: { signal?: AbortSignal; onUpdate?: (progress: ProcessRunProgress) => void } = {}): Promise<ProcessRunOutput> {
 	const start = Date.now();
 	const progress = new PiJsonProgressAccumulator();
+	const stdoutDecoder = new StringDecoder("utf8");
+	const stderrDecoder = new StringDecoder("utf8");
 	let stdoutBuffer = "";
 	let stderr = "";
 	let processError: string | undefined;
@@ -85,6 +88,8 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 		const finish = (code: number) => {
 			if (settled) return;
 			settled = true;
+			stdoutBuffer += stdoutDecoder.end();
+			stderr += stderrDecoder.end();
 			if (stdoutBuffer.trim() !== "") processJsonLine(stdoutBuffer);
 			flushProgress();
 			if (timeout !== undefined) clearTimeout(timeout);
@@ -120,12 +125,12 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			if (changed) scheduleProgress();
 		};
 		const onStdout = (chunk: Buffer) => {
-			stdoutBuffer += chunk.toString();
+			stdoutBuffer += stdoutDecoder.write(chunk);
 			const lines = stdoutBuffer.split(/\r?\n/);
 			stdoutBuffer = lines.pop() as string;
 			for (const line of lines) processJsonLine(line);
 		};
-		const onStderr = (chunk: Buffer) => { stderr += chunk.toString(); };
+		const onStderr = (chunk: Buffer) => { stderr += stderrDecoder.write(chunk); };
 		const onError = (error: Error) => { processError = error.message; };
 		const onClose = (code: number | null) => finish(code === null ? 1 : code);
 

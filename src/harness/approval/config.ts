@@ -6,11 +6,11 @@ import {
 	expandHomePath,
 	loadValidatedMergedConfig,
 } from "../config-loader.ts";
-import { compileSchemaValidator, type SchemaValidateFunction } from "../schema-validator.ts";
+import { compile, type Validator } from "@earendil-works/pi-schema";
 import type { ApprovalGateConfig, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyConfig, BashPolicyFact } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("approval-gate.schema.json");
-let validateComplete: SchemaValidateFunction | undefined;
+let validateComplete: Validator | undefined;
 
 type FileCommandRule = string | false | {
 	regex: string;
@@ -38,8 +38,8 @@ export async function loadApprovalGateConfig(): Promise<ApprovalGateConfig> {
 
 function compileConfig(value: unknown): ApprovalGateConfig {
 	validateComplete ??= completeSchemaValidator();
-	if (!validateComplete(value)) {
-		throw new ConfigError("approval-gate merged config does not match schema.", { errors: validateComplete.errors });
+	if (!validateComplete.check(value)) {
+		throw new ConfigError("approval-gate merged config does not match schema.", { errors: validateComplete.errors(value) });
 	}
 	const file = value as ConfigFile;
 	return {
@@ -82,7 +82,7 @@ function compileBashPolicy(file: ConfigFile["tools"]["bash"]): BashPolicyConfig 
 }
 
 /** 覆盖层允许只修改部分字段，合并后则要求所有运行时必需字段存在。 */
-function completeSchemaValidator(): SchemaValidateFunction {
+function completeSchemaValidator(): Validator {
 	const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8")) as {
 		required: string[];
 		properties: Record<string, object>;
@@ -101,5 +101,5 @@ function completeSchemaValidator(): SchemaValidateFunction {
 		bashCommandMatcher: ["regex"],
 		bashCombination: ["all", "action"],
 	})) schema.$defs[name] = { ...schema.$defs[name], required };
-	return compileSchemaValidator(schema, { allErrors: true });
+	return compile(schema);
 }

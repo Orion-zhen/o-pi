@@ -29,6 +29,8 @@ const DISPLAY_OPEN_PATTERN = /^ {0,3}(\$\$|\\\[|\\begin\{(align\*?|aligned|align
 const FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
 const TABLE_DELIMITER_ROW_PATTERN = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 
+const fragments = new WeakMap<Markdown, Map<number, { source: string; component: Markdown }>>();
+
 let installed = false;
 let activeConfig: TuiMathConfig;
 let mathRendererModule: MathRendererModule | undefined;
@@ -40,6 +42,11 @@ export function installMathMarkdownRenderer(config: TuiMathConfig): void {
 	if (installed) return;
 	installed = true;
 	const originalRender = Markdown.prototype.render;
+	const originalInvalidate = Markdown.prototype.invalidate;
+	Markdown.prototype.invalidate = function invalidateMathFragments(): void {
+		fragments.delete(this);
+		originalInvalidate.call(this);
+	};
 	Markdown.prototype.render = function patchedMarkdownRender(width: number): string[] {
 		return activeConfig.enabled ? renderDisplayMathImages(this, width, activeConfig, originalRender) : originalRender.call(this, width);
 	};
@@ -65,16 +72,28 @@ function renderDisplayMathImages(markdown: Markdown, width: number, config: TuiM
 	const internals = readMarkdownInternals(markdown);
 	const source = internals.text;
 	const blocks = parseDisplayMathBlocks(source);
-	if (blocks.length === 0) return render.call(markdown, width);
+	if (blocks.length === 0) { fragments.delete(markdown); return render.call(markdown, width); }
+	const previous = fragments.get(markdown);
+	const next = new Map<number, { source: string; component: Markdown }>();
+	fragments.set(markdown, next);
+	const renderSource = (start: number, end: number): string[] => {
+		const text = source.slice(start, end);
+		if (!text.trim()) return [];
+		const fragment = previous?.get(start) ?? { source: text,
+			component: new Markdown(text, internals.paddingX, internals.paddingY, internals.theme, internals.defaultTextStyle, internals.options) };
+		if (fragment.source !== text) { fragment.component.setText(text); fragment.source = text; }
+		next.set(start, fragment);
+		return render.call(fragment.component, width);
+	};
 	const lines: string[] = [];
 	let cursor = 0;
 	for (const block of blocks) {
-		if (block.start > cursor) lines.push(...renderMarkdownSource(source.slice(cursor, block.start), internals, width, render));
+		if (block.start > cursor) lines.push(...renderSource(cursor, block.start));
 		const imageLines = renderDisplayMathImage(block.tex, internals.paddingX, width, config, imageProtocol, renderer);
-		lines.push(...(imageLines ?? renderMarkdownSource(source.slice(block.start, block.end), internals, width, render)));
+		lines.push(...(imageLines ?? renderSource(block.start, block.end)));
 		cursor = block.end;
 	}
-	if (cursor < source.length) lines.push(...renderMarkdownSource(source.slice(cursor), internals, width, render));
+	if (cursor < source.length) lines.push(...renderSource(cursor, source.length));
 	return lines.length > 0 ? lines : render.call(markdown, width);
 }
 
@@ -92,12 +111,6 @@ function readMarkdownInternals(markdown: Markdown): MarkdownInternals {
 		defaultTextStyle: field("defaultTextStyle"),
 		options: field("options"),
 	};
-}
-
-function renderMarkdownSource(source: string, internals: MarkdownInternals, width: number, render: MarkdownRender): string[] {
-	if (source.trim().length === 0) return [];
-	const next = new Markdown(source, internals.paddingX, internals.paddingY, internals.theme, internals.defaultTextStyle, internals.options);
-	return render.call(next, width);
 }
 
 /** 按源码顺序接受完整公式，直接跳过已消费的部分，不再排序或事后消除重叠。 */

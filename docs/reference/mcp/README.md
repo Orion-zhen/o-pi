@@ -22,6 +22,8 @@ GUI“设置 → 连接与集成 → MCP 服务”编辑用户配置。修改加
 
 使用提供方凭据会把该提供方的令牌发送给配置的 MCP 地址。
 
+`oauth.clientRegistration` 默认 `auto`，由 SDK 选择 CIMD 或动态客户端注册。显式 `dcr` 强制动态注册，`cimd` 强制使用客户端元数据文档。GUI 省略字段表示 `auto`。
+
 ```text
 /mcp
 /mcp login
