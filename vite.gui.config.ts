@@ -43,7 +43,7 @@ export default defineConfig({
 						{ name: "file-icons", test: /node_modules[\\/]@react-symbols[\\/]icons[\\/]/ },
 						{ name: "ui", test: /node_modules[\\/](@radix-ui|@floating-ui)[\\/]/ },
 						{ name: "motion", test: /node_modules[\\/](motion|motion-dom|motion-utils|framer-motion)[\\/]/ },
-						{ name: "markdown", test: /node_modules[\\/](react-markdown|remark-gfm|react-syntax-highlighter|streamdown)[\\/]/ },
+						{ name: "markdown", test: /node_modules[\\/](react-markdown|remark-gfm|react-syntax-highlighter)[\\/]/ },
 						// 解析器的转导出入口共享整套实现，合并为一个按需加载块。
 						{ name: "mermaid-parser", test: /node_modules[\\/]@mermaid-js[\\/]parser[\\/]/ },
 						// 只合并共享依赖，并按入口关系分组，避免提前加载其他图表。

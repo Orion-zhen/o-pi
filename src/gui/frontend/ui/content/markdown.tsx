@@ -1,7 +1,5 @@
-import { createContext, isValidElement, lazy, memo, Suspense, useContext, type ComponentProps } from "react";
+import { createContext, isValidElement, lazy, memo, Suspense, useContext, useState, type ComponentProps } from "react";
 import Markdown, { defaultUrlTransform, type Components, type ExtraProps, type UrlTransform } from "react-markdown";
-import { Streamdown } from "streamdown";
-import { streamingTextReveal } from "../motion/transitions.ts";
 import remarkGfm from "remark-gfm";
 import remarkCjkFriendly from "remark-cjk-friendly/parseOnly";
 import remarkCjkFriendlyGfmStrikethrough from "remark-cjk-friendly-gfm-strikethrough/parseOnly";
@@ -12,21 +10,24 @@ import { FileLinksContext, fileLinkPath } from "./file-links.ts";
 import { remarkMath } from "./remark-math.ts";
 import { clean } from "./format.ts";
 import { ExternalLink } from "./external-link.tsx";
-import "streamdown/styles.css";
+import { TextReveal, RevealedText, rehypeTextReveal } from "./text-reveal.tsx";
 import "./math.css";
 
-export function StreamingText({ text, active }: { text: string; active: boolean }) {
+export function StreamingText({ text, active, reveal = false }: { text: string; active: boolean; reveal?: boolean }) {
+	// 历史消息不安装动画层，流式结束后保留渲染结构。
+	const [revealMounted, setRevealMounted] = useState(reveal && active);
+	if (reveal && active && !revealMounted) setRevealMounted(true);
+	const content = <MarkdownText text={text} reveal={revealMounted} />;
 	return <Streaming value={active}>
-		<Streamdown className="streaming-markdown space-y-0" animated={streamingTextReveal} isAnimating={active}
-			remarkPlugins={markdownPlugins} rehypePlugins={markdownRehypePlugins} components={markdownComponents} urlTransform={markdownUrl}>
-			{clean(text)}
-		</Streamdown>
+		<div className="streaming-markdown">{revealMounted ? <TextReveal text={clean(text)} active={active}>{content}</TextReveal> : content}</div>
 	</Streaming>;
 }
 
 const MathFormula = lazy(() => import("./math-formula.tsx"));
 
 function MarkdownSpan({ node, children, ...props }: ComponentProps<"span"> & ExtraProps) {
+	const start = node?.properties.dataTextStart;
+	if (typeof start === "number" && typeof children === "string") return <RevealedText text={children} start={start} />;
 	const source = node?.properties.dataMathSource;
 	const tex = node?.properties.dataMathTex;
 	if (typeof source !== "string" || typeof tex !== "string") return <span {...props}>{children}</span>;
@@ -47,21 +48,14 @@ function MarkdownLink({ href, children }: ComponentProps<"a">) {
 }
 
 const Streaming = createContext(false);
-const markdownPlugins: NonNullable<ComponentProps<typeof Streamdown>["remarkPlugins"]> = [
+const markdownPlugins: NonNullable<ComponentProps<typeof Markdown>["remarkPlugins"]> = [
 	[remarkGfm, { singleTilde: false }],
 	remarkCjkFriendly,
 	[remarkCjkFriendlyGfmStrikethrough, { singleTilde: false }],
 	remarkMath,
 ];
-// 不启用 HTML 解析，保留现有公式节点与原生 HTML 按文本显示的行为。
-const markdownRehypePlugins: NonNullable<ComponentProps<typeof Streamdown>["rehypePlugins"]> = [];
 const markdownUrl: UrlTransform = (url, key, node) => node.tagName === "a" && key === "href" ? url : defaultUrlTransform(url);
 const markdownComponents: Components = {
-	p: "p", strong: "strong", blockquote: "blockquote",
-	h1: "h1", h2: "h2", h3: "h3", h4: "h4", h5: "h5", h6: "h6",
-	ul: "ul", ol: "ol", li: "li", hr: "hr",
-	table: "table", thead: "thead", tbody: "tbody", tr: "tr", th: "th", td: "td",
-	section: "section", sub: "sub", sup: "sup", code: "code",
 	span: MarkdownSpan,
 	pre: MarkdownCode,
 	a: MarkdownLink,
@@ -76,6 +70,8 @@ function MarkdownCode({ children: child }: ComponentProps<"pre">) {
 	return <CodeBlock text={child.props.children ?? ""} label={language === "text" ? "代码" : language} language={language} highlight={!streaming} />;
 }
 
-export const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
-	return <Markdown remarkPlugins={markdownPlugins} components={markdownComponents} urlTransform={markdownUrl}>{clean(text)}</Markdown>;
+const revealPlugins = [rehypeTextReveal];
+export const MarkdownText = memo(function MarkdownText({ text, reveal = false }: { text: string; reveal?: boolean }) {
+	return <Markdown remarkPlugins={markdownPlugins} rehypePlugins={reveal ? revealPlugins : undefined}
+		components={markdownComponents} urlTransform={markdownUrl}>{clean(text)}</Markdown>;
 });

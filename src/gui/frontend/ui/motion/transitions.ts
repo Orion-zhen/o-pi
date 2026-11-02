@@ -24,13 +24,6 @@ export const settle = { type: "spring", duration: motionDuration[3], bounce: 0 }
 export const feedback = { duration: motionDuration[3], ease: motionEase } as const;
 export const dismiss = { duration: motionDuration[1], ease: motionEase } as const;
 export const controlShift = { duration: motionDuration[4], ease: motionEase } as const;
-export const streamingTextReveal = {
-	animation: "blurIn",
-	sep: "char",
-	duration: motionDuration[1] * 1000,
-	stagger: 5,
-	easing: "ease-out",
-} as const;
 export const listDepth = {
 	hidden: { transform: "perspective(700px) translateZ(-32px)", filter: "blur(3px) opacity(0)" },
 	visible: { transform: "perspective(700px) translateZ(0px)", filter: "blur(0px) opacity(1)" },

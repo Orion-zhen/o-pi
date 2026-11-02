@@ -151,7 +151,7 @@ const Activity = memo(function Activity({ id, items, entryIds, tracking, animate
 const Item = memo(function Item({ item, entryId, showActions = false }: { item: TranscriptItem; entryId: string | undefined; showActions?: boolean }) {
 	switch (item.kind) {
 		case "message": return <Message value={item.message} entryId={entryId} />;
-		case "text": return <article data-entry-id={entryId} className="message assistant"><StreamingText text={item.text} active={item.active} /></article>;
+		case "text": return <article data-entry-id={entryId} className="message assistant"><StreamingText text={item.text} active={item.active} reveal /></article>;
 		case "thinking": return <Reveal><Thinking id={item.key} text={item.text} active={item.active} entryId={entryId} />{showActions && <MessageFooter entryId={entryId} />}</Reveal>;
 		case "tool": return <Reveal data-entry-id={entryId}><ToolActivity tool={item.tool} />{showActions && <MessageFooter entryId={entryId} />}</Reveal>;
 		case "error": return <><pre data-entry-id={entryId} className="message error">{item.text}</pre>{showActions && <MessageFooter entryId={entryId} />}</>;
@@ -165,6 +165,6 @@ function Thinking({ id, text, active, entryId }: { id: string; text: string; act
 	return <Disclosure data-entry-id={entryId} className="thinking activity-thinking" lazy open={open} onOpenChange={setOpen} summary={<>
 		<ReplyStatusLabel active={active}>{active ? "思考中" : "思考"}</ReplyStatusLabel>
 	</>}>
-		<div className="thinking-content message"><StreamingText text={text} active={active} /></div>
+		<div className="thinking-content message"><StreamingText text={text} active={active} reveal /></div>
 	</Disclosure>;
 }

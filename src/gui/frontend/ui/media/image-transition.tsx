@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { animate, motion, useMotionValue, usePresence } from "motion/react";
 import { feedback } from "../motion/transitions.ts";
 
@@ -11,6 +11,7 @@ export function ImageTransition({ source, image, ready, children }: {
 	const started = useRef(false);
 	const [moving, setMoving] = useState(true);
 	const [present, safeToRemove] = usePresence();
+	const finishExit = useEffectEvent(() => safeToRemove?.());
 	const x = useMotionValue(0);
 	const y = useMotionValue(0);
 	const scale = useMotionValue(1);
@@ -19,7 +20,7 @@ export function ImageTransition({ source, image, ready, children }: {
 
 	useLayoutEffect(() => {
 		if (!ready) {
-			if (!present) safeToRemove?.();
+			if (!present) finishExit();
 			return;
 		}
 		const element = frame.current;
@@ -67,10 +68,10 @@ export function ImageTransition({ source, image, ready, children }: {
 		void animation.then(() => {
 			if (cancelled) return;
 			if (present) setMoving(false);
-			else safeToRemove?.();
+			else finishExit();
 		});
 		return () => { cancelled = true; animation.stop(); };
-	}, [source, image, ready, present, safeToRemove, x, y, scale, clipPath, opacity]);
+	}, [source, image, ready, present, x, y, scale, clipPath, opacity]);
 
 	return <motion.div ref={frame} className="image-preview-motion" data-moving={moving || !present}
 		style={{ x, y, scale, clipPath, opacity, transformOrigin: "0 0" }}>{children}</motion.div>;
