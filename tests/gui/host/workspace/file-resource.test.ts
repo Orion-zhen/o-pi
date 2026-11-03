@@ -1,4 +1,4 @@
-import { copyFile, mkdir, rm, symlink, truncate, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { FileResources, fileResourceResponse, type FileResource } from "../../../../src/gui/host/workspace/file-resource.ts";
@@ -47,6 +47,16 @@ describe("文件预览资源", () => {
 		await response.body?.cancel();
 		await writeFile(path.join(cwd, "large.txt"), "x".repeat(512 * 1024 + 1));
 		expect((await previewWorkspaceFile(cwd, "large.txt", new AbortController().signal)).content.kind).toBe("unavailable");
+	});
+
+	it("HEIC 按真实类型进入图片查看器，资源接口返回未转码的原文件", async () => {
+		const bytes = await readFile("tests/fixtures/heic/multiple.heic");
+		await writeFile(path.join(cwd, "photo.bin"), bytes);
+		const preview = await previewWorkspaceFile(cwd, "photo.bin", new AbortController().signal);
+		expect(preview).toMatchObject({ content: { kind: "image", mime: "image/heic", size: bytes.length }, diffs: [] });
+		const response = await fileResourceResponse(await resource("photo.bin"), request());
+		expect(response.headers.get("Content-Type")).toBe("image/heic");
+		expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
 	});
 
 	it("支持整文件、前缀、后缀和开放区间，拒绝无效或多区间请求", async () => {

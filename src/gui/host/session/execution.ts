@@ -22,6 +22,7 @@ import { NESTED_MUTATION_ENTRY } from "../projection/nested-mutations.ts";
 import type { GuiMcpTools } from "./mcp-tools.ts";
 import { setCodexSpeed } from "../../../harness/codex-speed/state.ts";
 import { applyToolPreset } from "../../../harness/tool-defaults/presets.ts";
+import { heicHints } from "../../../harness/media/heic.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -320,6 +321,7 @@ export class GuiExecution {
 		this.publish();
 		if (await runBuiltin(this, action.text, async (next) => { await client.dispatch(next); })) return;
 		this.preparing++;
+		const extensionCommand = /^\/([^ ]+)/.exec(action.text)?.[1];
 		const mcpLogin = /^\/mcp\s+login(?:\s|$)/.test(action.text);
 		if (mcpLogin) this.mcpLoggingIn = true;
 		this.publish();
@@ -332,9 +334,13 @@ export class GuiExecution {
 					this.bashOutput = (this.bashOutput + chunk).slice(-64_000);
 					this.schedule();
 				}, { excludeFromContext: action.text.startsWith("!!") });
+			} else if (extensionCommand && session.extensionRunner.getCommand(extensionCommand)) {
+				// 扩展命令由 SDK 执行，参数保持原文，不附加图片说明。
+				await session.prompt(action.text, { streamingBehavior: action.behavior, source: "interactive" });
 			} else {
 				const attachments = await expandAttachments(action.text, runtime.cwd);
-				await session.prompt(attachments.text, {
+				const hints = action.images.flatMap((image) => image.imageCount === undefined ? [] : heicHints(image.imageCount));
+				await session.prompt([attachments.text, ...hints].filter(Boolean).join("\n\n"), {
 					images: [...attachments.images, ...action.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }))],
 					streamingBehavior: action.behavior, source: "interactive",
 				});

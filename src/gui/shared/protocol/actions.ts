@@ -1,4 +1,4 @@
-import { arr, bool, lit, nul, oneOf, opt, str, union, type Static } from "@earendil-works/pi-schema";
+import { arr, bool, int, lit, nul, oneOf, opt, str, union, type Static } from "@earendil-works/pi-schema";
 import { ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
 import { CODEX_SPEEDS } from "../../../harness/codex-speed/state.ts";
 import type { UsageResetOutcome } from "../../../harness/usage/types.ts";
@@ -9,6 +9,7 @@ import { queueModes } from "./state.ts";
 const image = object({
 	data: text,
 	mimeType: oneOf(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+	imageCount: opt(int({ minimum: 1 })),
 });
 
 /** 跨进程操作参数，目标会话由请求外层明确指定。 */

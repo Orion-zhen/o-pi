@@ -237,6 +237,27 @@ describe("通过原生 SDK 复用 harness 业务扩展", () => {
 		expect(host.session.sessionManager.getEntries().slice(0, history.length)).toEqual(history);
 	});
 
+	it.each([true, false])("HEIC 格式转换不受自动缩放开关影响（autoResize：%s）", async (autoResize) => {
+		const bytes = await readFile(new URL("../fixtures/heic/split.heic", import.meta.url));
+		await writeFile(path.join(cwd, "input.txt"), bytes);
+		await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: {
+			"sdk-fixture": { baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [
+				{ id: "test", input: ["text", "image"], inputLimits: { images: { resize: { maxWidth: 32, maxHeight: 32 } } } },
+			] },
+		} }));
+		const host = await createRuntime();
+		host.services.settingsManager.setImageAutoResize(autoResize);
+		await host.session.prompt("Read image");
+		const result = host.session.messages.find((message) => message.role === "toolResult" && message.toolName === "read");
+		if (!result || result.role !== "toolResult") throw new Error("缺少 read 结果");
+		const image = result.content.find((block) => block.type === "image");
+		if (!image || image.type !== "image") throw new Error("缺少 HEIC 转换图片");
+		const decoded = await loadImage(Buffer.from(image.data, "base64"));
+		expect(decoded.width).toBe(autoResize ? 32 : 64);
+		expect(decoded.height).toBe(autoResize ? 16 : 32);
+		expect(await readFile(path.join(cwd, "input.txt"))).toEqual(bytes);
+	});
+
 	it("skill 工具在 SDK 删除旧工具结果后重新披露正文", async () => {
 		const skillDir = path.join(agentDir, "skills", "demo");
 		await mkdir(skillDir, { recursive: true });

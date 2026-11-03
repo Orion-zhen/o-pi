@@ -1,8 +1,6 @@
 import { useCallback, useSyncExternalStore, type SetStateAction } from "react";
 import type { Draft, SessionViews, SessionViewState } from "./session-views.ts";
 
-export type { ImageAttachment } from "./session-views.ts";
-
 /** 编辑器只订阅当前会话草稿，输入不触发整页重渲染。 */
 export function useSessionDraft(record: SessionViewState, views: SessionViews) {
 	const subscribe = useCallback((listener: () => void) => views.subscribe(record, listener), [record, views]);

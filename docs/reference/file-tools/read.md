@@ -42,7 +42,11 @@ continuation.lines 保留所有未读请求区间，可直接用于下一次调�
 
 ## 图片与 PDF
 
-普通图片经过类型识别和格式、尺寸处理，以文本说明及原生 image 块返回。PDF 按选定物理页顺序返回页码标记和图片：
+普通图片经过类型识别和格式、尺寸处理，以文本说明及原生 image 块返回。
+
+HEIC/HEIF 在 Worker 中解码主图并转成 PNG，不修改原文件。类型识别依据文件内容，原始 MIME、大小和版本仍保存在 details。多图文件附带仅返回主图的说明，旋转和镜像由解码器处理。解码上限为 6400 万像素，超过上限或无法解码时返回 `BINARY_FILE_UNSUPPORTED`。格式转换不受 `images.autoResize` 控制，尺寸处理继续交给 SDK。
+
+PDF 按选定物理页顺序返回页码标记和图片：
 
 ```xml
 <pdf path="docs/spec.pdf" pages="2-3/10" more="4-10"/>

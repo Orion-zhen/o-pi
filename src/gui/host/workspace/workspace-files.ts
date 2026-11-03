@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileTypeFromBuffer } from "file-type";
+import { isHeicMimeType } from "../../../harness/media/heic.ts";
 import type { WorkspacePreview, WorkspaceEntry, WorkspaceGit } from "../../shared/workspace.ts";
 import { workspacePath } from "./workspace-path.ts";
 import { fileVersion } from "./file-resource.ts";
@@ -30,7 +31,7 @@ async function previewContent(file: string, signal: AbortSignal): Promise<Worksp
 		const type = await fileTypeFromBuffer(prefix);
 		const svg = (!type || type.mime === "application/xml") && /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+svg[^>]*>\s*)?<svg[\s>]/i.test(prefix.toString("utf8"));
 		const mime = svg ? "image/svg+xml" : type?.mime;
-		if (mime && ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "application/pdf"].includes(mime))
+		if (mime && (isHeicMimeType(mime) || ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "application/pdf"].includes(mime)))
 			return { kind: mime === "application/pdf" ? "pdf" : "image", mime, size: Number(metadata.size), version: fileVersion(metadata) };
 		if (metadata.size > MAX_PREVIEW) return { kind: "unavailable", reason: "文件超过 512 KiB，未加载预览。" };
 		const buffer = Buffer.alloc(MAX_PREVIEW + 1);

@@ -101,6 +101,24 @@ test.describe("媒体预览", () => {
 		expect(after.y + (anchor.y - before.y) * 1.05).toBeCloseTo(anchor.y, 1);
 		await page.mouse.wheel(0, 1000);
 		await expect(zoom).toHaveValue("100");
+		const touch = await page.context().newCDPSession(page);
+		try {
+			await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [
+				{ id: 1, x: anchor.x - 25, y: anchor.y }, { id: 2, x: anchor.x + 25, y: anchor.y },
+			] });
+			await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [
+				{ id: 1, x: anchor.x - 50, y: anchor.y }, { id: 2, x: anchor.x + 25, y: anchor.y },
+			] });
+			await expect(zoom).toHaveValue("150");
+			await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [
+				{ id: 1, x: anchor.x - 50, y: anchor.y }, { id: 2, x: anchor.x + 50, y: anchor.y },
+			] });
+			await expect(zoom).toHaveValue("200");
+			await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+		} finally { await touch.detach(); }
+		await actual.click();
+		await expect(zoom).toHaveValue("100");
+		await page.mouse.move(anchor.x, anchor.y);
 		const transform = await image.evaluate((element) => element.style.transform);
 		await page.mouse.down();
 		await page.mouse.move(anchor.x + 30, anchor.y + 20);

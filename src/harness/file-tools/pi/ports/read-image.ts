@@ -1,11 +1,13 @@
 import { convertToPng } from "@earendil-works/pi-coding-agent";
 import type { InlineImageProcessor } from "../../read/ports.ts";
+import { convertHeicToPng } from "../../../media/heic-convert.ts";
+import { heicHints, isHeicMimeType } from "../../../media/heic.ts";
 
 export function createInlineImageProcessor(): InlineImageProcessor {
 	return {
 		async process(input) {
 			if (isAborted(input.signal)) throw new Error("Operation aborted.");
-			const normalized = await normalizeInlineImage(input.bytes, input.mimeType);
+			const normalized = await normalizeInlineImage(input.bytes, input.mimeType, input.signal);
 			if (normalized === undefined) return { ok: false, reason: "conversion", mimeType: input.mimeType };
 			if (isAborted(input.signal)) throw new Error("Operation aborted.");
 			// 尺寸策略由 SDK 在工具结果进入历史前按模型及 autoResize 设置执行。
@@ -19,10 +21,17 @@ export function createInlineImageProcessor(): InlineImageProcessor {
 async function normalizeInlineImage(
 	bytes: Uint8Array,
 	mimeType: string,
+	signal: AbortSignal | undefined,
 ): Promise<{ bytes: Buffer; mimeType: string; hints: string[] } | undefined> {
 	const buffer = Buffer.from(bytes);
 	const normalizedMimeType = normalizeInlineImageMimeType(mimeType);
 	if (normalizedMimeType !== undefined) return { bytes: buffer, mimeType: normalizedMimeType, hints: [] };
+
+	if (isHeicMimeType(mimeType)) {
+		const converted = await convertHeicToPng(bytes, signal);
+		if ("error" in converted) return undefined;
+		return { bytes: Buffer.from(converted.bytes), mimeType: "image/png", hints: heicHints(converted.imageCount) };
+	}
 
 	const converted = await convertToPng(buffer.toString("base64"), mimeType);
 	if (converted === null) return undefined;

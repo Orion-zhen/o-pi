@@ -10,7 +10,7 @@ export default defineConfig({
 	root: "src/gui/frontend",
 	base: "./",
 	plugins: [tailwindcss(), welcomeSvg(), applicationNames(), {
-		name: "pdf-reader-assets",
+		name: "gui-assets",
 		async writeBundle(options) {
 			if (!options.dir) throw new Error("缺少 GUI 输出目录。");
 			const source = fileURLToPath(new URL("./node_modules/pdfjs-dist/", import.meta.url));

@@ -78,6 +78,7 @@
 		"ignore": "latest",
 		"ipaddr.js": "latest",
 		"jsonc-parser": "latest",
+		"libheif-js": "^1.23.5",
 		"linkedom": "latest",
 		"lucide": "latest",
 		"lucide-react": "latest",

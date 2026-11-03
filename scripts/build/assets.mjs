@@ -49,6 +49,7 @@ export async function collectAssets(root, staging, { target = "bun", platform = 
 	for (const [name, entry] of [
 		["parser-worker", path.join(root, "src/harness/file-tools/grep/parser-worker.ts")],
 		["regex-worker", path.join(root, "src/harness/file-tools/grep/regex-worker.ts")],
+		["heic-worker", path.join(root, "src/harness/media/heic-worker.ts")],
 	]) {
 		const output = path.join(staging, "workers", `${name}.mjs`);
 		const result = await Bun.build({ entrypoints: [entry], target, format: "esm", minify: true, plugins: [runtimePlugin()] });

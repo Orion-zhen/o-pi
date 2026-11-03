@@ -50,6 +50,7 @@ opi -ne -e ./my-extension.ts
 
 - [配置分层与工具选择](configuration.md)
 - [构建与资源](build.md)
+- [HEIC 解码依赖](heic.md)
 - [RPC](rpc.md)
 - [系统通知](notifications.md)
 - [参数修复](tool-repair.md)

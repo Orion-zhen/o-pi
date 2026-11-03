@@ -24,18 +24,16 @@ import type { Query } from "../../../../shared/protocol/queries.ts";
 import { hasContextMessages } from "../transcript/transcript-location.ts";
 import type { SessionViews, SessionViewState } from "@/features/sessions/session-views.ts";
 import { useSessionDraft } from "@/features/sessions/use-session-draft.ts";
-import type { ImageAttachment } from "@/features/sessions/use-session-draft.ts";
 import { ModelControls } from "@/features/models/model-controls.tsx";
 import { modelSetup } from "@/features/models/model-setup.ts";
 import { ContextUsage } from "./context-usage.tsx";
 import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
 import { useFileDrop } from "./use-file-drop.ts";
+import { useAttachments } from "./use-attachments.ts";
 import { fileReference } from "../../../../shared/file-reference.ts";
 import { ImagePreviewButton } from "@/ui/media/image-preview.tsx";
 
-// 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
-let nextAttachmentId = 0;
 const attachmentOrigin = { y: 6, rotate: -2, scale: 0.98 };
 
 interface ComposerControls {
@@ -82,6 +80,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 	});
 	const upload = useRef<HTMLInputElement>(null);
 	const fileDrop = useFileDrop();
+	const { attach, pending: attaching } = useAttachments(view, gui.views, setError);
 	const hasContent = Boolean(draft.trim() || images.length);
 	const setup = modelSetup(snapshot);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
@@ -90,7 +89,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 	const behaviorIcon = steering ? CornerUpRight : ListEnd;
 	const behaviorLabel = steering ? "Steering" : "Follow-up";
 	const submit = () => {
-		if (!hasContent || !gui.canSubmit) return;
+		if (!hasContent || !gui.canSubmit || attaching) return;
 		if (setup && !draft.startsWith("/") && !commandMode) {
 			gui.setPanel({ kind: setup.kind });
 			return;
@@ -101,48 +100,12 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 		setImages([]);
 		clearFiles();
 		onSubmit();
-		void send({ action: "prompt", text, images: attachments.map(({ data, mimeType }) => ({ data, mimeType })), behavior }).then((ok) => {
+		void send({ action: "prompt", text, images: attachments.map(({ id, ...image }) => image), behavior }).then((ok) => {
 			if (!ok) {
 				setDraft((current) => current || text);
 				setImages((current) => (current.length ? current : attachments));
 			}
 		});
-	};
-	const attach = async (files: File[]) => {
-		try {
-			const additions: ImageAttachment[] = [];
-			const texts: string[] = [];
-			for (const file of files) {
-				if (/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
-					const data = await new Promise<string>((resolve, reject) => {
-						const reader = new FileReader();
-						reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-						reader.onerror = () => reject(reader.error);
-						reader.readAsDataURL(file);
-					});
-					const mimeType =
-						file.type === "image/jpeg"
-							? "image/jpeg"
-							: file.type === "image/webp"
-								? "image/webp"
-								: file.type === "image/gif"
-									? "image/gif"
-									: "image/png";
-					additions.push({ id: nextAttachmentId++, data, mimeType });
-				} else {
-					const bytes = new Uint8Array(await file.arrayBuffer());
-					if (bytes.includes(0) || file.type === "application/pdf")
-						throw new Error("二进制附件请通过 @路径 引用后端文件。");
-					const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-					texts.push(`<file path=${JSON.stringify(file.name)}>\n${content}\n</file>`);
-				}
-			}
-			if (images.length + additions.length > 8) throw new Error("最多上传 8 张图片。");
-			setImages((current) => [...current, ...additions]);
-			if (texts.length) setDraft((text) => [text, ...texts].join("\n\n"));
-		} catch (error) {
-			setError(error instanceof Error ? error.message : String(error));
-		}
 	};
 	const drop = async (files: File[]) => {
 		if (!window.opi) { await attach(files); return; }
@@ -185,6 +148,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 			>
 				{referenceVersion !== initialReferenceVersion.current && <FeedbackHighlight key={referenceVersion} />}
 				<div className="composer-scroll">
+				{attaching && <div className="px-3 py-2 text-sm text-muted-foreground" role="status">正在处理附件…</div>}
 				<AnimatePresence initial={false}>
 				{queuedCount > 0 && (
 					<Reveal key="queue"><QueuedMessages queue={snapshot.queue} clear={() => { void send({ action: "clearQueue" }); }} /></Reveal>
@@ -359,7 +323,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 						<SendButton
 							mode={snapshot.compacting ? "stop-compaction" : stopping ? "stop" : commandMode ? "execute" : running ? steering ? "steer" : "follow-up" : "send"}
 							onActivate={stopping ? () => void send({ action: "abort" }) : submit}
-							disabled={!connected || (!stopping && (!gui.canSubmit || !hasContent))}
+							disabled={!connected || (!stopping && (!gui.canSubmit || !hasContent || attaching))}
 						/>
 					</div>
 				</div>
