@@ -7,6 +7,7 @@ import type { ConfigCommand } from "@/connection/connection.ts";
 import type { McpConfigDocument } from "../../../shared/config/mcp.ts";
 import { ConfigDocument } from "@/forms/config-document.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Switch } from "@/ui/switch.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
@@ -35,11 +36,12 @@ function McpEditor({ initial, send, disabled }: { initial: McpConfigDocument; se
 	const [importing, setImporting] = useState(false);
 	const state = editor.draft;
 	const sourceView = state.mode === "source";
-	const { content, value } = useMemo(() => mcpEditorView(state), [state]);
-	const original = useMemo(() => readMcpSource(document.content, document.content).value, [document.content]);
+	const view = useMemo(() => mcpEditorView(state), [state]);
+	const { content, value } = view;
+	const original = useMemo(() => mcpEditorView(readMcpSource(document.content, document.content)).value, [document.content]);
 	const dirty = content !== document.content && (state.sourceEdited || mcpDraftChanged(original, value));
 	const blocked = disabled || saving;
-	const sourceErrors = state.mode === "source" ? (state.value ? validateMcpConfig(state.value) : [state.error]) : [];
+	const sourceErrors = state.mode === "source" ? (state.parsed.state === "parsed" ? validateMcpConfig(state.parsed.value) : [state.parsed.message]) : [];
 	const servers = state.mode === "form" ? mcpDraftIssues(state.draft.servers) : [];
 	const rootErrors = state.mode === "form" ? validateMcpConfig(state.draft.root) : [];
 	const invalid = sourceView ? sourceErrors.length > 0 : rootErrors.length > 0 || servers.some(({ issues }) => issues.length > 0);
@@ -48,16 +50,16 @@ function McpEditor({ initial, send, disabled }: { initial: McpConfigDocument; se
 		setImporting(false);
 	};
 	useSettingsDraft("mcp", {
-		title: "MCP 服务", dirty, blocked: disabled,
-		save: content === undefined || invalid ? null : async () => {
-			await editor.save(content, async (document, content) => {
+		title: "MCP 服务", blocked: disabled,
+		plan: !dirty ? { state: "clean" } : view.state !== "parsed" || invalid ? { state: "invalid" } : { state: "ready", save: async () => {
+			await editor.save(view.content, async (document, content) => {
 				await send({ action: "saveMcpConfig", original: document.content, content });
 				return { ...document, content };
 			});
 			editor.change(state.mode === "form"
-				? { ...state, source: content, baselineDraft: state.draft, sourceEdited: false }
+				? { ...state, source: view.content, baselineDraft: state.draft, sourceEdited: false }
 				: { ...state, sourceEdited: false });
-		},
+		} },
 		discard,
 	});
 	let form: ReactNode;
@@ -97,7 +99,7 @@ function McpEditor({ initial, send, disabled }: { initial: McpConfigDocument; se
 									}} />
 									<IconButton size="icon-sm" label={`复制服务 ${name}`} tooltip="复制服务" disabled={blocked} onClick={() => add(server)}><Copy /></IconButton>
 									<ConfirmAction label={`删除服务 ${name}`} tooltip="删除服务 · 保存生效" disabled={blocked} allowShortcut
-										confirm={async () => { changeDraft({ ...draft, servers: draft.servers.filter(({ id }) => id !== server.id) }); }} />
+										confirm={() => { changeDraft({ ...draft, servers: draft.servers.filter(({ id }) => id !== server.id) }); }} />
 									<CollapsibleTrigger className="disclosure-trigger" asChild><Button variant="ghost" size="icon-sm" aria-label={`${open ? "收起" : "展开"} ${name}`}><ChevronRight className="disclosure-chevron" /></Button></CollapsibleTrigger>
 								</div>
 							</div>
@@ -105,8 +107,8 @@ function McpEditor({ initial, send, disabled }: { initial: McpConfigDocument; se
 						</article>
 					</Collapsible></Reveal>;
 				})}</AnimatePresence></div>
-			{rootErrors.map((message) => <p role="alert" key={message}>{message} 请使用 JSON 修复。</p>)}
-			{content === undefined && <p role="alert">请修正重复的服务名或键，再切换 JSON。</p>}
+			<Feedback message={rootErrors.length ? `${rootErrors.join("\n")}\n请使用 JSON 修复。` : ""} tone="error" />
+			<Feedback message={content === undefined ? "请修正重复的服务名或键，再切换 JSON" : ""} tone="error" />
 		</>;
 	}
 	return <SettingsSection title="MCP 服务" source={sourceView} actions={<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || sourceView && value === undefined} onClick={content === undefined ? undefined : () => {
@@ -118,7 +120,7 @@ function McpEditor({ initial, send, disabled }: { initial: McpConfigDocument; se
 		{!sourceView && <p className="settings-description">全局配置 · 新会话或 /reload 后生效。此处开关不表示连接状态。</p>}
 		{state.mode === "source" ? <>
 			<SourceEditor file={document.path} label="全局 MCP JSON" value={state.content} disabled={blocked} onChange={(content) => editor.change(readMcpSource(content, document.content))} />
-			{sourceErrors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
+			<Feedback message={sourceErrors.join("\n")} tone="error" />
 		</> : form}
 		{!sourceView && <p className="settings-description">仅配置可信服务。遮蔽不加密配置文件，凭据建议使用 ${"{ENV_NAME}"}。受信任项目的同名配置可能覆盖全局配置。</p>}
 	</SettingsSection>;

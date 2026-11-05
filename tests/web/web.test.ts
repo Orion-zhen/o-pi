@@ -167,7 +167,7 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 	});
 
 	it("WebSocket 断开不取消审批，重连只消费一次", async () => {
-		const answer = local.execution.dialogs.ask("confirm", "允许操作吗？");
+		const answer = local.execution.dialogs.ask({ kind: "confirm", title: "允许操作吗？", message: "" });
 		await expect.poll(() => peer.events.some((event) => event.type === "dialogs" && event.value.length === 1)).toBe(true);
 		peer.ws.close();
 		await once(peer.ws, "close");
@@ -186,7 +186,7 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		const sessionId = local.runtime.session.sessionId;
 		const flush = () => { peer.ws.ping(); return once(peer.ws, "pong"); };
 		const report = async (focused: boolean) => {
-			peer.ws.send(JSON.stringify({ kind: "attention", value: { sessionId, focused, destination: "web:browser" } } satisfies GuiControl));
+			peer.ws.send(JSON.stringify({ kind: "attention", value: { focused, destination: "web:browser" } } satisfies GuiControl));
 			await flush();
 		};
 		const run = async () => {

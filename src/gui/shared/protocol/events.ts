@@ -4,13 +4,15 @@ import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live
 import type { GuiConfigDocument } from "../config/preferences.ts";
 import type { GuiSessionActivity, GuiSessionTab, GuiSnapshot, GuiSessionInfo, GuiWorkspaceInfo, GuiDialog, GuiNotice, GuiPanel } from "./state.ts";
 
+export type FeedbackTone = "info" | "success" | "warning" | "error";
+
 export type GuiEvent =
 	| { type: "notification"; value: Attention }
 	| { type: "client"; id: string }
 	| { type: "selected"; session: { id: string; cwd: string; path: string | null } | null; draftFrom?: string }
 	| { type: "activity"; value: GuiSessionActivity[] }
 	| { type: "sessionsDeleted"; ids: string[]; paths: string[] }
-	| { type: "error"; message: string }
+	| { type: "feedback"; message: string; tone: FeedbackTone }
 	| { type: "guiConfig"; value: GuiConfigDocument }
 	| { type: "workspaceRoot"; path: string }
 	| { type: "sessionStats"; sessionId: string; value: StatsSnapshot }

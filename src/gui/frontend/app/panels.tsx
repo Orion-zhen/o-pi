@@ -1,4 +1,4 @@
-import type { ReactNode, Ref } from "react";
+import { useState, type ReactNode, type Ref } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { ViewPanel } from "./use-panels.ts";
 import type { GuiAction, GuiActionResult } from "../../shared/protocol/actions.ts";
@@ -6,6 +6,7 @@ import type { GuiPanel, GuiSnapshot } from "../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Content } from "@/features/chat/messages/content.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { ToolSelection } from "@/features/chat/tools/tool-selection.tsx";
 import { Input } from "@/ui/input.tsx";
 import { PanelDialog } from "@/ui/panel-dialog.tsx";
@@ -32,6 +33,8 @@ export function Panel({ ref, panel, snapshot, sessionList, send, dispatch, canSu
 	close: () => void;
 	restoreFocus: () => void;
 }) {
+	const [error, setError] = useState("");
+	const reportError = (error: unknown) => setError(error instanceof Error ? error.message : String(error));
 	let body: ReactNode;
 	switch (panel.kind) {
 		case "model": body = <ModelManager snapshot={snapshot} send={send} disabled={!canSubmit} />; break;
@@ -43,13 +46,14 @@ export function Panel({ ref, panel, snapshot, sessionList, send, dispatch, canSu
 		case "subagents":
 			body = <>
 				<SubagentProgress key={panel.details.runId} details={panel.details} state={snapshot.commandRunning ? "running" : "unavailable"} />
-				{snapshot.commandRunning && <Button variant="outline" size="sm" onClick={() => void send({ action: "abort" })}>停止子代理任务</Button>}
+				{snapshot.commandRunning && <Button variant="outline" size="sm" onClick={() => { setError(""); void send({ action: "abort" }).catch(reportError); }}>停止子代理任务</Button>}
 			</>;
 			break;
 		case "import":
 			body = <label>选择 JSONL 文件<Input type="file" accept=".jsonl" onChange={(event) => {
 				const file = event.target.files?.[0];
-				if (file) void file.text().then((content) => send({ action: "import", content })).then((ok) => { if (ok) close(); });
+				setError("");
+				if (file) void file.text().then((content) => send({ action: "import", content })).then(close).catch(reportError);
 			}} /></label>;
 			break;
 		case "system": body = <pre className="system-prompt">{panel.text}</pre>; break;
@@ -63,5 +67,7 @@ export function Panel({ ref, panel, snapshot, sessionList, send, dispatch, canSu
 				onRefresh={() => dispatch({ action: "view", view: "usage", refresh: true })} />;
 			break;
 	}
-	return <PanelDialog ref={ref} title={titles[panel.kind]} close={close} restoreFocus={restoreFocus}>{body}</PanelDialog>;
+	return <PanelDialog ref={ref} title={titles[panel.kind]} close={close} restoreFocus={restoreFocus}>
+		{body}<Feedback compact tone="error" message={error} />
+	</PanelDialog>;
 }

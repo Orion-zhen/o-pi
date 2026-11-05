@@ -124,11 +124,11 @@ test.describe("浏览器交互", () => {
 		await editor.press("ControlOrMeta+Enter");
 		await expect(page.locator(".reply-answer")).toContainText("GUI 验证完成");
 		expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI tools OK\n");
-		const process = page.locator(".assistant-reply > .reply-process");
-		await expect(process).toHaveAttribute("data-state", "closed");
-		await process.locator(":scope > .disclosure-trigger").click();
-		await expect(page.locator(".reply-turn-content > .reply-body article")).toHaveText(["我先检查输入文件", "接下来写入验证结果"]);
-		await expect(page.locator(".reply-turn-content > .reply-body").first()).toBeVisible();
+		const process = page.getByRole("button", { name: /^本轮过程/ });
+		await expect(process).toHaveAttribute("aria-expanded", "false");
+		await process.click();
+		await expect(page.locator(".transcript").getByText("我先检查输入文件", { exact: true })).toBeVisible();
+		await expect(page.locator(".transcript").getByText("接下来写入验证结果", { exact: true })).toBeVisible();
 		const activities = page.locator(".reply-activity");
 		await expect(activities).toHaveCount(3);
 		for (const activity of await activities.all()) await expect(activity).toHaveAttribute("data-state", "closed");
@@ -136,7 +136,7 @@ test.describe("浏览器交互", () => {
 		await expect(activities.first()).toHaveAttribute("data-state", "open");
 		await page.reload();
 		await expect(page.locator(".reply-answer")).toContainText("GUI 验证完成");
-		await expect(process).toHaveAttribute("data-state", "closed");
+		await expect(process).toHaveAttribute("aria-expanded", "false");
 		await editor.fill("/gui-note");
 		await editor.press("ControlOrMeta+Enter");
 		const dialog = page.getByRole("dialog", { name: "备注" });
@@ -144,7 +144,7 @@ test.describe("浏览器交互", () => {
 		await dialog.getByRole("button", { name: "提交", exact: true }).click();
 		await expect(page.locator(".notices")).toContainText("标准交互验证");
 		await expect(page.locator(".notices .disclosure-trigger")).toHaveAttribute("data-state", "open");
-		await page.getByRole("button", { name: "清除通知" }).click();
+		await page.getByRole("button", { name: "清除会话记录" }).click();
 		await expect(page.locator(".notices")).toHaveCount(0);
 		await editor.fill("/gui-note");
 		await editor.press("ControlOrMeta+Enter");

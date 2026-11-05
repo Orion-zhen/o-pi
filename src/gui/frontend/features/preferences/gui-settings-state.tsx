@@ -43,15 +43,15 @@ export function GuiSettingsProvider({ document: latest, send, query, disabled, r
 			.map((section) => sectionCategories[section]);
 	}, [draft]);
 	useSettingsDraft("gui", {
-		title: "GUI 设置", categories, dirty: draft !== undefined, blocked: disabled,
-		save: draft === undefined || draft.document.state === "error" ? null : async () => {
+		title: "GUI 设置", categories, blocked: disabled,
+		plan: draft === undefined ? { state: "clean" } : draft.document.state === "error" ? { state: "invalid" } : { state: "ready", save: async () => {
 			const content = draft.kind === "form"
 				? preferenceSave(draft.base, draft.document, await query({ query: "guiConfig" }))
 				: { original: draft.base.content, content: draft.document.content };
 			await send({ action: "saveGuiConfig", ...content });
 			await refresh();
 			setDraft(undefined);
-		},
+		} },
 		discard: () => setDraft(undefined),
 	});
 	const state: GuiSettingsState | undefined = latest && {

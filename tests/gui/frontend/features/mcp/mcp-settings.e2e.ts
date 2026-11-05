@@ -64,6 +64,32 @@ test("服务行使用开关、组件折叠与直接图标操作，复用两步�
 	expect(JSON.parse(await readFile(path.join(agentDir, "mcp.json"), "utf8"))).toEqual(original);
 });
 
+test("服务名称弹性同行与窄屏换行，校验提示独占下一行", async ({ gui: { page } }) => {
+	await open(page);
+	await mcp(page).getByRole("button", { name: "编辑 docs", exact: true }).click();
+	const input = form(page).getByLabel("服务名称", { exact: true });
+	const field = form(page).locator(".mcp-field").filter({ has: page.getByLabel("服务名称", { exact: true }) });
+	const label = field.locator("label");
+	await label.click();
+	await expect(input).toBeFocused();
+	const labelBox = await label.boundingBox();
+	const inputBox = await input.boundingBox();
+	if (!labelBox || !inputBox) throw new Error("服务名称字段不可见");
+	const inline = labelBox.x + labelBox.width < inputBox.x;
+	if (test.info().project.name === "desktop") expect(inline).toBe(true);
+	if (inline) expect(Math.abs(labelBox.y + labelBox.height / 2 - inputBox.y - inputBox.height / 2)).toBeLessThan(1);
+	else expect(inputBox.y).toBeGreaterThanOrEqual(labelBox.y + labelBox.height);
+	await input.fill("");
+	const error = field.getByRole("alert");
+	await expect(error).toBeVisible();
+	const errorBox = await error.boundingBox();
+	if (!errorBox) throw new Error("服务名称校验提示不可见");
+	expect(errorBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height);
+	await input.fill("long-service-name-".repeat(10));
+	await expect(input).toHaveAttribute("aria-invalid", "false");
+	expect(await field.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
 test("参数和环境变量逐行动画增删，删除首项不替换后续行", async ({ gui: { page }, workspace: { agentDir } }) => {
 	await open(page);
 	await mcp(page).getByRole("button", { name: "添加服务", exact: true }).click();

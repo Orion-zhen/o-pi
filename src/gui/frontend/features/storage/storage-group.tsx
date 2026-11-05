@@ -7,6 +7,7 @@ import type { StorageEntry, StorageGroup } from "../../../shared/storage.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Checkbox } from "@/ui/checkbox.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
@@ -63,7 +64,7 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 		</Button></CollapsibleTrigger>
 		<CollapsibleContent lazy><div className="storage-group-body">
 			<ul className="storage-paths" aria-label={`${group.title}路径`}>{group.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul>
-			{group.error && <p role="alert">{group.error}</p>}
+			<Feedback compact message={group.error ?? ""} tone="error" />
 			{group.entries.length > 0 ? <>
 				<SearchInput aria-label={`筛选${group.title}`} placeholder="按名称或路径筛选" value={filter} onValueChange={(value) => { setFilter(value); resetWindow(); }} />
 				<div className="storage-list-actions">
@@ -74,7 +75,7 @@ export function StorageGroupView({ group, disabled, requestRemoval }: {
 					<Button variant="outline" size="sm" className="storage-delete" disabled={disabled || chosen.length === 0 || chosen.length > 1000}
 						onClick={(event) => requestRemoval(chosen, event.currentTarget, heading.current)}><Trash2 aria-hidden="true" />删除所选{chosen.length ? ` (${chosen.length})` : ""}</Button>
 				</div>
-				{chosen.length > 1000 && <p role="alert">每次最多删除 1000 个条目，请减少选择。</p>}
+				<Feedback message={chosen.length > 1000 ? "每次最多删除 1000 项，请减少选择" : ""} tone="error" />
 				<ul ref={list} className="storage-entries" aria-label={`${group.title}条目`} onScroll={(event) => {
 					const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
 					if (scrollHeight - scrollTop <= clientHeight * 2) setVisibleCount((count) => Math.min(count + BATCH_SIZE, filtered.length));

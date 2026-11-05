@@ -18,7 +18,7 @@ it("认证页只显示 provider 支持的登录入口，已配置状态不影响
 		{ id: "ambient", name: "Ambient", apiKey: false, oauth: false, authenticated: true },
 	];
 	const { document } = parseHTML(renderToStaticMarkup(<Panel ref={null} panel={{ kind: "auth" }} snapshot={snapshot}
-		sessionList={null} send={async () => true} dispatch={async () => { throw new Error("本测试不提交操作"); }} canSubmit close={() => {}} restoreFocus={() => {}} />));
+		sessionList={null} send={async () => {}} dispatch={async () => { throw new Error("本测试不提交操作"); }} canSubmit close={() => {}} restoreFocus={() => {}} />));
 	expect([...document.querySelectorAll(".list-row")].map((row) =>
 		[...row.querySelectorAll("button")].map((button) => button.textContent),
 	)).toEqual([

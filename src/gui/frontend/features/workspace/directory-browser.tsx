@@ -3,13 +3,14 @@ import { ArrowUp, Folder, X } from "lucide-react";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import { useRemote } from "@/connection/use-remote.ts";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Input } from "@/ui/input.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/ui/dialog.tsx";
 
 interface Props {
-	gui: { globalQuery: Query<GlobalQuery>; error: string; setError: (message: string) => void };
+	gui: { globalQuery: Query<GlobalQuery> };
 	initial: string; select: (path: string) => Promise<void>; close: () => void;
 }
 export function DirectoryBrowser(props: Props) { return <DirectoryDialog key={props.initial} {...props} />; }
@@ -19,13 +20,14 @@ function DirectoryDialog({ gui, initial, select, close }: Props) {
 	const [filter, setFilter] = useState("");
 	const [request, setRequest] = useState({ path: initial });
 	const [selecting, setSelecting] = useState(false);
+	const [error, setError] = useState("");
 	const load = useCallback(() => gui.globalQuery({ query: "directories", path: request.path }), [gui.globalQuery, request]);
 	const { result } = useRemote(load);
 	const pending = result.state === "loading" || selecting;
 	useEffect(() => {
 		if (result.state === "ready") { setPath(result.value.path); setFilter(""); }
 	}, [result]);
-	const browse = (path: string) => { gui.setError(""); setRequest({ path }); };
+	const browse = (path: string) => { setError(""); setRequest({ path }); };
 	return <Dialog open onOpenChange={(open) => { if (!open) close(); }}>
 		<DialogContent className="directory-browser">
 			<header className="flex shrink-0 items-center justify-between gap-2">
@@ -33,8 +35,8 @@ function DirectoryDialog({ gui, initial, select, close }: Props) {
 				<DialogClose asChild><IconButton label="关闭目录选择"><X /></IconButton></DialogClose>
 			</header>
 			<DialogDescription>浏览 opi-web 所在机器的目录。</DialogDescription>
-			{gui.error && <p role="alert">{gui.error}</p>}
-			{result.state === "error" && <p role="alert">{result.message}</p>}
+			<Feedback compact message={error} tone="error" />
+			<Feedback compact message={result.state === "error" ? result.message : ""} tone="error" />
 			<form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); browse(path); }}>
 				<Input aria-label="工作目录" value={path} onChange={(event) => setPath(event.target.value)} />
 				<Button type="submit" variant="outline" disabled={pending || !path.trim()}>前往</Button>
@@ -49,11 +51,12 @@ function DirectoryDialog({ gui, initial, select, close }: Props) {
 					{!result.value.children.length && <p>无子目录</p>}
 				</div>
 				<Button disabled={selecting} onClick={() => {
-					setSelecting(true);
-					void select(result.value.path).finally(() => setSelecting(false));
+					setSelecting(true); setError("");
+					void select(result.value.path).catch((error: unknown) => setError(error instanceof Error ? error.message : String(error)))
+						.finally(() => setSelecting(false));
 				}}>选择此目录</Button>
 			</>}
-			{result.state === "loading" && <p role="status">读取中…</p>}
+			<Feedback message={result.state === "loading" ? "读取中…" : ""} />
 		</DialogContent>
 	</Dialog>;
 }

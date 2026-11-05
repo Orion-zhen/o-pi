@@ -8,8 +8,10 @@ import { MorphIcon } from "morphicons/react";
 import { FilledShield, StatusDot } from "@/ui/icon-shapes.ts";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import type { GuiWorkspaceInfo } from "../../../shared/protocol/state.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { GlobalSend } from "@/connection/connection.ts";
+import { useOperation } from "@/connection/use-operation.ts";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover.tsx";
 import { DirectoryBrowser } from "./directory-browser.tsx";
@@ -25,12 +27,10 @@ interface WorkspacePickerView {
 	activity: SessionActivity[];
 	workspaceRoot: string;
 	workspaces: GuiWorkspaceInfo[];
-	send: Send;
+	globalSend: GlobalSend;
 	connected: boolean;
 	canNavigate: boolean;
 	globalQuery: Query<GlobalQuery>;
-	error: string;
-	setError: (message: string) => void;
 }
 
 export function WorkspacePicker({ gui, close, compact = false }: { gui: WorkspacePickerView; close: () => void; compact?: boolean }) {
@@ -38,6 +38,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Workspac
 	const [browsing, setBrowsing] = useState(false);
 	const [filter, setFilter] = useState("");
 	const [pending, setPending] = useState(false);
+	const [error, setError] = useState("");
 	const cwd = gui.cwd;
 	const elsewhere = gui.activity.filter((item) => item.cwd !== cwd);
 	const elsewhereWaiting = elsewhere.some((item) => item.state === "waiting");
@@ -47,17 +48,18 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Workspac
 	const status = state === "waiting" ? "有会话等待审批" : state === "unread" ? "有未读结果" : "其他工作区有会话运行中";
 	const workspaces = gui.workspaces;
 	const activity = useMemo(() => workspaceActivities(gui.activity), [gui.activity]);
+	const reportError = (error: unknown) => setError(error instanceof Error ? error.message : String(error));
 	const open = async (directory: string) => {
-		setPending(true);
+		setPending(true); setError("");
 		try {
-			if (directory === cwd || await gui.send({ action: "workspace", path: directory })) {
-				setExpanded(false);
-				setBrowsing(false);
-				close();
-			}
+			if (directory !== cwd) await gui.globalSend({ action: "workspace", path: directory });
+			setExpanded(false);
+			setBrowsing(false);
+			close();
 		} finally { setPending(false); }
 	};
-	const disabled = pending || !gui.canNavigate;
+	const removal = useOperation((path: string) => gui.globalSend({ action: "removeWorkspace", path }));
+	const disabled = pending || removal.pending || !gui.canNavigate;
 	return <>
 		<Popover open={expanded} onOpenChange={(value) => { setExpanded(value); setFilter(""); }}>
 			<Hint content={cwd} disabled={expanded}><PopoverTrigger asChild><Button variant="outline" role="combobox" aria-label="工作区" aria-expanded={expanded}
@@ -81,7 +83,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Workspac
 							exit={{ height: 0, paddingBottom: 0 }} transition={listDepth.transition} style={{ flexShrink: 0, minWidth: 0, overflow: "clip" }} key={path}>
 							<Fade animate={{ ...fade.animate, ...listDepth.visible }} exit={listDeparture} className="workspace-option-row overlay-list-row">
 								<Hint content={path}><Button role="option" aria-label={path} aria-selected={path === cwd} variant="ghost"
-									disabled={disabled || !exists} aria-description={state === "idle" ? undefined : status} onClick={() => void open(path)}>
+									disabled={disabled || !exists} aria-description={state === "idle" ? undefined : status} onClick={() => void open(path).catch(reportError)}>
 									<span className="workspace-option-label"><span className="workspace-option-path"><bdi dir="ltr">{home
 										? <><span className="workspace-option-home"><Home aria-hidden="true" />{home.username}</span>{home.suffix}</>
 										: path}</bdi></span>{!exists && <small>目录不存在</small>}</span>
@@ -91,7 +93,7 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Workspac
 								</Button></Hint>
 								{path !== gui.workspaceRoot && path !== cwd && state === "idle" && <div className="row-actions">
 									<ConfirmAction label={`移除工作区 ${path}`} tooltip="清空会话 · 保留文件"
-										disabled={disabled} confirm={() => gui.send({ action: "removeWorkspace", path })} />
+										disabled={disabled} confirm={() => removal.run(path)} />
 								</div>}
 							</Fade>
 						</motion.div>;
@@ -99,10 +101,11 @@ export function WorkspacePicker({ gui, close, compact = false }: { gui: Workspac
 					</AnimatePresence>
 				</div>
 				</ListScroll>
+				<Feedback compact message={error || removal.error} tone="error" />
 				<Button variant="outline" disabled={disabled} onClick={() => {
 					if (window.opi) {
 						void window.opi.chooseDirectory().then(async (directory) => { if (directory) await open(directory); })
-							.catch((error: unknown) => gui.setError(String(error)));
+							.catch(reportError);
 					} else { setExpanded(false); setBrowsing(true); }
 				}}><FolderOpen />选择目录</Button>
 			</PopoverContent>

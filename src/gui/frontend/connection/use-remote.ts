@@ -1,29 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { LatestRequest, type Remote } from "./latest-request.ts";
+export type { Remote } from "./latest-request.ts";
 
-export type Remote<T> = { state: "loading" } | { state: "ready"; value: T } | { state: "error"; message: string };
 type Load<T> = () => Promise<T>;
 
 /** 读取函数标识查询作用域，刷新和卸载统一使旧结果失效。 */
 export function useRemote<T>(load: Load<T>, enabled = true) {
 	const [response, setResponse] = useState<{ load: Load<T>; result: Remote<T> }>();
-	const active = useRef<AbortController | undefined>(undefined);
+	const [request] = useState(() => new LatestRequest());
 	const refresh = useCallback(async () => {
-		active.current?.abort();
+		request.cancel();
 		if (!enabled) return;
-		const controller = new AbortController();
-		active.current = controller;
 		setResponse({ load, result: { state: "loading" } });
-		try {
-			const value = await load();
-			if (!controller.signal.aborted) setResponse({ load, result: { state: "ready", value } });
-		} catch (error) {
-			if (!controller.signal.aborted) setResponse({ load, result: { state: "error", message: error instanceof Error ? error.message : String(error) } });
-		}
-	}, [load, enabled]);
+		await request.run(load, (result) => setResponse({ load, result }));
+	}, [load, enabled, request]);
 	useEffect(() => {
 		void refresh();
-		return () => active.current?.abort();
-	}, [refresh]);
+		return () => request.cancel();
+	}, [refresh, request]);
 	const result: Remote<T> = response?.load === load ? response.result : { state: "loading" };
 	return { result, refresh };
 }

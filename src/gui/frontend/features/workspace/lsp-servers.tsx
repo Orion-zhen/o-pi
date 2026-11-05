@@ -4,6 +4,7 @@ import { ChevronRight, RefreshCw } from "lucide-react";
 import type { Query, WorkspaceQuery } from "../../../shared/protocol/queries.ts";
 import type { GuiLspServer } from "../../../shared/lsp.ts";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { SettingsSection } from "@/forms/settings-controls.tsx";
 import "./lsp-servers.css";
@@ -21,10 +22,11 @@ function WorkspaceServers({ cwd, query, connected, active }: Omit<Props, "cwd"> 
 	return <SettingsSection title="LSP 服务器" actions={<Button variant="ghost" size="sm" disabled={!connected || loading} onClick={() => void refresh()}>
 		<RefreshCw aria-hidden="true" />刷新
 	</Button>}>
-		{!connected ? <p role="status">连接已断开，恢复后重新检查命令。</p> : <>
+		<Feedback message={!connected ? "连接已断开，恢复后重新检查" : ""} />
+		{connected && <>
 			<p className="settings-description">当前工作区：<code>{cwd}</code></p>
-			{loading && <p role="status">检查中…</p>}
-			{result.state === "error" && <p role="alert">{result.message}</p>}
+			<Feedback message={loading ? "检查中…" : ""} />
+			<Feedback compact message={result.state === "error" ? result.message : ""} tone="error" />
 			{result.state === "ready" && <>
 				<p className="settings-description">配置来源：<code>{result.value.path}</code></p>
 				{result.value.servers.length === 0 && <p className="settings-empty">未配置 LSP 服务器</p>}

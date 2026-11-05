@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useOperation } from "@/connection/use-operation.ts";
 
-type DraftState = { title: string; dirty: boolean; blocked: boolean; save: (() => Promise<void>) | null; discard: () => void };
-type DraftCommands = Pick<DraftState, "save" | "discard">;
-type RegisteredDraft = Pick<DraftState, "title" | "dirty" | "blocked"> & {
+export type DraftPlan = { state: "clean" } | { state: "invalid" } | { state: "ready"; save: () => Promise<void> };
+type DraftState = { title: string; blocked: boolean; plan: DraftPlan; discard: () => void };
+type DraftCommands = Pick<DraftState, "plan" | "discard">;
+type RegisteredDraft = Pick<DraftState, "title" | "blocked"> & {
 	categories: readonly string[];
-	invalid: boolean;
+	state: DraftPlan["state"];
 	commands: RefObject<DraftCommands>;
 };
 type SetDraft = (id: string, draft: RegisteredDraft | null) => void;
@@ -18,37 +20,43 @@ export function useSettingsState() {
 	return context;
 }
 
-export function useSettingsDraft(id: string, { categories, title, dirty, blocked, save, discard }: DraftState & { categories?: readonly string[] }) {
+export function useSettingsDraft(id: string, { categories, title, blocked, plan, discard }: DraftState & { categories?: readonly string[] }) {
 	const { setDraft } = useSettingsState();
 	const category = useContext(SettingsCategoryContext);
-	const commands = useRef({ save, discard });
-	useLayoutEffect(() => { commands.current = { save, discard }; });
-	const invalid = save === null;
+	const commands = useRef({ plan, discard });
+	useLayoutEffect(() => { commands.current = { plan, discard }; });
 	useLayoutEffect(() => {
-		setDraft(id, { title, dirty, blocked, invalid, categories: categories ?? [category], commands });
-	}, [id, category, categories, title, dirty, blocked, invalid, setDraft]);
+		setDraft(id, { title, blocked, state: plan.state, categories: categories ?? [category], commands });
+	}, [id, category, categories, title, blocked, plan.state, setDraft]);
 	useLayoutEffect(() => () => setDraft(id, null), [id, setDraft]);
 }
 
-function savePlan(drafts: Iterable<RegisteredDraft>) {
-	const writes: { title: string; save: () => Promise<void> }[] = [];
+type Write = { title: string; save: () => Promise<void> };
+function savePlan(drafts: Iterable<RegisteredDraft>): Write[] | null {
+	const writes: Write[] = [];
 	for (const draft of drafts) {
-		if (!draft.dirty) continue;
-		const { save } = draft.commands.current;
-		if (draft.blocked || save === null) return null;
-		writes.push({ title: draft.title, save });
+		const plan = draft.commands.current.plan;
+		if (plan.state === "clean") continue;
+		if (draft.blocked || plan.state === "invalid") return null;
+		writes.push({ title: draft.title, save: plan.save });
 	}
 	return writes.length ? writes : null;
 }
 
 export function useSettingsCoordinator(onDirty: (dirty: boolean) => void) {
 	const [drafts, setDrafts] = useState(new Map<string, RegisteredDraft>());
-	const [saving, setSaving] = useState(false);
-	const pending = useRef(false);
 	const active = useRef(true);
 	useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
-	const [status, setStatus] = useState("");
-	const [error, setError] = useState("");
+	const operation = useOperation(async (writes: Write[]) => {
+		const failures: string[] = [];
+		// 按文件依次提交，失败项保留草稿，其余项继续保存。关闭后不再发起后续写入。
+		for (const draft of writes) {
+			if (!active.current) break;
+			try { await draft.save(); }
+			catch (error) { failures.push(`${draft.title}：${error instanceof Error ? error.message : String(error)}`); }
+		}
+		return failures;
+	});
 	const setDraft = useCallback<SetDraft>((id, draft) => {
 		setDrafts((previous) => {
 			const next = new Map(previous);
@@ -57,32 +65,17 @@ export function useSettingsCoordinator(onDirty: (dirty: boolean) => void) {
 			return next;
 		});
 	}, []);
-	const dirty = [...drafts.values()].filter((draft) => draft.dirty);
+	const dirty = [...drafts.values()].filter((draft) => draft.state !== "clean");
 	const dirtyPages = new Set(dirty.flatMap((draft) => draft.categories));
+	const saving = operation.pending;
 	useEffect(() => { onDirty(dirty.length > 0 || saving); }, [dirty.length, saving, onDirty]);
-	const blocked = dirty.length === 0 || dirty.some((draft) => draft.blocked || draft.invalid);
-	const save = async () => {
-		const writes = savePlan(drafts.values());
-		if (pending.current || writes === null) return;
-		pending.current = true;
-		setSaving(true); setStatus(""); setError("");
-		const failures: string[] = [];
-		try {
-			// 按文件依次提交，失败项保留草稿，其余项继续保存。
-			for (const draft of writes) {
-				if (!active.current) return;
-				try { await draft.save(); }
-				catch (error) { failures.push(`${draft.title}：${error instanceof Error ? error.message : String(error)}`); }
-			}
-			if (!active.current) return;
-			if (failures.length) setError(`未保存：${failures.join("、")}`);
-			else setStatus("已保存");
-		} finally { pending.current = false; if (active.current) setSaving(false); }
-	};
-	const discard = () => {
-		if (pending.current) return;
-		for (const draft of drafts.values()) if (draft.dirty) draft.commands.current.discard();
-		setStatus(""); setError("");
-	};
+	const blocked = dirty.length === 0 || dirty.some((draft) => draft.blocked || draft.state === "invalid");
+	const save = () => { const writes = savePlan(drafts.values()); if (writes) operation.run(writes); };
+	const discard = () => operation.reset(() => {
+		for (const draft of dirty) draft.commands.current.discard();
+	});
+	const result = operation.state;
+	const error = result.state === "succeeded" && result.value.length ? `未保存：${result.value.join("、")}` : operation.error;
+	const status = result.state === "succeeded" && !result.value.length ? "已保存" : "";
 	return { setDraft, saving, dirtyPages, blocked, status, error, save, discard };
 }

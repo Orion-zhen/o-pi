@@ -5,11 +5,10 @@ import { Fade } from "@/ui/motion/animated.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { TransitionPanel } from "@/ui/motion/transition-panel.tsx";
 import { useSectionEntrance } from "./welcome/startup-entrance.tsx";
-import type { GuiSessionTab, GuiSnapshot } from "../../shared/protocol/state.ts";
+import type { GuiSessionTab } from "../../shared/protocol/state.ts";
 import type { GuiControls } from "./controls.ts";
 import type { WorkbenchView } from "@/features/workspace/use-workbench.ts";
-import type { StatsSnapshot } from "../../../harness/stats/types.ts";
-import type { LiveTelemetryReport } from "../../../harness/telemetry-report/live.ts";
+import type { SessionView } from "@/features/sessions/session-state.ts";
 import { SessionTree } from "@/features/sessions/session-tree.tsx";
 import { StatsReport } from "@/features/reports/stats-report.tsx";
 import { TelemetryReport } from "@/features/reports/telemetry-report.tsx";
@@ -21,11 +20,9 @@ const tabs: { id: GuiSessionTab; title: string }[] = [
 	{ id: "tree", title: "会话树" }, { id: "stats", title: "会话统计" }, { id: "telemetry", title: "遥测" },
 ];
 
-interface SessionInspectorView extends Pick<GuiControls, "send" | "setError"> {
+interface SessionInspectorView extends Pick<GuiControls, "setError"> {
 	cwd: string;
-	snapshot: GuiSnapshot | null;
-	sessionStats: StatsSnapshot | undefined;
-	telemetry: LiveTelemetryReport | undefined;
+	session: SessionView | null;
 	sessionTab: GuiSessionTab;
 	activeTab: GuiSessionTab | "file";
 	selectTab: (tab: GuiSessionTab | "file") => void;
@@ -36,7 +33,7 @@ export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; l
 	const root = useRef<HTMLDivElement>(null);
 	const entrance = useSectionEntrance("right");
 	const highlightId = useId();
-	const { sessionTab, snapshot, sessionStats, telemetry, workbench, selectTab } = gui;
+	const { sessionTab, session, workbench, selectTab } = gui;
 	const loading = <p role="status">正在读取会话信息…</p>;
 	const active = gui.activeTab === "file" && !workbench.preview ? sessionTab : gui.activeTab;
 	return <Tabs.Root asChild value={active} onValueChange={(value) => {
@@ -60,9 +57,9 @@ export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; l
 		<Tabs.Content value={sessionTab} forceMount asChild>
 			<Fade initial={false} animate={{ opacity: active === "file" ? 0 : 1 }} className="session-tab-body" data-list-scroll data-active={active !== "file"} inert={active === "file"} aria-hidden={active === "file"}>
 			<TransitionPanel activeIndex={tabs.findIndex(({ id }) => id === sessionTab)}>
-				{sessionTab === "tree" ? snapshot ? <SessionTree entries={snapshot.entries} leafId={snapshot.leafId} send={gui.send} locate={locate} /> : loading
-					: sessionTab === "stats" ? sessionStats ? <StatsReport value={sessionStats} /> : loading
-					: telemetry ? <TelemetryReport value={telemetry} /> : loading}
+				{sessionTab === "tree" ? session?.state === "ready" ? <SessionTree entries={session.snapshot.entries} leafId={session.snapshot.leafId} send={session.send} locate={locate} /> : loading
+					: sessionTab === "stats" ? session?.stats ? <StatsReport value={session.stats} /> : loading
+					: session?.telemetry ? <TelemetryReport value={session.telemetry} /> : loading}
 			</TransitionPanel>
 			</Fade>
 		</Tabs.Content>

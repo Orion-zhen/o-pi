@@ -2,7 +2,6 @@ import { act } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { Send } from "../../../../../../src/gui/frontend/connection/connection.ts";
 import { ToolSelection } from "../../../../../../src/gui/frontend/features/chat/tools/tool-selection.tsx";
-import { deferred } from "../../../../../helpers/async.ts";
 import { useReactFixture } from "../../../../helpers/react-fixture.ts";
 import { guiSnapshot } from "../../../../helpers/snapshot-fixture.ts";
 
@@ -18,7 +17,7 @@ function button(label: string): HTMLButtonElement {
 }
 
 it("禁用时不提交预设，点击已选预设不取消或重复提交", async () => {
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<Send>().mockResolvedValue(undefined);
 	await render(<ToolSelection snapshot={snapshot} send={send} disabled />);
 	expect(button("Offline").disabled).toBe(true);
 	await act(async () => button("Offline").click());
@@ -34,7 +33,7 @@ it.each([
 	{ label: "Offline", action: { action: "toolPreset", preset: "offline" } as const, success: true },
 	{ label: "保存默认", action: { action: "persistTools" } as const, success: false },
 ])("$label 请求期间禁止重复操作，结束后恢复", async ({ label, action, success }) => {
-	const result = deferred<boolean>();
+	const result = Promise.withResolvers<void>();
 	const send = vi.fn<Send>(() => result.promise);
 	await render(<ToolSelection snapshot={snapshot} send={send} disabled={false} />);
 	await act(async () => button(label).click());
@@ -43,6 +42,7 @@ it.each([
 	await act(async () => button("Offline").click());
 	expect(send).toHaveBeenCalledTimes(1);
 
-	await act(async () => result.resolve(success));
+	await act(async () => { if (success) result.resolve(); else result.reject(new Error("无法保存工具")); });
+	if (!success) expect(document.querySelector('[role="alert"]')?.textContent).toBe("无法保存工具");
 	for (const name of ["Offline", "保存默认"]) expect(button(name).disabled).toBe(false);
 });

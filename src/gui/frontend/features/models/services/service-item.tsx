@@ -58,7 +58,7 @@ export function ServiceItem({ id, config, disabled, open, setOpen, savedConfig, 
 		: connectionDirty ? "请先保存并重载连接配置，再获取候选模型" : catalogMessage(catalog);
 	const name = textValue(config.name) || id;
 	const address = serviceAddress(config.baseUrl);
-	const remove = async () => changeDraft((current) => editModelsDocument(current, ["providers", id], undefined));
+	const remove = () => changeDraft((current) => editModelsDocument(current, ["providers", id], undefined));
 
 	return <Reveal><Collapsible open={open} onOpenChange={setOpen} asChild>
 		<article className="model-service" aria-label={`模型服务 ${id}`}>

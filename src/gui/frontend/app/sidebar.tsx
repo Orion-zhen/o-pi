@@ -18,7 +18,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 }) {
 	const entrance = useSectionEntrance("left");
 	const section = entrance ? { style: entrance } : undefined;
-	const act = (action: GuiAction) => { close(); void gui.send(action); };
+	const act = (action: GuiAction) => { close(); void gui.send(action).catch(gui.setError); };
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
 	const content = (compact: boolean, mobile: boolean, props?: { style: MotionStyle }) => <>
 		<motion.div className="sidebar-brand" {...props}>
@@ -35,7 +35,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 					<WorkspacePicker gui={gui} close={close} compact />
 					<Hint content="新建会话" side="right">
 						<Button variant="outline" className="new-session" aria-label="新建会话" disabled={!gui.canNavigate}
-							onClick={() => { void gui.send({ action: "new" }); close(); }}><Plus /></Button>
+							onClick={() => { void gui.send({ action: "new" }).catch(gui.setError); close(); }}><Plus /></Button>
 					</Hint>
 				</div>
 			</div>}

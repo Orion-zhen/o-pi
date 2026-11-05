@@ -9,29 +9,27 @@ export async function runLogin(
 	type: AuthType,
 	dialogs: GuiDialogs,
 	emit: (event: GuiEvent) => void,
-	signal: AbortSignal,
+	controller: AbortController,
 	getDeviceId: () => string,
 ): Promise<void> {
+	const { signal } = controller;
 	await models.login(provider, type, {
 		signal,
 		notify: (value) => emit({ type: "auth", value }),
 		prompt: async (prompt) => {
 			const promptSignal = prompt.signal ? AbortSignal.any([signal, prompt.signal]) : signal;
-			const options = prompt.type === "select" ? prompt.options.map((option) => `${option.label} [${option.id}]`) : [];
-			const value = await dialogs.ask(
-				prompt.type === "secret" ? "secret" : prompt.type === "select" ? "select" : "input",
-				prompt.message,
-				"placeholder" in prompt ? (prompt.placeholder ?? "") : "",
-				options,
-				"",
-				{ signal: promptSignal },
-			);
-			if (value === undefined) throw new Error("登录已取消。");
-			if (prompt.type !== "select") return value;
-			const option = prompt.options[options.indexOf(value)];
-			if (!option) throw new Error("无效登录选项。");
-			return option.id;
+			const value = await dialogs.ask(prompt.type === "select"
+				? { kind: "select", title: prompt.message, options: prompt.options.map((option) => ({ label: `${option.label} [${option.id}]`, value: option.id })) }
+				: { kind: prompt.type === "secret" ? "secret" : "input", title: prompt.message, placeholder: prompt.placeholder ?? "", initial: "" },
+			{ signal: promptSignal });
+			if (value === undefined) {
+				// SDK 可单独关闭备用输入，只有用户取消才终止整个登录。
+				promptSignal.throwIfAborted();
+				controller.abort();
+				throw signal.reason;
+			}
+			return value;
 		},
 	}, { getDeviceId });
-	dialogs.notify(`${provider} 登录成功。`);
+	if (type === "oauth") emit({ type: "feedback", message: `已连接 ${provider}`, tone: "success" });
 }

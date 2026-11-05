@@ -13,8 +13,37 @@ beforeEach(() => {
 });
 const button = (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 
+it("保存失败在模型区域保留原文，重试成功清除错误并恢复按钮", async () => {
+	const failure = "EACCES: permission denied\n/workspace/models.json";
+	const send = vi.fn<Send>().mockRejectedValueOnce(new Error(failure)).mockResolvedValue(undefined);
+	const snapshot = { ...guiSnapshot(), modelScopeChanged: true };
+	await render(<TooltipProvider><ModelManager snapshot={snapshot} send={send} disabled={false} /></TooltipProvider>);
+	const save = document.querySelector<HTMLButtonElement>(".model-manager-footer button");
+	if (!save) throw new Error("缺少保存按钮");
+	await act(async () => save.click());
+	expect(document.querySelector('[role="alert"]')?.textContent).toBe(failure);
+	expect(save.disabled).toBe(false);
+	await act(async () => save.click());
+	expect(send).toHaveBeenCalledTimes(2);
+	expect([...document.querySelectorAll('[role="alert"]')].filter((element) => !element.closest('[aria-hidden="true"]'))).toEqual([]);
+	expect(save.disabled).toBe(false);
+});
+
+it("同一轮连续提交只执行一次，卸载不会取消已提交保存", async () => {
+	const result = Promise.withResolvers<void>();
+	const send = vi.fn<Send>(() => result.promise);
+	await render(<TooltipProvider><ModelManager snapshot={{ ...guiSnapshot(), modelScopeChanged: true }} send={send} disabled={false} /></TooltipProvider>);
+	const save = document.querySelector<HTMLButtonElement>(".model-manager-footer button");
+	if (!save) throw new Error("缺少保存按钮");
+	await act(async () => { save.click(); save.click(); });
+	expect(send).toHaveBeenCalledTimes(1);
+	await render(null);
+	await act(async () => result.resolve());
+	expect(send).toHaveBeenCalledTimes(1);
+});
+
 it("已选模型按实际索引移动，目录外模型仍可排序，未选模型没有移动操作", async () => {
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<Send>().mockResolvedValue(undefined);
 	const snapshot = { ...guiSnapshot(), scopedModels: ["local/first", "local/missing", "local/last"],
 		models: ["first", "last", "other"].map((id) => guiModelFixture({ provider: "local", id, name: id, contextWindow: 1000 })) };
 	const view = () => <TooltipProvider><ModelManager snapshot={snapshot} send={send} disabled={false} /></TooltipProvider>;

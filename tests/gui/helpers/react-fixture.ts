@@ -17,6 +17,11 @@ export function useReactFixture(cleanup?: () => void) {
 		vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 		vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 16));
 		vi.stubGlobal("cancelAnimationFrame", clearTimeout);
+		vi.stubGlobal("ResizeObserver", class {
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		});
 		vi.stubGlobal("IntersectionObserver", class {
 			observe() {}
 			unobserve() {}

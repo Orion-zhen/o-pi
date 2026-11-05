@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { mcpExposures, type McpIssue } from "../../../shared/config/mcp-validation.ts";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Input } from "@/ui/input.tsx";
 import { RadioGroup, RadioGroupItem } from "@/ui/radio-group.tsx";
 import { Label } from "@/ui/label.tsx";
@@ -17,23 +18,23 @@ export function McpField({ label, field, issues = [], hint, children, inline = f
 }) {
 	return <div className={`mcp-field${inline ? " mcp-field-choice" : ""}`}><span className="mcp-field-label">{label}</span>{children}
 		{hint && <p className="settings-description">{hint}</p>}
-		{issues.filter((issue) => issue.field === field).map((issue, index) => <p role="alert" key={index}>{issue.message}</p>)}
+		<Feedback message={issues.filter((issue) => issue.field === field).map((issue) => issue.message).join("\n")} tone="error" />
 	</div>;
 }
 
-export function McpTextField({ label, value, onChange, secret = false, hint, issues = [], field, placeholder, numeric = false }: {
+export function McpTextField({ label, value, onChange, secret = false, hint, issues = [], field, placeholder, numeric = false, inline = false }: {
 	label: string; value: unknown; onChange: (value: string) => void; secret?: boolean; hint?: string; issues?: readonly McpIssue[];
-	field: string; placeholder?: string; numeric?: boolean;
+	field: string; placeholder?: string; numeric?: boolean; inline?: boolean;
 }) {
 	const id = useId();
-	return <div className="mcp-field"><label htmlFor={id}>{label}</label>
+	return <div className={`mcp-field${inline ? " mcp-field-inline" : ""}`}><label htmlFor={id}>{label}</label>
 		{secret ? <McpSecret id={id} label={label} value={mcpText(value)} change={onChange} />
 			: numeric ? <McpNumberInput id={id} label={label} value={value} change={onChange} placeholder={placeholder} invalid={issues.some((issue) => issue.field === field)} />
 				: <Input id={id} aria-label={label} value={mcpText(value)} placeholder={placeholder}
 					aria-invalid={issues.some((issue) => issue.field === field)} onChange={(event) => onChange(event.target.value)} />}
 		{secret && typeof value === "string" && value.startsWith("!") && <p className="settings-warning">命令取值：连接时执行，编辑时不执行。</p>}
 		{hint && <p className="settings-description">{hint}</p>}
-		{issues.filter((issue) => issue.field === field).map((issue, index) => <p role="alert" key={index}>{issue.message}</p>)}
+		<Feedback message={issues.filter((issue) => issue.field === field).map((issue) => issue.message).join("\n")} tone="error" />
 	</div>;
 }
 
@@ -57,12 +58,9 @@ export function McpSecret({ id, label, value, change }: { id?: string; label: st
 export function McpChoice<T extends string>({ label, value, options, change, disabled }: {
 	label: string; value: string; options: readonly T[]; change: (value: T) => void; disabled: boolean;
 }) {
-	return <>
-		<RadioGroup className="settings-radio-group" orientation="horizontal" aria-label={label} value={value} onValueChange={(value) => change(value as T)} disabled={disabled}>
-			{options.map((option) => <Label key={option} className="settings-radio-option"><RadioGroupItem value={option} />{option}</Label>)}
-		</RadioGroup>
-		{!options.some((option) => option === value) && <p role="alert">{`无效值：${value || "空"}`}</p>}
-	</>;
+	return <RadioGroup className="settings-radio-group" orientation="horizontal" aria-label={label} value={value} onValueChange={(value) => change(value as T)} disabled={disabled}>
+		{options.map((option) => <Label key={option} className="settings-radio-option"><RadioGroupItem value={option} />{option}</Label>)}
+	</RadioGroup>;
 }
 
 export function McpPairs({ label, rows, change, disabled, kind = "secret", hiddenId }: {
@@ -78,8 +76,10 @@ export function McpPairs({ label, rows, change, disabled, kind = "secret", hidde
 	return <div className="mcp-pairs">
 		<AnimatePresence initial={false}>{rows.filter((row) => row.id !== hiddenId).map((row, index) => <Reveal key={row.id}><div className="mcp-pair">
 			<Input aria-label={`${label}名称 ${index + 1}`} placeholder={kind === "exposure" ? "工具名称或 get_*" : "名称"} value={row.key} onChange={(event) => update(row.id, { key: event.target.value })} />
-			{kind === "exposure" ? <McpChoice label={`${label}方式 ${index + 1}`} value={row.value === "codemode-deferred" ? "codemode" : mcpText(row.value)} options={mcpExposures} disabled={disabled} change={(value) => update(row.id, { value })} />
-				: <McpSecret label={`${label}值 ${index + 1}`} value={mcpText(row.value)} change={(value) => update(row.id, { value })} />}
+			{kind === "exposure" ? <>
+				<McpChoice label={`${label}方式 ${index + 1}`} value={row.value === "codemode-deferred" ? "codemode" : mcpText(row.value)} options={mcpExposures} disabled={disabled} change={(value) => update(row.id, { value })} />
+				<Feedback message={row.value !== "codemode-deferred" && !mcpExposures.some((option) => option === row.value) ? `无效值：${mcpText(row.value) || "空"}` : ""} tone="error" />
+			</> : <McpSecret label={`${label}值 ${index + 1}`} value={mcpText(row.value)} change={(value) => update(row.id, { value })} />}
 			<div className="mcp-row-actions">
 				{kind === "exposure" && <><IconButton size="icon-sm" label={`上移规则 ${index + 1}`} tooltip="上移规则" disabled={index === 0} onClick={() => move(row, index, -1)}><ArrowUp /></IconButton>
 					<IconButton size="icon-sm" label={`下移规则 ${index + 1}`} tooltip="下移规则" disabled={index === rows.length - 1} onClick={() => move(row, index, 1)}><ArrowDown /></IconButton></>}

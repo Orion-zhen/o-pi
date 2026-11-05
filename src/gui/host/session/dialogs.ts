@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { GuiBashApproval, GuiDialog, GuiNotice } from "../../shared/protocol/state.ts";
+import type { GuiBashApproval, GuiDialog, GuiDialogContent, GuiNotice } from "../../shared/protocol/state.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { ApprovalInteractionPort } from "../../../harness/approval/runtime/interaction.ts";
 import { approvalText, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
@@ -25,18 +25,13 @@ export class GuiDialogs {
 				action: unit.action, kind: unit.target.kind, target: approvalText(unit.target.value), reason: approvalText(reason),
 			})),
 		} : undefined;
-		return this.ask("select", bash ? "执行 Bash 命令" : formatApprovalPrompt(request, decision), "", [...options], "", opts, bash);
+		const choices = options.map((value) => ({ label: value, value }));
+		return this.ask(bash
+			? { kind: "bashApproval", title: "执行 Bash 命令", approval: bash, options: choices }
+			: { kind: "select", title: formatApprovalPrompt(request, decision), options: choices }, opts);
 	}
 
-	ask(
-		kind: GuiDialog["kind"],
-		title: string,
-		message = "",
-		options: string[] = [],
-		initial = "",
-		opts?: ExtensionUIDialogOptions,
-		bash?: GuiBashApproval,
-	): Promise<string | undefined> {
+	ask(content: GuiDialogContent, opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
 		if (opts?.signal?.aborted) return Promise.resolve(undefined);
 		const id = randomUUID();
 		return new Promise((resolve) => {
@@ -50,16 +45,7 @@ export class GuiDialogs {
 				resolve(value);
 			};
 			this.pending.set(id, {
-				dialog: {
-					id,
-					kind,
-					title,
-					message,
-					options,
-					initial,
-					deadline: opts?.timeout ? Date.now() + opts.timeout : null,
-					...(bash ? { bash } : {}),
-				},
+				dialog: { ...content, id, deadline: opts?.timeout ? Date.now() + opts.timeout : null },
 				finish,
 			});
 			opts?.signal?.addEventListener("abort", abort, { once: true });
@@ -71,8 +57,8 @@ export class GuiDialogs {
 	respond(id: string, value: string | null): void {
 		const pending = this.pending.get(id);
 		if (!pending) throw new Error("对话框已结束，请刷新当前状态。");
-		if (value !== null && pending.dialog.kind === "select" && !pending.dialog.options.includes(value))
-			throw new Error("无效选项。");
+		if (value !== null && (pending.dialog.kind === "select" || pending.dialog.kind === "bashApproval")
+			&& !pending.dialog.options.some((option) => option.value === value)) throw new Error("无效选项。");
 		if (value !== null && pending.dialog.kind === "confirm" && value !== "yes") throw new Error("无效确认。");
 		pending.finish(value ?? undefined);
 	}
@@ -99,10 +85,10 @@ export class GuiDialogs {
 			throw new Error("此扩展使用了 GUI 不支持的终端组件。");
 		};
 		return {
-			select: (title, options, opts) => this.ask("select", title, "", options, "", opts),
-			confirm: async (title, message, opts) => (await this.ask("confirm", title, message, [], "", opts)) === "yes",
-			input: (title, placeholder, opts) => this.ask("input", title, placeholder ?? "", [], "", opts),
-			editor: (title, prefill) => this.ask("editor", title, "", [], prefill ?? ""),
+			select: (title, options, opts) => this.ask({ kind: "select", title, options: options.map((value) => ({ label: value, value })) }, opts),
+			confirm: async (title, message, opts) => (await this.ask({ kind: "confirm", title, message }, opts)) === "yes",
+			input: (title, placeholder, opts) => this.ask({ kind: "input", title, placeholder: placeholder ?? "", initial: "" }, opts),
+			editor: (title, prefill) => this.ask({ kind: "editor", title, initial: prefill ?? "" }),
 			notify: (message, type) => this.notify(message, type),
 			setStatus: (key, text) => {
 				if (text === undefined) delete this.status[key];

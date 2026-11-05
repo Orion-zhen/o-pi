@@ -10,6 +10,7 @@ import type { FilePreview as Preview } from "../../../../shared/workspace.ts";
 import type { Remote } from "@/connection/use-remote.ts";
 import { fileLanguage, SyntaxHighlighter } from "@/ui/content/code-highlight.ts";
 import { IconButton } from "@/ui/icon-button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { ImageViewer } from "@/ui/media/image-viewer.tsx";
@@ -83,8 +84,8 @@ export function FilePreviewPanel({ cwd, setError, preview: selection, referenceF
 		</div>
 		<div className="file-preview-body" tabIndex={0} aria-label="文件正文">
 			<AnimatePresence initial={false} mode="wait"><Fade key={`${result.state}-${diff}`}>
-			{result.state === "loading" ? <p className="file-hint" role="status">正在读取文件…</p>
-				: result.state === "error" ? <p className="file-hint" role="alert">{result.message}</p>
+			{result.state === "loading" ? <Feedback message="正在读取文件…" />
+				: result.state === "error" ? <Feedback compact tone="error" message={result.message} />
 				: <FileDocument preview={result.value} diff={diff} wrap={wrap} />}
 			</Fade></AnimatePresence>
 		</div>

@@ -44,9 +44,7 @@ export class GuiClient {
 	private closed = false;
 	private observing = true;
 	private attention: GuiAttention | null = null;
-	get attending(): string | null {
-		return this.attention?.focused && this.attention.sessionId === this.selected?.id ? this.attention.sessionId : null;
-	}
+	get focused(): boolean { return this.attention?.focused === true; }
 	get notificationDestination(): string | null { return this.attention?.destination ?? null; }
 	private selection = 0;
 	private drafts = new Map<string, string>();
@@ -73,7 +71,7 @@ export class GuiClient {
 		return execution;
 	}
 	emit(event: GuiEvent): void { for (const listener of this.listeners) listener(event); }
-	reportError(error: unknown): void { this.emit({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
+	reportError(error: unknown): void { this.emit({ type: "feedback", message: error instanceof Error ? error.message : String(error), tone: "error" }); }
 	subscribe(listener: (event: GuiEvent) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);

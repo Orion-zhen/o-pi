@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, X } from "lucide-react";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover.tsx";
 import { FontInput } from "./font-input.tsx";
@@ -44,8 +45,8 @@ function FontChainEditor({ kind, value, disabled, local, onChange }: Props) {
 				{local.loading ? "正在读取字体…" : local.fonts ? "刷新本机字体" : "读取本机字体"}
 			</Button>
 		</div>
-		{!local.supported && <p role="status">无法读取本机字体</p>}
-		{local.error && <p role="alert">{local.error}</p>}
+		<Feedback message={!local.supported ? "无法读取本机字体" : ""} />
+		<Feedback compact message={local.error} tone="error" />
 		<ol className="font-chain" aria-label="字体优先顺序">
 			{value.map((font, index) => <li key={font}>
 				{editing === font ? <FontInput kind={kind} fonts={local.fonts} selected={value.filter((_, position) => position !== index)}

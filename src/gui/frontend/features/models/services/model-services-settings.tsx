@@ -9,6 +9,7 @@ import type { ConfigCommand } from "@/connection/connection.ts";
 import type { ModelServicesDocument } from "../../../../shared/config/model-services.ts";
 import { ConfigDocument } from "@/forms/config-document.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { SourceEditor } from "@/forms/source-editor.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
 import { SettingsHeading, SettingsSourceButton } from "@/forms/settings-controls.tsx";
@@ -75,7 +76,8 @@ function ModelServicesEditor({ initial, query, send, disabled, sessionId, sessio
 		setAdding(false);
 	}
 	useSettingsDraft("modelServices", {
-		title: "模型服务", dirty, blocked: disabled, save: invalid ? null : save, discard,
+		title: "模型服务", blocked: disabled,
+		plan: !dirty ? { state: "clean" } : invalid ? { state: "invalid" } : { state: "ready", save }, discard,
 	});
 	const providers = parsed.value?.providers ?? {};
 	const services = Object.entries(providers);
@@ -98,7 +100,7 @@ function ModelServicesEditor({ initial, query, send, disabled, sessionId, sessio
 				</AnimatePresence></div>
 				{!services.length && !adding && <p className="settings-empty">暂无服务</p>}
 			</>}
-			{[parsed.error, ...issues].filter(Boolean).map((message, index) => <p role="alert" key={index}>{message}</p>)}
+			<Feedback message={[parsed.error, ...issues].filter(Boolean).join("\n")} tone="error" />
 		</ModelApiChoicesContext></div>
 	</section>;
 }

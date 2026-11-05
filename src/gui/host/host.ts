@@ -50,7 +50,7 @@ export class GuiHost {
 
 	private notifyAttention(value: Attention): void {
 		if (this.closed || process.env.OPI_NO_NOTIFICATIONS === "1") return;
-		if ([...this.clients].some((client) => client.attending === value.sessionId)) return;
+		if ([...this.clients].some((client) => client.focused)) return;
 		const sent = new Set<string>();
 		for (const client of this.clients) {
 			const destination = client.notificationDestination;
@@ -135,7 +135,7 @@ export class GuiHost {
 		return task.finally(() => this.tasks.delete(task));
 	}
 	emit(event: GuiEvent): void { for (const listener of this.listeners) listener(event); }
-	reportError(error: unknown): void { this.emit({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
+	reportError(error: unknown): void { this.emit({ type: "feedback", message: error instanceof Error ? error.message : String(error), tone: "error" }); }
 	subscribe(listener: (event: GuiEvent) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);

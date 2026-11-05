@@ -40,12 +40,12 @@ export function McpAuthFields({ server, config, issues, change, disabled }: {
 			onChange={(provider) => change({ ...server, config: { ...config, auth: { ...(mcpObject(config.auth) ? config.auth : {}), provider } } })} />}
 		{mode === "headers" ? <McpField label="请求头" field="headers" issues={issues}>
 			<McpPairs disabled={disabled} label="请求头" rows={headers} change={setHeaders} />
-		</McpField> : <SettingsDisclosure title={`自定义请求头${extraHeaderCount ? `（${extraHeaderCount}）` : ""}`}>
+		</McpField> : <SettingsDisclosure title={`自定义请求头${extraHeaderCount ? `（${extraHeaderCount}）` : ""}${issues.some(({ field }) => field === "headers") ? "（需修复）" : ""}`}>
 			<McpField label="请求头" field="headers" issues={issues} hint="支持 ${ENV_NAME} 和整个值为 !command 的命令取值。不要重复设置提供商凭据和 Authorization。">
 				<McpPairs disabled={disabled} label="请求头" rows={headers} hiddenId={hiddenAuthorization?.id} change={setHeaders} />
 			</McpField>
 		</SettingsDisclosure>}
-		<SettingsDisclosure title="OAuth 高级设置">
+		<SettingsDisclosure title={`OAuth 高级设置${issues.some(({ field }) => field.startsWith("oauth.")) ? "（需修复）" : ""}`}>
 			<p className="settings-description">通常无需填写。提供 Authorization 或提供商凭据时，不使用 OAuth。</p>
 			<div className="mcp-form-grid">
 				<McpField inline label="客户端注册" field="oauth.clientRegistration" issues={issues}>

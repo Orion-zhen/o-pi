@@ -5,17 +5,15 @@ import { notificationContent } from "../gui/shared/notification.ts";
 
 const active = new Set<Notification>();
 
-/** 渲染进程只上报会话，窗口焦点由主进程读取。 */
-export function trackDesktopAttention(window: BrowserWindow, report: (value: GuiAttention) => void): (sessionId: string | null) => void {
-	let sessionId: string | null = null;
+/** 窗口焦点由主进程读取，订阅建立后重新上报。 */
+export function trackDesktopAttention(window: BrowserWindow, report: (value: GuiAttention) => void): () => void {
 	const update = () => report({
-		sessionId,
 		focused: window.isFocused() && window.isVisible() && !window.isMinimized(),
 		destination: "desktop",
 	});
 	window.on("focus", update).on("blur", update).on("minimize", update)
 		.on("restore", update).on("show", update).on("hide", update);
-	return (id) => { sessionId = id; update(); };
+	return update;
 }
 
 export function showDesktopNotification(window: BrowserWindow, event: Attention, icon: string, open: () => void): void {

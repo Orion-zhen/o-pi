@@ -5,6 +5,7 @@ import type { ChatTemplateKwargValue } from "@earendil-works/pi-ai/providers/com
 import { TEMPLATE_VARIABLES as variables } from "../../../../../harness/model-services/compat-options.ts";
 import { equalConfigValues } from "../../../../../harness/config-values.ts";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Checkbox } from "@/ui/checkbox.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Input } from "@/ui/input.tsx";
@@ -103,7 +104,7 @@ function TemplateParamForm({ name, value, inherited, existing, disabled, apply, 
 		<Input id={`${id}-name`} value={nextName} readOnly={inherited} disabled={disabled} aria-invalid={duplicate}
 			aria-describedby={duplicate ? `${id}-duplicate` : undefined} autoComplete="off" spellCheck={false}
 			onChange={(event) => setName(event.target.value)} />
-		{duplicate && <p id={`${id}-duplicate`} role="alert">参数名已存在</p>}
+		<Feedback id={`${id}-duplicate`} message={duplicate ? "参数名已存在" : ""} tone="error" />
 		<label htmlFor={`${id}-type`}>取值类型</label>
 		<Select value={kind} disabled={disabled} onValueChange={(next) => {
 			const selected = valueTypes.find((type) => type === next);
@@ -117,7 +118,7 @@ function TemplateParamForm({ name, value, inherited, existing, disabled, apply, 
 			<Input id={`${id}-value`} value={text} inputMode={kind === "number" ? "decimal" : undefined} disabled={disabled}
 				aria-invalid={invalidNumber} aria-describedby={invalidNumber ? `${id}-number` : undefined} autoComplete="off" spellCheck={false}
 				onChange={(event) => setText(event.target.value)} />
-			{invalidNumber && <p id={`${id}-number`} role="alert">请输入有效的有限数字</p>}
+			<Feedback id={`${id}-number`} message={invalidNumber ? "请输入有效的有限数字" : ""} tone="error" />
 		</>}
 		{kind === "boolean" && <div className="service-template-option">
 			<Switch id={`${id}-boolean`} aria-label="值" checked={boolean} disabled={disabled} onCheckedChange={setBoolean} />

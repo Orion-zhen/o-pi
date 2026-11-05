@@ -52,7 +52,7 @@ export function ModelItem({ model, settings, open, setOpen, disabled, change, mo
 						label={`还原模型设置 ${id}`} tooltip="还原模型设置" disabled={disabled}
 						onClick={() => change(["modelOverrides", id], undefined)}><RotateCcw /></IconButton>}
 					{manualIndex !== undefined && <ConfirmAction label={`删除模型 ${id}`} disabled={disabled}
-						confirm={async () => change(["models", manualIndex], undefined)} />}
+						confirm={() => change(["models", manualIndex], undefined)} />}
 					<CollapsibleTrigger className="disclosure-trigger" asChild>
 						<Button variant="ghost" size="icon-sm" aria-label={`${open ? "收起" : "展开"}模型 ${id}`}>
 							<ChevronRight className="disclosure-chevron" />

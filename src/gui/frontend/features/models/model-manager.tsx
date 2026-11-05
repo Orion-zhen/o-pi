@@ -7,19 +7,18 @@ import { MorphIcon } from "morphicons/react";
 import type { GuiAction } from "../../../shared/protocol/actions.ts";
 import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
+import { useOperation } from "@/connection/use-operation.ts";
 import { ThinkingControl } from "./model-controls.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Checkbox } from "@/ui/checkbox.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
 import "./models.css";
 
 export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: GuiSnapshot; send: Send; disabled: boolean }) {
 	const [query, setQuery] = useState("");
-	const [pending, setPending] = useState<GuiAction["action"] | null>(null);
 	const [saved, setSaved] = useState<string | null>(null);
-	const [failed, setFailed] = useState(false);
-	const [defaultSaved, setDefaultSaved] = useState(false);
 	const defaults = snapshot.defaultModel;
 	const scope = snapshot.scopedModels;
 	const signature = JSON.stringify(scope);
@@ -30,17 +29,13 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 		terms.every((term) => `${id} ${available.get(id)?.name ?? ""}`.toLocaleLowerCase().includes(term));
 	const selectedModels = scope.filter(matches);
 	const otherModels = [...available.keys()].filter((id) => !selected.has(id) && matches(id));
-	const disabled = blocked || pending !== null;
-	const run = async (action: GuiAction) => {
-		setPending(action.action);
-		setFailed(false);
-		setDefaultSaved(false);
-		const ok = await send(action);
-		if (ok && action.action === "persistDefaultModel") setDefaultSaved(true);
-		if (ok && action.action === "persistModels") setSaved(signature);
-		setFailed(!ok);
-		setPending(null);
-	};
+	const operation = useOperation((action: GuiAction) => send(action).then(() => signature), (saved, action) => {
+		if (action.action === "persistModels") setSaved(saved);
+	});
+	const { run, error } = operation;
+	const pending = operation.state.state === "pending" ? operation.state.args[0].action : null;
+	const defaultSaved = operation.state.state === "succeeded" && operation.state.args[0].action === "persistDefaultModel";
+	const disabled = blocked || operation.pending;
 	const update = (models: string[]) => {
 		void run({ action: "scopeModels", models });
 	};
@@ -111,7 +106,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 					<small>当前模型</small>
 					<strong>{snapshot.model?.name ?? "尚未选择"}</strong>
 				</div>
-				<ThinkingControl snapshot={snapshot} send={send} disabled={disabled} />
+				<ThinkingControl snapshot={snapshot} change={(level) => void run({ action: "thinking", level })} disabled={disabled} />
 				<Button variant="outline" disabled={disabled || !snapshot.model}
 					onClick={() => void run({ action: "persistDefaultModel" })}>
 					{pending === "persistDefaultModel" && <LoaderCircle className="animate-spin" />}
@@ -157,21 +152,15 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 				</section>
 			</div>
 			<footer className="model-manager-footer">
-				<p className="model-save-status" role="status">
-					{failed
-						? "操作失败，请关闭面板查看错误后重试。"
-						: defaultSaved
-							? "已保存默认模型和思考等级。"
-							: saved === signature && !snapshot.modelScopeChanged
-								? "已保存常用模型。"
-								: "切换仅影响当前会话；设为默认后供下次启动使用。"}
-				</p>
+				<Feedback message={defaultSaved ? "已保存默认模型和思考等级"
+					: saved === signature && !snapshot.modelScopeChanged ? "已保存常用模型" : "切换仅影响当前会话"} />
 				<Button disabled={disabled || !snapshot.modelScopeChanged} aria-busy={pending === "persistModels"} onClick={() => void run({ action: "persistModels" })}>
 					<MorphIcon icon={pending === "persistModels" ? LoaderCircleData : Save} spring="smooth" size="1em"
 						className={pending === "persistModels" ? "animate-spin" : undefined} />
 					保存常用模型
 				</Button>
 			</footer>
+			<Feedback compact message={error} tone="error" />
 		</section>
 	);
 }

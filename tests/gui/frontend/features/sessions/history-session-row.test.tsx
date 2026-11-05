@@ -29,7 +29,7 @@ async function click(modifiers: { ctrlKey?: boolean; metaKey?: boolean } = {}) {
 }
 
 it("普通点击编辑名称，不请求自动命名", async () => {
-	const send = vi.fn<Send>().mockResolvedValue(true);
+	const send = vi.fn<Send>().mockResolvedValue(undefined);
 	const open = vi.fn();
 	await render(<TooltipProvider><HistorySessionRow item={item} index={0} count={1} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
 	await click();
@@ -39,7 +39,7 @@ it("普通点击编辑名称，不请求自动命名", async () => {
 });
 
 it.each([{ ctrlKey: true }, { metaKey: true }])("修饰键点击 %j 自动命名且等待期间禁止重复点击", async (modifiers) => {
-	const reply = deferred<boolean>();
+	const reply = deferred<void>();
 	const send = vi.fn<Send>().mockReturnValue(reply.promise);
 	const open = vi.fn();
 	await render(<TooltipProvider><HistorySessionRow item={item} index={0} count={1} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
@@ -51,12 +51,12 @@ it.each([{ ctrlKey: true }, { metaKey: true }])("修饰键点击 %j 自动命名
 	expect(open).not.toHaveBeenCalled();
 	await click(modifiers);
 	expect(send).toHaveBeenCalledTimes(1);
-	await act(async () => reply.resolve(true));
+	await act(async () => reply.resolve());
 	expect(rename().disabled).toBe(false);
 });
 
 it("自动命名等待审批时允许打开会话处理确认", async () => {
-	const reply = deferred<boolean>();
+	const reply = deferred<void>();
 	const send = vi.fn<Send>().mockReturnValue(reply.promise);
 	const open = vi.fn();
 	await render(<TooltipProvider><HistorySessionRow item={item} index={0} count={1} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
@@ -72,5 +72,5 @@ it("自动命名等待审批时允许打开会话处理确认", async () => {
 	expect(rename().disabled).toBe(true);
 	await act(async () => { openButton().click(); });
 	expect(open).toHaveBeenCalledExactlyOnceWith(waiting);
-	await act(async () => reply.resolve(true));
+	await act(async () => reply.resolve());
 });

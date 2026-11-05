@@ -4,6 +4,7 @@ import { dismiss, feedback } from "@/ui/motion/transitions.ts";
 import { Plus } from "lucide-react";
 import { Input } from "@/ui/input.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 
 export function AddServiceItem({ label, existing, suggestions, disabled, add, cancel }: {
 	label: string; existing: string[]; suggestions?: string[]; disabled: boolean; add: (id: string) => void; cancel: () => void;
@@ -60,7 +61,7 @@ export function AddServiceItem({ label, existing, suggestions, disabled, add, ca
 				}
 			}} />
 		<div className="settings-action-buttons"><Button size="sm" type="submit" disabled={disabled || !id || duplicate}><Plus />添加</Button><Button size="sm" variant="ghost" type="button" onClick={cancel}>取消</Button></div>
-		{duplicate && <p role="alert">{label}已存在</p>}
+		<Feedback message={duplicate ? `${label}已存在` : ""} tone="error" />
 		<AnimatePresence>{expanded && <CandidateList key="candidates" id={listId} label={label} matches={matches} active={active} select={select} />}</AnimatePresence>
 	</form>;
 }

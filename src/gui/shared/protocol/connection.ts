@@ -5,7 +5,6 @@ import type { GuiQuery, GuiQueryResults } from "./queries.ts";
 import type { GuiEvent } from "./events.ts";
 
 const attentionSchema = object({
-	sessionId: union([short, nul()]),
 	focused: bool(),
 	destination: union([short, nul()]),
 });
@@ -20,7 +19,6 @@ export const requestSchema = object({ sessionId: union([short, nul()]), value: u
 export type GuiRequest = Static<typeof requestSchema>;
 
 export interface GuiConnection {
-	attend(sessionId: string | null): void;
 	send<A extends GuiAction>(action: A, sessionId: string | null): Promise<GuiActionResult<A>>;
 	query<Q extends GuiQuery>(query: Q, sessionId: string | null): Promise<GuiQueryResults[Q["query"]]>;
 	subscribe(listener: (event: GuiEvent) => void): () => void;

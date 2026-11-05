@@ -8,6 +8,7 @@ import { editPreference, resetSection, sectionChanged, type GuiSection } from ".
 import { useGuiSettings } from "./gui-settings-state.tsx";
 import guiSchema from "../../../../../agent/schemas/gui.schema.json" with { type: "json" };
 import { Input } from "@/ui/input.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Switch } from "@/ui/switch.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
@@ -35,7 +36,7 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 	const state = useGuiSettings();
 	const [editing, setEditing] = useState(false);
 	const localFonts = useLocalFonts();
-	if (!state) return <SettingsSection title={title}><p role="status">读取中…</p></SettingsSection>;
+	if (!state) return <SettingsSection title={title}><Feedback message="读取中…" /></SettingsSection>;
 	const { document, blocked, update, changeSource } = state;
 	const changed = document.state === "ready" && sectionChanged(document.defaults, document.value, section);
 	const actions = <div className="gui-preference-actions">
@@ -52,7 +53,7 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 	if (editing || document.state === "error") return <div className="settings-module">
 		<SettingsSection title={title} actions={actions} source={editing}>
 			{editing && <SourceEditor file={document.path} label="GUI 设置 JSONC" value={document.content} disabled={blocked} onChange={(content) => changeSource(content, section)} />}
-			{document.state === "error" && <p role="alert">{document.message}</p>}
+			<Feedback message={document.state === "error" ? document.message : ""} tone="error" />
 		</SettingsSection>
 	</div>;
 	const change = (path: PreferencePath, value: string | string[] | number | boolean | undefined) => update(document, editPreference(document, path, value));
@@ -63,7 +64,12 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 						<ToggleGroup type="single" size="sm" className="settings-preference-toggle" aria-label="主题" value={document.value.theme} disabled={blocked}>
 							{themeOptions.map(({ value, label, icon: Icon }) => <ToggleGroupItem key={value} value={value} className="animated-background-target"
 								onClick={(event) => {
-									if (value !== document.value.theme) animateThemeChange(event.currentTarget, () => change(["theme"], value === document.defaults.theme ? undefined : value));
+									const current = document.value.theme;
+									if (value === current) return;
+									const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+									const updateTheme = () => change(["theme"], value === document.defaults.theme ? undefined : value);
+									if ((current === "system" ? systemTheme : current) === (value === "system" ? systemTheme : value)) updateTheme();
+									else animateThemeChange(event.currentTarget, updateTheme);
 								}}>
 								<AnimatedBackground active={document.value.theme === value} layoutId={themeHighlightId} />
 								<Icon aria-hidden="true" />{label}

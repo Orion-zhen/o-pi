@@ -1,17 +1,10 @@
 import { useState, useSyncExternalStore } from "react";
-import type { GuiDialog, GuiNotice, GuiSessionActivity, GuiSessionInfo, GuiSnapshot, GuiWorkspaceInfo } from "../../shared/protocol/state.ts";
+import type { GuiSessionActivity, GuiSessionInfo, GuiWorkspaceInfo } from "../../shared/protocol/state.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
-import { SessionViews, type SessionViewState } from "@/features/sessions/session-views.ts";
+import { SessionViews } from "@/features/sessions/session-views.ts";
 
-type SelectedSession = NonNullable<Extract<GuiEvent, { type: "selected" }>["session"]>;
-type SessionState = {
-	target: SelectedSession;
-	view: SessionViewState;
-	dialogs: GuiDialog[];
-	notices: GuiNotice[];
-	stats: Extract<GuiEvent, { type: "sessionStats" }>["value"] | undefined;
-	telemetry: Extract<GuiEvent, { type: "telemetry" }>["value"] | undefined;
-} & ({ state: "loading"; snapshot: null } | { state: "ready"; snapshot: GuiSnapshot });
+import type { SessionState } from "@/features/sessions/session-state.ts";
+
 interface HostState {
 	selection: SessionState | null;
 	activities: GuiSessionActivity[];

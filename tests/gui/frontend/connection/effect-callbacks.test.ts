@@ -56,7 +56,6 @@ describe("Effect 回调更新", () => {
 		const listeners = new Set<(event: GuiEvent) => void>();
 		const close = vi.fn();
 		vi.mocked(connectGui).mockImplementation(() => ({
-			attend: () => {},
 			send: async () => { throw new Error("本测试不发送操作"); },
 			query: async () => { throw new Error("本测试不发起查询"); },
 			subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },

@@ -11,7 +11,7 @@ function row(busy: boolean, waiting: boolean, unread: boolean) {
 	return parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, createElement(HistorySessionRow, {
 		item: { key: "task", target: { id: "task" }, path: "/sessions/task.jsonl", title: "任务 A", selected: false, cwd: "/workspace", modified: "",
 			activity: activity("task", "/workspace", waiting ? "waiting" : busy ? "running" : "idle", unread) },
-		index: 0, count: 1, disabled: false, send: async () => true, open: () => {}, animated: false,
+		index: 0, count: 1, disabled: false, send: async () => {}, open: () => {}, animated: false,
 	})))).document;
 }
 
@@ -56,8 +56,7 @@ describe("工作区切换边框", () => {
 		for (const compact of [false, true]) {
 			const document = parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, createElement(WorkspacePicker, {
 				gui: { cwd: "/a", activity: items, workspaceRoot: "/a", workspaces: [], connected: true,
-					canNavigate: true, send: async () => true, globalQuery: async () => { throw new Error("不应查询"); },
-					error: "", setError: () => {} },
+					canNavigate: true, globalSend: async () => {}, globalQuery: async () => { throw new Error("不应查询"); } },
 				close: () => {}, compact,
 			})))).document;
 			expect(document.querySelector(".workspace-select.activity-frame > .activity-border")?.getAttribute("data-activity")).toBe(state);

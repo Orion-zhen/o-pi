@@ -4,6 +4,7 @@ import type { ModuleConfigChoice } from "../../../shared/config/modules.ts";
 import { ListItem } from "@/ui/motion/animated.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { Switch } from "@/ui/switch.tsx";
 import { ExternalLink } from "@/ui/content/external-link.tsx";
@@ -35,7 +36,7 @@ export function SearchProviderSettings({ path, choices, valueAt, defaultAt, chan
 	const auxiliary = readOrder(valueAt(auxiliaryPath), choices);
 	if (!primary || !auxiliary || !choices || new Set([...primary, ...auxiliary].map(({ value }) => value)).size !== choices.length
 		|| primary.length + auxiliary.length !== choices.length) {
-		return <p role="alert">搜索引擎分组无效。请恢复默认分组或编辑 JSONC。</p>;
+		return <Feedback message="搜索引擎分组无效，请恢复默认或编辑 JSONC" tone="error" />;
 	}
 	const groups = [
 		{ path, label: "主搜索引擎", order: primary, otherPath: auxiliaryPath, other: auxiliary, target: "辅助" },

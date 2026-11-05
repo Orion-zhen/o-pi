@@ -298,8 +298,10 @@ export class GuiExecution {
 				this.loginController = new AbortController();
 				this.publish();
 				this.emit({ type: "auth", value: { type: "progress", message: "正在准备登录…" } });
-				try { await runLogin(services.modelRuntime, action.provider, action.type, this.dialogs, (event) => this.emit(event), this.loginController.signal, () => services.settingsManager.getOrCreateDeviceId()); }
-				catch (error) { if (!this.loginController.signal.aborted) throw error; }
+				try { await runLogin(services.modelRuntime, action.provider, action.type, this.dialogs, (event) => this.emit(event), this.loginController, () => services.settingsManager.getOrCreateDeviceId()); }
+				catch (error) {
+					if (!this.loginController.signal.aborted || error !== this.loginController.signal.reason) throw error;
+				}
 				finally { this.loginController = undefined; this.emit({ type: "auth", value: null }); this.publish(); }
 				return;
 			case "logout": try { await services.modelRuntime.logout(action.provider); } finally { this.publish(); } return;
@@ -420,9 +422,8 @@ export class GuiExecution {
 					const mcpNames = new Set(this.mcpTools === null ? [] : this.mcpTools.list(session.getActiveToolNames()).map((tool) => tool.name));
 					applyToolPreset(session, this.toolset.controller, action.preset, mcpNames);
 				} else {
-					const file = await this.toolset.controller.persistUserDefaults();
+					await this.toolset.controller.persistUserDefaults();
 					await runtime.services.settingsManager.reload();
-					this.dialogs.notify(`已保存: ${file}`);
 				}
 				return;
 			case "saveConfig":

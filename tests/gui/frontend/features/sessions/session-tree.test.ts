@@ -22,7 +22,7 @@ function render(entry: SessionEntry) {
 	const manager = SessionManager.inMemory("/workspace", undefined, [{ type: "session", id: "fixture", version: 3, cwd: "/workspace", timestamp: entry.timestamp }, entry]);
 	const history = new GuiHistory(new GuiPayloads()).project(manager);
 	return parseHTML(renderWithMemory(createElement(SessionTree, {
-		entries: history.entries, leafId: entry.id, send: async () => true, locate() {},
+		entries: history.entries, leafId: entry.id, send: async () => {}, locate() {},
 	}))).document;
 }
 
@@ -70,7 +70,7 @@ it("多层分叉的连线和后续兄弟节点保持原有位置", () => {
 	manager.branch(root);
 	append("第三分支");
 	const { entries } = new GuiHistory(new GuiPayloads()).project(manager);
-	const document = parseHTML(renderWithMemory(createElement(SessionTree, { entries, leafId: manager.getLeafId(), send: async () => true, locate() {} }))).document;
+	const document = parseHTML(renderWithMemory(createElement(SessionTree, { entries, leafId: manager.getLeafId(), send: async () => {}, locate() {} }))).document;
 	const graphs = [...document.querySelectorAll(".tree-graph")];
 	expect(graphs.map((graph) => graph.getAttribute("width"))).toEqual(["18", "46", "60", "46", "32", "18"]);
 	expect(graphs.map((graph) => graph.querySelectorAll('path[d$="0V32"]').length)).toEqual([0, 2, 3, 2, 1, 0]);

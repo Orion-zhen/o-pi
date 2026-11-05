@@ -66,8 +66,8 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .sidebar[data-collapsed="true"] .sidebar-footer > button:last-child { margin-left: 0; }
 .modal-layer.sheet-layer { align-items: stretch; justify-content: flex-start; }
 .mobile-sidebar { flex-basis: 88%; max-inline-size: 100%; }
-.main-panel { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
-.conversation-canvas { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; min-block-size: 0; background: var(--canvas); backdrop-filter: var(--canvas-filter); }
+.main-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); flex: 1; min-width: 0; min-height: 0; }
+.conversation-canvas { grid-area: 2 / 1; display: flex; flex: 1; flex-direction: column; min-inline-size: 0; min-block-size: 0; background: var(--canvas); backdrop-filter: var(--canvas-filter); }
 .tool-count { font-variant-numeric: tabular-nums; }
 .topbar { display: flex; align-items: center; flex-shrink: 0; gap: var(--space-2); padding: var(--space-4) var(--content-inset); border-block-end: 1px solid var(--divider); background: var(--toolbar); backdrop-filter: var(--toolbar-filter); }
 .connection-status { --status-color: var(--muted-foreground); display: flex; align-items: center; gap: 0.5em; flex-shrink: 0; font-size: var(--text-small); color: var(--muted-foreground); }
@@ -75,13 +75,9 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .connection-status[data-state="就绪"] { --status-color: var(--success); }
 .connection-status[data-state="运行中"] { --status-color: var(--link); }
 .connection-status:is([data-state="连接中"], [data-state="等待操作"]) { --status-color: var(--warning); }
-.error-banner, .auth-banner { margin: 0.5rem 1rem 0; padding: 0.625rem 0.875rem; max-height: 30dvh; flex-shrink: 0; overflow: auto; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--secondary); }
-.error-banner { display: flex; align-items: center; gap: 0.5rem; color: var(--destructive); background: var(--danger-soft); border-color: color-mix(in srgb, var(--destructive) 30%, transparent); }
-.error-banner-content { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
-.error-banner-content p { margin: 0; }
-.error-banner-content summary { cursor: pointer; }
-.error-banner pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.error-banner pre, .auth-banner pre { margin: 0; }
+.auth-banner { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--content-inset); flex-shrink: 0; background: var(--secondary); border-block-end: thin solid var(--divider); }
+.auth-banner p { margin: 0; overflow-wrap: anywhere; }
+.auth-banner pre { margin: 0; }
 .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-block: 0.5rem; }
 .spacer { flex: 1; }
 .mobile-menu { display: none; }

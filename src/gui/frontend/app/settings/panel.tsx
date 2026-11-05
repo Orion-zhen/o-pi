@@ -5,7 +5,7 @@ import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Query, GlobalQuery } from "../../../shared/protocol/queries.ts";
 import type { GuiConfigDocument } from "../../../shared/config/preferences.ts";
 import type { ModuleConfigId } from "../../../shared/config/modules.ts";
-import type { ConfigCommand, Send } from "@/connection/connection.ts";
+import type { ConfigAction, GuiAction } from "../../../shared/protocol/actions.ts";
 import { Button } from "@/ui/button.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
@@ -23,8 +23,10 @@ import { settingsCategories, type SettingsCategory } from "./navigation.ts";
 import { SettingsCategoryContext, SettingsStateContext, useSettingsCoordinator } from "@/forms/drafts.tsx";
 import "./settings.css";
 
-export function Settings({ snapshot, guiConfig, send, dispatch, query, globalQuery, disabled, connected, refreshGuiConfig, onDirty, initialCategory }: {
-	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined; send: Send; dispatch: ConfigCommand; query: Query; globalQuery: Query<GlobalQuery>;
+export function Settings({ snapshot, guiConfig, dispatch, query, globalQuery, disabled, connected, refreshGuiConfig, onDirty, initialCategory }: {
+	snapshot: GuiSnapshot | null; guiConfig: GuiConfigDocument | undefined;
+	dispatch: (action: ConfigAction | Extract<GuiAction, { action: "removeStorage" }>) => Promise<void>;
+	query: Query; globalQuery: Query<GlobalQuery>;
 	disabled: boolean; connected: boolean; refreshGuiConfig: () => Promise<void>;
 	onDirty: (dirty: boolean) => void;
 	initialCategory?: "mcp" | undefined;
@@ -72,7 +74,7 @@ export function Settings({ snapshot, guiConfig, send, dispatch, query, globalQue
 				<GuiSettings title="桌面 Web 访问" section="desktopWeb" />
 				{module("discordPresence", "Discord 状态")}
 			</>;
-			case "storage": return <StorageSettings query={globalQuery} send={send} connected={connected} active={category === "storage"} />;
+			case "storage": return <StorageSettings query={globalQuery} send={dispatch} connected={connected} active={category === "storage"} />;
 			case "terminal": return module("tui", "终端界面");
 		}
 	};

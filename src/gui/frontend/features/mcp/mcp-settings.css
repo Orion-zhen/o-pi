@@ -25,6 +25,10 @@
 .mcp-args, .mcp-pairs { gap: 0; }
 .mcp-arg, .mcp-pair { padding-block-end: var(--space-2); }
 .mcp-field > label, .mcp-field-label { font-size: var(--text-small); font-weight: 500; }
+.mcp-field-inline { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: var(--space-4); grid-column: 1 / -1; }
+.mcp-field-inline > label { flex-shrink: 0; }
+.mcp-field-inline > :is(input, .mcp-secret) { flex: 1 1 auto; inline-size: auto; max-inline-size: 100%; }
+.mcp-field-inline > :is(p, .feedback) { flex: 1 1 100%; }
 .mcp-field-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2) var(--space-4); grid-column: 1 / -1; }
 .mcp-field-choice > .mcp-field-label { white-space: nowrap; }
 .mcp-field-choice > .settings-radio-group { justify-self: end; }
@@ -45,6 +49,5 @@
 .mcp-confirm p { flex: 1 1 100%; overflow-wrap: anywhere; }
 .mcp-command-paste { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); background: var(--secondary); border-radius: var(--radius-md); }
 .mcp-command-paste > input { flex: 1 1 25ch; inline-size: 25ch; }
-.mcp-command-paste > p { flex: 1 1 100%; }
+.mcp-command-paste > p, .mcp-command-paste > .feedback { flex: 1 1 100%; }
 .mcp-import-row { display: flex; flex-direction: column; gap: var(--space-2); padding-block: var(--space-2); }
-.mcp-issues { padding: var(--space-2); background: var(--secondary); border-radius: var(--radius-md); }

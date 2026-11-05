@@ -3,23 +3,28 @@ import type { GuiEvent } from "../../../shared/protocol/events.ts";
 import type { Send } from "@/connection/connection.ts";
 import { Button } from "@/ui/button.tsx";
 import { safeLink } from "@/ui/content/format.ts";
+import { Feedback } from "@/ui/feedback.tsx";
+import { AnimatePresence } from "motion/react";
+import { Reveal } from "@/ui/motion/animated.tsx";
 
-export function AuthBanner({ auth, url, deviceCode, send, onError }: {
+export function AuthBanner({ auth, url, deviceCode, send, error, onError }: {
 	auth: NonNullable<Extract<GuiEvent, { type: "auth" }>["value"]>;
 	url: string | undefined;
 	deviceCode: string | undefined;
 	send: Send;
+	error: string;
 	onError: (message: string) => void;
 }) {
 	return <div className="auth-banner">
 		<div className="flex items-center justify-between">
 			<span className="flex items-center gap-2"><ShieldCheck className="size-4" />模型认证</span>
 		</div>
-		{url && <p>请在认证页面完成登录，完成后会自动继续。未打开页面？点击下方按钮。</p>}
-		{deviceCode && <p>在认证页面输入设备码：<strong>{deviceCode}</strong></p>}
-		{(auth.type === "progress" || auth.type === "info") && <p role="status">{auth.message}</p>}
+		<Feedback message={url ? "在浏览器中完成登录" : ""} />
+		<AnimatePresence>{deviceCode && <Reveal><p>设备码：<strong>{deviceCode}</strong></p></Reveal>}</AnimatePresence>
+		<Feedback compact message={auth.type === "progress" || auth.type === "info" ? auth.message : ""} />
+		<Feedback compact message={error} tone="error" />
 		{auth.type === "info" && auth.links?.filter((link) => safeLink(link.url)).map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer">{link.label ?? link.url}</a>)}
-		{url && !window.opi && <p className="text-sm text-muted-foreground">远程连接时，本地回调可能无法到达后端；请使用提供方支持的设备码登录。</p>}
+		<Feedback message={url && !window.opi ? "远程访问建议使用设备码登录" : ""} />
 		<div className="toolbar">
 			{url && safeLink(url) && <Button variant="outline" size="sm" asChild>
 				<a href={url} target="_blank" rel="noreferrer" onClick={(event) => {
@@ -29,7 +34,7 @@ export function AuthBanner({ auth, url, deviceCode, send, onError }: {
 					}
 				}}><ExternalLink />打开认证页面</a>
 			</Button>}
-			<Button variant="ghost" size="sm" onClick={() => void send({ action: "cancelLogin" })}>取消登录</Button>
+			<Button variant="ghost" size="sm" onClick={() => void send({ action: "cancelLogin" }).catch((error: unknown) => onError(error instanceof Error ? error.message : String(error)))}>取消登录</Button>
 		</div>
 	</div>;
 }

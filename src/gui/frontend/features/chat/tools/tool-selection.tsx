@@ -6,7 +6,10 @@ import { LayoutGroup, motion } from "motion/react";
 import type { GuiSnapshot } from "../../../../shared/protocol/state.ts";
 import { TOOL_PRESETS, type ToolPreset } from "../../../../../harness/tool-defaults/types.ts";
 import type { Send } from "@/connection/connection.ts";
+import type { GuiAction } from "../../../../shared/protocol/actions.ts";
+import { useOperation } from "@/connection/use-operation.ts";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Checkbox } from "@/ui/checkbox.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
 import { SearchInput } from "@/ui/search-input.tsx";
@@ -17,6 +20,7 @@ import { McpExposureLabel } from "@/features/mcp/mcp-exposure.tsx";
 
 type Tool = GuiSnapshot["tools"][number];
 type McpGroup = { name: string; enabled: boolean; tools: Tool[] };
+type ChangeTool = (name: string, enabled: boolean) => void;
 const presetLabels: Record<ToolPreset, string> = {
 	vanilla: "Vanilla", "web-chat": "Web Chat", offline: "Offline", "no-tools": "No Tools",
 };
@@ -25,20 +29,18 @@ export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot:
 	const groupId = useId();
 	const presetHighlightId = useId();
 	const [filter, setFilter] = useState("");
-	const [pending, setPending] = useState<"save" | "preset" | null>(null);
-	const saving = pending === "save";
-	const applying = pending === "preset";
-	const disabled = blocked || pending !== null;
-	const applyPreset = async (preset: ToolPreset) => {
-		setPending("preset");
-		await send({ action: "toolPreset", preset });
-		setPending(null);
-	};
-	const persist = async () => {
-		setPending("save");
-		await send({ action: "persistTools" });
-		setPending(null);
-	};
+	const [saved, setSaved] = useState(false);
+	const operation = useOperation((action: Extract<GuiAction, { action: "tool" | "toolPreset" | "persistTools" }>) => send(action), (_, action) => {
+		if (action.action === "persistTools") setSaved(true);
+	});
+	const { run, error } = operation;
+	const changeTool: ChangeTool = (name, enabled) => run({ action: "tool", name, enabled });
+	const pending = operation.state.state === "pending" ? operation.state.args[0].action : null;
+	const saving = pending === "persistTools";
+	const applying = pending === "toolPreset";
+	const disabled = blocked || operation.pending;
+	const applyPreset = (preset: ToolPreset) => run({ action: "toolPreset", preset });
+	const persist = () => { setSaved(false); run({ action: "persistTools" }); };
 	const query = filter.trim().toLocaleLowerCase();
 	const matches = new Set(snapshot.tools.filter((tool) =>
 		`${tool.name} ${tool.description} ${tool.mcpServer?.name ?? ""} ${tool.mcpServer?.tool ?? ""}`.toLocaleLowerCase().includes(query),
@@ -60,6 +62,8 @@ export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot:
 				<MorphIcon icon={saving ? LoaderCircle : Save} spring="smooth" size="1em" className={saving ? "animate-spin" : undefined} />保存默认
 			</Button>
 		</div>
+		<Feedback compact message={error} tone="error" />
+		<Feedback message={saved && !snapshot.toolDefaultsChanged ? "已保存默认工具" : ""} tone="success" />
 		<ToggleGroup className="tool-selection-presets" type="single" size="sm" value={snapshot.toolPreset ?? ""}
 			disabled={disabled} aria-label="内置工具预设" aria-busy={applying}
 			onValueChange={(value) => {
@@ -72,18 +76,17 @@ export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot:
 			</ToggleGroupItem>)}
 		</ToggleGroup>
 		{!hasResults && <p className="tool-selection-empty" role="status">没有匹配的工具</p>}
-		{showCodemode && <ToolChoice tool={codemode} send={send} disabled={disabled} nested={false} />}
+		{showCodemode && <ToolChoice tool={codemode} change={changeTool} disabled={disabled} nested={false} />}
 		{enabled && children.length > 0 && <div className="tool-selection-children">
-			{children.map((tool) => <ToolChoice key={tool.name} tool={tool} send={send} disabled={disabled} nested />)}
+			{children.map((tool) => <ToolChoice key={tool.name} tool={tool} change={changeTool} disabled={disabled} nested />)}
 		</div>}
-		{peers.map((tool) => <ToolChoice key={tool.name} tool={tool} send={send} disabled={disabled} nested={false} />)}
-		{mcp.length > 0 && <McpToolSelection tools={mcp} matches={matches} query={query} send={send} disabled={disabled} />}
+		{peers.map((tool) => <ToolChoice key={tool.name} tool={tool} change={changeTool} disabled={disabled} nested={false} />)}
+		{mcp.length > 0 && <McpToolSelection tools={mcp} matches={matches} query={query} send={send} disabled={disabled} changeTool={changeTool} />}
 	</div></LayoutGroup>;
 }
 
-function McpToolSelection({ tools, matches, query, send, disabled }: { tools: Tool[]; matches: Set<string>; query: string; send: Send; disabled: boolean }) {
+function McpToolSelection({ tools, matches, query, send, disabled, changeTool }: { tools: Tool[]; matches: Set<string>; query: string; send: Send; disabled: boolean; changeTool: ChangeTool }) {
 	const id = useId();
-	const [pending, setPending] = useState(false);
 	const servers = new Map<string, McpGroup>();
 	const shared: Tool[] = [];
 	for (const tool of tools) {
@@ -94,15 +97,12 @@ function McpToolSelection({ tools, matches, query, send, disabled }: { tools: To
 	}
 	const visibleShared = shared.filter((tool) => matches.has(tool.name));
 	const visibleServers = [...servers.values()].filter(({ tools }) => tools.some((tool) => matches.has(tool.name)));
-	const changeSelection = async (names: string[], enabled: boolean, resources: Tool[] = []) => {
-		setPending(true);
-		try {
-			if (names.length > 0 && !await send({ action: "mcpServers", names, enabled })) return;
-			for (const tool of resources) {
-				if (tool.enabled !== enabled && !await send({ action: "tool", name: tool.name, enabled })) return;
-			}
-		} finally { setPending(false); }
-	};
+	const { run: changeSelection, pending, error } = useOperation(async (names: string[], enabled: boolean, resources: Tool[] = []) => {
+		if (names.length > 0) await send({ action: "mcpServers", names, enabled });
+		for (const tool of resources) {
+			if (tool.enabled !== enabled) await send({ action: "tool", name: tool.name, enabled });
+		}
+	});
 	const blocked = disabled || pending;
 	const states = [...visibleServers.map((group) => group.enabled), ...visibleShared.map((tool) => tool.enabled)];
 	const checked = states.every(Boolean) ? true : states.some(Boolean) ? "indeterminate" : false;
@@ -113,18 +113,19 @@ function McpToolSelection({ tools, matches, query, send, disabled }: { tools: To
 			<h3 id={id}><label className="tool-name" htmlFor={`${id}-toggle`} data-disabled={blocked || undefined}>MCP 服务工具</label></h3>
 			{query && <span className="mcp-selection-scope">仅匹配项</span>}
 		</div>
+		<Feedback compact message={error} tone="error" />
 		<div className="mcp-selection-body">
-			{[...servers.values()].map((group) => <McpToolGroup key={group.name} group={group} matches={matches} query={query} send={send} disabled={blocked} change={changeSelection} />)}
+			{[...servers.values()].map((group) => <McpToolGroup key={group.name} group={group} matches={matches} query={query} changeTool={changeTool} disabled={blocked} change={changeSelection} />)}
 			{visibleShared.length > 0 && <div className="mcp-shared-tools"><h4>共享资源</h4>
-				{visibleShared.map((tool) => <ToolChoice key={tool.name} tool={tool} send={send} disabled={blocked} nested={false} />)}
+				{visibleShared.map((tool) => <ToolChoice key={tool.name} tool={tool} change={changeTool} disabled={blocked} nested={false} />)}
 			</div>}
 		</div>
 	</section>;
 }
 
-function McpToolGroup({ group, matches, query, send, disabled, change }: {
-	group: McpGroup; matches: Set<string>; query: string; send: Send; disabled: boolean;
-	change(names: string[], enabled: boolean): Promise<void>;
+function McpToolGroup({ group, matches, query, changeTool, disabled, change }: {
+	group: McpGroup; matches: Set<string>; query: string; changeTool: ChangeTool; disabled: boolean;
+	change(names: string[], enabled: boolean): void;
 }) {
 	const id = useId();
 	const { name, tools, enabled } = group;
@@ -153,12 +154,12 @@ function McpToolGroup({ group, matches, query, send, disabled, change }: {
 			</CollapsibleTrigger>
 		</div>
 		<CollapsibleContent lazy><div className="tool-selection-children mcp-tool-group-tools">
-			{visible.map((tool) => <ToolChoice key={tool.name} tool={tool} send={send} disabled={disabled} nested={false} showExposure={mixed} />)}
+			{visible.map((tool) => <ToolChoice key={tool.name} tool={tool} change={changeTool} disabled={disabled} nested={false} showExposure={mixed} />)}
 		</div></CollapsibleContent>
 	</Collapsible>;
 }
 
-function ToolChoice({ tool, send, disabled, nested, showExposure = false }: { tool: Tool; send: Send; disabled: boolean; nested: boolean; showExposure?: boolean }) {
+function ToolChoice({ tool, change, disabled, nested, showExposure = false }: { tool: Tool; change: ChangeTool; disabled: boolean; nested: boolean; showExposure?: boolean }) {
 	const id = useId();
 	const name = tool.mcpServer?.tool ?? tool.name;
 	const alwaysCallable = nested && !tool.mcp && (tool.exposure === "codemode" || tool.exposure === "deferred");
@@ -166,7 +167,7 @@ function ToolChoice({ tool, send, disabled, nested, showExposure = false }: { to
 	return <motion.div className="list-row" data-tool-option={tool.name} layout="position" layoutId={tool.name} transition={settle}>
 		<Checkbox id={id} aria-label={tool.name}
 			checked={alwaysCallable ? tool.callable : tool.enabled} disabled={locked}
-			onCheckedChange={(checked) => void send({ action: "tool", name: tool.name, enabled: checked === true })} />
+			onCheckedChange={(checked) => change(tool.name, checked === true)} />
 		<div className="tool-choice-details">
 			<div className="tool-choice-heading">
 				<label className="tool-name" htmlFor={id} title={tool.name} data-disabled={locked || undefined}><strong>{name}</strong></label>

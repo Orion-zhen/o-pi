@@ -66,7 +66,7 @@ test("输入对话框在大字号和短窗口下保留自然按钮宽度及可�
 	const channel = await replayTranscript(page, guiSnapshot());
 	try {
 		await page.setViewportSize({ width: 390, height: 300 });
-		channel.accept({ type: "dialogs", value: [{ id: "layout-input", kind: "input", title: "需要确认的长标题".repeat(8), message: "输入备注", options: [], initial: "", deadline: null }] });
+		channel.accept({ type: "dialogs", value: [{ id: "layout-input", kind: "input", title: "需要确认的长标题".repeat(8), placeholder: "输入备注", initial: "", deadline: null }] });
 		const dialog = page.getByRole("dialog");
 		const input = dialog.getByRole("textbox", { name: "输入内容", exact: true });
 		await input.fill("布局验证");

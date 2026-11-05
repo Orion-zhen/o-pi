@@ -1,6 +1,7 @@
 import { useContext, useEffect, useState, type ReactNode } from "react";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import { ContentVisible } from "@/ui/collapsible.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 
 export function SearchApiKeyControl({ config, query, children }: {
 	config: string; query: Query<GlobalQuery>; children: ReactNode;
@@ -17,11 +18,11 @@ export function SearchApiKeyControl({ config, query, children }: {
 		);
 		return () => { active = false; };
 	}, [config, query, visible, editing]);
+	const result = status?.config === config ? status : undefined;
 	return <div className="search-api-key-control" onFocusCapture={() => setEditing(true)}
 		onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setEditing(false); }}>
 		{children}
-		{status?.config === config && ("error" in status
-			? <span role="alert">{status.error}</span>
-			: !status.available && <span role="status">不可用</span>)}
+		<Feedback compact message={result ? "error" in result ? result.error : result.available ? "" : "不可用" : ""}
+			tone={result && "error" in result ? "error" : "info"} />
 	</div>;
 }

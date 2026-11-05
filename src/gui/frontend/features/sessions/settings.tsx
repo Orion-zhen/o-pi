@@ -5,6 +5,7 @@ import type { ConfigCommand } from "@/connection/connection.ts";
 import { Switch } from "@/ui/switch.tsx";
 import { RadioGroup, RadioGroupItem } from "@/ui/radio-group.tsx";
 import { Label } from "@/ui/label.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { SourceEditor } from "@/forms/source-editor.tsx";
 import { SettingsRow, SettingsSection, SettingsSourceButton } from "@/forms/settings-controls.tsx";
 import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
@@ -34,12 +35,12 @@ export function AgentSettings({ settings: savedSettings, send, query, disabled }
 	const { saving } = useSettingsState();
 	const [error, setError] = useState("");
 	useSettingsDraft("agent", {
-		title: "会话行为", dirty: formDirty || sourceDirty, blocked: disabled,
-		save: sourceError ? null : async () => {
+		title: "会话行为", blocked: disabled,
+		plan: !formDirty && !sourceDirty ? { state: "clean" } : sourceError ? { state: "invalid" } : { state: "ready", save: async () => {
 			if (editor.kind === "file") await send({ action: "saveConfig", file: "settings.json", original: editor.original, content: editor.content });
 			else await send({ action: "settings", ...settings });
 			setEditor(editor.kind === "file" && editor.view === "source" ? { ...editor, original: editor.content } : { kind: "form" });
-		},
+		} },
 		discard: () => {
 			setEditor(editor.kind === "file" && editor.view === "source" ? { ...editor, content: editor.original } : { kind: "form" });
 			setError("");
@@ -71,7 +72,7 @@ export function AgentSettings({ settings: savedSettings, send, query, disabled }
 			onClick={() => setEditor(sourceDirty ? { ...editor, view: "form" } : { kind: "form" })} />}>
 			<SourceEditor file="settings.json" label="设置 JSON" value={editor.content} disabled={disabled || saving}
 				onChange={(content) => { setEditor({ ...editor, content }); setError(""); }} />
-			{sourceError && <p role="alert">{sourceError}</p>}
+			<Feedback message={sourceError} tone="error" />
 		</SettingsSection> : <>
 			<SettingsSection title="消息队列" actions={<SettingsSourceButton file="settings.json" disabled={loading || disabled || saving || formDirty} onClick={() => void openConfig()} />}>
 				<div className="settings-fields">{([["steering", "运行中消息"], ["followUp", "后续消息"]] as const).map(([key, label]) => <SettingsRow key={key} label={label} layout="choice">
@@ -84,6 +85,6 @@ export function AgentSettings({ settings: savedSettings, send, query, disabled }
 			<SettingsSection title="图片处理">{toggles([["autoResize", "自动缩放图片"], ["blockImages", "阻止图片发送"]])}</SettingsSection>
 			<SettingsSection title="会话维护">{toggles([["compaction", "自动压缩"], ["retry", "自动重试"]])}</SettingsSection>
 		</>}
-		{error && <p role="alert">{error}</p>}
+		<Feedback compact message={error} tone="error" />
 	</div>;
 }

@@ -1,4 +1,4 @@
-import type { GuiEvent } from "../gui/shared/protocol/events.ts";
+import type { FeedbackTone, GuiEvent } from "../gui/shared/protocol/events.ts";
 import type { GuiDelivery } from "../gui/shared/protocol/sync.ts";
 import type { GuiControl } from "../gui/shared/protocol/connection.ts";
 
@@ -6,7 +6,7 @@ export type BackendRequest = { kind: "action" | "query" | "resource" | "activeSe
 
 export type BackendControl = GuiControl
 	| { kind: "subscribe" | "unsubscribe" }
-	| { kind: "notice"; text: string };
+	| { kind: "feedback"; message: string; tone: FeedbackTone };
 
 export type BackendCommand = BackendRequest | BackendControl | { kind: "dispose" };
 

@@ -1,5 +1,5 @@
 import type { DesktopBridge } from "../../shared/protocol/desktop.ts";
-import type { ConfigAction, GuiAction, GuiActionResult } from "../../shared/protocol/actions.ts";
+import type { ConfigAction, GlobalAction, GuiAction, GuiActionResult, WorkspaceAction } from "../../shared/protocol/actions.ts";
 import type { GuiConnection, GuiControl } from "../../shared/protocol/connection.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { GuiQuery, GuiQueryResults } from "../../shared/protocol/queries.ts";
@@ -7,7 +7,8 @@ import { GuiReceiver, type GuiDelivery, type GuiFrame } from "../../shared/proto
 import { diagnosticContext } from "@/diagnostics/diagnostics.ts";
 import { notificationDestination, NOTIFICATION_PERMISSION_CHANGED } from "./notifications.ts";
 
-export type Send = (action: GuiAction) => Promise<boolean>;
+export type Send<A extends GuiAction = GuiAction> = (action: A) => Promise<void>;
+export type GlobalSend = Send<GlobalAction | WorkspaceAction>;
 export type ConfigCommand = (action: ConfigAction) => Promise<void>;
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "closed";
 export const connectionLabels: Record<ConnectionStatus, string> = {
@@ -63,7 +64,6 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 		onStatus("connected");
 		const unsubscribe = desktop.subscribe((delivery) => receive(delivery, desktop.acknowledge));
 		return {
-			attend: desktop.attend,
 			send: (action, sessionId) => { diagnosticContext({ lastAction: action.action }); return desktop.send(action, sessionId); },
 			query: desktop.query, subscribe,
 			close() { cancelFrame(); unsubscribe(); desktop.close(); listeners.clear(); },
@@ -73,12 +73,10 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	let socket: WebSocket;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let attempts = 0;
-	let viewedSession: string | null = null;
 	const control = (value: GuiControl) => {
 		if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
 	};
 	const reportAttention = () => control({ kind: "attention", value: {
-		sessionId: viewedSession,
 		focused: document.visibilityState === "visible" && document.hasFocus(),
 		destination: notificationDestination(),
 	} });
@@ -119,7 +117,6 @@ export function connectGui(onStatus: (status: ConnectionStatus) => void): GuiCon
 	};
 	open();
 	return {
-		attend(sessionId) { viewedSession = sessionId; reportAttention(); },
 		async send<A extends GuiAction>(value: A, sessionId: string | null): Promise<GuiActionResult<A>> {
 			diagnosticContext({ lastAction: value.action });
 			const response = await post("action", { value, sessionId });

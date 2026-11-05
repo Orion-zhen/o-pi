@@ -14,7 +14,7 @@ function connect(client: GuiClient) {
 	});
 	return {
 		events, close: connection.close,
-		attend: (focused: boolean) => connection.attend({ sessionId: client.selected?.id ?? null, focused, destination: "web:browser" }),
+		attend: (focused: boolean) => connection.attend({ focused, destination: "web:browser" }),
 	};
 }
 
@@ -22,7 +22,7 @@ export function notificationTests(context: () => { host: GuiClient; agentDir: st
 	describe("会话系统通知", () => {
 		preserveEnv("OPI_NO_NOTIFICATIONS");
 		beforeEach(() => { delete process.env.OPI_NO_NOTIFICATIONS; });
-		it("只抑制已展示的前台会话，后台完成取首条消息摘要", async () => {
+		it("前台不弹系统通知，切到后台才提醒完成", async () => {
 			const { host } = context();
 			const connection = connect(host);
 			const a = host.runtime.session.sessionId;
@@ -33,18 +33,18 @@ export function notificationTests(context: () => { host: GuiClient; agentDir: st
 			await host.dispatch({ action: "new" });
 			const b = host.runtime.session.sessionId;
 			await host.dispatch(prompt("后台任务第一条"), b);
-			expect(connection.events).toHaveLength(1);
-			connection.attend(true);
-			await host.dispatch(prompt("页面已展示新会话"), b);
-			expect(connection.events).toHaveLength(1);
+			expect(connection.events).toEqual([]);
 			await host.dispatch({ action: "openSession", id: a });
 			connection.attend(true);
+			await host.dispatch(prompt("前台查看其他会话"), b);
+			expect(connection.events).toEqual([]);
+			connection.attend(false);
 			await host.dispatch(prompt("后台任务第二条"), b);
-			expect(connection.events).toEqual([1, 2].map(() => ({ type: "notification", value: { kind: "completed", sessionId: b, name: undefined, firstMessage: "后台任务第一条" } })));
+			expect(connection.events).toEqual([{ type: "notification", value: { kind: "completed", sessionId: b, name: undefined, firstMessage: "后台任务第一条" } }]);
 			connection.close();
 		});
 
-		it("任一窗口关注目标会话就抑制，断连后同浏览器多标签只投递一次", async () => {
+		it("任一窗口在前台就抑制，断连后同浏览器多标签只投递一次", async () => {
 			const { host } = context();
 			const id = host.runtime.session.sessionId;
 			const second = host.host.createClient();
@@ -79,7 +79,7 @@ export function notificationTests(context: () => { host: GuiClient; agentDir: st
 			const execution = host.execution;
 			await host.dispatch({ action: "new" });
 			const connection = connect(host);
-			connection.attend(true);
+			connection.attend(false);
 			const task = host.dispatch(prompt("后台写文件"), id);
 			try {
 				await expect.poll(() => execution.dialogs.list().length).toBe(1);

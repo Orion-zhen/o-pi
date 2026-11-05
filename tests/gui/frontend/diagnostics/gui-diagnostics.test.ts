@@ -75,7 +75,7 @@ it("根组件卸载后独立面板保留摘要，折叠详情并可复制异常�
 	expect(panel?.parentElement).toBe(document.body);
 	expect(panel?.dataset.fatal).toBe("true");
 	expect(panel?.textContent).toContain("整页渲染失败");
-	expect(panel?.querySelector(".diagnostic-message")?.textContent).toBe("Error: 消息投影失败");
+	expect(panel?.querySelector(".diagnostic-message")?.textContent).toBe("消息投影失败");
 	expect(panel?.querySelector("details")?.hasAttribute("open")).toBe(false);
 	expect(panel?.querySelector("pre")?.textContent).toContain('"deliveryId": 7');
 	panel?.querySelector("button")?.click();

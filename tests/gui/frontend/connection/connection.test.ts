@@ -36,23 +36,20 @@ it("关注状态通过当前 WebSocket 按序发送，重连重新上报，关�
 	const first = sockets[0];
 	if (!first) throw new Error("缺少 WebSocket");
 	try {
-		connection.attend("a");
 		expect(first.sent).toEqual([]);
 		first.open();
-		expect(first.sent).toEqual([{ kind: "attention", value: { sessionId: "a", focused: true, destination: "web:browser" } }]);
+		expect(first.sent).toEqual([{ kind: "attention", value: { focused: true, destination: "web:browser" } }]);
 		document.hasFocus.mockReturnValue(false);
 		page.dispatchEvent(new Event("blur"));
-		connection.attend("b");
 		document.hasFocus.mockReturnValue(true);
 		page.dispatchEvent(new Event("focus"));
 		expect(first.sent.slice(1)).toEqual([
-			{ kind: "attention", value: { sessionId: "a", focused: false, destination: "web:browser" } },
-			{ kind: "attention", value: { sessionId: "b", focused: false, destination: "web:browser" } },
-			{ kind: "attention", value: { sessionId: "b", focused: true, destination: "web:browser" } },
+			{ kind: "attention", value: { focused: false, destination: "web:browser" } },
+			{ kind: "attention", value: { focused: true, destination: "web:browser" } },
 		]);
 		document.visibilityState = "hidden";
 		document.dispatchEvent(new Event("visibilitychange"));
-		expect(first.sent.at(-1)).toMatchObject({ value: { sessionId: "b", focused: false } });
+		expect(first.sent.at(-1)).toMatchObject({ value: { focused: false } });
 		permission.permission = "denied";
 		page.dispatchEvent(new Event(NOTIFICATION_PERMISSION_CHANGED));
 		expect(first.sent.at(-1)).toMatchObject({ value: { destination: null } });
@@ -61,13 +58,12 @@ it("关注状态通过当前 WebSocket 按序发送，重连重新上报，关�
 		const count = first.sent.length;
 		permission.permission = "granted";
 		page.dispatchEvent(new Event(NOTIFICATION_PERMISSION_CHANGED));
-		connection.attend("c");
 		expect(first.sent).toHaveLength(count);
 		await vi.advanceTimersByTimeAsync(1000);
 		const second = sockets[1];
 		if (!second) throw new Error("缺少重连 WebSocket");
 		second.open();
-		expect(second.sent).toEqual([{ kind: "attention", value: { sessionId: "c", focused: false, destination: "web:browser" } }]);
+		expect(second.sent).toEqual([{ kind: "attention", value: { focused: false, destination: "web:browser" } }]);
 		connection.close();
 		const reads = document.hasFocus.mock.calls.length;
 		document.visibilityState = "visible";

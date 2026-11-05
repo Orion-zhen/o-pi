@@ -4,6 +4,7 @@ import { RotateCcw } from "lucide-react";
 import { Code, List } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
@@ -72,10 +73,8 @@ export function SettingsActions({ count, saving, disabled, blocked, error, statu
 			{message && <Reveal key="status">
 				<div className="settings-action-message settings-save-status" role="status" aria-label={message}><TextMorph>{message}</TextMorph></div>
 			</Reveal>}
-			{error && <Reveal key="error">
-				<div className="settings-action-message"><p role="alert">{error}</p></div>
-			</Reveal>}
 		</AnimatePresence>
+		<div className="settings-action-message"><Feedback compact message={error} tone="error" /></div>
 		<div className="settings-action-buttons">
 			<Button disabled={disabled || saving || blocked || count === 0} aria-busy={saving} onClick={save}>保存</Button>
 			<Button variant="outline" disabled={saving || count === 0} onClick={discard}>放弃</Button>

@@ -61,7 +61,7 @@ it("Web 后台页面暂停绘制、发送窗口已满时，通知仍立即到达
 	} finally { connection.close(); channel.close(); }
 });
 
-it("浏览器授权后显示首条消息摘要，点击定位会话，撤销权限后停止发送", () => {
+it("浏览器通知不暴露消息内容，点击定位会话，撤销权限后停止发送", () => {
 	const shown = vi.fn();
 	const close = vi.fn();
 	let click: (() => void) | undefined;
@@ -78,7 +78,7 @@ it("浏览器授权后显示首条消息摘要，点击定位会话，撤销权�
 	const open = vi.fn();
 	expect(notificationDestination()).toBe("web:browser-id");
 	showBrowserNotification({ ...value, firstMessage: "首条\n 消息" }, open);
-	expect(shown).toHaveBeenCalledWith("OPi 任务完成", expect.objectContaining({ body: "首条 消息", silent: true }));
+	expect(shown).toHaveBeenCalledWith("任务已完成", expect.objectContaining({ body: "后台会话已完成本轮任务。", silent: true }));
 	click?.();
 	expect(open).toHaveBeenCalledOnce();
 	expect(focus).toHaveBeenCalledOnce();
@@ -95,25 +95,24 @@ it("Desktop 关注状态随原生窗口焦点、最小化和隐藏更新", () =>
 	const visible = vi.spyOn(window, "isVisible");
 	const minimized = vi.spyOn(window, "isMinimized");
 	const report = vi.fn();
-	const attend = trackDesktopAttention(window, report);
-	attend("a");
-	expect(report).toHaveBeenLastCalledWith({ sessionId: "a", focused: true, destination: "desktop" });
+	const reportAttention = trackDesktopAttention(window, report);
+	reportAttention();
+	expect(report).toHaveBeenLastCalledWith({ focused: true, destination: "desktop" });
 	focused.mockReturnValue(false);
 	window.emit("blur");
-	attend("b");
-	expect(report).toHaveBeenLastCalledWith({ sessionId: "b", focused: false, destination: "desktop" });
+	expect(report).toHaveBeenLastCalledWith({ focused: false, destination: "desktop" });
 	focused.mockReturnValue(true);
 	window.emit("focus");
-	expect(report).toHaveBeenLastCalledWith({ sessionId: "b", focused: true, destination: "desktop" });
+	expect(report).toHaveBeenLastCalledWith({ focused: true, destination: "desktop" });
 	minimized.mockReturnValue(true);
 	window.emit("minimize");
-	expect(report).toHaveBeenLastCalledWith({ sessionId: "b", focused: false, destination: "desktop" });
+	expect(report).toHaveBeenLastCalledWith({ focused: false, destination: "desktop" });
 	minimized.mockReturnValue(false);
 	window.emit("restore");
-	expect(report).toHaveBeenLastCalledWith({ sessionId: "b", focused: true, destination: "desktop" });
+	expect(report).toHaveBeenLastCalledWith({ focused: true, destination: "desktop" });
 	visible.mockReturnValue(false);
 	window.emit("hide");
-	expect(report).toHaveBeenLastCalledWith({ sessionId: "b", focused: false, destination: "desktop" });
+	expect(report).toHaveBeenLastCalledWith({ focused: false, destination: "desktop" });
 });
 
 it("后台任务完成不闪烁，审批请求提醒窗口，回到前台后不再闪烁", () => {
@@ -129,16 +128,16 @@ it("后台任务完成不闪烁，审批请求提醒窗口，回到前台后不�
 	expect(window.flashFrame).toHaveBeenCalledOnce();
 });
 
-it("Electron 审批通知使用会话名，点击定位会话，系统拒绝不影响后续通知", () => {
+it("Electron 通知不暴露会话名和命令，点击定位会话，系统拒绝不影响后续通知", () => {
 	const open = vi.fn();
 	const window = new BrowserWindow();
 	showDesktopNotification(window, { ...value, name: "检查文件", kind: "approval", toolName: "bash" }, "icon.png", open);
-	expect(electron.shown).toHaveBeenCalledWith({ title: "OPi 需要审批", body: "检查文件\nbash 请求执行权限", silent: false, icon: "icon.png" });
+	expect(electron.shown).toHaveBeenCalledWith({ title: "等待审批", body: "有操作需要你的许可。", silent: false, icon: "icon.png" });
 	electron.instances[0]?.emit("click");
 	expect(open).toHaveBeenCalledOnce();
 	electron.shown.mockImplementationOnce(() => { throw new Error("backend unavailable"); });
 	expect(() => showDesktopNotification(window, value, "icon.png", open)).not.toThrow();
 	showDesktopNotification(window, value, "icon.png", open);
-	expect(electron.shown).toHaveBeenLastCalledWith({ title: "OPi 任务完成", body: "检查后台任务", silent: true, icon: "icon.png" });
+	expect(electron.shown).toHaveBeenLastCalledWith({ title: "任务已完成", body: "后台会话已完成本轮任务。", silent: true, icon: "icon.png" });
 	electron.instances[2]?.emit("close");
 });

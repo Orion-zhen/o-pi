@@ -19,16 +19,15 @@ export interface GuiBashApproval {
 	command: string;
 	items: { action: ApprovalUnit["action"]; kind: ApprovalUnit["target"]["kind"]; target: string; reason: string }[];
 }
-export interface GuiDialog {
-	id: string;
-	kind: "select" | "confirm" | "input" | "editor" | "secret";
-	title: string;
-	message: string;
-	options: string[];
-	initial: string;
-	deadline: number | null;
-	bash?: GuiBashApproval;
-}
+export interface GuiDialogOption { label: string; value: string }
+export type GuiDialogContent = { title: string } & (
+	| { kind: "select"; options: readonly GuiDialogOption[] }
+	| { kind: "bashApproval"; approval: GuiBashApproval; options: readonly GuiDialogOption[] }
+	| { kind: "confirm"; message: string }
+	| { kind: "input" | "secret"; initial: string; placeholder: string }
+	| { kind: "editor"; initial: string }
+);
+export type GuiDialog = GuiDialogContent & { id: string; deadline: number | null };
 export interface GuiNotice {
 	id: string;
 	type: "info" | "warning" | "error";

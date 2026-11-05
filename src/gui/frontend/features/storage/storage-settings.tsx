@@ -3,8 +3,9 @@ import { AnimatePresence } from "motion/react";
 import { RefreshCw } from "lucide-react";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import type { StorageGroup } from "../../../shared/storage.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { GuiAction } from "../../../shared/protocol/actions.ts";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Crossfade } from "@/ui/motion/animated.tsx";
 import { SettingsHeading } from "@/forms/settings-controls.tsx";
 import { StorageGroupView, storageBytes, storageTotal } from "./storage-group.tsx";
@@ -15,7 +16,7 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 interface ManagedStorageGroup extends StorageGroup { clear(ids: string[]): Promise<void> }
 
 export function StorageSettings({ query, send, connected, active }: {
-	query: Query<GlobalQuery>; send: Send; connected: boolean; active: boolean;
+	query: Query<GlobalQuery>; send: (action: Extract<GuiAction, { action: "removeStorage" }>) => Promise<void>; connected: boolean; active: boolean;
 }) {
 	const [groups, setGroups] = useState<ManagedStorageGroup[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -31,9 +32,7 @@ export function StorageSettings({ query, send, connected, active }: {
 		setLoading(true); setScanError(""); setRemoval(null);
 		const backend = query({ query: "storage" }).then(({ groups }) => groups.map((group): ManagedStorageGroup => ({
 			...group,
-			async clear(ids) {
-				if (!await send({ action: "removeStorage", ids })) throw new Error("清理未完成，请查看错误提示并检查刷新后的结果。");
-			},
+			clear: (ids) => send({ action: "removeStorage", ids }),
 		})));
 		const bridge = window.opi;
 		const desktop = bridge ? bridge.readStorage().then((group): ManagedStorageGroup => ({ ...group, clear: bridge.clearStorage })) : Promise.resolve(null);
@@ -54,7 +53,7 @@ export function StorageSettings({ query, send, connected, active }: {
 		setDeleting(true); setActionError(""); setStatus("");
 		try {
 			await value.clear();
-			setStatus("清理完成，列表已重新统计。");
+			setStatus("清理完成");
 		} catch (error) { setActionError(message(error)); }
 		finally { setDeleting(false); setRemoval(null); setRevision((value) => value + 1); }
 	};
@@ -67,10 +66,10 @@ export function StorageSettings({ query, send, connected, active }: {
 				<Crossfade value={refreshing ? "loading" : "idle"}>{refreshing ? "刷新中…" : "刷新"}</Crossfade>
 			</Button>
 		</SettingsHeading>
-		{!connected && <p role="status">连接已断开，恢复后重新统计。</p>}
-		{scanError && <p role="alert">{scanError}</p>}
-		{actionError && <p role="alert">{actionError}</p>}
-		{!loading && status && <p role="status">{status}</p>}
+		<Feedback message={!connected ? "连接已断开，恢复后重新统计" : ""} />
+		<Feedback compact message={scanError} tone="error" />
+		<Feedback compact message={actionError} tone="error" />
+		<Feedback message={!loading ? status : ""} tone="success" />
 		{groups.length > 0 && <>
 			<dl className="storage-summary" aria-busy={loading}><div><dt>已识别文件大小</dt><dd>{storageBytes(storageTotal(entries))}</dd></div>
 				<div><dt>可清理条目大小</dt><dd>{storageBytes(storageTotal(entries.filter((entry) => !entry.blocked)))}</dd></div>

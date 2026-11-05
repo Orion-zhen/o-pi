@@ -4,6 +4,7 @@ import { Reveal } from "@/ui/motion/animated.tsx";
 import { Plus, Trash2 } from "lucide-react";
 import { mcpExposures, mcpObject, mcpTransports, type McpIssue } from "../../../shared/config/mcp-validation.ts";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Input } from "@/ui/input.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { SettingsDisclosure } from "@/forms/settings-controls.tsx";
@@ -19,10 +20,13 @@ export function McpServerForm({ server, issues, disabled, change }: {
 	const [commandText, setCommandText] = useState("");
 	const [commandError, setCommandError] = useState("");
 	const [transport, setTransport] = useState<boolean>();
-	if (!mcpObject(server.config)) return <p role="alert">服务配置不是对象，请使用 JSON 修复，或删除后重新添加。</p>;
+	if (!mcpObject(server.config)) return <Feedback message="服务配置不是对象，请使用 JSON 修复或重新添加" tone="error" />;
 	const config = server.config;
 	const editable = { ...server, config };
 	const remote = config.type === "http" || config.type === "streamable-http" || (config.type === undefined && "url" in config);
+	const advancedFields = ["description", "timeout", "exposure", "toolExposure", ...(!remote ? ["cwd"] : [])];
+	const formFields = ["name", "type", ...advancedFields, ...(remote ? ["url", "headers", "auth.provider"] : ["command", "args", "env"])];
+	const unplaced = issues.filter(({ field }) => !formFields.includes(field) && !(remote && field.startsWith("oauth.")));
 	const field = (key: string, value: unknown) => {
 		const next = { ...config };
 		if (value === undefined) delete next[key]; else next[key] = value;
@@ -40,7 +44,7 @@ export function McpServerForm({ server, issues, disabled, change }: {
 	};
 	return <fieldset className="mcp-server-form" disabled={disabled}>
 		<div className="mcp-form-grid">
-			<McpTextField label="服务名称" field="name" issues={issues} value={server.name} onChange={(name) => change({ ...server, name })} />
+			<McpTextField inline label="服务名称" field="name" issues={issues} value={server.name} onChange={(name) => change({ ...server, name })} />
 			<McpField inline label="连接方式" field="type" issues={issues}>
 				<McpChoice disabled={disabled} label="连接方式" value={remote ? "http" : "stdio"} options={mcpTransports} change={selectTransport} />
 			</McpField>
@@ -65,7 +69,7 @@ export function McpServerForm({ server, issues, disabled, change }: {
 					setPaste(false); setCommandText("");
 				}}>拆分到表单</Button>
 				<p className="settings-description">支持 POSIX 引号与转义。只拆分、不执行，将替换下面的程序和参数。Windows 路径请直接填写参数列表。</p>
-				{commandError && <p role="alert">{commandError}</p>}
+				<Feedback message={commandError} tone="error" />
 			</div>}
 			<McpTextField label="启动程序" field="command" issues={issues} value={config.command} placeholder="npx、uvx 或可执行文件路径" onChange={(value) => field("command", value)} />
 			<McpField label="启动参数" field="args" issues={issues} hint="每项是一个完整参数，路径含空格时无需添加引号。">
@@ -78,7 +82,7 @@ export function McpServerForm({ server, issues, disabled, change }: {
 				<McpPairs disabled={disabled} label="环境变量" rows={server.maps.env ?? []} change={(rows) => pairs("env", rows)} />
 			</McpField>
 		</>}
-		<SettingsDisclosure title="工具与高级设置">
+		<SettingsDisclosure title={`工具与高级设置${issues.some(({ field }) => advancedFields.includes(field)) ? "（需修复）" : ""}`}>
 			<div className="mcp-advanced">
 				{!remote && <McpTextField label="工作目录" field="cwd" issues={issues} value={config.cwd} hint="留空使用会话目录，相对路径也以会话目录为基准。" onChange={(value) => field("cwd", value || undefined)} />}
 				<McpTextField label="能力描述" field="description" issues={issues} value={config.description} hint="向模型说明这个服务提供什么能力，不只是界面备注。" onChange={(value) => field("description", value || undefined)} />
@@ -91,6 +95,6 @@ export function McpServerForm({ server, issues, disabled, change }: {
 				</McpField>
 			</div>
 		</SettingsDisclosure>
-		{issues.length > 0 && <div className="mcp-issues" role="alert">请修正：{[...new Set(issues.map((issue) => `${issue.field || "配置"}：${issue.message}`))].join(" ")}</div>}
+		<Feedback message={unplaced.map(({ field, message }) => `${field}：${message} 请使用 JSON 修复。`).join("\n")} tone="error" />
 	</fieldset>;
 }

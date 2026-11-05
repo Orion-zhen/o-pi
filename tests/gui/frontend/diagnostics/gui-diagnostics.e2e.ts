@@ -36,22 +36,26 @@ test("打开设置时资源加载失败只卸载弹窗，保留草稿且不发�
 	} finally { channel.close(); }
 });
 
-test("普通操作错误保留摘要，长文本可展开、键盘折叠和关闭", async ({ page }) => {
+test("错误轻提示只预览首行，详情保留原文，关闭后仍可继续编辑", async ({ page }) => {
 	const channel = await replayTranscript(page, emptySnapshot());
 	try {
 		await expect(page.getByRole("textbox", { name: "消息", exact: true })).toBeVisible();
-		channel.accept({ type: "error", message: `保存失败\n${"错误明细 ".repeat(200)}` });
-		const banner = page.locator(".error-banner");
-		await expect(banner.locator("p")).toHaveText("保存失败");
-		await expect(banner.locator("pre")).toBeHidden();
-		await banner.locator("summary").click();
-		await expect(banner.locator("pre")).toBeVisible();
+		const message = `保存失败\nEACCES: permission denied\n${"错误明细 ".repeat(200)}`;
+		channel.accept({ type: "feedback", message, tone: "error" });
+		const toast = page.locator(".toast");
+		await expect(toast.locator(".toast-message")).toHaveText("保存失败");
+		await expect(toast).not.toContainText("错误明细");
+		await expect(toast.getByRole("button", { name: "关闭通知" })).toBeInViewport();
+		await toast.getByRole("button", { name: "详情", exact: true }).click();
+		const detail = toast.locator("pre");
+		await expect(detail).toHaveText(message);
+		await expect(page.getByRole("dialog")).toHaveCount(0);
 		expect(await page.locator("body").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-		await expect(banner.locator("summary")).toBeFocused();
-		await page.keyboard.press("Enter");
-		await expect(banner.locator("pre")).toBeHidden();
-		await banner.getByRole("button", { name: "关闭错误提示" }).click();
-		await expect(banner).toHaveCount(0);
+		await page.keyboard.press("Escape");
+		await expect(detail).toBeHidden();
+		await toast.getByRole("button", { name: "关闭通知" }).click();
+		await expect(toast).toHaveCount(0);
+		await page.getByRole("textbox", { name: "消息", exact: true }).fill("继续编辑");
 		await expect(page.locator(".app")).toBeVisible();
 	} finally { channel.close(); }
 });

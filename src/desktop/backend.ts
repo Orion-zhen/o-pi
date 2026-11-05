@@ -61,7 +61,7 @@ if (!(await runChildProcess())) {
 				connection = undefined;
 				void client.dispatch({ action: "observe", visible: false }).catch((error: unknown) => gui.reportError(error));
 				return;
-			case "notice": gui.reportError(data.text); return;
+			case "feedback": client.emit({ type: "feedback", message: data.message, tone: data.tone }); return;
 			case "dispose":
 				void dispose().then(
 					() => process.exit(0),

@@ -17,68 +17,69 @@ import { Welcome } from "./welcome/welcome.tsx";
 import { WelcomeSurface } from "./welcome/welcome-surface.tsx";
 import { StartupChangelog } from "./welcome/startup-changelog.tsx";
 import type { useGui } from "./use-gui.ts";
+import type { ReadySession } from "@/features/sessions/session-state.ts";
 
 type ConversationControls = Pick<ReturnType<typeof useGui>,
-	"snapshot" | "notices" | "send" | "cwd" | "openFile" | "view" | "availableVersion" | "changelog" | "changelogShown"
+	"session" | "globalSend" | "cwd" | "openFile" | "availableVersion" | "changelog" | "changelogShown"
 	| "canSubmit" | "setPanel" | "editor" | "setDraft" | "guiConfig" | "sessionPanelOpen"
-	| "activity" | "workspaceRoot" | "workspaces" | "connected" | "canNavigate" | "globalQuery" | "error" | "setError">;
-
-/** 消息投影与渲染位于同一个异常边界内，不影响会话连接和输入草稿。 */
-export function ConversationContent({ gui, target, showWelcome, startup, closeSidebar, clearLocation, transcript }: {
-	gui: ConversationControls;
-	target: string | undefined;
-	showWelcome: boolean;
+	| "activity" | "workspaceRoot" | "workspaces" | "connected" | "canNavigate" | "globalQuery" | "setError">;
+type Props = {
+	gui: ConversationControls; target: string | undefined; showWelcome: boolean;
 	startup: Pick<ReturnType<typeof useStartupMotion>, "time" | "enterWelcome">;
-	closeSidebar: () => void;
-	clearLocation: () => void;
+	closeSidebar: () => void; clearLocation: () => void;
 	transcript: Pick<ReturnType<typeof useTranscriptScroll>, "toEntry" | "followLatest">;
-}) {
-	const { snapshot, notices, send } = gui;
+};
+
+/** 就绪会话拥有消息组件，加载阶段不构造半成品消息视图。 */
+export function ConversationContent(props: Props) {
+	const { gui, showWelcome, startup, closeSidebar } = props;
+	const session = gui.session;
+	if (session?.state === "ready") return <SessionConversation key={session.target.id} {...props} session={session} />;
+	return <>
+		{showWelcome && <Fade initial={false} className="welcome workspace-welcome"><WelcomeSurface {...startup}>
+			<h1>选择工作区</h1><p>打开项目目录，或从侧栏恢复历史会话。</p><WorkspacePicker gui={gui} close={closeSidebar} />
+		</WelcomeSurface></Fade>}
+		{session && groupNotices(session.notices).map((group) => <NoticeGroupView key={group.anchor} group={group} live
+			clear={(ids) => { void session.send({ action: "clearNotices", ids }).catch(gui.setError); }} />)}
+	</>;
+}
+
+function SessionConversation({ gui, session, target, showWelcome, startup, clearLocation, transcript }: Props & { session: ReadySession }) {
+	const { snapshot, notices, send, view } = session;
 	const openFileLinksExternally = gui.guiConfig?.state === "ready" && gui.guiConfig.value.openFileLinksExternally;
 	const fileLinks = useMemo(() => ({ cwd: gui.cwd, openFile: (path: string) => {
 		if (openFileLinksExternally && window.opi) {
 			void window.opi.openFile(gui.cwd, path).catch((error: unknown) => gui.setError(`无法打开文件：${error instanceof Error ? error.message : String(error)}`));
 		} else gui.openFile(path);
 	} }), [gui.cwd, gui.openFile, gui.setError, openFileLinksExternally]);
-	const located = useMemo(() => snapshot ? locateTranscript(snapshot, target) : undefined, [snapshot?.entries, snapshot?.contextEntryIds, snapshot?.leafId, target]);
-	const conversation = useMemo(() => snapshot && located ? {
-		snapshot, ...located,
-		source: { ...snapshot, messages: located.messages,
-			...(located.preview ? { streamingMessage: null, liveTools: [], streaming: false, retrying: false, compacting: false } : {}),
-		} satisfies TranscriptSource,
-	} : null, [snapshot, located]);
-	const count = conversation?.contextCount ?? 0;
+	const located = useMemo(() => locateTranscript(snapshot, target), [snapshot.entries, snapshot.contextEntryIds, snapshot.leafId, target]);
+	const source = useMemo(() => ({ ...snapshot, messages: located.messages,
+		...(located.preview ? { streamingMessage: null, liveTools: [], streaming: false, retrying: false, compacting: false } : {}),
+	} satisfies TranscriptSource), [snapshot, located]);
+	const count = located.contextCount;
 	const noticeGroups = useMemo(() => groupNotices(notices), [notices]);
-	const inlineGroups = useMemo(() => conversation?.preview ? [] : noticeGroups, [conversation?.preview, noticeGroups]);
-	const noticeTail = count + (conversation?.snapshot.streamingMessage ? 1 : 0);
-	const clearNoticeGroup = useCallback((ids: string[]) => { void send({ action: "clearNotices", ids }); }, [send]);
-	const inlineNotices = Boolean(conversation && !conversation.preview && count > 0);
+	const inlineGroups = useMemo(() => located.preview ? [] : noticeGroups, [located.preview, noticeGroups]);
+	const noticeTail = count + (snapshot.streamingMessage ? 1 : 0);
+	const clearNoticeGroup = useCallback((ids: string[]) => { void send({ action: "clearNotices", ids }).catch(gui.setError); }, [send, gui.setError]);
+	const inlineNotices = !located.preview && count > 0;
 	return <>
-		{conversation && gui.availableVersion && !conversation.preview && <div className="startup-version" role="status">Pi v{gui.availableVersion} 版本可用</div>}
-		{conversation && gui.changelog && !conversation.preview && <StartupChangelog value={gui.changelog} shown={gui.changelogShown} />}
+		{gui.availableVersion && !located.preview && <div className="startup-version" role="status">Pi v{gui.availableVersion} 版本可用</div>}
+		{gui.changelog && !located.preview && <StartupChangelog value={gui.changelog} shown={gui.changelogShown} />}
 		<AnimatePresence initial={false} mode="wait" presenceAffectsLayout={false}>
-			{showWelcome && !conversation && <Fade key="workspace-welcome" initial={false} className="welcome workspace-welcome">
-				<WelcomeSurface {...startup}>
-					<h1>选择工作区</h1>
-					<p>打开项目目录，或从侧栏恢复历史会话。</p>
-					<WorkspacePicker gui={gui} close={closeSidebar} />
-				</WelcomeSurface>
+			{showWelcome && <Fade key={`welcome-${snapshot.sessionId}`} initial={false} className="welcome">
+				<WelcomeSurface {...startup}><Welcome snapshot={snapshot} gui={gui} /></WelcomeSurface>
 			</Fade>}
-			{showWelcome && conversation && <Fade key={`welcome-${conversation.snapshot.sessionId}`} initial={false} className="welcome">
-				<WelcomeSurface {...startup}><Welcome snapshot={conversation.snapshot} gui={gui} /></WelcomeSurface>
-			</Fade>}
-			{conversation && (count > 0 || conversation.preview) && <Fade className="flex min-w-0 flex-col" key={conversation.preview ? `${conversation.snapshot.sessionId}:${target}` : conversation.snapshot.sessionId}
+			{(count > 0 || located.preview) && <Fade className="flex min-w-0 flex-col" key={located.preview ? `${snapshot.sessionId}:${target}` : snapshot.sessionId}
 				onAnimationComplete={() => { if (target) transcript.toEntry(target); }}>
-				{conversation.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { clearLocation(); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
-				<FileLinksContext value={fileLinks}><DisclosureMemoryContext value={gui.view?.disclosures}>
-					<MessageActionsProvider entries={conversation.entriesById} visible={!gui.sessionPanelOpen} send={send}>
-						<Transcript source={conversation.source} entryIds={conversation.entryIds} prunedToolCallIds={conversation.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} />
+				{located.preview && <div className="toolbar" role="status">正在只读预览历史分支或已压缩消息<Button variant="outline" onClick={() => { clearLocation(); requestAnimationFrame(transcript.followLatest); }}>返回当前会话</Button></div>}
+				<FileLinksContext value={fileLinks}><DisclosureMemoryContext value={view.disclosures}>
+					<MessageActionsProvider entries={located.entriesById} visible={!gui.sessionPanelOpen} send={send}>
+						<Transcript source={source} entryIds={located.entryIds} prunedToolCallIds={located.prunedToolCallIds} groups={inlineGroups} tail={noticeTail} clear={clearNoticeGroup} />
 					</MessageActionsProvider>
 				</DisclosureMemoryContext></FileLinksContext>
 			</Fade>}
 		</AnimatePresence>
-		{conversation && !conversation.preview && conversation.snapshot.bashCommand !== null &&
-			<BashExecution command={conversation.snapshot.bashCommand} output={conversation.snapshot.bashOutput} />}
+		{!located.preview && snapshot.bashCommand !== null && <BashExecution command={snapshot.bashCommand} output={snapshot.bashOutput} />}
 		<AnimatePresence initial={false}>{!inlineNotices && noticeGroups.map((group) =>
 			<NoticeGroupView key={group.anchor} group={group} live={group.anchor >= noticeTail} clear={clearNoticeGroup} />)}</AnimatePresence>
 	</>;

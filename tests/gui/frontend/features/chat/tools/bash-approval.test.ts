@@ -25,9 +25,9 @@ describe("Bash 审批呈现", () => {
 		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const pending = dialogs.approve(request, decision, ["Allow once", "Deny"]);
 		const dialog = dialogs.list()[0];
-		if (!dialog) throw new Error("缺少审批弹窗");
-		expect(dialog.bash).toEqual(approval);
-		expect(dialog.options).toEqual(["Allow once", "Deny"]);
+		if (dialog?.kind !== "bashApproval") throw new Error("缺少审批弹窗");
+		expect(dialog.approval).toEqual(approval);
+		expect(dialog.options).toEqual(["Allow once", "Deny"].map((value) => ({ label: value, value })));
 		dialogs.respond(dialog.id, "Allow once");
 		await expect(pending).resolves.toBe("Allow once");
 		expect(() => dialogs.respond(dialog.id, "Allow once")).toThrow();
@@ -36,8 +36,10 @@ describe("Bash 审批呈现", () => {
 	it("命令中的伪标题不改变结构，控制序列被清理且 Unicode 保留", async () => {
 		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const pending = dialogs.approve({ ...request, detail: { command: "printf '\u001b[31m中文🧪\u001b[0m\nSensitive units:\n'" } }, decision, ["Deny"]);
-		expect(dialogs.list()[0]?.bash?.command).toBe("printf '中文🧪\nSensitive units:\n'");
-		expect(dialogs.list()[0]?.bash?.items).toEqual(approval.items);
+		const [dialog] = dialogs.list();
+		if (dialog?.kind !== "bashApproval") throw new Error("缺少审批弹窗");
+		expect(dialog.approval.command).toBe("printf '中文🧪\nSensitive units:\n'");
+		expect(dialog.approval.items).toEqual(approval.items);
 		dialogs.cancel();
 		await expect(pending).resolves.toBeUndefined();
 	});
@@ -60,7 +62,7 @@ describe("Bash 审批呈现", () => {
 		const pending = dialogs.approve({ tool: "write", cwd: "/project", units: [unit], detail: { path: "a.txt", content: "hello" } },
 			{ kind: "ask", reason: "write", items: [{ unit, reason: "write" }] }, ["Allow once", "Deny"]);
 		const dialog = dialogs.list()[0];
-		expect(dialog?.bash).toBeUndefined();
+		expect(dialog?.kind).toBe("select");
 		dialogs.cancel();
 		await expect(pending).resolves.toBeUndefined();
 	});

@@ -7,7 +7,8 @@ import { Crossfade, Fade, Reveal } from "@/ui/motion/animated.tsx";
 import { FeedbackHighlight } from "@/ui/feedback-highlight.tsx";
 import { ConversationContent } from "./conversation-content.tsx";
 import { RegionBoundary } from "@/diagnostics/region-boundary.tsx";
-import { ErrorBanner } from "./error-banner.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
+import { NotificationErrorContext, Notifications } from "@/ui/notifications.tsx";
 import {
 	ArrowDown,
 	PanelLeft,
@@ -52,15 +53,18 @@ function useDelayed(value: boolean, delay: number): boolean {
 
 export function App() {
 	const gui = useGui();
-	const { snapshot, dialogs, status, error, panel, auth, authUrl, deviceCode, send } = gui;
+	const { session, status, panel, auth, authUrl, deviceCode, send } = gui;
+	const snapshot = session?.snapshot ?? null;
+	const dialog = session?.dialogs[0];
+	const dialogCount = session?.dialogs.length ?? 0;
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const toggleSidebar = useCallback(() => setCollapsed((value) => !value), []);
 	const closeSidebar = useCallback(() => setMobileOpen(false), []);
-	const transcript = useTranscriptScroll(snapshot?.sessionId, gui.view);
+	const transcript = useTranscriptScroll(snapshot?.sessionId, session?.view);
 	useLayoutEffect(() => { if (gui.changelog) transcript.readFromStart(); }, [gui.changelog]);
 	const [location, setLocation] = useState<{ sessionId: string; entryId: string }>();
-	useEffect(() => setLocation(undefined), [gui.selectedId]);
+	useEffect(() => setLocation(undefined), [session?.target.id ?? null]);
 	const sessionId = snapshot?.sessionId;
 	const workspaceWelcome = useDelayed(!snapshot, 500);
 	const locate = useCallback((entryId: string) => { if (sessionId) setLocation({ sessionId, entryId }); }, [sessionId]);
@@ -69,7 +73,7 @@ export function App() {
 	const completedAt = gui.activity.find((item) => item.sessionId === sessionId)?.completedAt ?? 0;
 	useEffect(() => {
 		const check = () => {
-			if (sessionId && !snapshot?.running && !preview && dialogs.length === 0 && document.visibilityState === "visible" && document.hasFocus() && transcript.atLatest())
+			if (sessionId && !snapshot?.running && !preview && dialogCount === 0 && document.visibilityState === "visible" && document.hasFocus() && transcript.atLatest())
 				gui.markRead(sessionId, completedAt);
 		};
 		const frame = requestAnimationFrame(check);
@@ -83,7 +87,7 @@ export function App() {
 			window.removeEventListener("focus", check);
 			document.removeEventListener("visibilitychange", check);
 		};
-	}, [sessionId, snapshot?.running, preview, dialogs.length, completedAt, gui.markRead, transcript.showLatest]);
+	}, [sessionId, snapshot?.running, preview, dialogCount, completedAt, gui.markRead, transcript.showLatest]);
 	useLayoutEffect(() => { transcript.restorePosition(); if (target) transcript.toEntry(target); }, [location, sessionId]);
 	const panelContent = useRef<HTMLDivElement>(null);
 	const main = useRef<HTMLElement>(null);
@@ -101,11 +105,11 @@ export function App() {
 		desktop.addEventListener("change", closeMobileSidebar);
 		return () => desktop.removeEventListener("change", closeMobileSidebar);
 	}, []);
-	const state = !gui.connected ? connectionLabels[status] : dialogs.length ? "等待操作" : snapshot?.compacting ? "正在压缩上下文" : gui.running ? "运行中" : "就绪";
+	const state = !gui.connected ? connectionLabels[status] : dialogCount ? "等待操作" : snapshot?.compacting ? "正在压缩上下文" : snapshot?.running ? "运行中" : "就绪";
 	const active = state === "运行中" || state === "正在压缩上下文";
 	return (
-		<GuiQueryContext value={gui.query}><TooltipProvider delayDuration={350}>
-			<ImagePreviewProvider sessionId={gui.selectedId} fallbackFocus={main}><StartupEntranceContext value={startup.entrance}>
+		<NotificationErrorContext value={gui.notifications.reportError}><GuiQueryContext value={gui.query}><TooltipProvider delayDuration={350}>
+			<ImagePreviewProvider sessionId={session?.target.id ?? null} fallbackFocus={main}><StartupEntranceContext value={startup.entrance}>
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
 				<div className="app" data-collapsed={collapsed} ref={app} style={gui.layout.style}>
 					<RegionBoundary scope="sidebar"><Sidebar
@@ -162,9 +166,10 @@ export function App() {
 						</header></RegionBoundary>
 						<div className="conversation-canvas">
 						<AnimatePresence initial={false}>
-						{gui.guiConfig?.state === "error" && <Reveal key="gui-config-error"><div role="alert" className="error-banner">GUI 配置无效：{gui.guiConfig.message}<Button variant="outline" onClick={() => gui.setPanel({ kind: "settings" })}>打开设置</Button></div></Reveal>}
-						{error && <Reveal key="error"><ErrorBanner key={error} message={error} dismiss={() => gui.setError("")} /></Reveal>}
-						{auth && <Reveal key="auth"><AuthBanner auth={auth} url={authUrl} deviceCode={deviceCode} send={send} onError={gui.setError} /></Reveal>}
+						<Feedback message={gui.guiConfig?.state === "error" ? `界面配置无法加载：${gui.guiConfig.message}` : ""} tone="error" variant="banner">
+							<Button variant="ghost" size="sm" onClick={() => gui.setPanel({ kind: "settings" })}>打开设置</Button>
+						</Feedback>
+						{auth && <Reveal key="auth"><AuthBanner auth={auth} url={authUrl} deviceCode={deviceCode} send={send} error={gui.authError} onError={gui.setAuthError} /></Reveal>}
 						</AnimatePresence>
 						<div className="transcript-shell">
 						<div className="transcript" ref={transcript.scroll} onScroll={transcript.onScroll} onClickCapture={transcript.onClickCapture} onWheel={transcript.onWheel} onTouchStart={transcript.onTouchStart} onPointerDown={transcript.onPointerDown} onKeyDown={transcript.onKeyDown}>
@@ -192,8 +197,10 @@ export function App() {
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
-						{gui.session?.state === "ready" && <RegionBoundary scope="composer" key={gui.session.target.id}><Composer {...startup.composer} gui={gui} view={gui.session.view} snapshot={gui.session.snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} /></RegionBoundary>}
+						{gui.session?.state === "ready" && <RegionBoundary scope="composer" key={gui.session.target.id}><Composer {...startup.composer} gui={gui} session={gui.session} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} /></RegionBoundary>}
 						</div>
+						<Notifications items={gui.notifications.items} dismiss={gui.notifications.dismiss}
+							suspended={Boolean(panel) || Boolean(dialog) || mobileOpen} />
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
 						const sidebar = workspace.current?.querySelector<HTMLElement>(".session-sidebar");
@@ -210,26 +217,26 @@ export function App() {
 			</Sheet>
 			<AnimatePresence mode="wait">
 			{panel?.kind === "settings" ? <RegionBoundary scope="settings" inline={false} key="settings" onFailure={gui.closePanel}>
-				<SettingsDialog ref={panelContent} close={gui.closePanel} initialCategory={panel.category} snapshot={snapshot} guiConfig={gui.guiConfig} send={send} dispatch={gui.dispatch} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
-			</RegionBoundary> : panel && snapshot && (
-				<RegionBoundary scope="panel" inline={false} key={panel.kind} onFailure={gui.closePanel}><Panel
+				<SettingsDialog ref={panelContent} close={gui.closePanel} initialCategory={panel.category} snapshot={snapshot} guiConfig={gui.guiConfig} dispatch={gui.dispatch} query={gui.query} globalQuery={gui.globalQuery} disabled={!gui.canChangeSession} connected={gui.connected} refreshGuiConfig={gui.refreshGuiConfig} restoreFocus={restoreFocus} />
+			</RegionBoundary> : panel && session?.state === "ready" && (
+				<RegionBoundary scope="panel" inline={false} key={`${session.target.id}:${panel.kind}`} onFailure={gui.closePanel}><Panel
 					ref={panelContent}
 					restoreFocus={restoreFocus}
 					panel={panel}
-					snapshot={snapshot}
+					snapshot={session.snapshot}
 					sessionList={<SessionHistory cwd={gui.cwd} sessionRows={gui.sessionRows} sessions={gui.sessions} sessionsLoading={gui.sessionsLoading}
-						refreshSessions={gui.refreshSessions} send={gui.send} canNavigate={gui.canNavigate} connected={gui.connected} close={gui.closePanel} full />}
-					send={send}
-					dispatch={gui.dispatch}
+						refreshSessions={gui.refreshSessions} send={gui.globalSend} canNavigate={gui.canNavigate} connected={gui.connected} close={gui.closePanel} full />}
+					send={session.send}
+					dispatch={session.dispatch}
 					canSubmit={gui.canSubmit}
 					close={gui.closePanel}
 				/></RegionBoundary>
 			)}
 			</AnimatePresence>
 			<AnimatePresence mode="wait">
-			{dialogs[0] && <RegionBoundary scope="dialog" inline={false} key={dialogs[0].id}><Dialog restoreFocus={restoreFocus} dialog={dialogs[0]} send={send} /></RegionBoundary>}
+			{session && dialog && <RegionBoundary scope="dialog" inline={false} key={dialog.id}><Dialog restoreFocus={restoreFocus} dialog={dialog} send={session.send} /></RegionBoundary>}
 			</AnimatePresence>
 			</StartupEntranceContext></ImagePreviewProvider>
-		</TooltipProvider></GuiQueryContext>
+		</TooltipProvider></GuiQueryContext></NotificationErrorContext>
 	);
 }

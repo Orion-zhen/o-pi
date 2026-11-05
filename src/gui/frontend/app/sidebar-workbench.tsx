@@ -36,13 +36,13 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 					<div className="session-search-controls">
 						<div className="session-search"><Search aria-hidden="true" /><SearchInput aria-label="搜索会话" placeholder="搜索标题和内容…" maxLength={256} value={sessionSearch.text} onValueChange={sessionSearch.setText} /></div>
 						<Hint content="新建会话"><Button variant="outline" className="session-create" aria-label="新建会话" disabled={blocked}
-							onClick={() => { void gui.send({ action: "new" }); close(); }}>
+							onClick={() => { void gui.send({ action: "new" }).catch(gui.setError); close(); }}>
 							<Plus aria-hidden="true" /><span className="session-create-label">新建</span>
 						</Button></Hint>
 					</div>
 				</div>
 				<SessionHistory cwd={gui.cwd} sessionRows={gui.sessionRows} sessions={gui.sessions} sessionsLoading={gui.sessionsLoading}
-					refreshSessions={gui.refreshSessions} send={gui.send} canNavigate={gui.canNavigate} connected={gui.connected} close={close} search={sessionSearch.result} />
+					refreshSessions={gui.refreshSessions} send={gui.globalSend} canNavigate={gui.canNavigate} connected={gui.connected} close={close} search={sessionSearch.result} />
 			</div>
 			<ResizeHandle className="workbench-separator" label="调整会话与文件区域" axis="y" value={gui.layout.values.files}
 				change={(value, persist) => gui.layout.set("files", value, persist)} measure={() => {

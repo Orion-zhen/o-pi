@@ -217,12 +217,11 @@ it("源码拒绝空文本，不能通过切换表单绕过清空配置的要求"
 	for (const content of ["", " ", "\n\t"]) {
 		expect(() => parseMcpConfig(content)).toThrow("请使用 {} 清空配置");
 		const source = readMcpSource(content, "{}");
-		expect(source.value).toBeUndefined();
-		expect(source.error).toContain("请使用 {} 清空配置");
+		expect(source.parsed).toEqual({ state: "invalid", message: expect.stringContaining("请使用 {} 清空配置") });
 		expect(source.sourceEdited).toBe(true);
 		expect(mcpEditorView(source).content).toBe(content);
 	}
-	expect(readMcpSource("", "")).toMatchObject({ value: {}, error: "", sourceEdited: false });
+	expect(readMcpSource("", "")).toMatchObject({ parsed: { state: "parsed", value: {} }, sourceEdited: false });
 });
 
 it("启动命令粘贴保留引号内空格和空参数，不执行 shell", () => {

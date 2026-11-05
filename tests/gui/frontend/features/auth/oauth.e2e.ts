@@ -16,9 +16,8 @@ test("OAuth 打开认证页面，可取消和重试", async ({ gui: { page } }) 
 		await prompt.getByRole("button", { name: "取消", exact: true }).click();
 		await expect(prompt).toHaveCount(0);
 		await expect(page.locator(".auth-banner")).toHaveCount(0);
-		await expect(page.locator(".error-banner")).toContainText("登录已取消。");
-		await page.getByRole("button", { name: "关闭错误提示", exact: true }).click();
-		await expect(page.locator(".error-banner")).toHaveCount(0);
+		await expect(page.locator(".toast")).toHaveCount(0);
+		await expect(page.locator(".notices")).toHaveCount(0);
 		opened = "";
 	}
 });

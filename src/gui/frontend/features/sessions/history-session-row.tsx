@@ -7,7 +7,10 @@ import { Pencil } from "lucide-react";
 import { MessageSquare } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { FilledShield } from "@/ui/icon-shapes.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { GlobalAction } from "../../../shared/protocol/actions.ts";
+import { Feedback } from "@/ui/feedback.tsx";
+import { useOperation } from "@/connection/use-operation.ts";
+import type { GlobalSend } from "@/connection/connection.ts";
 import type { SessionListItem } from "./session-list.ts";
 import type { SessionSearchHit } from "../../../shared/session-search.ts";
 import { SearchExcerptText } from "./search-excerpt.tsx";
@@ -22,7 +25,7 @@ import { ActivityBorder } from "./activity-border.tsx";
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" });
 
 export const HistorySessionRow = memo(function HistorySessionRow({ item, index, count, disabled, send, open, animated, match }: {
-	item: SessionListItem; index: number; count: number; disabled: boolean; send: Send; open: (item: SessionListItem) => void; animated: boolean;
+	item: SessionListItem; index: number; count: number; disabled: boolean; send: GlobalSend; open: (item: SessionListItem) => void; animated: boolean;
 	match?: SessionSearchHit | undefined;
 }) {
 	const { path, title, modified, selected, activity } = item;
@@ -31,15 +34,14 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 	const waiting = activity?.state === "waiting";
 	const unread = activity?.unread === true;
 	const [editing, setEditing] = useState(false);
-	const [pending, setPending] = useState(false);
+	const { run, pending, error } = useOperation((action: GlobalAction) => send(action));
 	const state = waiting ? "waiting" : busy ? "running" : unread ? "unread" : "idle";
 	const content = <>
 		<ActivityBorder state={state} />
 		{editing ? <SessionNameInput name={title} finish={(name) => {
 			setEditing(false);
 			if (name === title || !path) return;
-			setPending(true);
-			void send({ action: "renameSession", path, name }).finally(() => setPending(false));
+			void run({ action: "renameSession", path, name });
 		}} /> : <Hint content={modified ? new Date(modified).toLocaleString("zh-CN") : undefined}><Button variant="ghost" className="history-session" aria-label={title}
 			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || (pending && !waiting)}
 			onClick={() => open(item)}>
@@ -55,17 +57,16 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 			<IconButton label={`重命名会话 ${title}`} tooltip={`重命名 · ${modifierKey} 自动生成`} className="row-action-button" disabled={disabled || pending || editing}
 				onClick={(event) => {
 					if (!(event.ctrlKey || event.metaKey)) { setEditing(true); return; }
-					setPending(true);
-					void send({ action: "autoTitleSession", path }).finally(() => setPending(false));
+					void run({ action: "autoTitleSession", path });
 				}}><Pencil /></IconButton>
 			{!busy && !waiting && !unread && <ConfirmAction label={`删除会话 ${title}`}
-				disabled={disabled || pending || editing} allowShortcut confirm={() => send({ action: "deleteSession", path })} />}
+				disabled={disabled || pending || editing} allowShortcut confirm={() => run({ action: "deleteSession", path })} />}
 		</div>}
 	</>;
 	const props = { className: "history-session-row overlay-list-row activity-frame", "data-current": selected, "data-editing": editing };
 	const lists = useStartupLists();
 	const entrance = startupRow(lists, index, count, sessionListTiming);
-	return <Fade {...props} {...(entrance ?? { initial: animated ? fade.initial : false, animate: { ...fade.animate, ...listDepth.visible } })}
+	return <><Fade {...props} {...(entrance ?? { initial: animated ? fade.initial : false, animate: { ...fade.animate, ...listDepth.visible } })}
 		variants={{ exit: (visible: ReadonlySet<string>) => visible.has(item.key) ? { opacity: 1, transition: { duration: 0 } } : listDeparture }}
-		exit="exit">{content}</Fade>;
+		exit="exit">{content}</Fade><Feedback compact message={error} tone="error" /></>;
 });

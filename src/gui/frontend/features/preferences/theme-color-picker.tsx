@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { ChevronDown, RotateCcw } from "lucide-react";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Input } from "@/ui/input.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover.tsx";
@@ -72,6 +73,6 @@ function ThemeColorEditor({ savedValue, value, defaultValue, disabled, change }:
 			}} onBlur={commitHex} onKeyDown={(event) => {
 				if (event.key === "Enter") { event.preventDefault(); commitHex(); }
 			}} /></label>
-		{!valid && <p role="alert">请输入 #RRGGBB 格式的颜色。</p>}
+		<Feedback message={!valid ? "请输入 #RRGGBB 格式的颜色" : ""} tone="error" />
 	</>;
 }

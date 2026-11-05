@@ -73,7 +73,7 @@ export async function runBuiltin(host: GuiExecution, text: string, execute: (act
 			else host.emit({ type: "sessionTab", tab: "tree" });
 			break;
 		case "name": {
-			const value = args || (await host.dialogs.ask("input", "会话名称", "", [], session.sessionName ?? ""));
+			const value = args || (await host.dialogs.ask({ kind: "input", title: "会话名称", placeholder: "", initial: session.sessionName ?? "" }));
 			if (value) await execute({ action: "rename", name: value });
 			break;
 		}

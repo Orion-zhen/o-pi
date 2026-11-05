@@ -21,6 +21,7 @@ import { multiSessionTests } from "./session/multi-session-cases.ts";
 import { newSessionTests } from "./session/new-session-cases.ts";
 import { changelogTests } from "./changelog-cases.ts";
 import { notificationTests } from "./session/notification-cases.ts";
+import { loginTests } from "./session/login-cases.ts";
 import { usageCreditTests } from "./session/usage-credit-cases.ts";
 import { autoTitleTests } from "./session/auto-title-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
@@ -109,6 +110,7 @@ multiSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "age
 newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 notificationTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
+loginTests(() => ({ host, events }));
 usageCreditTests(() => ({ host, events }));
 autoTitleTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), requests: server.requests, setReply: (reply) => { titleReply = reply; } }));
 
@@ -292,7 +294,7 @@ describe("GUI 直接使用 SDK", () => {
 		expect(JSON.stringify(readSnapshot(host).messages)).toContain("GUI completed");
 		expect(server.requests.filter((request) => Array.isArray(request.messages) && !request.tools)).toHaveLength(1);
 		expect(host.execution.dialogs.notices.filter((notice) => notice.text.startsWith("Auto-title:"))).toHaveLength(1);
-		expect(events.filter((event) => event.type === "error")).toEqual([]);
+		expect(events.filter((event) => event.type === "feedback" && event.tone === "error")).toEqual([]);
 	});
 
 	it("宿主退出取消尚未完成的后台命名，不等待命名超时", async () => {

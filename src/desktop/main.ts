@@ -45,7 +45,7 @@ async function saveDownload(event: Extract<GuiEvent, { type: "download" }>, clie
 	});
 	if (result.canceled || !result.filePath) return;
 	await writeFile(result.filePath, event.content, { mode: 0o600 });
-	client.send({ kind: "notice", text: `已导出: ${result.filePath}` });
+	client.send({ kind: "feedback", message: `已导出 ${path.basename(result.filePath)}`, tone: "success" });
 }
 
 function startDesktop(): void {
@@ -141,9 +141,10 @@ function startDesktop(): void {
 			return setAppearance(value);
 		});
 		const desktopWindow = window;
+		const reportOperation = (error: unknown) => client.send({ kind: "feedback", message: error instanceof Error ? error.message : String(error), tone: "error" });
 		const taskStatus = new DesktopTaskStatus(desktopWindow, path.join(directory, "icons", "attention.png"));
 		const power = installDesktopPower(() => desktopWindow.webContents.send("gui:command", "resume"),
-			(text) => client.send({ kind: "notice", text }));
+			(message) => client.send({ kind: "feedback", message, tone: "warning" }));
 		const menu = installDesktopMenu(desktopWindow, (directory) => {
 			void (async () => {
 				if (!directory) {
@@ -152,12 +153,12 @@ function startDesktop(): void {
 					directory = result.filePaths[0];
 				}
 				if (directory) launches.enqueue({ kind: "workspace", path: directory });
-			})().catch(report);
+			})().catch(reportOperation);
 		});
 		window.once("closed", () => power.dispose());
 		ipcMain.on("gui:markRead", (event, id: unknown, at: unknown) => { trusted(event); taskStatus.markRead(id, at); });
 		ipcMain.handle("gui:fileMenu", async (event, cwd: unknown, name: unknown) => {
-			trusted(event); await showFileMenu(desktopWindow, await desktopFile(cwd, name), report);
+			trusted(event); await showFileMenu(desktopWindow, await desktopFile(cwd, name), reportOperation);
 		});
 		ipcMain.handle("gui:startDrag", async (event, cwd: unknown, name: unknown) => {
 			trusted(event); await startFileDrag(desktopWindow, await desktopFile(cwd, name));
@@ -168,7 +169,7 @@ function startDesktop(): void {
 		window.on("focus", () => desktopWindow.flashFrame(false));
 		window.webContents.on("will-navigate", (event) => event.preventDefault());
 		window.webContents.setWindowOpenHandler(({ url }) => {
-			void openExternal(url).catch((error: unknown) => dialog.showErrorBox("无法打开链接", String(error)));
+			void openExternal(url).catch(reportOperation);
 			return { action: "deny" };
 		});
 		const backendDirectory = path.basename(directory) === "app.asar" ? `${directory}.unpacked` : directory;
@@ -183,14 +184,14 @@ function startDesktop(): void {
 						showDesktopNotification(desktopWindow, delivery.value, icon, () => {
 							focusWindow();
 							void client.request("action", { sessionId: null, value: { action: "openSession", id: delivery.value.sessionId } }, undefined)
-								.catch((error: unknown) => client.send({ kind: "notice", text: String(error) }));
+								.catch(reportOperation);
 						});
 						return;
 					}
 					const events = delivery.events.filter((event) => {
 						if (event.type === "close") { app.quit(); return false; }
 						if (event.type !== "download") return true;
-						void saveDownload(event, client).catch((error: unknown) => dialog.showErrorBox("导出失败", String(error)));
+						void saveDownload(event, client).catch((error: unknown) => client.send({ kind: "feedback", message: `导出失败：${error instanceof Error ? error.message : String(error)}`, tone: "error" }));
 						return false;
 					});
 					if (!desktopWindow.isDestroyed()) {
@@ -227,12 +228,7 @@ function startDesktop(): void {
 				}),
 			},
 		);
-		const attend = trackDesktopAttention(window, (value) => client.send({ kind: "attention", value }));
-		ipcMain.on("gui:attention", (event, sessionId: unknown) => {
-			trusted(event);
-			if (sessionId !== null && typeof sessionId !== "string") throw new Error("无效会话标识");
-			attend(sessionId);
-		});
+		const reportAttention = trackDesktopAttention(window, (value) => client.send({ kind: "attention", value }));
 		for (const kind of ["action", "query"] as const) {
 			ipcMain.handle(`gui:${kind}`, (event, value: unknown, submittedAt: unknown) => {
 				trusted(event);
@@ -243,7 +239,7 @@ function startDesktop(): void {
 			trusted(event);
 			diagnostics.reset();
 			client.send({ kind: "subscribe" });
-			attend(null);
+			reportAttention();
 		});
 		ipcMain.on("gui:received", (event, id: unknown, at: unknown) => {
 			trusted(event);

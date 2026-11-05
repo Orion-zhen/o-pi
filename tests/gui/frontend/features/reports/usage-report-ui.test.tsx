@@ -103,5 +103,6 @@ it("兑换和刷新共用执行状态，失败提示不覆盖为泛化错误", a
 	expect(refresh).not.toHaveBeenCalled();
 	await act(async () => button(".usage-report-footer button").click());
 	expect(refresh).toHaveBeenCalledOnce();
-	expect(document.body.textContent).not.toContain("Codex 认证失败");
+	const visible = [...document.querySelectorAll('[role="status"]')].filter((element) => !element.closest('[aria-hidden="true"]'));
+	expect(visible.map((element) => element.textContent).join("\n")).not.toContain("Codex 认证失败");
 });

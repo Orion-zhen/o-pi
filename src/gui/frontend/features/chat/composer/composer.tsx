@@ -13,16 +13,16 @@ import { QueuedMessages } from "./queued-messages.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Textarea } from "@/ui/textarea.tsx";
 import { InputHistory } from "./input-history.tsx";
 import { SendButton } from "./send-button.tsx";
 import type { Ref, RefObject } from "react";
 import type { GuiPreferences } from "../../../../shared/config/preferences.ts";
-import type { Send } from "@/connection/connection.ts";
-import type { GuiPanel, GuiSnapshot } from "../../../../shared/protocol/state.ts";
-import type { Query } from "../../../../shared/protocol/queries.ts";
+import type { ReadySession } from "@/features/sessions/session-state.ts";
+import type { GuiPanel } from "../../../../shared/protocol/state.ts";
 import { hasContextMessages } from "../transcript/transcript-location.ts";
-import type { SessionViews, SessionViewState } from "@/features/sessions/session-views.ts";
+import type { SessionViews } from "@/features/sessions/session-views.ts";
 import { useSessionDraft } from "@/features/sessions/use-session-draft.ts";
 import { ModelControls } from "@/features/models/model-controls.tsx";
 import { modelSetup } from "@/features/models/model-setup.ts";
@@ -38,18 +38,16 @@ const attachmentOrigin = { y: 6, rotate: -2, scale: 0.98 };
 
 interface ComposerControls {
 	connected: boolean;
-	query: Query;
-	send: Send;
-	setError: (message: string) => void;
 	canSubmit: boolean;
 	setPanel: (panel: GuiPanel | undefined) => void;
 	editor: RefObject<HTMLTextAreaElement | null>;
 	views: SessionViews;
 }
-export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmit, referenceVersion = 0 }: {
-	ref: Ref<HTMLElement>; style: MotionStyle; gui: ComposerControls; view: SessionViewState; snapshot: GuiSnapshot;
+export function Composer({ ref, style, gui, session, preferences, onSubmit, referenceVersion = 0 }: {
+	ref: Ref<HTMLElement>; style: MotionStyle; gui: ComposerControls; session: ReadySession;
 	preferences: GuiPreferences | undefined; onSubmit: () => void; referenceVersion?: number;
 }) {
+	const { view, snapshot, send, query } = session;
 	const { draft, setDraft, images, setImages, behavior, setBehavior } = useSessionDraft(view, gui.views);
 	const initialReferenceVersion = useRef(referenceVersion);
 	const seenImages = useRef(new Set(images.map((image) => image.id)));
@@ -64,19 +62,18 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 	const toolIcon = codemode ? CodeXml : mcpEnabled ? Blocks : Wrench;
 	const {
 		connected,
-		query,
-		send,
 		editor,
-		setError,
 	} = gui;
+	const [error, setError] = useState("");
+	const reportError = (error: unknown) => setError(error instanceof Error ? error.message : String(error));
 	const [inputHeight, setInputHeight] = useState<number>();
 	useEffect(() => {
 		if (editor.current) return resize(editor.current, (_, { height }) => setInputHeight(height));
 	}, [editor]);
 	const { active: activeSuggestion, ...suggestions } = useSuggestionNavigation(editor);
 	const suggestionHighlight = useId();
-	const { argumentChoices, fileChoices, completeFiles, clearFiles } = useComposerQueries({
-		draft, sessionId: snapshot.sessionId, connected, send, query, setError,
+	const { argumentChoices, fileChoices, completeFiles, clearFiles, error: queryError } = useComposerQueries({
+		draft, connected, send, query,
 	});
 	const upload = useRef<HTMLInputElement>(null);
 	const fileDrop = useFileDrop();
@@ -96,18 +93,19 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 		}
 		const text = draft;
 		const attachments = images;
+		setError("");
 		setDraft("");
 		setImages([]);
 		clearFiles();
 		onSubmit();
-		void send({ action: "prompt", text, images: attachments.map(({ id, ...image }) => image), behavior }).then((ok) => {
-			if (!ok) {
-				setDraft((current) => current || text);
-				setImages((current) => (current.length ? current : attachments));
-			}
+		void send({ action: "prompt", text, images: attachments.map(({ id, ...image }) => image), behavior }).catch((error: unknown) => {
+			reportError(error);
+			setDraft((current) => current || text);
+			setImages((current) => (current.length ? current : attachments));
 		});
 	};
 	const drop = async (files: File[]) => {
+		setError("");
 		if (!window.opi) { await attach(files); return; }
 		try {
 			const items = await window.opi.prepareDrop(snapshot.cwd, files);
@@ -148,10 +146,14 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 			>
 				{referenceVersion !== initialReferenceVersion.current && <FeedbackHighlight key={referenceVersion} />}
 				<div className="composer-scroll">
-				{attaching && <div className="px-3 py-2 text-sm text-muted-foreground" role="status">正在处理附件…</div>}
+				<div className="composer-feedback">
+					<Feedback compact message={error} tone="error" />
+					<Feedback compact message={queryError} tone="warning" />
+					<Feedback message={attaching ? "正在处理附件…" : ""} />
+				</div>
 				<AnimatePresence initial={false}>
 				{queuedCount > 0 && (
-					<Reveal key="queue"><QueuedMessages queue={snapshot.queue} clear={() => { void send({ action: "clearQueue" }); }} /></Reveal>
+					<Reveal key="queue"><QueuedMessages queue={snapshot.queue} clear={() => { void send({ action: "clearQueue" }).catch(reportError); }} /></Reveal>
 				)}
 				{images.length > 0 && (
 					<Reveal key="images"><ul className="image-previews">
@@ -318,11 +320,12 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 						</IconButton>
 					</div>
 					<div className="composer-controls">
-						<ModelControls snapshot={snapshot} send={send} disabled={!gui.canSubmit} openManager={() => gui.setPanel({ kind: "model" })} />
+						<ModelControls snapshot={snapshot} change={(action) => { setError(""); void send(action).catch(reportError); }}
+							disabled={!gui.canSubmit} openManager={() => gui.setPanel({ kind: "model" })} />
 						<ContextUsage snapshot={snapshot} />
 						<SendButton
 							mode={snapshot.compacting ? "stop-compaction" : stopping ? "stop" : commandMode ? "execute" : running ? steering ? "steer" : "follow-up" : "send"}
-							onActivate={stopping ? () => void send({ action: "abort" }) : submit}
+							onActivate={stopping ? () => void send({ action: "abort" }).catch(reportError) : submit}
 							disabled={!connected || (!stopping && (!gui.canSubmit || !hasContent || attaching))}
 						/>
 					</div>

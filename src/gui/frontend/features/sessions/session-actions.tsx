@@ -1,7 +1,8 @@
-import { useRef } from "react";
+import { useContext, useRef } from "react";
 import { AppWindow, BookOpen, Braces, BrainCog, Ellipsis, Import } from "lucide-react";
 import type { GuiPanel } from "../../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
+import { NotificationErrorContext } from "@/ui/notifications.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import {
 	DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -9,6 +10,7 @@ import {
 } from "@/ui/dropdown-menu.tsx";
 
 export function SessionActions({ gui }: { gui: { canSubmit: boolean; send: Send; setPanel: (panel: GuiPanel | undefined) => void } }) {
+	const notifyError = useContext(NotificationErrorContext);
 	const panel = useRef<GuiPanel | undefined>(undefined);
 	return <DropdownMenu>
 		<DropdownMenuTrigger asChild>
@@ -21,14 +23,14 @@ export function SessionActions({ gui }: { gui: { canSubmit: boolean; send: Send;
 			panel.current = undefined;
 		}}>
 			<DropdownMenuLabel>当前会话</DropdownMenuLabel>
-			<DropdownMenuItem onSelect={() => void gui.send({ action: "view", view: "system" })}>
+			<DropdownMenuItem onSelect={() => void gui.send({ action: "view", view: "system" }).catch(notifyError)}>
 				<BrainCog />系统提示词
 			</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => { panel.current = { kind: "help" }; }}><BookOpen />命令帮助</DropdownMenuItem>
 			<DropdownMenuSeparator />
 			<DropdownMenuItem disabled={!gui.canSubmit} onSelect={() => { panel.current = { kind: "import" }; }}><Import />导入会话</DropdownMenuItem>
-			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "jsonl" })}><Braces />导出 JSONL</DropdownMenuItem>
-			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "html" })}><AppWindow />导出 HTML</DropdownMenuItem>
+			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "jsonl" }).catch(notifyError)}><Braces />导出 JSONL</DropdownMenuItem>
+			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "html" }).catch(notifyError)}><AppWindow />导出 HTML</DropdownMenuItem>
 		</DropdownMenuContent>
 	</DropdownMenu>;
 }

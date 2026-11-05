@@ -18,7 +18,9 @@ import { isTouchInput } from "@/ui/input-mode.ts";
 import type { SidebarView } from "./controls.ts";
 import { fileReference } from "../../shared/file-reference.ts";
 import type { DesktopCommand } from "../../shared/protocol/desktop.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { GlobalSend, Send } from "@/connection/connection.ts";
+import type { SessionView } from "@/features/sessions/session-state.ts";
+import { useNotifications } from "@/ui/notifications.tsx";
 
 /** 连接功能区域。草稿由编辑器订阅，宿主事件不持有本地交互状态。 */
 export function useGui() {
@@ -26,7 +28,8 @@ export function useGui() {
 	const session = host.selection;
 	const selectedId = session?.target.id ?? null;
 	const view = session?.view;
-	const [error, setError] = useState("");
+	const notifications = useNotifications();
+	const setError = notifications.reportError;
 	const editor = useRef<HTMLTextAreaElement>(null);
 	const [referenceVersion, setReferenceVersion] = useState(0);
 	const panels = usePanels(selectedId);
@@ -41,7 +44,7 @@ export function useGui() {
 				forget(ids);
 				break;
 			}
-			case "error": setError(event.message); break;
+			case "feedback": notifications.notify(event.message, event.tone); break;
 			case "guiConfig": config.accept(event.value); break;
 			case "panel": panels.setPanel(event.panel); break;
 			case "sessionTab": panels.selectTab(event.tab); panels.setSessionPanelOpen(true); break;
@@ -51,26 +54,21 @@ export function useGui() {
 				break;
 		}
 	});
-	const { connected, status, attend, send: dispatch, query: readQuery } = connection;
+	const { connected, status, send: dispatch, query: readQuery } = connection;
+	const globalSend = useCallback<GlobalSend>(async (action) => { await dispatch(action, null); }, [dispatch]);
 	const dispatchSelected = useCallback(<A extends GuiAction>(action: A) => dispatch(action, selectedId), [dispatch, selectedId]);
-	const auth = useAuthActions(dispatchSelected, setError, panels.closePanel);
+	const auth = useAuthActions(dispatchSelected, panels.closePanel);
 	useEffect(() => { if (!connected) auth.finish(); }, [connected, auth.finish]);
 	const send = useCallback<Send>(async (action) => {
-		try {
-			if (isLoginAction(action)) await auth.login(action);
-			else {
-				if (action.action === "dialog" && action.value !== null) auth.resume();
-				await dispatchSelected(action);
-			}
-			return true;
-		} catch (error) {
-			setError(error instanceof Error ? error.message : String(error));
-			return false;
+		if (isLoginAction(action)) await auth.login(action);
+		else {
+			if (action.action === "dialog" && action.value !== null) auth.resume();
+			await dispatchSelected(action);
 		}
 	}, [dispatchSelected, auth.login, auth.resume]);
 	const desktopCommand = useEffectEvent((command: DesktopCommand) => {
 		if (command === "settings") panels.setPanel({ kind: "settings" });
-		if (command === "new" && connected) void send({ action: "new" });
+		if (command === "new" && connected) void send({ action: "new" }).catch(setError);
 	});
 	useEffect(() => window.opi?.onCommand(desktopCommand), []);
 	const query = useCallback<Query>((request) => readQuery(request, selectedId), [readQuery, selectedId]);
@@ -93,7 +91,6 @@ export function useGui() {
 		document.addEventListener("visibilitychange", observe);
 		return () => document.removeEventListener("visibilitychange", observe);
 	}, [connected, dispatch]);
-	useEffect(() => { if (connected) attend(selectedId); }, [connected, selectedId, attend]);
 	const [sessionsLoading, setSessionsLoading] = useState(false);
 	const refreshSessions = useCallback(async () => {
 		setSessionsLoading(true);
@@ -130,27 +127,26 @@ export function useGui() {
 		usagePending.current = true;
 		setUsageLoading(true);
 		if (mobile) panels.setPanel({ kind: "usage", value: "loading" });
-		try {
-			if (!await send({ action: "view", view: "usage" })) {
-				panels.setPanel((panel) => panel?.kind === "usage" && panel.value === "loading" ? undefined : panel);
-			}
+		try { await send({ action: "view", view: "usage" }); }
+		catch (error) {
+			panels.setPanel((panel) => panel?.kind === "usage" && panel.value === "loading" ? undefined : panel);
+			setError(error);
 		} finally {
 			usagePending.current = false;
 			setUsageLoading(false);
 		}
-	}, [canSubmit, send, panels.setPanel]);
+	}, [canSubmit, send, panels.setPanel, setError]);
 	const sessionRows = useMemo(() => sessionList(host.sessions ?? [], activity, selectedId), [host.sessions, activity, selectedId]);
 	const sidebar = useMemo<SidebarView>(() => ({
 		cwd, activity, sessionRows, sessions: host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, canNavigate: connected, usageLoading, openUsage,
-		workbench, sessionSearch, layout, openFile, referenceFile, send, query, globalQuery, setPanel: panels.setPanel, workspaceRoot: host.workspaceRoot, workspaces: host.workspaces, error, setError,
+		workbench, sessionSearch, layout, openFile, referenceFile, send, globalSend, query, globalQuery, setPanel: panels.setPanel, workspaceRoot: host.workspaceRoot, workspaces: host.workspaces, setError,
 	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, usageLoading, openUsage,
-		workbench, sessionSearch, layout, openFile, referenceFile, send, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, error]);
+		workbench, sessionSearch, layout, openFile, referenceFile, send, globalSend, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, setError]);
+	const boundSession = useMemo<SessionView | null>(() => session && { ...session, send, query, dispatch: dispatchSelected }, [session, send, query, dispatchSelected]);
 	return {
-		...panels, ...sidebar, ...changelog, sidebar, session, snapshot, view, views, selectedId, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected,
+		...panels, ...sidebar, ...changelog, sidebar, session: boundSession, views, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected, notifications,
 		guiConfig: config.document, refreshGuiConfig: config.refresh, availableVersion,
-		dialogs: session?.dialogs ?? [], notices: session?.notices ?? [], status, reconnect: connection.reconnect, running: snapshot?.running ?? false,
-		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode,
-		sessionStats: session?.stats,
-		telemetry: session?.telemetry,
+		status, reconnect: connection.reconnect,
+		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode, authError: auth.error, setAuthError: auth.setError,
 	};
 }

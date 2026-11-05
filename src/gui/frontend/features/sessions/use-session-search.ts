@@ -3,6 +3,7 @@ import type { GuiConnection } from "../../../shared/protocol/connection.ts";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import type { GuiSessionInfo } from "../../../shared/protocol/state.ts";
 import type { SessionSearchHit } from "../../../shared/session-search.ts";
+import { LatestRequest } from "@/connection/latest-request.ts";
 
 export type SessionSearchResults = { hits: SessionSearchHit[] } & (
 	| { state: "searching"; scanned: number; total: number }
@@ -23,7 +24,7 @@ export function useSessionSearch(cwd: string, connected: boolean, sessions: GuiS
 
 	useEffect(() => {
 		if (!connected || !cwd || !normalized) return;
-		let stale = false;
+		const request = new LatestRequest();
 		let id: string | undefined;
 		const hits: SessionSearchHit[] = [];
 		const cancel = () => {
@@ -36,25 +37,25 @@ export function useSessionSearch(cwd: string, connected: boolean, sessions: GuiS
 		};
 		setResponse({ cwd, text: normalized, value: { state: "searching", hits: [], scanned: 0, total: 0 } });
 		const timer = setTimeout(() => {
-			void (async () => {
-				let page = await query({ query: "searchSessions", cwd, text: normalized });
-				id = page.id;
-				while (true) {
-					if (stale) { cancel(); return; }
-					hits.push(...page.hits);
-					setResponse({ cwd, text: normalized, value: page.done ? { state: "done", hits: [...hits] }
-						: { state: "searching", hits: [...hits], scanned: page.scanned, total: page.total } });
-					if (page.done) { id = undefined; return; }
-					page = await query({ query: "continueSessionSearch", id: page.id });
-				}
-			})().catch((error: unknown) => {
-				if (stale) return;
-				cancel();
-				setResponse({ cwd, text: normalized, value: { state: "error", hits: [...hits],
-					message: error instanceof Error ? error.message : String(error) } });
+			void request.run<SessionSearchResults>(async (publish, signal) => {
+				signal.addEventListener("abort", cancel, { once: true });
+				try {
+					let page = await query({ query: "searchSessions", cwd, text: normalized });
+					id = page.id;
+					while (true) {
+						signal.throwIfAborted();
+						hits.push(...page.hits);
+						if (page.done) { id = undefined; return { state: "done", hits: [...hits] }; }
+						publish({ state: "searching", hits: [...hits], scanned: page.scanned, total: page.total });
+						page = await query({ query: "continueSessionSearch", id: page.id });
+					}
+				} finally { signal.removeEventListener("abort", cancel); cancel(); }
+			}, (result) => {
+				setResponse({ cwd, text: normalized, value: result.state === "ready" ? result.value
+					: { state: "error", hits: [...hits], message: result.message } });
 			});
 		}, 250);
-		return () => { stale = true; clearTimeout(timer); cancel(); };
+		return () => { clearTimeout(timer); request.cancel(); };
 	}, [cwd, normalized, connected, sessions, query, send, reportError]);
 
 	let result: SessionSearchResults | undefined;

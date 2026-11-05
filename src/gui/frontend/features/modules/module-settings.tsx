@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { IconButton } from "@/ui/icon-button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { applyEdits, modify } from "jsonc-parser";
 import { parseModuleDraft, readModuleConfig } from "./module-draft.ts";
 import { equalConfigValues } from "../../../../harness/config-values.ts";
@@ -46,11 +47,11 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 	const dirty = draft !== document.content && (editor.sourceEdited
 		|| saved.value === undefined || parsed.value === undefined || !equalConfigValues(saved.value, parsed.value));
 	useSettingsDraft(id, {
-		title, dirty, blocked: disabled,
-		save: parsed.error ? null : () => editor.save(draft, async (document, content) => {
+		title, blocked: disabled,
+		plan: !dirty ? { state: "clean" } : parsed.error ? { state: "invalid" } : { state: "ready", save: () => editor.save(draft, async (document, content) => {
 			await send({ action: "saveModuleConfig", id, original: document.content, content });
 			return { ...document, content };
-		}),
+		}) },
 		discard: editor.discard,
 	});
 	const blocked = disabled || saving;
@@ -99,7 +100,7 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 	})}</div>;
 	return <div className="settings-module">
 		{source || parsed.error ? <SettingsSection key="main" title={title} actions={sourceButton} source={source}>
-			{parsed.error && <p role="alert">{parsed.error}</p>}
+			<Feedback message={parsed.error ?? ""} tone="error" />
 			{source && <SourceEditor file={document.path} label={`${id} 全局 JSONC`} value={draft} disabled={blocked} onChange={editor.changeSource} />}
 		</SettingsSection> : moduleGroups[id].map((group, index) => group.advanced
 			? <SettingsDisclosure key={group.title} title={group.title}>{fields(group.fields)}</SettingsDisclosure>

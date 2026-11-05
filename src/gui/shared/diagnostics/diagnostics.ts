@@ -24,7 +24,7 @@ export type GuiDiagnostic = Static<typeof guiDiagnosticSchema>;
 export interface DiagnosticReceipt { file: string; run: string; environment: string; saved: boolean }
 
 export function errorSummary(message: string): string {
-	const line = message.trim().replace(/[\r\n][\s\S]*/, "");
+	const line = message.trim().replace(/^Error: /, "").replace(/[\r\n][\s\S]*/, "");
 	return line.length > 180 ? `${line.slice(0, 180)}…` : line;
 }
 

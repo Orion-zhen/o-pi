@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { mcpNameKey } from "../../../shared/config/mcp-validation.ts";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Switch } from "@/ui/switch.tsx";
 import { Input } from "@/ui/input.tsx";
 import { Textarea } from "@/ui/textarea.tsx";
@@ -47,7 +48,7 @@ export function McpImport({ draft, disabled, apply, cancel }: {
 				{existingByName.has(server.name) && <label className="mcp-replace">替换已有服务<Switch aria-label={`替换 ${server.name}`} checked={replace.has(server.id)} onCheckedChange={(checked) => setReplace((previous) => {
 					const next = new Set(previous); if (checked) next.add(server.id); else next.delete(server.id); return next;
 				})} /></label>}
-				{errors.map((message, index) => <p role="alert" key={index}>{message}</p>)}
+				<Feedback message={errors.join("\n")} tone="error" />
 			</div>)}
 			<div className="settings-action-buttons"><Button size="sm" disabled={preview.some(({ errors }) => errors.length > 0)} onClick={() => {
 				const next = [...draft.servers];
@@ -59,6 +60,6 @@ export function McpImport({ draft, disabled, apply, cancel }: {
 				apply({ ...draft, servers: next });
 			}}>导入到草稿</Button><Button variant="ghost" size="sm" onClick={() => { setServers(undefined); setReplace(new Set()); }}>返回修改 JSON</Button></div>
 		</>}
-		{error && <p role="alert">{error}</p>}
+		<Feedback message={error} tone="error" />
 	</fieldset>;
 }

@@ -3,7 +3,6 @@ import type { DesktopBridge, DesktopCommand } from "../gui/shared/protocol/deskt
 import type { GuiDelivery } from "../gui/shared/protocol/sync.ts";
 
 const bridge: DesktopBridge = {
-	attend: (sessionId) => ipcRenderer.send("gui:attention", sessionId),
 	reportDiagnostic: (value) => ipcRenderer.invoke("gui:diagnostic", value),
 	readStorage: () => ipcRenderer.invoke("gui:storage"),
 	clearStorage: (ids) => ipcRenderer.invoke("gui:clearStorage", ids),

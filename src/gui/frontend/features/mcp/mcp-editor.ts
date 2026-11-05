@@ -2,25 +2,26 @@ import { equalConfigValues } from "../../../../harness/config-values.ts";
 import { mcpObject, parseMcpConfig, type McpConfig } from "../../../shared/config/mcp-validation.ts";
 import { createMcpDraft, mcpDraftSerializable, mcpDraftValue, mcpMapFields, type McpDraft } from "./mcp-draft.ts";
 
+type ParsedMcp = { state: "parsed"; value: McpConfig } | { state: "invalid"; message: string };
 export type McpEditor = { sourceEdited: boolean } & (
-	| { mode: "source"; content: string; value: McpConfig | undefined; error: string }
+	| { mode: "source"; content: string; parsed: ParsedMcp }
 	| { mode: "form"; draft: McpDraft; baselineDraft: McpDraft; source: string }
 );
 
 export function readMcpSource(content: string, original: string, sourceEdited = content !== original): Extract<McpEditor, { mode: "source" }> {
 	try {
 		const value = parseMcpConfig(content === "" && original === "" ? "{}" : content);
-		return { mode: "source", content, value, error: "", sourceEdited };
+		return { mode: "source", content, parsed: { state: "parsed", value }, sourceEdited };
 	} catch (error) {
 		// 损坏配置保留原文，交给 JSON 编辑器修复。
-		return { mode: "source", content, value: undefined, error: error instanceof Error ? error.message : String(error), sourceEdited };
+		return { mode: "source", content, parsed: { state: "invalid", message: error instanceof Error ? error.message : String(error) }, sourceEdited };
 	}
 }
 
 export function readMcpEditor(content: string, sourceEdited = false): McpEditor {
 	const source = readMcpSource(content, content, sourceEdited);
-	if (!source.value) return source;
-	const draft = createMcpDraft(source.value);
+	if (source.parsed.state === "invalid") return source;
+	const draft = createMcpDraft(source.parsed.value);
 	return { mode: "form", draft, baselineDraft: draft, source: content, sourceEdited };
 }
 
@@ -73,11 +74,18 @@ export function mcpDraftChanged(before: McpConfig | undefined, after: McpConfig 
 	return before === undefined || after === undefined || !equalConfigValues(comparableConfig(before), comparableConfig(after));
 }
 
-export function mcpEditorView(editor: McpEditor): { content: string | undefined; value: McpConfig | undefined } {
-	if (editor.mode === "source") return { content: editor.content, value: editor.value };
-	if (!mcpDraftSerializable(editor.draft)) return { content: undefined, value: undefined };
+type McpEditorView =
+	| { state: "parsed"; content: string; value: McpConfig }
+	| { state: "invalid"; content: string; value: undefined; message: string }
+	| { state: "unserializable"; content: undefined; value: undefined };
+
+export function mcpEditorView(editor: McpEditor): McpEditorView {
+	if (editor.mode === "source") return editor.parsed.state === "parsed"
+		? { ...editor.parsed, content: editor.content }
+		: { ...editor.parsed, content: editor.content, value: undefined };
+	if (!mcpDraftSerializable(editor.draft)) return { state: "unserializable", content: undefined, value: undefined };
 	const value = mcpDraftValue(editor.draft);
 	// 比较实际配置，不包含行 ID 等界面状态。没有修改时保留原文格式。
 	const changed = mcpDraftChanged(mcpDraftValue(editor.baselineDraft), value);
-	return { content: changed ? `${JSON.stringify(value, null, 2)}\n` : editor.source, value };
+	return { state: "parsed", content: changed ? `${JSON.stringify(value, null, 2)}\n` : editor.source, value };
 }

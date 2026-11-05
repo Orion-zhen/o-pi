@@ -7,6 +7,13 @@ import { useReactFixture } from "../../../../helpers/react-fixture.ts";
 import { guiSnapshot } from "../../../../helpers/snapshot-fixture.ts";
 import type { DesktopDrop } from "../../../../../../src/gui/shared/protocol/desktop.ts";
 
+function ready(snapshot: ReturnType<typeof guiSnapshot>, view: ReturnType<SessionViews["open"]>, send: ComponentProps<typeof Composer>["session"]["send"]): ComponentProps<typeof Composer>["session"] {
+	return { state: "ready", target: { id: snapshot.sessionId, cwd: snapshot.cwd, path: null }, view, snapshot, send,
+		dialogs: [], notices: [], stats: undefined, telemetry: undefined,
+		query: async () => { throw new Error("本测试不查询数据"); },
+		dispatch: async () => { throw new Error("本测试不调用有返回值的操作"); } };
+}
+
 const renderRoot = useReactFixture(() => { Reflect.deleteProperty(window, "opi"); });
 beforeEach(() => { vi.stubGlobal("HTMLFormElement", window.HTMLFormElement); });
 
@@ -16,23 +23,21 @@ describe("文件拖入", () => {
 		const views = new SessionViews();
 		const view = views.open({ id: snapshot.sessionId, path: null });
 		views.writeText(view.id, "草稿");
-		const send = vi.fn(async () => true);
-		const setError = vi.fn();
+		const send = vi.fn(async () => {});
 		const prepareDrop = vi.fn(async () => items);
 		if (items) Object.defineProperty(window, "opi", { configurable: true, value: { prepareDrop } });
 		const gui: ComponentProps<typeof Composer>["gui"] = {
-			connected: true, canSubmit: true, views, editor: createRef<HTMLTextAreaElement>(), send, setError, setPanel() {},
-			query: async () => { throw new Error("本测试不查询数据"); },
+			connected: true, canSubmit: true, views, editor: createRef<HTMLTextAreaElement>(), setPanel() {},
 		};
 		await renderRoot(createElement(TooltipProvider, null,
-			createElement(Composer, { ref: null, style: {}, gui, view, snapshot, preferences: undefined, onSubmit() {} })));
+			createElement(Composer, { ref: null, style: {}, gui, session: ready(snapshot, view, send), preferences: undefined, onSubmit() {} })));
 		const card = document.querySelector(".composer-card");
 		if (!card) throw new Error("缺少拖入区域");
 		const event = new window.Event("drop", { bubbles: true, cancelable: true });
 		Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
 		await act(async () => { card.dispatchEvent(event); });
 		expect(event.defaultPrevented).toBe(true);
-		expect(setError).not.toHaveBeenCalled();
+		expect(document.querySelector('[role="alert"]')).toBeNull();
 		if (items) expect(prepareDrop).toHaveBeenCalledExactlyOnceWith(snapshot.cwd, files);
 		return { view, send };
 	}
@@ -70,15 +75,14 @@ describe("输入框停止优先级", () => {
 		const snapshot = { ...guiSnapshot(), running: true, canChangeSession: false, compacting: true };
 		const views = new SessionViews();
 		const view = views.open({ id: snapshot.sessionId, path: null });
-		const send = vi.fn(async () => true);
+		const send = vi.fn(async () => {});
 		const gui: ComponentProps<typeof Composer>["gui"] = {
 			connected: true, canSubmit: true, views,
-			editor: createRef<HTMLTextAreaElement>(), send, setError() {}, setPanel() {},
-			query: async () => { throw new Error("本测试不查询数据"); },
+			editor: createRef<HTMLTextAreaElement>(), setPanel() {},
 		};
 		const onSubmit = vi.fn();
 		const render = () => renderRoot(createElement(TooltipProvider, null,
-			createElement(Composer, { ref: null, style: {}, gui, view, snapshot, preferences: undefined, onSubmit })));
+			createElement(Composer, { ref: null, style: {}, gui, session: ready(snapshot, view, send), preferences: undefined, onSubmit })));
 		await render();
 		await act(async () => views.writeText(view.id, draft));
 		const stop = document.querySelector<HTMLButtonElement>('button[aria-label="停止压缩"]');

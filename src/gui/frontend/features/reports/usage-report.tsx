@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Crossfade } from "@/ui/motion/animated.tsx";
 import type { GuiUsageResetResult } from "../../../shared/protocol/actions.ts";
 import type { ProviderUsage, ProviderUsageData, UsageProviderError, UsageResetOutcome, UsageSnapshot } from "../../../../harness/usage/types.ts";
@@ -62,7 +63,7 @@ export function UsageReport({ value, onRefresh, onUse, disabled }: {
 			{value.providers.length === 0 && <Empty>暂无已配置的套餐或 API 余额服务。</Empty>}
 			{value.providers.map((provider) => <ProviderCard key={provider.id} provider={provider} timeZone={value.timeZone} generatedAt={value.generatedAt} resetAction={resetAction} />)}
 		</>}
-		{message && <p className="report-message" data-tone={message.tone} role="status">{message.text}</p>}
+		<Feedback compact message={message?.text ?? ""} tone={message?.tone} />
 		<div className="usage-report-footer">
 			{value !== "aborted" && <ReportStamp at={value.generatedAt} timeZone={value.timeZone} />}
 			<Button variant="outline" size="sm" disabled={actionDisabled} aria-busy={refreshing} onClick={() => void run({ kind: "refresh" }, onRefresh)}>
@@ -75,7 +76,7 @@ export function UsageReport({ value, onRefresh, onUse, disabled }: {
 
 function ProviderCard({ provider, timeZone, generatedAt, resetAction }: { provider: ProviderUsage; timeZone: string; generatedAt: string; resetAction: ResetCreditAction }) {
 	return <Section title={provider.name}>
-		{provider.status === "error" ? <p className="report-message" data-tone="danger" role="status">{errorText(provider.error)}</p>
+		{provider.status === "error" ? <Feedback compact message={errorText(provider.error)} tone="error" />
 			: provider.kind === "balance" ? <ApiBalance value={provider} /> : <>
 				<PlanUsage value={provider} timeZone={timeZone} />
 				{provider.resetCredits !== undefined && <ResetCredits value={provider.resetCredits} timeZone={timeZone} generatedAt={generatedAt} action={provider.id === "openai-codex" ? resetAction : undefined} />}
@@ -110,6 +111,6 @@ function ApiBalance({ value }: { value: Extract<ProviderUsageData, { kind: "bala
 				<Facts items={[["赠金余额", `${balance.currency} ${balance.granted}`]]} />
 			</div>
 		</div>)}
-		{!value.isAvailable && <p className="report-message" data-tone="warning" role="status">余额不足，暂不可调用 API。</p>}
+		<Feedback message={!value.isAvailable ? "余额不足，暂不可调用 API" : ""} tone="warning" />
 	</>;
 }

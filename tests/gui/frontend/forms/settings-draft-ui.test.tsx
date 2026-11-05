@@ -135,6 +135,28 @@ it.each([undefined, true])("MCP 开关 %s 跨表单和源码切换后改回初�
 	expect(document.querySelector<HTMLTextAreaElement>("textarea")?.defaultValue).toBe(content);
 });
 
+it("批量保存中不能放弃，单项失败不阻止后续文件，重试只提交剩余草稿", async () => {
+	const failure = Promise.withResolvers<void>();
+	const send = vi.fn<ConfigCommand>().mockReturnValueOnce(failure.promise).mockResolvedValue(undefined);
+	const modules = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content: '{"enabled":true}',
+		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
+	const mcp = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "mcp.json", content: '{"mcpServers":{"one":{"command":"node"}}}' });
+	await render(<View>
+		<ModuleSettings id="autoTitle" title="自动标题" query={modules as Query<GlobalQuery>} send={send} disabled={false} models={[]} tools={null} currentModel={null} />
+		<McpSettings query={mcp as Query<GlobalQuery>} send={send} disabled={false} />
+	</View>);
+	await click(button("自动生成标题")); await click(button("one"));
+	await act(async () => { named("保存")?.click(); named("放弃")?.click(); });
+	expect(send).toHaveBeenCalledTimes(1);
+	expect(button("自动生成标题")?.getAttribute("aria-checked")).toBe("false");
+	await act(async () => failure.reject(new Error("配置已被其他进程修改")));
+	expect(send.mock.calls.map(([action]) => action.action)).toEqual(["saveModuleConfig", "saveMcpConfig"]);
+	expect(document.body.textContent).toContain("未保存：自动标题：配置已被其他进程修改");
+	await click(named("保存"));
+	expect(send.mock.calls.map(([action]) => action.action)).toEqual(["saveModuleConfig", "saveMcpConfig", "saveModuleConfig"]);
+	expectDirty(false);
+});
+
 it("MCP 保存失败保留草稿，放弃和保存保持行节点与正确基准", async () => {
 	const content = '{ "mcpServers": { "one": { "command": "node", "enabled": false, "extra": {} } } }';
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "mcp.json", content });

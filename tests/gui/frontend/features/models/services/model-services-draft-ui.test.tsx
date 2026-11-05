@@ -71,7 +71,7 @@ it("页面只保留大标题，添加服务与源码按钮位于标题行", asyn
 	await render(<View query={query} send={vi.fn<ConfigCommand>()} />);
 	const heading = document.querySelector(".settings-section-heading");
 	expect(heading?.querySelector("h2")?.textContent).toBe("模型服务");
-	expect(document.querySelectorAll("h2, h3")).toHaveLength(1);
+	expect([...document.querySelectorAll("h2, h3")].filter((heading) => !heading.closest('[aria-hidden="true"]'))).toHaveLength(1);
 	expect(heading?.contains(named("添加服务") ?? null)).toBe(true);
 	expect(heading?.contains(named("JSON") ?? null)).toBe(true);
 	expect(document.body.textContent).not.toContain("/reload");

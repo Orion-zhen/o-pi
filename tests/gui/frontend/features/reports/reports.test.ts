@@ -34,7 +34,7 @@ describe("报告数据呈现", () => {
 		expect(doc.querySelector('[aria-label="5 小时"]')?.getAttribute("value")).toBe("65");
 		expect(doc.querySelector('[aria-label="Codex"] meter')?.getAttribute("value")).toBe("0");
 		expect(doc.querySelector('[aria-label="额外额度"]')).toBeNull();
-		expect(doc.querySelector('[aria-label="Kimi"] [role="status"]')).not.toBeNull();
+		expect(doc.querySelector('[aria-label="Kimi"] [role="alert"]')?.textContent).toBe("查询超时，请稍后重试。");
 		expect(doc.querySelectorAll(".reset-credits li")).toHaveLength(3);
 	});
 
@@ -78,7 +78,7 @@ describe("报告数据呈现", () => {
 		}] } }));
 		expect(Array.from(doc.querySelectorAll(".report-metric dd"), (element) => element.textContent)).toEqual(["CNY 0.00", "USD -0.00001"]);
 		expect(doc.querySelector('.report-badge[data-tone="success"]')?.textContent).toBe("已连接");
-		expect(doc.querySelector('[role="status"]')?.textContent).toBe("余额不足，暂不可调用 API。");
+		expect(doc.querySelector('[role="status"]')?.textContent).toBe("余额不足，暂不可调用 API");
 	});
 
 	it("没有配置服务商时显示空状态", () => {

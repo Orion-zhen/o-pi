@@ -1,15 +1,17 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
+import { useOperation } from "@/connection/use-operation.ts";
 import { AnimatePresence, motion } from "motion/react";
 import { listDepth, settle } from "@/ui/motion/transitions.ts";
 import { Fade } from "@/ui/motion/animated.tsx";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../../../shared/protocol/state.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { GlobalSend } from "@/connection/connection.ts";
 import type { SessionListItem } from "./session-list.ts";
 import type { SessionSearchResults } from "./use-session-search.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { HistorySessionRow } from "./history-session-row.tsx";
 import { ListScroll } from "@/ui/list-scroll.tsx";
@@ -23,7 +25,7 @@ interface HistoryGui {
 	sessions: GuiSessionInfo[] | undefined;
 	sessionsLoading: boolean;
 	refreshSessions: () => Promise<void>;
-	send: Send;
+	send: GlobalSend;
 	canNavigate: boolean;
 	connected: boolean;
 }
@@ -47,12 +49,12 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 				<RefreshCw className={gui.sessionsLoading ? "animate-spin" : undefined} />
 			</IconButton>
 		</div>
-		{search?.state === "searching" && <p className="history-hint" role="status">正在搜索{search.total ? ` ${search.scanned}/${search.total}` : ""}…</p>}
-		{search?.state === "error" && <p className="history-hint" role="alert">{search.message}</p>}
+		<Feedback message={search?.state === "searching" ? `正在搜索${search.total ? ` ${search.scanned}/${search.total}` : ""}…` : ""} />
+		<Feedback compact message={search?.state === "error" ? search.message : ""} tone="error" />
 		<ListScroll className="history-scroll">
 			<AnimatePresence initial={false} mode="wait">
 			<Fade key={search ? "search" : "sessions"}>
-			{!gui.sessions && <p className="history-hint" role="status">正在读取历史会话…</p>}
+			<Feedback message={!gui.sessions ? "正在读取历史会话…" : ""} />
 			{groups.filter(([cwd]) => full || cwd === gui.cwd).map(([cwd, items]) => {
 				const rows = <SessionRows items={items} gui={gui} close={close} search={search} />;
 				return full ? <Collapsible key={cwd} defaultOpen className="workspace-sessions">
@@ -71,7 +73,9 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 function SessionRows({ items, gui, close, search }: {
 	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: SessionSearchResults | undefined;
 }) {
-	const [switching, setSwitching] = useState(false);
+	const { run: open, pending: switching, error } = useOperation(async (item: SessionListItem) => {
+		if (!item.selected) await gui.send({ action: "openSession", ...item.target });
+	}, close);
 	const matches = useMemo(() => new Map(search?.hits.map((hit) => [hit.path, hit])), [search?.hits]);
 	const searching = search !== undefined;
 	const visible = useMemo(() => {
@@ -85,12 +89,6 @@ function SessionRows({ items, gui, close, search }: {
 	}, [items, searching, matches]);
 	const visibleKeys = useMemo(() => new Set(visible.map((item) => item.key)), [visible]);
 	const list = useVirtualRows<HTMLDivElement>(visible.length, (index) => visible[index]?.key ?? "", search ? 64 : 44);
-	const open = useCallback((item: SessionListItem) => {
-		close();
-		if (item.selected) return;
-		setSwitching(true);
-		void gui.send({ action: "openSession", ...item.target }).finally(() => setSwitching(false));
-	}, [close, gui.send]);
 	const rows = list.rows.map((row) => {
 		const item = visible[row.index];
 		if (!item) return null;
@@ -103,8 +101,8 @@ function SessionRows({ items, gui, close, search }: {
 			<HistorySessionRow item={item} index={row.index} count={visible.length} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} match={matches.get(item.path ?? "")} />
 		</motion.div>;
 	});
-	return <div ref={list.root} style={list.style} className="workspace-session-list">
+	return <><Feedback compact message={error} tone="error" /><div ref={list.root} style={list.style} className="workspace-session-list">
 		<AnimatePresence initial={false} custom={visibleKeys}>{rows}</AnimatePresence>
 		{!visible.length && gui.sessions && (!search || search.state === "done") && <p className="history-hint">{search ? "没有匹配的会话" : "暂无历史会话"}</p>}
-	</div>;
+	</div></>;
 }

@@ -6,7 +6,7 @@ import { Rocket, Zap } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { CODEX_SPEEDS, type CodexSpeed } from "../../../../harness/codex-speed/state.ts";
 import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
-import type { Send } from "@/connection/connection.ts";
+import type { GuiAction } from "../../../shared/protocol/actions.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { TransitionPanel } from "@/ui/motion/transition-panel.tsx";
 import { TextMorph } from "@/ui/motion/text-morph.tsx";
@@ -17,7 +17,7 @@ import "./models.css";
 const manageModels = "manage-models";
 const thinkingOrder = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
-function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send: Send; disabled: boolean }) {
+function CodexSpeedControl({ speed, change, disabled }: { speed: CodexSpeed; change: (speed: CodexSpeed) => void; disabled: boolean }) {
 	const present = useIsPresent();
 	const text = useRef<HTMLSpanElement>(null);
 	const [textWidth, setTextWidth] = useState<number>();
@@ -39,7 +39,7 @@ function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send:
 		<motion.div className="flex w-max shrink-0" initial={listDepth.hidden} animate={listDepth.visible} exit={listDepth.hidden} transition={listDepth.transition}>
 		<Select value={speed} disabled={disabled} onValueChange={(value) => {
 			const next = CODEX_SPEEDS.find((speed) => speed === value);
-			if (next) void send({ action: "codexSpeed", speed: next });
+			if (next) change(next);
 		}}>
 			<Hint content={`模型速度：${speed}`}><SelectTrigger className="codex-speed" data-speed={speed} aria-label={`模型速度：${speed}`}>
 				<span className="codex-speed-label">
@@ -63,11 +63,11 @@ function CodexSpeedControl({ speed, send, disabled }: { speed: CodexSpeed; send:
 
 export function ThinkingControl({
 	snapshot,
-	send,
+	change,
 	disabled = false,
 }: {
 	snapshot: GuiSnapshot;
-	send: Send;
+	change: (level: GuiSnapshot["thinking"]) => void;
 	disabled?: boolean;
 }) {
 	return (
@@ -76,7 +76,7 @@ export function ThinkingControl({
 			disabled={disabled}
 			onValueChange={(value) => {
 				const level = snapshot.thinkingLevels.find((level) => level === value);
-				if (level) void send({ action: "thinking", level });
+				if (level) change(level);
 			}}
 		>
 			<SelectTrigger aria-label="思考级别"><SelectValue>
@@ -91,8 +91,9 @@ export function ThinkingControl({
 	);
 }
 
-export function ModelControls({ snapshot, send, disabled, openManager }: {
-	snapshot: GuiSnapshot; send: Send; disabled: boolean; openManager: () => void;
+export function ModelControls({ snapshot, change, disabled, openManager }: {
+	snapshot: GuiSnapshot; disabled: boolean; openManager: () => void;
+	change: (action: Extract<GuiAction, { action: "model" | "thinking" | "codexSpeed" }>) => void;
 }) {
 	const manageOnClose = useRef(false);
 	const name = useRef<HTMLSpanElement>(null);
@@ -118,7 +119,7 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 	return (
 		<div className="model-controls">
 			<AnimatePresence initial={false}>
-				{snapshot.codexSpeed !== null && <CodexSpeedControl speed={snapshot.codexSpeed} send={send} disabled={disabled} />}
+				{snapshot.codexSpeed !== null && <CodexSpeedControl speed={snapshot.codexSpeed} change={(speed) => change({ action: "codexSpeed", speed })} disabled={disabled} />}
 			</AnimatePresence>
 			<Select
 				value={current}
@@ -129,7 +130,7 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 						return;
 					}
 					const model = available.get(value);
-					if (model) void send({ action: "model", provider: model.provider, id: model.id });
+					if (model) change({ action: "model", provider: model.provider, id: model.id });
 				}}
 			>
 				<Hint content={current || "选择模型"}><SelectTrigger className="model-control" aria-label="模型">
@@ -155,7 +156,7 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 					</SelectItem>
 				</SelectContent>
 			</Select>
-			<ThinkingControl snapshot={snapshot} send={send} disabled={disabled} />
+			<ThinkingControl snapshot={snapshot} change={(level) => change({ action: "thinking", level })} disabled={disabled} />
 			{snapshot.routedModel && <Hint content={`${snapshot.routedModel.model.provider}/${snapshot.routedModel.model.id}`}><span className="truncate text-xs text-muted-foreground" aria-label="最近响应模型">
 				→ {snapshot.routedModel.model.name}{snapshot.routedModel.thinkingLevel === undefined ? "" : ` · ${snapshot.routedModel.thinkingLevel}`}
 			</span></Hint>}
