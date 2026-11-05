@@ -2,10 +2,10 @@ import { motionDuration, motionEase } from "@/ui/motion/transitions.ts";
 
 export const sectionsDuration = motionDuration[4];
 export const sectionFade = motionDuration[2];
-interface ListTiming { row: number; singleRow: number; window: number; }
+interface ListTiming { row: number; singleRow: number; stagger: number; }
 
-export const startupListTiming: ListTiming = { row: motionDuration[3], singleRow: motionDuration[5], window: 0.6 };
-export const sessionListTiming: ListTiming = { row: motionDuration[4], singleRow: motionDuration[6], window: 0.8 };
+export const startupListTiming: ListTiming = { row: motionDuration[3], singleRow: motionDuration[5], stagger: 0.04 };
+export const sessionListTiming: ListTiming = { row: motionDuration[4], singleRow: motionDuration[6], stagger: 0.06 };
 
 export const welcomeLogoStart = 0.72;
 export const welcomeLogoDuration = motionDuration[4];

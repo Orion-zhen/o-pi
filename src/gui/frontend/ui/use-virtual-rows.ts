@@ -2,10 +2,10 @@ import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } fr
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 
 /** 小列表保留自然布局，大列表只挂载视口附近的行。 */
-export function useVirtualRows<T extends HTMLElement>(count: number, getKey: (index: number) => string, estimateSize: number) {
+export function useVirtualRows<T extends HTMLElement>(count: number, getKey: (index: number) => string, estimateSize: number, threshold = 100) {
 	const root = useRef<T>(null);
 	const [scrollMargin, setScrollMargin] = useState(0);
-	const windowed = count > 100;
+	const windowed = count > threshold;
 	const [focused, setFocused] = useState<{ key: string; index: number }>();
 	const [selection, setSelection] = useState<readonly [number, number]>();
 	let focusedIndex = -1;

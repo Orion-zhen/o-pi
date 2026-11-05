@@ -7,7 +7,7 @@ import type { GuiSessionInfo } from "../../shared/protocol/state.ts";
 import { readSessionFile } from "./session-reader.ts";
 
 const missing = (error: unknown) => error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
-interface IndexedSession { path: string; cwd: string; summary: GuiSessionInfo | undefined }
+interface IndexedSession { path: string; cwd: string; mtime: number; summary: GuiSessionInfo | undefined }
 
 async function finishAll<T>(tasks: Promise<T>[]): Promise<T[]> {
 	const results = await Promise.allSettled(tasks);
@@ -48,7 +48,7 @@ async function summary(file: string, mtime: number, scope: ReadonlySet<string> |
 		},
 	}, signal);
 	return cwd === undefined ? null : {
-		path: file, cwd,
+		path: file, cwd, mtime,
 		summary: scope !== undefined && !scope.has(cwd) ? undefined
 			: { path: file, cwd, title: name || first || "(no messages)", modified: new Date(modified || created).toISOString() },
 	};
@@ -76,7 +76,7 @@ export async function readSessionIndex(workspaces?: readonly string[], signal?: 
 		} catch (error) { if (missing(error)) return null; throw error; }
 	})));
 	return {
-		files: values.flatMap((value) => value ? [{ path: value.path, cwd: value.cwd }] : []),
+		files: values.filter((value) => value !== null).sort((a, b) => b.mtime - a.mtime).map(({ path, cwd }) => ({ path, cwd })),
 		sessions: values.flatMap((value) => value?.summary ? [value.summary] : []).sort((a, b) => b.modified.localeCompare(a.modified)),
 	};
 }

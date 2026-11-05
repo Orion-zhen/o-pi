@@ -2,7 +2,7 @@ import { memo, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from "reac
 import { ChevronRight } from "lucide-react";
 import { Check, Copy } from "lucide";
 import { MorphIcon } from "morphicons/react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { fade, listDepth } from "@/ui/motion/transitions.ts";
 import { ReferenceFileButton } from "./reference-file-button.tsx";
 import { startupRow, useStartupLists } from "@/app/welcome/startup-entrance.tsx";
@@ -35,15 +35,15 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ cwd, setError, 
 	git: WorkspaceGit; selected: string | undefined;
 }) {
 	const changes = useMemo(() => [...git.changes].sort((a, b) => a.path.localeCompare(b.path)), [git]);
-	const { lists, ...interaction } = useStartupLists("changes", true);
 	const list = useVirtualRows<HTMLUListElement>(changes.length, (index) => changes[index]?.path ?? "", 32);
+	const { lists, ...interaction } = useStartupLists("changes", true, list.rows.map((row) => String(row.key)), list.root);
 	return <ul ref={list.root} style={list.style} className="workspace-changes" aria-label="工作区变更" {...interaction}>
 		{!changes.length && <li className="file-hint">没有文件变更</li>}
-		{list.rows.map((row) => {
+		<AnimatePresence initial={Boolean(lists)}>{list.rows.map((row) => {
 			const change = changes[row.index];
 			if (!change) return null;
 			return <li key={row.key} data-index={row.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(row.start)}>
-			<motion.div className="file-entry-row overlay-list-row" initial={false} animate={{ ...fade.animate, ...listDepth.visible }} transition={{ duration: 0 }} {...startupRow(lists, row.index, changes.length)}>
+			<motion.div className="file-entry-row overlay-list-row" initial={false} animate={{ ...fade.animate, ...listDepth.visible }} transition={{ duration: 0 }} {...startupRow(lists, change.path)}>
 			<Hint content={`${change.originalPath ? `${change.originalPath} -> ` : ""}${change.path}`}><button type="button" className="file-row file-change-row" data-status={change.status} aria-label={change.path}
 				aria-pressed={selected === change.path} aria-description={gitStatusLabels[change.status]}
 				{...(change.status !== "D" ? nativeFileEvents(cwd, change.path, true, setError) : {})}
@@ -55,7 +55,7 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ cwd, setError, 
 			{change.status !== "D" && <FileRowActions path={change.path} referenceFile={referenceFile} />}
 			</motion.div>
 		</li>;
-		})}
+		})}</AnimatePresence>
 	</ul>;
 });
 
@@ -63,8 +63,9 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 	const git = workbench.git.state === "ready" ? workbench.git.value : null;
 	const index = useMemo(() => indexWorkspaceGit(git), [git]);
 	const rows = useMemo(() => workspaceTreeRows(workbench.directories, workbench.expanded, index), [workbench.directories, workbench.expanded, index]);
-	const { lists, ...interaction } = useStartupLists("files", workbench.directories[""]?.state === "ready");
 	const list = useVirtualRows<HTMLUListElement>(rows.length, (index) => rows[index]?.key ?? "", 32);
+	const keys = list.rows.filter((item) => rows[item.index]?.kind === "entry").map((item) => String(item.key));
+	const { lists, ...interaction } = useStartupLists("files", workbench.directories[""]?.state === "ready", keys, list.root);
 	const pendingFocus = useRef<string | undefined>(undefined);
 	useLayoutEffect(() => {
 		if (pendingFocus.current === undefined) return;
@@ -104,7 +105,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 	};
 	return <ul ref={list.root} style={list.style} className="workspace-tree" role="tree" aria-label="工作区文件" onKeyDown={keyDown} {...interaction}
 		onFocus={(event) => { if (event.target === event.currentTarget) focus(rows.findIndex((row) => row.kind === "entry")); }} tabIndex={0}>
-		{list.rows.map((item) => {
+		<AnimatePresence initial={Boolean(lists)}>{list.rows.map((item) => {
 			const row = rows[item.index];
 			if (!row) return null;
 			const content = () => {
@@ -112,7 +113,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 				const { entry, depth, state: { change, descendants, ignored } } = row;
 				const open = workbench.expanded.has(entry.path);
 				const state = change ? gitStatusLabels[change.status] : descendants ? `${descendants} 个文件变更` : ignored ? "Git 忽略项" : "";
-				return <motion.div className="file-entry-row overlay-list-row" initial={false} animate={{ ...fade.animate, ...listDepth.visible }} transition={{ duration: 0 }} {...startupRow(lists, item.index, rows.length)}>
+				return <motion.div className="file-entry-row overlay-list-row" initial={false} animate={{ ...fade.animate, ...listDepth.visible }} transition={{ duration: 0 }} {...startupRow(lists, row.key)}>
 					<Hint content={entry.path}><button type="button" role="treeitem" aria-label={entry.path} aria-level={depth + 1} aria-posinset={row.position} aria-setsize={row.siblings}
 						aria-expanded={entry.kind === "directory" ? open : undefined} aria-selected={workbench.preview?.path === entry.path}
 						tabIndex={-1} aria-description={state}
@@ -129,6 +130,6 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 				</motion.div>;
 			};
 			return <li key={item.key} role="none" data-index={item.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(item.start)}>{content()}</li>;
-		})}
+		})}</AnimatePresence>
 	</ul>;
 });

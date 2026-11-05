@@ -1,10 +1,10 @@
 @keyframes surface-in {
-	from { opacity: 0; transform: translateY(var(--motion-offset, 0.25rem)) scale(0.98); }
+	from { opacity: 0; transform: translateY(var(--motion-offset, 0.25rem)) scale(var(--motion-scale)); }
 	to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes surface-out {
 	from { opacity: 1; transform: translateY(0) scale(1); }
-	to { opacity: 0; transform: translateY(var(--motion-offset, 0.25rem)) scale(0.98); }
+	to { opacity: 0; transform: translateY(var(--motion-offset, 0.25rem)) scale(var(--motion-scale)); }
 }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
@@ -12,6 +12,7 @@
 @keyframes sheet-out { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 
 :is([data-slot="popover-content"], [data-slot="select-content"], [data-slot="dropdown-menu-content"], [data-slot="tooltip-content"]) {
+	--motion-scale: 0.98;
 	animation-duration: var(--motion-duration-2);
 	animation-timing-function: var(--motion-ease);
 	animation-fill-mode: both;

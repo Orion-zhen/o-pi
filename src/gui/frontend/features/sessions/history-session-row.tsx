@@ -24,8 +24,8 @@ import { ActivityBorder } from "./activity-border.tsx";
 
 const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" });
 
-export const HistorySessionRow = memo(function HistorySessionRow({ item, index, count, lists, disabled, send, open, animated, match }: {
-	item: SessionListItem; index: number; count: number; disabled: boolean; send: GlobalSend; open: (item: SessionListItem) => void; animated: boolean;
+export const HistorySessionRow = memo(function HistorySessionRow({ item, lists, disabled, send, open, animated, match }: {
+	item: SessionListItem; disabled: boolean; send: GlobalSend; open: (item: SessionListItem) => void; animated: boolean;
 	lists: StartupLists | null; match?: SessionSearchHit | undefined;
 }) {
 	const { path, title, modified, selected, activity } = item;
@@ -64,7 +64,7 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 		</div>}
 	</>;
 	const props = { className: "history-session-row overlay-list-row activity-frame", "data-current": selected, "data-editing": editing };
-	const entrance = startupRow(lists, index, count, sessionListTiming);
+	const entrance = startupRow(lists, item.key, sessionListTiming);
 	return <><Fade {...props} {...(entrance ?? { initial: animated ? fade.initial : false, animate: { ...fade.animate, ...listDepth.visible } })}
 		variants={{ exit: (visible: ReadonlySet<string>) => visible.has(item.key) ? { opacity: 1, transition: { duration: 0 } } : listDeparture }}
 		exit="exit">{content}</Fade><Feedback compact message={error} tone="error" /></>;

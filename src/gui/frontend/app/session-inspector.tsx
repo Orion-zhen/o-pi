@@ -31,7 +31,7 @@ interface SessionInspectorView extends Pick<GuiControls, "setError"> {
 }
 export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; locate: (entryId: string) => void }) {
 	const root = useRef<HTMLDivElement>(null);
-	const entrance = useSectionEntrance("right");
+	const { animation, interaction } = useSectionEntrance("right");
 	const highlightId = useId();
 	const { sessionTab, session, workbench, selectTab } = gui;
 	const loading = <p role="status">正在读取会话信息…</p>;
@@ -43,7 +43,7 @@ export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; l
 			if (tab) selectTab(tab.id);
 		}
 	}}>
-	<motion.div ref={root} className="session-tabs" {...entrance}>
+	<motion.div ref={root} className="session-tabs" {...animation} {...interaction}>
 		<div className="session-sidebar-header">
 			<Tabs.List aria-label="会话信息" className="session-tab-list">
 				{tabs.map(({ id, title }) => <Tabs.Trigger key={id} value={id} className="animated-background-target">

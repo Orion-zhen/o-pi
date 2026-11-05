@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, utimes } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -35,6 +35,25 @@ describe("会话列表按范围直读磁盘", () => {
 			path, cwd, title: name || firstMessage.replace(/\s+/g, " ").slice(0, 160), modified: modified.toISOString(),
 		}));
 		expect((await readSessionIndex()).sessions).toEqual(expected);
+	});
+
+	it("工作区按会话文件最大 mtime 排序，受保护工作区保持置顶", async () => {
+		const older = path.join(temp.path, "a-older");
+		const newer = path.join(temp.path, "z-newer");
+		const current = await store("启动工作区", 1000);
+		const latest = await storeSession({ cwd: newer, agentDir, provider: "test", timestamp: 1000 });
+		const previous = await storeSession({ cwd: newer, agentDir, provider: "test", timestamp: 500 });
+		const file = await storeSession({ cwd: older, agentDir, provider: "test", timestamp: 2000 });
+		await Promise.all([utimes(current, 1, 1), utimes(latest, 3, 3), utimes(previous, 0.5, 0.5), utimes(file, 2, 2)]);
+		const catalog = createCatalog();
+		try {
+			await catalog.refresh();
+			expect(catalog.workspaces?.map(({ path }) => path)).toEqual([cwd, newer, older]);
+			SessionManager.open(file).appendSessionInfo("更新标题");
+			await utimes(file, 4, 4);
+			await catalog.refresh();
+			expect(catalog.workspaces?.map(({ path }) => path)).toEqual([cwd, older, newer]);
+		} finally { await catalog.dispose(); }
 	});
 
 	it("当前工作区读取摘要，其他工作区和路径枚举只读文件头，扩大范围后重新读取", async () => {

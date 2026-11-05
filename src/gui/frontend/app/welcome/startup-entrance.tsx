@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useLayoutEffect, useState } from "react";
-import { animate, useMotionValue, useTransform, type HTMLMotionProps } from "motion/react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState, type RefObject } from "react";
+import type { HTMLMotionProps } from "motion/react";
 import { fade, motionEase, listDepth } from "@/ui/motion/transitions.ts";
 import { sectionFade, sectionsDuration, startupListTiming } from "./welcome-timing.ts";
 
@@ -8,7 +8,8 @@ type StartupList = "sessions" | "files" | "changes";
 export type StartupRegion = StartupSide | StartupList;
 
 export interface StartupLists {
-	startAt: number;
+	rows: ReadonlyMap<string, number>;
+	finish: () => void;
 }
 
 export const StartupEntranceContext = createContext<Set<StartupRegion> | null>(null);
@@ -34,50 +35,47 @@ const entryAnimation = {
 /** 侧栏内部元素的入场。侧栏外壳（背景、分隔条）已经展开，保持静止。 */
 export function useSectionEntrance(side: StartupSide) {
 	const entrance = useContext(StartupEntranceContext);
-	const [animated] = useState(() => takeEntrance(entrance, side));
+	const [animated, setAnimated] = useState(() => takeEntrance(entrance, side));
 	const [narrow] = useState(() => matchMedia("(max-width: 64em)").matches);
-	const shift = useMotionValue(animated ? 0 : 1);
-	const opacity = useMotionValue(animated ? 0 : 1);
-	const vertical = side === "right" && narrow;
-	const x = useTransform(shift, [0, 1], [vertical ? 0 : side === "left" ? -20 : 20, 0]);
-	const y = useTransform(shift, [0, 1], [vertical ? 12 : 0, 0]);
-	useLayoutEffect(() => {
-		if (!animated) return;
-		const animations = [
-			animate(shift, 1, { duration: sectionsDuration, ease: motionEase }),
-			animate(opacity, 1, { duration: sectionFade, ease: motionEase }),
-		];
-		return () => { for (const animation of animations) animation.stop(); };
-	}, [animated, shift, opacity]);
-	return { style: { opacity, x, y }, ...entranceInteraction(() => { shift.jump(1); opacity.jump(1); }) };
+	const transform = side === "right" && narrow ? "translateY(12px)" : `translateX(${side === "left" ? -20 : 20}px)`;
+	const animation: Pick<HTMLMotionProps<"div">, "initial" | "animate" | "transition"> = {
+		initial: animated ? { opacity: 0, transform } : false,
+		animate: animated ? { opacity: [0, 1], transform: [transform, "none"] } : { opacity: 1, transform: "none" },
+		transition: animated ? {
+			transform: { duration: sectionsDuration, ease: motionEase },
+			opacity: { duration: sectionFade, ease: motionEase },
+		} : { duration: 0 },
+	};
+	return { animation, interaction: entranceInteraction(() => setAnimated(false)) };
 }
 
-/** 列表首次就绪时开始计时，不受其他区域的入场或交互影响。 */
-export function useStartupLists(region: StartupList, ready: boolean, timing = startupListTiming) {
+/** 只编排首次就绪的已挂载行，后续新增或滚动挂载的行不补播。 */
+export function useStartupLists(region: StartupList, ready: boolean, keys: readonly string[], root: RefObject<HTMLElement | null>) {
 	const entrance = useContext(StartupEntranceContext);
-	const [lists, setLists] = useState<StartupLists | null>();
-	if (lists === undefined && ready) setLists(takeEntrance(entrance, region) ? { startAt: performance.now() } : null);
-	const finish = useCallback(() => setLists((current) => current === undefined ? current : null), []);
+	const [rows, setRows] = useState<ReadonlyMap<string, number> | null>();
+	if (rows === undefined && ready && keys.length) setRows(takeEntrance(entrance, region) ? new Map(keys.map((key, index) => [key, index])) : null);
+	const finish = useCallback(() => setRows((current) => current === undefined ? current : null), []);
 	useLayoutEffect(() => {
-		if (!lists) return;
-		const timer = window.setTimeout(finish, lists.startAt + timing.window * 1000 - performance.now());
-		return () => window.clearTimeout(timer);
-	}, [lists, timing, finish]);
-	return { lists: lists ?? null, ...entranceInteraction(finish) };
+		if (!rows) return;
+		const scroll = root.current?.closest("[data-list-scroll]");
+		scroll?.addEventListener("scroll", finish, { passive: true });
+		return () => scroll?.removeEventListener("scroll", finish);
+	}, [rows, root, finish]);
+	const lists = useMemo<StartupLists | null>(() => rows ? { rows, finish } : null, [rows, finish]);
+	return { lists, ...entranceInteraction(finish) };
 }
 
-type RowEntrance = Pick<HTMLMotionProps<"div">, "initial" | "animate" | "transition">;
+type RowEntrance = Pick<HTMLMotionProps<"div">, "initial" | "animate" | "transition" | "onAnimationComplete">;
 
-/** 列表行的入场属性，null 表示按普通出现。 */
-export function startupRow(lists: StartupLists | null, index: number, count: number, timing = startupListTiming): RowEntrance | null {
-	if (!lists) return null;
-	const duration = count === 1 ? timing.singleRow : timing.row;
-	const stagger = count > 1 ? (timing.window - duration) / (count - 1) : 0;
-	// 新挂载的虚拟行接上本列表的进度，不重新播放整段入场。
-	const delay = (lists.startAt - performance.now()) / 1000 + index * stagger;
+/** 每行从挂载时开始错峰，最后一行完成后结束本批入场。 */
+export function startupRow(lists: StartupLists | null, key: string, timing = startupListTiming): RowEntrance | null {
+	const index = lists?.rows.get(key);
+	if (!lists || index === undefined) return null;
+	const duration = lists.rows.size === 1 ? timing.singleRow : timing.row;
 	return {
 		initial: entryHidden,
 		animate: entryAnimation,
-		transition: { ...listDepth.transition, duration, delay },
+		transition: { ...listDepth.transition, duration, delay: index * timing.stagger },
+		...(index === lists.rows.size - 1 ? { onAnimationComplete: lists.finish } : {}),
 	};
 }

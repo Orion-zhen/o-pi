@@ -2,7 +2,7 @@ import { memo } from "react";
 import { KeyRound, Plus, RefreshCw, Settings, Cpu } from "lucide-react";
 import { Gauge, LoaderCircle, PanelLeftClose, PanelLeftOpen } from "lucide";
 import { MorphIcon } from "morphicons/react";
-import { motion, type MotionStyle } from "motion/react";
+import { motion } from "motion/react";
 import type { SidebarView } from "./controls.ts";
 import type { GuiAction } from "../../shared/protocol/actions.ts";
 import { SidebarWorkbench } from "./sidebar-workbench.tsx";
@@ -16,10 +16,10 @@ import { Hint } from "@/ui/tooltip.tsx";
 export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: {
 	gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void;
 }) {
-	const { style, ...interaction } = useSectionEntrance("left");
+	const { animation, interaction } = useSectionEntrance("left");
 	const act = (action: GuiAction) => { close(); void gui.send(action).catch(gui.setError); };
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
-	const content = (compact: boolean, mobile: boolean, props?: { style: MotionStyle }) => <>
+	const content = (compact: boolean, mobile: boolean, props?: typeof animation) => <>
 		<motion.div className="sidebar-brand" {...props}>
 			<span className="brand" aria-hidden={compact}><span className="app-logo" aria-hidden="true" /><span>opi</span><small>workspace</small></span>
 			{mobile ? <SheetClose asChild><IconButton label="关闭菜单"><MorphIcon icon={PanelLeftClose} spring="smooth" size="1em" /></IconButton></SheetClose>
@@ -52,7 +52,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 		</motion.div>
 	</>;
 	return <>
-		<aside className="sidebar" aria-label="侧栏" data-collapsed={collapsed} {...interaction}>{content(collapsed, false, { style })}</aside>
+		<aside className="sidebar" aria-label="侧栏" data-collapsed={collapsed} {...interaction}>{content(collapsed, false, animation)}</aside>
 		<SheetContent className="mobile-sidebar" aria-describedby={undefined}>
 			<SheetTitle className="sr-only">工作空间导航</SheetTitle>{content(false, true)}
 		</SheetContent>

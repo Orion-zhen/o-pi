@@ -31,7 +31,7 @@ async function click(modifiers: { ctrlKey?: boolean; metaKey?: boolean } = {}) {
 it("普通点击编辑名称，不请求自动命名", async () => {
 	const send = vi.fn<Send>().mockResolvedValue(undefined);
 	const open = vi.fn();
-	await render(<TooltipProvider><HistorySessionRow item={item} index={0} count={1} lists={null} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
+	await render(<TooltipProvider><HistorySessionRow item={item} lists={null} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
 	await click();
 	expect(document.querySelector<HTMLInputElement>('input[aria-label="会话名称"]')?.value).toBe("原标题");
 	expect(send).not.toHaveBeenCalled();
@@ -42,7 +42,7 @@ it.each([{ ctrlKey: true }, { metaKey: true }])("修饰键点击 %j 自动命名
 	const reply = deferred<void>();
 	const send = vi.fn<Send>().mockReturnValue(reply.promise);
 	const open = vi.fn();
-	await render(<TooltipProvider><HistorySessionRow item={item} index={0} count={1} lists={null} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
+	await render(<TooltipProvider><HistorySessionRow item={item} lists={null} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
 	await click(modifiers);
 	expect(send).toHaveBeenCalledExactlyOnceWith({ action: "autoTitleSession", path: item.path });
 	expect(rename().disabled).toBe(true);
@@ -59,14 +59,14 @@ it("自动命名等待审批时允许打开会话处理确认", async () => {
 	const reply = deferred<void>();
 	const send = vi.fn<Send>().mockReturnValue(reply.promise);
 	const open = vi.fn();
-	await render(<TooltipProvider><HistorySessionRow item={item} index={0} count={1} lists={null} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
+	await render(<TooltipProvider><HistorySessionRow item={item} lists={null} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
 	await click({ ctrlKey: true });
 	expect(openButton().disabled).toBe(true);
 	const waiting: SessionListItem = { ...item, activity: {
 		sessionId: "one", path: item.path, cwd: item.cwd, title: item.title, modified: item.modified,
 		state: "waiting", completedAt: 0, unread: false,
 	} };
-	await render(<TooltipProvider><HistorySessionRow item={waiting} index={0} count={1} lists={null} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
+	await render(<TooltipProvider><HistorySessionRow item={waiting} lists={null} disabled={false} send={send} open={open} animated={false} /></TooltipProvider>);
 	expect(openButton().getAttribute("aria-description")).toBe("等待审批");
 	expect(openButton().disabled).toBe(false);
 	expect(rename().disabled).toBe(true);
