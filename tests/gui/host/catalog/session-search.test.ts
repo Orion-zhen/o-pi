@@ -109,6 +109,17 @@ describe("会话内容搜索", () => {
 		expect((await search("中文 测试")).map((hit) => hit.path)).toEqual([file]);
 	});
 
+	it("巨大单行的转义文本和无换行符尾行仍可搜索，损坏行不污染后续记录", async () => {
+		const file = await store("长正文", []);
+		const content = '背景\n"引号" \\ 路径 𠮷😀 '.repeat(100_000) + "结束关键词";
+		await fs.promises.appendFile(file, JSON.stringify(message("user", "不应命中")) + "bad\r\n"
+			+ JSON.stringify(message("assistant", [{ text: content, type: "text" }])));
+		const hits = await search("𠮷😀 结束关键词");
+		expect(hits.map((hit) => hit.path)).toEqual([file]);
+		expect(hits[0]?.source).toBe("assistant");
+		expect(await search("不应命中")).toEqual([]);
+	});
+
 	it("每次搜索直读摘要，标题命中后不再扫描正文", async () => {
 		await store("唯一标题", [message("user", "正文")]);
 		const read = vi.spyOn(fs, "createReadStream"); syncBuiltinESMExports();

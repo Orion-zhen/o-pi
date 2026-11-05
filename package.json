@@ -98,8 +98,6 @@
 		"remark-cjk-friendly": "latest",
 		"remark-cjk-friendly-gfm-strikethrough": "latest",
 		"remark-gfm": "latest",
-		"stream-chain": "latest",
-		"stream-json": "latest",
 		"tailwind-merge": "latest",
 		"tough-cookie": "latest",
 		"tree-sitter-bash": "latest",

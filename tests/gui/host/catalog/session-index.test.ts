@@ -37,6 +37,19 @@ describe("会话列表按范围直读磁盘", () => {
 		expect((await readSessionIndex()).sessions).toEqual(expected);
 	});
 
+	it("长记录跨读取块，跳过损坏行并读取没有换行符的完整尾行", async () => {
+		const text = '多行\n问题 "引号" \\ 路径 𠮷😀 '.repeat(20_000);
+		const file = await storeSession({ cwd, agentDir, provider: "test", text, timestamp: 1000 });
+		await fs.promises.appendFile(file, '\r\nnull\r\n[]\r\n{"type":"session_info","name":"损坏标题"}bad\r\n');
+		expect((await readSessionIndex([cwd])).sessions).toEqual([{
+			path: file, cwd, title: text.replace(/\s+/g, " ").slice(0, 160), modified: new Date(1000).toISOString(),
+		}]);
+		await fs.promises.appendFile(file, JSON.stringify({ type: "session_info", name: "完整尾行标题" }));
+		expect((await readSessionIndex([cwd])).sessions).toEqual([{
+			path: file, cwd, title: "完整尾行标题", modified: new Date(1000).toISOString(),
+		}]);
+	});
+
 	it("工作区按会话文件最大 mtime 排序，受保护工作区保持置顶", async () => {
 		const older = path.join(temp.path, "a-older");
 		const newer = path.join(temp.path, "z-newer");
