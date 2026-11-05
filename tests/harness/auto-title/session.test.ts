@@ -4,7 +4,7 @@ import {
 	createAgentSessionFromServices, createAgentSessionServices, createAgentSessionRuntime, SessionManager,
 	type AgentSessionRuntime, type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import autoTitle from "../../../src/harness/extensions/auto-title.ts";
 import skillContext from "../../../src/harness/extensions/skill-context.ts";
 import { loadAutoTitleConfig, type AutoTitleConfig } from "../../../src/harness/auto-title/config.ts";
@@ -105,7 +105,7 @@ describe("共享 SDK 自动标题", () => {
 		await expect.poll(() => current.sessionName).toBe("修复登录错误");
 		expect(names).toEqual(["修复登录错误"]);
 		expect(titleRequests[0]).toMatchObject({ messages: [
-			{ role: "system", content: systemPrompt }, { role: "user", content: "修复登录接口的 500 错误" },
+			{ role: "system", content: systemPrompt }, { role: "user", content: "<transcript>\nUser:\n修复登录接口的 500 错误\n</transcript>" },
 		] });
 		expect(titleRequests[0]?.tools).toBeUndefined();
 		expect(titleRequests[0]).not.toHaveProperty("reasoning_effort");
@@ -130,7 +130,7 @@ describe("共享 SDK 自动标题", () => {
 		await current.prompt("/skill:review  \n  修复登录接口的 500 错误");
 		await expect.poll(() => current.sessionName).toBe("修复登录错误");
 		expect(titleRequests).toHaveLength(1);
-		expect(titleRequests[0]?.messages.at(-1)).toMatchObject({ role: "user", content: "修复登录接口的 500 错误" });
+		expect(titleRequests[0]?.messages.at(-1)).toMatchObject({ role: "user", content: "<transcript>\nUser:\n修复登录接口的 500 错误\n</transcript>" });
 		expect(current.messages.filter((message) => message.role === "user")).toMatchObject([
 			{ content: [{ type: "text", text: "修复登录接口的 500 错误" }] },
 		]);
@@ -214,6 +214,30 @@ describe("共享 SDK 自动标题", () => {
 		expect(old.sessionName).toBeUndefined();
 	});
 
+	it("自动命名超时通知用户，不影响主任务且不在后续轮次重试", async () => {
+		const current = await start();
+		const notify = vi.spyOn(current.extensionRunner.createContext().ui, "notify");
+		const timer = new AbortController();
+		const nativeTimeout = AbortSignal.timeout;
+		const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => ms === 30_000 ? timer.signal : nativeTimeout(ms));
+		const reply = deferred<ModelResponse>();
+		answerTitle = () => reply.promise;
+		try {
+			await current.prompt("第一次请求");
+			await expect.poll(() => titleRequests.length).toBe(1);
+			timer.abort(new DOMException("Title request timed out", "TimeoutError"));
+			await expect.poll(() => notify.mock.calls).toContainEqual(["Auto-title: Title request timed out", "warning"]);
+			expect(current.sessionName).toBeUndefined();
+			expect(JSON.stringify(current.messages)).toContain("主任务完成");
+		} finally {
+			timeout.mockRestore();
+			notify.mockRestore();
+			reply.resolve({ text: "过期标题" });
+		}
+		await current.prompt("第二次请求");
+		expect(titleRequests).toHaveLength(1);
+	});
+
 	it.each(["empty", "network"])("%s 失败不影响主任务，不在后续轮次或恢复时重复生成", async (failure) => {
 		answerTitle = () => {
 			if (failure === "network") throw new Error("Model unavailable");
@@ -270,6 +294,6 @@ describe("共享 SDK 自动标题", () => {
 		const current = await start();
 		await current.prompt("中".repeat(1999) + "🧪后续".repeat(100));
 		await expect.poll(() => current.sessionName).toBe("🧪".repeat(50));
-		expect(titleRequests[0]?.messages.at(-1)?.content).toBe("中".repeat(1999) + "🧪");
+		expect(titleRequests[0]?.messages.at(-1)?.content).toBe("<transcript>\nUser:\n" + "中".repeat(1999) + "🧪\n</transcript>");
 	});
 });

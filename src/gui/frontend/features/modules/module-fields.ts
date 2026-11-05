@@ -17,8 +17,8 @@ const field = (path: string, label: string, type?: ConfigField["type"]): ConfigF
 
 export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 	autoTitle: [{ title: "自动标题", fields: [
-		field("enabled", "自动生成标题"), { ...field("model", "标题模型", "model"), enabledBy: "enabled" },
-		{ ...field("thinking_level", "思考等级", "thinking"), enabledBy: "enabled" },
+		field("enabled", "自动生成标题"), field("model", "标题模型", "model"),
+		field("thinking_level", "思考等级", "thinking"), field("max_messages", "正文消息上限"),
 	] }],
 	bashTool: [
 		{ title: "终端执行", fields: [field("default_timeout_seconds", "超时（秒）"), field("python_venv_paths", "Python 虚拟环境")] },

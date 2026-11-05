@@ -7,6 +7,7 @@ import { UsageService } from "../../../harness/usage/service.ts";
 import { GuiModelScope } from "./models.ts";
 import { GuiModelServices } from "./model-services.ts";
 import type { SessionClient } from "./execution.ts";
+import type { AutoTitleGenerator } from "../../../harness/extensions/auto-title.ts";
 
 /** 启动和执行共用交互通道，审批与取消不等待 SDK 就绪。 */
 export class GuiExecutionContext {
@@ -17,6 +18,7 @@ export class GuiExecutionContext {
 	readonly modelScope = new GuiModelScope();
 	readonly modelServices = new GuiModelServices();
 	titleGeneration: GuiSnapshot["titleGeneration"];
+	autoTitle: AutoTitleGenerator | undefined;
 	tail = () => 0;
 	publish: () => void;
 	readonly reports = new GuiReports(

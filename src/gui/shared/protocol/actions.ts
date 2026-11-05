@@ -47,6 +47,7 @@ export const actionSchema = union([
 	object({ action: lit("openSession"), id: short }),
 	object({ action: lit("observe"), visible: bool() }),
 	object({ action: lit("renameSession"), path: short, name: short }),
+	object({ action: lit("autoTitleSession"), path: short }),
 	object({ action: lit("deleteSession"), path: short }),
 	object({ action: lit("fork"), entryId: short }),
 	object({ action: lit("navigate"), entryId: short, summarize: bool() }),
@@ -95,7 +96,7 @@ export type GuiAction = Static<typeof actionSchema>;
 export type ConfigAction = Extract<GuiAction, { action: "saveGuiConfig" | "saveMcpConfig" | "saveModelServices" | "saveModuleConfig" | "saveConfig" | "settings" }>;
 export type GlobalAction = Extract<GuiAction, { action:
 	| "observe" | "cancelSessionSearch" | "removeStorage" | "saveMcpConfig" | "saveModelServices" | "saveModuleConfig"
-	| "saveGuiConfig" | "startupChangelog" | "sessions" | "openSession" | "import" | "deleteSession" | "removeWorkspace" | "renameSession"
+	| "saveGuiConfig" | "startupChangelog" | "sessions" | "openSession" | "import" | "deleteSession" | "removeWorkspace" | "renameSession" | "autoTitleSession"
 }>;
 export type WorkspaceAction = Extract<GuiAction, { action: "workspace" }>;
 export type SessionNavigationAction = Extract<GuiAction, { action: "new" | "fork" }>;

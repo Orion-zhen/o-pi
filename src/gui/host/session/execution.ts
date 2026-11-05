@@ -122,6 +122,7 @@ export class GuiExecution {
 					commandSignal: () => context.commandController.signal,
 					reports: context.reports, usageService: context.usageService,
 					approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
+					bindAutoTitle: (generate) => { context.autoTitle = generate; },
 					titleGenerationChanged: (state) => { context.titleGeneration = state; context.publish(); },
 					signal: context.lifetime.signal,
 				}, manager, initial.event, initial.models, context.modelScope), tools.promise,
@@ -231,6 +232,13 @@ export class GuiExecution {
 				this.dialogs.notify(`模型列表刷新失败，已使用缓存: ${[...errors.keys()].join(", ")}`, "warning");
 		};
 		return this.track(refresh());
+	}
+
+	async generateTitle(client: SessionClient): Promise<void> {
+		if (this.disposed || this.changing) throw new Error("正在处理会话操作，请稍后再试。");
+		const generate = this.context.autoTitle;
+		if (!generate) throw new Error("Auto-title configuration is unavailable.");
+		await this.track(this.context.origin.run(client, generate));
 	}
 
 	dispatch<A extends SessionAction>(action: A, client: SessionClient): Promise<GuiActionResult<A>>;

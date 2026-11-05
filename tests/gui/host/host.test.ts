@@ -22,6 +22,7 @@ import { newSessionTests } from "./session/new-session-cases.ts";
 import { changelogTests } from "./changelog-cases.ts";
 import { notificationTests } from "./session/notification-cases.ts";
 import { usageCreditTests } from "./session/usage-credit-cases.ts";
+import { autoTitleTests } from "./session/auto-title-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-gui-");
@@ -43,7 +44,8 @@ beforeEach(async () => {
 	await mkdir(cwd, { recursive: true });
 	titleReply = () => ({ text: "检查文件并写入结果" });
 	server = await startModelServer((request) => {
-		if (!request.tools) return titleReply();
+		// token 计数探测不含 messages，不能当作标题或压缩请求。
+		if (!request.tools) return Array.isArray(request.messages) ? titleReply() : { text: "" };
 		const lastUser = request.messages.findLastIndex((message) => message.role === "user");
 		const tools = request.messages.slice(lastUser + 1).filter((message) => message.role === "tool").length;
 		if (tools === 0) return { tool: "read", args: { path: "input.txt" } };
@@ -108,6 +110,7 @@ newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 notificationTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 usageCreditTests(() => ({ host, events }));
+autoTitleTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), requests: server.requests, setReply: (reply) => { titleReply = reply; } }));
 
 describe("GUI 直接使用 SDK", () => {
 	it("认证能力区分仅 OAuth、仅 API Key 和两者兼有的 provider", () => {

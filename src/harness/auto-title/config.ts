@@ -5,6 +5,7 @@ export interface AutoTitleConfig {
 	enabled: boolean;
 	model: string | null;
 	thinking_level: ModelThinkingLevel;
+	max_messages: number;
 	system_prompt: string;
 }
 

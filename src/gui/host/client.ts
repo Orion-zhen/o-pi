@@ -273,6 +273,13 @@ export class GuiClient {
 				await this.host.remove(files); return;
 			}
 			case "renameSession": await this.host.rename(action.path, action.name, this); return;
+			case "autoTitleSession": {
+				const target = await this.host.openFile(action.path);
+				await target.refreshCached();
+				const client = this.forSession(target);
+				await target.use(client, (execution) => execution.generateTitle(client));
+				return;
+			}
 		}
 		const source = this.resolveSession(sessionId);
 		if (action.action === "new") { await this.newSession(source); return; }

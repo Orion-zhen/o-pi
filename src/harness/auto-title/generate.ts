@@ -1,25 +1,36 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutoTitleConfig } from "./config.ts";
 
 export async function generateTitle(
 	config: AutoTitleConfig,
-	text: string,
+	messages: readonly AgentMessage[],
 	ctx: Pick<ExtensionContext, "model" | "modelRegistry">,
 	signal: AbortSignal,
 ): Promise<string> {
+	const transcript: string[] = [];
+	for (const message of messages.toReversed()) {
+		if (transcript.length === config.max_messages) break;
+		if (message.role !== "user" && message.role !== "assistant") continue;
+		const text = (typeof message.content === "string" ? message.content : message.content
+			.filter((part) => part.type === "text").map((part) => part.text).join("\n")).trim();
+		if (text) transcript.push(`${message.role === "user" ? "User" : "Assistant"}:\n${truncate(text, 2000)}`);
+	}
+	if (!transcript.length) throw new Error("Auto-title requires user or assistant text.");
 	let model: Model<Api> | undefined = ctx.model;
 	if (config.model !== null) {
 		model = ctx.modelRegistry.getAll().find((candidate) => `${candidate.provider}/${candidate.id}` === config.model);
 	}
 	if (!model) throw new Error("Auto-title model is unavailable.");
+	signal = AbortSignal.any([signal, AbortSignal.timeout(30_000)]);
 	signal.throwIfAborted();
 	const reasoning = clampThinkingLevel(model, config.thinking_level);
 	const response = await ctx.modelRegistry.streamSimple(
 		model,
 		{
 			systemPrompt: config.system_prompt,
-			messages: [{ role: "user", content: truncate(text.trim(), 2000), timestamp: Date.now() }],
+			messages: [{ role: "user", content: `<transcript>\n${transcript.reverse().join("\n\n")}\n</transcript>`, timestamp: Date.now() }],
 		},
 		{
 			signal,

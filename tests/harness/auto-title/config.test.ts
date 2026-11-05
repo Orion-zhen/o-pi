@@ -14,15 +14,15 @@ beforeEach(() => {
 describe("自动标题配置", () => {
 	it("默认关闭，使用当前模型，提示词来自默认配置", async () => {
 		const config = await loadAutoTitleConfig(temp.path);
-		expect(config).toMatchObject({ enabled: false, model: null });
+		expect(config).toMatchObject({ enabled: false, model: null, max_messages: 5 });
 		expect(config.system_prompt).toContain("session title");
 	});
-	it("用户可以稀疏覆盖开关、模型和提示词", async () => {
+	it("用户可以稀疏覆盖开关、模型、消息上限和提示词", async () => {
 		await writeFile(path.join(temp.path, "auto-title.jsonc"), JSON.stringify({
-			model: "local/small", system_prompt: "只输出标题。",
+			model: "local/small", max_messages: 3, system_prompt: "只输出标题。",
 		}));
 		expect(await loadAutoTitleConfig(temp.path)).toMatchObject({
-			enabled: false, model: "local/small", system_prompt: "只输出标题。",
+			enabled: false, model: "local/small", max_messages: 3, system_prompt: "只输出标题。",
 		});
 		await writeFile(path.join(temp.path, "auto-title.jsonc"), '{"enabled":true}');
 		expect(await loadAutoTitleConfig(temp.path)).toMatchObject({ enabled: true, model: null });
@@ -31,6 +31,7 @@ describe("自动标题配置", () => {
 		{ model: { provider: "local", id: "small" } }, { model: "small" },
 		{ model: "/small" }, { model: "local/" }, { model: "local/ small" },
 		{ model: " local/small" }, { system_prompt: " " }, { unknown: true },
+		{ max_messages: 0 }, { max_messages: -1 }, { max_messages: 1.5 }, { max_messages: "5" }, { max_messages: null },
 	])("拒绝无效配置 %j", async (value) => {
 		await writeFile(path.join(temp.path, "auto-title.jsonc"), JSON.stringify(value));
 		await expect(loadAutoTitleConfig(temp.path)).rejects.toThrow();

@@ -71,6 +71,27 @@ it("模块开关改回初始值后无需保存，默认值隐藏重置", async (
 	expect(document.querySelector<HTMLTextAreaElement>("textarea")?.defaultValue).toBe(content);
 });
 
+it("正文消息上限默认五条，自动命名关闭时仍可配置并保存", async () => {
+	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content: "{}",
+		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
+	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query as Query<GlobalQuery>} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
+	const limit = () => document.querySelector<HTMLInputElement>('input[aria-label="正文消息上限"]');
+	expect(limit()?.value).toBe("5");
+	expect(limit()?.disabled).toBe(false);
+	expect(button("标题模型")?.disabled).toBe(false);
+	await click(named("JSONC"));
+	const source = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="autoTitle 全局 JSONC"]');
+	if (!source) throw new Error("缺少配置源码编辑器");
+	await act(async () => { source.value = '{"max_messages":3}'; source.dispatchEvent(new window.Event("input", { bubbles: true })); });
+	await click(named("表单"));
+	expect(limit()?.value).toBe("3");
+	await click(named("保存"));
+	const action = send.mock.calls[0]?.[0];
+	if (action?.action !== "saveModuleConfig") throw new Error("未保存模块配置");
+	expect(parse(action.content)).toEqual({ max_messages: 3 });
+});
+
 it("模块保存失败保留草稿，放弃恢复原值，保存成功采用新基准", async () => {
 	const content = '{"enabled":true}';
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content,

@@ -40,7 +40,7 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 			setPending(true);
 			void send({ action: "renameSession", path, name }).finally(() => setPending(false));
 		}} /> : <Hint content={modified ? new Date(modified).toLocaleString("zh-CN") : undefined}><Button variant="ghost" className="history-session" aria-label={title}
-			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || pending}
+			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || (pending && !waiting)}
 			onClick={() => open(item)}>
 			<MorphIcon icon={waiting ? FilledShield : MessageSquare} spring="smooth" size="1em"
 				className={waiting ? "approval-marker" : undefined} {...(waiting ? { label: "等待审批" } : {})} /><span className="history-session-label"><span className="history-session-title">
@@ -51,8 +51,12 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
 		</Button></Hint>}
 		{path && <div className="row-actions">
-			<IconButton label={`重命名会话 ${title}`} tooltip="重命名" className="row-action-button" disabled={disabled || pending || editing}
-				onClick={() => setEditing(true)}><Pencil /></IconButton>
+			<IconButton label={`重命名会话 ${title}`} tooltip="重命名（Ctrl/Command 点击自动生成）" className="row-action-button" disabled={disabled || pending || editing}
+				onClick={(event) => {
+					if (!(event.ctrlKey || event.metaKey)) { setEditing(true); return; }
+					setPending(true);
+					void send({ action: "autoTitleSession", path }).finally(() => setPending(false));
+				}}><Pencil /></IconButton>
 			{!busy && !waiting && !unread && <ConfirmAction label={`删除会话 ${title}`}
 				disabled={disabled || pending || editing} allowShortcut confirm={() => send({ action: "deleteSession", path })} />}
 		</div>}
