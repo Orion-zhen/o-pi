@@ -101,12 +101,10 @@ pre:has(> code) { white-space: pre; overflow-wrap: normal; overflow-x: auto; pad
 .assistant-reply[data-state="failed"] > .reply-outcome { color: var(--destructive); }
 .assistant-reply[data-state="continued"] > .reply-outcome { color: var(--muted-foreground); }
 .attachment { display: block; max-width: 100%; max-block-size: 60dvh; object-fit: contain; border-radius: 0.75rem; margin-block: 0.75rem; }
-.notices { margin-block: var(--space-4) 0; border-top: 1px solid var(--divider); padding-top: var(--space-2); color: var(--muted-foreground); font-size: var(--text-caption); }
+.notices { margin-block: var(--space-4) 0; border-block: 1px solid var(--divider); padding-top: var(--space-2); color: var(--muted-foreground); font-size: var(--text-caption); }
 .notices-header { display: flex; align-items: center; gap: var(--space-2); }
-.notices-header > .disclosure-trigger { flex: 1; min-width: 0; text-align: start; }
-.notice-heading { min-inline-size: 0; }
-.notice-preview { display: -webkit-box; line-clamp: 2; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); }
-.notices .feedback + .feedback { border-block-start: thin solid var(--divider); }
+.notices-header > .disclosure-trigger { flex: 1; min-width: 0; }
+.notices pre { border-bottom: 1px solid var(--border); padding-block: 0.5rem; }
 .error { color: var(--destructive); }
 .warning { color: var(--warning); }
 

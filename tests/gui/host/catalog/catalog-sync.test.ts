@@ -21,6 +21,35 @@ const history: GuiSessionInfo[] = Array.from({ length: 400 }, (_, index) => ({
 const latest = (events: GuiEvent[]) => events.findLast((event) => event.type === "sessions")?.value;
 
 describe("会话目录传输", () => {
+	it("摘要相同不传补丁，正文搜索失效通过独立通知传递", async () => {
+		const peer = connection();
+		try {
+			await peer.push({ type: "sessions", value: history });
+			const initial = latest(peer.events);
+			await peer.push({ type: "sessions", value: history.map((session) => ({ ...session })) });
+			expect(peer.deliveries).toHaveLength(1);
+			await peer.push({ type: "historyInvalidated", workspaces: ["/project"] });
+			expect(peer.events.at(-1)).toEqual({ type: "historyInvalidated", workspaces: ["/project"] });
+			expect(latest(peer.events)).toBe(initial);
+			expect(JSON.stringify(peer.deliveries[1]).length).toBeLessThan(150);
+		} finally { peer.channel.close(); }
+	});
+	it("背压期间合并失效工作区，全量失效不被后续局部通知覆盖", async () => {
+		const peer = connection();
+		try {
+			for (let index = 0; index < 4; index++) await peer.push({ type: "historyInvalidated", workspaces: ["/project"] });
+			await peer.push({ type: "historyInvalidated", workspaces: ["/a"] });
+			await peer.push({ type: "historyInvalidated", workspaces: ["/b"] });
+			peer.channel.acknowledge(1);
+			await Promise.resolve();
+			expect(peer.events.at(-1)).toEqual({ type: "historyInvalidated", workspaces: ["/a", "/b"] });
+			await peer.push({ type: "historyInvalidated", workspaces: null });
+			await peer.push({ type: "historyInvalidated", workspaces: ["/c"] });
+			peer.channel.acknowledge(2);
+			await Promise.resolve();
+			expect(peer.events.at(-1)).toEqual({ type: "historyInvalidated", workspaces: null });
+		} finally { peer.channel.close(); }
+	});
 	it("首次全量，旧会话完成移到顶部时只传变化内容，保留顺序和未变化对象", async () => {
 		const peer = connection();
 		try {

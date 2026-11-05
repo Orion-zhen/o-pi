@@ -379,13 +379,16 @@ describe("GUI 直接使用 SDK", () => {
 		});
 		const original = await readFile(file, "utf8");
 		await host.dispatch({ action: "sessions" });
+		expect(host.host.catalog.value).toEqual([]);
+		expect(events.some((event) => event.type === "panel")).toBe(false);
+		await host.dispatch(prompt("/resume"));
+		expect(events.some((event) => event.type === "panel" && event.panel.kind === "sessions")).toBe(true);
+		expect(host.host.catalog.value).toEqual([]);
+		await host.dispatch({ action: "sessions", all: true });
 		expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toEqual([
 			expect.objectContaining({ path: file, cwd: path.join(cwd, "other-project"), title: "已有 TUI 会话" }),
 		]);
 		expect(await readFile(file, "utf8")).toBe(original);
-		expect(events.some((event) => event.type === "panel")).toBe(false);
-		await host.dispatch(prompt("/resume"));
-		expect(events.some((event) => event.type === "panel" && event.panel.kind === "sessions")).toBe(true);
 	});
 
 	it("启动自动加载历史，使用配置目录覆盖并向重连页面重放索引", async () => {
@@ -414,7 +417,7 @@ describe("GUI 直接使用 SDK", () => {
 		const options = { agentDir: path.join(temp.path, ".pi", "agent"), provider: "gui-fixture" };
 		const first = await storeSession({ ...options, cwd: path.join(cwd, "a", "project"), name: "较早会话", timestamp: 1000 });
 		const second = await storeSession({ ...options, cwd: path.join(cwd, "b", "project"), text: "未命名\n历史问题", timestamp: 2000 });
-		await host.dispatch({ action: "sessions" });
+		await host.dispatch({ action: "sessions", all: true });
 		const items = events.filter((event) => event.type === "sessions").at(-1)?.value;
 		expect(items).toEqual([
 			{ path: second, cwd: path.join(cwd, "b", "project"), title: "未命名 历史问题", modified: new Date(2000).toISOString() },
@@ -451,7 +454,7 @@ describe("GUI 直接使用 SDK", () => {
 		const file = await storeSession({ cwd: other, agentDir: path.join(temp.path, ".pi", "agent"), provider: "gui-fixture" });
 		const id = readSnapshot(host).sessionId;
 		await rm(other, { recursive: true });
-		await host.dispatch({ action: "sessions" });
+		await host.dispatch({ action: "sessions", all: true });
 		expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toEqual([expect.objectContaining({ path: file })]);
 		await expect(host.dispatch({ action: "openSession", path: file })).rejects.toMatchObject({ code: "ENOENT" });
 		expect(readSnapshot(host).sessionId).toBe(id);
@@ -459,7 +462,7 @@ describe("GUI 直接使用 SDK", () => {
 		await expect(host.dispatch({ action: "openSession", path: file })).rejects.toMatchObject({ code: "ENOENT" });
 		expect(readSnapshot(host).sessionId).toBe(id);
 		await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
-		await host.dispatch({ action: "sessions" });
+		await host.dispatch({ action: "sessions", all: true });
 		expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toEqual([]);
 	});
 

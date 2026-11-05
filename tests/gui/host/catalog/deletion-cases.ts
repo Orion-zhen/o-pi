@@ -6,7 +6,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { GuiClient } from "../../../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../../../src/gui/shared/protocol/events.ts";
 import { prepareSessionDeletion } from "../../../../src/gui/host/catalog/delete-session.ts";
-import { GuiSessionIndex } from "../../../../src/gui/host/catalog/session-index.ts";
+import { readSessionPaths } from "../../../../src/gui/host/catalog/session-index.ts";
 import { storeSession } from "../../helpers/session-fixture.ts";
 
 const prompt = { action: "prompt", text: "读取并写入文件", images: [], behavior: "followUp" };
@@ -90,8 +90,7 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 			const { cwd, agentDir } = context();
 			const first = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
 			const second = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			const index = new GuiSessionIndex();
-			const plan = await prepareSessionDeletion([first, second], new Set(), async () => new Set((await index.list()).map((session) => session.path)));
+			const plan = await prepareSessionDeletion([first, second], new Set(), readSessionPaths);
 			SessionManager.open(second).appendSessionInfo("TUI 修改名称");
 			await expect(plan.verify()).rejects.toThrow();
 			expect(await readFile(first, "utf8")).toContain("历史回复");

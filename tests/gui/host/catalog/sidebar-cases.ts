@@ -1,5 +1,5 @@
 import { readSnapshot } from "../read-snapshot.ts";
-import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -11,6 +11,42 @@ import { storeSession } from "../../helpers/session-fixture.ts";
 
 export function sidebarTests(context: () => { host: GuiClient; cwd: string; agentDir: string; events: GuiEvent[] }) {
 	describe("工作区与自动会话信息", () => {
+		it("宿主将外部新增、改名和删除推送到已连接页面", async () => {
+			const { host, cwd, agentDir, events } = context();
+			const latest = () => events.filter((event) => event.type === "sessions").at(-1)?.value;
+			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture", name: "外部新增" });
+			await expect.poll(latest).toEqual([expect.objectContaining({ path: file, title: "外部新增" })]);
+			await host.dispatch({ action: "openSession", path: file });
+			await appendFile(file, '{"type":"session_info","name":"外部改名"}\n');
+			await expect.poll(latest).toEqual([expect.objectContaining({ path: file, title: "外部改名" })]);
+			await rm(file);
+			await expect.poll(latest).toEqual([]);
+		});
+
+		it("各页面的当前工作区共同决定范围，全部会话页面关闭后恢复按工作区读取", async () => {
+			const { host, cwd, agentDir, events } = context();
+			const otherCwd = path.join(cwd, "other-scope");
+			const first = await storeSession({ cwd, agentDir, provider: "gui-fixture", name: "当前历史" });
+			const second = await storeSession({ cwd: otherCwd, agentDir, provider: "gui-fixture", name: "另一工作区" });
+			const paths = () => events.filter((event) => event.type === "sessions").at(-1)?.value.map((session) => session.path).sort();
+			await host.dispatch({ action: "sessions" });
+			expect(paths()).toEqual([first]);
+			const other = host.host.createClient();
+			try {
+				await other.dispatch({ action: "workspace", path: otherCwd });
+				await expect.poll(paths).toEqual([first, second].sort());
+				await other.dispatch({ action: "workspace", path: cwd });
+				await other.dispatch({ action: "sessions", all: true });
+				expect(paths()).toEqual([first, second].sort());
+				await other.dispatch({ action: "openSession", id: readSnapshot(other).sessionId });
+				await host.host.catalog.refresh();
+				expect(paths()).toEqual([first, second].sort());
+				await other.dispatch({ action: "sessions", all: false });
+				expect(paths()).toEqual([first]);
+				await other.dispatch({ action: "sessions", all: true });
+			} finally { other.close(); }
+			await expect.poll(paths).toEqual([first]);
+		});
 		it("浏览真实目录和目录链接，切换后仍重放启动目录，不返回普通文件", async () => {
 			const { host, cwd } = context();
 			const child = path.join(cwd, "子目录");

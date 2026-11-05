@@ -30,7 +30,7 @@ import { SessionHistory } from "@/features/sessions/session-history.tsx";
 import { SessionHeading } from "@/features/sessions/session-heading.tsx";
 import { useGui } from "./use-gui.ts";
 import { useStartupMotion } from "./welcome/use-startup-motion.ts";
-import { StartupEntranceContext } from "./welcome/startup-entrance.tsx";
+import { StartupEntranceContext, type StartupRegion } from "./welcome/startup-entrance.tsx";
 import { isTouchInput } from "@/ui/input-mode.ts";
 import { GuiQueryContext } from "@/connection/query-context.ts";
 import { IconButton } from "@/ui/icon-button.tsx";
@@ -96,6 +96,7 @@ export function App() {
 	const showWelcome = useMemo(() => snapshot ? !preview && !hasContextMessages(snapshot) : workspaceWelcome,
 		[snapshot?.entries, snapshot?.contextEntryIds, preview, workspaceWelcome]);
 	const startup = useStartupMotion(showWelcome, Boolean(snapshot));
+	const [entrances] = useState(() => new Set<StartupRegion>());
 	const restoreFocus = () => (panelContent.current ?? (isTouchInput() ? null : gui.editor.current) ?? main.current)?.focus();
 	useEffect(() => {
 		const desktop = window.matchMedia("(min-width: 768px)");
@@ -109,7 +110,7 @@ export function App() {
 	const active = state === "运行中" || state === "正在压缩上下文";
 	return (
 		<NotificationErrorContext value={gui.notifications.reportError}><GuiQueryContext value={gui.query}><TooltipProvider delayDuration={350}>
-			<ImagePreviewProvider sessionId={session?.target.id ?? null} fallbackFocus={main}><StartupEntranceContext value={startup.entrance}>
+			<ImagePreviewProvider sessionId={session?.target.id ?? null} fallbackFocus={main}><StartupEntranceContext value={entrances}>
 			<Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
 				<div className="app" data-collapsed={collapsed} ref={app} style={gui.layout.style}>
 					<RegionBoundary scope="sidebar"><Sidebar
@@ -129,7 +130,7 @@ export function App() {
 						return { value: sidebar?.getBoundingClientRect().width ?? 0, min, max: Math.max(min, available - mainMin - (beside ? right?.getBoundingClientRect().width ?? 0 : 0) - 16) };
 					}} />
 					<div className="chat-workspace" ref={workspace}>
-					<main className="main-panel" ref={main} tabIndex={-1}>
+					<main className="main-panel" ref={main} tabIndex={-1} {...startup.interaction}>
 						<RegionBoundary scope="toolbar"><header className="topbar">
 							<SheetTrigger asChild>
 								<IconButton className="mobile-menu" label="菜单">

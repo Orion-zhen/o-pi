@@ -23,6 +23,7 @@ import { importSession } from "./session/files.ts";
 import { FileResources } from "./workspace/file-resource.ts";
 import { GuiStorage } from "./storage/service.ts";
 import { SessionSearchTask } from "./catalog/search-task.ts";
+import { readSessionPaths } from "./catalog/session-index.ts";
 
 const validateAction = compile(actionSchema).check;
 const validateQuery = compile(querySchema).check;
@@ -38,6 +39,7 @@ export class GuiClient {
 		return this.resources.resolve(token, this.selected?.cwd ?? this.host.workspaceRoot);
 	}
 	selected: GuiSession | undefined;
+	allSessions = false;
 	private listeners = new Set<(event: GuiEvent) => void>();
 	private unsubscribe: (() => void) | undefined;
 	private unsubscribeHost: () => void;
@@ -112,6 +114,7 @@ export class GuiClient {
 		const refreshing = session.refreshCached();
 		this.unbind();
 		this.selected = session;
+		this.host.catalog.schedule();
 		if (session.pending) this.pendingSessions.set(session.cwd, session);
 		this.emit({ ...this.selectionEvent(), ...(draftFrom ? { draftFrom } : {}) });
 		this.emit({ type: "dialogs", value: [] });
@@ -127,6 +130,7 @@ export class GuiClient {
 			if (version === this.selection) {
 				this.unbind();
 				this.selected = previous;
+				this.host.catalog.schedule();
 				this.emit(this.selectionEvent());
 				this.bind();
 			}
@@ -247,7 +251,9 @@ export class GuiClient {
 			case "saveModuleConfig": await saveModuleConfig(action.id, action.original, action.content); return;
 			case "saveGuiConfig": this.host.applyGuiConfig(await saveGuiConfig(action.original, action.content)); return;
 			case "startupChangelog": await this.host.changelog.finish(this.id, action.shown); return;
-			case "sessions": await this.host.catalog.refresh(); return;
+			case "sessions":
+				this.allSessions = action.all === true;
+				await this.host.catalog.refresh(); return;
 			case "openSession": await this.openSession(action); return;
 			case "workspace": {
 				const cwd = path.resolve(sessionId === null ? this.host.workspaceRoot : this.resolveSession(sessionId).cwd, action.path);
@@ -262,9 +268,8 @@ export class GuiClient {
 			case "removeWorkspace": {
 				if (action.path === this.host.workspaceRoot || [...this.host.clients].some((client) => client.selected?.cwd === action.path))
 					throw new Error("不能移除启动目录或当前工作区。");
-				await this.host.catalog.refresh();
 				const files = [...new Set([
-					...this.host.catalog.value?.filter((item) => item.cwd === action.path).map((item) => item.path) ?? [],
+					...await readSessionPaths(action.path),
 					...[...this.host.sessions.values()].flatMap((session) => session.cwd === action.path && session.file ? [session.file] : []),
 				])];
 				if (!files.length) throw new Error("工作区已不在列表中。");
@@ -336,6 +341,7 @@ export class GuiClient {
 		void this.host.track(this.search.close()).catch((error: unknown) => this.host.reportError(error));
 		this.host.changelog.release(this.id);
 		this.host.clients.delete(this);
+		this.host.catalog.schedule();
 		this.listeners.clear();
 	}
 }

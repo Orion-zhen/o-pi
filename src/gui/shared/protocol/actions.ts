@@ -23,7 +23,7 @@ export const actionSchema = union([
 	object({ action: lit("abort") }),
 	object({ action: lit("new") }),
 	object({ action: lit("reload") }),
-	object({ action: lit("sessions") }),
+	object({ action: lit("sessions"), all: opt(bool()) }),
 	object({ action: lit("clearQueue") }),
 	object({ action: lit("persistTools") }),
 	object({ action: lit("persistModels") }),

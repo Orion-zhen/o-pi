@@ -52,9 +52,10 @@ export interface GuiWorkspaceInfo {
 }
 export interface GuiSessionActivity {
 	sessionId: string;
+	/** 未落盘时为 null。首次落盘后保留路径，以区分外部删除与未落盘。 */
 	path: string | null;
 	cwd: string;
-	/** 仅显式会话名；空串表示未命名，由列表回退到历史派生标题。 */
+	/** 运行实例的显式名称。历史列表优先采用磁盘摘要。 */
 	title: string;
 	titleGeneration?: AutoTitleState;
 	state: "loading" | "running" | "waiting" | "idle";

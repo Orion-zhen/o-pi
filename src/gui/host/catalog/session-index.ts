@@ -7,6 +7,7 @@ import type { GuiSessionInfo } from "../../shared/protocol/state.ts";
 import { readSessionFile } from "./session-reader.ts";
 
 const missing = (error: unknown) => error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
+interface IndexedSession { path: string; cwd: string; summary: GuiSessionInfo | undefined }
 
 async function finishAll<T>(tasks: Promise<T>[]): Promise<T[]> {
 	const results = await Promise.allSettled(tasks);
@@ -16,7 +17,7 @@ async function finishAll<T>(tasks: Promise<T>[]): Promise<T[]> {
 	});
 }
 
-async function summary(file: string, mtime: number): Promise<GuiSessionInfo | null> {
+async function summary(file: string, mtime: number, scope: ReadonlySet<string> | undefined, signal: AbortSignal | undefined, read: typeof readSessionFile): Promise<IndexedSession | null> {
 	let cwd: string | undefined;
 	let created = mtime;
 	let modified = 0;
@@ -25,7 +26,7 @@ async function summary(file: string, mtime: number): Promise<GuiSessionInfo | nu
 	let text = "";
 	let block = "";
 	let blocks = 0;
-	await readSessionFile(file, {
+	await read(file, {
 		start() { text = ""; blocks = 0; },
 		textStart() { block = ""; },
 		text(chunk) { if (!first && block.length < 160) block = (block + chunk.replace(/\s+/g, " ")).replace(/ {2,}/g, " ").slice(0, 160); },
@@ -36,7 +37,7 @@ async function summary(file: string, mtime: number): Promise<GuiSessionInfo | nu
 				cwd = entry.cwd;
 				const time = Date.parse(entry.timestamp);
 				if (Number.isFinite(time)) created = time;
-				return false;
+				return scope !== undefined && !scope.has(cwd);
 			}
 			if (entry.type === "session_info") name = entry.name.trim();
 			if (entry.type !== "message" || entry.role !== "user" && entry.role !== "assistant") return false;
@@ -45,39 +46,42 @@ async function summary(file: string, mtime: number): Promise<GuiSessionInfo | nu
 			if (!first && entry.role === "user") first = text;
 			return false;
 		},
-	});
-	return cwd === undefined ? null : { path: file, cwd, title: name || first || "(no messages)", modified: new Date(modified || created).toISOString() };
+	}, signal);
+	return cwd === undefined ? null : {
+		path: file, cwd,
+		summary: scope !== undefined && !scope.has(cwd) ? undefined
+			: { path: file, cwd, title: name || first || "(no messages)", modified: new Date(modified || created).toISOString() },
+	};
 }
 
-/** 只缓存列表元数据，未变化的历史不再读取正文。 */
-export class GuiSessionIndex {
-	private cache = new Map<string, { stamp: string; value: GuiSessionInfo | null }>();
+/** 每次直读磁盘。只解析请求工作区的摘要，其他工作区在文件头结束读取。 */
+export async function readSessionIndex(workspaces?: readonly string[], signal?: AbortSignal, read = readSessionFile) {
+	signal?.throwIfAborted();
+	const scope = workspaces === undefined ? undefined : new Set(workspaces);
+	const root = getSessionsDir();
+	const limit = pLimit(10);
+	let directories: Dirent[];
+	try { directories = await readdir(root, { withFileTypes: true }); }
+	catch (error) { if (!missing(error)) throw error; directories = []; }
+	const files = (await finishAll(directories.filter((entry) => entry.isDirectory() || entry.isSymbolicLink()).map((entry) => limit(async () => {
+		const directory = path.join(root, entry.name);
+		try { return (await readdir(directory)).filter((name) => name.endsWith(".jsonl")).map((name) => path.join(directory, name)); }
+		catch (error) { if (missing(error)) return []; throw error; }
+	})))).flat();
+	const values = await finishAll(files.map((file) => limit(async () => {
+		try {
+			signal?.throwIfAborted();
+			const metadata = await stat(file);
+			return metadata.isFile() ? await summary(file, metadata.mtimeMs, scope, signal, read) : null;
+		} catch (error) { if (missing(error)) return null; throw error; }
+	})));
+	return {
+		files: values.flatMap((value) => value ? [{ path: value.path, cwd: value.cwd }] : []),
+		sessions: values.flatMap((value) => value?.summary ? [value.summary] : []).sort((a, b) => b.modified.localeCompare(a.modified)),
+	};
+}
 
-	async list(): Promise<GuiSessionInfo[]> {
-		const root = getSessionsDir();
-		const limit = pLimit(10);
-		let directories: Dirent[];
-		try { directories = await readdir(root, { withFileTypes: true }); }
-		catch (error) { if (!missing(error)) throw error; this.cache.clear(); return []; }
-		const files = (await finishAll(directories.filter((entry) => entry.isDirectory() || entry.isSymbolicLink()).map((entry) => limit(async () => {
-			const directory = path.join(root, entry.name);
-			try { return (await readdir(directory)).filter((name) => name.endsWith(".jsonl")).map((name) => path.join(directory, name)); }
-			catch (error) { if (missing(error)) return []; throw error; }
-		})))).flat();
-		const retained = new Set(files);
-		for (const file of this.cache.keys()) if (!retained.has(file)) this.cache.delete(file);
-		const values = await finishAll(files.map((file) => limit(async () => {
-			try {
-				const metadata = await stat(file);
-				if (!metadata.isFile()) return null;
-				const stamp = `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeMs}:${metadata.ctimeMs}`;
-				const cached = this.cache.get(file);
-				if (cached?.stamp === stamp) return cached.value;
-				const value = await summary(file, metadata.mtimeMs);
-				this.cache.set(file, { stamp, value });
-				return value;
-			} catch (error) { if (missing(error)) { this.cache.delete(file); return null; } throw error; }
-		})));
-		return values.filter((value) => value !== null).sort((a, b) => b.modified.localeCompare(a.modified));
-	}
+export async function readSessionPaths(cwd?: string): Promise<Set<string>> {
+	const { files } = await readSessionIndex([]);
+	return new Set(files.filter((file) => cwd === undefined || file.cwd === cwd).map((file) => file.path));
 }

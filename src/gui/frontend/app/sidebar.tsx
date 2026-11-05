@@ -16,8 +16,7 @@ import { Hint } from "@/ui/tooltip.tsx";
 export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: {
 	gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void;
 }) {
-	const entrance = useSectionEntrance("left");
-	const section = entrance ? { style: entrance } : undefined;
+	const { style, ...interaction } = useSectionEntrance("left");
 	const act = (action: GuiAction) => { close(); void gui.send(action).catch(gui.setError); };
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
 	const content = (compact: boolean, mobile: boolean, props?: { style: MotionStyle }) => <>
@@ -53,7 +52,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 		</motion.div>
 	</>;
 	return <>
-		<aside className="sidebar" aria-label="侧栏" data-collapsed={collapsed}>{content(collapsed, false, section)}</aside>
+		<aside className="sidebar" aria-label="侧栏" data-collapsed={collapsed} {...interaction}>{content(collapsed, false, { style })}</aside>
 		<SheetContent className="mobile-sidebar" aria-describedby={undefined}>
 			<SheetTitle className="sr-only">工作空间导航</SheetTitle>{content(false, true)}
 		</SheetContent>

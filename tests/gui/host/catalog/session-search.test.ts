@@ -8,6 +8,11 @@ import type { GuiClient } from "../../../../src/gui/host/client.ts";
 import type { SessionSearchHit } from "../../../../src/gui/shared/session-search.ts";
 import { preserveEnv, useTempDir } from "../../../helpers/lifecycle.ts";
 
+vi.mock("node:os", async (importOriginal) => ({
+	...await importOriginal<typeof import("node:os")>(),
+	availableParallelism: () => 12,
+}));
+const concurrency = 6;
 const temp = useTempDir("opi-session-search-");
 preserveEnv("PI_CODING_AGENT_DIR");
 let host: GuiHost;
@@ -35,11 +40,11 @@ async function store(title: string, entries: unknown[], workspace = cwd) {
 	].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
 	return file;
 }
-async function search(text: string) {
-	let page = await client.query({ query: "searchSessions", cwd, text });
+async function search(text: string, peer = client) {
+	let page = await peer.query({ query: "searchSessions", cwd, text });
 	const hits: SessionSearchHit[] = [...page.hits];
 	while (!page.done) {
-		page = await client.query({ query: "continueSessionSearch", id: page.id });
+		page = await peer.query({ query: "continueSessionSearch", id: page.id });
 		hits.push(...page.hits);
 	}
 	return hits;
@@ -52,7 +57,6 @@ describe("会话内容搜索", () => {
 		const assistant = await store("助手记录", [message("assistant", [{ type: "text", text: "SEARCH 回复中的中文" }])]);
 		await store("跨消息", [message("user", "中文"), message("assistant", "search")]);
 		await store("另一工作区", [message("user", "中文 search")], path.join(temp.path, "other"));
-		await host.catalog.refresh();
 		const first = await client.query({ query: "searchSessions", cwd, text: "中文 search" });
 		expect(first.hits.map((hit) => hit.path)).toEqual([title]);
 		expect(first.done).toBe(false);
@@ -64,7 +68,6 @@ describe("会话内容搜索", () => {
 
 	it("跨读取块、JSON 转义、扩展汉字和大小写映射保持原文高亮", async () => {
 		const file = await store("正文", [message("user", "前".repeat(22_000) + "𠮷😀中文 İSTANBUL ΣΥΖΉΤΗΣΗ")]);
-		await host.catalog.refresh();
 		const hits = await search("𠮷😀中文 i̇stanbul συζήτηση");
 		expect(hits).toHaveLength(1);
 		expect(hits[0]?.path).toBe(file);
@@ -82,14 +85,12 @@ describe("会话内容搜索", () => {
 		await store("排除图片", [message("user", [{ type: "image", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=", mimeType: "image/png" }])]);
 		await store("跨块词", [message("user", [{ type: "text", text: "独" }, { type: "text", text: "有词" }])]);
 		const match = await store("助手回复", [message("assistant", [{ type: "text", text: "独有词" }])]);
-		await host.catalog.refresh();
 		expect((await search("独有词")).map((hit) => hit.path)).toEqual([match]);
 		expect(await search("iVBORw0KGgo")).toEqual([]);
 	});
 
 	it("长正文摘要围绕首个命中截取，重叠关键词合并高亮且不受查询顺序影响", async () => {
 		await store("使用文档", [message("user", "这是较长的背景说明。".repeat(100) + "会话内容搜索" + "这里是后续说明。".repeat(100) + "使用方法")]);
-		await host.catalog.refresh();
 		for (const text of ["使用方法 搜索 内容搜索", "内容搜索 搜索 使用方法"]) {
 			const hits = await search(text);
 			expect(hits).toHaveLength(1);
@@ -105,21 +106,37 @@ describe("会话内容搜索", () => {
 		const file = await store("多块", [message("user", [{ type: "text", text: "中文" }, { text: "测试", type: "text" }])]);
 		const broken = await store("损坏", []);
 		await fs.promises.appendFile(broken, JSON.stringify(message("user", "中文 测试")) + 'bad\n{"type":"message","message":{"role":"user","content":"中文 测试');
-		await host.catalog.refresh();
 		expect((await search("中文 测试")).map((hit) => hit.path)).toEqual([file]);
 	});
 
-	it("标题命中不重读正文，搜索不触发目录全量刷新", async () => {
+	it("每次搜索直读摘要，标题命中后不再扫描正文", async () => {
 		await store("唯一标题", [message("user", "正文")]);
-		await host.catalog.refresh();
 		const read = vi.spyOn(fs, "createReadStream"); syncBuiltinESMExports();
 		expect(await search("唯一标题")).toHaveLength(1);
-		expect(read).not.toHaveBeenCalled();
+		expect(read).toHaveBeenCalledTimes(1);
+	});
+
+	it("不手动刷新也能搜索外部新增和改名，不返回已删除的标题命中", async () => {
+		const file = await store("旧标题", []);
+		await client.dispatch({ action: "sessions" });
+		await fs.promises.appendFile(file, '{"type":"session_info","name":"外部改名"}\n');
+		expect((await search("外部改名")).map((hit) => hit.path)).toEqual([file]);
+		const added = await store("外部新增", []);
+		expect((await search("外部新增")).map((hit) => hit.path)).toEqual([added]);
+		await fs.promises.rm(file);
+		expect(await search("外部改名")).toEqual([]);
+	});
+
+	it("读取失败显示错误，不返回旧目录快照", async () => {
+		await store("标题", []);
+		await client.dispatch({ action: "sessions" });
+		vi.spyOn(fs, "createReadStream").mockImplementation(() => { throw new Error("读取失败"); });
+		syncBuiltinESMExports();
+		await expect(search("标题")).rejects.toThrow("读取失败");
 	});
 
 	it("分批拉取不积压扫描，限制文件并发，取消后释放文件", async () => {
 		for (let index = 0; index < 80; index++) await store(`标题 ${index}`, [message("user", "正文命中")]);
-		await host.catalog.refresh();
 		const original = fs.createReadStream;
 		let active = 0, peak = 0;
 		const read = vi.spyOn(fs, "createReadStream").mockImplementation((...args) => {
@@ -130,30 +147,76 @@ describe("会话内容搜索", () => {
 		});
 		syncBuiltinESMExports();
 		const first = await client.query({ query: "searchSessions", cwd, text: "正文命中" });
-		expect(read).not.toHaveBeenCalled();
+		expect(read).toHaveBeenCalledTimes(80);
+		expect(active).toBe(0);
+		expect(peak).toBeLessThanOrEqual(concurrency);
+		read.mockClear(); peak = 0;
 		const page = await client.query({ query: "continueSessionSearch", id: first.id });
 		expect(page.done).toBe(false);
 		expect(page.hits.length).toBeLessThanOrEqual(32);
 		await new Promise<void>((resolve) => setTimeout(resolve, 20));
-		expect(read.mock.calls.length).toBeLessThanOrEqual(page.scanned + 4);
+		expect(read.mock.calls.length).toBeLessThanOrEqual(page.scanned + concurrency);
 		expect(peak).toBeGreaterThan(1);
-		expect(peak).toBeLessThanOrEqual(4);
+		expect(peak).toBeLessThanOrEqual(concurrency);
 		await client.dispatch({ action: "cancelSessionSearch", id: first.id });
 		expect(active).toBe(0);
 	});
 
-	it("目录快照中的文件删除后跳过，其他读取错误不伪装成无匹配", async () => {
+	it("不同客户端的摘要和正文搜索共享文件并发预算", async () => {
+		for (let index = 0; index < 12; index++) await store(`标题 ${index}`, [message("user", "正文关键词")]);
+		const original = fs.createReadStream;
+		let active = 0, peak = 0;
+		vi.spyOn(fs, "createReadStream").mockImplementation((...args) => {
+			const stream = original(...args);
+			active++; peak = Math.max(peak, active);
+			stream.once("close", () => { active--; });
+			return stream;
+		});
+		syncBuiltinESMExports();
+		const other = host.createClient();
+		try {
+			const results = await Promise.all([search("正文关键词"), search("正文关键词", other)]);
+			expect(results.map((hits) => hits.length)).toEqual([12, 12]);
+			expect(peak).toBeGreaterThan(1);
+			expect(peak).toBeLessThanOrEqual(concurrency);
+			expect(active).toBe(0);
+		} finally { other.close(); }
+	});
+
+	it("首批摘要尚未返回时断开等待预算的客户端，不影响正在读取的客户端", async () => {
+		for (let index = 0; index < concurrency; index++) await store(`长记录 ${index}`, [message("user", "前".repeat(500_000))]);
+		const started = Promise.withResolvers<void>();
+		const original = fs.createReadStream;
+		let opened = 0;
+		vi.spyOn(fs, "createReadStream").mockImplementation((...args) => {
+			const stream = original(...args);
+			if (++opened === concurrency) started.resolve();
+			return stream;
+		});
+		syncBuiltinESMExports();
+		const other = host.createClient();
+		let finished = false;
+		const running = client.query({ query: "searchSessions", cwd, text: "长记录" }).finally(() => { finished = true; });
+		await started.promise;
+		const waiting = other.query({ query: "searchSessions", cwd, text: "长记录" });
+		const rejected = expect(waiting).rejects.toThrow();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		other.close();
+		await rejected;
+		expect(finished).toBe(false);
+		expect((await running).hits).toHaveLength(concurrency);
+	});
+
+	it("分页搜索期间历史被其他窗口删除，正文扫描跳过消失的文件", async () => {
 		const file = await store("旧记录", [message("user", "正文关键词")]);
-		await host.catalog.refresh();
+		const first = await client.query({ query: "searchSessions", cwd, text: "正文关键词" });
+		expect(first).toMatchObject({ hits: [], total: 1, done: false });
 		await fs.promises.rm(file);
-		expect(await search("正文关键词")).toEqual([]);
-		await mkdir(file);
-		await expect(search("正文关键词")).rejects.toThrow();
+		expect(await client.query({ query: "continueSessionSearch", id: first.id })).toMatchObject({ hits: [], done: true });
 	});
 
 	it("停止拉取的任务到期后释放，不保留后台扫描", async () => {
 		await store("正文", [message("user", "关键词")]);
-		await host.catalog.refresh();
 		vi.useFakeTimers();
 		try {
 			const page = await client.query({ query: "searchSessions", cwd, text: "关键词" });
@@ -163,8 +226,7 @@ describe("会话内容搜索", () => {
 	});
 
 	it("等待共享文件预算的任务可以立即取消，不等待其他查询结束", async () => {
-		for (let index = 0; index < 4; index++) await store(`长记录 ${index}`, [message("user", "前".repeat(500_000))]);
-		await host.catalog.refresh();
+		for (let index = 0; index < concurrency; index++) await store(`长记录 ${index}`, [message("user", "前".repeat(500_000))]);
 		const other = host.createClient();
 		const first = await client.query({ query: "searchSessions", cwd, text: "不存在" });
 		const second = await other.query({ query: "searchSessions", cwd, text: "不存在" });
@@ -181,7 +243,6 @@ describe("会话内容搜索", () => {
 
 	it("断开客户端取消在途扫描，其他客户端的任务仍然可继续", async () => {
 		await store("长记录", [message("user", "前".repeat(500_000) + "目标")]);
-		await host.catalog.refresh();
 		const other = host.createClient();
 		const first = await client.query({ query: "searchSessions", cwd, text: "不存在" });
 		const second = await other.query({ query: "searchSessions", cwd, text: "目标" });
@@ -194,7 +255,6 @@ describe("会话内容搜索", () => {
 
 	it("新搜索替换同客户端在途任务，旧请求和其他客户端不能取消新任务", async () => {
 		await store("正文", [message("user", "前".repeat(500_000) + "结束关键词")]);
-		await host.catalog.refresh();
 		const other = host.createClient();
 		const first = await client.query({ query: "searchSessions", cwd, text: "不存在" });
 		const cancelled = client.query({ query: "continueSessionSearch", id: first.id });
@@ -216,7 +276,6 @@ describe("会话内容搜索", () => {
 
 	it("首批返回前连续启动搜索，只保留最后一个任务", async () => {
 		await store("正文", [message("user", "目标")]);
-		await host.catalog.refresh();
 		const first = client.query({ query: "searchSessions", cwd, text: "旧查询" });
 		const rejected = expect(first).rejects.toThrow();
 		const second = await client.query({ query: "searchSessions", cwd, text: "目标" });
@@ -225,10 +284,8 @@ describe("会话内容搜索", () => {
 	});
 
 	it("空目录和恰好满批的标题结果直接完成，不要求拉取空尾页", async () => {
-		await host.catalog.refresh();
 		expect(await client.query({ query: "searchSessions", cwd, text: "标题" })).toMatchObject({ hits: [], scanned: 0, total: 0, done: true });
 		for (let index = 0; index < 32; index++) await store(`标题 ${index}`, []);
-		await host.catalog.refresh();
 		const page = await client.query({ query: "searchSessions", cwd, text: "标题" });
 		expect(page.hits).toHaveLength(32);
 		expect(page).toMatchObject({ scanned: 32, total: 32, done: true });

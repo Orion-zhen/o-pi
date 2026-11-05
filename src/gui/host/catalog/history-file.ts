@@ -1,6 +1,8 @@
 import path from "node:path";
 import { lstat, realpath } from "node:fs/promises";
 import { getSessionsDir } from "../../../harness/storage/sdk-paths.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { readSessionPaths } from "./session-index.ts";
 
 /** 历史修改仅接受共享目录中的普通文件，返回身份信息供并发修改检查。 */
 export async function inspectHistoryFile(file: string) {
@@ -12,4 +14,10 @@ export async function inspectHistoryFile(file: string) {
 	const info = await lstat(file, { bigint: true });
 	if (!info.isFile()) throw new Error("只允许修改普通会话文件，不允许符号链接。");
 	return { parent, dev: info.dev, ino: info.ino, size: info.size, mtime: info.mtimeNs, ctime: info.ctimeNs };
+}
+
+export async function renameHistoryFile(file: string, name: string): Promise<void> {
+	if (!(await readSessionPaths()).has(file)) throw new Error("历史记录已不存在，请刷新列表。");
+	await inspectHistoryFile(file);
+	SessionManager.open(file).appendSessionInfo(name);
 }

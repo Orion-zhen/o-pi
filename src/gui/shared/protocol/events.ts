@@ -22,6 +22,7 @@ export type GuiEvent =
 	// appendOnly 标记相对上次投影的纯追加，不进入传输协议。
 	| { type: "stream"; sessionId: string; value: GuiSnapshot["streamingMessage"]; appendOnly: boolean }
 	| { type: "sessions"; value: GuiSessionInfo[] }
+	| { type: "historyInvalidated"; workspaces: string[] | null }
 	| { type: "workspaces"; value: GuiWorkspaceInfo[] }
 	| { type: "dialogs"; value: GuiDialog[] }
 	| { type: "notices"; value: GuiNotice[] }

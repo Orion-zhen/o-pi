@@ -21,9 +21,10 @@ export function sessionList(history: GuiSessionInfo[], activity: SessionActivity
 	for (const item of activity) {
 		const key = item.path ?? item.sessionId;
 		const record = rows.get(key);
+		if (item.path && !record && item.state === "idle") continue;
 		rows.set(key, {
 			key, target: { id: item.sessionId }, path: item.path, cwd: item.cwd,
-			title: item.title || record?.title || "新会话",
+			title: record?.title || item.title || "新会话",
 			modified: record?.modified ?? item.modified,
 			selected: item.sessionId === selectedId, activity: item,
 		});

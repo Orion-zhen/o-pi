@@ -1,10 +1,11 @@
+import { availableParallelism } from "node:os";
 import type { SessionSearchHit, SessionSearchPage, SearchExcerpt } from "../../shared/session-search.ts";
 import { compileSearch, SearchMatcher } from "./search-matcher.ts";
 import { readSessionFile } from "./session-reader.ts";
-import type { GuiSessionCatalog } from "./sessions.ts";
+import { readSessionIndex } from "./session-index.ts";
 
 export type SearchBatch = Omit<SessionSearchPage, "id" | "done">;
-const concurrency = 4;
+const concurrency = Math.max(4, Math.min(8, Math.floor(availableParallelism() / 2)));
 const batchSize = 32;
 
 async function searchFile(file: string, patterns: ReturnType<typeof compileSearch>, signal: AbortSignal): Promise<SessionSearchHit | undefined> {
@@ -41,9 +42,7 @@ async function searchFile(file: string, patterns: ReturnType<typeof compileSearc
 export class SessionSearch {
 	private active = 0;
 	private waiting = new Set<() => void>();
-	constructor(private catalog: GuiSessionCatalog) {}
-
-	private async read(file: string, patterns: ReturnType<typeof compileSearch>, signal: AbortSignal): Promise<SessionSearchHit | undefined> {
+	private async read<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
 		signal.throwIfAborted();
 		if (this.active >= concurrency) await new Promise<void>((resolve, reject) => {
 			const abort = () => { this.waiting.delete(grant); reject(signal.reason); };
@@ -54,13 +53,14 @@ export class SessionSearch {
 			signal.addEventListener("abort", abort, { once: true });
 		});
 		else this.active++;
-		try { signal.throwIfAborted(); return await searchFile(file, patterns, signal); }
+		try { signal.throwIfAborted(); return await operation(); }
 		finally { this.active--; this.waiting.values().next().value?.(); }
 	}
 
 	async *search(cwd: string, text: string, signal: AbortSignal): AsyncGenerator<SearchBatch, void> {
 		const patterns = compileSearch(text);
-		const sessions = (this.catalog.value ?? await this.catalog.read()).filter((item) => item.cwd === cwd);
+		const { sessions } = await readSessionIndex([cwd], signal,
+			(file, reader) => this.read(() => readSessionFile(file, reader, signal), signal));
 		signal.throwIfAborted();
 		const remaining: string[] = [];
 		let hits: SessionSearchHit[] = [];
@@ -80,7 +80,7 @@ export class SessionSearch {
 		if (!remaining.length) return;
 		hits = [];
 
-		// 至多保留一批结果和四个在途文件。暂停拉取时不会继续启动扫描。
+		// 至多保留一批结果，在途文件不超过并发预算。暂停拉取时不会继续启动扫描。
 		const controller = new AbortController();
 		const combined = AbortSignal.any([signal, controller.signal]);
 		const pending = new Map<number, Promise<{ index: number; hit: SessionSearchHit | undefined }>>();
@@ -90,7 +90,7 @@ export class SessionSearch {
 				const entry = files.next();
 				if (entry.done) break;
 				const [index, file] = entry.value;
-				const task = this.read(file, patterns, combined).then((hit) => ({ index, hit }));
+				const task = this.read(() => searchFile(file, patterns, combined), combined).then((hit) => ({ index, hit }));
 				// 在暂停拉取或处理其他文件期间，拒绝仍由下面的消费循环接收。
 				void task.catch(() => {});
 				pending.set(index, task);

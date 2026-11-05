@@ -1,64 +1,81 @@
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import path from "node:path";
 import { listWorkspaces } from "./workspaces.ts";
 import type { GuiSessionInfo, GuiWorkspaceInfo } from "../../shared/protocol/state.ts";
-import { inspectHistoryFile } from "./history-file.ts";
-import { GuiSessionIndex } from "./session-index.ts";
+import { readSessionIndex } from "./session-index.ts";
+import { watchSessionDirectory } from "./session-watch.ts";
 
-/** 会话索引独立于流式快照，合并并发读取并保留读取期间发生的刷新请求。 */
+interface CatalogOptions {
+	publish: (sessions: GuiSessionInfo[], workspaces: GuiWorkspaceInfo[], invalidated: string[] | null) => void;
+	protectedWorkspaces: () => string[];
+	scope: () => readonly string[] | undefined;
+	reportError: (error: unknown) => void;
+}
+
+/** 合并自动刷新，保留读取期间的变更。已发布状态只供 UI 重放，不作为磁盘查询来源。 */
 export class GuiSessionCatalog {
 	value: GuiSessionInfo[] | undefined;
 	workspaces: GuiWorkspaceInfo[] | undefined;
 	private pending: Promise<void> | undefined;
 	private dirty = false;
+	private changedDirectories: Set<string> | null = new Set();
 	private closed = false;
-	private index = new GuiSessionIndex();
+	private unwatch: (() => void) | undefined;
+	private timer: ReturnType<typeof setTimeout> | undefined;
 
-	constructor(
-		private publish: (sessions: GuiSessionInfo[], workspaces: GuiWorkspaceInfo[]) => void,
-		private protectedPaths: () => string[],
-	) {}
+	constructor(private options: CatalogOptions) {}
 
+	watch(): void {
+		this.unwatch = watchSessionDirectory((directory) => this.schedule(directory), this.options.reportError);
+	}
+
+	/** 无参数只更新列表范围。目录变更使对应工作区搜索失效，null 表示整个历史目录。 */
+	schedule(directory?: string | null): void {
+		if (this.closed) return;
+		this.dirty = true;
+		if (directory === null) this.changedDirectories = null;
+		else if (directory !== undefined) this.changedDirectories?.add(directory);
+		if (this.pending || this.timer) return;
+		this.timer = setTimeout(() => {
+			this.timer = undefined;
+			void this.flush().catch(this.options.reportError);
+		}, 100);
+	}
+
+	/** 显式刷新立即读取，并使正文搜索失效。 */
 	refresh(): Promise<void> {
 		if (this.closed) return Promise.resolve();
+		clearTimeout(this.timer);
+		this.timer = undefined;
 		this.dirty = true;
-		this.pending ??= this.load().finally(() => {
-			this.pending = undefined;
-		});
-		return this.pending;
+		this.changedDirectories = null;
+		return this.flush();
 	}
 
-	async read(): Promise<GuiSessionInfo[]> {
-		await this.refresh();
-		if (this.value === undefined) throw new Error("会话目录未就绪。");
-		return this.value;
-	}
-
-	async paths(): Promise<Set<string>> {
-		return new Set((await this.read()).map((session) => session.path));
-	}
-
-	async rename(path: string, name: string): Promise<void> {
-		if (!(await this.paths()).has(path)) throw new Error("历史记录已不存在，请刷新列表。");
-		await inspectHistoryFile(path);
-		SessionManager.open(path).appendSessionInfo(name);
-	}
+	private flush(): Promise<void> { return this.pending ??= this.load(); }
 
 	private async load(): Promise<void> {
-		while (this.dirty && !this.closed) {
-			this.dirty = false;
-			const sessions = await this.index.list();
-			const workspaces = await listWorkspaces(sessions.map((session) => session.cwd), this.protectedPaths());
-			if (this.closed) return;
-			if (this.value?.length === sessions.length && sessions.every((session, index) => session === this.value?.[index])
-				&& this.workspaces?.length === workspaces.length && workspaces.every((workspace, index) => workspace.path === this.workspaces?.[index]?.path && workspace.exists === this.workspaces?.[index]?.exists)) continue;
-			this.workspaces = workspaces;
-			this.value = sessions;
-			this.publish(this.value, workspaces);
-		}
+		try {
+			while (this.dirty && !this.closed) {
+				this.dirty = false;
+				const changed = this.changedDirectories;
+				this.changedDirectories = new Set();
+				const { sessions, files } = await readSessionIndex(this.options.scope());
+				const workspaces = await listWorkspaces(files.map((file) => file.cwd), this.options.protectedWorkspaces());
+				if (this.closed) return;
+				// 删除和替换也要通知旧工作区，不保存额外的文件索引。
+				const invalidated = changed === null ? null : [...new Set([...(this.value ?? []), ...files]
+					.filter((file) => changed.has(path.dirname(file.path))).map((file) => file.cwd))];
+				this.workspaces = workspaces;
+				this.value = sessions;
+				this.options.publish(sessions, workspaces, invalidated);
+			}
+		} finally { this.pending = undefined; }
 	}
 
 	async dispose(): Promise<void> {
 		this.closed = true;
+		this.unwatch?.();
+		clearTimeout(this.timer);
 		if (this.pending) await Promise.allSettled([this.pending]);
 	}
 }

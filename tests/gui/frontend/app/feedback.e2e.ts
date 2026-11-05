@@ -116,18 +116,32 @@ test("导出成功通知自动消失，不打断消息编辑", async ({ page }) 
 	} finally { channel.close(); }
 });
 
-test("会话短错误不重复折叠，收起后仍可辨认原因", async ({ page }) => {
+for (const colorScheme of ["dark", "light"] as const) test(`聊天通知恢复分组标题和完整彩色原文（${colorScheme}）`, async ({ page }) => {
+	await page.emulateMedia({ colorScheme });
 	const channel = await replayTranscript(page, snapshot());
 	try {
-		const message = "HTTP 401\ninvalid_api_key";
-		channel.accept({ type: "notices", value: [{ id: "auth-error", anchor: 0, type: "error", text: message }] });
+		const warning = "Auto-title: The operation was aborted due to timeout";
+		const error = "HTTP 401\ninvalid_api_key\n    at request (/app/provider.ts:42:3)\n    at retry (/app/retry.ts:12:3)";
+		channel.accept({ type: "notices", value: [
+			{ id: "title-timeout", anchor: 0, type: "warning", text: warning },
+			{ id: "auth-error", anchor: 0, type: "error", text: error },
+		] });
 		const notices = page.locator(".notices");
-		await expect(notices.getByRole("alert")).toHaveText(message);
-		await expect(notices.getByRole("button", { name: "查看详情", exact: true })).toHaveCount(0);
-		await notices.locator(".notices-header > .disclosure-trigger").click();
-		await expect(notices.locator(".notice-preview")).toHaveText(message);
-		await expect(notices).toContainText("1 项错误");
-		await expect(notices.getByRole("alert")).toHaveCount(0);
+		const trigger = notices.getByRole("button", { name: "通知 (2)", exact: true });
+		await expect(trigger).toHaveAttribute("aria-expanded", "true");
+		await expect(notices.locator("pre.warning")).toHaveText(warning);
+		await expect(notices.locator("pre.error")).toHaveText(error);
+		await expect(notices.locator("pre.error")).toHaveCSS("white-space", "pre-wrap");
+		const colors = await notices.locator(".notices-header, pre").evaluateAll((elements) => elements.map((element) => getComputedStyle(element).color));
+		expect(new Set(colors).size).toBe(3);
+		await expect(notices.locator(".feedback, .notice-preview")).toHaveCount(0);
+		await expect(notices.getByRole("button", { name: "清除通知", exact: true })).toBeVisible();
+		await trigger.click();
+		await expect(trigger).toHaveAttribute("aria-expanded", "false");
+		await expect(notices.locator("[data-slot='collapsible-content']")).toHaveAttribute("aria-hidden", "true");
+		await trigger.click();
+		await expect(trigger).toHaveAttribute("aria-expanded", "true");
+		await expect(notices.locator("pre.error")).toBeVisible();
 		await expect(page.locator(".toast")).toHaveCount(0);
 	} finally { channel.close(); }
 });

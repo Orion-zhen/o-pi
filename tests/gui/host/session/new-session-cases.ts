@@ -115,6 +115,18 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 			} finally { second.close(); }
 		});
 
+		it("纯 Shell 会话作为未落盘活动显示，首次聊天落盘后不重复列出", async () => {
+			const { host } = context();
+			await host.dispatch(prompt("!printf shell-only"));
+			const id = readSnapshot(host).sessionId;
+			await host.dispatch({ action: "sessions" });
+			expect(host.host.catalog.value).toEqual([]);
+			expect(rows(host)).toEqual([expect.objectContaining({ target: { id }, path: null })]);
+			await host.dispatch(prompt("保存为真实历史"));
+			await host.dispatch({ action: "sessions" });
+			expect(rows(host)).toEqual([expect.objectContaining({ target: { id }, path: readSnapshot(host).sessionFile })]);
+		});
+
 		it("首条消息进入列表，从正式会话并发新建只准备一个空白页", async () => {
 			const { host } = context();
 			const id = readSnapshot(host).sessionId;

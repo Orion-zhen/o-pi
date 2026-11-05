@@ -32,7 +32,7 @@ export class GuiStorage {
 		const next = new Map<string, StoredEntry>();
 		const groups: StorageGroup[] = [];
 		const signal = this.controller.signal;
-		for (const source of storageSources(this.host)) {
+		for (const source of storageSources()) {
 			signal.throwIfAborted();
 			const group: StorageGroup = { id: source.id, title: source.title, paths: source.paths, entries: [], error: null };
 			groups.push(group);

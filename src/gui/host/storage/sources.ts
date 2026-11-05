@@ -4,7 +4,7 @@ import { lstat } from "node:fs/promises";
 import { getAgentDir, getSessionsDir, getDebugLogPath } from "../../../harness/storage/sdk-paths.ts";
 import { bashOutputDirectory, exportDirectoryPrefix, forkDirectoryPrefix, resourceCacheDirectory, telemetryReportDirectory, telemetryRunsDirectory, userHistoryPath } from "../../../harness/storage/paths.ts";
 import type { StorageSourceId } from "../../shared/storage.ts";
-import type { GuiHost } from "../host.ts";
+import { readSessionIndex } from "../catalog/session-index.ts";
 import { missingStorage, storageChildren } from "./files.ts";
 
 export interface StorageCandidate { root: string; file: string; name: string }
@@ -17,7 +17,7 @@ export interface StorageSource {
 const candidate = (root: string, file: string, name = path.basename(file)): StorageCandidate => ({ root, file, name });
 const children = async (root: string, accept: (name: string) => boolean) => (await storageChildren(root, accept)).map((file) => candidate(root, file));
 
-export function storageSources(host: GuiHost): StorageSource[] {
+export function storageSources(): StorageSource[] {
 	const history = userHistoryPath();
 	const runs = telemetryRunsDirectory();
 	const report = telemetryReportDirectory();
@@ -30,7 +30,7 @@ export function storageSources(host: GuiHost): StorageSource[] {
 		{
 			id: "sessions", title: "会话历史",
 			paths: [getSessionsDir()], async candidates() {
-				return (await host.catalog.read()).map((entry) => candidate(getSessionsDir(), entry.path, entry.title));
+				return (await readSessionIndex()).sessions.map((entry) => candidate(getSessionsDir(), entry.path, entry.title));
 			},
 		},
 		{

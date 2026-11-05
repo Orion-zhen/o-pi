@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GuiConnection } from "../../../shared/protocol/connection.ts";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
-import type { GuiSessionInfo } from "../../../shared/protocol/state.ts";
 import type { SessionSearchHit } from "../../../shared/session-search.ts";
 import { LatestRequest } from "@/connection/latest-request.ts";
 
@@ -11,9 +10,13 @@ export type SessionSearchResults = { hits: SessionSearchHit[] } & (
 	| { state: "error"; message: string }
 );
 
-export function useSessionSearch(cwd: string, connected: boolean, sessions: GuiSessionInfo[] | undefined,
+export function useSessionSearch(cwd: string, connected: boolean,
 	query: Query<GlobalQuery>, send: GuiConnection["send"], reportError: (message: string) => void) {
 	const [input, setInput] = useState({ cwd, text: "" });
+	const [revision, setRevision] = useState(0);
+	const invalidate = useCallback((workspaces: string[] | null) => {
+		if (workspaces === null || workspaces.includes(cwd)) setRevision((value) => value + 1);
+	}, [cwd]);
 	const [response, setResponse] = useState<{ cwd: string; text: string; value: SessionSearchResults }>();
 	const online = useRef(connected);
 	online.current = connected;
@@ -56,7 +59,7 @@ export function useSessionSearch(cwd: string, connected: boolean, sessions: GuiS
 			});
 		}, 250);
 		return () => { clearTimeout(timer); request.cancel(); };
-	}, [cwd, normalized, connected, sessions, query, send, reportError]);
+	}, [cwd, normalized, connected, revision, query, send, reportError]);
 
 	let result: SessionSearchResults | undefined;
 	if (normalized) {
@@ -64,6 +67,6 @@ export function useSessionSearch(cwd: string, connected: boolean, sessions: GuiS
 			: response?.cwd === cwd && response.text === normalized ? response.value
 				: { state: "searching", hits: [], scanned: 0, total: 0 };
 	}
-	return useMemo(() => ({ text, setText, result }), [text, setText, result]);
+	return useMemo(() => ({ text, setText, result, invalidate }), [text, setText, result, invalidate]);
 }
 export type SessionSearchView = ReturnType<typeof useSessionSearch>;

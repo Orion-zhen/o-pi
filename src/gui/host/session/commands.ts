@@ -64,8 +64,8 @@ export async function runBuiltin(host: GuiExecution, text: string, execute: (act
 			await execute({ action: "new" });
 			break;
 		case "resume":
-			await execute(args ? { action: "openSession", path: path.resolve(host.runtime.cwd, args) } : { action: "sessions" });
-			if (!args) panel({ kind: "sessions" });
+			if (args) await execute({ action: "openSession", path: path.resolve(host.runtime.cwd, args) });
+			else panel({ kind: "sessions" });
 			break;
 		case "tree":
 		case "fork":

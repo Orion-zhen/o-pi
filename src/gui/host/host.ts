@@ -12,6 +12,8 @@ import type { GuiLspServers } from "../shared/lsp.ts";
 import { readLspServers } from "./workspace/lsp-servers.ts";
 import { GuiSession } from "./session/session.ts";
 import { GuiSessionCatalog } from "./catalog/sessions.ts";
+import { readSessionPaths } from "./catalog/session-index.ts";
+import { renameHistoryFile } from "./catalog/history-file.ts";
 import { SessionSearch } from "./catalog/session-search.ts";
 import { GuiClient } from "./client.ts";
 import { prepareSessionDeletion } from "./catalog/delete-session.ts";
@@ -31,10 +33,21 @@ export class GuiHost {
 	private projectTrust = new Map<string, boolean>();
 	private workbenchController = new AbortController();
 	private pendingGit = new Map<string, Promise<WorkspaceGit | null>>();
-	readonly catalog = new GuiSessionCatalog((value, workspaces) => {
-		this.emit({ type: "sessions", value }); this.emit({ type: "workspaces", value: workspaces });
-	}, () => [this.workspaceRoot, ...[...this.sessions.values()].filter((session) => session.observed || session.activity.state !== "idle").map((session) => session.cwd)]);
-	readonly sessionSearch = new SessionSearch(this.catalog);
+	readonly catalog = new GuiSessionCatalog({
+		publish: (value, workspaces, invalidated) => {
+			this.emit({ type: "sessions", value }); this.emit({ type: "workspaces", value: workspaces });
+			if (invalidated === null || invalidated.length) this.emit({ type: "historyInvalidated", workspaces: invalidated });
+		},
+		protectedWorkspaces: () => [this.workspaceRoot, ...[...this.sessions.values()]
+			.filter((session) => session.observed || session.activity.state !== "idle").map((session) => session.cwd)],
+		scope: () => {
+			const clients = [...this.clients];
+			return clients.some((client) => client.allSessions) ? undefined
+				: clients.length ? clients.map((client) => client.selected?.cwd ?? this.workspaceRoot) : [this.workspaceRoot];
+		},
+		reportError: (error) => { if (!this.closed) this.reportError(error); },
+	});
+	readonly sessionSearch = new SessionSearch();
 	workspaceRoot = "";
 	initial: GuiSession | undefined;
 	private listeners = new Set<(event: GuiEvent) => void>();
@@ -42,7 +55,6 @@ export class GuiHost {
 	private historyMutation: Promise<void> = Promise.resolve();
 	private storageMutation: Promise<void> = Promise.resolve();
 	private closed = false;
-	private refreshPending = false;
 	private activityPending = false;
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private deleting = new Set<string>();
@@ -75,12 +87,14 @@ export class GuiHost {
 		if (this.closed) throw new Error("宿主已关闭。");
 		this.workspaceRoot = path.resolve(cwd);
 		this.emit({ type: "workspaceRoot", path: this.workspaceRoot });
+		this.catalog.watch();
+		this.catalog.schedule();
 		this.applyGuiConfig(await readGuiConfig());
 		const session = await this.newSession(this.workspaceRoot, { type: "session_start", reason: "startup" });
 		this.initial = session;
 		for (const client of this.clients) if (!client.selected) void client.select(session).catch((error: unknown) => client.reportError(error));
 		await session.ensure();
-		this.refresh();
+		this.catalog.schedule();
 		this.refreshModelCatalog(session);
 	}
 	/** 启动时给 initial 会话补一次联网刷新，不阻塞启动；关闭或超时即取消，失败只落 notice。 */
@@ -146,14 +160,6 @@ export class GuiHost {
 		if (this.catalog.workspaces) listener({ type: "workspaces", value: this.catalog.workspaces });
 		listener({ type: "activity", value: this.activity });
 	}
-	refresh(): void {
-		if (this.closed || this.refreshPending) return;
-		this.refreshPending = true;
-		queueMicrotask(() => {
-			this.refreshPending = false;
-			void this.catalog.refresh().catch((error: unknown) => { if (!this.closed) this.reportError(error); });
-		});
-	}
 	private get activity() {
 		return [...this.sessions.values()].filter((session) => !session.pending).map((session) => session.activity);
 	}
@@ -173,7 +179,7 @@ export class GuiHost {
 			return existing;
 		}
 		const session = new GuiSession(manager, { stores: this.approvals, trust: this.projectTrust }, event,
-			(changed) => { if (changed) this.activityChanged(); this.scheduleCollection(); }, () => this.refresh(), (value) => this.notifyAttention(value));
+			(changed) => { if (changed) this.activityChanged(); this.scheduleCollection(); }, () => this.catalog.schedule(), (value) => this.notifyAttention(value));
 		this.sessions.set(session.id, session);
 		this.activityChanged();
 		return session;
@@ -219,7 +225,7 @@ export class GuiHost {
 	rename(file: string, name: string, client: GuiClient): Promise<void> {
 		return this.changeHistory(async () => {
 			const target = [...this.sessions.values()].find((session) => session.file === file);
-			const rename = () => this.catalog.rename(file, name);
+			const rename = () => renameHistoryFile(file, name);
 			if (target) await target.rename(name, client.forSession(target), rename);
 			else await rename();
 			await this.catalog.refresh();
@@ -238,7 +244,7 @@ export class GuiHost {
 			for (const session of affected) session.reserveDeletion();
 			for (const file of normalized) this.deleting.add(file);
 			for (const session of affected) if (!await session.confirmDeletion()) return;
-			const plan = await prepareSessionDeletion(normalized, new Set(affected.flatMap((session) => session.file ? [session.file] : [])), () => this.catalog.paths());
+			const plan = await prepareSessionDeletion(normalized, new Set(affected.flatMap((session) => session.file ? [session.file] : [])), readSessionPaths);
 			await plan.verify();
 			await verify?.();
 			for (const session of affected) await session.prepareDeletion();
@@ -270,11 +276,12 @@ export class GuiHost {
 		if (this.closed) return;
 		this.closed = true;
 		this.workbenchController.abort();
+		const catalogClosed = this.catalog.dispose();
 		clearTimeout(this.timer);
 		for (const client of [...this.clients]) client.close();
 		const results = await Promise.allSettled([...this.sessions.values()].map((session) => session.close()));
 		await Promise.allSettled([...this.tasks]);
-		results.push(...await Promise.allSettled([this.catalog.dispose(), lspManager.reload()]));
+		results.push(...await Promise.allSettled([catalogClosed, lspManager.reload()]));
 		this.sessions.clear(); this.listeners.clear();
 		const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);
 		if (errors.length) throw new AggregateError(errors, "宿主资源释放失败。");

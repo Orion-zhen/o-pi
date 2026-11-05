@@ -144,7 +144,7 @@ test.describe("浏览器交互", () => {
 		await dialog.getByRole("button", { name: "提交", exact: true }).click();
 		await expect(page.locator(".notices")).toContainText("标准交互验证");
 		await expect(page.locator(".notices .disclosure-trigger")).toHaveAttribute("data-state", "open");
-		await page.getByRole("button", { name: "清除会话记录" }).click();
+		await page.getByRole("button", { name: "清除通知" }).click();
 		await expect(page.locator(".notices")).toHaveCount(0);
 		await editor.fill("/gui-note");
 		await editor.press("ControlOrMeta+Enter");

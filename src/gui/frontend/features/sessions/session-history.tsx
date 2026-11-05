@@ -3,6 +3,8 @@ import { useOperation } from "@/connection/use-operation.ts";
 import { AnimatePresence, motion } from "motion/react";
 import { listDepth, settle } from "@/ui/motion/transitions.ts";
 import { Fade } from "@/ui/motion/animated.tsx";
+import { useStartupLists, type StartupLists } from "@/app/welcome/startup-entrance.tsx";
+import { sessionListTiming } from "@/app/welcome/welcome-timing.ts";
 import { ChevronRight, FolderClosed, RefreshCw } from "lucide-react";
 import type { GuiSessionInfo } from "../../../shared/protocol/state.ts";
 import type { GlobalSend } from "@/connection/connection.ts";
@@ -33,6 +35,7 @@ interface HistoryGui {
 export const SessionHistory = memo(function SessionHistory({ close, full = false, search, ...gui }: HistoryGui & {
 	close: () => void; full?: boolean; search?: SessionSearchResults | undefined;
 }) {
+	const { lists, ...interaction } = useStartupLists("sessions", !full && !search && Boolean(gui.cwd) && gui.sessions !== undefined, sessionListTiming);
 	const groups = useMemo(() => {
 		const result = new Map<string, SessionListItem[]>();
 		if (gui.cwd) result.set(gui.cwd, []);
@@ -42,7 +45,7 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 		}
 		return [...result];
 	}, [gui.sessionRows, gui.cwd]);
-	return <section className={`session-history${full ? "" : " session-history-flat"}`} aria-label="历史会话">
+	return <section className={`session-history${full ? "" : " session-history-flat"}`} aria-label="历史会话" {...interaction}>
 		<div className="history-heading">
 			<h2>{full ? "全部会话" : "会话"}</h2>
 			<IconButton label="刷新会话" disabled={gui.sessionsLoading || !gui.connected} onClick={() => void gui.refreshSessions()}>
@@ -54,9 +57,9 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 		<ListScroll className="history-scroll">
 			<AnimatePresence initial={false} mode="wait">
 			<Fade key={search ? "search" : "sessions"}>
-			<Feedback message={!gui.sessions ? "正在读取历史会话…" : ""} />
+			<Feedback message={!gui.sessions || full && gui.sessionsLoading ? "正在读取历史会话…" : ""} />
 			{groups.filter(([cwd]) => full || cwd === gui.cwd).map(([cwd, items]) => {
-				const rows = <SessionRows items={items} gui={gui} close={close} search={search} />;
+				const rows = <SessionRows items={items} gui={gui} close={close} search={search} lists={lists} />;
 				return full ? <Collapsible key={cwd} defaultOpen className="workspace-sessions">
 					<Hint content={cwd}><CollapsibleTrigger asChild><Button variant="ghost" className="workspace-toggle">
 						<ChevronRight className="workspace-chevron" /><FolderClosed /><span className="workspace-label">{workspaceName(cwd)}</span>
@@ -70,8 +73,8 @@ export const SessionHistory = memo(function SessionHistory({ close, full = false
 	</section>;
 });
 
-function SessionRows({ items, gui, close, search }: {
-	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: SessionSearchResults | undefined;
+function SessionRows({ items, gui, close, search, lists }: {
+	items: SessionListItem[]; gui: HistoryGui; close: () => void; search: SessionSearchResults | undefined; lists: StartupLists | null;
 }) {
 	const { run: open, pending: switching, error } = useOperation(async (item: SessionListItem) => {
 		if (!item.selected) await gui.send({ action: "openSession", ...item.target });
@@ -98,7 +101,7 @@ function SessionRows({ items, gui, close, search }: {
 			data-index={list.windowed ? row.index : undefined} className={list.windowed ? "history-virtual-row" : undefined}
 			ref={list.windowed ? list.virtualizer.measureElement : undefined}
 			style={{ minWidth: 0, ...(list.windowed ? { position: "absolute", top: row.start - list.virtualizer.options.scrollMargin, left: 0, width: "100%" } : { overflow: "clip" }) }}>
-			<HistorySessionRow item={item} index={row.index} count={visible.length} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} match={matches.get(item.path ?? "")} />
+			<HistorySessionRow item={item} index={row.index} count={visible.length} lists={lists} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} match={matches.get(item.path ?? "")} />
 		</motion.div>;
 	});
 	return <><Feedback compact message={error} tone="error" /><div ref={list.root} style={list.style} className="workspace-session-list">

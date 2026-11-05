@@ -34,7 +34,12 @@ export class GuiChannel {
 			this.current = { ...this.current, streamingMessage: event.value };
 			this.dirty = true;
 		} else {
-			if (["selected", "activity", "sessionStats", "telemetry", "sessions", "workspaces", "dialogs", "guiConfig", "notices"].includes(event.type))
+			if (event.type === "historyInvalidated") {
+				const previous = this.pending.find((item) => item.type === "historyInvalidated");
+				if (previous) event = { type: "historyInvalidated", workspaces: previous.workspaces === null || event.workspaces === null
+					? null : [...new Set([...previous.workspaces, ...event.workspaces])] };
+			}
+			if (["selected", "activity", "sessionStats", "telemetry", "sessions", "workspaces", "historyInvalidated", "dialogs", "guiConfig", "notices"].includes(event.type))
 				this.pending = this.pending.filter((item) => item.type !== event.type);
 			this.pending.push(event);
 		}

@@ -16,11 +16,14 @@ const send = vi.fn<GuiConnection["send"]>();
 const report = vi.fn();
 beforeEach(() => { query.mockReset(); send.mockReset().mockResolvedValue(undefined); report.mockReset(); });
 function View({ cwd = "/project", connected = true }: { cwd?: string; connected?: boolean }) {
-	const search = useSessionSearch(cwd, connected, undefined, query as Query<GlobalQuery>, send as GuiConnection["send"], report);
+	const search = useSessionSearch(cwd, connected, query as Query<GlobalQuery>, send as GuiConnection["send"], report);
 	return <>
 		<button onClick={() => search.setText("中文")}>中文</button>
 		<button onClick={() => search.setText("另一个")}>另一个</button>
 		<button onClick={() => search.setText("")}>清空</button>
+		<button onClick={() => search.invalidate(["/project"])}>当前工作区变化</button>
+		<button onClick={() => search.invalidate(["/other"])}>其他工作区变化</button>
+		<button onClick={() => search.invalidate(null)}>手动刷新</button>
 		<output data-state={search.result?.state ?? "idle"}>{search.text}|{search.result?.state === "error" ? search.result.message : ""}
 			{search.result?.hits.map((hit) => <span key={hit.path}><SearchExcerptText value={hit.excerpt} /></span>)}
 		</output>
@@ -77,6 +80,32 @@ it("旧任务尚未返回标识时也会在返回后取消，不能覆盖新查�
 	expect(send).toHaveBeenCalledWith({ action: "cancelSessionSearch", id: "first" }, null);
 	expect(query).toHaveBeenCalledTimes(2);
 	expect(document.querySelector("output")?.textContent).toBe("另一个|");
+});
+
+it("正文失效通知重新搜索并清除旧结果，不依赖列表更新", async () => {
+	query.mockResolvedValueOnce({ ...page("first", true), hits: [{ path: "/history.jsonl", source: "user", excerpt: { text: "中文旧正文", ranges: [[0, 2]] } }] })
+		.mockResolvedValueOnce(page("second", true));
+	await render(<View />);
+	await click("中文"); await tick();
+	expect(document.body.textContent).toContain("中文旧正文");
+	await click("当前工作区变化"); await tick();
+	expect(query).toHaveBeenCalledTimes(2);
+	expect(document.body.textContent).not.toContain("中文旧正文");
+	expect(document.querySelector("output")?.dataset.state).toBe("done");
+});
+
+it("其他工作区持续变化不打断当前搜索，手动刷新仍重新查询", async () => {
+	query.mockResolvedValue(page("first", true));
+	await render(<View />);
+	await click("中文");
+	for (let index = 0; index < 5; index++) {
+		await click("其他工作区变化");
+		await act(async () => vi.advanceTimersByTimeAsync(100));
+	}
+	expect(query).toHaveBeenCalledTimes(1);
+	expect(document.querySelector("output")?.dataset.state).toBe("done");
+	await click("手动刷新"); await tick();
+	expect(query).toHaveBeenCalledTimes(2);
 });
 
 it("工作区切换清空输入，不恢复上一个工作区的旧搜索", async () => {

@@ -6,8 +6,6 @@ interface ListTiming { row: number; singleRow: number; window: number; }
 
 export const startupListTiming: ListTiming = { row: motionDuration[3], singleRow: motionDuration[5], window: 0.6 };
 export const sessionListTiming: ListTiming = { row: motionDuration[4], singleRow: motionDuration[6], window: 0.8 };
-// 各列表独立错峰，统一收尾等待最慢的一组。
-export const listWindow = Math.max(startupListTiming.window, sessionListTiming.window);
 
 export const welcomeLogoStart = 0.72;
 export const welcomeLogoDuration = motionDuration[4];

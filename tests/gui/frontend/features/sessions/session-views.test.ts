@@ -82,19 +82,19 @@ describe("统一会话列表", () => {
 	it("冷历史使用路径打开，已登记和未落盘会话使用 ID，不重复列出同一路径", () => {
 		const history = [
 			{ path: "/cold.jsonl", cwd: "/project", title: "冷历史", modified: "2026-09-18" },
-			{ path: "/warm.jsonl", cwd: "/project", title: "旧标题", modified: "2026-09-19" },
+			{ path: "/warm.jsonl", cwd: "/project", title: "磁盘新标题", modified: "2026-09-19" },
 		];
 		const activity: SessionActivity[] = [
-			{ sessionId: "warm", path: "/warm.jsonl", cwd: "/project", title: "新标题", state: "idle", completedAt: 0, modified: "2026-09-19T00:00:00.000Z", unread: false },
+			{ sessionId: "warm", path: "/warm.jsonl", cwd: "/project", title: "内存旧标题", state: "idle", completedAt: 0, modified: "2026-09-19T00:00:00.000Z", unread: false },
 			{ sessionId: "empty", path: null, cwd: "/project", title: "未落盘", state: "idle", completedAt: 0, modified: "2026-09-19T00:00:00.000Z", unread: false },
 		];
 		const rows = sessionList(history, activity, "empty");
 		expect(rows).toHaveLength(3);
 		expect(rows.find((row) => row.path === "/cold.jsonl")).toMatchObject({ target: { path: "/cold.jsonl" }, selected: false });
-		expect(rows.find((row) => row.path === "/warm.jsonl")).toMatchObject({ target: { id: "warm" }, title: "新标题" });
+		expect(rows.find((row) => row.path === "/warm.jsonl")).toMatchObject({ target: { id: "warm" }, title: "磁盘新标题" });
 		expect(rows.find((row) => row.path === null)).toMatchObject({ target: { id: "empty" }, selected: true });
 	});
-	it("未命名旧会话保留历史派生标题，未落盘新会话显示新会话", () => {
+	it("历史标题以磁盘为准，缺失的空闲历史不由活动记录恢复", () => {
 		const history = [
 			{ path: "/old.jsonl", cwd: "/project", title: "旧会话首条消息", modified: "2026-09-18" },
 		];
@@ -104,6 +104,6 @@ describe("统一会话列表", () => {
 		];
 		const rows = sessionList(history, activity, "old");
 		expect(rows.find((row) => row.path === "/old.jsonl")).toMatchObject({ title: "旧会话首条消息" });
-		expect(rows.find((row) => row.path === "/fresh.jsonl")).toMatchObject({ title: "新会话" });
+		expect(rows.find((row) => row.path === "/fresh.jsonl")).toBeUndefined();
 	});
 });

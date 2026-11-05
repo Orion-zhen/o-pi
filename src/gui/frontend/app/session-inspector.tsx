@@ -43,7 +43,7 @@ export function SessionInspector({ gui, locate }: { gui: SessionInspectorView; l
 			if (tab) selectTab(tab.id);
 		}
 	}}>
-	<motion.div ref={root} className="session-tabs" {...(entrance ? { style: entrance } : {})}>
+	<motion.div ref={root} className="session-tabs" {...entrance}>
 		<div className="session-sidebar-header">
 			<Tabs.List aria-label="会话信息" className="session-tab-list">
 				{tabs.map(({ id, title }) => <Tabs.Trigger key={id} value={id} className="animated-background-target">

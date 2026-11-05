@@ -44,6 +44,7 @@ export function useGui() {
 				forget(ids);
 				break;
 			}
+			case "historyInvalidated": sessionSearch.invalidate(event.workspaces); break;
 			case "feedback": notifications.notify(event.message, event.tone); break;
 			case "guiConfig": config.accept(event.value); break;
 			case "panel": panels.setPanel(event.panel); break;
@@ -92,19 +93,20 @@ export function useGui() {
 		return () => document.removeEventListener("visibilitychange", observe);
 	}, [connected, dispatch]);
 	const [sessionsLoading, setSessionsLoading] = useState(false);
+	const allSessions = panels.panel?.kind === "sessions";
 	const refreshSessions = useCallback(async () => {
 		setSessionsLoading(true);
-		try { await dispatch({ action: "sessions" }, null); }
+		try { await dispatch({ action: "sessions", all: allSessions }, null); }
 		catch (error) { setError(String(error)); }
 		finally { setSessionsLoading(false); }
-	}, [dispatch]);
+	}, [dispatch, allSessions]);
 	useEffect(() => { if (connected) void refreshSessions(); }, [connected, refreshSessions]);
 	useWindowRefresh(connected, refreshSessions);
 	const snapshot = session?.snapshot ?? null;
 	const changelog = useStartupChangelog(connected, snapshot, selectedId, globalQuery, dispatch, setError);
 	const cwd = session?.target.cwd ?? host.workspaceRoot;
 	const layout = useLayout(setError);
-	const sessionSearch = useSessionSearch(cwd, connected, host.sessions, globalQuery, dispatch, setError);
+	const sessionSearch = useSessionSearch(cwd, connected, globalQuery, dispatch, setError);
 	const workbench = useWorkbench(cwd, connected, activity.some((item) => item.cwd === cwd && item.state !== "idle"), sharedQuery);
 	const openFile = useCallback((path: string) => { workbench.openFile(path); panels.selectTab("file"); panels.setSessionPanelOpen(true); }, [workbench.openFile, panels.selectTab]);
 	const setDraft = useCallback((text: string) => { if (view) views.writeText(view.id, text); }, [view, views]);

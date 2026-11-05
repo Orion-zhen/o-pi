@@ -51,7 +51,7 @@ export class GuiSession {
 		this.stamp = this.fileStamp();
 		const header = manager.getHeader();
 		if (!header) throw new Error("会话头不存在。");
-		this.summary = { sessionId: this.id, path: this.file, cwd: this.cwd, title: manager.getSessionName() ?? "", state: "idle", completedAt: 0, modified: header.timestamp };
+		this.summary = { sessionId: this.id, path: this.file && existsSync(this.file) ? this.file : null, cwd: this.cwd, title: manager.getSessionName() ?? "", state: "idle", completedAt: 0, modified: header.timestamp };
 	}
 
 	get execution(): GuiExecution | undefined {
@@ -102,8 +102,9 @@ export class GuiSession {
 		const title = execution?.runtime.session.sessionName ?? this.summary.title;
 		const state = this.dialogs?.list().length ? "waiting" : this.resources.state === "starting" ? "loading" : running ? "running" : "idle";
 		const titleGeneration = execution?.titleGeneration;
-		if (title !== this.summary.title || state !== this.summary.state || completedAt !== this.summary.completedAt || titleGeneration !== this.summary.titleGeneration) {
-			this.summary = { ...this.summary, title, state, completedAt, titleGeneration,
+		const file = this.summary.path ?? (this.file && existsSync(this.file) ? this.file : null);
+		if (file !== this.summary.path || title !== this.summary.title || state !== this.summary.state || completedAt !== this.summary.completedAt || titleGeneration !== this.summary.titleGeneration) {
+			this.summary = { ...this.summary, path: file, title, state, completedAt, titleGeneration,
 				modified: completedAt !== this.summary.completedAt ? new Date(completedAt).toISOString() : this.summary.modified };
 			this.notify(true);
 		}
