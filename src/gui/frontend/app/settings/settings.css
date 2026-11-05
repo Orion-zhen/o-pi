@@ -29,6 +29,6 @@
 	.settings-tabs { display: none; }
 	.settings-category-select { display: flex; min-inline-size: 0; }
 	.settings-category-select [data-slot="select-trigger"] { flex: 1; min-inline-size: 0; }
-	.settings-navigation > .settings-actions { flex: 1 1 auto; padding: 0; border: 0; gap: var(--space-2); }
+	.settings-navigation > .settings-actions { --settings-action-gap: var(--space-2); flex: 1 1 auto; padding: 0; border: 0; }
 	.settings-content { padding: var(--space-4); }
 }

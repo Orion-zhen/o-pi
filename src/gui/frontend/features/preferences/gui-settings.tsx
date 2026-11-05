@@ -6,12 +6,12 @@ import { Monitor, Moon, RotateCcw, Sun } from "lucide-react";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { editPreference, resetSection, sectionChanged, type GuiSection } from "./gui-settings-draft.ts";
 import { useGuiSettings } from "./gui-settings-state.tsx";
-import type { GuiPreferences } from "../../../shared/config/preferences.ts";
 import guiSchema from "../../../../../agent/schemas/gui.schema.json" with { type: "json" };
 import { Input } from "@/ui/input.tsx";
 import { Switch } from "@/ui/switch.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
+import { animateThemeChange } from "@/ui/theme/transition.ts";
 import { FontPicker } from "./font-picker.tsx";
 import { useLocalFonts } from "./use-local-fonts.ts";
 import { ThemeColorPicker } from "./theme-color-picker.tsx";
@@ -33,10 +33,6 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 	const themeHighlightId = useId();
 	const shortcutHighlightId = useId();
 	const state = useGuiSettings();
-	const latest = state?.latest;
-	const [theme, setTheme] = useState<GuiPreferences["theme"]>("system");
-	// 材质参数跟随已生效主题，避免未保存的主题改变编辑目标。
-	if (latest?.state === "ready" && latest.value.theme !== theme) setTheme(latest.value.theme);
 	const [editing, setEditing] = useState(false);
 	const localFonts = useLocalFonts();
 	if (!state) return <SettingsSection title={title}><p role="status">读取中…</p></SettingsSection>;
@@ -64,9 +60,11 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 		{section === "appearance" ? <>
 				<SettingsSection title="主题与颜色" actions={actions}><div className="settings-fields">
 					<SettingsRow label="主题" reset={{ value: document.value.theme, defaultValue: document.defaults.theme, apply: () => change(["theme"], undefined) }} disabled={blocked}>
-						<ToggleGroup type="single" size="sm" className="settings-preference-toggle" aria-label="主题" value={document.value.theme} disabled={blocked}
-							onValueChange={(value) => { if (value) change(["theme"], value === document.defaults.theme ? undefined : value); }}>
-							{themeOptions.map(({ value, label, icon: Icon }) => <ToggleGroupItem key={value} value={value} className="animated-background-target">
+						<ToggleGroup type="single" size="sm" className="settings-preference-toggle" aria-label="主题" value={document.value.theme} disabled={blocked}>
+							{themeOptions.map(({ value, label, icon: Icon }) => <ToggleGroupItem key={value} value={value} className="animated-background-target"
+								onClick={(event) => {
+									if (value !== document.value.theme) animateThemeChange(event.currentTarget, () => change(["theme"], value === document.defaults.theme ? undefined : value));
+								}}>
 								<AnimatedBackground active={document.value.theme === value} layoutId={themeHighlightId} />
 								<Icon aria-hidden="true" />{label}
 							</ToggleGroupItem>)}
@@ -90,7 +88,7 @@ export function GuiSettings({ title, section }: { title: string; section: GuiSec
 						</SettingsRow>)}</div>
 					<TypographyPreview />
 				</SettingsSection>
-				<MaterialSettings value={document.value.materials} defaults={document.defaults.materials} theme={theme} disabled={blocked}
+				<MaterialSettings value={document.value.materials} defaults={document.defaults.materials} theme={document.value.theme} disabled={blocked}
 					change={change}
 					reset={(region, keys) => update(document, keys.reduce((draft, key) => editPreference(draft, ["materials", region, key], undefined), document))} />
 			</> : section === "desktopWeb" ? <SettingsSection title="桌面 Web 访问" actions={<><span className="settings-badge">重启生效</span>{actions}</>}>

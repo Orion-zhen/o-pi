@@ -26,6 +26,8 @@
 [data-slot="sheet-overlay"][data-state="closed"] { animation-name: fade-out; }
 [data-slot="sheet-content"][data-state="closed"] { animation-name: sheet-out; pointer-events: none; }
 
+::view-transition { pointer-events: none; }
+
 .crossfade { position: relative; display: inline-grid; align-items: center; vertical-align: middle; gap: inherit; }
 .crossfade-content { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: inherit; }
 

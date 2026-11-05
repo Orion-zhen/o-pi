@@ -68,8 +68,14 @@ export function SettingsActions({ count, saving, disabled, blocked, error, statu
 }) {
 	const message = saving ? "保存中…" : count ? `${count} 个页面未保存` : status;
 	return <footer className="settings-actions">
-		<div className="settings-save-status" role="status" aria-label={message}><TextMorph>{message}</TextMorph></div>
-		{error && <p role="alert">{error}</p>}
+		<AnimatePresence initial={false}>
+			{message && <Reveal key="status">
+				<div className="settings-action-message settings-save-status" role="status" aria-label={message}><TextMorph>{message}</TextMorph></div>
+			</Reveal>}
+			{error && <Reveal key="error">
+				<div className="settings-action-message"><p role="alert">{error}</p></div>
+			</Reveal>}
+		</AnimatePresence>
 		<div className="settings-action-buttons">
 			<Button disabled={disabled || saving || blocked || count === 0} aria-busy={saving} onClick={save}>保存</Button>
 			<Button variant="outline" disabled={saving || count === 0} onClick={discard}>放弃</Button>

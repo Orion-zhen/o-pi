@@ -26,6 +26,7 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 	match?: SessionSearchHit | undefined;
 }) {
 	const { path, title, modified, selected, activity } = item;
+	const modifierKey = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "⌘" : "Ctrl";
 	const busy = activity !== undefined && activity.state !== "idle";
 	const waiting = activity?.state === "waiting";
 	const unread = activity?.unread === true;
@@ -51,7 +52,7 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, index, 
 			{modified && <time dateTime={modified}>{dateFormat.format(new Date(modified))}</time>}
 		</Button></Hint>}
 		{path && <div className="row-actions">
-			<IconButton label={`重命名会话 ${title}`} tooltip="重命名（Ctrl/Command 点击自动生成）" className="row-action-button" disabled={disabled || pending || editing}
+			<IconButton label={`重命名会话 ${title}`} tooltip={`重命名 · ${modifierKey} 自动生成`} className="row-action-button" disabled={disabled || pending || editing}
 				onClick={(event) => {
 					if (!(event.ctrlKey || event.metaKey)) { setEditing(true); return; }
 					setPending(true);

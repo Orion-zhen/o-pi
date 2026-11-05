@@ -15,8 +15,9 @@
 .settings-disclosure-body { min-inline-size: 0; border-block-start: thin solid var(--divider); }
 .settings-section-body > .settings-disclosure { margin-block: 0; padding-inline: 0; border: 0; border-block-start: thin solid var(--divider); border-radius: 0; background: transparent; }
 .settings-section-body > .settings-disclosure .settings-disclosure-body { padding-block: var(--space-3); }
-.settings-actions { display: flex; flex-direction: column; gap: var(--space-3); padding-block-start: var(--space-4); border-block-start: thin solid var(--divider); }
-.settings-save-status { min-block-size: 1.5lh; color: var(--muted-foreground); font-size: var(--text-small); }
+.settings-actions { --settings-action-gap: var(--space-3); display: flex; flex-direction: column; padding-block-start: var(--space-4); border-block-start: thin solid var(--divider); }
+.settings-action-message { padding-block-end: var(--settings-action-gap); }
+.settings-save-status { color: var(--muted-foreground); font-size: var(--text-small); }
 .settings-description, .settings-warning, .settings-empty, .settings-badge, .gui-settings [role="status"], .settings-popover [role="status"] { color: var(--muted-foreground); font-size: var(--text-small); overflow-wrap: anywhere; }
 .gui-settings [role="alert"], .settings-popover [role="alert"], .settings-actions [role="alert"] { color: var(--destructive); font-size: var(--text-small); overflow-wrap: anywhere; }
 .settings-actions [role="alert"] { max-block-size: 6lh; overflow: auto; }

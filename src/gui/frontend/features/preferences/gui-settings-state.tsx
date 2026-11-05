@@ -1,9 +1,10 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import type { ConfigCommand } from "@/connection/connection.ts";
 import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
 import type { GuiConfigDocument } from "../../../shared/config/preferences.ts";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
 import { guiSections, preferenceSave, readPreferenceSource, sectionChanged, type GuiSection, type ReadyGuiConfig } from "./gui-settings-draft.ts";
+import { setThemePreview } from "./use-preferences.ts";
 
 type Draft =
 	| { kind: "form"; base: ReadyGuiConfig; document: ReadyGuiConfig }
@@ -28,6 +29,11 @@ export function GuiSettingsProvider({ document: latest, send, query, disabled, r
 	document: GuiConfigDocument | undefined; send: ConfigCommand; query: Query<GlobalQuery>; disabled: boolean; refresh: () => Promise<void>; children: ReactNode;
 }) {
 	const [draft, setDraft] = useState<Draft>();
+	const previewTheme = draft?.document.state === "ready" ? draft.document.value.theme : undefined;
+	useLayoutEffect(() => {
+		setThemePreview(previewTheme);
+		return () => setThemePreview(undefined);
+	}, [previewTheme]);
 	const { saving } = useSettingsState();
 	const categories = useMemo(() => {
 		if (!draft) return [];
