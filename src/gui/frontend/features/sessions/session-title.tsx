@@ -6,16 +6,17 @@ const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const characters = (text: string) => Array.from(segmenter.segment(text), ({ segment }) => segment);
 
 export function SessionTitle({ title, state }: { title: string; state: GuiSessionActivity["titleGeneration"] }) {
-	const previous = useRef({ title, state });
+	const previous = useRef(title);
 	const display = useMotionValue(title);
 	useLayoutEffect(() => {
+		if (state === "generating") return;
 		const before = previous.current;
-		previous.current = { title, state };
-		if (before.state !== "generating" || state !== "complete" || before.title === title) {
+		previous.current = title;
+		if (state !== "complete" || before === title) {
 			display.set(title);
 			return;
 		}
-		const oldText = characters(before.title);
+		const oldText = characters(before);
 		const newText = characters(title);
 		const erase = Math.min(0.25, oldText.length * 0.02);
 		const duration = erase + 0.06 + Math.min(0.5, newText.length * 0.04);
