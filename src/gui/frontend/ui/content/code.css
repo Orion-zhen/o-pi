@@ -7,6 +7,7 @@
 .code-toolbar button svg { width: 1em; height: 1em; }
 .code-block pre { margin: 0; padding: 0.875rem; max-block-size: 60dvh; overflow: auto; border: 0; border-radius: 0; background: transparent; white-space: pre; overflow-wrap: normal; line-height: 1.65; tab-size: 4; }
 .code-block code { font-size: var(--text-code); }
+.code-block .token { display: inline; }
 :is(.code-block, .file-diff) .token:is(.comment, .prolog, .doctype) { color: var(--muted-foreground); font-style: italic; }
 :is(.code-block, .file-diff) .token:is(.keyword, .tag, .atrule, .boolean) { color: var(--syntax-keyword); }
 :is(.code-block, .file-diff) .token:is(.string, .attr-value, .char, .builtin) { color: var(--syntax-string); }
