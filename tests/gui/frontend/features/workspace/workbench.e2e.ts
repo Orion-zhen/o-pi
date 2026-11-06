@@ -56,6 +56,38 @@ test("折叠父目录后不刷新隐藏后代，重新展开读取外部修改",
 	expect(paths).toContain("src/deep");
 });
 
+test("展开和折叠大目录后仍可键盘导航，重新展开可见文件", async ({ gui: { page }, workspace: { cwd } }, info) => {
+	await Promise.all(Array.from({ length: 120 }, (_, index) => writeFile(path.join(cwd, "src", `item-${String(index).padStart(3, "0")}.ts`), "export {};\n")));
+	const phone = info.project.name === "phone";
+	if (phone) {
+		await page.getByRole("button", { name: "菜单", exact: true }).click();
+		await page.locator(".mobile-sidebar .workbench-pane-tabs").getByRole("button", { name: "文件", exact: true }).click();
+	}
+	const navigation = page.locator(phone ? ".mobile-sidebar" : ".sidebar");
+	const tree = navigation.getByRole("tree", { name: "工作区文件", exact: true });
+	const src = tree.getByRole("treeitem", { name: "src", exact: true });
+	await src.focus();
+	for (let attempt = 0; attempt < 2; attempt++) {
+		await src.press("ArrowRight");
+		await expect(src).toBeFocused();
+		await expect(tree.getByRole("treeitem", { name: "src/item-000.ts", exact: true })).toBeVisible();
+		expect(await tree.getByRole("treeitem").count()).toBeLessThan(80);
+		await src.press("ArrowDown");
+		const first = tree.getByRole("treeitem", { name: "src/item-000.ts", exact: true });
+		await expect(first).toBeFocused();
+		await first.press("ArrowLeft");
+		await src.press("ArrowLeft");
+		await expect(src).toBeFocused();
+		await expect(tree.getByRole("treeitem", { name: "src/item-000.ts", exact: true })).toHaveCount(0);
+		await src.press("End");
+		const last = tree.getByRole("treeitem", { name: "引用 空格.md", exact: true });
+		await expect(last).toBeFocused();
+		await expect(last).toBeInViewport();
+		await last.press("Home");
+		await expect(src).toBeFocused();
+	}
+});
+
 test("折叠文件区后仍保留与展开时同位置的分割线", async ({ gui: { page } }, info) => {
 	const phone = info.project.name === "phone";
 	if (phone) {

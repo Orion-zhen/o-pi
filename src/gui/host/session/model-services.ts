@@ -27,11 +27,12 @@ async function readCatalog(models: ModelRuntime, loaded: ModelsConfig | undefine
 export class GuiModelServices {
 	private loaded: ModelsConfig | undefined;
 	private controller = new AbortController();
-	private requests = pLimit(3);
+	private readonly requests = pLimit({ concurrency: 3, rejectOnClear: true });
 	revision = 0;
 
 	bind(config: ModelsConfig | undefined): void {
 		this.controller.abort();
+		this.requests.clearQueue();
 		this.controller = new AbortController();
 		this.loaded = config;
 		this.revision++;

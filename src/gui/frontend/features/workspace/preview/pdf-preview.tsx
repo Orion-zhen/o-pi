@@ -63,7 +63,8 @@ function PdfDocument({ url, size, position }: { url: string; size: number; posit
 function PdfReader({ document, baseWidth, baseHeight, size, position }: { document: PDFDocumentProxy; baseWidth: number; baseHeight: number; size: number; position: PdfPosition }) {
 	const viewport = usePreviewViewport();
 	const [zoom, setZoom] = useState(position.zoom);
-	const queue = useMemo(() => pLimit(2), []);
+	const queue = useMemo(() => pLimit({ concurrency: 2, rejectOnClear: true }), []);
+	useEffect(() => () => queue.clearQueue(), [queue]);
 	const [current, setCurrent] = useState(Math.min(position.page, document.numPages));
 	useEffect(() => { position.page = current; position.zoom = zoom; }, [current, zoom, position]);
 	const pageNumber = useRef(current);
@@ -83,7 +84,7 @@ function PdfReader({ document, baseWidth, baseHeight, size, position }: { docume
 	}, [scale, viewport.ref]);
 	const virtualizer = useVirtualizer({
 		count: document.numPages, getScrollElement: () => viewport.ref.current, enabled: viewport.width > 0,
-		estimateSize: () => baseHeight * scale + 16, overscan: 1,
+		estimateSize: () => baseHeight * scale + 16, overscan: 1, directDomUpdates: true,
 		onChange(instance, scrolling) {
 			if (!scrolling) return;
 			const center = (instance.scrollOffset ?? 0) + (instance.scrollRect?.height ?? 0) / 2;
@@ -126,9 +127,9 @@ function PdfReader({ document, baseWidth, baseHeight, size, position }: { docume
 			else return;
 			event.preventDefault();
 		}}>
-			<div className="pdf-pages" style={{ height: virtualizer.getTotalSize(), minWidth: baseWidth * scale + 32 }}>
+			<div ref={virtualizer.containerRef} className="pdf-pages" style={{ minWidth: baseWidth * scale + 32 }}>
 				{viewport.width > 0 && items.map((item) => <div key={`${item.index}-${scale}`} data-index={item.index} ref={virtualizer.measureElement}
-					className="pdf-page-slot" data-current={item.index + 1 === current} style={{ transform: `translateY(${item.start}px)` }}>
+					className="pdf-page-slot" data-current={item.index + 1 === current}>
 					<PdfPage document={document} number={item.index + 1} scale={scale} queue={queue} placeholder={{ width: baseWidth * scale, height: baseHeight * scale }} />
 				</div>)}
 			</div>

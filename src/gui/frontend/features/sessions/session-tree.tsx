@@ -43,8 +43,8 @@ export const SessionTree = memo(function SessionTree({ entries, leafId, send, lo
 	const list = useVirtualRows<HTMLDivElement>(rows.length, getKey, 32);
 	if (!rows.length) return <p className="tree-empty">暂无可展示的消息。</p>;
 	return (
-		<div ref={list.root} style={list.style} className="session-tree" role="list" aria-label="会话消息树">
-			{list.rows.map(({ index, key, start }) => <div key={key} data-index={index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(start)}>
+		<div ref={list.containerRef} style={list.style} className="session-tree" role="list" aria-label="会话消息树">
+			{list.rows.map(({ index, key }) => <div key={key} data-index={index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle}>
 				<TreeMessage row={rows[index] as GraphRow} send={send} locate={locate} />
 			</div>)}
 		</div>

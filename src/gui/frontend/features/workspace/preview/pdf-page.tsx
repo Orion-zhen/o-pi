@@ -38,9 +38,9 @@ export function PdfPage({ document, number, scale, queue, placeholder }: { docum
 				await layer.render();
 				controller.signal.throwIfAborted();
 				setState({ kind: "ready" });
-			} catch (error) {
-				if (!controller.signal.aborted) setState({ kind: "error", message: `页面读取失败：${error instanceof Error ? error.message : String(error)}` });
 			} finally { page?.cleanup(); }
+		}).catch((error: unknown) => {
+			if (!controller.signal.aborted) setState({ kind: "error", message: `页面读取失败：${error instanceof Error ? error.message : String(error)}` });
 		});
 		return () => {
 			controller.abort(); render?.cancel(); layer?.cancel();

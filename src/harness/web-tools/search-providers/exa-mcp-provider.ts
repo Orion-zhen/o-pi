@@ -1,6 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CallToolResultSchema, ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { Dispatcher } from "undici";
 
@@ -39,24 +38,12 @@ export async function searchExaMcp(options: {
 			},
 		}),
 	});
-	// SDK 的可空 sessionId getter 不满足 exactOptionalPropertyTypes，转发本次连接所需接口。
-	const connection: Transport = {
-		start: () => transport.start(),
-		send: (message, sendOptions) => transport.send(message, {
-			...(sendOptions?.resumptionToken !== undefined && { resumptionToken: sendOptions.resumptionToken }),
-			...(sendOptions?.onresumptiontoken !== undefined && { onresumptiontoken: sendOptions.onresumptiontoken }),
-		}),
-		close: () => transport.close(), setProtocolVersion: (version) => transport.setProtocolVersion(version),
-	};
-	transport.onmessage = (message) => connection.onmessage?.(message);
-	transport.onerror = (error) => connection.onerror?.(error);
-	transport.onclose = () => connection.onclose?.();
 	const client = new Client({ name: "opi", version: "1.0.0" }, { capabilities: {} });
 	// SDK 的 SSE 解析错误只通知 onerror，用同一个信号结束等待中的请求。
 	client.onerror = (error) => { if (!closing) controller.abort(error); };
 	context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
 	try {
-		await client.connect(connection, { signal });
+		await client.connect(transport, { signal });
 		const result = await client.request({
 			method: "tools/call",
 			params: { name: "web_search_advanced_exa", arguments: {

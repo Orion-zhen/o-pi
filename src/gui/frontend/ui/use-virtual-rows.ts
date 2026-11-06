@@ -23,7 +23,18 @@ export function useVirtualRows<T extends HTMLElement>(count: number, getKey: (in
 		count, getItemKey: getKey, estimateSize: () => estimateSize,
 		getScrollElement: () => root.current?.closest<HTMLElement>("[data-list-scroll]") ?? null,
 		overscan: 8, scrollMargin, enabled: windowed, rangeExtractor,
+		directDomUpdates: true, directDomUpdatesMode: "position",
 	});
+	const containerRef = useCallback((element: T) => {
+		root.current = element;
+		virtualizer.containerRef(windowed ? element : null);
+		return () => {
+			root.current = null;
+			virtualizer.containerRef(null);
+			// 自然布局恢复自动高度，行的 top 在静态定位下不生效，仍由虚拟器持有。
+			if (windowed) element.style.removeProperty("height");
+		};
+	}, [virtualizer, windowed]);
 	useLayoutEffect(() => {
 		const element = root.current;
 		const scroll = element?.closest<HTMLElement>("[data-list-scroll]");
@@ -69,9 +80,8 @@ export function useVirtualRows<T extends HTMLElement>(count: number, getKey: (in
 			element.removeEventListener("focusin", focus); element.removeEventListener("focusout", blur);
 		};
 	}, [windowed, getKey]);
-	const rows = windowed ? virtualizer.getVirtualItems() : Array.from({ length: count }, (_, index) => ({ index, key: getKey(index), start: 0 }));
-	const style: CSSProperties | undefined = windowed ? { height: virtualizer.getTotalSize(), position: "relative", display: "block" } : undefined;
-	const rowStyle = (start: number) => windowed
-		? { position: "absolute" as const, top: 0, left: 0, width: "100%", transform: `translateY(${start - scrollMargin}px)` } : undefined;
-	return { root, rows, style, rowStyle, windowed, virtualizer };
+	const rows = windowed ? virtualizer.getVirtualItems() : Array.from({ length: count }, (_, index) => ({ index, key: getKey(index) }));
+	const style: CSSProperties | undefined = windowed ? { position: "relative", display: "block" } : undefined;
+	const rowStyle = windowed ? { position: "absolute" as const, left: 0, width: "100%" } : undefined;
+	return { root, containerRef, rows, style, rowStyle, windowed, virtualizer };
 }

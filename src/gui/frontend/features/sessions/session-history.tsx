@@ -99,11 +99,11 @@ function SessionRows({ items, gui, close, search, startup }: {
 			transition={list.windowed ? settle : listDepth.transition}
 			data-index={list.windowed ? row.index : undefined} className={list.windowed ? "history-virtual-row" : undefined}
 			ref={list.windowed ? list.virtualizer.measureElement : undefined}
-			style={{ minWidth: 0, ...(list.windowed ? { position: "absolute", top: row.start - list.virtualizer.options.scrollMargin, left: 0, width: "100%" } : { overflow: "clip" }) }}>
+			style={{ minWidth: 0, ...list.rowStyle, ...(!list.windowed && { overflow: "clip" }) }}>
 			<HistorySessionRow item={item} lists={lists} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} match={matches.get(item.path ?? "")} />
 		</motion.div>;
 	});
-	return <><Feedback compact message={error} tone="error" /><div ref={list.root} style={list.style} className="workspace-session-list" {...interaction}>
+	return <><Feedback compact message={error} tone="error" /><div ref={list.containerRef} style={list.style} className="workspace-session-list" {...interaction}>
 		<AnimatePresence initial={Boolean(lists)} custom={visibleKeys}>{rows}</AnimatePresence>
 		{!visible.length && gui.sessions && (!search || search.state === "done") && <p className="history-hint">{search ? "没有匹配的会话" : "暂无历史会话"}</p>}
 	</div></>;

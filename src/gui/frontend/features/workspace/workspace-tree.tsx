@@ -37,12 +37,12 @@ export const WorkspaceChanges = memo(function WorkspaceChanges({ cwd, setError, 
 	const changes = useMemo(() => [...git.changes].sort((a, b) => a.path.localeCompare(b.path)), [git]);
 	const list = useVirtualRows<HTMLUListElement>(changes.length, (index) => changes[index]?.path ?? "", 32);
 	const { lists, ...interaction } = useStartupLists("changes", true, list.rows.map((row) => String(row.key)), list.root);
-	return <ul ref={list.root} style={list.style} className="workspace-changes" aria-label="工作区变更" {...interaction}>
+	return <ul ref={list.containerRef} style={list.style} className="workspace-changes" aria-label="工作区变更" {...interaction}>
 		{!changes.length && <li className="file-hint">没有文件变更</li>}
 		<AnimatePresence initial={Boolean(lists)}>{list.rows.map((row) => {
 			const change = changes[row.index];
 			if (!change) return null;
-			return <li key={row.key} data-index={row.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(row.start)}>
+			return <li key={row.key} data-index={row.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle}>
 			<motion.div className="file-entry-row overlay-list-row" initial={false} animate={{ ...fade.animate, ...listDepth.visible }} transition={{ duration: 0 }} {...startupRow(lists, change.path)}>
 			<Hint content={`${change.originalPath ? `${change.originalPath} -> ` : ""}${change.path}`}><button type="button" className="file-row file-change-row" data-status={change.status} aria-label={change.path}
 				aria-pressed={selected === change.path} aria-description={gitStatusLabels[change.status]}
@@ -103,7 +103,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 		event.preventDefault();
 		if (target >= 0 && target !== current) focus(target);
 	};
-	return <ul ref={list.root} style={list.style} className="workspace-tree" role="tree" aria-label="工作区文件" onKeyDown={keyDown} {...interaction}
+	return <ul ref={list.containerRef} style={list.style} className="workspace-tree" role="tree" aria-label="工作区文件" onKeyDown={keyDown} {...interaction}
 		onFocus={(event) => { if (event.target === event.currentTarget) focus(rows.findIndex((row) => row.kind === "entry")); }} tabIndex={0}>
 		<AnimatePresence initial={Boolean(lists)}>{list.rows.map((item) => {
 			const row = rows[item.index];
@@ -129,7 +129,7 @@ export const WorkspaceTree = memo(function WorkspaceTree({ cwd, setError, workbe
 					{!entry.virtual && change?.status !== "D" && <FileRowActions path={entry.path} referenceFile={referenceFile} />}
 				</motion.div>;
 			};
-			return <li key={item.key} role="none" data-index={item.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle(item.start)}>{content()}</li>;
+			return <li key={item.key} role="none" data-index={item.index} ref={list.windowed ? list.virtualizer.measureElement : undefined} style={list.rowStyle}>{content()}</li>;
 		})}</AnimatePresence>
 	</ul>;
 });
