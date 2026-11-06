@@ -6,7 +6,7 @@
 .image-preview-layer { position: relative; background: none; backdrop-filter: none; }
 .image-preview-backdrop { position: absolute; inset: 0; background: var(--overlay); backdrop-filter: var(--overlay-filter); pointer-events: none; }
 .image-preview-dialog { position: relative; display: flex; flex-direction: column; inline-size: 100%; block-size: 100%; min-inline-size: 0; min-block-size: 0; padding: max(3.5rem, env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right)) max(var(--space-4), env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left)); overflow: hidden; outline: none; font-size: var(--text-ui); }
-.image-preview-close { position: absolute; inset-block-start: max(var(--space-3), env(safe-area-inset-top)); inset-inline-end: max(var(--space-3), env(safe-area-inset-right)); z-index: 1; border-radius: 50%; background: var(--popover); color: var(--popover-foreground); }
+.image-preview-close { position: absolute; inset-block-start: max(var(--space-3), env(safe-area-inset-top)); inset-inline-end: max(var(--space-3), env(safe-area-inset-right)); z-index: 1; border-radius: 50%; corner-shape: round; background: var(--popover); color: var(--popover-foreground); }
 .image-preview-dialog .image-reader { flex-direction: column-reverse; pointer-events: none; }
 .image-preview-dialog .image-viewport { background: none; cursor: default; pointer-events: auto; }
 .image-preview-dialog .image-viewport:has(.image-preview-motion[data-moving="true"]) { overflow: visible; }
