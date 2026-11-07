@@ -21,7 +21,7 @@ async function expectSeparateRows(rows: Locator): Promise<void> {
 	}, { message: "运行会话应分行显示" }).toBeLessThanOrEqual(0);
 }
 
-test("两个运行会话跨工作区往返后不重叠", async ({ context, workspace: { home, cwd, agentDir, env } }, info) => {
+test("两个运行会话补齐历史、跨工作区往返后布局稳定", async ({ context, workspace: { home, cwd, agentDir, env } }, info) => {
 	const other = path.join(home, "other");
 	const response = deferred<ModelResponse>();
 	const model = await startModelServer((request) => Array.isArray(request.messages) ? response.promise : { text: "" });
@@ -40,7 +40,7 @@ test("两个运行会话跨工作区往返后不重叠", async ({ context, works
 			}] },
 		} }));
 		await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
-		for (let index = 0; index < 40; index++) await storeSession({
+		for (let index = 0; index < 18; index++) await storeSession({
 			cwd, agentDir, provider: "gui-test", name: `历史-${index}`, timestamp: 1000 + index,
 		});
 		await storeSession({ cwd: other, agentDir, provider: "gui-test", name: "其他工作区历史" });
@@ -87,16 +87,25 @@ test("两个运行会话跨工作区往返后不重叠", async ({ context, works
 		await editor.fill("后台任务二");
 		await editor.press("Control+Enter");
 		await expect.poll(requests).toBe(2);
-		await expect.poll(() => sessions.filter((session) => session.cwd === cwd).length).toBe(42);
+		await expect.poll(() => sessions.filter((session) => session.cwd === cwd).length).toBe(20);
 		await menu();
+		await expectSeparateRows(runningRows);
+		await storeSession({ cwd, agentDir, provider: "gui-test", name: "历史-18", timestamp: 1018 });
+		await expect.poll(() => sessions.filter((session) => session.cwd === cwd).length).toBe(21);
+		await expect(navigation.locator(".history-virtual-row").first()).toBeVisible();
+		await expect.poll(() => navigation.locator(".history-session-row").count()).toBeLessThan(21);
+		const scroll = navigation.locator(".history-scroll [data-list-scroll]");
+		await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+		await expect(navigation.getByRole("button", { name: "历史-0", exact: true })).toBeInViewport({ ratio: 0.5 });
+		await scroll.evaluate((element) => { element.scrollTop = 0; });
 		await expectSeparateRows(runningRows);
 		for (let index = 0; index < 3; index++) {
 			await switchTo(other);
 			await expect.poll(() => sessions.some((session) => session.cwd === cwd)).toBe(false);
 			await switchTo(cwd);
-			await expect.poll(() => sessions.filter((session) => session.cwd === cwd).length).toBe(42);
+			await expect.poll(() => sessions.filter((session) => session.cwd === cwd).length).toBe(21);
 			await menu();
-			await expect(navigation.getByRole("button", { name: "历史-39", exact: true })).toBeVisible();
+			await expect(navigation.getByRole("button", { name: "历史-18", exact: true })).toBeVisible();
 			await expectSeparateRows(runningRows);
 			expect(requests()).toBe(2);
 		}
