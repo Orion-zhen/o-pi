@@ -6,15 +6,13 @@ import fileTools from "../../../src/harness/extensions/file-tools.ts";
 import type { FilesystemPathAccess } from "../../../src/harness/filesystem/contracts/access.ts";
 import {
 	buildSkillFilesystemAccess,
-	buildSkillPathIndex,
 	resolveSkillResourceLocator,
-	type SkillPathIndex,
 } from "../../../src/harness/skill-context/resources.ts";
 import { loadedSkillsByName } from "../../../src/harness/skill-context/state.ts";
 import { executeRead } from "../../../src/harness/file-tools/pi/adapters/read.ts";
 import { isFailed } from "../../../src/harness/file-tools/shared/result.ts";
 import { FileToolsHost } from "../../../src/harness/file-tools/runtime/host.ts";
-import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../../src/harness/skill-context/types.ts";
+import { SKILL_CONTEXT_ENTRY, type SkillLoadEntry } from "../../../src/harness/skill-context/types.ts";
 import { executeTool } from "../file-tools/extension-fixture.ts";
 import { registerExtension } from "../../helpers/extension.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
@@ -22,9 +20,7 @@ import { lspOperations } from "../../helpers/lsp.ts";
 
 const temp = useTempDir("o-pi-skill-resource-");
 let root: string;
-let candidate: SkillCandidate;
 let branch: SessionEntry[];
-let skillIndex: SkillPathIndex;
 let pathAccess: FilesystemPathAccess;
 
 beforeEach(async () => {
@@ -32,10 +28,8 @@ beforeEach(async () => {
 	await mkdir(path.join(root, "references"), { recursive: true });
 	await writeFile(path.join(root, "SKILL.md"), "skill");
 	await writeFile(path.join(root, "references", "testing.md"), "testing");
-	candidate = { name: "demo", path: path.join(root, "SKILL.md"), scope: "project" };
 	branch = [custom(load("demo", root))];
-	skillIndex = buildSkillPathIndex([candidate]);
-	pathAccess = await buildSkillFilesystemAccess(loadedSkillsByName(branch), skillIndex);
+	pathAccess = buildSkillFilesystemAccess(loadedSkillsByName(branch));
 });
 
 describe("技能资源定位符", () => {

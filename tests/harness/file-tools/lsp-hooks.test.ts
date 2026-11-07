@@ -46,7 +46,7 @@ describe("file-tools lsp hooks", () => {
 		const documentAnalysis = vi.fn<LspFileOperations["documentAnalysis"]>().mockResolvedValue(undefined);
 		const read = (lines?: string) => executeRead({ path: "a.ts", ...(lines === undefined ? {} : { lines }) }, {
 			host, cwd: workspace, sessionId: "read-hooks", model: undefined,
-			pathAccess: { mounts: [], protectedRoots: [], managedSchemes: [] },
+			pathAccess: { mounts: [], managedSchemes: [] },
 			lsp: async () => lspOperations({ documentAnalysis }),
 		});
 		await read("2");

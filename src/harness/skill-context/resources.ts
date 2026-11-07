@@ -4,7 +4,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { FilesystemPathAccess } from "../filesystem/contracts/access.ts";
 import { isValidSkillName } from "./frontmatter.ts";
 import { loadedSkillsByName } from "./state.ts";
-import type { SkillCandidate, SkillLoadEntry } from "./types.ts";
+import type { SkillLoadEntry } from "./types.ts";
 
 export interface SkillPath {
 	kind: "skill";
@@ -17,11 +17,6 @@ export interface SkillResourceResolution extends SkillPath {
 	filePath: string;
 }
 
-export interface SkillPathIndex {
-	lexicalRoots: string[];
-	canonicalRoots(): Promise<string[]>;
-}
-
 export interface SkillResourceError {
 	kind: "error";
 	code: "invalid-locator" | "access-denied";
@@ -29,31 +24,16 @@ export interface SkillResourceError {
 	path: string;
 }
 
-/** 为一个扩展实例构建只读 skill 候选及根目录索引。 */
-export function buildSkillPathIndex(candidates: SkillCandidate[]): SkillPathIndex {
-	const lexicalRoots = unique(candidates.map((candidate) => path.resolve(path.dirname(candidate.path))));
-	let canonicalRoots: Promise<string[]> | undefined;
-	return {
-		lexicalRoots,
-		canonicalRoots() {
-			canonicalRoots ??= resolveCanonicalRoots(lexicalRoots);
-			return canonicalRoots;
-		},
-	};
-}
-
-/** 构建文件系统调用所需的已授权技能挂载和普通路径绕过保护。 */
-export async function buildSkillFilesystemAccess(
+/** 构建文件系统调用所需的已加载技能挂载。 */
+export function buildSkillFilesystemAccess(
 	loads: ReadonlyMap<string, SkillLoadEntry>,
-	index: SkillPathIndex,
-): Promise<FilesystemPathAccess> {
+): FilesystemPathAccess {
 	const mounts = [...loads.values()].map((skill) => ({
 		logicalRoot: `skill://${skill.name}`,
 		nativeRoot: path.resolve(skill.root),
 	}));
 	return {
 		mounts,
-		protectedRoots: unique([...mounts.map((mount) => mount.nativeRoot), ...index.lexicalRoots, ...await index.canonicalRoots()]),
 		managedSchemes: ["skill"],
 	};
 }
@@ -98,16 +78,6 @@ export function parseSkillPath(input: string): SkillPath | SkillResourceError {
 function isInsideOrEqual(root: string, target: string): boolean {
 	const relative = path.relative(root, target);
 	return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-}
-
-function unique(values: string[]): string[] {
-	return [...new Set(values)];
-}
-
-async function resolveCanonicalRoots(lexicalRoots: string[]): Promise<string[]> {
-	return unique((await Promise.all(lexicalRoots.map(async (root) => {
-		try { return await realpath(root); } catch { return undefined; }
-	}))).filter((root): root is string => root !== undefined));
 }
 
 function invalid(inputPath: string, message: string): SkillResourceError {

@@ -4,9 +4,8 @@ export interface FilesystemMount {
 	readonly nativeRoot: string;
 }
 
-/** 调用级逻辑挂载及不可通过普通路径绕过的真实根目录。 */
+/** 调用级逻辑挂载及受管理的 URI 协议。 */
 export interface FilesystemPathAccess {
 	readonly mounts: readonly FilesystemMount[];
-	readonly protectedRoots: readonly string[];
 	readonly managedSchemes: readonly string[];
 }

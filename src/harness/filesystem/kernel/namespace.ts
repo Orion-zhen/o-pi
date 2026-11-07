@@ -119,7 +119,6 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	private readonly blockedPaths: CompiledPathRuleMatcher;
 	private readonly homeDirectory: string | undefined;
 	private readonly mounts: readonly FilesystemMount[];
-	private readonly protectedRoots: readonly string[];
 	private readonly managedSchemes: ReadonlySet<string>;
 
 	constructor(private readonly options: {
@@ -132,7 +131,6 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	}) {
 		this.homeDirectory = options.homeDirectory;
 		this.mounts = options.pathAccess?.mounts ?? [];
-		this.protectedRoots = options.pathAccess?.protectedRoots ?? [];
 		this.managedSchemes = new Set(options.pathAccess?.managedSchemes ?? []);
 		this.blockedPaths = new CompiledPathRuleMatcher(options.blockedPaths, options.homeDirectory);
 	}
@@ -418,12 +416,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 				path: lexical.displayPath,
 			});
 		}
-		if (!this.protectedRoots.some((root) => isInsideOrEqualPath(root, candidate))) return fsSuccess(undefined);
-		return fsFailure({
-			code: "access-denied",
-			message: "Managed resources must be accessed through an authorized logical path.",
-			path: lexical.displayPath,
-		});
+		return fsSuccess(undefined);
 	}
 
 	private async resolveDanglingSymlinkTarget(

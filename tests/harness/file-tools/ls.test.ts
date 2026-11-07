@@ -17,7 +17,7 @@ let outside: string;
 let host: FileToolsHost;
 const workspaceTemp = useTempDir("o-pi-ls-workspace-");
 const outsideTemp = useTempDir("o-pi-ls-outside-");
-const pathAccess = { mounts: [], protectedRoots: [], managedSchemes: ["skill"] } as const;
+const pathAccess = { mounts: [], managedSchemes: ["skill"] } as const;
 preserveEnv("PI_FILE_TOOLS_CONFIG");
 
 beforeEach(() => {

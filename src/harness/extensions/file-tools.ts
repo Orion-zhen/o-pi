@@ -28,8 +28,7 @@ import { readOutputSchema } from "../file-tools/pi/read-output.ts";
 import { MutationBatchCoordinator } from "../file-tools/pi/mutation-batch.ts";
 import { type MutationProgressDetails } from "../file-tools/pi/progress.ts";
 import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
-import { collectSkillCandidates } from "../skill-context/loader.ts";
-import { buildSkillFilesystemAccess, buildSkillPathIndex } from "../skill-context/resources.ts";
+import { buildSkillFilesystemAccess } from "../skill-context/resources.ts";
 import { SkillBranchState } from "../skill-context/state.ts";
 
 export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
@@ -40,20 +39,17 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 	const mutationBatches = new MutationBatchCoordinator(lsp);
 	const sessionMutations = new Map<string, SessionMutationScope>();
 	const skills = new SkillBranchState();
-	let skillIndex: ReturnType<typeof buildSkillPathIndex> | undefined;
-	const skillPathIndex = () => skillIndex ??= buildSkillPathIndex(collectSkillCandidates(undefined, pi.getCommands()));
 
-	const runtimeForInvocation = async (
+	const runtimeForInvocation = (
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
-	): Promise<FileToolRuntime> => {
-		const index = skillPathIndex();
+	): FileToolRuntime => {
 		return {
 			cwd: ctx.cwd,
 			sessionId: ctx.sessionManager.getSessionId(),
 			...(signal === undefined ? {} : { signal }),
 			host,
-			pathAccess: await buildSkillFilesystemAccess(skills.read(ctx.sessionManager), index),
+			pathAccess: buildSkillFilesystemAccess(skills.read(ctx.sessionManager)),
 		};
 	};
 
@@ -101,7 +97,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 			outputSchema: grepOutputSchema,
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const runtime = await runtimeForInvocation(ctx, signal);
+				const runtime = runtimeForInvocation(ctx, signal);
 				return grep.execute(params, {
 					...runtime,
 					lsp,
@@ -218,8 +214,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 	// 嵌套调用在入队前发出 execution_start，参数校验和审批钩子才位于执行队列内。
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "bash") return;
-		const index = skillPathIndex();
-		const pathAccess = await buildSkillFilesystemAccess(skills.read(ctx.sessionManager), index);
+		const pathAccess = buildSkillFilesystemAccess(skills.read(ctx.sessionManager));
 		const scope = await host.beginSessionMutation({
 			cwd: ctx.cwd,
 			sessionId: ctx.sessionManager.getSessionId(),
