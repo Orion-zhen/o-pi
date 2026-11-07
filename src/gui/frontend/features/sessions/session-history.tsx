@@ -94,11 +94,13 @@ function SessionRows({ items, gui, close, search, startup }: {
 	const rows = list.rows.map((row) => {
 		const item = visible[row.index];
 		if (!item) return null;
+		// Motion 复用行节点时不会补调新增的 ref，普通布局也需登记测量节点。
 		return <motion.div key={item.key} layout={list.windowed ? "position" : false} layoutDependency={visible}
-			initial={false} {...(list.windowed ? {} : { animate: { height: "auto", paddingBottom: "var(--space-1)" }, exit: { height: 0, paddingBottom: 0 } })}
+			initial={false} {...(list.windowed ? {} : { animate: { height: "auto", paddingBottom: "var(--space-1)" }, exit: "exit" })}
+			variants={{ exit: (visible: ReadonlySet<string>) => visible.has(item.key) ? { transition: { duration: 0 } } : { height: 0, paddingBottom: 0 } }}
 			transition={list.windowed ? settle : listDepth.transition}
-			data-index={list.windowed ? row.index : undefined} className={list.windowed ? "history-virtual-row" : undefined}
-			ref={list.windowed ? list.virtualizer.measureElement : undefined}
+			data-index={row.index} className={list.windowed ? "history-virtual-row" : undefined}
+			ref={list.virtualizer.measureElement}
 			style={{ minWidth: 0, ...list.rowStyle, ...(!list.windowed && { overflow: "clip" }) }}>
 			<HistorySessionRow item={item} lists={lists} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} match={matches.get(item.path ?? "")} />
 		</motion.div>;
