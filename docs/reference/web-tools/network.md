@@ -47,21 +47,11 @@ chmod 600 ~/.pi/agent/cookies.txt
 发送 Cookie 需满足：
 
 1. `webfetch.cookies.enabled` 为 true。
-2. `webfetch.cookies.domains` 命中目标主机。
+2. 目标主机未命中 `webfetch.cookies.blacklist` 黑名单。
 3. Cookie 自身的 domain、path、secure 和 expiry 匹配。
 
 `example.com` 匹配该主机，`*.example.com` 匹配子域名。
 
-认证确认模式：
-
-| 值 | 行为 |
-| --- | --- |
-| `always` | 每次发送前确认 |
-| `session` | 每个 origin 每会话首次确认 |
-| `never` | 命中允许列表后直接发送 |
-
-当前默认启用 Cookie，允许 `*.reddit.com`、`*.youtube.com` 和 `*.bilibili.com`，确认模式为 never。加载 Cookie 文件前请检查这组配置。
-
-TUI、GUI 和 RPC 提供确认接口。无界面且需要确认时返回 `AUTH_CONFIRMATION_REQUIRED`。
+默认启用 Cookie，黑名单为空。每次请求（包括重定向）自动附带匹配的 Cookie，不询问确认。文件不存在或没有匹配的 Cookie 时不附带。
 
 响应的 `Set-Cookie` 只更新内存 CookieJar。Cookie 名称和值不会进入模型结果和错误展示。

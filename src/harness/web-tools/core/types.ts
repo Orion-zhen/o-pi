@@ -27,7 +27,7 @@ export interface WebSearchItem {
 
 export type WebFetchErrorCode =
 	| "CONFIG_ERROR" | "INVALID_ARGUMENT" | "INVALID_URL" | "BLOCKED_ADDRESS" | "COOKIE_ERROR"
-	| "AUTH_CONFIRMATION_REQUIRED" | "DNS_FAILED" | "CONNECTION_FAILED" | "TLS_FAILED"
+	| "DNS_FAILED" | "CONNECTION_FAILED" | "TLS_FAILED"
 	| "TIMEOUT" | "ABORTED" | "TOO_MANY_REDIRECTS" | "HTTP_ERROR"
 	| "RESPONSE_TOO_LARGE" | "UNSUPPORTED_CONTENT_TYPE" | "CONVERSION_FAILED" | "ANCHOR_NOT_FOUND";
 
@@ -176,11 +176,6 @@ export interface WebFetchExecutionContext {
 	signal?: AbortSignal;
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;
 	acceptsImages?: boolean;
-	interaction?: WebFetchInteractionPort;
-}
-
-export interface WebFetchInteractionPort {
-	confirmAuthentication(title: string, message: string): Promise<boolean>;
 }
 
 export interface WebSearchExecutionContext {

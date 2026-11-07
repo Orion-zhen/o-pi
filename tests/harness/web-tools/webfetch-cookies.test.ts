@@ -19,16 +19,16 @@ beforeEach(() => {
 });
 
 describe("webfetch cookies", () => {
-	it("实现 exact 和 wildcard allowlist 语义", () => {
+	it("实现 exact 和 wildcard 域名匹配语义", () => {
 		expect(matchesDomainRule("example.com", ["example.com"])).toBe(true);
 		expect(matchesDomainRule("a.example.com", ["example.com"])).toBe(false);
 		expect(matchesDomainRule("a.example.com", ["*.example.com"])).toBe(true);
 		expect(matchesDomainRule("example.com", ["*.example.com"])).toBe(false);
 	});
 
-	it("只在 allowlist 命中且需要 Cookie 时加载 store，并复用并发加载", async () => {
+	it("只在未命中黑名单时加载 store，并复用并发加载", async () => {
 		const config = defaultWebToolsConfig();
-		config.webfetch.cookies = { enabled: true, domains: ["example.com"], confirmation: "never" };
+		config.webfetch.cookies = { enabled: true, blacklist: ["other.com"] };
 		const loadPath = vi.spyOn(configModule, "defaultCookiePath").mockReturnValue(path.join(dir, "missing.txt"));
 		const dispatcher = new Agent();
 		const runtime = createWebFetchRuntime({

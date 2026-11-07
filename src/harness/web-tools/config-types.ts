@@ -40,8 +40,7 @@ export interface WebToolsConfig {
 		limits: { response_bytes: number; default_output_chars: number; find_max_passages: number };
 		cookies: {
 			enabled: boolean;
-			domains: string[];
-			confirmation: "always" | "session" | "never";
+			blacklist: string[];
 		};
 	};
 }

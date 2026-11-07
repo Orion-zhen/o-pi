@@ -23,7 +23,6 @@ export interface HttpClientOptions {
 	privateNetworkDispatcher?: Dispatcher;
 	fetchImpl: WebHttpFetch;
 	cookieStore: CookieStore;
-	approvedAuthOrigins: Set<string>;
 	config: WebToolsConfig;
 	context: WebFetchExecutionContext;
 	startedAt: number;
@@ -110,20 +109,13 @@ async function fetchWithinDeadline(
 				details: { status: "progress", phase: redirectCount > 0 ? "redirecting" : "requesting", redirect_count: redirectCount },
 			});
 
-			const allowlisted = options.config.webfetch.cookies.enabled
-				&& matchesDomainRule(currentUrl.hostname, options.config.webfetch.cookies.domains);
-			const cookieAccess: CookieAccess | WebFetchFailureDetails = allowlisted
+			const cookiesAllowed = options.config.webfetch.cookies.enabled
+				&& !matchesDomainRule(currentUrl.hostname, options.config.webfetch.cookies.blacklist);
+			const cookieAccess: CookieAccess | WebFetchFailureDetails = cookiesAllowed
 				? await waitForAbort(options.cookieStore.getCookieAccess(currentUrl), signal)
 				: {};
 			if ("status" in cookieAccess) return failure(cookieAccess);
-			if (cookieAccess.header !== undefined) {
-				if (!await waitForAbort(confirmAuth(currentUrl, options), signal)) {
-					const result = failure({ status: "failed", error: { code: "AUTH_CONFIRMATION_REQUIRED", message: "authenticated request was not confirmed." } });
-					result.details.authenticated = false;
-					return result;
-				}
-				authenticated = true;
-			}
+			if (cookieAccess.header !== undefined) authenticated = true;
 
 			let response: WebHttpResponse;
 			try {
@@ -143,7 +135,7 @@ async function fetchWithinDeadline(
 				return networkFailure(error);
 			}
 			lastStatus = response.status;
-			const saveCookies = () => allowlisted
+			const saveCookies = () => cookiesAllowed
 				? waitForAbort(options.cookieStore.storeFromResponse(currentUrl, response.headers.getSetCookie()), signal)
 				: Promise.resolve(undefined);
 
@@ -225,7 +217,7 @@ async function fetchWithinDeadline(
 			return success(response, body.bytes);
 		}
 	} catch (error) {
-		// Cookie 存储与交互端口本身不接受 signal，只在取消时转换等待错误。
+		// Cookie 存储本身不接受 signal，只在取消时转换等待错误。
 		if (signal.aborted) return networkFailure(error);
 		throw error;
 	}
@@ -234,15 +226,6 @@ async function fetchWithinDeadline(
 function dispatcherFor(url: URL, options: HttpClientOptions): Dispatcher {
 	return options.privateNetworkDispatcher !== undefined && options.context.privateNetworkGrant?.origin === url.origin
 		? options.privateNetworkDispatcher : options.dispatcher;
-}
-
-async function confirmAuth(url: URL, options: HttpClientOptions): Promise<boolean> {
-	const mode = options.config.webfetch.cookies.confirmation;
-	if (mode === "never" || (mode === "session" && options.approvedAuthOrigins.has(url.origin))) return true;
-	if (options.context.interaction === undefined) return false;
-	const ok = await options.context.interaction.confirmAuthentication("WebFetch authentication", `Send configured cookies to ${url.origin}?`);
-	if (ok && mode === "session") options.approvedAuthOrigins.add(url.origin);
-	return ok;
 }
 
 function createDeadline(durationMs: number): { signal: AbortSignal; dispose: () => void } {

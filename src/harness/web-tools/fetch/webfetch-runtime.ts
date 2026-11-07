@@ -8,7 +8,6 @@ import { executeWebFetch } from "./webfetch-tool.ts";
 /** Fetch-only session state. Search-only sessions never import CookieJar or the fetch execution graph. */
 export function createWebFetchRuntime(options: WebCapabilityOptions): WebFetchCapability {
 	const snapshots = new SnapshotCache(options.now);
-	const approvedAuthOrigins = new Set<string>();
 	const cookieStore = createLazyCookieStore();
 
 	return {
@@ -31,7 +30,6 @@ export function createWebFetchRuntime(options: WebCapabilityOptions): WebFetchCa
 				fetchImpl: options.fetchImpl,
 				cookieStore,
 				snapshots,
-				approvedAuthOrigins,
 				config,
 				context,
 				now: options.now,
@@ -39,7 +37,6 @@ export function createWebFetchRuntime(options: WebCapabilityOptions): WebFetchCa
 		},
 		async close() {
 			snapshots.clear();
-			approvedAuthOrigins.clear();
 			cookieStore.clear();
 		},
 	};

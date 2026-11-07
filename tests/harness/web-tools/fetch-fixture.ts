@@ -18,7 +18,7 @@ export function useWebFetchRuntime(configure?: (runtime: ExecuteWebFetchRuntime)
 		const runtime: ExecuteWebFetchRuntime = {
 			dispatcher, fetchImpl, config: defaultWebToolsConfig(),
 			cookieStore: { async getCookieAccess() { return {}; }, async storeFromResponse() {} },
-			snapshots: new SnapshotCache(), approvedAuthOrigins: new Set<string>(),
+			snapshots: new SnapshotCache(),
 			context: { toolCallId: "fetch", acceptsImages: true }, now: () => Date.now(),
 		};
 		configure?.(runtime);

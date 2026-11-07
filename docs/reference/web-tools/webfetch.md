@@ -87,4 +87,4 @@ HTML 提取结合语义节点、Readability、JSON-LD 和 body 候选。按正�
 
 文本快照最多 32 项、64 MiB，写入后有效期 10 分钟。显式 `offset`、`find`、`pages` 或 image 模式可以复用快照，普通首次读取重新请求。PDF 缓存原始字节和逐页文本，解析器与渲染图片在处理后释放。
 
-网络与认证规则见[网络配置](network.md)。常见错误包括 `INVALID_URL`、`BLOCKED_ADDRESS`、`AUTH_CONFIRMATION_REQUIRED`、`HTTP_ERROR`、`RESPONSE_TOO_LARGE`、`CONVERSION_FAILED`、`TIMEOUT` 和 `ABORTED`。
+网络与认证规则见[网络配置](network.md)。常见错误包括 `INVALID_URL`、`BLOCKED_ADDRESS`、`HTTP_ERROR`、`RESPONSE_TOO_LARGE`、`CONVERSION_FAILED`、`TIMEOUT` 和 `ABORTED`。

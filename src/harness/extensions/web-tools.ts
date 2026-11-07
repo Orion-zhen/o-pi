@@ -141,13 +141,6 @@ export default function webTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySink
 							}
 						: {}),
 					acceptsImages,
-					...(ctx.hasUI
-						? {
-								interaction: {
-									confirmAuthentication: (title: string, message: string) => ctx.ui.confirm(title, message),
-								},
-							}
-						: {}),
 				};
 				const runtime = await getRuntime();
 				const result = await runtime.fetch(params, executionContext);

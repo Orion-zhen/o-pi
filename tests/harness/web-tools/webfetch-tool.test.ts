@@ -5,7 +5,6 @@ import { useWebFetchRuntime } from "./fetch-fixture.ts";
 import { SnapshotCache } from "../../../src/harness/web-tools/fetch/snapshot-cache.ts";
 import type {
 	CookieStore,
-	WebFetchInteractionPort,
 	WebFetchOmission,
 	WebFetchResult,
 } from "../../../src/harness/web-tools/core/types.ts";
@@ -40,33 +39,22 @@ function expectPrimaryMediaOmission(
 }
 
 describe("webfetch tool", () => {
-	it("RPC dialog adapter 可通过窄 interaction port 确认认证请求", async () => {
-		const confirmations: string[] = [];
+	it("无需交互即可发送认证请求", async () => {
 		const authenticatedStore: CookieStore = {
 			async getCookieAccess() {
 				return { header: "sid=secret" };
 			},
 			async storeFromResponse() {},
 		};
-		const interaction: WebFetchInteractionPort = {
-			async confirmAuthentication(title, message) {
-				confirmations.push(`${title}\n${message}`);
-				return true;
-			},
-		};
 		const rt = runtime(async () => httpResponse(200, "authenticated", { "content-type": "text/plain" }), {
-			cookieStore: authenticatedStore, context: { interaction },
+			cookieStore: authenticatedStore,
 		});
 		rt.config.webfetch.cookies.enabled = true;
-		rt.config.webfetch.cookies.domains = ["example.com"];
-		rt.config.webfetch.cookies.confirmation = "always";
+		rt.config.webfetch.cookies.blacklist = [];
 
 		const result = await executeWebFetch({ url: "https://example.com/private" }, rt);
 
 		expect(result.details).toMatchObject({ status: "success", authenticated: true });
-		expect(confirmations).toEqual([
-			"WebFetch authentication\nSend configured cookies to https://example.com?",
-		]);
 	});
 
 	it("为展开 Widget 保留最多 40 行、6000 字符的正文预览", async () => {
@@ -213,25 +201,6 @@ describe("webfetch tool", () => {
 		expect(cancelled.details.error.code).toBe("ABORTED");
 	});
 
-	it("等待认证确认时可取消，且不会发送请求", async () => {
-		const controller = new AbortController();
-		const fetchImpl = vi.fn(async () => httpResponse(200, "unexpected"));
-		const rt = runtime(fetchImpl, {
-			cookieStore: { async getCookieAccess() { return { header: "sid=secret" }; }, async storeFromResponse() {} },
-			context: {
-				signal: controller.signal,
-				interaction: { confirmAuthentication() {
-					controller.abort();
-					return new Promise<boolean>(() => undefined);
-				} },
-			},
-		});
-		rt.config.webfetch.cookies.domains = ["example.com"];
-		rt.config.webfetch.cookies.confirmation = "always";
-		await expect(executeWebFetch({ url: "https://example.com/private" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "ABORTED" } } });
-		expect(fetchImpl).not.toHaveBeenCalled();
-	});
-
 	it.each(["redirect", "skipped_image", "text", "too_large"] as const)("%s 响应保持 Cookie 更新时机", async (scenario) => {
 		const stored: string[][] = [];
 		let requests = 0;
@@ -243,7 +212,7 @@ describe("webfetch tool", () => {
 			async getCookieAccess() { return {}; },
 			async storeFromResponse(_url, headers) { stored.push(headers); },
 		} });
-		rt.config.webfetch.cookies.domains = ["example.com"];
+		rt.config.webfetch.cookies.blacklist = [];
 		if (scenario === "too_large") rt.config.webfetch.limits.response_bytes = 1;
 		const result = await executeWebFetch({ url: "https://example.com/start" }, rt);
 		expect(stored).toEqual(scenario === "too_large" ? [] : scenario === "redirect" ? [["step=1"], ["step=2"]] : [["step=2"]]);

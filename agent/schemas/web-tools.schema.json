@@ -195,7 +195,8 @@
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
-						"domains": {
+						"blacklist": {
+							"description": "不发送 Cookie 的域名黑名单。",
 							"type": "array",
 							"maxItems": 100,
 							"uniqueItems": true,
@@ -205,10 +206,6 @@
 								"pattern": "^(\\*\\.)?[A-Za-z0-9.-]+$"
 							},
 							"default": []
-						},
-						"confirmation": {
-							"enum": ["always", "session", "never"],
-							"default": "session"
 						}
 					}
 				}

@@ -106,14 +106,8 @@
 		},
 		"cookies": {
 			"enabled": true,
-			// example.com 只匹配自身；*.example.com 只匹配子域名。
-			"domains": [
-				"*.reddit.com",
-				"*.youtube.com",
-				"*.bilibili.com"
-			],
-			// always: 每次询问；session: 每个 origin 每会话首次询问；never: 命中后直接发送。
-			"confirmation": "never"
+			// 黑名单内不发送 Cookie。example.com 只匹配自身，*.example.com 只匹配子域名。
+			"blacklist": []
 		}
 	}
 }

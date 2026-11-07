@@ -32,7 +32,6 @@ it("从校验 schema 返回固定字段的枚举，包括本地引用和未展�
 	const web = await host.query({ query: "moduleConfig", id: "webTools" });
 	expect(web).toMatchObject({ options: {
 		"webfetch.media.mode": ["auto", "on", "off"],
-		"webfetch.cookies.confirmation": ["always", "session", "never"],
 	} });
 	expect(web.arrayOptions["websearch.primary_providers"]).toEqual([
 		{ value: "brave_api", label: "Brave" }, { value: "exa_api", label: "Exa" },
