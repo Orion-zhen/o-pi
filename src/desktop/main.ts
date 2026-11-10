@@ -74,7 +74,7 @@ function startDesktop(): void {
 
 	void app.whenReady().then(async () => {
 		if (app.isPackaged && !app.setAsDefaultProtocolClient(desktopScheme)) console.error("无法注册 Desktop 链接协议。");
-		const diagnostics = new DesktopDiagnostics(path.join(app.getPath("logs"), "gui-timing.jsonl"));
+		const diagnostics = new DesktopDiagnostics(path.join(app.getPath("logs"), "gui-timing.jsonl"), process.env.OPI_GUI_DEBUG === "1");
 		const storage = new DesktopStorage(diagnostics);
 		ipcMain.handle("gui:storage", (event) => { trusted(event); return storage.read(); });
 		ipcMain.handle("gui:clearStorage", (event, ids: unknown) => { trusted(event); return storage.clear(ids); });

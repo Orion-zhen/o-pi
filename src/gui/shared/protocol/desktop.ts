@@ -5,7 +5,7 @@ export type DesktopCommand = "new" | "settings" | "resume";
 export type DesktopDrop = { kind: "attachment" } | { kind: "reference"; path: string } | { kind: "workspace"; path: string };
 export interface DesktopAppearance { theme: "system" | "light" | "dark"; transparent: boolean }
 export interface DesktopBridge extends Omit<GuiConnection, "subscribe"> {
-	reportDiagnostic(value: import("../diagnostics/diagnostics.ts").GuiDiagnostic): Promise<import("../diagnostics/diagnostics.ts").DiagnosticReceipt>;
+	reportDiagnostic(value: import("../diagnostics/diagnostics.ts").GuiDiagnostic): Promise<import("../diagnostics/diagnostics.ts").DiagnosticReceipt | null>;
 	readStorage(): Promise<StorageGroup>;
 	clearStorage(ids: string[]): Promise<void>;
 	/** 返回平台是否支持桌面透明，不受当前开关或辅助功能设置影响。 */

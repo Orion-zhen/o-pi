@@ -9,7 +9,7 @@ const temp = useTempDir("opi-desktop-diagnostics-");
 describe("桌面耗时日志", () => {
 	it("记录请求和累计接收确认，不保存输入、工作区路径或查询内容", async () => {
 		const file = path.join(temp.path, "logs", "gui-timing.jsonl");
-		const log = new DesktopDiagnostics(file);
+		const log = new DesktopDiagnostics(file, true);
 		log.reset();
 		expect(log.request("send-1", { sessionId: "session-1", value: { action: "prompt", text: "PRIVATE_INPUT", images: [] } }, 100)).toBe(true);
 		expect(log.request("query-1", { sessionId: null, value: { query: "image", id: "PRIVATE_IMAGE" } }, 100)).toBe(false);
@@ -38,7 +38,7 @@ describe("桌面耗时日志", () => {
 
 	it("重连后不把上个连接尚未确认的批次算到新连接", async () => {
 		const file = path.join(temp.path, "gui-timing.jsonl");
-		const log = new DesktopDiagnostics(file);
+		const log = new DesktopDiagnostics(file, true);
 		log.delivery({ kind: "frame", id: 3, events: [{ type: "selected", session: null }] }, 1);
 		log.reset();
 		log.received(3, 2);
@@ -51,7 +51,7 @@ describe("桌面耗时日志", () => {
 		const file = path.join(temp.path, "gui-timing.jsonl");
 		const previous = '{"phase":"start"}\n'.repeat(Math.floor(2 * 1024 * 1024 / 18));
 		await writeFile(file, previous);
-		const log = new DesktopDiagnostics(file);
+		const log = new DesktopDiagnostics(file, true);
 		for (let index = 0; index < 10; index++) log.request(String(index), { value: { action: "sessions" }, sessionId: null }, 100);
 		await log.close();
 		expect(await readFile(`${file}.1`, "utf8")).toBe(previous);

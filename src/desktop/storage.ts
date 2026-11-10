@@ -33,7 +33,7 @@ export class DesktopStorage {
 					const tree = await inspectStorageTree(path.dirname(file), file, new AbortController().signal);
 					const entry: StorageEntry = {
 						id: randomUUID(), name: path.basename(file), path: file, bytes: tree.bytes, files: tree.files, modified: tree.modified,
-						blocked: file === this.diagnostics.file ? "正在记录 GUI 诊断" : tree.blocked,
+						blocked: file === this.diagnostics.file ? "当前 GUI 诊断日志" : tree.blocked,
 					};
 					group.entries.push(entry);
 					if (!entry.blocked) targets.set(entry.id, { kind: "diagnostics", tree });

@@ -29,6 +29,7 @@ export function installDesktopFaults(window: BrowserWindow, diagnostics: Desktop
 	});
 	return (value: unknown) => {
 		if (!validateDiagnostic(value)) throw new Error("无效界面诊断");
+		if (!diagnostics.debug && !["startup", "react-root", "renderer-exit"].includes(value.kind)) return null;
 		return diagnostics.error(value, environment);
 	};
 }

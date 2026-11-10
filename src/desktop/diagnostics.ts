@@ -11,8 +11,8 @@ const timestamp = (value: unknown): value is number => typeof value === "number"
 /** 时间线和异常共用串行写入与轮转，最多保留两份 2 MiB 日志。 */
 export class DesktopDiagnostics {
 	private readonly run = `${process.pid}-${Date.now()}`;
-	private pending: Promise<void>;
-	private size = 0;
+	private pending: Promise<void> = Promise.resolve();
+	private size: number | undefined;
 	private failed = false;
 	private closing: Promise<void> | undefined;
 	private finished = false;
@@ -20,12 +20,8 @@ export class DesktopDiagnostics {
 	private generation = 0;
 	private deliveries = new Set<number>();
 
-	constructor(readonly file: string) {
-		this.pending = mkdir(path.dirname(file), { recursive: true }).then(async () => {
-			try { this.size = (await stat(file)).size; }
-			catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
-		}).catch((error: unknown) => this.failure(error));
-		this.write({ phase: "start" });
+	constructor(readonly file: string, readonly debug = false) {
+		if (debug) this.write({ phase: "start" });
 	}
 
 	private failure(error: unknown): void {
@@ -38,6 +34,14 @@ export class DesktopDiagnostics {
 		const bytes = Buffer.byteLength(line);
 		this.pending = this.pending.then(async () => {
 			if (this.failed) return;
+			if (this.size === undefined) {
+				await mkdir(path.dirname(this.file), { recursive: true });
+				try { this.size = (await stat(this.file)).size; }
+				catch (error) {
+					if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+					this.size = 0;
+				}
+			}
 			if (this.size + bytes > MAX_BYTES) {
 				await rename(this.file, this.archiveFile);
 				this.size = 0;
@@ -55,7 +59,7 @@ export class DesktopDiagnostics {
 	}
 
 	request(id: string, value: unknown, submittedAt: unknown): boolean {
-		if (!object(value) || !object(value.value)) return false;
+		if (!this.debug || !object(value) || !object(value.value)) return false;
 		const action = value.value.action;
 		if (typeof action !== "string" || !["prompt", "new", "workspace", "openSession", "sessions"].includes(action)) return false;
 		this.write({ phase: "main_received", requestId: id, action,
@@ -64,15 +68,16 @@ export class DesktopDiagnostics {
 		});
 		return true;
 	}
-	backend(id: string, at: number): void { this.write({ phase: "backend_received", requestId: id, at }); }
-	user(sessionId: string, userTimestamp: number, at: number): void { this.write({ phase: "user_available", sessionId, userTimestamp, at }); }
-	result(id: string, failed: boolean): void { this.write({ phase: "request_settled", requestId: id, failed }); }
+	backend(id: string, at: number): void { if (this.debug) this.write({ phase: "backend_received", requestId: id, at }); }
+	user(sessionId: string, userTimestamp: number, at: number): void { if (this.debug) this.write({ phase: "user_available", sessionId, userTimestamp, at }); }
+	result(id: string, failed: boolean): void { if (this.debug) this.write({ phase: "request_settled", requestId: id, failed }); }
 
 	reset(): void {
 		this.deliveries.clear();
 		this.generation++;
 	}
 	delivery(delivery: GuiFrame, sentAt: unknown): boolean {
+		if (!this.debug) return false;
 		let tracked = false;
 		for (const event of delivery.events) {
 			let fields: Fields;

@@ -24,10 +24,13 @@ export function reportDiagnostic(kind: GuiDiagnostic["kind"], scope: GuiDiagnost
 	const update = showDiagnostic(value);
 	const desktop = window.opi;
 	if (desktop) {
-		void desktop.reportDiagnostic(value).then((receipt) => update(
-			receipt.saved ? "诊断已写入日志。" : "诊断日志写入失败，请复制保留。",
-			`${receipt.saved ? "已写入" : "写入失败"}: ${receipt.file}\nrun: ${receipt.run}\n${receipt.environment}`,
-		), (error: unknown) => update("诊断日志写入失败，请复制保留。", `诊断日志写入失败: ${describeError(error).message}`));
+		void desktop.reportDiagnostic(value).then((receipt) => {
+			if (receipt === null) update("未启用调试记录，请复制诊断信息。");
+			else update(
+				receipt.saved ? "诊断已写入日志。" : "诊断日志写入失败，请复制保留。",
+				`${receipt.saved ? "已写入" : "写入失败"}: ${receipt.file}\nrun: ${receipt.run}\n${receipt.environment}`,
+			);
+		}, (error: unknown) => update("诊断日志写入失败，请复制保留。", `诊断日志写入失败: ${describeError(error).message}`));
 	} else update("Web 端未保存到服务器，请复制诊断信息。");
 	return value;
 }

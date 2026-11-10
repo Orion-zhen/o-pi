@@ -24,18 +24,18 @@ const fault: GuiDiagnostic = {
 
 describe("桌面异常诊断", () => {
 	it("校验渲染器报告并持久化，返回可与时间线关联的编号和日志位置", async () => {
-		const log = new DesktopDiagnostics(path.join(temp.path, "gui-timing.jsonl"));
+		const log = new DesktopDiagnostics(path.join(temp.path, "gui-timing.jsonl"), true);
 		const receive = installDesktopFaults(new BrowserWindow(), log);
 		const receipt = await receive(fault);
-		expect(receipt.saved).toBe(true);
-		expect(receipt.file).toBe(log.file);
-		expect(receipt.environment).toContain("test-version");
+		expect(receipt?.saved).toBe(true);
+		expect(receipt?.file).toBe(log.file);
+		expect(receipt?.environment).toContain("test-version");
 		await log.close();
 		const records: Record<string, unknown>[] = (await readFile(log.file, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-		expect(records.find((value) => value.phase === "gui_error")).toMatchObject({ ...fault, run: receipt.run, generation: 0, environment: receipt.environment });
+		expect(records.find((value) => value.phase === "gui_error")).toMatchObject({ ...fault, run: receipt?.run, generation: 0, environment: receipt?.environment });
 	});
 	it("拒绝过长或夹带额外载荷的报告，不把整个对象写入日志", async () => {
-		const log = new DesktopDiagnostics(path.join(temp.path, "gui-timing.jsonl"));
+		const log = new DesktopDiagnostics(path.join(temp.path, "gui-timing.jsonl"), true);
 		const receive = installDesktopFaults(new BrowserWindow(), log);
 		for (const value of [null, { ...fault, kind: "unknown" }, { ...fault, stack: "x".repeat(16385) }, { ...fault, payload: "PRIVATE_INPUT" }])
 			expect(() => receive(value)).toThrow("无效界面诊断");
