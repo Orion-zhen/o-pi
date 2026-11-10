@@ -110,7 +110,7 @@ export class GuiExecution {
 				bindTools = (controller) => { selection.controller = controller; };
 				tools.resolve(selection);
 			};
-			let bindMcp = (tools: GuiMcpTools) => { mcp.tools = tools; };
+			let bindMcp = (tools: GuiMcpTools | null) => { mcp.tools = tools; };
 			const [runtime, selection] = await Promise.all([
 				createGuiRuntime(manager.getCwd(), {
 					dialogs: context.dialogs,
@@ -367,7 +367,6 @@ export class GuiExecution {
 
 	private async reload(): Promise<void> {
 		const { session, services: { modelRuntime } } = this.runtime;
-		this.mcpTools = null;
 		await session.reload({ beforeSessionStart: async () => {
 			const result = await modelRuntime.refresh({ allowNetwork: false, signal: this.context.commandController.signal });
 			if (result.aborted) throw new Error("模型配置重载已取消");
@@ -408,6 +407,7 @@ export class GuiExecution {
 				session.setAutoCompactionEnabled(action.compaction); session.setAutoRetryEnabled(action.retry);
 				session.setSteeringMode(action.steering); session.setFollowUpMode(action.followUp);
 				runtime.services.settingsManager.setImageAutoResize(action.autoResize); runtime.services.settingsManager.setBlockImages(action.blockImages);
+				session.setCacheWarmingMode(action.cacheWarming);
 				await runtime.services.settingsManager.flush(); return;
 			case "mcpServers":
 				if (this.mcpTools === null) throw new Error("MCP 已禁用。");
@@ -445,8 +445,7 @@ export class GuiExecution {
 		clearTimeout(this.timer);
 		this.loginController?.abort();
 		this.runtime.session.abortBash();
-		await this.runtime.session.abort();
-		// SDK shutdown 先取消 MCP 授权请求，再等待可能被该请求阻塞的命令。
+		// SDK 负责中止工具、关闭扩展和等待凭据写入，同时排空宿主任务。
 		await Promise.all([this.runtime.dispose(), Promise.allSettled([...this.tasks])]);
 		this.unsubscribe?.();
 		await this.runtime.services.settingsManager.flush();

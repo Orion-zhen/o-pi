@@ -7,6 +7,7 @@ import { SettingsActions } from "../../../../../src/gui/frontend/forms/settings-
 import { TooltipProvider } from "../../../../../src/gui/frontend/ui/tooltip.tsx";
 import type { ConfigCommand } from "../../../../../src/gui/frontend/connection/connection.ts";
 import { useReactFixture } from "../../../helpers/react-fixture.ts";
+import { CACHE_WARMING_MODES } from "../../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 
 vi.mock("../../../../../src/gui/frontend/forms/source-editor.tsx", () => ({
 	SourceEditor: ({ label, value, disabled, onChange }: ComponentProps<typeof SourceEditor>) =>
@@ -19,13 +20,13 @@ beforeEach(() => {
 	vi.stubGlobal("getComputedStyle", (element: HTMLElement) => element.style);
 });
 const settings: ComponentProps<typeof AgentSettings>["settings"] = {
-	compaction: true, retry: true, steering: "one-at-a-time", followUp: "one-at-a-time", autoResize: true, blockImages: false,
+	cacheWarming: "idle", compaction: true, retry: true, steering: "one-at-a-time", followUp: "one-at-a-time", autoResize: true, blockImages: false,
 };
 const onDirty = vi.fn();
 function View({ send, query, current = settings }: Pick<ComponentProps<typeof AgentSettings>, "send" | "query"> & { current?: typeof settings }) {
 	const state = useSettingsCoordinator(onDirty);
 	return <TooltipProvider><SettingsStateContext value={state}>
-		<AgentSettings settings={current} send={send} query={query} disabled={false} />
+		<AgentSettings settings={current} cacheWarmingModes={CACHE_WARMING_MODES} send={send} query={query} disabled={false} />
 		<SettingsActions count={state.dirtyPages.size} saving={state.saving} blocked={state.blocked} disabled={false}
 			error={state.error} status={state.status} save={state.save} discard={state.discard} />
 	</SettingsStateContext></TooltipProvider>;
@@ -55,6 +56,23 @@ it("表单草稿阻止打开源码，改回原值取消修改，保存使用会�
 	await click(toggle());
 	await click(named("保存"));
 	expect(send).toHaveBeenCalledExactlyOnceWith({ action: "settings", ...settings, autoResize: false });
+	expect(query).not.toHaveBeenCalled();
+});
+
+it("缓存保温选项按宿主顺序生成，修改、放弃和保存沿用表单草稿", async () => {
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
+	const query = vi.fn();
+	await render(<View send={send} query={query} />);
+	const choices = () => [...document.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="缓存保温"] [role="radio"]')];
+	expect(choices().map((choice) => choice.closest("label")?.textContent)).toEqual(CACHE_WARMING_MODES);
+	const choice = choices().find((choice) => choice.closest("label")?.textContent === "off");
+	await click(choice);
+	expect(named("JSON")?.disabled).toBe(true);
+	await click(named("放弃"));
+	expect(choices().find((choice) => choice.closest("label")?.textContent === "idle")?.getAttribute("aria-checked")).toBe("true");
+	await click(choice);
+	await click(named("保存"));
+	expect(send).toHaveBeenCalledExactlyOnceWith({ action: "settings", ...settings, cacheWarming: "off" });
 	expect(query).not.toHaveBeenCalled();
 });
 

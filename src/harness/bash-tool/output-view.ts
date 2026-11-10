@@ -7,6 +7,7 @@ import type { BashLimits, BashOutputFormat, BashOutputState, BashRunStatus, Bash
 interface OutputViewInput extends CapturedOutput {
 	status: BashRunStatus;
 	exitCode?: number;
+	shellExitAfterSeconds?: number;
 	durationMs: number;
 	limits: BashLimits;
 }
@@ -41,6 +42,7 @@ export function createBashOutputView(input: OutputViewInput): OutputView {
 	const details: BashToolDetails = {
 		status: input.status,
 		...(input.exitCode !== undefined ? { exit_code: input.exitCode } : {}),
+		...(input.shellExitAfterSeconds !== undefined ? { shell_exit_after_seconds: input.shellExitAfterSeconds } : {}),
 		duration_ms: input.durationMs,
 		output_state: outputState,
 		output_format: format,
@@ -82,7 +84,9 @@ function formatHeader(details: BashToolDetails): string {
 	const outputTruncated = details.output_state === "truncated" || details.output_state === "capture_truncated";
 	const fullPart = outputTruncated && details.full_output_path ? ` full=${details.full_output_path}` : "";
 	const status = details.status === "timed_out" ? "timeout" : details.status === "aborted" ? "aborted" : `exit=${details.exit_code ?? "null"}`;
-	return `[${status} duration=${duration}s output=${details.output_state}${fullPart}]`;
+	const shellExit = details.shell_exit_after_seconds === undefined ? ""
+		: ` shell_exit=${details.exit_code} shell_exit_after=${details.shell_exit_after_seconds}s background_output=true`;
+	return `[${status}${shellExit} duration=${duration}s output=${details.output_state}${fullPart}]`;
 }
 
 function foldCarriageProgress(text: string): { text: string; compacted: boolean } {

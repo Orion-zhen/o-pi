@@ -18,7 +18,7 @@ export class StartupChangelog {
 		}
 		if (lastVersion === VERSION) return null;
 		const entries = getNewEntries(parseChangelog(getChangelogPath()), lastVersion);
-		if (!entries.length) return null;
+		if (!entries?.length) return null;
 		const value = {
 			version: VERSION,
 			markdown: entries.map((entry) => normalizeChangelogLinks(entry.content, entry)).join("\n\n"),

@@ -1,4 +1,5 @@
 import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import { CACHE_WARMING_MODES } from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
 import type { GuiToolSelectionItem } from "../../shared/config/mcp.ts";
 import { codemodeHiddenDeclarations } from "../../../harness/codemode/loadout.ts";
@@ -69,7 +70,9 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		stats: { ...stats, costFromProvider: summarizeSessionUsage(session.sessionManager.getEntries()).usage.costFromProvider === true },
 		// SDK 原地追加队列，快照必须持有独立数组供增量比较。
 		queue: { steering: [...session.getSteeringMessages()], followUp: [...session.getFollowUpMessages()] },
+		cacheWarmingModes: CACHE_WARMING_MODES,
 		settings: {
+			cacheWarming: services.settingsManager.getCacheWarmingMode(),
 			compaction: session.autoCompactionEnabled,
 			retry: session.autoRetryEnabled,
 			steering: session.steeringMode,

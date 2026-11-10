@@ -30,7 +30,7 @@ Codemode 中 `searchTools()` 搜索脚本可调用工具并返回签名，不改
 
 | 工具 | 脚本返回 |
 | --- | --- |
-| bash | output、status、exit_code、wall_time_seconds、truncated、capture_complete，可含 full_output_path |
+| bash | output、status、exit_code、wall_time_seconds、truncated、capture_complete，可含 full_output_path、shell_exit_after_seconds |
 | find | matches、total_matches、truncated，可含 scope_errors |
 | grep | regions、truncated，可含 scope_errors |
 | websearch | results，包含 title、url、snippet |

@@ -22,8 +22,9 @@ type EditorState =
 	| { kind: "loading" }
 	| { kind: "file"; view: "source" | "form"; original: string; content: string };
 
-export function AgentSettings({ settings: savedSettings, send, query, disabled }: {
-	settings: GuiSnapshot["settings"]; send: ConfigCommand; query: Query; disabled: boolean;
+export function AgentSettings({ settings: savedSettings, cacheWarmingModes, send, query, disabled }: {
+	settings: GuiSnapshot["settings"]; cacheWarmingModes: GuiSnapshot["cacheWarmingModes"];
+	send: ConfigCommand; query: Query; disabled: boolean;
 }) {
 	const controlId = useId();
 	const [editor, setEditor] = useState<EditorState>({ kind: "form" });
@@ -63,10 +64,10 @@ export function AgentSettings({ settings: savedSettings, send, query, disabled }
 		}
 	};
 	const toggles = (items: readonly (readonly ["compaction" | "retry" | "autoResize" | "blockImages", string])[]) =>
-		<div className="settings-fields">{items.map(([key, label]) => <SettingsRow key={key} label={label} htmlFor={`${controlId}-${key}`}>
+		items.map(([key, label]) => <SettingsRow key={key} label={label} htmlFor={`${controlId}-${key}`}>
 			<Switch id={`${controlId}-${key}`} aria-label={label} checked={settings[key]} disabled={blocked}
 				onCheckedChange={(checked) => change({ ...settings, [key]: checked })} />
-		</SettingsRow>)}</div>;
+		</SettingsRow>);
 	return <div className="settings-module">
 		{editor.kind === "file" && editor.view === "source" ? <SettingsSection title="会话行为" source actions={<SettingsSourceButton file="settings.json" source disabled={disabled || saving || !!sourceError}
 			onClick={() => setEditor(sourceDirty ? { ...editor, view: "form" } : { kind: "form" })} />}>
@@ -82,8 +83,17 @@ export function AgentSettings({ settings: savedSettings, send, query, disabled }
 					</RadioGroup>
 				</SettingsRow>)}</div>
 			</SettingsSection>
-			<SettingsSection title="图片处理">{toggles([["autoResize", "自动缩放图片"], ["blockImages", "阻止图片发送"]])}</SettingsSection>
-			<SettingsSection title="会话维护">{toggles([["compaction", "自动压缩"], ["retry", "自动重试"]])}</SettingsSection>
+			<SettingsSection title="图片处理"><div className="settings-fields">{toggles([["autoResize", "自动缩放图片"], ["blockImages", "阻止图片发送"]])}</div></SettingsSection>
+			<SettingsSection title="会话维护">
+				<div className="settings-fields">
+				{toggles([["compaction", "自动压缩"], ["retry", "自动重试"]])}
+				<SettingsRow label="缓存保温" layout="choice">
+					<RadioGroup className="settings-radio-group" orientation="horizontal" aria-label="缓存保温" value={settings.cacheWarming} disabled={blocked}
+						onValueChange={(value) => change({ ...settings, cacheWarming: value as GuiSnapshot["settings"]["cacheWarming"] })}>
+						{cacheWarmingModes.map((mode) => <Label key={mode} className="settings-radio-option"><RadioGroupItem value={mode} />{mode}</Label>)}
+					</RadioGroup>
+				</SettingsRow></div>
+			</SettingsSection>
 		</>}
 		<Feedback compact message={error} tone="error" />
 	</div>;

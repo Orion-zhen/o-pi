@@ -31,7 +31,7 @@ export interface GuiExtensionBindings {
 	bindAutoTitle(generate: AutoTitleGenerator | undefined): void;
 	emit(event: GuiEvent): void;
 	bindTools(controller: ToolSelectionController): void;
-	bindMcp(tools: GuiMcpTools): void;
+	bindMcp(tools: GuiMcpTools | null): void;
 	bindModelServices(config: ModelsConfig | undefined): void;
 	toolsChanged(): void;
 	commandSignal(): AbortSignal;

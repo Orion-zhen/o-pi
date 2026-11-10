@@ -55,6 +55,7 @@ python "skill://demo/scripts/report.py"
 [exit=0 duration=0.42s output=complete]
 [exit=1 duration=3.04s output=truncated full=/tmp/...log]
 [timeout duration=120.02s output=truncated full=/tmp/...log]
+[timeout shell_exit=7 shell_exit_after=0.1s background_output=true duration=120.02s output=complete]
 ```
 
 | 状态 | 含义 |
@@ -66,7 +67,7 @@ python "skill://demo/scripts/report.py"
 
 字节预算按清理后的 UTF-8 正文计算，含预览与省略标记。状态头单独保留。失败预览优先保留已捕获窗口中的错误行和上下文，其余预算用于首尾。
 
-`details` 包含状态、退出码、耗时、输出状态、行数、字节数、日志路径和 `capture_complete`。执行中更新返回有界最近输出，结束后生成最终元数据。
+`details` 包含状态、退出码、耗时、输出状态、行数、字节数、日志路径和 `capture_complete`。若 shell 已退出，但后台进程持续输出直到超时，保留实际 `exit_code` 和 `shell_exit_after_seconds`，状态仍为 `timed_out`。执行中更新返回有界最近输出，结束后生成最终元数据。
 
 Codemode 读取最多 1 MiB 的独立原始文本结果，超限保留头尾。字段见 [Codemode 结果](../codemode/README.md#结果)。
 
@@ -76,6 +77,6 @@ Codemode 读取最多 1 MiB 的独立原始文本结果，超限保留头尾。�
 
 命令成功且模型、脚本输出均完整时删除日志。压缩、截断、非零退出、超时或取消会保留日志，模型状态头只在截断或捕获不完整时显示路径。
 
-调用使用独立取消控制器，区分超时和用户取消。返回前等待日志流关闭，捕获失败或后端异常时释放资源并报告错误。
+超时和进程取消由 Pi 本地后端管理，工具将后端结果转换为超时或用户取消状态。返回前等待日志流关闭，捕获失败或后端异常时释放资源并报告错误。
 
 实现位于 `src/harness/bash-tool/`。输出捕获、清理和预览分别由 `output-capture.ts`、`output-view.ts`、`output-preview.ts` 管理。

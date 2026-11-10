@@ -54,16 +54,6 @@ function fakeOperations(handler: BashOperations["exec"]): BashOperations {
 	return { exec: handler };
 }
 
-function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
-	return new Promise((resolve) => {
-		if (signal?.aborted) {
-			resolve();
-			return;
-		}
-		signal?.addEventListener("abort", () => resolve(), { once: true });
-	});
-}
-
 describe("bash tool execution", () => {
 	it("扩展只注册执行定义，并统一标记失败结果", async () => {
 		const { registered: tools } = registerExtension(bashToolExtension);
@@ -455,25 +445,49 @@ describe("bash tool execution", () => {
 		expect(await readFile(result.details.full_output_path, "utf8")).toBe("out\nerr\n");
 	});
 
-	it("timeout 和用户取消用本地状态区分", async () => {
-		const hanging = fakeOperations(async (_command, _cwd, options) => {
-			await waitForAbort(options.signal);
-			throw new Error("aborted");
-		});
-		const timedOut = await executeBashCommand({ command: "sleep", timeout: 0.01 }, runtime(hanging));
-		expect(timedOut.details.status).toBe("timed_out");
-
-		const lateCompletion = fakeOperations(async (_command, _cwd, options) => {
-			await waitForAbort(options.signal);
+	it.each([undefined, 12])("将默认或显式 timeout=%s 和用户信号交给 SDK", async (timeout) => {
+		const controller = new AbortController();
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			expect(options.timeout).toBe(timeout ?? config.default_timeout_seconds);
+			expect(options.signal).toBe(controller.signal);
 			return { exitCode: 0 };
 		});
-		const lateTimedOut = await executeBashCommand({ command: "sleep", timeout: 0.01 }, runtime(lateCompletion));
-		expect(lateTimedOut.details.status).toBe("timed_out");
+		await executeBashCommand({ command: "x", ...(timeout === undefined ? {} : { timeout }) }, { ...runtime(operations), signal: controller.signal });
+	});
+
+	it("真实后端区分超时和用户取消，保留已有输出", async () => {
+		const command = 'node -e "console.log(\'started\'); setInterval(() => {}, 1000)"';
+		const timedOut = await executeBashCommand({ command, timeout: 0.5 }, runtime(createLocalBashOperations()));
+		expect(timedOut.details.status).toBe("timed_out");
+		expect(timedOut.details.shell_exit_after_seconds).toBeUndefined();
+		expect(timedOut.structuredContent).toMatchObject({ status: "timed_out", exit_code: null });
+		expect(timedOut.content).toContain("started");
 
 		const controller = new AbortController();
-		setTimeout(() => controller.abort(), 5);
-		const aborted = await executeBashCommand({ command: "sleep" }, { ...runtime(hanging), signal: controller.signal });
+		const aborted = await executeBashCommand({ command, timeout: 5 }, {
+			...runtime(createLocalBashOperations()), signal: controller.signal,
+			onUpdate: () => controller.abort(),
+		});
 		expect(aborted.details.status).toBe("aborted");
+		expect(aborted.content).toContain("started");
+		expect(aborted.structuredContent).toMatchObject({ status: "aborted", exit_code: null });
+	});
+
+	it.skipIf(process.platform === "win32")("shell 已退出但后台持续输出导致超时，保留退出码和退出时间", async () => {
+		const result = await executeBashCommand({
+			command: "(for i in {1..100}; do printf 'background\\n'; sleep 0.05; done) & exit 7",
+			timeout: 0.5,
+		}, runtime(createLocalBashOperations()));
+		expect(result.details).toMatchObject({ status: "timed_out", exit_code: 7, shell_exit_after_seconds: expect.any(Number) });
+		expect(result.structuredContent).toMatchObject({
+			status: "timed_out", exit_code: 7, shell_exit_after_seconds: result.details.shell_exit_after_seconds,
+		});
+		expect(result.content).toContain("shell_exit=7");
+		expect(result.content).toContain("background_output=true");
+		expect(result.structuredContent.output).toContain("background\n");
+		expect(result.structuredContent.output).not.toContain("shell_exit=");
+		if (!result.details.full_output_path) throw new Error("missing log path");
+		expect(await readFile(result.details.full_output_path, "utf8")).toBe(result.structuredContent.output);
 	});
 
 	it("文件流完成后才返回，完整小输出删除日志，失败保留日志", async () => {

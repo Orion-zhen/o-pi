@@ -57,7 +57,7 @@ export function Settings({ snapshot, guiConfig, dispatch, query, globalQuery, di
 			case "conversation": return <>
 				<GuiSettings title="对话交互" section="interaction" />
 				<NotificationSettings />
-				{snapshot ? <AgentSettings key={snapshot.sessionId} settings={snapshot.settings} send={dispatch} query={query} disabled={disabled} />
+				{snapshot ? <AgentSettings key={snapshot.sessionId} settings={snapshot.settings} cacheWarmingModes={snapshot.cacheWarmingModes} send={dispatch} query={query} disabled={disabled} />
 					: <SettingsSection title="会话行为"><p className="settings-empty">未选择工作区</p></SettingsSection>}
 				{module("autoTitle", "自动标题")}
 			</>;

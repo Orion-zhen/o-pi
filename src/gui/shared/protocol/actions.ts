@@ -5,6 +5,7 @@ import type { UsageResetOutcome } from "../../../harness/usage/types.ts";
 import { moduleConfigId, object, short, text } from "./schema.ts";
 import { TOOL_PRESETS } from "../../../harness/tool-defaults/types.ts";
 import { queueModes } from "./state.ts";
+import { CACHE_WARMING_MODES } from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 
 const image = object({
 	data: text,
@@ -64,6 +65,7 @@ export const actionSchema = union([
 	object({ action: lit("scopeModels"), models: arr(short, { maxItems: 1000, uniqueItems: true }) }),
 	object({
 		action: lit("settings"),
+		cacheWarming: oneOf(CACHE_WARMING_MODES),
 		compaction: bool(),
 		retry: bool(),
 		steering: oneOf(queueModes),

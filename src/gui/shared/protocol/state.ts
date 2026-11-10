@@ -1,6 +1,6 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { AgentSession, SessionStats } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, CacheWarmingMode, SessionStats } from "@earendil-works/pi-coding-agent";
 import type { AutoTitleState } from "../../../harness/extensions/auto-title.ts";
 import type { CodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { UsageSnapshot } from "../../../harness/usage/types.ts";
@@ -109,7 +109,9 @@ export interface GuiSnapshot {
 	context: ReturnType<AgentSession["getContextUsage"]> | null;
 	stats: SessionStats & { costFromProvider: boolean };
 	queue: { steering: readonly string[]; followUp: readonly string[] };
+	cacheWarmingModes: readonly CacheWarmingMode[];
 	settings: {
+		cacheWarming: CacheWarmingMode;
 		compaction: boolean;
 		retry: boolean;
 		steering: typeof queueModes[number];

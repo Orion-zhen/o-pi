@@ -20,6 +20,7 @@ import { compactionTests } from "./session/compaction-cases.ts";
 import { multiSessionTests } from "./session/multi-session-cases.ts";
 import { newSessionTests } from "./session/new-session-cases.ts";
 import { changelogTests } from "./changelog-cases.ts";
+import { settingsTests } from "./session/settings-cases.ts";
 import { notificationTests } from "./session/notification-cases.ts";
 import { loginTests } from "./session/login-cases.ts";
 import { usageCreditTests } from "./session/usage-credit-cases.ts";
@@ -109,6 +110,7 @@ compactionTests(() => ({ host, events, setSummaryReply: (reply) => { titleReply 
 multiSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
+settingsTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 notificationTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 loginTests(() => ({ host, events }));
 usageCreditTests(() => ({ host, events }));

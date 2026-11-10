@@ -65,8 +65,11 @@ describe("bash 日志生命周期", () => {
 			// 错误必须发生在 exec 仍未结束时，而不是 finish 才开始监听。
 			await new Promise<void>((resolve) => setImmediate(resolve));
 			onData(Buffer.from("output after disk failure\n"));
-			if (ending === "abort") controller.abort();
-			if (ending !== "exit") throw operationError;
+			if (ending === "abort") {
+				controller.abort();
+				throw new Error("aborted");
+			}
+			if (ending === "throw") throw operationError;
 			return { exitCode: 0 };
 		}, controller.signal)).rejects.toBe(ending === "throw" ? operationError : ioError);
 		await expectLogDeleted();

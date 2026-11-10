@@ -35,6 +35,7 @@ export type BashOutputFormat = "text" | "json" | "xml" | "diff" | "binary";
 export interface BashToolDetails {
 	status: BashRunStatus;
 	exit_code?: number;
+	shell_exit_after_seconds?: number;
 	duration_ms: number;
 	output_state: BashOutputState;
 	output_format: BashOutputFormat;

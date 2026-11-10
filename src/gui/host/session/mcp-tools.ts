@@ -114,11 +114,12 @@ export class GuiMcpTools {
 }
 
 export function createGuiMcpExtension({ bind, changed, showConfig, openUrl }: {
-	bind: (tools: GuiMcpTools) => void; changed: () => void; showConfig: () => void; openUrl: (url: string) => void;
+	bind: (tools: GuiMcpTools | null) => void; changed: () => void; showConfig: () => void; openUrl: (url: string) => void;
 }): ExtensionFactory {
 	return (pi) => {
 		const tools = new GuiMcpTools(pi, changed);
 		bind(tools);
+		pi.on("session_shutdown", () => bind(null));
 		pi.on("session_start", (_event, ctx) => tools.restore(ctx));
 		pi.on("session_tree", (_event, ctx) => tools.restore(ctx));
 		return createModeMcpExtension({ openUrl, loadConfig: (ctx) => tools.loadConfig(ctx) })({

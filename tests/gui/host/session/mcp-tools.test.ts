@@ -267,6 +267,37 @@ it("服务和单工具选择在刷新、重载和分支恢复后保留，新会�
 	expect(tool()).toBeUndefined();
 });
 
+it.each(["response", "compaction"])("%s 期间扩展重载被拒绝，不丢失 MCP 选择和控制", async (operation) => {
+	await start("direct", false);
+	await host.dispatch(prompt("建立会话"));
+	await host.dispatch({ action: "tool", name: probe, enabled: false });
+	response = { text: "done", chunks: ["first", "last"], intervalMs: 200 };
+	const session = host.runtime.session;
+	host.runtime.services.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+	const running = host.dispatch(operation === "response" ? prompt("保持响应") : { action: "compact", instructions: "" });
+	try {
+		await expect.poll(() => operation === "response" ? session.isStreaming : session.isCompacting).toBe(true);
+		await expect(session.extensionRunner.createCommandContext().reload()).rejects.toThrow(/before reloading/);
+		expect(tool()).toMatchObject({ enabled: false, callable: false, available: true });
+	} finally { await running; }
+	await host.dispatch({ action: "tool", name: probe, enabled: true });
+	response = { tool: probe, args: {} };
+	await host.dispatch(prompt("被拒绝的重载后继续调用"));
+	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain("MCP_RESULT_probe");
+});
+
+it("重载禁用 MCP 扩展后移除控制，重新启用时绑定新实例", async () => {
+	await start("direct", false);
+	const original = await host.query({ query: "config", file: "settings.json" });
+	const content = JSON.stringify({ ...JSON.parse(original), extensions: ["-builtin:mcp"] });
+	await host.dispatch({ action: "saveConfig", file: "settings.json", original, content });
+	expect(tool()).toBeUndefined();
+	await host.dispatch({ action: "saveConfig", file: "settings.json", original: content, content: original });
+	await expect.poll(tool).toMatchObject({ enabled: true, callable: true });
+	await host.dispatch({ action: "mcpServers", names: ["fixture"], enabled: false });
+	expect(tool()).toMatchObject({ available: false });
+});
+
 it.each(["codemode", "deferred"])("普通模式搜索 %s MCP 工具并直接调用，切换模式不改变加载选择", async (exposure) => {
 	await start(exposure, false);
 	const original = await readFile(mcpFile, "utf8");
@@ -364,6 +395,46 @@ it("普通模式的搜索入口在全部加载、隐藏和恢复后自动更新"
 	await host.dispatch({ action: "new" });
 	await expect.poll(() => host.runtime.session.getActiveToolNames().includes("tool_search")).toBe(true);
 	expect(host.runtime.session.getActiveToolNames()).not.toContain("codemode");
+});
+
+it("关闭宿主先等待活动工具完成取消并落盘，再关闭扩展", async () => {
+	const directory = path.join(agentDir, "extensions");
+	const marker = path.join(temp.path, "shutdown-order.json");
+	const started = path.join(temp.path, "tool-started");
+	await mkdir(directory, { recursive: true });
+	await writeFile(path.join(directory, "shutdown.ts"), `
+		import { writeFileSync } from "node:fs";
+		export default (pi) => {
+			let settled = false;
+			pi.registerTool({ name: "shutdown_probe", label: "Shutdown", description: "Wait for cancellation",
+				parameters: { type: "object", properties: {} },
+				async execute(_id, _params, signal) {
+					writeFileSync(${JSON.stringify(started)}, "started");
+					await new Promise(resolve => {
+						if (signal.aborted) resolve();
+						else signal.addEventListener("abort", resolve, { once: true });
+					});
+					await new Promise(resolve => setTimeout(resolve, 20));
+					settled = true;
+					return { content: [{ type: "text", text: "settled" }], details: {} };
+				}
+			});
+			pi.on("session_shutdown", (_event, ctx) => {
+				const result = ctx.sessionManager.getBranch().findLast(entry => entry.type === "message" && entry.message.role === "toolResult");
+				writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ settled, tool: result?.message.toolName }));
+			});
+		};
+	`);
+	await start("direct", false);
+	await host.dispatch({ action: "tool", name: "shutdown_probe", enabled: true });
+	response = { tool: "shutdown_probe", args: {} };
+	const running = host.dispatch(prompt("等待退出"));
+	try {
+		await expect.poll(() => readFile(started, "utf8").catch(() => "")).toBe("started");
+		await host.host.dispose();
+		await running;
+		expect(JSON.parse(await readFile(marker, "utf8"))).toEqual({ settled: true, tool: "shutdown_probe" });
+	} finally { await host.host.dispose(); await running; }
 });
 
 it("MCP 授权准备阶段的独立取消受 SDK 限制，关闭会话立即取消请求", async () => {

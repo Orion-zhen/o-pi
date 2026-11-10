@@ -5,7 +5,7 @@ import { cleanForModel, createBashOutputView } from "./output-view.ts";
 import { resolveBashSkillPaths } from "./skill-paths.ts";
 import { takeTailBytes } from "./utf8.ts";
 import type { SkillResourceError } from "../skill-context/resources.ts";
-import type { BashExecutionResult, BashParams, ExecuteBashRuntime } from "./types.ts";
+import type { BashExecutionResult, BashParams, BashRunStatus, ExecuteBashRuntime } from "./types.ts";
 
 const UPDATE_THROTTLE_MS = 100;
 
@@ -24,22 +24,11 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 		maxCaptureBytes: limits.max_capture_bytes,
 		previewBytes: Math.max(BASH_STRUCTURED_BYTES, modelPreviewBytes),
 	});
-	const controller = new AbortController();
-	let stopReason: "timeout" | "aborted" | undefined;
-	const stop = (reason: "timeout" | "aborted") => {
-		if (controller.signal.aborted) return;
-		stopReason = reason;
-		controller.abort();
-	};
-	const abortFromUser = () => stop("aborted");
-	if (runtime.signal?.aborted) abortFromUser();
-	runtime.signal?.addEventListener("abort", abortFromUser, { once: true });
-	const timeoutTimer = setTimeout(() => stop("timeout"), (params.timeout ?? runtime.config.default_timeout_seconds) * 1000);
+	const timeout = params.timeout ?? runtime.config.default_timeout_seconds;
 
 	const onUpdate = runtime.onUpdate;
 	let updateTimer: NodeJS.Timeout | undefined;
 	let lastUpdateAt = 0;
-	let acceptingOutput = true;
 	const clearUpdateTimer = () => {
 		clearTimeout(updateTimer);
 		updateTimer = undefined;
@@ -64,32 +53,40 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	};
 
 	try {
+		let status: BashRunStatus = "exited";
 		let exitCode: number | undefined;
+		let shellExitAfterSeconds: number | undefined;
 		try {
 			const result = await runtime.operations.exec(skillPaths.command, runtime.cwd, {
 				onData(data) {
-					if (!acceptingOutput) return;
 					capture.append(data);
 					scheduleUpdate();
 				},
-				signal: controller.signal,
+				...(runtime.signal === undefined ? {} : { signal: runtime.signal }),
+				timeout,
 				env,
 			});
 			exitCode = result.exitCode ?? undefined;
 		} catch (error) {
-			if (stopReason === undefined) throw error;
+			if (!(error instanceof Error)) throw error;
+			if (error.message === "aborted") status = "aborted";
+			else if (error.message === `timeout:${timeout}`) {
+				status = "timed_out";
+				// SDK 未导出超时错误类型，按本地后端契约读取可选诊断。
+				const { shellExit } = error as Error & { shellExit?: { exitCode: number; afterSeconds: number } };
+				exitCode = shellExit?.exitCode;
+				shellExitAfterSeconds = shellExit?.afterSeconds;
+			} else throw error;
 		} finally {
-			acceptingOutput = false;
 			clearUpdateTimer();
-			clearTimeout(timeoutTimer);
-			runtime.signal?.removeEventListener("abort", abortFromUser);
 		}
 		const captured = await capture.finish();
 		const view = createBashOutputView({
 			...captured,
 			preview: limitCapturedPreview(captured.preview, modelPreviewBytes),
-			status: stopReason === "timeout" ? "timed_out" : stopReason === "aborted" ? "aborted" : "exited",
+			status,
 			...(exitCode !== undefined ? { exitCode } : {}),
+			...(shellExitAfterSeconds !== undefined ? { shellExitAfterSeconds } : {}),
 			durationMs: Date.now() - startedAt,
 			limits,
 		});
