@@ -64,7 +64,7 @@ function NotificationToast({ item, count, dismiss }: { item: Notification; count
 					</Fade>}</AnimatePresence>
 				</div>
 			</div>
-			<Toast.Close asChild><IconButton className="toast-close" label="关闭通知"><X /></IconButton></Toast.Close>
+			<Toast.Close asChild><IconButton className="toast-close text-muted-foreground" label="关闭通知"><X /></IconButton></Toast.Close>
 			<CollapsibleContent className="toast-details" lazy><FeedbackDetails message={item.message} /></CollapsibleContent>
 		</motion.li>
 		</Collapsible>

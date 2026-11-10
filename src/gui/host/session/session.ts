@@ -20,7 +20,7 @@ type Resources =
 export class GuiSession {
 	readonly id: string;
 	readonly cwd: string;
-	readonly file: string | null;
+	readonly file: string;
 	private manager: SessionManager | undefined;
 	private resources: Resources = { state: "unloaded" };
 	private rules: SessionApprovalRules = { rules: [] };
@@ -42,16 +42,18 @@ export class GuiSession {
 		private refreshHistory: () => void,
 		private attention: (event: Attention) => void,
 	) {
+		const file = manager.getSessionFile();
+		if (!file) throw new Error("GUI 会话必须有持久化路径。");
+		this.file = file;
 		this.manager = manager;
 		this.awaitingMessage = (startEvent.reason === "startup" || startEvent.reason === "new")
 			&& !manager.getEntries().some((entry) => entry.type === "message");
 		this.id = manager.getSessionId();
 		this.cwd = manager.getCwd();
-		this.file = manager.getSessionFile() ?? null;
 		this.stamp = this.fileStamp();
 		const header = manager.getHeader();
 		if (!header) throw new Error("会话头不存在。");
-		this.summary = { sessionId: this.id, path: this.file && existsSync(this.file) ? this.file : null, cwd: this.cwd, title: manager.getSessionName() ?? "", state: "idle", completedAt: 0, modified: header.timestamp };
+		this.summary = { sessionId: this.id, path: existsSync(this.file) ? this.file : null, cwd: this.cwd, title: manager.getSessionName() ?? "", state: "idle", completedAt: 0, modified: header.timestamp };
 	}
 
 	get execution(): GuiExecution | undefined {
@@ -102,7 +104,7 @@ export class GuiSession {
 		const title = execution?.runtime.session.sessionName ?? this.summary.title;
 		const state = this.dialogs?.list().length ? "waiting" : this.resources.state === "starting" ? "loading" : running ? "running" : "idle";
 		const titleGeneration = execution?.titleGeneration;
-		const file = this.summary.path ?? (this.file && existsSync(this.file) ? this.file : null);
+		const file = this.summary.path ?? (existsSync(this.file) ? this.file : null);
 		if (file !== this.summary.path || title !== this.summary.title || state !== this.summary.state || completedAt !== this.summary.completedAt || titleGeneration !== this.summary.titleGeneration) {
 			this.summary = { ...this.summary, path: file, title, state, completedAt, titleGeneration,
 				modified: completedAt !== this.summary.completedAt ? new Date(completedAt).toISOString() : this.summary.modified };
@@ -124,7 +126,7 @@ export class GuiSession {
 		const initialize = async () => {
 			let manager = this.manager;
 			if (!manager) {
-				if (!this.file || !(await stat(this.file)).isFile()) throw new Error("会话记录不存在。");
+				if (!(await stat(this.file)).isFile()) throw new Error("会话记录不存在。");
 				manager = SessionManager.open(this.file);
 				if (manager.getSessionId() !== this.id) throw new Error("会话文件已被替换，请刷新列表。");
 			}
@@ -168,7 +170,7 @@ export class GuiSession {
 		finally { this.holds--; this.captureFile(); this.touch(); }
 	}
 	private fileStamp(): string | undefined {
-		if (!this.file || !existsSync(this.file)) return undefined;
+		if (!existsSync(this.file)) return undefined;
 		const value = statSync(this.file);
 		return `${value.dev}:${value.ino}:${value.size}:${value.mtimeMs}:${value.ctimeMs}`;
 	}
@@ -186,7 +188,7 @@ export class GuiSession {
 		this.assertOpen();
 		if (this.resources.state !== "unloaded") await this.use(client, (execution) => execution.dispatch({ action: "rename", name }, client));
 		else {
-			if (this.manager && this.stamp === undefined && this.file && !existsSync(this.file)) this.manager.appendSessionInfo(name);
+			if (this.manager && this.stamp === undefined && !existsSync(this.file)) this.manager.appendSessionInfo(name);
 			else { await renameFile(); this.manager = undefined; }
 			this.summary = { ...this.summary, title: name };
 			this.notify(true);
@@ -222,7 +224,7 @@ export class GuiSession {
 		const task = Promise.resolve().then(async () => {
 			const execution = resources.state === "ready" ? resources.execution : await resources.task;
 			await execution.dispose();
-			this.manager = this.stamp !== undefined || this.file && existsSync(this.file) ? undefined : manager;
+			this.manager = this.stamp !== undefined || existsSync(this.file) ? undefined : manager;
 			this.resources = { state: "unloaded" };
 			this.changed();
 		});

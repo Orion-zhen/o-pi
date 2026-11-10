@@ -17,22 +17,22 @@ function visibleExpanded(expanded: Set<string>) {
 	return [...expanded].filter(check);
 }
 
-export function useWorkbench(cwd: string | undefined, connected: boolean, running: boolean, query: Query<WorkspaceQuery>) {
+export function useWorkbench(cwd: string, enabled: boolean, running: boolean, query: Query<WorkspaceQuery>) {
 	const scope = useMemo(() => new WorkspaceState(), [cwd]);
 	const state = useSyncExternalStore(scope.subscribe, scope.read);
 	const loadDirectory = useCallback((path: string) => {
-		if (!cwd || !connected) return;
+		if (!enabled) return;
 		if (scope.read().directories[path]?.state !== "ready") scope.setDirectory(path, { state: "loading" });
 		void scope.load(`directory:${path}`, () => query({ query: "workspaceFiles", cwd, path }), (result) => scope.setDirectory(path, result));
-	}, [scope, cwd, connected, query]);
+	}, [scope, cwd, enabled, query]);
 	const loadGit = useCallback(() => {
-		if (cwd && connected) void scope.load("git", () => query({ query: "workspaceGit", cwd }), (git) => scope.update({ git }));
-	}, [scope, cwd, connected, query]);
+		if (enabled) void scope.load("git", () => query({ query: "workspaceGit", cwd }), (git) => scope.update({ git }));
+	}, [scope, cwd, enabled, query]);
 	const openFile = useCallback((path: string) => {
-		if (!cwd || !connected) return;
+		if (!enabled) return;
 		scope.selectPreview(path);
 		void scope.load(`preview:${path}`, () => query({ query: "previewFile", cwd, path }), (result) => scope.update({ preview: { path, result } }));
-	}, [scope, cwd, connected, query]);
+	}, [scope, cwd, enabled, query]);
 	const refresh = useCallback(() => {
 		const { expanded, directories, preview } = scope.read();
 		loadDirectory("");
@@ -44,7 +44,7 @@ export function useWorkbench(cwd: string | undefined, connected: boolean, runnin
 		refresh();
 		return () => scope.cancel();
 	}, [scope, refresh]);
-	useWindowRefresh(connected, refresh);
+	useWindowRefresh(enabled, refresh);
 	const onRefresh = useEffectEvent(refresh);
 	const wasRunning = useRef(running);
 	useEffect(() => {

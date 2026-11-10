@@ -87,7 +87,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 				await restarted.host.start(cwd);
 				await restarted.dispatch({ action: "sessions" });
 				expect(replay.filter((event) => event.type === "workspaces").at(-1)?.value).not.toContainEqual(expect.objectContaining({ path: missing }));
-				await expect(restarted.dispatch({ action: "workspace", path: missing })).rejects.toMatchObject({ code: "ENOENT" });
+				await expect(restarted.dispatch({ action: "workspace", path: missing })).rejects.toThrow("工作目录不存在或不是文件夹");
 			} finally { await restarted.host.dispose(); }
 		});
 

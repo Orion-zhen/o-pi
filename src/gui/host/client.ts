@@ -24,6 +24,7 @@ import { FileResources } from "./workspace/file-resource.ts";
 import { GuiStorage } from "./storage/service.ts";
 import { SessionSearchTask } from "./catalog/search-task.ts";
 import { readSessionPaths } from "./catalog/session-index.ts";
+import { workspaceExists } from "./catalog/workspaces.ts";
 
 const validateAction = compile(actionSchema).check;
 const validateQuery = compile(querySchema).check;
@@ -171,11 +172,11 @@ export class GuiClient {
 			manager.appendThinkingLevelChange(thinkingLevel);
 		});
 		if (options?.setup) await options.setup(manager);
-		const session = this.host.register(manager, { type: "session_start", reason: "new", ...(source.file ? { previousSessionFile: source.file } : {}) });
+		const session = this.host.register(manager, { type: "session_start", reason: "new", previousSessionFile: source.file });
 		const replacing = options === undefined && source.pending;
 		if (replacing) this.drafts.set(session.id, this.readDraft(source.id));
 		await this.select(session, replacing ? source.id : undefined);
-		if (replacing && !source.observed && source.canRelease && source.file) {
+		if (replacing && !source.observed && source.canRelease) {
 			if (this.host.initial === source) this.host.initial = session;
 			await this.host.remove([source.file]);
 		}
@@ -204,16 +205,15 @@ export class GuiClient {
 			const target = position === "at" ? entry.id : entry.parentId;
 			let manager: SessionManager;
 			if (target) {
-				if (!source.file) throw new Error("会话尚未保存。");
 				manager = SessionManager.open(source.file);
 				manager.createBranchedSession(target);
 			} else {
 				manager = SessionManager.create(source.cwd);
-				if (source.file) manager.newSession({ parentSession: source.file });
+				manager.newSession({ parentSession: source.file });
 			}
 			const selectedText = position === "before" && entry.type === "message" && entry.message.role === "user"
 				? typeof entry.message.content === "string" ? entry.message.content : entry.message.content.filter((block) => block.type === "text").map((block) => block.text).join("") : undefined;
-			const forked = this.host.register(manager, { type: "session_start", reason: "fork", ...(source.file ? { previousSessionFile: source.file } : {}) });
+			const forked = this.host.register(manager, { type: "session_start", reason: "fork", previousSessionFile: source.file });
 			await this.select(forked);
 			if (selectedText) this.emit({ type: "editor", sessionId: forked.id, text: selectedText, mode: "replace" });
 			if (options?.withSession) await options.withSession(this.runtime.session.createReplacedSessionContext());
@@ -257,11 +257,15 @@ export class GuiClient {
 			case "openSession": await this.openSession(action); return;
 			case "workspace": {
 				const cwd = path.resolve(sessionId === null ? this.host.workspaceRoot : this.resolveSession(sessionId).cwd, action.path);
-				if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
 				const remembered = this.lastViewed.get(cwd);
-				const recent = (remembered ? this.host.sessions.get(remembered) : undefined)
+				let recent = (remembered ? this.host.sessions.get(remembered) : undefined)
 					?? [...this.host.sessions.values()].filter((session) => session.cwd === cwd && !session.removing).sort((a, b) => b.lastUsed - a.lastUsed)[0];
-				await this.select(recent ?? await this.host.newSession(cwd)); return;
+				if (!recent && !await workspaceExists(cwd)) {
+					const [file] = await readSessionPaths(cwd);
+					if (!file) throw new Error("工作目录不存在或不是文件夹。");
+					recent = await this.host.openFile(file);
+				}
+				await this.select(recent ?? this.host.newSession(cwd)); return;
 			}
 			case "import": await this.select(this.host.register(await importSession(action.content))); return;
 			case "deleteSession": await this.host.remove([action.path]); return;
@@ -270,7 +274,7 @@ export class GuiClient {
 					throw new Error("不能移除启动目录或当前工作区。");
 				const files = [...new Set([
 					...await readSessionPaths(action.path),
-					...[...this.host.sessions.values()].flatMap((session) => session.cwd === action.path && session.file ? [session.file] : []),
+					...[...this.host.sessions.values()].filter((session) => session.cwd === action.path).map((session) => session.file),
 				])];
 				if (!files.length) throw new Error("工作区已不在列表中。");
 				await this.host.remove(files); return;
@@ -288,6 +292,15 @@ export class GuiClient {
 		if (action.action === "new") { await this.newSession(source); return; }
 		if (action.action === "fork") { await this.fork(source, action.entryId); return; }
 		const client = this.forSession(source);
+		if (action.action === "restoreSession") {
+			await source.use(client, (execution) => execution.change(async () => {
+				const cwd = path.resolve(source.cwd, action.path);
+				if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
+				SessionManager.forkFrom(source.file, cwd);
+				await this.host.catalog.refresh();
+			}));
+			return;
+		}
 		if (action.action === "dialog" || action.action === "abort" || action.action === "cancelLogin") return source.control(action, client);
 		return source.use(client, (execution) => execution.dispatch(action, client));
 	}

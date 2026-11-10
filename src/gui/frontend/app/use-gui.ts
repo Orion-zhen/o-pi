@@ -105,9 +105,11 @@ export function useGui() {
 	const snapshot = session?.snapshot ?? null;
 	const changelog = useStartupChangelog(connected, snapshot, selectedId, globalQuery, dispatch, setError);
 	const cwd = session?.target.cwd ?? host.workspaceRoot;
+	const workspaceMissing = host.workspaces.some((workspace) => workspace.path === cwd && !workspace.exists);
+	const canCopySession = workspaceMissing && activity.some((item) => item.sessionId === selectedId && item.path !== null);
 	const layout = useLayout(setError);
 	const sessionSearch = useSessionSearch(cwd, connected, globalQuery, dispatch, setError);
-	const workbench = useWorkbench(cwd, connected, activity.some((item) => item.cwd === cwd && item.state !== "idle"), sharedQuery);
+	const workbench = useWorkbench(cwd, connected && Boolean(cwd) && !workspaceMissing, activity.some((item) => item.cwd === cwd && item.state !== "idle"), sharedQuery);
 	const openFile = useCallback((path: string) => { workbench.openFile(path); panels.selectTab("file"); panels.setSessionPanelOpen(true); }, [workbench.openFile, panels.selectTab]);
 	const setDraft = useCallback((text: string) => { if (view) views.writeText(view.id, text); }, [view, views]);
 	const referenceFile = useCallback((path: string) => {
@@ -140,13 +142,13 @@ export function useGui() {
 	}, [canSubmit, send, panels.setPanel, setError]);
 	const sessionRows = useMemo(() => sessionList(host.sessions ?? [], activity, selectedId), [host.sessions, activity, selectedId]);
 	const sidebar = useMemo<SidebarView>(() => ({
-		cwd, activity, sessionRows, sessions: host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, canNavigate: connected, usageLoading, openUsage,
+		cwd, workspaceMissing, activity, sessionRows, sessions: host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, canNavigate: connected, usageLoading, openUsage,
 		workbench, sessionSearch, layout, openFile, referenceFile, send, globalSend, query, globalQuery, setPanel: panels.setPanel, workspaceRoot: host.workspaceRoot, workspaces: host.workspaces, setError,
-	}), [cwd, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, usageLoading, openUsage,
+	}), [cwd, workspaceMissing, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, usageLoading, openUsage,
 		workbench, sessionSearch, layout, openFile, referenceFile, send, globalSend, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, setError]);
 	const boundSession = useMemo<SessionView | null>(() => session && { ...session, send, query, dispatch: dispatchSelected }, [session, send, query, dispatchSelected]);
 	return {
-		...panels, ...sidebar, ...changelog, sidebar, session: boundSession, views, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected, notifications,
+		...panels, ...sidebar, ...changelog, sidebar, session: boundSession, views, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected, notifications, canCopySession,
 		guiConfig: config.document, refreshGuiConfig: config.refresh, availableVersion,
 		status, reconnect: connection.reconnect,
 		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode, authError: auth.error, setAuthError: auth.setError,

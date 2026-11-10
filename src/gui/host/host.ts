@@ -86,11 +86,12 @@ export class GuiHost {
 	async start(cwd: string): Promise<void> {
 		if (this.closed) throw new Error("宿主已关闭。");
 		this.workspaceRoot = path.resolve(cwd);
+		if (!(await stat(this.workspaceRoot)).isDirectory()) throw new Error("工作目录不是文件夹。");
 		this.emit({ type: "workspaceRoot", path: this.workspaceRoot });
 		this.catalog.watch();
 		this.catalog.schedule();
 		this.applyGuiConfig(await readGuiConfig());
-		const session = await this.newSession(this.workspaceRoot, { type: "session_start", reason: "startup" });
+		const session = this.newSession(this.workspaceRoot, { type: "session_start", reason: "startup" });
 		this.initial = session;
 		for (const client of this.clients) if (!client.selected) void client.select(session).catch((error: unknown) => client.reportError(error));
 		await session.ensure();
@@ -175,7 +176,7 @@ export class GuiHost {
 		if (this.closed) throw new Error("宿主已关闭。");
 		const existing = this.sessions.get(manager.getSessionId());
 		if (existing) {
-			if (existing.file !== (manager.getSessionFile() ?? null)) throw new Error("会话标识重复，请导入为新会话。");
+			if (existing.file !== manager.getSessionFile()) throw new Error("会话标识重复，请导入为新会话。");
 			return existing;
 		}
 		const session = new GuiSession(manager, { stores: this.approvals, trust: this.projectTrust }, event,
@@ -184,9 +185,7 @@ export class GuiHost {
 		this.activityChanged();
 		return session;
 	}
-	async newSession(cwd: string, event: SessionStartEvent = { type: "session_start", reason: "new" }): Promise<GuiSession> {
-		cwd = path.resolve(cwd);
-		if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
+	newSession(cwd: string, event: SessionStartEvent = { type: "session_start", reason: "new" }): GuiSession {
 		return this.register(SessionManager.create(cwd), event);
 	}
 	async openFile(file: string): Promise<GuiSession> {
@@ -196,7 +195,6 @@ export class GuiHost {
 		if (existing) return existing;
 		if (!(await stat(file)).isFile()) throw new Error("会话路径不是文件。");
 		const manager = SessionManager.open(file);
-		if (!(await stat(manager.getCwd())).isDirectory()) throw new Error("工作目录不是文件夹。");
 		return this.register(manager);
 	}
 	scheduleCollection(): void {
@@ -239,19 +237,19 @@ export class GuiHost {
 	remove(files: string[], verify?: () => Promise<void>): Promise<void> { return this.changeHistory(() => this.removeFiles(files, verify)); }
 	private async removeFiles(files: string[], verify?: () => Promise<void>): Promise<void> {
 		const normalized = [...new Set(files.map((file) => path.resolve(file)))];
-		const affected = [...this.sessions.values()].filter((session) => session.file && normalized.includes(session.file));
+		const affected = [...this.sessions.values()].filter((session) => normalized.includes(session.file));
 		try {
 			for (const session of affected) session.reserveDeletion();
 			for (const file of normalized) this.deleting.add(file);
 			for (const session of affected) if (!await session.confirmDeletion()) return;
-			const plan = await prepareSessionDeletion(normalized, new Set(affected.flatMap((session) => session.file ? [session.file] : [])), readSessionPaths);
+			const plan = await prepareSessionDeletion(normalized, new Set(affected.map((session) => session.file)), readSessionPaths);
 			await plan.verify();
 			await verify?.();
 			for (const session of affected) await session.prepareDeletion();
 			const removed = new Set<string>();
 			try { await plan.remove((file) => removed.add(file)); }
 			finally {
-				const deleted = affected.filter((session) => session.file && removed.has(session.file));
+				const deleted = affected.filter((session) => removed.has(session.file));
 				for (const session of deleted) { session.deleted(); this.sessions.delete(session.id); }
 				if (removed.size) this.emit({ type: "sessionsDeleted", ids: deleted.map((session) => session.id), paths: [...removed] });
 				this.activityChanged();
@@ -260,7 +258,7 @@ export class GuiHost {
 					const initial = this.initial === session;
 					if (initial) this.initial = undefined;
 					if (viewers.length || initial) {
-						const next = await this.newSession(session.cwd);
+						const next = this.newSession(session.cwd);
 						if (initial) this.initial = next;
 						await Promise.all(viewers.map((client) => client.select(next)));
 					}

@@ -21,6 +21,7 @@
 .toast-layer > [role="region"] { display: flex; overflow: auto; min-inline-size: 0; min-block-size: 0; max-inline-size: 100%; }
 .toast-viewport { overflow: auto; display: flex; flex-direction: column; max-inline-size: 100%; min-inline-size: 0; padding: var(--space-3); margin: 0; list-style: none; outline: none; pointer-events: none; font-size: var(--text-ui); }
 .toast { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-2); padding: var(--space-3) var(--space-4); border: thin solid var(--divider); border-radius: var(--radius-lg); pointer-events: auto; }
+.toast.floating-surface { background: light-dark(var(--popover), color-mix(in srgb, var(--popover), var(--foreground) 6%)); }
 .toast-content { grid-area: 1 / 2; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-inline-size: 0; }
 .toast-message { flex: 1 1 auto; min-inline-size: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-small); }
 .toast > .feedback-icon { grid-area: 1 / 1; }

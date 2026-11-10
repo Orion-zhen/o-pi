@@ -1,34 +1,52 @@
-import { useContext, useRef } from "react";
-import { AppWindow, BookOpen, Braces, BrainCog, Ellipsis, Import } from "lucide-react";
+import { useContext, useRef, useState } from "react";
+import { AppWindow, BookOpen, Braces, BrainCog, Ellipsis, FolderInput, Import } from "lucide-react";
 import type { GuiPanel } from "../../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
-import { NotificationErrorContext } from "@/ui/notifications.tsx";
+import { NotificationErrorContext, type useNotifications } from "@/ui/notifications.tsx";
+import { PopoverAnchor } from "@/ui/popover.tsx";
+import { WorkspaceSelection, type WorkspaceSelectionMode, type WorkspaceSelectionView } from "@/features/workspace/workspace-selection.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import {
 	DropdownMenu, DropdownMenuContent, DropdownMenuItem,
 	DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/ui/dropdown-menu.tsx";
 
-export function SessionActions({ gui }: { gui: { canSubmit: boolean; send: Send; setPanel: (panel: GuiPanel | undefined) => void } }) {
+export function SessionActions({ gui }: { gui: WorkspaceSelectionView & {
+	canSubmit: boolean;
+	canCopySession: boolean;
+	send: Send;
+	setPanel: (panel: GuiPanel | undefined) => void;
+	notifications: Pick<ReturnType<typeof useNotifications>, "notify">;
+} }) {
 	const notifyError = useContext(NotificationErrorContext);
-	const panel = useRef<GuiPanel | undefined>(undefined);
+	const nextAction = useRef<GuiPanel | "restore" | undefined>(undefined);
+	const trigger = useRef<HTMLButtonElement>(null);
+	const [mode, setMode] = useState<WorkspaceSelectionMode>("closed");
 	return <DropdownMenu>
-		<DropdownMenuTrigger asChild>
-			<IconButton label="会话操作" disabled={!gui.canSubmit}><Ellipsis /></IconButton>
-		</DropdownMenuTrigger>
+		<WorkspaceSelection gui={gui} mode={mode} onModeChange={setMode} purpose="restore" select={async (directory) => {
+			await gui.send({ action: "restoreSession", path: directory });
+			gui.notifications.notify(`已复制到 ${directory}`, "info");
+		}} onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus(); }}>
+			{(disabled) => <PopoverAnchor asChild><DropdownMenuTrigger asChild>
+				<IconButton ref={trigger} label="会话操作" disabled={disabled || !gui.canSubmit}><Ellipsis /></IconButton>
+			</DropdownMenuTrigger></PopoverAnchor>}
+		</WorkspaceSelection>
 		<DropdownMenuContent align="end" onCloseAutoFocus={(event) => {
-			if (!panel.current) return;
+			const action = nextAction.current;
+			nextAction.current = undefined;
+			if (!action) return;
 			event.preventDefault();
-			gui.setPanel(panel.current);
-			panel.current = undefined;
+			if (action === "restore") setMode("list");
+			else gui.setPanel(action);
 		}}>
 			<DropdownMenuLabel>当前会话</DropdownMenuLabel>
 			<DropdownMenuItem onSelect={() => void gui.send({ action: "view", view: "system" }).catch(notifyError)}>
 				<BrainCog />系统提示词
 			</DropdownMenuItem>
-			<DropdownMenuItem onSelect={() => { panel.current = { kind: "help" }; }}><BookOpen />命令帮助</DropdownMenuItem>
+			<DropdownMenuItem onSelect={() => { nextAction.current = { kind: "help" }; }}><BookOpen />命令帮助</DropdownMenuItem>
 			<DropdownMenuSeparator />
-			<DropdownMenuItem disabled={!gui.canSubmit} onSelect={() => { panel.current = { kind: "import" }; }}><Import />导入会话</DropdownMenuItem>
+			{gui.canCopySession && <DropdownMenuItem onSelect={() => { nextAction.current = "restore"; }}><FolderInput />复制到别处</DropdownMenuItem>}
+			<DropdownMenuItem disabled={!gui.canSubmit} onSelect={() => { nextAction.current = { kind: "import" }; }}><Import />导入会话</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "jsonl" }).catch(notifyError)}><Braces />导出 JSONL</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => void gui.send({ action: "export", format: "html" }).catch(notifyError)}><AppWindow />导出 HTML</DropdownMenuItem>
 		</DropdownMenuContent>

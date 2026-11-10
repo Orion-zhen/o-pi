@@ -23,6 +23,7 @@ import type { GuiMcpTools } from "./mcp-tools.ts";
 import { setCodexSpeed } from "../../../harness/codex-speed/state.ts";
 import { applyToolPreset } from "../../../harness/tool-defaults/presets.ts";
 import { heicHints } from "../../../harness/media/heic.ts";
+import { workspaceExists } from "../catalog/workspaces.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
 	emit(event: GuiEvent): void;
@@ -322,6 +323,7 @@ export class GuiExecution {
 
 	private async prompt(action: Extract<GuiAction, { action: "prompt" }>, client: SessionClient): Promise<void> {
 		const runtime = this.runtime;
+		if (!await workspaceExists(runtime.cwd)) throw new Error("工作目录不存在或不是文件夹，无法发送消息。");
 		const session = runtime.session;
 		const text = normalizeHistoryText(action.text);
 		if (text) {

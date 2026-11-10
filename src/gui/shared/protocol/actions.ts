@@ -51,6 +51,7 @@ export const actionSchema = union([
 	object({ action: lit("autoTitleSession"), path: short }),
 	object({ action: lit("deleteSession"), path: short }),
 	object({ action: lit("fork"), entryId: short }),
+	object({ action: lit("restoreSession"), path: short }),
 	object({ action: lit("navigate"), entryId: short, summarize: bool() }),
 	object({ action: lit("label"), entryId: short, label: short }),
 	object({ action: lit("rename"), name: short }),
@@ -101,9 +102,9 @@ export type GlobalAction = Extract<GuiAction, { action:
 	| "saveGuiConfig" | "startupChangelog" | "sessions" | "openSession" | "import" | "deleteSession" | "removeWorkspace" | "renameSession" | "autoTitleSession"
 }>;
 export type WorkspaceAction = Extract<GuiAction, { action: "workspace" }>;
-export type SessionNavigationAction = Extract<GuiAction, { action: "new" | "fork" }>;
+export type SessionCreationAction = Extract<GuiAction, { action: "new" | "fork" | "restoreSession" }>;
 export type SessionControlAction = Extract<GuiAction, { action: "dialog" | "abort" | "cancelLogin" }>;
-export type SessionAction = Exclude<GuiAction, GlobalAction | WorkspaceAction | SessionNavigationAction>;
+export type SessionAction = Exclude<GuiAction, GlobalAction | WorkspaceAction | SessionCreationAction>;
 export type SessionMutation = Exclude<SessionAction, SessionControlAction | { action:
 	| "clearNotices" | "draft" | "view" | "consumeCodexCredit" | "prompt" | "clearQueue" | "export" | "login" | "logout" | "compact"
 }>;

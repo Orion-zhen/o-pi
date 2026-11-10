@@ -2,12 +2,10 @@ import { EventEmitter } from "node:events";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { MODEL_THINKING_LEVELS } from "@earendil-works/pi-ai/providers/model-schema";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { stat } from "node:fs/promises";
-import path from "node:path";
 import {
 	createAgentSessionServices,
 	createAgentSessionFromServices,
-	createAgentSessionRuntime,
+	AgentSessionRuntime,
 	getAgentDir,
 	hasTrustRequiringProjectResources,
 	ProjectTrustStore,
@@ -34,8 +32,6 @@ export async function createGuiRuntime(
 	modelScope: GuiModelScope,
 ) {
 	const { dialogs, projectTrust: decisions } = bindings;
-	cwd = path.resolve(cwd);
-	if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
 	const agentDir = getAgentDir();
 	const trust = new ProjectTrustStore(agentDir);
 	const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
@@ -88,12 +84,9 @@ export async function createGuiRuntime(
 			dialogs.notify(`${error.path}: ${error.error}`, "error");
 		return { ...result, services, diagnostics: services.diagnostics };
 	};
-	return createAgentSessionRuntime(factory, {
-		cwd,
-		agentDir,
-		sessionManager,
-		sessionStartEvent: initialEvent,
-	});
+	// GUI 允许打开失效工作区，目录检查留在消息提交边界，不使用 SDK 的启动目录校验。
+	const result = await factory({ cwd, agentDir, sessionManager, sessionStartEvent: initialEvent });
+	return new AgentSessionRuntime(result.session, result.services, factory, result.diagnostics, result.modelFallbackMessage);
 }
 
 export function guiModel(model: NonNullable<AgentSession["model"]>): GuiModel {

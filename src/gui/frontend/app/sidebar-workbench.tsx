@@ -19,7 +19,7 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 	const { workbench } = gui;
 	const { onlyChanges, setOnlyChanges, filesOpen, setFilesOpen, pane, setPane } = workbench;
 	const { sessionSearch } = gui;
-	const git = workbench.git.state === "ready" ? workbench.git.value : null;
+	const git = !gui.workspaceMissing && workbench.git.state === "ready" ? workbench.git.value : null;
 	const referenceFile = useCallback((path: string) => { close(); return gui.referenceFile(path); }, [close, gui.referenceFile]);
 	const openFile = useCallback((path: string) => { gui.openFile(path); close(); }, [close, gui.openFile]);
 	const blocked = !gui.canNavigate;
@@ -65,14 +65,14 @@ export const SidebarWorkbench = memo(function SidebarWorkbench({ gui, close }: {
 						<IconButton label="显示文件变更" size="icon-sm" className="file-changes-toggle" aria-pressed={onlyChanges}
 							onClick={() => { setOnlyChanges(!onlyChanges); setFilesOpen(true); setPane("files"); }}><FileDiff /><span>{git.changes.length}</span></IconButton>
 					</>}
-					<IconButton label="刷新文件" size="icon-sm" disabled={!gui.cwd || !gui.connected} onClick={workbench.refresh}><RefreshCw /></IconButton>
-					<IconButton label="折叠全部目录" size="icon-sm" disabled={onlyChanges || !workbench.expanded.size} onClick={workbench.collapseAll}><FoldVertical /></IconButton>
+					<IconButton label="刷新文件" size="icon-sm" disabled={!gui.cwd || !gui.connected || gui.workspaceMissing} onClick={workbench.refresh}><RefreshCw /></IconButton>
+					<IconButton label="折叠全部目录" size="icon-sm" disabled={gui.workspaceMissing || onlyChanges || !workbench.expanded.size} onClick={workbench.collapseAll}><FoldVertical /></IconButton>
 				</div>
 				<div className="workspace-files-content" inert={!filesOpen} aria-hidden={!filesOpen}>
-					{workbench.git.state === "error" && <p className="file-hint" role="alert">Git: {workbench.git.message}</p>}
+					{!gui.workspaceMissing && workbench.git.state === "error" && <p className="file-hint" role="alert">Git: {workbench.git.message}</p>}
 					<div className="workspace-files-scroll" data-list-scroll>
-						<AnimatePresence initial={false} mode="wait"><Fade key={onlyChanges ? "changes" : "tree"}>
-						{!gui.cwd ? <p className="file-hint">请先选择工作区</p> : onlyChanges && git
+						<AnimatePresence initial={false} mode="wait"><Fade key={gui.workspaceMissing ? "unavailable" : onlyChanges ? "changes" : "tree"}>
+						{gui.workspaceMissing ? <p className="file-hint" role="status">工作目录不可用</p> : !gui.cwd ? <p className="file-hint">请先选择工作区</p> : onlyChanges && git
 							? <WorkspaceChanges cwd={gui.cwd} setError={gui.setError} git={git} selected={workbench.preview?.path} referenceFile={referenceFile} openFile={openFile} />
 							: <WorkspaceTree cwd={gui.cwd} setError={gui.setError} workbench={workbench} referenceFile={referenceFile} openFile={openFile} />}
 						</Fade></AnimatePresence>

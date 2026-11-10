@@ -28,6 +28,7 @@ export interface SidebarView extends GuiControls {
 	usageLoading: boolean;
 	openUsage: (mobile: boolean) => Promise<void>;
 	cwd: string;
+	workspaceMissing: boolean;
 	activity: SessionActivity[];
 	sessionRows: SessionListItem[];
 	sessions: GuiSessionInfo[] | undefined;

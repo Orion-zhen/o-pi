@@ -151,7 +151,7 @@ export function App() {
 									<RefreshCw />
 								</IconButton>
 							)}
-							<SessionActions gui={gui} />
+							<SessionActions key={`actions:${session?.target.id ?? "none"}`} gui={gui} />
 							<IconButton
 								label={gui.sessionPanelOpen ? "收起会话信息" : "展开会话信息"}
 								aria-expanded={gui.sessionPanelOpen}

@@ -19,6 +19,7 @@ import { queueTests } from "./session/queue-cases.ts";
 import { compactionTests } from "./session/compaction-cases.ts";
 import { multiSessionTests } from "./session/multi-session-cases.ts";
 import { newSessionTests } from "./session/new-session-cases.ts";
+import { recoveryTests } from "./session/recovery-cases.ts";
 import { changelogTests } from "./changelog-cases.ts";
 import { settingsTests } from "./session/settings-cases.ts";
 import { notificationTests } from "./session/notification-cases.ts";
@@ -109,6 +110,7 @@ queueTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 compactionTests(() => ({ host, events, setSummaryReply: (reply) => { titleReply = reply; } }));
 multiSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
+recoveryTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 settingsTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 notificationTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
@@ -451,15 +453,12 @@ describe("GUI 直接使用 SDK", () => {
 		await expect.poll(() => events.filter((event) => event.type === "sessions").at(-1)?.value.length).toBe(2);
 	});
 
-	it("工作区或会话文件已被删除时不破坏当前会话，刷新移除失效文件", async () => {
+	it("历史文件被外部删除后，打开失败不改变当前选择，刷新移除失效记录", async () => {
 		const other = path.join(cwd, "removed-workspace");
 		const file = await storeSession({ cwd: other, agentDir: path.join(temp.path, ".pi", "agent"), provider: "gui-fixture" });
 		const id = readSnapshot(host).sessionId;
-		await rm(other, { recursive: true });
 		await host.dispatch({ action: "sessions", all: true });
 		expect(events.filter((event) => event.type === "sessions").at(-1)?.value).toEqual([expect.objectContaining({ path: file })]);
-		await expect(host.dispatch({ action: "openSession", path: file })).rejects.toMatchObject({ code: "ENOENT" });
-		expect(readSnapshot(host).sessionId).toBe(id);
 		await rm(file);
 		await expect(host.dispatch({ action: "openSession", path: file })).rejects.toMatchObject({ code: "ENOENT" });
 		expect(readSnapshot(host).sessionId).toBe(id);

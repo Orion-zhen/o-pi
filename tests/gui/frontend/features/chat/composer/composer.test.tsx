@@ -27,7 +27,7 @@ describe("文件拖入", () => {
 		const prepareDrop = vi.fn(async () => items);
 		if (items) Object.defineProperty(window, "opi", { configurable: true, value: { prepareDrop } });
 		const gui: ComponentProps<typeof Composer>["gui"] = {
-			connected: true, canSubmit: true, views, editor: createRef<HTMLTextAreaElement>(), setPanel() {},
+			connected: true, canSubmit: true, workspaceMissing: false, views, editor: createRef<HTMLTextAreaElement>(), setPanel() {},
 		};
 		await renderRoot(createElement(TooltipProvider, null,
 			createElement(Composer, { ref: null, style: {}, gui, session: ready(snapshot, view, send), preferences: undefined, onSubmit() {} })));
@@ -77,7 +77,7 @@ describe("输入框停止优先级", () => {
 		const view = views.open({ id: snapshot.sessionId, path: null });
 		const send = vi.fn(async () => {});
 		const gui: ComponentProps<typeof Composer>["gui"] = {
-			connected: true, canSubmit: true, views,
+			connected: true, canSubmit: true, workspaceMissing: false, views,
 			editor: createRef<HTMLTextAreaElement>(), setPanel() {},
 		};
 		const onSubmit = vi.fn();

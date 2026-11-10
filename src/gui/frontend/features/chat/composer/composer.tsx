@@ -39,6 +39,7 @@ const attachmentOrigin = { y: 6, rotate: -2, scale: 0.98 };
 interface ComposerControls {
 	connected: boolean;
 	canSubmit: boolean;
+	workspaceMissing: boolean;
 	setPanel: (panel: GuiPanel | undefined) => void;
 	editor: RefObject<HTMLTextAreaElement | null>;
 	views: SessionViews;
@@ -79,6 +80,7 @@ export function Composer({ ref, style, gui, session, preferences, onSubmit, refe
 	const fileDrop = useFileDrop();
 	const { attach, pending: attaching } = useAttachments(view, gui.views, setError);
 	const hasContent = Boolean(draft.trim() || images.length);
+	const canPrompt = gui.canSubmit && !gui.workspaceMissing && hasContent && !attaching;
 	const setup = modelSetup(snapshot);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
 	const stopping = snapshot.compacting || running && !hasContent;
@@ -86,7 +88,7 @@ export function Composer({ ref, style, gui, session, preferences, onSubmit, refe
 	const behaviorIcon = steering ? CornerUpRight : ListEnd;
 	const behaviorLabel = steering ? "Steering" : "Follow-up";
 	const submit = () => {
-		if (!hasContent || !gui.canSubmit || attaching) return;
+		if (!canPrompt) return;
 		if (setup && !draft.startsWith("/") && !commandMode) {
 			gui.setPanel({ kind: setup.kind });
 			return;
@@ -125,6 +127,7 @@ export function Composer({ ref, style, gui, session, preferences, onSubmit, refe
 			: [];
 	return (
 		<motion.footer className="composer" ref={ref} style={style}>
+			<Feedback compact message={gui.workspaceMissing ? "工作目录不存在，无法发送消息。已保存的会话可在会话操作中复制到别处。" : ""} tone="warning" />
 			<AnimatePresence initial={false}>
 			{setup && hasContextMessages(snapshot) && <Reveal><div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
 				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>
@@ -326,7 +329,7 @@ export function Composer({ ref, style, gui, session, preferences, onSubmit, refe
 						<SendButton
 							mode={snapshot.compacting ? "stop-compaction" : stopping ? "stop" : commandMode ? "execute" : running ? steering ? "steer" : "follow-up" : "send"}
 							onActivate={stopping ? () => void send({ action: "abort" }).catch(reportError) : submit}
-							disabled={!connected || (!stopping && (!gui.canSubmit || !hasContent || attaching))}
+							disabled={!connected || !stopping && !canPrompt}
 						/>
 					</div>
 				</div>

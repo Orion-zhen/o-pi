@@ -3,17 +3,20 @@ import { homedir, userInfo } from "node:os";
 import { isAbsolute, relative, sep } from "node:path";
 import type { GuiWorkspaceInfo } from "../../shared/protocol/state.ts";
 
+export async function workspaceExists(cwd: string): Promise<boolean> {
+	try { return (await stat(cwd)).isDirectory(); }
+	catch (error) {
+		if (!(error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR"))) throw error;
+		return false;
+	}
+}
+
 export async function listWorkspaces(paths: string[], protectedPaths: string[]): Promise<GuiWorkspaceInfo[]> {
 	const homeDirectory = homedir();
 	const username = userInfo().username;
 	const visible = [...new Set([...protectedPaths, ...paths].filter(Boolean))];
 	return Promise.all(visible.map(async (cwd) => {
-		let exists: boolean;
-		try { exists = (await stat(cwd)).isDirectory(); }
-		catch (error) {
-			if (!(error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR"))) throw error;
-			exists = false;
-		}
+		const exists = await workspaceExists(cwd);
 		const fromHome = relative(homeDirectory, cwd);
 		const inHome = fromHome !== ".." && !fromHome.startsWith(`..${sep}`) && !isAbsolute(fromHome);
 		return {
