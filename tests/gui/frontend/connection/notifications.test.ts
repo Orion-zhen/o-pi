@@ -61,7 +61,7 @@ it("Web 后台页面暂停绘制、发送窗口已满时，通知仍立即到达
 	} finally { connection.close(); channel.close(); }
 });
 
-it("浏览器通知不暴露消息内容，点击定位会话，撤销权限后停止发送", () => {
+it("浏览器通知使用首条消息摘要，点击定位会话，撤销权限后停止发送", () => {
 	const shown = vi.fn();
 	const close = vi.fn();
 	let click: (() => void) | undefined;
@@ -78,7 +78,7 @@ it("浏览器通知不暴露消息内容，点击定位会话，撤销权限后�
 	const open = vi.fn();
 	expect(notificationDestination()).toBe("web:browser-id");
 	showBrowserNotification({ ...value, firstMessage: "首条\n 消息" }, open);
-	expect(shown).toHaveBeenCalledWith("任务已完成", expect.objectContaining({ body: "后台会话已完成本轮任务。", silent: true }));
+	expect(shown).toHaveBeenCalledWith("OPi 任务完成", expect.objectContaining({ body: "首条 消息", silent: true }));
 	click?.();
 	expect(open).toHaveBeenCalledOnce();
 	expect(focus).toHaveBeenCalledOnce();
@@ -87,6 +87,17 @@ it("浏览器通知不暴露消息内容，点击定位会话，撤销权限后�
 	expect(notificationDestination()).toBeNull();
 	showBrowserNotification(value, open);
 	expect(shown).toHaveBeenCalledOnce();
+});
+
+it.each([
+	{ name: "  会话\n 标题  ", firstMessage: "首条消息", body: "会话 标题" },
+	{ name: "  ", firstMessage: " 首条\n 消息 ", body: "首条 消息" },
+	{ name: undefined, firstMessage: "", body: "新会话" },
+	{ name: "😀".repeat(80), firstMessage: "", body: "😀".repeat(80) },
+	{ name: "😀".repeat(81), firstMessage: "", body: `${"😀".repeat(80)}…` },
+])("完成通知展示会话标题、摘要或默认名，并按 Unicode 码点截断：$body", ({ name, firstMessage, body }) => {
+	showDesktopNotification(new BrowserWindow(), { ...value, name, firstMessage }, "icon.png", vi.fn());
+	expect(electron.shown).toHaveBeenCalledExactlyOnceWith({ title: "OPi 任务完成", body, silent: true, icon: "icon.png" });
 });
 
 it("Desktop 关注状态随原生窗口焦点、最小化和隐藏更新", () => {
@@ -128,16 +139,16 @@ it("后台任务完成不闪烁，审批请求提醒窗口，回到前台后不�
 	expect(window.flashFrame).toHaveBeenCalledOnce();
 });
 
-it("Electron 通知不暴露会话名和命令，点击定位会话，系统拒绝不影响后续通知", () => {
+it("Electron 通知优先使用会话名并展示审批工具，点击定位会话，系统拒绝不影响后续通知", () => {
 	const open = vi.fn();
 	const window = new BrowserWindow();
 	showDesktopNotification(window, { ...value, name: "检查文件", kind: "approval", toolName: "bash" }, "icon.png", open);
-	expect(electron.shown).toHaveBeenCalledWith({ title: "等待审批", body: "有操作需要你的许可。", silent: false, icon: "icon.png" });
+	expect(electron.shown).toHaveBeenCalledWith({ title: "OPi 需要审批", body: "检查文件\nbash 请求执行权限", silent: false, icon: "icon.png" });
 	electron.instances[0]?.emit("click");
 	expect(open).toHaveBeenCalledOnce();
 	electron.shown.mockImplementationOnce(() => { throw new Error("backend unavailable"); });
 	expect(() => showDesktopNotification(window, value, "icon.png", open)).not.toThrow();
 	showDesktopNotification(window, value, "icon.png", open);
-	expect(electron.shown).toHaveBeenLastCalledWith({ title: "任务已完成", body: "后台会话已完成本轮任务。", silent: true, icon: "icon.png" });
+	expect(electron.shown).toHaveBeenLastCalledWith({ title: "OPi 任务完成", body: "检查后台任务", silent: true, icon: "icon.png" });
 	electron.instances[2]?.emit("close");
 });
