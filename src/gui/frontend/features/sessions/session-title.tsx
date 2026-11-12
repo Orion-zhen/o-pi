@@ -9,7 +9,6 @@ export function SessionTitle({ title, state }: { title: string; state: GuiSessio
 	const previous = useRef(title);
 	const display = useMotionValue(title);
 	useLayoutEffect(() => {
-		if (state === "generating") return;
 		const before = previous.current;
 		previous.current = title;
 		if (state !== "complete" || before === title) {

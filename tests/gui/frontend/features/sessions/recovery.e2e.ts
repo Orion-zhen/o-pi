@@ -89,7 +89,7 @@ test("进入失效工作区，重命名并连续复制到已有工作区和其�
 		await editor.fill("恢复后可以发送");
 		await expect(page.getByRole("button", { name: "发送", exact: true })).toBeEnabled();
 		await page.getByRole("button", { name: "会话操作", exact: true }).click();
-		await expect(page.getByRole("menuitem", { name: "复制到别处", exact: true })).toHaveCount(0);
+		await expect(page.getByRole("menuitem", { name: "复制到别处", exact: true })).toBeVisible();
 		await page.keyboard.press("Escape");
 		await switchWorkspace(another);
 		await openSession("待恢复二", "第二个历史问题");

@@ -106,7 +106,7 @@ export function useGui() {
 	const changelog = useStartupChangelog(connected, snapshot, selectedId, globalQuery, dispatch, setError);
 	const cwd = session?.target.cwd ?? host.workspaceRoot;
 	const workspaceMissing = host.workspaces.some((workspace) => workspace.path === cwd && !workspace.exists);
-	const canCopySession = workspaceMissing && activity.some((item) => item.sessionId === selectedId && item.path !== null);
+	const canCopySession = activity.some((item) => item.sessionId === selectedId && item.path !== null);
 	const layout = useLayout(setError);
 	const sessionSearch = useSessionSearch(cwd, connected, globalQuery, dispatch, setError);
 	const workbench = useWorkbench(cwd, connected && Boolean(cwd) && !workspaceMissing, activity.some((item) => item.cwd === cwd && item.state !== "idle"), sharedQuery);
