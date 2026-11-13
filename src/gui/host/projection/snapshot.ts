@@ -19,7 +19,7 @@ type PresentationState = Pick<
 /** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
 export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, selection: ToolSelectionController, mcpTools: GuiToolSelectionItem[]): GuiSnapshot {
 	const { session, services, cwd } = runtime;
-	const stats = session.getSessionStats();
+	const { usage } = summarizeSessionUsage(session.sessionManager.getEntries());
 	const routed = session.routedModel;
 	const defaults = services.settingsManager.getGlobalSettings();
 	const allTools = session.getAllTools();
@@ -47,7 +47,6 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		cwd,
 		leafId: session.sessionManager.getLeafId(),
 		sessionId: session.sessionId,
-		sessionFile: session.sessionFile ?? null,
 		name: session.sessionName ?? "未命名会话",
 		streaming: session.isStreaming,
 		retrying: session.isRetrying,
@@ -66,8 +65,8 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		},
 		thinking: session.thinkingLevel,
 		thinkingLevels: session.getAvailableThinkingLevels(),
-		context: stats.contextUsage ?? null,
-		stats: { ...stats, costFromProvider: summarizeSessionUsage(session.sessionManager.getEntries()).usage.costFromProvider === true },
+		context: session.getContextUsage() ?? null,
+		stats: { tokens: usage.totalObservedTokens, cost: usage.costUsd ?? 0, costFromProvider: usage.costFromProvider === true },
 		// SDK 原地追加队列，快照必须持有独立数组供增量比较。
 		queue: { steering: [...session.getSteeringMessages()], followUp: [...session.getFollowUpMessages()] },
 		cacheWarmingModes: CACHE_WARMING_MODES,

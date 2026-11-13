@@ -35,7 +35,8 @@ async function previewContent(file: string, signal: AbortSignal): Promise<Worksp
 			return { kind: mime === "application/pdf" ? "pdf" : "image", mime, size: Number(metadata.size), version: fileVersion(metadata) };
 		if (metadata.size > MAX_PREVIEW) return { kind: "unavailable", reason: "文件超过 512 KiB，未加载预览。" };
 		const buffer = Buffer.alloc(MAX_PREVIEW + 1);
-		let length = 0;
+		prefix.copy(buffer);
+		let length = bytesRead;
 		while (length < buffer.length) {
 			signal.throwIfAborted();
 			const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);

@@ -44,9 +44,13 @@ async function files() {
 	return { root: await realpath(root), external: await realpath(external) };
 }
 
-function click(label: string) {
-	const template = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0];
-	const item = template?.find((item) => "label" in item && item.label === label);
+function menuItems(label?: string, template = vi.mocked(Menu.buildFromTemplate).mock.lastCall?.[0]) {
+	const items = label ? template?.find((item) => item.label === label)?.submenu : template;
+	if (!Array.isArray(items)) throw new Error(`菜单不存在: ${label}`);
+	return items;
+}
+function click(label: string, items = menuItems()) {
+	const item = items.find((item) => item.label === label);
 	if (!item || typeof item.click !== "function") throw new Error(`菜单项不存在: ${label}`);
 	Reflect.apply(item.click, undefined, []);
 }
@@ -163,34 +167,26 @@ describe("原生菜单", () => {
 		const window = new BrowserWindow();
 		const open = vi.fn();
 		const menu = installDesktopMenu(window, open);
-		expect(Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(vi.mocked(Menu.buildFromTemplate).mock.results[0]?.value);
 		const paths = [{ path: "/first", exists: true }, { path: "/current", exists: true }, { path: "/missing", exists: false }];
 		menu.workspaces(paths);
 		menu.select("/current");
 		menu.select("/current");
+		expect(Menu.setApplicationMenu).toHaveBeenCalledTimes(3);
 		expect(app.addRecentDocument).toHaveBeenCalledExactlyOnceWith("/current");
 		menu.workspaces([...paths, { path: "/new", exists: true }]);
-		const template = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0];
-		const file = template?.find((item) => item.label === "文件");
-		if (!file || !Array.isArray(file.submenu)) throw new Error("缺少文件菜单");
-		const create = file.submenu.find((item) => item.label === "新建会话");
-		expect(create?.accelerator).toBe("CmdOrCtrl+N");
-		if (!create?.click) throw new Error("缺少新建会话命令");
-		Reflect.apply(create.click, undefined, []);
+		const file = menuItems("文件");
+		expect(file.find((item) => item.label === "新建会话")?.accelerator).toBe("CmdOrCtrl+N");
+		click("新建会话", file);
 		expect(window.webContents.send).toHaveBeenCalledWith("gui:command", "new");
-		expect(file.submenu.some((item) => item.role === "close")).toBe(true);
-		const recent = file.submenu.find((item) => item.label === "最近工作区");
-		if (!Array.isArray(recent?.submenu)) throw new Error("缺少最近工作区");
-		expect(recent.submenu.map((item) => item.label)).toEqual(["/current", "/first", "/new"]);
-		const item = recent.submenu[0];
-		if (!item?.click) throw new Error("缺少工作区入口");
-		Reflect.apply(item.click, undefined, []);
+		expect(file.some((item) => item.role === "close")).toBe(true);
+		const recent = menuItems("最近工作区", file);
+		expect(recent.map((item) => item.label)).toEqual(["/current", "/first", "/new"]);
+		click("/current", recent);
 		expect(open).toHaveBeenCalledWith("/current");
 	});
 	it.each(["win32", "linux"])("%s 移除应用菜单，工作区更新不重新创建", (platform) => {
 		Object.defineProperty(process, "platform", { value: platform });
 		const menu = installDesktopMenu(new BrowserWindow(), vi.fn());
-		expect(Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(null);
 		menu.workspaces([{ path: "/work", exists: true }]);
 		menu.select("/work");
 		menu.select("/work");

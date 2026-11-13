@@ -54,10 +54,10 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 
 		it("未持久化的新会话也可删除", async () => {
 			const { host } = context();
-			const before = readSnapshot(host);
-			if (!before.sessionFile) throw new Error("新会话缺少目标路径");
-			await expect(readFile(before.sessionFile)).rejects.toMatchObject({ code: "ENOENT" });
-			await host.dispatch({ action: "deleteSession", path: before.sessionFile });
+			const file = host.selected?.file;
+			if (!file) throw new Error("新会话缺少目标路径");
+			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+			await host.dispatch({ action: "deleteSession", path: file });
 			expect(readSnapshot(host).messages).toHaveLength(0);
 		});
 
@@ -106,7 +106,7 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 				`export default function (pi) { pi.on("session_before_switch", () => ({ cancel: true })); }`);
 			await host.dispatch({ action: "reload" });
 			await host.dispatch({ action: "deleteSession", path: file });
-			expect(readSnapshot(host).sessionFile).toBe(file);
+			expect(host.selected?.file).toBe(file);
 			expect(events.filter((event) => event.type === "sessionsDeleted")).toEqual([]);
 			expect(await readFile(file, "utf8")).toContain("历史回复");
 		});
@@ -136,7 +136,7 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 			await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
 			const dialog = host.execution.dialogs.list()[0];
 			if (!dialog) throw new Error("缺少工具审批");
-			await expect(host.dispatch({ action: "deleteSession", path: readSnapshot(host).sessionFile })).rejects.toThrow();
+			await expect(host.dispatch({ action: "deleteSession", path: host.selected?.file })).rejects.toThrow();
 			await host.dispatch({ action: "deleteSession", path: file });
 			await host.dispatch({ action: "dialog", id: dialog.id, value: null });
 			await task;

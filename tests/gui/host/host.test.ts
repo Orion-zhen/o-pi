@@ -119,6 +119,14 @@ usageCreditTests(() => ({ host, events }));
 autoTitleTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), requests: server.requests, setReply: (reply) => { titleReply = reply; } }));
 
 describe("GUI 直接使用 SDK", () => {
+	it("快照只投影累计 tokens、费用和来源，并计入后台用量", () => {
+		expect(readSnapshot(host).stats).toEqual({ tokens: 0, cost: 0, costFromProvider: false });
+		const usage = assistant([]).usage;
+		usage.cost.total = 0.25;
+		usage.cost.totalFromProvider = true;
+		host.runtime.session.sessionManager.appendUsage("cache_warm", "test", "test", usage);
+		expect(readSnapshot(host).stats).toEqual({ tokens: 2, cost: 0.25, costFromProvider: true });
+	});
 	it("认证能力区分仅 OAuth、仅 API Key 和两者兼有的 provider", () => {
 		expect(readSnapshot(host).providers).toEqual(expect.arrayContaining([
 			expect.objectContaining({ id: "openai-codex", apiKey: false, oauth: true }),
@@ -314,7 +322,7 @@ describe("GUI 直接使用 SDK", () => {
 
 	it("删除启动会话后新页面不会重新打开已删除实例", async () => {
 		await host.dispatch(prompt("启动会话"));
-		const file = readSnapshot(host).sessionFile;
+		const file = host.selected?.file;
 		if (!file) throw new Error("缺少已保存的会话文件");
 		await host.dispatch({ action: "deleteSession", path: file });
 		const second = host.host.createClient();
@@ -434,7 +442,7 @@ describe("GUI 直接使用 SDK", () => {
 		const file = await storeSession({ cwd: other, agentDir: path.join(temp.path, ".pi", "agent"), provider: "gui-fixture", name: "待恢复" });
 		await writeFile(path.join(other, "input.txt"), "other workspace\n");
 		await host.dispatch({ action: "openSession", path: file });
-		expect(readSnapshot(host)).toMatchObject({ cwd: other, sessionFile: file, name: "待恢复" });
+		expect(readSnapshot(host)).toMatchObject({ cwd: other, name: "待恢复" });
 		expect(JSON.stringify(readSnapshot(host).messages)).toContain("历史回复");
 		await host.dispatch(prompt("继续检查文件"));
 		expect(await readFile(path.join(other, "output.txt"), "utf8")).toBe("GUI SDK result\n");
@@ -472,8 +480,8 @@ describe("GUI 直接使用 SDK", () => {
 		expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI SDK result\n");
 		expect(JSON.stringify(readSnapshot(host).messages)).toContain("GUI completed");
 		expect(JSON.stringify(readSnapshot(host))).not.toContain("private-fixture-secret");
-		const file = readSnapshot(host).sessionFile;
-		expect(file).not.toBeNull();
+		const file = host.selected?.file;
+		expect(file).toBeDefined();
 		for (const command of ["/stats", "/system", "/tools", "/usage", "/telemetry", "/model", "/scoped-models", "/tree"])
 			await host.dispatch(prompt(command));
 		expect(events.filter((event) => event.type === "panel").map((event) => event.panel.kind))
@@ -634,7 +642,7 @@ describe("GUI 直接使用 SDK", () => {
 		expect(await readFile(file, "utf8")).toBe(`${original}\n`);
 	});
 
-	it("未信任的项目扩展不执行，关闭启动中的信任对话框可释放宿主", async () => {
+	it("启动审批期间可清通知，退出释放宿主且不执行未信任扩展", async () => {
 		await host.host.dispose();
 		const agentDir = path.join(temp.path, ".pi", "agent");
 		const settingsFile = path.join(agentDir, "settings.json");
@@ -650,6 +658,11 @@ describe("GUI 直接使用 SDK", () => {
 		host = new GuiHost().createClient();
 		const start = host.host.start(cwd);
 		await expect.poll(() => host.selected?.dialogs?.list().length).toBe(1);
+		const dialogs = host.selected?.dialogs;
+		if (!dialogs) throw new Error("缺少启动交互通道");
+		dialogs.notify("启动提示", "warning");
+		await host.dispatch({ action: "clearNotices", ids: dialogs.notices.map(({ id }) => id) });
+		expect(dialogs.notices).toEqual([]);
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 		await host.host.dispose();
 		await start;

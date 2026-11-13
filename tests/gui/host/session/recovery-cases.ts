@@ -17,7 +17,7 @@ export function recoveryTests(context: () => { host: GuiClient; cwd: string; age
 			await rm(missing, { recursive: true });
 			await host.dispatch({ action: "workspace", path: missing });
 			expect(readSnapshot(host).cwd).toBe(missing);
-			expect([first, second]).toContain(readSnapshot(host).sessionFile);
+			expect([first, second]).toContain(host.selected?.file);
 			await host.dispatch({ action: "openSession", path: first });
 			await host.dispatch({ action: "rename", name: "重命名仍可用" });
 			expect(readSnapshot(host).name).toBe("重命名仍可用");
@@ -39,7 +39,7 @@ export function recoveryTests(context: () => { host: GuiClient; cwd: string; age
 			const original = await readFile(file, "utf8");
 			const entries = SessionManager.open(file).getEntries();
 			await host.dispatch({ action: "restoreSession", path: cwd });
-			expect(readSnapshot(host)).toMatchObject({ sessionId: sourceId, cwd: missing, sessionFile: file });
+			expect(readSnapshot(host)).toMatchObject({ sessionId: sourceId, cwd: missing });
 			expect(await readFile(file, "utf8")).toBe(original);
 			await host.dispatch({ action: "sessions", all: true });
 			const recovered = events.findLast((event) => event.type === "sessions")?.value.find((session) => session.cwd === cwd && session.title === "待恢复");
@@ -64,7 +64,7 @@ export function recoveryTests(context: () => { host: GuiClient; cwd: string; age
 			await host.dispatch({ action: "openSession", path: first });
 			await host.dispatch({ action: "deleteSession", path: first });
 			expect(readSnapshot(host).cwd).toBe(missing);
-			expect(readSnapshot(host).sessionFile).not.toBe(first);
+			expect(host.selected?.file).not.toBe(first);
 			await host.dispatch({ action: "openSession", path: second });
 			expect(readSnapshot(host).name).toBe("保留此会话");
 			await expect(readFile(first)).rejects.toMatchObject({ code: "ENOENT" });

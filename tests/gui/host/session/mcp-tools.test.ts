@@ -249,7 +249,7 @@ it("服务和单工具选择在刷新、重载和分支恢复后保留，新会�
 	await expect.poll(tool).toMatchObject({ enabled: true, callable: true });
 	await host.dispatch({ action: "openSession", id: firstId });
 	await expect.poll(tool).toMatchObject({ available: false, enabled: false, callable: false });
-	const file = readSnapshot(host).sessionFile;
+	const file = host.selected?.file;
 	if (!file) throw new Error("缺少会话文件");
 	await host.host.dispose();
 	host = new GuiHost().createClient();

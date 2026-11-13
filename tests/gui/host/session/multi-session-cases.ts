@@ -1,5 +1,5 @@
 import { readSnapshot } from "../read-snapshot.ts";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -30,32 +30,45 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 		it("重连时缓存失效也先重放目标导航，不回退到空工作区", async () => {
 			const { host } = context();
 			await host.dispatch(prompt("保存 A"));
-			const a = readSnapshot(host);
-			if (!a.sessionFile) throw new Error("缺少会话文件");
+			const a = host.selected;
+			if (!a) throw new Error("缺少初始会话");
 			await host.dispatch({ action: "new" });
-			SessionManager.open(a.sessionFile).appendSessionInfo("来自 TUI 的标题");
-			const reconnect = host.host.createClient(a.sessionId);
+			SessionManager.open(a.file).appendSessionInfo("来自 TUI 的标题");
+			const reconnect = host.host.createClient(a.id);
 			try {
 				const events: GuiEvent[] = [];
 				reconnect.replay((event) => events.push(event));
-				expect(events.find((event) => event.type === "selected")).toEqual({ type: "selected", session: { id: a.sessionId, cwd: a.cwd, path: a.sessionFile } });
-				await reconnect.dispatch({ action: "openSession", id: a.sessionId });
+				expect(events.find((event) => event.type === "selected")).toEqual({ type: "selected", session: { id: a.id, cwd: a.cwd, path: a.file } });
+				await reconnect.dispatch({ action: "openSession", id: a.id });
 				expect(readSnapshot(reconnect).name).toBe("来自 TUI 的标题");
 			} finally { reconnect.close(); }
 		});
 
-		it("同一逻辑会话回收后身份和导航保留，文件查询不重新加载 SDK", async () => {
+		it("回收后控制、草稿和文件读取不加载 SDK，恢复时保留身份与草稿", async () => {
 			const { host, cwd } = context();
 			const logical = host.selected;
 			if (!logical) throw new Error("缺少逻辑会话");
 			const file = logical.file;
-			if (!file) throw new Error("缺少未落盘目标");
+			await mkdir(path.join(cwd, "inputs"));
 			await host.dispatch({ action: "observe", visible: false });
 			await host.dispatch({ action: "saveGuiConfig", original: "", content: '{"sessionCache":{"idleLimit":0}}' });
 			vi.useFakeTimers({ toFake: ["Date"] });
 			vi.setSystemTime(Date.now() + 60_000);
-			await host.host.collect();
-			expect(logical.execution).toBeUndefined();
+			const collecting = host.host.collect();
+			await host.dispatch({ action: "abort" }, logical.id);
+			await collecting;
+			for (const action of [{ action: "abort" }, { action: "cancelLogin" }, { action: "clearNotices", ids: [] }] as const) {
+				await host.dispatch(action, logical.id);
+				expect(logical.execution).toBeUndefined();
+			}
+			await expect(host.dispatch({ action: "dialog", id: "expired", value: null }, logical.id)).rejects.toThrow("对话框已结束");
+			await host.dispatch({ action: "draft", text: "回收后的草稿" }, logical.id);
+			await expect(host.query({ query: "files", prefix: "in" }, logical.id)).resolves.toEqual(["input.txt", "inputs/"]);
+			logical.reserveDeletion();
+			try {
+				await expect(host.dispatch({ action: "draft", text: "不能写入" }, logical.id)).rejects.toThrow("正在删除");
+				await expect(host.query({ query: "files", prefix: "in" }, logical.id)).rejects.toThrow("正在删除");
+			} finally { logical.cancelDeletion(); }
 			const replay: GuiEvent[] = [];
 			host.replay((event) => replay.push(event));
 			expect(replay).toContainEqual({ type: "selected", session: { id: logical.id, cwd, path: file } });
@@ -65,6 +78,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			await host.dispatch({ action: "openSession", path: file });
 			expect(host.selected).toBe(logical);
 			expect(readSnapshot(host).sessionId).toBe(logical.id);
+			expect(host.readDraft(logical.id)).toBe("回收后的草稿");
 		});
 
 		it("A 等待审批时 B 可完成 Shell，切回只显示 A 的审批并消费一次", async () => {
@@ -132,7 +146,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await host.dispatch({ action: "view", view: "system" });
 				expect(events.some((event) => event.type === "panel")).toBe(false);
 				await host.dispatch({ action: "new" });
-				expect(readSnapshot(second).sessionFile).toBe(file);
+				expect(second.selected?.file).toBe(file);
 			} finally { second.close(); }
 		});
 
@@ -155,14 +169,14 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 		it("后台缓存的会话文件被删除后不能创建替代会话", async () => {
 			const { host } = context();
 			await host.dispatch(prompt("保存待删除历史"));
-			const original = readSnapshot(host);
-			if (!original.sessionFile) throw new Error("缺少会话文件");
+			const original = host.selected;
+			if (!original) throw new Error("缺少初始会话");
 			await host.dispatch({ action: "new" });
 			const current = readSnapshot(host).sessionId;
-			await rm(original.sessionFile);
-			await expect(host.dispatch({ action: "openSession", id: original.sessionId })).rejects.toMatchObject({ code: "ENOENT" });
+			await rm(original.file);
+			await expect(host.dispatch({ action: "openSession", id: original.id })).rejects.toMatchObject({ code: "ENOENT" });
 			expect(readSnapshot(host).sessionId).toBe(current);
-			await expect(readFile(original.sessionFile)).rejects.toMatchObject({ code: "ENOENT" });
+			await expect(readFile(original.file)).rejects.toMatchObject({ code: "ENOENT" });
 		});
 
 		it("未超时实例全部保留，超时实例按 LRU 最多保留三个且不受未超时实例挤占", async () => {

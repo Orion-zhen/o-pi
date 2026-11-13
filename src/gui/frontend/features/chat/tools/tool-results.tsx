@@ -43,10 +43,6 @@ export function ToolResult({ tool }: { tool: Omit<ToolActivity, "output"> & { ou
 		case "progress": return <p className="tool-note" role="status">{output.facts}</p>;
 	}
 	if (state === "failed" || state === "stopped") return <RawToolContent value={output.content} />;
-	return <ResultContent output={output} />;
-}
-
-function ResultContent({ output }: { output: GuiToolResult }) {
 	switch (output.view) {
 		case "read": return <>
 			{output.details.segments.map((segment, index) => <CodeBlock key={index} label={`${output.details.path}:${segment.start_line}–${segment.end_line}`}
@@ -73,8 +69,9 @@ function ResultContent({ output }: { output: GuiToolResult }) {
 			<PathList entries={output.details.entries.map((entry) => ({ path: entry.name, kind: entry.type }))} />
 			{output.details.truncated && <p className="tool-note">{output.details.continuation_hint}</p>}
 		</>;
-		default: return <RawToolContent value={output.content} />;
+		case "raw": return <RawToolContent value={output.content} />;
 	}
+	output satisfies never;
 }
 
 function PathList({ entries }: { entries: { path: string; kind: "directory" | "file" | "symlink" | "other" }[] }) {

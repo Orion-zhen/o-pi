@@ -412,18 +412,16 @@ export class GuiExecution {
 				this.mcp.tools.setServers(action.names, action.enabled);
 				return;
 			case "tool":
-			case "toolPreset":
-			case "persistTools":
-				if (action.action === "tool") {
-					if (this.mcp.tools === null || !this.mcp.tools.set(action.name, action.enabled)) this.toolset.controller.set(action.name, action.enabled);
-				} else if (action.action === "toolPreset") {
-					const mcpNames = new Set(this.mcp.tools === null ? [] : this.mcp.tools.list(session.getActiveToolNames()).map((tool) => tool.name));
-					applyToolPreset(session, this.toolset.controller, action.preset, mcpNames);
-				} else {
-					await this.toolset.controller.persistUserDefaults();
-					await runtime.services.settingsManager.reload();
-				}
+				if (this.mcp.tools === null || !this.mcp.tools.set(action.name, action.enabled)) this.toolset.controller.set(action.name, action.enabled);
 				return;
+			case "toolPreset": {
+				const mcpNames = new Set(this.mcp.tools === null ? [] : this.mcp.tools.list(session.getActiveToolNames()).map((tool) => tool.name));
+				applyToolPreset(session, this.toolset.controller, action.preset, mcpNames);
+				return;
+			}
+			case "persistTools":
+				await this.toolset.controller.persistUserDefaults();
+				await runtime.services.settingsManager.reload(); return;
 			case "saveConfig":
 				await runtime.services.settingsManager.flush(); await saveConfig(action.file, action.original, action.content);
 				await this.reload(); return;

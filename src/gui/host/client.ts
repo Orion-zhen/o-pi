@@ -305,7 +305,7 @@ export class GuiClient {
 			}));
 			return;
 		}
-		if (action.action === "dialog" || action.action === "abort" || action.action === "cancelLogin") return source.control(action, client);
+		if (action.action === "dialog" || action.action === "clearNotices" || action.action === "abort" || action.action === "cancelLogin") return source.control(action, client);
 		return source.use(client, (execution) => execution.dispatch(action, client));
 	}
 	query<Q extends GuiQuery>(query: Q, sessionId?: string | null): Promise<GuiQueryResults[Q["query"]]>;

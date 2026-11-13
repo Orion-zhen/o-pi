@@ -18,8 +18,10 @@ export function installDesktopMenu(window: BrowserWindow, openWorkspace: (path?:
 	});
 	let currentDirectory: string | undefined;
 	const remember = (cwd: string) => {
-		if (cwd !== currentDirectory) app.addRecentDocument(cwd);
+		if (cwd === currentDirectory) return false;
+		app.addRecentDocument(cwd);
 		currentDirectory = cwd;
+		return true;
 	};
 	if (process.platform !== "darwin") {
 		Menu.setApplicationMenu(null);
@@ -55,6 +57,6 @@ export function installDesktopMenu(window: BrowserWindow, openWorkspace: (path?:
 	update();
 	return {
 		workspaces(value: GuiWorkspaceInfo[]) { workspaces = value; update(); },
-		select(cwd: string) { remember(cwd); update(); },
+		select(cwd: string) { if (remember(cwd)) update(); },
 	};
 }

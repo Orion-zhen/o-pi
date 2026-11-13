@@ -38,7 +38,8 @@ async function repository() {
 
 describe("工作台文件与 Git 只读流程", () => {
 	it("普通目录正常浏览、预览，文件和目录按层加载", async () => {
-		await put("src/main.ts", "export const answer = 42;\n");
+		const text = "export const answer = 42;\n" + "中文内容".repeat(1000);
+		await put("src/main.ts", text);
 		await put(".env", "EXAMPLE=1\n");
 		expect(await readWorkspaceGit(cwd, signal)).toBeNull();
 		expect(await listWorkspaceFiles(cwd, "")).toEqual([
@@ -46,7 +47,7 @@ describe("工作台文件与 Git 只读流程", () => {
 			{ name: ".env", path: ".env", kind: "file" },
 		]);
 		expect(await listWorkspaceFiles(cwd, "src")).toEqual([{ name: "main.ts", path: "src/main.ts", kind: "file" }]);
-		expect(await previewWorkspaceFile(cwd, "src/main.ts", signal)).toEqual({ path: "src/main.ts", content: { kind: "text", text: "export const answer = 42;\n" }, diffs: [] });
+		expect(await previewWorkspaceFile(cwd, "src/main.ts", signal)).toEqual({ path: "src/main.ts", content: { kind: "text", text }, diffs: [] });
 	});
 
 	it("忽略目录仍可浏览，变更、重命名、删除和未跟踪文件都有真实状态", async () => {
@@ -146,7 +147,12 @@ describe("工作台文件与 Git 只读流程", () => {
 		expect((await previewWorkspaceFile(cwd, "internal", signal)).content).toEqual({ kind: "text", text: "inside\n" });
 	});
 
-	it("超限、二进制和非 UTF-8 文件明确说明不可预览，取消会终止读取", async () => {
+	it("文本边界完整预览，超限和非法编码明确拒绝，取消会终止读取", async () => {
+		for (const size of [0, 8192, 512 * 1024]) {
+			const text = "x".repeat(size);
+			await put("boundary.txt", text);
+			expect((await previewWorkspaceFile(cwd, "boundary.txt", signal)).content).toEqual({ kind: "text", text });
+		}
 		await put("large.txt", "x".repeat(512 * 1024 + 1));
 		await put("binary.bin", Buffer.from([0, 1, 2, 3]));
 		await put("encoding.txt", Buffer.from([255, 254, 253]));

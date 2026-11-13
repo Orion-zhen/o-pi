@@ -7,24 +7,28 @@ import { useTempDir } from "../helpers/lifecycle.ts";
 const temp = useTempDir("opi-desktop-diagnostics-");
 
 describe("桌面耗时日志", () => {
-	it("记录请求和累计接收确认，不保存输入、工作区路径或查询内容", async () => {
+	it.each([false, true])("调试 %s：仅调试时记录时间线，不保存输入、路径或查询内容", async (debug) => {
 		const file = path.join(temp.path, "logs", "gui-timing.jsonl");
-		const log = new DesktopDiagnostics(file, true);
+		const log = new DesktopDiagnostics(file, debug);
 		log.reset();
-		expect(log.request("send-1", { sessionId: "session-1", value: { action: "prompt", text: "PRIVATE_INPUT", images: [] } }, 100)).toBe(true);
+		expect(log.request("send-1", { sessionId: "session-1", value: { action: "prompt", text: "PRIVATE_INPUT", images: [] } }, 100)).toBe(debug);
 		expect(log.request("query-1", { sessionId: null, value: { query: "image", id: "PRIVATE_IMAGE" } }, 100)).toBe(false);
 		log.backend("send-1", 110);
 		log.user("session-1", 120, 120);
-		expect(log.delivery({ kind: "frame", id: 1, events: [{ type: "selected", session: { id: "session-1", cwd: "/PRIVATE_PATH", path: null } }] }, 115)).toBe(true);
+		expect(log.delivery({ kind: "frame", id: 1, events: [{ type: "selected", session: { id: "session-1", cwd: "/PRIVATE_PATH", path: null } }] }, 115)).toBe(debug);
 		expect(log.delivery({ kind: "frame", id: 2, events: [{ type: "patch", sessionId: "session-1", value: {},
 			entries: { keep: 0, items: [{ id: "entry-1", parentId: null, type: "message", timestamp: new Date(120).toISOString(), label: undefined,
-				messages: [{ role: "user", content: "PRIVATE_INPUT", timestamp: 120 }] }] } }] }, 121)).toBe(true);
+				messages: [{ role: "user", content: "PRIVATE_INPUT", timestamp: 120 }] }] } }] }, 121)).toBe(debug);
 		log.received(1, 130);
 		log.received(2, 131);
 		log.acknowledge(2, 140);
 		log.acknowledge(2, 145);
 		log.result("send-1", false);
 		await log.close();
+		if (!debug) {
+			await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+			return;
+		}
 		const text = await readFile(file, "utf8");
 		expect(text).not.toContain("PRIVATE_");
 		const records: { phase: string; deliveryId?: number; requestId?: string }[] = text.trim().split("\n").map((line) => JSON.parse(line));

@@ -46,7 +46,7 @@ export function ContextUsage({ snapshot }: { snapshot: GuiSnapshot }) {
 						<div><dt>已用 tokens</dt><dd>{tokens == null ? "待估算" : tokens.toLocaleString()}</dd></div>
 						<div><dt>上下文容量</dt><dd>{capacity == null ? "未选择模型" : capacity.toLocaleString()}</dd></div>
 						<div><dt>已启用工具</dt><dd>{snapshot.tools.filter((tool) => tool.enabled).length}</dd></div>
-						<div><dt>累计 tokens</dt><dd>{snapshot.stats.tokens.total.toLocaleString()}</dd></div>
+						<div><dt>累计 tokens</dt><dd>{snapshot.stats.tokens.toLocaleString()}</dd></div>
 						<div><dt>{snapshot.stats.costFromProvider ? "费用" : "估算费用"}</dt><dd>${snapshot.stats.cost.toFixed(4)}</dd></div>
 					</dl>
 					<ContextCache snapshot={snapshot} />

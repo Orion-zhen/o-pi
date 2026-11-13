@@ -70,7 +70,7 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 		const schema = metadata.fields[field.path];
 		if (!schema) throw new Error(`设置字段缺少 schema: ${field.path}`);
 		const configuredDefault = at(defaults, field.path);
-		const defaultValue = configuredDefault === undefined ? schema?.default : configuredDefault;
+		const defaultValue = configuredDefault === undefined ? schema.default : configuredDefault;
 		const configuredValue = valueAt(field.path);
 		const value = configuredValue === undefined ? defaultValue : configuredValue;
 		const locked = blocked || (field.enabledBy !== undefined && valueAt(field.enabledBy) !== true);
@@ -97,7 +97,7 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 	})}</div>;
 	return <div className="settings-module">
 		{source || parsed.state === "invalid" || !dirty && parsed.error !== "" ? <SettingsSection key="main" title={title} actions={sourceButton} source={source}>
-			<Feedback message={parsed.error ?? ""} tone="error" />
+			<Feedback message={parsed.error} tone="error" />
 			{source && <SourceEditor file={document.path} label={`${id} 全局 JSONC`} value={draft} disabled={blocked} onChange={editor.changeSource} />}
 		</SettingsSection> : moduleGroups[id].map((group, index) => group.advanced
 			? <SettingsDisclosure key={group.title} title={group.title}>{fields(group.fields)}</SettingsDisclosure>

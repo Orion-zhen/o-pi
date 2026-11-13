@@ -37,8 +37,7 @@ export function autoTitleTests(context: () => {
 			}
 			await host.dispatch({ action: "model", provider: "gui-fixture", id: "second" });
 			const before = readSnapshot(host);
-			if (!before.sessionFile) throw new Error("缺少会话文件");
-			await host.dispatch({ action: "autoTitleSession", path: before.sessionFile });
+			await host.dispatch({ action: "autoTitleSession", path: host.selected?.file });
 			expect(requests.at(-1)).toMatchObject({ model: "second", messages: [
 				{ role: "system" },
 				{ role: "user", content: "<transcript>\nAssistant:\nGUI completed\n\nUser:\n第二轮\n\nAssistant:\nGUI completed\n\nUser:\n第三轮\n\nAssistant:\nGUI completed\n</transcript>" },
@@ -57,8 +56,7 @@ export function autoTitleTests(context: () => {
 			await host.dispatch({ action: "prompt", text: "另一分支的请求", images: [], behavior: "followUp" });
 			await host.dispatch({ action: "navigate", entryId: leaf, summarize: false });
 			const before = readSnapshot(host);
-			if (!before.sessionFile) throw new Error("缺少会话文件");
-			await host.dispatch({ action: "autoTitleSession", path: before.sessionFile });
+			await host.dispatch({ action: "autoTitleSession", path: host.selected?.file });
 			expect(requests.at(-1)?.messages.at(-1)?.content).toBe("<transcript>\nUser:\n分支前的请求\n\nAssistant:\nGUI completed\n</transcript>");
 			expect(readSnapshot(host).messages).toEqual(before.messages);
 		});

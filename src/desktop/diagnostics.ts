@@ -85,7 +85,7 @@ export class DesktopDiagnostics {
 				const patch = event.type === "patch" ? event : undefined;
 				const user = (snapshot?.entries ?? patch?.entries?.items)?.flatMap((entry) => entry.messages).findLast((message) => message.role === "user");
 				const sessionId = snapshot?.sessionId ?? patch?.sessionId;
-				if (!user || user.role !== "user" || !sessionId) continue;
+				if (!user || !sessionId) continue;
 				fields = { phase: "user_snapshot", sessionId, userTimestamp: user.timestamp, full: event.type === "snapshot" };
 			}
 			this.write({ ...fields, generation: this.generation, deliveryId: delivery.id,

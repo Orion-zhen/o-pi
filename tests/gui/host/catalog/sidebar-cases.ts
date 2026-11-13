@@ -178,13 +178,14 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			const { host } = context();
 			await host.dispatch({ action: "prompt", text: "待压缩的旧消息", images: [], behavior: "followUp" });
 			const before = readSnapshot(host);
+			const file = host.selected?.file;
 			const user = before.entries.find((entry) => entry.type === "message" && entry.messages[0]?.role === "user");
 			const answer = before.entries.findLast((entry) => entry.type === "message" && entry.messages[0]?.role === "assistant");
-			if (!before.sessionFile || !user || !answer) throw new Error("缺少持久化消息");
+			if (!file || !user || !answer) throw new Error("缺少持久化消息");
 			await host.dispatch({ action: "new" });
-			const manager = SessionManager.open(before.sessionFile);
+			const manager = SessionManager.open(file);
 			const summary = manager.appendCompaction("压缩摘要", answer.id, 100);
-			await host.dispatch({ action: "openSession", path: before.sessionFile });
+			await host.dispatch({ action: "openSession", path: file });
 			const snapshot = readSnapshot(host);
 			const current = locateTranscript(snapshot, summary);
 			expect(current.preview).toBe(false);

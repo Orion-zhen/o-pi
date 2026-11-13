@@ -34,8 +34,6 @@ export function liveSnapshot(): GuiSnapshot {
 		contextEntryIds: entries.map((entry) => entry.id), entries,
 		streamingMessage: { ...assistant([{ type: "thinking", thinking: "继续检查" }], "pending"), timestamp: 1000 },
 		thinking: "high",
-		stats: { ...snapshot.stats, sessionId: "live-perf", userMessages: 1, assistantMessages: 220, toolCalls: 220, toolResults: 220,
-			totalMessages: 441 },
 	};
 }
 

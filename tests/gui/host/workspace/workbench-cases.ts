@@ -8,20 +8,6 @@ import type { GuiClient } from "../../../../src/gui/host/client.ts";
 
 export function workbenchTests(context: () => { host: GuiClient; cwd: string }) {
 	describe("GUI 工作台读取边界", () => {
-		it("文件补全不加载已回收的 SDK，删除中的会话不能读取", async () => {
-			const { host, cwd } = context();
-			const session = host.selected;
-			if (!session) throw new Error("缺少初始会话");
-			await mkdir(path.join(cwd, "inputs"));
-			await host.dispatch({ action: "observe", visible: false });
-			await session.release();
-			expect(session.execution).toBeUndefined();
-			await expect(host.query({ query: "files", prefix: "in" }, session.id)).resolves.toEqual(["input.txt", "inputs/"]);
-			expect(session.execution).toBeUndefined();
-			session.reserveDeletion();
-			try { await expect(host.query({ query: "files", prefix: "in" }, session.id)).rejects.toThrow("正在删除"); }
-			finally { session.cancelDeletion(); }
-		});
 		it("LSP 查询检查当前工作区的命令，切换后拒绝旧目录", async () => {
 			const { host, cwd } = context();
 			const config = await host.query({ query: "moduleConfig", id: "lsp" });

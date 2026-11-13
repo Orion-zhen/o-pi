@@ -60,7 +60,8 @@ export type GuiSubagentRun = GuiSubagentDetails["results"][number];
 export type GuiWebSearch = Static<typeof webSearch>;
 export type GuiWebFetch = Static<typeof webFetch>;
 export type ToolDetails =
-	| { view: "raw" | "progress" }
+	| { view: "raw" }
+	| { view: "progress" }
 	| { view: "read"; details: Static<typeof read> }
 	| { view: "diff"; details: Static<typeof diff> }
 	| { view: "grep"; details: Static<typeof grep> }
