@@ -70,7 +70,7 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 			const prepared = await prepareEdit(file, target.displayPath, params.edits, context);
 			if (isFailed(prepared)) throw new EditPreparationError(prepared);
 			const bytes = buildTextBytes(prepared.updatedText, file.hasBom);
-			safePrepared(context.onPrepared, { ...prepared.preview });
+			context.onPrepared?.({ ...prepared.preview });
 			const baseline = await captureMutationDiagnostics(context.diagnostics, target, context.operation.signal);
 			return { bytes, prepared: { ...prepared, baseline } };
 		},
@@ -97,7 +97,7 @@ export async function editFile(params: EditParams, context: EditCommandContext):
 		created: false,
 		changedRanges,
 		...(baseline === undefined ? {} : { baseline }),
-		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+		signal: context.operation.signal,
 	});
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
 	return result;
@@ -276,10 +276,4 @@ function mapMutationError(error: Parameters<typeof mapFsError>[0]): FailedResult
 		...(expected === undefined ? {} : { expected }),
 		...(actual === undefined ? {} : { actual }),
 	});
-}
-
-function safePrepared(observer: EditCommandContext["onPrepared"], preview: EditPreviewSuccess): void {
-	try {
-		observer?.(preview);
-	} catch {}
 }

@@ -53,10 +53,10 @@ describe("PruneService", () => {
 		const harness = createHarness(manager.getEntries());
 		harness.port.getMessages = () => manager.buildSessionContext().messages;
 		const result = await new PruneService().execute({ operation: "prune", model: { ...solModel(), cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, port: harness.port });
-		expect(result).toMatchObject({ status: "applied", result: { removedToolCalls: 1, removedToolResults: 1 } });
+		expect(result).toMatchObject({ code: "PRUNED", result: { removedToolCalls: 1, removedToolResults: 1 } });
 	});
 
-	it("成本允许时写入 checkpoint 并返回 JSON-safe 结果", async () => {
+	it("成本允许时写入 checkpoint 并返回裁剪摘要", async () => {
 		const harness = createHarness(transactionEntries());
 		const service = new PruneService();
 		const model = {
@@ -67,17 +67,13 @@ describe("PruneService", () => {
 		const outcome = await service.execute({ operation: "prune", model, port: harness.port });
 
 		expect(outcome).toMatchObject({
-			status: "applied",
-			operation: "prune",
 			code: "PRUNED",
 			result: { removedToolCalls: 1, removedToolResults: 1 },
-			state: pruneState(["done"]),
 		});
 		expect(harness.appended).toEqual([{
 			customType: PRUNE_STATE,
 			state: pruneState(["done"]),
 		}]);
-		expect(structuredClone(outcome)).toEqual(JSON.parse(JSON.stringify(outcome)));
 	});
 
 	it("force 无需模型或成本估算", async () => {
@@ -89,12 +85,8 @@ describe("PruneService", () => {
 			port: harness.port,
 		});
 
-		expect(outcome).toMatchObject({
-			status: "applied",
-			operation: "force",
-			code: "FORCE_PRUNED",
-			state: pruneState(["done"]),
-		});
+		expect(outcome).toMatchObject({ code: "FORCE_PRUNED", result: { removedToolCalls: 1 } });
+		expect(harness.appended).toEqual([{ customType: PRUNE_STATE, state: pruneState(["done"]) }]);
 	});
 
 	it("restore 撤销最近一次未撤销的 checkpoint", async () => {
@@ -115,11 +107,8 @@ describe("PruneService", () => {
 		});
 
 		expect(outcome).toEqual({
-			status: "applied",
-			operation: "restore",
 			code: "RESTORED",
 			restoredToolCalls: 1,
-			state: restoreState(["a"], "prune-2"),
 		});
 		expect(harness.appended).toEqual([{
 			customType: PRUNE_STATE,
@@ -142,8 +131,6 @@ describe("PruneService", () => {
 		});
 
 		expect(outcome).toEqual({
-			status: "rejected",
-			operation: "restore",
 			code: "RESTORE_COMPACTED",
 			missingToolCallIds: ["b"],
 		});
@@ -158,17 +145,17 @@ describe("PruneService", () => {
 			operation: "prune",
 			model: undefined,
 			port: empty.port,
-		})).toEqual({ status: "rejected", operation: "prune", code: "MODEL_REQUIRED" });
+		})).toEqual({ code: "MODEL_REQUIRED" });
 		expect(await service.execute({
 			operation: "force",
 			model: undefined,
 			port: empty.port,
-		})).toEqual({ status: "skipped", operation: "force", code: "NO_CANDIDATES" });
+		})).toEqual({ code: "NO_CANDIDATES" });
 		expect(await service.execute({
 			operation: "restore",
 			model: undefined,
 			port: empty.port,
-		})).toEqual({ status: "skipped", operation: "restore", code: "NO_RESTORE" });
+		})).toEqual({ code: "NO_RESTORE" });
 	});
 
 	it("等待 idle 后再变更状态，并在等待期间响应取消", async () => {
@@ -191,8 +178,6 @@ describe("PruneService", () => {
 		controller.abort();
 		gate.resolve();
 		expect(await result).toEqual({
-			status: "cancelled",
-			operation: "force",
 			code: "CANCELLED",
 		});
 		expect(harness.appended).toEqual([]);
@@ -216,8 +201,8 @@ describe("PruneService", () => {
 		expect(waitCalls).toBe(1);
 
 		firstGate.resolve();
-		expect(await first).toMatchObject({ status: "applied", code: "FORCE_PRUNED" });
-		expect(await second).toEqual({ status: "skipped", operation: "force", code: "NO_CANDIDATES" });
+		expect(await first).toMatchObject({ code: "FORCE_PRUNED" });
+		expect(await second).toEqual({ code: "NO_CANDIDATES" });
 		expect(waitCalls).toBe(2);
 		expect(harness.appended).toHaveLength(1);
 	});

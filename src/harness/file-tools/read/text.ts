@@ -22,7 +22,7 @@ export async function readTextRanges(
 	let remainingLines = context.limits.read_lines;
 	let continuation: ReadSuccess["continuation"];
 	for (const [index, range] of ranges.entries()) {
-		if (context.operation.signal?.aborted) return fail("OPERATION_ABORTED", "Operation aborted.", { path: file.displayPath });
+		if (context.operation.signal.aborted) return fail("OPERATION_ABORTED", "Operation aborted.", { path: file.displayPath });
 		const wrapperBytes = ranges.length > 1 ? Buffer.byteLength(formatReadSegment("\n", range.start, range.end)) : 0;
 		const maxBytes = remainingBytes - wrapperBytes;
 		if (maxBytes <= 0 || remainingLines <= 0) {
@@ -44,7 +44,7 @@ export async function readTextRanges(
 		let structureText: string | undefined;
 		while (true) {
 			structure = await structureContext(file, content, slice, requested !== undefined, context);
-			if (context.operation.signal?.aborted) return fail("OPERATION_ABORTED", "Operation aborted.", { path: file.displayPath });
+			if (context.operation.signal.aborted) return fail("OPERATION_ABORTED", "Operation aborted.", { path: file.displayPath });
 			structureText = formatReadStructureContext(structure);
 			if (structureText === undefined) break;
 			const bytes = Buffer.byteLength(`${structureText}\n`);
@@ -112,7 +112,7 @@ async function structureContext(
 			endLine: slice.endLine,
 			partial,
 			truncated: slice.truncated,
-			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+			signal: context.operation.signal,
 		});
 	} catch {
 		return undefined;

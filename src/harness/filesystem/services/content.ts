@@ -97,8 +97,8 @@ class NativeLineScan implements LineScan {
 		private readonly options: ReadOptions,
 		private readonly context: FsOperationContext,
 	) {
-		if (context.signal?.aborted === true) this.onAbort();
-		else context.signal?.addEventListener("abort", this.onAbort, { once: true });
+		if (context.signal.aborted) this.onAbort();
+		else context.signal.addEventListener("abort", this.onAbort, { once: true });
 	}
 
 	[Symbol.asyncIterator](): AsyncIterator<FsResult<ScannedLine>> {
@@ -107,7 +107,7 @@ class NativeLineScan implements LineScan {
 
 	async close(): Promise<void> {
 		this.stopped = true;
-		this.context.signal?.removeEventListener("abort", this.onAbort);
+		this.context.signal.removeEventListener("abort", this.onAbort);
 		await this.closeHandle();
 	}
 
@@ -117,7 +117,7 @@ class NativeLineScan implements LineScan {
 	}
 
 	private isAborted(): boolean {
-		return this.aborted || this.context.signal?.aborted === true;
+		return this.aborted || this.context.signal.aborted;
 	}
 
 	private async *iterate(): AsyncGenerator<FsResult<ScannedLine>> {

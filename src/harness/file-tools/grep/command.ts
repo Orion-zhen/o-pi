@@ -3,7 +3,6 @@ import { languageFromPath } from "../../syntax-tree/grammars.ts";
 import type { AnalyzeCode, PrepareCodeAnalysis } from "../../code-index/types.ts";
 import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
-import { combineOperationContext } from "../shared/operation-context.ts";
 import type { FileToolLimits } from "../../file-tool-limits.ts";
 import type { TokenCounterScope } from "../../token-counter.ts";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.ts";
@@ -38,7 +37,7 @@ export class GrepTool {
 	private disposed = false;
 
 	async execute(params: GrepParams, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
-		if (this.disposed || isAborted(context.operation.signal)) return aborted();
+		if (this.disposed || context.operation.signal.aborted) return aborted();
 		const invocation = new AbortController();
 		const contentCache = this.contentCache.acquire(
 			context.limits.grep_content_cache_bytes,
@@ -46,7 +45,7 @@ export class GrepTool {
 		);
 		context = {
 			...context,
-			operation: combineOperationContext(context.operation, this.owner.signal, invocation.signal),
+			operation: { signal: AbortSignal.any([context.operation.signal, this.owner.signal, invocation.signal]) },
 		};
 		try {
 			const plan = createQueryPlan(params);
@@ -148,7 +147,7 @@ function prepareCodeAnalysis(inventory: ScopeInventory, context: GrepCommandCont
 	if (paths.length === 0) return Promise.resolve();
 	return context.prepareCodeAnalysis({
 		paths,
-		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+		signal: context.operation.signal,
 	}).catch(() => undefined);
 }
 
@@ -211,10 +210,6 @@ function uniqueStrings(values: readonly string[]): string[] {
 
 export function formatCompactGrepResult(result: GrepSuccess): string {
 	return renderGrepSuccess(result);
-}
-
-function isAborted(signal: AbortSignal | undefined): boolean {
-	return signal?.aborted === true;
 }
 
 function aborted(path?: string): ReturnType<typeof fail> {

@@ -10,7 +10,7 @@ export interface MutationLineRange {
 export interface MutationDiagnosticsSource {
 	beforeMutation(input: {
 		readonly target: TargetRef;
-		readonly signal?: AbortSignal;
+		readonly signal: AbortSignal;
 	}): Promise<DiagnosticSnapshot | undefined>;
 	afterMutation(input: {
 		readonly target: TargetRef;
@@ -18,17 +18,17 @@ export interface MutationDiagnosticsSource {
 		readonly created: boolean;
 		readonly changedRanges?: readonly MutationLineRange[];
 		readonly baseline?: DiagnosticSnapshot;
-		readonly signal?: AbortSignal;
+		readonly signal: AbortSignal;
 	}): Promise<DiagnosticsSummary | undefined>;
 }
 
 export async function captureMutationDiagnostics(
 	source: MutationDiagnosticsSource | undefined,
 	target: TargetRef,
-	signal: AbortSignal | undefined,
+	signal: AbortSignal,
 ): Promise<DiagnosticSnapshot | undefined> {
 	try {
-		return await source?.beforeMutation({ target, ...(signal === undefined ? {} : { signal }) });
+		return await source?.beforeMutation({ target, signal });
 	} catch {
 		return undefined;
 	}

@@ -116,14 +116,13 @@ export function createVerifiedCodeRegion(
 			throw new RangeError("verified hit must belong to the region");
 		}
 	}
-	const sortedHits = [...hits].sort((left, right) => left.line - right.line || left.byteStart - right.byteStart);
-	const matchLines = [...new Set(sortedHits.map((hit) => hit.line))];
-	const firstLine = matchLines[0];
-	const firstHit = sortedHits[0];
-	if (firstLine === undefined || firstHit === undefined) throw new RangeError("verified region requires a text hit");
+	const sortedHits: [TextHit, ...TextHit[]] = [...hits];
+	sortedHits.sort((left, right) => left.line - right.line || left.byteStart - right.byteStart);
+	const matchLines: [number, ...number[]] = [sortedHits[0].line];
 	const displayLines: GrepDisplayLine[] = [];
 	const seenLines = new Set<number>();
 	for (const hit of sortedHits) {
+		if (hit.line !== matchLines.at(-1)) matchLines.push(hit.line);
 		if (seenLines.has(hit.line) || declarationCoversHit(input.context ?? input.declaration, input.declarationEndByte, hit)) continue;
 		seenLines.add(hit.line);
 		displayLines.push({
@@ -135,8 +134,8 @@ export function createVerifiedCodeRegion(
 	return {
 		...input,
 		queryMatch: "verified",
-		verifiedHits: [firstHit, ...sortedHits.slice(1)],
-		matchLines: [firstLine, ...matchLines.slice(1)],
+		verifiedHits: sortedHits,
+		matchLines,
 		displayLines,
 	};
 }

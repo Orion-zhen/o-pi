@@ -57,12 +57,12 @@ export async function analyzeSymbols(
 				if (hasBareCr(content.value.text)) return undefined;
 				return { path, text: content.value.text, hash: content.value.hash };
 			},
-			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+			signal: context.operation.signal,
 		});
 	} catch {
-		return context.operation.signal?.aborted === true ? aborted() : unavailable;
+		return context.operation.signal.aborted ? aborted() : unavailable;
 	}
-	if (context.operation.signal?.aborted === true) return aborted();
+	if (context.operation.signal.aborted) return aborted();
 	if (analysis === undefined) return unavailable;
 	const coverage = new Map(unavailable.coverage.map((item) => [item.path, item]));
 	const files: SemanticRegionizedFile[] = [];

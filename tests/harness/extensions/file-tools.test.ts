@@ -10,7 +10,7 @@ import { executeTool } from "../file-tools/extension-fixture.ts";
 const workspace = useTempDir("opi-file-batch-");
 afterEach(() => vi.restoreAllMocks());
 
-it.each([false, true])("文件修改在并发或顺序执行时都能完成，诊断对应各自文件：%s", async (parallel) => {
+it.each([false, true])("文件修改不受进度通知异常影响，并发和顺序诊断对应各自文件：%s", async (parallel) => {
 	const { registered, handlers } = registerExtension(fileTools);
 	const cwd = workspace.path;
 	const ctx = { cwd, sessionManager: { getSessionId: () => "batch", getBranch: () => [], getLeafId: () => null, getEntry: () => undefined } };
@@ -25,6 +25,7 @@ it.each([false, true])("文件修改在并发或顺序执行时都能完成，�
 		return inputs.map((input) => diagnostics(basename(input.filePath)));
 	});
 	const calls = [{ id: "a", name: "write" }, { id: "b", name: "edit" }];
+	const onUpdate = vi.fn((_update: unknown) => { throw new Error("进度通知失败"); });
 	try {
 		await writeFile(join(cwd, "b.ts"), "before\n");
 		await executeTool(registered, "read", { path: "b.ts" }, ctx);
@@ -34,13 +35,18 @@ it.each([false, true])("文件修改在并发或顺序执行时都能完成，�
 		const write = registered.find((tool) => tool.name === "write");
 		const edit = registered.find((tool) => tool.name === "edit");
 		if (!write || !edit) throw new Error("文件工具未注册");
-		const runWrite = () => write.execute("a", { path: "a.ts", content: "updated\n" }, undefined, undefined, ctx);
-		const runEdit = () => edit.execute("b", { path: "b.ts", edits: [{ old: "before", new: "updated" }] }, undefined, undefined, ctx);
+		const runWrite = () => write.execute("a", { path: "a.ts", content: "updated\n" }, undefined, onUpdate, ctx);
+		const runEdit = () => edit.execute("b", { path: "b.ts", edits: [{ old: "before", new: "updated" }] }, undefined, onUpdate, ctx);
 		await handlers.get("tool_execution_start")?.({ toolCallId: "a" });
 		const a = runWrite();
 		if (!parallel) await a;
 		await handlers.get("tool_execution_start")?.({ toolCallId: "b" });
 		const results = await Promise.all([a, runEdit()]);
+		expect(onUpdate.mock.calls.map(([update]) => update)).toEqual(expect.arrayContaining([
+			expect.objectContaining({ details: expect.objectContaining({ status: "writing", diff: expect.any(String) }) }),
+			expect.objectContaining({ details: expect.objectContaining({ status: "editing", diff: expect.any(String) }) }),
+			expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", diff: expect.any(String) }) }),
+		]));
 		for (const [index, result] of results.entries()) {
 			const file = index === 0 ? "a.ts" : "b.ts";
 			expect(result.details).toMatchObject({ path: file, lsp: { diagnostics: { items: [{ message: file }] } } });

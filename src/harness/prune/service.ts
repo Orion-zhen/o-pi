@@ -30,67 +30,13 @@ export interface PruneResultSummary {
 }
 
 export type PruneOperationOutcome =
-	| {
-		status: "applied";
-		operation: "prune";
-		code: "PRUNED";
-		preview: PruneCostPreview;
-		result: PruneResultSummary;
-		state: PruneCheckpointState;
-	}
-	| {
-		status: "applied";
-		operation: "force";
-		code: "FORCE_PRUNED";
-		result: PruneResultSummary;
-		state: PruneCheckpointState;
-	}
-	| {
-		status: "applied";
-		operation: "restore";
-		code: "RESTORED";
-		restoredToolCalls: number;
-		state: PruneRestoreState;
-	}
-	| {
-		status: "skipped";
-		operation: "prune" | "force";
-		code: "NO_CANDIDATES";
-	}
-	| {
-		status: "skipped";
-		operation: "prune";
-		code: "RETAINED";
-		candidateToolCalls: number;
-		preview: PruneCostPreview;
-	}
-	| {
-		status: "skipped";
-		operation: "restore";
-		code: "NO_RESTORE";
-	}
-	| {
-		status: "rejected";
-		operation: "prune";
-		code: "MODEL_REQUIRED";
-	}
-	| {
-		status: "rejected";
-		operation: "restore";
-		code: "RESTORE_COMPACTED";
-		missingToolCallIds: string[];
-	}
-	| {
-		status: "cancelled";
-		operation: PruneOperation;
-		code: "CANCELLED";
-	}
-	| {
-		status: "failed";
-		operation: PruneOperation;
-		code: "IDLE_WAIT_FAILED" | "OPERATION_FAILED";
-		message: string;
-	};
+	| { code: "PRUNED"; preview: PruneCostPreview; result: PruneResultSummary }
+	| { code: "FORCE_PRUNED"; result: PruneResultSummary }
+	| { code: "RESTORED"; restoredToolCalls: number }
+	| { code: "NO_CANDIDATES" | "NO_RESTORE" | "MODEL_REQUIRED" | "CANCELLED" }
+	| { code: "RETAINED"; candidateToolCalls: number; preview: PruneCostPreview }
+	| { code: "RESTORE_COMPACTED"; missingToolCallIds: string[] }
+	| { code: "IDLE_WAIT_FAILED" | "OPERATION_FAILED"; message: string };
 
 export interface PruneServicePort {
 	waitForIdle(): Promise<void>;
@@ -112,20 +58,20 @@ export class PruneService {
 
 	execute(input: PruneExecutionInput): Promise<PruneOperationOutcome> {
 		const run = async (): Promise<PruneOperationOutcome> => {
-			if (input.signal?.aborted) return cancelled(input.operation);
+			if (input.signal?.aborted) return { code: "CANCELLED" };
 			try {
 				await input.port.waitForIdle();
 			} catch (error) {
-				return failed(input.operation, "IDLE_WAIT_FAILED", error);
+				return failed("IDLE_WAIT_FAILED", error);
 			}
-			if (input.signal?.aborted) return cancelled(input.operation);
+			if (input.signal?.aborted) return { code: "CANCELLED" };
 			try {
 				return executeReady(input);
 			} catch (error) {
-				return failed(input.operation, "OPERATION_FAILED", error);
+				return failed("OPERATION_FAILED", error);
 			}
 		};
-		const result = this.tail.then(run, run);
+		const result = this.tail.then(run);
 		this.tail = result.then(() => undefined, () => undefined);
 		return result;
 	}
@@ -135,7 +81,7 @@ function executeReady(input: PruneExecutionInput): PruneOperationOutcome {
 	if (input.operation === "force") return forcePrune(input.port);
 	if (input.operation === "restore") return restorePrune(input.port);
 	if (input.model === undefined) {
-		return { status: "rejected", operation: "prune", code: "MODEL_REQUIRED" };
+		return { code: "MODEL_REQUIRED" };
 	}
 	return costAwarePrune(input.port, input.model);
 }
@@ -143,7 +89,7 @@ function executeReady(input: PruneExecutionInput): PruneOperationOutcome {
 function costAwarePrune(port: PruneServicePort, model: Model<Api>): PruneOperationOutcome {
 	const selection = selectPrunableToolTransactions(port);
 	if (selection.candidates.size === 0) {
-		return { status: "skipped", operation: "prune", code: "NO_CANDIDATES" };
+		return { code: "NO_CANDIDATES" };
 	}
 
 	const preview = previewPruneCost(
@@ -155,8 +101,6 @@ function costAwarePrune(port: PruneServicePort, model: Model<Api>): PruneOperati
 	);
 	if (!preview.shouldPrune) {
 		return {
-			status: "skipped",
-			operation: "prune",
 			code: "RETAINED",
 			candidateToolCalls: selection.candidates.size,
 			preview,
@@ -166,36 +110,30 @@ function costAwarePrune(port: PruneServicePort, model: Model<Api>): PruneOperati
 	const state = createPruneState(selection.previouslyPruned, selection.candidates);
 	port.appendState(PRUNE_STATE, state);
 	return {
-		status: "applied",
-		operation: "prune",
 		code: "PRUNED",
 		preview,
 		result: summarize(selection.afterResult),
-		state,
 	};
 }
 
 function forcePrune(port: PruneServicePort): PruneOperationOutcome {
 	const selection = selectPrunableToolTransactions(port);
 	if (selection.candidates.size === 0) {
-		return { status: "skipped", operation: "force", code: "NO_CANDIDATES" };
+		return { code: "NO_CANDIDATES" };
 	}
 
 	const state = createPruneState(selection.previouslyPruned, selection.candidates);
 	port.appendState(PRUNE_STATE, state);
 	return {
-		status: "applied",
-		operation: "force",
 		code: "FORCE_PRUNED",
 		result: summarize(selection.afterResult),
-		state,
 	};
 }
 
 function restorePrune(port: PruneServicePort): PruneOperationOutcome {
 	const target = findRestorablePruneState(port.getBranch());
 	if (target === undefined) {
-		return { status: "skipped", operation: "restore", code: "NO_RESTORE" };
+		return { code: "NO_RESTORE" };
 	}
 
 	const previousToolCallIds = new Set(target.previousToolCallIds);
@@ -204,8 +142,6 @@ function restorePrune(port: PruneServicePort): PruneOperationOutcome {
 	const missingToolCallIds = restoredToolCallIds.filter((id) => !completedToolCallIds.has(id));
 	if (missingToolCallIds.length > 0) {
 		return {
-			status: "rejected",
-			operation: "restore",
 			code: "RESTORE_COMPACTED",
 			missingToolCallIds,
 		};
@@ -218,11 +154,8 @@ function restorePrune(port: PruneServicePort): PruneOperationOutcome {
 	};
 	port.appendState(PRUNE_STATE, state);
 	return {
-		status: "applied",
-		operation: "restore",
 		code: "RESTORED",
 		restoredToolCalls: restoredToolCallIds.length,
-		state,
 	};
 }
 
@@ -305,18 +238,11 @@ function summarize(result: ReturnType<typeof pruneToolTransactions>): PruneResul
 	};
 }
 
-function cancelled(operation: PruneOperation): PruneOperationOutcome {
-	return { status: "cancelled", operation, code: "CANCELLED" };
-}
-
 function failed(
-	operation: PruneOperation,
 	code: "IDLE_WAIT_FAILED" | "OPERATION_FAILED",
 	error: unknown,
 ): PruneOperationOutcome {
 	return {
-		status: "failed",
-		operation,
 		code,
 		message: error instanceof Error ? error.message : String(error),
 	};

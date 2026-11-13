@@ -54,20 +54,28 @@ afterEach(() => {
 });
 
 describe("subagent execution", () => {
-	it("并行执行汇总结果、task cwd 和实时进度", async () => {
+	it("混合 isolated/fork 任务保留各自执行配置、结果顺序和实时进度", async () => {
 		await mkdir(path.join(workspace, "pkg"));
+		await writeAgent("forker", "read", { fork: true });
 		setOutputSpawn((task) => `done: ${task}`);
 		const updates: number[] = [];
 
 		const result = await runTasks(
-			[{ agent: "scout", task: "inspect auth" }, { agent: "scout", task: "inspect tests", cwd: "pkg" }],
-			context({ onProgress: ({ result }) => updates.push(result.details.results.length) }),
+			[
+				{ agent: "scout", task: "inspect auth" },
+				{ agent: "forker", task: "inspect inherited", cwd: "ignored-missing-directory" },
+				{ agent: "scout", task: "inspect tests", cwd: "pkg" },
+			],
+			forkExecutorContext({ onProgress: ({ result }) => updates.push(result.details.results.length) }),
 		);
 
 		expect(result.details.mode).toBe("parallel");
-		expect(result.details.results.map((item) => item.cwd)).toEqual([workspace, path.join(workspace, "pkg")]);
-		expect(result.details.results.map((item) => item.output)).toEqual(["done: inspect auth", "done: inspect tests"]);
-		expect(updates).toContain(2);
+		expect(result.details.results).toMatchObject([
+			{ contextMode: "isolated", cwd: workspace, tools: ["read"], output: "done: inspect auth" },
+			{ contextMode: "fork", cwd: workspace, tools: ["read", "subagent"], output: expect.stringContaining("inspect inherited") },
+			{ contextMode: "isolated", cwd: path.join(workspace, "pkg"), tools: ["read"], output: "done: inspect tests" },
+		]);
+		expect(updates).toContain(3);
 	});
 
 	it("/run application 以统一结构发送进度并返回最终结果", async () => {

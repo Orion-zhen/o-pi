@@ -82,7 +82,7 @@ export class WorkspaceDiscoveryService implements DiscoveryOperations {
 	private open(root: DiscoveryRoot, options: DiscoveryOptions, mode: "snapshots"): Promise<FsResult<Discovery>>;
 	private open(root: DirectoryRef, options: DiscoveryOptions, mode: "paths"): Promise<FsResult<PathDiscovery>>;
 	private async open(root: DiscoveryRoot, options: DiscoveryOptions, mode: DiscoveryMode): Promise<FsResult<PathDiscovery>> {
-		if (this.dependencies.context.signal?.aborted === true) return aborted(root.displayPath);
+		if (this.dependencies.context.signal.aborted) return aborted(root.displayPath);
 		let selector: GlobSelector | undefined;
 		if (options.glob !== undefined) {
 			if (this.cachedGlob?.input === options.glob) selector = this.cachedGlob.selector;
@@ -191,7 +191,7 @@ class NativeDiscovery implements PathDiscovery {
 	private async *iterate(): AsyncGenerator<PathDiscoveryEvent> {
 		try {
 			if (this.stopped) return;
-			if (this.dependencies.context.signal?.aborted === true) {
+			if (this.dependencies.context.signal.aborted) {
 				yield abortedEvent(this.root.displayPath);
 				return;
 			}
@@ -255,7 +255,7 @@ class NativeDiscovery implements PathDiscovery {
 		const sorted = [...entries].sort((left, right) => compareLogicalPath(left.name, right.name));
 		for (let start = 0; start < sorted.length;) {
 			if (this.stopped) return;
-			if (this.dependencies.context.signal?.aborted === true) {
+			if (this.dependencies.context.signal.aborted) {
 				this.stopped = true;
 				yield abortedEvent(directory.displayPath);
 				return;
@@ -268,7 +268,7 @@ class NativeDiscovery implements PathDiscovery {
 			start += batchSize;
 			for (const { entry, prepared } of batch) {
 				if (this.stopped) return;
-				if (isAborted(this.dependencies.context)) {
+				if (this.dependencies.context.signal.aborted) {
 					this.stopped = true;
 					yield abortedEvent(directory.displayPath);
 					return;
@@ -396,10 +396,6 @@ function extractStaticDirectoryPrefix(pattern: string): string | undefined {
 	if (scanned.isGlob) return base;
 	const separator = base.lastIndexOf("/");
 	return separator <= 0 ? undefined : base.slice(0, separator);
-}
-
-function isAborted(context: FsOperationContext): boolean {
-	return context.signal?.aborted === true;
 }
 
 function aborted(pathname: string): FsResult<never> {

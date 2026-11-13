@@ -42,7 +42,7 @@ export async function findFiles(params: FindParams, context: FindCommandContext)
 	if (isFailed(normalized)) return normalized;
 	const plan = createFindQueryPlan(normalized.query);
 	if (isFailed(plan)) return plan;
-	if (isOperationAborted(context.operation)) return aborted();
+	if (context.operation.signal.aborted) return aborted();
 
 	const scopeErrors: FindScopeError[] = [];
 	const resolved: NormalizedFindScope[] = [];
@@ -64,7 +64,7 @@ export async function findFiles(params: FindParams, context: FindCommandContext)
 	const discoveries: Array<{ scope: NormalizedFindScope; result: ScopeDiscovery }> = [];
 	let remainingEntries = context.limits.find_max_entries;
 	for (const [scopeIndex, scope] of scopes.entries()) {
-		if (isOperationAborted(context.operation)) return aborted();
+		if (context.operation.signal.aborted) return aborted();
 		const result = await discoverScope(scope, normalized.glob, remainingEntries, context, (entry) => {
 			if (seenPaths.has(entry.path)) return;
 			seenPaths.add(entry.path);
@@ -82,7 +82,7 @@ export async function findFiles(params: FindParams, context: FindCommandContext)
 			}
 		}
 	}
-	if (isOperationAborted(context.operation)) return aborted();
+	if (context.operation.signal.aborted) return aborted();
 	if (discoveries.length === 0) {
 		const first = scopeErrors[0];
 		if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
@@ -183,7 +183,7 @@ async function discoverScope(
 			processedEvents += 1;
 			if (processedEvents % 256 === 0) {
 				await yieldToEventLoop();
-				if (isOperationAborted(context.operation)) return aborted(scope.root.displayPath);
+				if (context.operation.signal.aborted) return aborted(scope.root.displayPath);
 			}
 			if (event.type === "entry") {
 				consumedEntries += 1;
@@ -256,10 +256,6 @@ function withScopeErrors(
 			details: { ...(result.error.details ?? {}), paths: [...paths], scope_errors: scopeErrors },
 		},
 	};
-}
-
-function isOperationAborted(operation: FsOperationContext): boolean {
-	return operation.signal?.aborted === true;
 }
 
 function aborted(path?: string): FailedResult {

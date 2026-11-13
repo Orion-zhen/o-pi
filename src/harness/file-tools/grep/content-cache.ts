@@ -91,7 +91,7 @@ export class GrepContentCache {
 			if (metadata.error.code !== "aborted") this.delete(key, cached);
 			return undefined;
 		}
-		if (operation.signal?.aborted === true) return undefined;
+		if (operation.signal.aborted) return undefined;
 		if (!sameSnapshot(file, metadata.value)) {
 			this.delete(key, cached);
 			return undefined;

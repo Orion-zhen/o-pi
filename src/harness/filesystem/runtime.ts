@@ -23,7 +23,7 @@ export interface OpenWorkspaceOptions {
 	readonly cwd: string;
 	readonly policy: FilesystemPolicy;
 	readonly pathAccess?: FilesystemPathAccess;
-	readonly context?: FsOperationContext;
+	readonly context?: Partial<FsOperationContext>;
 	readonly onCommitted?: (receipt: MutationReceipt) => void;
 }
 

@@ -72,7 +72,7 @@ export async function scanInventoryText(
 	try {
 		return await scanText(inventory, prepareTextQuery(plan, matcher), context);
 	} catch (error) {
-		if (context.operation.signal?.aborted === true || error instanceof WorkerTaskAbortedError) return aborted(inventory.scopes[0]?.input ?? ".");
+		if (context.operation.signal.aborted || error instanceof WorkerTaskAbortedError) return aborted(inventory.scopes[0]?.input ?? ".");
 		throw error;
 	} finally {
 		matcher.dispose();
@@ -93,11 +93,10 @@ async function scanText(inventory: ScopeInventory, query: PreparedTextQuery, con
 	let droppedRelatedAnchors = 0;
 
 	for (let start = 0; start < inventory.files.length; start += FILE_SCAN_CONCURRENCY) {
-		if (context.operation.signal?.aborted === true) return aborted(inventory.files[start]?.path ?? inventory.scopes[0]?.input ?? ".");
+		if (context.operation.signal.aborted) return aborted(inventory.files[start]?.path ?? inventory.scopes[0]?.input ?? ".");
 		const batch = inventory.files.slice(start, start + FILE_SCAN_CONCURRENCY);
 		const cancellation = new AbortController();
-		const signal = context.operation.signal === undefined ? cancellation.signal
-			: AbortSignal.any([context.operation.signal, cancellation.signal]);
+		const signal = AbortSignal.any([context.operation.signal, cancellation.signal]);
 		const scans = batch.map((file) => scanFile(file, query, { ...context, operation: { ...context.operation, signal } }));
 		let scannedBatch: Awaited<ReturnType<typeof scanFile>>[];
 		try {
@@ -219,7 +218,7 @@ async function scanFile(
 	};
 	if (retained !== undefined) {
 		for (const line of scannedTextLines(retained.text)) {
-			if (context.operation.signal?.aborted === true) throw new WorkerTaskAbortedError();
+			if (context.operation.signal.aborted) throw new WorkerTaskAbortedError();
 			if (appendLine(line)) await flush();
 		}
 	} else {

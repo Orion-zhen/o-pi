@@ -73,7 +73,7 @@ export async function buildScopeInventory(
 	};
 
 	for (const [scopeIndex, scopeInput] of input.paths.entries()) {
-		if (isAborted(context.operation.signal)) return aborted(scopeInput);
+		if (context.operation.signal.aborted) return aborted(scopeInput);
 		const resolved = await resolveScope(scopeInput, context);
 		if (isFailed(resolved)) {
 			if (resolved.error.code === "OPERATION_ABORTED") return resolved;
@@ -147,7 +147,7 @@ async function discoverScope(scope: InventoryScope, state: MutableInventoryState
 	}
 	try {
 		for await (const event of opened.value) {
-			if (isAborted(state.context.operation.signal)) return aborted(scope.root.displayPath);
+			if (state.context.operation.signal.aborted) return aborted(scope.root.displayPath);
 			const consumed = consumeDiscoveryEvent(event, scope, state);
 			if (consumed === "byte-limit") break;
 			if (consumed !== undefined) return consumed;
@@ -219,10 +219,6 @@ function addFile(
 		explicitFile,
 	});
 	return true;
-}
-
-function isAborted(signal: AbortSignal | undefined): boolean {
-	return signal?.aborted === true;
 }
 
 function aborted(path?: string): FailedResult {

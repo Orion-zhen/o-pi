@@ -32,11 +32,29 @@ afterEach(() => {
 });
 
 describe("Discord presence 服务与 Pi 适配", () => {
-	it("配置尚未加载时不虚构 profile", () => {
+	it("禁用时保留档位，启用校验配置，重载移除的档位后使用默认值", async () => {
 		const service = new DiscordPresenceService();
-
+		const context = { cwd: "/workspace/o-pi", model: undefined, sessionName: undefined, idle: true };
 		expect(service.status()).toEqual({ enabled: false, profile: undefined, connection: "disabled" });
 		expect(service.profileNames()).toEqual([]);
+
+		const disabled = enabledConfig();
+		disabled.enabled = false;
+		disabled.application_id = "";
+		vi.mocked(configModule.loadDiscordPresenceConfig).mockResolvedValue(disabled);
+		await service.startSession(context);
+		service.selectProfile("minimal");
+		expect(service.status()).toEqual({ enabled: false, profile: "minimal", connection: "disabled" });
+		await expect(service.enable(context)).rejects.toThrow("application_id");
+		expect(coordinator.activations).toEqual([]);
+
+		const reloaded = enabledConfig();
+		delete reloaded.profiles.minimal;
+		vi.mocked(configModule.loadDiscordPresenceConfig).mockResolvedValue(reloaded);
+		await service.reload(context);
+		expect(service.status()).toEqual({ enabled: true, profile: "detailed", connection: "connected" });
+		await service.shutdown();
+		expect(service.status()).toEqual({ enabled: false, profile: undefined, connection: "disabled" });
 	});
 
 	it("初始化错误交给 Pi 扩展边界处理", async () => {

@@ -38,7 +38,7 @@ export class IncrementalVisibilityOperations implements VisibilityOperations {
 	}
 
 	async evaluate(ref: ExistingRef, intent: VisibilityIntent): Promise<FsResult<VisibilityAnnotation>> {
-		if (this.options.context.signal?.aborted === true) return aborted(ref.displayPath);
+		if (this.options.context.signal.aborted) return aborted(ref.displayPath);
 		const identity = nativeIdentity(this.options.namespace.bridge, ref);
 		if (!identity.ok) return identity;
 		const prepared = await this.prepareParentRules(ref);
@@ -59,7 +59,7 @@ export class IncrementalVisibilityOperations implements VisibilityOperations {
 	}
 
 	async prepareDirectory(directory: DirectoryRef, entries: readonly VisibilityDirectoryEntry[]): Promise<FsResult<void>> {
-		if (this.options.context.signal?.aborted === true) return aborted(directory.displayPath);
+		if (this.options.context.signal.aborted) return aborted(directory.displayPath);
 		const parents = await this.prepareParentRules(directory);
 		return parents.ok ? this.ensureDirectoryPrepared(directory, entries) : parents;
 	}

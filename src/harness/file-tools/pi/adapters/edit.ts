@@ -1,5 +1,5 @@
 import { editFile, previewEdit } from "../../edit/command.ts";
-import type { EditParams, EditPreviewSuccess } from "../../edit/types.ts";
+import type { EditParams } from "../../edit/types.ts";
 import { FileToolsHost } from "../../runtime/host.ts";
 import { fail, isFailed } from "../../shared/result.ts";
 import { isPlainRecord } from "../guards.ts";
@@ -7,26 +7,21 @@ import { formatEditModelResult } from "../../edit/presenter.ts";
 import { withFileToolsInvocation, type MutationRuntime } from "../invocation.ts";
 import { bindFileLsp } from "../lsp.ts";
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
-import { createMutationPostProcessObserver, mutationProgress } from "../progress.ts";
+import { createMutationProgress } from "../progress.ts";
 
 export async function executeEdit(
 	params: EditParams,
 	runtime: MutationRuntime,
 ) {
 	return withFileToolsInvocation(runtime, async (opened) => {
-		let latestPreview: EditPreviewSuccess | undefined;
-		const progress = createMutationPostProcessObserver(runtime.onUpdate, () => ({
-			replacements: latestPreview?.replacements ?? params.edits.length,
-			...(latestPreview === undefined ? {} : { diff: latestPreview.diff }),
-		}));
+		const progress = createMutationProgress(runtime.onUpdate);
 		const diagnostics = bindFileLsp(opened, runtime.lsp).diagnostics(progress, runtime.batch);
 		const result = await editFile(params, {
 			...opened,
 			diagnostics,
 			diff: generateDiffString,
 			onPrepared(preview) {
-				latestPreview = preview;
-				runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
+				progress.prepared({ status: "editing", diff: preview.diff, replacements: preview.replacements });
 			},
 		});
 		if (isFailed(result)) return result;

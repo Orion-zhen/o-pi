@@ -72,7 +72,7 @@ export class GrepRegionizer {
 		priorityPaths: readonly string[],
 		context: RegionizerContext,
 	): Promise<ToolOutcome<RegionizationResult>> {
-		if (this.disposed || isAborted(context.operation.signal)) return aborted();
+		if (this.disposed || context.operation.signal.aborted) return aborted();
 		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
 		const combined = new Map<string, RegionizedFile>(context.semantic.map((file) => [file.file.path, file]));
 		const excludedHitPaths = new Set<string>();
@@ -235,20 +235,17 @@ export function regionizeAnalyzedFiles(
 	files: readonly RegionizedFile[],
 	relatedIds: ReadonlySet<string>,
 ): CodeRegion[] {
-	const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
-	for (const [path, grouped] of groupHits(hits)) fallback.set(path, asNonEmpty(grouped));
+	const fallback = groupHits(hits);
 	const regions: CodeRegion[] = [];
 	for (const file of files) {
-		const fileHits = fallback.get(file.file.path) ?? [];
+		const fileHits = fallback.get(file.file.path);
 		const units = new Map(file.analysis.units.map((unit) => [unit.id, unit]));
-		const parsed = fileHits.length === 0
-			? []
-			: parsedRegions(file.file, asNonEmpty(fileHits), units);
+		const parsed = fileHits === undefined ? [] : parsedRegions(file.file, fileHits, units);
 		regions.push(...parsed);
 		const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
-		const outside = fileHits.filter((hit) => !mappedHits.has(hit));
-		if (outside.length === 0) fallback.delete(file.file.path);
-		else fallback.set(file.file.path, asNonEmpty(outside));
+		const [firstOutside, ...remainingOutside] = (fileHits ?? []).filter((hit) => !mappedHits.has(hit));
+		if (firstOutside === undefined) fallback.delete(file.file.path);
+		else fallback.set(file.file.path, [firstOutside, ...remainingOutside]);
 		if (relatedIds.size === 0) continue;
 		const mappedUnits = new Set(parsed.map((region) => region.id));
 		for (const unit of file.analysis.units) {
@@ -274,8 +271,8 @@ export function regionizeAnalyzedFiles(
 	return regions.sort(compareRegion);
 }
 
-function groupHits(hits: readonly TextHit[]): Map<string, TextHit[]> {
-	const hitsByPath = new Map<string, TextHit[]>();
+function groupHits(hits: readonly TextHit[]): Map<string, [TextHit, ...TextHit[]]> {
+	const hitsByPath = new Map<string, [TextHit, ...TextHit[]]>();
 	for (const hit of hits) {
 		const grouped = hitsByPath.get(hit.path);
 		if (grouped === undefined) hitsByPath.set(hit.path, [hit]);
@@ -291,7 +288,7 @@ function parsedRegions(
 ): VerifiedCodeRegion[] {
 	const enclosing = enclosingCodeUnits([...units.values()].filter(hasStructuralRange),
 		hits.map((hit) => ({ startByte: hit.byteStart, endByte: hit.byteEnd })));
-	const grouped = new Map<string, { readonly unit: IndexedCodeUnit; readonly hits: TextHit[] }>();
+	const grouped = new Map<string, { readonly unit: IndexedCodeUnit; readonly hits: [TextHit, ...TextHit[]] }>();
 	for (const [index, hit] of hits.entries()) {
 		const unit = enclosing[index];
 		if (unit === undefined) continue;
@@ -300,9 +297,6 @@ function parsedRegions(
 		else existing.hits.push(hit);
 	}
 	return [...grouped.values()].map(({ unit, hits }) => {
-		const sortedHits = [...hits].sort((left, right) => left.line - right.line || left.byteStart - right.byteStart);
-		const first = sortedHits[0];
-		if (first === undefined) throw new RangeError("parsed region requires a hit");
 		return createVerifiedCodeRegion({
 			id: unit.id,
 			path: file.path,
@@ -317,8 +311,8 @@ function parsedRegions(
 			...(unit.navigation === undefined ? {} : { navigation: unit.navigation }),
 			...(unit.relationStatus === undefined ? {} : { relationStatus: unit.relationStatus }),
 			signals: ["verified_enclosing_region"],
-			evidence: textEvidence(first.matchMode),
-		}, asNonEmpty(sortedHits));
+			evidence: textEvidence(hits[0].matchMode),
+		}, hits);
 	});
 }
 
@@ -353,12 +347,6 @@ function hasBareCr(text: string): boolean {
 	return /\r(?!\n)/u.test(text);
 }
 
-function asNonEmpty<T>(values: readonly T[]): readonly [T, ...T[]] {
-	const first = values[0];
-	if (first === undefined) throw new RangeError("expected a non-empty collection");
-	return [first, ...values.slice(1)];
-}
-
 function compareRegion(left: CodeRegion, right: CodeRegion): number {
 	return compareStableString(left.path, right.path)
 		|| left.startLine - right.startLine
@@ -369,11 +357,6 @@ function compareRegion(left: CodeRegion, right: CodeRegion): number {
 function compareStableString(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
 }
-
-function isAborted(signal: AbortSignal | undefined): boolean {
-	return signal?.aborted === true;
-}
-
 
 function aborted(path?: string): ReturnType<typeof fail> {
 	return fail("OPERATION_ABORTED", "grep was aborted.", path === undefined ? {} : { path });

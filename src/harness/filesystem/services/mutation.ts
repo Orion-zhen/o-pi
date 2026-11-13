@@ -174,7 +174,7 @@ export class WorkspaceMutationService implements MutationOperations {
 	}
 
 	private checkAborted(path: string): void {
-		if (this.options.context.signal?.aborted) throw aborted(path);
+		if (this.options.context.signal.aborted) throw aborted(path);
 	}
 }
 

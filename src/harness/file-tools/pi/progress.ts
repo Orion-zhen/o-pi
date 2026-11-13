@@ -40,35 +40,32 @@ interface MutationProgressContext {
 	replacements?: number;
 }
 
-export function mutationProgress(details: MutationProgressDetails): MutationProgressResult {
-	return { content: [], details };
+interface MutationProgressObserver extends MutationPostProcessObserver {
+	prepared(details: MutationContentProgressDetails): void;
 }
 
-export function createMutationPostProcessObserver(
-	onUpdate: MutationProgressCallback | undefined,
-	context: () => MutationProgressContext,
-): MutationPostProcessObserver {
-	let lsp: MutationLspProgress = { status: "pending", errors: 0, warnings: 0 };
-	const emit = (): void => {
-		if (onUpdate === undefined) return;
+/** 进度通知只在适配边界隔离异常，不影响文件提交和诊断。 */
+export function createMutationProgress(onUpdate: MutationProgressCallback | undefined): MutationProgressObserver {
+	let context: MutationProgressContext = {};
+	const emit = (details: MutationProgressDetails): void => {
 		try {
-			onUpdate(mutationProgress({
-				status: "post-processing",
-				...context(),
-				lsp: { ...lsp },
-			}));
+			onUpdate?.({ content: [], details });
 		} catch {}
 	};
 	return {
+		prepared(details) {
+			const { status: _status, ...preview } = details;
+			context = preview;
+			emit(details);
+		},
 		lspStarted() {
-			lsp = { status: "running", errors: 0, warnings: 0 };
-			emit();
+			emit({ status: "post-processing", ...context, lsp: { status: "running", errors: 0, warnings: 0 } });
 		},
 		lspCompleted(diagnostics) {
-			lsp = diagnostics === undefined
+			const lsp: MutationLspProgress = diagnostics === undefined
 				? { status: "unavailable", errors: 0, warnings: 0 }
 				: { status: diagnostics.status, errors: diagnostics.file_errors, warnings: diagnostics.file_warnings };
-			emit();
+			emit({ status: "post-processing", ...context, lsp });
 		},
 	};
 }

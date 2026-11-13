@@ -37,7 +37,7 @@ export async function openReadonly(
 	} = {},
 ): Promise<OpenedReadonly> {
 	const native = options.native ?? new NodeNativeFileSystem();
-	const context = options.ownerSignal === undefined ? {} : { signal: options.ownerSignal };
+	const context = { signal: options.ownerSignal ?? new AbortController().signal };
 	const namespace = expectFsOk(await createWorkspaceNamespace({
 		workspaceRoot: workspace,
 		blockedPaths: options.blockedPaths ?? [],

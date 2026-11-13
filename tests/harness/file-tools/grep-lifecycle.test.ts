@@ -85,7 +85,7 @@ describe("grep lifecycle", () => {
 				});
 				return undefined;
 			};
-			const active = execute({ query: "Target" }, { operation: {}, analyzeCode });
+			const active = execute({ query: "Target" }, { analyzeCode });
 			await started.promise;
 			tool.dispose();
 			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });

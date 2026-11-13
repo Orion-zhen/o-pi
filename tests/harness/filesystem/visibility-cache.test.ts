@@ -88,7 +88,7 @@ describe("visibility Git shared state", () => {
 			path.resolve(workspace),
 			createVisibilityPolicy({ ignore: { builtinProfile: "none" } }),
 			namespace,
-			{},
+			{ signal: new AbortController().signal },
 		);
 		await controlled.started.promise;
 		service.dispose();

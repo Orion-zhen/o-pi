@@ -35,15 +35,23 @@ export class SubagentExecutionError extends Error {
 	}
 }
 
-type PreparedTask = {
+interface TaskSelection {
 	task: SubagentTask;
 	agent: AgentDefinition;
-	cwd: string;
-	tools: string[];
-	model?: string;
-} & ({ contextMode: "isolated" } | { contextMode: "fork"; fork: ForkExecutionContext });
+}
+
+type SelectedTask = TaskSelection & (
+	| { contextMode: "isolated" }
+	| { contextMode: "fork"; fork: ForkExecutionContext }
+);
 
 type RunIdentity = Pick<SubagentRunningResult, "runId" | "mode" | "contextMode" | "agent" | "source" | "task" | "cwd" | "model" | "tools">;
+
+interface PreparedTask {
+	identity: RunIdentity;
+	maxAttempts: number;
+	inputForTask(task: string): ProcessRunInput;
+}
 
 /** 工具与 slash command 共用的执行入口。 */
 export async function executeSubagent(params: SubagentToolParams, context: ExecutorContext): Promise<SubagentToolResult> {
@@ -76,21 +84,26 @@ async function executeTasks(params: SubagentToolParams, context: ExecutorContext
 	const runId = createRunId();
 	const tasks = cloneTasks(params.tasks);
 	const details = (results: SubagentRunResult[]): SubagentDetails => ({ mode, runId, tasks, results, warnings: discovery.warnings });
-	const selections = params.tasks.map((task) => ({ task, agent: requireAgent(task.agent, discovery.agents) })) as NonEmptyArray<{
-		task: SubagentTask;
-		agent: AgentDefinition;
-	}>;
+	const selections = mapNonEmpty(params.tasks, (task) => ({ task, agent: requireAgent(task.agent, discovery.agents) }));
 	let forkContext: ForkExecutionContext | undefined;
 
 	try {
-		const getForkContext = async () => forkContext ??= await requireForkContext(context);
-		if (selections.some(({ agent }) => agent.fork)) await getForkContext();
-		const preparedTasks = await prepareTasks(selections, context, config, getForkContext);
+		let selected: NonEmptyArray<SelectedTask>;
+		if (selections.some(({ agent }) => agent.fork)) {
+			const fork = await requireForkContext(context);
+			forkContext = fork;
+			selected = mapNonEmpty(selections, (selection) => selection.agent.fork
+				? { ...selection, contextMode: "fork", fork }
+				: { ...selection, contextMode: "isolated" });
+		} else {
+			selected = mapNonEmpty(selections, (selection) => ({ ...selection, contextMode: "isolated" }));
+		}
+		const preparedTasks = await prepareTasks(selected, context, config, runId, mode);
 		if (mode === "parallel") {
 			const liveResults: Array<SubagentRunResult | undefined> = new Array(preparedTasks.length);
 			emitUpdate(context, details, compactResults(liveResults));
 			const results = await mapWithConcurrency(preparedTasks, config.maxConcurrency, async (prepared, index) => {
-				const persisted = await executeOne(prepared, prepared.task.task, index, mode, runId, config, context, (partial) => {
+				const persisted = await executeOne(prepared, prepared.identity.task, index, config, context, (partial) => {
 					liveResults[index] = partial;
 					emitUpdate(context, details, compactResults(liveResults));
 				});
@@ -105,7 +118,7 @@ async function executeTasks(params: SubagentToolParams, context: ExecutorContext
 				: [`Subagents: ${success}/${results.length} succeeded`, "", ...results.map((result) => `### ${result.agent}\n\n${resultToContent(result, config, tokenScope)}`)].join("\n");
 			return { content: [{ type: "text", text }], details: details(results) };
 		}
-		return await executeChain(preparedTasks, runId, config, context, details, tokenScope);
+		return await executeChain(preparedTasks, config, context, details, tokenScope);
 	} finally {
 		if (forkContext !== undefined) await forkContext.dispose();
 	}
@@ -116,59 +129,56 @@ export function resolveMode(tasks: readonly SubagentTask[]): SubagentMode {
 }
 
 async function prepareTasks(
-	selections: NonEmptyArray<{ task: SubagentTask; agent: AgentDefinition }>,
+	selections: NonEmptyArray<SelectedTask>,
 	context: ExecutorContext,
 	config: SubagentConfig,
-	getForkContext: () => Promise<ForkExecutionContext>,
+	runId: string,
+	mode: SubagentMode,
 ): Promise<NonEmptyArray<PreparedTask>> {
-	const prepared: PreparedTask[] = [];
 	const registeredTools = context.allTools.map((tool) => tool.name);
-	for (const { task, agent } of selections) {
-		const fork = agent.fork ? await getForkContext() : undefined;
-		const cwd = fork === undefined ? await resolveCwd(task.cwd ?? context.cwd, context.cwd) : fork.cwd;
-		const tools = fork === undefined ? resolveTools(agent, config, registeredTools) : [...fork.activeTools];
-		const model = fork === undefined ? resolveModel(agent, config, context) : formatModelReference(fork.model);
-		await confirmIfNeeded(agent, task.task, cwd, tools, config, context);
-		prepared.push({
-			task,
-			agent,
-			cwd,
-			tools,
-			...(model === undefined ? {} : { model }),
-			...(fork === undefined ? { contextMode: "isolated" as const } : { contextMode: "fork" as const, fork }),
-		});
-	}
-	return prepared as NonEmptyArray<PreparedTask>;
+	const prepare = async (selection: SelectedTask): Promise<PreparedTask> => {
+		const { task, agent, contextMode } = selection;
+		const input = { runId, mode, agent, timeoutMs: agent.timeoutMs ?? config.timeoutMs };
+		let execution: Pick<RunIdentity, "contextMode" | "cwd" | "tools" | "model">;
+		let inputForTask: PreparedTask["inputForTask"];
+		if (selection.contextMode === "fork") {
+			const { fork } = selection;
+			execution = { contextMode, cwd: fork.cwd, tools: [...fork.activeTools], model: formatModelReference(fork.model) };
+			inputForTask = (text) => ({
+				...input, contextMode: "fork", forkContext: fork, task: text,
+				assignment: formatForkAssignment(agent.body, text),
+			});
+		} else {
+			const cwd = await resolveCwd(task.cwd ?? context.cwd, context.cwd);
+			const tools = resolveTools(agent, config, registeredTools);
+			const model = resolveModel(agent, config, context);
+			const isolated = { contextMode: "isolated" as const, cwd, tools, ...(model === undefined ? {} : { model }) };
+			execution = isolated;
+			inputForTask = (text) => ({ ...input, ...isolated, task: text });
+		}
+		await confirmIfNeeded(agent, task.task, execution.cwd, execution.tools, config, context);
+		return {
+			identity: { runId, mode, agent: agent.name, source: agent.source, task: task.task, ...execution },
+			maxAttempts: (agent.retries ?? config.retries) + 1,
+			inputForTask,
+		};
+	};
+	const [first, ...remaining] = selections;
+	const prepared: NonEmptyArray<PreparedTask> = [await prepare(first)];
+	for (const selection of remaining) prepared.push(await prepare(selection));
+	return prepared;
 }
 
 async function executeOne(
 	prepared: PreparedTask,
 	taskText: string,
 	index: number,
-	mode: SubagentMode,
-	runId: string,
 	config: SubagentConfig,
 	context: ExecutorContext,
 	onProgress: (result: SubagentRunningResult) => void,
 ): Promise<SubagentCompletedResult> {
-	const base: RunIdentity = {
-		runId, mode, contextMode: prepared.contextMode,
-		agent: prepared.agent.name, source: prepared.agent.source,
-		task: taskText, cwd: prepared.cwd, tools: prepared.tools,
-		...(prepared.model === undefined ? {} : { model: prepared.model }),
-	};
-	const processInput: ProcessRunInput = {
-		runId, mode, agent: prepared.agent, task: taskText,
-		timeoutMs: prepared.agent.timeoutMs ?? config.timeoutMs,
-		...(prepared.contextMode === "isolated" ? {
-			contextMode: "isolated", cwd: prepared.cwd, tools: prepared.tools,
-			...(prepared.model === undefined ? {} : { model: prepared.model }),
-		} : {
-			contextMode: "fork", forkContext: prepared.fork,
-			assignment: formatForkAssignment(prepared.agent.body, taskText),
-		}),
-	};
-	const maxAttempts = (prepared.agent.retries ?? config.retries) + 1;
+	const base: RunIdentity = { ...prepared.identity, task: taskText };
+	const processInput = prepared.inputForTask(taskText);
 	let attempts = 0;
 	let output: ProcessRunOutput;
 	onProgress(runningResult(base, 0));
@@ -182,7 +192,7 @@ async function executeOne(
 			...(context.signal === undefined ? {} : { signal: context.signal }),
 			onUpdate: (progress) => onProgress(runningResult(base, attempts, progress)),
 		});
-		if (!shouldRetry(output, attempts, maxAttempts, prepared.tools, config)) break;
+		if (!shouldRetry(output, attempts, prepared.maxAttempts, base.tools, config)) break;
 	}
 	return persistResult({
 		...base,
@@ -192,12 +202,11 @@ async function executeOne(
 		output: output.output,
 		...(output.stderr === "" ? {} : { stderr: output.stderr }),
 		durationMs: output.durationMs, usage: output.usage, events: output.events,
-	}, { cwd: prepared.cwd, runId, index });
+	}, { cwd: base.cwd, runId: base.runId, index });
 }
 
 async function executeChain(
 	preparedTasks: NonEmptyArray<PreparedTask>,
-	runId: string,
 	config: SubagentConfig,
 	context: ExecutorContext,
 	details: (results: SubagentRunResult[]) => SubagentDetails,
@@ -206,8 +215,8 @@ async function executeChain(
 	const results: SubagentCompletedResult[] = [];
 	let previous = "";
 	for (const [index, prepared] of preparedTasks.entries()) {
-		const taskText = prepared.task.task.replace(/\{previous\}/g, previous);
-		const persisted = await executeOne(prepared, taskText, index, "chain", runId, config, context, (partial) => {
+		const taskText = prepared.identity.task.replace(/\{previous\}/g, previous);
+		const persisted = await executeOne(prepared, taskText, index, config, context, (partial) => {
 			emitUpdate(context, details, [...results, partial]);
 		});
 		results.push(persisted);
@@ -337,11 +346,15 @@ function compactResults(results: Array<SubagentRunResult | undefined>): Subagent
 }
 
 function cloneTasks(tasks: NonEmptyArray<SubagentTask>): NonEmptyArray<SubagentTask> {
-	return tasks.map((task) => ({
+	return mapNonEmpty(tasks, (task) => ({
 		agent: task.agent,
 		task: task.task,
 		...(task.cwd === undefined ? {} : { cwd: task.cwd }),
-	})) as NonEmptyArray<SubagentTask>;
+	}));
+}
+
+function mapNonEmpty<T, R>(items: NonEmptyArray<T>, map: (item: T) => R): NonEmptyArray<R> {
+	return [map(items[0]), ...items.slice(1).map(map)];
 }
 
 async function mapWithConcurrency<T, R>(

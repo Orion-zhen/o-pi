@@ -45,7 +45,7 @@ export async function readFile(
 	if (!resolved.ok) {
 		if (resolved.error.code !== "not-found") return mapFsError(resolved.error, { notFound: "file" });
 		const suggestions = await missingPathSuggestions(params.path, context);
-		if (isAborted(context.operation)) return aborted(params.path);
+		if (context.operation.signal.aborted) return aborted(params.path);
 		return mapFsError(resolved.error, {
 			notFound: "file",
 			message: "File does not exist.",
@@ -63,10 +63,10 @@ export async function readFile(
 		{ maxBytes: context.limits.read_max_file_bytes },
 	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
-	if (isAborted(context.operation)) return aborted(file.displayPath);
+	if (context.operation.signal.aborted) return aborted(file.displayPath);
 
 	const detected = await detectFileType(loaded.value.bytes);
-	if (isAborted(context.operation)) return aborted(file.displayPath);
+	if (context.operation.signal.aborted) return aborted(file.displayPath);
 	if (detected?.kind === "image") {
 		if (ranges.lines !== undefined || ranges.pages !== undefined) {
 			return fail("INVALID_OPERATION", "Range parameters do not apply to image files.", { path: file.displayPath });
@@ -75,9 +75,9 @@ export async function readFile(
 			bytes: loaded.value.bytes,
 			mimeType: detected.mime,
 			path: file.displayPath,
-			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+			signal: context.operation.signal,
 		});
-		if (image === undefined || isAborted(context.operation)) return aborted(file.displayPath);
+		if (image === undefined || context.operation.signal.aborted) return aborted(file.displayPath);
 		if (!image.ok) {
 			return fail("BINARY_FILE_UNSUPPORTED", "Image cannot be converted to an inline model-supported format.", {
 				path: file.displayPath,
@@ -143,10 +143,10 @@ async function readPdf(
 ): Promise<ToolOutcome<ReadPdfSuccess>> {
 	const opened = await context.pdf.open({
 		bytes: content.bytes,
-		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+		signal: context.operation.signal,
 	});
 	if (!opened.ok) {
-		if (opened.reason === "aborted" || isAborted(context.operation)) return aborted(path);
+		if (opened.reason === "aborted" || context.operation.signal.aborted) return aborted(path);
 		return fail("BINARY_FILE_UNSUPPORTED", opened.message, {
 			path,
 			details: { mime_type: "application/pdf", stage: "parse", reason: opened.reason },
@@ -155,19 +155,19 @@ async function readPdf(
 
 	const document = opened.value;
 	try {
-		if (isAborted(context.operation)) return aborted(path);
+		if (context.operation.signal.aborted) return aborted(path);
 		const selected = selectPdfPages(ranges, document.pageCount, context.limits.read_pdf_pages, path);
 		if (isFailed(selected)) return selected;
 
 		const pages: ReadPdfPage[] = [];
 		for (const pageNumber of selected.numbers) {
-			if (isAborted(context.operation)) return aborted(path);
+			if (context.operation.signal.aborted) return aborted(path);
 			const rendered = await document.renderPage({
 				pageNumber,
-				...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+				signal: context.operation.signal,
 			});
 			if (!rendered.ok) {
-				if (rendered.reason === "aborted" || isAborted(context.operation)) return aborted(path);
+				if (rendered.reason === "aborted" || context.operation.signal.aborted) return aborted(path);
 				return fail("BINARY_FILE_UNSUPPORTED", rendered.message, {
 					path,
 					details: {
@@ -183,9 +183,9 @@ async function readPdf(
 				bytes: rendered.value.bytes,
 				mimeType: rendered.value.mimeType,
 				path: `${path}#page=${pageNumber}`,
-				...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+				signal: context.operation.signal,
 			});
-			if (processed === undefined || isAborted(context.operation)) return aborted(path);
+			if (processed === undefined || context.operation.signal.aborted) return aborted(path);
 			if (!processed.ok) {
 				return fail("BINARY_FILE_UNSUPPORTED", `PDF page ${pageNumber} cannot be converted to an inline model-supported format.`, {
 					path,
@@ -272,7 +272,7 @@ async function safeDisposePdf(document: PdfDocumentHandle): Promise<void> {
 
 async function missingPathSuggestions(input: string, context: ReadCommandContext): Promise<string[]> {
 	const target = await context.filesystem.paths.resolveTarget(input);
-	if (!target.ok || target.value.workspacePath === undefined || isAborted(context.operation)) return [];
+	if (!target.ok || target.value.workspacePath === undefined || context.operation.signal.aborted) return [];
 	const suggestions = await suggestPaths(
 		context.filesystem.discovery,
 		context.filesystem.root,
@@ -291,7 +291,7 @@ async function processImage(
 	try {
 		return await processor.process(input);
 	} catch (error) {
-		if (!isAborted(operation)) throw error;
+		if (!operation.signal.aborted) throw error;
 		return undefined;
 	}
 }
@@ -336,10 +336,6 @@ interface ParsedReadRanges {
 
 function uniquePaths(paths: readonly string[], limit: number): string[] {
 	return [...new Set(paths.filter((path) => path.length > 0))].slice(0, limit);
-}
-
-function isAborted(operation: FsOperationContext): boolean {
-	return operation.signal?.aborted === true;
 }
 
 function aborted(path: string) {

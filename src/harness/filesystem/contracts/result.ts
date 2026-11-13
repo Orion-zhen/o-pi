@@ -37,8 +37,9 @@ export function fsValue<T>(result: FsResult<T>): T {
 	return result.value;
 }
 
+/** 已建立生命周期的内部操作上下文。 */
 export interface FsOperationContext {
-	readonly signal?: AbortSignal;
+	readonly signal: AbortSignal;
 }
 
 export function fsSuccess<T>(value: T): FsResult<T> {

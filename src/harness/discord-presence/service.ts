@@ -9,6 +9,7 @@ import type {
 	DiscordPresenceConfig,
 	PresenceConnectionStatus,
 	PresenceSession,
+	PresenceProfileConfig,
 } from "./types.ts";
 
 export interface PresenceStartContext {
@@ -24,17 +25,26 @@ interface PresenceStatusSnapshot {
 	connection: PresenceConnectionStatus;
 }
 
+interface SelectedPresenceProfile {
+	name: string;
+	config: PresenceProfileConfig;
+}
+
 interface LoadedPresenceState {
 	config: DiscordPresenceConfig;
 	session: PresenceSession;
+	profile: SelectedPresenceProfile;
 }
+
+type PresenceState =
+	| { kind: "unloaded" }
+	| { kind: "inactive" | "active"; loaded: LoadedPresenceState };
 
 /** 管理 Presence 状态；所有 session 沿用当前 Pi 进程的计时起点。 */
 export class DiscordPresenceService {
-	private loaded: LoadedPresenceState | undefined;
+	private state: PresenceState = { kind: "unloaded" };
 	private readonly activity = new PresenceActivityTracker();
 	private readonly coordinator = new DiscordPresenceCoordinatorClient();
-	private coordinatorActive = false;
 	private runtimeEnabled: boolean | undefined;
 	private runtimeProfile: string | undefined;
 	private generation = 0;
@@ -66,27 +76,26 @@ export class DiscordPresenceService {
 		this.generation += 1;
 		this.activity.clear();
 		await this.disposeActive();
-		this.loaded = undefined;
+		this.state = { kind: "unloaded" };
 	}
 
 	selectProfile(profile: string): void {
-		const config = this.loaded?.config;
-		if (config === undefined || !Object.hasOwn(config.profiles, profile)) {
-			throw new Error(`Unknown Discord presence profile: ${profile}`);
-		}
+		if (this.state.kind === "unloaded") throw new Error(`Unknown Discord presence profile: ${profile}`);
+		this.state.loaded.profile = selectProfile(this.state.loaded.config, profile);
 		this.runtimeProfile = profile;
 		this.publish();
 	}
 
 	profileNames(): string[] {
-		return this.loaded === undefined ? [] : Object.keys(this.loaded.config.profiles);
+		return this.state.kind === "unloaded" ? [] : Object.keys(this.state.loaded.config.profiles);
 	}
 
 	status(): PresenceStatusSnapshot {
+		const active = this.state.kind === "active";
 		return {
-			enabled: this.coordinatorActive,
-			profile: this.loaded === undefined ? undefined : this.activeProfileName(this.loaded.config),
-			connection: this.coordinatorActive ? this.coordinator.getStatus() : "disabled",
+			enabled: active,
+			profile: this.state.kind === "unloaded" ? undefined : this.state.loaded.profile.name,
+			connection: active ? this.coordinator.getStatus() : "disabled",
 		};
 	}
 
@@ -120,15 +129,13 @@ export class DiscordPresenceService {
 	}
 
 	onModelSelect(model: { id: string; name: string }): void {
-		if (this.loaded !== undefined) {
-			this.loaded.session.model = modelDisplayName(model);
-		}
+		if (this.state.kind !== "unloaded") this.state.loaded.session.model = modelDisplayName(model);
 		this.publish();
 	}
 
 	onSessionName(name: string | undefined): void {
-		if (this.loaded !== undefined) {
-			this.loaded.session.session = name ?? this.loaded.session.project;
+		if (this.state.kind !== "unloaded") {
+			this.state.loaded.session.session = name ?? this.state.loaded.session.project;
 		}
 		this.publish();
 	}
@@ -148,7 +155,8 @@ export class DiscordPresenceService {
 			session: context.sessionName ?? project,
 			startedAt: this.processStartedAt,
 		};
-		this.loaded = { config, session };
+		const loaded = { config, session, profile: selectProfile(config, this.runtimeProfile ?? config.profile) };
+		this.state = { kind: this.state.kind === "active" ? "active" : "inactive", loaded };
 		if (!(this.runtimeEnabled ?? config.enabled)) {
 			await this.disposeActive();
 			return;
@@ -156,8 +164,8 @@ export class DiscordPresenceService {
 		if (config.application_id.length === 0) {
 			throw new Error("application_id is required to enable Discord presence.");
 		}
-		const initialActivity = this.renderActivity(this.loaded);
-		this.coordinatorActive = true;
+		const initialActivity = this.renderActivity(loaded);
+		this.state = { kind: "active", loaded };
 		try {
 			await this.coordinator.activate({
 				applicationId: config.application_id,
@@ -166,7 +174,7 @@ export class DiscordPresenceService {
 			}, session.startedAt, initialActivity);
 		} catch (error) {
 			if (generation === this.generation) {
-				this.coordinatorActive = false;
+				this.state = { kind: "inactive", loaded };
 				await this.coordinator.deactivate().catch(() => undefined);
 			}
 			throw error;
@@ -174,33 +182,31 @@ export class DiscordPresenceService {
 	}
 
 	private renderActivity(state: LoadedPresenceState): DiscordActivityPayload | undefined {
-		const profileName = this.activeProfileName(state.config);
-		const profile = state.config.profiles[profileName];
-		if (profile === undefined) throw new Error(`Unknown Discord presence profile: ${profileName}`);
 		return renderDiscordActivity(
 			state.config,
-			profile,
+			state.profile.config,
 			this.activity.current(),
 			state.session,
 		);
 	}
 
 	private async disposeActive(): Promise<void> {
-		if (!this.coordinatorActive) return;
-		this.coordinatorActive = false;
+		if (this.state.kind !== "active") return;
+		this.state = { kind: "inactive", loaded: this.state.loaded };
 		await this.coordinator.deactivate();
 	}
 
 	private publish(): void {
-		if (!this.coordinatorActive) return;
-		if (this.loaded === undefined) throw new Error("Discord presence is active without a loaded session.");
-		const rendered = this.renderActivity(this.loaded);
+		if (this.state.kind !== "active") return;
+		const rendered = this.renderActivity(this.state.loaded);
 		if (rendered !== undefined) this.coordinator.request(rendered);
 	}
+}
 
-	private activeProfileName(config: DiscordPresenceConfig): string {
-		return this.runtimeProfile ?? config.profile;
-	}
+function selectProfile(config: DiscordPresenceConfig, name: string): SelectedPresenceProfile {
+	const profile = Object.hasOwn(config.profiles, name) ? config.profiles[name] : undefined;
+	if (profile === undefined) throw new Error(`Unknown Discord presence profile: ${name}`);
+	return { name, config: profile };
 }
 
 function modelDisplayName(model: { id: string; name: string }): string {

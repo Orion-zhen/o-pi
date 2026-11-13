@@ -62,18 +62,23 @@ export function buildRankedRegions(
 	regionized: RegionizationResult,
 	displayLimit: number,
 ): RankedRegion[] {
-	const byId = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
-	for (const region of regionized.regions) {
-		byId.set(region.id, region.queryMatch === "verified" ? enrichVerifiedRegion(region) : region);
+	if (scan.totalHits > 0) {
+		const regions = new Map(regionized.regions.map((region) => [
+			region.id,
+			region.queryMatch === "verified" ? enrichVerifiedRegion(region) : region,
+		]));
+		return rankCodeRegions(plan, [...regions.values()]);
 	}
-	if (scan.totalHits > 0) return rankCodeRegions(plan, [...byId.values()]);
+	const byId = new Map(regionized.regions
+		.filter((region): region is SemanticMainRegion => region.queryMatch === "semantic")
+		.map((region) => [region.id, region]));
 
 	const units = regionized.files.flatMap((file) => file.analysis.units).filter(hasStructuralRange);
 	const queryTerms = uniqueTerms(plan.targetTerms.length > 0 ? plan.targetTerms : [plan.query]);
 	const groupedAnchors = groupLexicalAnchors(scan.fileEvidence, units);
 	const entries = [
 		...anchoredUnitCandidates(groupedAnchors.byUnit, units, queryTerms, displayLimit),
-		...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, queryTerms),
+		...lexicalAnchorCandidates(groupedAnchors.outside, queryTerms),
 	];
 	mergeEntries(byId, entries);
 	return rankCodeRegions(plan, [...byId.values()]);
@@ -163,13 +168,10 @@ function smallestEnclosingUnit(units: readonly IndexedCodeUnit[], anchor: Lexica
 
 function lexicalAnchorCandidates(
 	anchors: readonly LexicalTextAnchor[],
-	hits: readonly { readonly path: string; readonly line: number }[],
 	queryTerms: readonly string[],
 ): LocalEntry[] {
-	const exactLines = new Set(hits.map((hit) => `${hit.path}\0${hit.line}`));
 	const result: LocalEntry[] = [];
 	for (const anchor of anchors) {
-		if (exactLines.has(`${anchor.path}\0${anchor.line}`)) continue;
 		if (!passesCoverage(anchor.matchedTerms.length, queryTerms.length) && !anchor.phrase) continue;
 		const highCoverage = anchor.phrase || (queryTerms.length > 1 && anchor.matchedTerms.length / queryTerms.length >= 0.6);
 		const id = `${anchor.path}:${anchor.line}:${anchor.byteStart}:${anchor.byteEnd}:lexical`;
@@ -219,24 +221,22 @@ function localEntry(
 }
 
 function mergeEntries(
-	regions: Map<string, VerifiedCodeRegion | SemanticMainRegion>,
+	regions: Map<string, SemanticMainRegion>,
 	entries: readonly LocalEntry[],
 ): void {
 	const sorted = [...entries].sort((left, right) =>
 		right.quality - left.quality || compareLocalEntriesStable(left, right));
-	const ranks = new Map<LocalEntry, number>();
 	let rank = 0;
 	let previousQuality: number | undefined;
 	for (const entry of sorted) {
 		if (previousQuality === undefined || entry.quality !== previousQuality) rank += 1;
-		ranks.set(entry, rank);
+		addRegion(regions, withEvidence(entry, rank));
 		previousQuality = entry.quality;
 	}
-	for (const entry of entries) addRegion(regions, withEvidence(entry, ranks.get(entry) ?? Number.MAX_SAFE_INTEGER));
 }
 
 function addRegion(
-	regions: Map<string, VerifiedCodeRegion | SemanticMainRegion>,
+	regions: Map<string, SemanticMainRegion>,
 	incoming: SemanticMainRegion,
 ): void {
 	const existing = regions.get(incoming.id);
@@ -246,9 +246,7 @@ function addRegion(
 	}
 	const signals = unique([...existing.signals, ...incoming.signals]);
 	const evidence = mergeEvidence(existing.evidence, incoming.evidence);
-	const displayLines = existing.queryMatch === "verified"
-		? existing.displayLines
-		: mergeDisplayLines(existing.displayLines, incoming.displayLines);
+	const displayLines = mergeDisplayLines(existing.displayLines, incoming.displayLines);
 	const symbolRole = existing.symbolRole ?? incoming.symbolRole;
 	const authority = strongerAuthority(existing.authority, incoming.authority);
 	regions.set(existing.id, {

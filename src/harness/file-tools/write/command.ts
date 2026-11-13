@@ -43,7 +43,7 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 		},
 		async (current) => {
 			const renderedDiff = await context.diff(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));
-			safePrepared(context.onPrepared, {
+			context.onPrepared?.({
 				status: "preview",
 				path: target.value.displayPath,
 				diff: renderedDiff.diff,
@@ -78,7 +78,7 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 		content: params.content,
 		created: receipt.created,
 		...(baseline === undefined ? {} : { baseline }),
-		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+		signal: context.operation.signal,
 	});
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
 	return result;
@@ -97,10 +97,4 @@ function snapshotText(snapshot: MutationSnapshot): string {
 
 function normalizeLineEndings(text: string): string {
 	return text.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n");
-}
-
-function safePrepared(observer: WriteCommandContext["onPrepared"], preview: WritePreviewSuccess): void {
-	try {
-		observer?.(preview);
-	} catch {}
 }

@@ -33,7 +33,7 @@ export interface WorkspaceNamespaceOptions {
 	readonly pathAccess?: FilesystemPathAccess;
 	readonly homeDirectory?: string;
 	readonly native?: NativeFileSystem;
-	readonly context?: FsOperationContext;
+	readonly context?: Partial<FsOperationContext>;
 }
 
 export interface NativePathIdentity {
@@ -92,7 +92,7 @@ export interface WorkspaceNamespaceKernel {
 
 export async function createWorkspaceNamespace(options: WorkspaceNamespaceOptions): Promise<FsResult<WorkspaceNamespaceKernel>> {
 	const workspaceRoot = path.resolve(options.workspaceRoot);
-	const context = options.context ?? {};
+	const context: FsOperationContext = { signal: options.context?.signal ?? new AbortController().signal };
 	const operations = new NamespacePathOperations({
 		workspaceRoot,
 		...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
@@ -304,7 +304,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	): FsResult<FileRef | DirectoryRef> {
 		const context = this.options.context;
 		const parentIdentity = this.refs.get(parent);
-		if (context.signal?.aborted === true) {
+		if (context.signal.aborted) {
 			return fsFailure({ code: "aborted", message: "Operation aborted.", path: parent.displayPath });
 		}
 		if (parentIdentity === undefined || name.length === 0 || name === "." || name === ".." || path.basename(name) !== name) {
