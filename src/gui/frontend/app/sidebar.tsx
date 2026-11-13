@@ -4,7 +4,6 @@ import { Gauge, LoaderCircle, PanelLeftClose, PanelLeftOpen } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { motion } from "motion/react";
 import type { SidebarView } from "./controls.ts";
-import type { GuiAction } from "../../shared/protocol/actions.ts";
 import { SidebarWorkbench } from "./sidebar-workbench.tsx";
 import { useSectionEntrance } from "./welcome/startup-entrance.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
@@ -17,7 +16,6 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 	gui: SidebarView; collapsed: boolean; toggle: () => void; close: () => void;
 }) {
 	const { animation, interaction } = useSectionEntrance("left");
-	const act = (action: GuiAction) => { close(); void gui.send(action).catch(gui.setError); };
 	const open = (kind: "settings" | "auth" | "model") => { close(); gui.setPanel({ kind }); };
 	const content = (compact: boolean, mobile: boolean, props?: typeof animation) => <>
 		<motion.div className="sidebar-brand" {...props}>
@@ -33,8 +31,8 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 				<div className="workspace-controls" data-compact="true">
 					<WorkspacePicker gui={gui} close={close} compact />
 					<Hint content="新建会话" side="right">
-						<Button variant="outline" className="new-session" aria-label="新建会话" disabled={!gui.canNavigate}
-							onClick={() => { void gui.send({ action: "new" }).catch(gui.setError); close(); }}><Plus /></Button>
+						<Button variant="outline" className="new-session" aria-label="新建会话" disabled={!gui.connected}
+							onClick={() => { void gui.sessionAction({ action: "new" }).catch(gui.setError); close(); }}><Plus /></Button>
 					</Hint>
 				</div>
 			</div>}
@@ -48,7 +46,7 @@ export const Sidebar = memo(function Sidebar({ gui, collapsed, toggle, close }: 
 				onClick={() => { close(); void gui.openUsage(mobile); }}>
 				<MorphIcon icon={gui.usageLoading ? LoaderCircle : Gauge} spring="smooth" size="1em" className={gui.usageLoading ? "animate-spin" : undefined} />
 			</IconButton>
-			<IconButton label="重载资源" disabled={!gui.canChangeSession} onClick={() => act({ action: "reload" })}><RefreshCw /></IconButton>
+			<IconButton label="重载资源" disabled={!gui.canChangeSession} onClick={() => { close(); void gui.sessionAction({ action: "reload" }).catch(gui.setError); }}><RefreshCw /></IconButton>
 		</motion.div>
 	</>;
 	return <>

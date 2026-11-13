@@ -1,5 +1,5 @@
 import { ExternalLink as LinkIcon, Globe } from "lucide-react";
-import type { WebFetchSuccessDetails, WebSearchProviderId, WebSearchSuccessDetails } from "../../../../../harness/web-tools/core/types.ts";
+import type { GuiWebFetch, GuiWebSearch } from "../../../../shared/messages/tool-details.ts";
 import { CodeBlock } from "@/ui/content/code-block.tsx";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { Content } from "../messages/content.tsx";
@@ -7,7 +7,7 @@ import { ExternalLink } from "@/ui/content/external-link.tsx";
 import { MarkdownText } from "@/ui/content/markdown.tsx";
 import { clean, record } from "@/ui/content/format.ts";
 
-function WebCard({ url, title, snippet, rank, provider }: { url: string; title?: string; snippet?: string; rank?: number; provider?: WebSearchProviderId }) {
+function WebCard({ url, title, snippet, rank, provider }: { url: string; title?: string; snippet?: string; rank?: number; provider?: string }) {
 	const domain = URL.canParse(url) ? new URL(url).hostname : "";
 	return <article className="web-card">
 		<ExternalLink href={url} className="web-card-link">
@@ -21,13 +21,13 @@ function WebCard({ url, title, snippet, rank, provider }: { url: string; title?:
 	</article>;
 }
 
-export function WebSearchResult({ details }: { details: WebSearchSuccessDetails }) {
+export function WebSearchResult({ details }: { details: GuiWebSearch }) {
 	return details.results.length > 0
 		? <div className="web-results">{details.results.map((item) => <WebCard key={item.rank} {...item} />)}</div>
 		: <p className="tool-note">没有搜索结果</p>;
 }
 
-export function WebFetchResult({ details, content }: { details: WebFetchSuccessDetails; content: unknown }) {
+export function WebFetchResult({ details, content }: { details: GuiWebFetch; content: unknown }) {
 	const range = details.range;
 	const images = Array.isArray(content) ? content.filter((block: unknown) => record(block) && block.type === "image") : [];
 	return <div className="web-fetch-result">

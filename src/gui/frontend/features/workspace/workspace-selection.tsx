@@ -4,6 +4,7 @@ import { Home, FolderOpen, Search } from "lucide-react";
 import { Check } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import type { GlobalQuery, Query } from "../../../shared/protocol/queries.ts";
+import type { DesktopBridge } from "../../../shared/protocol/desktop.ts";
 import type { GuiWorkspaceInfo } from "../../../shared/protocol/state.ts";
 import type { GlobalSend } from "@/connection/connection.ts";
 import { useOperation } from "@/connection/use-operation.ts";
@@ -27,7 +28,7 @@ export interface WorkspaceSelectionView {
 	workspaceRoot: string;
 	workspaces: GuiWorkspaceInfo[];
 	globalSend: GlobalSend;
-	canNavigate: boolean;
+	connected: boolean;
 	globalQuery: Query<GlobalQuery>;
 }
 
@@ -43,20 +44,16 @@ export function WorkspaceSelection({ gui, mode, onModeChange, purpose, select, c
 	onCloseAutoFocus?: ComponentProps<typeof PopoverContent>["onCloseAutoFocus"];
 }) {
 	const [filter, setFilter] = useState("");
-	const [pending, setPending] = useState(false);
-	const [error, setError] = useState("");
 	const activity = useMemo(() => workspaceActivities(gui.activity), [gui.activity]);
 	const changeMode = (mode: WorkspaceSelectionMode) => { onModeChange(mode); setFilter(""); };
-	const reportError = (error: unknown) => setError(error instanceof Error ? error.message : String(error));
-	const choose = async (directory: string) => {
-		setPending(true); setError("");
-		try {
-			await select(directory);
-			changeMode("closed");
-		} finally { setPending(false); }
-	};
+	const selection = useOperation(async (choice: string | Pick<DesktopBridge, "chooseDirectory">) => {
+		const directory = typeof choice === "string" ? choice : await choice.chooseDirectory();
+		if (directory === null) return false;
+		await select(directory);
+		return true;
+	}, (selected) => { if (selected) changeMode("closed"); });
 	const removal = useOperation((path: string) => gui.globalSend({ action: "removeWorkspace", path }));
-	const disabled = pending || removal.pending || !gui.canNavigate;
+	const disabled = selection.pending || removal.pending || !gui.connected;
 	return <>
 		<Popover open={mode === "list"} onOpenChange={(open) => changeMode(open ? "list" : "closed")}>
 			{children(disabled)}
@@ -72,7 +69,7 @@ export function WorkspaceSelection({ gui, mode, onModeChange, purpose, select, c
 							exit={{ height: 0, paddingBottom: 0 }} transition={listDepth.transition} style={{ flexShrink: 0, minWidth: 0, overflow: "clip" }} key={path}>
 							<Fade animate={{ ...fade.animate, ...listDepth.visible }} exit={listDeparture} className="workspace-option-row overlay-list-row">
 								<Hint content={path}><Button role="option" aria-label={path} aria-selected={path === gui.cwd} variant="ghost"
-									disabled={disabled || purpose === "restore" && !exists} aria-description={state === "idle" ? undefined : status} onClick={() => void choose(path).catch(reportError)}>
+									disabled={disabled || purpose === "restore" && !exists} aria-description={state === "idle" ? undefined : status} onClick={() => selection.run(path)}>
 									<span className="workspace-option-label"><span className="workspace-option-path"><bdi dir="ltr">{home
 										? <><span className="workspace-option-home"><Home aria-hidden="true" />{home.username}</span>{home.suffix}</>
 										: path}</bdi></span>{!exists && <small>目录不存在</small>}</span>
@@ -90,18 +87,16 @@ export function WorkspaceSelection({ gui, mode, onModeChange, purpose, select, c
 					</AnimatePresence>
 				</div>
 				</ListScroll>
-				<Feedback compact message={error || removal.error} tone="error" />
+				<Feedback compact message={selection.error || removal.error} tone="error" />
 				<Button variant="outline" disabled={disabled} onClick={() => {
-					if (window.opi) {
-						void window.opi.chooseDirectory().then(async (directory) => { if (directory) await choose(directory); })
-							.catch(reportError);
-					} else changeMode("browser");
+					if (window.opi) selection.run(window.opi);
+					else changeMode("browser");
 				}}><FolderOpen />选择目录</Button>
 			</PopoverContent>
 		</Popover>
 		<AnimatePresence>
 		{mode === "browser" && <DirectoryBrowser gui={gui} initial={gui.workspaces.some((workspace) => workspace.path === gui.cwd && !workspace.exists) ? gui.workspaceRoot : gui.cwd}
-			select={choose} close={() => changeMode("closed")} />}
+			selection={selection} close={() => changeMode("closed")} />}
 		</AnimatePresence>
 	</>;
 }

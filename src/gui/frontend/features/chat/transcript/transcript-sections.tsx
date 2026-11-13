@@ -10,7 +10,7 @@ import { Message } from "../messages/message.tsx";
 import { MessageIdentity, ReplyMetrics } from "../messages/message-meta.tsx";
 import { MessageFooter } from "../messages/message-footer.tsx";
 import { ToolActivity } from "../tools/tool-activity.tsx";
-import { skillCount } from "./skill-summary.tsx";
+import { summarizeActivity } from "./activity-summary.ts";
 import { ReplyStatusLabel } from "./reply-status-label.tsx";
 import { sameTranscriptItem, type TranscriptItem } from "./transcript-items.ts";
 import type { TranscriptReply } from "./transcript-replies.ts";
@@ -40,17 +40,7 @@ export function ReplyContent({ reply, entryIds }: { reply: TranscriptReply; entr
 	const answers = new Set(reply.answer.map((item) => item.key));
 	const hasAnswer = answers.size > 0;
 	const activityOnly = reply.process.length > 0 && reply.process.every((item) => item.kind === "thinking" || item.kind === "tool");
-	const tools = reply.process.filter((item) => item.kind === "tool");
-	const thoughts = reply.process.filter((item) => item.kind === "thinking").length;
-	const failures = tools.filter((item) => item.tool.state === "failed").length;
-	const skills = skillCount(reply.process);
-	const pruned = tools.some((item) => item.pruned);
-	const counts = [
-		thoughts ? `${thoughts} 段思考` : "",
-		skills ? `${skills} 个技能` : "",
-		tools.length ? `${tools.length} 次工具调用` : "",
-		failures ? `${failures} 次失败` : "",
-	].filter(Boolean).join(" · ");
+	const { counts, pruned } = summarizeActivity(reply.process);
 	const targets = new Map<number, string>();
 	for (const item of reply.items) targets.set(item.messageIndex, item.key);
 	// 有正文的消息把操作放在最后一段正文下，否则放在最后一个过程片段下。
@@ -129,17 +119,7 @@ const Activity = memo(function Activity({ id, items, entryIds, tracking, animate
 	id: string; items: ActivityItem[]; entryIds: (string | undefined)[]; tracking: boolean; animateInitial: boolean;
 }) {
 	const [open, setOpen] = useAutoFold(`activity:${id}`, tracking);
-	const thoughts = items.filter((item) => item.kind === "thinking").length;
-	const tools = items.filter((item) => item.kind === "tool");
-	const failures = tools.filter((item) => item.tool.state === "failed").length;
-	const skills = skillCount(items);
-	const pruned = items.some((item) => item.kind === "tool" && item.pruned);
-	const counts = [
-		thoughts ? `${thoughts} 段思考` : "",
-		skills ? `${skills} 个技能` : "",
-		tools.length ? `${tools.length} 次工具调用` : "",
-		failures ? `${failures} 次失败` : "",
-	].filter(Boolean).join(" · ");
+	const { counts, pruned } = summarizeActivity(items);
 	return <Disclosure className="reply-process reply-activity" open={open} onOpenChange={setOpen} summary={<>
 		<ReplyStatusLabel className={`pruned-text${pruned ? " pruned-text-active" : ""}`} active={tracking}>思考与工具</ReplyStatusLabel>
 		<span className={`reply-counts pruned-text${pruned ? " pruned-text-active" : ""}`}>{counts}</span>

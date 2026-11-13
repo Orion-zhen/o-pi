@@ -4,9 +4,8 @@ import {
 	CONFIG_DEFINITIONS, configSchema, isNotFound,
 	defaultAgentConfigPath, userAgentConfigPath,
 } from "../../../harness/config-loader.ts";
-import { replaceConfigFile } from "../session/files.ts";
+import { replaceConfigFile } from "../../../harness/config-file.ts";
 import { type ModuleConfigId, type ModuleConfigDocument } from "../../shared/config/modules.ts";
-import { moduleConfigOptions } from "./module-config-options.ts";
 
 function paths(id: ModuleConfigId) {
 	const definition = CONFIG_DEFINITIONS[id];
@@ -24,8 +23,7 @@ export async function readModuleConfig(id: ModuleConfigId): Promise<ModuleConfig
 	try { content = await readFile(locations.user, "utf8"); }
 	catch (error) { if (isNotFound(error)) content = ""; else throw error; }
 	return {
-		path: locations.user, content, defaults,
-		...moduleConfigOptions(schema),
+		path: locations.user, content, defaults, schema,
 	};
 }
 

@@ -193,8 +193,10 @@ describe("原生菜单", () => {
 		expect(Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(null);
 		menu.workspaces([{ path: "/work", exists: true }]);
 		menu.select("/work");
+		menu.select("/work");
+		expect(app.addRecentDocument).toHaveBeenCalledExactlyOnceWith("/work");
 		expect(Menu.buildFromTemplate).not.toHaveBeenCalled();
-		expect(vi.mocked(Menu.setApplicationMenu).mock.calls).toEqual([[null], [null], [null]]);
+		expect(Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(null);
 	});
 	it.each(["darwin", "win32", "linux"])("%s 输入框右键提供拼写替换和标准编辑能力", (platform) => {
 		Object.defineProperty(process, "platform", { value: platform });

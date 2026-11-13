@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { payloadKey } from "../../shared/messages/output.ts";
-import { type GuiContent, type GuiImage, type GuiMessage, type GuiToolOutput, type ToolOutput } from "../../shared/messages/types.ts";
-import { toolFacts } from "../../shared/messages/tool-facts.ts";
+import { type GuiContent, type GuiImage, type GuiMessage, type GuiToolOutput, type GuiToolResult, type ToolOutput } from "../../shared/messages/types.ts";
+import { projectToolOutput } from "../../shared/messages/tool-output.ts";
 import { isSkillLoadDetails } from "../../shared/messages/skill-facts.ts";
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -37,7 +37,7 @@ function fitsInline(value: ToolOutput): boolean {
 /** 只投影协议定义的正文和图片，不递归改写扩展 details 或工具参数。 */
 export class GuiPayloads {
 	private images = new Map<string, string>();
-	private outputs = new Map<string, ToolOutput>();
+	private outputs = new Map<string, GuiToolResult>();
 	private progressSlots = new Map<string, ProgressSlot>();
 	private pendingResults = new Map<string, GuiToolOutput>();
 
@@ -46,7 +46,7 @@ export class GuiPayloads {
 		if (data === undefined) throw new Error("图片已失效，请重新打开会话。");
 		return data;
 	}
-	toolOutput(id: string): ToolOutput {
+	toolOutput(id: string): GuiToolResult {
 		const output = this.outputs.get(payloadKey(id));
 		if (!output) throw new Error("工具结果已失效，请重新打开会话。");
 		return output;
@@ -93,8 +93,9 @@ export class GuiPayloads {
 			return this.imageReference({ type: "image", data: block.data, mimeType: block.mimeType },
 				slot ? { id: slot.images[imageIndex++] ??= randomUUID(), version: slot.version } : undefined);
 		}) : output.content;
-		const value = { content, details: output.details };
-		const inline = fitsInline(value);
+		const raw = { content, details: output.details };
+		const inline = fitsInline(raw);
+		const value = projectToolOutput(name, raw);
 		if (slot && (this.outputs.has(slot.id) || !inline)) this.outputs.set(slot.id, value);
 		if (inline) return { kind: "inline", value };
 		const id = slot ? `${slot.id}/${slot.version}` : randomUUID();
@@ -102,8 +103,10 @@ export class GuiPayloads {
 		const details = record(output.details) ? output.details : {};
 		const first = Array.isArray(content) ? content.find((block: unknown) => record(block) && block.type === "text") : undefined;
 		return {
-			kind: "reference", id, facts: toolFacts({ name, args: undefined, output: value }),
+			kind: "reference", id,
 			preview: {
+				view: "raw", facts: value.facts, aborted: value.aborted,
+				error: record(details.error) ? value.error : value.error.slice(0, 240),
 				content: record(first) && typeof first.text === "string" ? [{ type: "text", text: first.text.slice(0, 240) }] : [],
 				details: name === "skill" && isSkillLoadDetails(details) ? details : { status: details.status, error: details.error },
 			},

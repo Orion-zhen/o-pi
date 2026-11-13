@@ -7,7 +7,7 @@ import { Reveal } from "@/ui/motion/animated.tsx";
 import { fade, settle } from "@/ui/motion/transitions.ts";
 import type { GuiToolOutput, ToolState } from "../../../../shared/messages/types.ts";
 import { outputPreview } from "../../../../shared/messages/output.ts";
-import { clean, record } from "@/ui/content/format.ts";
+import { clean } from "@/ui/content/format.ts";
 
 export const toolStates: Record<ToolState, string> = {
 	preparing: "生成参数", pending: "等待执行", running: "执行中", completed: "完成", failed: "执行失败", stopped: "已停止", unavailable: "无执行结果",
@@ -20,15 +20,7 @@ const tools = {
 };
 export function errorSummary(tool: { output?: GuiToolOutput | undefined; error?: string }): string {
 	if (tool.error !== undefined) return clean(tool.error);
-	const output = outputPreview(tool.output);
-	const details = output?.details;
-	if (record(details) && record(details.error) && typeof details.error.message === "string") return clean(details.error.message);
-	const content = output?.content;
-	if (Array.isArray(content)) {
-		const first = content.find((block: unknown) => record(block) && block.type === "text");
-		if (record(first) && typeof first.text === "string") return clean(first.text).split("\n").find((line) => line.trim()) ?? "";
-	}
-	return "";
+	return outputPreview(tool.output)?.error ?? "";
 }
 
 export function toolDisplay(name: string) {

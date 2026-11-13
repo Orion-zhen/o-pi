@@ -9,6 +9,7 @@ export interface ModuleConfigChoice {
 export interface ModuleConfigField {
 	type: "string" | "boolean" | "integer" | "number" | "array";
 	title?: string;
+	nullable?: boolean;
 	default?: unknown;
 	minimum?: number;
 	maximum?: number;
@@ -20,6 +21,10 @@ export interface ModuleConfigDocument {
 	path: string;
 	content: string;
 	defaults: string;
+	schema: Record<string, unknown>;
+}
+
+export interface ModuleConfigMetadata {
 	options: Record<string, readonly string[]>;
 	arrayOptions: Record<string, readonly ModuleConfigChoice[]>;
 	fields: Record<string, ModuleConfigField>;

@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { projectToolOutput } from "../../../../../../src/gui/shared/messages/tool-output.ts";
 import { renderWithMemory } from "../../../../helpers/render.ts";
 import { DisclosureMemory } from "../../../../../../src/gui/frontend/ui/disclosure-memory.ts";
 import { parseHTML } from "linkedom";
@@ -21,7 +22,7 @@ describe("聊天活动投影", () => {
 	it("参数生成、执行更新和完成沿用一个节点，不重复展示结果", () => {
 		const message = assistant([call]);
 		const preparing = transcriptItems(source({ streamingMessage: message, streaming: true }));
-		const running = transcriptItems(source({ messages: [message], streaming: true, liveTools: [{ toolCallId: call.id, toolName: "read", args: call.arguments, output: { kind: "inline", value: { content: [{ type: "text", text: "partial" }] } } }] }));
+		const running = transcriptItems(source({ messages: [message], streaming: true, liveTools: [{ toolCallId: call.id, toolName: "read", args: call.arguments, output: { kind: "inline", value: projectToolOutput("read", { content: [{ type: "text", text: "partial" }] }) } }] }));
 		const finished = transcriptItems(source({ messages: [message, result] }));
 		expect(preparing).toHaveLength(1);
 		expect(running).toHaveLength(1);
@@ -85,17 +86,17 @@ describe("聊天活动投影", () => {
 });
 
 function renderResult(name: string, args: unknown, details: unknown, content: unknown = []) {
-	const tool = { id: "tool-1", name, args, state: "completed" as const, output: { content, details } };
+	const tool = { id: "tool-1", name, args, state: "completed" as const, output: projectToolOutput(name, { content, details }) };
 	return renderWithMemory(createElement(ToolResult, { tool }));
 }
 
 describe("工具语义呈现", () => {
 	it("成功和失败都默认折叠，失败仍展示错误摘要", () => {
-		const tool: ToolActivity = { id: "missing-file", name: "read", args: { path: "missing.ts" }, state: "failed", output: { kind: "inline", value: { content: [{ type: "text", text: "文件不存在" }], details: { error: { code: "NOT_FOUND", message: "文件不存在" } } } } };
+		const tool: ToolActivity = { id: "missing-file", name: "read", args: { path: "missing.ts" }, state: "failed", output: { kind: "inline", value: projectToolOutput("read", { content: [{ type: "text", text: "文件不存在" }], details: { error: { code: "NOT_FOUND", message: "文件不存在" } } }) } };
 		const failed = renderWithMemory(createElement(ToolActivityView, { tool }));
 		expect(failed).toContain('aria-expanded="false"');
 		expect(parseHTML(failed).document.querySelector(".activity-error")?.textContent).toBe("文件不存在");
-		const completed = renderWithMemory(createElement(ToolActivityView, { tool: { ...tool, id: call.id, args: call.arguments, state: "completed", output: { kind: "inline", value: { content: result.content, details: result.details } } } }));
+		const completed = renderWithMemory(createElement(ToolActivityView, { tool: { ...tool, id: call.id, args: call.arguments, state: "completed", output: { kind: "inline", value: projectToolOutput("read", { content: result.content, details: result.details }) } } }));
 		expect(completed).toContain('aria-expanded="false"');
 	});
 
@@ -105,7 +106,7 @@ describe("工具语义呈现", () => {
 		const running = parseHTML(renderWithMemory(createElement(ToolActivityView, { tool }), memory)).document;
 		expect(running.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("true");
 		const completed = parseHTML(renderWithMemory(createElement(ToolActivityView, {
-			tool: { ...tool, state: "completed", output: { kind: "inline", value: { content: [{ type: "text", text: "检查完成" }] } } },
+			tool: { ...tool, state: "completed", output: { kind: "inline", value: projectToolOutput("subagent", { content: [{ type: "text", text: "检查完成" }] }) } },
 		}), memory)).document;
 		expect(completed.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("false");
 	});

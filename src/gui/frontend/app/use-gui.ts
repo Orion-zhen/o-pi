@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useEditor } from "./use-editor.ts";
+import { useSessionCommands } from "./use-session-commands.ts";
 import type { GlobalQuery, Query, WorkspaceQuery } from "../../shared/protocol/queries.ts";
-import type { GuiAction } from "../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import { useWorkbench } from "@/features/workspace/use-workbench.ts";
 import { useWindowRefresh } from "@/connection/use-window-refresh.ts";
@@ -12,13 +13,11 @@ import { useHostState } from "./use-host-state.ts";
 import { useConnection } from "@/connection/use-connection.ts";
 import { useGuiConfig } from "@/features/preferences/use-gui-config.ts";
 import { useStartupChangelog } from "./welcome/use-startup-changelog.ts";
-import { isLoginAction, useAuthActions } from "@/features/auth/use-auth-actions.ts";
 import { usePanels } from "./use-panels.ts";
 import { isTouchInput } from "@/ui/input-mode.ts";
 import type { SidebarView } from "./controls.ts";
-import { fileReference } from "../../shared/file-reference.ts";
 import type { DesktopCommand } from "../../shared/protocol/desktop.ts";
-import type { GlobalSend, Send } from "@/connection/connection.ts";
+import type { GlobalSend } from "@/connection/connection.ts";
 import type { SessionView } from "@/features/sessions/session-state.ts";
 import { useNotifications } from "@/ui/notifications.tsx";
 
@@ -30,8 +29,7 @@ export function useGui() {
 	const view = session?.view;
 	const notifications = useNotifications();
 	const setError = notifications.reportError;
-	const editor = useRef<HTMLTextAreaElement>(null);
-	const [referenceVersion, setReferenceVersion] = useState(0);
+	const editor = useEditor(view, views, setError);
 	const panels = usePanels(selectedId);
 	const { activity, markRead: recordRead, forget } = useSessionActivity(host.activities, setError);
 	const markRead = useCallback((id: string, completedAt: number) => { if (views.get(id)) recordRead(id, completedAt); }, [views, recordRead]);
@@ -51,28 +49,18 @@ export function useGui() {
 			case "sessionTab": panels.selectTab(event.tab); panels.setSessionPanelOpen(true); break;
 			case "editor":
 				views.writeText(event.sessionId, event.text, event.mode);
-				if (current().selection?.target.id === event.sessionId && !isTouchInput()) editor.current?.focus();
+				if (current().selection?.target.id === event.sessionId && !isTouchInput()) editor.input.current?.focus();
 				break;
 		}
 	});
-	const { connected, status, send: dispatch, query: readQuery } = connection;
+	const { connected, send: dispatch, query: readQuery } = connection;
 	const globalSend = useCallback<GlobalSend>(async (action) => { await dispatch(action, null); }, [dispatch]);
-	const dispatchSelected = useCallback(<A extends GuiAction>(action: A) => dispatch(action, selectedId), [dispatch, selectedId]);
-	const auth = useAuthActions(dispatchSelected, panels.closePanel);
-	useEffect(() => { if (!connected) auth.finish(); }, [connected, auth.finish]);
-	const send = useCallback<Send>(async (action) => {
-		if (isLoginAction(action)) await auth.login(action);
-		else {
-			if (action.action === "dialog" && action.value !== null) auth.resume();
-			await dispatchSelected(action);
-		}
-	}, [dispatchSelected, auth.login, auth.resume]);
+	const { send, query, auth } = useSessionCommands(connection, selectedId, panels.closePanel);
 	const desktopCommand = useEffectEvent((command: DesktopCommand) => {
 		if (command === "settings") panels.setPanel({ kind: "settings" });
 		if (command === "new" && connected) void send({ action: "new" }).catch(setError);
 	});
 	useEffect(() => window.opi?.onCommand(desktopCommand), []);
-	const query = useCallback<Query>((request) => readQuery(request, selectedId), [readQuery, selectedId]);
 	const sharedQuery = useCallback<Query<GlobalQuery | WorkspaceQuery>>((request) => readQuery(request, null), [readQuery]);
 	const globalQuery: Query<GlobalQuery> = sharedQuery;
 	const config = useGuiConfig(connected, globalQuery, setError);
@@ -111,17 +99,7 @@ export function useGui() {
 	const sessionSearch = useSessionSearch(cwd, connected, globalQuery, dispatch, setError);
 	const workbench = useWorkbench(cwd, connected && Boolean(cwd) && !workspaceMissing, activity.some((item) => item.cwd === cwd && item.state !== "idle"), sharedQuery);
 	const openFile = useCallback((path: string) => { workbench.openFile(path); panels.selectTab("file"); panels.setSessionPanelOpen(true); }, [workbench.openFile, panels.selectTab]);
-	const setDraft = useCallback((text: string) => { if (view) views.writeText(view.id, text); }, [view, views]);
-	const referenceFile = useCallback((path: string) => {
-		if (!view) return false;
-		let reference: string;
-		try { reference = fileReference(path); }
-		catch (error) { setError(String(error)); return false; }
-		views.update(view, (draft) => ({ ...draft, text: `${draft.text}${draft.text && !/\s$/.test(draft.text) ? " " : ""}${reference}` }));
-		editor.current?.focus();
-		setReferenceVersion((version) => version + 1);
-		return true;
-	}, [view, views]);
+	const { referenceFile } = editor;
 	const canSubmit = connected && snapshot?.canSubmit === true;
 	const canChangeSession = connected && snapshot?.canChangeSession === true;
 	const [usageLoading, setUsageLoading] = useState(false);
@@ -141,16 +119,18 @@ export function useGui() {
 		}
 	}, [canSubmit, send, panels.setPanel, setError]);
 	const sessionRows = useMemo(() => sessionList(host.sessions ?? [], activity, selectedId), [host.sessions, activity, selectedId]);
-	const sidebar = useMemo<SidebarView>(() => ({
-		cwd, workspaceMissing, activity, sessionRows, sessions: host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, canNavigate: connected, usageLoading, openUsage,
-		workbench, sessionSearch, layout, openFile, referenceFile, send, globalSend, query, globalQuery, setPanel: panels.setPanel, workspaceRoot: host.workspaceRoot, workspaces: host.workspaces, setError,
+	const navigation = useMemo<SidebarView>(() => ({
+		cwd, workspaceMissing, activity, sessionRows, sessions: host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, usageLoading, openUsage,
+		workbench, sessionSearch, layout, openFile, referenceFile, sessionAction: send, globalSend, globalQuery, setPanel: panels.setPanel, workspaceRoot: host.workspaceRoot, workspaces: host.workspaces, setError,
 	}), [cwd, workspaceMissing, activity, sessionRows, host.sessions, sessionsLoading, refreshSessions, connected, canSubmit, canChangeSession, usageLoading, openUsage,
-		workbench, sessionSearch, layout, openFile, referenceFile, send, globalSend, query, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, setError]);
-	const boundSession = useMemo<SessionView | null>(() => session && { ...session, send, query, dispatch: dispatchSelected }, [session, send, query, dispatchSelected]);
+		workbench, sessionSearch, layout, openFile, referenceFile, send, globalSend, globalQuery, panels.setPanel, host.workspaceRoot, host.workspaces, setError]);
+	const boundSession = useMemo<SessionView | null>(() => session && { ...session, send, query }, [session, send, query]);
 	return {
-		...panels, ...sidebar, ...changelog, sidebar, session: boundSession, views, markRead, setDraft, editor, referenceVersion, dispatch: dispatchSelected, notifications, canCopySession,
-		guiConfig: config.document, refreshGuiConfig: config.refresh, availableVersion,
-		status, reconnect: connection.reconnect,
-		auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode, authError: auth.error, setAuthError: auth.setError,
+		session: boundSession, navigation, panels, changelog,
+		editor: { input: editor.input, views, setDraft: editor.setDraft, referenceVersion: editor.referenceVersion },
+		connection: { connected, status: connection.status, reconnect: connection.reconnect },
+		auth: { auth: auth.auth, authUrl: auth.authUrl, deviceCode: auth.deviceCode, error: auth.error, setError: auth.setError },
+		config: { document: config.document, refresh: config.refresh, query, send },
+		notifications, availableVersion, markRead, canCopySession,
 	};
 }

@@ -18,6 +18,22 @@ export function newSessionTests(context: () => { host: GuiClient; cwd: string; a
 		return sessionList(history, activity.map((item) => ({ ...item, unread: false })), host.selected?.id ?? null);
 	};
 	describe("待发送会话", () => {
+		it("写草稿不重新加载已回收的 SDK，会话删除期间仍拒绝写入", async () => {
+			const { host } = context();
+			const session = host.selected;
+			if (!session) throw new Error("缺少初始会话");
+			await host.dispatch({ action: "observe", visible: false });
+			await session.release();
+			expect(session.execution).toBeUndefined();
+			await host.dispatch({ action: "draft", text: "缓存回收后的草稿" }, session.id);
+			expect(session.execution).toBeUndefined();
+			expect(host.readDraft(session.id)).toBe("缓存回收后的草稿");
+			session.reserveDeletion();
+			try { await expect(host.dispatch({ action: "draft", text: "不能写入" }, session.id)).rejects.toThrow("正在删除"); }
+			finally { session.cancelDeletion(); }
+			await host.dispatch({ action: "observe", visible: true });
+			expect(host.readDraft(session.id)).toBe("缓存回收后的草稿");
+		});
 		it("手动加载技能后新建清除上下文和运行状态，保留未发送草稿", async () => {
 			const { host, agentDir } = context();
 			const skillDir = path.join(agentDir, "skills", "oops");

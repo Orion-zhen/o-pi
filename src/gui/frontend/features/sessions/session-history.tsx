@@ -27,7 +27,6 @@ interface HistoryGui {
 	sessionsLoading: boolean;
 	refreshSessions: () => Promise<void>;
 	send: GlobalSend;
-	canNavigate: boolean;
 	connected: boolean;
 }
 
@@ -102,7 +101,7 @@ function SessionRows({ items, gui, close, search, startup }: {
 			data-index={row.index} className={list.windowed ? "history-virtual-row" : undefined}
 			ref={list.virtualizer.measureElement}
 			style={{ minWidth: 0, ...list.rowStyle, ...(!list.windowed && { overflow: "clip" }) }}>
-			<HistorySessionRow item={item} lists={lists} disabled={switching || !gui.canNavigate} send={gui.send} animated={!list.windowed} open={open} match={matches.get(item.path ?? "")} />
+			<HistorySessionRow item={item} lists={lists} disabled={switching || !gui.connected} send={gui.send} animated={!list.windowed} open={open} match={matches.get(item.path ?? "")} />
 		</motion.div>;
 	});
 	return <><Feedback compact message={error} tone="error" /><div ref={list.containerRef} style={list.style} className="workspace-session-list" {...interaction}>

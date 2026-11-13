@@ -3,7 +3,6 @@ import { LoaderCircle } from "lucide-react";
 import type { ViewPanel } from "./use-panels.ts";
 import type { GuiAction, GuiActionResult } from "../../shared/protocol/actions.ts";
 import type { GuiPanel, GuiSnapshot } from "../../shared/protocol/state.ts";
-import type { Send } from "@/connection/connection.ts";
 import { Content } from "@/features/chat/messages/content.tsx";
 import { Button } from "@/ui/button.tsx";
 import { Feedback } from "@/ui/feedback.tsx";
@@ -22,13 +21,12 @@ const titles: Record<GuiPanel["kind"], string> = {
 	lastReply: "最后回复", usage: "用量情况",
 };
 
-export function Panel({ ref, panel, snapshot, sessionList, send, dispatch, canSubmit, close, restoreFocus }: {
+export function Panel({ ref, panel, snapshot, sessionList, send, canSubmit, close, restoreFocus }: {
 	ref: Ref<HTMLDivElement>;
 	panel: Exclude<ViewPanel, { kind: "settings" }>;
 	snapshot: GuiSnapshot;
 	sessionList: ReactNode;
-	send: Send;
-	dispatch<A extends GuiAction>(action: A): Promise<GuiActionResult<A>>;
+	send<A extends GuiAction>(action: A): Promise<GuiActionResult<A>>;
 	canSubmit: boolean;
 	close: () => void;
 	restoreFocus: () => void;
@@ -63,8 +61,8 @@ export function Panel({ ref, panel, snapshot, sessionList, send, dispatch, canSu
 			body = panel.value === "loading" ? <div className="report-inline report-empty" role="status">
 				<LoaderCircle className="animate-spin shrink-0 size-[1em]" aria-hidden="true" /><span>正在查询用量…</span>
 			</div> : <UsageReport value={panel.value} disabled={!canSubmit}
-				onUse={(creditId, requestId) => dispatch({ action: "consumeCodexCredit", creditId, requestId })}
-				onRefresh={() => dispatch({ action: "view", view: "usage", refresh: true })} />;
+				onUse={(creditId, requestId) => send({ action: "consumeCodexCredit", creditId, requestId })}
+				onRefresh={() => send({ action: "view", view: "usage", refresh: true })} />;
 			break;
 	}
 	return <PanelDialog ref={ref} title={titles[panel.kind]} close={close} restoreFocus={restoreFocus}>

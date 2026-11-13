@@ -1,6 +1,8 @@
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "../../../shared/workspace.ts";
 import type { Remote } from "@/connection/use-remote.ts";
 
+export type WorkspacePane = "sessions" | "files";
+
 interface WorkbenchState {
 	directories: Record<string, Remote<WorkspaceEntry[]>>;
 	git: Remote<WorkspaceGit | null>;
@@ -8,7 +10,7 @@ interface WorkbenchState {
 	expanded: Set<string>;
 	onlyChanges: boolean;
 	filesOpen: boolean;
-	pane: string;
+	pane: WorkspacePane;
 }
 
 /** 每个工作区独立持有展示状态和在途读取，不向后继工作区写入。 */

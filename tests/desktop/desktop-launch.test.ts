@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { app } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { installDesktopLaunch, launchAction } from "../../src/desktop/launch.ts";
+import { installDesktopLaunch } from "../../src/desktop/launch.ts";
 import type { GuiAction } from "../../src/gui/shared/protocol/actions.ts";
 import { useTempDir } from "../helpers/lifecycle.ts";
 
@@ -31,7 +31,7 @@ describe("Desktop 系统入口", () => {
 		expect(preventDefault).toHaveBeenCalledOnce();
 		await Promise.resolve();
 		expect(open).not.toHaveBeenCalled();
-		launch.ready(async (target) => { await open(await launchAction(target)); });
+		launch.ready(open);
 		await vi.waitFor(() => expect(open).toHaveBeenCalledExactlyOnceWith({ action: "workspace", path: workspace }));
 		app.emit("second-instance", {}, ["electron", "app", "--session", "task.jsonl"], workspace);
 		expect(focus).toHaveBeenCalledTimes(2);
@@ -48,10 +48,10 @@ describe("Desktop 系统入口", () => {
 		await mkdir(directory);
 		await writeFile(file, "");
 		process.argv = ["electron", "app", pathToFileURL(file).href];
-		const open = vi.fn();
+		const open = vi.fn<(action: GuiAction) => Promise<void>>().mockResolvedValue(undefined);
 		const report = vi.fn();
 		const launch = installDesktopLaunch(vi.fn(), report);
-		launch.ready(async (target) => { open(await launchAction(target)); });
+		launch.ready(open);
 		app.emit("open-file", { preventDefault: vi.fn() }, directory);
 		app.emit("second-instance", {}, ["electron", "app", file], directory);
 		await vi.waitFor(() => expect(open.mock.calls).toEqual([
@@ -60,10 +60,10 @@ describe("Desktop 系统入口", () => {
 		expect(report).not.toHaveBeenCalled();
 	});
 	it("外部链接拒绝命令、额外参数和相对路径，之后仍能打开合法目标", async () => {
-		const open = vi.fn();
+		const open = vi.fn<(action: GuiAction) => Promise<void>>().mockResolvedValue(undefined);
 		const report = vi.fn();
 		const launch = installDesktopLaunch(vi.fn(), report);
-		launch.ready(async (target) => { open(await launchAction(target)); });
+		launch.ready(open);
 		const invalid = ["opi://app/index.html", "opi-desktop://command?text=rm", "opi-desktop://workspace?path=relative",
 			"opi-desktop://workspace?path=/tmp&command=run", "opi-desktop://workspace?path=/tmp&path=/other",
 			"opi-desktop://session?id=", "opi-desktop://session?id=x#run", "opi-desktop://user@session?id=x", "opi-desktop://session/run?id=x"];
@@ -76,10 +76,10 @@ describe("Desktop 系统入口", () => {
 		expect(report).toHaveBeenCalledTimes(invalid.length);
 	});
 	it("文件已删除导致导航失败后，第二实例仍可打开工作区", async () => {
-		const open = vi.fn();
+		const open = vi.fn<(action: GuiAction) => Promise<void>>().mockResolvedValue(undefined);
 		const report = vi.fn();
 		const launch = installDesktopLaunch(vi.fn(), report);
-		launch.ready(async (target) => { open(await launchAction(target)); });
+		launch.ready(open);
 		app.emit("open-file", { preventDefault: vi.fn() }, path.join(temp.path, "missing.jsonl"));
 		app.emit("second-instance", {}, ["electron", "app", "--workspace", "子目录"], workspace);
 		await vi.waitFor(() => expect(open).toHaveBeenCalledExactlyOnceWith({ action: "workspace", path: path.join(workspace, "子目录") }));

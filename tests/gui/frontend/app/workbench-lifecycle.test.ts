@@ -39,14 +39,14 @@ it("连接就绪但未收到工作区时不读取文件，工作区失效与恢�
 	const current = () => gui;
 	function View() { gui = useGui(); return null; }
 	await render(createElement(View));
-	expect(current().connected).toBe(true);
-	expect(current().cwd).toBe("");
+	expect(current().connection.connected).toBe(true);
+	expect(current().navigation.cwd).toBe("");
 	expect(workspaceQueries()).toEqual([]);
 
 	await receive({ type: "workspaceRoot", path: "/workspace" });
 	expect(workspaceQueries()).toHaveLength(2);
-	expect(current().workbench.directories[""]).toEqual({ state: "ready", value: [] });
-	expect(current().workbench.git).toEqual({ state: "ready", value: null });
+	expect(current().navigation.workbench.directories[""]).toEqual({ state: "ready", value: [] });
+	expect(current().navigation.workbench.git).toEqual({ state: "ready", value: null });
 
 	query.mockClear();
 	await receive({ type: "workspaces", value: [{ path: "/workspace", exists: false }] });
@@ -54,6 +54,6 @@ it("连接就绪但未收到工作区时不读取文件，工作区失效与恢�
 
 	await receive({ type: "workspaces", value: [{ path: "/workspace", exists: true }] });
 	expect(workspaceQueries()).toHaveLength(2);
-	expect(current().workbench.directories[""]).toEqual({ state: "ready", value: [] });
-	expect(current().workbench.git).toEqual({ state: "ready", value: null });
+	expect(current().navigation.workbench.directories[""]).toEqual({ state: "ready", value: [] });
+	expect(current().navigation.workbench.git).toEqual({ state: "ready", value: null });
 });

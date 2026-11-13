@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { projectToolOutput } from "../../../../../../src/gui/shared/messages/tool-output.ts";
 import { renderWithMemory } from "../../../../helpers/render.ts";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
@@ -6,12 +7,18 @@ import { ToolResult } from "../../../../../../src/gui/frontend/features/chat/too
 import type { ToolActivity } from "../../../../../../src/gui/frontend/features/chat/tools/activity.ts";
 import { agentDetails, agentRun, fetchDetails, searchDetails } from "./rich-tool-fixtures.ts";
 
-function render(name: string, details: unknown, state: ToolActivity["state"] = "completed") {
-	const tool = { id: "rich-tool", name, args: {}, state, output: { content: [], details } };
+function render(name: string, details: unknown, state: ToolActivity["state"] = "completed", content: unknown = []) {
+	const tool = { id: "rich-tool", name, args: {}, state, output: projectToolOutput(name, { content, details }) };
 	return parseHTML(renderWithMemory(createElement(ToolResult, { tool }))).document;
 }
 
 describe("文件列表图标", () => {
+	it("没有正文片段的搜索区域仍展示路径和声明", () => {
+		const doc = render("grep", { regions: [{ path: "src/main.ts", declaration: "function main()" }] });
+		expect(doc.querySelector(".result-path")?.textContent).toBe("src/main.ts");
+		expect(doc.querySelector(".search-declaration")?.textContent).toBe("function main()");
+		expect(doc.querySelector(".search-lines")).toBeNull();
+	});
 	it("ls 按文件名显示类型图标，并区分目录和符号链接", () => {
 		const names = ["src", "package.json", "index.ts", "current"];
 		const doc = render("ls", { path: "/workspace", truncated: false, entries: names.map((name, index) => ({
@@ -37,6 +44,19 @@ describe("文件列表图标", () => {
 });
 
 describe("外部工具内容", () => {
+	it.each([
+		["subagent", { mode: "parallel", tasks: [{}], results: [null], warnings: [] }],
+		["subagent", { ...agentDetails, results: [{ status: "running", events: [null] }] }],
+		["websearch", { ...searchDetails, results: [null] }],
+		["webfetch", { ...fetchDetails, range: { kind: "find", matches: 1 } }],
+		["ls", { entries: [null], truncated: false }],
+		["find", { matches: [{ path: null }] }],
+		["grep", { regions: [{ path: "a", display_lines: [null] }] }],
+	])("%s 的不可识别详情保留原文，不进入富展示", (name, details) => {
+		const doc = render(name, details, "completed", [{ type: "text", text: "原始结果仍可查看" }]);
+		expect(doc.querySelector(".subagent-progress, .web-results, .web-fetch-result, .path-list, .search-results")).toBeNull();
+		expect(doc.querySelector("pre")?.textContent).toBe("原始结果仍可查看");
+	});
 	it("搜索结果允许网页链接，但标题不能注入 HTML，危险协议不可点击", () => {
 		const doc = render("websearch", { ...searchDetails, results: [
 			...searchDetails.results,

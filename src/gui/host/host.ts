@@ -127,7 +127,7 @@ export class GuiHost {
 	}
 	queryWorkspace(query: Extract<WorkspaceQuery, { query: "previewFile" }>): Promise<WorkspacePreview>;
 	queryWorkspace(query: Extract<WorkspaceQuery, { query: "lspServers" }>): Promise<GuiLspServers>;
-	queryWorkspace(query: Extract<WorkspaceQuery, { query: "workspaceFiles" | "workspaceGit" }>): Promise<WorkspaceEntry[] | WorkspaceGit | null>;
+	queryWorkspace(query: Extract<WorkspaceQuery, { query: "workspaceFiles" | "workspaceGit" | "lspServers" }>): Promise<WorkspaceEntry[] | WorkspaceGit | GuiLspServers | null>;
 	async queryWorkspace(query: WorkspaceQuery) {
 		if (query.query === "lspServers") return readLspServers(query.cwd);
 		const signal = this.workbenchController.signal;

@@ -1,41 +1,25 @@
-import type { RefObject } from "react";
-import type { GlobalQuery, Query } from "../../shared/protocol/queries.ts";
-import type { GuiPanel, GuiSessionInfo, GuiWorkspaceInfo } from "../../shared/protocol/state.ts";
-import type { GlobalSend, Send } from "@/connection/connection.ts";
-import type { SessionActivity } from "@/features/sessions/use-session-activity.ts";
+import type { GuiAction } from "../../shared/protocol/actions.ts";
+import type { GuiPanel, GuiSessionInfo } from "../../shared/protocol/state.ts";
+import type { Send } from "@/connection/connection.ts";
+import type { WorkspaceSelectionView } from "@/features/workspace/workspace-selection.tsx";
 import type { SessionListItem } from "@/features/sessions/session-list.ts";
 import type { WorkbenchView } from "@/features/workspace/use-workbench.ts";
 import type { SessionSearchView } from "@/features/sessions/use-session-search.ts";
 import type { useLayout } from "./use-layout.ts";
 
-export interface GuiControls {
-	send: Send;
-	globalSend: GlobalSend;
-	query: Query;
-	globalQuery: Query<GlobalQuery>;
+export interface SidebarView extends WorkspaceSelectionView {
+	sessionAction: Send<Extract<GuiAction, { action: "new" | "reload" }>>;
 	setPanel: (panel: GuiPanel | undefined) => void;
 	setError: (error: unknown) => void;
-	connected: boolean;
 	canSubmit: boolean;
 	canChangeSession: boolean;
-	canNavigate: boolean;
-}
-export interface EditorControls {
-	editor: RefObject<HTMLTextAreaElement | null>;
-	setDraft: (text: string) => void;
-}
-export interface SidebarView extends GuiControls {
 	usageLoading: boolean;
 	openUsage: (mobile: boolean) => Promise<void>;
-	cwd: string;
 	workspaceMissing: boolean;
-	activity: SessionActivity[];
 	sessionRows: SessionListItem[];
 	sessions: GuiSessionInfo[] | undefined;
 	sessionsLoading: boolean;
 	refreshSessions: () => Promise<void>;
-	workspaceRoot: string;
-	workspaces: GuiWorkspaceInfo[];
 	workbench: WorkbenchView;
 	sessionSearch: SessionSearchView;
 	layout: ReturnType<typeof useLayout>;

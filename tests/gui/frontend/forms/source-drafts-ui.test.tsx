@@ -1,5 +1,6 @@
 import { getApiProviders } from "@earendil-works/pi-ai/compat";
 import { readFileSync } from "node:fs";
+import autoTitleSchema from "../../../../agent/schemas/auto-title.schema.json" with { type: "json" };
 import { act, type ComponentProps, type ReactNode } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { McpSettings } from "../../../../src/gui/frontend/features/mcp/mcp-settings.tsx";
@@ -51,7 +52,7 @@ it.each([
 	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	const props = { send, disabled: false };
 	const component = kind === "module" ? <ModuleSettings {...props} id="autoTitle" title="自动标题" models={[]} tools={null} currentModel={null}
-		query={vi.fn().mockResolvedValue({ path: "auto-title.jsonc", content: original, defaults, options: {}, arrayOptions: {}, fields: {} })} />
+		query={vi.fn().mockResolvedValue({ path: "auto-title.jsonc", content: original, defaults, schema: autoTitleSchema })} />
 		: kind === "mcp" ? <McpSettings {...props} query={vi.fn().mockResolvedValue({ path: "mcp.json", content: original })} />
 		: <ModelServicesSettings {...props} sessionId={undefined} sessionRevision={undefined} sessionReady={false} query={vi.fn()} globalQuery={vi.fn().mockResolvedValue({ path: "models.json", content: original, schema: modelsConfigSchema, apis: getApiProviders().map(({ api }) => api) })} />;
 	await render(<View>{component}</View>);

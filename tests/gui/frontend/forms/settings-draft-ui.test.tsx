@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import autoTitleSchema from "../../../../agent/schemas/auto-title.schema.json" with { type: "json" };
 import { parse } from "jsonc-parser";
 import { act, useState, type ComponentProps, type ReactNode } from "react";
 import type { SourceEditor } from "../../../../src/gui/frontend/forms/source-editor.tsx";
@@ -56,7 +57,7 @@ function expectDirty(dirty: boolean) {
 it("模块开关改回初始值后无需保存，默认值隐藏重置", async () => {
 	const content = "{}";
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content,
-		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
+		defaults: autoTitleDefaults, schema: autoTitleSchema });
 	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query as Query<GlobalQuery>} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
 	expectDirty(false);
@@ -73,11 +74,14 @@ it("模块开关改回初始值后无需保存，默认值隐藏重置", async (
 
 it("正文消息上限默认五条，自动命名关闭时仍可配置并保存", async () => {
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content: "{}",
-		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
+		defaults: autoTitleDefaults, schema: autoTitleSchema });
 	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
 	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query as Query<GlobalQuery>} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
 	const limit = () => document.querySelector<HTMLInputElement>('input[aria-label="正文消息上限"]');
 	expect(limit()?.value).toBe("5");
+	expect(limit()?.getAttribute("type")).toBe("number");
+	expect(limit()?.getAttribute("min")).toBe("1");
+	expect(limit()?.getAttribute("step")).toBe("1");
 	expect(limit()?.disabled).toBe(false);
 	expect(button("标题模型")?.disabled).toBe(false);
 	await click(named("JSONC"));
@@ -92,10 +96,28 @@ it("正文消息上限默认五条，自动命名关闭时仍可配置并保存"
 	expect(parse(action.content)).toEqual({ max_messages: 3 });
 });
 
+it("非法字段类型停留在源码，修复后恢复原有数字控件", async () => {
+	const query = vi.fn().mockResolvedValue({ path: "auto-title.jsonc", content: "{}", defaults: autoTitleDefaults, schema: autoTitleSchema });
+	const send = vi.fn();
+	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
+	await click(named("JSONC"));
+	const source = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="autoTitle 全局 JSONC"]');
+	if (!source) throw new Error("缺少配置源码编辑器");
+	await act(async () => { source.value = '{"max_messages":"oops"}'; source.dispatchEvent(new window.Event("input", { bubbles: true })); });
+	expect(named("表单")?.disabled).toBe(true);
+	expect(named("保存")?.disabled).toBe(true);
+	expect(document.querySelector('[role="alert"]')?.textContent).toContain("max_messages");
+	await act(async () => { source.value = '{"max_messages":3}'; source.dispatchEvent(new window.Event("input", { bubbles: true })); });
+	await click(named("表单"));
+	expect(document.querySelector<HTMLInputElement>('input[aria-label="正文消息上限"]')?.value).toBe("3");
+	await click(named("保存"));
+	expect(send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ action: "saveModuleConfig", content: '{"max_messages":3}' }));
+});
+
 it("模块保存失败保留草稿，放弃恢复原值，保存成功采用新基准", async () => {
 	const content = '{"enabled":true}';
 	const query = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content,
-		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
+		defaults: autoTitleDefaults, schema: autoTitleSchema });
 	const send = vi.fn<ConfigCommand>().mockRejectedValueOnce(new Error("保存失败")).mockResolvedValue(undefined);
 	await render(<View><ModuleSettings id="autoTitle" title="自动标题" query={query as Query<GlobalQuery>} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
 	await click(button("重置自动生成标题"));
@@ -139,7 +161,7 @@ it("批量保存中不能放弃，单项失败不阻止后续文件，重试只�
 	const failure = Promise.withResolvers<void>();
 	const send = vi.fn<ConfigCommand>().mockReturnValueOnce(failure.promise).mockResolvedValue(undefined);
 	const modules = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "auto-title.jsonc", content: '{"enabled":true}',
-		defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
+		defaults: autoTitleDefaults, schema: autoTitleSchema });
 	const mcp = vi.fn<Query<GlobalQuery>>().mockResolvedValue({ path: "mcp.json", content: '{"mcpServers":{"one":{"command":"node"}}}' });
 	await render(<View>
 		<ModuleSettings id="autoTitle" title="自动标题" query={modules as Query<GlobalQuery>} send={send} disabled={false} models={[]} tools={null} currentModel={null} />
@@ -210,7 +232,7 @@ it("GUI 加载完成后可编辑，加载期间保留其它配置草稿", async 
 	const defaults = readGuiDefaults();
 	const base: ReadyGuiConfig = { state: "ready", path: "gui.jsonc", content: "{}", value: defaults, defaults };
 	const props = { send: vi.fn(), query: vi.fn(), disabled: false, refresh: vi.fn() };
-	const moduleQuery = vi.fn().mockResolvedValue({ path: "auto-title.jsonc", content: "{}", defaults: autoTitleDefaults, options: {}, arrayOptions: {}, fields: {} });
+	const moduleQuery = vi.fn().mockResolvedValue({ path: "auto-title.jsonc", content: "{}", defaults: autoTitleDefaults, schema: autoTitleSchema });
 	const view = (document: GuiConfigDocument | undefined) => <View><GuiSettingsProvider {...props} document={document}>
 		<Preferences title="对话交互" section="interaction" />
 		<ModuleSettings id="autoTitle" title="自动标题" query={moduleQuery} send={props.send} disabled={false} models={[]} tools={null} currentModel={null} />

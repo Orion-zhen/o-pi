@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { projectToolOutput } from "../../../../../../src/gui/shared/messages/tool-output.ts";
 import { createElement } from "react";
 import { renderWithMemory } from "../../../../helpers/render.ts";
 import { parseHTML } from "linkedom";
@@ -64,7 +65,7 @@ describe("整轮处理过程折叠", () => {
 	])("并行工具等待历史交接时显示 $state 和耗时", ({ isError, status, state }) => {
 		const snapshot = source({ messages: [user, assistant([call])], streaming: true,
 			liveTools: [{ toolCallId: call.id, toolName: call.name, args: call.arguments,
-				output: { kind: "inline", value: { content: [{ type: "text", text: "工具结果" }], details: { status } } },
+				output: { kind: "inline", value: projectToolOutput("read", { content: [{ type: "text", text: "工具结果" }], details: { status } }) },
 				completion: { isError, durationMs: 12 } }],
 		});
 		expect(replies(snapshot)[0]?.process.filter((item) => item.kind === "tool")).toMatchObject([

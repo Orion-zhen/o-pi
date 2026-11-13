@@ -29,9 +29,9 @@ export function useOperation<Args extends unknown[], T>(task: (...args: Args) =>
 			succeeded?.(value, ...args);
 		})();
 	}, [task, succeeded]);
-	const reset = useCallback((discard: () => void) => {
+	const reset = useCallback((discard?: () => void) => {
 		if (current.current.state === "pending") return;
-		discard();
+		discard?.();
 		update({ state: "idle" });
 	}, []);
 	return { state, run, reset, pending: state.state === "pending", error: state.state === "failed" ? state.message : "" };

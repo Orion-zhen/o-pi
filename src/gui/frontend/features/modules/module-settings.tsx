@@ -3,7 +3,9 @@ import { RotateCcw } from "lucide-react";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Feedback } from "@/ui/feedback.tsx";
 import { applyEdits, modify } from "jsonc-parser";
-import { parseModuleDraft, readModuleConfig } from "./module-draft.ts";
+import { parseModuleDraft, readModuleConfig, configAt as at } from "./module-draft.ts";
+import { compile } from "@earendil-works/pi-schema";
+import { moduleConfigOptions } from "../../../shared/config/module-schema.ts";
 import { equalConfigValues } from "../../../../harness/config-values.ts";
 import type { GuiModel, GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Query, GlobalQuery } from "../../../shared/protocol/queries.ts";
@@ -20,14 +22,6 @@ import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
 import { SearchProviderSettings } from "./search-provider-settings.tsx";
 import { SearchApiKeyControl } from "./search-api-key-control.tsx";
 
-function at(value: unknown, path: string): unknown {
-	for (const key of path.split(".")) {
-		if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-		value = (value as Record<string, unknown>)[key];
-	}
-	return value;
-}
-
 interface Props {
 	title: string; id: ModuleConfigId; query: Query<GlobalQuery>; send: ConfigCommand; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; currentModel: GuiModel | null;
 }
@@ -42,8 +36,10 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 	const { saving } = useSettingsState();
 	const [source, setSource] = useState(false);
 	const defaults = useMemo(() => readModuleConfig(document.defaults), [document.defaults]);
-	const saved = useMemo(() => parseModuleDraft(document.content, defaults), [document.content, defaults]);
-	const parsed = useMemo(() => parseModuleDraft(draft, defaults), [draft, defaults]);
+	const validator = useMemo(() => compile(document.schema), [document.schema]);
+	const metadata = useMemo(() => moduleConfigOptions(document.schema), [document.schema]);
+	const saved = useMemo(() => parseModuleDraft(document.content, defaults, validator), [document.content, defaults, validator]);
+	const parsed = useMemo(() => parseModuleDraft(draft, defaults, validator), [draft, defaults, validator]);
 	const dirty = draft !== document.content && (editor.sourceEdited
 		|| saved.value === undefined || parsed.value === undefined || !equalConfigValues(saved.value, parsed.value));
 	useSettingsDraft(id, {
@@ -64,14 +60,15 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 		editor.change(next);
 	};
 	const change = (path: string, value: unknown) => changeFields({ [path]: value });
-	const sourceButton = <SettingsSourceButton key="source" file={document.path} source={source} disabled={blocked} onClick={() => { if (!dirty) editor.discard(); setSource(!source); }} />;
-	const fields = (items: ConfigField[], fromSchema = false) => <div className="settings-fields">{items.map((field) => {
-		if (field.type === "searchProviders") return <SearchProviderSettings key={field.path} path={field.path} choices={document.arrayOptions[field.path]}
+	const sourceButton = <SettingsSourceButton key="source" file={document.path} source={source} disabled={blocked || source && parsed.error !== ""} onClick={() => { if (!dirty) editor.discard(); setSource(!source); }} />;
+	const fields = (items: ConfigField[]) => <div className="settings-fields">{items.map((field) => {
+		if (field.type === "searchProviders") return <SearchProviderSettings key={field.path} path={field.path} choices={metadata.arrayOptions[field.path]}
 			valueAt={valueAt} defaultAt={(path) => at(defaults, path)} change={change} changeGroups={changeFields} disabled={blocked}
-			renderDetails={(prefix) => fields(Object.entries(document.fields)
+			renderDetails={(prefix) => fields(Object.entries(metadata.fields)
 				.filter(([path]) => path.startsWith(`${prefix}.`) && path !== `${prefix}.enabled`)
-				.map(([path, schema]) => ({ path, label: schema.title ?? path.slice(prefix.length + 1) })), true)} />;
-		const schema = fromSchema ? document.fields[field.path] : undefined;
+				.map(([path, schema]) => ({ path, label: schema.title ?? path.slice(prefix.length + 1) })))} />;
+		const schema = metadata.fields[field.path];
+		if (!schema) throw new Error(`设置字段缺少 schema: ${field.path}`);
 		const configuredDefault = at(defaults, field.path);
 		const defaultValue = configuredDefault === undefined ? schema?.default : configuredDefault;
 		const configuredValue = valueAt(field.path);
@@ -80,26 +77,26 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 		let options = field.type === "profile"
 			? [...new Set([defaults.profiles, parsed.overrides?.profiles].flatMap((profiles) =>
 				typeof profiles === "object" && profiles !== null && !Array.isArray(profiles) ? Object.keys(profiles) : []))]
-			: document.options[field.path];
+			: metadata.options[field.path];
 		let displayValue = value;
 		let controlDisabled = locked;
 		if (field.type === "thinking") {
 			const configuredModel = valueAt("model");
 			const model = configuredModel === null ? currentModel : models.find((model) => `${model.provider}/${model.id}` === configuredModel);
 			options = model?.thinking.levels ?? [];
-			displayValue = typeof value === "string" ? model?.thinking.resolved[value] : undefined;
+			displayValue = typeof value === "string" ? model?.thinking.resolved[value] ?? "" : "";
 			controlDisabled ||= options.length === 0;
 		}
-		const control = <FieldControl field={field} schema={schema} options={options} value={displayValue} nullable={defaultValue === null} disabled={controlDisabled} models={models} tools={tools} change={(value) => change(field.path, value)} />;
+		const control = <FieldControl field={field} schema={schema} value={displayValue} options={options} disabled={controlDisabled} models={models} tools={tools} change={(value) => change(field.path, value)} />;
 		return <SettingsRow key={field.path} label={field.label}
-			layout={field.type === "radio" ? "choice" : Array.isArray(value) || schema?.type === "array" ? "wide" : field.type === "model" || (!options && (schema?.type === "string" || typeof value === "string" || value === null)) ? "fluid" : "inline"}
+			layout={field.type === "radio" && options ? "choice" : schema.type === "array" ? "wide" : field.type === "model" || schema.type === "string" && !options ? "fluid" : "inline"}
 			reset={{ value, defaultValue, apply: () => change(field.path, undefined) }} disabled={locked}>
 			{id === "webTools" && field.path.startsWith("websearch.") && field.path.endsWith(".api_key") && typeof value === "string"
 				? <SearchApiKeyControl config={value} query={query}>{control}</SearchApiKeyControl> : control}
 		</SettingsRow>;
 	})}</div>;
 	return <div className="settings-module">
-		{source || parsed.error ? <SettingsSection key="main" title={title} actions={sourceButton} source={source}>
+		{source || parsed.state === "invalid" || !dirty && parsed.error !== "" ? <SettingsSection key="main" title={title} actions={sourceButton} source={source}>
 			<Feedback message={parsed.error ?? ""} tone="error" />
 			{source && <SourceEditor file={document.path} label={`${id} 全局 JSONC`} value={draft} disabled={blocked} onChange={editor.changeSource} />}
 		</SettingsSection> : moduleGroups[id].map((group, index) => group.advanced
@@ -115,6 +112,7 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 				})}
 			</>}>
 				{fields(group.fields)}
+				{index === 0 && <Feedback message={parsed.error} tone="error" />}
 				{id === "approvalGate" && index === 0 && (valueAt("enabled") === false || valueAt("ui.non_interactive") === "allow")
 					&& <p className="settings-warning">{valueAt("enabled") === false ? "权限审批已关闭。" : "非交互操作将直接放行。"}</p>}
 				{id === "discordPresence" && index === 0 && valueAt("enabled") === true && valueAt("profile") === "detailed"

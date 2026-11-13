@@ -104,9 +104,9 @@ export type GlobalAction = Extract<GuiAction, { action:
 export type WorkspaceAction = Extract<GuiAction, { action: "workspace" }>;
 export type SessionCreationAction = Extract<GuiAction, { action: "new" | "fork" | "restoreSession" }>;
 export type SessionControlAction = Extract<GuiAction, { action: "dialog" | "abort" | "cancelLogin" }>;
-export type SessionAction = Exclude<GuiAction, GlobalAction | WorkspaceAction | SessionCreationAction>;
+export type SessionAction = Exclude<GuiAction, GlobalAction | WorkspaceAction | SessionCreationAction | { action: "draft" }>;
 export type SessionMutation = Exclude<SessionAction, SessionControlAction | { action:
-	| "clearNotices" | "draft" | "view" | "consumeCodexCredit" | "prompt" | "clearQueue" | "export" | "login" | "logout" | "compact"
+	| "clearNotices" | "view" | "consumeCodexCredit" | "prompt" | "clearQueue" | "export" | "login" | "logout" | "compact"
 }>;
 export interface GuiUsageResetResult {
 	outcome: UsageResetOutcome;

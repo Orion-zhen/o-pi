@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GuiPayloads } from "../../../../../../src/gui/host/projection/payloads.ts";
 import { GuiHistory } from "../../../../../../src/gui/host/projection/history.ts";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { GuiToolOutput, ToolOutput } from "../../../../../../src/gui/shared/messages/types.ts";
+import { rawToolOutput } from "../../../../../../src/gui/shared/messages/output.ts";
+import type { GuiToolOutput, GuiToolResult, ToolOutput } from "../../../../../../src/gui/shared/messages/types.ts";
 import type { Query } from "../../../../../../src/gui/shared/protocol/queries.ts";
 import { ContentVisible } from "../../../../../../src/gui/frontend/ui/collapsible.tsx";
 import { GuiQueryContext } from "../../../../../../src/gui/frontend/connection/query-context.ts";
@@ -41,15 +42,15 @@ describe("大工具结果按需查询", () => {
 		const first = reference(payloads.progress("call", "extension", large("a")));
 		query.mockResolvedValueOnce(payloads.toolOutput(first));
 		await render(first);
-		expect(state.value).toEqual(large("a"));
+		expect(state.value && rawToolOutput(state.value)).toEqual(large("a"));
 		const next = reference(payloads.progress("call", "extension", large("b")));
-		const pending = deferred<ToolOutput>();
+		const pending = deferred<GuiToolResult>();
 		query.mockReturnValueOnce(pending.promise);
 		await render(next);
 		expect(query).toHaveBeenLastCalledWith({ query: "toolOutput", id: next });
-		expect(state.value).toEqual(large("a"));
+		expect(state.value && rawToolOutput(state.value)).toEqual(large("a"));
 		await act(async () => pending.resolve(payloads.toolOutput(next)));
-		expect(state.value).toEqual(large("b"));
+		expect(state.value && rawToolOutput(state.value)).toEqual(large("b"));
 	});
 
 	it("已展开的完成结果进入历史时不重新读取或清空正文", async () => {
@@ -58,7 +59,7 @@ describe("大工具结果按需查询", () => {
 		query.mockResolvedValueOnce(payloads.toolOutput(live));
 		await render(live);
 		const loaded = state.value;
-		expect(loaded).toEqual({ content });
+		expect(loaded && rawToolOutput(loaded)).toEqual({ content });
 		const manager = SessionManager.inMemory();
 		manager.appendMessage({ role: "toolResult", toolCallId: "call", toolName: "extension", content, isError: false, timestamp: 1 });
 		const history = new GuiHistory(payloads).project(manager);
@@ -79,10 +80,10 @@ describe("大工具结果按需查询", () => {
 		const next = reference(payloads.progress("call", "extension", large("b")));
 		await render(next, false);
 		expect(query).toHaveBeenCalledTimes(1);
-		expect(state.value).toEqual(large("a"));
+		expect(state.value && rawToolOutput(state.value)).toEqual(large("a"));
 		query.mockResolvedValueOnce(payloads.toolOutput(next));
 		await render(next);
-		expect(state.value).toEqual(large("b"));
+		expect(state.value && rawToolOutput(state.value)).toEqual(large("b"));
 		expect(payloads.complete("call", "extension", { content: [] }).kind).toBe("inline");
 		await render(undefined, false);
 		expect(state.value).toBeUndefined();
@@ -91,14 +92,14 @@ describe("大工具结果按需查询", () => {
 	it("迟到的旧请求不能覆盖已显示的新进度", async () => {
 		const first = reference(payloads.progress("call", "extension", large("a")));
 		const old = payloads.toolOutput(first);
-		const pending = deferred<ToolOutput>();
+		const pending = deferred<GuiToolResult>();
 		query.mockReturnValueOnce(pending.promise);
 		await render(first);
 		const next = reference(payloads.progress("call", "extension", large("b")));
 		query.mockResolvedValueOnce(payloads.toolOutput(next));
 		await render(next);
 		await act(async () => pending.resolve(old));
-		expect(state.value).toEqual(large("b"));
+		expect(state.value && rawToolOutput(state.value)).toEqual(large("b"));
 	});
 
 	it("切换到不同载荷时不把上一份正文当作新结果", async () => {
@@ -106,11 +107,11 @@ describe("大工具结果按需查询", () => {
 		query.mockResolvedValueOnce(payloads.toolOutput(first));
 		await render(first);
 		const next = reference(payloads.output("extension", large("b")));
-		const pending = deferred<ToolOutput>();
+		const pending = deferred<GuiToolResult>();
 		query.mockReturnValueOnce(pending.promise);
 		await render(next);
 		expect(state.value).toBeUndefined();
 		await act(async () => pending.resolve(payloads.toolOutput(next)));
-		expect(state.value).toEqual(large("b"));
+		expect(state.value && rawToolOutput(state.value)).toEqual(large("b"));
 	});
 });

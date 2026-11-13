@@ -3,28 +3,24 @@ import type { BackendClient } from "./backend-client.ts";
 import type { DesktopDiagnostics } from "./diagnostics.ts";
 
 export function installDesktopShutdown(window: BrowserWindow, client: BackendClient, diagnostics: DesktopDiagnostics): void {
-	let approved = false;
-	let pending = false;
+	let closing: Promise<void> | undefined;
 	let finished = false;
 
 	async function close(): Promise<void> {
-		if (!approved) {
-			const active = await client.activeSessions();
-			if (active > 0) {
-				const { response } = await dialog.showMessageBox(window, {
-					type: "warning",
-					message: "仍有会话正在进行，确定关闭？",
-					detail: `关闭将停止全部 ${active} 个进行中的会话，并退出 Desktop。`,
-					buttons: ["取消", "停止所有会话并退出"],
-					defaultId: 0,
-					cancelId: 0,
-					noLink: true,
-				});
-				if (response !== 1) return;
-			}
-			approved = true;
+		const active = await client.activeSessions();
+		if (active > 0) {
+			const { response } = await dialog.showMessageBox(window, {
+				type: "warning",
+				message: "仍有会话正在进行，确定关闭？",
+				detail: `关闭将停止全部 ${active} 个进行中的会话，并退出 Desktop。`,
+				buttons: ["取消", "停止所有会话并退出"],
+				defaultId: 0,
+				cancelId: 0,
+				noLink: true,
+			});
+			if (response !== 1) return;
 		}
-		if (client.stop()) return;
+		await client.stop();
 		await diagnostics.close();
 		finished = true;
 		app.quit();
@@ -32,11 +28,9 @@ export function installDesktopShutdown(window: BrowserWindow, client: BackendCli
 	function requestClose(event: Event): void {
 		if (finished) return;
 		event.preventDefault();
-		if (pending) return;
-		pending = true;
-		void close().catch((error: unknown) => {
+		closing ??= close().catch((error: unknown) => {
 			dialog.showErrorBox("退出失败", error instanceof Error ? error.message : String(error));
-		}).finally(() => { pending = false; });
+		}).finally(() => { closing = undefined; });
 	}
 	window.on("close", requestClose);
 	app.on("before-quit", requestClose);

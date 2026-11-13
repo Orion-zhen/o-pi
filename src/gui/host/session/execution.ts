@@ -8,7 +8,7 @@ import type { GuiSnapshot } from "../../shared/protocol/state.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import { GuiExecutionContext } from "./execution-context.ts";
 import { createGuiRuntime } from "./runtime.ts";
-import { exportSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
+import { exportSession, expandAttachments, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
 import { completeCommand, runBuiltin } from "./commands.ts";
 import { openView, consumeUsageCredit } from "./views.ts";
@@ -62,7 +62,7 @@ export class GuiExecution {
 	readonly modelScope;
 
 	private constructor(readonly runtime: AgentSessionRuntime, private context: GuiExecutionContext,
-		private toolset: { controller: ToolSelectionController }, private mcpTools: GuiMcpTools | null) {
+		private toolset: { controller: ToolSelectionController }, private mcp: { tools: GuiMcpTools | null }) {
 		this.dialogs = context.dialogs;
 		this.usageService = context.usageService;
 		this.modelScope = context.modelScope;
@@ -104,32 +104,30 @@ export class GuiExecution {
 		permissions: { stores: ApprovalStores; rules: SessionApprovalRules; trust: Map<string, boolean> },
 		client: SessionClient | undefined, initial: { event: SessionStartEvent; models: string[] | undefined }): Promise<GuiExecution> {
 		const initialize = async () => {
-			const tools = Promise.withResolvers<{ controller: ToolSelectionController }>();
+			let selection: { controller: ToolSelectionController } | undefined;
 			const mcp: { tools: GuiMcpTools | null } = { tools: null };
-			let bindTools = (controller: ToolSelectionController) => {
-				const selection = { controller };
-				bindTools = (controller) => { selection.controller = controller; };
-				tools.resolve(selection);
-			};
-			let bindMcp = (tools: GuiMcpTools | null) => { mcp.tools = tools; };
-			const [runtime, selection] = await Promise.all([
-				createGuiRuntime(manager.getCwd(), {
-					dialogs: context.dialogs,
-					emit: (event) => context.emit(event),
-					bindTools: (controller) => bindTools(controller),
-					bindMcp: (tools) => bindMcp(tools),
-					bindModelServices: (config) => context.modelServices.bind(config),
-					toolsChanged: () => context.publish(),
-					commandSignal: () => context.commandController.signal,
-					reports: context.reports, usageService: context.usageService,
-					approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
-					bindAutoTitle: (generate) => { context.autoTitle = generate; },
-					titleGenerationChanged: (state) => { context.titleGeneration = state; context.publish(); },
-					signal: context.lifetime.signal,
-				}, manager, initial.event, initial.models, context.modelScope), tools.promise,
-			]);
-			const execution = new GuiExecution(runtime, context, selection, mcp.tools);
-			bindMcp = (tools) => { execution.mcpTools = tools; };
+			const runtime = await createGuiRuntime(manager.getCwd(), {
+				dialogs: context.dialogs,
+				emit: (event) => context.emit(event),
+				bindTools: (controller) => {
+					if (selection) selection.controller = controller;
+					else selection = { controller };
+				},
+				bindMcp: (tools) => { mcp.tools = tools; },
+				bindModelServices: (config) => context.modelServices.bind(config),
+				toolsChanged: () => context.publish(),
+				commandSignal: () => context.commandController.signal,
+				reports: context.reports, usageService: context.usageService,
+				approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
+				bindAutoTitle: (generate) => { context.autoTitle = generate; },
+				titleGenerationChanged: (state) => { context.titleGeneration = state; context.publish(); },
+				signal: context.lifetime.signal,
+			}, manager, initial.event, initial.models, context.modelScope);
+			if (!selection) {
+				await runtime.dispose();
+				throw new Error("工具选择扩展未完成装配。");
+			}
+			const execution = new GuiExecution(runtime, context, selection, mcp);
 			try {
 				if (!context.lifetime.signal.aborted) await execution.bindSession();
 				return execution;
@@ -205,7 +203,7 @@ export class GuiExecution {
 			commandRunning: this.preparing > 0,
 			liveTools: this.liveTools.project(),
 			history: this.historyTexts, bashCommand: this.bashCommand, bashOutput: this.bashOutput, streamingMessage: this.stream.project(),
-		}, this.guiHistory, this.toolset.controller, this.mcpTools === null ? [] : this.mcpTools.list(this.runtime.session.getActiveToolNames()));
+		}, this.guiHistory, this.toolset.controller, this.mcp.tools === null ? [] : this.mcp.tools.list(this.runtime.session.getActiveToolNames()));
 	}
 	private schedule(): void {
 		if (!this.timer && !this.disposed) this.timer = setTimeout(() => { this.timer = undefined; this.publish(); }, 0);
@@ -260,7 +258,6 @@ export class GuiExecution {
 		switch (query.query) {
 			case "modelServiceCatalog": return this.context.modelServices.read(runtime.services.modelRuntime, query.provider, this.context.commandController.signal);
 			case "complete": return completeCommand(runtime.session, query.text);
-			case "files": return completeFiles(runtime.cwd, query.prefix);
 			case "config": await runtime.services.settingsManager.flush(); return readConfig(query.file);
 		}
 	}
@@ -269,7 +266,6 @@ export class GuiExecution {
 		switch (action.action) {
 			case "dialog": this.dialogs.respond(action.id, action.value); return;
 			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
-			case "draft": client.writeDraft(action.text); return;
 			case "cancelLogin": this.loginController?.abort(); if (this.mcpLoggingIn) this.dialogs.cancel(); return;
 			case "abort":
 				if (this.runtime.session.isCompacting) {
@@ -412,16 +408,16 @@ export class GuiExecution {
 				session.setCacheWarmingMode(action.cacheWarming);
 				await runtime.services.settingsManager.flush(); return;
 			case "mcpServers":
-				if (this.mcpTools === null) throw new Error("MCP 已禁用。");
-				this.mcpTools.setServers(action.names, action.enabled);
+				if (this.mcp.tools === null) throw new Error("MCP 已禁用。");
+				this.mcp.tools.setServers(action.names, action.enabled);
 				return;
 			case "tool":
 			case "toolPreset":
 			case "persistTools":
 				if (action.action === "tool") {
-					if (this.mcpTools === null || !this.mcpTools.set(action.name, action.enabled)) this.toolset.controller.set(action.name, action.enabled);
+					if (this.mcp.tools === null || !this.mcp.tools.set(action.name, action.enabled)) this.toolset.controller.set(action.name, action.enabled);
 				} else if (action.action === "toolPreset") {
-					const mcpNames = new Set(this.mcpTools === null ? [] : this.mcpTools.list(session.getActiveToolNames()).map((tool) => tool.name));
+					const mcpNames = new Set(this.mcp.tools === null ? [] : this.mcp.tools.list(session.getActiveToolNames()).map((tool) => tool.name));
 					applyToolPreset(session, this.toolset.controller, action.preset, mcpNames);
 				} else {
 					await this.toolset.controller.persistUserDefaults();

@@ -4,6 +4,7 @@ import { Check as CheckIcon, Copy } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import type { GuiEntry } from "../../../shared/messages/types.ts";
 import type { Send } from "@/connection/connection.ts";
+import { useOperation } from "@/connection/use-operation.ts";
 import { NotificationErrorContext } from "@/ui/notifications.tsx";
 import { Feedback } from "@/ui/feedback.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
@@ -14,9 +15,8 @@ import "./entry-actions.css";
 
 export function EntryActions({ entry, message, send, children }: { entry: GuiEntry; message: EntryMessage; send: Send; children?: ReactNode }) {
 	const notifyError = useContext(NotificationErrorContext);
-	const [error, setError] = useState("");
 	const [label, setLabel] = useState<string | null>(null);
-	const [saving, setSaving] = useState(false);
+	const { run: save, pending: saving, error, reset } = useOperation((label: string) => send({ action: "label", entryId: entry.id, label }), () => setLabel(null));
 	const clipboard = useClipboard();
 	if (label !== null) return <form className="entry-label-editor" onKeyDown={(event) => {
 		if (event.key === "Escape") {
@@ -25,11 +25,7 @@ export function EntryActions({ entry, message, send, children }: { entry: GuiEnt
 		}
 	}} onSubmit={(event) => {
 		event.preventDefault();
-		if (saving) return;
-		setSaving(true); setError("");
-		void send({ action: "label", entryId: entry.id, label }).then(() => setLabel(null))
-			.catch((error: unknown) => setError(error instanceof Error ? error.message : String(error)))
-			.finally(() => setSaving(false));
+		save(label);
 	}}>
 		<Input autoFocus name="label" aria-label="分支标签" placeholder="添加分支标签" disabled={saving} value={label} onChange={(event) => setLabel(event.target.value)} />
 		<IconButton label="保存标签" size="icon-xs" type="submit" disabled={saving}><Check /></IconButton>
@@ -47,7 +43,7 @@ export function EntryActions({ entry, message, send, children }: { entry: GuiEnt
 			<IconButton label="切换到此处" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: entry.id, summarize: false }).catch(notifyError)}><ArrowRight /></IconButton>
 			<IconButton label="总结后切换" size="icon-xs" onClick={() => void send({ action: "navigate", entryId: entry.id, summarize: true }).catch(notifyError)}><ListCollapse /></IconButton>
 			<IconButton label="创建分支" size="icon-xs" onClick={() => void send({ action: "fork", entryId: entry.id }).catch(notifyError)}><GitBranch /></IconButton>
-			<IconButton label="编辑标签" size="icon-xs" onClick={() => { setError(""); setLabel(entry.label ?? ""); }}><Tag /></IconButton>
+			<IconButton label="编辑标签" size="icon-xs" onClick={() => reset(() => setLabel(entry.label ?? ""))}><Tag /></IconButton>
 		</div>
 	</>;
 }

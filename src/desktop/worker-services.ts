@@ -1,5 +1,5 @@
 import { session, MessageChannelMain, utilityProcess, type ForkOptions, type MessagePortMain, type UtilityProcess } from "electron";
-import type { ProcessCommand, ProcessEvent, ServiceCall, ServiceInit, ServiceReply, ServiceRequest, SocketEvent } from "./services-contract.ts";
+import type { ProcessCommand, ProcessEvent, ServiceCall, ServiceReply, ServiceRequest } from "./services-contract.ts";
 import { serveWebSocket } from "./websocket-host.ts";
 
 /** 主进程创建所有 SDK 工作进程，并为每个进程绑定独立的服务通道。 */
@@ -19,20 +19,21 @@ export function forkDesktopWorker(entry: string, args: string[], options: ForkOp
 			return;
 		}
 		const { port1: port, port2: channel } = new MessageChannelMain();
-		port1.postMessage({ id, kind: "port" } satisfies ServiceReply, [channel]);
 		try {
 			const dispose = request.kind === "websocket"
 				? serveWebSocket(port, request.url, request.options)
 				: serveProcess(entry, port, request);
 			resources.add(dispose);
 			port.once("close", () => { resources.delete(dispose); dispose(); });
+			port1.postMessage({ id, kind: "port" } satisfies ServiceReply, [channel]);
 		} catch (error) {
-			port.postMessage({ kind: "error", message: String(error) } satisfies ProcessEvent & SocketEvent);
 			port.close();
+			channel.close();
+			reply({ id, kind: "error", message: String(error) });
 		}
 	});
 	port1.start();
-	child.postMessage({ kind: "desktop-services" } satisfies ServiceInit, [port2]);
+	child.postMessage(null, [port2]);
 	child.once("exit", () => {
 		exited = true;
 		port1.close();

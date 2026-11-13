@@ -19,7 +19,7 @@ import { resolveSearchApiKey } from "../../harness/web-tools/search-providers/ap
 import { readMcpConfig, saveMcpConfig } from "./config/mcp-config.ts";
 import { readModelServices, saveModelServices } from "./config/model-services.ts";
 import { listDirectories } from "./workspace/directories.ts";
-import { importSession } from "./session/files.ts";
+import { completeFiles, importSession } from "./session/files.ts";
 import { FileResources } from "./workspace/file-resource.ts";
 import { GuiStorage } from "./storage/service.ts";
 import { SessionSearchTask } from "./catalog/search-task.ts";
@@ -289,6 +289,10 @@ export class GuiClient {
 			}
 		}
 		const source = this.resolveSession(sessionId);
+		if (action.action === "draft") {
+			this.drafts.set(source.id, action.text);
+			return;
+		}
 		if (action.action === "new") { await this.newSession(source); return; }
 		if (action.action === "fork") { await this.fork(source, action.entryId); return; }
 		const client = this.forSession(source);
@@ -329,7 +333,6 @@ export class GuiClient {
 		if (query.query === "directories") return listDirectories(path.resolve(this.host.workspaceRoot || process.cwd(), query.path));
 		if (query.query === "workspaceFiles" || query.query === "workspaceGit" || query.query === "previewFile" || query.query === "lspServers") {
 			if (query.cwd !== (this.selected?.cwd ?? this.host.workspaceRoot)) throw new Error("工作区已切换，请刷新后重试。");
-			if (query.query === "lspServers") return this.host.queryWorkspace(query);
 			if (query.query !== "previewFile") return this.host.queryWorkspace(query);
 			const preview = await this.host.queryWorkspace(query);
 			const content = preview.content;
@@ -338,11 +341,13 @@ export class GuiClient {
 				: content };
 		}
 		const session = this.resolveSession(sessionId);
+		if (query.query === "files") return completeFiles(session.cwd, query.prefix);
 		return session.use(this.forSession(session), (execution) => execution.query(query));
 	}
 	private resolveSession(id: string | null): GuiSession {
 		const session = id === null ? undefined : this.host.sessions.get(id);
 		if (!session) throw new Error("请先选择有效会话。");
+		if (session.removing) throw new Error("会话已关闭或正在删除。");
 		return session;
 	}
 	close(): void {

@@ -23,6 +23,8 @@ export function openServiceChannel(port: Electron.MessagePortMain): { open: Open
 		pending.clear();
 	});
 	port.start();
+	function requestService(request: Extract<ServiceRequest, { kind: "proxy" }>, signal?: AbortSignal): Promise<string>;
+	function requestService(request: Exclude<ServiceRequest, { kind: "proxy" }>): Promise<Electron.MessagePortMain>;
 	async function requestService(request: ServiceRequest, signal?: AbortSignal): Promise<string | Electron.MessagePortMain> {
 		signal?.throwIfAborted();
 		if (closed) throw new Error("Desktop services closed");
@@ -39,18 +41,9 @@ export function openServiceChannel(port: Electron.MessagePortMain): { open: Open
 			signal?.removeEventListener("abort", abort);
 		}
 	}
-	const open: OpenService = async (request) => {
-		const value = await requestService(request);
-		if (typeof value === "string") throw new Error("Desktop service port expected");
-		return value;
-	};
-	return { open, host: {
-		spawnAgent: (args, cwd, env) => new RemoteProcess(open({ kind: "spawn", args, cwd, env })),
-		async resolveProxy(url, signal) {
-			const value = await requestService({ kind: "proxy", url }, signal);
-			if (typeof value !== "string") throw new Error("Desktop proxy result expected");
-			return value;
-		},
+	return { open: requestService, host: {
+		spawnAgent: (args, cwd, env) => new RemoteProcess(requestService({ kind: "spawn", args, cwd, env })),
+		resolveProxy: (url, signal) => requestService({ kind: "proxy", url }, signal),
 	} };
 }
 
@@ -64,7 +57,6 @@ class RemoteProcess extends EventEmitter implements AgentProcess {
 			channel.on("message", ({ data }: Electron.MessageEvent) => {
 				const event = data as ProcessEvent;
 				if (event.kind === "stdout" || event.kind === "stderr") this[event.kind].write(event.data);
-				else if (event.kind === "error") { this.emit("error", new Error(event.message)); this.finish(1); }
 				else if (event.kind === "exit") this.finish(event.code);
 			});
 			channel.once("close", () => {

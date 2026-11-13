@@ -1,9 +1,8 @@
 import { outputPreview } from "../../../../shared/messages/output.ts";
 import { replyMetrics } from "../messages/metrics.ts";
 import { getAssistantPerformance } from "../../../../../harness/message-performance/types.ts";
-import { SKILL_CONTEXT_MESSAGE } from "../../../../../harness/skill-context/types.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { TranscriptItem, TranscriptSource } from "./transcript-items.ts";
+import { isTranscriptBoundary, type TranscriptItem, type TranscriptSource } from "./transcript-items.ts";
 import type { ToolState } from "../../../../shared/messages/types.ts";
 
 const noPrunedToolCallIds: ReadonlySet<string> = new Set();
@@ -34,10 +33,6 @@ interface ReplyDraft {
 	lastAssistant: { message: AssistantMessage; index: number; identity: { model: string; timestamp: number } } | undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** 每条用户消息开启一组，直接按消息顺序投影。工具结果按调用 ID 关联。 */
 export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: ReadonlySet<string> = noPrunedToolCallIds, offset = 0): TranscriptRow[] {
 	const messages = source.streamingMessage ? [...source.messages, source.streamingMessage] : source.messages;
@@ -59,10 +54,10 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		const event = live.get(id);
 		const output = result?.output ?? event?.output;
 		const completion = result ?? event?.completion;
-		const details = outputPreview(output)?.details;
+		const aborted = outputPreview(output)?.aborted;
 		const nestedCalls = result?.nestedCalls ?? event?.nestedCalls;
 		const state = completion
-			? isRecord(details) && details.status === "aborted" ? "stopped" : completion.isError ? "failed" : "completed"
+			? aborted ? "stopped" : completion.isError ? "failed" : "completed"
 			: event ? "running" : idle;
 		return {
 			key: `tool:${id}`, kind: "tool", messageIndex, pruned: prunedToolCallIds.has(id),
@@ -78,8 +73,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		if (message.role === "system") return;
 		const messageIndex = index + offset;
 		const key = `message:${messageIndex}:${message.timestamp}`;
-		if (message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary"
-			|| (message.role === "custom" && message.customType === SKILL_CONTEXT_MESSAGE && message.display !== false)) {
+		if (isTranscriptBoundary(message)) {
 			if (current && message.role === "user") current.followedByUser = true;
 			rows.push({ key, kind: "message", messageIndex, message });
 			current = undefined;

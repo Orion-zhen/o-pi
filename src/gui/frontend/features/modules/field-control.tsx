@@ -11,27 +11,30 @@ import { SettingsListField } from "@/forms/list-field.tsx";
 import { SubagentToolPicker } from "./subagent-tool-picker.tsx";
 import { SettingsNumber } from "@/forms/number.tsx";
 
-export function FieldControl({ field, schema, options, value, nullable, disabled, models, tools, change }: {
-	field: ConfigField; schema: ModuleConfigField | undefined; options: readonly string[] | undefined; value: unknown; nullable: boolean;
+export function FieldControl({ field, schema, value, options, disabled, models, tools, change }: {
+	field: ConfigField; schema: ModuleConfigField; value: unknown; options: readonly string[] | undefined;
 	disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; change: (value: unknown) => void;
 }) {
-	if (schema?.type === "boolean" || typeof value === "boolean") return <Switch aria-label={field.label} checked={value === true} disabled={disabled} onCheckedChange={change} />;
-	if (field.type === "model") return <ModelSelect label={field.label} models={models} disabled={disabled}
-		value={typeof value === "string" && value !== "" ? value : null} change={change} />;
-	if (options && field.type === "radio") return <RadioGroup className="settings-radio-group" orientation="horizontal"
-		aria-label={field.label} value={value === undefined ? "" : String(value)} disabled={disabled} onValueChange={change}>
-		{options.map((option) => <Label key={option} className="settings-radio-option"><RadioGroupItem value={option} />{field.optionLabels?.[option] ?? option}</Label>)}
-	</RadioGroup>;
-	if (options) return <Select value={value === undefined ? "" : String(value)} disabled={disabled} onValueChange={change}>
-		<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
-	</Select>;
-	if (Array.isArray(value) || schema?.type === "array") return field.type === "tools"
-		? <SubagentToolPicker label={field.label} value={Array.isArray(value) ? value : []} tools={tools} disabled={disabled} change={change} />
-		: <SettingsListField label={field.label} value={Array.isArray(value) ? value : []} disabled={disabled} change={change} />;
-	if (typeof value === "number" || schema?.type === "number" || schema?.type === "integer") return <SettingsNumber label={field.label}
-		value={typeof value === "number" ? value : undefined} disabled={disabled} min={schema?.minimum} max={schema?.maximum}
-		step={schema?.type === "integer" ? 1 : "any"} change={change} />;
-	return <Input aria-label={field.label} value={value === null || value === undefined ? "" : String(value)} disabled={disabled}
-		minLength={schema?.minLength} maxLength={schema?.maxLength}
-		onChange={(event) => change(event.target.value || (nullable ? null : ""))} />;
+	if (field.type === "model" && (value === null || typeof value === "string"))
+		return <ModelSelect label={field.label} models={models} disabled={disabled} value={value} change={change} />;
+	if (options && typeof value === "string") return field.type === "radio"
+		? <RadioGroup className="settings-radio-group" orientation="horizontal" aria-label={field.label} value={value} disabled={disabled} onValueChange={change}>
+			{options.map((option) => <Label key={option} className="settings-radio-option"><RadioGroupItem value={option} />{field.optionLabels?.[option] ?? option}</Label>)}
+		</RadioGroup>
+		: <Select value={value} disabled={disabled} onValueChange={change}>
+			<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
+		</Select>;
+	switch (schema.type) {
+		case "boolean": if (typeof value === "boolean") return <Switch aria-label={field.label} checked={value} disabled={disabled} onCheckedChange={change} />; break;
+		case "integer": case "number": if (typeof value === "number") return <SettingsNumber label={field.label} value={value} disabled={disabled}
+			min={schema.minimum} max={schema.maximum} step={schema.type === "integer" ? 1 : "any"} change={change} />; break;
+		case "array":
+			if (Array.isArray(value) && value.every((item: unknown): item is string => typeof item === "string")) return field.type === "tools"
+				? <SubagentToolPicker label={field.label} value={value} tools={tools} disabled={disabled} change={change} />
+				: <SettingsListField label={field.label} value={value} disabled={disabled} change={change} />;
+			break;
+		case "string": if (typeof value === "string" || value === null && schema.nullable) return <Input aria-label={field.label} value={value ?? ""} disabled={disabled}
+			minLength={schema.minLength} maxLength={schema.maxLength} onChange={(event) => change(event.target.value || (schema.nullable ? null : ""))} />; break;
+	}
+	throw new Error(`设置字段缺少有效的展示值: ${field.path}`);
 }

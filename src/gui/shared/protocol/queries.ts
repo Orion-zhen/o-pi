@@ -1,7 +1,7 @@
 import { lit, str, union, type Static } from "@earendil-works/pi-schema";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "../workspace.ts";
 import type { GuiConfigDocument } from "../config/preferences.ts";
-import type { ToolOutput } from "../messages/types.ts";
+import type { GuiToolResult } from "../messages/types.ts";
 import type { ModuleConfigDocument } from "../config/modules.ts";
 import type { McpConfigDocument } from "../config/mcp.ts";
 import type { GuiLspServers } from "../lsp.ts";
@@ -36,7 +36,7 @@ export const querySchema = union([
 export type GuiQuery = Static<typeof querySchema>;
 export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "searchApiKeyAvailable" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "modelServices" | "storage" | "searchSessions" | "continueSessionSearch" }>;
 export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" | "lspServers" }>;
-export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
+export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery | { query: "files" }>;
 export interface GuiQueryResults {
 	searchSessions: SessionSearchPage;
 	continueSessionSearch: SessionSearchPage;
@@ -50,7 +50,7 @@ export interface GuiQueryResults {
 	startupChangelog: GuiChangelog | null;
 	availableVersion: string | null;
 	image: string;
-	toolOutput: ToolOutput;
+	toolOutput: GuiToolResult;
 	directories: GuiDirectories;
 	files: string[];
 	workspaceFiles: WorkspaceEntry[];

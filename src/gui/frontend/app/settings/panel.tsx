@@ -33,13 +33,16 @@ export function Settings({ snapshot, guiConfig, dispatch, query, globalQuery, di
 }) {
 	useEffect(() => { void refreshGuiConfig(); }, [refreshGuiConfig]);
 	const initial = initialCategory === "mcp" ? "connections" : "appearance";
-	const [{ category, direction }, setSelection] = useState<{ category: string; direction: number }>({ category: initial, direction: 0 });
+	const [{ category, direction }, setSelection] = useState<{ category: SettingsCategory; direction: number }>({ category: initial, direction: 0 });
 	const highlightId = useId();
-	const [visited, setVisited] = useState<Set<string>>(() => new Set([initial]));
+	const [visited, setVisited] = useState<Set<SettingsCategory>>(() => new Set([initial]));
 	const coordinator = useSettingsCoordinator(onDirty);
 	const { setDraft, saving, dirtyPages } = coordinator;
 	const state = useMemo(() => ({ setDraft, saving }), [setDraft, saving]);
-	const selectCategory = (id: string) => {
+	const selectCategory = (value: string) => {
+		const category = settingsCategories.find(({ id }) => id === value);
+		if (!category) return;
+		const { id } = category;
 		setSelection((previous) => {
 			// Radix 的聚焦与点击可连续通知同一分类，保留首次计算的方向。
 			if (previous.category === id) return previous;

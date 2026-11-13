@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { rawToolOutput } from "../../../../src/gui/shared/messages/output.ts";
 import { describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { GuiHistory } from "../../../../src/gui/host/projection/history.ts";
@@ -149,7 +150,7 @@ describe("载荷引用", () => {
 			const expected = JSON.stringify(value).length <= 64_000 ? "inline" : "reference";
 			const output = payloads.output("extension", value);
 			expect(output.kind).toBe(expected);
-			expect(output.kind === "inline" ? output.value : payloads.toolOutput(output.id)).toEqual(value);
+			expect(rawToolOutput(output.kind === "inline" ? output.value : payloads.toolOutput(output.id))).toEqual(value);
 		}
 	});
 	it("只替换标准图片块，不改写扩展数据和工具参数中的同名字段", () => {

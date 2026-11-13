@@ -1,4 +1,6 @@
 import { createElement } from "react";
+import { projectToolOutput } from "../../../../../../src/gui/shared/messages/tool-output.ts";
+import { rawToolOutput } from "../../../../../../src/gui/shared/messages/output.ts";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
@@ -26,7 +28,7 @@ const document = (element: Parameters<typeof renderWithMemory>[0], memory?: Disc
 	parseHTML(renderWithMemory(element, memory)).document;
 
 function renderTool(state: ToolState = "completed", output: { content: unknown; details?: unknown } | undefined = state === "completed" ? result : undefined) {
-	return document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state, output: output ? { kind: "inline", value: output } : undefined } }));
+	return document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state, output: output ? { kind: "inline", value: projectToolOutput("skill", output) } : undefined } }));
 }
 
 describe("技能语义展示", () => {
@@ -58,7 +60,7 @@ describe("技能语义展示", () => {
 	});
 
 	it("展开显示来源、根路径和 Markdown 正文，不显示披露标签或默认展示哈希", () => {
-		const doc = document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state: "completed", output: { kind: "inline", value: result } } }),
+		const doc = document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state: "completed", output: { kind: "inline", value: projectToolOutput("skill", result) } } }),
 			new DisclosureMemory([[`skill:${call.id}`, true]]));
 		expect(doc.querySelector(".skill-metadata")?.textContent).toContain("skill://debugging");
 		expect(doc.querySelector(".skill-body h1")?.textContent).toBe("检查任务");
@@ -83,6 +85,6 @@ describe("技能语义展示", () => {
 		expect(projected.output.preview.details).toMatchObject({ name: "debugging", loadedBy: "agent", deduplicated: false });
 		const doc = document(createElement(ToolActivity, { tool: { id: call.id, name: "skill", args: call.arguments, state: "completed", output: projected.output } }));
 		expect(doc.querySelector(".activity-state > svg")).not.toBeNull();
-		expect(payloads.toolOutput(projected.output.id)).toEqual({ content: full.content, details: full.details });
+		expect(rawToolOutput(payloads.toolOutput(projected.output.id))).toEqual({ content: full.content, details: full.details });
 	});
 });

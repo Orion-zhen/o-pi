@@ -1,5 +1,4 @@
 import type { Send } from "@/connection/connection.ts";
-import type { GuiAction, GuiActionResult } from "../../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../../shared/protocol/events.ts";
 import type { Query } from "../../../shared/protocol/queries.ts";
 import type { GuiDialog, GuiNotice, GuiSnapshot } from "../../../shared/protocol/state.ts";
@@ -17,6 +16,5 @@ export type SessionState = {
 export type SessionView = SessionState & {
 	send: Send;
 	query: Query;
-	dispatch<A extends GuiAction>(action: A): Promise<GuiActionResult<A>>;
 };
 export type ReadySession = Extract<SessionView, { state: "ready" }>;

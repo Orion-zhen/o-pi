@@ -10,7 +10,7 @@ import type { ToolActivity } from "./activity.ts";
 export function ToolSummary({ tool, open, stateLabel }: { tool: ToolActivity; open: boolean; stateLabel?: string }) {
 	const { label, icon: Icon } = toolDisplay(tool.name);
 	const target = toolTarget(tool.name, tool.args);
-	const facts = tool.output?.kind === "reference" ? tool.output.facts : toolFacts({ ...tool, output: outputPreview(tool.output) });
+	const facts = toolFacts({ ...tool, output: outputPreview(tool.output) });
 	return <Hint content={tool.name}><CollapsibleTrigger className="activity-summary" data-tool-name={tool.name}>
 		<Icon className="activity-icon" aria-hidden="true" />
 		<span className="activity-label">{label}</span>

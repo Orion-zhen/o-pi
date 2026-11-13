@@ -4,9 +4,9 @@ import { Hint } from "@/ui/tooltip.tsx";
 import "./subagent-tool-picker.css";
 
 export function SubagentToolPicker({ label, value, tools, disabled, change }: {
-	label: string; value: readonly unknown[]; tools: GuiSnapshot["tools"] | null; disabled: boolean; change: (value: string[]) => void;
+	label: string; value: string[]; tools: GuiSnapshot["tools"] | null; disabled: boolean; change: (value: string[]) => void;
 }) {
-	const selected = value.filter((name): name is string => typeof name === "string");
+	const selected = value;
 	const availableTools = new Map(tools?.map((tool) => [tool.name, tool]));
 	const names = new Set([...availableTools.keys(), ...selected]);
 	return <div className="settings-tool-picker">

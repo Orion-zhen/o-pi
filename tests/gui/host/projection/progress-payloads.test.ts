@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { rawToolOutput } from "../../../../src/gui/shared/messages/output.ts";
 import { GuiPayloads } from "../../../../src/gui/host/projection/payloads.ts";
 import type { GuiToolOutput } from "../../../../src/gui/shared/messages/types.ts";
 
@@ -14,12 +15,12 @@ describe("工具进度载荷", () => {
 		const first = reference(payloads.progress("call", "subagent", large("a")));
 		const next = reference(payloads.progress("call", "subagent", large("b")));
 		expect(next).not.toBe(first);
-		expect(payloads.toolOutput(first)).toEqual(large("b"));
+		expect(rawToolOutput(payloads.toolOutput(first))).toEqual(large("b"));
 		expect(payloads.toolOutput(next)).toBe(payloads.toolOutput(first));
 		const final = reference(payloads.complete("call", "subagent", large("c")));
-		expect(payloads.toolOutput(first)).toEqual(large("c"));
+		expect(rawToolOutput(payloads.toolOutput(first))).toEqual(large("c"));
 		payloads.progress("other", "subagent", large("d"));
-		expect(payloads.toolOutput(final)).toEqual(large("c"));
+		expect(rawToolOutput(payloads.toolOutput(final))).toEqual(large("c"));
 	});
 
 	it("大结果变为内联结果时，在途查询仍可完成", () => {
@@ -28,7 +29,7 @@ describe("工具进度载荷", () => {
 		const content = [{ type: "text" as const, text: "已完成" }];
 		const final = payloads.message({ role: "toolResult", toolCallId: "call", toolName: "bash", content, isError: false, timestamp: 1 });
 		expect(final).toMatchObject({ output: { kind: "inline", value: { content } } });
-		expect(payloads.toolOutput(id)).toEqual({ content });
+		expect(rawToolOutput(payloads.toolOutput(id))).toEqual({ content });
 	});
 
 	it("更新图片复用载荷位置，旧图片请求和最终回看均可读取", () => {

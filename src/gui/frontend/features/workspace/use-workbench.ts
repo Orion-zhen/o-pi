@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useSyncExternalStore } from "react";
 import type { Query, WorkspaceQuery } from "../../../shared/protocol/queries.ts";
 import { useWindowRefresh } from "@/connection/use-window-refresh.ts";
-import { WorkspaceState } from "./workspace-state.ts";
+import { WorkspaceState, type WorkspacePane } from "./workspace-state.ts";
 
 function visibleExpanded(expanded: Set<string>) {
 	const visible = new Map<string, boolean>();
@@ -65,7 +65,7 @@ export function useWorkbench(cwd: string, enabled: boolean, running: boolean, qu
 	const controls = useMemo(() => ({
 		setOnlyChanges: (onlyChanges: boolean) => scope.update({ onlyChanges }),
 		setFilesOpen: (filesOpen: boolean) => scope.update({ filesOpen }),
-		setPane: (pane: string) => scope.update({ pane }),
+		setPane: (pane: WorkspacePane) => scope.update({ pane }),
 		collapseAll: () => scope.update({ expanded: new Set() }),
 	}), [scope]);
 	return useMemo(() => ({ ...state, ...controls, refresh, openFile, closePreview, toggleDirectory }),

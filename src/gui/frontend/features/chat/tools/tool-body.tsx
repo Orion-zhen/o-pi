@@ -1,6 +1,6 @@
 import { memo } from "react";
-import { outputPreview } from "../../../../shared/messages/output.ts";
-import { type ToolOutput } from "../../../../shared/messages/types.ts";
+import { outputPreview, rawToolOutput } from "../../../../shared/messages/output.ts";
+import { type GuiToolResult } from "../../../../shared/messages/types.ts";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { pretty } from "@/ui/content/format.ts";
 import { useToolOutput } from "./use-tool-output.ts";
@@ -21,6 +21,6 @@ export function ToolBody({ tool }: { tool: ToolActivity }) {
 	</div>;
 }
 
-const RawToolData = memo(function RawToolData({ args, output }: { args: unknown; output: ToolOutput | undefined }) {
-	return <pre>{pretty({ arguments: args, result: output })}</pre>;
+const RawToolData = memo(function RawToolData({ args, output }: { args: unknown; output: GuiToolResult | undefined }) {
+	return <pre>{pretty({ arguments: args, result: output && rawToolOutput(output) })}</pre>;
 });

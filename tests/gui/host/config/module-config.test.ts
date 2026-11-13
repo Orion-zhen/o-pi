@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { parse } from "jsonc-parser";
 import { GuiHost } from "../../../../src/gui/host/host.ts";
 import { CONFIG_DEFINITIONS } from "../../../../src/harness/config-loader.ts";
+import { moduleConfigOptions } from "../../../../src/gui/shared/config/module-schema.ts";
 import { moduleConfigIds } from "../../../../src/gui/shared/config/modules.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../../helpers/lifecycle.ts";
 
@@ -29,7 +30,7 @@ it.each(moduleConfigIds)("无会话时读取和保存 %s 全局覆盖，不改�
 });
 
 it("从校验 schema 返回固定字段的枚举，包括本地引用和未展示的字段", async () => {
-	const web = await host.query({ query: "moduleConfig", id: "webTools" });
+	const web = moduleConfigOptions((await host.query({ query: "moduleConfig", id: "webTools" })).schema);
 	expect(web).toMatchObject({ options: {
 		"webfetch.media.mode": ["auto", "on", "off"],
 	} });
@@ -47,7 +48,7 @@ it("从校验 schema 返回固定字段的枚举，包括本地引用和未展�
 	expect(web.fields).not.toHaveProperty("websearch.brave_api.extra_snippets");
 	expect(web.fields).not.toHaveProperty("websearch.exa_api.highlight_chars");
 	expect(web.fields).not.toHaveProperty("websearch.exa_mcp.highlight_chars");
-	const approval = await host.query({ query: "moduleConfig", id: "approvalGate" });
+	const approval = moduleConfigOptions((await host.query({ query: "moduleConfig", id: "approvalGate" })).schema);
 	expect(approval).toMatchObject({ options: {
 		"ui.non_interactive": ["block", "allow"],
 		"tools.write.default_action": ["allow", "ask", "deny"],
@@ -55,12 +56,12 @@ it("从校验 schema 返回固定字段的枚举，包括本地引用和未展�
 		"tools.webfetch.default_action": ["allow", "ask", "deny"],
 		"tools.bash.default_action": ["allow", "ask", "deny"],
 	} });
-	const lsp = await host.query({ query: "moduleConfig", id: "lsp" });
+	const lsp = moduleConfigOptions((await host.query({ query: "moduleConfig", id: "lsp" })).schema);
 	expect(lsp).toMatchObject({ options: { "diagnostics.min_severity": ["error", "warning", "information", "hint"] } });
-	const tui = await host.query({ query: "moduleConfig", id: "tui" });
+	const tui = moduleConfigOptions((await host.query({ query: "moduleConfig", id: "tui" })).schema);
 	expect(tui).toMatchObject({ options: { icons: ["unicode", "ascii", "nerd"], "home.motion": ["off", "subtle", "playful"] } });
 	expect(tui).not.toHaveProperty(["options", "footer.segments"]);
-	const discord = await host.query({ query: "moduleConfig", id: "discordPresence" });
+	const discord = moduleConfigOptions((await host.query({ query: "moduleConfig", id: "discordPresence" })).schema);
 	expect(discord).toMatchObject({ options: {} });
 	expect(discord).not.toHaveProperty("options.profile");
 });

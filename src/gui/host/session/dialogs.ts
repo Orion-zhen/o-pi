@@ -10,7 +10,7 @@ import { plainTheme } from "./theme.ts";
 export class GuiDialogs {
 	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined) => void }>();
 	readonly notices: GuiNotice[] = [];
-	readonly status: Record<string, string> = {};
+	private toolsExpanded = false;
 	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number,
 		private readonly editor: { get(): string; set(value: string): void }) {}
 
@@ -84,35 +84,21 @@ export class GuiDialogs {
 		const unsupported = (): never => {
 			throw new Error("此扩展使用了 GUI 不支持的终端组件。");
 		};
+		// GUI 没有终端状态栏，保留接口但不维护不可见的影子状态。
+		const ignore = () => {};
 		return {
 			select: (title, options, opts) => this.ask({ kind: "select", title, options: options.map((value) => ({ label: value, value })) }, opts),
 			confirm: async (title, message, opts) => (await this.ask({ kind: "confirm", title, message }, opts)) === "yes",
 			input: (title, placeholder, opts) => this.ask({ kind: "input", title, placeholder: placeholder ?? "", initial: "" }, opts),
 			editor: (title, prefill) => this.ask({ kind: "editor", title, initial: prefill ?? "" }),
 			notify: (message, type) => this.notify(message, type),
-			setStatus: (key, text) => {
-				if (text === undefined) delete this.status[key];
-				else this.status[key] = text;
-			},
-			setTitle: (title) => {
-				this.status["title"] = title;
-			},
-			setWorkingMessage: (message) => {
-				if (message === undefined) delete this.status["working"];
-				else this.status["working"] = message;
-			},
-			setWorkingVisible: (visible) => {
-				this.status["workingVisible"] = String(visible);
-			},
+			setStatus: ignore,
+			setTitle: ignore,
+			setWorkingMessage: ignore,
+			setWorkingVisible: ignore,
 			setWorkingIndicator: unsupported,
-			setHiddenThinkingLabel: (label) => {
-				this.status["thinkingLabel"] = label ?? "思考";
-			},
-			setWidget: (key, content) => {
-				if (Array.isArray(content)) this.status[key] = content.join("\n");
-				else if (content === undefined) delete this.status[key];
-				else unsupported();
-			},
+			setHiddenThinkingLabel: ignore,
+			setWidget: (_key, content) => { if (content !== undefined && !Array.isArray(content)) unsupported(); },
 			setEditorText: (text) => {
 				this.editor.set(text);
 			},
@@ -132,9 +118,9 @@ export class GuiDialogs {
 			getAllThemes: () => [],
 			getTheme: () => undefined,
 			setTheme: () => ({ success: false, error: "GUI 不使用终端主题。" }),
-			getToolsExpanded: () => this.status["toolsExpanded"] === "true",
+			getToolsExpanded: () => this.toolsExpanded,
 			setToolsExpanded: (expanded) => {
-				this.status["toolsExpanded"] = String(expanded);
+				this.toolsExpanded = expanded;
 			},
 		};
 	}

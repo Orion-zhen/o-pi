@@ -81,8 +81,7 @@ if (!(await runChildProcess())) {
 				return;
 			}
 			if (request.kind === "resource") {
-				if (typeof request.value !== "string") throw new Error("无效文件授权。");
-				const value = client.resolveFileResource(request.value);
+				const value = client.resolveFileResource(request.token);
 				process.parentPort.postMessage({ kind: "result", id: request.id, value } satisfies BackendMessage);
 				return;
 			}

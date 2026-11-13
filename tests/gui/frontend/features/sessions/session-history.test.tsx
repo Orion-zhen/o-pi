@@ -11,7 +11,7 @@ beforeEach(() => { vi.stubGlobal("getComputedStyle", (element: HTMLElement) => e
 it("列表卸载后迟到的打开结果不再关闭后续界面", async () => {
 	const result = Promise.withResolvers<void>();
 	const close = vi.fn();
-	await render(<TooltipProvider><SessionHistory cwd="/project" sessions={[]} sessionsLoading={false} connected canNavigate full
+	await render(<TooltipProvider><SessionHistory cwd="/project" sessions={[]} sessionsLoading={false} connected full
 		sessionRows={[{ key: "one", path: "/sessions/one.jsonl", target: { path: "/sessions/one.jsonl" },
 			cwd: "/project", title: "目标会话", modified: "", selected: false, activity: undefined }]}
 		send={() => result.promise} close={close} refreshSessions={async () => {}} /></TooltipProvider>);
@@ -28,7 +28,7 @@ it("打开会话失败时保留列表与错误，重试成功后才关闭", asyn
 	const second = Promise.withResolvers<void>();
 	const send = vi.fn<Send>().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
 	const close = vi.fn();
-	await render(<TooltipProvider><SessionHistory cwd="/project" sessions={[]} sessionsLoading={false} connected canNavigate full
+	await render(<TooltipProvider><SessionHistory cwd="/project" sessions={[]} sessionsLoading={false} connected full
 		sessionRows={[{ key: "one", path: "/sessions/one.jsonl", target: { path: "/sessions/one.jsonl" },
 			cwd: "/project", title: "目标会话", modified: "", selected: false, activity: undefined }]}
 		send={send} close={close} refreshSessions={async () => {}} /></TooltipProvider>);

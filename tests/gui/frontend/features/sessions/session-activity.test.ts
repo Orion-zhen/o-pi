@@ -56,7 +56,7 @@ describe("工作区切换边框", () => {
 		for (const compact of [false, true]) {
 			const document = parseHTML(renderToStaticMarkup(createElement(TooltipProvider, null, createElement(WorkspacePicker, {
 				gui: { cwd: "/a", activity: items, workspaceRoot: "/a", workspaces: [],
-					canNavigate: true, globalSend: async () => {}, globalQuery: async () => { throw new Error("不应查询"); } },
+					connected: true, globalSend: async () => {}, globalQuery: async () => { throw new Error("不应查询"); } },
 				close: () => {}, compact,
 			})))).document;
 			expect(document.querySelector(".workspace-select.activity-frame > .activity-border")?.getAttribute("data-activity")).toBe(state);

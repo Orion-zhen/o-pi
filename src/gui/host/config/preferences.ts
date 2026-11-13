@@ -6,7 +6,7 @@ import {
 } from "../../../harness/config-loader.ts";
 import { parseGuiPreferences } from "../../shared/config/gui-validation.ts";
 import type { GuiConfigDocument, GuiPreferences } from "../../shared/config/preferences.ts";
-import { replaceConfigFile } from "../session/files.ts";
+import { replaceConfigFile } from "../../../harness/config-file.ts";
 
 const definition = CONFIG_DEFINITIONS.gui;
 

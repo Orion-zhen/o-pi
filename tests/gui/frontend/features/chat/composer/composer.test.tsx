@@ -10,8 +10,7 @@ import type { DesktopDrop } from "../../../../../../src/gui/shared/protocol/desk
 function ready(snapshot: ReturnType<typeof guiSnapshot>, view: ReturnType<SessionViews["open"]>, send: ComponentProps<typeof Composer>["session"]["send"]): ComponentProps<typeof Composer>["session"] {
 	return { state: "ready", target: { id: snapshot.sessionId, cwd: snapshot.cwd, path: null }, view, snapshot, send,
 		dialogs: [], notices: [], stats: undefined, telemetry: undefined,
-		query: async () => { throw new Error("本测试不查询数据"); },
-		dispatch: async () => { throw new Error("本测试不调用有返回值的操作"); } };
+		query: async () => { throw new Error("本测试不查询数据"); } };
 }
 
 const renderRoot = useReactFixture(() => { Reflect.deleteProperty(window, "opi"); });

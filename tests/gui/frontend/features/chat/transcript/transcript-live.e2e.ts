@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { projectToolOutput } from "../../../../../../src/gui/shared/messages/tool-output.ts";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { liveSnapshot, replayTranscript } from "../../../../helpers/transcript-live-fixture.ts";
 import { assistant } from "../../../../helpers/transcript-fixtures.ts";
@@ -78,7 +79,7 @@ for (const mode of ["idle", "stream", "progress"] as const) test(`长轮次在 $
 				value: { ...assistant([{ type: "thinking", thinking: "继续检查。".repeat(updates) }], "pending"), timestamp: 1000 } });
 			else channel.accept({ type: "snapshot", value: { ...snapshot, streamingMessage: null, liveTools: [{
 				toolCallId: "live", toolName: "bash", args: { command: "fixture-progress" },
-				output: { kind: "inline", value: { content: [{ type: "text", text: `执行进度 ${updates}` }] } },
+				output: { kind: "inline", value: projectToolOutput("bash", { content: [{ type: "text", text: `执行进度 ${updates}` }] }) },
 			}] } });
 		}, 25);
 		for (let index = 0; index < 12; index++) {

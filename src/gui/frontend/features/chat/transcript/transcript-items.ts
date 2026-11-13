@@ -1,7 +1,16 @@
+import { SKILL_CONTEXT_MESSAGE } from "../../../../../harness/skill-context/types.ts";
 import type { GuiMessage, GuiStandaloneMessage } from "../../../../shared/messages/types.ts";
 import type { GuiSnapshot } from "../../../../shared/protocol/state.ts";
 import type { replyMetrics } from "../messages/metrics.ts";
 import { sameToolActivity, type ToolActivity } from "../tools/activity.ts";
+
+type BoundaryMessage = Exclude<GuiStandaloneMessage, { role: "custom" }>
+	| (Extract<GuiStandaloneMessage, { role: "custom" }> & { customType: typeof SKILL_CONTEXT_MESSAGE });
+
+export function isTranscriptBoundary(message: GuiMessage): message is BoundaryMessage {
+	return message.role === "user" || message.role === "bashExecution" || message.role === "compactionSummary" || message.role === "branchSummary"
+		|| message.role === "custom" && message.customType === SKILL_CONTEXT_MESSAGE && message.display !== false;
+}
 
 export type TranscriptSource = Pick<GuiSnapshot, "models" | "streamingMessage" | "liveTools" | "streaming" | "retrying" | "compacting"> & { messages: GuiMessage[] };
 

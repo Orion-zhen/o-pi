@@ -4,7 +4,6 @@ import { ListItem } from "@/ui/motion/animated.tsx";
 import { ArrowDown, ArrowUp, Cpu, ListX, LoaderCircle, Search } from "lucide-react";
 import { Check, LoaderCircle as LoaderCircleData, Play, Save } from "lucide";
 import { MorphIcon } from "morphicons/react";
-import type { GuiAction } from "../../../shared/protocol/actions.ts";
 import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
 import { useOperation } from "@/connection/use-operation.ts";
@@ -29,7 +28,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 		terms.every((term) => `${id} ${available.get(id)?.name ?? ""}`.toLocaleLowerCase().includes(term));
 	const selectedModels = scope.filter(matches);
 	const otherModels = [...available.keys()].filter((id) => !selected.has(id) && matches(id));
-	const operation = useOperation((action: GuiAction) => send(action).then(() => signature), (saved, action) => {
+	const operation = useOperation((action: Parameters<Send>[0]) => send(action).then(() => signature), (saved, action) => {
 		if (action.action === "persistModels") setSaved(saved);
 	});
 	const { run, error } = operation;

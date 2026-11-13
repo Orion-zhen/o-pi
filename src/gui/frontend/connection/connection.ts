@@ -7,7 +7,7 @@ import { GuiReceiver, type GuiDelivery, type GuiFrame } from "../../shared/proto
 import { diagnosticContext } from "@/diagnostics/diagnostics.ts";
 import { notificationDestination, NOTIFICATION_PERMISSION_CHANGED } from "./notifications.ts";
 
-export type Send<A extends GuiAction = GuiAction> = (action: A) => Promise<void>;
+export type Send<A extends GuiAction = Exclude<GuiAction, { action: "consumeCodexCredit" }>> = (action: A) => Promise<void>;
 export type GlobalSend = Send<GlobalAction | WorkspaceAction>;
 export type ConfigCommand = (action: ConfigAction) => Promise<void>;
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "closed";

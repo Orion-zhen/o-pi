@@ -1,4 +1,5 @@
 import path from "node:path";
+import { projectToolOutput } from "../../../src/gui/shared/messages/tool-output.ts";
 import type { Page } from "@playwright/test";
 import type { GuiEvent } from "../../../src/gui/shared/protocol/events.ts";
 import type { GuiQuery } from "../../../src/gui/shared/protocol/queries.ts";
@@ -22,9 +23,9 @@ export function liveSnapshot(): GuiSnapshot {
 			{ type: "toolCall", id: `read-${index}`, name: "read", arguments: { path: file } },
 		]), timestamp: index * 2 + 2 });
 		append({ role: "toolResult", toolCallId: `read-${index}`, toolName: "read", isError: false, timestamp: index * 2 + 3,
-			output: { kind: "inline", value: { content: [{ type: "text", text: code }], details: {
+			output: { kind: "inline", value: projectToolOutput("read", { content: [{ type: "text", text: code }], details: {
 				path: file, total_lines: 60, segments: [{ content: code, start_line: 1, end_line: 60 }],
-			} } } });
+			} }) } });
 	}
 	const snapshot = guiSnapshot();
 	return {

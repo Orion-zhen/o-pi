@@ -15,8 +15,6 @@ export class DesktopDiagnostics {
 	private size: number | undefined;
 	private failed = false;
 	private closing: Promise<void> | undefined;
-	private finished = false;
-	get closed(): boolean { return this.finished; }
 	private generation = 0;
 	private deliveries = new Set<number>();
 
@@ -119,7 +117,7 @@ export class DesktopDiagnostics {
 		return task;
 	}
 	close(): Promise<void> {
-		this.closing ??= this.pending.then(() => { this.finished = true; });
+		this.closing ??= this.pending;
 		return this.closing;
 	}
 }

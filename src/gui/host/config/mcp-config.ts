@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isNotFound } from "../../../harness/config-loader.ts";
-import { replaceConfigFile } from "../session/files.ts";
+import { replaceConfigFile } from "../../../harness/config-file.ts";
 import type { McpConfigDocument } from "../../shared/config/mcp.ts";
 import { parseMcpConfig, validateMcpConfig } from "../../shared/config/mcp-validation.ts";
 

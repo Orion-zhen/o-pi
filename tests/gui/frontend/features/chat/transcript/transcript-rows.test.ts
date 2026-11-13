@@ -1,4 +1,5 @@
 import { createElement, useLayoutEffect } from "react";
+import { projectToolOutput } from "../../../../../../src/gui/shared/messages/tool-output.ts";
 import { useReactFixture } from "../../../../helpers/react-fixture.ts";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SKILL_CONTEXT_MESSAGE } from "../../../../../../src/harness/skill-context/types.ts";
@@ -57,7 +58,7 @@ describe("流式历史分组", () => {
 		await render(initial);
 		for (const text of ["读取中", "正在完成"]) {
 			await render({ ...initial, liveTools: [{ toolCallId: call.id, toolName: call.name, args: call.arguments,
-				output: { kind: "inline", value: { content: [{ type: "text", text }] } } }] });
+				output: { kind: "inline", value: projectToolOutput("read", { content: [{ type: "text", text }] }) } }] });
 			expect(tools()).toHaveLength(1);
 			expect(tools()[0]).toMatchObject({ tool: { id: call.id, state: "running", output: { value: { content: [{ text }] } } } });
 		}

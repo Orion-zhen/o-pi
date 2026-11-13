@@ -3,7 +3,6 @@ import path from "node:path";
 import { exportDirectoryPrefix } from "../../../harness/storage/paths.ts";
 import { retainStoragePath } from "../../../harness/storage/active.ts";
 import { replaceConfigFile } from "../../../harness/config-file.ts";
-export { replaceConfigFile } from "../../../harness/config-file.ts";
 import { fileTypeFromBuffer } from "file-type";
 import {
 	getAgentDir,

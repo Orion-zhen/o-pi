@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { projectToolOutput } from "../../../../../../src/gui/shared/messages/tool-output.ts";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import type { GuiSnapshot } from "../../../../../../src/gui/shared/protocol/state.ts";
@@ -104,7 +105,7 @@ describe("codemode 执行容器", () => {
 	it.each(["edit", "write"])("%s 子调用复用普通工具的 diff，不把参数当作执行结果", (name) => {
 		const value: Activity = { ...tool, state: "completed", nestedCalls: { complete: true, calls: [{
 			id: "code-1/1", name, status: "ok", arguments: { path: "a.ts" },
-			output: { kind: "inline", value: { content: [], details: { diff: "-1 old\n+1 new" } } },
+			output: { kind: "inline", value: projectToolOutput(name, { content: [], details: { diff: "-1 old\n+1 new" } }) },
 		}] } };
 		const doc = parseHTML(renderWithMemory(createElement(ToolActivity, { tool: value }),
 			new DisclosureMemory([["tool:code-1", true], ["nested:code-1/1", true]]))).document;
@@ -129,7 +130,7 @@ describe("codemode 执行容器", () => {
 	});
 
 	it("运行时展开，子调用复用工具摘要，脚本默认不展开", () => {
-		const doc = renderTool({ ...tool, output: { kind: "inline", value: { content: "Script running" } } });
+		const doc = renderTool({ ...tool, output: { kind: "inline", value: projectToolOutput("codemode", { content: "Script running" }) } });
 		expect(doc.querySelector(".codemode-output")).toBeNull();
 		expect(doc.querySelector('.codemode-activity > [data-slot="collapsible"]')?.getAttribute("data-state")).toBe("open");
 		expect(doc.querySelectorAll("[data-tool-call-id]")).toHaveLength(1);
@@ -142,7 +143,7 @@ describe("codemode 执行容器", () => {
 	it("成功后收起，手动展开优先，父成功不掩盖已捕获的子失败", () => {
 		const completed: Activity = { ...tool, state: "completed", nestedCalls: { complete: true, calls: [
 			{ id: "code-1/1", name: "read", arguments: { path: "missing.ts" }, status: "error", error: "\x1b[31mFile not found\x1b[0m", durationMs: 8 },
-		] }, output: { kind: "inline", value: { content: "processed" } } };
+		] }, output: { kind: "inline", value: projectToolOutput("codemode", { content: "processed" }) } };
 		expect(renderTool(completed).querySelector('.codemode-activity > [data-slot="collapsible"]')?.getAttribute("data-state")).toBe("closed");
 		const doc = renderTool(completed, true);
 		expect(doc.querySelector(".codemode-activity")?.getAttribute("data-state")).toBe("completed");
@@ -156,13 +157,20 @@ describe("codemode 执行容器", () => {
 	it("运行中的脚本从子调用输出展示错误摘要和耗时", () => {
 		const value: Activity = { ...tool, nestedCalls: { complete: false, calls: [
 			{ id: "code-1/1", name: "read", status: "error", durationMs: 8,
-				output: { kind: "inline", value: { content: [{ type: "text", text: "原始错误" }], details: { error: { message: "\x1b[31m读取失败\x1b[0m" } } } },
+				output: { kind: "inline", value: projectToolOutput("read", { content: [{ type: "text", text: "原始错误" }], details: { error: { message: "\x1b[31m读取失败\x1b[0m" } } }) },
 			},
 		] } };
 		const doc = renderTool(value, true);
 		expect(doc.querySelector('[data-nested-tool-call-id="code-1/1"]')?.getAttribute("data-state")).toBe("failed");
 		expect(doc.querySelector('[role="alert"]')?.textContent).toBe("读取失败");
 		expect(doc.querySelector('[data-nested-tool-call-id="code-1/1"] .activity-summary')?.textContent).toContain("8 ms");
+	});
+
+	it("纯文本错误先去除终端控制符，再选取首个非空行", () => {
+		const value: Activity = { ...tool, state: "failed", output: { kind: "inline", value: projectToolOutput("codemode", {
+			content: [{ type: "text", text: "\u001b[31m\u001b[0m\n\n  真实错误\n后续详情" }],
+		}) } };
+		expect(renderTool(value).querySelector('[role="alert"]')?.textContent).toBe("  真实错误");
 	});
 
 	it("停止后保留已完成子调用，在途子调用标为停止", () => {

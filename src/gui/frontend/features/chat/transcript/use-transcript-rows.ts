@@ -1,14 +1,11 @@
 import { useMemo } from "react";
-import { SKILL_CONTEXT_MESSAGE } from "../../../../../harness/skill-context/types.ts";
 import { transcriptReplies } from "./transcript-replies.ts";
-import type { TranscriptSource } from "./transcript-items.ts";
+import { isTranscriptBoundary, type TranscriptSource } from "./transcript-items.ts";
 
 /** 流式更新只投影最后一个消息组，历史分组不随每段输出重新构造。 */
 export function useTranscriptRows(source: TranscriptSource, pruned: ReadonlySet<string>) {
 	const history = useMemo(() => {
-		let offset = Math.max(0, source.messages.findLastIndex((message) => message.role === "user" || message.role === "bashExecution"
-			|| message.role === "compactionSummary" || message.role === "branchSummary"
-			|| message.role === "custom" && message.customType === SKILL_CONTEXT_MESSAGE && message.display));
+		let offset = Math.max(0, source.messages.findLastIndex(isTranscriptBoundary));
 		const calls = new Map<string, number>();
 		const results = new Map<string, number>();
 		for (const [index, message] of source.messages.entries()) {

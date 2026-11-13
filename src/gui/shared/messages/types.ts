@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { NestedToolCallRecord, TextContent } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ToolDetails } from "./tool-details.ts";
 
 export interface GuiImage {
 	type: "image";
@@ -9,10 +10,11 @@ export interface GuiImage {
 }
 export type GuiContent = string | (TextContent | GuiImage)[];
 export interface ToolOutput { content: unknown; details?: unknown }
+export type GuiToolResult = ToolOutput & ToolDetails & { facts: string; error: string; aborted: boolean };
 
 export type GuiToolOutput =
-	| { kind: "inline"; value: ToolOutput }
-	| { kind: "reference"; id: string; preview: ToolOutput; facts: string };
+	| { kind: "inline"; value: GuiToolResult }
+	| { kind: "reference"; id: string; preview: GuiToolResult };
 
 export type GuiNestedCall = Omit<NestedToolCallRecord, "arguments"> & { arguments?: unknown; output?: GuiToolOutput };
 export interface GuiNestedCalls {

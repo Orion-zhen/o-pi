@@ -29,7 +29,7 @@ export const Message = memo(function Message({ value, entryId }: { value: GuiSta
 	if (value.role === "custom" && value.customType === SKILL_CONTEXT_MESSAGE && isSkillLoadDetails(value.details)) {
 		return <article className="message skill-message" data-entry-id={entryId}>
 			<SkillCard id={`message:${entryId ?? value.timestamp}`} name={value.details.name} loadedBy={value.details.loadedBy}
-				state="completed" output={{ kind: "inline", value: { content: value.content, details: value.details } }} />
+				state="completed" output={{ kind: "inline", value: { view: "raw", facts: "", error: "", aborted: false, content: value.content, details: value.details } }} />
 			<MessageFooter entryId={entryId} />
 		</article>;
 	}

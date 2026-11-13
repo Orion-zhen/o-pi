@@ -3,8 +3,6 @@ export type ServiceRequest =
 	| { kind: "proxy"; url: string }
 	| { kind: "websocket"; url: string; options: SocketOptions };
 
-export type ServiceInit = { kind: "desktop-services" };
-
 export type ServiceCall = { id: number; request: ServiceRequest };
 
 export type ServiceReply =
@@ -16,8 +14,7 @@ export type ProcessCommand = { kind: "kill"; signal: NodeJS.Signals };
 
 export type ProcessEvent =
 	| { kind: "stdout" | "stderr"; data: Uint8Array }
-	| { kind: "exit"; code: number }
-	| { kind: "error"; message: string };
+	| { kind: "exit"; code: number };
 
 export interface SocketOptions {
 	protocols?: string[];
