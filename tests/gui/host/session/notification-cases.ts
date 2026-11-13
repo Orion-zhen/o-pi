@@ -5,7 +5,7 @@ import type { GuiClient } from "../../../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../../../src/gui/shared/protocol/events.ts";
 import { preserveEnv } from "../../../helpers/lifecycle.ts";
 
-const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });
+const prompt = (text: string) => ({ action: "prompt", text, images: [], files: [], behavior: "followUp" });
 function connect(client: GuiClient) {
 	const events: GuiEvent[] = [];
 	const connection = client.connect((delivery) => {

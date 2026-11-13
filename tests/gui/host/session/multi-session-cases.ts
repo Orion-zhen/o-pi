@@ -9,7 +9,7 @@ import type { GuiClient } from "../../../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../../../src/gui/shared/protocol/events.ts";
 import { storeSession } from "../../helpers/session-fixture.ts";
 
-const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });
+const prompt = (text: string) => ({ action: "prompt", text, images: [], files: [], behavior: "followUp" });
 
 export function multiSessionTests(context: () => { host: GuiClient; cwd: string; agentDir: string }) {
 	describe("多会话执行与客户端隔离", () => {

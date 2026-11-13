@@ -22,7 +22,7 @@ test.beforeEach(async ({ workspace: { agentDir, home } }) => {
 test("交互等待期间可并发查询，失败请求不影响后续操作", async ({ gui: { page }, workspace: { cwd } }) => {
 	const operation = page.evaluate(async () => {
 		if (!window.opi) throw new Error("缺少桌面连接");
-		await window.opi.send({ action: "prompt", text: "/protocol-dialog", images: [], behavior: "steer" }, sessionStorage.getItem("opi.session"));
+		await window.opi.send({ action: "prompt", text: "/protocol-dialog", images: [], files: [], behavior: "steer" }, sessionStorage.getItem("opi.session"));
 		return "completed";
 	});
 	const dialog = page.getByRole("dialog", { name: "协议确认", exact: true });
@@ -54,7 +54,7 @@ test("交互等待期间可并发查询，失败请求不影响后续操作", as
 test("后端异常退出会拒绝等待中的请求和新请求", async ({ gui: { app, page } }) => {
 	const operation = page.evaluate(async () => {
 		if (!window.opi) throw new Error("缺少桌面连接");
-		return window.opi.send({ action: "prompt", text: "/protocol-dialog", images: [], behavior: "steer" }, sessionStorage.getItem("opi.session"))
+		return window.opi.send({ action: "prompt", text: "/protocol-dialog", images: [], files: [], behavior: "steer" }, sessionStorage.getItem("opi.session"))
 			.then(() => "completed", String);
 	});
 	await expect(page.getByRole("dialog", { name: "协议确认", exact: true })).toBeVisible();

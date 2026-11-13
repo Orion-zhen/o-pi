@@ -1,0 +1,15 @@
+.modal-content.text-attachment-dialog { gap: 0; padding: 0; max-inline-size: 112ch; }
+.text-attachment-heading { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-block-end: 1px solid var(--divider); flex-shrink: 0; text-align: start; }
+.text-attachment-identity { display: flex; flex: 1 1 14ch; align-items: center; gap: var(--space-3); min-inline-size: 0; }
+.text-attachment-identity > .file-type-icon { inline-size: 1.75em; block-size: 1.75em; flex-shrink: 0; }
+.text-attachment-identity [data-slot="dialog-title"] { min-inline-size: 0; font-family: var(--gui-font-ui); font-size: var(--text-ui); overflow-wrap: anywhere; }
+.text-attachment-identity [data-slot="dialog-description"] { flex-shrink: 0; font-size: var(--text-caption); color: var(--muted-foreground); white-space: nowrap; }
+.text-attachment-actions { display: flex; align-items: center; gap: var(--space-1); margin-inline-start: auto; color: var(--muted-foreground); }
+.text-attachment-actions button[aria-pressed="true"] { background: var(--selected); color: var(--selected-foreground); }
+.text-attachment-dialog .text-attachment-source { flex: 1 0 auto; min-block-size: 0; min-inline-size: 0; max-block-size: 60dvh; margin: 0; border: 0; border-radius: 0; background: var(--background); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.text-attachment-source pre { max-block-size: none; padding: var(--space-5) var(--space-4); overflow: visible; }
+@media (max-width: 767px) {
+	.text-attachment-heading { gap: var(--space-2); padding: var(--space-3); }
+	.text-attachment-identity { gap: var(--space-2); }
+	.text-attachment-source pre { padding: var(--space-4) var(--space-2); }
+}

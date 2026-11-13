@@ -191,7 +191,7 @@ describe("WebUI 的真实 HTTP/WebSocket 边界", () => {
 		};
 		const run = async () => {
 			const response = await fetch(`${server.url}/api/action`, { method: "POST", headers: headers(),
-				body: body({ action: "prompt", text: "检查任务", images: [], behavior: "followUp" }) });
+				body: body({ action: "prompt", text: "检查任务", images: [], files: [], behavior: "followUp" }) });
 			expect(response.status).toBe(204);
 			await flush();
 		};

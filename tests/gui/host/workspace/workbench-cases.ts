@@ -49,7 +49,7 @@ export function workbenchTests(context: () => { host: GuiClient; cwd: string }) 
 		it("模型运行期间可并发浏览目录和预览不同文件", async () => {
 			const { host, cwd } = context();
 			await writeFile(path.join(cwd, "other.txt"), "other\n");
-			const prompt = host.dispatch({ action: "prompt", text: "执行真实工具", images: [], behavior: "followUp" });
+			const prompt = host.dispatch({ action: "prompt", text: "执行真实工具", images: [], files: [], behavior: "followUp" });
 			try {
 				const [files, preview, other] = await Promise.all([
 					host.query({ query: "workspaceFiles", cwd, path: "" }),

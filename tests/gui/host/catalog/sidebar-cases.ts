@@ -136,7 +136,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 
 		it("prune 完成后快照立即记录裁剪工具，不需新消息", async () => {
 			const { host } = context();
-			const action = (text: string) => ({ action: "prompt" as const, text, images: [], behavior: "followUp" as const });
+			const action = (text: string) => ({ action: "prompt" as const, text, images: [], files: [], behavior: "followUp" as const });
 			await host.dispatch(action("执行工具"));
 			const calls = readSnapshot(host).messages.flatMap((message) => message.role === "assistant"
 				? message.content.flatMap((block) => block.type === "toolCall" ? [block.id] : []) : []);
@@ -156,7 +156,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			const { host, events } = context();
 			const latest = () => events.findLast((event) => event.type === "sessionStats");
 			const telemetry = () => events.findLast((event) => event.type === "telemetry");
-			await host.dispatch({ action: "prompt", text: "执行工具", images: [], behavior: "followUp" });
+			await host.dispatch({ action: "prompt", text: "执行工具", images: [], files: [], behavior: "followUp" });
 			await expect.poll(latest).toMatchObject({
 				sessionId: readSnapshot(host).sessionId,
 				value: { session: { userTurns: 1 }, tools: { calls: 2 } },
@@ -176,7 +176,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 
 		it("压缩摘要可直接定位，已压缩的旧消息仍可只读预览", async () => {
 			const { host } = context();
-			await host.dispatch({ action: "prompt", text: "待压缩的旧消息", images: [], behavior: "followUp" });
+			await host.dispatch({ action: "prompt", text: "待压缩的旧消息", images: [], files: [], behavior: "followUp" });
 			const before = readSnapshot(host);
 			const file = host.selected?.file;
 			const user = before.entries.find((entry) => entry.type === "message" && entry.messages[0]?.role === "user");
@@ -199,7 +199,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 
 		it("聊天定位使用持久化条目 ID，旧分支只读预览而不改变活动分支", async () => {
 			const { host } = context();
-			await host.dispatch({ action: "prompt", text: "第一条分支", images: [], behavior: "followUp" });
+			await host.dispatch({ action: "prompt", text: "第一条分支", images: [], files: [], behavior: "followUp" });
 			const snapshot = readSnapshot(host);
 			const user = snapshot.entries.find((entry) => entry.type === "message" && entry.messages[0]?.role === "user");
 			const answer = snapshot.entries.findLast((entry) => entry.type === "message" && entry.messages[0]?.role === "assistant");
@@ -209,7 +209,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			expect(active.entryIds).toContain(user.id);
 			expect(active.entryIds).toContain(answer.id);
 			await host.dispatch({ action: "navigate", entryId: user.id, summarize: false });
-			await host.dispatch({ action: "prompt", text: "另一条分支", images: [], behavior: "followUp" });
+			await host.dispatch({ action: "prompt", text: "另一条分支", images: [], files: [], behavior: "followUp" });
 			const current = readSnapshot(host);
 			const preview = locateTranscript(current, answer.id);
 			expect(preview.preview).toBe(true);

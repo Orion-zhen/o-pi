@@ -27,13 +27,13 @@ export function queueTests(context: () => { host: GuiClient; agentDir: string })
 			await other.dispatch({ action: "openSession", id });
 			const otherEvents: GuiEvent[] = [];
 			other.subscribe((event) => otherEvents.push(event));
-			const task = host.dispatch({ action: "prompt", text: "读取文件并写入结果", images: [], behavior: "followUp" });
+			const task = host.dispatch({ action: "prompt", text: "读取文件并写入结果", images: [], files: [], behavior: "followUp" });
 			try {
 				await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
 				if (queued) {
-					await host.dispatch({ action: "prompt", text: "下一条跟进", images: [], behavior: "followUp" });
-					await host.dispatch({ action: "prompt", text: "第一条引导", images: [], behavior: "steer" });
-					await host.dispatch({ action: "prompt", text: "第二条引导", images: [], behavior: "steer" });
+					await host.dispatch({ action: "prompt", text: "下一条跟进", images: [], files: [], behavior: "followUp" });
+					await host.dispatch({ action: "prompt", text: "第一条引导", images: [], files: [], behavior: "steer" });
+					await host.dispatch({ action: "prompt", text: "第二条引导", images: [], files: [], behavior: "steer" });
 				}
 				await host.dispatch({ action: "abort" });
 				await task;
@@ -66,15 +66,15 @@ export function queueTests(context: () => { host: GuiClient; agentDir: string })
 				}
 				connection.acknowledge(delivery.id);
 			});
-			const task = host.dispatch({ action: "prompt", text: "读取文件并写入结果", images: [], behavior: "followUp" });
+			const task = host.dispatch({ action: "prompt", text: "读取文件并写入结果", images: [], files: [], behavior: "followUp" });
 			try {
 				await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
 				const initial = host.execution.snapshot();
-				await host.dispatch({ action: "prompt", text: "第一条引导", images: [], behavior: "steer" });
+				await host.dispatch({ action: "prompt", text: "第一条引导", images: [], files: [], behavior: "steer" });
 				await expect.poll(() => received.at(-1)?.queue).toEqual({ steering: ["第一条引导"], followUp: [] });
 				const first = host.execution.snapshot();
-				await host.dispatch({ action: "prompt", text: "第二条引导", images: [], behavior: "steer" });
-				await host.dispatch({ action: "prompt", text: "跟进消息", images: [], behavior: "followUp" });
+				await host.dispatch({ action: "prompt", text: "第二条引导", images: [], files: [], behavior: "steer" });
+				await host.dispatch({ action: "prompt", text: "跟进消息", images: [], files: [], behavior: "followUp" });
 				const queued = { steering: ["第一条引导", "第二条引导"], followUp: ["跟进消息"] };
 				await expect.poll(() => received.at(-1)?.queue).toEqual(queued);
 				const beforeClear = host.execution.snapshot();

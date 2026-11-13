@@ -33,7 +33,7 @@ export function autoTitleTests(context: () => {
 		it("工具对话取最近五条正文，使用切换后的模型且不修改对话", async () => {
 			const { host, requests } = context();
 			for (const text of ["第一轮", "第二轮", "第三轮"]) {
-				await host.dispatch({ action: "prompt", text, images: [], behavior: "followUp" });
+				await host.dispatch({ action: "prompt", text, images: [], files: [], behavior: "followUp" });
 			}
 			await host.dispatch({ action: "model", provider: "gui-fixture", id: "second" });
 			const before = readSnapshot(host);
@@ -49,11 +49,11 @@ export function autoTitleTests(context: () => {
 			const { host, agentDir, requests } = context();
 			await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"max_messages":2}');
 			await host.dispatch({ action: "reload" });
-			await host.dispatch({ action: "prompt", text: "较早的请求", images: [], behavior: "followUp" });
-			await host.dispatch({ action: "prompt", text: "分支前的请求", images: [], behavior: "followUp" });
+			await host.dispatch({ action: "prompt", text: "较早的请求", images: [], files: [], behavior: "followUp" });
+			await host.dispatch({ action: "prompt", text: "分支前的请求", images: [], files: [], behavior: "followUp" });
 			const leaf = host.runtime.session.sessionManager.getLeafId();
 			if (!leaf) throw new Error("缺少分支节点");
-			await host.dispatch({ action: "prompt", text: "另一分支的请求", images: [], behavior: "followUp" });
+			await host.dispatch({ action: "prompt", text: "另一分支的请求", images: [], files: [], behavior: "followUp" });
 			await host.dispatch({ action: "navigate", entryId: leaf, summarize: false });
 			const before = readSnapshot(host);
 			await host.dispatch({ action: "autoTitleSession", path: host.selected?.file });

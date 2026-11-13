@@ -44,7 +44,7 @@ async function stopDesktop() {
 function prompt(page: Page, text: string) {
 	return page.evaluate(async (text) => {
 		if (!window.opi) throw new Error("缺少桌面连接");
-		await window.opi.send({ action: "prompt", text, images: [], behavior: "steer" }, sessionStorage.getItem("opi.session"));
+		await window.opi.send({ action: "prompt", text, images: [], files: [], behavior: "steer" }, sessionStorage.getItem("opi.session"));
 	}, text);
 }
 

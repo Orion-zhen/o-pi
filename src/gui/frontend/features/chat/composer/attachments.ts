@@ -1,33 +1,33 @@
-import type { ImageAttachment } from "@/features/sessions/session-views.ts";
+import type { ImageAttachment, TextAttachment } from "@/features/sessions/session-views.ts";
 import { isHeicMimeType } from "../../../../../harness/media/heic.ts";
 import { convertHeicAttachment } from "./heic-attachment.ts";
 
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
 let nextAttachmentId = 0;
 
-export async function prepareAttachments(files: File[], signal: AbortSignal) {
+export async function prepareAttachments(inputs: File[], signal: AbortSignal) {
 	const images: ImageAttachment[] = [];
-	const texts: string[] = [];
-	for (const file of files) {
+	const files: TextAttachment[] = [];
+	for (const file of inputs) {
 		signal.throwIfAborted();
+		if (file.size === 0) continue;
 		const mimeType = inlineMimeType(file.type);
 		if (isHeicMimeType(file.type) || /\.hei[cf]$/i.test(file.name)) {
 			const converted = await convertHeicAttachment(file, signal);
 			if ("error" in converted) throw new Error(`${file.name}: ${converted.error}`);
 			const data = await imageData(converted.blob, signal);
-			images.push({ id: nextAttachmentId++, data, mimeType: "image/png", imageCount: converted.imageCount });
+			images.push({ id: nextAttachmentId++, name: file.name, data, mimeType: "image/png", imageCount: converted.imageCount });
 		} else if (mimeType) {
-			images.push({ id: nextAttachmentId++, data: await imageData(file, signal), mimeType });
+			images.push({ id: nextAttachmentId++, name: file.name, data: await imageData(file, signal), mimeType });
 		} else {
 			const bytes = new Uint8Array(await file.arrayBuffer());
 			if (bytes.includes(0) || file.type === "application/pdf")
-				throw new Error("二进制附件请通过 @路径 引用后端文件。");
-			const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-			texts.push(`<file path=${JSON.stringify(file.name)}>\n${content}\n</file>`);
+				throw new Error("不支持二进制附件，请引用后端文件路径。");
+			const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+			files.push({ id: nextAttachmentId++, name: file.name, size: file.size, text: content });
 		}
 	}
-	signal.throwIfAborted();
-	return { images, texts };
+	return { images, files };
 }
 
 function inlineMimeType(type: string): ImageAttachment["mimeType"] | undefined {

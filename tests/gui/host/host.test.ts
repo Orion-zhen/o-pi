@@ -101,7 +101,7 @@ afterEach(async () => {
 	await rm(cwd, { recursive: true, force: true });
 });
 
-const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });
+const prompt = (text: string) => ({ action: "prompt", text, images: [], files: [], behavior: "followUp" });
 
 historyDeletionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
 sidebarTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent"), events }));
@@ -177,6 +177,41 @@ describe("GUI 直接使用 SDK", () => {
 		expect(readSnapshot(host).history).toEqual(["second", "first"]);
 		await host.dispatch({ action: "reload" });
 		expect(readSnapshot(host).history).toEqual(["second", "first"]);
+	});
+	it("文本附件按原生格式前置，正文引用不展开，模型和历史保留原文", async () => {
+		const text = "检查 @input.txt";
+		const content = "@missing.txt\n# 标题\n$x$\n<script>内容</script>";
+		await host.dispatch({ ...prompt(text), files: [{ name: "notes.md", text: content }] });
+		const expected = `<file name="notes.md">\n${content}\n</file>\n检查 @input.txt`;
+		expect(server.requests.find((request) => request.tools)?.messages.find((message) => message.role === "user")?.content).toEqual([{ type: "text", text: expected }]);
+		const user = host.runtime.session.messages.find((message) => message.role === "user");
+		expect(user?.content).toEqual([{ type: "text", text: expected }]);
+		expect(readSnapshot(host).history).toEqual([text]);
+		await host.dispatch({ action: "reload" });
+		expect(host.runtime.session.messages.find((message) => message.role === "user")).toEqual(user);
+		expect(readSnapshot(host).history).toEqual([text]);
+	});
+	it.each(["!printf command", "/name 不应改名", "/lsp status"])("添加文本附件后执行命令会拒绝且不产生副作用：%s", async (text) => {
+		const before = readSnapshot(host);
+		await expect(host.dispatch({ ...prompt(text), files: [{ name: "notes.txt", text: "附件原文" }] }))
+			.rejects.toThrow("命令不支持附件，请移除附件后再执行。");
+		const after = readSnapshot(host);
+		expect(after.name).toBe(before.name);
+		expect(after.messages).toEqual(before.messages);
+		expect(after.history).toEqual(before.history);
+		expect(server.requests).toEqual([]);
+	});
+	it("提示词模板携带文本附件时在 SDK 展开前拒绝", async () => {
+		const directory = path.join(temp.path, ".pi", "agent", "prompts");
+		await mkdir(directory, { recursive: true });
+		await writeFile(path.join(directory, "attachment-template.md"), "请审查：$ARGUMENTS");
+		await host.dispatch({ action: "reload" });
+		const before = readSnapshot(host);
+		await expect(host.dispatch({ ...prompt("/attachment-template 检查"), files: [{ name: "notes.txt", text: "附件原文" }] }))
+			.rejects.toThrow("命令不支持附件，请移除附件后再执行。");
+		expect(readSnapshot(host).messages).toEqual(before.messages);
+		expect(readSnapshot(host).history).toEqual(before.history);
+		expect(server.requests).toEqual([]);
 	});
 	it("子代理可用状态随 profile 重载更新，选择器与实际声明一致", async () => {
 		const subagent = () => readSnapshot(host).tools.find((tool) => tool.name === "subagent");

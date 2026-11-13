@@ -1,4 +1,4 @@
-.code-block { margin-block: 0.75rem; min-width: 0; border: 1px solid var(--divider); border-radius: var(--radius-md); overflow: hidden; background: var(--content-surface); color: var(--foreground); }
+div.code-block { margin-block: 0.75rem; min-width: 0; border: 1px solid var(--divider); border-radius: var(--radius-md); overflow: hidden; background: var(--content-surface); color: var(--foreground); }
 .code-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.4375rem 0.75rem; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); font-size: var(--text-small); color: var(--muted-foreground); }
 .code-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
 .code-toolbar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -8,6 +8,14 @@
 .code-block pre { margin: 0; padding: 0.875rem; max-block-size: 60dvh; overflow: auto; border: 0; border-radius: 0; background: transparent; white-space: pre; overflow-wrap: normal; line-height: 1.65; tab-size: 4; }
 .code-block code { font-size: var(--text-code); }
 .code-block .token { display: inline; }
+.code-block pre.source-code { inline-size: max-content; min-inline-size: 100%; counter-reset: source-line; }
+.code-block pre.source-code[data-wrap="true"] { inline-size: 100%; min-inline-size: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-code code { font-family: var(--gui-font-code); }
+.source-code .source-line { display: block; padding-inline-start: var(--line-gutter); text-indent: calc(-1 * var(--line-gutter)); }
+.source-code .source-line::before { counter-increment: source-line; content: counter(source-line); display: inline-block; inline-size: var(--line-gutter); padding-inline-end: 1.5ch; text-indent: 0; text-align: end; color: var(--muted-foreground); font-variant-numeric: tabular-nums; user-select: none; }
+.code-block .token:is(.title, .url) { color: var(--syntax-function); }
+.code-block .token.bold { font-weight: 600; }
+.code-block .token.italic { font-style: italic; }
 :is(.code-block, .file-diff) .token:is(.comment, .prolog, .doctype) { color: var(--muted-foreground); font-style: italic; }
 :is(.code-block, .file-diff) .token:is(.keyword, .tag, .atrule, .boolean) { color: var(--syntax-keyword); }
 :is(.code-block, .file-diff) .token:is(.string, .attr-value, .char, .builtin) { color: var(--syntax-string); }

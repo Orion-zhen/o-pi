@@ -131,7 +131,7 @@ test("浏览文件、读取 Git 差异并引用路径", async ({ gui: { page } }
 	await expect(preview.locator(".diff-code-delete")).toContainText("export const answer = 1;");
 	await expect(preview.locator(".diff-code-insert")).toContainText("export const answer = 42;");
 	await preview.getByRole("radio", { name: "内容", exact: true }).click();
-	await expect(preview.locator(".file-preview-body")).toContainText("export const answer = 42;");
+	await expect(preview.getByLabel("文件内容", { exact: true })).toHaveText("export const answer = 42;\n");
 	await expect(preview.locator(".diff-code-delete")).toHaveCount(0);
 	await openFiles();
 	await navigation.getByRole("button", { name: "显示文件变更", exact: true }).click();

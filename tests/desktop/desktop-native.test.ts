@@ -56,10 +56,10 @@ function click(label: string, items = menuItems()) {
 }
 
 describe("原生文件流转", () => {
-	it("工作区内引用原文件，外部文件和虚拟文件保留附件语义", async () => {
+	it("工作区内外文件均作为附件，工作区目录仍作为引用", async () => {
 		const { root, external } = await files();
 		expect(await prepareFileDrop(new BrowserWindow(), root, [path.join(root, "你好 world.txt"), root, external, ""])).toEqual([
-			{ kind: "reference", path: "你好 world.txt" }, { kind: "reference", path: "." }, { kind: "attachment" }, { kind: "attachment" },
+			{ kind: "attachment" }, { kind: "reference", path: "." }, { kind: "attachment" }, { kind: "attachment" },
 		]);
 	});
 	it("符号链接不扩大工作区访问，目录打开需显式选择", async () => {

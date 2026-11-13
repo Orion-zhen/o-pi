@@ -7,7 +7,7 @@ import type { GuiEvent } from "../../../../src/gui/shared/protocol/events.ts";
 import { sessionList } from "../../../../src/gui/frontend/features/sessions/session-list.ts";
 import { storeSession } from "../../helpers/session-fixture.ts";
 
-const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });
+const prompt = (text: string) => ({ action: "prompt", text, images: [], files: [], behavior: "followUp" });
 
 export function newSessionTests(context: () => { host: GuiClient; cwd: string; agentDir: string }) {
 	const rows = (host: GuiClient) => {

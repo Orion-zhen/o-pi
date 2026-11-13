@@ -1,12 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { resize } from "motion";
 import { AnimatePresence, motion, type MotionStyle } from "motion/react";
-import { fade, settle } from "@/ui/motion/transitions.ts";
-import { Crossfade, ListItem, Reveal } from "@/ui/motion/animated.tsx";
+import { settle } from "@/ui/motion/transitions.ts";
+import { Crossfade, Reveal } from "@/ui/motion/animated.tsx";
 import { FeedbackHighlight } from "@/ui/feedback-highlight.tsx";
 import { AnimatedNumber } from "@/ui/motion/animated-number.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
-import { Paperclip, Terminal, X } from "lucide-react";
+import { Paperclip, Terminal } from "lucide-react";
 import { Blocks, CodeXml, CornerUpRight, ListEnd, Wrench } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { QueuedMessages } from "./queued-messages.tsx";
@@ -31,10 +31,8 @@ import { useSuggestionNavigation } from "./use-suggestion-navigation.ts";
 import { useComposerQueries } from "./use-composer-queries.ts";
 import { useFileDrop } from "./use-file-drop.ts";
 import { useAttachments } from "./use-attachments.ts";
+import { AttachmentPreviews } from "./attachment-previews.tsx";
 import { fileReference } from "../../../../shared/file-reference.ts";
-import { ImagePreviewButton } from "@/ui/media/image-preview.tsx";
-
-const attachmentOrigin = { y: 6, rotate: -2, scale: 0.98 };
 
 interface ComposerControls {
 	connected: boolean;
@@ -49,10 +47,8 @@ export function Composer({ ref, style, gui, session, preferences, onSubmit, refe
 	preferences: GuiPreferences | undefined; onSubmit: () => void; referenceVersion?: number;
 }) {
 	const { view, snapshot, send, query } = session;
-	const { draft, setDraft, images, setImages, behavior, setBehavior } = useSessionDraft(view, gui.views);
+	const { draft, setDraft, images, setImages, files, setFiles, behavior, setBehavior } = useSessionDraft(view, gui.views);
 	const initialReferenceVersion = useRef(referenceVersion);
-	const seenImages = useRef(new Set(images.map((image) => image.id)));
-	useEffect(() => { for (const image of images) seenImages.current.add(image.id); }, [images]);
 	const running = snapshot.running;
 	const commandMode = draft.startsWith("!");
 	const commandLabel = draft.startsWith("!!") ? "执行命令且不加入模型上下文" : "执行命令";
@@ -79,7 +75,7 @@ export function Composer({ ref, style, gui, session, preferences, onSubmit, refe
 	const upload = useRef<HTMLInputElement>(null);
 	const fileDrop = useFileDrop();
 	const { attach, pending: attaching } = useAttachments(view, gui.views, setError);
-	const hasContent = Boolean(draft.trim() || images.length);
+	const hasContent = Boolean(draft.trim() || images.length || files.length);
 	const canPrompt = gui.canSubmit && !gui.workspaceMissing && hasContent && !attaching;
 	const setup = modelSetup(snapshot);
 	const queuedCount = snapshot.queue.steering.length + snapshot.queue.followUp.length;
@@ -93,17 +89,18 @@ export function Composer({ ref, style, gui, session, preferences, onSubmit, refe
 			gui.setPanel({ kind: setup.kind });
 			return;
 		}
-		const text = draft;
-		const attachments = images;
 		setError("");
-		setDraft("");
-		setImages([]);
+		gui.views.update(view, (current) => ({ ...current, text: "", images: [], files: [] }));
 		clearFiles();
 		onSubmit();
-		void send({ action: "prompt", text, images: attachments.map(({ id, ...image }) => image), behavior }).catch((error: unknown) => {
+		void send({ action: "prompt", text: draft, images: images.map(({ id, ...image }) => image),
+			files: files.map(({ name, text }) => ({ name, text })), behavior }).catch((error: unknown) => {
 			reportError(error);
-			setDraft((current) => current || text);
-			setImages((current) => (current.length ? current : attachments));
+			gui.views.update(view, (current) => ({ ...current,
+				text: current.text || draft,
+				images: current.images.length ? current.images : images,
+				files: [...files, ...current.files],
+			}));
 		});
 	};
 	const drop = async (files: File[]) => {
@@ -158,29 +155,10 @@ export function Composer({ ref, style, gui, session, preferences, onSubmit, refe
 				{queuedCount > 0 && (
 					<Reveal key="queue"><QueuedMessages queue={snapshot.queue} clear={() => { void send({ action: "clearQueue" }).catch(reportError); }} /></Reveal>
 				)}
-				{images.length > 0 && (
-					<Reveal key="images"><ul className="image-previews">
-						<AnimatePresence propagate>
-						{images.map((image, index) => (
-							<ListItem className="image-preview" key={image.id} initial={seenImages.current.has(image.id) ? false : fade.initial}>
-								<ImagePreviewButton src={`data:${image.mimeType};base64,${image.data}`} alt={`待发送图片 ${index + 1}`}>
-									<motion.img src={`data:${image.mimeType};base64,${image.data}`} alt="待发送图片"
-										initial={seenImages.current.has(image.id) ? false : attachmentOrigin}
-										animate={{ y: 0, rotate: 0, scale: 1 }} exit={attachmentOrigin} transition={settle} />
-								</ImagePreviewButton>
-								<IconButton
-									label={`移除附件 ${index + 1}`}
-									size="icon-sm"
-									onClick={() => setImages((images) => images.filter((current) => current.id !== image.id))}
-								>
-									<X />
-								</IconButton>
-							</ListItem>
-						))}
-						</AnimatePresence>
-					</ul></Reveal>
-				)}
 				</AnimatePresence>
+				<AttachmentPreviews images={images} files={files}
+					removeImage={(id) => setImages((images) => images.filter((image) => image.id !== id))}
+					removeFile={(id) => setFiles((files) => files.filter((file) => file.id !== id))} />
 				<AnimatePresence initial={false}>
 				{choices.length + argumentChoices.length + fileChoices.length > 0 && <Reveal>
 				<motion.ul layoutScroll {...suggestions} className="suggestions" aria-label="输入建议">

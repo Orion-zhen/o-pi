@@ -2,8 +2,14 @@ import type { GuiAction } from "../../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../../shared/protocol/events.ts";
 import { DisclosureMemory } from "@/ui/disclosure-memory.ts";
 
-export type ImageAttachment = Extract<GuiAction, { action: "prompt" }>["images"][number] & { id: number };
-export interface Draft { text: string; images: ImageAttachment[]; behavior: "steer" | "followUp" }
+export type ImageAttachment = Readonly<Extract<GuiAction, { action: "prompt" }>["images"][number] & { id: number }>;
+export type TextAttachment = Readonly<Extract<GuiAction, { action: "prompt" }>["files"][number] & { id: number; size: number }>;
+export interface Draft {
+	readonly text: string;
+	readonly images: readonly ImageAttachment[];
+	readonly files: readonly TextAttachment[];
+	readonly behavior: "steer" | "followUp";
+}
 export interface SessionViewState {
 	id: string;
 	path: string | null;
@@ -25,11 +31,11 @@ export class SessionViews {
 	open(session: { id: string; path: string | null }, draftFrom?: string): SessionViewState {
 		let record = this.records.get(session.id);
 		if (!record) {
-			record = { ...session, draft: { text: "", images: [], behavior: "steer" }, disclosures: new DisclosureMemory(), position: undefined };
+			record = { ...session, draft: { text: "", images: [], files: [], behavior: "steer" }, disclosures: new DisclosureMemory(), position: undefined };
 			this.records.set(session.id, record);
 		}
 		const previous = draftFrom ? this.records.get(draftFrom) : undefined;
-		if (previous) record.draft = { ...previous.draft, images: [...previous.draft.images] };
+		if (previous) record.draft = previous.draft;
 		record.path = session.path;
 		return record;
 	}

@@ -199,7 +199,7 @@ test.describe("浏览器交互", () => {
 		await page.locator('.composer input[type="file"]').setInputFiles({
 			name: "pixel.png", mimeType: "image/png", buffer: createCanvas(2, 2).toBuffer("image/png"),
 		});
-		await expect(page.locator(".image-previews img")).toHaveCount(1);
+		await expect(page.locator(".attachment-previews img")).toHaveCount(1);
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await editor.fill("验证图片正文");
 		await editor.press("ControlOrMeta+Enter");

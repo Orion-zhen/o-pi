@@ -145,7 +145,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await page.locator('.composer input[type="file"]').setInputFiles({
 			name: "pixel.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0ZkAAAAASUVORK5CYII=", "base64"),
 		});
-		await expect(page.locator(".image-previews img")).toHaveCount(1);
+		await expect(page.locator(".attachment-previews img")).toHaveCount(1);
 		await menu(page);
 		await navigation(page).getByRole("button", { name: "新建会话", exact: true }).click();
 		await rename("任务 A2");
@@ -162,7 +162,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expectActivityTrail(row("任务 A").locator(".activity-border"));
 		await navigation(page).screenshot({ path: info.outputPath("sessions-running.png") });
 		await switchTo(page, other);
-		await expect(page.locator(".image-previews img")).toHaveCount(0);
+		await expect(page.locator(".attachment-previews img")).toHaveCount(0);
 		await editor.fill("B 的草稿");
 		await picker(page);
 		const aRow = page.getByRole("option", { name: cwd, exact: true }).locator("..");
@@ -282,7 +282,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await page.keyboard.press("Escape");
 		await closeMenu();
 
-		await expect(page.locator(".image-previews img")).toHaveCount(1);
+		await expect(page.locator(".attachment-previews img")).toHaveCount(1);
 		await page.locator(".reply-activity > .disclosure-trigger").click();
 		await page.locator(".tool-activity .activity-summary").click();
 		await expect(page.locator(".tool-activity .activity-summary")).toHaveAttribute("aria-expanded", "true");
@@ -292,7 +292,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await switchTo(page, cwd);
 		await expect(page.locator(".tool-activity .activity-summary")).toHaveAttribute("aria-expanded", "true");
 		await expect.poll(() => page.locator(".transcript").evaluate((element) => element.scrollTop)).toBe(0);
-		await expect(page.locator(".image-previews img")).toHaveCount(1);
+		await expect(page.locator(".attachment-previews img")).toHaveCount(1);
 
 		const second = await context.newPage();
 		await second.goto(url);

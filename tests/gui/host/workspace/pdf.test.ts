@@ -43,7 +43,7 @@ it("read PDF 经 GUI 宿主将按模型限制缩放的页面图片发送给模�
 	gui = new GuiHost();
 	const client = gui.createClient();
 	await gui.start(cwd);
-	await client.dispatch({ action: "prompt", text: "读取 document.pdf", images: [], behavior: "steer" });
+	await client.dispatch({ action: "prompt", text: "读取 document.pdf", images: [], files: [], behavior: "steer" });
 	const result = model.requests.findLast((request) => Array.isArray(request.messages));
 	expect(result).toBeDefined();
 	const payload = JSON.stringify(result?.messages);

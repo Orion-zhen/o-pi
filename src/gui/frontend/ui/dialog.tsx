@@ -9,6 +9,7 @@ export function Dialog({ open, ...props }: Omit<React.ComponentProps<typeof Dial
 	return <DialogPrimitive.Root {...props} open={present && open} />;
 }
 export const DialogClose = DialogPrimitive.Close;
+export const DialogTrigger = DialogPrimitive.Trigger;
 
 export function DialogContent({ className, children, ...props }: React.ComponentProps<typeof DialogPrimitive.Content>) {
 	const present = useIsPresent();

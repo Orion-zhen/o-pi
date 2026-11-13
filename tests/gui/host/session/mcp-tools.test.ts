@@ -20,7 +20,7 @@ let mcpFile: string;
 let fixture: string;
 const probe = "mcp__fixture__probe";
 const refresh = "mcp__fixture__refresh";
-const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });
+const prompt = (text: string) => ({ action: "prompt", text, images: [], files: [], behavior: "followUp" });
 const tool = () => readSnapshot(host).tools.find((tool) => tool.name === probe);
 
 beforeEach(async () => {

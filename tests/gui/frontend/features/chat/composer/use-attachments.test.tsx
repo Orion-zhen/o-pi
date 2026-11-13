@@ -8,7 +8,7 @@ const renderRoot = useReactFixture();
 
 function delayedFile(name: string) {
 	const gate = Promise.withResolvers<ArrayBuffer>();
-	const file = new File([], name);
+	const file = new File(["pending"], name);
 	vi.spyOn(file, "arrayBuffer").mockImplementation(() => gate.promise);
 	return { file, finish: (text: string) => gate.resolve(new TextEncoder().encode(text).buffer) };
 }
@@ -40,7 +40,8 @@ it("并发读取附件合并最新草稿，不覆盖读取期间的编辑", asyn
 	expect(pending()).toBe(true);
 	await act(async () => { first.finish("first"); await tasks[0]; });
 	expect(pending()).toBe(false);
-	expect(original.draft.text).toBe('读取期间编辑\n\n<file path="second.txt">\nsecond\n</file>\n\n<file path="first.txt">\nfirst\n</file>');
+	expect(original.draft.text).toBe("读取期间编辑");
+	expect(original.draft.files).toMatchObject([{ name: "second.txt", text: "second" }, { name: "first.txt", text: "first" }]);
 	expect(setError).not.toHaveBeenCalled();
 });
 
@@ -50,12 +51,13 @@ it("一批附件失败不会提前结束另一批附件的等待状态", async (
 	let task = Promise.resolve();
 	await act(async () => { task = upload.attach([delayed.file]); });
 	await act(async () => upload.attach([new File([new Uint8Array([0])], "binary.bin")]));
-	expect(setError).toHaveBeenCalledWith("二进制附件请通过 @路径 引用后端文件。");
+	expect(setError).toHaveBeenCalledWith("不支持二进制附件，请引用后端文件路径。");
 	expect(pending()).toBe(true);
 	expect(original.draft.text).toBe("");
 	await act(async () => { delayed.finish("成功附件"); await task; });
 	expect(pending()).toBe(false);
-	expect(original.draft.text).toContain("成功附件");
+	expect(original.draft.text).toBe("");
+	expect(original.draft.files).toMatchObject([{ name: "pending.txt", text: "成功附件" }]);
 });
 
 it("切换会话取消所有未完成的附件，不污染任何会话或显示取消错误", async () => {
@@ -75,5 +77,7 @@ it("切换会话取消所有未完成的附件，不污染任何会话或显示�
 	expect(read).not.toHaveBeenCalled();
 	expect(original.draft.text).toBe("");
 	expect(next.draft.text).toBe("");
+	expect(original.draft.files).toEqual([]);
+	expect(next.draft.files).toEqual([]);
 	expect(setError).not.toHaveBeenCalled();
 });

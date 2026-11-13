@@ -8,7 +8,7 @@ import { nativeFileEvents } from "../native-file.ts";
 import { ReferenceFileButton } from "../reference-file-button.tsx";
 import type { FilePreview as Preview } from "../../../../shared/workspace.ts";
 import type { Remote } from "@/connection/use-remote.ts";
-import { fileLanguage, SyntaxHighlighter } from "@/ui/content/code-highlight.ts";
+import { SourceCode } from "@/ui/content/source-code.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Feedback } from "@/ui/feedback.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group.tsx";
@@ -21,17 +21,6 @@ const PdfPreview = lazy(() => import("./pdf-preview.tsx"));
 const HeicPreview = lazy(() => import("./heic-preview.tsx"));
 const FileDiff = lazy(() => import("./file-diff.tsx").then((module) => ({ default: module.FileDiff })));
 
-function FileCode({ text, path, wrap }: { text: string; path: string; wrap: boolean }) {
-	const gutter = `${String(text.split("\n").length).length + 1}ch`;
-	return <div className="code-block file-code">
-		<SyntaxHighlighter language={fileLanguage(path)} useInlineStyles={false} showLineNumbers
-			wrapLines wrapLongLines={wrap} lineProps={{
-				className: "file-source-line",
-				style: { display: "block", paddingInlineStart: gutter, textIndent: `-${gutter}` },
-			}} aria-label="文件内容"
-			lineNumberStyle={{ minWidth: gutter, paddingRight: "1ch", textIndent: 0, color: "var(--muted-foreground)", userSelect: "none" }}>{text}</SyntaxHighlighter>
-	</div>;
-}
 function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean; wrap: boolean }) {
 	if (diff) return <Suspense fallback={<p className="file-hint" role="status">正在加载差异查看器…</p>}>
 		{preview.diffs.map((part) => <FileDiff key={part.title} path={preview.path} text={part.text} title={part.title} />)}
@@ -47,7 +36,7 @@ function FileDocument({ preview, diff, wrap }: { preview: Preview; diff: boolean
 	if (content.kind === "pdf") return <Suspense fallback={<p className="file-hint" role="status">正在加载 PDF 阅读器…</p>}>
 		<PdfPreview url={content.url} size={content.size} />
 	</Suspense>;
-	return <FileCode path={preview.path} text={content.text} wrap={wrap} />;
+	return <div className="code-block file-code"><SourceCode path={preview.path} text={content.text} wrap={wrap} label="文件内容" /></div>;
 }
 
 export function FilePreviewPanel({ cwd, setError, preview: selection, referenceFile, close }: {

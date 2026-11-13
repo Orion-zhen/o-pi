@@ -8,9 +8,9 @@ import type { GuiSnapshot } from "../../shared/protocol/state.ts";
 import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import { GuiExecutionContext } from "./execution-context.ts";
 import { createGuiRuntime } from "./runtime.ts";
-import { exportSession, expandAttachments, readConfig, saveConfig } from "./files.ts";
+import { exportSession, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
-import { completeCommand, runBuiltin } from "./commands.ts";
+import { builtinCommands, completeCommand, runBuiltin } from "./commands.ts";
 import { openView, consumeUsageCredit } from "./views.ts";
 import { collectGuiSnapshot } from "../projection/snapshot.ts";
 import { persistDefaultModel } from "./models.ts";
@@ -319,8 +319,19 @@ export class GuiExecution {
 
 	private async prompt(action: Extract<GuiAction, { action: "prompt" }>, client: SessionClient): Promise<void> {
 		const runtime = this.runtime;
-		if (!await workspaceExists(runtime.cwd)) throw new Error("工作目录不存在或不是文件夹，无法发送消息。");
 		const session = runtime.session;
+		if (action.files.length || action.images.length) {
+			const builtinName = /^\/(\S+)/.exec(action.text.trim())?.[1];
+			const sdkName = /^\/([^ ]+)/.exec(action.text)?.[1];
+			const templateName = /^\/(\S+)/.exec(action.text)?.[1];
+			if (action.text.startsWith("!")
+				|| builtinCommands.some(({ name }) => name === builtinName)
+				|| sdkName && (session.extensionRunner.getCommand(sdkName)
+					|| runtime.services.resourceLoader.getSkills().skills.some(({ name }) => `skill:${name}` === sdkName))
+				|| session.promptTemplates.some(({ name }) => name === templateName))
+				throw new Error("命令不支持附件，请移除附件后再执行。");
+		}
+		if (!await workspaceExists(runtime.cwd)) throw new Error("工作目录不存在或不是文件夹，无法发送消息。");
 		const text = normalizeHistoryText(action.text);
 		if (text) {
 			this.historyTexts = [...this.historyTexts.filter((entry) => entry !== text), text].slice(-100);
@@ -329,7 +340,6 @@ export class GuiExecution {
 		this.publish();
 		if (await runBuiltin(this, action.text, async (next) => { await client.dispatch(next); })) return;
 		this.preparing++;
-		const extensionCommand = /^\/([^ ]+)/.exec(action.text)?.[1];
 		const mcpLogin = /^\/mcp\s+login(?:\s|$)/.test(action.text);
 		if (mcpLogin) this.mcpLoggingIn = true;
 		this.publish();
@@ -342,15 +352,16 @@ export class GuiExecution {
 					this.bashOutput = (this.bashOutput + chunk).slice(-64_000);
 					this.schedule();
 				}, { excludeFromContext: action.text.startsWith("!!") });
-			} else if (extensionCommand && session.extensionRunner.getCommand(extensionCommand)) {
-				// 扩展命令由 SDK 执行，参数保持原文，不附加图片说明。
-				await session.prompt(action.text, { streamingBehavior: action.behavior, source: "interactive" });
 			} else {
-				const attachments = await expandAttachments(action.text, runtime.cwd);
-				const hints = action.images.flatMap((image) => image.imageCount === undefined ? [] : heicHints(image.imageCount));
-				await session.prompt([attachments.text, ...hints].filter(Boolean).join("\n\n"), {
-					images: [...attachments.images, ...action.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }))],
-					streamingBehavior: action.behavior, source: "interactive",
+				const files = action.files.filter((file) => file.text.length > 0).map((file) =>
+					`<file name="${file.name}">\n${file.text.replace(/^\uFEFF/, "")}\n</file>\n`);
+				const imageFiles = action.images.map((image) => {
+					const hints = image.imageCount === undefined ? [] : heicHints(image.imageCount);
+					return `<file name="${image.name}">${hints.join("\n")}</file>\n`;
+				});
+				await session.prompt([...files, ...imageFiles, action.text].join(""), {
+					images: action.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType })),
+					streamingBehavior: action.behavior,
 				});
 			}
 		} finally {

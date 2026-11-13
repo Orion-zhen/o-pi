@@ -27,11 +27,12 @@ export async function showFileMenu(window: BrowserWindow, file: string, report: 
 
 export async function startFileDrag(window: BrowserWindow, file: string): Promise<void> {
 	if (!(await stat(file)).isFile()) throw new Error("仅支持拖出普通文件。");
-	const icon = await app.getFileIcon(file, { size: "normal" });
+	const icon = await app.getFileIcon(file, { size: "normal" })
+		.catch(() => app.getFileIcon(`${file}.txt`, { size: "normal" }));
 	if (!window.isDestroyed()) window.webContents.startDrag({ file, icon });
 }
 
-/** 只返回用户拖入项的引用，不读取文件内容，也不扩展工作区权限。 */
+/** 只分类用户拖入的文件和目录，不读取文件内容，也不扩展工作区权限。 */
 export async function prepareFileDrop(window: BrowserWindow, cwd: unknown, values: unknown): Promise<DesktopDrop[]> {
 	if (typeof cwd !== "string" || !path.isAbsolute(cwd) || !Array.isArray(values) || values.length > 256
 		|| !values.every((value): value is string => typeof value === "string" && (value === "" || path.isAbsolute(value))))
@@ -41,19 +42,17 @@ export async function prepareFileDrop(window: BrowserWindow, cwd: unknown, value
 		if (!file) return { kind: "attachment" };
 		const target = await realpath(file);
 		const info = await stat(target);
-		if (!info.isFile() && !info.isDirectory()) throw new Error("仅支持普通文件或文件夹。");
+		if (info.isFile()) return { kind: "attachment" };
+		if (!info.isDirectory()) throw new Error("仅支持普通文件或文件夹。");
 		const relative = path.relative(root, target);
 		if (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
 			return { kind: "reference", path: relative.split(path.sep).join("/") || "." };
-		if (info.isDirectory()) {
-			if (values.length !== 1) throw new Error("外部文件夹请单独拖入。");
-			const { response } = await dialog.showMessageBox(window, {
-				type: "question", message: "如何使用拖入的文件夹？", detail: target,
-				buttons: ["取消", "打开工作区", "插入目录引用"], defaultId: 0, cancelId: 0, noLink: true,
-			});
-			return response === 1 || response === 2 ? { kind: response === 1 ? "workspace" : "reference", path: target } : null;
-		}
-		return { kind: "attachment" };
+		if (values.length !== 1) throw new Error("外部文件夹请单独拖入。");
+		const { response } = await dialog.showMessageBox(window, {
+			type: "question", message: "如何使用拖入的文件夹？", detail: target,
+			buttons: ["取消", "打开工作区", "插入目录引用"], defaultId: 0, cancelId: 0, noLink: true,
+		});
+		return response === 1 || response === 2 ? { kind: response === 1 ? "workspace" : "reference", path: target } : null;
 	}));
 	return items.filter((item) => item !== null);
 }

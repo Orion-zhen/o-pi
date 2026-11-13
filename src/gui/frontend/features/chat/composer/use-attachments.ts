@@ -17,7 +17,7 @@ export function useAttachments(view: SessionViewState, views: SessionViews, setE
 			views.update(view, (draft) => {
 				const images = [...draft.images, ...additions.images];
 				if (images.length > 8) throw new Error("最多上传 8 张图片。");
-				return { ...draft, images, text: [draft.text, ...additions.texts].join("\n\n") };
+				return { ...draft, images, files: [...draft.files, ...additions.files] };
 			});
 		} catch (error) {
 			if (!signal.aborted) setError(error instanceof Error ? error.message : String(error));

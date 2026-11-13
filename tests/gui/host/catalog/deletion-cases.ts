@@ -9,7 +9,7 @@ import { prepareSessionDeletion } from "../../../../src/gui/host/catalog/delete-
 import { readSessionPaths } from "../../../../src/gui/host/catalog/session-index.ts";
 import { storeSession } from "../../helpers/session-fixture.ts";
 
-const prompt = { action: "prompt", text: "读取并写入文件", images: [], behavior: "followUp" };
+const prompt = { action: "prompt", text: "读取并写入文件", images: [], files: [], behavior: "followUp" };
 
 export function historyDeletionTests(context: () => { host: GuiClient; cwd: string; agentDir: string; events: GuiEvent[] }) {
 	describe("GUI 会话删除", () => {

@@ -31,24 +31,32 @@ test.describe("HEIC 附件与命令", () => {
 		};`);
 	});
 
-	test("多图附件不改写内置命令、Shell、扩展命令和输入历史", async ({ gui: { page } }) => {
+	test("多图附件阻止命令执行，移除后命令和输入历史保持原文", async ({ gui: { page } }) => {
 		const editor = page.locator(".message-editor");
 		const attach = async () => {
 			await page.getByLabel("上传附件", { exact: true }).setInputFiles({ name: "multiple.heic", mimeType: "image/heic", buffer: await fixture("multiple") });
 			await expect(page.getByRole("img", { name: "待发送图片", exact: true })).toHaveCount(1);
+		};
+		const rejectAttachment = async (text: string, button: string) => {
+			await editor.fill(text);
+			await page.getByRole("button", { name: button, exact: true }).click();
+			await expect(page.getByRole("alert")).toContainText("命令不支持附件，请移除附件后再执行。");
+			await expect(editor).toHaveValue(text);
+			expect(model.requests).toHaveLength(requestCount);
+			await page.getByRole("button", { name: "移除附件 1", exact: true }).click();
 		};
 		await editor.fill("初始化对话");
 		await page.getByRole("button", { name: "发送", exact: true }).click();
 		await expect(page.locator(".message.assistant").last()).toContainText("HEIC verified");
 		const requestCount = model.requests.length;
 		await attach();
-		await editor.fill("/export jsonl");
+		await rejectAttachment("/export jsonl", "发送");
 		const download = page.waitForEvent("download", { timeout: 15_000 });
 		await page.getByRole("button", { name: "发送", exact: true }).click();
 		expect((await download).suggestedFilename()).toMatch(/\.jsonl$/);
 
 		await attach();
-		await editor.fill("!printf heic-shell");
+		await rejectAttachment("!printf heic-shell", "执行命令");
 		await page.getByRole("button", { name: "执行命令", exact: true }).click();
 		await expect(page.locator(".message.bashExecution").last()).toContainText("heic-shell");
 		await expect(page.locator(".message.bashExecution").last()).not.toContainText("primary only");
@@ -57,7 +65,7 @@ test.describe("HEIC 附件与命令", () => {
 		await expect(editor).toHaveValue("!printf heic-shell");
 
 		await attach();
-		await editor.fill("/attachment-command 原样参数");
+		await rejectAttachment("/attachment-command 原样参数", "发送");
 		await page.getByRole("button", { name: "发送", exact: true }).click();
 		await expect(editor).toHaveValue("原样参数");
 		expect(model.requests).toHaveLength(requestCount);

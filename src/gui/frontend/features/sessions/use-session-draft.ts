@@ -11,6 +11,7 @@ export function useSessionDraft(record: SessionViewState, views: SessionViews) {
 	}, [record, views]);
 	const setDraft = useCallback((value: SetStateAction<string>) => update("text", value), [update]);
 	const setImages = useCallback((value: SetStateAction<Draft["images"]>) => update("images", value), [update]);
+	const setFiles = useCallback((value: SetStateAction<Draft["files"]>) => update("files", value), [update]);
 	const setBehavior = useCallback((value: SetStateAction<Draft["behavior"]>) => update("behavior", value), [update]);
-	return { draft: draft.text, images: draft.images, behavior: draft.behavior, setDraft, setImages, setBehavior };
+	return { draft: draft.text, images: draft.images, files: draft.files, behavior: draft.behavior, setDraft, setImages, setFiles, setBehavior };
 }

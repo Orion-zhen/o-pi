@@ -8,6 +8,7 @@ import { queueModes } from "./state.ts";
 import { CACHE_WARMING_MODES } from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 
 const image = object({
+	name: short,
 	data: text,
 	mimeType: oneOf(["image/png", "image/jpeg", "image/webp", "image/gif"]),
 	imageCount: opt(int({ minimum: 1 })),
@@ -19,6 +20,7 @@ export const actionSchema = union([
 		action: lit("prompt"),
 		text,
 		images: arr(image, { maxItems: 8 }),
+		files: arr(object({ name: short, text })),
 		behavior: oneOf(["steer", "followUp"]),
 	}),
 	object({ action: lit("abort") }),

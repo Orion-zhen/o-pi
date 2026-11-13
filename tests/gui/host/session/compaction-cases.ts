@@ -17,7 +17,7 @@ export function compactionTests(context: () => {
 			{ name: "complete", trigger: "agentEnd", queue: [], cancel: false },
 		] as const)("压缩结束后恢复状态，SDK 继续处理待发送消息：$name", async ({ trigger, queue, cancel }) => {
 			const { host, events, setSummaryReply } = context();
-			const prompt = (text: string, behavior: "steer" | "followUp" = "followUp") => host.dispatch({ action: "prompt", text, images: [], behavior });
+			const prompt = (text: string, behavior: "steer" | "followUp" = "followUp") => host.dispatch({ action: "prompt", text, images: [], files: [], behavior });
 			await prompt("第一轮");
 			await prompt("第二轮");
 			const { session, services } = host.runtime;

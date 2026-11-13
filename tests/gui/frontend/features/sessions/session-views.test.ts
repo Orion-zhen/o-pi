@@ -4,14 +4,15 @@ import { sessionList } from "../../../../../src/gui/frontend/features/sessions/s
 import type { SessionActivity } from "../../../../../src/gui/frontend/features/sessions/use-session-activity.ts";
 
 describe("会话视图记忆", () => {
+	const file = { id: 2, name: "notes.txt", text: "附件", size: 6 };
 	it.each(["", "已有草稿\n继续编辑"])("队列回填合并最新草稿并保留附件和发送模式：%j", (text) => {
 		const views = new SessionViews();
 		const view = views.open({ id: "a", path: null });
-		const image = { id: 1, data: "image", mimeType: "image/png" as const };
-		views.update(view, (draft) => ({ ...draft, text, images: [image], behavior: "followUp" }));
+		const image = { id: 1, name: "image.png", data: "image", mimeType: "image/png" as const };
+		views.update(view, (draft) => ({ ...draft, text, images: [image], files: [file], behavior: "followUp" }));
 		views.open({ id: "b", path: null });
 		views.writeText("a", "引导消息\n\n跟进消息", "prepend");
-		expect(view.draft).toEqual({ text: `引导消息\n\n跟进消息${text ? `\n\n${text}` : ""}`, images: [image], behavior: "followUp" });
+		expect(view.draft).toEqual({ text: `引导消息\n\n跟进消息${text ? `\n\n${text}` : ""}`, images: [image], files: [file], behavior: "followUp" });
 		expect(views.get("b")?.draft.text).toBe("");
 	});
 
@@ -31,13 +32,13 @@ describe("会话视图记忆", () => {
 	it("重置会话只转移最新草稿和附件，不继承旧视图状态", () => {
 		const views = new SessionViews();
 		const old = views.open({ id: "old", path: null });
-		const image = { id: 1, data: "image", mimeType: "image/png" as const };
-		views.update(old, (draft) => ({ ...draft, text: "尚未同步的草稿", images: [image] }));
+		const image = { id: 1, name: "image.png", data: "image", mimeType: "image/png" as const };
+		views.update(old, (draft) => ({ ...draft, text: "尚未同步的草稿", images: [image], files: [file] }));
 		old.disclosures.set("skill", true);
 		old.position = { top: 120, follow: false };
 		const fresh = views.open({ id: "fresh", path: null }, old.id);
 		views.remove({ type: "sessionsDeleted", ids: [old.id], paths: [] });
-		expect(fresh.draft).toMatchObject({ text: "尚未同步的草稿", images: [image] });
+		expect(fresh.draft).toMatchObject({ text: "尚未同步的草稿", images: [image], files: [file] });
 		expect(fresh.disclosures.get("skill")).toBeUndefined();
 		expect(fresh.position).toBeUndefined();
 		expect(views.update(old, (draft) => ({ ...draft, text: "迟到更新" }))).toBe(false);
@@ -45,14 +46,14 @@ describe("会话视图记忆", () => {
 	it("切换后复用草稿、附件、折叠状态和阅读位置", () => {
 		const views = new SessionViews();
 		const a = views.open({ id: "a", path: "/a.jsonl" });
-		const image = { id: 1, data: "image", mimeType: "image/png" as const };
-		views.update(a, (draft) => ({ ...draft, text: "草稿 A", images: [image] }));
+		const image = { id: 1, name: "image.png", data: "image", mimeType: "image/png" as const };
+		views.update(a, (draft) => ({ ...draft, text: "草稿 A", images: [image], files: [file] }));
 		a.disclosures.set("reply-a", true);
 		a.position = { top: 120, follow: false };
 		views.open({ id: "b", path: null });
 		const again = views.open({ id: "a", path: "/a.jsonl" });
 		expect(again).toBe(a);
-		expect(again.draft).toMatchObject({ text: "草稿 A", images: [image] });
+		expect(again.draft).toMatchObject({ text: "草稿 A", images: [image], files: [file] });
 		expect(again.disclosures.get("reply-a")).toBe(true);
 		expect(again.position).toEqual({ top: 120, follow: false });
 	});
@@ -60,7 +61,7 @@ describe("会话视图记忆", () => {
 		const views = new SessionViews();
 		const original = views.open({ id: "a", path: "/a.jsonl" });
 		const failedSend = () => views.update(original, (draft) => ({ ...draft, text: "失败后恢复草稿" }));
-		const upload = () => views.update(original, (draft) => ({ ...draft, images: [{ id: 1, data: "image", mimeType: "image/png" }] }));
+		const upload = () => views.update(original, (draft) => ({ ...draft, images: [{ id: 1, name: "image.png", data: "image", mimeType: "image/png" }] }));
 		expect(views.remove({ type: "sessionsDeleted", ids: ["a"], paths: ["/a.jsonl"] })).toEqual(["a"]);
 		expect(failedSend()).toBe(false);
 		expect(views.get("a")).toBeUndefined();

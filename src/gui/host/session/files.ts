@@ -3,37 +3,13 @@ import path from "node:path";
 import { exportDirectoryPrefix } from "../../../harness/storage/paths.ts";
 import { retainStoragePath } from "../../../harness/storage/active.ts";
 import { replaceConfigFile } from "../../../harness/config-file.ts";
-import { fileTypeFromBuffer } from "file-type";
 import {
 	getAgentDir,
 	parseSessionEntries,
 	type AgentSession,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
-
-export async function expandAttachments(text: string, cwd: string): Promise<{ text: string; images: ImageContent[] }> {
-	const images: ImageContent[] = [];
-	const contents: string[] = [];
-	const paths = [...text.matchAll(/(?:^|\s)@(?:"([^"]+)"|'([^']+)'|([^\s]+))/g)].map(
-		(match) => match[1] ?? match[2] ?? match[3],
-	);
-	for (const reference of paths) {
-		if (!reference) continue;
-		const file = path.resolve(cwd, reference);
-		const metadata = await stat(file);
-		if (!metadata.isFile()) throw new Error(`附件必须是普通文件: ${reference}`);
-		const data = await readFile(file);
-		const format = await fileTypeFromBuffer(data);
-		if (format?.mime.startsWith("image/")) {
-			images.push({ type: "image", data: data.toString("base64"), mimeType: format.mime });
-		} else if (data.includes(0)) {
-			contents.push(`附件位于 ${file}。使用 read 工具读取此文件。`);
-		} else contents.push(`<file path=${JSON.stringify(reference)}>\n${data.toString("utf8")}\n</file>`);
-	}
-	return { text: [text, ...contents].join("\n\n"), images };
-}
 
 export async function completeFiles(cwd: string, prefix: string): Promise<string[]> {
 	const directory = prefix.endsWith("/") ? prefix : path.dirname(prefix);

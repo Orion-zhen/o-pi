@@ -22,7 +22,7 @@ export function recoveryTests(context: () => { host: GuiClient; cwd: string; age
 			await host.dispatch({ action: "rename", name: "重命名仍可用" });
 			expect(readSnapshot(host).name).toBe("重命名仍可用");
 			const before = await readFile(first, "utf8");
-			await expect(host.dispatch({ action: "prompt", text: "不能发送", images: [], behavior: "followUp" })).rejects.toThrow("无法发送消息");
+			await expect(host.dispatch({ action: "prompt", text: "不能发送", images: [], files: [], behavior: "followUp" })).rejects.toThrow("无法发送消息");
 			expect(await readFile(first, "utf8")).toBe(before);
 			await host.dispatch({ action: "openSession", path: second });
 			expect(readSnapshot(host).name).toBe("待恢复二");
@@ -49,7 +49,7 @@ export function recoveryTests(context: () => { host: GuiClient; cwd: string; age
 			expect(manager.getHeader()).toMatchObject({ cwd, parentSession: file });
 			expect(manager.getEntries()).toEqual(entries);
 			await host.dispatch({ action: "openSession", path: recovered.path });
-			await host.dispatch({ action: "prompt", text: "继续读取并写入文件", images: [], behavior: "followUp" });
+			await host.dispatch({ action: "prompt", text: "继续读取并写入文件", images: [], files: [], behavior: "followUp" });
 			expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI SDK result\n");
 			expect(await readFile(file, "utf8")).toBe(original);
 			await expect(stat(missing)).rejects.toMatchObject({ code: "ENOENT" });
