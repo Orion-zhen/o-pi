@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { relatedDiagnostics } from "./related.ts";
 import type { LspClient } from "../client/client.ts";
+import { lspDocument } from "../client/document-session.ts";
 import {
 	diagnosticSourceKey,
 	emptySummary,
@@ -55,7 +56,7 @@ export async function didWriteBatch(
 			const expectedSource = route === undefined ? undefined : diagnosticSourceKey(workspace.root, route.server.id);
 			const uri = pathToFileUri(write.filePath);
 			const client = route === undefined ? undefined : await workspace.client(route.server);
-			if (client === undefined) {
+			if (client === undefined || route === undefined) {
 				results[index] = emptySummary("unavailable", baselineState(write.baseline, expectedSource, uri));
 				return undefined;
 			}
@@ -68,6 +69,7 @@ export async function didWriteBatch(
 				client,
 				source,
 				uri,
+				document: lspDocument(write.filePath, write.text, route.languageId),
 				capturedRevision: context.diagnostics.revision(source, uri),
 			};
 		}));
@@ -84,16 +86,15 @@ export async function didWriteBatch(
 		await Promise.all(Array.from(byClient, async ([client, grouped]) => {
 			const diagnosticsConfig = grouped[0].config.diagnostics;
 			const collected = await client.saveAndCollectDiagnosticsBatch(
-				grouped.map(({ write }) => ({ filePath: write.filePath, text: write.text })),
+				grouped.map((item) => ({ ...item, ...item.document })),
 				{ timeoutMs: Math.max(1, diagnosticsConfig.max_wait_ms) },
 			);
-			const summaries = await Promise.all(grouped.map(async (item, groupIndex) => {
-				const value = collected[groupIndex];
+			const summaries = await Promise.all(collected.map(async ({ input: item, result: value }) => {
 				const selection: DiagnosticSelection | undefined = item.write.changed_ranges === undefined
 					? undefined
 					: { changedRanges: item.write.changed_ranges.map((range) => ({ startLine: range.start_line, endLine: range.end_line })) };
 				let summary: LspDiagnosticsSummary;
-				if (value === undefined || value.kind === "unavailable") {
+				if (value.kind === "unavailable") {
 					summary = emptySummary("unavailable", baselineState(item.write.baseline, item.source, item.uri));
 				} else if (value.kind === "pull") {
 					const current = context.diagnostics.snapshot(item.source, item.uri);
@@ -115,10 +116,11 @@ export async function didWriteBatch(
 				}
 				return { item, value, summary };
 			}));
+			summaries.sort((left, right) => left.item.index - right.item.index);
 			const excluded = new Set(grouped.map((item) => item.uri));
 			for (const { item, value, summary } of summaries) {
 				results[item.index] = summary;
-				if (value?.kind !== "pull" || summary.status === "timeout") continue;
+				if (value.kind !== "pull" || summary.status === "timeout") continue;
 				const related = relatedDiagnostics(
 					item.workspace,
 					(value.related ?? []).filter((report) => context.diagnostics.revision(report.source, report.uri) === report.revision),

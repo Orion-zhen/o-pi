@@ -28,6 +28,8 @@ const TRUNCATION_ORDER: readonly TruncationReason[] = [
 ];
 const RELATED_MARKER = " [not match, related]";
 
+type SelectionCandidate = RankedRegion & { readonly relevanceRank: number };
+
 export interface GrepPackInput {
 	query: string;
 	queryMode: GrepQueryMode;
@@ -49,7 +51,7 @@ export interface GrepPackInput {
 export function packGrepResults(input: GrepPackInput, tokenScope: TokenCounterScope = {}): GrepSuccess {
 	const knownReasons = orderedReasons(input.truncationReasons);
 	const limited = limitRelatedResults(input.regions, input.relatedResultLimit);
-	const candidates = limited.regions;
+	const candidates = limited.regions.map((region, index) => ({ ...region, relevanceRank: index + 1 }));
 	const selected = selectRankedRegions(candidates, input.resultLimit);
 	const regions = selected
 		.map((candidate, index) => publicRegion(candidate, input.regionalDisplayLimit, index < GREP_RELEVANCE_HEAD_SIZE));
@@ -160,17 +162,16 @@ function createSuccess(
 
 function rankingDiagnostics(
 	allCandidates: readonly RankedRegion[],
-	eligible: readonly RankedRegion[],
-	selected: readonly RankedRegion[],
+	eligible: readonly SelectionCandidate[],
+	selected: readonly SelectionCandidate[],
 	limit: number,
 ): GrepRankingDiagnostics {
 	const target = Math.min(limit, eligible.length);
 	const headCount = Math.min(GREP_RELEVANCE_HEAD_SIZE, target);
-	const relevanceRank = new Map(eligible.map((candidate, index) => [candidate.id, index + 1]));
 	const baseline = eligible.slice(0, target);
 	const baselineIds = new Set(baseline.map((candidate) => candidate.id));
 	const regions: GrepRegionRanking[] = selected.map((candidate) => {
-		const rank = relevanceRank.get(candidate.id) ?? Number.MAX_SAFE_INTEGER;
+		const rank = candidate.relevanceRank;
 		return {
 			relevance_rank: rank,
 			tier: candidate.tier,

@@ -2,94 +2,61 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { TREE_SITTER_LANGUAGES } from "../../../src/harness/syntax-tree/grammars.ts";
-import { parseSyntaxTree } from "../../../src/harness/syntax-tree/parser.ts";
 import type { AnalyzeCode } from "../../../src/harness/code-index/types.ts";
-import { AbortGrepParse, GrepParser } from "../../../src/harness/file-tools/grep/parser-pool.ts";
 import { deferredVoid } from "../../helpers/async.ts";
-import { countContentReads, createGrepTestContext, overrideContent, withGrepRuntime } from "./grep-fixtures.ts";
+import { countContentReads, createGrepTestContext, expectGrepSuccess, overrideContent, withGrepRuntime } from "./grep-fixtures.ts";
 
 const testContext = createGrepTestContext();
 
+async function largeCodeFile(): Promise<void> {
+	await writeFile(path.join(testContext.workspace, "large.ts"), "export function WorkerTarget() { return true; }\n//" + "x".repeat(256 * 1024));
+}
+
 describe("grep lifecycle", () => {
-	it("parser owner 支持本地、worker 和幂等 dispose", async () => {
-		const parser = new GrepParser();
-		const [local] = await parser.analyzeFiles([{ path: "local.ts", text: "export const needle = true;\n" }], undefined);
-		expect(local?.status).toBe("parsed");
-		const worker = await parser.analyzeFiles(
-			Array.from({ length: 33 }, (_value, index) => ({
-				path: `module-${index}.ts`,
-				text: `export const value${index} = ${index};\n` + (index === 0 ? " ".repeat(256 * 1024) : ""),
-			})),
-			undefined,
-		);
-		expect(worker).toHaveLength(33);
-		expect(worker.every((result) => result.status === "parsed")).toBe(true);
-		parser.dispose();
-		parser.dispose();
-		const document = await parseSyntaxTree(TREE_SITTER_LANGUAGES.javascript.grammar, "export const retained = true;\n");
-		expect(document).toBeDefined();
-		document?.dispose();
-		await expect(parser.analyzeFiles([], undefined)).rejects.toBeInstanceOf(AbortGrepParse);
-
-		const pendingParser = new GrepParser();
-		const pending = pendingParser.analyzeFiles(
-			Array.from({ length: 64 }, (_value, index) => ({
-				path: `pending-${index}.ts`,
-				text: `export const pending${index} = '${"x".repeat(16 * 1024)}';\n`,
-			})),
-			undefined,
-		);
-		pendingParser.dispose();
-		await expect(pending).rejects.toBeInstanceOf(AbortGrepParse);
-	});
-
-	it("取消 worker 解析后仍能处理下一次搜索", async () => {
-		const parser = new GrepParser();
-		const files = [{ path: "large.ts", text: "export const needle = true;\n" + " ".repeat(256 * 1024) }];
-		try {
-			const controller = new AbortController();
-			const pending = parser.analyzeFiles(files, controller.signal);
-			controller.abort();
-			await expect(pending).rejects.toBeInstanceOf(AbortGrepParse);
-			const [result] = await parser.analyzeFiles(files, undefined);
-			expect(result?.status).toBe("parsed");
-		} finally {
-			parser.dispose();
-		}
-	});
-
-	it("grep owner dispose 幂等且停止后拒绝新调用", async () => {
-		await withGrepRuntime(testContext.workspace, "grep-owner", async ({ tool, execute }) => {
-			tool.dispose();
-			tool.dispose();
-			await expect(execute({ query: "needle" })).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+	it("可选分析取消后，worker 仍为各文件返回正确的基础结构", async () => {
+		await largeCodeFile();
+		await writeFile(path.join(testContext.workspace, "other.ts"), "export function WorkerOther() {}\n");
+		await withGrepRuntime(testContext.workspace, "grep-analysis-deadline", async ({ execute, opened }) => {
+			const analyzeCode: AnalyzeCode = async (input) => {
+				const document = await input.load("large.ts");
+				if (document === undefined) throw new Error("missing document");
+				const deadline = new AbortController();
+				const pending = input.syntax(document, deadline.signal);
+				void pending.catch(() => undefined);
+				deadline.abort();
+				return undefined;
+			};
+			const result = expectGrepSuccess(await execute({ query: "Worker" }, {
+				analyzeCode, limits: { ...opened.limits, grep_ast_max_file_bytes: 300_000 },
+			}));
+			expect(result.regions).toHaveLength(2);
+			expect(result.regions).toEqual(expect.arrayContaining([
+				expect.objectContaining({ path: "large.ts", kind: "function", symbol: "WorkerTarget", match_lines: [1] }),
+				expect.objectContaining({ path: "other.ts", kind: "function", symbol: "WorkerOther", match_lines: [1] }),
+			]));
 		});
 	});
 
-	it("grep owner dispose 取消 active code analyzer", async () => {
-		await writeFile(path.join(testContext.workspace, "a.ts"), "export function Target() { return true; }\n");
-		await writeFile(path.join(testContext.workspace, "b.ts"), "export function Target() { return false; }\n");
-		await withGrepRuntime(testContext.workspace, "grep-owner-active", async ({ tool, execute }) => {
+	it("关闭 grep 取消活动解析，重复关闭安全且拒绝新调用", async () => {
+		await largeCodeFile();
+		await withGrepRuntime(testContext.workspace, "grep-owner-active", async ({ tool, execute, opened }) => {
 			const started = deferredVoid();
-			let analyzerAborted = false;
 			const analyzeCode: AnalyzeCode = async (input) => {
+				const document = await input.load("large.ts");
+				if (document === undefined) throw new Error("missing document");
+				const pending = input.syntax(document, input.signal);
 				started.resolve();
-				await new Promise<void>((_resolve, reject) => {
-					const onAbort = () => {
-						analyzerAborted = true;
-						reject(new Error("aborted"));
-					};
-					if (input.signal?.aborted === true) onAbort();
-					else input.signal?.addEventListener("abort", onAbort, { once: true });
-				});
+				await pending;
 				return undefined;
 			};
-			const active = execute({ query: "Target" }, { analyzeCode });
+			const active = execute({ query: "WorkerTarget" }, {
+				analyzeCode, limits: { ...opened.limits, grep_ast_max_file_bytes: 300_000 },
+			});
 			await started.promise;
 			tool.dispose();
+			tool.dispose();
 			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-			expect(analyzerAborted).toBe(true);
+			await expect(execute({ query: "WorkerTarget" })).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 		});
 	});
 
@@ -110,7 +77,7 @@ describe("grep lifecycle", () => {
 		});
 	});
 
-	it("regex 只执行一次稳定 line scan，不完整读取正文", async () => {
+	it("普通文本只执行流式扫描，不完整读取正文", async () => {
 		await writeFile(path.join(testContext.workspace, "stream.txt"), `needle\n${"tail\n".repeat(200)}`);
 		await withGrepRuntime(testContext.workspace, "grep-stream", async ({ execute, opened }) => {
 			const { counts, filesystem } = countContentReads(opened.filesystem);
@@ -120,7 +87,7 @@ describe("grep lifecycle", () => {
 		});
 	});
 
-	it("active regex line scan 响应取消且不继续返回部分命中", async () => {
+	it("流式扫描取消后不返回部分命中", async () => {
 		await writeFile(path.join(testContext.workspace, "cancel.txt"), `${"line\n".repeat(20_000)}needle\n`);
 		await withGrepRuntime(testContext.workspace, "grep-strict-cancel", async ({ execute, opened }) => {
 			const controller = new AbortController();
@@ -128,17 +95,13 @@ describe("grep lifecycle", () => {
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
 				async scanLines(file, options) {
 					started.resolve();
-					return await content.scanLines(file, options);
+					return content.scanLines(file, options);
 				},
 			}));
-			const active = execute(
-				{ path: ["cancel.txt"], query: "needle" },
-				{ filesystem, operation: { signal: controller.signal } },
-			);
+			const active = execute({ path: ["cancel.txt"], query: "needle" }, { filesystem, operation: { signal: controller.signal } });
 			await started.promise;
 			controller.abort();
 			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 		});
 	});
-
 });

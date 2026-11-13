@@ -14,10 +14,9 @@ export interface SymbolRelations {
 
 /** 准备全部候选，传入、传出和引用请求独立保留成功结果。 */
 export async function symbolRelations(session: LspDocumentSession, position: Position, unit: IndexedCodeUnit, locations: RelationLocations, requests: AnalysisRequests): Promise<SymbolRelations> {
-	const capabilities = session.capabilities();
 	const [prepared, references] = await Promise.all([
-		requests.run(capabilities.callHierarchyProvider, (options) => session.prepareCalls(position, options)),
-		requests.run(capabilities.referencesProvider, (options) => session.references(position, options)),
+		session.prepareCalls(position, requests.options),
+		session.references(position, requests.options),
 	]);
 	const relations: CodeRelation[] = [];
 	const incoming: CodeAnalysisStatus[] = [];
@@ -26,8 +25,8 @@ export async function symbolRelations(session: LspDocumentSession, position: Pos
 		const limit = pLimit(2);
 		const results = await limit.map(prepared.value, async (item) => {
 			const [calls, callees] = await Promise.all([
-				requests.run(true, (options) => session.incomingCalls(item, options)),
-				requests.run(true, (options) => session.outgoingCalls(item, options)),
+				session.incomingCalls(item, requests.options),
+				session.outgoingCalls(item, requests.options),
 			]);
 			return { item, calls, callees };
 		});

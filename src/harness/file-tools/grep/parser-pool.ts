@@ -11,6 +11,10 @@ export interface GrepParseFile {
 	readonly path: string;
 	readonly text: string;
 }
+export interface GrepParsedFile<T extends GrepParseFile> {
+	readonly file: T;
+	readonly analysis: AnalyzedFileIndex;
+}
 type GrepParserWorkerPool = WorkerTaskPool<GrepParseFile[], AnalyzedFileIndex[]>;
 
 const MAIN_THREAD_MAX_PARSE_BYTES = 256 * 1024;
@@ -37,12 +41,12 @@ function shouldOffloadGrepParsing(files: readonly GrepParseFile[], workerWarm: b
 	return startupMs + localMs / workers + transferMs < localMs;
 }
 
-/** Grep-owned parser and worker pool. No process-global worker survives its owner. */
+/** grep 独占解析器与 worker，返回值始终绑定原始任务。 */
 export class GrepParser {
 	private pool: GrepParserWorkerPool | undefined;
 	private disposed = false;
 
-	async analyzeFiles(files: readonly GrepParseFile[], signal: AbortSignal | undefined): Promise<AnalyzedFileIndex[]> {
+	async analyzeFiles<T extends GrepParseFile>(files: readonly T[], signal: AbortSignal | undefined): Promise<GrepParsedFile<T>[]> {
 		if (this.disposed || signal?.aborted === true) throw new AbortGrepParse();
 		if (!shouldOffloadGrepParsing(files, this.pool !== undefined)) return await analyzeLocally(files, signal);
 		try {
@@ -53,7 +57,15 @@ export class GrepParser {
 			});
 			const pool = this.pool;
 			const batches = chunk(files, GREP_PARSER_BATCH_SIZE);
-			return (await Promise.all(batches.map((batch) => pool.run(batch, signal)))).flat();
+			return (await Promise.all(batches.map(async (batch) => {
+				const request = batch.map(({ path, text }) => ({ path, text }));
+				const values = new Map((await pool.run(request, signal)).map((analysis) => [analysis.path, analysis]));
+				return batch.map((file) => {
+					const analysis = values.get(file.path);
+					if (analysis === undefined) throw new Error(`grep parser worker omitted ${file.path}`);
+					return { file, analysis };
+				});
+			}))).flat();
 		} catch (error) {
 			if (this.isDisposed() || isAborted(signal) || error instanceof AbortGrepParse || error instanceof WorkerTaskAbortedError) {
 				throw new AbortGrepParse();
@@ -76,12 +88,12 @@ export class GrepParser {
 
 export class AbortGrepParse extends Error {}
 
-async function analyzeLocally(files: readonly GrepParseFile[], signal?: AbortSignal): Promise<AnalyzedFileIndex[]> {
-	const result: AnalyzedFileIndex[] = [];
+async function analyzeLocally<T extends GrepParseFile>(files: readonly T[], signal?: AbortSignal): Promise<GrepParsedFile<T>[]> {
+	const result: GrepParsedFile<T>[] = [];
 	try {
 		for (const file of files) {
 			if (signal?.aborted === true) throw new AbortGrepParse();
-			result.push(await analyzeCodeFile(file.path, file.text, signal));
+			result.push({ file, analysis: await analyzeCodeFile(file.path, file.text, signal) });
 		}
 		return result;
 	} catch (error) {

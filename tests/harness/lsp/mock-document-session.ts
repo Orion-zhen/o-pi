@@ -1,23 +1,30 @@
 import { vi } from "vitest";
+import type { ServerCapabilities } from "vscode-languageserver-protocol";
+import type { LspClientDocumentContext } from "../../../src/harness/lsp/types.ts";
 import { LspClient } from "../../../src/harness/lsp/client/client.ts";
 import { LspDocumentSession } from "../../../src/harness/lsp/client/document-session.ts";
-import { pathToFileUri } from "../../../src/harness/lsp/protocol/uri.ts";
 
-/** 现有管理器单测替换协议边界，文档生命周期另由协议集成测试覆盖。 */
-export function mockDocumentSessions(): void {
+export function lspOk<T>(value: T) {
+	return { status: "ok" as const, value };
+}
+
+/** 单测替换符号协议，连接和文档生命周期由集成测试覆盖。 */
+export function mockDocumentSessions(fixedCapabilities?: ServerCapabilities): void {
 	vi.spyOn(LspClient.prototype, "withDocument").mockImplementation(async function<T>(
-		this: LspClient, filePath: string, text: string, _signal: AbortSignal | undefined,
+		this: LspClient, document: LspClientDocumentContext, _signal: AbortSignal | undefined,
 		operation: (session: LspDocumentSession) => Promise<T>,
 	) {
-		const capabilities = this.capabilities();
-		if (capabilities === undefined) return undefined;
-		return operation(new LspDocumentSession(pathToFileUri(filePath), {
-			capabilities: () => capabilities, request: async () => undefined,
-		}, (options) => this.documentSymbols(filePath, text, options)));
+		const run = (capabilities: ServerCapabilities) => operation(new LspDocumentSession(document.uri, {
+			capabilities: () => capabilities, request: async () => ({ status: "unsupported" }),
+		}, (options) => capabilities.documentSymbolProvider === undefined || capabilities.documentSymbolProvider === false
+			? Promise.resolve({ status: "unsupported" }) : this.documentSymbols(document, options)));
+		return fixedCapabilities === undefined
+			? this.withSession(async (session) => run(session.connection.capabilities()))
+			: run(fixedCapabilities);
 	});
 	vi.spyOn(LspDocumentSession.prototype, "prepareCalls").mockImplementation(async function(this: LspDocumentSession, position) {
 		const range = { start: position, end: { line: position.line, character: position.character + 6 } };
-		return [{ name: "target", kind: 12, uri: this.uri, range, selectionRange: range }];
+		return lspOk([{ name: "target", kind: 12, uri: this.uri, range, selectionRange: range }]);
 	});
-	vi.spyOn(LspDocumentSession.prototype, "outgoingCalls").mockResolvedValue([]);
+	vi.spyOn(LspDocumentSession.prototype, "outgoingCalls").mockResolvedValue(lspOk([]));
 }

@@ -12,11 +12,9 @@ import {
 import { LspDocumentSession } from "./document-session.ts";
 import { waitUnlessAborted } from "../analysis/deadline.ts";
 import { incrementalContentChange } from "./text-change.ts";
-import { languageIdForServerPath } from "../config/routing.ts";
 import { requestDocumentSymbols } from "../protocol/features.ts";
-import { pathToFileUri } from "../protocol/uri.ts";
 import type { ReadyLspConnection } from "./connection.ts";
-import type { LspClientDocumentContext, LspConfig, LspDocumentSymbols, LspRequestOptions, LspServerConfig } from "../types.ts";
+import type { LspClientDocumentContext, LspConfig, LspDocumentSymbols, LspRequestOptions, LspRequestResult } from "../types.ts";
 
 interface DocumentState extends LspClientDocumentContext {
 	readonly version: number;
@@ -33,21 +31,14 @@ export class LspClientDocuments {
 	private readonly pendingVersions = new Map<string, number>();
 	private clock = 0;
 	private readonly maxDocuments: number;
+	private readonly syncPolicy: TextDocumentSyncPolicy;
 
 	constructor(
-		private readonly root: string,
-		private readonly server: LspServerConfig,
 		config: LspConfig,
 		readonly connection: ReadyLspConnection,
 	) {
 		this.maxDocuments = config.max_open_documents;
-	}
-
-	context(filePath: string, text: string): LspClientDocumentContext {
-		return {
-			uri: pathToFileUri(filePath), path: filePath, text,
-			languageId: languageIdForServerPath(this.server, this.root, filePath),
-		};
+		this.syncPolicy = textDocumentSyncPolicy(connection.capabilities());
 	}
 
 	openCount(): number {
@@ -76,21 +67,19 @@ export class LspClientDocuments {
 		}
 	}
 
-	documentSymbols(filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
-		const document = this.context(filePath, text);
-		return this.query(document.uri, options?.signal, async () => {
+	async documentSymbols(document: LspClientDocumentContext, options?: LspRequestOptions): Promise<LspRequestResult<LspDocumentSymbols>> {
+		return await this.query(document.uri, options?.signal, async () => {
 			const previous = this.states.get(document.uri);
 			if (previous?.text === document.text && previous.languageId === document.languageId && previous.cachedSymbols !== undefined) {
 				previous.lastUsed = ++this.clock;
-				return previous.cachedSymbols;
+				return { status: "ok" as const, value: previous.cachedSymbols };
 			}
 			return this.withSynchronizedDocument(document, options?.signal, (session) => session.symbols(options));
-		});
+		}) ?? { status: "unavailable" };
 	}
 
 	/** 同 URI 的保存和其他分析排队，临时文档在全部查询结束后才关闭。 */
-	withDocument<T>(filePath: string, text: string, signal: AbortSignal | undefined, operation: (session: LspDocumentSession) => Promise<T>): Promise<T | undefined> {
-		const document = this.context(filePath, text);
+	withDocument<T>(document: LspClientDocumentContext, signal: AbortSignal | undefined, operation: (session: LspDocumentSession) => Promise<T>): Promise<T | undefined> {
 		return this.query(document.uri, signal, () => this.withSynchronizedDocument(document, signal, operation));
 	}
 
@@ -105,9 +94,9 @@ export class LspClientDocuments {
 		const state = this.states.get(document.uri);
 		if (state === undefined) return undefined;
 		const session = new LspDocumentSession(document.uri, this.connection, async (options) => {
-			if (state.cachedSymbols !== undefined) return state.cachedSymbols;
+			if (state.cachedSymbols !== undefined) return { status: "ok", value: state.cachedSymbols };
 			const symbols = await requestDocumentSymbols(this.connection, document.uri, options);
-			if (symbols !== undefined && this.states.get(document.uri) === state) state.cachedSymbols = symbols;
+			if (symbols.status === "ok" && this.states.get(document.uri) === state) state.cachedSymbols = symbols.value;
 			return symbols;
 		});
 		try {
@@ -120,7 +109,7 @@ export class LspClientDocuments {
 
 	async synchronizeAndSave(document: LspClientDocumentContext): Promise<boolean> {
 		if (!await this.synchronizeDocument(document, true)) return false;
-		const policy = textDocumentSyncPolicy(this.connection.capabilities());
+		const policy = this.syncPolicy;
 		if (!policy.save) return true;
 		return this.connection.notify((rpc) => rpc.sendNotification(DidSaveTextDocumentNotification.type, {
 			textDocument: { uri: document.uri },
@@ -142,7 +131,7 @@ export class LspClientDocuments {
 
 	private async synchronizeDocument(document: LspClientDocumentContext, persistent: boolean): Promise<boolean> {
 		const previous = this.states.get(document.uri);
-		const policy = textDocumentSyncPolicy(this.connection.capabilities());
+		const policy = this.syncPolicy;
 		if (previous?.text === document.text && previous.languageId === document.languageId && (previous.open || !policy.openClose)) {
 			previous.persistent ||= persistent;
 			previous.lastUsed = ++this.clock;

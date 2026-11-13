@@ -18,11 +18,12 @@ const RESOLVE_CONCURRENCY = 4;
 export interface WorkspaceSymbolSeedsInput {
 	readonly root: string;
 	readonly query: string;
-	readonly owners: ReadonlyMap<string, string>;
+	readonly owners: ReadonlyMap<string, { readonly serverId: string; readonly languageId: string }>;
 }
 
 export interface ResolvedWorkspaceSymbol {
 	readonly client: LspClient;
+	readonly languageId: string;
 	readonly seed: WorkspaceSymbolSeed;
 }
 
@@ -32,7 +33,7 @@ export interface WorkspaceSymbolSeeds {
 }
 
 type SymbolCandidate =
-	| { kind: "complete"; client: LspClient; seed: WorkspaceSymbolSeed }
+	| ({ kind: "complete" } & ResolvedWorkspaceSymbol)
 	| { kind: "resolve"; client: LspClient; path: string; symbol: WorkspaceSymbol };
 
 /** 各服务器和 resolve 请求独立返回结果，共用候选预算和稳定选择顺序。 */
@@ -44,15 +45,14 @@ export async function resolveWorkspaceSymbolSeeds(
 ): Promise<WorkspaceSymbolSeeds> {
 	const serverResults = await Promise.all(clients.map(async (client) => ({
 		client,
-		result: await requests.run(client.capabilities()?.workspaceSymbolProvider,
-			(options) => client.workspaceSymbols(input.query, options)),
+		result: await client.workspaceSymbols(input.query, requests.options),
 	})));
 	const coverage = new Map<string, CodeAnalysisStatus>();
 	const candidates: SymbolCandidate[] = [];
 	const seenRaw = new Set<string>();
 	for (const { client, result } of serverResults) {
 		for (const [path, owner] of input.owners) {
-			if (owner === client.server.id) coverage.set(path, result.status);
+			if (owner.serverId === client.server.id) coverage.set(path, result.status);
 		}
 		if (result.status !== "ok") continue;
 		for (const symbol of result.value) {
@@ -60,15 +60,17 @@ export async function resolveWorkspaceSymbolSeeds(
 			const location = workspaceSymbolLocation(symbol);
 			if (location !== undefined) {
 				const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-				if (seed === undefined || input.owners.get(seed.path) !== client.server.id) continue;
+				if (seed === undefined) continue;
+				const owner = input.owners.get(seed.path);
+				if (owner === undefined || owner.serverId !== client.server.id) continue;
 				const key = symbolHitKey(seed);
 				if (seenRaw.has(key)) continue;
 				seenRaw.add(key);
-				candidates.push({ kind: "complete", client, seed });
+				candidates.push({ kind: "complete", client, seed, languageId: owner.languageId });
 				continue;
 			}
 			const relative = relativePathForUri(input.root, symbol.location.uri);
-			if (relative === undefined || input.owners.get(relative) !== client.server.id) continue;
+			if (relative === undefined || input.owners.get(relative)?.serverId !== client.server.id) continue;
 			candidates.push({ kind: "resolve", client, path: relative, symbol });
 		}
 	}
@@ -88,20 +90,19 @@ export async function resolveWorkspaceSymbolSeeds(
 		const batch = candidates.slice(candidateIndex, candidateIndex + batchSize);
 		candidateIndex += batchSize;
 		const resolved = await Promise.all(batch.map(async (candidate) => {
-			if (candidate.kind === "complete") return { client: candidate.client, seed: candidate.seed };
-			const provider = candidate.client.capabilities()?.workspaceSymbolProvider;
-			const result = await requests.run(typeof provider === "object" && provider.resolveProvider === true,
-				(options) => candidate.client.resolveWorkspaceSymbol(candidate.symbol, options));
+			if (candidate.kind === "complete") return candidate;
+			const result = await candidate.client.resolveWorkspaceSymbol(candidate.symbol, requests.options);
 			if (result.status !== "ok") {
 				coverage.set(candidate.path, combinedStatus([coverage.get(candidate.path) ?? "ok", result.status]));
 				return undefined;
 			}
 			const seed = workspaceSymbolSeed(input.root, input.query, result.value);
-			if (seed === undefined || input.owners.get(seed.path) !== candidate.client.server.id) {
+			const owner = seed === undefined ? undefined : input.owners.get(seed.path);
+			if (seed === undefined || owner === undefined || owner.serverId !== candidate.client.server.id) {
 				coverage.set(candidate.path, combinedStatus([coverage.get(candidate.path) ?? "ok", "unavailable"]));
 				return undefined;
 			}
-			return { client: candidate.client, seed };
+			return { client: candidate.client, seed, languageId: owner.languageId };
 		}));
 		for (const result of resolved) {
 			if (result === undefined) continue;

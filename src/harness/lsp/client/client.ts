@@ -1,19 +1,15 @@
-import type {
-	FileChangeType,
-	ServerCapabilities,
-	SymbolInformation,
-	WorkspaceSymbol,
-} from "vscode-languageserver-protocol";
+import type { FileChangeType, SymbolInformation, WorkspaceSymbol } from "vscode-languageserver-protocol";
 
-import type { LspSaveDiagnosticsResult } from "./diagnostics.ts";
+import type { LspDiagnosticInput, LspSavedDiagnostics } from "./diagnostics.ts";
 import type { LspDocumentSession } from "./document-session.ts";
+import type { LspClientSession } from "./session.ts";
 import { LspClientLifecycle } from "./lifecycle.ts";
 import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.ts";
 import { requestWorkspaceSymbols, resolveWorkspaceSymbol } from "../protocol/features.ts";
 import { pathToFileUri } from "../protocol/uri.ts";
 import { diagnosticHints } from "../diagnostics/hints.ts";
 import { createOperationDeadline, waitUnlessAborted } from "../analysis/deadline.ts";
-import type { LspConfig, LspErrorDiagnostic, LspDocumentSymbols, LspRequestOptions, LspServerConfig, LspServerStatus } from "../types.ts";
+import type { LspClientDocumentContext, LspConfig, LspErrorDiagnostic, LspDocumentSymbols, LspRequestOptions, LspRequestResult, LspServerConfig, LspServerStatus } from "../types.ts";
 
 /** 稳定客户端入口，连接代及其业务状态由 lifecycle 统一拥有。 */
 export class LspClient {
@@ -29,8 +25,8 @@ export class LspClient {
 		this.lifecycle = new LspClientLifecycle(root, server, config, ledger, onCrash);
 	}
 
-	capabilities(): ServerCapabilities | undefined {
-		return this.lifecycle.session()?.connection.capabilities();
+	withSession<T>(operation: (session: LspClientSession) => Promise<T>): Promise<T | undefined> {
+		return this.lifecycle.withSession(operation);
 	}
 
 	diagnosticSource(): string {
@@ -55,13 +51,10 @@ export class LspClient {
 		return this.lifecycle.shutdown();
 	}
 
-	async saveAndCollectDiagnosticsBatch(
-		inputs: readonly { filePath: string; text: string }[],
-		options: LspRequestOptions,
-	): Promise<readonly LspSaveDiagnosticsResult[]> {
+	async saveAndCollectDiagnosticsBatch<T extends LspDiagnosticInput>(inputs: readonly T[], options: LspRequestOptions): Promise<readonly LspSavedDiagnostics<T>[]> {
 		if (inputs.length === 0) return [];
-		return await this.lifecycle.withSession((session) => session.diagnostics.collect(inputs, options))
-			?? inputs.map(() => ({ kind: "unavailable" as const }));
+		return await this.withSession((session) => session.diagnostics.collect(inputs, options))
+			?? inputs.map((input) => ({ input, result: { kind: "unavailable" as const } }));
 	}
 
 	async diagnosticHints(
@@ -73,7 +66,7 @@ export class LspClient {
 		const uri = pathToFileUri(filePath);
 		const operation = createOperationDeadline(options.signal, options.timeoutMs);
 		try {
-			return await this.lifecycle.withSession((session) => waitUnlessAborted(session.documents.enqueue(uri, async () => {
+			return await this.withSession((session) => waitUnlessAborted(session.documents.enqueue(uri, async () => {
 				if (operation.signal.aborted || !session.documents.hasContent(uri, text)) return [];
 				const snapshot = this.ledger.snapshot(this.diagnosticSource(), uri);
 				return diagnosticHints(session.connection, uri, snapshot.diagnostics, errors, operation.requestOptions());
@@ -87,19 +80,19 @@ export class LspClient {
 		return this.lifecycle.didChangeWatchedFiles(changes);
 	}
 
-	documentSymbols(filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
-		return this.lifecycle.withSession((session) => session.documents.documentSymbols(filePath, text, options));
+	async documentSymbols(document: LspClientDocumentContext, options?: LspRequestOptions): Promise<LspRequestResult<LspDocumentSymbols>> {
+		return await this.withSession((session) => session.documents.documentSymbols(document, options)) ?? { status: "unavailable" };
 	}
 
-	workspaceSymbols(query: string, options?: LspRequestOptions): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
-		return this.lifecycle.withSession((session) => requestWorkspaceSymbols(session.connection, query, options));
+	async workspaceSymbols(query: string, options?: LspRequestOptions): Promise<LspRequestResult<Array<SymbolInformation | WorkspaceSymbol>>> {
+		return await this.withSession((session) => requestWorkspaceSymbols(session.connection, query, options)) ?? { status: "unavailable" };
 	}
 
-	resolveWorkspaceSymbol(symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
-		return this.lifecycle.withSession((session) => resolveWorkspaceSymbol(session.connection, symbol, options));
+	async resolveWorkspaceSymbol(symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<LspRequestResult<WorkspaceSymbol>> {
+		return await this.withSession((session) => resolveWorkspaceSymbol(session.connection, symbol, options)) ?? { status: "unavailable" };
 	}
 
-	withDocument<T>(filePath: string, text: string, signal: AbortSignal | undefined, operation: (document: LspDocumentSession) => Promise<T>): Promise<T | undefined> {
-		return this.lifecycle.withSession((session) => session.documents.withDocument(filePath, text, signal, operation));
+	withDocument<T>(document: LspClientDocumentContext, signal: AbortSignal | undefined, operation: (session: LspDocumentSession) => Promise<T>): Promise<T | undefined> {
+		return this.withSession((session) => session.documents.withDocument(document, signal, operation));
 	}
 }

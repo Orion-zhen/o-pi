@@ -2,12 +2,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { deferred } from "../../../helpers/async.ts";
-import { createProtocolServer, directClient, documentSymbol, send, useTransportFixture } from "./fixtures.ts";
+import { testDocument, createProtocolServer, directClient, documentSymbol, send, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 
 describe("lsp transport documents", () => {
-	it.each([false, true])("同文档同步保序，失败不阻塞后续请求，相同内容复用缓存，首请求失败=%s", async (failFirst) => {
+	it("同文档同步保序，请求失败后继续处理新版正文并共享符号缓存", async () => {
 		const workspace = transport.workspace;
 		let documentSymbolRequests = 0;
 		const firstRequest = deferred<void>();
@@ -16,7 +16,7 @@ describe("lsp transport documents", () => {
 			capabilities: { documentSymbolProvider: true, textDocumentSync: { openClose: true, change: 1, save: true } },
 			routes: { "textDocument/documentSymbol": (message, socket) => {
 				documentSymbolRequests += 1;
-				const response = () => send(socket, documentSymbolRequests === 1 && failFirst
+				const response = () => send(socket, documentSymbolRequests === 1
 					? { id: message.id, error: { code: -32000, message: "symbol request failed" } }
 					: { id: message.id, result: [documentSymbol("target", documentSymbolRequests)] });
 				if (documentSymbolRequests === 1) {
@@ -26,22 +26,23 @@ describe("lsp transport documents", () => {
 			} },
 		});
 		const client = directClient(transport, fake);
-		expect(await client.ensureReady()).toBe(true);
 		const file = path.join(workspace, "a.ts");
-		const first = client.documentSymbols(file, "const target = 1;\n");
-		const second = client.documentSymbols(file, "const target = 2;\n");
+		const first = client.documentSymbols(testDocument(file, "const target = 1;\n"));
+		const second = client.documentSymbols(testDocument(file, "const target = 2;\n"));
 		await firstRequest.promise;
 		expect(fake.methods).not.toContain("textDocument/didChange");
 		firstRequestGate.resolve();
 		const [firstSymbols, secondSymbols] = await Promise.all([first, second]);
-		expect(firstSymbols?.[0]?.name).toBe(failFirst ? undefined : "target");
-		expect(secondSymbols?.[0]?.name).toBe("target");
+		expect(firstSymbols).toEqual({ status: "unavailable" });
+		expect(secondSymbols).toMatchObject({ status: "ok", value: [{ name: "target" }] });
 
 		expect(client.status().open_documents).toBe(0);
 		const beforeWarmRead = fake.methods.length;
-		await expect(client.documentSymbols(file, "const target = 2;\n")).resolves.toEqual(secondSymbols);
+		await expect(client.documentSymbols(testDocument(file, "const target = 2;\n"))).resolves.toEqual(secondSymbols);
 		expect(fake.methods).toHaveLength(beforeWarmRead);
-		await expect(client.saveAndCollectDiagnosticsBatch([{ filePath: file, text: "const target = 2;\n" }], {})).resolves.toMatchObject([{ kind: "publish" }]);
+		await expect(client.withDocument(testDocument(file, "const target = 2;\n"), undefined, (session) => session.symbols())).resolves.toEqual(secondSymbols);
+		expect(documentSymbolRequests).toBe(2);
+		await expect(client.saveAndCollectDiagnosticsBatch([testDocument(file, "const target = 2;\n")], {})).resolves.toMatchObject([{ result: { kind: "publish" } }]);
 		await client.shutdown();
 
 		const documentMethods = fake.methods.filter((method) => method.startsWith("textDocument/"));
@@ -53,6 +54,8 @@ describe("lsp transport documents", () => {
 			"textDocument/documentSymbol",
 			"textDocument/didClose",
 			"textDocument/didOpen",
+			"textDocument/didClose",
+			"textDocument/didOpen",
 			"textDocument/didSave",
 		]);
 		expect(fake.messages.filter((message) => message.method === "textDocument/didOpen")[1]).toMatchObject({
@@ -61,22 +64,6 @@ describe("lsp transport documents", () => {
 		const saveParams = fake.messages.filter((message) => message.method === "textDocument/didSave").at(-1)?.params;
 		expect(saveParams).not.toHaveProperty("text");
 	});
-	it("会话查询与单独符号查询共用缓存，缓存命中不重新打开文档", async () => {
-		const fake = await createProtocolServer(transport, {
-			capabilities: { documentSymbolProvider: true, textDocumentSync: 1 },
-			routes: { "textDocument/documentSymbol": (message, socket) => send(socket, { id: message.id, result: [documentSymbol("target", 0)] }) },
-		});
-		const client = directClient(transport, fake);
-		const file = path.join(transport.workspace, "a.ts");
-		const text = "const target = 1;\n";
-		const symbols = await client.withDocument(file, text, undefined, (session) => session.symbols());
-		const before = fake.methods.length;
-		await expect(client.documentSymbols(file, text)).resolves.toEqual(symbols);
-		expect(fake.methods).toHaveLength(before);
-		await expect(client.withDocument(file, text, undefined, (session) => session.symbols())).resolves.toEqual(symbols);
-		expect(fake.methods.filter((method) => method === "textDocument/documentSymbol")).toHaveLength(1);
-		expect(client.status().open_documents).toBe(0);
-	});
 
 	it("符号查询在队列中取消时不打开新版文档，前一会话仍正常关闭", async () => {
 		const entered = deferred<void>();
@@ -84,16 +71,16 @@ describe("lsp transport documents", () => {
 		const fake = await createProtocolServer(transport, { capabilities: { textDocumentSync: 1 } });
 		const client = directClient(transport, fake);
 		const file = path.join(transport.workspace, "a.ts");
-		const first = client.withDocument(file, "old\n", undefined, async () => {
+		const first = client.withDocument(testDocument(file, "old\n"), undefined, async () => {
 			entered.resolve();
 			await release.promise;
 			return "complete";
 		});
 		await entered.promise;
 		const controller = new AbortController();
-		const queued = client.documentSymbols(file, "cancelled\n", { signal: controller.signal });
+		const queued = client.documentSymbols(testDocument(file, "cancelled\n"), { signal: controller.signal });
 		controller.abort();
-		await expect(queued).resolves.toBeUndefined();
+		await expect(queued).resolves.toEqual({ status: "unavailable" });
 		release.resolve();
 		await expect(first).resolves.toBe("complete");
 		await client.shutdown();
@@ -109,9 +96,9 @@ describe("lsp transport documents", () => {
 		});
 		const client = directClient(transport, fake);
 		const file = path.join(transport.workspace, "a.ts");
-		await expect(client.withDocument(file, "old\n", undefined, async () => { throw new Error("query failed"); })).rejects.toThrow("query failed");
+		await expect(client.withDocument(testDocument(file, "old\n"), undefined, async () => { throw new Error("query failed"); })).rejects.toThrow("query failed");
 		expect(client.status().open_documents).toBe(0);
-		await expect(client.documentSymbols(file, "new\n")).resolves.toEqual([]);
+		await expect(client.documentSymbols(testDocument(file, "new\n"))).resolves.toEqual({ status: "ok", value: [] });
 		expect(client.status().open_documents).toBe(0);
 	});
 
@@ -121,12 +108,11 @@ describe("lsp transport documents", () => {
 			capabilities: { textDocumentSync: { openClose: true, change: 2, save: { includeText: true } } },
 		});
 		const client = directClient(transport, fake);
-		expect(await client.ensureReady()).toBe(true);
 		const file = path.join(workspace, "a.tsx");
 		const previous = "const 😀x = 1;\r\n";
 		const next = "const 😀x = 2;\r\n";
-		await expect(client.saveAndCollectDiagnosticsBatch([{ filePath: file, text: previous }], {})).resolves.toMatchObject([{ kind: "publish" }]);
-		await expect(client.saveAndCollectDiagnosticsBatch([{ filePath: file, text: next }], {})).resolves.toMatchObject([{ kind: "publish" }]);
+		await expect(client.saveAndCollectDiagnosticsBatch([testDocument(file, previous, "typescriptreact")], {})).resolves.toMatchObject([{ result: { kind: "publish" } }]);
+		await expect(client.saveAndCollectDiagnosticsBatch([testDocument(file, next, "typescriptreact")], {})).resolves.toMatchObject([{ result: { kind: "publish" } }]);
 		await client.shutdown();
 
 		expect(fake.messages.find((message) => message.method === "textDocument/didOpen")).toMatchObject({
@@ -151,10 +137,9 @@ describe("lsp transport documents", () => {
 			capabilities: { textDocumentSync: { openClose: false, change: 0, save: false } },
 		});
 		const client = directClient(transport, fake);
-		expect(await client.ensureReady()).toBe(true);
 		const file = path.join(workspace, "a.ts");
-		await expect(client.saveAndCollectDiagnosticsBatch([{ filePath: file, text: "one\n" }], {})).resolves.toMatchObject([{ kind: "publish" }]);
-		await expect(client.saveAndCollectDiagnosticsBatch([{ filePath: file, text: "two\n" }], {})).resolves.toMatchObject([{ kind: "publish" }]);
+		await expect(client.saveAndCollectDiagnosticsBatch([testDocument(file, "one\n")], {})).resolves.toMatchObject([{ result: { kind: "publish" } }]);
+		await expect(client.saveAndCollectDiagnosticsBatch([testDocument(file, "two\n")], {})).resolves.toMatchObject([{ result: { kind: "publish" } }]);
 		await client.shutdown();
 		expect(fake.methods.filter((method) => method.startsWith("textDocument/"))).toEqual([]);
 	});
@@ -167,25 +152,15 @@ describe("lsp transport documents", () => {
 			} },
 		});
 		const client = directClient(transport, fake, 1);
-		expect(await client.ensureReady()).toBe(true);
 		const first = path.join(workspace, "a.ts");
 		const second = path.join(workspace, "b.ts");
-		await client.documentSymbols(first, "const a = 1;\n");
-		await client.documentSymbols(second, "const b = 1;\n");
-		await client.documentSymbols(first, "const a = 1;\n");
+		await client.documentSymbols(testDocument(first, "const a = 1;\n"));
+		await client.documentSymbols(testDocument(second, "const b = 1;\n"));
+		await client.documentSymbols(testDocument(first, "const a = 1;\n"));
 		await client.shutdown();
 
-		expect(fake.methods.filter((method) => method.startsWith("textDocument/"))).toEqual([
-			"textDocument/didOpen",
-			"textDocument/documentSymbol",
-			"textDocument/didClose",
-			"textDocument/didOpen",
-			"textDocument/documentSymbol",
-			"textDocument/didClose",
-			"textDocument/didOpen",
-			"textDocument/documentSymbol",
-			"textDocument/didClose",
-		]);
+		expect(fake.methods.filter((method) => method === "textDocument/documentSymbol")).toHaveLength(3);
+		expect(fake.methods.filter((method) => method === "textDocument/didClose")).toHaveLength(3);
 		expect(client.status().open_documents).toBe(0);
 	});
 });

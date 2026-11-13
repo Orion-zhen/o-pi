@@ -2,7 +2,6 @@ import path from "node:path";
 import picomatch from "picomatch";
 
 import type { LspLanguageRoute, LspServerConfig } from "../types.ts";
-import { workspaceRelativePath } from "../protocol/uri.ts";
 
 interface CompiledLanguageRoute {
 	languageId: string;
@@ -31,14 +30,6 @@ export function matchServerLanguage(server: LspServerConfig, relativePath: strin
 		matchedLanguage = route.languageId;
 	}
 	return matchedLanguage;
-}
-
-export function languageIdForServerPath(server: LspServerConfig, workspaceRoot: string, filePath: string): string {
-	const relativePath = workspaceRelativePath(workspaceRoot, filePath);
-	if (relativePath === undefined) throw new LspRoutingError(`LSP file is outside workspace "${workspaceRoot}": ${filePath}`);
-	const languageId = matchServerLanguage(server, relativePath);
-	if (languageId === undefined) throw new LspRoutingError(`LSP server "${server.id}" does not route "${relativePath}"`);
-	return languageId;
 }
 
 export function validateServerRoutes(server: LspServerConfig): void {

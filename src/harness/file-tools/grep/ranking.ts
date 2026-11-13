@@ -20,7 +20,10 @@ const SOURCE_WEIGHT: Readonly<Record<RetrievalSource, number>> = {
 	"text-lexical": 0.75,
 };
 
-const TIER_POLICY: Readonly<Partial<Record<CandidateSignal, number>>> = {
+type SymbolMatchSignal = "exact_qualified_definition" | "exact_symbol_definition" | "exact_member_definition" | "symbol_prefix";
+type RankingSignal = CandidateSignal | SymbolMatchSignal | "structured_symbol_match" | "structured_path_match";
+
+const TIER_POLICY: Readonly<Record<RankingSignal, number>> = {
 	exact_qualified_definition: 1,
 	exact_symbol_definition: 1,
 	exact_member_definition: 2,
@@ -33,15 +36,6 @@ const TIER_POLICY: Readonly<Partial<Record<CandidateSignal, number>>> = {
 	related_symbol: 6,
 	lexical: 6,
 };
-
-const CANONICAL_SYMBOL_MATCH_SIGNALS = new Set<CandidateSignal>([
-	"exact_qualified_definition",
-	"exact_symbol_definition",
-	"exact_member_definition",
-	"symbol_prefix",
-	"structured_symbol_match",
-	"structured_path_match",
-]);
 
 type FieldName = "symbol" | "qualified" | "path" | "declaration" | "body";
 
@@ -78,10 +72,8 @@ export function rankCodeRegions(plan: QueryPlan, regions: readonly CodeRegion[])
 	for (const region of regions) {
 		const signals = effectiveSignals(plan, region, structuredTerms);
 		const queryTier = bestTier(signals);
-		if (queryTier === undefined) continue;
 		ranked.push({
 			...region,
-			signals,
 			matchedBy: normalizeMatchedBy(signals, region.evidence),
 			tier: structuralTier(queryTier, region),
 			fieldScore: fieldScores.get(region) ?? 0,
@@ -105,10 +97,10 @@ export function compareRankedRegions(left: RankedRegion, right: RankedRegion): n
 }
 
 /** 输入已按相关性排序且 ID 唯一。保留头部，剩余名额只在最佳 tier 内执行 MMR。 */
-export function selectRankedRegions(
-	candidates: readonly RankedRegion[],
+export function selectRankedRegions<T extends RankedRegion>(
+	candidates: readonly T[],
 	limit: number,
-): RankedRegion[] {
+): T[] {
 	if (limit <= 0 || candidates.length === 0) return [];
 	const target = Math.min(limit, candidates.length);
 	const headCount = Math.min(GREP_RELEVANCE_HEAD_SIZE, target);
@@ -144,7 +136,7 @@ export function selectRankedRegions(
 	return [...selected.slice(0, headCount), ...selected.slice(headCount).sort(compareRankedRegions)];
 }
 
-function normalizeMatchedBy(signals: readonly CandidateSignal[], evidence: RegionEvidence | undefined): GrepMatchedBy[] {
+function normalizeMatchedBy(signals: readonly RankingSignal[], evidence: RegionEvidence | undefined): GrepMatchedBy[] {
 	const signalSet = new Set(signals);
 	const methods: GrepMatchedBy[] = [];
 	if (signalSet.has("exact_qualified_definition")) methods.push("exact-qualified-symbol");
@@ -162,17 +154,15 @@ function scoreEvidence(evidence: RegionEvidence | undefined): number {
 }
 
 function sourceContribution(evidence: RegionEvidence): number {
-	const rank = Math.max(1, Math.floor(evidence.rank));
-	return SOURCE_WEIGHT[evidence.source] / (GREP_RRF_K + rank);
+	return SOURCE_WEIGHT[evidence.source] / (GREP_RRF_K + evidence.rank);
 }
 
 function effectiveSignals(
 	plan: QueryPlan,
 	region: CodeRegion,
 	structuredTerms: readonly string[],
-): CandidateSignal[] {
-	const claimed = region.signals.filter((signal) => !CANONICAL_SYMBOL_MATCH_SIGNALS.has(signal));
-	const derived: CandidateSignal[] = [];
+): readonly [RankingSignal, ...RankingSignal[]] {
+	const derived: RankingSignal[] = [];
 	const symbolMatch = classifySymbolMatch(plan, region.symbol, region.qualifiedSymbol);
 	if (region.symbolRole === "definition" && symbolMatch !== undefined) derived.push(symbolMatch);
 	if (structuredTerms.length > 0) {
@@ -180,7 +170,7 @@ function effectiveSignals(
 		if (fieldsContainAll(profile, ["symbol", "qualified"], structuredTerms)) derived.push("structured_symbol_match");
 		if (fieldsContainAll(profile, ["path"], structuredTerms)) derived.push("structured_path_match");
 	}
-	return [...new Set([...claimed, ...derived])];
+	return [...region.signals, ...derived];
 }
 
 /** 只对无正则操作符的名称或路径查询推导 symbol match。 */
@@ -188,7 +178,7 @@ export function classifySymbolMatch(
 	plan: QueryPlan,
 	symbol: string | undefined,
 	qualifiedSymbol: string | undefined,
-): Extract<CandidateSignal, "exact_qualified_definition" | "exact_symbol_definition" | "exact_member_definition" | "symbol_prefix"> | undefined {
+): SymbolMatchSignal | undefined {
 	const target = normalizeSymbol(plan.structuredQuery ?? "");
 	if (target.length === 0) return undefined;
 	const full = normalizeSymbol(qualifiedSymbol ?? symbol ?? "");
@@ -285,13 +275,8 @@ function fieldsContainAll(
 	return terms.every((term) => fields.some((field) => profile[field].terms.has(term)));
 }
 
-function bestTier(signals: readonly CandidateSignal[]): number | undefined {
-	let best: number | undefined;
-	for (const signal of signals) {
-		const tier = TIER_POLICY[signal];
-		if (tier !== undefined && (best === undefined || tier < best)) best = tier;
-	}
-	return best;
+function bestTier(signals: readonly [RankingSignal, ...RankingSignal[]]): number {
+	return Math.min(...signals.map((signal) => TIER_POLICY[signal]));
 }
 
 function verifiedCoverage(region: CodeRegion): number {

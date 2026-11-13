@@ -26,10 +26,8 @@ export async function definitionRelations(session: LspDocumentSession, analysis:
 		const parseError = (analysis.parseErrors ?? []).some((error) => error.startByte <= call.endByte && call.startByte <= error.endByte);
 		const result = position === undefined || parseError || queried >= DEFINITION_LIMIT
 			? { status: "skipped" as const }
-			: await requests.run(session.capabilities().definitionProvider, (options) => {
-				queried += 1;
-				return session.definition(position, options);
-			});
+			: await session.definition(position, requests.options);
+		if (result.status !== "skipped" && result.status !== "unsupported") queried += 1;
 		if (call.ownerId !== undefined) {
 			const values = statuses.get(call.ownerId) ?? [];
 			values.push(result.status);

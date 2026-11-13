@@ -1,14 +1,13 @@
 import { availableParallelism } from "node:os";
 
 import { createTextTokenMatcher, splitTokens } from "../../code-index/text.ts";
-import { languageFromPath } from "../../syntax-tree/grammars.ts";
 import type { ScannedLine, TextContent } from "../../filesystem/contracts/content.ts";
 import { scannedTextLines, utf8ByteOffset } from "../../filesystem/services/text.ts";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.ts";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.ts";
 import type { LexicalTextAnchor, TextFileEvidence, TextHit } from "./candidates.ts";
-import type { GrepContentCacheLease } from "./content-cache.ts";
+import type { GrepDocuments } from "./documents.ts";
 import type { ScopeInventory, ScopedFile } from "./inventory.ts";
 import type { QueryPlan } from "./query-plan.ts";
 import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.ts";
@@ -33,8 +32,6 @@ export interface TextScanResult {
 	readonly hits: readonly TextHit[];
 	readonly totalHits: number;
 	readonly fileEvidence: readonly TextFileEvidence[];
-	/** 小型代码文件的稳定正文，供后续 LSP 或 Tree-sitter 直接复用。 */
-	readonly contents: ReadonlyMap<string, TextContent>;
 	readonly stats: TextScanStats;
 	readonly scopeErrors: readonly GrepScopeError[];
 }
@@ -42,8 +39,7 @@ export interface TextScanResult {
 export interface TextScannerContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly retainTextMaxBytes?: number;
-	readonly contentCache?: GrepContentCacheLease;
+	readonly documents?: GrepDocuments;
 }
 
 interface PreparedTextQuery {
@@ -59,7 +55,6 @@ interface FileScanSuccess {
 	readonly totalHits: number;
 	readonly evidence: TextFileEvidence;
 	readonly totalAnchors: number;
-	readonly content?: TextContent;
 }
 
 /** 通过 filesystem line scan 产生 regex/literal 事实命中，并同步收集零命中回退所需的有界词法证据。 */
@@ -72,7 +67,7 @@ export async function scanInventoryText(
 	try {
 		return await scanText(inventory, prepareTextQuery(plan, matcher), context);
 	} catch (error) {
-		if (context.operation.signal.aborted || error instanceof WorkerTaskAbortedError) return aborted(inventory.scopes[0]?.input ?? ".");
+		if (context.operation.signal.aborted || error instanceof WorkerTaskAbortedError) return aborted(inventory.scopes[0].input);
 		throw error;
 	} finally {
 		matcher.dispose();
@@ -82,7 +77,6 @@ export async function scanInventoryText(
 async function scanText(inventory: ScopeInventory, query: PreparedTextQuery, context: TextScannerContext): Promise<ToolOutcome<TextScanResult>> {
 	const hits: TextHit[] = [];
 	const fileEvidence: TextFileEvidence[] = [];
-	const contents = new Map<string, TextContent>();
 	const scopeErrors: GrepScopeError[] = [];
 	const skipped = createGrepSkippedFiles();
 	let searchedFiles = 0;
@@ -93,12 +87,15 @@ async function scanText(inventory: ScopeInventory, query: PreparedTextQuery, con
 	let droppedRelatedAnchors = 0;
 
 	for (let start = 0; start < inventory.files.length; start += FILE_SCAN_CONCURRENCY) {
-		if (context.operation.signal.aborted) return aborted(inventory.files[start]?.path ?? inventory.scopes[0]?.input ?? ".");
+		if (context.operation.signal.aborted) return aborted(inventory.files[start]?.path ?? inventory.scopes[0].input);
 		const batch = inventory.files.slice(start, start + FILE_SCAN_CONCURRENCY);
 		const cancellation = new AbortController();
 		const signal = AbortSignal.any([context.operation.signal, cancellation.signal]);
-		const scans = batch.map((file) => scanFile(file, query, { ...context, operation: { ...context.operation, signal } }));
-		let scannedBatch: Awaited<ReturnType<typeof scanFile>>[];
+		const scans = batch.map(async (file) => ({
+			file,
+			scanned: await scanFile(file, query, { ...context, operation: { ...context.operation, signal } }),
+		}));
+		let scannedBatch: Awaited<(typeof scans)[number]>[];
 		try {
 			scannedBatch = await Promise.all(scans);
 		} catch (error) {
@@ -108,9 +105,7 @@ async function scanText(inventory: ScopeInventory, query: PreparedTextQuery, con
 		} finally {
 			cancellation.abort();
 		}
-		for (const [index, scanned] of scannedBatch.entries()) {
-			const file = batch[index];
-			if (file === undefined) continue;
+		for (const { file, scanned } of scannedBatch) {
 			if (!scanned.ok) {
 				if (scanned.error.code === "aborted") return aborted(file.path);
 				if (file.explicitFile) scopeErrors.push(scopeError(file, mapFsError(scanned.error, { notFound: "file", path: file.path })));
@@ -127,21 +122,14 @@ async function scanText(inventory: ScopeInventory, query: PreparedTextQuery, con
 			fileEvidence.push({ ...scanned.value.evidence, anchors: retainedAnchors });
 			storedAnchors += retainedAnchors.length;
 			droppedRelatedAnchors += scanned.value.totalAnchors - retainedAnchors.length;
-			if (scanned.value.content !== undefined) contents.set(file.path, scanned.value.content);
 		}
 	}
-	if (totalHits > 0) {
-		const retainedPaths = new Set(hits.map((hit) => hit.path));
-		for (const path of contents.keys()) {
-			if (!retainedPaths.has(path)) contents.delete(path);
-		}
-	}
+	if (totalHits > 0) context.documents?.retain(new Set(hits.map((hit) => hit.path)));
 
 	return {
 		hits,
 		totalHits,
 		fileEvidence,
-		contents,
 		stats: {
 			searchedFiles,
 			searchedBytes,
@@ -159,24 +147,10 @@ async function scanFile(
 	context: TextScannerContext,
 ): Promise<{ readonly ok: true; readonly value: FileScanSuccess } | { readonly ok: false; readonly error: FsError }> {
 	let retained: TextContent | undefined;
-	const retainText =
-		context.retainTextMaxBytes !== undefined
-		&& file.snapshot.sizeBytes <= context.retainTextMaxBytes
-		&& languageFromPath(file.path) !== "text";
-	if (retainText) {
-		retained = await context.contentCache?.get(file, context.filesystem, context.operation);
-	}
-	if (retainText && retained === undefined) {
-		const loaded = await context.filesystem.content.readText(
-			file.ref,
-			{
-				maxBytes: context.retainTextMaxBytes,
-				expectedSnapshot: file.snapshot,
-			},
-		);
+	if (context.documents?.eligible(file.path)) {
+		const loaded = await context.documents.text(file);
 		if (!loaded.ok) return loaded;
 		retained = loaded.value;
-		context.contentCache?.set(file, context.filesystem, retained);
 	}
 	const fileHits: TextHit[] = [];
 	const anchors: LexicalTextAnchor[] = [];
@@ -253,7 +227,6 @@ async function scanFile(
 				matchedTerms: query.queryTerms.filter((term) => matchedTerms.has(term)),
 				anchors,
 			},
-			...(retained === undefined ? {} : { content: retained }),
 		},
 	};
 }

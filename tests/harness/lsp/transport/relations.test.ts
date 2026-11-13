@@ -129,6 +129,42 @@ describe("LSP relation evidence", () => {
 		expect(tools.server.methods).not.toContain("textDocument/definition");
 	});
 
+	it("引用排除自身、范围外文件和失效坐标，只保留已验证导航", async () => {
+		const text = "function run() {}\n";
+		const symbol = runSymbol(0, text.trimEnd().length);
+		const tools = await setup(text, [symbol], { routes: {
+			"textDocument/references": (message, socket) => send(socket, { id: message.id, result: [
+				{ uri: uri("main.ts"), range: symbol.selectionRange },
+				{ uri: "file:///outside.ts", range: range(0, 0, 3) },
+				{ uri: uri("missing.ts"), range: range(0, 0, 3) },
+				{ uri: uri("caller.ts"), range: range(99, 0, 3) },
+				{ uri: uri("caller.ts"), range: range(0, 0, 3) },
+			] }),
+		} }, { "caller.ts": "run;\n" });
+		const analysis = await tools.analyze();
+		expect(analysis?.results[0]?.file?.analysis.units[0]).toMatchObject({
+			authority: "referenced", navigation: [{ kind: "reference", path: "caller.ts", line: 1, column: 1 }],
+		});
+		expect(analysis?.results[0]?.file?.analysis.units[0]?.navigation).toHaveLength(1);
+	});
+
+	it("同文件其他函数的调用仍提升目标定义等级", async () => {
+		const first = "function run() {}";
+		const caller = "function caller() { run(); }";
+		const symbol = runSymbol(0, first.length);
+		const tools = await setup(`${first}\n${caller}\n`, [symbol], { routes: {
+			"textDocument/prepareCallHierarchy": (message, socket) => send(socket, { id: message.id, result: [{ ...symbol, uri: uri("main.ts") }] }),
+			"callHierarchy/incomingCalls": (message, socket) => send(socket, { id: message.id, result: [{
+				from: { name: "caller", kind: 12, uri: uri("main.ts"), range: range(1, 0, caller.length), selectionRange: range(1, 9, 15) },
+				fromRanges: [range(1, caller.indexOf("run"), caller.indexOf("run") + 3)],
+			}] }),
+		} });
+		const analysis = await tools.analyze();
+		expect(analysis?.results[0]?.file?.analysis.units.find((unit) => unit.name === "run")).toMatchObject({
+			authority: "called", navigation: [{ kind: "caller", path: "main.ts", line: 2 }],
+		});
+	});
+
 	it("递归边保留并去重，自引用不提升排序等级", async () => {
 		const text = "function run() { run(); }\n";
 		const symbol = runSymbol(0, text.trimEnd().length);
@@ -286,20 +322,20 @@ describe("LSP relation evidence", () => {
 			"callHierarchy/outgoingCalls": (message, socket) => send(socket, { id: message.id, result: [] }),
 		} });
 		const client = directClient(transport, server, 1);
-		const first = client.withDocument(file, oldText, undefined, async (document) => {
+		const first = client.withDocument({ path: file, uri: uri("main.ts"), text: oldText, languageId: "typescript" }, undefined, async (document) => {
 			await document.symbols();
 			const candidates = await document.prepareCalls({ line: 0, character: 9 });
-			const selected = candidates?.[0];
+			const selected = candidates.status === "ok" ? candidates.value[0] : undefined;
 			if (selected === undefined) throw new Error("Missing prepared symbol");
 			await document.incomingCalls(selected);
 			await document.outgoingCalls(selected);
 			return "old snapshot";
 		});
 		await entered.promise;
-		const second = client.documentSymbols(file, newText);
+		const second = client.documentSymbols({ path: file, uri: uri("main.ts"), text: newText, languageId: "typescript" });
 		release.resolve();
 		expect(await first).toBe("old snapshot");
-		expect(await second).toEqual([]);
+		expect(await second).toEqual({ status: "ok", value: [] });
 		const close = server.methods.indexOf("textDocument/didClose");
 		expect(close).toBeGreaterThan(server.methods.indexOf("callHierarchy/outgoingCalls"));
 		expect(server.messages.filter((message) => message.method === "textDocument/didOpen").map((message) => message.params)).toMatchObject([

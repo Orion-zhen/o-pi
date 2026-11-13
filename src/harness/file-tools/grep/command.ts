@@ -1,5 +1,4 @@
 import { structureIssues } from "../../code-index/structure.ts";
-import { languageFromPath } from "../../syntax-tree/grammars.ts";
 import type { AnalyzeCode, PrepareCodeAnalysis } from "../../code-index/types.ts";
 import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
@@ -12,7 +11,9 @@ import { buildRankedRegions, semanticParsePriority } from "./local.ts";
 import { packGrepResults, renderGrepSuccess } from "./packer.ts";
 import { createQueryPlan, type QueryPlan } from "./query-plan.ts";
 import { mergeGrepSkippedFiles } from "./skipped.ts";
-import { GrepRegionizer } from "./regionizer.ts";
+import { regionize } from "./regionizer.ts";
+import { GrepDocuments } from "./documents.ts";
+import { GrepSyntax } from "./syntax.ts";
 import { analyzeSymbols } from "./symbol-analysis.ts";
 import { scanInventoryText } from "./text-scanner.ts";
 import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess } from "./types.ts";
@@ -32,7 +33,7 @@ export interface GrepCommandContext {
 /** 正文缓存、语法缓存、解析器和活动调用共享所有者。 */
 export class GrepTool {
 	private readonly contentCache = new GrepContentCache();
-	private readonly regionizer = new GrepRegionizer();
+	private readonly syntax = new GrepSyntax();
 	private readonly owner = new AbortController();
 	private disposed = false;
 
@@ -62,7 +63,7 @@ export class GrepTool {
 		this.disposed = true;
 		this.owner.abort(new Error("grep is shut down."));
 		this.contentCache.dispose();
-		this.regionizer.dispose();
+		this.syntax.dispose();
 	}
 
 	private async grep(
@@ -81,40 +82,29 @@ export class GrepTool {
 			maxSearchBytes: context.limits.grep_max_search_bytes,
 		});
 		if (isFailed(inventory)) return inventory;
-		const preparation = prepareCodeAnalysis(inventory, context);
+		const documents = new GrepDocuments(inventory, context.filesystem, contentCache,
+			context.limits.grep_ast_max_file_bytes, this.syntax, context.operation.signal);
+		void prepareCodeAnalysis(inventory, documents, context);
 		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
-			retainTextMaxBytes: context.limits.grep_ast_max_file_bytes,
-			contentCache,
+			documents,
 		});
 		if (isFailed(scanned)) return scanned;
-		await preparation;
-		const analysisPaths = semanticParsePriority(inventory, scanned);
-		const analyzed = await analyzeSymbols(plan, inventory, scanned, analysisPaths, context,
-			(document, signal) => this.regionizer.syntax(document, context.filesystem, signal ?? context.operation.signal));
+		const analysisFiles = semanticParsePriority(inventory, scanned);
+		const analyzed = await analyzeSymbols(plan, documents, scanned, analysisFiles.map((file) => file.path), context);
 		if (isFailed(analyzed)) return analyzed;
-		const regionized = await this.regionizer.regionize(
-			inventory,
-			scanned.hits,
-			analyzed.syntaxPaths,
-			{
-				filesystem: context.filesystem,
-				operation: context.operation,
-				astMaxFileBytes: context.limits.grep_ast_max_file_bytes,
-				preloaded: analyzed.loaded,
-				semantic: analyzed.files,
-				related: scanned.totalHits === 0,
-			},
-		);
+		const syntaxPaths = new Set(analyzed.syntaxPaths);
+		const regionized = await regionize(documents, scanned.hits,
+			analysisFiles.filter((file) => syntaxPaths.has(file.path)), analyzed.files, scanned.totalHits === 0, context.operation.signal);
 		if (isFailed(regionized)) return regionized;
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
-		if (scope.failure !== undefined) return scope.failure;
+		if (isFailed(scope)) return scope;
 		const regions = buildRankedRegions(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		return packGrepResults({
 			query: plan.query,
 			queryMode: plan.queryMode,
-			path: scope.paths[0] ?? ".",
+			path: scope.paths[0],
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			regions,
@@ -137,13 +127,9 @@ export class GrepTool {
 	}
 }
 
-function prepareCodeAnalysis(inventory: ScopeInventory, context: GrepCommandContext): Promise<void> {
+function prepareCodeAnalysis(inventory: ScopeInventory, documents: GrepDocuments, context: GrepCommandContext): Promise<void> {
 	if (context.prepareCodeAnalysis === undefined || context.analyzeCode === undefined) return Promise.resolve();
-	const paths = inventory.files.flatMap((file) =>
-		file.snapshot.sizeBytes <= context.limits.grep_ast_max_file_bytes
-			&& languageFromPath(file.path) !== "text"
-			? [file.path]
-			: []);
+	const paths = inventory.files.filter((file) => documents.eligible(file.path)).map((file) => file.path);
 	if (paths.length === 0) return Promise.resolve();
 	return context.prepareCodeAnalysis({
 		paths,
@@ -156,14 +142,20 @@ function successfulScopeState(
 	inventory: ScopeInventory,
 	scanErrors: readonly GrepScopeError[],
 	regionErrors: readonly GrepScopeError[],
-): { readonly paths: string[]; readonly errors: GrepScopeError[]; readonly failure?: FailedResult } {
+): ToolOutcome<{ readonly paths: [string, ...string[]]; readonly errors: GrepScopeError[] }> {
 	const errors = [...inventory.scopeErrors, ...scanErrors, ...regionErrors];
-	const failedScopes = new Set([...scanErrors, ...regionErrors].map((item) => item.path));
-	const paths = uniqueStrings(inventory.scopes.filter((scope) => !failedScopes.has(scope.input)).map((scope) => scope.root.displayPath));
-	if (paths.length > 0 || errors.length === 0) return { paths, errors };
-	const first = errors[0];
-	if (first === undefined) return { paths, errors };
-	return { paths, errors, failure: withGrepScopeErrors({ status: "failed", error: first.error }, [...plan.paths], errors) };
+	const failures = new Map([...scanErrors, ...regionErrors].map((item) => [item.path, item.error]));
+	const [first, ...rest] = inventory.scopes;
+	const firstFailure = failures.get(first.input);
+	let result: ToolOutcome<{ paths: [string, ...string[]]; errors: GrepScopeError[] }> = firstFailure === undefined
+		? { paths: [first.root.displayPath], errors }
+		: withGrepScopeErrors({ status: "failed", error: errors[0]?.error ?? firstFailure }, [...plan.paths], errors);
+	for (const scope of rest) {
+		if (failures.has(scope.input)) continue;
+		if (isFailed(result)) result = { paths: [scope.root.displayPath], errors };
+		else if (!result.paths.includes(scope.root.displayPath)) result.paths.push(scope.root.displayPath);
+	}
+	return result;
 }
 
 function grepStats(
@@ -202,10 +194,6 @@ function withGrepScopeErrors(result: FailedResult, paths: string[], scopeErrors:
 			details: { ...(result.error.details ?? {}), paths, scope_errors: scopeErrors },
 		},
 	};
-}
-
-function uniqueStrings(values: readonly string[]): string[] {
-	return [...new Set(values)];
 }
 
 export function formatCompactGrepResult(result: GrepSuccess): string {

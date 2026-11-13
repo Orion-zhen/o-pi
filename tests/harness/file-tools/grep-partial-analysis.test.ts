@@ -67,10 +67,10 @@ describe("grep partial LSP analysis", () => {
 		expect(formatCompactGrepResult(result).split("\n")[0]).toBe("<grep>");
 	});
 
-	it.each(["error", "invalid-range", "invalid-children", "timeout"] as const)("单文件文档符号 %s 时只补充该文件", async (mode) => {
+	it.each(["error", "invalid-range", "invalid-children"] as const)("单文件文档符号 %s 时只补充该文件", async (mode) => {
 		await writeFile(path.join(context.workspace, "good.ts"), source);
 		await writeFile(path.join(context.workspace, "broken.ts"), source);
-		const { search, server } = await setup({ routes: {
+		const { search } = await setup({ routes: {
 			"textDocument/documentSymbol": (message, socket) => {
 				if (!JSON.stringify(message.params).includes("broken.ts")) {
 					send(socket, { id: message.id, result: [symbol] });
@@ -91,20 +91,17 @@ describe("grep partial LSP analysis", () => {
 		expect(result.regions.find((region) => region.path === "broken.ts")?.kind).toBe("declaration");
 		expect(result.analysis).toEqual(expect.arrayContaining([
 			{ path: "good.ts", symbols: "ok" },
-			{ path: "broken.ts", symbols: mode === "timeout" ? "timeout" : "unavailable" },
+			{ path: "broken.ts", symbols: "unavailable" },
 		]));
 		expect(result.regions.flatMap((region) => region.match_lines ?? [])).toEqual([1, 1]);
-		if (mode === "timeout") await server.cancelled;
 	});
 
-	it.each(["error", "timeout"] as const)("调用层次 %s 后仍保留符号和引用导航", async (mode) => {
+	it("调用层次返回错误后仍保留符号和引用导航", async () => {
 		await writeFile(path.join(context.workspace, "target.ts"), source);
 		await writeFile(path.join(context.workspace, "caller.ts"), "consume();\n");
 		const caller = pathToFileURL(path.join(context.workspace, "caller.ts")).toString();
 		const { search } = await setup({ routes: {
-			"textDocument/prepareCallHierarchy": (message, socket) => {
-				if (mode === "error") send(socket, { id: message.id, error: { code: -32000, message: "call hierarchy failed" } });
-			},
+			"textDocument/prepareCallHierarchy": (message, socket) => send(socket, { id: message.id, error: { code: -32000, message: "call hierarchy failed" } }),
 			"textDocument/references": (message, socket) => send(socket, { id: message.id, result: [{
 				uri: caller, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 7 } },
 			}] }),
@@ -113,10 +110,31 @@ describe("grep partial LSP analysis", () => {
 		const result = expectGrepSuccess(await search());
 		expect(result.regions[0]).toMatchObject({
 			path: "target.ts", kind: "function", roles: ["definition", "referenced"],
-			relation_status: { incomingCalls: mode === "timeout" ? "timeout" : "unavailable", references: "ok" },
+			relation_status: { incomingCalls: "unavailable", references: "ok" },
 			navigation: [{ kind: "reference", path: "caller.ts", line: 1, column: 1 }],
 		});
 		expect(result.analysis).toEqual([{ path: "target.ts", symbols: "ok" }]);
+	});
+
+	it.each(["textDocument/documentSymbol", "textDocument/prepareCallHierarchy"] as const)("%s 耗尽总预算后放弃本次增强，正文命中仍保留", async (method) => {
+		await writeFile(path.join(context.workspace, "good.ts"), source);
+		await writeFile(path.join(context.workspace, "target.ts"), source);
+		const { search, server } = await setup({ routes: {
+			[method]: (message, socket) => {
+				if (JSON.stringify(message.params).includes("target.ts")) return;
+				send(socket, { id: message.id, result: method === "textDocument/documentSymbol" ? [symbol] : null });
+			},
+		} }, 150);
+
+		const result = expectGrepSuccess(await search());
+		expect(result.regions).toHaveLength(2);
+		expect(result.regions.every((region) => region.kind === "declaration" && region.navigation === undefined)).toBe(true);
+		expect(result.regions.flatMap((region) => region.match_lines ?? [])).toEqual([1, 1]);
+		expect(result.analysis).toEqual(expect.arrayContaining([
+			{ path: "good.ts", symbols: "unavailable" }, { path: "target.ts", symbols: "unavailable" },
+		]));
+		await server.cancelled;
+		expect(server.methods).not.toContain("shutdown");
 	});
 
 	it("引用请求失败时保留传入调用及其导航", async () => {

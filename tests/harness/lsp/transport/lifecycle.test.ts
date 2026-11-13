@@ -5,7 +5,7 @@ import { LspClient } from "../../../../src/harness/lsp/client/client.ts";
 import { LspManager } from "../../../../src/harness/lsp/manager/manager.ts";
 import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
 import { deferred } from "../../../helpers/async.ts";
-import { createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, directClient, documentSymbol, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.ts";
+import { testDocument, createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, directClient, documentSymbol, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 
@@ -110,14 +110,14 @@ describe("lsp transport lifecycle", () => {
 		});
 		const client = directClient(transport, fake);
 		const file = path.join(transport.workspace, "a.ts");
-		const first = client.documentSymbols(file, "old\n");
-		const queued = client.documentSymbols(file, "queued\n");
+		const first = client.documentSymbols(testDocument(file, "old\n"));
+		const queued = client.documentSymbols(testDocument(file, "queued\n"));
 		await firstSeen.promise;
 		const stopped = client.shutdown();
-		const fresh = client.documentSymbols(file, "fresh\n");
-		await expect(Promise.all([first, queued])).resolves.toEqual([undefined, undefined]);
+		const fresh = client.documentSymbols(testDocument(file, "fresh\n"));
+		await expect(Promise.all([first, queued])).resolves.toEqual([{ status: "unavailable" }, { status: "unavailable" }]);
 		await stopped;
-		await expect(fresh).resolves.toEqual([documentSymbol("fresh", 0)]);
+		await expect(fresh).resolves.toEqual({ status: "ok", value: [documentSymbol("fresh", 0)] });
 		expect(fake.connections).toBe(2);
 		expect(requests).toBe(2);
 		expect(fake.messages.filter((message) => message.method === "textDocument/didOpen")).toMatchObject([
@@ -149,7 +149,7 @@ describe("lsp transport lifecycle", () => {
 			expect(fake.methods).not.toContain("shutdown");
 			releaseRequest();
 			vi.useRealTimers();
-			await expect(pending).resolves.toEqual([]);
+			await expect(pending).resolves.toEqual({ status: "ok", value: [] });
 		} finally {
 			vi.useRealTimers();
 		}

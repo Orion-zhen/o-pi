@@ -27,7 +27,7 @@ export async function diagnosticHints(
 			textDocument: { uri }, range: diagnostic.range,
 			context: { diagnostics: matching, only: ["quickfix"] },
 		}, { ...options, timeoutMs });
-		const candidates = (actions ?? []).flatMap((action) => {
+		const candidates = (actions.status === "ok" ? actions.value ?? [] : []).flatMap((action) => {
 			if (!CodeAction.is(action) || action.disabled !== undefined || action.command !== undefined
 				|| !(action.kind === "quickfix" || action.kind?.startsWith("quickfix.") === true)
 				|| !simpleEdit(action, uri)) return [];

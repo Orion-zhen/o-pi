@@ -15,7 +15,7 @@ import {
 	type SemanticMainRegion,
 	type VerifiedCodeRegion,
 } from "./candidates.ts";
-import type { ScopeInventory } from "./inventory.ts";
+import type { ScopeInventory, ScopedFile } from "./inventory.ts";
 import type { QueryPlan } from "./query-plan.ts";
 import { rankCodeRegions } from "./ranking.ts";
 import type { RegionizationResult } from "./regionizer.ts";
@@ -31,7 +31,7 @@ interface LocalEntry {
 export function semanticParsePriority(
 	inventory: ScopeInventory,
 	scan: TextScanResult,
-): string[] {
+): ScopedFile[] {
 	const evidenceByPath = new Map(scan.fileEvidence.map((item) => [item.path, item]));
 	const hitCount = new Map<string, number>();
 	for (const hit of scan.hits) hitCount.set(hit.path, (hitCount.get(hit.path) ?? 0) + 1);
@@ -46,13 +46,13 @@ export function semanticParsePriority(
 			const phrase = evidence?.anchors.filter((anchor) => anchor.phrase).length ?? 0;
 			const exact = hitCount.get(file.path) ?? 0;
 			return {
-				path: file.path,
+				file,
 				score: exact * 1_000_000 + phrase * 100_000 + covered * 10_000,
 				size: file.snapshot.sizeBytes,
 			};
 		})
-		.sort((left, right) => right.score - left.score || left.size - right.size || compareString(left.path, right.path))
-		.map((item) => item.path);
+		.sort((left, right) => right.score - left.score || left.size - right.size || compareString(left.file.path, right.file.path))
+		.map((item) => item.file);
 }
 
 /** 正文命中优先；仅在整次零命中时将词法 anchor 转成明确标记的 related 候选。 */
@@ -197,7 +197,7 @@ function localEntry(
 	item: IndexedCodeUnit,
 	units: ReadonlyMap<string, IndexedCodeUnit>,
 	quality: number,
-	signals: readonly CandidateSignal[],
+	signals: readonly [CandidateSignal, ...CandidateSignal[]],
 	displayLines: readonly GrepDisplayLine[] = [],
 ): LocalEntry {
 	return {
@@ -244,7 +244,7 @@ function addRegion(
 		regions.set(incoming.id, incoming);
 		return;
 	}
-	const signals = unique([...existing.signals, ...incoming.signals]);
+	const signals = unique<CandidateSignal>([...existing.signals, ...incoming.signals]);
 	const evidence = mergeEvidence(existing.evidence, incoming.evidence);
 	const displayLines = mergeDisplayLines(existing.displayLines, incoming.displayLines);
 	const symbolRole = existing.symbolRole ?? incoming.symbolRole;
@@ -307,8 +307,8 @@ function normalizeTerm(value: string): string {
 	return value.toLocaleLowerCase();
 }
 
-function unique<T>(values: readonly T[]): T[] {
-	return [...new Set(values)];
+function unique<T>(values: readonly [T, ...T[]]): [T, ...T[]] {
+	return [values[0], ...new Set(values.slice(1).filter((value) => value !== values[0]))];
 }
 
 function strongerAuthority(

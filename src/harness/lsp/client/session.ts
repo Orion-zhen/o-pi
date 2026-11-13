@@ -18,7 +18,7 @@ export class LspClientSession {
 		ledger: DiagnosticsLedger,
 		readonly connection: ReadyLspConnection,
 	) {
-		this.documents = new LspClientDocuments(root, server, config, connection);
+		this.documents = new LspClientDocuments(config, connection);
 		this.diagnostics = new LspClientDiagnostics(root, server, config, ledger, this.documents);
 		connection.rpc.onNotification(PublishDiagnosticsNotification.type, (params) => this.diagnostics.publish({
 			uri: params.uri,

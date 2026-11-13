@@ -20,7 +20,7 @@ import type { LspTransportConnection } from "../protocol/transport.ts";
 import type { LspFeatureSession } from "../protocol/features.ts";
 import { withTimeout } from "../protocol/timeout.ts";
 import { LspProtocolInfrastructure, LspProtocolValidationError } from "../protocol/infrastructure.ts";
-import type { LspRequestOptions } from "../types.ts";
+import type { LspRequestOptions, LspRequestResult } from "../types.ts";
 
 const MIN_GRACEFUL_CLOSE_MS = 1000;
 const MAX_GRACEFUL_CLOSE_MS = 3000;
@@ -71,28 +71,26 @@ export class LspClientConnection {
 		return Object.assign(this, { capabilities: () => result.capabilities });
 	}
 
-	async request<P, R, E>(type: RequestType<P, R, E>, params: NoInfer<RequestParam<P>>, options: LspRequestOptions = {}): Promise<R | undefined> {
-		if (!this.usable) return undefined;
+	async request<P, R, E>(type: RequestType<P, R, E>, params: NoInfer<RequestParam<P>>, options: LspRequestOptions = {}): Promise<LspRequestResult<R>> {
+		if (!this.usable || options.signal?.aborted) return { status: "unavailable" };
 		const source = new CancellationTokenSource();
-		const cancelled = Promise.withResolvers<never>();
-		const cancel = (message: string): void => {
+		const cancelled = Promise.withResolvers<LspRequestResult<R>>();
+		const cancel = (status: "timeout" | "unavailable"): void => {
+			this.requestError = status === "timeout" ? "timeout" : "request cancelled";
 			source.cancel();
-			cancelled.reject(new Error(message));
+			cancelled.resolve({ status });
 		};
-		const onAbort = (): void => cancel("request cancelled");
-		if (options.signal?.aborted === true) onAbort();
-		else options.signal?.addEventListener("abort", onAbort, { once: true });
-		const timer = setTimeout(() => {
-			options.onTimeout?.();
-			cancel("timeout");
-		}, options.timeoutMs ?? this.requestTimeoutMs);
+		const onAbort = (): void => cancel("unavailable");
+		options.signal?.addEventListener("abort", onAbort, { once: true });
+		const timer = setTimeout(() => cancel("timeout"), options.timeoutMs ?? this.requestTimeoutMs);
 		try {
 			return await Promise.race([
-				this.rpc.sendRequest(type, params, source.token), this.failure, cancelled.promise,
+				this.rpc.sendRequest(type, params, source.token).then((value) => ({ status: "ok" as const, value })),
+				this.failure, cancelled.promise,
 			]);
 		} catch (error) {
 			this.requestError = errorMessage(error);
-			return undefined;
+			return { status: "unavailable" };
 		} finally {
 			clearTimeout(timer);
 			options.signal?.removeEventListener("abort", onAbort);

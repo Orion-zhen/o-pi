@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { stdioClient, useTransportFixture } from "./fixtures.ts";
+import { testDocument, stdioClient, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 
@@ -10,7 +10,7 @@ describe("lsp transport stdio", () => {
 	it("stdio drain 大量 stderr并保留有界尾部", async () => {
 		const client = stdioClient(transport, "stderr-crash");
 		expect(await client.ensureReady()).toBe(true);
-		await expect(client.workspaceSymbols("crash")).resolves.toBeUndefined();
+		await expect(client.workspaceSymbols("crash")).resolves.toEqual({ status: "unavailable" });
 		const status = client.status();
 		expect(status).toMatchObject({
 			status: "crashed",
@@ -25,7 +25,7 @@ describe("lsp transport stdio", () => {
 		const workspace = transport.workspace;
 		const client = stdioClient(transport, "notification-timeout");
 		expect(await client.ensureReady()).toBe(true);
-		await expect(client.documentSymbols(path.join(workspace, "large.ts"), "x".repeat(16 * 1024 * 1024))).resolves.toBeUndefined();
+		await expect(client.documentSymbols(testDocument(path.join(workspace, "large.ts"), "x".repeat(16 * 1024 * 1024)))).resolves.toEqual({ status: "unavailable" });
 		expect(client.status()).toMatchObject({ status: "crashed", open_documents: 0 });
 	});
 	it("shutdown 在 writer backpressure 下不会泄漏未处理的 stream rejection", async () => {
@@ -38,7 +38,7 @@ describe("lsp transport stdio", () => {
 		process.on("unhandledRejection", onUnhandled);
 		try {
 			expect(await client.ensureReady()).toBe(true);
-			const blocked = client.documentSymbols(path.join(workspace, "large.ts"), "x".repeat(16 * 1024 * 1024));
+			const blocked = client.documentSymbols(testDocument(path.join(workspace, "large.ts"), "x".repeat(16 * 1024 * 1024)));
 			await new Promise<void>((resolve) => setImmediate(resolve));
 			await Promise.allSettled([blocked, client.shutdown()]);
 			await new Promise<void>((resolve) => setImmediate(resolve));

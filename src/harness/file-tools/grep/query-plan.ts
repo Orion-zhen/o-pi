@@ -4,7 +4,7 @@ import type { GrepParams, GrepQueryMode } from "./types.ts";
 export interface QueryPlan {
 	readonly query: string;
 	readonly queryMode: GrepQueryMode;
-	readonly paths: readonly string[];
+	readonly paths: readonly [string, ...string[]];
 	readonly glob?: string;
 	readonly targetTerms: readonly string[];
 	readonly targetQuery: string;
@@ -16,15 +16,17 @@ export interface QueryPlan {
 export function createQueryPlan(params: GrepParams): ToolOutcome<QueryPlan> {
 	if (params.query.trim().length === 0) return fail("INVALID_OPERATION", "query must not be empty.");
 	if (params.query.includes("\0")) return fail("INVALID_OPERATION", "query must not contain NUL bytes.");
-	const paths = params.path ?? ["."];
+	const [firstPath, ...otherPaths] = params.path ?? ["."];
+	if (firstPath === undefined) return fail("INVALID_PATH", "path must contain at least one scope.");
+	const paths: [string, ...string[]] = [firstPath, ...otherPaths];
 	for (const scope of paths) {
 		if (scope.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: scope });
 	}
 	if (/[\r\n]/u.test(params.query)) {
-		return fail("INVALID_OPERATION", "query must not contain CR or LF.", { path: paths[0] ?? "." });
+		return fail("INVALID_OPERATION", "query must not contain CR or LF.", { path: paths[0] });
 	}
 	if (params.glob?.includes("\0") === true) {
-		return fail("INVALID_PATH", "glob must not contain NUL bytes.", { path: paths[0] ?? "." });
+		return fail("INVALID_PATH", "glob must not contain NUL bytes.", { path: paths[0] });
 	}
 	const queryMode = params.mode ?? "regex";
 	let regex: RegExp;
@@ -40,7 +42,7 @@ export function createQueryPlan(params: GrepParams): ToolOutcome<QueryPlan> {
 	return {
 		query: params.query,
 		queryMode,
-		paths: [...paths],
+		paths,
 		...(params.glob === undefined ? {} : { glob: params.glob }),
 		targetTerms,
 		targetQuery: targetTerms.join(" "),

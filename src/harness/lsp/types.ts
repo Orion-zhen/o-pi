@@ -54,9 +54,12 @@ export interface LspFileRoute {
 export interface LspRequestOptions {
 	timeoutMs?: number;
 	signal?: AbortSignal;
-	/** 协议层超时先于调用方截止时间时，保留准确的失败原因。 */
-	onTimeout?: () => void;
 }
+
+/** 协议边界直接保留失败原因，调用方不从空值推断。 */
+export type LspRequestResult<T> =
+	| { readonly status: "ok"; readonly value: T }
+	| { readonly status: "unsupported" | "unavailable" | "timeout" };
 
 /** LSP 配置；由全局配置和可选项目配置合并得到。 */
 export interface LspConfig {

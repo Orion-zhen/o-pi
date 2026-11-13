@@ -79,7 +79,7 @@ export class RelationLocations {
 			this.failures.add("skipped");
 			return Promise.resolve(undefined);
 		}
-		const pending = this.requests.run(true, async (options) => {
+		const pending = this.requests.run(async (options) => {
 			const document = await this.input.load(path);
 			if (document === undefined || options.signal.aborted) return undefined;
 			const analysis = await this.input.syntax(document, options.signal);

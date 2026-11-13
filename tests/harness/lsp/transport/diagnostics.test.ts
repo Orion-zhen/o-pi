@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.ts";
 import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
 import { deferred } from "../../../helpers/async.ts";
-import { createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.ts";
+import { testDocument, createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 
@@ -27,10 +27,7 @@ describe("lsp transport diagnostics", () => {
 		const diagnostics = new DiagnosticsLedger();
 		const client = directClient(transport, fake, 64, undefined, diagnostics);
 		expect(await client.ensureReady()).toBe(true);
-		await expect(client.saveAndCollectDiagnosticsBatch([{
-			filePath: path.join(workspace, "a.ts"),
-			text: "const a = 1;\n",
-		}], {})).resolves.toMatchObject([{ kind: "publish" }]);
+		await expect(client.saveAndCollectDiagnosticsBatch([testDocument(path.join(workspace, "a.ts"), "const a = 1;\n")], {})).resolves.toMatchObject([{ result: { kind: "publish" } }]);
 		await client.shutdown();
 		expect(diagnostics.snapshot(client.diagnosticSource(), uri).items).toEqual([
 			expect.objectContaining({ message: "unversioned" }),
@@ -108,43 +105,40 @@ describe("lsp transport diagnostics", () => {
 		});
 		const client = directClient(transport, fake);
 		const filePath = path.join(transport.workspace, "a.ts");
-		const first = client.saveAndCollectDiagnosticsBatch([{ filePath, text: "old\n" }], {});
+		const first = client.saveAndCollectDiagnosticsBatch([testDocument(filePath, "old\n")], {});
 		const firstFailed = expect(first).rejects.toThrow();
-		const second = client.saveAndCollectDiagnosticsBatch([{ filePath, text: "new\n" }], {});
+		const second = client.saveAndCollectDiagnosticsBatch([testDocument(filePath, "new\n")], {});
 		await firstPull.promise;
 		expect(pulls).toBe(1);
 		expect(fake.methods).not.toContain("textDocument/didChange");
 		releaseFirst.resolve();
 		await firstFailed;
-		await expect(second).resolves.toMatchObject([{ kind: "pull", snapshot: { known: true, items: [] } }]);
+		await expect(second).resolves.toMatchObject([{ result: { kind: "pull", snapshot: { known: true, items: [] } } }]);
 		expect(pulls).toBe(2);
 	});
 
-	it("批量诊断按 URI 使用最后正文，并将不同诊断填回原始输入位置", async () => {
-		let pulls = 0;
+	it("同 URI 使用最后正文且只检查一次，结果按原始写入顺序返回", async () => {
+		const workspace = transport.workspace;
+		const a = path.join(workspace, "a.ts");
+		const b = path.join(workspace, "b.ts");
 		const fake = await createProtocolServer(transport, {
-			capabilities: {
-				diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false },
-				textDocumentSync: { openClose: true, change: 1, save: { includeText: true } },
-			},
+			capabilities: { diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false }, textDocumentSync: 1 },
 			routes: { "textDocument/diagnostic": (message, socket) => send(socket, {
-				id: message.id, result: { kind: "full", items: [diagnostic(`result-${++pulls}`, 0)] },
+				id: message.id, result: { kind: "full", items: [diagnostic(JSON.stringify(message.params), 0)] },
 			}) },
 		});
-		const client = directClient(transport, fake);
-		const a = path.join(transport.workspace, "a.ts");
-		const b = path.join(transport.workspace, "b.ts");
-		const results = await client.saveAndCollectDiagnosticsBatch([
-			{ filePath: a, text: "old-a\n" }, { filePath: b, text: "new-b\n" }, { filePath: a, text: "new-a\n" },
-		], {});
-		expect(results).toMatchObject(["result-1", "result-2", "result-1"].map((message) => ({
-			kind: "pull", snapshot: { items: [{ message }] },
+		const manager = await createManager(transport, fake);
+		const results = await manager.afterMutationBatch([a, b, a].map((filePath, index) => ({
+			workspaceRoot: workspace, filePath, content: `const value = ${index};\n`, created: false,
 		})));
-		expect(fake.messages.filter((message) => message.method === "textDocument/didOpen")).toMatchObject([
-			{ params: { textDocument: { uri: pathToFileUri(a), text: "new-a\n" } } },
-			{ params: { textDocument: { uri: pathToFileUri(b), text: "new-b\n" } } },
+		expect(results.map((result) => result?.items[0]?.message)).toEqual([
+			expect.stringContaining(pathToFileUri(a)), expect.stringContaining(pathToFileUri(b)), expect.stringContaining(pathToFileUri(a)),
 		]);
-		expect(pulls).toBe(2);
+		expect(fake.methods.filter((method) => method === "textDocument/diagnostic")).toHaveLength(2);
+		expect(fake.messages.filter((message) => message.method === "textDocument/didOpen")).toMatchObject([
+			{ params: { textDocument: { uri: pathToFileUri(a), text: "const value = 2;\n" } } },
+			{ params: { textDocument: { uri: pathToFileUri(b), text: "const value = 1;\n" } } },
+		]);
 	});
 
 	it("didWriteBatch 先同步同一 server 的全部文档，并限制并发 pull diagnostics", async () => {

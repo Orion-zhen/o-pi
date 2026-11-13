@@ -69,7 +69,7 @@ export interface CodeRelationStatus {
 }
 
 export interface AnalyzedCodeFile {
-	readonly document: CodeDocument;
+	readonly hash: string;
 	readonly analysis: AnalyzedFileIndex;
 	/** 本次查询选择的增强单元，不进入语法缓存。 */
 	readonly selectedIds: readonly string[];

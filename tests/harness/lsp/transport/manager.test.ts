@@ -336,14 +336,14 @@ describe("lsp transport manager and protocol", () => {
 		}, config, new DiagnosticsLedger(), () => undefined);
 
 		expect(await client.ensureReady()).toBe(true);
-		expect(client.capabilities()?.workspaceSymbolProvider).toBe(true);
-		await expect(client.workspaceSymbols("slow")).resolves.toBeUndefined();
+		expect(await client.withSession(async (session) => session.connection.capabilities().workspaceSymbolProvider)).toBe(true);
+		await expect(client.workspaceSymbols("slow")).resolves.toEqual({ status: "timeout" });
 		await fake.cancelled;
 		await fake.response;
 		await expect(client.saveAndCollectDiagnosticsBatch([{
-			filePath: path.join(workspace, "a.ts"),
-			text: "const a = 1;\n",
-		}], {})).resolves.toMatchObject([{ kind: "publish" }]);
+			path: path.join(workspace, "a.ts"), uri: pathToFileUri(path.join(workspace, "a.ts")),
+			text: "const a = 1;\n", languageId: "typescript",
+		}], {})).resolves.toMatchObject([{ result: { kind: "publish" } }]);
 		await client.shutdown();
 		await fake.closed;
 

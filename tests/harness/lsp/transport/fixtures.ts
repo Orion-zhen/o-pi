@@ -6,8 +6,8 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { StreamMessageReader, type Message } from "vscode-jsonrpc/node";
 
 import { analyzeCodeFile } from "../../../../src/harness/code-index/parser.ts";
-import { LspDocumentSession } from "../../../../src/harness/lsp/client/document-session.ts";
-import { mockDocumentSessions } from "../mock-document-session.ts";
+import { lspDocument, LspDocumentSession } from "../../../../src/harness/lsp/client/document-session.ts";
+import { lspOk, mockDocumentSessions } from "../mock-document-session.ts";
 import { LspClient } from "../../../../src/harness/lsp/client/client.ts";
 import { DiagnosticsLedger } from "../../../../src/harness/lsp/diagnostics/ledger.ts";
 import { LspManager } from "../../../../src/harness/lsp/manager/manager.ts";
@@ -147,6 +147,10 @@ export function stdioClient(fixture: TransportFixture, mode: "notification-timeo
 	return client;
 }
 
+export function testDocument(filePath: string, text: string, languageId = "typescript") {
+	return lspDocument(filePath, text, languageId);
+}
+
 export function documentSymbol(name: string, line: number): Record<string, unknown> {
 	const range = { start: { line, character: 0 }, end: { line, character: name.length } };
 	return { name, kind: 12, range, selectionRange: range };
@@ -163,14 +167,14 @@ export function diagnostic(message: string, line: number): Record<string, unknow
 
 export async function queryManagerSymbols(manager: LspManager, root: string, query: string, signal?: AbortSignal) {
 	mockDocumentSessions();
-	vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([{
+	vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue(lspOk([{
 		name: "target",
 		kind: 12,
 		range: { start: { line: 2, character: 0 }, end: { line: 2, character: 6 } },
 		selectionRange: { start: { line: 2, character: 0 }, end: { line: 2, character: 6 } },
-	}]);
-	vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([]);
-	vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([]);
+	}]));
+	vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue(lspOk([]));
+	vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue(lspOk([]));
 	const analysis = await manager.codeAnalysis({
 		syntax: (document) => analyzeCodeFile(document.path, document.text),
 		root,
@@ -189,7 +193,7 @@ export async function queryManagerSymbols(manager: LspManager, root: string, que
 		},
 	});
 	return analysis?.results.flatMap(({ file }) => file === undefined ? [] : file.analysis.units.map((unit) => ({
-		path: file.document.path,
+		path: file.analysis.path,
 		start_line: unit.startLine,
 		end_line: unit.endLine,
 		kind: unit.kind,

@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { deferred } from "../../../helpers/async.ts";
 import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
-import { createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.ts";
+import { testDocument, createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 const capabilities = {
@@ -138,7 +138,7 @@ describe("lsp mutation enhancements", () => {
 		});
 		const client = directClient(transport, fake);
 		const filePath = path.join(transport.workspace, "a.ts");
-		await client.saveAndCollectDiagnosticsBatch([{ filePath, text: "const fixed = 1;\n" }], {});
+		await client.saveAndCollectDiagnosticsBatch([testDocument(filePath, "const fixed = 1;\n")], {});
 		expect(await client.diagnosticHints(filePath, "Foo();\n", [{ severity: "error", line: 1, column: 1, message: "missing Foo" }], { timeoutMs: 300 })).toEqual([]);
 		expect(fake.methods).not.toContain("textDocument/codeAction");
 	});
@@ -157,8 +157,8 @@ describe("lsp mutation enhancements", () => {
 		});
 		const client = directClient(transport, fake);
 		const filePath = path.join(transport.workspace, "a.ts");
-		await client.saveAndCollectDiagnosticsBatch([{ filePath, text: "Foo();\n" }], {});
-		const saving = client.saveAndCollectDiagnosticsBatch([{ filePath, text: "fixed();\n" }], { timeoutMs: 3000 });
+		await client.saveAndCollectDiagnosticsBatch([testDocument(filePath, "Foo();\n")], {});
+		const saving = client.saveAndCollectDiagnosticsBatch([testDocument(filePath, "fixed();\n")], { timeoutMs: 3000 });
 		await entered.promise;
 		vi.useFakeTimers();
 		let completed = false;

@@ -10,14 +10,8 @@ export type RetrievalSource =
 	| "text-lexical";
 
 export type CandidateSignal =
-	| "exact_qualified_definition"
-	| "exact_symbol_definition"
-	| "exact_member_definition"
 	| "verified_enclosing_region"
 	| "verified_text_line"
-	| "symbol_prefix"
-	| "structured_symbol_match"
-	| "structured_path_match"
 	| "lexical_high_coverage"
 	| "related_symbol"
 	| "lexical";
@@ -74,7 +68,7 @@ export interface CodeRegionBase {
 	readonly authority?: CodeAuthority;
 	readonly navigation?: readonly CodeNavigation[];
 	readonly relationStatus?: CodeRelationStatus;
-	readonly signals: readonly CandidateSignal[];
+	readonly signals: readonly [CandidateSignal, ...CandidateSignal[]];
 	readonly evidence?: RegionEvidence;
 	readonly displayLines: readonly GrepDisplayLine[];
 }

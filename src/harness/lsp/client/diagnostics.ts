@@ -24,9 +24,16 @@ export type LspSaveDiagnosticsResult =
 	| { kind: "publish"; waitMs: number }
 	| { kind: "pull"; snapshot?: LspDiagnosticSnapshot; related?: readonly LspDiagnosticSnapshot[] };
 
-type DiagnosticsBucket = {
+export type LspDiagnosticInput = LspClientDocumentContext;
+
+export interface LspSavedDiagnostics<T extends LspDiagnosticInput> {
+	readonly input: T;
+	readonly result: LspSaveDiagnosticsResult;
+}
+
+type DiagnosticsBucket<T> = {
 	document: LspClientDocumentContext;
-	indices: [number, ...number[]];
+	inputs: T[];
 };
 
 /** 保存、发布和 pull diagnostics 的 client 内部状态。 */
@@ -59,31 +66,29 @@ export class LspClientDiagnostics {
 		);
 	}
 
-	async collect(
-		inputs: readonly { filePath: string; text: string }[],
+	async collect<T extends LspDiagnosticInput>(
+		inputs: readonly T[],
 		options: LspRequestOptions,
-	): Promise<readonly LspSaveDiagnosticsResult[]> {
+	): Promise<readonly LspSavedDiagnostics<T>[]> {
 		if (inputs.length === 0) return [];
 		const connection = this.documents.connection;
 
-		const buckets = new Map<string, DiagnosticsBucket>();
-		for (const [index, input] of inputs.entries()) {
-			const document = this.documents.context(input.filePath, input.text);
+		const buckets = new Map<string, DiagnosticsBucket<T>>();
+		for (const input of inputs) {
+			const { uri, path, text, languageId } = input;
+			const document: LspClientDocumentContext = { uri, path, text, languageId };
 			const bucket = buckets.get(document.uri);
-			if (bucket === undefined) buckets.set(document.uri, { document, indices: [index] });
+			if (bucket === undefined) buckets.set(document.uri, { document, inputs: [input] });
 			else {
 				bucket.document = document;
-				bucket.indices.push(index);
+				bucket.inputs.push(input);
 			}
 		}
 
 		const unique = Array.from(buckets.values());
 		let remainingSyncs = unique.length;
-		let releaseSynchronized: () => void = () => undefined;
-		const synchronized = new Promise<void>((resolve) => {
-			releaseSynchronized = resolve;
-		});
-		let diagnosticDeadline = Number.POSITIVE_INFINITY;
+		const synchronized = Promise.withResolvers<void>();
+		let diagnosticDeadline = 0;
 		const diagnosticLimit = pLimit(DIAGNOSTIC_REQUEST_CONCURRENCY);
 		const provider = connection.capabilities().diagnosticProvider;
 		const pullProvider = typeof provider === "object" && provider !== null ? provider : undefined;
@@ -101,10 +106,10 @@ export class LspClientDiagnostics {
 						remainingSyncs -= 1;
 						if (remainingSyncs === 0) {
 							diagnosticDeadline = Date.now() + timeoutMs;
-							releaseSynchronized();
+							synchronized.resolve();
 						}
 					}
-					await synchronized;
+					await synchronized.promise;
 					if (!saved) return { kind: "unavailable" };
 					const remainingMs = (): number => Math.max(0, diagnosticDeadline - Date.now());
 					if (pullProvider === undefined) return { kind: "publish", waitMs: remainingMs() };
@@ -117,8 +122,8 @@ export class LspClientDiagnostics {
 							...(pullProvider.identifier === undefined ? {} : { identifier: pullProvider.identifier }),
 							...(previousResultId === undefined ? {} : { previousResultId }),
 						}, { ...options, timeoutMs: availableMs });
-						if (report === undefined) return { kind: "pull" };
-						return this.applyDocumentDiagnosticReport(document.uri, report);
+						if (report.status !== "ok") return { kind: "pull" };
+						return this.applyDocumentDiagnosticReport(document.uri, report.value);
 					});
 				},
 			);
@@ -126,11 +131,7 @@ export class LspClientDiagnostics {
 		}));
 
 		for (const { document } of unique) await this.documents.trim(document.uri);
-		const results: LspSaveDiagnosticsResult[] = [];
-		for (const { bucket, result } of collected) {
-			for (const index of bucket.indices) results[index] = result;
-		}
-		return results;
+		return collected.flatMap(({ bucket, result }) => bucket.inputs.map((input) => ({ input, result })));
 	}
 
 	private applyDocumentDiagnosticReport(uri: string, report: DocumentDiagnosticReport): LspSaveDiagnosticsResult {

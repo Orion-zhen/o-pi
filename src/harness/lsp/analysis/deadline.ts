@@ -9,12 +9,12 @@ export function createOperationDeadline(parent: AbortSignal | undefined, timeout
 	const onAbort = (): void => controller.abort();
 	if (parent?.aborted === true) controller.abort();
 	else parent?.addEventListener("abort", onAbort, { once: true });
-	const deadline = Date.now() + timeoutMs;
+	const deadline = performance.now() + timeoutMs;
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	timer.unref();
 	return {
 		signal: controller.signal,
-		requestOptions: () => ({ signal: controller.signal, timeoutMs: Math.max(1, deadline - Date.now()) }),
+		requestOptions: () => ({ signal: controller.signal, timeoutMs: Math.max(1, deadline - performance.now()) }),
 		dispose: () => {
 			clearTimeout(timer);
 			parent?.removeEventListener("abort", onAbort);

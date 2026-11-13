@@ -22,40 +22,45 @@ import {
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import type { LspDocumentSymbols, LspRequestOptions } from "../types.ts";
+import type { LspDocumentSymbols, LspRequestOptions, LspRequestResult } from "../types.ts";
 
-/** 协议能力函数只依赖已建立连接的请求接口。 */
+/** 能力检查、原始响应校验和结果分类只在协议边界执行。 */
 export interface LspFeatureSession {
 	capabilities(): ServerCapabilities;
-	request<P, R, E>(type: RequestType<P, R, E>, params: NoInfer<RequestParam<P>>, options?: LspRequestOptions): Promise<R | undefined>;
+	request<P, R, E>(type: RequestType<P, R, E>, params: NoInfer<RequestParam<P>>, options?: LspRequestOptions): Promise<LspRequestResult<R>>;
 }
 
-export const providerEnabled = (provider: unknown): boolean => provider !== undefined && provider !== false;
+const providerEnabled = (provider: unknown): boolean => provider !== undefined && provider !== false;
 
-export async function requestDocumentSymbols(session: LspFeatureSession, uri: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
-	if (!providerEnabled(session.capabilities().documentSymbolProvider)) return undefined;
-	const result: unknown = await session.request(DocumentSymbolRequest.type, { textDocument: { uri } }, options);
-	if (result === null) return [];
-	if (!Array.isArray(result)) return undefined;
-	const symbols: unknown[] = result;
-	if (symbols.every(isDocumentSymbol)) return symbols;
-	return symbols.every(isSymbolInformation) ? symbols : undefined;
+export async function requestDocumentSymbols(session: LspFeatureSession, uri: string, options?: LspRequestOptions): Promise<LspRequestResult<LspDocumentSymbols>> {
+	if (!providerEnabled(session.capabilities().documentSymbolProvider)) return { status: "unsupported" };
+	const result = await session.request(DocumentSymbolRequest.type, { textDocument: { uri } }, options);
+	if (result.status !== "ok") return result;
+	const value: unknown = result.value;
+	if (value === null) return { status: "ok", value: [] };
+	if (!Array.isArray(value)) return { status: "unavailable" };
+	const symbols: unknown[] = value;
+	if (symbols.every(isDocumentSymbol) || symbols.every(isSymbolInformation)) return { status: "ok", value: symbols };
+	return { status: "unavailable" };
 }
 
-export async function requestWorkspaceSymbols(session: LspFeatureSession, query: string, options?: LspRequestOptions): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
-	if (!providerEnabled(session.capabilities().workspaceSymbolProvider)) return undefined;
-	const result: unknown = await session.request(WorkspaceSymbolRequest.type, { query }, options);
-	if (result === null) return [];
-	if (!Array.isArray(result)) return undefined;
-	const symbols: unknown[] = result;
-	return symbols.filter(isWorkspaceSymbol);
+export async function requestWorkspaceSymbols(session: LspFeatureSession, query: string, options?: LspRequestOptions): Promise<LspRequestResult<Array<SymbolInformation | WorkspaceSymbol>>> {
+	if (!providerEnabled(session.capabilities().workspaceSymbolProvider)) return { status: "unsupported" };
+	const result = await session.request(WorkspaceSymbolRequest.type, { query }, options);
+	if (result.status !== "ok") return result;
+	const value: unknown = result.value;
+	if (value === null) return { status: "ok", value: [] };
+	if (!Array.isArray(value)) return { status: "unavailable" };
+	const symbols: unknown[] = value;
+	return { status: "ok", value: symbols.filter(isWorkspaceSymbol) };
 }
 
-export async function resolveWorkspaceSymbol(session: LspFeatureSession, symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
+export async function resolveWorkspaceSymbol(session: LspFeatureSession, symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<LspRequestResult<WorkspaceSymbol>> {
 	const provider = session.capabilities().workspaceSymbolProvider;
-	if (typeof provider !== "object" || provider === null || provider.resolveProvider !== true) return undefined;
-	const result: unknown = await session.request(WorkspaceSymbolResolveRequest.type, symbol, options);
-	return isWorkspaceSymbol(result) ? result : undefined;
+	if (typeof provider !== "object" || provider === null || provider.resolveProvider !== true) return { status: "unsupported" };
+	const result = await session.request(WorkspaceSymbolResolveRequest.type, symbol, options);
+	if (result.status !== "ok") return result;
+	return isWorkspaceSymbol(result.value) ? { status: "ok", value: result.value } : { status: "unavailable" };
 }
 
 export async function requestReferences(
@@ -63,36 +68,36 @@ export async function requestReferences(
 	uri: string,
 	position: Position,
 	options?: LspRequestOptions,
-): Promise<Location[] | undefined> {
-	if (!providerEnabled(session.capabilities().referencesProvider)) return undefined;
+): Promise<LspRequestResult<Location[]>> {
+	if (!providerEnabled(session.capabilities().referencesProvider)) return { status: "unsupported" };
 	const result = await session.request(ReferencesRequest.type, {
 		textDocument: { uri }, position, context: { includeDeclaration: false },
 	}, options);
 	return resultArray(result, Location.is);
 }
 
-export async function prepareCalls(session: LspFeatureSession, uri: string, position: Position, options?: LspRequestOptions): Promise<CallHierarchyItem[] | undefined> {
-	if (!providerEnabled(session.capabilities().callHierarchyProvider)) return undefined;
-	const result: unknown = await session.request(CallHierarchyPrepareRequest.type, { textDocument: { uri }, position }, options);
-	return resultArray(result, isHierarchyItem);
+export async function prepareCalls(session: LspFeatureSession, uri: string, position: Position, options?: LspRequestOptions): Promise<LspRequestResult<CallHierarchyItem[]>> {
+	if (!providerEnabled(session.capabilities().callHierarchyProvider)) return { status: "unsupported" };
+	return resultArray(await session.request(CallHierarchyPrepareRequest.type, { textDocument: { uri }, position }, options), isHierarchyItem);
 }
 
-export async function requestIncomingCalls(session: LspFeatureSession, item: CallHierarchyItem, options?: LspRequestOptions): Promise<CallHierarchyIncomingCall[] | undefined> {
-	const result: unknown = await session.request(CallHierarchyIncomingCallsRequest.type, { item }, options);
-	return resultArray(result, (value): value is CallHierarchyIncomingCall => isRecord(value)
-		&& isHierarchyItem(value.from) && isRanges(value.fromRanges) && rangesInside(value.fromRanges, value.from.range));
+export async function requestIncomingCalls(session: LspFeatureSession, item: CallHierarchyItem, options?: LspRequestOptions): Promise<LspRequestResult<CallHierarchyIncomingCall[]>> {
+	return resultArray(await session.request(CallHierarchyIncomingCallsRequest.type, { item }, options),
+		(value): value is CallHierarchyIncomingCall => isRecord(value)
+			&& isHierarchyItem(value.from) && isRanges(value.fromRanges) && rangesInside(value.fromRanges, value.from.range));
 }
 
-export async function requestOutgoingCalls(session: LspFeatureSession, item: CallHierarchyItem, options?: LspRequestOptions): Promise<CallHierarchyOutgoingCall[] | undefined> {
-	const result: unknown = await session.request(CallHierarchyOutgoingCallsRequest.type, { item }, options);
-	return resultArray(result, (value): value is CallHierarchyOutgoingCall => isRecord(value)
-		&& isHierarchyItem(value.to) && isRanges(value.fromRanges) && rangesInside(value.fromRanges, item.range));
+export async function requestOutgoingCalls(session: LspFeatureSession, item: CallHierarchyItem, options?: LspRequestOptions): Promise<LspRequestResult<CallHierarchyOutgoingCall[]>> {
+	return resultArray(await session.request(CallHierarchyOutgoingCallsRequest.type, { item }, options),
+		(value): value is CallHierarchyOutgoingCall => isRecord(value)
+			&& isHierarchyItem(value.to) && isRanges(value.fromRanges) && rangesInside(value.fromRanges, item.range));
 }
 
-export async function requestDefinition(session: LspFeatureSession, uri: string, position: Position, options?: LspRequestOptions): Promise<readonly (Location | DefinitionLink)[] | undefined> {
-	if (!providerEnabled(session.capabilities().definitionProvider)) return undefined;
-	const result: unknown = await session.request(DefinitionRequest.type, { textDocument: { uri }, position }, options);
-	if (Location.is(result)) return [result];
+export async function requestDefinition(session: LspFeatureSession, uri: string, position: Position, options?: LspRequestOptions): Promise<LspRequestResult<readonly (Location | DefinitionLink)[]>> {
+	if (!providerEnabled(session.capabilities().definitionProvider)) return { status: "unsupported" };
+	const result = await session.request(DefinitionRequest.type, { textDocument: { uri }, position }, options);
+	if (result.status !== "ok") return result;
+	if (Location.is(result.value)) return { status: "ok", value: [result.value] };
 	return resultArray(result, (value): value is Location | DefinitionLink => Location.is(value)
 		|| LocationLink.is(value) && containsPositionRange(value.targetRange, value.targetSelectionRange));
 }
@@ -116,11 +121,12 @@ function isSymbolInformation(value: unknown): value is SymbolInformation {
 	return isWorkspaceSymbol(value) && "range" in value.location;
 }
 
-function resultArray<T>(value: unknown, valid: (item: unknown) => item is T): T[] | undefined {
-	if (value === null) return [];
-	if (!Array.isArray(value)) return undefined;
-	const items: unknown[] = value;
-	return items.every(valid) ? items : undefined;
+function resultArray<T>(result: LspRequestResult<unknown>, valid: (item: unknown) => item is T): LspRequestResult<T[]> {
+	if (result.status !== "ok") return result;
+	if (result.value === null) return { status: "ok", value: [] };
+	if (!Array.isArray(result.value)) return { status: "unavailable" };
+	const items: unknown[] = result.value;
+	return items.every(valid) ? { status: "ok", value: items } : { status: "unavailable" };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

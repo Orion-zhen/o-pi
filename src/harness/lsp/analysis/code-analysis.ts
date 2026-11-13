@@ -2,6 +2,7 @@ import pLimit from "p-limit";
 
 import type {
 	AnalyzedCodeFile,
+	AnalyzedFileIndex,
 	CodeAnalysis,
 	CodeAnalysisCoverage,
 	CodeAnalysisStatus,
@@ -16,6 +17,7 @@ import type { CodeRelation } from "../../code-index/relation-types.ts";
 import { queryAnchor } from "../../code-index/units.ts";
 import { enclosingCodeUnits } from "../../code-index/enclosing-units.ts";
 import { LspClient } from "../client/client.ts";
+import { lspDocument } from "../client/document-session.ts";
 import type { LspServerConfig } from "../types.ts";
 import { analyzeLspDocument } from "./document.ts";
 import { resolveWorkspaceSymbolSeeds, type ResolvedWorkspaceSymbol } from "./workspace-symbols.ts";
@@ -52,60 +54,64 @@ export async function codeAnalysis(workspace: LspWorkspace, input: LspCodeAnalys
 	const targetPaths = input.targets.map((target) => target.path);
 	if (input.signal?.aborted === true || new Set(targetPaths).size !== targetPaths.length
 		|| input.targets.some((target) => !validAnalysisTarget(target))) return undefined;
-	const results = new Map(targetPaths.map((path) => [path, fileResult({ path, symbols: "unsupported" })]));
 	const requests = new AnalysisRequests(input.signal, workspace.config.request_timeout_ms);
-	const clients = new Map<LspServerConfig, Promise<CodeFeatureResult<LspClient>>>();
-	const routes = input.targets.flatMap((target) => {
-		const route = workspace.route(target.path);
-		if (route === undefined) return [];
-		let client = clients.get(route.server);
-		if (client === undefined) {
-			client = requests.run(true, () => workspace.client(route.server));
-			clients.set(route.server, client);
-		}
-		return [{ target, route, client }];
-	});
-	let analyzed: PendingFileAnalysis[];
-	if (!input.allowRelated) {
-		const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
-		analyzed = await limit.map(routes, async ({ target, client: pending }) => {
-			const client = await pending;
-			const selection = client.status === "ok"
-				? await analyzeDocumentSelection(input, target.path, client.value, requests, (units) => unitsForRanges(units, target.ranges))
-				: client;
-			return selectionResult({ path: target.path, symbols: "unsupported" }, selection);
-		});
-	} else {
-		const ready = await Promise.all([...clients]
-			.sort(([left], [right]) => workspace.config.servers.indexOf(left) - workspace.config.servers.indexOf(right))
-			.map(async ([server, pending]) => ({ server, result: await pending })));
-		for (const { server, result } of ready) {
-			if (result.status === "ok") continue;
-			for (const { target } of routes.filter(({ route }) => route.server === server)) {
-				results.set(target.path, fileResult({ path: target.path, symbols: result.status, workspaceSymbols: result.status }));
+	try {
+		const results = new Map(targetPaths.map((path) => [path, fileResult({ path, symbols: "unsupported" })]));
+		const clients = new Map<LspServerConfig, Promise<CodeFeatureResult<LspClient>>>();
+		const routes = input.targets.flatMap((target) => {
+			const route = workspace.route(target.path);
+			if (route === undefined) return [];
+			let client = clients.get(route.server);
+			if (client === undefined) {
+				client = requests.run(() => workspace.client(route.server));
+				clients.set(route.server, client);
 			}
+			return [{ target, route, client }];
+		});
+		let analyzed: PendingFileAnalysis[];
+		if (!input.allowRelated) {
+			const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
+			analyzed = await limit.map(routes, async ({ target, route, client: pending }) => {
+				const client = await pending;
+				const selection = client.status === "ok"
+					? await analyzeDocumentSelection(input, target.path, route.languageId, client.value, requests, (units) => unitsForRanges(units, target.ranges))
+					: client;
+				return selectionResult({ path: target.path, symbols: "unsupported" }, selection);
+			});
+		} else {
+			const ready = await Promise.all([...clients]
+				.sort(([left], [right]) => workspace.config.servers.indexOf(left) - workspace.config.servers.indexOf(right))
+				.map(async ([server, pending]) => ({ server, result: await pending })));
+			for (const { server, result } of ready) {
+				if (result.status === "ok") continue;
+				for (const { target } of routes.filter(({ route }) => route.server === server)) {
+					results.set(target.path, fileResult({ path: target.path, symbols: result.status, workspaceSymbols: result.status }));
+				}
+			}
+			const available = ready.flatMap(({ result }) => result.status === "ok" ? [result.value] : []);
+			const owners = new Map(routes.map(({ target, route }) => [target.path, { serverId: route.server.id, languageId: route.languageId }]));
+			analyzed = await analyzeRelatedDocuments(workspace, input, available, owners, requests);
 		}
-		const available = ready.flatMap(({ result }) => result.status === "ok" ? [result.value] : []);
-		const owners = new Map(routes.map(({ target, route }) => [target.path, route.server.id]));
-		analyzed = await analyzeRelatedDocuments(workspace, input, available, owners, requests);
+		for (const result of analyzed) results.delete(result.coverage.path);
+		if (requests.signal.aborted) return undefined;
+		const relations = normalizeRelationEvidence(analyzed.flatMap((result) => result.relations));
+		return {
+			relations,
+			results: [...analyzed, ...results.values()].map(({ coverage, file }) => ({
+				coverage,
+				...(file === undefined ? {} : { file: { ...file, analysis: applyRelationEvidence(file.analysis, relations, file.hash) } }),
+			})),
+		};
+	} finally {
+		requests.dispose();
 	}
-	for (const result of analyzed) results.delete(result.coverage.path);
-	if (requests.signal?.aborted === true) return undefined;
-	const relations = normalizeRelationEvidence(analyzed.flatMap((result) => result.relations));
-	return {
-		relations,
-		results: [...analyzed, ...results.values()].map(({ coverage, file }) => ({
-			coverage,
-			...(file === undefined ? {} : { file: { ...file, analysis: applyRelationEvidence(file.analysis, relations, file.document.hash) } }),
-		})),
-	};
 }
 
 async function analyzeRelatedDocuments(
 	workspace: LspWorkspace,
 	input: LspCodeAnalysisInput,
 	clients: readonly LspClient[],
-	owners: ReadonlyMap<string, string>,
+	owners: ReadonlyMap<string, { readonly serverId: string; readonly languageId: string }>,
 	requests: AnalysisRequests,
 ): Promise<PendingFileAnalysis[]> {
 	const config = workspace.config.grep;
@@ -129,7 +135,7 @@ async function analyzeRelatedDocuments(
 	const analyzed = await limit.map(byPath, async ([path, grouped]) => {
 		const current = results.get(path);
 		if (current === undefined) throw new Error("Missing workspace symbol coverage");
-		const selection = await analyzeDocumentSelection(input, path, grouped[0].client, requests, (units) => {
+		const selection = await analyzeDocumentSelection(input, path, grouped[0].languageId, grouped[0].client, requests, (units) => {
 			const selected = new Map<string, IndexedCodeUnit>();
 			for (const { seed } of grouped) {
 				const unit = unitForSeed(units, seed);
@@ -161,11 +167,12 @@ function selectionResult(coverage: CodeAnalysisCoverage, selection: CodeFeatureR
 async function analyzeDocumentSelection(
 	input: LspCodeAnalysisInput,
 	relativePath: string,
+	languageId: string,
 	client: LspClient,
 	requests: AnalysisRequests,
 	select: (units: readonly IndexedCodeUnit[]) => readonly IndexedCodeUnit[] | undefined,
 ): Promise<CodeFeatureResult<DocumentSelection>> {
-	const loaded = await requests.run(true, async (options) => {
+	const loaded = await requests.run(async (options) => {
 		const document = await input.load(relativePath);
 		if (document === undefined || options.signal.aborted) return undefined;
 		const syntax = await input.syntax(document, options.signal);
@@ -173,12 +180,13 @@ async function analyzeDocumentSelection(
 	});
 	if (loaded.status !== "ok") return loaded;
 	const { document, syntax } = loaded.value;
-	const result = await client.withDocument(document.filePath, document.text, input.signal, async (session) => {
-		const symbols = await requests.run(session.capabilities().documentSymbolProvider, async (options) => {
-			const values = await session.symbols(options);
-			return values === undefined ? undefined : analyzeLspDocument(document, values, session.uri);
-		});
+	const result = await client.withDocument(lspDocument(document.filePath, document.text, languageId), requests.signal, async (session) => {
+		const response = await session.symbols(requests.options);
+		const parsed = response.status === "ok" ? analyzeLspDocument(document, response.value, session.uri) : undefined;
+		const symbols: CodeFeatureResult<AnalyzedFileIndex> = response.status !== "ok" ? response
+			: parsed === undefined ? { status: "unavailable" } : { status: "ok", value: parsed };
 		const analysis = mergeCodeStructure(syntax, symbols.status === "ok" ? symbols.value : undefined);
+		if (analysis.status !== "parsed") return undefined;
 		const selected = select(analysis.units);
 		if (selected === undefined) return undefined;
 		const index = new SourceIndex(document.text);
@@ -201,7 +209,7 @@ async function analyzeDocumentSelection(
 			}
 			return false;
 		};
-		return { symbols: symbols.status, relations, file: { document, selectedIds: [...selectedIds], analysis: {
+		return { symbols: symbols.status, relations, file: { hash: document.hash, selectedIds: [...selectedIds], analysis: {
 			...analysis,
 			units: analysis.units.filter((unit) => !input.allowRelated || inSelection(unit))
 				.map((unit) => ({ ...unit, relationStatus: {

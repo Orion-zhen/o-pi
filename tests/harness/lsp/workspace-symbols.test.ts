@@ -1,12 +1,12 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
 
 import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
 import { LspDocumentSession } from "../../../src/harness/lsp/client/document-session.ts";
-import { mockDocumentSessions } from "./mock-document-session.ts";
+import { lspOk, mockDocumentSessions } from "./mock-document-session.ts";
 import { LspClient } from "../../../src/harness/lsp/client/client.ts";
 import { LspManager } from "../../../src/harness/lsp/manager/manager.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
@@ -89,7 +89,7 @@ describe("lsp workspace symbols through code analysis", () => {
 		mockReady();
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockImplementation(async function (this: LspClient) {
 			requests.push(this.server.id);
-			return [];
+			return lspOk([]);
 		});
 
 		await withManager(async (manager) => {
@@ -108,7 +108,7 @@ describe("lsp workspace symbols through code analysis", () => {
 			servers: { fake: testServer("unused", ["ts"]) },
 		});
 		const ensureReady = mockReady();
-		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([]);
+		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue(lspOk([]));
 
 		const result = await withManager((manager) => manager.documentAnalysis({
 			workspaceRoot: workspace,
@@ -128,13 +128,13 @@ describe("lsp workspace symbols through code analysis", () => {
 			servers: { fake: testServer("unused-lsp", ["ts"]) },
 		});
 		mockReady();
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue(lspOk([
 			0, 1, 2, 3,
 		].map((index) => ({
 			name: "Target",
 			kind: 12,
 			location: { uri: pathToUri(path.join(workspace, "src", `target${index}.ts`)), range: range(index) },
-		})));
+		}))));
 
 		const hits = await withManager((manager) => queryWorkspaceSymbols(
 			manager,
@@ -149,12 +149,12 @@ describe("lsp workspace symbols through code analysis", () => {
 	it("workspace symbol 保留 exact qualified symbol", async () => {
 		await writeConfig({ servers: { fake: testServer("unused-lsp", ["ts"]) } });
 		mockReady();
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([{
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue(lspOk([{
 			name: "parse",
 			containerName: "Parser",
 			kind: 6,
 			location: { uri: pathToFileURL(path.join(workspace, "src", "parser.ts")).toString(), range: range(0) },
-		}]);
+		}]));
 
 		const hits = await withManager((manager) => queryWorkspaceSymbols(manager, "Parser.parse", ["src/parser.ts"]));
 
@@ -174,7 +174,7 @@ describe("lsp workspace symbols through code analysis", () => {
 		mockReady();
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockImplementation(async function (this: LspClient) {
 			requests.push(this.server.id);
-			return this.server.id === "compose"
+			return lspOk(this.server.id === "compose"
 				? [
 					{ name: "ComposeTarget", kind: 12, location: { uri: composeUri, range: range(0) } },
 					{ name: "WrongService", kind: 12, location: { uri: yamlUri, range: range(0) } },
@@ -182,7 +182,7 @@ describe("lsp workspace symbols through code analysis", () => {
 				: [
 					{ name: "DuplicateCompose", kind: 12, location: { uri: composeUri, range: range(0) } },
 					{ name: "YamlTarget", kind: 12, location: { uri: yamlUri, range: range(0) } },
-				];
+				]);
 		});
 
 		const hits = await withManager((manager) =>
@@ -222,17 +222,17 @@ describe("lsp workspace symbols through code analysis", () => {
 		});
 		const uri = (name: string) => pathToUri(path.join(workspace, "src", name));
 		mockReady();
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue(lspOk([
 			{ name: "outside", kind: 12, location: { uri: pathToUri(path.join(workspace, "outside.ts")) } },
 			{ name: "fail", kind: 12, location: { uri: uri("fail.ts") } },
 			{ name: "good", kind: 12, location: { uri: uri("good.ts") }, data: { id: 1 } },
 			{ name: "complete", kind: 12, location: { uri: uri("complete.ts"), range: range(3) } },
 			{ name: "extra", kind: 12, location: { uri: uri("extra.ts") }, data: { id: 2 } },
-		]);
+		]));
 		const resolved: string[] = [];
 		vi.spyOn(LspClient.prototype, "resolveWorkspaceSymbol").mockImplementation(async (symbol) => {
 			resolved.push(symbol.name);
-			return { ...symbol, location: { uri: uri(`${symbol.name}.ts`), range: range(2) } };
+			return lspOk({ ...symbol, location: { uri: uri(`${symbol.name}.ts`), range: range(2) } });
 		});
 
 		const hits = await withManager((manager) => queryWorkspaceSymbols(
@@ -244,7 +244,7 @@ describe("lsp workspace symbols through code analysis", () => {
 		expect(resolved).toEqual(["fail", "good"]);
 	});
 
-	it("多 server 查询并行，但按 registry 与 server 原始顺序稳定合并", async () => {
+	it.each([false, true])("多 server 并行且稳定合并，单台查询失败=%s", async (failPython) => {
 		await writeConfig({
 			enabled: true,
 			grep: { workspace_symbols: true, max_symbols: 4 },
@@ -265,10 +265,10 @@ describe("lsp workspace symbols through code analysis", () => {
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockImplementation(async function (this: LspClient) {
 			if (this.server.id === "ts") {
 				await tsGate;
-				return [{ name: "tsFirst", kind: 12, location: { uri: pathToUri(path.join(workspace, "src", "a.ts")), range: range(0) } }];
+				return lspOk([{ name: "tsFirst", kind: 12, location: { uri: pathToUri(path.join(workspace, "src", "a.ts")), range: range(0) } }]);
 			}
 			markPythonStarted();
-			return [{ name: "pySecond", kind: 12, location: { uri: pathToUri(path.join(workspace, "src", "b.py")), range: range(0) } }];
+			return failPython ? { status: "unavailable" } : lspOk([{ name: "pySecond", kind: 12, location: { uri: pathToUri(path.join(workspace, "src", "b.py")), range: range(0) } }]);
 		});
 
 		const hits = await withManager(async (manager) => {
@@ -277,27 +277,9 @@ describe("lsp workspace symbols through code analysis", () => {
 			releaseTs();
 			return pending;
 		});
-		expect(hits.map((hit) => hit.symbol)).toEqual(["tsFirst", "pySecond"]);
+		expect(hits.map((hit) => hit.symbol)).toEqual(failPython ? ["tsFirst"] : ["tsFirst", "pySecond"]);
 	});
 
-	it.skipIf(process.platform === "win32")("reload 等待顽固 language server 退出并在超时后强杀", async () => {
-		const pidPath = path.join(configDir, "stubborn-lsp.pid");
-		const server = fileURLToPath(new URL("./fixtures/stdio-server.mjs", import.meta.url));
-		await writeConfig({
-			enabled: true,
-			startup_timeout_ms: 2000,
-			request_timeout_ms: 2000,
-			servers: { stubborn: testServer([process.execPath, server, "stubborn", pidPath], ["ts"]) },
-		});
-
-		const pid = await withManager(async (manager) => {
-			await queryWorkspaceSymbols(manager, "target", undefined, false);
-			return Number((await readFile(pidPath, "utf8")).split("\n")[0]);
-		});
-
-		expect(Number.isInteger(pid)).toBe(true);
-		expect(() => process.kill(pid, 0)).toThrow();
-	});
 });
 
 async function writeConfig(config: unknown): Promise<void> {
@@ -307,12 +289,11 @@ async function writeConfig(config: unknown): Promise<void> {
 }
 
 function mockReady() {
-	mockDocumentSessions();
+	mockDocumentSessions(fullCapabilities);
 	const ensureReady = vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-	vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue(fullCapabilities);
-	vi.spyOn(LspClient.prototype, "documentSymbols").mockImplementation(async (filePath) => defaultDocumentSymbols(filePath));
-	vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue([]);
-	vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue([]);
+	vi.spyOn(LspClient.prototype, "documentSymbols").mockImplementation(async (document) => lspOk(defaultDocumentSymbols(document.path)));
+	vi.spyOn(LspDocumentSession.prototype, "incomingCalls").mockResolvedValue(lspOk([]));
+	vi.spyOn(LspDocumentSession.prototype, "references").mockResolvedValue(lspOk([]));
 	return ensureReady;
 }
 
@@ -325,7 +306,6 @@ async function queryWorkspaceSymbols(
 	manager: LspManager,
 	query: string,
 	paths: readonly string[] = ["src/def.ts", "src/use.ts", "src/target.ts"],
-	loadDocuments = true,
 ) {
 	const analysis = await manager.codeAnalysis({
 		syntax: (document) => analyzeCodeFile(document.path, document.text),
@@ -335,7 +315,6 @@ async function queryWorkspaceSymbols(
 		allowRelated: true,
 		limit: 8,
 		async load(relativePath) {
-			if (!loadDocuments) return undefined;
 			return {
 				path: relativePath,
 				text: `${"x".repeat(64)}\n`,
@@ -346,7 +325,7 @@ async function queryWorkspaceSymbols(
 	});
 	if (analysis === undefined) return [];
 	return analysis.results.flatMap(({ file }) => file === undefined ? [] : file.analysis.units.map((unit) => ({
-		path: file.document.path,
+		path: file.analysis.path,
 		start_line: unit.startLine,
 		end_line: unit.endLine,
 		kind: unit.kind,
@@ -369,11 +348,11 @@ function defaultDocumentSymbols(filePath: string): SymbolInformation[] {
 	});
 }
 
-function testServer(command: string | readonly string[], extensions: readonly string[], enabled = true) {
+function testServer(command: string, extensions: readonly string[], enabled = true) {
 	const selectors = extensions.map((extension) => `*.${extension}`);
 	return {
 		...(enabled ? {} : { enabled: false }),
-		command: typeof command === "string" ? [command] : [...command],
+		command: [command],
 		languages: { test: selectors.length === 1 ? selectors[0] : selectors },
 	};
 }

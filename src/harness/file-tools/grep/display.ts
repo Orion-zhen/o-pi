@@ -5,8 +5,8 @@ export function compactDisplayLine(
 	text: string,
 	focusStart = 0,
 	focusEnd = focusStart,
-	limit = DISPLAY_CODE_POINT_LIMIT,
 ): string {
+	const limit = DISPLAY_CODE_POINT_LIMIT;
 	const points = [...text];
 	if (points.length <= limit) return text;
 	const start = codePointOffset(text, focusStart);
@@ -18,20 +18,14 @@ export function compactDisplayLine(
 	const prefix = sliceStart > 0 ? "..." : "";
 	const suffix = sliceEnd < points.length ? "..." : "";
 	const available = limit - [...prefix, ...suffix].length;
-	if (sliceEnd - sliceStart > available) {
-		const excess = sliceEnd - sliceStart - available;
-		sliceStart += Math.floor(excess / 2);
-		sliceEnd -= Math.ceil(excess / 2);
-	} else {
-		let remaining = available - (sliceEnd - sliceStart);
-		const growLeft = Math.min(sliceStart, Math.floor(remaining / 2));
-		sliceStart -= growLeft;
-		remaining -= growLeft;
-		const growRight = Math.min(points.length - sliceEnd, remaining);
-		sliceEnd += growRight;
-		remaining -= growRight;
-		sliceStart -= Math.min(sliceStart, remaining);
-	}
+	let remaining = available - (sliceEnd - sliceStart);
+	const growLeft = Math.min(sliceStart, Math.floor(remaining / 2));
+	sliceStart -= growLeft;
+	remaining -= growLeft;
+	const growRight = Math.min(points.length - sliceEnd, remaining);
+	sliceEnd += growRight;
+	remaining -= growRight;
+	sliceStart -= Math.min(sliceStart, remaining);
 	return `${prefix}${points.slice(sliceStart, sliceEnd).join("")}${suffix}`;
 }
 

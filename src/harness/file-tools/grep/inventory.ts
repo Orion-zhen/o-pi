@@ -22,7 +22,7 @@ export interface ScopedFile {
 }
 
 export interface ScopeInventory {
-	readonly scopes: readonly InventoryScope[];
+	readonly scopes: readonly [InventoryScope, ...InventoryScope[]];
 	readonly files: readonly ScopedFile[];
 	readonly scopeErrors: readonly GrepScopeError[];
 	readonly skipped: GrepSkippedFiles;
@@ -43,9 +43,8 @@ interface MutableInventoryState {
 	readonly context: ScopeInventoryContext;
 	readonly glob?: string;
 	readonly scopes: InventoryScope[];
-	readonly files: ScopedFile[];
+	readonly files: Map<string, ScopedFile>;
 	readonly scopeErrors: GrepScopeError[];
-	readonly seenFiles: Map<string, number>;
 	readonly skipped: MutableGrepSkippedFiles;
 	readonly truncationReasons: Set<TruncationReason>;
 	readonly incomplete: string[];
@@ -62,9 +61,8 @@ export async function buildScopeInventory(
 		context,
 		...(input.glob === undefined ? {} : { glob: input.glob }),
 		scopes: [],
-		files: [],
+		files: new Map(),
 		scopeErrors: [],
-		seenFiles: new Map(),
 		skipped: createGrepSkippedFiles(),
 		truncationReasons: new Set(),
 		incomplete: [],
@@ -104,15 +102,16 @@ export async function buildScopeInventory(
 		}
 	}
 
-	if (state.scopes.length === 0) {
+	const [firstScope, ...otherScopes] = state.scopes;
+	if (firstScope === undefined) {
 		const first = state.scopeErrors[0];
 		if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
 		return withScopeErrors({ status: "failed", error: first.error }, input.paths, state.scopeErrors);
 	}
 	return {
-		scopes: state.scopes,
+		scopes: [firstScope, ...otherScopes],
 		incomplete: state.incomplete,
-		files: state.files,
+		files: [...state.files.values()],
 		scopeErrors: state.scopeErrors,
 		skipped: compactGrepSkippedFiles(state.skipped),
 		traversedEntries: state.traversedEntries,
@@ -195,12 +194,11 @@ function addFile(
 	scope: InventoryScope,
 	state: MutableInventoryState,
 ): boolean {
-	const existingIndex = state.seenFiles.get(snapshot.identity);
+	const existing = state.files.get(snapshot.identity);
 	const explicitFile = scope.root.kind === "file";
-	if (existingIndex !== undefined) {
-		const existing = state.files[existingIndex];
-		if (existing !== undefined && explicitFile && !existing.explicitFile) {
-			state.files[existingIndex] = { ...existing, scopeInput: scope.input, explicitFile: true };
+	if (existing !== undefined) {
+		if (explicitFile && !existing.explicitFile) {
+			state.files.set(snapshot.identity, { ...existing, scopeInput: scope.input, explicitFile: true });
 		}
 		return true;
 	}
@@ -210,8 +208,7 @@ function addFile(
 		return false;
 	}
 	state.reservedSearchBytes += snapshot.sizeBytes;
-	state.seenFiles.set(snapshot.identity, state.files.length);
-	state.files.push({
+	state.files.set(snapshot.identity, {
 		ref,
 		path: normalizeOutputPath(ref.displayPath),
 		snapshot,

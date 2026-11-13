@@ -1,16 +1,19 @@
 import type { CallHierarchyItem, Position } from "vscode-languageserver-protocol";
 import { prepareCalls, requestDefinition, requestIncomingCalls, requestOutgoingCalls, requestReferences, type LspFeatureSession } from "../protocol/features.ts";
-import type { LspDocumentSymbols, LspRequestOptions } from "../types.ts";
+import { pathToFileUri } from "../protocol/uri.ts";
+import type { LspClientDocumentContext, LspDocumentSymbols, LspRequestOptions, LspRequestResult } from "../types.ts";
+
+export function lspDocument(filePath: string, text: string, languageId: string): LspClientDocumentContext {
+	return { uri: pathToFileUri(filePath), path: filePath, text, languageId };
+}
 
 /** 查询绑定同一连接与文档队列，只在 withDocument 回调期间使用。 */
 export class LspDocumentSession {
 	constructor(
 		readonly uri: string,
 		private readonly connection: LspFeatureSession,
-		readonly symbols: (options?: LspRequestOptions) => Promise<LspDocumentSymbols | undefined>,
+		readonly symbols: (options?: LspRequestOptions) => Promise<LspRequestResult<LspDocumentSymbols>>,
 	) {}
-
-	capabilities() { return this.connection.capabilities(); }
 
 	prepareCalls(position: Position, options?: LspRequestOptions) {
 		return prepareCalls(this.connection, this.uri, position, options);

@@ -2,7 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { WorkspaceSymbol } from "vscode-languageserver-protocol";
 import { pathToFileUri } from "../../../../src/harness/lsp/protocol/uri.ts";
-import { createProtocolServer, directClient, send, useTransportFixture } from "./fixtures.ts";
+import { testDocument, createProtocolServer, directClient, send, useTransportFixture } from "./fixtures.ts";
 
 const transport = useTransportFixture();
 const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } };
@@ -20,7 +20,7 @@ describe("LSP symbol response boundaries", () => {
 			routes: { "textDocument/documentSymbol": (message, socket) => send(socket, { id: message.id, result }) },
 		});
 		const client = directClient(transport, server);
-		await expect(client.documentSymbols(path.join(transport.workspace, "main.ts"), "Target\n")).resolves.toBeUndefined();
+		await expect(client.documentSymbols(testDocument(path.join(transport.workspace, "main.ts"), "Target\n"))).resolves.toEqual({ status: "unavailable" });
 	});
 
 	it("工作区符号过滤损坏条目，保留完整位置和待解析候选", async () => {
@@ -37,15 +37,18 @@ describe("LSP symbol response boundaries", () => {
 			},
 		});
 		const client = directClient(transport, server);
-		await expect(client.workspaceSymbols("Target")).resolves.toEqual([complete, pending]);
-		await expect(client.resolveWorkspaceSymbol(pending)).resolves.toBeUndefined();
+		await expect(client.workspaceSymbols("Target")).resolves.toEqual({ status: "ok", value: [complete, pending] });
+		await expect(client.resolveWorkspaceSymbol(pending)).resolves.toEqual({ status: "unavailable" });
 	});
 
-	it("工作区符号非数组响应不冒充成功空结果", async () => {
+	it.each([
+		{ name: "成功空结果", result: null, expected: { status: "ok", value: [] } },
+		{ name: "损坏结果", result: {}, expected: { status: "unavailable" } },
+	])("工作区符号区分$name", async ({ result, expected }) => {
 		const server = await createProtocolServer(transport, {
 			capabilities: { workspaceSymbolProvider: true },
-			routes: { "workspace/symbol": (message, socket) => send(socket, { id: message.id, result: {} }) },
+			routes: { "workspace/symbol": (message, socket) => send(socket, { id: message.id, result }) },
 		});
-		await expect(directClient(transport, server).workspaceSymbols("Target")).resolves.toBeUndefined();
+		await expect(directClient(transport, server).workspaceSymbols("Target")).resolves.toEqual(expected);
 	});
 });

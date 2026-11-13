@@ -1,7 +1,6 @@
 import type { CodeAnalysisStatus, CodeFeatureResult } from "../../code-index/types.ts";
-import { providerEnabled } from "../protocol/features.ts";
 import type { LspRequestOptions } from "../types.ts";
-import { createOperationDeadline, waitUnlessAborted } from "./deadline.ts";
+import { createOperationDeadline, waitUnlessAborted, type OperationDeadline } from "./deadline.ts";
 
 /** 成功事实独立保留，覆盖状态按固定优先级聚合。 */
 export function combinedStatus(statuses: readonly CodeAnalysisStatus[]): CodeAnalysisStatus {
@@ -11,33 +10,31 @@ export function combinedStatus(statuses: readonly CodeAnalysisStatus[]): CodeAna
 	return "ok";
 }
 
-/** 每项独立计时，已知失败由边界返回空值。意外错误向上传播，取消由分析入口处理。 */
+/** 一次分析只计时一次，启动、排队、加载和协议请求共用剩余预算。 */
 export class AnalysisRequests {
-	constructor(
-		readonly signal: AbortSignal | undefined,
-		private readonly timeoutMs: number,
-	) {}
+	private readonly operation: OperationDeadline;
+	readonly options: LspRequestOptions & { signal: AbortSignal };
 
-	async run<T>(
-		provider: unknown,
-		request: (options: LspRequestOptions & { signal: AbortSignal }) => Promise<T | undefined>,
-	): Promise<CodeFeatureResult<T>> {
-		if (!providerEnabled(provider)) return { status: "unsupported" };
-		const operation = createOperationDeadline(this.signal, this.timeoutMs);
-		let timedOut = false;
+	constructor(signal: AbortSignal | undefined, timeoutMs: number) {
+		this.operation = createOperationDeadline(signal, timeoutMs);
+		this.options = { signal: this.operation.signal };
+	}
+
+	get signal(): AbortSignal { return this.operation.signal; }
+
+	async run<T>(request: (options: LspRequestOptions & { signal: AbortSignal }) => Promise<T | undefined>): Promise<CodeFeatureResult<T>> {
 		try {
-			if (operation.signal.aborted) return { status: "unavailable" };
-			const value = await waitUnlessAborted(request({
-				...operation.requestOptions(),
-				onTimeout: () => { timedOut = true; },
-			}), operation.signal);
+			if (this.signal.aborted) return { status: "timeout" };
+			const value = await waitUnlessAborted(request(this.options), this.signal);
 			if (value !== undefined) return { status: "ok", value };
-			return { status: timedOut || operation.signal.aborted ? "timeout" : "unavailable" };
+			return { status: this.signal.aborted ? "timeout" : "unavailable" };
 		} catch (error) {
-			if (operation.signal.aborted) return { status: "timeout" };
+			if (this.signal.aborted) return { status: "timeout" };
 			throw error;
-		} finally {
-			operation.dispose();
 		}
+	}
+
+	dispose(): void {
+		this.operation.dispose();
 	}
 }

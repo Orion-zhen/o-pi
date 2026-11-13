@@ -6,6 +6,7 @@ import type { AnalyzedFileIndex, CodeAnalysis } from "../../code-index/types.ts"
 import { analyzeLspDocument } from "../analysis/document.ts";
 import { AnalysisRequests } from "../analysis/requests.ts";
 import { pathToFileUri } from "../protocol/uri.ts";
+import { lspDocument } from "../client/document-session.ts";
 import { codeAnalysis as runCodeAnalysis, type LspCodeAnalysisInput } from "../analysis/code-analysis.ts";
 import {
 	beforeDiagnostics as readBeforeDiagnostics,
@@ -120,16 +121,18 @@ export class LspManager {
 		const route = workspace.routeForFile(input.filePath);
 		if (route === undefined) return undefined;
 		const requests = new AnalysisRequests(input.signal, workspace.config.request_timeout_ms);
-		const started = await requests.run(true, () => workspace.client(route.server));
-		if (started.status !== "ok") return undefined;
-		const client = started.value;
-		const result = await requests.run(client.capabilities()?.documentSymbolProvider, async (options) => {
-			const symbols = await client.documentSymbols(input.filePath, input.content, options);
-			if (symbols === undefined) return undefined;
-			return analyzeLspDocument({
-				path: path.relative(input.workspaceRoot, input.filePath).replaceAll(path.sep, "/"), text: input.content,
-			}, symbols, pathToFileUri(input.filePath));
-		});
-		return result.status === "ok" ? result.value : undefined;
+		try {
+			const result = await requests.run(async () => {
+				const client = await workspace.client(route.server);
+				if (client === undefined || requests.signal.aborted) return undefined;
+				const symbols = await client.documentSymbols(lspDocument(input.filePath, input.content, route.languageId), requests.options);
+				return symbols.status === "ok" ? analyzeLspDocument({
+					path: path.relative(input.workspaceRoot, input.filePath).replaceAll(path.sep, "/"), text: input.content,
+				}, symbols.value, pathToFileUri(input.filePath)) : undefined;
+			});
+			return result.status === "ok" ? result.value : undefined;
+		} finally {
+			requests.dispose();
+		}
 	}
 }
