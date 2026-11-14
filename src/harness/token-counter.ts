@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { chatModelParams, DEFAULT_ENCODING, modelToEncodingMap } from "gpt-tokenizer/mapping";
 import ipaddr from "ipaddr.js";
@@ -9,7 +8,6 @@ const ESTIMATED_IMAGE_TOKENS = 1200;
 export const REMOTE_TOKEN_CACHE_MAX_ENTRIES = 128;
 const remoteCache = new Map<string, TokenCount>();
 const unavailableRemoteBases = new Set<string>();
-const require = createRequire(import.meta.url);
 
 type BpeMethod = "o200k_base" | "cl100k_base" | "o200k_harmony";
 type BpeCounter = typeof import("gpt-tokenizer/encoding/o200k_base").countTokens;
@@ -116,6 +114,7 @@ function loadBpeCounter(method: BpeMethod): Promise<BpeCounter> {
 function loadBpeCounterSync(method: BpeMethod): BpeCounter {
 	const state = bpeStates[method];
 	if (state.counter !== undefined) return state.counter;
+	// 直接使用字面量 require，让 Bun 将同步懒加载的编码器打进独立产物。
 	const counter = requireBpeCounter(method === "o200k_base"
 		? require("gpt-tokenizer/encoding/o200k_base")
 		: method === "cl100k_base"
