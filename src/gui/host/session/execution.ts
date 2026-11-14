@@ -355,11 +355,9 @@ export class GuiExecution {
 			} else {
 				const files = action.files.filter((file) => file.text.length > 0).map((file) =>
 					`<file name="${file.name}">\n${file.text.replace(/^\uFEFF/, "")}\n</file>\n`);
-				const imageFiles = action.images.map((image) => {
-					const hints = image.imageCount === undefined ? [] : heicHints(image.imageCount);
-					return `<file name="${image.name}">${hints.join("\n")}</file>\n`;
-				});
-				await session.prompt([...files, ...imageFiles, action.text].join(""), {
+				const imageHints = action.images.flatMap((image) =>
+					image.imageCount === undefined ? [] : heicHints(image.imageCount)).map((hint) => `${hint}\n`);
+				await session.prompt([...files, ...imageHints, action.text].join(""), {
 					images: action.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType })),
 					streamingBehavior: action.behavior,
 				});

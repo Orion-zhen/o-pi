@@ -1,4 +1,5 @@
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
+import { createCanvas } from "@napi-rs/canvas";
 import { readSnapshot } from "./read-snapshot.ts";
 import { collectSessionState } from "../../../src/tui/shell/snapshot.ts";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -79,7 +80,7 @@ beforeEach(async () => {
 						id,
 						name: id,
 						reasoning: false,
-						input: ["text"],
+						input: ["text", "image"],
 						contextWindow: 128000,
 						maxTokens: 4096,
 						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -190,6 +191,27 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch({ action: "reload" });
 		expect(host.runtime.session.messages.find((message) => message.role === "user")).toEqual(user);
 		expect(readSnapshot(host).history).toEqual([text]);
+	});
+	it.each([
+		{ text: "检查图片", imageCount: undefined, expected: "检查图片" },
+		{ text: "", imageCount: undefined, expected: "" },
+		{ text: "检查图片", imageCount: 1, expected: "检查图片" },
+		{ text: "检查图片", imageCount: 3, expected: "[Image: primary only, 3 images total.]\n检查图片" },
+	])("图片附件不添加文件标签，保留图片和 HEIC 提示：$imageCount / $text", async ({ text, imageCount, expected }) => {
+		const data = createCanvas(1, 1).toBuffer("image/png").toString("base64");
+		await host.dispatch({ ...prompt(text), images: [{ name: "image.png", data, mimeType: "image/png", imageCount }] });
+		const content = [
+			{ type: "text", text: expected },
+			{ type: "image", data, mimeType: "image/png" },
+		];
+		const user = host.runtime.session.messages.find((message) => message.role === "user");
+		expect(user?.content).toEqual(content);
+		expect(server.requests.find((request) => request.tools)?.messages.find((message) => message.role === "user")?.content).toEqual([
+			...(expected ? [{ type: "text", text: expected }] : []),
+			{ type: "image_url", image_url: { url: `data:image/png;base64,${data}` } },
+		]);
+		await host.dispatch({ action: "reload" });
+		expect(host.runtime.session.messages.find((message) => message.role === "user")).toEqual(user);
 	});
 	it.each(["!printf command", "/name 不应改名", "/lsp status"])("添加文本附件后执行命令会拒绝且不产生副作用：%s", async (text) => {
 		const before = readSnapshot(host);
