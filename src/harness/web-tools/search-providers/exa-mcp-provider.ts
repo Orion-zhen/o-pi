@@ -8,6 +8,7 @@ import { classifyNetworkError } from "../network/errors.ts";
 import type { WebHttpFetch } from "../network/types.ts";
 import { classifyHttpStatus, normalizeProviderResponse, searchFailure } from "./response.ts";
 import { createExaMcpFetch, ExaMcpHttpError } from "./exa-mcp-http.ts";
+import { resolveDateBounds } from "./query.ts";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult } from "./types.ts";
 
 export async function searchExaMcp(options: {
@@ -16,7 +17,8 @@ export async function searchExaMcp(options: {
 	fetchImpl: WebHttpFetch;
 }, params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchProviderResult> {
 	const { config } = options;
-	const remaining = context.deadlineAt - context.now();
+	const now = context.now();
+	const remaining = context.deadlineAt - now;
 	if (remaining <= 0) return searchFailure("TIMEOUT", "websearch deadline exceeded.");
 	const timeout = AbortSignal.timeout(Math.min(config.timeout_seconds * 1000, remaining));
 	const controller = new AbortController();
@@ -44,10 +46,13 @@ export async function searchExaMcp(options: {
 	context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
 	try {
 		await client.connect(transport, { signal });
+		const { after, before } = resolveDateBounds(params.dates, now);
 		const result = await client.request({
 			method: "tools/call",
 			params: { name: "web_search_advanced_exa", arguments: {
 				query: params.textQuery, numResults: params.limit, type: "auto",
+				startPublishedDate: after,
+				endPublishedDate: before,
 				enableHighlights: true,
 				...(params.includeDomains.length === 0 ? {} : { includeDomains: params.includeDomains }),
 				...(params.excludeDomains.length === 0 ? {} : { excludeDomains: params.excludeDomains }),

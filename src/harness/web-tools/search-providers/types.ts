@@ -1,11 +1,20 @@
 import type { SearchProviderConfig } from "../config-types.ts";
 import type { WebSearchErrorCode, WebSearchExecutionContext, WebSearchItem, WebSearchProviderId } from "../core/types.ts";
 
-/** 已校验的搜索参数，limit 落在公开 schema 允许范围内。 */
+export type SearchDateQuery =
+	| { kind: "range"; after: string; before?: string }
+	| { kind: "range"; after?: never; before: string }
+	| { kind: "recent"; days: number };
+
+/** 日期与域名条件已校验，limit 落在公开 schema 允许范围内。 */
 export interface NormalizedSearchParams {
 	query: string;
 	limit: number;
+	/** 去除操作符的搜索词。仅含域名条件时保留原查询。 */
 	textQuery: string;
+	/** 去除域名条件，保留日期词以供透传。 */
+	passthroughQuery: string;
+	dates: SearchDateQuery | undefined;
 	includeDomains: string[];
 	excludeDomains: string[];
 }

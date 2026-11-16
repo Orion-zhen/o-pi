@@ -20,7 +20,7 @@ const webSearchParameters = Type.Object(
 		query: Type.String({
 			minLength: 1,
 			maxLength: 512,
-			description: "Query; supports site: and -site:.",
+			description: "Query; support site:, -site:, after:/before:YYYY-MM-DD, or recent:Nd (1-3650).",
 		}),
 		limit: Type.Optional(
 			Type.Integer({

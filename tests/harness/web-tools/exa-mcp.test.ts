@@ -86,6 +86,26 @@ describe("Exa MCP 免 key 搜索", () => {
 		expect(calls("tools/list")).toHaveLength(0);
 	});
 
+	it("MCP 将日期范围转换为结构化参数", async () => {
+		await expect(runtime.search({ query: "Pi after:2026-01-01 before:2026-06-01" }, { toolCallId: "mcp-dates" }))
+			.resolves.toMatchObject({ details: { status: "success" } });
+		expect(JSON.parse(calls("tools/call")[0]?.[1].body ?? "null").params.arguments).toEqual({
+			query: "Pi", numResults: config.websearch.exa_mcp.max_results, type: "auto", enableHighlights: true,
+			excludeDomains: ["csdn.com", "gitcode.com"],
+			startPublishedDate: "2026-01-01T00:00:00.000Z", endPublishedDate: "2026-06-01T00:00:00.000Z",
+		});
+	});
+
+	it("MCP 将 recent:7d 转换为滚动发布时间下界", async () => {
+		const startedAt = Date.now();
+		await expect(runtime.search({ query: "Pi recent:7d" }, { toolCallId: "mcp-recent" })).resolves.toMatchObject({ details: { status: "success" } });
+		const args = JSON.parse(calls("tools/call")[0]?.[1].body ?? "null").params.arguments;
+		expect(args).toMatchObject({ query: "Pi", startPublishedDate: expect.any(String) });
+		const lowerBound = Date.parse(args.startPublishedDate);
+		expect(lowerBound).toBeGreaterThanOrEqual(startedAt - 7 * 86_400_000);
+		expect(lowerBound).toBeLessThanOrEqual(Date.now() - 7 * 86_400_000);
+	});
+
 	it("highlights 和 text 全部保留，超长标题与正文不截断", async () => {
 		const title = "Pi reference ".repeat(50).trim();
 		const highlights = ["First relevant passage. ".repeat(50), "Additional passage. ".repeat(50)];

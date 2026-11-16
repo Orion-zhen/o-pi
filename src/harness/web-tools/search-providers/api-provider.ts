@@ -4,9 +4,9 @@ import { classifyNetworkError } from "../network/errors.ts";
 import { readLimitedResponseBody } from "../network/response-body.ts";
 import type { WebHttpFetch, WebHttpResponse } from "../network/types.ts";
 import type { SearchProviderConfig } from "../config-types.ts";
-import { filteredLexicalQuery } from "./query.ts";
+import { filteredLexicalQuery, resolveDateBounds } from "./query.ts";
 import { classifyHttpStatus, normalizeProviderResponse, searchFailure } from "./response.ts";
-import type { NormalizedSearchParams, ResolvedApiProvider, SearchProviderContext, SearchProviderFailure, SearchProviderResult } from "./types.ts";
+import type { NormalizedSearchParams, ResolvedApiProvider, SearchDateQuery, SearchProviderContext, SearchProviderFailure, SearchProviderResult } from "./types.ts";
 
 type ApiProviderOptions = ResolvedApiProvider & {
 	dispatcher: () => Promise<Dispatcher>;
@@ -24,12 +24,13 @@ type ProviderHttpResult = { status: "success"; httpStatus: number; bytes: Uint8A
 
 /** 配置和已解析凭据属于本次请求，提供方不保留会话状态。 */
 export async function searchApiProvider(options: ApiProviderOptions, params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchProviderResult> {
-	const remaining = context.deadlineAt - context.now();
+	const now = context.now();
+	const remaining = context.deadlineAt - now;
 	if (remaining <= 0) return searchFailure("TIMEOUT", "websearch deadline exceeded.");
 	const timeout = AbortSignal.timeout(Math.min(options.config.timeout_seconds * 1000, remaining));
 	const signal = AbortSignal.any([context.signal, timeout]);
 	context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
-	let response = await send(buildProviderRequest(options, params));
+	let response = await send(buildProviderRequest(options, params, now));
 	if (response.status === "success" && options.id === "anysearch" && options.key !== undefined
 		&& (response.httpStatus === 401 || response.httpStatus === 402 || response.httpStatus === 403)) {
 		// 匿名重试沿用首次请求的超时预算，取消后不会发送。
@@ -78,29 +79,43 @@ export async function searchApiProvider(options: ApiProviderOptions, params: Nor
 	}
 }
 
-function buildProviderRequest(provider: ResolvedApiProvider, params: NormalizedSearchParams): ProviderRequest {
+function buildProviderRequest(provider: ResolvedApiProvider, params: NormalizedSearchParams, now: number): ProviderRequest {
 	switch (provider.id) {
-		case "brave_api": return buildBraveRequest(provider.config, params, provider.key);
-		case "exa_api": return buildExaRequest(provider.config, params, provider.key);
-		case "tavily": return buildTavilyRequest(provider.config, params, provider.key);
+		case "brave_api": return buildBraveRequest(provider.config, params, provider.key, now);
+		case "exa_api": return buildExaRequest(provider.config, params, provider.key, now);
+		case "tavily": return buildTavilyRequest(provider.config, params, provider.key, now);
 		case "tinyfish": return buildTinyfishRequest(provider.config, params, provider.key);
 		case "anysearch": return buildAnySearchRequest(provider.config, params, provider.key);
 	}
 }
 
-function buildBraveRequest(config: SearchProviderConfig, params: NormalizedSearchParams, key: string): ProviderRequest {
+function buildBraveRequest(config: SearchProviderConfig, params: NormalizedSearchParams, key: string, now: number): ProviderRequest {
 	const url = new URL(config.endpoint);
-	url.searchParams.set("q", filteredLexicalQuery(params));
+	const freshness = params.dates === undefined ? undefined : braveDateFreshness(params.dates, now);
+	url.searchParams.set("q", filteredLexicalQuery(freshness === undefined ? params.passthroughQuery : params.textQuery, params));
+	if (freshness !== undefined) url.searchParams.set("freshness", freshness);
 	url.searchParams.set("count", String(params.limit));
 	url.searchParams.set("maximum_number_of_urls", String(params.limit));
 	url.searchParams.set("safesearch", "moderate");
 	return { url, method: "GET", headers: { Accept: "application/json", "X-Subscription-Token": key } };
 }
 
-function buildExaRequest(config: SearchProviderConfig, params: NormalizedSearchParams, key: string): ProviderRequest {
-	const { textQuery, includeDomains, excludeDomains } = params;
+function braveDateFreshness(dates: SearchDateQuery, now: number): string | undefined {
+	if (dates.kind === "recent") {
+		const presets: Readonly<Record<number, string>> = { 1: "pd", 7: "pw", 31: "pm", 365: "py" };
+		const start = new Date(now - dates.days * 86_400_000).toISOString().slice(0, 10);
+		return presets[dates.days] ?? `${start}to${new Date(now).toISOString().slice(0, 10)}`;
+	}
+	return dates.after !== undefined && dates.before !== undefined ? `${dates.after}to${dates.before}` : undefined;
+}
+
+function buildExaRequest(config: SearchProviderConfig, params: NormalizedSearchParams, key: string, now: number): ProviderRequest {
+	const { textQuery, dates, includeDomains, excludeDomains } = params;
+	const { after, before } = resolveDateBounds(dates, now);
 	const body = {
 		query: textQuery,
+		startPublishedDate: after,
+		endPublishedDate: before,
 		type: "auto",
 		numResults: params.limit,
 		contents: { highlights: { dynamic: true } },
@@ -110,10 +125,14 @@ function buildExaRequest(config: SearchProviderConfig, params: NormalizedSearchP
 	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "x-api-key": key, "Exa-Beta": "dynamic-highlights-2026-08-28" }, body: JSON.stringify(body) };
 }
 
-function buildTavilyRequest(config: SearchProviderConfig, params: NormalizedSearchParams, key: string): ProviderRequest {
-	const { textQuery, includeDomains, excludeDomains } = params;
+function buildTavilyRequest(config: SearchProviderConfig, params: NormalizedSearchParams, key: string, now: number): ProviderRequest {
+	const { textQuery, dates, includeDomains, excludeDomains } = params;
+	const { after, before } = resolveDateBounds(dates, now);
 	const body = {
 		query: textQuery,
+		start_date: after?.slice(0, 10),
+		end_date: before?.slice(0, 10),
+		filter_by_published_date: dates === undefined ? undefined : true,
 		max_results: params.limit,
 		search_depth: "basic",
 		auto_parameters: false,
@@ -129,6 +148,11 @@ function buildTavilyRequest(config: SearchProviderConfig, params: NormalizedSear
 function buildTinyfishRequest(config: SearchProviderConfig, params: NormalizedSearchParams, key: string): ProviderRequest {
 	const url = new URL(config.endpoint);
 	url.searchParams.set("query", params.textQuery);
+	if (params.dates?.kind === "recent") url.searchParams.set("recency_minutes", String(params.dates.days * 1440));
+	else if (params.dates !== undefined) {
+		if (params.dates.after !== undefined) url.searchParams.set("after_date", params.dates.after);
+		if (params.dates.before !== undefined) url.searchParams.set("before_date", params.dates.before);
+	}
 	if (params.includeDomains.length > 0) url.searchParams.set("include_domains", params.includeDomains.join(","));
 	if (params.excludeDomains.length > 0) url.searchParams.set("exclude_domains", params.excludeDomains.join(","));
 	return { url, method: "GET", headers: { Accept: "application/json", "X-API-Key": key } };
@@ -138,7 +162,7 @@ function buildAnySearchRequest(config: SearchProviderConfig, params: NormalizedS
 	return {
 		url: new URL(config.endpoint), method: "POST",
 		headers: { Accept: "application/json", "Content-Type": "application/json", ...(key === undefined ? {} : { Authorization: `Bearer ${key}` }) },
-		body: JSON.stringify({ query: filteredLexicalQuery(params), max_results: params.limit, format: "json" }),
+		body: JSON.stringify({ query: filteredLexicalQuery(params.passthroughQuery, params), max_results: params.limit, format: "json" }),
 	};
 }
 

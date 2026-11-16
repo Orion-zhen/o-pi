@@ -24,16 +24,12 @@ export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearch
 			const primary = resolveProviders(config.websearch, config.websearch.primary_providers);
 			const auxiliary = resolveProviders(config.websearch, config.websearch.auxiliary_providers);
 			const startedAt = options.now();
-			const normalized = normalizeSearchParams(params, config.websearch.default_results, {
+			const normalization = normalizeSearchParams(params, config.websearch.default_results, {
 				includeDomains: config.websearch.include_domains,
 				excludeDomains: config.websearch.exclude_domains,
 			});
-			if (normalized.includeDomains.some((domain) => normalized.excludeDomains.includes(domain))) {
-				return webSearchResult({
-					status: "failed", error: { code: "INVALID_ARGUMENT", message: "site: and -site: domains must not overlap." },
-					duration_ms: options.now() - startedAt,
-				});
-			}
+			if (normalization.status === "failed") return webSearchResult({ ...normalization, duration_ms: options.now() - startedAt });
+			const normalized = normalization.params;
 			const key = searchFlightKey(normalized, config, [...primary, ...auxiliary]);
 			context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
 			const shared = { dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl };

@@ -4,7 +4,7 @@
 websearch({ query: string, limit?: number })
 ```
 
-`query` 支持 `site:`、`-site:`、引号、错误码和版本号。域名操作符转换为过滤条件，其余查询传给提供方。`limit` 为 1–20，默认取配置的 `default_results`。
+`query` 识别 `site:`、`-site:` 和下文的日期语法。操作符不区分大小写，只解析引号外的独立词。其余内容传给提供方，保留引号内的空白和转义内容。`limit` 为 1–20，默认取配置的 `default_results`。
 
 ## 分组与顺序
 
@@ -55,6 +55,28 @@ websearch({ query: string, limit?: number })
 
 Brave 和 AnySearch 将域名条件重建为查询操作符，其他引擎使用结构化参数。
 
+## 日期语法
+
+| 语法 | 含义 |
+| --- | --- |
+| `after:YYYY-MM-DD` | 日期下界 |
+| `before:YYYY-MM-DD` | 日期上界 |
+| `recent:Nd` | 最近 N 天，N 为 1–3650 的整数 |
+
+例如 `Pi release after:2026-01-01 before:2026-06-01` 或 `Pi release recent:7d`。
+
+`after:` 和 `before:` 可以组合，`recent:` 不能与两者混用。无效日期、重复操作符、下界晚于上界或缺少搜索词时返回 `INVALID_ARGUMENT`。
+
+| 引擎 | 转换方式 |
+| --- | --- |
+| Exa API / MCP | `startPublishedDate` / `endPublishedDate`，使用 UTC 时间 |
+| Brave | 双端日期范围和 `recent:` 转为 `freshness`，单边日期词透传 |
+| Tavily | `start_date` / `end_date`，启用 `filter_by_published_date` 排除日期未知的结果 |
+| TinyFish | `after_date` / `before_date`，`recent:` 转为 `recency_minutes` |
+| AnySearch | 保留日期查询词透传 |
+
+支持结构化参数时从查询文本中移除对应日期词，不支持时保留，不跳过引擎。相对时间在提供方执行时计算。仅支持日期的参数使用 UTC 日期，时间精度和边界语义以提供方为准。Brave 也可能使用修改日期，因此日期过滤不保证全部依据原始发布时间。
+
 ## 结果与错误
 
 ```xml
@@ -69,4 +91,4 @@ Search result snippet.
 
 `details` 保存查询、贡献结果的提供方和尝试记录。相同配置与凭据下的并发搜索可以合并，完成结果不缓存。
 
-常见错误包括 `CONFIG_ERROR`、`NO_PROVIDER_AVAILABLE`、`RATE_LIMITED`、`QUOTA_EXHAUSTED`、`HTTP_ERROR`、`RESPONSE_TOO_LARGE`、`TIMEOUT` 和 `ABORTED`。
+常见错误包括 `INVALID_ARGUMENT`、`CONFIG_ERROR`、`NO_PROVIDER_AVAILABLE`、`RATE_LIMITED`、`QUOTA_EXHAUSTED`、`HTTP_ERROR`、`RESPONSE_TOO_LARGE`、`TIMEOUT` 和 `ABORTED`。
