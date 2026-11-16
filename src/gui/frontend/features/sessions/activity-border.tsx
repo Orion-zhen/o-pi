@@ -12,9 +12,12 @@ export function ActivityBorder({ state }: { state: ActivityState }) {
 	return <motion.svg ref={ref} className="activity-border size-full" data-activity={state} data-playing={playing} aria-hidden="true" focusable="false"
 		initial={false} transition={feedback} animate={{
 			opacity: state === "idle" ? 0 : state === "running" ? 0.75 : state === "unread" ? [0.75, 1, 0.7] : 0.7,
-			"--activity-trail": state === "running" ? 1 : 0,
 		}}>
-		{trail.map((length) => <rect key={length} x="1" y="1" width="calc(100% - 2px)" height="calc(100% - 2px)"
-			pathLength="100" strokeDasharray={`0 calc(${100 - length} * var(--activity-trail)) calc(100 - ${100 - length} * var(--activity-trail)) 0`} />)}
+		{trail.map((length) => {
+			const gap = state === "running" ? 100 - length : 0;
+			const dash = 100 - gap;
+			return <motion.rect key={length} x="1" y="1" width="calc(100% - 2px)" height="calc(100% - 2px)"
+				pathLength="100" initial={false} transition={feedback} animate={{ strokeDasharray: `0 ${gap} ${dash} 0` }} />;
+		})}
 	</motion.svg>;
 }
