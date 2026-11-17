@@ -44,17 +44,23 @@ export async function exportSession(
 	}
 }
 
-export async function importSession(content: string): Promise<SessionManager> {
+export async function importSession(content: string, workspaceCwd: string): Promise<SessionManager> {
 	const entries = parseSessionEntries(content);
 	const header = entries.find((entry) => entry.type === "session");
 	if (!header) throw new Error("无效会话 JSONL，缺少 session header。");
-	if (!(await stat(header.cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
-	const manager = SessionManager.create(header.cwd);
+	let cwd = header.cwd;
+	try {
+		if (!(await stat(cwd)).isDirectory()) throw new Error("工作目录不是文件夹。");
+	} catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+		cwd = workspaceCwd;
+	}
+	const manager = SessionManager.create(cwd);
 	const file = manager.getSessionFile();
 	if (!file) throw new Error("未能创建导入会话。");
 	await mkdir(path.dirname(file), { recursive: true });
 	// 导入是独立会话，不能与仍在运行的源会话共用标识。
-	const imported = entries.map((entry) => entry.type === "session" ? { ...entry, id: manager.getSessionId() } : entry);
+	const imported = entries.map((entry) => entry.type === "session" ? { ...entry, id: manager.getSessionId(), cwd } : entry);
 	await writeFile(file, imported.map((entry) => JSON.stringify(entry)).join("\n") + "\n", { mode: 0o600, flag: "wx" });
 	return SessionManager.open(file);
 }

@@ -267,7 +267,11 @@ export class GuiClient {
 				}
 				await this.select(recent ?? this.host.newSession(cwd)); return;
 			}
-			case "import": await this.select(this.host.register(await importSession(action.content))); return;
+			case "import": {
+				const cwd = sessionId === null ? this.host.workspaceRoot : this.resolveSession(sessionId).cwd;
+				await this.select(this.host.register(await importSession(action.content, cwd)));
+				return;
+			}
 			case "deleteSession": await this.host.remove([action.path]); return;
 			case "removeWorkspace": {
 				if (action.path === this.host.workspaceRoot || [...this.host.clients].some((client) => client.selected?.cwd === action.path))
