@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { IconButton } from "../icon-button.tsx";
 import { Dialog, DialogClose, DialogTitle } from "../dialog.tsx";
 import { fade } from "../motion/transitions.ts";
+import { Hint } from "../tooltip.tsx";
 import { ImageViewer } from "./image-viewer.tsx";
 import "./image-preview.css";
 
@@ -35,13 +36,13 @@ export function ImagePreviewProvider({ sessionId, fallbackFocus, children }: {
 	</ImagePreviewContext>;
 }
 
-export function ImagePreviewButton({ src, alt, children }: { src: string | undefined; alt: string; children: ReactNode }) {
+export function ImagePreviewButton({ src, alt, hint, children }: { src: string | undefined; alt: string; hint?: string; children: ReactNode }) {
 	const preview = useContext(ImagePreviewContext);
 	const id = useId();
 	const update = preview?.update;
 	useEffect(() => { if (src) update?.(id, src, alt); }, [id, src, alt, update]);
 	if (!preview) throw new Error("缺少图片预览上下文。");
-	return <button type="button" className="image-preview-trigger" aria-label={`查看大图：${alt}`} aria-haspopup="dialog" disabled={!src}
+	const button = <button type="button" className="image-preview-trigger" aria-label={`查看大图：${alt}`} aria-haspopup="dialog" disabled={!src}
 		data-previewing={preview.activeId === id || undefined}
 		onClick={(event) => {
 			const source = event.currentTarget.querySelector("img");
@@ -49,6 +50,7 @@ export function ImagePreviewButton({ src, alt, children }: { src: string | undef
 		}}>
 		{children}
 	</button>;
+	return hint ? <Hint content={hint}>{button}</Hint> : button;
 }
 
 function ImagePreviewDialog({ image, close, restoreFocus }: { image: Preview; close: () => void; restoreFocus: () => void }) {

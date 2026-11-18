@@ -1,8 +1,11 @@
-import { createContext, isValidElement, lazy, memo, Suspense, useContext, useState, type ComponentProps } from "react";
+import { createContext, isValidElement, lazy, memo, Suspense, useCallback, useContext, useState, type ComponentProps } from "react";
 import Markdown, { defaultUrlTransform, type Components, type ExtraProps, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkCjkFriendly from "remark-cjk-friendly/parseOnly";
 import remarkCjkFriendlyGfmStrikethrough from "remark-cjk-friendly-gfm-strikethrough/parseOnly";
+import { useGuiQuery } from "@/connection/query-context.ts";
+import { useRemote } from "@/connection/use-remote.ts";
+import { ImagePreviewButton } from "../media/image-preview.tsx";
 import { Hint } from "../tooltip.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import { MermaidBlock } from "./mermaid-block.tsx";
@@ -47,6 +50,26 @@ function MarkdownLink({ href, children }: ComponentProps<"a">) {
 	return href ? <ExternalLink href={href}>{children}</ExternalLink> : <span>{children}</span>;
 }
 
+function MarkdownImage({ src, alt }: ComponentProps<"img">) {
+	const files = useContext(FileLinksContext);
+	const path = files && typeof src === "string" && fileLinkPath(src, files.cwd);
+	return path ? <WorkspaceImage cwd={files.cwd} path={path} label={alt || path} hint={src} /> : <span>[图片链接: {alt}]</span>;
+}
+
+function WorkspaceImage({ cwd, path, label, hint }: { cwd: string; path: string; label: string; hint: string }) {
+	const query = useGuiQuery();
+	const load = useCallback(async () => {
+		const { content } = await query({ query: "previewFile", cwd, path });
+		return content.kind === "image" ? content.url : undefined;
+	}, [query, cwd, path]);
+	const { result } = useRemote(load);
+	if (result.state === "error") return <span role="alert">{result.message}</span>;
+	const src = result.state === "ready" ? result.value : undefined;
+	return <ImagePreviewButton src={src} alt={label} hint={hint}>
+		<img className="attachment" src={src} alt={label} loading="lazy" />
+	</ImagePreviewButton>;
+}
+
 const Streaming = createContext(false);
 const markdownPlugins: NonNullable<ComponentProps<typeof Markdown>["remarkPlugins"]> = [
 	[remarkGfm, { singleTilde: false }],
@@ -54,12 +77,13 @@ const markdownPlugins: NonNullable<ComponentProps<typeof Markdown>["remarkPlugin
 	[remarkCjkFriendlyGfmStrikethrough, { singleTilde: false }],
 	remarkMath,
 ];
-const markdownUrl: UrlTransform = (url, key, node) => node.tagName === "a" && key === "href" ? url : defaultUrlTransform(url);
+const markdownUrl: UrlTransform = (url, key, node) =>
+	(node.tagName === "a" && key === "href") || (node.tagName === "img" && key === "src") ? url : defaultUrlTransform(url);
 const markdownComponents: Components = {
 	span: MarkdownSpan,
 	pre: MarkdownCode,
 	a: MarkdownLink,
-	img: ({ alt }) => <span>[图片链接: {alt}]</span>,
+	img: MarkdownImage,
 };
 
 function MarkdownCode({ children: child }: ComponentProps<"pre">) {

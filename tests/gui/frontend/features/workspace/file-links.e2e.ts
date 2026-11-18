@@ -11,6 +11,7 @@ test.beforeEach(async ({ workspace: { cwd, agentDir } }) => {
 	await writeFile(path.join(cwd, "src/main.ts"), "export const answer = 42;\n");
 	await writeFile(path.join(cwd, "README.md"), "# 文件链接预览\n");
 	await writeFile(path.join(cwd, "引用 空格.md"), "中文和空格文件名\n");
+	await writeFile(path.join(cwd, "diagram.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="900"><circle cx="450" cy="450" r="400"/></svg>');
 	const text = [
 		"[相对路径](src/main.ts#L42)",
 		`[绝对路径](${path.join(cwd, "README.md")}:1)`,
@@ -19,12 +20,25 @@ test.beforeEach(async ({ workspace: { cwd, agentDir } }) => {
 		"[越界](../secret.txt)",
 		"[网站](https://example.invalid/document)",
 		"`src/main.ts`",
+		"![示意图](./diagram.svg) ![远程](https://example.invalid/image.png)",
 	].join("\n\n");
 	model = await startModelServer(() => ({ text }));
 	await configureModel(agentDir, model.url, "file-links-test");
 	await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 });
 test.afterEach(async () => { await model?.close(); });
+
+test("聊天 Markdown 图片展示工作区文件，悬停看路径、点击看大图", async ({ gui: { page } }) => {
+	await page.getByRole("textbox", { name: "消息", exact: true }).fill("展示示意图");
+	await page.getByRole("button", { name: "发送", exact: true }).click();
+	const image = page.getByRole("img", { name: "示意图", exact: true });
+	await expect(image).toHaveJSProperty("naturalWidth", 900);
+	await expect(page.getByRole("img", { name: "远程" })).toHaveCount(0);
+	await image.hover();
+	await expect(page.getByRole("tooltip")).toHaveText("./diagram.svg");
+	await image.click();
+	await expect(page.getByRole("dialog", { name: "图片预览" })).toBeVisible();
+});
 
 test("聊天文件链接打开右侧文件预览，刷新后仍可用且网页链接不受影响", async ({ gui: { page } }) => {
 	await page.getByRole("textbox", { name: "消息", exact: true }).fill("输出文件链接");
