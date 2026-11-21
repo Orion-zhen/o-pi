@@ -98,7 +98,7 @@ it.each(["deferred", "direct"])("%s 工具在切换内置预设后保留选择�
 	}
 	expect(readSnapshot(host).tools.filter((tool) => !tool.mcp && tool.name !== "tool_search").every((tool) => !tool.enabled)).toBe(true);
 	expect(host.runtime.session.getActiveToolNames()).not.toContain(probe);
-	expect(host.runtime.session.getActiveToolNames()).toContain(exposure === "direct" ? refresh : "tool_search");
+	expect(readSnapshot(host).modelTools).toContain(exposure === "direct" ? refresh : "tool_search");
 	await host.dispatch({ action: "tool", name: "read", enabled: true });
 	expect(readSnapshot(host).toolPreset).toBeNull();
 });
@@ -113,7 +113,7 @@ it.each(["deferred", "direct"])("%s 服务总开关保留单工具选择和排�
 	await host.dispatch({ action: "mcpServers", names: ["fixture"], enabled: false });
 	await host.dispatch({ action: "mcpServers", names: ["fixture", "other"], enabled: false });
 	expect(readSnapshot(host).tools.filter((tool) => tool.mcpServer).every((tool) => !tool.enabled && !tool.callable && !tool.available)).toBe(true);
-	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	expect(readSnapshot(host).modelTools).not.toContain("tool_search");
 	expect(names()).toEqual(originalOrder);
 	response = { tool: probe, args: {} };
 	await host.dispatch(prompt("旧上下文不能绕过总开关"));
@@ -157,14 +157,14 @@ it("共享资源独立于服务工具开关，关闭后不可搜索调用，重�
 	await host.dispatch({ action: "reload" });
 	await expect.poll(() => readSnapshot(host).tools.filter((tool) => resources.includes(tool.name))).toHaveLength(3);
 	expect(readSnapshot(host).tools.filter((tool) => resources.includes(tool.name)).every((tool) => !tool.enabled && !tool.callable)).toBe(true);
-	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	expect(readSnapshot(host).modelTools).not.toContain("tool_search");
 	await host.dispatch({ action: "tool", name: "read_mcp_resource", enabled: true });
-	expect(host.runtime.session.getActiveToolNames()).toContain("tool_search");
+	expect(readSnapshot(host).modelTools).toContain("tool_search");
 	expect(host.runtime.session.getActiveToolNames()).not.toContain("read_mcp_resource");
 	response = { tool: "tool_search", args: { query: "read_mcp_resource", limit: 1 } };
 	await host.dispatch(prompt("搜索加载重新开启的资源工具"));
 	expect(host.runtime.session.getActiveToolNames()).toContain("read_mcp_resource");
-	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	expect(readSnapshot(host).modelTools).not.toContain("tool_search");
 	response = { tool: "read_mcp_resource", args: { server: "fixture", uri: "fixture://document" } };
 	await host.dispatch(prompt("单独恢复资源读取"));
 	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain("RESOURCE_RESULT");
@@ -206,12 +206,12 @@ it.each(["codemode", "codemode-deferred", "deferred", "direct"])("%s 工具关�
 	await host.dispatch({ action: "tool", name: probe, enabled: true });
 	if (exposure !== "direct") {
 		expect(host.runtime.session.getActiveToolNames()).not.toContain(probe);
-		expect(host.runtime.session.getActiveToolNames()).toContain("tool_search");
+		expect(readSnapshot(host).modelTools).toContain("tool_search");
 		response = { tool: "tool_search", args: { query: "MCP_VISIBILITY_probe", limit: 1 } };
 		await host.dispatch(prompt("重新勾选的延迟工具仍通过搜索加载"));
 	}
 	expect(host.runtime.session.getActiveToolNames()).toContain(probe);
-	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	expect(readSnapshot(host).modelTools).not.toContain("tool_search");
 	response = { tool: probe, args: {} };
 	await host.dispatch(prompt("普通模式直接调用已加载的工具"));
 	expect(model.requests.at(-1)?.tools?.some((tool) => tool.function.name === probe)).toBe(true);
@@ -318,7 +318,7 @@ it.each(["codemode", "deferred"])("普通模式搜索 %s MCP 工具并直接调�
 	expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain("MCP_RESULT_probe");
 
 	await host.dispatch({ action: "tool", name: "codemode", enabled: true });
-	expect(active()).not.toContain("tool_search");
+	expect(readSnapshot(host).modelTools).not.toContain("tool_search");
 	expect(active()).toContain(probe);
 	response = { tool: "codemode", args: { code: 'text(await describeNamespace("fixture")); text(await searchTools("MCP_VISIBILITY", {namespace:"fixture"}));' } };
 	await host.dispatch(prompt("脚本搜索包含已加载和未加载工具"));
@@ -331,10 +331,24 @@ it.each(["codemode", "deferred"])("普通模式搜索 %s MCP 工具并直接调�
 	expect(scriptedTools).not.toContain("tool_search");
 	expect(scriptedTools.every((name) => host.runtime.session.getAllTools().find((tool) => tool.name === name)?.exposure === "model-only")).toBe(true);
 	await host.dispatch({ action: "tool", name: "codemode", enabled: false });
-	expect(active()).toEqual([...initialTools.filter((name) => name !== "tool_search"), probe, "tool_search"]);
+	expect(readSnapshot(host).modelTools).toEqual([...initialTools, probe]);
 	await host.dispatch({ action: "reload" });
-	await expect.poll(() => active().includes("tool_search")).toBe(true);
-	expect(active()).not.toContain("codemode");
+	response = { tool: probe, args: {} };
+	const callRestored = async () => {
+		await expect.poll(() => readSnapshot(host).modelTools).toContain(probe);
+		await host.dispatch(prompt("直接调用恢复的工具"));
+		expect(model.requests.at(-1)?.tools?.map((tool) => tool.function.name)).toContain(probe);
+		expect(JSON.stringify(model.requests.at(-1)?.messages.findLast((message) => message.role === "tool"))).toContain("MCP_RESULT_probe");
+	};
+	// 发起普通模式请求后，SDK 才把本轮工具选择写入可恢复的历史。
+	await callRestored();
+	const file = host.runtime.session.sessionFile;
+	if (!file) throw new Error("缺少会话文件");
+	await host.host.dispose();
+	host = new GuiHost().createClient();
+	await host.host.start(temp.path);
+	await host.dispatch({ action: "openSession", path: file });
+	await callRestored();
 	expect(await readFile(mcpFile, "utf8")).toBe(original);
 });
 
@@ -388,12 +402,12 @@ it("普通模式的搜索入口在全部加载、隐藏和恢复后自动更新"
 	await start("codemode", false);
 	response = { tool: "tool_search", args: { query: "MCP_VISIBILITY" } };
 	await host.dispatch(prompt("加载全部 MCP 工具"));
-	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	expect(readSnapshot(host).modelTools).not.toContain("tool_search");
 	await host.dispatch({ action: "tool", name: probe, enabled: false });
 	await host.dispatch({ action: "tool", name: refresh, enabled: false });
-	expect(host.runtime.session.getActiveToolNames()).not.toContain("tool_search");
+	expect(readSnapshot(host).modelTools).not.toContain("tool_search");
 	await host.dispatch({ action: "new" });
-	await expect.poll(() => host.runtime.session.getActiveToolNames().includes("tool_search")).toBe(true);
+	await expect.poll(() => readSnapshot(host).modelTools).toContain("tool_search");
 	expect(host.runtime.session.getActiveToolNames()).not.toContain("codemode");
 });
 

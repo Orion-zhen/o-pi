@@ -27,15 +27,23 @@ describe("原生 defaultTools 保存", () => {
 
 	it("替换原有默认列表，保留其他设置及 SDK 后续写入", async () => {
 		await mkdir(agentDir);
-		await writeFile(settingsPath, JSON.stringify({ theme: "dark", defaultTools: ["+codemode"] }));
+		await writeFile(settingsPath, JSON.stringify({ theme: "dark", defaultTools: ["+codemode", "-tool_search"] }));
 		const sdk = SettingsManager.create(temp.path, agentDir);
 		await saveUserToolDefaults(["read", "bash"]);
-		expect(JSON.parse(await readFile(settingsPath, "utf8"))).toEqual({ theme: "dark", defaultTools: ["read", "bash"] });
+		expect(JSON.parse(await readFile(settingsPath, "utf8"))).toEqual({ theme: "dark", defaultTools: ["read", "bash", "-tool_search"] });
 		sdk.setTheme("light");
 		await sdk.flush();
 		expect(sdk.drainErrors()).toEqual([]);
 		expect(SettingsManager.create(temp.path, agentDir).getDefaultTools()).toEqual(["read", "bash"]);
 		expect(JSON.parse(await readFile(settingsPath, "utf8")).theme).toBe("light");
+	});
+
+	it("保存空选择时保留搜索排除项，SDK 不继承默认工具", async () => {
+		await mkdir(agentDir);
+		await writeFile(settingsPath, JSON.stringify({ defaultTools: ["-tool_search"] }));
+		await saveUserToolDefaults([]);
+		expect(JSON.parse(await readFile(settingsPath, "utf8")).defaultTools).toContain("-tool_search");
+		expect(SettingsManager.create(temp.path, agentDir).getDefaultTools()).toEqual([]);
 	});
 
 	it.each(["{ invalid", "[]", "null"])("拒绝覆盖损坏的设置 %s", async (content) => {

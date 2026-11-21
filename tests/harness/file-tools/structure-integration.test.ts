@@ -54,7 +54,7 @@ async function setup(options: Parameters<typeof createProtocolServer>[1] = {}, s
 		server,
 		read: (lines?: string, signal?: AbortSignal) => executeRead({ path: "code.ts", ...(lines === undefined ? {} : { lines }) }, {
 			host, cwd: context.workspace, sessionId: "structure", pathAccess: { mounts: [], managedSchemes: [] },
-			model: undefined, lsp: async () => manager,
+			lsp: async () => manager,
 			...(signal === undefined ? {} : { signal }),
 		}),
 		grep: async (query: string) => expectGrepSuccess(await grepWorkspaceFiles(context.workspace, { query }, undefined, {
@@ -218,7 +218,7 @@ describe("shared read/grep structure", () => {
 		await context.useConfig({ read_lines: 1, read_outline_symbols: 1 });
 		await writeFile(path.join(context.workspace, "code.ts"), "// header\nfunction first() {}\nfunction second() {}\n");
 		const result = await executeRead({ path: "code.ts" }, {
-			host, cwd: context.workspace, sessionId: "outline-fallback", model: undefined,
+			host, cwd: context.workspace, sessionId: "outline-fallback",
 			pathAccess: { mounts: [], managedSchemes: [] },
 			lsp: async () => { throw new Error("LSP unavailable"); },
 		});

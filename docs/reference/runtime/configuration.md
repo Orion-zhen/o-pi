@@ -72,7 +72,7 @@ CLI `--tools` 优先于 settings。恢复会话时，增减形式作用于历史
 
 TUI 的 `/tools` 用 Enter 或空格切换，Ctrl+S 保存全局默认值。GUI 提供对应工具面板。`tool_search` 由候选状态自动管理，保存默认值时排除。
 
-SDK 在下次模型请求时记录当前分支的工具声明，恢复与导航采用该记录。切换模型保留工具选择。
+`/reload` 保留重载前的工具选择，即使尚未发送请求。重新打开会话或导航到已有请求的分支时，普通工具沿用该分支最后一次请求的选择，包括空选择。新安装的普通工具仍可在 `/tools` 中手动启用。切换模型不改变选择。
 
 `codemode` 默认关闭。非 Windows 平台的内置 `powershell` 显示为不可用，Windows 可显式启用。powershell 沿用 SDK 执行，不经过本仓库的 Bash 审批解析和输出管理。子代理工具取决于可用代理定义。Codemode 下脚本工具的可调用范围见 [Codemode](../codemode/README.md)。
 

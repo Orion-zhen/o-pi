@@ -13,6 +13,7 @@ import {
 	SettingsManager,
 	resolveModelScopeWithDiagnostics,
 	type AgentSession,
+	type AgentSessionRuntimeDiagnostic,
 	type SessionStartEvent,
 	type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
@@ -35,6 +36,7 @@ export async function createGuiRuntime(
 	const agentDir = getAgentDir();
 	const trust = new ProjectTrustStore(agentDir);
 	const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+		const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 		const services = await createAgentSessionServices({
 			cwd,
@@ -51,7 +53,7 @@ export async function createGuiRuntime(
 						defaultProjectTrust: settingsManager.getDefaultProjectTrust(),
 						extensionsResult,
 						projectTrustContext: { cwd, mode: "print", hasUI: true, ui: dialogs.context() },
-						onExtensionError: (message) => dialogs.notify(message, "warning"),
+						onExtensionError: (message) => diagnostics.push({ type: "warning", message }),
 					});
 					// 与原生入口一致，只缓存需要信任决策的项目。
 					if (hasTrustRequiringProjectResources(cwd)) decisions.set(cwd, trusted);
@@ -65,7 +67,6 @@ export async function createGuiRuntime(
 		const scope = patterns.length === defaultPatterns.length && patterns.every((pattern, index) => pattern === defaultPatterns[index])
 			? defaultScope : await resolveModelScopeWithDiagnostics(patterns, services.modelRuntime);
 		modelScope.initialize(scope, defaultScope);
-		for (const diagnostic of scope.diagnostics) dialogs.notify(diagnostic.message, "warning");
 		const context = sessionManager.buildSessionContext();
 		const model = context.messages.length === 0 && context.model
 			? services.modelRuntime.getModel(context.model.provider, context.model.modelId)
@@ -78,15 +79,18 @@ export async function createGuiRuntime(
 			...(sessionStartEvent ? { sessionStartEvent } : {}),
 			scopedModels: scope.scopedModels,
 		});
-		for (const diagnostic of services.diagnostics)
-			dialogs.notify(diagnostic.message, diagnostic.type === "error" ? "error" : "warning");
-		for (const error of services.resourceLoader.getExtensions().errors)
-			dialogs.notify(`${error.path}: ${error.error}`, "error");
-		return { ...result, services, diagnostics: services.diagnostics };
+		diagnostics.push(...services.diagnostics, ...scope.diagnostics);
+		for (const { path, error } of services.resourceLoader.getExtensions().errors)
+			diagnostics.push({ type: "error", message: `${path}: ${error}` });
+		if (result.session.model && result.modelFallbackMessage)
+			diagnostics.push({ type: "warning", message: result.modelFallbackMessage });
+		return { ...result, services, diagnostics };
 	};
 	// GUI 允许打开失效工作区，目录检查留在消息提交边界，不使用 SDK 的启动目录校验。
 	const result = await factory({ cwd, agentDir, sessionManager, sessionStartEvent: initialEvent });
-	return new AgentSessionRuntime(result.session, result.services, factory, result.diagnostics, result.modelFallbackMessage);
+	const runtime = new AgentSessionRuntime(result.session, result.services, factory, result.diagnostics, result.modelFallbackMessage);
+	for (const { type, message } of runtime.takeUnreportedDiagnostics()) dialogs.notify(message, type);
+	return runtime;
 }
 
 export function guiModel(model: NonNullable<AgentSession["model"]>): GuiModel {

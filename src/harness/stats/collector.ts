@@ -19,8 +19,7 @@ export interface StatsQueryPort {
 	isIdle(): boolean;
 	getContextUsage(): ContextUsage | undefined;
 	getSystemPrompt(): string;
-	getSystemPromptOptions?(): BuildSystemPromptOptions;
-	now?(): Date;
+	getSystemPromptOptions(): BuildSystemPromptOptions;
 }
 
 /** 从 Pi 公开 API 读取当前会话统计，不写 session entry。 */
@@ -29,11 +28,12 @@ export async function collectStatsSnapshot(port: StatsQueryPort, pi: StatsPiApi)
 	const branchEntries = port.getBranch();
 	const messages = entries.map((entry) => (entry.type === "message" ? entry.message : undefined)).filter((message): message is Message => message !== undefined);
 	const { usage, cache } = summarizeSessionUsage(entries);
-	const activeTools = pi.getActiveTools();
 	const allTools = pi.getAllTools();
 	const model = port.model;
 	const contextUsage = port.getContextUsage();
-	const systemPromptOptions = getSystemPromptOptions(port);
+	const systemPromptOptions = port.getSystemPromptOptions();
+	const hidden = new Set(systemPromptOptions.hiddenTools);
+	const activeTools = pi.getActiveTools().filter((name) => !hidden.has(name));
 
 	return {
 		session: {
@@ -56,22 +56,14 @@ export async function collectStatsSnapshot(port: StatsQueryPort, pi: StatsPiApi)
 			allTools,
 			branchEntries,
 			model,
-			...(systemPromptOptions !== undefined ? { systemPromptOptions } : {}),
+			contextFiles: systemPromptOptions.contextFiles ?? [],
 		}),
 		tools: collectTools(messages, activeTools.length, allTools.length),
-		generatedAt: (port.now?.() ?? new Date()).toISOString(),
+		generatedAt: new Date().toISOString(),
 	};
 }
 
-function getSystemPromptOptions(port: StatsQueryPort): BuildSystemPromptOptions | undefined {
-	try {
-		return port.getSystemPromptOptions?.();
-	} catch {
-		return undefined;
-	}
-}
-
-export function collectTools(messages: Message[], activeCount: number | undefined, totalCount: number | undefined): ToolStats {
+export function collectTools(messages: Message[], activeCount: number, totalCount: number): ToolStats {
 	const byName = new Map<string, { calls: number; failures: number; outputChars: number }>();
 	let calls = 0;
 	let successes = 0;
@@ -96,8 +88,8 @@ export function collectTools(messages: Message[], activeCount: number | undefine
 	}
 
 	return {
-		...(activeCount !== undefined ? { activeCount } : {}),
-		...(totalCount !== undefined ? { totalCount } : {}),
+		activeCount,
+		totalCount,
 		calls,
 		...(successes + failures > 0 ? { successes, failures } : {}),
 		byName: [...byName.entries()]

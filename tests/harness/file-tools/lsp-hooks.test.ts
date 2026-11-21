@@ -45,7 +45,7 @@ describe("file-tools lsp hooks", () => {
 		await writeFile(path.join(workspace, "a.ts"), "function demo() {\n  return 1;\n}\n");
 		const documentAnalysis = vi.fn<LspFileOperations["documentAnalysis"]>().mockResolvedValue(undefined);
 		const read = (lines?: string) => executeRead({ path: "a.ts", ...(lines === undefined ? {} : { lines }) }, {
-			host, cwd: workspace, sessionId: "read-hooks", model: undefined,
+			host, cwd: workspace, sessionId: "read-hooks",
 			pathAccess: { mounts: [], managedSchemes: [] },
 			lsp: async () => lspOperations({ documentAnalysis }),
 		});

@@ -146,7 +146,7 @@ describe("GUI 直接使用 SDK", () => {
 		const settings = JSON.parse(await readFile(file, "utf8"));
 		await writeFile(file, JSON.stringify({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) }));
 		await host.dispatch({ action: "new" });
-		expect(host.runtime.session.getActiveToolNames().filter((name) => name !== "powershell").sort()).toEqual(expected);
+		expect(readSnapshot(host).modelTools.filter((name) => name !== "powershell").sort()).toEqual(expected);
 		expect(host.runtime.session.getActiveToolNames()).not.toContain("codemode");
 		expect(host.runtime.session.getActiveToolNames()).not.toContain("subagent");
 		expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) });

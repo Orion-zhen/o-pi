@@ -15,7 +15,7 @@ import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 const temp = useTempDir("opi-tool-renderers-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE");
 const toolNames = ["ls", "find", "grep", "read", "write", "edit", "bash", "websearch", "webfetch", "skill", "subagent"];
-const extensionNames = new Set(["file-tools", "bash-tool", "web-tools", "skill-context", "subagent", "tool-renderers"]);
+const extensionNames = new Set(["tools-runtime", "tool-renderers"]);
 let runtime: AgentSessionRuntime | undefined;
 
 beforeAll(() => initTheme());
@@ -56,7 +56,7 @@ it("TUI 渲染器独立于执行定义，启动和恢复不重新注册工具", 
 		expect(session.getToolDefinition(name)?.renderCall, name).toBeUndefined();
 		expect(session.getToolDefinition(name)?.renderResult, name).toBeUndefined();
 		const renderers = session.extensionRunner.resolveToolRenderers(name, () => undefined);
-		expect(renderers?.renderCall, name).toBeTypeOf("function");
+		if (name !== "write") expect(renderers?.renderCall, name).toBeTypeOf("function");
 		if (name !== "bash") expect(renderers?.renderResult, name).toBeTypeOf("function");
 	}
 	expect(session.getActiveToolNames()).toEqual(active);

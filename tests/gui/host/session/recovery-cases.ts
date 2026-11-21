@@ -9,6 +9,15 @@ import { readSnapshot } from "../read-snapshot.ts";
 
 export function recoveryTests(context: () => { host: GuiClient; cwd: string; agentDir: string; events: GuiEvent[] }) {
 	describe("失效工作区与会话恢复", () => {
+		it("恢复已移除模型的历史时提示实际使用的模型", async () => {
+			const { host, cwd, agentDir, events } = context();
+			const file = await storeSession({ cwd, agentDir, provider: "removed" });
+			await host.dispatch({ action: "openSession", path: file });
+			expect(events.findLast((event) => event.type === "notices")?.value).toEqual(expect.arrayContaining([
+				expect.objectContaining({ type: "warning", text: expect.stringMatching(/removed\/test.*gui-fixture\/test/) }),
+			]));
+		});
+
 		it("进入失效工作区并切换历史，允许重命名但阻止新消息，不重建目录", async () => {
 			const { host, cwd, agentDir } = context();
 			const missing = path.join(cwd, "missing-workspace");

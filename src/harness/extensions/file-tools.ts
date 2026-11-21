@@ -119,7 +119,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 			outputSchema: readOutputSchema,
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/read.ts"), runtimeForInvocation(ctx, signal)]);
-				return module.executeRead(params, { ...runtime, model: ctx.model, lsp });
+				return module.executeRead(params, { ...runtime, lsp });
 			},
 		},
 		repair: {

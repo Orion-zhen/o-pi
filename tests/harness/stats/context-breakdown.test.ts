@@ -1,7 +1,8 @@
 import type { SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { buildContextBreakdown, estimateTokens } from "../../../src/harness/stats/context-breakdown.ts";
+import { countTextTokens } from "../../../src/harness/token-counter.ts";
+import { buildContextBreakdown } from "../../../src/harness/stats/context-breakdown.ts";
 import { assistantToolCall, toolResult, userMessage } from "./message-fixtures.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../../src/harness/skill-context/types.ts";
 
@@ -14,16 +15,12 @@ describe("stats context breakdown", () => {
 			entry("4", userMessage("latest user input")),
 		];
 
+		const projectContext = '<project_context>\n<file path="AGENTS.md">\nProject rules\n</file>\n</project_context>';
 		const stats = await buildContextBreakdown({
 			model: undefined,
 			usage: { tokens: 1000, contextWindow: 4000, percent: 25 },
-			systemPrompt: "<tool_policy>Use tools</tool_policy>\n<subagents>\n- scout: inspect\n</subagents>\nRules",
-			systemPromptOptions: {
-				cwd: "/repo",
-				selectedTools: ["read"],
-				toolSnippets: { read: "read files" },
-				contextFiles: [{ path: "AGENTS.md", content: "Project rules" }],
-			},
+			systemPrompt: `<tool_policy>Use tools</tool_policy>\n${projectContext}\n<subagents>\n- scout: inspect\n</subagents>`,
+			contextFiles: [{ path: "AGENTS.md", content: "Project rules" }],
 			activeTools: ["read"],
 			allTools: [toolInfo("read", "Read file contents", { path: { type: "string", description: "File path to read" } })],
 			branchEntries,
@@ -33,7 +30,7 @@ describe("stats context breakdown", () => {
 		expect(stats.totalTokens).toBe(1000);
 		expect(stats.remainingTokens).toBe(3000);
 		expect(stats.items.map((item) => item.id)).toContain("tool_definitions");
-		expect(stats.items.map((item) => item.id)).toContain("project_context");
+		expect(stats.items.find((item) => item.id === "project_context")?.tokens).toBe((await countTextTokens(projectContext)).tokens);
 		expect(stats.items.map((item) => item.id)).toContain("conversation_history");
 		expect(stats.items.map((item) => item.id)).toContain("tool_outputs");
 		expect(stats.items.map((item) => item.id)).toContain("current_user");
@@ -47,11 +44,7 @@ describe("stats context breakdown", () => {
 			model: undefined,
 			usage: undefined,
 			systemPrompt,
-			systemPromptOptions: {
-				cwd: "/repo",
-				selectedTools: ["read"],
-				toolSnippets: { read: "read files" },
-			},
+			contextFiles: [],
 			activeTools: ["read"],
 			allTools: [
 				toolInfo("read", "Read file contents from disk and return structured text chunks", {
@@ -66,46 +59,26 @@ describe("stats context breakdown", () => {
 		const system = stats.items.find((item) => item.id === "system");
 		const tools = stats.items.find((item) => item.id === "tool_definitions");
 
-		expect(system?.tokens).toBe(await estimateTokens(systemPrompt));
+		expect(system?.tokens).toBe((await countTextTokens(systemPrompt)).tokens);
 		expect(tools?.note).toBe("1 active tools");
-		expect(tools?.tokens).toBeGreaterThan(await estimateTokens("read: read files"));
-	});
-
-	it("没有 context usage 时使用估算总量", async () => {
-		const stats = await buildContextBreakdown({
-			model: undefined,
-			usage: undefined,
-			systemPrompt: "system prompt text",
-			activeTools: [],
-			branchEntries: [entry("1", userMessage("hello world"))],
-		});
-
+		expect(tools?.tokens).toBeGreaterThan(0);
 		expect(stats.confidence).toBe("estimated");
-		expect(stats.totalTokens).toBeGreaterThanOrEqual(await estimateTokens("system prompt text"));
-		expect(stats.contextWindow).toBeUndefined();
+		expect(stats.totalTokens).toBe((system?.tokens ?? 0) + (tools?.tokens ?? 0));
 	});
 
-	it("将手动 skill disclosure 单独计入 skills", async () => {
+	it("手动加载的技能只计入 skills，不重复计入对话历史", async () => {
 		const stats = await buildContextBreakdown({
 			model: undefined,
 			usage: undefined,
 			systemPrompt: "system",
+			contextFiles: [],
+			allTools: [],
 			activeTools: [],
 			branchEntries: [skillMessage("1", "<invoked_skill root=\"skill://demo\"/>\n\ndemo body"), entry("2", userMessage("first"))],
 		});
 		const skill = stats.items.find((item) => item.id === "skills");
 		expect(skill?.tokens).toBeGreaterThan(0);
 		expect(skill?.note).toBe("1 manual disclosures");
-	});
-
-	it("conversation history 不重复统计 skill disclosure", async () => {
-		const stats = await buildContextBreakdown({
-			model: undefined,
-			usage: undefined,
-			systemPrompt: "system",
-			activeTools: [],
-			branchEntries: [skillMessage("1", "skill body"), entry("2", userMessage("hello"))],
-		});
 		const history = stats.items.find((item) => item.id === "conversation_history");
 		expect(history).toBeUndefined();
 		expect(stats.items.find((item) => item.id === "current_user")?.tokens).toBeGreaterThan(0);

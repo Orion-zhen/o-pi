@@ -1,5 +1,5 @@
 import { createMcpExtension, type ExtensionFactory, type McpExtensionOptions, type ToolInfo } from "@earendil-works/pi-coding-agent";
-import { isSearchableTool, syncToolSearch } from "../tool-search/loadout.ts";
+import { isSearchableTool } from "../tool-search/loadout.ts";
 
 /** 从实际开放的 MCP 工具生成摘要，不复制连接状态，也不解析上游提示词。 */
 function serverSummary(tools: readonly ToolInfo[]): string {
@@ -25,19 +25,13 @@ export function createModeMcpExtension(options: McpExtensionOptions = {}): Exten
 	return (pi) => {
 		createMcpExtension(options)({
 			...pi,
-			registerTool(tool) {
-				pi.registerTool(tool);
-				syncToolSearch(pi);
-			},
 			setActiveTools(names) {
 				// MCP 只能改变自己的工具集合，不能将普通会话切换为脚本模式。
-				const scripted = pi.getActiveTools().includes("codemode");
-				const next = names.filter((name) => name !== "tool_search" && (name !== "codemode" || scripted));
-				syncToolSearch(pi, next);
+				const active = pi.getActiveTools();
+				pi.setActiveTools(names.filter((name) => (name !== "codemode" && name !== "tool_search") || active.includes(name)));
 			},
 		});
 		pi.on("before_agent_start", (event) => {
-			syncToolSearch(pi);
 			const summary = serverSummary(pi.getAllTools());
 			if (summary) event.systemPromptOptions.sections.mcp_servers = summary;
 			else delete event.systemPromptOptions.sections.mcp_servers;

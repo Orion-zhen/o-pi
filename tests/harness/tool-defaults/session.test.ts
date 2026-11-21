@@ -71,6 +71,11 @@ async function start(manager = SessionManager.create(cwd), tools?: string[], fix
 	return { session: runtime.session, controller };
 }
 
+function registerOrdinaryTool(pi: ExtensionAPI): void {
+	pi.registerTool({ name: "ordinary", label: "Ordinary", description: "Ordinary", parameters: Type.Object({}),
+		async execute() { return { content: [], details: {} }; } });
+}
+
 function selected(controller: ToolSelectionController): string[] {
 	return controller.listTools().filter((tool) => tool.enabled).map((tool) => tool.name);
 }
@@ -80,69 +85,52 @@ function requestedTools(): string[] {
 }
 
 describe("工具选择与 SDK 状态", () => {
-	it("没有候选工具时，显式配置和手动操作都不能启用 tool_search", async () => {
+	it("没有候选工具时，显式选择 tool_search 也不向模型声明", async () => {
 		const { session, controller } = await start(SessionManager.create(cwd), ["tool_search"]);
 		expect(controller.listTools().find((tool) => tool.name === "tool_search")).toMatchObject({ available: false, enabled: false });
-		controller.set("tool_search", true);
-		expect(session.getActiveToolNames()).not.toContain("tool_search");
 		await session.prompt("没有可搜索工具");
 		expect(requestedTools()).not.toContain("tool_search");
 	});
 
-	it.each(["codemode", "deferred"] as const)("%s 搜索入口随候选集合自动启停，codemode 下禁用", async (exposure) => {
-		let api: ExtensionAPI | undefined;
-		const candidate = {
-			name: "fixture", label: "Fixture", description: "Fixture records", exposure,
-			parameters: Type.Object({}),
-			async execute() { return { content: [{ type: "text" as const, text: "record" }], details: {} }; },
-		};
-		const { session, controller } = await start(SessionManager.create(cwd), undefined, (pi) => {
-			api = pi;
-			pi.registerTool(candidate);
+	it.each(["settings", "CLI"])("%s 排除搜索后，重载保留排除项和会话选择", async (source) => {
+		const file = path.join(agentDir, "settings.json");
+		const settings = JSON.parse(await readFile(file, "utf8"));
+		const defaults = source === "CLI" ? ["read", "tool_search"] : ["read", "-tool_search"];
+		await writeFile(file, JSON.stringify({ ...settings, defaultTools: defaults }));
+		const { session, controller } = await start(SessionManager.create(cwd), source === "CLI" ? ["-tool_search"] : undefined, (pi) => {
+			pi.registerTool({ name: "fixture", label: "Fixture", description: "Fixture", exposure: "deferred", parameters: Type.Object({}),
+				async execute() { return { content: [], details: {} }; } });
 		});
-		if (!api) throw new Error("测试扩展未绑定");
-		const search = () => controller.listTools().find((tool) => tool.name === "tool_search");
-		expect(search()).toMatchObject({ available: true, enabled: true });
-		controller.set("tool_search", false);
-		expect(session.getActiveToolNames()).toContain("tool_search");
-		session.setActiveToolsByName(["tool_search", "fixture"]);
-		await session.prompt("SDK 加载全部候选后更新搜索入口");
-		expect(search()).toMatchObject({ available: false, enabled: false });
-		expect(session.getActiveToolNames()).toEqual(["fixture"]);
-		controller.set("tool_search", true);
-		expect(session.getActiveToolNames()).toEqual(["fixture"]);
+		controller.set("write", true);
+		await session.prompt("使用显式排除");
+		expect(requestedTools()).toEqual(["read", "write"]);
+		await session.reload();
+		await session.prompt("重载后继续");
+		expect(requestedTools()).toEqual(["read", "write"]);
+	});
 
-		controller.set("fixture", false);
-		expect(search()).toMatchObject({ available: true, enabled: true });
-		expect(session.getActiveToolNames()).toEqual(["tool_search"]);
-		await controller.persistUserDefaults();
-		expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).defaultTools).toEqual([]);
-		api.registerTool({ ...candidate, exposure: "hidden" });
-		await session.prompt("扩展隐藏候选后更新搜索入口");
-		expect(search()).toMatchObject({ available: false, enabled: false });
-		expect(session.getActiveToolNames()).not.toContain("tool_search");
+	it("首次请求前重载保留选择，不启用重新注册的普通扩展工具", async () => {
+		const { session, controller } = await start(SessionManager.create(cwd), undefined, registerOrdinaryTool);
+		controller.set("bash", false);
+		await session.reload();
+		await session.prompt("沿用当前选择");
+		expect(requestedTools()).toEqual(["read", "write"]);
+	});
 
-		api.registerTool(candidate);
-		await session.prompt("候选恢复后自动启用搜索");
-		expect(search()).toMatchObject({ available: true, enabled: true });
-		expect(requestedTools()).toContain("tool_search");
-		controller.set("codemode", true);
-		expect(search()).toMatchObject({ available: false, enabled: false });
-		expect(session.getActiveToolNames()).not.toContain("tool_search");
-		await session.prompt("脚本模式保留延迟工具");
-		expect(requestedTools()).toEqual(["codemode"]);
-		controller.set("codemode", false);
-		expect(session.getActiveToolNames()).toEqual(["tool_search"]);
-		controller.set("fixture", true);
-		expect(search()).toMatchObject({ available: false, enabled: false });
-		expect(session.getActiveToolNames()).toEqual(["fixture"]);
-		controller.set("codemode", true);
-		await session.prompt("脚本模式也隐藏已激活的间接工具声明");
-		expect(requestedTools()).toEqual(["codemode"]);
-		expect(session.getActiveToolNames()).toEqual(["fixture", "codemode"]);
-		controller.set("codemode", false);
-		await session.prompt("恢复间接工具的直接调用");
-		expect(requestedTools()).toEqual(["fixture"]);
+	it("恢复空工具分支时不启用新安装的普通工具，但允许手动选择", async () => {
+		let host = await start(SessionManager.create(cwd), ["-tool_search"]);
+		host.controller.setMany(selected(host.controller).map((name) => ({ name, enabled: false })));
+		await host.session.prompt("不用工具");
+		expect(requestedTools()).toEqual([]);
+		const file = host.session.sessionFile;
+		if (!file) throw new Error("缺少会话文件");
+		await runtime?.dispose();
+		host = await start(SessionManager.open(file), ["-tool_search"], registerOrdinaryTool);
+		await host.session.prompt("继续不用工具");
+		expect(requestedTools()).toEqual([]);
+		host.controller.set("ordinary", true);
+		await host.session.prompt("使用新工具");
+		expect(requestedTools()).toEqual(["ordinary"]);
 	});
 
 	it("SDK 显式工具选择优先于已保存的默认值", async () => {
@@ -229,50 +217,19 @@ describe("工具选择与 SDK 状态", () => {
 		expect(requestedTools()).toEqual(["codemode"]);
 	});
 
-	it("SDK 改变工具后，选择器与下一次请求使用同一状态", async () => {
-		const { session, controller } = await start();
-		session.setActiveToolsByName(["bash"]);
-		expect(selected(controller)).toEqual(["bash"]);
-		controller.set("write", true);
-		await session.prompt("使用当前工具");
-		expect(requestedTools()).toEqual(["bash", "write"]);
-		expect(selected(controller)).toEqual(["bash", "write"]);
-	});
-
 	it("恢复手动选择时保持声明顺序，不追加重复 system 消息", async () => {
 		let host = await start();
-		const initial = host.session.getActiveToolNames();
-		host.session.setActiveToolsByName(["write", "read", "bash"]);
-		expect(host.session.getActiveToolNames()).toEqual(initial);
 		host.controller.set("bash", false);
-		const active = host.session.getActiveToolNames();
 		await host.session.prompt("保存当前工具状态");
+		expect(requestedTools()).toEqual(["read", "write"]);
 		const systems = host.session.messages.filter((message) => message.role === "system");
 		const file = host.session.sessionFile;
 		if (!file) throw new Error("缺少会话文件");
 		await runtime?.dispose();
 		host = await start(SessionManager.open(file));
-		expect(host.session.getActiveToolNames()).toEqual(active);
-		expect(selected(host.controller)).toEqual(["read", "write"]);
 		await host.session.prompt("继续");
-		expect(requestedTools()).toEqual(active);
+		expect(requestedTools()).toEqual(["read", "write"]);
 		expect(host.session.messages.filter((message) => message.role === "system")).toEqual(systems);
-	});
-
-	it("恢复手动选择后新增的原生工具声明", async () => {
-		let host = await start();
-		host.controller.set("bash", false);
-		await host.session.prompt("保存手动选择");
-		host.session.setActiveToolsByName(["read", "write", "bash"]);
-		expect(host.session.getActiveToolNames()).toEqual(["read", "write", "bash"]);
-		await host.session.prompt("使用新发现的工具");
-		const file = host.session.sessionFile;
-		if (!file) throw new Error("缺少会话文件");
-		await runtime?.dispose();
-		host = await start(SessionManager.open(file));
-		expect(selected(host.controller)).toEqual(["read", "bash", "write"]);
-		await host.session.prompt("恢复后继续");
-		expect(requestedTools()).toEqual(["read", "write", "bash"]);
 	});
 
 	it("未发送请求的选择不持久化，导航分支使用 SDK 声明", async () => {

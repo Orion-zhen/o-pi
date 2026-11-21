@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { saveUserToolDefaults } from "./config.ts";
-import { initialToolDefaults } from "./initial.ts";
-import { syncToolSearch, toolSearchEnabled } from "../tool-search/loadout.ts";
+import { resolveToolDefaults, toolEntries } from "./initial.ts";
+import { needsToolSearch } from "../tool-search/loadout.ts";
 
 export type ToolSelectionItem = Pick<ToolInfo, "name" | "description" | "exposure"> & (
 	| { available: true; enabled: boolean }
@@ -17,7 +17,7 @@ export class ToolSelectionController {
 	/** 开关控制声明集合，不表示权限。脚本专用和延迟工具仍可嵌套调用。 */
 	listTools(tools = this.pi.getAllTools(), activeTools = this.pi.getActiveTools()): ToolSelectionItem[] {
 		const active = new Set(activeTools);
-		const searchAvailable = toolSearchEnabled(tools, activeTools);
+		const searchAvailable = active.has("tool_search") && needsToolSearch(tools, active);
 		return tools.filter((tool) => tool.exposure !== "hidden").map(({ name, description, exposure }) => {
 			const available = name === "tool_search" ? searchAvailable : this.selectable({ name, exposure });
 			return { name, description, exposure, ...(available
@@ -26,10 +26,10 @@ export class ToolSelectionController {
 		});
 	}
 
-	/** 恢复交给 SDK，此处只应用新会话默认值和本地可用性约束。 */
-	refresh(subagentAvailable: boolean, initialTools?: readonly string[]): void {
+	/** 按当前注册表和本地可用性应用会话选择。 */
+	refresh(subagentAvailable: boolean, initialTools: readonly string[]): void {
 		this.subagentAvailable = subagentAvailable;
-		this.apply(initialTools ?? this.pi.getActiveTools());
+		this.apply(initialTools);
 		this.baseline ??= this.selectedNames();
 	}
 
@@ -51,10 +51,7 @@ export class ToolSelectionController {
 	hasUserDefaultChanges(defaultTools: string[] | undefined): boolean {
 		const baseline = this.baseline;
 		if (!baseline) return false;
-		const defaults = initialToolDefaults({
-			getActiveTools: () => baseline,
-			getSettings: () => defaultTools === undefined ? {} : { defaultTools },
-		}, [], {}) ?? baseline;
+		const defaults = resolveToolDefaults(baseline, toolEntries(defaultTools));
 		const expected = new Set(defaults.filter((name) => name !== "tool_search"));
 		const current = this.selectedNames();
 		return current.length !== expected.size || current.some((name) => !expected.has(name));
@@ -81,6 +78,8 @@ export class ToolSelectionController {
 
 	private apply(names: readonly string[]): void {
 		const available = this.selectableNames();
-		syncToolSearch(this.pi, names.filter((name) => available.has(name)));
+		const next = new Set(names.filter((name) => name === "tool_search" || available.has(name)));
+		const current = this.pi.getActiveTools();
+		if (next.size !== current.length || current.some((name) => !next.has(name))) this.pi.setActiveTools([...next]);
 	}
 }

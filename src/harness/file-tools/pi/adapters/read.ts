@@ -1,4 +1,3 @@
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { readFile } from "../../read/command.ts";
 import type { InlineImageProcessor } from "../../read/ports.ts";
 import type { PdfDocumentSource } from "../../../media/pdf-types.ts";
@@ -10,12 +9,7 @@ import { parseSkillPath, type SkillPath } from "../../../skill-context/resources
 import { failedToolResult, withFileToolsInvocation, type FileToolRuntime } from "../invocation.ts";
 import { createReadStructureSource } from "../ports/read-structure.ts";
 
-export interface ExecuteReadOptions extends FileToolRuntime {
-	readonly model: { input?: readonly string[] } | undefined;
-	readonly lsp: LoadLsp;
-}
-
-export async function executeRead(params: ReadParams, options: ExecuteReadOptions) {
+export async function executeRead(params: ReadParams, options: FileToolRuntime & { lsp: LoadLsp }) {
 	const skill = params.path.startsWith("skill://") ? parseSkillPath(params.path) : undefined;
 	return withFileToolsInvocation<ReadFileSuccess | FailedResult>(options, async (opened) => {
 		const result = await readFile(
@@ -28,7 +22,7 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 			},
 		);
 		if (skill?.kind === "skill") applySkillResolution(result, skill);
-		return presentResult(result, options.model);
+		return presentResult(result);
 	});
 }
 
@@ -46,63 +40,28 @@ const lazyPdfDocumentSource: PdfDocumentSource = {
 	},
 };
 
-function presentResult(
-	result: ReadFileSuccess | FailedResult,
-	model: { input?: readonly string[] } | undefined,
-) {
+function presentResult(result: ReadFileSuccess | FailedResult) {
 	if (isFailed(result)) return failedToolResult(result);
 	if (!("media_type" in result)) {
 		const text = formatReadModelResult(result);
 		return { content: [{ type: "text" as const, text }], structuredContent: text, details: result };
 	}
 	if (result.media_type === "image") {
-		const content = formatReadImageModelContent(result, model);
+		const { data, mime_type: mimeType } = result.image;
+		const image = { type: "image" as const, data, mimeType };
 		return {
-			content, details: result,
-			structuredContent: { type: "image" as const, data: result.image.data, mimeType: result.image.mime_type, note: content[0].text },
+			content: [{ type: "text" as const, text: result.content }, image], details: result,
+			structuredContent: { ...image, note: result.content },
 		};
 	}
-	const content = formatReadPdfModelContent(result, model);
-	return {
-		content, details: result,
-		structuredContent: { type: "pdf" as const, content: content.map((part) => part.type === "image"
-			? { type: part.type, data: part.data, mimeType: part.mimeType }
-			: { type: part.type, text: part.text }) },
-	};
-}
-
-function formatReadImageModelContent(
-	result: Extract<ReadFileSuccess, { media_type: "image" }>,
-	model: { input?: readonly string[] } | undefined,
-): [TextContent, ImageContent] {
-	const nonVisionNote = model === undefined || model.input?.includes("image")
-		? undefined
-		: "[Current model does not support images. The image may be omitted by the provider.]";
-	const note = [result.content, nonVisionNote].filter((part): part is string => part !== undefined).join("\n");
-	return [
-		{ type: "text", text: note },
-		{ type: "image", data: result.image.data, mimeType: result.image.mime_type },
+	const content = [
+		{ type: "text" as const, text: formatReadPdfModelSummary(result) },
+		...result.pages.flatMap((page) => [
+			{ type: "text" as const, text: formatReadPdfPageMarker(page) },
+			{ type: "image" as const, data: page.image.data, mimeType: page.image.mime_type },
+		]),
 	];
-}
-
-function formatReadPdfModelContent(
-	result: Extract<ReadFileSuccess, { media_type: "pdf" }>,
-	model: { input?: readonly string[] } | undefined,
-): Array<TextContent | ImageContent> {
-	const nonVisionNote = model === undefined || model.input?.includes("image")
-		? undefined
-		: "[Current model does not support images. PDF page images may be omitted by the provider.]";
-	const summary = formatReadPdfModelSummary(result);
-	const content: Array<TextContent | ImageContent> = [
-		{ type: "text", text: nonVisionNote === undefined ? summary : `${summary}\n${nonVisionNote}` },
-	];
-	for (const page of result.pages) {
-		content.push(
-			{ type: "text", text: formatReadPdfPageMarker(page) },
-			{ type: "image", data: page.image.data, mimeType: page.image.mime_type },
-		);
-	}
-	return content;
+	return { content, details: result, structuredContent: { type: "pdf" as const, content } };
 }
 
 function applySkillResolution(

@@ -54,7 +54,6 @@ describe("技能资源定位符", () => {
 		const result = await executeRead({ path: "skill://demo/references/testing.md" }, {
 			cwd: temp.path,
 			sessionId: "skill-read",
-			model: undefined,
 			host,
 			lsp: async () => lspOperations({ documentAnalysis: enhanceRead }),
 			pathAccess,
@@ -139,7 +138,6 @@ describe("技能资源定位符", () => {
 			const result = await executeRead({ path: "skill://demo/references/document.pdf", pages: "2" }, {
 				cwd: temp.path,
 				sessionId: "skill-pdf-read",
-				model: { input: ["text", "image"] },
 				host,
 				lsp: async () => lspOperations(),
 				pathAccess,

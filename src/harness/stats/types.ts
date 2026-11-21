@@ -78,8 +78,8 @@ export interface ContextBreakdownItem {
 
 /** 工具启用与调用统计；调用数据来自公开 session message。 */
 export interface ToolStats {
-	activeCount?: number;
-	totalCount?: number;
+	activeCount: number;
+	totalCount: number;
 	calls: number;
 	successes?: number;
 	failures?: number;

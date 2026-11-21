@@ -71,7 +71,7 @@ function formatAssistantPerformance(performance: AssistantPerformance | undefine
 
 function patchUserMessages(): void {
 	const originalRender = UserMessageComponent.prototype.render;
-	UserMessageComponent.prototype.render = function renderWithTimestamp(width: number): string[] {
+	UserMessageComponent.prototype.render = function renderWithTimestamp(width: number): readonly string[] {
 		const lines = originalRender.call(this, width);
 		const timestamp = timestampForUserComponent(this, "user");
 		return timestamp === undefined
@@ -82,7 +82,7 @@ function patchUserMessages(): void {
 
 function patchSkillMessages(): void {
 	const originalRender = SkillInvocationMessageComponent.prototype.render;
-	SkillInvocationMessageComponent.prototype.render = function renderWithTimestamp(width: number): string[] {
+	SkillInvocationMessageComponent.prototype.render = function renderWithTimestamp(width: number): readonly string[] {
 		const lines = originalRender.call(this, width);
 		const timestamp = timestampForUserComponent(this, "skill");
 		return timestamp === undefined
@@ -101,7 +101,7 @@ function patchAssistantMessages(): void {
 	};
 
 	const originalRender = AssistantMessageComponent.prototype.render;
-	AssistantMessageComponent.prototype.render = function renderWithTimestamp(width: number): string[] {
+	AssistantMessageComponent.prototype.render = function renderWithTimestamp(width: number): readonly string[] {
 		const lines = originalRender.call(this, width);
 		const message = assistantMessages.get(this);
 		if (message === undefined) return lines;
@@ -129,14 +129,14 @@ function timestampForUserComponent(component: object, target: UserTimestampTarge
 }
 
 function insertTimestamp(
-	lines: string[],
+	lines: readonly string[],
 	width: number,
 	timestamp: number,
 	paddingX: number,
 	background: ((text: string) => string) | undefined,
 	beforeBottomPadding: boolean,
 	prefix?: string,
-): string[] {
+): readonly string[] {
 	const currentStyles = styles;
 	const timestampLabel = formatMessageTimestamp(timestamp);
 	if (currentStyles === undefined || timestampLabel === undefined || lines.length === 0) return lines;

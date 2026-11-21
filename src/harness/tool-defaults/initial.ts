@@ -1,27 +1,36 @@
-import { SettingsManager, type Args, type ExtensionAPI, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { getCurrentTools } from "@earendil-works/pi-ai";
+import type { Args, ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { applyToolModifiers, isToolModifier } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 
 export type ToolStartupOptions = Pick<Args, "tools" | "noTools" | "noBuiltinTools">;
 
-/** 保留注册时的默认启用行为，仅应用显式配置和 CLI 增减。 */
-export function initialToolDefaults(
-	pi: Pick<ExtensionAPI, "getActiveTools" | "getSettings">,
-	branch: readonly SessionEntry[],
-	options: ToolStartupOptions,
-): string[] | undefined {
-	if (options.noTools || options.noBuiltinTools || options.tools?.some((name) => !isModifier(name))) return undefined;
-	if (branch.some((entry) => entry.type === "message" && entry.message.role === "system"
-		&& (entry.message.toolsAdded !== undefined || entry.message.toolsRemoved !== undefined))) return undefined;
-	const configured = pi.getSettings().defaultTools;
-	if (configured === undefined && options.tools === undefined) return undefined;
-	// 纯增减作用于已自动启用的工具，显式列表（包括空列表）由 SDK 原样解析。
-	const entries = configured === undefined || (Array.isArray(configured) && configured.length > 0 && configured.every(isModifier))
-		? [...pi.getActiveTools(), ...configured ?? []]
-		: configured;
-	const defaults = SettingsManager.inMemory({ defaultTools: entries }).getDefaultTools();
-	return options.tools === undefined ? defaults
-		: SettingsManager.inMemory({ defaultTools: [...defaults ?? [], ...options.tools] }).getDefaultTools();
+/** SDK 的原始 settings 没有校验。与 getDefaultTools 一致，非数组按空列表处理。 */
+export function toolEntries(value: unknown): string[] | undefined {
+	if (value === undefined) return undefined;
+	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-function isModifier(name: unknown): boolean {
-	return typeof name === "string" && (name.startsWith("+") || name.startsWith("-"));
+export function isSearchModifier(entry: string): boolean {
+	return entry === "+tool_search" || entry === "-tool_search";
+}
+
+export function resolveToolDefaults(active: readonly string[], entries: readonly string[] | undefined, cli: readonly string[] = []): string[] {
+	if (entries === undefined) return applyToolModifiers(active, cli);
+	const names = entries.filter((name) => !isToolModifier(name));
+	// 显式列表（包括空列表）替换可选工具，但不关闭自动搜索入口。
+	const base = entries.length === 0 || names.length > 0 ? [...active.filter((name) => name === "tool_search"), ...names] : active;
+	return applyToolModifiers([...new Set(base)], [...entries, ...cli]);
+}
+
+export function initialToolDefaults(pi: Pick<ExtensionAPI, "getActiveTools" | "getSettings">, options: ToolStartupOptions, branch: readonly SessionEntry[]): string[] {
+	const active = pi.getActiveTools();
+	if (options.noTools || options.noBuiltinTools || options.tools?.some((name) => !isToolModifier(name))) return active;
+	const entries = toolEntries(pi.getSettings().defaultTools);
+	const history = branch.flatMap((entry) => entry.type === "message" && entry.message.role === "system" ? [entry.message] : []);
+	if (!history.length) return resolveToolDefaults(active, entries, options.tools);
+
+	// 有 system 消息却没有工具增删，也可能是一次真正的空选择。
+	const recorded = new Set(getCurrentTools(history).map(({ name }) => name));
+	if (active.includes("tool_search")) recorded.add("tool_search");
+	return applyToolModifiers([...recorded], [...entries?.filter(isSearchModifier) ?? [], ...options.tools ?? []]);
 }

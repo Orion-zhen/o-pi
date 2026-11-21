@@ -62,13 +62,12 @@ function formatModelStatus(snapshot: StatsSnapshot): string {
 
 function formatSummaryLine(snapshot: StatsSnapshot): string {
 	const context = snapshot.context;
-	const tools = snapshot.tools.activeCount !== undefined && snapshot.tools.totalCount !== undefined ? `${snapshot.tools.activeCount}/${snapshot.tools.totalCount} tools` : undefined;
 	return joinParts([
 		context.totalTokens !== undefined && context.contextWindow !== undefined ? `ctx ${formatTokens(context.totalTokens, context.confidence !== "exact")} / ${formatTokens(context.contextWindow, false)}` : undefined,
 		context.percent !== undefined && context.percent !== null ? `${context.percent.toFixed(1)}%` : undefined,
 		snapshot.cache.latestHitRate !== undefined ? `cache hit ${snapshot.cache.latestHitRate.toFixed(1)}%` : undefined,
 		snapshot.usage.costUsd !== undefined ? `${snapshot.usage.costFromProvider ? "" : "~"}$${snapshot.usage.costUsd.toFixed(3)}` : undefined,
-		tools,
+		`${snapshot.tools.activeCount}/${snapshot.tools.totalCount} tools`,
 	]);
 }
 

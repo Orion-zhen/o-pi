@@ -4,6 +4,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { needsToolSearch } from "../../harness/tool-search/loadout.ts";
 import { collectSkillSummary } from "../../harness/skill-context/loader.ts";
 import { summarizeSessionUsage } from "../../harness/stats/usage.ts";
 import { getCodexSpeed } from "../../harness/codex-speed/state.ts";
@@ -45,8 +46,10 @@ export function countAvailableProviders(ctx: ExtensionContext): number {
 
 /** 启用子集沿用注册顺序，避免 /tools 切换后列表抖动。 */
 export function collectTools(pi: ExtensionAPI): TuiToolsSnapshot {
-	const allNames = pi.getAllTools().filter((tool) => tool.exposure !== "hidden").map((tool) => tool.name);
+	const tools = pi.getAllTools();
+	const allNames = tools.filter((tool) => tool.exposure !== "hidden").map((tool) => tool.name);
 	const active = new Set(pi.getActiveTools());
+	if (!needsToolSearch(tools, active)) active.delete("tool_search");
 	return { allNames, activeNames: allNames.filter((name) => active.has(name)) };
 }
 

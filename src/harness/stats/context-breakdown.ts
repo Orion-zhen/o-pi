@@ -8,10 +8,10 @@ import { SKILL_CONTEXT_MESSAGE } from "../skill-context/types.ts";
 
 export interface ContextBreakdownInput {
 	usage: ContextUsage | undefined;
-	systemPrompt?: string;
-	systemPromptOptions?: BuildSystemPromptOptions;
+	systemPrompt: string;
+	contextFiles: NonNullable<BuildSystemPromptOptions["contextFiles"]>;
 	activeTools: string[];
-	allTools?: ToolInfo[];
+	allTools: ToolInfo[];
 	branchEntries: SessionEntry[];
 	model: Model<Api> | undefined;
 }
@@ -21,16 +21,13 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 	const totalTokens = input.usage?.tokens ?? undefined;
 	const contextWindow = input.usage?.contextWindow;
 	const activeTools = input.activeTools;
-	const activeToolInfos = selectActiveToolInfos(input.allTools ?? [], activeTools);
+	const activeToolInfos = selectActiveToolInfos(input.allTools, activeTools);
 	const model = input.model;
 	const counter: TokenCounterScope = model ? { provider: model.provider, modelId: model.id, baseUrl: model.baseUrl } : {};
-	const systemPromptTokens = await estimateTokens(input.systemPrompt ?? "", counter);
+	const systemPromptTokens = await estimateTokens(input.systemPrompt, counter);
 	const toolDefinitionTokens = await estimateToolDefinitions(activeToolInfos, counter);
-	const projectContext = extractTaggedSection(input.systemPrompt ?? "", "project_context");
-	const projectContextTokens = projectContext
-		? await estimateTokens(projectContext, counter)
-		: await estimateProjectContext(input.systemPromptOptions, counter);
-	const subagentTokens = await estimateTokens(extractTaggedSection(input.systemPrompt ?? "", "subagents"), counter);
+	const projectContextTokens = await estimateTokens(extractTaggedSection(input.systemPrompt, "project_context"), counter);
+	const subagentTokens = await estimateTokens(extractTaggedSection(input.systemPrompt, "subagents"), counter);
 	const systemTokens = clampKnown(systemPromptTokens - projectContextTokens - subagentTokens);
 	const projected = buildSessionProjection(input.branchEntries).messages;
 	const skillStats = await estimateSkillContext(projected, counter);
@@ -40,7 +37,7 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 	const items: ContextBreakdownItem[] = [
 		item("system", "system prompt", systemTokens, true, input.systemPrompt ? "runtime prompt" : undefined),
 		item("tool_definitions", "tool definitions", toolDefinitionTokens, true, activeToolInfos.length > 0 ? `${activeToolInfos.length} active tools` : undefined),
-		item("project_context", "project context", projectContextTokens, true, formatContextFilesNote(input.systemPromptOptions)),
+		item("project_context", "project context", projectContextTokens, true, formatContextFilesNote(input.contextFiles)),
 		item("subagents", "subagents", subagentTokens, true, subagentTokens > 0 ? "main-agent index" : undefined),
 		item("skills", "skills", skillStats.tokens, true, formatSkillContextNote(skillStats)),
 		item("conversation_history", "conversation history", messageStats.historyTokens, true, `${messageStats.historyMessages} messages`),
@@ -98,12 +95,7 @@ async function estimateToolDefinitions(activeTools: ToolInfo[], counter: TokenCo
 	return estimateTokens(JSON.stringify(definitions), counter);
 }
 
-async function estimateProjectContext(options: BuildSystemPromptOptions | undefined, counter: TokenCounterScope): Promise<number> {
-	return estimateTokens((options?.contextFiles ?? []).map(({ path, content }) => `${path}\n${content}`).join("\n\n"), counter);
-}
-
-function formatContextFilesNote(options: BuildSystemPromptOptions | undefined): string | undefined {
-	const files = options?.contextFiles ?? [];
+function formatContextFilesNote(files: ContextBreakdownInput["contextFiles"]): string | undefined {
 	if (files.length === 0) return undefined;
 	if (files.length === 1) return files[0]?.path;
 	return `${files.length} context files`;
@@ -206,7 +198,6 @@ async function estimateContent(content: string | Array<TextContent | ImageConten
 	return (await countContentTokens(content, counter)).tokens;
 }
 
-/** provider-aware token 估算入口；测试和 breakdown 共用。 */
-export async function estimateTokens(text: string, counter: TokenCounterScope = {}): Promise<number> {
+async function estimateTokens(text: string, counter: TokenCounterScope): Promise<number> {
 	return (await countTextTokens(text, counter)).tokens;
 }

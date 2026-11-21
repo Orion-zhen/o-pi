@@ -23,7 +23,7 @@ export function webFetchDetails(overrides: Partial<WebFetchSuccessDetails> = {})
 }
 
 interface Renderable {
-	render(width: number): string[];
+	render(width: number): readonly string[];
 }
 
 interface RendererLifecycle<State> {

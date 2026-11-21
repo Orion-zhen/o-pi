@@ -31,7 +31,7 @@ async function run(codemode = false) {
 		baseUrl: server.url, api: "openai-completions", apiKey: "fixture",
 		models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	} } }), { mode: 0o600 });
 	const extension = path.join(temp.path, "tools.mjs");
 	await writeFile(extension, `
 		export default function(pi) {

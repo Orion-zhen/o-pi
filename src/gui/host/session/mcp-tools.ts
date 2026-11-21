@@ -1,7 +1,6 @@
 import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionFactory, type McpServerConfig, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getMcpToolExposure, loadMcpConfig } from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/config.js";
 import { createModeMcpExtension } from "../../../harness/extensions/mcp.ts";
-import { syncToolSearch } from "../../../harness/tool-search/loadout.ts";
 import type { GuiToolSelectionItem } from "../../shared/config/mcp.ts";
 
 const ENTRY = "gui-mcp-tools";
@@ -36,11 +35,6 @@ export class GuiMcpTools {
 
 	private serverEnabled(tool: Choice): boolean {
 		return !tool.mcpServer || this.serverChoices.get(tool.mcpServer.name) !== false;
-	}
-
-	private publish(): void {
-		syncToolSearch(this.pi);
-		this.changed();
 	}
 
 	readonly register: ExtensionAPI["registerTool"] = (definition) => {
@@ -81,7 +75,7 @@ export class GuiMcpTools {
 			this.choices.set(name, enabled);
 			tool.apply();
 			this.pi.appendEntry(ENTRY, Object.fromEntries(this.choices));
-			this.publish();
+			this.changed();
 		}
 		return true;
 	}
@@ -93,7 +87,7 @@ export class GuiMcpTools {
 		for (const name of changed) this.serverChoices.set(name, enabled);
 		for (const tool of this.tools.values()) if (tool.mcpServer && changed.has(tool.mcpServer.name)) tool.apply();
 		this.pi.appendEntry(SERVERS_ENTRY, Object.fromEntries(this.serverChoices));
-		this.publish();
+		this.changed();
 	}
 
 	restore(ctx: ExtensionContext): void {
@@ -109,7 +103,7 @@ export class GuiMcpTools {
 			else this.serverChoices = new Map(pairs);
 		}
 		for (const tool of this.tools.values()) tool.apply();
-		this.publish();
+		this.changed();
 	}
 }
 

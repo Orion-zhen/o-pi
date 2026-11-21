@@ -184,7 +184,7 @@ function identity(text: string): string {
 	return text;
 }
 
-function assertTimestamp(lines: string[], width: number): void {
+function assertTimestamp(lines: readonly string[], width: number): void {
 	expect(lines.join("\n")).toContain(label);
 	expect(lines.filter((line) => line.includes(label))).toHaveLength(1);
 	expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);

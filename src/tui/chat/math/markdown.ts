@@ -1,9 +1,11 @@
-import { Markdown, allocateImageId, encodeITerm2, getCapabilities, getCellDimensions, renderImage } from "@earendil-works/pi-tui";
+import { Image, Markdown, getCapabilities, getCellDimensions } from "@earendil-works/pi-tui";
 import type { TuiMathConfig } from "../../shell/types.ts";
 
-type MarkdownRender = (this: Markdown, width: number) => string[];
+type MarkdownRender = Markdown["render"];
 type MathRendererModule = typeof import("./renderer.ts");
-type SupportedImageProtocol = "kitty" | "iterm2";
+type Fragment = { source: string; component: Markdown } | {
+	formula: string; config: TuiMathConfig; cell: ReturnType<typeof getCellDimensions>; protocol: "kitty" | "iterm2"; component: Image | Markdown;
+};
 
 interface MarkdownInternals {
 	text: string;
@@ -29,7 +31,7 @@ const DISPLAY_OPEN_PATTERN = /^ {0,3}(\$\$|\\\[|\\begin\{(align\*?|aligned|align
 const FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
 const TABLE_DELIMITER_ROW_PATTERN = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 
-const fragments = new WeakMap<Markdown, Map<number, { source: string; component: Markdown }>>();
+const fragments = new WeakMap<Markdown, Map<number, Fragment>>();
 
 let installed = false;
 let activeConfig: TuiMathConfig;
@@ -47,7 +49,7 @@ export function installMathMarkdownRenderer(config: TuiMathConfig): void {
 		fragments.delete(this);
 		originalInvalidate.call(this);
 	};
-	Markdown.prototype.render = function patchedMarkdownRender(width: number): string[] {
+	Markdown.prototype.render = function patchedMarkdownRender(width: number): readonly string[] {
 		return activeConfig.enabled ? renderDisplayMathImages(this, width, activeConfig, originalRender) : originalRender.call(this, width);
 	};
 }
@@ -61,36 +63,55 @@ export async function warmDisplayMathRenderer(): Promise<void> {
 }
 
 export function supportsDisplayMathImages(): boolean {
-	return getSupportedImageProtocol() !== undefined;
+	return getCapabilities().images !== null;
 }
 
-function renderDisplayMathImages(markdown: Markdown, width: number, config: TuiMathConfig, render: MarkdownRender): string[] {
-	const imageProtocol = getSupportedImageProtocol();
+function renderDisplayMathImages(markdown: Markdown, width: number, config: TuiMathConfig, render: MarkdownRender): readonly string[] {
+	const protocol = getCapabilities().images;
 	const renderer = mathRendererModule;
-	if (imageProtocol === undefined || renderer === undefined) return render.call(markdown, width);
+	if (protocol === null || renderer === undefined) return render.call(markdown, width);
 
 	const internals = readMarkdownInternals(markdown);
 	const source = internals.text;
 	const blocks = parseDisplayMathBlocks(source);
 	if (blocks.length === 0) { fragments.delete(markdown); return render.call(markdown, width); }
 	const previous = fragments.get(markdown);
-	const next = new Map<number, { source: string; component: Markdown }>();
+	const next = new Map<number, Fragment>();
 	fragments.set(markdown, next);
-	const renderSource = (start: number, end: number): string[] => {
+	const textComponent = (text: string) => new Markdown(text, internals.paddingX, internals.paddingY, internals.theme, internals.defaultTextStyle, internals.options);
+	const renderSource = (start: number, end: number): readonly string[] => {
 		const text = source.slice(start, end);
 		if (!text.trim()) return [];
-		const fragment = previous?.get(start) ?? { source: text,
-			component: new Markdown(text, internals.paddingX, internals.paddingY, internals.theme, internals.defaultTextStyle, internals.options) };
+		const cached = previous?.get(start);
+		const fragment = cached && "source" in cached ? cached : { source: text, component: textComponent(text) };
 		if (fragment.source !== text) { fragment.component.setText(text); fragment.source = text; }
 		next.set(start, fragment);
 		return render.call(fragment.component, width);
+	};
+	const cell = getCellDimensions();
+	const renderFormula = ({ tex, start, end }: DisplayMathBlock): readonly string[] => {
+		const formula = source.slice(start, end);
+		let fragment = previous?.get(start);
+		if (!fragment || !("formula" in fragment) || fragment.formula !== formula || fragment.config !== config || fragment.cell !== cell || fragment.protocol !== protocol) {
+			const image = renderer.renderDisplayMathImage(tex, config);
+			const component = image ? new Image(image.base64, "image/png", { fallbackColor: (text) => text }, {
+				maxWidthCells: Math.min(config.max_width_cells, Math.ceil(image.widthPx / cell.widthPx)),
+				maxHeightCells: Math.min(config.max_height_cells, Math.ceil(image.heightPx / cell.heightPx)),
+			}, image) : textComponent(formula);
+			fragment = { formula, config, cell, protocol, component };
+		}
+		next.set(start, fragment);
+		if (fragment.component instanceof Markdown) return render.call(fragment.component, width);
+		// Image 自留两列边距。传入正文宽度加二，实际左边距仍由 Markdown 决定。
+		const rows = fragment.component.render(width - 2 * internals.paddingX + 2);
+		const prefix = " ".repeat(internals.paddingX);
+		return prefix ? rows.map((line) => line && prefix + line) : rows;
 	};
 	const lines: string[] = [];
 	let cursor = 0;
 	for (const block of blocks) {
 		if (block.start > cursor) lines.push(...renderSource(cursor, block.start));
-		const imageLines = renderDisplayMathImage(block.tex, internals.paddingX, width, config, imageProtocol, renderer);
-		lines.push(...(imageLines ?? renderSource(block.start, block.end)));
+		lines.push(...renderFormula(block));
 		cursor = block.end;
 	}
 	if (cursor < source.length) lines.push(...renderSource(cursor, source.length));
@@ -177,45 +198,4 @@ function isEscaped(source: string, offset: number): boolean {
 	let slashCount = 0;
 	for (let index = offset - 1; index >= 0 && source[index] === "\\"; index -= 1) slashCount += 1;
 	return slashCount % 2 === 1;
-}
-
-function renderDisplayMathImage(
-	tex: string,
-	paddingX: number,
-	width: number,
-	config: TuiMathConfig,
-	imageProtocol: SupportedImageProtocol,
-	renderer: MathRendererModule,
-): string[] | undefined {
-	const image = renderer.renderDisplayMathImage(tex, config);
-	if (image === undefined) return undefined;
-	const imageCells = displayImageCells(image.widthPx, image.heightPx, Math.max(1, width - paddingX * 2), config);
-	const prefix = " ".repeat(paddingX);
-	if (imageProtocol === "kitty") {
-		const rendered = renderImage(image.base64, { widthPx: image.widthPx, heightPx: image.heightPx }, {
-			maxWidthCells: imageCells.columns,
-			maxHeightCells: imageCells.rows,
-			imageId: allocateImageId(),
-			moveCursor: false,
-		});
-		if (rendered === null) return undefined;
-		return [prefix + rendered.sequence, ...Array<string>(rendered.rows - 1).fill("")];
-	}
-	const sequence = encodeITerm2(image.base64, { width: imageCells.columns, height: imageCells.rows, preserveAspectRatio: true, inline: true });
-	const rowOffset = imageCells.rows - 1;
-	const moveUp = rowOffset > 0 ? `\x1b[${rowOffset}A` : "";
-	return [...Array<string>(rowOffset).fill(""), prefix + moveUp + sequence];
-}
-
-function getSupportedImageProtocol(): SupportedImageProtocol | undefined {
-	const protocol = getCapabilities().images;
-	return protocol === "kitty" || protocol === "iterm2" ? protocol : undefined;
-}
-
-function displayImageCells(widthPx: number, heightPx: number, availableWidth: number, config: TuiMathConfig): { columns: number; rows: number } {
-	const cell = getCellDimensions();
-	const maxWidthPx = Math.min(config.max_width_cells, availableWidth) * cell.widthPx;
-	const maxHeightPx = config.max_height_cells * cell.heightPx;
-	const scale = Math.min(1, maxWidthPx / widthPx, maxHeightPx / heightPx);
-	return { columns: Math.max(1, Math.ceil((widthPx * scale) / cell.widthPx)), rows: Math.max(1, Math.ceil((heightPx * scale) / cell.heightPx)) };
 }

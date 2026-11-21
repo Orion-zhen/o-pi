@@ -125,11 +125,12 @@ describe("file-tools extension model output", () => {
 
 			const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
 			await writeFile(join(cwd, "pixel.gif"), imageBytes);
-			const imageRead = await executeTool(registered, "read", { path: "pixel.gif" }, ctx);
+			const imageRead = await executeTool(registered, "read", { path: "pixel.gif" }, { ...ctx, model: { api: "openai-completions", input: ["text"] } });
 			expect(imageRead.content).toEqual([
 				{ type: "text", text: expect.any(String) },
 				{ type: "image", data: imageBytes.toString("base64"), mimeType: "image/gif" },
 			]);
+			expect(textResult(imageRead)).not.toContain("does not support images");
 			expect(imageRead.structuredContent).toEqual({ type: "image", data: imageBytes.toString("base64"), mimeType: "image/gif", note: textResult(imageRead) });
 			expect(imageRead.details).toMatchObject({ path: "pixel.gif", media_type: "image", image: { mime_type: "image/gif" } });
 
@@ -180,11 +181,11 @@ describe("file-tools extension model output", () => {
 			pages: [{ number: 1, label: "i" }, { number: 2, label: "A-1" }],
 		});
 
-		const nonVision = await executeTool(registered, "read", { path: "document.pdf", pages: "1" }, {
+		const nonVision = await executeTool(registered, "read", { path: "document.pdf" }, {
 			...ctx,
 			model: { api: "anthropic-messages", input: ["text"] },
 		});
-		expect(nonVision.content).toHaveLength(3);
+		expect(nonVision.content).toEqual(result.content);
 	});
 
 	it("PDF 摘要和页面标签过滤控制字符、转义 XML 并按代码点限制 metadata", () => {

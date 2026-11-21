@@ -144,20 +144,15 @@ describe("math markdown renderer", () => {
 	it("CRLF 与缩进不改变公式顺序", () => {
 		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
 		installMathMarkdownRenderer(mathConfig);
-		const highlightCode = vi.fn((source: string) => source.split("\n"));
 		const source = "before\r\n\r\n```ts\r\nconst x = 1;\r\n```\r\n  $$x^2$$\r\n   \\[y^2\\]\r\nafter";
-		const markdown = new Markdown(source, 0, 0, { ...theme, highlightCode });
+		const markdown = new Markdown(source, 0, 0, theme);
 		const lines = markdown.render(120);
 		expect(lines.filter((line) => getKittyImageMetadata(line) !== undefined)).toHaveLength(2);
 		expect(lines.join("\n")).toContain("before");
 		expect(lines.join("\n")).toContain("after");
-		expect(highlightCode).toHaveBeenCalledOnce();
+		expect(markdown.render(120)).toEqual(lines);
 		markdown.setText(`${source} more`);
 		expect(markdown.render(100).join("\n")).toContain("after more");
-		expect(highlightCode).toHaveBeenCalledOnce();
-		markdown.invalidate();
-		markdown.render(100);
-		expect(highlightCode).toHaveBeenCalledTimes(2);
 	});
 
 	it("Pi 不支持的行内命令保留源码而不进入图片后端", () => {
@@ -166,7 +161,7 @@ describe("math markdown renderer", () => {
 		expect(output).not.toContain("\u001b_G");
 	});
 
-	it("图片渲染失败时交回 Pi 原生回退", () => {
+	it("公式图片渲染失败时显示原文", () => {
 		const output = render("$$\n\\begin{unknown}x\\end{unknown}\n$$");
 		expect(output).toContain("\\begin{unknown}x\\end{unknown}");
 		expect(output).not.toContain("\u001b_G");
@@ -226,7 +221,7 @@ function renderLines(
 	source: string,
 	images: "kitty" | "iterm2" | null = "kitty",
 	config = mathConfig,
-): string[] {
+): readonly string[] {
 	setCapabilities({ images, trueColor: true, hyperlinks: false });
 	setCellDimensions({ widthPx: 9, heightPx: 18 });
 	installMathMarkdownRenderer(config);

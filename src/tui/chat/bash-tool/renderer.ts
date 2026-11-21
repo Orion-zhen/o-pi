@@ -27,7 +27,7 @@ class BashCallComponent implements Component {
 		this.expanded = expanded;
 	}
 
-	render(width: number): string[] {
+	render(width: number): readonly string[] {
 		if (this.expanded) return this.text.render(width);
 		return truncateToVisualLines(this.content, COLLAPSED_COMMAND_LINES, width).visualLines;
 	}

@@ -30,6 +30,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 	const ordinaryTools = selection.listTools(allTools, activeTools).filter((tool) => !mcpNames.has(tool.name));
 	const callableTools = new Set(session.getCallableToolNames());
 	const hidden = new Set(activeTools.includes("codemode") ? codemodeHiddenDeclarations(allTools) : []);
+	if (!ordinaryTools.some((tool) => tool.name === "tool_search" && tool.enabled)) hidden.add("tool_search");
 	const commands = new Map<string, { name: string; description: string }>();
 	for (const command of [
 		...session.extensionRunner
