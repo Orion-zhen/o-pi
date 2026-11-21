@@ -6,7 +6,7 @@ import { sessionListTiming } from "@/app/welcome/welcome-timing.ts";
 import { Pencil } from "lucide-react";
 import { MessageSquare } from "lucide";
 import { MorphIcon } from "morphicons/react";
-import { FilledShield } from "@/ui/icon-shapes.ts";
+import { FilledMessageSquare, FilledShield } from "@/ui/icon-shapes.ts";
 import type { GlobalAction } from "../../../shared/protocol/actions.ts";
 import { Feedback } from "@/ui/feedback.tsx";
 import { useOperation } from "@/connection/use-operation.ts";
@@ -45,7 +45,7 @@ export const HistorySessionRow = memo(function HistorySessionRow({ item, lists, 
 		}} /> : <Hint content={modified ? new Date(modified).toLocaleString("zh-CN") : undefined}><Button variant="ghost" className="history-session" aria-label={title}
 			aria-current={selected ? "page" : undefined} data-unread={unread} aria-description={waiting ? "等待审批" : busy ? "运行中" : unread ? "有未读结果" : undefined} disabled={disabled || (pending && !waiting)}
 			onClick={() => open(item)}>
-			<MorphIcon icon={waiting ? FilledShield : MessageSquare} spring="smooth" size="1em"
+			<MorphIcon icon={waiting ? FilledShield : selected ? FilledMessageSquare : MessageSquare} spring="smooth" size="1em"
 				className={waiting ? "approval-marker" : undefined} {...(waiting ? { label: "等待审批" } : {})} /><span className="history-session-label"><span className="history-session-title">
 				{match?.source === "title" ? <SearchExcerptText value={match.excerpt} /> : <SessionTitle title={title} state={activity?.titleGeneration} />}
 			</span>{match && match.source !== "title" && <span className="history-session-excerpt">
