@@ -23,7 +23,7 @@
 .composer-actions { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 100%; }
 .composer-controls { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 100%; margin-inline-start: auto; }
 .composer .model-controls { flex: 0 1 auto; }
-.composer .model-controls [data-slot="select-trigger"] { border-color: transparent; background: transparent; padding: 0.625em 0.75em; }
+.composer .model-controls [data-slot="select-trigger"] { border-color: transparent; background: transparent; }
 .composer .model-controls [data-slot="select-trigger"]:is(:hover, [data-state="open"]) { border-color: var(--border); background: var(--accent); color: var(--foreground); }
 .composer .model-controls .codex-speed:is([data-speed="fast"], [data-speed="ultrafast"]) { color: var(--primary); }
 .send-button { border-radius: 50%; corner-shape: round; }
@@ -33,13 +33,13 @@
 .context-details dl > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5em 2em; }
 .context-details dt { color: var(--muted-foreground); }
 .context-details dd { margin: 0; font-variant-numeric: tabular-nums; }
-.queue { border-bottom: 1px solid var(--border); margin: 0 0.5rem 0.25rem; }
+.queue { border-bottom: 1px solid var(--border); margin: 0 var(--space-2) var(--space-1); }
 .queue-heading { display: flex; align-items: center; justify-content: space-between; font-size: var(--text-caption); }
-.queue-list { position: relative; list-style: decimal; margin: 0; padding: 0.25rem 0 0.5rem 1.75em; max-block-size: 25dvh; overflow: auto; overscroll-behavior: contain; font-size: var(--text-caption); }
-.queue-list > li { padding: 0.375rem 0.5rem 0.375rem 0.125rem; }
+.queue-list { position: relative; list-style: decimal; margin: 0; padding: var(--space-1) 0 var(--space-2) 1.75em; max-block-size: 25dvh; overflow: auto; overscroll-behavior: contain; font-size: var(--text-caption); }
+.queue-list > li { padding: var(--space-1) var(--space-2) var(--space-1) calc(var(--space-1) / 2); }
 .queue-list > li + li { border-block-start: 1px solid var(--divider); }
 .queue-list > li::marker { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
-.queue-item { display: flex; align-items: flex-start; gap: 0.5rem; }
+.queue-item { display: flex; align-items: flex-start; gap: var(--space-2); }
 .queue-kind { flex-shrink: 0; padding: 0 0.375em; border-radius: var(--radius-sm); background: var(--muted); color: var(--muted-foreground); }
 .queue-message { min-inline-size: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .attachment-previews { display: grid; grid-auto-flow: column; grid-auto-columns: 10ch; gap: var(--space-2); margin: 0; padding: var(--space-2); max-block-size: 25dvh; overflow: auto; list-style: none; }

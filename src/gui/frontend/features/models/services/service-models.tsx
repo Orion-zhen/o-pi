@@ -5,6 +5,7 @@ import type { ModelCandidate } from "../../../../../harness/model-services/model
 import { configuredModels } from "../../../../../harness/model-services/model-settings.ts";
 import type { ConfigObject } from "../../../../../harness/model-services/document.ts";
 import { modelSettingsView } from "../../../../../harness/model-services/settings-view.ts";
+import { Feedback } from "@/ui/feedback.tsx";
 import { Button } from "@/ui/button.tsx";
 import { Reveal } from "@/ui/motion/animated.tsx";
 import type { ChangeConfig } from "./service-draft.ts";
@@ -61,6 +62,6 @@ export function ServiceModels({ providerId, provider, candidates, disabled, chan
 				open={expanded === model.id} setOpen={(open) => setExpanded(open ? model.id : undefined)}
 				disabled={disabled} change={change} modelCount={definitions.length} move={move} />)}
 		</AnimatePresence></div>
-		{models.length === 0 && !adding && <p className="settings-empty">暂无模型</p>}
+		<Feedback message={models.length === 0 && !adding ? "暂无模型" : ""} />
 	</section>;
 }

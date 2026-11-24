@@ -12,8 +12,8 @@
 .model-select-label { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
 .model-select-label small { display: block; color: var(--muted-foreground); font-size: var(--text-caption); }
 .model-select-empty { color: var(--muted-foreground); font-size: var(--text-small); }
-.model-controls { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-width: 0; max-inline-size: 100%; }
-.model-controls [data-slot="select-trigger"] { flex-shrink: 0; min-inline-size: 0; max-inline-size: 100%; font-size: var(--text-caption); }
+.model-controls { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; max-inline-size: 100%; }
+.model-controls [data-slot="select-trigger"] { flex-shrink: 0; min-inline-size: 0; max-inline-size: 100%; }
 .model-controls [data-slot="select-trigger"].model-control { flex-shrink: 1; }
 .model-control-name { display: block; inline-size: max-content; white-space: nowrap; }
 .codex-speed [data-slot="select-icon"] { display: none; }
@@ -56,7 +56,6 @@
 	.model-row { grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); }
 	.model-row-actions { grid-column: 2; justify-self: end; }
 }
-@media (max-width: 767px) {
-	.model-controls [data-slot="select-trigger"] { font-size: max(1rem, var(--text-ui)); }
-	.model-row-actions > button, .model-manager-toolbar > button { min-inline-size: 2.75rem; min-block-size: 2.75rem; }
+@media (any-pointer: coarse), (max-width: 767px) {
+	.model-controls [data-slot="select-trigger"], .model-row-actions > button, .model-manager-toolbar > button { min-inline-size: var(--touch-target); min-block-size: var(--touch-target); }
 }

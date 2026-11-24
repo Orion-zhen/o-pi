@@ -42,7 +42,7 @@
 .mcp-pair > input { flex: 1 1 15ch; inline-size: 15ch; }
 .mcp-pair > .mcp-secret { flex: 2 1 22ch; inline-size: 22ch; }
 .mcp-pair > .settings-radio-group { flex: 0 1 auto; }
-.mcp-pair > .settings-warning { flex: 1 1 100%; }
+.mcp-pair > .feedback { flex: 1 1 100%; }
 .mcp-row-actions { display: flex; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
 .mcp-add-row { align-self: flex-start; }
 .mcp-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3); background: var(--secondary); font-size: var(--text-small); }

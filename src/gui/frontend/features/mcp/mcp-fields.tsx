@@ -32,7 +32,7 @@ export function McpTextField({ label, value, onChange, secret = false, hint, iss
 			: numeric ? <McpNumberInput id={id} label={label} value={value} change={onChange} placeholder={placeholder} invalid={issues.some((issue) => issue.field === field)} />
 				: <Input id={id} aria-label={label} value={mcpText(value)} placeholder={placeholder}
 					aria-invalid={issues.some((issue) => issue.field === field)} onChange={(event) => onChange(event.target.value)} />}
-		{secret && typeof value === "string" && value.startsWith("!") && <p className="settings-warning">命令取值：连接时执行，编辑时不执行。</p>}
+		<Feedback tone="warning" message={secret && typeof value === "string" && value.startsWith("!") ? "命令取值：连接时执行，编辑时不执行。" : ""} />
 		{hint && <p className="settings-description">{hint}</p>}
 		<Feedback message={issues.filter((issue) => issue.field === field).map((issue) => issue.message).join("\n")} tone="error" />
 	</div>;
@@ -85,7 +85,7 @@ export function McpPairs({ label, rows, change, disabled, kind = "secret", hidde
 					<IconButton size="icon-sm" label={`下移规则 ${index + 1}`} tooltip="下移规则" disabled={index === rows.length - 1} onClick={() => move(row, index, 1)}><ArrowDown /></IconButton></>}
 				<IconButton size="icon-sm" label={`删除${label} ${index + 1}`} tooltip="删除条目" onClick={() => change(rows.filter(({ id }) => id !== row.id))}><Trash2 /></IconButton>
 			</div>
-			{typeof row.value === "string" && row.value.startsWith("!") && <p className="settings-warning">命令取值：连接时执行，编辑时不执行。</p>}
+			<Feedback tone="warning" message={typeof row.value === "string" && row.value.startsWith("!") ? "命令取值：连接时执行，编辑时不执行。" : ""} />
 		</div></Reveal>)}</AnimatePresence>
 		<Button variant="outline" size="sm" className="mcp-add-row" onClick={() => change([...rows, { id: mcpId(), key: "", value: kind === "exposure" ? mcpExposures[0] : "" }])}><Plus />添加{label}</Button>
 	</div>;

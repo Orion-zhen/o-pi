@@ -1,6 +1,7 @@
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./class-names.ts";
+import { controlSize } from "./control-size.ts";
 import { Slot } from "radix-ui";
 
 const buttonVariants = cva(
@@ -18,10 +19,8 @@ const buttonVariants = cva(
 				link: "text-(--link) underline-offset-4 hover:underline",
 			},
 			size: {
-				default: "px-[0.9em] py-[0.6em]",
+				...controlSize,
 				xs: "gap-[0.375em] px-[0.6em] py-[0.35em] text-xs",
-				sm: "px-[0.75em] py-[0.45em] text-[length:var(--text-small)]",
-				lg: "px-[1.25em] py-[0.75em]",
 				icon: "p-[0.75em]",
 				"icon-xs": "p-[0.4em] text-xs",
 				"icon-sm": "p-[0.55em]",

@@ -5,6 +5,7 @@ import pLimit from "p-limit";
 import { ChevronLeft, ChevronRight, Minus, Plus, Scan, ScanLine } from "lucide-react";
 import { IconButton } from "@/ui/icon-button.tsx";
 import { Button } from "@/ui/button.tsx";
+import { Input } from "@/ui/input.tsx";
 import { fileSize, usePreviewViewport } from "@/ui/media/preview-viewport.ts";
 import { PdfPage } from "./pdf-page.tsx";
 import { stepZoom, ZoomInput } from "@/ui/media/zoom-input.tsx";
@@ -18,6 +19,8 @@ type DocumentState = { kind: "loading" } | { kind: "error"; message: string }
 	| { kind: "ready"; document: PDFDocumentProxy; width: number; height: number };
 
 interface PdfPosition { page: number; zoom: number | "width" | "page" }
+
+const pagePadding = { block: 8, inline: 16 } as const;
 
 export default function PdfPreview({ url, size }: { url: string; size: number }) {
 	const position = useRef<PdfPosition>({ page: 1, zoom: "width" });
@@ -69,8 +72,8 @@ function PdfReader({ document, baseWidth, baseHeight, size, position }: { docume
 	useEffect(() => { position.page = current; position.zoom = zoom; }, [current, zoom, position]);
 	const pageNumber = useRef(current);
 	pageNumber.current = current;
-	const fitWidth = Math.max(1, viewport.width - 32) / baseWidth;
-	const scale = zoom === "width" ? fitWidth : zoom === "page" ? Math.min(fitWidth, Math.max(1, viewport.height - 32) / baseHeight) : zoom;
+	const fitWidth = Math.max(1, viewport.width - 2 * pagePadding.inline) / baseWidth;
+	const scale = zoom === "width" ? fitWidth : zoom === "page" ? Math.min(fitWidth, Math.max(1, viewport.height - 2 * pagePadding.block) / baseHeight) : zoom;
 	useEffect(() => {
 		const element = viewport.ref.current;
 		if (!element) return;
@@ -84,7 +87,7 @@ function PdfReader({ document, baseWidth, baseHeight, size, position }: { docume
 	}, [scale, viewport.ref]);
 	const virtualizer = useVirtualizer({
 		count: document.numPages, getScrollElement: () => viewport.ref.current, enabled: viewport.width > 0,
-		estimateSize: () => baseHeight * scale + 16, overscan: 1, directDomUpdates: true,
+		estimateSize: () => baseHeight * scale + 2 * pagePadding.block, overscan: 1, directDomUpdates: true,
 		onChange(instance, scrolling) {
 			if (!scrolling) return;
 			const center = (instance.scrollOffset ?? 0) + (instance.scrollRect?.height ?? 0) / 2;
@@ -109,7 +112,7 @@ function PdfReader({ document, baseWidth, baseHeight, size, position }: { docume
 		<div className="media-toolbar" aria-label="PDF 工具栏">
 			<IconButton label="上一页" size="icon-sm" disabled={current === 1} onClick={() => go(current - 1)}><ChevronLeft /></IconButton>
 			<form onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); go(Number(data.get("page"))); }}>
-				<input key={current} name="page" aria-label="PDF 页码" type="number" min={1} max={document.numPages} defaultValue={current} />
+				<Input density="compact" key={current} name="page" aria-label="PDF 页码" type="number" min={1} max={document.numPages} defaultValue={current} />
 				<span aria-label="PDF 总页数"> / {document.numPages}</span>
 			</form>
 			<IconButton label="下一页" size="icon-sm" disabled={current === document.numPages} onClick={() => go(current + 1)}><ChevronRight /></IconButton>
@@ -127,9 +130,10 @@ function PdfReader({ document, baseWidth, baseHeight, size, position }: { docume
 			else return;
 			event.preventDefault();
 		}}>
-			<div ref={virtualizer.containerRef} className="pdf-pages" style={{ minWidth: baseWidth * scale + 32 }}>
+			<div ref={virtualizer.containerRef} className="pdf-pages" style={{ minWidth: baseWidth * scale + 2 * pagePadding.inline }}>
 				{viewport.width > 0 && items.map((item) => <div key={`${item.index}-${scale}`} data-index={item.index} ref={virtualizer.measureElement}
-					className="pdf-page-slot" data-current={item.index + 1 === current}>
+					className="pdf-page-slot" data-current={item.index + 1 === current}
+					style={{ paddingBlock: pagePadding.block, paddingInline: pagePadding.inline }}>
 					<PdfPage document={document} number={item.index + 1} scale={scale} queue={queue} placeholder={{ width: baseWidth * scale, height: baseHeight * scale }} />
 				</div>)}
 			</div>

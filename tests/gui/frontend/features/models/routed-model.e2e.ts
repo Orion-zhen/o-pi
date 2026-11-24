@@ -30,14 +30,14 @@ test.describe("路由模型", () => {
 
 	test("保留所选模型，显示实际响应，刷新后恢复且窄屏不越界", async ({ gui: { page } }) => {
 		const selected = page.getByRole("combobox", { name: "模型", exact: true });
-		await expect(selected).toHaveText("Auto");
+		await expect(selected).toMatchAriaSnapshot('- combobox "模型": Auto');
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await editor.fill("读取 input.txt");
 		await editor.press("ControlOrMeta+Enter");
 		await expect(page.locator(".reply-answer")).toContainText("路由验证完成");
 		expect(model.requests.map((request) => request.model)).toEqual(["fast", "precise"]);
 		for (let view = 0; view < 2; view++) {
-			await expect(selected).toHaveText("Auto");
+			await expect(selected).toMatchAriaSnapshot('- combobox "模型": Auto');
 			await expect(page.getByLabel("最近响应模型", { exact: true })).toContainText("precise · off");
 			expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 			if (view === 0) await page.reload();

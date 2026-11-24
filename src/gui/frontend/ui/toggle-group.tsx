@@ -2,17 +2,14 @@ import { createContext, useContext, type ComponentProps } from "react";
 import { ToggleGroup as Primitive } from "radix-ui";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./class-names.ts";
+import { controlSize } from "./control-size.ts";
 
 const toggleVariants = cva(
 	"inline-flex items-center justify-center gap-[0.5em] rounded-md border border-transparent text-sm leading-normal font-medium transition-[background-color,color,border-color,box-shadow] outline-none hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-45 data-[state=on]:border-primary/40 data-[state=on]:bg-(--selected) data-[state=on]:text-(--selected-foreground) [&_svg]:pointer-events-none [&_svg]:size-[1.15em] [&_svg]:shrink-0",
 	{
 		variants: {
 			variant: { default: "bg-transparent", outline: "border-input bg-(--surface)" },
-			size: {
-				default: "px-[0.9em] py-[0.6em]",
-				sm: "px-[0.75em] py-[0.45em] text-[length:var(--text-small)]",
-				lg: "px-[1.25em] py-[0.75em]",
-			},
+			size: controlSize,
 		},
 		defaultVariants: { variant: "default", size: "default" },
 	},

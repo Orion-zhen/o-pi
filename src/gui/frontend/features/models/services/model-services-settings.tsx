@@ -98,7 +98,7 @@ function ModelServicesEditor({ initial, query, send, disabled, sessionId, sessio
 						savedConfig={saved?.providers[id]} sessionId={sessionId} sessionRevision={sessionRevision} sessionReady={sessionReady}
 						query={query} changeDraft={editor.change} />)}
 				</AnimatePresence></div>
-				{!services.length && !adding && <p className="settings-empty">暂无服务</p>}
+				<Feedback message={!services.length && !adding ? "暂无服务" : ""} />
 			</>}
 			<Feedback message={[parsed.error, ...issues].filter(Boolean).join("\n")} tone="error" />
 		</ModelApiChoicesContext></div>

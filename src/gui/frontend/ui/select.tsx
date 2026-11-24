@@ -2,18 +2,20 @@ import type * as React from "react";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { Select as SelectPrimitive } from "radix-ui";
 import { cn } from "./class-names.ts";
+import { fieldSize, type FieldDensity } from "./control-size.ts";
 import "./dropdown.css";
 
 export const Select = SelectPrimitive.Root;
 export const SelectValue = SelectPrimitive.Value;
 export const SelectSeparator = SelectPrimitive.Separator;
 
-export function SelectTrigger({ className, children, ...props }: React.ComponentProps<typeof SelectPrimitive.Trigger>) {
+export function SelectTrigger({ className, children, density = "default", ...props }: React.ComponentProps<typeof SelectPrimitive.Trigger> & { density?: FieldDensity }) {
 	return (
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"
 			className={cn(
-				"inline-flex w-fit min-w-0 items-center justify-between gap-[0.5em] rounded-md border border-input bg-(--surface) px-[0.9em] py-[0.6em] text-sm leading-normal transition-[background-color,color,border-color,box-shadow] outline-none hover:bg-accent disabled:pointer-events-none disabled:opacity-45 data-[state=open]:bg-accent [&>span:first-child]:min-w-0 [&>span:first-child]:truncate",
+				"inline-flex w-fit min-w-0 items-center justify-between gap-[0.5em] rounded-md border border-input bg-(--surface) text-sm leading-normal transition-[background-color,color,border-color,box-shadow] outline-none hover:bg-accent disabled:pointer-events-none disabled:opacity-45 data-[state=open]:bg-accent [&>span:first-child]:min-w-0 [&>span:first-child]:truncate",
+				fieldSize[density],
 				className,
 			)}
 			{...props}
@@ -52,7 +54,7 @@ export function SelectItem({ className, children, ...props }: React.ComponentPro
 		<SelectPrimitive.Item
 			data-slot="select-item"
 			className={cn(
-				"grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-[1em] rounded-sm px-[0.75em] py-[0.625em] outline-none select-none data-[highlighted]:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
+				"grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-[1em] rounded-sm px-2 py-(--menu-item-inset) outline-none select-none data-[highlighted]:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
 				className,
 			)}
 			{...props}

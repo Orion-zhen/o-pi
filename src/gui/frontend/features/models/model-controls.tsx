@@ -7,6 +7,7 @@ import { MorphIcon } from "morphicons/react";
 import { CODEX_SPEEDS, type CodexSpeed } from "../../../../harness/codex-speed/state.ts";
 import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { GuiAction } from "../../../shared/protocol/actions.ts";
+import type { FieldDensity } from "@/ui/control-size.ts";
 import { Hint } from "@/ui/tooltip.tsx";
 import { TransitionPanel } from "@/ui/motion/transition-panel.tsx";
 import { TextMorph } from "@/ui/motion/text-morph.tsx";
@@ -41,7 +42,7 @@ function CodexSpeedControl({ speed, change, disabled }: { speed: CodexSpeed; cha
 			const next = CODEX_SPEEDS.find((speed) => speed === value);
 			if (next) change(next);
 		}}>
-			<Hint content={`模型速度：${speed}`}><SelectTrigger className="codex-speed" data-speed={speed} aria-label={`模型速度：${speed}`}>
+			<Hint content={`模型速度：${speed}`}><SelectTrigger density="compact" className="codex-speed" data-speed={speed} aria-label={`模型速度：${speed}`}>
 				<span className="codex-speed-label">
 					<motion.span className="codex-speed-icon" initial={false} animate={{ x: accelerated ? -3 : 0 }} transition={controlShift}>
 						<MorphIcon icon={speed === "ultrafast" ? Rocket : Zap} spring="smooth" size="1em" />
@@ -65,7 +66,9 @@ export function ThinkingControl({
 	snapshot,
 	change,
 	disabled = false,
+	density = "default",
 }: {
+	density?: FieldDensity;
 	snapshot: GuiSnapshot;
 	change: (level: GuiSnapshot["thinking"]) => void;
 	disabled?: boolean;
@@ -79,7 +82,7 @@ export function ThinkingControl({
 				if (level) change(level);
 			}}
 		>
-			<SelectTrigger aria-label="思考级别"><SelectValue>
+			<SelectTrigger density={density} aria-label="思考级别"><SelectValue>
 				<TransitionPanel activeIndex={thinkingOrder.indexOf(snapshot.thinking)} axis="y">{snapshot.thinking}</TransitionPanel>
 			</SelectValue></SelectTrigger>
 			<SelectContent>
@@ -133,7 +136,7 @@ export function ModelControls({ snapshot, change, disabled, openManager }: {
 					if (model) change({ action: "model", provider: model.provider, id: model.id });
 				}}
 			>
-				<Hint content={current || "选择模型"}><SelectTrigger className="model-control" aria-label="模型">
+				<Hint content={current || "选择模型"}><SelectTrigger density="compact" className="model-control" aria-label="模型">
 					<motion.span initial={false} animate={{ width: nameWidth ?? "auto" }} transition={settle}>
 						<span ref={name} className="model-control-name"><TextMorph>{snapshot.model?.name ?? "选择模型"}</TextMorph></span>
 					</motion.span>
@@ -156,7 +159,7 @@ export function ModelControls({ snapshot, change, disabled, openManager }: {
 					</SelectItem>
 				</SelectContent>
 			</Select>
-			<ThinkingControl snapshot={snapshot} change={(level) => change({ action: "thinking", level })} disabled={disabled} />
+			<ThinkingControl density="compact" snapshot={snapshot} change={(level) => change({ action: "thinking", level })} disabled={disabled} />
 			{snapshot.routedModel && <Hint content={`${snapshot.routedModel.model.provider}/${snapshot.routedModel.model.id}`}><span className="truncate text-xs text-muted-foreground" aria-label="最近响应模型">
 				→ {snapshot.routedModel.model.name}{snapshot.routedModel.thinkingLevel === undefined ? "" : ` · ${snapshot.routedModel.thinkingLevel}`}
 			</span></Hint>}

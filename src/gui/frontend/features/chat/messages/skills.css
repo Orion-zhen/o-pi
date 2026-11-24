@@ -1,12 +1,12 @@
-.skill-message { padding-block: 0.5rem; }
+.skill-message { padding-block: var(--space-2); }
 .skill-activity .activity-summary { flex-wrap: wrap; }
 .skill-activity .activity-target { flex: 1; min-width: 4ch; }
 .skill-loader { font-size: var(--text-caption); color: var(--muted-foreground); }
 .tool-activity.skill-activity[data-state="completed"] .activity-state > span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
 .skill-activity .activity-state > span { max-width: none; }
 .skill-body { max-block-size: 60dvh; overflow: auto; }
-.skill-metadata { display: grid; gap: 0.375rem; font-size: var(--text-caption); }
-.skill-metadata > div { display: flex; align-items: baseline; gap: 0.75rem; }
+.skill-metadata { display: grid; gap: var(--space-1); font-size: var(--text-caption); }
+.skill-metadata > div { display: flex; align-items: baseline; gap: var(--space-3); }
 .skill-metadata dt { flex-shrink: 0; color: var(--muted-foreground); }
 .skill-metadata dd { min-width: 0; overflow-wrap: anywhere; }
 .skill-metadata code { font-size: inherit; }

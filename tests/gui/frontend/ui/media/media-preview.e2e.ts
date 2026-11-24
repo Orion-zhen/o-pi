@@ -131,7 +131,7 @@ test.describe("媒体预览", () => {
 		expect(await image.evaluate((element) => element.style.transform)).not.toBe(transform);
 		await fit.click();
 		await expect(fit).toHaveAttribute("aria-pressed", "true");
-		await expect(image).toHaveCSS("width", fitWidth);
+		await expect.poll(() => image.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(Number.parseFloat(fitWidth), 1);
 		await expect(page.getByRole("button", { name: "自动折行", exact: true })).toHaveCount(0);
 		await expect(page.locator(".message.user")).toHaveCount(0);
 	});

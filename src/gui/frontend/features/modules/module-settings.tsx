@@ -20,7 +20,7 @@ import { useTextConfigDraft } from "@/forms/use-text-config-draft.ts";
 import { SettingsDisclosure, SettingsSection, SettingsRow, SettingsSourceButton } from "@/forms/settings-controls.tsx";
 import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
 import { SearchProviderSettings } from "./search-provider-settings.tsx";
-import { SearchApiKeyControl } from "./search-api-key-control.tsx";
+import { SearchApiKeyRow } from "./search-api-key-control.tsx";
 
 interface Props {
 	title: string; id: ModuleConfigId; query: Query<GlobalQuery>; send: ConfigCommand; disabled: boolean; models: GuiModel[]; tools: GuiSnapshot["tools"] | null; currentModel: GuiModel | null;
@@ -88,11 +88,13 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 			controlDisabled ||= options.length === 0;
 		}
 		const control = <FieldControl field={field} schema={schema} value={displayValue} options={options} disabled={controlDisabled} models={models} tools={tools} change={(value) => change(field.path, value)} />;
-		return <SettingsRow key={field.path} label={field.label}
-			layout={field.type === "radio" && options ? "choice" : schema.type === "array" ? "wide" : field.type === "model" || schema.type === "string" && !options ? "fluid" : "inline"}
-			reset={{ value, defaultValue, apply: () => change(field.path, undefined) }} disabled={locked}>
-			{id === "webTools" && field.path.startsWith("websearch.") && field.path.endsWith(".api_key") && typeof value === "string"
-				? <SearchApiKeyControl config={value} query={query}>{control}</SearchApiKeyControl> : control}
+		const row = { label: field.label, reset: { value, defaultValue, apply: () => change(field.path, undefined) }, disabled: locked };
+		if (id === "webTools" && field.path.startsWith("websearch.") && field.path.endsWith(".api_key") && typeof value === "string") {
+			return <SearchApiKeyRow key={field.path} {...row} config={value} query={query}>{control}</SearchApiKeyRow>;
+		}
+		return <SettingsRow key={field.path} {...row}
+			layout={field.type === "radio" && options ? "choice" : schema.type === "array" ? "wide" : field.type === "model" || schema.type === "string" && !options ? "fluid" : "inline"}>
+			{control}
 		</SettingsRow>;
 	})}</div>;
 	return <div className="settings-module">
@@ -113,10 +115,8 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 			</>}>
 				{fields(group.fields)}
 				{index === 0 && <Feedback message={parsed.error} tone="error" />}
-				{id === "approvalGate" && index === 0 && (valueAt("enabled") === false || valueAt("ui.non_interactive") === "allow")
-					&& <p className="settings-warning">{valueAt("enabled") === false ? "权限审批已关闭。" : "非交互操作将直接放行。"}</p>}
-				{id === "discordPresence" && index === 0 && valueAt("enabled") === true && valueAt("profile") === "detailed"
-					&& <p className="settings-warning">将向 Discord 展示项目名和文件名。</p>}
+				{id === "approvalGate" && index === 0 && <Feedback tone="warning" message={valueAt("enabled") === false ? "权限审批已关闭。" : valueAt("ui.non_interactive") === "allow" ? "非交互操作将直接放行。" : ""} />}
+				{id === "discordPresence" && index === 0 && <Feedback tone="warning" message={valueAt("enabled") === true && valueAt("profile") === "detailed" ? "将向 Discord 展示项目名和文件名。" : ""} />}
 			</SettingsSection>)}
 	</div>;
 }

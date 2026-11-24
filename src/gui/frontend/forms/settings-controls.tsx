@@ -43,14 +43,14 @@ export function SettingsSourceButton({ file, source = false, disabled, onClick }
 	</Hint>;
 }
 
-export function SettingsRow({ label, htmlFor, children, reset, disabled, description, layout = "inline" }: {
-	label: string; htmlFor?: string; children: ReactNode; disabled?: boolean; description?: ReactNode;
+export function SettingsRow({ label, labelStatus, htmlFor, children, reset, disabled, description, layout = "inline" }: {
+	label: string; labelStatus?: ReactNode; htmlFor?: string; children: ReactNode; disabled?: boolean; description?: ReactNode;
 	layout?: "inline" | "fluid" | "wide" | "choice";
 	reset?: { value: unknown; defaultValue: unknown; apply: () => void };
 }) {
 	return <div className="preference-row" data-layout={layout}>
 		<div className="preference-label">
-			<label htmlFor={htmlFor}>{label}</label>
+			<label htmlFor={htmlFor}>{label}</label>{labelStatus}
 			{reset && !equalConfigValues(reset.value, reset.defaultValue)
 				&& <IconButton size="icon-sm" label={`重置${label}`} tooltip="恢复默认" disabled={disabled} onClick={reset.apply}><RotateCcw /></IconButton>}
 		</div>

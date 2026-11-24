@@ -17,7 +17,7 @@ export function ZoomInput({ label, scale, min, max, disabled, onChange }: {
 		setDraft(null);
 	};
 	return <span className="media-zoom">
-		<Input aria-label={label} type="text" inputMode="decimal" disabled={disabled}
+		<Input density="compact" aria-label={label} type="text" inputMode="decimal" disabled={disabled}
 			value={draft ?? Number((scale * 100).toFixed(2))}
 			onFocus={(event) => event.currentTarget.select()}
 			onChange={(event) => setDraft(event.currentTarget.value)} onBlur={commit}
