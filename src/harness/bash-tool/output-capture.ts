@@ -15,11 +15,42 @@ interface CaptureOptions {
 	previewBytes: number;
 }
 
+type OpenLog = { path: string; stream: WriteStream; closed: Promise<CapturedOutput["log"]> };
+
+function logFailure(error: unknown): { full_output_error: string } {
+	return { full_output_error: error instanceof Error ? error.message : String(error) };
+}
+
+async function openCaptureLog(options: CaptureOptions): Promise<OpenLog> {
+	const dir = path.join(bashOutputDirectory(), sanitizePathPart(options.sessionId));
+	await mkdir(dir, { recursive: true, mode: 0o700 });
+	await chmodForPlatform(dir, 0o700);
+	const logPath = path.join(dir, `${sanitizePathPart(options.toolCallId)}.log`);
+	const file = await open(logPath, "w", 0o600);
+	try {
+		await chmodForPlatform(logPath, 0o600);
+		const stream = file.createWriteStream();
+		// 写入可能在命令退出前失败，立即监听并保留诊断。
+		const release = retainStoragePath(logPath);
+		const closed = finished(stream, { cleanup: true }).then(
+			() => ({ full_output_path: logPath }),
+			async (error: unknown) => {
+				await rm(logPath, { force: true }).catch(() => undefined);
+				return logFailure(error);
+			},
+		).finally(release);
+		return { path: logPath, stream, closed };
+	} catch (error) {
+		await file.close().catch(() => undefined);
+		await rm(logPath, { force: true }).catch(() => undefined);
+		throw error;
+	}
+}
+
 /** 从第一字节开始落盘，内存中只保留固定大小的原始头尾窗口。 */
 export class OutputCapture {
 	private readonly head: Buffer;
 	private readonly tail: Buffer;
-	private readonly completion: Promise<{ error: unknown } | undefined>;
 	private totalBytes = 0;
 	private capturedBytes = 0;
 	private lineBreaks = 0;
@@ -30,36 +61,18 @@ export class OutputCapture {
 	private binary = false;
 
 	private constructor(
-		private readonly logPath: string,
-		private readonly stream: WriteStream,
+		private readonly log: OpenLog | { full_output_error: string },
 		private readonly maxCaptureBytes: number,
 		previewBytes: number,
 	) {
 		const headLimit = Math.floor(previewBytes / 2);
 		this.head = Buffer.alloc(headLimit);
 		this.tail = Buffer.alloc(previewBytes - headLimit);
-		// 立即监听写入错误，并将拒绝转为可等待的结果，避免 finish 之前发生未处理异常。
-		const release = retainStoragePath(logPath);
-		this.completion = finished(stream, { cleanup: true }).finally(release).then(
-			() => undefined,
-			(error: unknown) => ({ error }),
-		);
 	}
 
 	static async create(options: CaptureOptions): Promise<OutputCapture> {
-		const dir = path.join(bashOutputDirectory(), sanitizePathPart(options.sessionId));
-		await mkdir(dir, { recursive: true, mode: 0o700 });
-		await chmodForPlatform(dir, 0o700);
-		const logPath = path.join(dir, `${sanitizePathPart(options.toolCallId)}.log`);
-		const file = await open(logPath, "w", 0o600);
-		try {
-			await chmodForPlatform(logPath, 0o600);
-			return new OutputCapture(logPath, file.createWriteStream(), options.maxCaptureBytes, options.previewBytes);
-		} catch (error) {
-			await file.close().catch(() => undefined);
-			await rm(logPath, { force: true }).catch(() => undefined);
-			throw error;
-		}
+		const log = await openCaptureLog(options).catch(logFailure);
+		return new OutputCapture(log, options.maxCaptureBytes, options.previewBytes);
 	}
 
 	append(data: Buffer): void {
@@ -71,10 +84,10 @@ export class OutputCapture {
 		}
 		this.lastByteWasNewline = data[data.byteLength - 1] === 0x0a;
 
-		if (!this.stream.destroyed && this.capturedBytes < this.maxCaptureBytes) {
+		if ("stream" in this.log && !this.log.stream.destroyed && this.capturedBytes < this.maxCaptureBytes) {
 			const remaining = this.maxCaptureBytes - this.capturedBytes;
 			const chunk = data.byteLength <= remaining ? data : data.subarray(0, remaining);
-			this.stream.write(chunk);
+			this.log.stream.write(chunk);
 			this.capturedBytes += chunk.byteLength;
 		}
 		this.appendHead(data);
@@ -88,28 +101,27 @@ export class OutputCapture {
 	}
 
 	async finish(): Promise<CapturedOutput> {
-		this.stream.end();
-		const failure = await this.completion;
-		if (failure !== undefined) throw failure.error;
+		if ("stream" in this.log) this.log.stream.end();
+		const log = "closed" in this.log ? await this.log.closed : this.log;
 		return {
 			preview: this.preview(),
 			totalBytes: this.totalBytes,
 			totalLines: this.totalBytes === 0 ? 0 : this.lineBreaks + (this.lastByteWasNewline ? 0 : 1),
-			logPath: this.logPath,
-			captureComplete: this.capturedBytes === this.totalBytes,
+			log,
+			captureComplete: "full_output_path" in log && this.capturedBytes === this.totalBytes,
 			binary: this.binary,
 		};
 	}
 
 	/** 异常路径先释放文件流，再删除日志。调用方决定是否保留原始异常。 */
 	async discard(): Promise<void> {
-		this.stream.destroy();
-		await this.completion;
-		await this.deleteLog();
+		if (!("stream" in this.log)) return;
+		this.log.stream.destroy();
+		if ("full_output_path" in await this.log.closed) await this.deleteLog();
 	}
 
 	async deleteLog(): Promise<void> {
-		await rm(this.logPath, { force: true });
+		if ("path" in this.log) await rm(this.log.path, { force: true });
 	}
 
 	private appendHead(data: Buffer): void {

@@ -19,7 +19,7 @@ interface OutputView {
 }
 
 /** 生成模型可见的有界输出，不修改原始日志，也不推测原始片段是否连续。 */
-export function createBashOutputView(input: OutputViewInput): OutputView {
+export function createBashOutputView(input: OutputViewInput, scriptTruncated: boolean): OutputView {
 	const failed = input.status !== "exited" || input.exitCode !== 0;
 	const budget = failed ? input.limits.failure_output_bytes : input.limits.success_output_bytes;
 	const preview = input.preview;
@@ -32,13 +32,13 @@ export function createBashOutputView(input: OutputViewInput): OutputView {
 	const body = preview.kind === "complete"
 		? renderOutputPreview(cleanedHead.text, format, budget, failed)
 		: renderSplitPreview(cleanedHead.text, cleanedTail.text, preview.omittedBytes, format, budget, failed);
-	const outputState: BashOutputState = !input.captureComplete ? "capture_truncated"
+	const outputState: BashOutputState = !input.captureComplete && "full_output_path" in input.log ? "capture_truncated"
 		: truncated ? "truncated"
 		: cleanedHead.compacted ? "compacted" : "complete";
 	const returnedBytes = Buffer.byteLength(body);
 	// 大小限制由展示边界负责，选择器不得依赖再次裁剪来满足预算。
 	if (returnedBytes > budget) throw new Error("Bash output preview exceeded its byte budget.");
-	const keepLog = outputState !== "complete" || failed;
+	const keepLog = outputState !== "complete" || failed || scriptTruncated;
 	const details: BashToolDetails = {
 		status: input.status,
 		...(input.exitCode !== undefined ? { exit_code: input.exitCode } : {}),
@@ -50,7 +50,7 @@ export function createBashOutputView(input: OutputViewInput): OutputView {
 		returned_lines: countLogicalLines(body),
 		total_bytes: input.totalBytes,
 		returned_bytes: returnedBytes,
-		...(keepLog ? { full_output_path: input.logPath } : {}),
+		...(keepLog ? input.log : {}),
 		capture_complete: input.captureComplete,
 	};
 	const header = formatHeader(details);
@@ -82,7 +82,8 @@ function detectOutputFormat(text: string): BashOutputFormat {
 function formatHeader(details: BashToolDetails): string {
 	const duration = (details.duration_ms / 1000).toFixed(2);
 	const outputTruncated = details.output_state === "truncated" || details.output_state === "capture_truncated";
-	const fullPart = outputTruncated && details.full_output_path ? ` full=${details.full_output_path}` : "";
+	const fullPart = details.full_output_error !== undefined ? ` full_error=${JSON.stringify(details.full_output_error)}`
+		: outputTruncated && details.full_output_path ? ` full=${details.full_output_path}` : "";
 	const status = details.status === "timed_out" ? "timeout" : details.status === "aborted" ? "aborted" : `exit=${details.exit_code ?? "null"}`;
 	const shellExit = details.shell_exit_after_seconds === undefined ? ""
 		: ` shell_exit=${details.exit_code} shell_exit_after=${details.shell_exit_after_seconds}s background_output=true`;

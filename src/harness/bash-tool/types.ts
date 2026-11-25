@@ -44,6 +44,7 @@ export interface BashToolDetails {
 	total_bytes: number;
 	returned_bytes: number;
 	full_output_path?: string;
+	full_output_error?: string;
 	capture_complete: boolean;
 }
 
@@ -80,7 +81,7 @@ export interface CapturedOutput {
 	preview: CapturedPreview;
 	totalBytes: number;
 	totalLines: number;
-	logPath: string;
+	log: { full_output_path: string } | { full_output_error: string };
 	captureComplete: boolean;
 	binary: boolean;
 }

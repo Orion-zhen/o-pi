@@ -11,6 +11,7 @@ import { transcriptReplies } from "../../../../../../src/gui/frontend/features/c
 import { ToolResult } from "../../../../../../src/gui/frontend/features/chat/tools/tool-results.tsx";
 import { ToolActivity as ToolActivityView } from "../../../../../../src/gui/frontend/features/chat/tools/tool-activity.tsx";
 import { ParameterValue } from "../../../../../../src/gui/frontend/features/chat/tools/tool-parameters.tsx";
+import { Message } from "../../../../../../src/gui/frontend/features/chat/messages/message.tsx";
 import { MarkdownText } from "../../../../../../src/gui/frontend/ui/content/markdown.tsx";
 
 import { assistant, call, result, source } from "../../../../helpers/transcript-fixtures.ts";
@@ -19,6 +20,17 @@ const transcriptItems = (source: TranscriptSource): TranscriptItem[] => transcri
 	.flatMap((row) => row.kind === "message" ? [row] : [...row.process, ...row.answer]);
 
 describe("聊天活动投影", () => {
+	it.each([
+		[{ fullOutputPath: "/tmp/build.log" }, "完整日志：/tmp/build.log"],
+		[{ fullOutputError: "disk full" }, "无法保存完整日志：disk full"],
+	] as const)("回放截断的构建输出时显示%s", (log, note) => {
+		const html = renderWithMemory(createElement(Message, { value: {
+			role: "bashExecution", command: "npm run build", output: "Build completed", exitCode: 0,
+			cancelled: false, truncated: true, timestamp: 200, ...log,
+		} }));
+		expect(html).toContain(`输出已截断，${note}`);
+	});
+
 	it("参数生成、执行更新和完成沿用一个节点，不重复展示结果", () => {
 		const message = assistant([call]);
 		const preparing = transcriptItems(source({ streamingMessage: message, streaming: true }));

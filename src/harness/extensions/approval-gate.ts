@@ -62,7 +62,7 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 								if (present !== undefined && canPresent(ctx, present)) {
 									return present.show(ctx.ui, request, decision, approvalOptions, dialogOptions);
 								}
-								return ctx.ui.select(formatApprovalPrompt(request, decision), [...approvalOptions], dialogOptions);
+								return ctx.ui.select(formatApprovalPrompt(request, decision), [...approvalOptions], { ...dialogOptions, blockedKind: "permission" });
 							},
 							input: (title, placeholder, dialogOptions) => ctx.ui.input(title, placeholder, dialogOptions),
 							notify: (message, type) => ctx.ui.notify(message, type),

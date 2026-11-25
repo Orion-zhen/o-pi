@@ -10,8 +10,8 @@ function view(text: string, overrides: Partial<Parameters<typeof createBashOutpu
 		preview: { kind: "complete", bytes: Buffer.from(text) }, status: "exited", exitCode: 0,
 		durationMs: 420, totalBytes: Buffer.byteLength(text),
 		totalLines: text.length === 0 ? 0 : text.split("\n").length - Number(text.endsWith("\n")),
-		logPath, captureComplete: true, binary: false, limits: config.limits, ...overrides,
-	});
+		log: { full_output_path: logPath }, captureComplete: true, binary: false, limits: config.limits, ...overrides,
+	}, false);
 }
 
 describe("Bash 模型输出", () => {

@@ -1,5 +1,5 @@
 import { createExecutionEnvironment } from "./environment.ts";
-import { BASH_STRUCTURED_BYTES, bashStructuredOutput } from "./structured-output.ts";
+import { BASH_STRUCTURED_BYTES, bashStructuredPreview } from "./structured-output.ts";
 import { OutputCapture, limitCapturedPreview } from "./output-capture.ts";
 import { cleanForModel, createBashOutputView } from "./output-view.ts";
 import { resolveBashSkillPaths } from "./skill-paths.ts";
@@ -81,6 +81,7 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 			clearUpdateTimer();
 		}
 		const captured = await capture.finish();
+		const script = bashStructuredPreview(captured.preview);
 		const view = createBashOutputView({
 			...captured,
 			preview: limitCapturedPreview(captured.preview, modelPreviewBytes),
@@ -89,14 +90,17 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 			...(shellExitAfterSeconds !== undefined ? { shellExitAfterSeconds } : {}),
 			durationMs: Date.now() - startedAt,
 			limits,
-		});
-		const structuredContent = bashStructuredOutput(captured, view.details);
-		const keepLog = view.keepLog || structuredContent.truncated;
-		if (!keepLog) await capture.deleteLog();
+		}, script.truncated);
+		if (!view.keepLog && "full_output_path" in captured.log) await capture.deleteLog();
 		return {
 			content: view.content,
-			details: keepLog ? { ...view.details, full_output_path: captured.logPath } : view.details,
-			structuredContent: keepLog ? { ...structuredContent, full_output_path: captured.logPath } : structuredContent,
+			details: view.details,
+			structuredContent: {
+				...script, status, exit_code: exitCode ?? null, wall_time_seconds: view.details.duration_ms / 1000,
+				...(shellExitAfterSeconds === undefined ? {} : { shell_exit_after_seconds: shellExitAfterSeconds }),
+				capture_complete: captured.captureComplete,
+				...(view.keepLog ? captured.log : {}),
+			},
 		};
 	} catch (error) {
 		await capture.discard().catch(() => undefined);

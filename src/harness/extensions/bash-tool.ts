@@ -1,5 +1,6 @@
 import {
 	createLocalBashOperations,
+	type BashToolDetails as PiBashToolDetails,
 	type ExtensionAPI,
 	type TruncationResult,
 } from "@earendil-works/pi-coding-agent";
@@ -82,16 +83,12 @@ export default function bashTool(pi: ExtensionAPI, telemetry?: ToolTelemetrySink
 	});
 }
 
-type NativeBashDetails = BashToolDetails & {
-	/** Pi 内置 bash renderer 识别的输出截断摘要。 */
-	truncation?: TruncationResult;
-	/** Pi 内置 bash renderer 识别的完整输出日志路径。 */
-	fullOutputPath?: string;
-};
+type NativeBashDetails = BashToolDetails & PiBashToolDetails;
 
 function withNativeBashDetails(details: BashToolDetails): NativeBashDetails {
 	const result: NativeBashDetails = { ...details };
 	if (details.full_output_path !== undefined) result.fullOutputPath = details.full_output_path;
+	if (details.full_output_error !== undefined) result.fullOutputError = details.full_output_error;
 	if (details.output_state === "truncated" || details.output_state === "capture_truncated") {
 		result.truncation = pseudoBashTruncation(details);
 	}

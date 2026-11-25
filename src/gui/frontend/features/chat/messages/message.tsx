@@ -9,22 +9,22 @@ import { SKILL_CONTEXT_MESSAGE } from "../../../../../harness/skill-context/type
 import { isSkillLoadDetails } from "../../../../shared/messages/skill-facts.ts";
 import { SkillCard } from "./skill-card.tsx";
 
-export const BashExecution = memo(function BashExecution({ command, output, entryId }: {
-	command: string;
-	output: string;
-	entryId?: string | undefined;
-}) {
+type BashMessage = Extract<GuiStandaloneMessage, { role: "bashExecution" }>;
+type BashProps = Pick<BashMessage, "command" | "output" | "fullOutputPath" | "fullOutputError"> & { truncated?: boolean; entryId?: string | undefined };
+
+export const BashExecution = memo(function BashExecution({ command, output, truncated, fullOutputPath, fullOutputError, entryId }: BashProps) {
 	return <article className="message bashExecution" data-entry-id={entryId}>
 		<header><strong>bashExecution</strong></header>
 		<CodeBlock label="命令" language="bash" text={command} />
 		<CodeBlock label="输出" text={clean(output)} />
+		{truncated && <p>输出已截断{fullOutputPath ? `，完整日志：${fullOutputPath}` : fullOutputError ? `，无法保存完整日志：${fullOutputError}` : ""}</p>}
 		<MessageFooter entryId={entryId} />
 	</article>;
 });
 
 export const Message = memo(function Message({ value, entryId }: { value: GuiStandaloneMessage; entryId?: string | undefined }) {
 	const role = value.role;
-	if (value.role === "bashExecution") return <BashExecution command={value.command} output={value.output} entryId={entryId} />;
+	if (value.role === "bashExecution") return <BashExecution {...value} entryId={entryId} />;
 	if (value.role === "custom" && !value.display) return null;
 	if (value.role === "custom" && value.customType === SKILL_CONTEXT_MESSAGE && isSkillLoadDetails(value.details)) {
 		return <article className="message skill-message" data-entry-id={entryId}>

@@ -1,5 +1,5 @@
 import { WriteStream } from "node:fs";
-import { rm, stat } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
@@ -18,7 +18,7 @@ afterEach(async () => {
 	logDirectory = undefined;
 });
 
-async function execute(exec: BashOperations["exec"], signal?: AbortSignal) {
+async function execute(exec: BashOperations["exec"]) {
 	const config = bashToolConfig();
 	config.python_venv_paths = [];
 	const sessionId = path.basename(temp.path);
@@ -30,7 +30,6 @@ async function execute(exec: BashOperations["exec"], signal?: AbortSignal) {
 		config,
 		branch: [],
 		operations: { exec },
-		...(signal === undefined ? {} : { signal }),
 	});
 }
 
@@ -49,29 +48,40 @@ describe("bash 日志生命周期", () => {
 		await expectLogDeleted();
 	});
 
-	it.each(["exit", "throw", "abort"] as const)("执行期间发生异步写入错误，后端 %s 后仍完成清理", async (ending) => {
+	it("日志无法创建时，仍执行命令并返回截断原因", async () => {
+		logDirectory = path.join(os.tmpdir(), "o-pi", "bash", path.basename(temp.path));
+		await mkdir(path.join(logDirectory, "capture.log"), { recursive: true });
+		const result = await execute(async (_command, _cwd, { onData }) => {
+			onData(Buffer.from(`HEAD${"x".repeat(60_000)}TAIL`));
+			return { exitCode: 0 };
+		});
+		expect(result.details).toMatchObject({ exit_code: 0, output_state: "truncated", capture_complete: false, full_output_error: expect.any(String) });
+		expect(result.structuredContent.full_output_error).toBe(result.details.full_output_error);
+		expect(result.details).not.toHaveProperty("full_output_path");
+		expect(result.structuredContent).not.toHaveProperty("full_output_path");
+		expect(result.content).toContain("full_error=");
+		expect(result.content).toContain("HEAD");
+		expect(result.content).toContain("TAIL");
+	});
+
+	it("磁盘写满后仍返回后续输出和命令退出码，并清理残缺日志", async () => {
 		const ioError = Object.assign(new Error("disk full"), { code: "ENOSPC" });
-		const operationError = new Error("operation failed");
 		const failedWrite = deferredVoid();
-		const controller = new AbortController();
 		// 在 Node 文件流的写入边界注入错误，保留真实的 error、close 和文件句柄生命周期。
 		vi.spyOn(WriteStream.prototype, "_write").mockImplementationOnce((_chunk, _encoding, callback) => {
 			callback(ioError);
 			failedWrite.resolve();
 		});
-		await expect(execute(async (_command, _cwd, { onData }) => {
+		const result = await execute(async (_command, _cwd, { onData }) => {
 			onData(Buffer.from("partial output\n"));
 			await failedWrite.promise;
 			// 错误必须发生在 exec 仍未结束时，而不是 finish 才开始监听。
 			await new Promise<void>((resolve) => setImmediate(resolve));
 			onData(Buffer.from("output after disk failure\n"));
-			if (ending === "abort") {
-				controller.abort();
-				throw new Error("aborted");
-			}
-			if (ending === "throw") throw operationError;
-			return { exitCode: 0 };
-		}, controller.signal)).rejects.toBe(ending === "throw" ? operationError : ioError);
+			return { exitCode: 7 };
+		});
+		expect(result.structuredContent).toMatchObject({ exit_code: 7, output: "partial output\noutput after disk failure\n", full_output_error: "disk full" });
+		expect(result.structuredContent).not.toHaveProperty("full_output_path");
 		await expectLogDeleted();
 	});
 });

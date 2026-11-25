@@ -1,5 +1,5 @@
 import { Type, type Static } from "typebox";
-import type { BashToolDetails, CapturedOutput } from "./types.ts";
+import type { CapturedPreview } from "./types.ts";
 import { decodeUtf8Prefix, takeHeadBytes, takeTailBytes, trimLeadingUtf8Continuation } from "./utf8.ts";
 
 export const BASH_STRUCTURED_BYTES = 1024 * 1024;
@@ -12,13 +12,13 @@ export const bashOutputSchema = Type.Object({
 	truncated: Type.Boolean(),
 	capture_complete: Type.Boolean(),
 	full_output_path: Type.Optional(Type.String()),
+	full_output_error: Type.Optional(Type.String()),
 });
 
 export type BashStructuredOutput = Static<typeof bashOutputSchema>;
 
 /** 脚本读取原始文本，独立于模型摘要。超过预算只保留 UTF-8 完整的头尾。 */
-export function bashStructuredOutput(captured: CapturedOutput, details: BashToolDetails): BashStructuredOutput {
-	const preview = captured.preview;
+export function bashStructuredPreview(preview: CapturedPreview): Pick<BashStructuredOutput, "output" | "truncated"> {
 	const marker = "\n[output omitted]\n";
 	const budget = Math.floor((BASH_STRUCTURED_BYTES - Buffer.byteLength(marker)) / 2);
 	const head = preview.kind === "complete" ? preview.bytes.toString("utf8") : decodeUtf8Prefix(preview.head);
@@ -26,12 +26,6 @@ export function bashStructuredOutput(captured: CapturedOutput, details: BashTool
 	const tail = preview.kind === "complete" ? head : trimLeadingUtf8Continuation(preview.tail).toString("utf8");
 	return {
 		output: truncated ? takeHeadBytes(head, budget) + marker + takeTailBytes(tail, budget) : head,
-		status: details.status,
-		exit_code: details.exit_code ?? null,
-		...(details.shell_exit_after_seconds === undefined ? {} : { shell_exit_after_seconds: details.shell_exit_after_seconds }),
-		wall_time_seconds: details.duration_ms / 1000,
 		truncated,
-		capture_complete: captured.captureComplete,
-		...(details.full_output_path === undefined ? {} : { full_output_path: details.full_output_path }),
 	};
 }

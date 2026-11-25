@@ -106,8 +106,9 @@ describe("approval gate", () => {
 
 	it("复合命令只触发一次聚合审批", async () => {
 		const ui = fakeUi(["Allow once"]);
+		const select = vi.spyOn(ui, "select");
 		expect(await handle(bash("git push origin main && npm install lodash"), ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(1);
+		expect(select).toHaveBeenCalledExactlyOnceWith(expect.any(String), expect.any(Array), expect.objectContaining({ blockedKind: "permission" }));
 	});
 
 	it("session allow 记住敏感子命令，不受普通 sibling 变化影响", async () => {
