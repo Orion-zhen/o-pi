@@ -3,7 +3,15 @@ import { access, stat } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-import type { BashEnvironmentConfig, BashSessionMetadata, BashToolConfig } from "./types.ts";
+import type { BashEnvironmentConfig, BashToolConfig } from "./config.ts";
+
+interface BashSessionMetadata {
+	sessionId: string;
+	sessionFile?: string;
+	provider?: string;
+	model?: string;
+	reasoningLevel?: string;
+}
 
 interface PythonVirtualEnvironment {
 	root: string;

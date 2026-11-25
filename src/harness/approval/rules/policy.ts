@@ -1,7 +1,8 @@
+import path from "node:path";
 import picomatch from "picomatch";
 
-import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalRule, ApprovalUnit, BashApprovalRequest } from "../types.ts";
-import type { ApprovalRuleMatcher } from "./allow.ts";
+import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalRule, ApprovalUnit, BashApprovalRequest, NumericFileName } from "../types.ts";
+import type { ApprovalRuleMatcher } from "./store.ts";
 import { collectBashFacts, type BashFactEvaluation } from "./bash-facts.ts";
 
 export function evaluateGatePolicy(request: ApprovalRequest, config: ApprovalGateConfig, store: ApprovalRuleMatcher): ApprovalDecision {
@@ -89,9 +90,40 @@ function decide(
 	};
 }
 
+function mayMatchNumericName(pattern: string, { prefix, suffix }: NumericFileName): boolean {
+	const first = pattern.search(/[*?]/u);
+	if (first < 0) {
+		return pattern.startsWith(prefix) && pattern.endsWith(suffix) && pattern.length >= prefix.length + suffix.length
+			&& /^\d*$/u.test(pattern.slice(prefix.length, pattern.length - suffix.length));
+	}
+	const start = pattern.slice(0, first);
+	const end = pattern.slice(Math.max(pattern.lastIndexOf("*"), pattern.lastIndexOf("?")) + 1);
+	return (start.startsWith(prefix) || prefix.startsWith(start)) && (end.endsWith(suffix) || suffix.endsWith(end));
+}
+
+function mayMatchChild(glob: string, directory: string, numericName?: NumericFileName): boolean {
+	if (numericName !== undefined && /^[\p{L}\p{M}\p{N}_ ./:*?-]+$/u.test(glob)) {
+		const fold = (value: string) => path.sep === "\\" ? value.toLowerCase() : value;
+		if (!/[*?]/u.test(glob) && fold(path.dirname(glob)) !== fold(directory)) return false;
+		if (!mayMatchNumericName(fold(path.posix.basename(glob)), { prefix: fold(numericName.prefix), suffix: fold(numericName.suffix) })) return false;
+	}
+	// 只在能证明父目录不相交时排除规则。复杂模式不拿展示用的文件名去匹配。
+	if (!/^\/[\w./*?-]+$/u.test(glob)) return true;
+	const parent = glob.slice(0, glob.lastIndexOf("/")) || "/";
+	if (!glob.includes("**")) return picomatch(parent, { dot: true, nonegate: true })(directory);
+	const prefix = glob.split(/[*?]/u, 1)[0] ?? "";
+	const root = prefix.slice(0, prefix.lastIndexOf("/"));
+	return directory === root || directory.startsWith(`${root}/`) || path.posix.dirname(root) === directory;
+}
+
 function ruleMatchesUnit(rule: ApprovalRule, tool: string, unit: ApprovalUnit): boolean {
 	if (!rule.tools.includes(tool)) return false;
 	if (rule.path_globs === undefined) return true;
-	return unit.target.kind === "path" && rule.path_globs.some((glob) =>
-		picomatch(glob.replace(/\\/g, "/"), { dot: true, nonegate: true })(unit.target.value.replace(/\\/g, "/")));
+	const target = unit.target;
+	if (target.kind !== "path") return false;
+	return rule.path_globs.some((pattern) => {
+		const glob = pattern.replace(/\\/g, "/");
+		if (target.directory === undefined) return picomatch(glob, { dot: true, nonegate: true })(target.value.replace(/\\/g, "/"));
+		return mayMatchChild(glob, target.directory, target.numericName);
+	});
 }

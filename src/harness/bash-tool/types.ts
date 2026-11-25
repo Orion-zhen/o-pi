@@ -1,31 +1,5 @@
 import type { BashStructuredOutput } from "./structured-output.ts";
-import type { BashOperations, SessionEntry } from "@earendil-works/pi-coding-agent";
-
-export interface BashParams {
-	command: string;
-	timeout?: number;
-	workdir?: string;
-}
-
-export interface BashEnvironmentConfig {
-	inherit: boolean;
-	remove_name_regex: string[];
-	expose_pi_session_file: boolean;
-}
-
-export interface BashLimits {
-	success_output_bytes: number;
-	failure_output_bytes: number;
-	live_output_bytes: number;
-	max_capture_bytes: number;
-}
-
-export interface BashToolConfig {
-	default_timeout_seconds: number;
-	python_venv_paths: string[];
-	environment: BashEnvironmentConfig;
-	limits: BashLimits;
-}
+import type { BashOperations } from "@earendil-works/pi-coding-agent";
 
 export type BashRunStatus = "exited" | "timed_out" | "aborted";
 export type BashOutputState = "complete" | "compacted" | "truncated" | "capture_truncated";
@@ -54,22 +28,10 @@ export interface BashExecutionResult {
 	structuredContent: BashStructuredOutput;
 }
 
-export interface BashSessionMetadata {
-	sessionId: string;
-	sessionFile?: string;
-	provider?: string;
-	model?: string;
-	reasoningLevel?: string;
-}
-
 export interface ExecuteBashRuntime {
-	cwd: string;
-	session: BashSessionMetadata;
 	toolCallId: string;
 	signal?: AbortSignal;
 	operations: BashOperations;
-	config: BashToolConfig;
-	branch: SessionEntry[];
 	onUpdate?: (content: string) => void;
 }
 

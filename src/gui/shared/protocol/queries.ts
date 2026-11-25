@@ -1,4 +1,5 @@
 import { lit, str, union, type Static } from "@earendil-works/pi-schema";
+import type { GuiBashApproval } from "./state.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "../workspace.ts";
 import type { GuiConfigDocument } from "../config/preferences.ts";
 import type { GuiToolResult } from "../messages/types.ts";
@@ -23,6 +24,7 @@ export const querySchema = union([
 	object({ query: lit("startupChangelog") }),
 	object({ query: lit("availableVersion") }),
 	object({ query: lit("image"), id: short }),
+	object({ query: lit("approvalDetails"), id: short }),
 	object({ query: lit("toolOutput"), id: short }),
 	object({ query: lit("directories"), path: short }),
 	object({ query: lit("files"), prefix: short }),
@@ -51,6 +53,7 @@ export interface GuiQueryResults {
 	availableVersion: string | null;
 	image: string;
 	toolOutput: GuiToolResult;
+	approvalDetails: GuiBashApproval;
 	directories: GuiDirectories;
 	files: string[];
 	workspaceFiles: WorkspaceEntry[];

@@ -1,38 +1,32 @@
 import os from "node:os";
 import path from "node:path";
 
-const SYSTEM_TEMPORARY_ROOTS = systemTemporaryRoots();
+const temporaryRoot = resolveTemporaryRoot(os.tmpdir());
+
+export function rulePath(nativePath: string): string {
+	return path.sep === "\\" ? nativePath.replaceAll("\\", "/") : nativePath;
+}
 
 export function normalizeTargetPath(filePath: string, cwd: string): string {
-	if (filePath.startsWith("skill://")) return filePath;
-	const absolute = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(cwd, filePath);
-	return absolute.replace(/\\/g, "/");
+	return rulePath(path.resolve(cwd, filePath));
+}
+
+/** Windows Bash 的单根路径可能挂载在任意位置，不能用当前盘符补全。 */
+export function isUnmappedBashPath(value: string): boolean {
+	if (path.sep !== "\\") return false;
+	const normalized = value.replaceAll("\\", "/");
+	if (normalized.startsWith("/")) return !/^\/\/[^/?.][^/]*\/[^/]+(?:\/|$)/u.test(normalized);
+	return /^[a-z]:(?!\/)/iu.test(normalized);
+}
+
+function resolveTemporaryRoot(value: string): string | undefined {
+	if (!path.isAbsolute(value) || isUnmappedBashPath(value)) return undefined;
+	const root = path.resolve(value);
+	return path.dirname(root) === root ? undefined : root;
 }
 
 export function isSystemTemporaryDescendant(filePath: string): boolean {
-	if (!path.isAbsolute(filePath)) return false;
-	const target = comparablePath(normalizeTargetPath(filePath, path.parse(filePath).root));
-	return SYSTEM_TEMPORARY_ROOTS.some((root) => {
-		const comparableRoot = comparablePath(root);
-		return target !== comparableRoot && target.startsWith(`${comparableRoot}/`);
-	});
-}
-
-function systemTemporaryRoots(): readonly string[] {
-	const roots = new Set<string>();
-	if (process.platform === "win32") {
-		roots.add(normalizeTargetPath(os.tmpdir(), path.parse(os.tmpdir()).root));
-	} else {
-		for (const root of ["/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp"]) {
-			roots.add(normalizeTargetPath(root, "/"));
-		}
-		const runtimeRoot = normalizeTargetPath(os.tmpdir(), "/");
-		if (process.platform === "darwin" && runtimeRoot.startsWith("/var/folders/")) roots.add(runtimeRoot);
-	}
-	return [...roots];
-}
-
-function comparablePath(value: string): string {
-	const normalized = value.replace(/\\/g, "/").replace(/\/+$/u, "");
-	return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+	if (temporaryRoot === undefined || !path.isAbsolute(filePath)) return false;
+	const relative = path.relative(temporaryRoot, filePath);
+	return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }

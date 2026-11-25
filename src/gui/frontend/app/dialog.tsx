@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { Clock3, ShieldCheck } from "lucide-react";
 import type { GuiDialog, GuiDialogOption } from "../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
+import { useGuiQuery } from "@/connection/query-context.ts";
 import { useOperation } from "@/connection/use-operation.ts";
 import { clean } from "@/ui/content/format.ts";
 import { Feedback } from "@/ui/feedback.tsx";
@@ -50,8 +51,9 @@ function Choices({ options, respond, pending }: { options: readonly GuiDialogOpt
 }
 
 function DialogBody({ dialog, respond, pending }: { dialog: GuiDialog } & ResponseControls) {
+	const query = useGuiQuery();
 	switch (dialog.kind) {
-		case "bashApproval": return <><BashApproval approval={dialog.approval} /><Choices options={dialog.options} respond={respond} pending={pending} /></>;
+		case "bashApproval": return <><BashApproval key={dialog.id} approval={dialog.approval} reveal={() => query({ query: "approvalDetails", id: dialog.id })} /><Choices options={dialog.options} respond={respond} pending={pending} /></>;
 		case "select": return <><Choices options={dialog.options} respond={respond} pending={pending} />
 			<div className="dialog-actions"><Button variant="outline" disabled={pending} onClick={() => respond(null)}>取消</Button></div></>;
 		case "confirm": return <><pre>{clean(dialog.message)}</pre><div className="dialog-actions">

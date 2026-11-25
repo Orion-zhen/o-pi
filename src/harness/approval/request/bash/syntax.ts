@@ -1,6 +1,12 @@
 import { containsDynamicShellNode, decodeShellWord } from "../../../syntax-tree/bash.ts";
 import type { SyntaxNode } from "../../../syntax-tree/types.ts";
 
+export function requiredField(node: SyntaxNode, name: string): SyntaxNode {
+	const child = node.childForFieldName(name);
+	if (child === null) throw new Error(`Missing Bash syntax field: ${node.type}.${name}`);
+	return child;
+}
+
 export function* walkNamedNodes(root: SyntaxNode, check: () => void): Generator<SyntaxNode> {
 	const stack = [root];
 	for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
@@ -32,6 +38,28 @@ export function normalizeCommandNode(node: SyntaxNode): string {
 		end = child.endIndex;
 	}
 	return normalizeSource(parts.length === 0 ? node.text : source);
+}
+
+// Shell 参数不能包含 NUL。标记仅在值分析中传播，不能作为命令参数或精确路径。
+export const NUMERIC_FIELD = "\0number\0";
+
+/** 仅替换语法树中的 PID 和退出状态展开。引号、转义及其他变量仍由共用的单词解码器处理。 */
+export function shellWordSource(node: SyntaxNode): string | undefined {
+	const source = node.text;
+	if (!/\$(?:[$?]|\{[$?]\})/u.test(source)) return source;
+	const stack = [node];
+	let marked = "";
+	let offset = 0;
+	for (let part = stack.pop(); part !== undefined; part = stack.pop()) {
+		if (part.type === "simple_expansion" || part.type === "expansion") {
+			if (!/^\$(?:[$?]|\{[$?]\})$/u.test(part.text)) continue;
+			marked += source.slice(offset, part.startIndex - node.startIndex) + NUMERIC_FIELD;
+			offset = part.endIndex - node.startIndex;
+		} else if (part.type === "string" || part.type === "concatenation" || part.type === "command_name") {
+			stack.push(...part.namedChildren.toReversed());
+		} else if (part.type !== "word" && part.type !== "string_content" && part.type !== "raw_string") return undefined;
+	}
+	return marked + source.slice(offset);
 }
 
 function literalNodeText(node: SyntaxNode): string | undefined {

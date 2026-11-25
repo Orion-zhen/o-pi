@@ -1,4 +1,11 @@
-import type { BashToolConfig } from "../../../src/harness/bash-tool/types.ts";
+import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.ts";
+import type { BashLimits, BashToolConfig } from "../../../src/harness/bash-runtime/config.ts";
+import type { ExecuteBashRuntime } from "../../../src/harness/bash-tool/types.ts";
+
+export function runBash({ command, timeout = 300 }: { command: string; timeout?: number },
+	{ cwd, sessionId, limits, ...runtime }: ExecuteBashRuntime & { cwd: string; sessionId: string; limits: BashLimits }) {
+	return executeBashCommand({ kind: "resolved", command, timeout, cwd, sessionId, limits, env: process.env }, runtime);
+}
 
 export function bashToolConfig(): BashToolConfig {
 	return {

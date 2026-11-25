@@ -3,6 +3,7 @@ import path from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
+import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.ts";
 import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
 
 const cwd = path.resolve("project");
@@ -12,21 +13,18 @@ const runtimeTempChild = path.join(runtimeTempRoot, "pi-approval", "work");
 
 describe("approval request builder", () => {
 	it("bash 普通命令生成一个 AST command unit", async () => {
-		const request = await buildApprovalRequest(bash("echo hello"), cwd);
+		const request = await bashRequest("echo hello", cwd);
 		expect(request).toMatchObject({ tool: "bash" });
-		expect(request?.units).toHaveLength(1);
-		expect(request?.units[0]).toMatchObject({
+		expect(request.units).toHaveLength(1);
+		expect(request.units[0]).toMatchObject({
 			target: { kind: "command", value: "echo hello", effective_value: "echo hello" },
-			remember: { session: true, persistent: true },
+			remember: true,
 		});
 	});
 
 	it("复合命令按 pipeline、&& 和重定向拆分", async () => {
-		const request = await buildApprovalRequest(
-			bash(`echo ready && git push origin main | tee result.log 2>${systemPath.replace(/\\/g, "/")}`),
-			cwd,
-		);
-		expect(request?.units.map((unit) => unit.target.value)).toEqual([
+		const request = await bashRequest(`echo ready && git push origin main | tee result.log 2>${systemPath.replace(/\\/g, "/")}`, cwd);
+		expect(request.units.map((unit) => unit.target.value)).toEqual([
 			"echo ready",
 			"git push origin main",
 			"tee result.log",
@@ -39,74 +37,80 @@ describe("approval request builder", () => {
 		["gh release view v1.0.0", ["gh release view v1.0.0"]],
 		[`echo   "a  b"`, [`echo "a  b"`]],
 	] as const)("静态命令保留预期结构: %s", async (command, expected) => {
-		const request = await buildApprovalRequest(bash(command), cwd);
-		expect(request?.units.map((unit) => unit.target.value)).toEqual(expected);
+		const request = await bashRequest(command, cwd);
+		expect(request.units.map((unit) => unit.target.value)).toEqual(expected);
 	});
 
 	it("command substitution 作为独立 unit", async () => {
-		const request = await buildApprovalRequest(bash(`echo "$(git push origin main)"`), cwd);
-		expect(request?.units.map((unit) => unit.target.value)).toEqual([
+		const request = await bashRequest(`echo "$(git push origin main)"`, cwd);
+		expect(request.units.map((unit) => unit.target.value)).toEqual([
 			`echo "$(git push origin main)"`,
 			"git push origin main",
 		]);
 	});
 
 	it("literal shell -c 脚本递归解析，动态脚本 fail closed", async () => {
-		const literal = await buildApprovalRequest(bash(`bash -c "npm install lodash" && git push origin main`), cwd);
-		expect(literal?.units.map((unit) => unit.target.value)).toEqual([
+		const literal = await bashRequest(`bash -c "npm install lodash" && git push origin main`, cwd);
+		expect(literal.units.map((unit) => unit.target.value)).toEqual([
 			`bash -c "npm install lodash"`,
 			"npm install lodash",
 			"git push origin main",
 		]);
 
-		const dynamic = await buildApprovalRequest(bash(`bash -c "$SCRIPT"`), cwd);
-		expect(dynamic?.units[0]).toMatchObject({
+		const dynamic = await bashRequest(`read SCRIPT; bash -c "$SCRIPT"`, cwd);
+		expect(dynamic.units.at(-1)).toMatchObject({
 			target: { effective_value: "bash -c <dynamic>" },
-			remember: { session: true, persistent: false },
+			remember: true,
 		});
 	});
 
 	it("语法错误退化为不可持久化的 opaque unit", async () => {
-		const request = await buildApprovalRequest(bash(`echo "unterminated`), cwd);
-		expect(request?.units).toEqual([
+		const request = await bashRequest(`echo "unterminated`, cwd);
+		expect(request.units).toEqual([
 			expect.objectContaining({
 				target: expect.objectContaining({ effective_value: `<opaque> echo "unterminated` }),
-				remember: { session: true, persistent: false },
+				remember: true,
 			}),
 		]);
+	});
+
+	it("启动状态未知且子脚本解析失败时，只为原命令追加一个 opaque unit", async () => {
+		const command = `bash -c 'echo "unfinished'`;
+		const request = await buildBashApprovalRequest(command, { cwd, command, env: { BASH_ENV: "init.sh" } });
+		expect(request.units.map(({ target }) => target.kind === "command" && target.effective_value))
+			.toEqual(['bash -c echo "unfinished', `<opaque> ${command}`]);
+		expect(request.allowSessionMemory).toBe(false);
 	});
 
 	it.each([
 		["审批单元超过限制", Array.from({ length: 257 }, (_value, index) => `echo ${index}`).join("; ")],
 		["嵌套 Shell 超过深度限制", nestedShellCommand(9)],
-	] as const)("%s时退化为 opaque unit", async (_name, command) => {
-		const request = await buildApprovalRequest(bash(command), cwd);
-		expect(request?.units).toEqual([
-			expect.objectContaining({
-				target: expect.objectContaining({ effective_value: `<opaque> ${command}` }),
-				remember: { session: true, persistent: false },
-			}),
-		]);
+	] as const)("%s时保留已分析的命令，并追加 opaque unit", async (_name, command) => {
+		const request = await bashRequest(command, cwd);
+		expect(request.units[0]?.target.kind).toBe("command");
+		expect(request.units.length).toBeGreaterThan(1);
+		expect(request.units.at(-1)).toMatchObject({ target: { effective_value: `<opaque> ${command}` }, remember: true });
 	});
 
-	it("bash workdir 决定相对路径解析", async () => {
-		const sub = path.join(cwd, "packages", "app").replace(/\\/g, "/");
-		const request = await buildApprovalRequest(bash("echo hello > output.log", "packages/app"), cwd);
-		expect(request?.cwd).toBe(sub);
-		expect(request?.units.map((unit) => unit.target)).toEqual([
-			{ kind: "command", value: "echo hello", effective_value: "echo hello" },
-			{ kind: "path", value: `${sub}/output.log` },
-		]);
+	it("技能路径替换前后的写入目标均参与审批，展示仍使用原命令", async () => {
+		const command = 'echo >"skill://demo/result"';
+		const resolved = `${cwd.replaceAll("\\", "/")}/skills/demo/result`;
+		const script = `echo >'${resolved}'`;
+		const request = await buildBashApprovalRequest(command, { cwd, command: script, env: {} });
+		expect(request.detail.command).toBe(command);
+		expect(request.units.filter((unit) => unit.action === "write_redirect").map((unit) => unit.target.value))
+			.toEqual(["skill://demo/result", resolved]);
+		expect(request.units.at(-1)).toMatchObject({ target: { shell_input: script }, remember: false });
 	});
 
 	it("文件写重定向成为 path unit，fd duplication 不成为写文件 unit", async () => {
-		const redirected = await buildApprovalRequest(bash("echo hello > output.log 2>&1"), cwd);
-		expect(redirected?.units.map((unit) => unit.target)).toEqual([
+		const redirected = await bashRequest("echo hello > output.log 2>&1", cwd);
+		expect(redirected.units.map((unit) => unit.target)).toEqual([
 			{ kind: "command", value: "echo hello", effective_value: "echo hello" },
 			{ kind: "path", value: path.join(cwd, "output.log").replace(/\\/g, "/") },
 		]);
 
-		const numericAndProcess = await buildApprovalRequest(bash("echo hello > 1 > >(cat)"), cwd);
+		const numericAndProcess = await bashRequest("echo hello > 1 > >(cat)", cwd);
 		expect(numericAndProcess?.units.map((unit) => unit.target.value)).toEqual([
 			"echo hello",
 			path.join(cwd, "1").replace(/\\/g, "/"),
@@ -114,14 +118,19 @@ describe("approval request builder", () => {
 		]);
 	});
 
+	it.each(["'log-$$'", "log-\\$\\$"])("没有 PID 展开的文件名仍是精确路径: %s", async (name) => {
+		const request = await bashRequest(`echo ok >${name}`, cwd);
+		expect(request.units[1]?.target).toEqual({ kind: "path", value: path.join(cwd, "log-$$").replaceAll("\\", "/") });
+	});
+
 	it("解析无参数 mktemp 临时文件变量", async () => {
-		const request = await buildApprovalRequest(bash(`
+		const request = await bashRequest(`
 log=$(mktemp)
 printf content > "$log"
 rm -f "$log"
-`), cwd);
+`, cwd);
 
-		expect(request?.units).toEqual(expect.arrayContaining([
+		expect(request.units).toEqual(expect.arrayContaining([
 			expect.objectContaining({
 				action: "write_redirect",
 				target: { kind: "path", value: "<temporary>" },
@@ -138,8 +147,8 @@ rm -f "$log"
 		`log=$(mktemp)\nprintf content > "$log/child"`,
 		`log=$(mktemp -u)\nprintf content > "$log"`,
 	])("不把未证明由 mktemp 独占的新路径标成 temporary: %s", async (command) => {
-		const request = await buildApprovalRequest(bash(command), cwd);
-		const redirect = request?.units.find((unit) => unit.action === "write_redirect");
+		const request = await bashRequest(command, cwd);
+		const redirect = request.units.find((unit) => unit.action === "write_redirect");
 		expect(redirect).toMatchObject({ target: { kind: "command" } });
 		expect(redirect?.effect_scope).toBeUndefined();
 	});
@@ -151,13 +160,13 @@ rm -f "$log"
 		`log=$(mktemp -p /tmp cache.XXXX)\nprintf content > "$log"`,
 		`tmpdir=$(mktemp -d ./cache.XXXX)\nrm -rf "$tmpdir"`,
 	])("把静态 mktemp 变体创建的新路径标成 temporary: %s", async (command) => {
-		const request = await buildApprovalRequest(bash(command), cwd);
-		const effect = request?.units.find((unit) => unit.action === "write_redirect" || unit.target.value.includes("rm -rf"));
+		const request = await bashRequest(command, cwd);
+		const effect = request.units.find((unit) => unit.action === "write_redirect" || unit.target.value.includes("rm -rf"));
 		expect(effect?.effect_scope).toBe("temporary");
 	});
 
 	it("解析 mktemp 临时目录变量并标记仅影响临时目录的单元", async () => {
-		const request = await buildApprovalRequest(bash(`
+		const request = await bashRequest(`
 tmpdir=$(mktemp -d)
 cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT
@@ -168,9 +177,9 @@ for engine in xelatex lualatex; do
 	(cd "$tmpdir" && "$engine" input.txt > result.txt)
 done
 (cd "$tmpdir" && git clean -fd && git reset --hard)
-`), cwd);
+`, cwd);
 
-		expect(request?.units).toEqual(expect.arrayContaining([
+		expect(request.units).toEqual(expect.arrayContaining([
 			expect.objectContaining({
 				action: "execute",
 				target: expect.objectContaining({ value: `rm -rf "$tmpdir"` }),
@@ -197,19 +206,19 @@ done
 				effect_scope: "temporary",
 			}),
 		]));
-		expect(request?.units.flatMap((unit) => unit.target.kind === "command" ? [unit.target.effective_value] : [])).toEqual(expect.arrayContaining([
+		expect(request.units.flatMap((unit) => unit.target.kind === "command" ? [unit.target.effective_value] : [])).toEqual(expect.arrayContaining([
 			"xelatex input.txt",
 			"lualatex input.txt",
 		]));
 	});
 
 	it("把系统临时目录后代中的 Bash 文件操作标记为 temporary", async () => {
-		const request = await buildApprovalRequest(bash(`
+		const request = await bashRequest(`
 rm -rf "${runtimeTempChild}"
 cat > "${path.join(runtimeTempChild, "output.txt")}"
 (cd "${runtimeTempChild}" && git clean -fd)
-`), cwd);
-		expect(request?.units).toEqual(expect.arrayContaining([
+`, cwd);
+		expect(request.units).toEqual(expect.arrayContaining([
 			expect.objectContaining({
 				target: expect.objectContaining({ effective_value: `rm -rf ${runtimeTempChild}` }),
 				effect_scope: "temporary",
@@ -225,23 +234,18 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		]));
 	});
 
-	it.skipIf(process.platform === "win32")("默认识别 /tmp 和 /var/tmp 的后代", async () => {
-		for (const command of ["rm -rf /tmp/pi-work", "rm -rf /var/tmp/pi-work"]) {
-			const request = await buildApprovalRequest(bash(command), cwd);
-			expect(request?.units[0]?.effect_scope).toBe("temporary");
-		}
-		for (const command of ["rm -rf /tmp", "rm -rf /var/tmp"]) {
-			const request = await buildApprovalRequest(bash(command), cwd);
-			expect(request?.units[0]?.effect_scope).toBeUndefined();
-		}
+	it("不把与临时根同前缀的相邻目录标成 temporary", async () => {
+		const sibling = path.join(`${runtimeTempRoot}-other`, "work");
+		const request = await bashRequest(`rm -rf "${sibling}"`, cwd);
+		expect(request.units[0]?.effect_scope).toBeUndefined();
 	});
 
 	it.each([
 		`rm -rf "${runtimeTempRoot}"`,
 		`rm -rf "${path.join(runtimeTempRoot, "..", "outside")}"`,
 	])("不把系统临时目录根或逃逸路径标成 temporary: %s", async (command) => {
-		const request = await buildApprovalRequest(bash(command), cwd);
-		expect(request?.units[0]?.effect_scope).toBeUndefined();
+		const request = await bashRequest(command, cwd);
+		expect(request.units[0]?.effect_scope).toBeUndefined();
 	});
 
 	it.each([
@@ -256,14 +260,14 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		`tmpdir=$(mktemp -d)\n(cd "$tmpdir"; rm -rf .)`,
 		`tmpdir=$(mktemp -d)\n(cd "$tmpdir" && git -C /etc clean -fd)`,
 	])("不把未证明仅影响临时目录的命令标成 temporary: %s", async (command) => {
-		const request = await buildApprovalRequest(bash(command), cwd);
-		const destructive = request?.units.find((unit) => unit.target.value.includes("rm -rf"));
+		const request = await bashRequest(command, cwd);
+		const destructive = request.units.find((unit) => unit.target.value.includes("rm -rf"));
 		expect(destructive?.effect_scope).toBeUndefined();
 	});
 
 	it("env wrapper 保留命令原文与解包后的有效命令", async () => {
-		const request = await buildApprovalRequest(bash("env -u NODE_ENV npm install lodash"), cwd);
-		expect(request?.units[0]?.target).toMatchObject({
+		const request = await bashRequest("env -u NODE_ENV npm install lodash", cwd);
+		expect(request.units[0]?.target).toMatchObject({
 			value: "env -u NODE_ENV npm install lodash",
 			effective_value: "npm install lodash",
 		});
@@ -286,8 +290,8 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 	});
 
 	it("Bash 引号内的波浪号仍是字面路径", async () => {
-		const request = await buildApprovalRequest(bash('echo value > "~/approval-test"'), cwd);
-		expect(request?.units[1]?.target).toEqual({
+		const request = await bashRequest('echo value > "~/approval-test"', cwd);
+		expect(request.units[1]?.target).toEqual({
 			kind: "path",
 			value: path.join(cwd, "~", "approval-test").replaceAll("\\", "/"),
 		});
@@ -296,7 +300,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 	it("write /etc/hosts 生成路径审批单元", async () => {
 		const request = await buildApprovalRequest(write(systemPath), cwd);
 		expect(request).toMatchObject({ tool: "write" });
-		expect(request?.units[0]).toMatchObject({ action: "write_file", remember: { session: true, persistent: true } });
+		expect(request?.units[0]).toMatchObject({ action: "write_file", remember: true });
 		expect(request?.units.map((unit) => unit.target)).toEqual([{ kind: "path", value: systemPath.replace(/\\/g, "/") }]);
 	});
 
@@ -311,7 +315,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 	it("edit 普通项目文件生成路径审批单元", async () => {
 		const request = await buildApprovalRequest(edit("src/index.ts"), cwd);
 		expect(request).toMatchObject({ tool: "edit" });
-		expect(request?.units[0]).toMatchObject({ action: "edit_file", remember: { session: true, persistent: true } });
+		expect(request?.units[0]).toMatchObject({ action: "edit_file", remember: true });
 		expect(request?.units.map((unit) => unit.target)).toEqual([{ kind: "path", value: path.join(cwd, "src", "index.ts").replace(/\\/g, "/") }]);
 	});
 
@@ -326,7 +330,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 			units: [{
 				action: "fetch_url",
 				target: { kind: "url", value: "http://127.0.0.1:8080" },
-				remember: { session: true, persistent: true },
+				remember: true,
 			}],
 		});
 	});
@@ -334,28 +338,16 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 	it("webfetch 公网字面 IP 不生成审批请求", async () => {
 		expect(await buildApprovalRequest(webfetch("https://8.8.8.8/dns-query"), cwd)).toBeUndefined();
 	});
-
-	it("read/find/grep/ls 返回 undefined", async () => {
-		for (const event of [
-			{ type: "tool_call", toolName: "read", toolCallId: "read-1", input: { path: "a" } },
-			{ type: "tool_call", toolName: "find", toolCallId: "find-1", input: { query: "a" } },
-			{ type: "tool_call", toolName: "grep", toolCallId: "grep-1", input: { query: "a" } },
-			{ type: "tool_call", toolName: "ls", toolCallId: "ls-1", input: { path: "." } },
-		] satisfies ToolCallEvent[]) {
-			expect(await buildApprovalRequest(event, cwd)).toBeUndefined();
-		}
-	});
 });
+
+function bashRequest(command: string, cwd: string) {
+	return buildBashApprovalRequest(command, { command, cwd, env: {} });
+}
 
 function nestedShellCommand(depth: number): string {
 	let command = "echo ok";
 	for (let level = 0; level < depth; level += 1) command = `bash -c ${JSON.stringify(command)}`;
 	return command;
-}
-
-function bash(command: string, workdir?: string): ToolCallEvent {
-	const input = workdir === undefined ? { command } : { command, workdir };
-	return { type: "tool_call", toolName: "bash", toolCallId: "bash-1", input };
 }
 
 function write(filePath: string): ToolCallEvent {

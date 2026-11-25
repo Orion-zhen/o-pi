@@ -3,14 +3,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import type { ApprovalDecision, ApprovalUnit, BashApprovalRequest } from "../../../../../../src/harness/approval/types.ts";
+import { buildBashApprovalRequest } from "../../../../../../src/harness/approval/request/bash/parse.ts";
 import { GuiDialogs } from "../../../../../../src/gui/host/session/dialogs.ts";
 import { BashApproval, bashPreview } from "../../../../../../src/gui/frontend/features/chat/tools/bash-approval.tsx";
 import type { GuiBashApproval } from "../../../../../../src/gui/shared/protocol/state.ts";
 
 const command = `printf '%s' '${"中文🧪".repeat(90)}' > output.txt`;
 const request: BashApprovalRequest = {
-	tool: "bash", cwd: "/project", detail: { command },
-	units: [{ action: "write_redirect", target: { kind: "path", value: "/project/output.txt" }, remember: { session: true, persistent: true } }],
+	tool: "bash", allowSessionMemory: true, cwd: "/project", detail: { command },
+	units: [{ action: "write_redirect", target: { kind: "path", value: "/project/output.txt" }, remember: true }],
 };
 const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
 	kind: "ask", reason: "写入项目文件", items: request.units.map((unit) => ({ unit, reason: "写入项目文件" })),
@@ -44,6 +45,28 @@ describe("Bash 审批呈现", () => {
 		await expect(pending).resolves.toBeUndefined();
 	});
 
+	it("敏感环境值可查看，默认视图和路径都隐藏原值", async () => {
+		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
+		const command = 'echo >"${ACCESS_TOKEN#label-}.log"';
+		const request = await buildBashApprovalRequest(command, { cwd: "/project", command, env: { ACCESS_TOKEN: "label-private-value" } });
+		const unit = request.units.find(({ action }) => action === "write_redirect");
+		if (!unit) throw new Error("缺少重定向");
+		const pending = dialogs.approve(request, { kind: "ask", reason: "target", items: [{ unit, reason: "target" }] }, ["Deny"]);
+		const dialog = dialogs.list()[0];
+		if (dialog?.kind !== "bashApproval") throw new Error("缺少审批弹窗");
+		expect(JSON.stringify(dialogs.list())).not.toContain("private-value");
+		const reveal = async () => dialogs.reveal(dialog.id);
+		const markup = renderToStaticMarkup(createElement(BashApproval, { approval: dialog.approval, reveal }));
+		expect(markup).not.toContain("private-value");
+		expect(markup).toContain("查看敏感值");
+		expect(dialog.approval.items[0]?.target).toContain("${ACCESS_TOKEN#label-}");
+		expect(dialogs.reveal(dialog.id).environment).toContain('ACCESS_TOKEN="label-private-value"');
+		expect(dialogs.reveal(dialog.id).items[0]?.target).toContain("private-value.log");
+		dialogs.cancel();
+		await pending;
+		expect(() => dialogs.reveal(dialog.id)).toThrow();
+	});
+
 	it("结构化审批沿用超时取消，不会自动批准", async () => {
 		vi.useFakeTimers();
 		try {
@@ -58,7 +81,7 @@ describe("Bash 审批呈现", () => {
 
 	it("其他工具保留原审批正文和选项", async () => {
 		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
-		const unit: ApprovalUnit = { action: "write_file", target: { kind: "path", value: "/project/a.txt" }, remember: { session: true, persistent: true } };
+		const unit: ApprovalUnit = { action: "write_file", target: { kind: "path", value: "/project/a.txt" }, remember: true };
 		const pending = dialogs.approve({ tool: "write", cwd: "/project", units: [unit], detail: { path: "a.txt", content: "hello" } },
 			{ kind: "ask", reason: "write", items: [{ unit, reason: "write" }] }, ["Allow once", "Deny"]);
 		const dialog = dialogs.list()[0];
@@ -68,7 +91,7 @@ describe("Bash 审批呈现", () => {
 	});
 
 	it("长命令默认只高亮预览，敏感目标和原因仍可见", () => {
-		const document = parseHTML(renderToStaticMarkup(createElement(BashApproval, { approval }))).document;
+		const document = parseHTML(renderToStaticMarkup(createElement(BashApproval, { approval, reveal: vi.fn() }))).document;
 		const main = document.querySelector('[role="group"][aria-label="Bash 命令"]');
 		expect(main?.querySelector("pre code")?.textContent).toBe(bashPreview(command));
 		expect(main?.querySelectorAll(".token").length).toBeGreaterThan(0);
@@ -81,7 +104,7 @@ describe("Bash 审批呈现", () => {
 
 	it("短命令直接高亮，不提供多余的折叠按钮，HTML 作为文本显示", () => {
 		const command = "printf '<script>alert(1)</script>'";
-		const document = parseHTML(renderToStaticMarkup(createElement(BashApproval, { approval: { ...approval, command } }))).document;
+		const document = parseHTML(renderToStaticMarkup(createElement(BashApproval, { approval: { ...approval, command }, reveal: vi.fn() }))).document;
 		const main = document.querySelector('[role="group"][aria-label="Bash 命令"]');
 		expect(main?.querySelector("pre code")?.textContent).toBe(command);
 		expect(main?.querySelector("button")).toBeNull();
@@ -90,7 +113,7 @@ describe("Bash 审批呈现", () => {
 
 	it("完整命令相同只显示一次，预览相同但完整内容不同仍分别展示", () => {
 		const render = (target: string) => parseHTML(renderToStaticMarkup(createElement(BashApproval, {
-			approval: { ...approval, items: [{ kind: "command", action: "execute", target, reason: "需要确认执行" }] },
+			reveal: vi.fn(), approval: { ...approval, items: [{ kind: "command", action: "execute", target, reason: "需要确认执行" }] },
 		}))).document;
 		const same = render(command);
 		expect(same.querySelectorAll("pre code")).toHaveLength(1);

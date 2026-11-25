@@ -4,7 +4,7 @@ import { SessionManager, type SessionStartEvent } from "@earendil-works/pi-codin
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { GuiSessionActivity } from "../../shared/protocol/state.ts";
 import type { Attention } from "../../../harness/attention.ts";
-import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
+import { SessionApprovalStore } from "../../../harness/approval/rules/store.ts";
 import { GuiExecution, type SessionClient } from "./execution.ts";
 import { GuiExecutionContext } from "./execution-context.ts";
 import type { SessionControlAction } from "../../shared/protocol/actions.ts";
@@ -23,7 +23,7 @@ export class GuiSession {
 	readonly file: string;
 	private manager: SessionManager | undefined;
 	private resources: Resources = { state: "unloaded" };
-	private rules: SessionApprovalRules = { rules: [] };
+	private approvalStore = new SessionApprovalStore();
 	private listeners = new Set<Listener>();
 	private holds = 0;
 	private closed = false;
@@ -36,7 +36,7 @@ export class GuiSession {
 	private awaitingMessage: boolean;
 
 	constructor(manager: SessionManager,
-		private permissions: { stores: ApprovalStores; trust: Map<string, boolean> },
+		private projectTrust: Map<string, boolean>,
 		private startEvent: SessionStartEvent,
 		private notify: (activityChanged: boolean) => void,
 		private refreshHistory: () => void,
@@ -131,7 +131,7 @@ export class GuiSession {
 				if (manager.getSessionId() !== this.id) throw new Error("会话文件已被替换，请刷新列表。");
 			}
 			this.assertOpen();
-			const execution = await GuiExecution.create(context, manager, { ...this.permissions, rules: this.rules }, client, { event: this.startEvent, models: this.scopedModels });
+			const execution = await GuiExecution.create(context, manager, { approvalStore: this.approvalStore, trust: this.projectTrust }, client, { event: this.startEvent, models: this.scopedModels });
 			// 退出中的启动正常结算，但不重新挂载正在释放的资源。
 			if (!this.closed) {
 				this.resources = { state: "ready", execution };

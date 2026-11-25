@@ -3,12 +3,12 @@ import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-wor
 import type { GuiBashApproval, GuiDialog, GuiDialogContent, GuiNotice } from "../../shared/protocol/state.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { ApprovalInteractionPort } from "../../../harness/approval/runtime/interaction.ts";
-import { approvalText, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
+import { approvalText, approvalTarget, environmentLines, hasSensitiveEnvironment, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
 import { plainTheme } from "./theme.ts";
 
 /** 对话框属于会话，不随浏览器连接销毁。响应只能消费一次。 */
 export class GuiDialogs {
-	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined) => void }>();
+	private pending = new Map<string, { dialog: GuiDialog; reveal?: () => GuiBashApproval; finish: (value: string | undefined) => void }>();
 	readonly notices: GuiNotice[] = [];
 	private toolsExpanded = false;
 	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number,
@@ -19,19 +19,28 @@ export class GuiDialogs {
 	}
 
 	approve(...[request, decision, options, opts]: Parameters<ApprovalInteractionPort["approve"]>): Promise<string | undefined> {
-		const bash: GuiBashApproval | undefined = request.tool === "bash" ? {
-			cwd: approvalText(request.cwd), command: approvalText(request.detail.command),
-			items: decision.items.map(({ unit, reason }) => ({
-				action: unit.action, kind: unit.target.kind, target: approvalText(unit.target.value), reason: approvalText(reason),
-			})),
-		} : undefined;
 		const choices = options.map((value) => ({ label: value, value }));
-		return this.ask(bash
-			? { kind: "bashApproval", title: "执行 Bash 命令", approval: bash, options: choices }
-			: { kind: "select", title: formatApprovalPrompt(request, decision), options: choices }, opts);
+		if (request.tool !== "bash") return this.ask({ kind: "select", title: formatApprovalPrompt(request, decision), options: choices }, opts);
+		const canReveal = hasSensitiveEnvironment(request);
+		const details = (reveal: boolean): GuiBashApproval => ({
+			cwd: approvalText(request.cwd), command: approvalText(request.detail.command),
+			...(request.detail.environment && { environment: environmentLines(request.detail.environment, reveal) }),
+			...(canReveal && { canReveal: true }),
+			items: decision.items.map(({ unit, reason }) => ({
+				action: unit.action, kind: unit.target.kind, target: approvalTarget(request, unit, reveal), reason: approvalText(reason),
+			})),
+		});
+		return this.ask({ kind: "bashApproval", title: "执行 Bash 命令", approval: details(false), options: choices }, opts,
+			canReveal ? () => details(true) : undefined);
 	}
 
-	ask(content: GuiDialogContent, opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
+	reveal(id: string): GuiBashApproval {
+		const details = this.pending.get(id)?.reveal;
+		if (!details) throw new Error("该对话框没有可查看的敏感值。");
+		return details();
+	}
+
+	ask(content: GuiDialogContent, opts?: ExtensionUIDialogOptions, reveal?: () => GuiBashApproval): Promise<string | undefined> {
 		if (opts?.signal?.aborted) return Promise.resolve(undefined);
 		const id = randomUUID();
 		return new Promise((resolve) => {
@@ -46,7 +55,7 @@ export class GuiDialogs {
 			};
 			this.pending.set(id, {
 				dialog: { ...content, id, deadline: opts?.timeout ? Date.now() + opts.timeout : null },
-				finish,
+				finish, ...(reveal && { reveal }),
 			});
 			opts?.signal?.addEventListener("abort", abort, { once: true });
 			if (opts?.timeout) timeout = setTimeout(abort, opts.timeout);

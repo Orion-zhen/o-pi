@@ -6,7 +6,6 @@ import { checkForNewPiVersion } from "../../../node_modules/@earendil-works/pi-c
 import type { GuiEvent } from "../shared/protocol/events.ts";
 import type { WorkspaceQuery } from "../shared/protocol/queries.ts";
 import type { GuiConfigDocument } from "../shared/config/preferences.ts";
-import { ApprovalStores } from "../../harness/approval/rules/store.ts";
 import { lspManager } from "../../harness/lsp/index.ts";
 import type { GuiLspServers } from "../shared/lsp.ts";
 import { readLspServers } from "./workspace/lsp-servers.ts";
@@ -29,7 +28,6 @@ export class GuiHost {
 	readonly clients = new Set<GuiClient>();
 	readonly changelog = new StartupChangelog();
 	private versionCheck: Promise<string | null> | undefined;
-	private approvals = new ApprovalStores();
 	private projectTrust = new Map<string, boolean>();
 	private workbenchController = new AbortController();
 	private pendingGit = new Map<string, Promise<WorkspaceGit | null>>();
@@ -179,7 +177,7 @@ export class GuiHost {
 			if (existing.file !== manager.getSessionFile()) throw new Error("会话标识重复，请导入为新会话。");
 			return existing;
 		}
-		const session = new GuiSession(manager, { stores: this.approvals, trust: this.projectTrust }, event,
+		const session = new GuiSession(manager, this.projectTrust, event,
 			(changed) => { if (changed) this.activityChanged(); this.scheduleCollection(); }, () => this.catalog.schedule(), (value) => this.notifyAttention(value));
 		this.sessions.set(session.id, session);
 		this.activityChanged();

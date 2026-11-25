@@ -5,7 +5,7 @@ import type { GuiAction, GuiActionResult, SessionAction, SessionMutation } from 
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { SessionQuery, GuiQueryResults } from "../../shared/protocol/queries.ts";
 import type { GuiSnapshot } from "../../shared/protocol/state.ts";
-import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
+import type { SessionApprovalStore } from "../../../harness/approval/rules/store.ts";
 import { GuiExecutionContext } from "./execution-context.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, readConfig, saveConfig } from "./files.ts";
@@ -101,7 +101,7 @@ export class GuiExecution {
 	}
 
 	static create(context: GuiExecutionContext, manager: SessionManager,
-		permissions: { stores: ApprovalStores; rules: SessionApprovalRules; trust: Map<string, boolean> },
+		permissions: { approvalStore: SessionApprovalStore; trust: Map<string, boolean> },
 		client: SessionClient | undefined, initial: { event: SessionStartEvent; models: string[] | undefined }): Promise<GuiExecution> {
 		const initialize = async () => {
 			let selection: { controller: ToolSelectionController } | undefined;
@@ -118,7 +118,7 @@ export class GuiExecution {
 				toolsChanged: () => context.publish(),
 				commandSignal: () => context.commandController.signal,
 				reports: context.reports, usageService: context.usageService,
-				approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
+				approvalStore: permissions.approvalStore, projectTrust: permissions.trust,
 				bindAutoTitle: (generate) => { context.autoTitle = generate; },
 				titleGenerationChanged: (state) => { context.titleGeneration = state; context.publish(); },
 				signal: context.lifetime.signal,
@@ -251,6 +251,7 @@ export class GuiExecution {
 		return this.track(this.readQuery(query));
 	}
 	private async readQuery(query: SessionQuery): Promise<GuiQueryResults[SessionQuery["query"]]> {
+		if (query.query === "approvalDetails") return this.dialogs.reveal(query.id);
 		if (query.query === "image") return this.payloads.image(query.id);
 		if (query.query === "toolOutput") return this.payloads.toolOutput(query.id);
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");

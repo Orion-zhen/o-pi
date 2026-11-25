@@ -1,6 +1,7 @@
 import { fields, textFields } from "../telemetry/projection.ts";
 import type { ToolTelemetry } from "../telemetry/types.ts";
-import type { BashParams, BashToolDetails } from "./types.ts";
+import type { BashParams } from "../bash-runtime/prepare.ts";
+import type { BashToolDetails } from "./types.ts";
 
 export const bashTelemetry = {
 	input(params) {

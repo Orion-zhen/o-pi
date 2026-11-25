@@ -1,12 +1,9 @@
 import path from "node:path";
 import { isToolCallEventType, type ToolCallEvent } from "@earendil-works/pi-coding-agent";
-import { resolveBashWorkdir } from "../../bash-tool/workdir.ts";
-import type { BashParams } from "../../bash-tool/types.ts";
 import { resolveNativeInputPath } from "../../filesystem/kernel/access-policy.ts";
 import { loadWebToolsConfig } from "../../web-tools/config.ts";
 import { inspectWebFetchTarget } from "../../web-tools/network/network-policy.ts";
-import { buildBashApprovalRequest } from "../request/bash/parse.ts";
-import { isSystemTemporaryDescendant } from "../request/path.ts";
+import { isSystemTemporaryDescendant, rulePath } from "../request/path.ts";
 import type { ApprovalEditReplacement, ApprovalRequest, ApprovalUnit } from "../types.ts";
 
 type WriteApprovalInput = Record<string, unknown> & { path: string; content: string };
@@ -19,13 +16,7 @@ export function isApprovalToolCall(event: ToolCallEvent): boolean {
 
 /** Pi 在 tool_call 前已完成工具参数校验，这里只建立审批目标。 */
 export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): Promise<ApprovalRequest | undefined> {
-	if (isToolCallEventType("bash", event)) {
-		// SDK 内置 bash 输入类型不含本项目新增的 workdir。
-		const input: BashParams = event.input;
-		if (input.command.trim().length === 0) return undefined;
-		return buildBashApprovalRequest(input.command, resolveBashWorkdir(input.workdir, cwd));
-	}
-	cwd = path.resolve(cwd).replace(/\\/g, "/");
+	cwd = rulePath(path.resolve(cwd));
 	if (isToolCallEventType<"write", WriteApprovalInput>("write", event)) {
 		if (event.input.path.length === 0) return undefined;
 		const targetPath = fileToolTarget(event.input.path, cwd);
@@ -55,7 +46,7 @@ export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): P
 			detail: { url: inspection.validated.displayUrl, origin, addresses: inspection.addresses },
 			units: [{
 				action: "fetch_url", target: { kind: "url", value: origin },
-				remember: { session: true, persistent: true },
+				remember: true,
 			}],
 		};
 	}
@@ -63,7 +54,7 @@ export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): P
 }
 
 function fileToolTarget(input: string, cwd: string): string {
-	return input.startsWith("skill://") ? input : resolveNativeInputPath(cwd, input).replace(/\\/g, "/");
+	return input.startsWith("skill://") ? input : rulePath(resolveNativeInputPath(cwd, input));
 }
 
 function pathUnit(action: "write_file" | "edit_file", targetPath: string): ApprovalUnit {
@@ -71,6 +62,6 @@ function pathUnit(action: "write_file" | "edit_file", targetPath: string): Appro
 		action,
 		target: { kind: "path", value: targetPath },
 		...(isSystemTemporaryDescendant(targetPath) ? { effect_scope: "temporary" as const } : {}),
-		remember: { session: true, persistent: true },
+		remember: true,
 	};
 }

@@ -19,9 +19,7 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"allow_session": { "type": "boolean", "default": true },
-				"allow_persistent": { "type": "boolean", "default": true },
-				"persistent_store": { "type": "string", "minLength": 1, "default": "~/.pi/agent/state/approval-gate.rules.jsonc" }
+				"allow_session": { "type": "boolean", "default": true }
 			}
 		},
 		"tools": {

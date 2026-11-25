@@ -5,8 +5,7 @@ import path from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.ts";
-import { bashToolConfig } from "./fixture.ts";
+import { bashToolConfig, runBash } from "./fixture.ts";
 import { deferredVoid } from "../../helpers/async.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 
@@ -19,16 +18,13 @@ afterEach(async () => {
 });
 
 async function execute(exec: BashOperations["exec"]) {
-	const config = bashToolConfig();
-	config.python_venv_paths = [];
 	const sessionId = path.basename(temp.path);
 	logDirectory = path.join(os.tmpdir(), "o-pi", "bash", sessionId);
-	return executeBashCommand({ command: "capture-fixture" }, {
+	return runBash({ command: "capture-fixture" }, {
 		cwd: temp.path,
-		session: { sessionId },
+		sessionId,
 		toolCallId: "capture",
-		config,
-		branch: [],
+		limits: bashToolConfig().limits,
 		operations: { exec },
 	});
 }

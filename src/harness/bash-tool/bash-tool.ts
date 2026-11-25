@@ -1,30 +1,25 @@
-import { createExecutionEnvironment } from "./environment.ts";
+import type { PreparedBashCommand } from "../bash-runtime/prepare.ts";
 import { BASH_STRUCTURED_BYTES, bashStructuredPreview } from "./structured-output.ts";
 import { OutputCapture, limitCapturedPreview } from "./output-capture.ts";
 import { cleanForModel, createBashOutputView } from "./output-view.ts";
-import { resolveBashSkillPaths } from "./skill-paths.ts";
 import { takeTailBytes } from "./utf8.ts";
 import type { SkillResourceError } from "../skill-context/resources.ts";
-import type { BashExecutionResult, BashParams, BashRunStatus, ExecuteBashRuntime } from "./types.ts";
+import type { BashExecutionResult, BashRunStatus, ExecuteBashRuntime } from "./types.ts";
 
 const UPDATE_THROTTLE_MS = 100;
 
-/** 执行模型提供的 shell 命令。 */
-export async function executeBashCommand(params: BashParams, runtime: ExecuteBashRuntime): Promise<BashExecutionResult> {
-	const skillPaths = await resolveBashSkillPaths(params.command, runtime.branch, runtime.signal);
-	if (skillPaths.kind === "error") return skillResourceErrorResult(skillPaths);
-	const env = await createExecutionEnvironment(runtime.cwd, runtime.session, runtime.config);
-	const { limits } = runtime.config;
+export async function executeBashCommand(prepared: PreparedBashCommand, runtime: ExecuteBashRuntime): Promise<BashExecutionResult> {
+	if (prepared.kind === "error") return skillResourceErrorResult(prepared);
+	const { limits, timeout } = prepared;
 	const outputBudget = Math.max(limits.success_output_bytes, limits.failure_output_bytes);
 	const modelPreviewBytes = Math.max(outputBudget * 4, limits.live_output_bytes * 2);
 	const startedAt = Date.now();
 	const capture = await OutputCapture.create({
-		sessionId: runtime.session.sessionId,
+		sessionId: prepared.sessionId,
 		toolCallId: runtime.toolCallId,
 		maxCaptureBytes: limits.max_capture_bytes,
 		previewBytes: Math.max(BASH_STRUCTURED_BYTES, modelPreviewBytes),
 	});
-	const timeout = params.timeout ?? runtime.config.default_timeout_seconds;
 
 	const onUpdate = runtime.onUpdate;
 	let updateTimer: NodeJS.Timeout | undefined;
@@ -57,14 +52,14 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 		let exitCode: number | undefined;
 		let shellExitAfterSeconds: number | undefined;
 		try {
-			const result = await runtime.operations.exec(skillPaths.command, runtime.cwd, {
+			const result = await runtime.operations.exec(prepared.command, prepared.cwd, {
 				onData(data) {
 					capture.append(data);
 					scheduleUpdate();
 				},
 				...(runtime.signal === undefined ? {} : { signal: runtime.signal }),
 				timeout,
-				env,
+				env: prepared.env,
 			});
 			exitCode = result.exitCode ?? undefined;
 		} catch (error) {

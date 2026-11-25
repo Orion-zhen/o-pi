@@ -6,9 +6,7 @@
 		"non_interactive": "block"
 	},
 	"remember": {
-		"allow_session": true,
-		"allow_persistent": true,
-		"persistent_store": "~/.pi/agent/state/approval-gate.rules.jsonc"
+		"allow_session": true
 	},
 	"ask_rules": [
 		{

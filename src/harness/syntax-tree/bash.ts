@@ -22,6 +22,7 @@ export function containsDynamicShellNode(root: SyntaxNode): boolean {
 interface ShellWordOptions {
 	allowUnquotedExpansion?: boolean;
 	allowGlob?: boolean;
+	resolveHome?: () => string | undefined;
 	resolveExpansion?: (source: string, start: number, prefix: string) => { value: string; end: number } | undefined;
 }
 
@@ -64,7 +65,13 @@ export function decodeShellWord(source: string, options: ShellWordOptions = {}):
 		if (character === "`") return undefined;
 		if (quote === undefined && (character === "*" || character === "?" || character === "[") && options.allowGlob !== true) return undefined;
 		if (quote === undefined && character === "{") return undefined;
-		if (quote === undefined && character === "~" && index === 0) return undefined;
+		if (quote === undefined && character === "~" && index === 0) {
+			if (source.length !== 1 && source[1] !== "/") return undefined;
+			const home = options.resolveHome?.();
+			if (home === undefined) return undefined;
+			result += home;
+			continue;
+		}
 		result += character;
 	}
 	return quote === undefined ? result : undefined;

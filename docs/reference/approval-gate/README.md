@@ -25,7 +25,6 @@ Approval Gate 在 `tool_call` 中检查 Bash、write、edit 和 webfetch，返�
 | --- | --- |
 | Allow once | 放行当前调用 |
 | Allow for session | 记住当前敏感单元 |
-| Always allow similar | 保存范围明确的持久规则 |
 | Deny | 拒绝调用 |
 | Deny with instruction | 拒绝并把附加指令返回给代理 |
 
@@ -49,8 +48,6 @@ TUI 的方向键选择操作，PageUp/PageDown 浏览内容，Enter 确认，Esc
 | `tools.bash.combinations` | 事实组合的升级决策 |
 | `ask_rules`、`deny_rules` | 路径和工具规则 |
 | `remember.allow_session` | 会话放行选项 |
-| `remember.allow_persistent` | 持久放行选项 |
-| `remember.persistent_store` | 规则文件路径 |
 
 关闭总开关会跳过调用策略。需要不可绕过的权限隔离时，在进程外使用低权限账号或沙箱。
 
@@ -62,4 +59,4 @@ TUI 的方向键选择操作，PageUp/PageDown 浏览内容，Enter 确认，Esc
 
 命令显示配置策略、事实、分类器和组合，解析但不执行 Shell。
 
-[Bash 分析与规则](rules.md)记录解析、临时范围、路径匹配和持久存储。实现位于 `src/harness/approval/`，Pi 入口为 `src/harness/extensions/approval-gate.ts`。
+[Bash 分析与规则](rules.md)记录解析、临时范围、路径匹配和会话授权。实现位于 `src/harness/approval/`，Pi 入口为 `src/harness/extensions/approval-gate.ts`。

@@ -8,9 +8,8 @@ import { Type } from "typebox";
 
 import { bashOutputSchema } from "../bash-tool/structured-output.ts";
 import { executeBashCommand } from "../bash-tool/bash-tool.ts";
-import { loadBashToolConfig } from "../bash-tool/config.ts";
-import { resolveBashWorkdir } from "../bash-tool/workdir.ts";
-import { type BashSessionMetadata, type BashToolDetails } from "../bash-tool/types.ts";
+import { takeBashCall } from "../bash-runtime/prepare.ts";
+import type { BashToolDetails } from "../bash-tool/types.ts";
 import { bashTelemetry } from "../bash-tool/telemetry.ts";
 import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
 
@@ -44,22 +43,9 @@ export default function bashTool(pi: ExtensionAPI, telemetry?: ToolTelemetrySink
 			outputSchema: bashOutputSchema,
 			executionMode: "sequential",
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
-				const config = await loadBashToolConfig();
-				const cwd = resolveBashWorkdir(params.workdir, ctx.cwd);
-				const sessionFile = ctx.sessionManager.getSessionFile();
-				const session: BashSessionMetadata = {
-					sessionId: ctx.sessionManager.getSessionId(),
-					...(sessionFile !== undefined ? { sessionFile } : {}),
-					...(ctx.model !== undefined ? { provider: ctx.model.provider, model: ctx.model.id } : {}),
-					...(ctx.thinkingLevel !== undefined ? { reasoningLevel: ctx.thinkingLevel } : {}),
-				};
-				const runtime = {
-					cwd,
-					session,
-					toolCallId,
-					operations,
-					config,
-					branch: ctx.sessionManager.getBranch(),
+				const prepared = await takeBashCall(params, ctx, signal);
+				const result = await executeBashCommand(prepared, {
+					toolCallId, operations,
 					...(signal !== undefined ? { signal } : {}),
 					...(onUpdate
 						? {
@@ -68,8 +54,7 @@ export default function bashTool(pi: ExtensionAPI, telemetry?: ToolTelemetrySink
 								},
 							}
 						: {}),
-				};
-				const result = await executeBashCommand(params, runtime);
+				});
 				return {
 					content: [{ type: "text", text: result.content }],
 					details: withNativeBashDetails(result.details),

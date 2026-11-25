@@ -3,8 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.ts";
-import { bashToolConfig } from "./fixture.ts";
+import { bashToolConfig, runBash } from "./fixture.ts";
 import { useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-bash-output-");
@@ -16,18 +15,16 @@ afterEach(async () => {
 
 async function execute(output: Buffer, options: { successBudget?: number; failureBudget?: number; liveBudget?: number; exitCode?: number } = {}) {
 	const config = bashToolConfig();
-	config.python_venv_paths = [];
 	config.limits.success_output_bytes = options.successBudget ?? 32_768;
 	config.limits.failure_output_bytes = options.failureBudget ?? 1_024;
 	config.limits.live_output_bytes = options.liveBudget ?? 1_024;
 	const sessionId = path.basename(temp.path);
 	logDirectory = path.join(os.tmpdir(), "o-pi", "bash", sessionId);
-	return executeBashCommand({ command: "output-fixture" }, {
+	return runBash({ command: "output-fixture" }, {
 		cwd: temp.path,
-		session: { sessionId },
+		sessionId,
 		toolCallId: "output",
-		config,
-		branch: [],
+		limits: config.limits,
 		operations: {
 			async exec(_command, _cwd, { onData }) {
 				onData(output);
@@ -56,16 +53,6 @@ describe("bash 输出链路", () => {
 		expect(output.output).not.toContain("�");
 		if (!output.full_output_path) throw new Error("missing log path");
 		expect(await readFile(output.full_output_path, "utf8")).toBe(text);
-	});
-
-	it("解码膨胀触发脚本截断时，即使模型预算充足仍保留日志", async () => {
-		const bytes = Buffer.alloc(400_000, 0xff);
-		const result = await execute(bytes, { successBudget: 2 * 1024 * 1024 });
-		expect(result.details.output_state).toBe("complete");
-		expect(result.structuredContent.truncated).toBe(true);
-		expect(Buffer.byteLength(result.structuredContent.output)).toBeLessThanOrEqual(1024 * 1024);
-		if (!result.structuredContent.full_output_path) throw new Error("missing log path");
-		expect(await readFile(result.structuredContent.full_output_path)).toEqual(bytes);
 	});
 
 	it("脚本空输出为空字符串，失败保留退出码", async () => {

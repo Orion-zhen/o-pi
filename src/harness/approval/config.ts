@@ -3,7 +3,6 @@ import {
 	CONFIG_DEFINITIONS,
 	agentSchemaPath,
 	ConfigError,
-	expandHomePath,
 	loadValidatedMergedConfig,
 } from "../config-loader.ts";
 import { compile, type Validator } from "@earendil-works/pi-schema";
@@ -44,7 +43,6 @@ function compileConfig(value: unknown): ApprovalGateConfig {
 	const file = value as ConfigFile;
 	return {
 		...file,
-		remember: { ...file.remember, persistent_store: expandHomePath(file.remember.persistent_store) },
 		tools: { ...file.tools, bash: compileBashPolicy(file.tools.bash) },
 	};
 }
@@ -91,7 +89,7 @@ function completeSchemaValidator(): Validator {
 	schema.required = ["enabled", "ui", "remember", "tools", "ask_rules", "deny_rules"];
 	for (const [name, required] of Object.entries({
 		ui: ["timeout_ms", "non_interactive"],
-		remember: ["allow_session", "allow_persistent", "persistent_store"],
+		remember: ["allow_session"],
 		tools: ["bash", "write", "edit", "webfetch"],
 	})) schema.properties[name] = { ...schema.properties[name], required };
 	for (const [name, required] of Object.entries({

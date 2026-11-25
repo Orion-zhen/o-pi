@@ -1,4 +1,4 @@
-import { type ExtensionUIContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isToolCallEventType, type ExtensionContext, type ExtensionUIContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type ApprovalInteractionPort } from "../approval/runtime/interaction.ts";
 import { canPresent, type Presenter } from "../presentation.ts";
 
@@ -7,10 +7,17 @@ import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../approval/e
 import { createApprovalGate, type ApprovalOutcome } from "../approval/index.ts";
 import { buildApprovalRequest, isApprovalToolCall } from "../approval/pi/request.ts";
 import { buildBashApprovalRequest } from "../approval/request/bash/parse.ts";
-import { formatBashPolicyEvaluation } from "../approval/rules/bash-facts.ts";
+import { prepareBashCall, saveBashCall, type BashParams } from "../bash-runtime/prepare.ts";
 import { evaluateBashGatePolicy } from "../approval/rules/policy.ts";
-import { formatApprovalPrompt } from "../approval/presentation.ts";
+import { approvalText, formatBashPolicyEvaluation, formatApprovalPrompt } from "../approval/presentation.ts";
 import { attachPrivateNetworkGrant, createPrivateNetworkGrantFor } from "../web-tools/network/private-network-grant.ts";
+
+async function inspectBashCall(input: BashParams, ctx: ExtensionContext) {
+	const call = await prepareBashCall(input, ctx);
+	if (call.kind === "error") return call;
+	const request = await buildBashApprovalRequest(input.command, call);
+	return { kind: "ready" as const, request, call };
+}
 
 export type ApprovalPresenter = Presenter<(
 	ui: ExtensionUIContext,
@@ -25,14 +32,15 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 				ctx.ui.notify("Usage: /approval-check <bash command>", "warning");
 				return;
 			}
-			const [config, request] = await Promise.all([
+			const [config, inspection] = await Promise.all([
 				loadApprovalGateConfig(),
-				buildBashApprovalRequest(command, ctx.cwd),
+				inspectBashCall({ command }, ctx),
 			]);
-			const evaluation = evaluateBashGatePolicy(request, config, { matchesAllowRule: () => false });
+			if (inspection.kind === "error") return ctx.ui.notify(inspection.message, "warning");
+			const evaluation = evaluateBashGatePolicy(inspection.request, config, { matchesAllowRule: () => false });
 			const decision = config.enabled ? evaluation.decision : { kind: "allow" as const };
 			ctx.ui.notify(
-				formatBashPolicyEvaluation(evaluation.bash, decision),
+				approvalText(formatBashPolicyEvaluation(inspection.request, evaluation.bash, decision)),
 				decision.kind === "deny" ? "warning" : "info",
 			);
 		},
@@ -41,7 +49,9 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 		if (!isApprovalToolCall(event)) return;
 		const config = await loadApprovalGateConfig();
 		if (!config.enabled) return;
-		const request = await buildApprovalRequest(event, ctx.cwd);
+		const bash = isToolCallEventType("bash", event) ? await inspectBashCall(event.input, ctx) : undefined;
+		if (bash?.kind === "error") return { block: true, reason: bash.message };
+		const request = bash?.request ?? await buildApprovalRequest(event, ctx.cwd);
 		if (request === undefined) return;
 
 		let requested = false;
@@ -65,11 +75,11 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 								return ctx.ui.select(formatApprovalPrompt(request, decision), [...approvalOptions], { ...dialogOptions, blockedKind: "permission" });
 							},
 							input: (title, placeholder, dialogOptions) => ctx.ui.input(title, placeholder, dialogOptions),
-							notify: (message, type) => ctx.ui.notify(message, type),
 						}
 					: undefined,
 			);
 			if (outcome.kind === "blocked") return { block: true, reason: outcome.reason };
+			if (bash !== undefined) saveBashCall(event.input, bash.call);
 			if (request.tool === "webfetch") {
 				attachPrivateNetworkGrant(
 					event.input,

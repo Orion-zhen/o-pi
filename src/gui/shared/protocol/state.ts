@@ -15,6 +15,8 @@ export const queueModes = ["one-at-a-time", "all"] as const;
 export type SessionTarget = { id: string } | { path: string };
 
 export interface GuiBashApproval {
+	environment?: string[];
+	canReveal?: true;
 	cwd: string;
 	command: string;
 	items: { action: ApprovalUnit["action"]; kind: ApprovalUnit["target"]["kind"]; target: string; reason: string }[];

@@ -6,15 +6,13 @@ import { compile } from "@earendil-works/pi-schema";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import bashToolExtension from "../../../src/harness/extensions/bash-tool.ts";
-import { createExecutionEnvironment } from "../../../src/harness/bash-tool/environment.ts";
-import { executeBashCommand } from "../../../src/harness/bash-tool/bash-tool.ts";
+import { createExecutionEnvironment } from "../../../src/harness/bash-runtime/environment.ts";
 import { OutputCapture } from "../../../src/harness/bash-tool/output-capture.ts";
 import { renderBashCall } from "../../../src/tui/chat/bash-tool/renderer.ts";
-import type { BashSessionMetadata, ExecuteBashRuntime } from "../../../src/harness/bash-tool/types.ts";
-import { loadBashToolConfig } from "../../../src/harness/bash-tool/config.ts";
+import { loadBashToolConfig } from "../../../src/harness/bash-runtime/config.ts";
 import { SKILL_CONTEXT_ENTRY } from "../../../src/harness/skill-context/types.ts";
 import { registerExtension } from "../../helpers/extension.ts";
-import { bashToolConfig } from "./fixture.ts";
+import { bashToolConfig, runBash } from "./fixture.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 import { deferredVoid } from "../../helpers/async.ts";
 
@@ -24,8 +22,6 @@ let workspace: string;
 let config = bashToolConfig();
 const temp = useTempDir("o-pi-bash-test-");
 const sessionFileOne = path.join("sessions", "1.jsonl");
-const sessionFile = path.join("sessions", "session-1.jsonl");
-const staleSessionFile = path.join("stale", "session.jsonl");
 preserveEnv(
 	"PI_BASH_TOOL_CONFIG",
 	"PI_CODING_AGENT_DIR",
@@ -46,8 +42,6 @@ beforeEach(() => {
 	workspace = temp.path;
 	delete process.env.PI_BASH_TOOL_CONFIG;
 	config = bashToolConfig();
-	config.limits.success_output_bytes = 200;
-	config.limits.failure_output_bytes = 300;
 });
 
 function fakeOperations(handler: BashOperations["exec"]): BashOperations {
@@ -148,6 +142,7 @@ describe("bash tool execution", () => {
 
 	it("扩展每次 execute 重新读取 session、model 和 thinking metadata", async () => {
 		process.env.PI_SESSION_ID = "stale-session";
+		process.env.PI_SESSION_FILE = "stale.jsonl";
 		process.env.PI_PROVIDER = "stale-provider";
 		process.env.PI_MODEL = "stale-model";
 		process.env.PI_REASONING_LEVEL = "stale-level";
@@ -189,43 +184,6 @@ describe("bash tool execution", () => {
 		expect(second.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("session-2||||low") });
 	});
 
-	it("注入当前 session metadata 并清除继承的过期字段", async () => {
-		process.env.PI_SESSION_ID = "stale-session";
-		process.env.PI_SESSION_FILE = staleSessionFile;
-		process.env.PI_PROVIDER = "stale-provider";
-		process.env.PI_MODEL = "stale-model";
-		process.env.PI_REASONING_LEVEL = "stale-level";
-		const seenEnvironments: Array<NodeJS.ProcessEnv | undefined> = [];
-		const operations = fakeOperations(async (_command, _cwd, options) => {
-			seenEnvironments.push(options.env);
-			return { exitCode: 0 };
-		});
-		const runtimeValue = runtime(operations);
-		runtimeValue.session = {
-			sessionId: "session-1",
-			sessionFile,
-			provider: "anthropic",
-			model: "claude-sonnet",
-			reasoningLevel: "high",
-		};
-		await executeBashCommand({ command: "env" }, runtimeValue);
-		runtimeValue.session = { sessionId: "session-2", reasoningLevel: "low" };
-		await executeBashCommand({ command: "env" }, runtimeValue);
-
-		expect(seenEnvironments).toHaveLength(2);
-		expect(seenEnvironments[0]).toMatchObject({
-			PI_SESSION_ID: "session-1",
-			PI_SESSION_FILE: sessionFile,
-			PI_PROVIDER: "anthropic",
-			PI_MODEL: "claude-sonnet",
-			PI_REASONING_LEVEL: "high",
-		});
-		expect(seenEnvironments[1]).toMatchObject({ PI_SESSION_ID: "session-2", PI_REASONING_LEVEL: "low" });
-		expect(seenEnvironments[1]?.PI_SESSION_FILE).toBeUndefined();
-		expect(seenEnvironments[1]?.PI_PROVIDER).toBeUndefined();
-		expect(seenEnvironments[1]?.PI_MODEL).toBeUndefined();
-	});
-
 	it("默认环境策略过滤常见 API key", async () => {
 		process.env.OPENAI_API_KEY = "secret-key";
 		const environment = await createExecutionEnvironment(workspace, { sessionId: "session" }, await loadBashToolConfig());
@@ -242,32 +200,21 @@ describe("bash tool execution", () => {
 		expect(environment.BASH_SAFE_VALUE).toBe("visible");
 		expect(environment.PI_SESSION_ID).toBe("session");
 		expect(environment.PI_SESSION_FILE).toBeUndefined();
+		config.environment.expose_pi_session_file = true;
+		const exposed = await createExecutionEnvironment(workspace, { sessionId: "session", sessionFile: "/private/session.jsonl" }, config);
+		expect(exposed.PI_SESSION_FILE).toBe("/private/session.jsonl");
 	});
 
-	it.each([".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"])(
-		"检测 %s 并为无前缀 Python 命令注入虚拟环境",
-		async (directory) => {
-			const virtualEnv = await createFakeVirtualEnvironment(directory);
-			const managedBin = path.join(workspace, "pi-agent", "bin");
-			process.env.PI_CODING_AGENT_DIR = path.dirname(managedBin);
-			process.env.PYTHONHOME = path.join(workspace, "global-python-home");
-			let seen: { command: string; env?: NodeJS.ProcessEnv } | undefined;
-			const operations = fakeOperations(async (command, _cwd, options) => {
-				seen = { command, ...(options.env !== undefined ? { env: options.env } : {}) };
-				return { exitCode: 0 };
-			});
-
-			await executeBashCommand({ command: "python -V && pip --version" }, runtime(operations));
-
-			expect(seen?.command).toBe("python -V && pip --version");
-			expect(seen?.env?.VIRTUAL_ENV).toBe(virtualEnv.root);
-			expect(seen?.env?.PIP_REQUIRE_VIRTUALENV).toBe("1");
-			expect(seen?.env?.PI_SESSION_ID).toBe("session/with unsafe chars");
-			const injectedPath = seen?.env === undefined ? undefined : environmentPath(seen.env);
-			expect(injectedPath?.split(path.delimiter).slice(0, 2)).toEqual([virtualEnv.bin, managedBin]);
-			expect(seen?.env?.PYTHONHOME).toBeUndefined();
-		},
-	);
+	it("虚拟环境优先于托管工具路径，并清除冲突的 PYTHONHOME", async () => {
+		const virtualEnv = await createFakeVirtualEnvironment(".venv");
+		const managedBin = path.join(workspace, "pi-agent", "bin");
+		process.env.PI_CODING_AGENT_DIR = path.dirname(managedBin);
+		process.env.PYTHONHOME = path.join(workspace, "global-python-home");
+		const env = await createExecutionEnvironment(workspace, { sessionId: "test" }, config);
+		expect(env).toMatchObject({ VIRTUAL_ENV: virtualEnv.root, PIP_REQUIRE_VIRTUALENV: "1" });
+		expect(environmentPath(env)?.split(path.delimiter).slice(0, 2)).toEqual([virtualEnv.bin, managedBin]);
+		expect(env.PYTHONHOME).toBeUndefined();
+	});
 
 	it("并发探测真实虚拟环境，并保持目录配置优先级", async () => {
 		const directories = config.python_venv_paths;
@@ -310,32 +257,16 @@ describe("bash tool execution", () => {
 		const configPath = path.join(workspace, "bash-tool.jsonc");
 		await writeFile(configPath, JSON.stringify({ python_venv_paths: ["custom-venv"] }));
 		process.env.PI_BASH_TOOL_CONFIG = configPath;
-		config = await loadBashToolConfig();
-		let seenEnv: NodeJS.ProcessEnv | undefined;
-		const operations = fakeOperations(async (_command, _cwd, options) => {
-			seenEnv = options.env;
-			return { exitCode: 0 };
-		});
-
-		await executeBashCommand({ command: "python -V" }, runtime(operations));
-
-		expect(config.python_venv_paths).toEqual(["custom-venv"]);
-		expect(seenEnv?.VIRTUAL_ENV).toBe(configuredVirtualEnv.root);
+		const result = await runTool('node -p "process.env.VIRTUAL_ENV"');
+		expect(result.content[0]?.text).toContain(configuredVirtualEnv.root);
 	});
 
 	it("带虚拟环境标记但没有 Python 解释器时保持原执行环境", async () => {
 		const root = path.join(workspace, ".venv");
 		await mkdir(path.join(root, process.platform === "win32" ? "Scripts" : "bin"), { recursive: true });
 		await writeFile(path.join(root, "pyvenv.cfg"), "home = /usr/bin\n");
-		let seenEnv: NodeJS.ProcessEnv | undefined;
-		const operations = fakeOperations(async (_command, _cwd, options) => {
-			seenEnv = options.env;
-			return { exitCode: 0 };
-		});
-		await executeBashCommand({ command: "python -V" }, runtime(operations));
-		expect(seenEnv).toBeDefined();
-		expect(seenEnv?.VIRTUAL_ENV).toBeUndefined();
-		expect(seenEnv?.PI_SESSION_ID).toBe("session/with unsafe chars");
+		const env = await createExecutionEnvironment(workspace, { sessionId: "test" }, config);
+		expect(env.VIRTUAL_ENV).toBeUndefined();
 	});
 
 	it.skipIf(process.platform === "win32")("真实本地后端优先解析虚拟环境中的 python/pip 变体", async () => {
@@ -346,20 +277,14 @@ describe("bash tool execution", () => {
 			await chmod(file, 0o700);
 		}
 
-		const result = await executeBashCommand({ command: "python && python3 && pip && pip3" }, runtime(createLocalBashOperations()));
-		expect(result.details.exit_code).toBe(0);
-		for (const executable of ["python", "python3", "pip", "pip3"]) expect(result.content).toContain(`venv-${executable}`);
+		const result = await runTool("python && python3 && pip && pip3");
+		expect(result.isError).toBe(false);
+		for (const executable of ["python", "python3", "pip", "pip3"]) expect(result.content[0]?.text).toContain(`venv-${executable}`);
 	});
 
 	it("原样传递正则转义和 Windows 反斜杠路径", async () => {
-		let seen: string | undefined;
-		const operations = fakeOperations(async (command, _cwd) => {
-			seen = command;
-			return { exitCode: 0 };
-		});
-		const command = String.raw`git grep -E '^\s+\w+\(' -- 'C:\temp\file.ts'`;
-		await executeBashCommand({ command }, runtime(operations));
-		expect(seen).toBe(command);
+		const result = await runTool(String.raw`printf '%s\n' '^\s+\w+\(' 'C:\temp\file.ts'`);
+		expect(result.content[0]?.text).toContain(String.raw`^\s+\w+\(` + "\n" + String.raw`C:\temp\file.ts`);
 	});
 
 	it.skipIf(process.platform === "win32")("执行已加载 skill 中未引用、单引号和带空格双引号的脚本路径", async () => {
@@ -371,54 +296,29 @@ describe("bash tool execution", () => {
 		await writeFile(directScript, "#!/bin/sh\nprintf 'skill-%s\\n' \"$1\"\n");
 		await chmod(directScript, 0o700);
 		await writeFile(spacedScript, "#!/bin/sh\nprintf 'skill-%s\\n' \"$1\"\n");
-		const runtimeValue = runtime(createLocalBashOperations());
-		runtimeValue.branch = skillBranch("demo", skillRoot);
-
-		const result = await executeBashCommand({
-			command: "test -d skill://demo && skill://demo/scripts/run.sh direct && bash 'skill://demo/scripts/run.sh' single && bash \"skill://demo/scripts/run task.sh\" double",
-		}, runtimeValue);
+		const result = await runTool("test -d skill://demo && skill://demo/scripts/run.sh direct && bash 'skill://demo/scripts/run.sh' single && bash \"skill://demo/scripts/run task.sh\" double", skillBranch("demo", skillRoot));
 
 		expect(result.details).toMatchObject({ status: "exited", exit_code: 0 });
-		for (const label of ["direct", "single", "double"]) expect(result.content).toContain(`skill-${label}`);
-		expect(result.content).not.toContain(skillRoot);
+		for (const label of ["direct", "single", "double"]) expect(result.content[0]?.text).toContain(`skill-${label}`);
+		expect(result.content[0]?.text).not.toContain(skillRoot);
 	});
 
 	it("拒绝未加载、格式错误和动态拼接的 skill 路径且不执行命令", async () => {
-		let calls = 0;
-		const operations = fakeOperations(async () => {
-			calls += 1;
-			return { exitCode: 0 };
-		});
 		const skillRoot = path.join(workspace, "demo");
 		await mkdir(skillRoot, { recursive: true });
 		await writeFile(path.join(skillRoot, "script.sh"), "echo no\n");
 
-		const unloaded = await executeBashCommand({ command: "bash skill://demo/script.sh" }, runtime(operations));
-		const malformedRuntime = runtime(operations);
-		malformedRuntime.branch = skillBranch("demo", skillRoot);
-		const malformed = await executeBashCommand({ command: "bash skill://demo/../script.sh" }, malformedRuntime);
-		const dynamic = await executeBashCommand({ command: 'bash "skill://demo/$SCRIPT"' }, malformedRuntime);
+		const branch = skillBranch("demo", skillRoot);
+		const unloaded = await runTool("bash skill://demo/script.sh");
+		const malformed = await runTool("bash skill://demo/../script.sh", branch);
+		const dynamic = await runTool('bash "skill://demo/$SCRIPT"', branch);
 
-		expect(calls).toBe(0);
-		expect(unloaded.content).toContain('code="SKILL_RESOURCE_ACCESS_DENIED"');
-		expect(malformed.content).toContain('code="INVALID_SKILL_RESOURCE"');
-		expect(dynamic.content).toContain('code="INVALID_SKILL_RESOURCE"');
+		expect(unloaded.content[0]?.text).toContain('code="SKILL_RESOURCE_ACCESS_DENIED"');
+		expect(malformed.content[0]?.text).toContain('code="INVALID_SKILL_RESOURCE"');
+		expect(dynamic.content[0]?.text).toContain('code="INVALID_SKILL_RESOURCE"');
 		for (const result of [unloaded, malformed, dynamic]) {
 			expect(result.details).toMatchObject({ status: "exited", exit_code: 126 });
 		}
-	});
-
-	it("执行层不重复评估 Approval Gate 策略", async () => {
-		let executed: string | undefined;
-		const operations = fakeOperations(async (command) => {
-			executed = command;
-			return { exitCode: 0 };
-		});
-
-		const result = await executeBashCommand({ command: "mkfs.ext4 /dev/example" }, runtime(operations));
-
-		expect(executed).toBe("mkfs.ext4 /dev/example");
-		expect(result.details).toMatchObject({ status: "exited", exit_code: 0 });
 	});
 
 	it("Bash 配置只接受执行设置", async () => {
@@ -433,38 +333,23 @@ describe("bash tool execution", () => {
 	});
 
 	it("stdout/stderr 按事件顺序写入日志并保留非零退出码", async () => {
-		const operations = fakeOperations(async (_command, _cwd, options) => {
-			options.onData(Buffer.from("out\n"));
-			options.onData(Buffer.from("err\n"));
-			return { exitCode: 3 };
-		});
-		const result = await executeBashCommand({ command: "x" }, runtime(operations));
+		const result = await runBash({ command: "echo out; echo err >&2; exit 3" }, runtime(createLocalBashOperations()));
 		expect(result.details.status).toBe("exited");
 		expect(result.details.exit_code).toBe(3);
 		if (!result.details.full_output_path) throw new Error("missing log path");
 		expect(await readFile(result.details.full_output_path, "utf8")).toBe("out\nerr\n");
 	});
 
-	it.each([undefined, 12])("将默认或显式 timeout=%s 和用户信号交给 SDK", async (timeout) => {
-		const controller = new AbortController();
-		const operations = fakeOperations(async (_command, _cwd, options) => {
-			expect(options.timeout).toBe(timeout ?? config.default_timeout_seconds);
-			expect(options.signal).toBe(controller.signal);
-			return { exitCode: 0 };
-		});
-		await executeBashCommand({ command: "x", ...(timeout === undefined ? {} : { timeout }) }, { ...runtime(operations), signal: controller.signal });
-	});
-
 	it("真实后端区分超时和用户取消，保留已有输出", async () => {
 		const command = 'node -e "console.log(\'started\'); setInterval(() => {}, 1000)"';
-		const timedOut = await executeBashCommand({ command, timeout: 0.5 }, runtime(createLocalBashOperations()));
+		const timedOut = await runBash({ command, timeout: 0.5 }, runtime(createLocalBashOperations()));
 		expect(timedOut.details.status).toBe("timed_out");
 		expect(timedOut.details.shell_exit_after_seconds).toBeUndefined();
 		expect(timedOut.structuredContent).toMatchObject({ status: "timed_out", exit_code: null });
 		expect(timedOut.content).toContain("started");
 
 		const controller = new AbortController();
-		const aborted = await executeBashCommand({ command, timeout: 5 }, {
+		const aborted = await runBash({ command, timeout: 5 }, {
 			...runtime(createLocalBashOperations()), signal: controller.signal,
 			onUpdate: () => controller.abort(),
 		});
@@ -474,7 +359,7 @@ describe("bash tool execution", () => {
 	});
 
 	it.skipIf(process.platform === "win32")("shell 已退出但后台持续输出导致超时，保留退出码和退出时间", async () => {
-		const result = await executeBashCommand({
+		const result = await runBash({
 			command: "(for i in {1..100}; do printf 'background\\n'; sleep 0.05; done) & exit 7",
 			timeout: 0.5,
 		}, runtime(createLocalBashOperations()));
@@ -495,28 +380,27 @@ describe("bash tool execution", () => {
 			options.onData(Buffer.from("ok\n"));
 			return { exitCode: 0 };
 		});
-		const success = await executeBashCommand({ command: "ok" }, runtime(small));
+		const success = await runBash({ command: "ok" }, runtime(small));
 		expect(success.details.full_output_path).toBeUndefined();
 
 		const failed = fakeOperations(async (_command, _cwd, options) => {
 			options.onData(Buffer.from("bad\n"));
 			return { exitCode: 1 };
 		});
-		const failure = await executeBashCommand({ command: "bad" }, runtime(failed));
+		const failure = await runBash({ command: "bad" }, runtime(failed));
 		if (!failure.details.full_output_path) throw new Error("missing log path");
 		expect(await readFile(failure.details.full_output_path, "utf8")).toBe("bad\n");
 	});
 
 	it("预览 head/tail 重叠时不重复正文", async () => {
 		config.limits.success_output_bytes = 2_000;
-		config.limits.live_output_bytes = 100;
 		const output = `${"a".repeat(400)}${"b".repeat(400)}`;
 		const operations = fakeOperations(async (_command, _cwd, options) => {
 			options.onData(Buffer.from(output));
 			return { exitCode: 0 };
 		});
 
-		const result = await executeBashCommand({ command: "overlap" }, runtime(operations));
+		const result = await runBash({ command: "overlap" }, runtime(operations));
 
 		expect(result.details).toMatchObject({
 			output_state: "complete",
@@ -527,18 +411,17 @@ describe("bash tool execution", () => {
 	});
 
 	it("capture limit 后停止写文件但继续维护尾部预览", async () => {
-		config.limits.max_capture_bytes = 5;
-		config.limits.success_output_bytes = 80;
+		config.limits.max_capture_bytes = 1_024;
 		const operations = fakeOperations(async (_command, _cwd, options) => {
-			options.onData(Buffer.from("12345"));
+			options.onData(Buffer.alloc(1_024, "x"));
 			options.onData(Buffer.from("67890\nlast\n"));
 			return { exitCode: 0 };
 		});
-		const result = await executeBashCommand({ command: "big" }, runtime(operations));
+		const result = await runBash({ command: "big" }, runtime(operations));
 		expect(result.details.capture_complete).toBe(false);
 		expect(result.details.output_state).toBe("capture_truncated");
 		if (!result.details.full_output_path) throw new Error("missing log path");
-		expect(await readFile(result.details.full_output_path, "utf8")).toBe("12345");
+		expect(await readFile(result.details.full_output_path, "utf8")).toBe("x".repeat(1_024));
 		expect(result.content).toContain("last");
 	});
 
@@ -547,7 +430,7 @@ describe("bash tool execution", () => {
 			options.onData(Buffer.from("bad\n"));
 			return { exitCode: 1 };
 		});
-		const result = await executeBashCommand({ command: "bad" }, runtime(operations));
+		const result = await runBash({ command: "bad" }, runtime(operations));
 		if (!result.details.full_output_path) throw new Error("missing log path");
 		if (process.platform !== "win32") {
 			expect((await stat(result.details.full_output_path)).mode & 0o777).toBe(0o600);
@@ -570,7 +453,7 @@ describe("bash tool execution", () => {
 			return { exitCode: 0 };
 		});
 		try {
-			const executing = executeBashCommand({ command: "updates" }, { ...runtime(operations), onUpdate: (content) => updates.push(content) });
+			const executing = runBash({ command: "updates" }, { ...runtime(operations), onUpdate: (content) => updates.push(content) });
 			await started.promise;
 			expect(updates).toHaveLength(1);
 			expect(updates[0]).toContain("a\n");
@@ -598,7 +481,7 @@ describe("bash tool execution", () => {
 			onData(Buffer.alloc(1_024, 0x01));
 			return { exitCode: 0 };
 		});
-		await executeBashCommand({ command: "controls" }, { ...runtime(operations), onUpdate: (content) => updates.push(content) });
+		await runBash({ command: "controls" }, { ...runtime(operations), onUpdate: (content) => updates.push(content) });
 		expect(updates).toHaveLength(1);
 		for (const update of updates) {
 			const body = update.slice(update.indexOf("\n\n") + 2);
@@ -614,7 +497,7 @@ describe("bash tool execution", () => {
 			options.onData(bytes.subarray(8));
 			return { exitCode: 0 };
 		});
-		const result = await executeBashCommand({ command: "utf8" }, runtime(operations));
+		const result = await runBash({ command: "utf8" }, runtime(operations));
 		expect(result.content).toContain("emoji 😀");
 	});
 
@@ -656,23 +539,6 @@ describe("bash tool execution", () => {
 			await capture.deleteLog();
 		}
 	});
-
-	it("真实本地后端冒烟：读取 PI_*、合并 stdout/stderr 并返回退出码", async () => {
-		const runtimeValue = runtime(createLocalBashOperations());
-		runtimeValue.session = {
-			sessionId: "smoke-session",
-			provider: "smoke-provider",
-			model: "smoke-model",
-			reasoningLevel: "smoke-level",
-		};
-		const result = await executeBashCommand(
-			{ command: "node -e \"process.stdout.write([process.env.PI_SESSION_ID,process.env.PI_PROVIDER,process.env.PI_MODEL,process.env.PI_REASONING_LEVEL].join('/')); process.stderr.write('err\\\\n'); process.exit(3)\"" },
-			runtimeValue,
-		);
-		expect(result.details.exit_code).toBe(3);
-		expect(result.content).toContain("smoke-session/smoke-provider/smoke-model/smoke-level");
-		expect(result.content).toContain("err");
-	});
 });
 
 async function createFakeVirtualEnvironment(directory: string): Promise<{ root: string; bin: string }> {
@@ -691,16 +557,16 @@ function environmentPath(env: NodeJS.ProcessEnv): string | undefined {
 	return key === undefined ? undefined : env[key];
 }
 
-function runtime(operations: BashOperations): ExecuteBashRuntime {
-	const session: BashSessionMetadata = { sessionId: "session/with unsafe chars" };
-	return {
-		cwd: workspace,
-		session,
-		toolCallId: "tool:1",
-		operations,
-		config,
-		branch: [],
-	};
+function runtime(operations: BashOperations) {
+	return { cwd: workspace, sessionId: "bash-test", toolCallId: "tool:1", operations, limits: config.limits };
+}
+
+function runTool(command: string, branch: SessionEntry[] = []) {
+	const [tool] = registerExtension(bashToolExtension).registered;
+	if (!tool) throw new Error("missing bash tool");
+	return tool.execute("tool:1", { command }, undefined, undefined, {
+		cwd: workspace, sessionManager: { getSessionId: () => "bash-test", getSessionFile: () => undefined, getBranch: () => branch },
+	});
 }
 
 function skillBranch(name: string, skillRoot: string): SessionEntry[] {

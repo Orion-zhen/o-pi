@@ -1,5 +1,6 @@
+import type { BashFactEvaluation } from "./rules/bash-facts.ts";
 import { stripTerminalSequences } from "../terminal-text.ts";
-import type { ApprovalDecision, ApprovalRequest } from "./types.ts";
+import type { ApprovalDecision, ApprovalRequest, ApprovalUnit, BashApprovalRequest } from "./types.ts";
 
 type AskDecision = Extract<ApprovalDecision, { kind: "ask" }>;
 export type ApprovalLineStyle = "text" | "dim" | "added" | "removed" | "warning";
@@ -9,7 +10,7 @@ export interface ApprovalDisplayLine {
 }
 
 /** 各前端共用审批内容，所有外部文本在此移除终端控制序列。 */
-export function buildApprovalContent(request: ApprovalRequest, decision: AskDecision): ApprovalDisplayLine[] {
+export function buildApprovalContent(request: ApprovalRequest, decision: AskDecision, showEnvironment = false): ApprovalDisplayLine[] {
 	const common = [
 		line(`Working directory: ${request.cwd}`, "dim"),
 		...[...new Set(decision.items.map((item) => item.reason))].map((reason) => line(`Reason: ${reason}`, "warning")),
@@ -18,12 +19,13 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 	if (request.tool === "bash") {
 		return [
 			...common,
+			...environmentLines(request.detail.environment, showEnvironment).map((text) => line(text, "dim")),
 			line(`Command (${lineCount(request.detail.command)} lines):`, "dim"),
 			...payloadLines(request.detail.command, "text"),
 			line(""),
 			line("Sensitive units:", "dim"),
 			...decision.items.flatMap((item, index) => [
-				line(`${index + 1}. ${item.unit.target.value}`, "warning"),
+				line(`${index + 1}. ${approvalTarget(request, item.unit, showEnvironment)}`, "warning"),
 				line(`   ${item.unit.action} | ${item.reason}`, "dim"),
 			]),
 		];
@@ -57,6 +59,28 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 	];
 }
 
+const sensitiveName = /TOKEN|SECRET|PASS(?:WORD|WD)?|CREDENTIAL|AUTH|(?:API|PRIVATE|ACCESS)_?KEY/iu;
+
+export function hasSensitiveEnvironment(request: BashApprovalRequest): boolean {
+	return Object.entries(request.detail.environment ?? {}).some(([name, value]) => sensitiveName.test(name) && Boolean(value));
+}
+
+export function approvalTarget(request: BashApprovalRequest, unit: ApprovalUnit, reveal = false): string {
+	if (reveal || !hasSensitiveEnvironment(request)) return approvalText(unit.target.value);
+	// 只显示来自原始输入的片段。嵌套脚本本身也可能是启动变量展开的结果。
+	return approvalText(unit.source ?? request.detail.command);
+}
+
+export function environmentLines(environment: BashApprovalRequest["detail"]["environment"], reveal: boolean): string[] {
+	const entries = Object.entries(environment ?? {});
+	const secrets = entries.flatMap(([name, value]) => sensitiveName.test(name) && value ? [value] : []);
+	return entries.map(([name, value]) => {
+		if (value === null) return `${name}=<unset>`;
+		const hidden = !reveal && secrets.some((secret) => value.includes(secret));
+		return `${name}=${JSON.stringify(hidden ? "<hidden>" : approvalText(value))}`;
+	});
+}
+
 export function formatApprovalPrompt(request: ApprovalRequest, decision: AskDecision): string {
 	return [`Approval required | ${request.tool}`, ...buildApprovalContent(request, decision).map(({ text }) => text)].join("\n");
 }
@@ -78,4 +102,21 @@ export function approvalText(text: string): string {
 
 function lineCount(value: string): number {
 	return value.length === 0 ? 0 : value.split(/\r\n?|\n/u).length;
+}
+
+export function formatBashPolicyEvaluation(request: BashApprovalRequest, evaluation: BashFactEvaluation, decision: ApprovalDecision): string {
+	return [
+		`Decision: ${decision.kind}`,
+		"",
+		"Facts:",
+		...(evaluation.facts.length === 0 ? ["- none"] : evaluation.facts.map((fact) => `- ${fact}`)),
+		"",
+		"Matches:",
+		...(evaluation.matches.length === 0
+			? ["- none"]
+			: evaluation.matches.map((match) => `- ${match.fact} <- ${match.classifier}: ${approvalTarget(request, match.unit)}`)),
+		...(evaluation.combinations.length === 0
+			? []
+			: ["", "Combinations:", ...evaluation.combinations.map(({ name }) => `- ${name}`)]),
+	].join("\n");
 }

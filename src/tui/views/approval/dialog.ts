@@ -3,7 +3,7 @@ import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } fr
 import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.ts";
 import { buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.ts";
 import {
-	ALLOW_ONCE, ALLOW_PERSISTENT, ALLOW_SESSION, DENY_WITH_INSTRUCTION,
+	ALLOW_ONCE, ALLOW_SESSION, DENY_WITH_INSTRUCTION,
 	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions,
 } from "../../../harness/approval/runtime/interaction.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../harness/approval/types.ts";
@@ -34,14 +34,15 @@ export class ApprovalDialog implements Component {
 	private scrollTop = 0;
 	private bodyHeight = 1;
 	private renderedBodyLines = 0;
-	private readonly content: ApprovalDisplayLine[];
+	private content: ApprovalDisplayLine[];
+	private showEnvironment = false;
 	private readonly expiresAt: number | undefined;
 	private readonly timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly countdownTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(
 		private readonly request: ApprovalRequest,
-		decision: AskDecision,
+		private readonly decision: AskDecision,
 		private readonly options: ApprovalOptions,
 		private readonly theme: Pick<Theme, "fg" | "bg" | "bold">,
 		private readonly getRows: () => number,
@@ -67,7 +68,10 @@ export class ApprovalDialog implements Component {
 			this.done(this.selectedChoice);
 			return;
 		}
-		if (matchesKey(data, Key.up)) this.selectBy(-1);
+		if (data === "e" && this.request.tool === "bash" && this.request.detail.environment !== undefined) {
+			this.showEnvironment = !this.showEnvironment;
+			this.content = buildApprovalContent(this.request, this.decision, this.showEnvironment);
+		} else if (matchesKey(data, Key.up)) this.selectBy(-1);
 		else if (matchesKey(data, Key.down)) this.selectBy(1);
 		else if (matchesKey(data, Key.pageUp)) this.scrollBy(-this.bodyHeight);
 		else if (matchesKey(data, Key.pageDown)) this.scrollBy(this.bodyHeight);
@@ -132,7 +136,8 @@ export class ApprovalDialog implements Component {
 		const position = `${this.options.indexOf(this.selectedChoice) + 1}/${this.options.length}`;
 		const remaining = this.expiresAt === undefined
 			? "" : ` | timeout ${Math.max(0, Math.ceil((this.expiresAt - Date.now()) / 1000))}s`;
-		return `Up/Down choose ${position} | PgUp/PgDn scroll | Enter confirm | Esc deny${remaining}`;
+		const env = this.request.tool === "bash" && this.request.detail.environment !== undefined ? "E show/hide values | " : "";
+		return `${env}Up/Down choose ${position} | PgUp/PgDn scroll | Enter confirm | Esc deny${remaining}`;
 	}
 
 	private selectBy(delta: number): void {
@@ -167,7 +172,6 @@ function lineColor(style: ApprovalLineStyle): Parameters<Theme["fg"]>[0] {
 function optionDescription(option: ApprovalChoice): string {
 	if (option === ALLOW_ONCE) return "run only this call";
 	if (option === ALLOW_SESSION) return "remember exact sensitive units for this session";
-	if (option === ALLOW_PERSISTENT) return "save conservative rules for similar calls";
 	if (option === DENY_WITH_INSTRUCTION) return "block and tell the agent what to do instead";
 	return "block this call";
 }

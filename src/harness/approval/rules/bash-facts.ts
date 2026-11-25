@@ -1,5 +1,4 @@
 import type {
-	ApprovalDecision,
 	ApprovalUnit,
 	BashApprovalRequest,
 	BashPolicyCombination,
@@ -29,16 +28,21 @@ export function collectBashFacts(
 	const rawUnit: ApprovalUnit = {
 		action: "execute",
 		target: { kind: "command", value: request.detail.command, effective_value: request.detail.command },
-		remember: { session: true, persistent: false },
+		remember: true,
 	};
+	const inputs = [rawUnit, ...request.units.filter(({ target }) => target.kind === "command" && target.shell_input !== undefined)];
 	for (const [factId, fact] of Object.entries(policy.facts)) {
 		for (const matcher of fact.commands) {
 			if (matcher.platform !== undefined && matcher.platform !== process.platform) continue;
-			const units = matcher.scope === "raw-input" ? [rawUnit] : request.units;
+			const units = matcher.scope === "raw-input" ? inputs : request.units;
 			for (const unit of units) {
 				if (unit.target.kind !== "command") continue;
-				const candidate = matcher.scope === "effective-unit" ? unit.target.effective_value : unit.target.value;
-				if (matcher.regex.test(candidate)) matches.push({ fact: factId, classifier: matcher.classifier, unit, action: fact.action });
+				const candidate = matcher.scope === "raw-input" ? unit.target.shell_input ?? unit.target.value
+					: matcher.scope === "effective-unit" ? unit.target.effective_value : unit.target.value;
+				const resolved = matcher.scope === "source-unit" ? unit.target.resolved_value : undefined;
+				if (matcher.regex.test(candidate) || resolved !== undefined && (matcher.regex.test(resolved) || matcher.regex.test(unit.target.effective_value))) {
+					matches.push({ fact: factId, classifier: matcher.classifier, unit, action: fact.action });
+				}
 			}
 		}
 	}
@@ -48,21 +52,4 @@ export function collectBashFacts(
 			? [{ name, config }]
 			: []);
 	return { facts, matches, combinations };
-}
-
-export function formatBashPolicyEvaluation(evaluation: BashFactEvaluation, decision: ApprovalDecision): string {
-	return [
-		`Decision: ${decision.kind}`,
-		"",
-		"Facts:",
-		...(evaluation.facts.length === 0 ? ["- none"] : evaluation.facts.map((fact) => `- ${fact}`)),
-		"",
-		"Matches:",
-		...(evaluation.matches.length === 0
-			? ["- none"]
-			: evaluation.matches.map((match) => `- ${match.fact} <- ${match.classifier}: ${match.unit.target.value}`)),
-		...(evaluation.combinations.length === 0
-			? []
-			: ["", "Combinations:", ...evaluation.combinations.map(({ name }) => `- ${name}`)]),
-	].join("\n");
 }
