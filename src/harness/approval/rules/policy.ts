@@ -3,6 +3,8 @@ import type { ApprovalRuleMatcher } from "./store.ts";
 import { collectBashFacts, type BashFactEvaluation } from "./bash-facts.ts";
 import { matchesTargetPath } from "./path-match.ts";
 
+const defaultAskReason = "This tool requires approval by default.";
+
 export function evaluateGatePolicy(request: ApprovalRequest, config: ApprovalGateConfig, store: ApprovalRuleMatcher): ApprovalDecision {
 	if (request.tool === "bash") return evaluateBashGatePolicy(request, config, store).decision;
 	if (request.tool === "webfetch") {
@@ -19,16 +21,14 @@ function decideTarget<F extends FileFact | NetworkFact>(
 	const reasons = new Set<string>();
 	for (const [id, fact] of Object.entries(policy.facts)) {
 		if (!matches(fact)) continue;
-		const reason = fact.reason ?? `${request.tool} safety fact: ${id}`;
-		if (fact.action === "deny") return { kind: "deny", reason, rule_name: id };
-		reasons.add(reason);
+		if (fact.action === "deny") return { kind: "deny", reason: fact.reason, rule_name: id };
+		reasons.add(fact.reason);
 	}
 	if (isExempt(request, unit, store)) return { kind: "allow" };
 	if (reasons.size === 0) {
 		if (policy.default_action === "allow") return { kind: "allow" };
-		const reason = `default ${request.tool} approval policy`;
-		if (policy.default_action === "deny") return { kind: "deny", reason };
-		reasons.add(reason);
+		if (policy.default_action === "deny") return { kind: "deny", reason: `default ${request.tool} approval policy` };
+		reasons.add(defaultAskReason);
 	}
 	const reason = [...reasons].join("; ");
 	return { kind: "ask", reason, items: [{ unit, reason }] };
@@ -45,30 +45,32 @@ export function evaluateBashGatePolicy(
 function decideBash(
 	request: BashApprovalRequest, defaultAction: ApprovalDecision["kind"], store: ApprovalRuleMatcher, { matches, combinations }: BashFactEvaluation,
 ): ApprovalDecision {
-	const deniedCombination = combinations.find(({ config }) => config.action === "deny");
-	if (deniedCombination) return { kind: "deny", reason: `bash safety fact combination: ${deniedCombination.name}`, rule_name: deniedCombination.name };
-	const deniedFact = matches.find((match) => match.action === "deny");
-	if (deniedFact) return { kind: "deny", reason: deniedFact.reason, rule_name: deniedFact.fact };
+	for (const { name, config } of combinations) {
+		if (config.action === "deny") return { kind: "deny", reason: config.reason, rule_name: name };
+	}
+	for (const { fact, config } of matches) {
+		if (config.action === "deny") return { kind: "deny", reason: config.reason, rule_name: fact };
+	}
 	if (defaultAction === "deny") return { kind: "deny", reason: "default bash fact policy", rule_name: "default-bash-policy" };
 
 	const asked = new Map<string, { unit: ApprovalUnit; reasons: Set<string> }>();
-	function ask(unit: ApprovalUnit, reason: string): void {
+	function ask(unit: ApprovalUnit, reason?: string): void {
 		if (isExempt(request, unit, store)) return;
 		const key = `${unit.action}\0${unit.target.kind}\0${unit.target.value}`;
 		const existing = asked.get(key);
-		if (existing === undefined) asked.set(key, { unit, reasons: new Set([reason]) });
-		else existing.reasons.add(reason);
+		if (existing === undefined) asked.set(key, { unit, reasons: new Set([reason ?? defaultAskReason]) });
+		else if (reason !== undefined) existing.reasons.add(reason);
 	}
-	for (const match of matches) {
-		if (match.action === "ask") ask(match.unit, match.reason);
+	for (const { config, unit } of matches) {
+		if (config.action === "ask") ask(unit, config.reason);
 	}
-	for (const { name, config } of combinations) {
+	for (const { config } of combinations) {
 		for (const match of matches) {
-			if (config.all.includes(match.fact)) ask(match.unit, `bash safety fact combination: ${name}`);
+			if (config.all.includes(match.fact)) ask(match.unit, config.reason);
 		}
 	}
 	if (defaultAction === "ask") {
-		for (const unit of request.units) ask(unit, "default bash fact policy");
+		for (const unit of request.units) ask(unit);
 	}
 	if (asked.size === 0) return { kind: "allow" };
 	return {

@@ -26,7 +26,7 @@ export async function buildBashApprovalRequest(command: string, { cwd, command: 
 		units.push(...parsedUnits);
 		if (opaque || parsedUnits.length === 0) units.push({
 			action: "execute", target: { kind: "command", value: normalizeSource(source) }, remember: true,
-			...(opaque && { analysisFact: "execution.opaque" }),
+			...(opaque && { analysisFact: "shell.run-opaque-input" }),
 		});
 		return parsed?.askpassCommand;
 	}

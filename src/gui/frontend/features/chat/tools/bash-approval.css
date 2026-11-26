@@ -7,6 +7,11 @@
 .approval .approval-command-code { margin-block: var(--space-2); }
 .approval .approval-command-code pre { max-block-size: 30dvh; white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval .approval-command-code .token.operator { color: var(--syntax-keyword); font-weight: 600; }
+.approval-environment { background: var(--secondary); border-radius: var(--radius-sm); }
+.approval-variable-body { display: grid; justify-items: start; gap: var(--space-2); padding: var(--space-2) var(--space-3) var(--space-3); }
+.approval-variable-list { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); gap: var(--space-2) var(--space-4); inline-size: 100%; font-size: var(--text-small); }
+.approval-variable-list :is(dt, dd) { min-inline-size: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-variable-list dt { color: var(--muted-foreground); }
 .approval-sensitive-list { display: grid; gap: var(--space-4); }
 .approval-sensitive { border-inline-start: 2px solid color-mix(in srgb, var(--destructive) 45%, var(--border)); padding-inline-start: var(--space-3); min-inline-size: 0; }
 .approval-sensitive .approval-command-heading > span, .approval-target-label, .approval-target { color: var(--destructive); font-weight: 500; }

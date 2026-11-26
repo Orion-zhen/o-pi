@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { GuiBashApproval, GuiDialog, GuiDialogContent, GuiNotice } from "../../shared/protocol/state.ts";
+import type { GuiApprovalContent, GuiBashApproval, GuiDialog, GuiDialogContent, GuiNotice } from "../../shared/protocol/state.ts";
+import type { DialogResponse } from "../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
-import { ALLOW_ONCE, type ApprovalChoice } from "../../../harness/approval/runtime/interaction.ts";
-import { approvalText, approvalTarget, environmentLines, hasSensitiveEnvironment, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
-import type { ApprovalPresentationArgs, ApprovalResponse } from "../../../harness/extensions/approval-gate.ts";
+import { ALLOW_ONCE, DENY_WITH_INSTRUCTION, answerForChoice, type ApprovalAnswer, type ApprovalChoice } from "../../../harness/approval/runtime/interaction.ts";
+import { approvalText, approvalTarget, approvalEnvironment, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
+import type { ApprovalPresentationArgs } from "../../../harness/extensions/approval-gate.ts";
 import { SudoPassword, type DialogOwner } from "./sudo-password.ts";
 import { plainTheme } from "./theme.ts";
 
@@ -12,10 +13,17 @@ const approvalLabels: Record<ApprovalChoice, string> = {
 	"Allow once": "允许一次", "Allow for session": "本会话允许", Deny: "拒绝", "Deny with instruction": "拒绝并说明",
 };
 
+interface PendingDialog<T extends GuiDialogContent = GuiDialogContent> {
+	dialog: GuiDialog<T>;
+	reveal?: () => GuiBashApproval;
+	publish(): void;
+	finish(value?: string, owner?: DialogOwner): void;
+}
+
 /** 审批由会话共享，sudo 认证只投递给批准它的客户端。 */
 export class GuiDialogs {
 	private sudo?: SudoPassword;
-	private pending = new Map<string, { dialog: GuiDialog; reveal?: () => GuiBashApproval; finish: (value?: string, owner?: DialogOwner) => void }>();
+	private pending = new Map<string, PendingDialog>();
 	readonly notices: GuiNotice[] = [];
 	private toolsExpanded = false;
 	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number,
@@ -25,25 +33,27 @@ export class GuiDialogs {
 		return [...this.pending.values()].map(({ dialog }) => dialog);
 	}
 
-	approve(...[request, decision, options, opts, sudoToolCallId]: ApprovalPresentationArgs): Promise<ApprovalResponse> {
-		const choices = options.map((value) => ({ label: approvalLabels[value], value }));
-		if (request.tool !== "bash") return this.ask({ kind: "select", title: formatApprovalPrompt(request, decision), options: choices }, opts);
-		const canReveal = hasSensitiveEnvironment(request);
-		const details = (reveal: boolean): GuiBashApproval => ({
-			cwd: approvalText(request.cwd), command: approvalText(request.detail.command),
-			...(request.detail.environment && { environment: environmentLines(request.detail.environment, reveal) }),
-			...(canReveal && { canReveal: true }),
-			items: decision.items.map(({ unit, reason }) => ({
-				action: unit.action, kind: unit.target.kind, target: approvalTarget(request, unit, reveal), reason: approvalText(reason),
-			})),
-		});
-		const reveal = canReveal ? () => details(true) : undefined;
-		const content = { kind: "bashApproval", title: "执行 Bash 命令", approval: details(false), options: choices } as const;
+	approve(...[request, decision, options, opts, sudoToolCallId]: ApprovalPresentationArgs): Promise<ApprovalAnswer> {
+		const initial = { options: options.map((value) => ({ label: approvalLabels[value], value })), stage: { kind: "choose" } } as const;
+		let content: GuiApprovalContent;
+		let reveal: (() => GuiBashApproval) | undefined;
+		if (request.tool === "bash") {
+			const details = (reveal: boolean): GuiBashApproval => ({
+				cwd: approvalText(request.cwd), command: approvalText(request.detail.command),
+				environment: approvalEnvironment(request.detail.environment, reveal),
+				items: decision.items.map(({ unit, reason }) => ({
+					action: unit.action, kind: unit.target.kind, target: approvalTarget(request, unit, reveal), reason: approvalText(reason),
+				})),
+			});
+			content = { ...initial, kind: "bashApproval", title: "执行 Bash 命令", approval: details(false) };
+			if (content.approval.environment.some((entry) => entry.kind === "hidden")) reveal = () => details(true);
+		} else content = { ...initial, kind: "toolApproval", title: formatApprovalPrompt(request, decision) };
 		return new Promise((resolve) => this.open(content, opts, (value, dialog, owner) => {
-			if (sudoToolCallId === undefined || value !== ALLOW_ONCE) return resolve(value);
+			if (dialog.stage.kind === "instruction") return resolve({ kind: "denied", instruction: value });
+			if (dialog.kind !== "bashApproval" || sudoToolCallId === undefined || value !== ALLOW_ONCE) return resolve(answerForChoice(value));
 			if (!owner) throw new Error("请在当前会话批准 sudo 命令。");
 			this.sudo = new SudoPassword(sudoToolCallId, owner, dialog);
-			resolve({ choice: value, askpass: this.sudo.ask });
+			resolve({ kind: "approved", askpass: this.sudo.ask });
 		}, reveal));
 	}
 
@@ -62,38 +72,57 @@ export class GuiDialogs {
 		return details();
 	}
 
-	ask(content: GuiDialogContent, opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
+	ask(content: Exclude<GuiDialogContent, GuiApprovalContent>, opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
 		return new Promise((resolve) => this.open(content, opts, resolve));
 	}
 
 	private open<T extends GuiDialogContent>(content: T, opts: ExtensionUIDialogOptions | undefined,
-		answer: (value: string | undefined, dialog: T & Pick<GuiDialog, "id" | "deadline">, owner?: DialogOwner) => void,
-		reveal?: () => GuiBashApproval): void {
+		answer: (value: string | undefined, dialog: GuiDialog<T>, owner?: DialogOwner) => void, reveal?: () => GuiBashApproval): void {
 		const id = randomUUID();
-		const dialog = { ...content, id, deadline: opts?.timeout ? Date.now() + opts.timeout : null };
+		const dialog = { ...content, id, deadline: null };
 		if (opts?.signal?.aborted) return answer(undefined, dialog);
-		let timeout: ReturnType<typeof setTimeout> | undefined;
-		const abort = () => finish();
-		const finish = (value?: string, owner?: DialogOwner) => {
-			answer(value, dialog, owner);
-			clearTimeout(timeout);
-			opts?.signal?.removeEventListener("abort", abort);
-			this.pending.delete(id);
-			this.emit({ type: "dialogs", value: this.list() });
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const abort = () => pending.finish();
+		const pending: PendingDialog<T> = {
+			dialog, ...(reveal && { reveal }),
+			publish: () => {
+				if (opts?.timeout) {
+					clearTimeout(timer);
+					pending.dialog = { ...pending.dialog, deadline: Date.now() + opts.timeout };
+					timer = setTimeout(abort, opts.timeout);
+				}
+				this.emit({ type: "dialogs", value: this.list() });
+			},
+			finish: (value, owner) => {
+				answer(value, pending.dialog, owner);
+				clearTimeout(timer);
+				opts?.signal?.removeEventListener("abort", abort);
+				this.pending.delete(id);
+				this.emit({ type: "dialogs", value: this.list() });
+			},
 		};
-		this.pending.set(id, { dialog, finish, ...(reveal && { reveal }) });
+		this.pending.set(id, pending);
 		opts?.signal?.addEventListener("abort", abort, { once: true });
-		if (opts?.timeout) timeout = setTimeout(abort, opts.timeout);
-		this.emit({ type: "dialogs", value: this.list() });
+		pending.publish();
 	}
 
-	respond(id: string, value: string | null, owner?: DialogOwner): void {
-		if (this.sudoFor(owner)?.respond(id, value)) return;
+	respond(response: DialogResponse, owner?: DialogOwner): void {
+		if (this.sudoFor(owner)?.respond(response)) return;
+		const { id, token, value } = response;
 		const pending = this.pending.get(id);
 		if (!pending) throw new Error("对话框已结束，请刷新当前状态。");
-		if (value !== null && (pending.dialog.kind === "select" || pending.dialog.kind === "bashApproval")
-			&& !pending.dialog.options.some((option) => option.value === value)) throw new Error("无效选项。");
-		if (value !== null && pending.dialog.kind === "confirm" && value !== "yes") throw new Error("无效确认。");
+		const { dialog } = pending;
+		const stage = "stage" in dialog ? dialog.stage : undefined;
+		if (token !== (stage?.kind === "instruction" ? stage.token : undefined)) throw new Error("对话框阶段已变更，请刷新当前状态。");
+		if (value !== null && stage?.kind !== "instruction" && "options" in dialog) {
+			if (!dialog.options.some((option) => option.value === value)) throw new Error("无效选项。");
+			if ("stage" in dialog && value === DENY_WITH_INSTRUCTION) {
+				pending.dialog = { ...dialog, stage: { kind: "instruction", token: randomUUID() } };
+				pending.publish();
+				return;
+			}
+		}
+		if (value !== null && dialog.kind === "confirm" && value !== "yes") throw new Error("无效确认。");
 		pending.finish(value ?? undefined, owner);
 	}
 

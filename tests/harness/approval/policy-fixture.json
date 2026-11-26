@@ -1,0 +1,26 @@
+{
+	"enabled": true,
+	"ui": { "timeout_ms": 0, "non_interactive": "block" },
+	"tools": {
+		"bash": {
+			"default_action": "allow",
+			"facts": {
+				"release": { "action": "ask", "reason": "确认发布目标", "commands": {
+					"git": { "command": ["git", "push"] }, "image": { "command": ["docker", "push"] }
+				} },
+				"cleanup": { "action": "ask", "reason": "确认清理范围", "commands": {
+					"remove": { "command": ["rm"] },
+					"clean": { "command": ["git", "clean", "-f"], "except": [["git", "clean", "{-n,--dry-run}"]] }
+				} },
+				"sudo": { "action": "ask", "reason": "确认提权", "commands": { "sudo": { "command": ["sudo"] } } },
+				"shell.run-opaque-input": { "action": "ask", "reason": "确认动态命令", "commands": {} }
+			},
+			"combinations": {}
+		},
+		"write": { "default_action": "allow", "facts": {} },
+		"edit": { "default_action": "allow", "facts": {} },
+		"webfetch": { "default_action": "allow", "facts": {
+			"intranet": { "action": "ask", "reason": "确认内网地址", "network_scope": "private" }
+		} }
+	}
+}

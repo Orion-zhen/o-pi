@@ -59,7 +59,7 @@ describe("approval request builder", () => {
 
 		const dynamic = await bashRequest(`read SCRIPT; bash -c "$SCRIPT"`, cwd);
 		expect(dynamic.units.at(-1)).toMatchObject({
-			analysisFact: "execution.opaque",
+			analysisFact: "shell.run-opaque-input",
 			commands: [["bash", "-c", { source: '"$SCRIPT"' }]],
 			remember: true,
 		});
@@ -69,7 +69,7 @@ describe("approval request builder", () => {
 		const request = await bashRequest(`echo "unterminated`, cwd);
 		expect(request.units).toEqual([
 			expect.objectContaining({
-				analysisFact: "execution.opaque",
+				analysisFact: "shell.run-opaque-input",
 				remember: true,
 			}),
 		]);
@@ -78,7 +78,7 @@ describe("approval request builder", () => {
 	it("启动状态未知且子脚本解析失败时，只为原命令追加一个 opaque unit", async () => {
 		const command = `bash -c 'echo "unfinished'`;
 		const request = await buildBashApprovalRequest(command, { cwd, command, env: { BASH_ENV: "init.sh" } }, { askpass: false });
-		expect(request.units.map(({ analysisFact }) => analysisFact)).toEqual([undefined, "execution.opaque"]);
+		expect(request.units.map(({ analysisFact }) => analysisFact)).toEqual([undefined, "shell.run-opaque-input"]);
 		expect(request.allowSessionMemory).toBe(false);
 	});
 
@@ -89,7 +89,7 @@ describe("approval request builder", () => {
 		const request = await bashRequest(command, cwd);
 		expect(request.units[0]?.target.kind).toBe("command");
 		expect(request.units.length).toBeGreaterThan(1);
-		expect(request.units.at(-1)).toMatchObject({ analysisFact: "execution.opaque", remember: true });
+		expect(request.units.at(-1)).toMatchObject({ analysisFact: "shell.run-opaque-input", remember: true });
 	});
 
 	it("技能路径替换前后的写入目标均参与审批，展示仍使用原命令", async () => {

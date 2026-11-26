@@ -27,7 +27,7 @@ type ApprovalTarget =
 	};
 
 /** 未知参数保留源词，不作为字面值。 */
-export type BashArg = string | { source: string };
+export type BashArg = string | { source: string; singleField?: true };
 export type BashArgv = readonly [program: string, ...args: BashArg[]];
 
 export interface BashPipeline {
@@ -38,7 +38,7 @@ export interface BashPipeline {
 
 export interface ApprovalUnit {
 	commands?: BashArgv[];
-	analysisFact?: "execution.opaque" | "system.catastrophic";
+	analysisFact?: "shell.run-opaque-input" | "system.disrupt-host";
 	/** 顶层源表达式。嵌套脚本可能已展开敏感值，不作为脱敏展示来源。 */
 	source?: string;
 	action: "execute" | "write_redirect" | "write_file" | "edit_file" | "fetch_url";
@@ -84,33 +84,31 @@ export type ApprovalDecision =
 
 type ApprovalDefaultAction = "allow" | "ask" | "deny";
 
-export type BashCommandPrefix = readonly [program: string, ...args: string[]];
+type BashCommandPrefix = readonly [program: string, ...args: string[]];
+
+type BashPipelineStage = BashCommandPrefix | { command: BashCommandPrefix; arg_globs: string[] };
 
 export type BashMatcher =
-	| { command: BashCommandPrefix; exact: true; arg_globs?: never }
-	| { command: BashCommandPrefix; exact?: false; arg_globs?: string[] }
-	| { pipeline: BashCommandPrefix[] };
+	| ({ command: BashCommandPrefix; except?: BashCommandPrefix[] } & (
+		| { exact: true; arg_globs?: never }
+		| { exact?: false; arg_globs?: string[] }
+	))
+	| { pipeline: BashPipelineStage[] };
 
 export type BashPolicyCommandMatcher = BashMatcher & { classifier: string };
 
-interface FactAction {
-	action: Exclude<ApprovalDefaultAction, "allow">;
-	reason?: string;
-}
+type RuleAction = { action: "ask" | "deny"; reason: string };
 
-export type FileFact = FactAction & ({ path_globs: string[] } | { match_all: true });
-export type NetworkFact = FactAction & ({ network_scope: WebFetchTarget["scope"] } | { match_all: true });
+export type FileFact = RuleAction & ({ path_globs: string[] } | { match_all: true });
+export type NetworkFact = RuleAction & ({ network_scope: WebFetchTarget["scope"] } | { match_all: true });
 
-export interface BashPolicyFact extends Partial<FactAction> {
+export type BashFactSettings = (RuleAction | { action?: never; reason?: string }) & {
 	path_globs?: string[];
 	match_all?: true;
-	commands: BashPolicyCommandMatcher[];
-}
+};
 
-export interface BashPolicyCombination {
-	all: string[];
-	action: Exclude<ApprovalDefaultAction, "allow">;
-}
+export type BashPolicyFact = BashFactSettings & { commands: BashPolicyCommandMatcher[] };
+export type BashPolicyCombination = RuleAction & { all: string[] };
 
 export interface ToolPolicy<F> {
 	default_action: ApprovalDefaultAction;

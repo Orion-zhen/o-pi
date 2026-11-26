@@ -2,8 +2,9 @@ import { readFile } from "node:fs/promises";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import {
 	CONFIG_DEFINITIONS, configSchema, isNotFound,
-	defaultAgentConfigPath, userAgentConfigPath,
+	userAgentConfigPath,
 } from "../../../harness/config-loader.ts";
+import { defaultAgentConfigPath } from "../../../harness/runtime/paths.ts";
 import { replaceConfigFile } from "../../../harness/config-file.ts";
 import { type ModuleConfigId, type ModuleConfigDocument } from "../../shared/config/modules.ts";
 

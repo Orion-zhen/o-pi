@@ -86,7 +86,7 @@ export const actionSchema = union([
 	object({ action: lit("tool"), name: short, enabled: bool() }),
 	object({ action: lit("toolPreset"), preset: oneOf(TOOL_PRESETS) }),
 	object({ action: lit("mcpServers"), names: arr(short, { minItems: 1, maxItems: 1000, uniqueItems: true }), enabled: bool() }),
-	object({ action: lit("dialog"), id: short, value: union([text, nul()]) }),
+	object({ action: lit("dialog"), id: short, token: opt(short), value: union([text, nul()]) }),
 	object({ action: lit("clearNotices"), ids: arr(short, { maxItems: 100, uniqueItems: true }) }),
 	object({ action: lit("draft"), text }),
 	object({ action: lit("removeStorage"), ids: arr(short, { minItems: 1, maxItems: 1000, uniqueItems: true }) }),
@@ -98,6 +98,7 @@ export const actionSchema = union([
 	object({ action: lit("saveConfig"), file: lit("settings.json"), original: text, content: text }),
 ]);
 export type GuiAction = Static<typeof actionSchema>;
+export type DialogResponse = Omit<Extract<GuiAction, { action: "dialog" }>, "action">;
 export type ConfigAction = Extract<GuiAction, { action: "saveGuiConfig" | "saveMcpConfig" | "saveModelServices" | "saveModuleConfig" | "saveConfig" | "settings" }>;
 export type GlobalAction = Extract<GuiAction, { action:
 	| "observe" | "cancelSessionSearch" | "removeStorage" | "saveMcpConfig" | "saveModelServices" | "saveModuleConfig"

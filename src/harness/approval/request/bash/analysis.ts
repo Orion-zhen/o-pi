@@ -156,7 +156,7 @@ async function analyzeOne(node: SyntaxNode, context: BashAnalysisContext, state:
 			stage = await analyzeNode(child, [context], { ...state, stage: { node: child.id, commands } }, check);
 		}
 		if (node.nextSibling?.type === "&" && stages.filter((variants) => variants.some(([program]) => state.activeFunctions.has(program))).length >= 2) {
-			pushUnit(state, { action: "execute", target: { kind: "command", value: node.text }, analysisFact: "system.catastrophic", remember: false });
+			pushUnit(state, { action: "execute", target: { kind: "command", value: node.text }, analysisFact: "system.disrupt-host", remember: false });
 		}
 		// lastpipe 可能让最后一段修改当前 Shell。
 		return joinPaths([context, ...stage]);

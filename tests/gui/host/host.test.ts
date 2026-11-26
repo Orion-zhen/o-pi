@@ -1,3 +1,4 @@
+import "../../harness/approval/fixture.ts";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { createCanvas } from "@napi-rs/canvas";
 import { readSnapshot } from "./read-snapshot.ts";
@@ -30,7 +31,7 @@ import { autoTitleTests } from "./session/auto-title-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-gui-");
-preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_GUI_CONFIG", "PI_OFFLINE");
+preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_GUI_CONFIG", "PI_APPROVAL_GATE_CONFIG", "PI_OFFLINE");
 let host: GuiClient;
 let server: Awaited<ReturnType<typeof startModelServer>>;
 let cwd: string;
@@ -43,6 +44,7 @@ beforeEach(async () => {
 	const agentDir = path.join(temp.path, ".pi", "agent");
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	delete process.env.PI_GUI_CONFIG;
+	delete process.env.PI_APPROVAL_GATE_CONFIG;
 	process.env.PI_OFFLINE = "1";
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
 	await mkdir(cwd, { recursive: true });
@@ -680,8 +682,12 @@ describe("GUI 直接使用 SDK", () => {
 			true,
 		);
 		unsubscribe();
-		await host.dispatch({ action: "dialog", id: dialog.id, value: null });
+		await host.dispatch({ action: "dialog", id: dialog.id, value: "Deny with instruction" });
+		const [instruction] = host.execution.dialogs.list();
+		if (instruction?.kind !== "toolApproval" || instruction.stage.kind !== "instruction") throw new Error("缺少说明阶段");
+		await host.dispatch({ action: "dialog", id: dialog.id, token: instruction.stage.token, value: "只预览修改，不要写入。" });
 		await task;
+		expect(JSON.stringify(readSnapshot(host).messages)).toContain("只预览修改，不要写入。");
 		await expect(readFile(path.join(cwd, "output.txt"))).rejects.toMatchObject({ code: "ENOENT" });
 		await expect(host.dispatch({ action: "dialog", id: dialog.id, value: "Allow once" })).rejects.toThrow();
 	});

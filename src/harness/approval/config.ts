@@ -1,18 +1,18 @@
 import { readFileSync } from "node:fs";
 import {
 	CONFIG_DEFINITIONS,
-	agentSchemaPath,
 	ConfigError,
 	loadValidatedMergedConfig,
 } from "../config-loader.ts";
+import { agentSchemaPath } from "../runtime/paths.ts";
 import { compile, type Validator } from "@earendil-works/pi-schema";
-import type { ApprovalGateConfig, BashMatcher, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyFact, FileFact, NetworkFact, ToolPolicy } from "./types.ts";
+import type { ApprovalGateConfig, BashFactSettings, BashMatcher, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyFact, FileFact, NetworkFact, ToolPolicy } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("approval-gate.schema.json");
 let validateComplete: Validator | undefined;
 
 type ConfigMatcher = BashMatcher & { platform?: "linux" | "darwin" | "win32" };
-type ConfigBashFact = Omit<BashPolicyFact, "commands"> & { commands?: Record<string, ConfigMatcher | false> };
+type ConfigBashFact = BashFactSettings & { commands?: Record<string, ConfigMatcher | false> };
 
 interface ConfigFile extends Omit<ApprovalGateConfig, "tools"> {
 	tools: {
@@ -92,6 +92,13 @@ function completeSchemaValidator(): Validator {
 	for (const [name, selectors] of Object.entries({
 		fileFact: ["path_globs", "match_all"], networkFact: ["network_scope", "match_all"], bashFact: ["commands", "path_globs", "match_all"],
 	})) schema.$defs[name] = { ...schema.$defs[name], anyOf: selectors.map((key) => ({ required: [key] })) };
+	const actionRequiresReason = {
+		if: { required: ["action"] },
+		then: { required: ["reason"], properties: { reason: { pattern: "\\S" } } },
+	};
+	for (const name of ["fileFact", "networkFact", "bashFact", "bashCombination"]) {
+		schema.$defs[name] = { ...schema.$defs[name], allOf: [actionRequiresReason] };
+	}
 	schema.$defs.bashCommandMatcher = { ...schema.$defs.bashCommandMatcher, oneOf: [{ required: ["command"] }, { required: ["pipeline"] }] };
 	return compile(schema);
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { hostname, userInfo } from "node:os";
 import type { Askpass } from "../../../harness/bash-runtime/askpass.ts";
+import type { DialogResponse } from "../../shared/protocol/actions.ts";
 import type { GuiDialog, GuiSudoStage } from "../../shared/protocol/state.ts";
 
 type Approval = Extract<GuiDialog, { kind: "bashApproval" }>;
@@ -18,12 +19,12 @@ export class SudoPassword {
 	get dialog(): Approval | undefined {
 		const state = this.state;
 		if (state.kind === "closed" || state.kind === "hidden") return;
-		return { ...this.approval, deadline: null, sudo: state.kind === "prompting" ? state.prompt : state };
+		return { ...this.approval, deadline: null, stage: state.kind === "prompting" ? state.prompt : state };
 	}
 
 	readonly ask: Askpass = async (retry, signal) => {
 		if (signal.aborted || this.state.kind === "closed") return;
-		const prompt: Prompt = { kind: "prompting", id: randomUUID(), account: `${userInfo().username}@${hostname()}`, retry };
+		const prompt: Prompt = { kind: "prompting", token: randomUUID(), account: `${userInfo().username}@${hostname()}`, retry };
 		return new Promise((resolve) => {
 			const abort = () => finish();
 			const finish = (value?: string) => {
@@ -38,14 +39,15 @@ export class SudoPassword {
 		});
 	};
 
-	respond(id: string, value: string | null): boolean {
+	respond({ id, token, value }: DialogResponse): boolean {
+		if (id !== this.approval.id) return false;
 		const state = this.state;
-		if (state.kind === "prompting" && id === state.prompt.id) {
+		if (state.kind === "prompting" && token === state.prompt.token) {
 			if (value !== null && /[\r\n\0]/u.test(value)) throw new Error("密码不能包含换行或空字符。");
 			state.finish(value ?? undefined);
 			return true;
 		}
-		if ((state.kind !== "waiting" && state.kind !== "submitted") || id !== this.approval.id || value !== null) return false;
+		if ((state.kind !== "waiting" && state.kind !== "submitted") || token !== undefined || value !== null) return false;
 		this.state = { kind: "hidden" };
 		this.owner.refreshDialogs();
 		return true;

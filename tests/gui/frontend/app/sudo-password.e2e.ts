@@ -7,18 +7,18 @@ import { replayTranscript } from "../../helpers/transcript-live-fixture.ts";
 test("sudo 审批原位切换密码和重试，保留展开的命令及草稿", async ({ page }) => {
 	const channel = await replayTranscript(page, guiSnapshot());
 	const command = `sudo ls ${"long-path/".repeat(30)}`;
-	const approval: GuiDialog = { kind: "bashApproval", id: "approval", title: "执行 Bash 命令", deadline: null,
-		approval: { command, cwd: "/project", items: [{ kind: "command", action: "execute", target: command, reason: "提升权限" }] },
+	const approval: GuiDialog = { kind: "bashApproval", id: "approval", stage: { kind: "choose" }, title: "执行 Bash 命令", deadline: null,
+		approval: { command, cwd: "/project", environment: [], items: [{ kind: "command", action: "execute", target: command, reason: "提升权限" }] },
 		options: [{ label: "允许一次", value: "Allow once" }, { label: "拒绝", value: "Deny" }, { label: "拒绝并说明", value: "Deny with instruction" }] };
-	const show = (sudo: GuiSudoStage) => channel.accept({ type: "dialogs", value: [{ ...approval, sudo }] });
-	const password = (id: string, retry: boolean) => show({ kind: "prompting", id, account: "orion@devbox", retry });
+	const show = (stage: GuiSudoStage) => channel.accept({ type: "dialogs", value: [{ ...approval, stage }] });
+	const password = (token: string, retry: boolean) => show({ kind: "prompting", token, account: "orion@devbox", retry });
 	const responses: GuiAction[] = [];
 	await page.route("**/api/action", async (route) => {
 		const { value } = route.request().postDataJSON() as { value: GuiAction };
 		if (value.action !== "dialog") { await route.fallback(); return; }
 		responses.push(value);
-		if (value.id === "approval") show({ kind: "waiting" });
-		else if (value.id === "first") show({ kind: "submitted", account: "orion@devbox" });
+		if (value.token === undefined) show({ kind: "waiting" });
+		else if (value.token === "first") show({ kind: "submitted", account: "orion@devbox" });
 		else channel.accept({ type: "dialogs", value: [] });
 		await route.fulfill({ json: null });
 	});
@@ -50,6 +50,6 @@ test("sudo 审批原位切换密码和重试，保留展开的命令及草稿", 
 		await dialog.getByRole("button", { name: "取消" }).click();
 		await expect(dialog).toHaveCount(0);
 		await expect(editor).toHaveValue("保留草稿");
-		expect(responses).toEqual([{ action: "dialog", id: "approval", value: "Allow once" }, { action: "dialog", id: "first", value: "test-only" }, { action: "dialog", id: "retry", value: null }]);
+		expect(responses).toEqual([{ action: "dialog", id: "approval", value: "Allow once" }, { action: "dialog", id: "approval", token: "first", value: "test-only" }, { action: "dialog", id: "approval", token: "retry", value: null }]);
 	} finally { channel.close(); }
 });

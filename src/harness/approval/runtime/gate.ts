@@ -1,10 +1,10 @@
 import { evaluateGatePolicy } from "../rules/policy.ts";
 import { SessionApprovalStore } from "../rules/store.ts";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
-import { handleAskDecision, type ApprovalOutcome, type ApprovalInteractionPort } from "./interaction.ts";
+import { handleAskDecision, type ApprovalOutcome, type ApprovalInteraction } from "./interaction.ts";
 
 interface ApprovalGate {
-	authorize(request: ApprovalRequest, config: ApprovalGateConfig, interaction?: ApprovalInteractionPort): Promise<ApprovalOutcome>;
+	authorize(request: ApprovalRequest, config: ApprovalGateConfig, interaction?: ApprovalInteraction): Promise<ApprovalOutcome>;
 }
 
 export function createApprovalGate(store = new SessionApprovalStore()): ApprovalGate {

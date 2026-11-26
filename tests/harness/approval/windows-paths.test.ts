@@ -26,11 +26,11 @@ it("PID 文件名保留 Windows 临时目录约束，不推测 POSIX 挂载点",
 	const request = await bashRequest('echo ok >D:/Temp/log-$$.txt; echo ok >/Temp/log-$$.txt', 'D:/work');
 	expect(request.units.filter((unit) => unit.action === "write_redirect")).toMatchObject([
 		{ target: { directory: "D:/Temp", numericName: { prefix: "log-", suffix: ".txt" } }, effect_scope: "temporary" },
-		{ analysisFact: "execution.opaque", target: { kind: "command", value: ">/Temp/log-$$.txt" } },
+		{ analysisFact: "shell.run-opaque-input", target: { kind: "command", value: ">/Temp/log-$$.txt" } },
 	]);
 });
 
 it.each(["/Temp/log", "/d/Temp/log", "D:log", "//?/D:/Temp/log"])("不猜测 Bash 到 Windows 的路径映射: %s", async (input) => {
 	const request = await bashRequest(`cd "${input}" && printf ok >result.log`, "D:\\Temp\\work");
-	expect(request.units.at(-1)).toMatchObject({ action: "write_redirect", analysisFact: "execution.opaque", target: { value: ">result.log" } });
+	expect(request.units.at(-1)).toMatchObject({ action: "write_redirect", analysisFact: "shell.run-opaque-input", target: { value: ">result.log" } });
 });

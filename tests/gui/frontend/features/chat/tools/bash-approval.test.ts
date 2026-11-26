@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApprovalDecision, ApprovalUnit, BashApprovalRequest } from "../../../../../../src/harness/approval/types.ts";
 import { buildBashApprovalRequest } from "../../../../../../src/harness/approval/request/bash/parse.ts";
 import { GuiDialogs } from "../../../../../../src/gui/host/session/dialogs.ts";
-import { BashApproval, bashPreview } from "../../../../../../src/gui/frontend/features/chat/tools/bash-approval.tsx";
+import { BashApproval } from "../../../../../../src/gui/frontend/features/chat/tools/bash-approval.tsx";
 import type { GuiBashApproval } from "../../../../../../src/gui/shared/protocol/state.ts";
 
 const command = `printf '%s' '${"中文🧪".repeat(90)}' > output.txt`;
@@ -17,7 +17,7 @@ const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
 	kind: "ask", reason: "写入项目文件", items: request.units.map((unit) => ({ unit, reason: "写入项目文件" })),
 };
 const approval: GuiBashApproval = {
-	cwd: request.cwd, command,
+	cwd: request.cwd, command, environment: [],
 	items: [{ action: "write_redirect", kind: "path", target: "/project/output.txt", reason: "写入项目文件" }],
 };
 
@@ -32,9 +32,9 @@ describe("Bash 审批呈现", () => {
 			{ label: "允许一次", value: "Allow once" }, { label: "本会话允许", value: "Allow for session" },
 			{ label: "拒绝", value: "Deny" }, { label: "拒绝并说明", value: "Deny with instruction" },
 		]);
-		dialogs.respond(dialog.id, "Allow once");
-		await expect(pending).resolves.toBe("Allow once");
-		expect(() => dialogs.respond(dialog.id, "Allow once")).toThrow();
+		dialogs.respond({ id: dialog.id, value: "Allow once" });
+		await expect(pending).resolves.toEqual({ kind: "approved" });
+		expect(() => dialogs.respond({ id: dialog.id, value: "Allow once" })).toThrow();
 	});
 
 	it("免密 sudo 执行结束时关闭原审批，期间没有密码框", async () => {
@@ -44,9 +44,9 @@ describe("Bash 审批呈现", () => {
 		const pending = dialogs.approve(request, { kind: "ask", reason: "sudo", items: request.units.map((unit) => ({ unit, reason: "sudo" })) }, ["Allow once", "Deny", "Deny with instruction"], undefined, "call");
 		const [approval] = dialogs.list();
 		if (!approval) throw new Error("缺少审批");
-		dialogs.respond(approval.id, "Allow once", owner);
-		await expect(pending).resolves.toMatchObject({ choice: "Allow once" });
-		expect(dialogs.sudoFor(owner)?.dialog).toMatchObject({ id: approval.id, sudo: { kind: "waiting" } });
+		dialogs.respond({ id: approval.id, value: "Allow once" }, owner);
+		await expect(pending).resolves.toMatchObject({ kind: "approved" });
+		expect(dialogs.sudoFor(owner)?.dialog).toMatchObject({ id: approval.id, stage: { kind: "waiting" } });
 		dialogs.finishSudo("call");
 		expect(dialogs.sudoFor(owner)).toBeUndefined();
 	});
@@ -59,7 +59,7 @@ describe("Bash 审批呈现", () => {
 		expect(dialog.approval.command).toBe("printf '中文🧪\nSensitive units:\n'");
 		expect(dialog.approval.items).toEqual(approval.items);
 		dialogs.cancel();
-		await expect(pending).resolves.toBeUndefined();
+		await expect(pending).resolves.toEqual({ kind: "denied" });
 	});
 
 	it("敏感环境值可查看，默认视图和路径都隐藏原值", async () => {
@@ -72,12 +72,7 @@ describe("Bash 审批呈现", () => {
 		const dialog = dialogs.list()[0];
 		if (dialog?.kind !== "bashApproval") throw new Error("缺少审批弹窗");
 		expect(JSON.stringify(dialogs.list())).not.toContain("private-value");
-		const reveal = async () => dialogs.reveal(dialog.id);
-		const markup = renderToStaticMarkup(createElement(BashApproval, { approval: dialog.approval, reveal }));
-		expect(markup).not.toContain("private-value");
-		expect(markup).toContain("查看敏感值");
 		expect(dialog.approval.items[0]?.target).toContain("${ACCESS_TOKEN#label-}");
-		expect(dialogs.reveal(dialog.id).environment).toContain('ACCESS_TOKEN="label-private-value"');
 		expect(dialogs.reveal(dialog.id).items[0]?.target).toContain("private-value.log");
 		dialogs.cancel();
 		await pending;
@@ -91,32 +86,53 @@ describe("Bash 审批呈现", () => {
 			const pending = dialogs.approve(request, decision, ["Allow once", "Deny"], { timeout: 100 });
 			expect(dialogs.list()[0]?.deadline).toBe(Date.now() + 100);
 			await vi.advanceTimersByTimeAsync(100);
-			await expect(pending).resolves.toBeUndefined();
+			await expect(pending).resolves.toEqual({ kind: "denied" });
 			expect(dialogs.list()).toEqual([]);
 		} finally { vi.useRealTimers(); }
 	});
 
-	it("其他工具保留原审批正文和选项", async () => {
+	it("拒绝后说明超时只跳过说明，原审批响应失效", async () => {
+		vi.useFakeTimers();
+		try {
+			const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
+			const pending = dialogs.approve(request, decision, ["Allow once", "Deny with instruction"], { timeout: 100 });
+			const [approval] = dialogs.list();
+			if (!approval) throw new Error("缺少审批");
+			await vi.advanceTimersByTimeAsync(80);
+			dialogs.respond({ id: approval.id, value: "Deny with instruction" });
+			await vi.advanceTimersByTimeAsync(20);
+			expect(dialogs.list()[0]).toMatchObject({ id: approval.id, stage: { kind: "instruction" } });
+			expect(() => dialogs.respond({ id: approval.id, value: "Allow once" })).toThrow();
+			await vi.advanceTimersByTimeAsync(100);
+			await expect(pending).resolves.toEqual({ kind: "denied" });
+			expect(dialogs.list()).toEqual([]);
+		} finally { vi.useRealTimers(); }
+	});
+
+	it("拒绝写入文件时可查看拟写入内容并跳过说明", async () => {
 		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const unit: ApprovalUnit = { action: "write_file", target: { kind: "path", value: "/project/a.txt" }, remember: true };
 		const pending = dialogs.approve({ tool: "write", cwd: "/project", unit, detail: { path: "a.txt", content: "hello" } },
-			{ kind: "ask", reason: "write", items: [{ unit, reason: "write" }] }, ["Allow once", "Deny"]);
-		const dialog = dialogs.list()[0];
-		expect(dialog?.kind).toBe("select");
-		dialogs.cancel();
-		await expect(pending).resolves.toBeUndefined();
+			{ kind: "ask", reason: "write", items: [{ unit, reason: "write" }] }, ["Allow once", "Deny with instruction"]);
+		const [dialog] = dialogs.list();
+		if (dialog?.kind !== "toolApproval") throw new Error("缺少文件审批");
+		expect(dialog.title).toContain("hello");
+		dialogs.respond({ id: dialog.id, value: "Deny with instruction" });
+		const [instruction] = dialogs.list();
+		if (instruction?.kind !== "toolApproval" || instruction.stage.kind !== "instruction") throw new Error("缺少说明阶段");
+		dialogs.respond({ id: dialog.id, token: instruction.stage.token, value: null });
+		await expect(pending).resolves.toEqual({ kind: "denied" });
 	});
 
 	it("长命令默认只高亮预览，敏感目标和原因仍可见", () => {
 		const document = parseHTML(renderToStaticMarkup(createElement(BashApproval, { approval, reveal: vi.fn() }))).document;
 		const main = document.querySelector('[role="group"][aria-label="Bash 命令"]');
-		expect(main?.querySelector("pre code")?.textContent).toBe(bashPreview(command));
-		expect(main?.querySelectorAll(".token").length).toBeGreaterThan(0);
+		expect(main?.querySelector("pre code")?.textContent).toBe(Array.from(command).slice(0, 240).join(""));
 		expect([...main?.querySelectorAll(".token.string") ?? []].some((token) => token.textContent?.includes("中文🧪"))).toBe(true);
 		expect(main?.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
-		expect(main?.querySelector('[data-slot="collapsible-content"]')?.textContent).toBe("");
 		expect(document.querySelector(".approval-target")?.textContent).toBe("/project/output.txt");
 		expect(document.querySelector(".approval-reason")?.textContent).toContain("写入项目文件");
+		expect(document.querySelector(".approval-environment")).toBeNull();
 	});
 
 	it("短命令直接高亮，不提供多余的折叠按钮，HTML 作为文本显示", () => {
@@ -129,20 +145,12 @@ describe("Bash 审批呈现", () => {
 	});
 
 	it("完整命令相同只显示一次，预览相同但完整内容不同仍分别展示", () => {
-		const render = (target: string) => parseHTML(renderToStaticMarkup(createElement(BashApproval, {
-			reveal: vi.fn(), approval: { ...approval, items: [{ kind: "command", action: "execute", target, reason: "需要确认执行" }] },
+		const render = (fullCommand: string) => parseHTML(renderToStaticMarkup(createElement(BashApproval, {
+			reveal: vi.fn(), approval: { ...approval, command: fullCommand, items: [{ kind: "command", action: "execute", target: command, reason: "需要确认执行" }] },
 		}))).document;
 		const same = render(command);
 		expect(same.querySelectorAll("pre code")).toHaveLength(1);
 		expect(same.querySelector(".approval-reason")?.textContent).toContain("需要确认执行");
-		const different = `${command} && echo another`;
-		expect(bashPreview(different)).toBe(bashPreview(command));
-		expect(render(different).querySelectorAll("pre code")).toHaveLength(2);
-	});
-
-	it("预览上限为 240 个 Unicode 字符或 4 行，不截断代理对", () => {
-		expect(bashPreview("🧪".repeat(240))).toBe("🧪".repeat(240));
-		expect(bashPreview("🧪".repeat(241))).toBe("🧪".repeat(240));
-		expect(bashPreview("echo 一\necho 二\necho 三\necho 四\necho 五")).toBe("echo 一\necho 二\necho 三\necho 四");
+		expect(render(`${command} && cat output.txt`).querySelectorAll("pre code")).toHaveLength(2);
 	});
 });

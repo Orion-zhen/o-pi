@@ -5,6 +5,7 @@ import type { AutoTitleState } from "../../../harness/extensions/auto-title.ts";
 import type { CodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { UsageSnapshot } from "../../../harness/usage/types.ts";
 import type { SubagentDetails } from "../../../harness/subagent/types.ts";
+import type { ApprovalVariable } from "../../../harness/approval/presentation.ts";
 import type { ApprovalUnit } from "../../../harness/approval/types.ts";
 import type { GuiEntry, GuiMessage, GuiNestedCalls, GuiToolOutput } from "../messages/types.ts";
 import type { GuiToolSelectionItem } from "../config/mcp.ts";
@@ -15,22 +16,25 @@ export const queueModes = ["one-at-a-time", "all"] as const;
 export type SessionTarget = { id: string } | { path: string };
 
 export interface GuiBashApproval {
-	environment?: string[];
-	canReveal?: true;
+	environment: ApprovalVariable[];
 	cwd: string;
 	command: string;
 	items: { action: ApprovalUnit["action"]; kind: ApprovalUnit["target"]["kind"]; target: string; reason: string }[];
 }
 export interface GuiDialogOption { label: string; value: string }
-export type GuiSudoStage = { kind: "waiting" } | { kind: "prompting"; id: string; account: string; retry: boolean } | { kind: "submitted"; account: string };
-export type GuiDialogContent = { title: string } & (
+type ApprovalStage = { kind: "choose" } | { kind: "instruction"; token: string };
+export type GuiSudoStage = { kind: "waiting" } | { kind: "prompting"; token: string; account: string; retry: boolean } | { kind: "submitted"; account: string };
+export type GuiApprovalContent = { title: string; options: readonly GuiDialogOption[] } & (
+	| { kind: "toolApproval"; stage: ApprovalStage }
+	| { kind: "bashApproval"; approval: GuiBashApproval; stage: ApprovalStage | GuiSudoStage }
+);
+export type GuiDialogContent = GuiApprovalContent | { title: string } & (
 	| { kind: "select"; options: readonly GuiDialogOption[] }
-	| { kind: "bashApproval"; approval: GuiBashApproval; options: readonly GuiDialogOption[]; sudo?: GuiSudoStage }
 	| { kind: "confirm"; message: string }
 	| { kind: "input" | "secret"; initial: string; placeholder: string }
 	| { kind: "editor"; initial: string }
 );
-export type GuiDialog = GuiDialogContent & { id: string; deadline: number | null };
+export type GuiDialog<T extends GuiDialogContent = GuiDialogContent> = T & { id: string; deadline: number | null };
 export interface GuiNotice {
 	id: string;
 	type: "info" | "warning" | "error";

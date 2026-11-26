@@ -1,3 +1,4 @@
+import type { Askpass } from "../../bash-runtime/askpass.ts";
 import type { SessionApprovalStore } from "../rules/store.ts";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
 
@@ -15,16 +16,19 @@ export interface ApprovalDialogOptions {
 	timeout?: number;
 }
 
-export type ApprovalOutcome = { kind: "approved" } | { kind: "blocked"; reason: string };
+type Approved = { kind: "approved"; askpass?: Askpass };
+export type ApprovalOutcome = Approved | { kind: "blocked"; reason: string };
+export type ApprovalAnswer = Approved | { kind: "remember" } | { kind: "denied"; instruction?: string | undefined };
 
-export interface ApprovalInteractionPort {
-	approve(
-		request: ApprovalRequest,
-		decision: Extract<ApprovalDecision, { kind: "ask" }>,
-		options: ApprovalOptions,
-		optionsOverride?: ApprovalDialogOptions,
-	): Promise<string | undefined>;
-	input(title: string, placeholder: string, optionsOverride?: ApprovalDialogOptions): Promise<string | undefined>;
+export type ApprovalInteraction = (
+	request: ApprovalRequest, decision: Extract<ApprovalDecision, { kind: "ask" }>,
+	options: ApprovalOptions, dialogOptions?: ApprovalDialogOptions,
+) => Promise<ApprovalAnswer>;
+
+export function answerForChoice(choice: string | undefined): ApprovalAnswer {
+	if (choice === ALLOW_ONCE) return { kind: "approved" };
+	if (choice === ALLOW_SESSION) return { kind: "remember" };
+	return { kind: "denied" };
 }
 
 export async function handleAskDecision(
@@ -32,25 +36,19 @@ export async function handleAskDecision(
 	decision: Extract<ApprovalDecision, { kind: "ask" }>,
 	config: ApprovalGateConfig,
 	store: SessionApprovalStore,
-	interaction: ApprovalInteractionPort,
+	interaction: ApprovalInteraction,
 ): Promise<ApprovalOutcome> {
 	const remember = store.prepareGrant(request, decision.items.map(({ unit }) => unit));
 	const options: ApprovalOptions = remember ? APPROVAL_OPTIONS : [ALLOW_ONCE, DENY, DENY_WITH_INSTRUCTION];
-	const choice = await interaction.approve(request, decision, options, dialogOptions(config));
-	if (choice === ALLOW_ONCE) return { kind: "approved" };
-	if (choice === ALLOW_SESSION && remember) {
-		remember();
-		return { kind: "approved" };
+	const answer = await interaction(request, decision, options, dialogOptions(config));
+	switch (answer.kind) {
+		case "approved": return answer;
+		case "denied": return { kind: "blocked", reason: formatDenyReason(answer.instruction) };
+		case "remember":
+			if (!remember) return { kind: "blocked", reason: USER_DENIED_REASON };
+			remember();
+			return { kind: "approved" };
 	}
-	if (choice === DENY_WITH_INSTRUCTION) {
-		const instruction = await interaction.input(
-			"Instruction for agent",
-			"Explain why this tool call was denied or what the agent should do instead.",
-			dialogOptions(config),
-		);
-		return { kind: "blocked", reason: formatDenyReason(instruction) };
-	}
-	return { kind: "blocked", reason: formatDenyReason(undefined) };
 }
 
 function dialogOptions(config: ApprovalGateConfig): ApprovalDialogOptions | undefined {

@@ -9,3 +9,11 @@ export const binaryResourceDir = typeof OPI_PACKAGED === "undefined" ? undefined
 export function installationRoot(): string {
 	return binaryResourceDir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 }
+
+export function defaultAgentConfigPath(fileName: string): string {
+	return path.join(installationRoot(), "agent", "defaults", fileName);
+}
+
+export function agentSchemaPath(fileName: string): string {
+	return path.join(installationRoot(), "agent", "schemas", fileName);
+}

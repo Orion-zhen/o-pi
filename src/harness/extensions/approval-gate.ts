@@ -1,5 +1,5 @@
 import type { ExtensionContext, ExtensionUIContext, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ALLOW_ONCE, ApprovalInteractionPort } from "../approval/runtime/interaction.ts";
+import type { ApprovalAnswer, ApprovalInteraction } from "../approval/runtime/interaction.ts";
 import { canPresent, type Presenter } from "../presentation.ts";
 
 import { loadApprovalGateConfig } from "../approval/config.ts";
@@ -9,7 +9,7 @@ import { buildFileApprovalRequest, buildWebFetchApprovalRequest, isApprovalToolC
 import { buildBashApprovalRequest } from "../approval/request/bash/parse.ts";
 import { prepareBashCall, saveBashCall, type BashParams } from "../bash-runtime/prepare.ts";
 import { evaluateBashGatePolicy } from "../approval/rules/policy.ts";
-import { approvalText, formatBashPolicyEvaluation, formatApprovalPrompt } from "../approval/presentation.ts";
+import { approvalText, formatBashPolicyEvaluation, formatApprovalPrompt, finishApprovalChoice } from "../approval/presentation.ts";
 import type { SessionApprovalStore } from "../approval/rules/store.ts";
 import type { ApprovalRequest } from "../approval/types.ts";
 import { preflightWebFetch } from "../web-tools/fetch/approval-preflight.ts";
@@ -40,11 +40,10 @@ async function prepareApproval(event: ApprovalToolCall, ctx: ExtensionContext, i
 	}
 }
 
-export type ApprovalResponse = string | undefined | { choice: typeof ALLOW_ONCE; askpass: Askpass };
-export type ApprovalPresentationArgs = [...Parameters<ApprovalInteractionPort["approve"]>, sudoToolCallId?: string];
+export type ApprovalPresentationArgs = [...Parameters<ApprovalInteraction>, sudoToolCallId?: string];
 export type ApprovalPresenter = Presenter<(
 	ui: ExtensionUIContext, ...args: ApprovalPresentationArgs
-) => Promise<ApprovalResponse>>;
+) => Promise<ApprovalAnswer>>;
 
 export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter, store?: SessionApprovalStore): void {
 	const gate = createApprovalGate(store);
@@ -78,33 +77,23 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 		if ("error" in prepared) return { block: true, reason: prepared.error };
 
 		let requested = false;
-		let askpass: Askpass | undefined;
 		let outcome: ApprovalOutcome | undefined;
 		try {
 			outcome = await gate.authorize(
 				prepared.request,
 				config,
-				ctx.hasUI
-					? {
-							approve: async (request, decision, approvalOptions, dialogOptions) => {
-								requested = true;
-								pi.events.emit(APPROVAL_STATUS_CHANNEL, {
-									type: "requested",
-									toolCallId: event.toolCallId,
-									toolName: event.toolName,
-								} satisfies ApprovalStatusEvent);
-								if (!presenter) return ctx.ui.select(formatApprovalPrompt(request, decision), [...approvalOptions], { ...dialogOptions, blockedKind: "permission" });
-								const response = await presenter.show(ctx.ui, request, decision, approvalOptions, dialogOptions, prepared.sudoToolCallId);
-								if (typeof response !== "object") return response;
-								askpass = response.askpass;
-								return response.choice;
-							},
-							input: (title, placeholder, dialogOptions) => ctx.ui.input(title, placeholder, dialogOptions),
-						}
-					: undefined,
+				ctx.hasUI ? async (request, decision, options, opts) => {
+					requested = true;
+					pi.events.emit(APPROVAL_STATUS_CHANNEL, {
+						type: "requested", toolCallId: event.toolCallId, toolName: event.toolName,
+					} satisfies ApprovalStatusEvent);
+					if (presenter) return presenter.show(ctx.ui, request, decision, options, opts, prepared.sudoToolCallId);
+					const choice = await ctx.ui.select(formatApprovalPrompt(request, decision), [...options], { ...opts, blockedKind: "permission" });
+					return finishApprovalChoice(choice, ctx.ui, opts);
+				} : undefined,
 			);
 			if (outcome.kind === "blocked") return { block: true, reason: outcome.reason };
-			prepared.onApproved?.(askpass);
+			prepared.onApproved?.(outcome.askpass);
 		} finally {
 			if (requested) {
 				pi.events.emit(APPROVAL_STATUS_CHANNEL, {

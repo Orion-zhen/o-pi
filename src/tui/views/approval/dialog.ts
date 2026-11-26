@@ -1,13 +1,12 @@
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.ts";
-import { buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.ts";
+import { buildApprovalContent, finishApprovalChoice, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.ts";
 import {
 	ALLOW_ONCE, ALLOW_SESSION, DENY_WITH_INSTRUCTION,
-	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions,
+	type ApprovalAnswer, type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions,
 } from "../../../harness/approval/runtime/interaction.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../harness/approval/types.ts";
-import type { ApprovalResponse } from "../../../harness/extensions/approval-gate.ts";
 import { requestSudoPassword } from "./sudo-password.ts";
 
 const HEIGHT_RATIO = 0.9;
@@ -15,13 +14,13 @@ const FIXED_INNER_ROWS = 4;
 type AskDecision = Extract<ApprovalDecision, { kind: "ask" }>;
 
 export async function openApprovalDialog(
-	ui: Pick<ExtensionUIContext, "custom">,
+	ui: Pick<ExtensionUIContext, "custom" | "input">,
 	request: ApprovalRequest,
 	decision: AskDecision,
 	options: ApprovalOptions,
 	dialogOptions?: ApprovalDialogOptions,
 	sudoToolCallId?: string,
-): Promise<ApprovalResponse> {
+): Promise<ApprovalAnswer> {
 	const choice = await ui.custom<string | undefined>(
 		(tui, theme, _keybindings, done) => new ApprovalDialog(
 			request, decision, options, theme,
@@ -29,8 +28,8 @@ export async function openApprovalDialog(
 		),
 		{ overlay: true, overlayOptions: { anchor: "center", width: "90%", minWidth: 80, maxHeight: "90%", margin: 1 } },
 	);
-	if (choice === ALLOW_ONCE && sudoToolCallId !== undefined) return { choice, askpass: (retry, signal) => requestSudoPassword(ui, retry, signal) };
-	return choice;
+	if (choice === ALLOW_ONCE && sudoToolCallId !== undefined) return { kind: "approved", askpass: (retry, signal) => requestSudoPassword(ui, retry, signal) };
+	return finishApprovalChoice(choice, ui, dialogOptions);
 }
 
 /** 高度受限的审批面板，内容滚动与操作选择相互独立。 */

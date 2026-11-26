@@ -11,8 +11,8 @@ describe.skipIf(process.platform !== "darwin" && process.platform !== "linux")("
 		const ui = dialogUi(open);
 		const request = await buildBashApprovalRequest("sudo id", { cwd: "/", command: "sudo id", env: {} }, { askpass: true });
 		const decision = { kind: "ask" as const, reason: "sudo", items: request.units.map((unit) => ({ unit, reason: "sudo" })) };
-		const response = await openApprovalDialog(ui, request, decision, ["Allow once", "Deny", "Deny with instruction"], undefined, "call");
-		if (typeof response !== "object") throw new Error("缺少 sudo 认证");
+		const response = await openApprovalDialog({ ...ui, input: vi.fn() }, request, decision, ["Allow once", "Deny", "Deny with instruction"], undefined, "call");
+		if (response.kind !== "approved" || !response.askpass) throw new Error("缺少 sudo 认证");
 		const signal = new AbortController().signal;
 		for (const [retry, text] of [[false, "first"], [true, "second"]] as const) {
 			open.mockImplementationOnce((dialog) => {

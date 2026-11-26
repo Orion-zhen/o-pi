@@ -1,4 +1,4 @@
-import { useOperation } from "@/connection/use-operation.ts";
+import { ApprovalEnvironment } from "./approval-environment.tsx";
 import { memo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { GuiBashApproval } from "../../../../shared/protocol/state.ts";
@@ -10,7 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collap
 import { ListScroll } from "@/ui/list-scroll.tsx";
 import "./bash-approval.css";
 
-export function bashPreview(command: string): string {
+function bashPreview(command: string): string {
 	let preview = "";
 	let characters = 0;
 	let lines = 1;
@@ -75,19 +75,14 @@ const actionLabels: Record<GuiBashApproval["items"][number]["action"], string> =
 };
 
 export const BashApproval = memo(function BashApproval({ approval: masked, reveal }: { approval: GuiBashApproval; reveal: () => Promise<GuiBashApproval> }) {
-	const details = useOperation(reveal);
-	const revealed = details.state.state === "succeeded" ? details.state.value : undefined;
+	const [revealed, setRevealed] = useState<GuiBashApproval>();
 	const approval = revealed ?? masked;
 	return <ListScroll className="approval-details">
 		<div className="space-y-4">
 			<p className="approval-cwd text-sm text-muted-foreground">工作目录：<code>{approval.cwd}</code></p>
-			{approval.environment && <section aria-label="启动环境">
-				<pre>{approval.environment.join("\n")}</pre>
-				{approval.canReveal && <Button type="button" variant="ghost" size="sm" disabled={details.pending}
-					onClick={() => revealed ? details.reset() : details.run()}>{revealed ? "隐藏敏感值" : "查看敏感值"}</Button>}
-				{details.error && <p role="alert">{details.error}</p>}
-			</section>}
 			<BashCommand command={approval.command} label="Bash 命令" />
+			{approval.environment.length > 0 && <ApprovalEnvironment variables={approval.environment} canReveal={masked.environment.some((entry) => entry.kind === "hidden")}
+				reveal={reveal} revealed={Boolean(revealed)} change={setRevealed} />}
 			<section aria-label="需要确认的操作" className="space-y-2">
 				<h3 className="text-sm font-medium">需要确认的操作</h3>
 				<ul className="approval-sensitive-list">

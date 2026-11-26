@@ -22,11 +22,11 @@ Tree-sitter 将 Shell 输入拆为简单命令、嵌套替换、静态 `-c` 子�
 
 已知字符串支持字面前后缀裁剪和 `${name##*/}`。`${name:-default}` 和 `${name-default}` 区分空值、已清除和未知值。默认值可以是单个 `$变量名`，仅在选中默认值时读取。普通变量从工具过滤、注入后的启动环境取初值，不读取其他会话的环境。Shell 自行维护的变量不按普通环境值推断。启动脚本或导入函数使初始状态不确定时保留不透明审批。子 Shell 不直接继承父分析器的变量表。依赖启动值或启动状态未知的请求不保存会话授权。脚本用独立值覆盖或清除变量后，后续读取不再依赖该变量的启动值。
 
-审批面板只列出分析用到的启动值。请求用到按名称识别的敏感值时，面板默认显示源表达式，不显示展开后的目标。GUI 仅在用户点击“查看敏感值”时读取当前弹窗的明文详情。
+审批面板只列出分析用到的启动值。请求用到按名称识别的敏感值时，面板默认显示源表达式，不显示展开后的目标。GUI 的「相关变量」位于命令下方，默认折叠。展开可查看变量名和取值，空字符串与未设置分别标注。只有点击「查看敏感值」才读取当前弹窗的明文详情。收起变量列表也会重新隐藏敏感值。
 
 `set --` 按原位置参数展开实参，再替换位置参数。解析器保留首个不确定参数之前的字面量、可确定为单个字段的变量、可确定的双引号参数和 `~/` 路径。函数调用不继承调用者的位置参数。在启动状态仍可确定的非 Windows Bash 前缀中，`cd ./dir || exit 1` 只有成功分支能继续执行。紧随其后的 `||` 分支不会生成审批单元。遇到函数遮蔽、退出重定向或 EXIT trap 时仍检查两条分支。
 
-语法错误、超时、资源不可用或复杂度超限时，解析器为完整输入追加 `execution.opaque` 事实，已分析的单元仍参与审批。无法确定程序名或子脚本时也产生这个事实。不透明输入可在当前会话精确记忆。
+语法错误、超时、资源不可用或复杂度超限时，解析器为完整输入追加 `shell.run-opaque-input` 事实，已分析的单元仍参与审批。无法确定程序名或子脚本时也产生这个事实。不透明输入可在当前会话精确记忆。
 
 ## 临时范围
 
@@ -40,15 +40,15 @@ Windows 按盘符或 UNC 共享解析绝对路径，不把 Bash 的单根路径�
 
 ## 事实与动作
 
-每个工具在 `tools.<tool>.facts` 下按 ID 定义事实。新建 `write`、`edit` 或 `webfetch` 事实必须指定 `action`，取值为 `ask` 或 `deny`。`reason` 可自定义审批原因。显式 `deny` 优先于询问、临时范围和会话放行。要匹配该工具的所有审批目标，使用 `match_all: true`，不再指定其他匹配条件。
+每个工具在 `tools.<tool>.facts` 下按 ID 定义事实。新建 `write`、`edit` 或 `webfetch` 事实必须指定 `action`，取值为 `ask` 或 `deny`。合并配置后，指定 `action` 的事实和组合必须有非空白的 `reason`，可继承默认值。`ask` 在审批界面展示原因。仅因 `default_action: "ask"` 而需要确认的目标显示通用提示。`deny` 向代理返回规则 ID 和原因原文，不附带命令或参数值。显式 `deny` 优先于询问、临时范围和会话放行。要匹配该工具的所有审批目标，使用 `match_all: true`，不再指定其他匹配条件。
 
-Bash 事实可由分析器、写入目标 `path_globs` 或 `commands` 中任一分类器产生。默认配置在对应事实旁注明了分析器的检查。Bash 事实可以省略 `action`，只作为组合条件。`/approval-check` 显示命中的事实和分类器名称。
+Bash 事实可由分析器、写入目标 `path_globs` 或 `commands` 中任一分类器产生。默认配置在对应事实旁注明了分析器的检查。仅作为组合条件的 Bash 事实可同时省略 `action` 和 `reason`。`/approval-check` 显示命中的事实和分类器名称。
 
 ```jsonc
 "facts": {
   "history.read": { "commands": { "read-file": { "arg_globs": ["**/*.bash_history", "**/*.zsh_history", "**/*.custom_history"] } } },
   "project.deploy": {
-    "action": "ask",
+    "action": "ask", "reason": "This operation may deploy the project or publish build artifacts.",
     "commands": {
       "deploy": { "command": ["pnpm", "run", "deploy"] },
       "upload": { "command": ["corp-upload"], "arg_globs": ["dist/**"] },
@@ -58,18 +58,77 @@ Bash 事实可由分析器、写入目标 `path_globs` 或 `commands` 中任一�
 }
 ```
 
-- `command` 的首项用 glob 匹配程序的基本名称，后续各项按字面值匹配连续参数。规则检查直接调用和解析器可解包的调用。Windows 上明确指定 `sc` 或 `sc.exe` 时，程序名和第一个操作名不区分大小写。命令前缀不会拆短选项，也不会跳过全局选项。
-- `exact: true` 要求没有尾随参数。`arg_globs` 要求前缀之后至少一个参数完整匹配任一 glob，区分大小写。两者不能同用。匹配同时检查原文和统一分隔符、折叠 `.` 与 `..` 后的文本。值未知时检查去掉外层引号的源词，不展开变量。匹配不区分文件名、搜索词和选项值。例如 `grep -F .env README.md` 和 `grep -f .env README.md` 都命中默认凭据规则。
-- `pipeline` 由至少两个命令前缀组成，只匹配同一条管道的相邻阶段。管道命中时显示整条管道，不按单个阶段记忆授权。
+- `command` 的首项用 glob 匹配程序的基本名称，后续各项按位置匹配。整项 `"*"` 占一个参数，不能匹配缺失的位置。`{a,b}` 接受 `a` 或 `b` 两个字面值，不能嵌套。`foo*`、`?` 仍按字面匹配。`command`、`except` 和 `pipeline` 的命令前缀都遵循这条约定。旧配置中单独的 `"*"` 不再只匹配星号本身。规则检查直接调用和解析器可解包的调用。Windows 上明确指定 `sc`、`sc.exe` 或两者的组合 `{sc,sc.exe}` 时，程序名和第一个操作名不区分大小写。Git、Docker、Podman、`gh` 和下述包管理器还会在全局选项后匹配子命令。例如 `["git", "push"]` 匹配 `git -C repo push`，不匹配 `git -C push status` 或 `git log --grep push`。
+- 不设 `exact: true` 和 `arg_globs` 时，`["git", "子命令", "--选项"]` 和 `["wget", "--选项"]` 会在 `--` 之前查找该选项，不要求它紧跟子命令或程序名。Git 匹配完整参数，wget 也匹配 `--选项=值`。例如 `git reset HEAD --hard` 命中硬重置规则，`git reset HEAD -- --hard` 中的 `--hard` 是路径，不命中。
+- 同样不设 `exact: true` 和 `arg_globs` 时，`["curl", "选项"]` 在 `--` 之前按选项前缀匹配。`rm`、`chmod`、`chown` 的规则以选项开头时，列出的每组参数都必须出现，顺序不限。短选项可以合写，`--` 之后的文本不算选项，文件名和权限值仍按整个参数匹配。
+- `exact: true` 要求没有尾随参数。`arg_globs` 要求前缀之后至少一个参数完整匹配任一 glob，区分大小写。两者不能同用。匹配同时检查原文和统一分隔符、折叠 `.` 与 `..` 后的文本。值未知时检查去掉外层引号的源词，不展开变量。匹配不区分文件名、搜索词和选项值。例如 `grep -F .env README.md` 和 `grep -f .env README.md` 都命中 `configuration.read-sensitive`，默认询问。
+- `except` 只用于 `command` 规则。每项是含程序名的命令前缀，任一项确定匹配，只跳过当前命令候选的这条规则。其他候选、规则和命令照常检查。例外要求能确认匹配，不把用于触发审批的推测视作豁免依据。用户配置省略 `except` 时继承默认列表，指定数组时整体替换，`[]` 清除全部例外。
+- `pipeline` 至少包含两个阶段，按顺序匹配同一条管道，中间可以有其他命令。每个阶段写成命令前缀数组，或用 `{ "command": [...], "arg_globs": [...] }` 限定该阶段的参数。阶段不能嵌套管道。例如 `[["build-tool", "pack"], ["corp-publish"]]` 匹配 `build-tool pack | gzip | corp-publish`，不匹配反向顺序或两条独立管道。命中时显示整条管道，不按单个阶段记忆授权。
 - 每条规则只能选 `command` 或 `pipeline`，两者都可用 `platform` 限制当前进程平台：`linux`、`darwin` 或 `win32`。
 
-普通 `config.yaml` 和 `config.yml` 不会仅因文件名命中 `configuration.read-sensitive`。该事实默认匹配的路径见[默认配置](../../../agent/defaults/approval-gate.jsonc)。
+Docker 和 Podman 共用 `container-*` 规则。例如，`podman inspect prune` 命中 `container-remove` 的查询例外，不需审批。`podman push prune` 也命中该例外，但仍由 `container-push` 要求审批。`container-remove` 的 `arg_globs` 匹配参数，不判断该参数是不是操作名，因此 `docker --context rm build .` 也会命中。
 
-`/approval-check` 将内置检查的命中标为 `analysis`。这不是配置字段。
+`remote-rsync` 的 `arg_globs` 同时覆盖 `host:file` 和 `host:/dir/file`。即使主机名未知，源参数 `"$host:/dir/file"` 也会命中。`find-env-to-cat` 只在 `find` 阶段检查 `.env` 模式，后面同一管道还必须出现 `xargs cat`。
+
+`git-clean-force` 识别合写的 `-f`。只有可确认 `-n` 或 `--dry-run` 生效时才跳过这条规则。含空格的字面路径不影响预演判断。`--` 后的 `-n` 是路径，不构成预演。
+
+Git 全局选项取值后才匹配子命令。`git -C "$dir" status` 中，`-C` 的值即使未知也只占一个参数。若改用裸变量，或未知选项可能取走 `status`，分析器保留其他候选，不能仅凭 `status` 命中例外。
+
+`["systemctl", "*"]` 和 `["launchctl", "*"]` 的 `"*"` 匹配全局选项之后的操作名。`systemctl --user` 没有操作名，`systemctl -H status restart nginx` 的操作是 `restart`。`["service", "*", "*"]` 要求服务名和操作名都存在。`service nginx status` 命中查询例外，`service status restart` 不命中。若服务名来自可能分词或展开为多个文件名的参数，就不能确认 `status` 的位置，仍需审批。
+
+Bash 读取 `.env`、`.env.local` 或 `.env.production` 等敏感配置时默认询问。同一次调用还命中对外传输规则时，`configuration.exfiltrate` 直接拒绝。以 `.env.example`、`.env.sample` 或 `.env.template` 结尾的文件按模板处理，不因该文件名询问。普通 `config.yaml` 和 `config.yml` 也不命中这条规则。SSH 私钥和云凭据仍由 `credential.read` 默认拒绝。
+
+`/approval-check git push origin main` 显示 `network.write-external` 下的 `git-push`。在该事实的 `commands` 下设置 `"git-push": false` 只禁用 Git 推送规则，不影响容器镜像推送。仍由分析器识别的条件显示为 `analysis`。
+
+`package.change` 的操作全部列在[默认配置](../../../agent/defaults/approval-gate.jsonc)的 `commands` 中。规则按工具和命令组归类。`/approval-check bun add lodash` 显示 `bun`，`/approval-check pacman -Syu` 显示 `pacman`。在 `commands` 下写 `"pacman": false` 即可禁用该组，不影响其他分类器。
+
+- 包管理器按子命令匹配。`pip install ruff` 命中 `pip`，`pip help install` 和 `npm run ci` 不命中安装规则。`npm --prefix "my project" run ci` 中的目录名只占一个参数，仍按 `npm run` 判断。全局选项和 Cargo 工具链前缀不是子命令，例如 `apt-get -y install curl` 命中 `apt`，`cargo +stable install ripgrep` 命中 `cargo`。遇到不确定的选项或转发命令时，后续参数也作为候选位置。分析器不读取项目脚本或锁文件。
+- 对于 `run`，只有 Bun、uv 和 Yarn 会继续匹配可能转发的包管理器命令。例如 `uv run pip install ruff` 命中安装规则。`cargo run --example install` 中的 `install` 是示例名，不命中安装规则。
+- pacman 的非精确命令前缀若以单个短选项开头，也检查 `--` 之前的组合短选项。例如 `-Syu` 匹配 `-S`，`-- -S` 不匹配 `-S`。
 
 `tools.bash.combinations` 在同一次 Bash 调用命中所列全部事实时升级动作，路径事实也可参与组合。Bash 的默认 `deny` 拒绝整次调用，记忆规则和临时范围不能覆盖。其他工具的默认动作只处理未命中事实且未豁免的目标。
 
 用户覆盖按 ID 递归合并，对象保留未指定的字段，数组整体替换。上例只改写 `history.read` 的路径，沿用默认读取命令和动作。写 `commands: {}` 不会清除继承的分类器。将事实、`commands` 下的分类器或组合的值设为 `false` 即可禁用。禁用事实也会停用引用它的组合。引用不存在的事实会导致配置加载失败。
+
+### 迁移内置规则 ID
+
+如果用户配置覆盖了下列事实或组合（包括设为 `false`），请改用新 ID，并更新自定义组合 `all` 中的引用。旧 ID 不会自动映射到新 ID。
+
+| 旧 ID | 新 ID |
+| --- | --- |
+| `system-path-write` | `filesystem.write-system-path` |
+| `private-network-fetch` | `network.fetch-private` |
+| `network.external-write` | `network.write-external` |
+| `filesystem.destructive` | `filesystem.discard-data` |
+| `system.catastrophic` | `system.disrupt-host` |
+| `execution.remote-script` | `shell.run-downloaded-script` |
+| `execution.opaque` | `shell.run-opaque-input` |
+| `privilege.escalation` | `privilege.escalate` |
+| `environment-exfiltration` | `environment.exfiltrate` |
+| `configuration-exfiltration` | `configuration.exfiltrate` |
+| `broad-scan-exfiltration` | `host.exfiltrate-scan-results` |
+
+### 已合并的默认命令规则
+
+`.env` 的读取规则已从 `credential.read` 移到 `configuration.read-sensitive`。如果覆盖过 `.env` 路径或 `find-env-to-cat` 管道，请在新事实下调整对应规则。
+
+如果用户配置覆盖了下表的旧命令规则 ID，请在同一事实的 `commands` 下改用新 ID。
+
+| 事实 | 旧命令规则 ID | 新 ID |
+| --- | --- | --- |
+| `environment.read-all` | `env`、`printenv` | `list-all` |
+| `host.scan-broad` | `root`、`home`、`root-home` | `find-roots` |
+| `network.write-external` | `ssh`、`nc`、`ncat`、`socat` | `remote-connection` |
+| `network.write-external` | `scp`、`sftp` | `file-transfer` |
+| `network.write-external` | `npm`、`pnpm`、`yarn`、`cargo` | `package-publish` |
+| `network.write-external` | `docker-push` | `container-push` |
+| `network.write-external` | `docker-image-push` | `container-image-push` |
+| `filesystem.discard-data` | `docker-system-prune` | `container-system-prune` |
+| `infrastructure.change` | `docker-remove` | `container-remove` |
+
+新 ID 控制整组命令。例如，`"file-transfer": false` 同时禁用 `scp` 和 `sftp` 的默认规则。如果只想让 `scp` 不再触发该规则，写 `"file-transfer": { "command": ["sftp"] }`。
+
+`service.change` 不再内置 Windows 的 `sc-operation`。原来依赖这条规则的用户配置若仍需审批 `sc` 或 `sc.exe`，须自行指定 `command`。
 
 ## 路径规则
 
@@ -78,7 +137,7 @@ Bash 事实可由分析器、写入目标 `path_globs` 或 `commands` 中任一�
   "tools": {
     "write": {
       "facts": {
-        "system-path-write": {
+        "filesystem.write-system-path": {
           "action": "ask", "path_globs": ["/etc/**", "/usr/**", "/System/**"],
           "reason": "system path modification"
         }
@@ -92,11 +151,11 @@ Bash 事实可由分析器、写入目标 `path_globs` 或 `commands` 中任一�
 
 `path_globs` 的目标转为使用 `/` 的绝对路径，技能保留 `skill://`。glob 使用 picomatch，`*` 匹配一个路径段，`**` 跨段，数组任一命中即可。
 
-Bash 默认的 `system-path-write` 使用 `arg_globs`，只检查指定文件操作命令的参数，不把相对参数补全为绝对路径。`cp /etc/hosts ./hosts` 即使只从系统目录读取，也会命中。`ls /etc/hosts` 和单纯写重定向不命中这条规则。要按重定向目标审批，可另配 Bash `path_globs`。
+Bash 默认的 `filesystem.write-system-path` 使用 `arg_globs`，只检查指定文件操作命令的参数，不把相对参数补全为绝对路径。`cp /etc/hosts ./hosts` 即使只从系统目录读取，也会命中。`ls /etc/hosts` 和单纯写重定向不命中这条规则。要按重定向目标审批，可另配 Bash `path_globs`。
 
 ## webfetch 网络范围
 
-`tools.webfetch.facts` 用 `network_scope` 限定初始 URL 的网络范围：`public`、`private` 或 `loopback`。要让直连回环也询问审批，可添加 `{ "network_scope": "loopback", "action": "ask" }`。范围由[网络层](../web-tools/network.md)在执行前判定，无法判定时阻止调用。要无条件禁止抓取，可以添加一个含 `match_all: true` 和 `action: "deny"` 的事实。
+`tools.webfetch.facts` 用 `network_scope` 限定初始 URL 的网络范围：`public`、`private` 或 `loopback`。要让直连回环也询问审批，可添加 `{ "network_scope": "loopback", "action": "ask", "reason": "This request accesses a local service." }`。范围由[网络层](../web-tools/network.md)在执行前判定，无法判定时阻止调用。要无条件禁止抓取，可以添加 `{ "match_all": true, "action": "deny", "reason": "Network access is disabled." }`。
 
 ## 会话授权
 

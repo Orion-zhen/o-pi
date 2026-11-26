@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { installationRoot } from "./runtime/paths.ts";
+import { agentSchemaPath, defaultAgentConfigPath } from "./runtime/paths.ts";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { compile, type Validator } from "@earendil-works/pi-schema";
 import { mergeConfigValues } from "./config-values.ts";
@@ -211,14 +211,6 @@ export function expandHomePath(value: string): string {
 	if (value === "~") return os.homedir();
 	if (value.startsWith("~/") || value.startsWith("~\\")) return path.join(os.homedir(), value.slice(2));
 	return value;
-}
-
-export function defaultAgentConfigPath(fileName: string): string {
-	return path.join(installationRoot(), "agent", "defaults", fileName);
-}
-
-export function agentSchemaPath(fileName: string): string {
-	return path.join(installationRoot(), "agent", "schemas", fileName);
 }
 
 export function userAgentConfigPath(fileName: string, envName: string): string {

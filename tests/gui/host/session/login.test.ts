@@ -43,9 +43,9 @@ describe("GUI 使用 SDK 原生登录流程", () => {
 		const [dialog] = dialogs.list();
 		if (dialog?.kind !== "select") throw new Error("缺少登录方式选择");
 		expect(dialog.options).toEqual([{ label: "Browser login [browser]", value: "browser" }, { label: "Copy code login [copy_code]", value: "copy_code" }]);
-		expect(() => dialogs.respond(dialog.id, "forged")).toThrow("无效选项。");
+		expect(() => dialogs.respond({ id: dialog.id, value: "forged" })).toThrow("无效选项。");
 		expect(dialogs.list()).toEqual([dialog]);
-		dialogs.respond(dialog.id, value);
+		dialogs.respond({ id: dialog.id, value });
 		if (value === null) {
 			await expect(login).rejects.toMatchObject({ name: "AbortError" });
 			expect(controller.signal.aborted).toBe(true);
@@ -110,7 +110,7 @@ describe("GUI 使用 SDK 原生登录流程", () => {
 		await expect.poll(() => dialogs.list().length).toBe(1);
 		const dialog = dialogs.list()[0];
 		if (!dialog) throw new Error("缺少凭据输入");
-		dialogs.respond(dialog.id, null);
+		dialogs.respond({ id: dialog.id, value: null });
 		await expect(login).rejects.toMatchObject({ name: "AbortError" });
 		expect(controller.signal.aborted).toBe(true);
 		expect(await credentials.read("test")).toBeUndefined();
@@ -118,7 +118,7 @@ describe("GUI 使用 SDK 原生登录流程", () => {
 		await expect.poll(() => dialogs.list().length).toBe(1);
 		const input = dialogs.list()[0];
 		if (!input) throw new Error("缺少重试凭据输入");
-		dialogs.respond(input.id, "secret");
+		dialogs.respond({ id: input.id, value: "secret" });
 		await retry;
 		expect(await credentials.read("test")).toEqual({ type: "api_key", key: "secret" });
 		expect(events.some((event) => event.type === "feedback")).toBe(false);

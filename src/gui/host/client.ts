@@ -332,7 +332,7 @@ export class GuiClient {
 		if (action.action === "dialog") {
 			const dialogs = source.dialogs;
 			if (!dialogs) throw new Error("对话框已结束，请刷新当前状态。");
-			dialogs.respond(action.id, action.value, source === this.selected ? this.connection : undefined);
+			dialogs.respond(action, source === this.selected ? this.connection : undefined);
 			return;
 		}
 		if (action.action === "clearNotices" || action.action === "abort" || action.action === "cancelLogin") return source.control(action, client);

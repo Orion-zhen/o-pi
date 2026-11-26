@@ -175,12 +175,12 @@ function mktempDirectoryMode(args: readonly string[]): boolean | undefined {
 }
 
 export function commandUnit(node: SyntaxNode, context: BashAnalysisContext, invocation: BashAnalysisContext): ParsedCommand {
-	const { facts: rawFacts, contextResolved, exactWords, positionalArgs } = resolveCommand(node, context);
+	const { facts: rawFacts, globVariant, contextResolved, exactWords, positionalArgs } = resolveCommand(node, context);
 	const facts = unwrapCommand(rawFacts);
 	const effective = effectiveCommand(facts);
 	const shell = shellInvocation(effective);
 	const nestedShell = shell === "dynamic" ? undefined : shell;
-	const unit = executionUnit(node, [rawFacts, facts, effective], !contextResolved, shell === "dynamic");
+	const unit = executionUnit(node, [rawFacts, facts, effective], !contextResolved, shell === "dynamic", globVariant);
 	if (context.cwd.every((cwd) => commandEffectsStayTemporary(facts, cwd))) unit.effect_scope = "temporary";
 	return {
 		unit,
@@ -196,16 +196,20 @@ export function commandUnit(node: SyntaxNode, context: BashAnalysisContext, invo
 }
 
 export function dynamicCommandUnit(node: SyntaxNode, context: BashAnalysisContext): ApprovalUnit | undefined {
-	const raw = commandFacts(node, context);
+	const { facts: raw, globVariant } = resolveCommand(node, context);
 	const facts = unwrapCommand(raw);
 	const effective = effectiveCommand(facts);
 	if (shellInvocation(effective) !== "dynamic") return undefined;
-	return executionUnit(node, [raw, facts, effective], false, true);
+	return executionUnit(node, [raw, facts, effective], false, true, globVariant);
 }
 
 function executionUnit(
-	node: SyntaxNode, views: CommandFacts[], remember: boolean, opaque: boolean,
+	node: SyntaxNode, views: CommandFacts[], remember: boolean, opaque: boolean, globVariant: CommandFacts | undefined,
 ): ParsedCommand["unit"] {
+	if (globVariant) {
+		const unwrapped = unwrapCommand(globVariant);
+		views.push(globVariant, unwrapped, effectiveCommand(unwrapped));
+	}
 	const commands: BashArgv[] = [];
 	for (const { program, args } of new Set(views)) {
 		if (program !== undefined) commands.push([program, ...args]);
@@ -214,7 +218,7 @@ function executionUnit(
 		action: "execute",
 		target: { kind: "command", value: normalizeCommandNode(node) },
 		commands,
-		...(opaque && { analysisFact: "execution.opaque" }),
+		...(opaque && { analysisFact: "shell.run-opaque-input" }),
 		remember,
 	};
 }
@@ -237,12 +241,14 @@ function resolveCommand(node: SyntaxNode, context: BashAnalysisContext) {
 		const resolved = exact ?? (index > 0 ? resolve(true) : undefined);
 		if (resolved !== undefined) contextResolved = true;
 		if (!resolved || resolved.value.includes(NUMERIC_FIELD) || (resolved.fileDirectory !== undefined && !resolved.temporary)) {
-			return { value: { source: word.source }, singleField: false as const };
+			// 简单双引号标量即使值未知也只占一个参数；"$@" 和裸展开没有这个保证。
+			const scalar = /^"\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})"$/u.test(word.source);
+			return { value: { source: word.source, ...(scalar && { singleField: true as const }) }, singleField: false as const };
 		}
 		const singleField = word.source === word.node.text && !resolved.value.includes("\0") && (
 			word.node.type === "string" || (word.node.type === "word" && word.source.startsWith("~")) || context.simpleSites?.has(word.node.id) === true
 		);
-		return { value: resolved.value, singleField };
+		return { value: resolved.value, singleField, glob: exact === undefined ? { source: word.source } : undefined };
 	});
 	const [program, ...args] = values.map((word) => word.value);
 	let positionalArgs: string[] | undefined;
@@ -253,7 +259,11 @@ function resolveCommand(node: SyntaxNode, context: BashAnalysisContext) {
 			positionalArgs.push(value);
 		}
 	}
-	return { facts: { program: commandBasename(program), args }, contextResolved, exactWords, positionalArgs };
+	const facts = { program: commandBasename(program), args };
+	// 模式文本可用于触发规则，但文件名展开可能改变参数数量，不能仅凭文本命中例外。
+	const globVariant = values.some((word) => word.glob !== undefined)
+		? { ...facts, args: values.slice(1).map((word) => word.glob ?? word.value) } : undefined;
+	return { facts, globVariant, contextResolved, exactWords, positionalArgs };
 }
 
 export function redirectUnits(node: SyntaxNode, context: BashAnalysisContext): ApprovalUnit[] {
@@ -282,7 +292,7 @@ function dynamicRedirectUnit(node: SyntaxNode): ApprovalUnit {
 	return {
 		action: "write_redirect",
 		target: { kind: "command", value },
-		analysisFact: "execution.opaque",
+		analysisFact: "shell.run-opaque-input",
 		remember: false,
 	};
 }
@@ -378,6 +388,12 @@ function unwrapCommand(input: CommandFacts): CommandFacts {
 		if (program === "env" && facts.args.length > 0) {
 			facts = commandAfterEnv(facts.args);
 			continue;
+		}
+		if (program === "command") {
+			for (const arg of facts.args) {
+				if (typeof arg !== "string" || !/^-[pvV]+$/u.test(arg)) break;
+				if (/[vV]/u.test(arg)) return facts;
+			}
 		}
 		if (program === "builtin" || program === "command" || program === "exec" || program === "nohup" || program === "time") {
 			facts = commandAfterOptions(facts.args, NO_OPTIONS_WITH_VALUE);

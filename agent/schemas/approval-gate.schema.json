@@ -29,7 +29,7 @@
 	"$defs": {
 		"defaultAction": { "enum": ["allow", "ask", "deny"], "default": "allow" },
 		"factAction": { "enum": ["ask", "deny"] },
-		"reason": { "type": "string", "minLength": 1 },
+		"reason": { "type": "string", "minLength": 1, "description": "合并后，ask 和 deny 规则必须有非空白原因。询问时在审批界面展示，拒绝时返回给代理。" },
 		"globs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
 		"filePolicy": {
 			"type": "object",
@@ -116,21 +116,31 @@
 		"commandPrefix": {
 			"type": "array", "minItems": 1,
 			"items": [{ "type": "string", "minLength": 1, "description": "程序基本名称的 glob。" }],
-			"additionalItems": { "type": "string", "description": "按字面值匹配的参数。" }
+			"additionalItems": { "type": "string", "description": "一个字面参数。整项 * 匹配一个已有参数，{a,b} 匹配任一字面值。" }
+		},
+		"pipelineStage": {
+			"anyOf": [
+				{ "$ref": "#/$defs/commandPrefix" },
+				{
+					"type": "object", "additionalProperties": false, "required": ["command", "arg_globs"],
+					"properties": { "command": { "$ref": "#/$defs/commandPrefix" }, "arg_globs": { "$ref": "#/$defs/globs" } }
+				}
+			]
 		},
 		"bashCommandMatcher": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
 				"command": { "$ref": "#/$defs/commandPrefix" },
+				"except": { "type": "array", "items": { "$ref": "#/$defs/commandPrefix" }, "description": "任一前缀确定匹配时，仅跳过当前候选的这条命令规则。空数组清除继承的例外。" },
 				"exact": { "type": "boolean" },
 				"arg_globs": { "$ref": "#/$defs/globs" },
-				"pipeline": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/commandPrefix" } },
+				"pipeline": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/pipelineStage" } },
 				"platform": { "enum": ["linux", "darwin", "win32"] }
 			},
 			"not": { "required": ["exact", "arg_globs"], "properties": { "exact": { "const": true } } },
 			"if": { "required": ["pipeline"] },
-			"then": { "not": { "anyOf": [{ "required": ["command"] }, { "required": ["exact"] }, { "required": ["arg_globs"] }] } }
+			"then": { "not": { "anyOf": [{ "required": ["command"] }, { "required": ["exact"] }, { "required": ["arg_globs"] }, { "required": ["except"] }] } }
 		},
 		"bashCombination": {
 			"type": "object",
@@ -142,7 +152,8 @@
 					"uniqueItems": true,
 					"items": { "type": "string", "minLength": 1 }
 				},
-				"action": { "enum": ["ask", "deny"] }
+				"action": { "$ref": "#/$defs/factAction" },
+				"reason": { "$ref": "#/$defs/reason" }
 			}
 		}
 	}

@@ -1,3 +1,5 @@
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { answerForChoice, DENY_WITH_INSTRUCTION, type ApprovalAnswer, type ApprovalDialogOptions } from "./runtime/interaction.ts";
 import type { BashFactEvaluation } from "./rules/bash-facts.ts";
 import { stripTerminalSequences } from "../terminal-text.ts";
 import type { ApprovalDecision, ApprovalRequest, ApprovalUnit, BashApprovalRequest } from "./types.ts";
@@ -19,7 +21,10 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 	if (request.tool === "bash") {
 		return [
 			...common,
-			...environmentLines(request.detail.environment, showEnvironment).map((text) => line(text, "dim")),
+			...approvalEnvironment(request.detail.environment, showEnvironment).map((entry) => {
+				const value = entry.kind === "value" ? JSON.stringify(entry.value) : entry.kind === "unset" ? "<unset>" : '"<hidden>"';
+				return line(`${entry.name}=${value}`, "dim");
+			}),
 			line(`Command (${lineCount(request.detail.command)} lines):`, "dim"),
 			...payloadLines(request.detail.command, "text"),
 			line(""),
@@ -61,7 +66,7 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 
 const sensitiveName = /TOKEN|SECRET|PASS(?:WORD|WD)?|CREDENTIAL|AUTH|(?:API|PRIVATE|ACCESS)_?KEY/iu;
 
-export function hasSensitiveEnvironment(request: BashApprovalRequest): boolean {
+function hasSensitiveEnvironment(request: BashApprovalRequest): boolean {
 	return Object.entries(request.detail.environment ?? {}).some(([name, value]) => sensitiveName.test(name) && Boolean(value));
 }
 
@@ -71,14 +76,22 @@ export function approvalTarget(request: BashApprovalRequest, unit: ApprovalUnit,
 	return approvalText(unit.source ?? request.detail.command);
 }
 
-export function environmentLines(environment: BashApprovalRequest["detail"]["environment"], reveal: boolean): string[] {
+export type ApprovalVariable = { name: string } & ({ kind: "value"; value: string } | { kind: "hidden" | "unset" });
+
+export function approvalEnvironment(environment: BashApprovalRequest["detail"]["environment"], reveal: boolean): ApprovalVariable[] {
 	const entries = Object.entries(environment ?? {});
 	const secrets = entries.flatMap(([name, value]) => sensitiveName.test(name) && value ? [value] : []);
 	return entries.map(([name, value]) => {
-		if (value === null) return `${name}=<unset>`;
-		const hidden = !reveal && secrets.some((secret) => value.includes(secret));
-		return `${name}=${JSON.stringify(hidden ? "<hidden>" : approvalText(value))}`;
+		if (value === null) return { name, kind: "unset" };
+		if (!reveal && secrets.some((secret) => value.includes(secret))) return { name, kind: "hidden" };
+		return { name, kind: "value", value: approvalText(value) };
 	});
+}
+
+export async function finishApprovalChoice(choice: string | undefined, ui: Pick<ExtensionUIContext, "input">, opts?: ApprovalDialogOptions): Promise<ApprovalAnswer> {
+	if (choice !== DENY_WITH_INSTRUCTION) return answerForChoice(choice);
+	const instruction = await ui.input("Instruction for agent", "Explain why this tool call was denied or what the agent should do instead.", opts);
+	return { kind: "denied", instruction };
 }
 
 export function formatApprovalPrompt(request: ApprovalRequest, decision: AskDecision): string {

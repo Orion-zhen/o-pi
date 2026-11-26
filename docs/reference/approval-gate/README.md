@@ -6,7 +6,7 @@ Approval Gate 在 `tool_call` 中检查 Bash、write、edit 和 webfetch，返�
 
 以下操作通常需要确认：
 
-- 删除、强制清理或重置。
+- `rm -rf` 强制递归删除、Git 强制清理或硬重置、Docker 或 Podman 系统清理。
 - 安装、删除和更新软件包。
 - 推送、发布和创建发布版本。
 - 提权与修改系统状态。
@@ -17,7 +17,7 @@ Approval Gate 在 `tool_call` 中检查 Bash、write、edit 和 webfetch，返�
 
 普通项目读写、查询、测试和构建通常直接执行。可静态证明只影响临时目录的写入和清理可豁免确认，显式拒绝规则仍优先。
 
-默认匹配条件和动作见 [`approval-gate.jsonc`](../../../agent/defaults/approval-gate.jsonc)。例如 `tools.bash.facts.history.read` 对应的 `read-file` 分类器列出了读取命令和历史文件路径。
+默认匹配条件和动作见 [`approval-gate.jsonc`](../../../agent/defaults/approval-gate.jsonc)。内置事实和组合的 ID 采用 `领域.行为` 格式，段内用 `-` 分词。例如 `tools.bash.facts["history.read"]` 下的 `read-file` 列出了读取命令和历史文件路径。点号是 ID 的一部分。
 
 ## 选择
 
@@ -31,6 +31,8 @@ Approval Gate 在 `tool_call` 中检查 Bash、write、edit 和 webfetch，返�
 Bash 放行绑定当前工作目录。webfetch 放行绑定完整 origin 和网络范围。
 
 TUI 的方向键选择操作，PageUp/PageDown 浏览内容，Enter 确认，Esc 或 Ctrl+C 拒绝。GUI 展示结构化命令、敏感单元和文件内容，RPC 使用选择与输入接口。
+
+在 GUI 中选择「拒绝并说明」后，工具调用已被拒绝。原弹窗保留请求详情，底部切换为多行说明框。发送说明会把内容交给代理。跳过说明、按 Esc 或等待超时均不附加指令。
 
 审批扩展发出请求和完成事件，前端据此发送[系统通知](../runtime/notifications.md)。
 
