@@ -4,7 +4,7 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { parseWebArgs } from "./cli.ts";
 import { runChildProcess } from "../harness/runtime/invocation.ts";
-import { installationRoot } from "../harness/runtime/paths.ts";
+import { binaryResourceDir, installationRoot } from "../harness/runtime/paths.ts";
 
 process.title = "opi-web";
 
@@ -17,8 +17,8 @@ if (!(await runChildProcess())) {
 	const server = await startWebServer(gui, {
 		host: values.host,
 		port: values.port,
-		assets: process.env.PI_OPI_RESOURCE_DIR
-			? path.join(process.env.PI_OPI_RESOURCE_DIR, "gui")
+		assets: binaryResourceDir
+			? path.join(binaryResourceDir, "gui")
 			: path.join(installationRoot(), "dist/gui"),
 		...(tls ? { tls } : {}),
 	});

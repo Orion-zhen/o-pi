@@ -7,6 +7,8 @@ import {
 	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions,
 } from "../../../harness/approval/runtime/interaction.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../harness/approval/types.ts";
+import type { ApprovalResponse } from "../../../harness/extensions/approval-gate.ts";
+import { requestSudoPassword } from "./sudo-password.ts";
 
 const HEIGHT_RATIO = 0.9;
 const FIXED_INNER_ROWS = 4;
@@ -18,14 +20,17 @@ export async function openApprovalDialog(
 	decision: AskDecision,
 	options: ApprovalOptions,
 	dialogOptions?: ApprovalDialogOptions,
-): Promise<string | undefined> {
-	return ui.custom<string | undefined>(
+	sudoToolCallId?: string,
+): Promise<ApprovalResponse> {
+	const choice = await ui.custom<string | undefined>(
 		(tui, theme, _keybindings, done) => new ApprovalDialog(
 			request, decision, options, theme,
 			() => tui.terminal.rows, () => tui.requestRender(), done, dialogOptions?.timeout,
 		),
 		{ overlay: true, overlayOptions: { anchor: "center", width: "90%", minWidth: 80, maxHeight: "90%", margin: 1 } },
 	);
+	if (choice === ALLOW_ONCE && sudoToolCallId !== undefined) return { choice, askpass: (retry, signal) => requestSudoPassword(ui, retry, signal) };
+	return choice;
 }
 
 /** 高度受限的审批面板，内容滚动与操作选择相互独立。 */

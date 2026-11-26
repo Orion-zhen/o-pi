@@ -160,7 +160,7 @@ for (const choice of ["Deny", null]) test(`审批悬浮窗${choice === null ? "�
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await editor.fill("保留草稿");
 		channel.accept({ type: "dialogs", value: [{ id: "approval", kind: "bashApproval", title: "执行 Bash 命令",
-			options: ["Allow once", "Deny"].map((value) => ({ label: value, value })), deadline: null,
+			options: [{ label: "允许一次", value: "Allow once" }, { label: "拒绝", value: "Deny" }], deadline: null,
 			approval: { cwd: "/fixture", command: "printf 'report' > output.txt", items: [
 				{ action: "write_redirect", kind: "path", target: "/fixture/output.txt", reason: "需要确认写入文件" },
 			] },
@@ -169,11 +169,12 @@ for (const choice of ["Deny", null]) test(`审批悬浮窗${choice === null ? "�
 		await expect(approval).toBeVisible();
 		await expect(approval.getByRole("group", { name: "Bash 命令", exact: true })).toContainText("printf 'report' > output.txt");
 		await expect(approval.getByRole("region", { name: "需要确认的操作", exact: true })).toContainText("/fixture/output.txt");
-		await approval.getByRole("button", { name: "Deny", exact: true }).focus();
+		const deny = approval.getByRole("button", { name: "拒绝", exact: true });
+		await deny.focus();
 		await page.keyboard.press("Tab");
 		expect(await approval.evaluate((element) => element.contains(document.activeElement))).toBe(true);
 		if (choice === null) await page.keyboard.press("Escape");
-		else await approval.getByRole("button", { name: choice, exact: true }).click();
+		else await deny.click();
 		await expect(approval).toHaveCount(0);
 		await expect(editor).toHaveValue("保留草稿");
 		await expect(editor).toBeFocused();

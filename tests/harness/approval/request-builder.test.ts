@@ -77,7 +77,7 @@ describe("approval request builder", () => {
 
 	it("启动状态未知且子脚本解析失败时，只为原命令追加一个 opaque unit", async () => {
 		const command = `bash -c 'echo "unfinished'`;
-		const request = await buildBashApprovalRequest(command, { cwd, command, env: { BASH_ENV: "init.sh" } });
+		const request = await buildBashApprovalRequest(command, { cwd, command, env: { BASH_ENV: "init.sh" } }, { askpass: false });
 		expect(request.units.map(({ analysisFact }) => analysisFact)).toEqual([undefined, "execution.opaque"]);
 		expect(request.allowSessionMemory).toBe(false);
 	});
@@ -96,7 +96,7 @@ describe("approval request builder", () => {
 		const command = 'echo >"skill://demo/result"';
 		const resolved = `${cwd.replaceAll("\\", "/")}/skills/demo/result`;
 		const script = `echo >'${resolved}'`;
-		const request = await buildBashApprovalRequest(command, { cwd, command: script, env: {} });
+		const request = await buildBashApprovalRequest(command, { cwd, command: script, env: {} }, { askpass: false });
 		expect(request.detail.command).toBe(command);
 		expect(request.units.filter((unit) => unit.action === "write_redirect").map((unit) => unit.target.value))
 			.toEqual(["skill://demo/result", resolved]);
@@ -322,7 +322,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 });
 
 function bashRequest(command: string, cwd: string) {
-	return buildBashApprovalRequest(command, { command, cwd, env: {} });
+	return buildBashApprovalRequest(command, { command, cwd, env: {} }, { askpass: false });
 }
 
 function nestedShellCommand(depth: number): string {

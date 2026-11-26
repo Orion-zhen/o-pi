@@ -34,10 +34,12 @@ export async function handleAskDecision(
 	store: SessionApprovalStore,
 	interaction: ApprovalInteractionPort,
 ): Promise<ApprovalOutcome> {
-	const choice = await interaction.approve(request, decision, APPROVAL_OPTIONS, dialogOptions(config));
+	const remember = store.prepareGrant(request, decision.items.map(({ unit }) => unit));
+	const options: ApprovalOptions = remember ? APPROVAL_OPTIONS : [ALLOW_ONCE, DENY, DENY_WITH_INSTRUCTION];
+	const choice = await interaction.approve(request, decision, options, dialogOptions(config));
 	if (choice === ALLOW_ONCE) return { kind: "approved" };
-	if (choice === ALLOW_SESSION) {
-		store.remember(request, decision.items.map(({ unit }) => unit));
+	if (choice === ALLOW_SESSION && remember) {
+		remember();
 		return { kind: "approved" };
 	}
 	if (choice === DENY_WITH_INSTRUCTION) {

@@ -20,15 +20,15 @@ import {
 	type Directories,
 	UNSET,
 	allDefined,
-	assignContext,
+	IncompleteBashAnalysis,
 	cloneContext,
-	joinContexts,
+	joinPaths,
 	joinDirectories,
 	setPositionalVariables,
 	type BashAnalysisContext,
 	type ResolvedShellValue,
 } from "./state.ts";
-import { NUMERIC_FIELD, requiredField, walkNamedNodes, walkNamedNodesSkippingFunctions } from "./syntax.ts";
+import { NUMERIC_FIELD, requiredField, staticSudoCommand, walkNamedNodes, walkNamedNodesSkippingFunctions } from "./syntax.ts";
 
 const MAX_BASH_UNITS = 256;
 const MAX_NESTED_SHELL_DEPTH = 8;
@@ -40,6 +40,7 @@ interface ShellFunction {
 
 interface BashAnalysisState {
 	readonly attributedDeclarations: boolean;
+	signal: AbortSignal | undefined;
 	depth: number;
 	units: ApprovalUnit[];
 	pipelines: BashPipeline[];
@@ -48,7 +49,7 @@ interface BashAnalysisState {
 	activeFunctions: Set<string>;
 }
 
-class IncompleteBashAnalysis extends Error {}
+type Paths = BashAnalysisContext[];
 
 const BASH_NUMBERS = ["RANDOM", "BASHPID", "PPID", "UID", "EUID"];
 function initialVariables(bash: boolean): Map<string, ResolvedShellValue> {
@@ -58,39 +59,40 @@ function initialVariables(bash: boolean): Map<string, ResolvedShellValue> {
 export async function analyzeBashScript(
 	script: string,
 	cwd: string,
-	output: Pick<BashAnalysisState, "units" | "pipelines">,
-	startup?: StartupFacts,
-): Promise<boolean> {
+	output: Pick<BashAnalysisState, "units" | "pipelines" | "signal">,
+	startup: StartupFacts | undefined,
+	inspectSudo: boolean,
+): Promise<{ askpassCommand: string | undefined } | undefined> {
 	const value = normalizeTargetPath(".", cwd);
 	const bash = /(?:^|[/\\])bash(?:\.exe)?$/iu.test(getShellConfig().shell);
 	// Windows Bash 可能转换环境路径。SSH 启动的非交互 Bash 也可能读取 bashrc。
 	const canNarrow = bash && process.platform !== "win32" && startup?.env.SSH_CLIENT === undefined && startup?.env.SSH2_CLIENT === undefined;
 	try {
-		await analyzeScript(script, {
+		const askpassCommand = await analyzeScript(script, {
 			functionNames: new Set(), cwd: [{ value, temporary: isSystemTemporaryDescendant(value) }],
-			variables: initialVariables(bash), exitTraps: new Set(),
+			variables: initialVariables(bash), exitTrap: undefined,
 			...(startup && { usedEnvironment: startup.used }),
-		}, 0, output, undefined, startup && { ...startup, canNarrow });
-		return true;
+		}, 0, output, undefined, startup && { ...startup, canNarrow, inspectSudo });
+		return { askpassCommand };
 	} catch (error) {
-		if (error instanceof IncompleteBashAnalysis || error instanceof SyntaxAnalysisTimeoutError) return false;
+		if (error instanceof IncompleteBashAnalysis || error instanceof SyntaxAnalysisTimeoutError) return;
 		throw error;
 	}
 }
 
 async function analyzeScript(
-	script: string, entry: BashAnalysisContext, depth: number, output: Pick<BashAnalysisState, "units" | "pipelines">,
-	inheritedFunctions?: ReadonlyMap<string, readonly ShellFunction[]>, startup?: StartupFacts & { canNarrow: boolean },
-): Promise<void> {
+	script: string, entry: BashAnalysisContext, depth: number, output: Pick<BashAnalysisState, "units" | "pipelines" | "signal">,
+	inheritedFunctions?: ReadonlyMap<string, readonly ShellFunction[]>, startup?: StartupFacts & { canNarrow: boolean; inspectSudo: boolean },
+): Promise<string | undefined> {
 	if (script.includes("\0") || depth > MAX_NESTED_SHELL_DEPTH) throw new IncompleteBashAnalysis();
-	const document = await parseSyntaxTree(BASH_GRAMMAR, script);
+	const document = await parseSyntaxTree(BASH_GRAMMAR, script, output.signal);
 	if (document === undefined) throw new IncompleteBashAnalysis();
 	try {
 		if (document.root.hasError) throw new IncompleteBashAnalysis();
 		const state: BashAnalysisState = {
 			attributedDeclarations: document.root.descendantsOfType("declaration_command").length > 0,
 			depth,
-			units: output.units, pipelines: output.pipelines,
+			units: output.units, pipelines: output.pipelines, signal: output.signal,
 			functions: mergeFunctions(inheritedFunctions, collectFunctions(document.root, document.control.check)),
 			activeFunctions: new Set(),
 		};
@@ -100,88 +102,78 @@ async function analyzeScript(
 			simpleSites: startup?.canNarrow ? simpleExpansionSites(document.root.namedChildren, document.control.check) : undefined,
 		};
 		if (startup) seedStartupVariables(document.root, document.control.check, context.variables, startup.env);
-		await analyzeNode(document.root, context, state, document.control.check);
-		await analyzeExitTraps(context, state, document.control.check);
+		const paths = await analyzeNode(document.root, [context], state, document.control.check);
+		await analyzeExitTraps(paths, state, document.control.check);
+		if (startup?.inspectSudo) return staticSudoCommand(script, document.root);
 	} finally {
 		document.dispose();
 	}
 }
 
-async function analyzeNode(
-	node: SyntaxNode,
-	context: BashAnalysisContext,
-	state: BashAnalysisState,
-	check: () => void,
-): Promise<Directories | undefined> {
-	check();
-	if (node.nextSibling?.type === "&") context = cloneContext(context);
+async function analyzeNodes(nodes: readonly SyntaxNode[], paths: Paths, state: BashAnalysisState, check: () => void): Promise<Paths> {
+	for (const node of nodes) paths = await analyzeNode(node, paths, state, check);
+	return paths;
+}
+
+async function analyzeNode(node: SyntaxNode, paths: Paths, state: BashAnalysisState, check: () => void): Promise<Paths> {
+	const outcomes: Paths = [];
+	for (const path of paths) {
+		check();
+		outcomes.push(...await analyzeOne(node, path, state, check));
+	}
+	return node.nextSibling?.type === "&" ? paths : joinPaths(outcomes);
+}
+
+async function analyzeOne(node: SyntaxNode, context: BashAnalysisContext, state: BashAnalysisState, check: () => void): Promise<Paths> {
 	if (node.type === "command" || node.type === "variable_assignment" || node.type === "file_redirect") {
-		return analyzeSimpleUnits(node, context, state, check);
+		return (await analyzeSimpleUnits(node, cloneContext(context), state, check)).paths;
 	}
 	if (node.type === "unset_command") {
-		if (context.functionNames.has("unset")) {
-			await analyzeFunctionCall({ program: "unset", args: node.namedChildren.map((child) => ({ source: child.text })) }, context, state, check);
+		const paths = await analyzeFunctionCall({ program: "unset", args: node.namedChildren.map((child) => ({ source: child.text })) }, cloneContext(context), state, check);
+		for (const path of paths) {
+			updateUnset(node, path, !state.attributedDeclarations);
+			await analyzeEmbeddedShell(node, path, state, check);
 		}
-		updateUnset(node, context, !state.attributedDeclarations);
-		await analyzeEmbeddedShell(node, context, state, check);
-		return;
+		return paths;
 	}
-	if (node.type === "function_definition") return;
-	if (node.type === "if_statement") {
-		await analyzeIfStatement(node, context, state, check);
-		return;
-	}
-	if (node.type === "case_statement") {
-		await analyzeCaseStatement(node, context, state, check);
-		return;
-	}
-	if (node.type === "for_statement") {
-		await analyzeForStatement(node, context, state, check);
-		return;
-	}
-	if (node.type === "while_statement") {
-		await analyzeUncertainLoop(node, node.namedChildren, context, state, check);
-		return;
-	}
+	if (node.type === "function_definition") return [context];
+	if (node.type === "if_statement") return analyzeIfStatement(node, context, state, check);
+	if (node.type === "case_statement") return analyzeCaseStatement(node, context, state, check);
+	if (node.type === "for_statement") return analyzeForStatement(node, context, state, check);
+	if (node.type === "while_statement") return analyzeUncertainLoop(node, node.namedChildren, context, state, check);
 	if (node.type === "list" || node.type === "redirected_statement") {
-		const [success, failure] = await analyzeOutcomes(node, context, state, check, context.simpleSites?.has(node.id) === true);
-		assignContext(context, failure ? joinContexts([success, failure]) : success);
-		return;
+		const [success, failure] = await analyzeOutcomes(node, [context], state, check, context.simpleSites?.has(node.id) === true);
+		return joinPaths([...success, ...failure]);
 	}
 	if (node.type === "pipeline") {
 		const stages: BashArgv[][] = [];
 		state.pipelines.push({ stages, unit: { action: "execute", target: { kind: "command", value: node.text }, remember: false } });
-		let stage = context;
+		let stage = [context];
 		for (const child of node.namedChildren) {
 			if (child.type === "comment") continue;
-			stage = cloneContext(context);
 			const commands: BashArgv[] = [];
 			stages.push(commands);
-			await analyzeNode(child, stage, { ...state, stage: { node: child.id, commands } }, check);
+			stage = await analyzeNode(child, [context], { ...state, stage: { node: child.id, commands } }, check);
 		}
 		if (node.nextSibling?.type === "&" && stages.filter((variants) => variants.some(([program]) => state.activeFunctions.has(program))).length >= 2) {
 			pushUnit(state, { action: "execute", target: { kind: "command", value: node.text }, analysisFact: "system.catastrophic", remember: false });
 		}
 		// lastpipe 可能让最后一段修改当前 Shell。
-		assignContext(context, joinContexts([context, stage]));
-		return;
+		return joinPaths([context, ...stage]);
 	}
 	if (node.type === "subshell" || isSubstitution(node)) {
-		const nestedContext = cloneContext(context);
-		nestedContext.exitTraps.clear();
-		for (const child of node.namedChildren) await analyzeNode(child, nestedContext, state, check);
-		await analyzeExitTraps(nestedContext, state, check);
-		return;
+		const nested = await analyzeNodes(node.namedChildren, [{ ...context, exitTrap: undefined }], state, check);
+		await analyzeExitTraps(nested, state, check);
+		return [context];
 	}
-	for (const child of node.namedChildren) await analyzeNode(child, context, state, check);
+	return analyzeNodes(node.namedChildren, [context], state, check);
 }
 
 async function analyzeSimpleUnits(
 	node: SyntaxNode, context: BashAnalysisContext, state: BashAnalysisState, check: () => void,
-): Promise<Directories | undefined> {
+): Promise<{ paths: Paths; cdTarget?: Directories }> {
 	const variants = branchContexts(node, context, check);
 	const contexts = variants ?? [context];
-	let targets: Directories | undefined;
 	if (node.type === "command") {
 		const assignments = node.namedChildren.filter((child) => child.type === "variable_assignment");
 		const calls = contexts.map((variant) => {
@@ -203,6 +195,7 @@ async function analyzeSimpleUnits(
 		if (variants && (pipeline || calls.some(({ command }) => !command.concreteExecution))) append(dynamicCommandUnit(node, context));
 		const checkedDirectories = new Set<Directories>();
 		const destinations = [];
+		const paths: Paths = [];
 		for (const { variant, invocation, command } of calls) {
 			check();
 			// 清空变量后，候选上下文之间只有工作目录会影响命令展开。
@@ -211,53 +204,46 @@ async function analyzeSimpleUnits(
 				append(dynamicCommandUnit(node, { ...variant, variables: new Map() }));
 			}
 			append(command.unit);
-			destinations.push(await analyzeCommand(node, variant, invocation, command, state, check));
+			paths.push(...await analyzeCommand(node, variant, invocation, command, state, check));
+			// 同名函数可能取代内建 cd，不能按内建命令的退出状态收窄。
+			destinations.push(variant.functionNames.has(command.rawFacts.program ?? "") ? undefined : command.cdTarget);
 		}
-		if (allDefined(destinations)) targets = joinDirectories(destinations.flat());
-	} else {
-		for (const variant of contexts) {
-			if (node.type === "file_redirect") {
-				for (const unit of redirectUnits(node, variant)) pushUnit(state, unit, node.text);
-			}
-			await analyzeEmbeddedShell(node, variant, state, check);
-			if (node.type === "variable_assignment") recordAssignment(node, variant);
-		}
+		return { paths: joinPaths(paths), ...(allDefined(destinations) && { cdTarget: joinDirectories(destinations.flat()) }) };
 	}
-	if (variants) assignContext(context, joinContexts(variants));
-	return targets;
+	for (const variant of contexts) {
+		if (node.type === "file_redirect") {
+			for (const unit of redirectUnits(node, variant)) pushUnit(state, unit, node.text);
+		}
+		await analyzeEmbeddedShell(node, variant, state, check);
+		if (node.type === "variable_assignment") recordAssignment(node, variant);
+	}
+	return { paths: joinPaths(contexts) };
 }
 
 async function analyzeCommand(
 	node: SyntaxNode, context: BashAnalysisContext, invocation: BashAnalysisContext,
 	command: ReturnType<typeof commandUnit>, state: BashAnalysisState, check: () => void,
-): Promise<Directories | undefined> {
+): Promise<Paths> {
 	if (state.stage && belongsToStage(node, state.stage.node)) state.stage.commands.push(...command.unit.commands);
 	if (command.nestedShell !== undefined) {
 		const nestedContext: BashAnalysisContext = {
 			functionNames: context.functionNames,
 			cwd: context.cwd,
 			variables: new Map([...initialVariables(command.nestedShell.bash), ...command.nestedShell.positional]),
-			exitTraps: new Set(),
+			exitTrap: undefined,
 		};
 		await analyzeScript(command.nestedShell.script, nestedContext, state.depth + 1, state);
 	}
 	await analyzeEmbeddedShell(node, context, state, check);
 	handleExitTrap(command.rawFacts, context);
-	await analyzeFunctionCall(command.rawFacts, invocation, state, check);
-	if (invocation !== context && context.functionNames.has(command.rawFacts.program ?? "")) {
-		// 函数内的前缀赋值有局部作用域，不能作为调用后的确定值。
-		assignContext(context, joinContexts([context, invocation]));
+	if (command.rawFacts.program === "exit") await analyzeExitTraps([invocation], state, check);
+	const paths = await analyzeFunctionCall(command.rawFacts, context, state, check, invocation);
+	for (const path of paths) {
+		invalidateCommandState(command.rawFacts, path);
+		if (command.positionalArgs && !path.functionNames.has("set")) setPositionalVariables(path.variables, command.positionalArgs);
+		if (command.cdTarget !== undefined) path.cwd = joinDirectories([...path.cwd, ...command.cdTarget]);
 	}
-	invalidateCommandState(command.rawFacts, context);
-	if (command.positionalArgs && !context.functionNames.has("set")) {
-		setPositionalVariables(context.variables, command.positionalArgs);
-	}
-	if (command.cdTarget !== undefined) {
-		context.cwd = joinDirectories([...context.cwd, ...command.cdTarget]);
-		// 函数定义可能只在某条分支生效，不能按内建 cd 的退出状态收窄。
-		if (command.rawFacts.program !== undefined && context.functionNames.has(command.rawFacts.program)) return;
-	}
-	return command.cdTarget;
+	return paths;
 }
 
 // 只展开本单元实际引用的变量。组合超过预算时不截断候选集。
@@ -297,21 +283,26 @@ async function analyzeIfStatement(
 	context: BashAnalysisContext,
 	state: BashAnalysisState,
 	check: () => void,
-): Promise<void> {
-	const remaining = cloneContext(context);
-	const branches: BashAnalysisContext[] = [];
+): Promise<Paths> {
+	let remaining = [context];
+	const branches: Paths = [];
 	for (const clause of [node, ...node.namedChildren.filter((child) => child.type === "elif_clause")]) {
-		let branch = remaining;
-		for (const child of clause.children) {
-			if (child.type === "then") branch = cloneContext(remaining);
-			else if (child.type === "elif_clause" || child.type === "else_clause") break;
-			else if (child.isNamed) await analyzeNode(child, branch, state, check);
-		}
-		branches.push(branch);
+		const children = clause.children;
+		const then = children.findIndex((child) => child.type === "then");
+		const conditions = children.slice(0, then).filter((child) => child.isNamed && child.type !== "comment");
+		const last = conditions.pop();
+		if (!last) throw new IncompleteBashAnalysis();
+		const entry = await analyzeNodes(conditions, remaining, state, check);
+		const [ok, fail] = last.nextSibling?.type === "&"
+			? [await analyzeNode(last, entry, state, check), entry]
+			: await analyzeOutcomes(last, entry, state, check, false);
+		remaining = fail;
+		const body = children.slice(then + 1).filter((child) => child.isNamed && child.type !== "elif_clause" && child.type !== "else_clause");
+		branches.push(...await analyzeNodes(body, ok, state, check));
 	}
 	const alternative = node.namedChildren.find((child) => child.type === "else_clause");
-	if (alternative !== undefined) await analyzeNode(alternative, remaining, state, check);
-	assignContext(context, joinContexts([remaining, ...branches]));
+	if (alternative !== undefined) remaining = await analyzeNode(alternative, remaining, state, check);
+	return joinPaths([...remaining, ...branches]);
 }
 
 async function analyzeCaseStatement(
@@ -319,36 +310,33 @@ async function analyzeCaseStatement(
 	context: BashAnalysisContext,
 	state: BashAnalysisState,
 	check: () => void,
-): Promise<void> {
+): Promise<Paths> {
 	const subject = requiredField(node, "value");
 	const selected = selectedCaseBody(node, subject, context, check);
 	if (selected !== undefined) {
 		const branch = { ...context, simpleSites: simpleExpansionSites(selected, check) };
-		for (const child of selected) await analyzeNode(child, branch, state, check);
-		assignContext(context, branch);
-		return;
+		const paths = await analyzeNodes(selected, [branch], state, check);
+		return paths.map((path) => ({ ...path, simpleSites: context.simpleSites }));
 	}
 	await analyzeEmbeddedShell(subject, context, state, check);
-	const branches: BashAnalysisContext[] = [];
-	let exhaustiveBranch: BashAnalysisContext | undefined;
-	let fallthrough: BashAnalysisContext | undefined;
+	const branches: Paths = [];
+	let exhaustive = false;
+	let fallthrough: Paths = [];
 	for (const item of node.namedChildren.filter((child) => child.type === "case_item")) {
-		const branch = fallthrough === undefined ? cloneContext(context) : joinContexts([context, fallthrough]);
+		let branch = joinPaths([context, ...fallthrough]);
 		for (const child of item.namedChildren) {
 			if (child.type === "word" || child.type === "extglob_pattern") {
-				if (child.text === "*") exhaustiveBranch = branch;
+				if (child.text === "*") exhaustive = true;
 				continue;
 			}
-			await analyzeNode(child, branch, state, check);
+			branch = await analyzeNode(child, branch, state, check);
 		}
-		branches.push(branch);
+		branches.push(...branch);
 		if (item.children.some((child) => child.type === ";&" || child.type === ";;&")) {
-			fallthrough = fallthrough === undefined ? branch : joinContexts([fallthrough, branch]);
+			fallthrough = joinPaths([...fallthrough, ...branch]);
 		}
 	}
-	const first = exhaustiveBranch ?? cloneContext(context);
-	const remaining = exhaustiveBranch === undefined ? branches : branches.filter((branch) => branch !== exhaustiveBranch);
-	assignContext(context, joinContexts([first, ...remaining]));
+	return joinPaths(exhaustive ? branches : [context, ...branches]);
 }
 
 async function analyzeUncertainLoop(
@@ -357,21 +345,27 @@ async function analyzeUncertainLoop(
 	context: BashAnalysisContext,
 	state: BashAnalysisState,
 	check: () => void,
-): Promise<void> {
-	// 轮数未知时，从新增的可达目录继续分析，直到目录集稳定或退化为未知。
-	let pending = context.cwd;
-	for (;;) {
-		const entry = context.cwd;
-		const iteration = cloneContext(context);
-		iteration.cwd = pending;
-		invalidateAssignedVariables(node, iteration, check);
-		for (const child of children) await analyzeNode(child, iteration, state, check);
-		mergeUncertainEffects(context, [iteration]);
-		if (pending.includes(UNKNOWN_DIRECTORY)) break;
-		pending = context.cwd.filter((cwd) => !entry.some((prior) => prior.value === cwd.value));
-		if (pending.length === 0) break;
+): Promise<Paths> {
+	// 轮数未知时，从每个 EXIT 动作新增的可达目录继续分析。
+	const initial = cloneContext(context);
+	invalidateAssignedVariables(node, initial, check);
+	let reached = [initial];
+	let pending = reached;
+	while (pending.length) {
+		const outcomes = await analyzeNodes(children, pending, state, check);
+		const widened = outcomes.map(cloneContext);
+		for (const path of widened) invalidateAssignedVariables(node, path, check);
+		const next = joinPaths([...reached, ...widened]);
+		pending = [];
+		for (const path of next) {
+			const prior = reached.find((item) => item.exitTrap === path.exitTrap);
+			if (prior?.cwd.includes(UNKNOWN_DIRECTORY)) continue;
+			const cwd = path.cwd.filter((dir) => !prior?.cwd.some((old) => old.value === dir.value));
+			if (cwd.length) pending.push({ ...path, cwd });
+		}
+		reached = next;
 	}
-	invalidateAssignedVariables(node, context, check);
+	return reached;
 }
 
 async function analyzeForStatement(
@@ -379,7 +373,7 @@ async function analyzeForStatement(
 	context: BashAnalysisContext,
 	state: BashAnalysisState,
 	check: () => void,
-): Promise<void> {
+): Promise<Paths> {
 	const variable = requiredField(node, "variable").text;
 	const body = requiredField(node, "body");
 	const words = node.childrenForFieldName("value");
@@ -388,67 +382,68 @@ async function analyzeForStatement(
 	if (values.length === 0 || !allDefined(values)) {
 		return analyzeUncertainLoop(node, [body], context, state, check);
 	}
-	const iterations: BashAnalysisContext[] = [];
+	const iterations: Paths = [context];
+	let prior: Paths = [];
 	for (const value of values) {
-		const prior = iterations.at(-1);
-		const iterationContext = prior === undefined ? cloneContext(context) : joinContexts([context, prior]);
-		iterationContext.variables.set(variable, value);
-		await analyzeNode(body, iterationContext, state, check);
-		iterations.push(iterationContext);
+		const entry = joinPaths([cloneContext(context), ...prior]);
+		for (const path of entry) path.variables.set(variable, value);
+		prior = await analyzeNode(body, entry, state, check);
+		iterations.push(...prior);
 	}
-	mergeUncertainEffects(context, iterations);
-	context.variables.delete(variable);
-	invalidateAssignedVariables(body, context, check);
-}
-
-function mergeUncertainEffects(context: BashAnalysisContext, outcomes: readonly BashAnalysisContext[]): void {
-	context.cwd = joinDirectories([...context.cwd, ...outcomes.flatMap((outcome) => outcome.cwd)]);
-	context.exitTraps = new Set([...context.exitTraps, ...outcomes.flatMap((outcome) => [...outcome.exitTraps])]);
+	const paths = joinPaths(iterations);
+	for (const path of paths) {
+		path.variables.delete(variable);
+		invalidateAssignedVariables(body, path, check);
+	}
+	return paths;
 }
 
 async function analyzeOutcomes(
 	node: SyntaxNode,
-	context: BashAnalysisContext,
+	entries: Paths,
 	state: BashAnalysisState,
 	check: () => void,
 	knownEntry: boolean,
 	redirects: readonly SyntaxNode[] = [],
-): Promise<[success: BashAnalysisContext, failure: BashAnalysisContext | undefined]> {
+): Promise<[success: Paths, failure: Paths]> {
 	check();
 	if (node.type === "redirected_statement") {
 		const body = node.childForFieldName("body");
 		const pending = [...node.childrenForFieldName("redirect"), ...redirects];
-		if (body !== null) return analyzeOutcomes(body, context, state, check, knownEntry, pending);
-		for (const redirect of pending) await analyzeNode(redirect, context, state, check);
-		return [context, context];
+		if (body !== null) return analyzeOutcomes(body, entries, state, check, knownEntry, pending);
+		await analyzeNodes(pending, entries, state, check);
+		return [entries, entries];
 	}
 	if (node.type === "list") {
 		const [left, right] = node.namedChildren.filter((child) => child.type !== "comment");
 		const and = node.children.some((child) => child.type === "&&");
 		if (left === undefined || right === undefined) throw new Error("Missing Bash list operand");
-		const [ok, fail] = await analyzeOutcomes(left, context, state, check, knownEntry);
+		const [ok, fail] = await analyzeOutcomes(left, entries, state, check, knownEntry);
 		if (and) {
 			const [rightOk, rightFail] = await analyzeOutcomes(right, ok, state, check, false, redirects);
-			const failure = fail && rightFail ? joinContexts([fail, rightFail]) : fail ?? rightFail;
-			return [rightOk, failure];
+			return [rightOk, joinPaths([...fail, ...rightFail])];
 		}
-		if (!fail) return [ok, undefined];
+		if (!fail.length) return [ok, []];
 		const [rightOk, rightFail] = await analyzeOutcomes(right, fail, state, check, false, redirects);
-		if (knownEntry && left.type === "command" && left.childForFieldName("name")?.text === "cd" && !context.functionNames.has("cd")
+		if (knownEntry && left.type === "command" && left.childForFieldName("name")?.text === "cd"
 			&& redirects.length === 0 && right.type === "command" && /^exit(?:[ \t]+[0-9]+)?$/u.test(right.text)
-			&& !context.functionNames.has("exit") && fail.exitTraps.size === 0) return [ok, undefined];
-		return [joinContexts([ok, rightOk]), rightFail];
+			&& fail.every((path) => !path.functionNames.has("cd") && !path.functionNames.has("exit") && path.exitTrap === undefined)) return [ok, []];
+		return [joinPaths([...ok, ...rightOk]), rightFail];
 	}
-	const success = cloneContext(context);
-	const cdTarget = await analyzeNode(node, success, state, check);
-	// 重定向在命令生效前展开。失败时命令可能没有执行。
-	for (const redirect of redirects) await analyzeNode(redirect, cloneContext(context), state, check);
-	const failure = joinContexts([context, success]);
-	if (cdTarget !== undefined) {
-		success.cwd = cdTarget;
-		failure.cwd = context.cwd;
+	const success: Paths = [], failure: Paths = [];
+	for (const entry of entries) {
+		const { paths, cdTarget } = node.type === "command"
+			? await analyzeSimpleUnits(node, cloneContext(entry), state, check)
+			: { paths: await analyzeNode(node, [entry], state, check), cdTarget: undefined };
+		// 重定向在命令生效前展开。失败时命令可能没有执行。
+		await analyzeNodes(redirects, [entry], state, check);
+		failure.push(entry);
+		for (const path of paths) {
+			success.push(cdTarget ? { ...path, cwd: cdTarget } : path);
+			failure.push(cdTarget ? { ...path, cwd: entry.cwd } : path);
+		}
 	}
-	return [success, failure];
+	return [joinPaths(success), joinPaths(failure)];
 }
 
 // 单个候选不能代表整条管道。
@@ -477,7 +472,7 @@ async function analyzeEmbeddedShell(
 	check: () => void,
 ): Promise<void> {
 	if (isSubstitution(node)) {
-		await analyzeNode(node, context, state, check);
+		await analyzeNode(node, [context], state, check);
 		return;
 	}
 	for (const child of node.namedChildren) await analyzeEmbeddedShell(child, context, state, check);
@@ -607,24 +602,28 @@ async function analyzeFunctionCall(
 	context: BashAnalysisContext,
 	state: BashAnalysisState,
 	check: () => void,
-): Promise<void> {
+	invocation = context,
+): Promise<Paths> {
 	const name = facts.program;
 	const definitions = name === undefined ? undefined : state.functions.get(name);
-	if (name === undefined || definitions === undefined || state.activeFunctions.has(name)) return;
+	if (name === undefined || definitions === undefined || state.activeFunctions.has(name)) return [context];
 	state.activeFunctions.add(name);
 	try {
-		const trapOutcomes: Set<string>[] = [];
-		const directories = [...context.cwd];
+		const outcomes: Paths = [];
 		for (const definition of definitions) {
-			const functionContext = cloneContext(context);
+			const functionContext = cloneContext(invocation);
 			setPositionalVariables(functionContext.variables, facts.args);
-			await analyzeNode(definition.body, functionContext, state, check);
-			invalidateAssignedVariables(definition.body, context, check, true);
-			trapOutcomes.push(functionContext.exitTraps);
-			directories.push(...functionContext.cwd);
+			const paths = await analyzeNode(definition.body, [functionContext], state, check);
+			const caller = cloneContext(context);
+			invalidateAssignedVariables(definition.body, caller, check, true);
+			for (const path of paths) {
+				// 位置参数恢复调用者的绑定。嵌套函数已使其失效的普通变量不能恢复。
+				const variables = new Map(caller.variables);
+				for (const name of variables.keys()) if (!path.variables.has(name) && !/^[1-9]\d*$/u.test(name)) variables.delete(name);
+				outcomes.push({ ...caller, variables, exitTrap: path.exitTrap, cwd: joinDirectories([...caller.cwd, ...path.cwd]) });
+			}
 		}
-		context.cwd = joinDirectories(directories);
-		context.exitTraps = new Set(trapOutcomes.flatMap((traps) => [...traps]));
+		return joinPaths(outcomes);
 	} finally {
 		state.activeFunctions.delete(name);
 	}
@@ -634,22 +633,18 @@ function handleExitTrap(facts: CommandFacts, context: BashAnalysisContext): void
 	if (facts.program !== "trap" || facts.args.length < 2) return;
 	const action = facts.args[0];
 	if (typeof action !== "string" || !facts.args.slice(1).some((signal) => signal === "EXIT" || signal === "0")) return;
-	context.exitTraps.clear();
-	if (action !== "-") context.exitTraps.add(action);
+	context.exitTrap = action === "-" ? undefined : action;
 }
 
-async function analyzeExitTraps(
-	context: BashAnalysisContext,
-	state: BashAnalysisState,
-	check: () => void,
-): Promise<void> {
-	for (const action of [...context.exitTraps]) {
+async function analyzeExitTraps(paths: Paths, state: BashAnalysisState, check: () => void): Promise<void> {
+	for (const context of paths) {
+		const action = context.exitTrap;
+		if (action === undefined) continue;
+		const trapContext = { ...context, exitTrap: undefined };
 		if (state.functions.has(action)) {
-			await analyzeFunctionCall({ program: action, args: [] }, context, state, check);
+			await analyzeFunctionCall({ program: action, args: [] }, trapContext, state, check);
 			continue;
 		}
-		const trapContext = cloneContext(context);
-		trapContext.exitTraps.clear();
 		await analyzeScript(action, trapContext, state.depth + 1, state, state.functions);
 	}
 }

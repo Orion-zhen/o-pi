@@ -24,6 +24,7 @@ export async function collectAssets(root, staging, { target = "bun", platform = 
 		files.push({ path: destination, source: target, executable: (metadata.mode & 0o111) !== 0 });
 	}
 	for (const directory of ["defaults", "schemas"]) await add(path.join(root, "agent", directory), `agent/${directory}`);
+	if (platform.os !== "win32") await add(path.join(root, "assets/sudo-askpass"), "assets/sudo-askpass");
 	for (const name of ["package.json", "README.md", "LICENSE"]) await add(path.join(root, name), name);
 	await add(path.join(root, "docs"), "docs");
 	for (const name of ["package.json", "README.md", "CHANGELOG.md", "docs", "examples"]) await add(path.join(piRoot, name), `pi/${name}`);

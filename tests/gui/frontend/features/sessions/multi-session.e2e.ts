@@ -209,7 +209,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await row("任务 A").getByRole("button", { name: "任务 A", exact: true }).click();
 		await expect(approval).toBeVisible();
 		await expect(approval.getByRole("button", { name: "取消 / 拒绝", exact: true })).toHaveCount(0);
-		await expect(approval.getByRole("button", { name: "Deny", exact: true })).toBeVisible();
+		await expect(approval.getByRole("button", { name: "拒绝", exact: true })).toBeVisible();
 		const command = approval.getByRole("group", { name: "Bash 命令", exact: true });
 		await expect(command.getByRole("button", { name: "展开完整命令", exact: true })).toHaveAttribute("aria-expanded", "false");
 		await expect(command.locator(".approval-command-preview pre code")).toHaveText([...bashCommand].slice(0, 240).join(""));
@@ -230,7 +230,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await command.getByRole("button", { name: "展开完整命令", exact: true }).click();
 		await expect(command.locator('[data-slot="collapsible-content"] pre code')).toBeVisible();
 		await page.screenshot({ path: info.outputPath("bash-approval-expanded.png"), animations: "disabled" });
-		await approval.getByRole("button", { name: "Allow once", exact: true }).click();
+		await approval.getByRole("button", { name: "允许一次", exact: true }).click();
 		await expect.poll(() => readFile(path.join(cwd, "output.txt"), "utf8").catch((error: unknown) => {
 			if (error instanceof Error && "code" in error && error.code === "ENOENT") return "";
 			throw error;

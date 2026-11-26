@@ -4,7 +4,7 @@ export async function exerciseRichTools(page: Page) {
 	const editor = page.getByRole("textbox", { name: "消息", exact: true });
 	await editor.fill("验证网页和子代理");
 	await editor.press("ControlOrMeta+Enter");
-	await page.getByRole("button", { name: "Allow once", exact: true }).click();
+	await page.getByRole("button", { name: "允许一次", exact: true }).click();
 	await expect(page.locator(".reply-answer")).toContainText("网页与子代理验证完成");
 	for (const name of ["websearch", "webfetch", "subagent"])
 		await expect(page.locator(`.tool-activity[data-tool="${name}"]`)).toHaveAttribute("data-state", "completed");

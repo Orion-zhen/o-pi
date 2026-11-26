@@ -56,7 +56,6 @@ if (!(await runChildProcess())) {
 		switch (data.kind) {
 			case "attention": connection?.attend(data.value); return;
 			case "subscribe":
-				connection?.close();
 				connection = client.connect((value) => process.parentPort.postMessage({ kind: "delivery", value, at: Date.now() } satisfies BackendMessage));
 				void client.dispatch({ action: "observe", visible: true }).catch((error: unknown) => gui.reportError(error));
 				return;

@@ -22,9 +22,10 @@ export interface GuiBashApproval {
 	items: { action: ApprovalUnit["action"]; kind: ApprovalUnit["target"]["kind"]; target: string; reason: string }[];
 }
 export interface GuiDialogOption { label: string; value: string }
+export type GuiSudoStage = { kind: "waiting" } | { kind: "prompting"; id: string; account: string; retry: boolean } | { kind: "submitted"; account: string };
 export type GuiDialogContent = { title: string } & (
 	| { kind: "select"; options: readonly GuiDialogOption[] }
-	| { kind: "bashApproval"; approval: GuiBashApproval; options: readonly GuiDialogOption[] }
+	| { kind: "bashApproval"; approval: GuiBashApproval; options: readonly GuiDialogOption[]; sudo?: GuiSudoStage }
 	| { kind: "confirm"; message: string }
 	| { kind: "input" | "secret"; initial: string; placeholder: string }
 	| { kind: "editor"; initial: string }

@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { Askpass } from "./askpass.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadBashToolConfig } from "./config.ts";
 import { createExecutionEnvironment } from "./environment.ts";
@@ -29,16 +30,18 @@ export async function prepareBashCall(params: BashParams, ctx: ExtensionContext,
 	};
 }
 
-export type PreparedBashCommand = Awaited<ReturnType<typeof prepareBashCall>>;
+type BashPreparation = Awaited<ReturnType<typeof prepareBashCall>>;
+type ResolvedBashCommand = Extract<BashPreparation, { kind: "resolved" }> & { askpass?: Askpass };
+export type PreparedBashCommand = Extract<BashPreparation, { kind: "error" }> | ResolvedBashCommand;
 
 // Pi 将同一个校验后的参数对象交给 tool_call 和 execute。快照不随参数序列化。
-const saved = new WeakMap<object, Extract<PreparedBashCommand, { kind: "resolved" }>>();
+const saved = new WeakMap<object, ResolvedBashCommand>();
 
-export function saveBashCall(input: object, call: Extract<PreparedBashCommand, { kind: "resolved" }>): void {
+export function saveBashCall(input: object, call: ResolvedBashCommand): void {
 	saved.set(input, call);
 }
 
-export function takeBashCall(params: BashParams, ctx: ExtensionContext, signal?: AbortSignal) {
+export async function takeBashCall(params: BashParams, ctx: ExtensionContext, signal?: AbortSignal): Promise<PreparedBashCommand> {
 	const call = saved.get(params);
 	if (!call) return prepareBashCall(params, ctx, signal);
 	saved.delete(params);

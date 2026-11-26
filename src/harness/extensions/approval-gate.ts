@@ -1,5 +1,5 @@
 import type { ExtensionContext, ExtensionUIContext, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type ApprovalInteractionPort } from "../approval/runtime/interaction.ts";
+import type { ALLOW_ONCE, ApprovalInteractionPort } from "../approval/runtime/interaction.ts";
 import { canPresent, type Presenter } from "../presentation.ts";
 
 import { loadApprovalGateConfig } from "../approval/config.ts";
@@ -13,19 +13,22 @@ import { approvalText, formatBashPolicyEvaluation, formatApprovalPrompt } from "
 import type { SessionApprovalStore } from "../approval/rules/store.ts";
 import type { ApprovalRequest } from "../approval/types.ts";
 import { preflightWebFetch } from "../web-tools/fetch/approval-preflight.ts";
+import type { Askpass } from "../bash-runtime/askpass.ts";
 
-type PreparedApproval = { request: ApprovalRequest; onApproved?: (() => void) | undefined } | { error: string };
+type PreparedApproval = { request: ApprovalRequest; sudoToolCallId?: string | undefined; onApproved?: ((askpass?: Askpass) => void) | undefined } | { error: string };
 
-async function inspectBashCall(input: BashParams, ctx: ExtensionContext) {
+async function inspectBashCall(input: BashParams, ctx: ExtensionContext, sudoToolCallId?: string) {
 	const call = await prepareBashCall(input, ctx);
 	if (call.kind === "error") return { error: call.message };
-	const request = await buildBashApprovalRequest(input.command, call);
-	return { request, onApproved: () => saveBashCall(input, call) };
+	const request = await buildBashApprovalRequest(input.command, call, { askpass: sudoToolCallId !== undefined, signal: ctx.signal });
+	const command = request.askpassCommand;
+	if (command === undefined) return { request, onApproved: () => saveBashCall(input, call) };
+	return { request, sudoToolCallId, onApproved: (askpass?: Askpass) => saveBashCall(input, askpass ? { ...call, command, askpass } : call) };
 }
 
-async function prepareApproval(event: ApprovalToolCall, ctx: ExtensionContext): Promise<PreparedApproval> {
+async function prepareApproval(event: ApprovalToolCall, ctx: ExtensionContext, interactive: boolean): Promise<PreparedApproval> {
 	switch (event.toolName) {
-		case "bash": return inspectBashCall(event.input, ctx);
+		case "bash": return inspectBashCall(event.input, ctx, interactive ? event.toolCallId : undefined);
 		case "webfetch": {
 			const web = await preflightWebFetch(event.input);
 			if (!("target" in web)) return web;
@@ -37,10 +40,12 @@ async function prepareApproval(event: ApprovalToolCall, ctx: ExtensionContext): 
 	}
 }
 
+export type ApprovalResponse = string | undefined | { choice: typeof ALLOW_ONCE; askpass: Askpass };
+export type ApprovalPresentationArgs = [...Parameters<ApprovalInteractionPort["approve"]>, sudoToolCallId?: string];
 export type ApprovalPresenter = Presenter<(
-	ui: ExtensionUIContext,
-	...args: Parameters<ApprovalInteractionPort["approve"]>
-) => ReturnType<ApprovalInteractionPort["approve"]>>;
+	ui: ExtensionUIContext, ...args: ApprovalPresentationArgs
+) => Promise<ApprovalResponse>>;
+
 export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter, store?: SessionApprovalStore): void {
 	const gate = createApprovalGate(store);
 	pi.registerCommand("approval-check", {
@@ -68,10 +73,12 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 		if (!isApprovalToolCall(event)) return;
 		const config = await loadApprovalGateConfig();
 		if (!config.enabled) return;
-		const prepared = await prepareApproval(event, ctx);
+		const presenter = ctx.hasUI && canPresent(ctx, present) ? present : undefined;
+		const prepared = await prepareApproval(event, ctx, presenter !== undefined);
 		if ("error" in prepared) return { block: true, reason: prepared.error };
 
 		let requested = false;
+		let askpass: Askpass | undefined;
 		let outcome: ApprovalOutcome | undefined;
 		try {
 			outcome = await gate.authorize(
@@ -86,17 +93,18 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 									toolCallId: event.toolCallId,
 									toolName: event.toolName,
 								} satisfies ApprovalStatusEvent);
-								if (present !== undefined && canPresent(ctx, present)) {
-									return present.show(ctx.ui, request, decision, approvalOptions, dialogOptions);
-								}
-								return ctx.ui.select(formatApprovalPrompt(request, decision), [...approvalOptions], { ...dialogOptions, blockedKind: "permission" });
+								if (!presenter) return ctx.ui.select(formatApprovalPrompt(request, decision), [...approvalOptions], { ...dialogOptions, blockedKind: "permission" });
+								const response = await presenter.show(ctx.ui, request, decision, approvalOptions, dialogOptions, prepared.sudoToolCallId);
+								if (typeof response !== "object") return response;
+								askpass = response.askpass;
+								return response.choice;
 							},
 							input: (title, placeholder, dialogOptions) => ctx.ui.input(title, placeholder, dialogOptions),
 						}
 					: undefined,
 			);
 			if (outcome.kind === "blocked") return { block: true, reason: outcome.reason };
-			prepared.onApproved?.();
+			prepared.onApproved?.(askpass);
 		} finally {
 			if (requested) {
 				pi.events.emit(APPROVAL_STATUS_CHANNEL, {

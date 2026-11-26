@@ -339,6 +339,50 @@ done
 		expect(evaluateDefault(await bashRequest(command), store())).toEqual({ kind: "allow" });
 	});
 
+	it("短路失败没有注册 EXIT 清理，也不读取 cache 的启动值", async () => {
+		const command = `cache=$(mktemp -d) && export PLAYWRIGHT_BROWSERS_PATH="$cache" && trap 'rm -rf "$cache"' EXIT && bun run playwright install --only-shell chromium && bun run playwright test`;
+		for (const env of [{}, { cache: "/workspace/old" }]) {
+			const request = await bashRequest(command, commandCwd, env);
+			expect(request.detail.environment).toBeUndefined();
+			expect(evaluateDefault(request, store())).toEqual({ kind: "allow" });
+		}
+	});
+
+	it("不同 EXIT 动作只读取各自可达的变量，并跟踪注册后的赋值", async () => {
+		const request = await bashRequest(`
+if test -f flag; then v=first; trap 'printf a "$v:$suffix"' EXIT; else v=second; trap 'printf b "$v:$suffix"' EXIT; fi
+suffix=done`);
+		const calls = request.units.flatMap((unit) => unit.commands ?? []).filter(([program]) => program === "printf");
+		expect(calls.sort()).toEqual([["printf", "a", "first:done"], ["printf", "b", "second:done"]]);
+	});
+
+	it.each([
+		`cache=$(mktemp -d) && trap 'rm -rf "$cache"' EXIT; cache=/workspace/data`,
+		`cache=$(mktemp -d) && trap 'rm -rf "$cache"' EXIT; if test -f flag; then cache=/workspace/data; fi`,
+		`cache=$(mktemp -d) && trap 'rm -rf "$cache"' EXIT; read cache`,
+		`prepare() { read cache; }; run() { prepare; }; cache=$(mktemp -d) && trap 'rm -rf "$cache"' EXIT; run`,
+		`cache=/workspace/data; trap 'rm -rf "$cache"' EXIT; test -f ready || exit 1; cache=$(mktemp -d)`,
+	])("注册后清理目标不再保证是临时目录时仍审批: %s", async (command) => {
+		expect(evaluateDefault(await bashRequest(command), store())).toMatchObject({ kind: "ask", reason: "bash safety fact: filesystem.destructive" });
+	});
+
+	it("if 条件成功注册的 EXIT 动作不继承失败分支的工作目录", async () => {
+		const request = await bashRequest(`cache=$(mktemp -d); if cd "$cache" && test -f ready; then trap 'rm -rf ./cache' EXIT; fi`);
+		expect(evaluateDefault(request, store())).toEqual({ kind: "allow" });
+	});
+
+	it("同一 EXIT 动作仍检查可达的启动值", async () => {
+		const request = await bashRequest(`if test -f ready; then cache=$(mktemp -d); fi; trap 'rm -rf "$cache"' EXIT`, commandCwd, { cache: "/workspace/archive" });
+		expect(request.detail.environment).toEqual({ cache: "/workspace/archive" });
+		expect(evaluateDefault(request, store())).toMatchObject({ kind: "ask", reason: "bash safety fact: filesystem.destructive" });
+	});
+
+	it("EXIT 动作超出分支预算时不按部分结果放行", async () => {
+		const cases = Array.from({ length: 9 }, (_, i) => `${i}) trap 'echo ${i}' EXIT;;`);
+		const request = await bashRequest(`read mode; case "$mode" in ${cases.join(" ")} esac`);
+		expect(evaluateDefault(request, store())).toMatchObject({ kind: "ask", reason: "bash safety fact: execution.opaque" });
+	});
+
 	it("deny 安全事实仍可阻止 temporary 单元", async () => {
 		const policy = structuredClone(defaultConfig.tools.bash);
 		policy.facts["custom.no-rm"] = { action: "deny", commands: [{ classifier: "rm", command: ["rm"] }] };
@@ -409,7 +453,7 @@ done
 
 	it.skipIf(process.platform === "win32")("CDPATH 检查所有搜索项和 cwd，前缀赋值只影响本次调用", async () => {
 		const targets = async (command: string, cdpath?: string) => {
-			const request = await buildBashApprovalRequest(command, { cwd: commandCwd, command, env: { CDPATH: cdpath } });
+			const request = await bashRequest(command, commandCwd, { CDPATH: cdpath });
 			return new Set(request.units.filter((unit) => unit.action === "write_redirect").map((unit) => unit.target.value));
 		};
 		const script = 'cd build; echo >report';
@@ -431,7 +475,7 @@ done
 			[`HOME=${local} cd && echo >a; echo >~/b`, [`${local}/a`, `${home}/b`], true],
 			['echo >"~/a"; echo >\\~/b', [`${cwd}/~/a`, `${cwd}/~/b`], false],
 		] as const) {
-			const request = await buildBashApprovalRequest(command, { cwd, command, env: { HOME: home } });
+			const request = await bashRequest(command, cwd, { HOME: home });
 			expect(new Set(request.units.filter((unit) => unit.action === "write_redirect").map((unit) => unit.target.value))).toEqual(new Set(targets));
 			expect(request.allowSessionMemory).toBe(!usesHome);
 		}
@@ -439,7 +483,7 @@ done
 
 	it.each(['echo >~/a', 'cd && echo >a', 'unset HOME; echo >~/a', 'read HOME; cd && echo >a', 'echo >~user/a'])("HOME 不确定或波浪号指向其他用户时仍审批: %s", async (command) => {
 		const env = command.startsWith("unset") || command.startsWith("read") ? { HOME: commandCwd } : {};
-		const request = await buildBashApprovalRequest(command, { cwd: commandCwd, command, env });
+		const request = await bashRequest(command, commandCwd, env);
 		expect(evaluateDefault(request, store()).kind).toBe("ask");
 	});
 
@@ -450,7 +494,7 @@ done
 		['echo >"${OUT:-$UNUSED}"', "report file", { OUT: "report file" }],
 		['set -- "$OUT"; set -- other "$1"; echo >"$2"', "report file", { OUT: "report file" }],
 	] as const)("已知实参和按需展开的默认值参与路径审批: %s", async (command, file, environment) => {
-		const request = await buildBashApprovalRequest(command, { cwd: commandCwd, command, env: { OUT: "report file", UNUSED: "other" } });
+		const request = await bashRequest(command, commandCwd, { OUT: "report file", UNUSED: "other" });
 		expect(evaluateGatePolicy(request, withPathFact(`${request.cwd}/${file}`), store()).kind).toBe("deny");
 		expect(request.detail.environment).toEqual(environment);
 		expect(request.allowSessionMemory).toBe(environment === undefined);
@@ -463,7 +507,7 @@ done
 			['echo >"$SECONDS"', "ask"], [': "${OUT:=changed}"; echo >"$OUT/report"', "ask"],
 			['((OUT++)); echo >"$OUT/report"', "ask"], ['bash -c \'echo >"$OUT/report"\'', "ask"],
 		] as const) {
-			const request = await buildBashApprovalRequest(command, { cwd: commandCwd, command, env: { OUT: "initial", SECONDS: "initial" } });
+			const request = await bashRequest(command, commandCwd, { OUT: "initial", SECONDS: "initial" });
 			expect(evaluateDefault(request, store()).kind).toBe(action);
 			expect(request.detail.environment).toEqual(command.startsWith('echo >"$OUT') ? { OUT: "initial" } : undefined);
 		}
@@ -475,21 +519,21 @@ done
 		['if true; then out=logs; fi; echo >"$out/report"', "logs", false],
 		['if true; then unset out; fi; echo >"${out:-report.log}"', undefined, false],
 	] as const)("会话记忆取决于变量来源而不是值是否相等: %s", async (command, out, independent) => {
-		const request = await buildBashApprovalRequest(command, { cwd: commandCwd, command, env: { out } });
+		const request = await bashRequest(command, commandCwd, { out });
 		expect(request.detail.environment).toEqual(independent ? undefined : { out: out ?? null });
 		expect(request.allowSessionMemory).toBe(independent);
 	});
 
 	it("启动钩子不按无副作用的已知环境放行", async () => {
 		const command = 'echo >"$OUT/report"';
-		const request = await buildBashApprovalRequest(command, { cwd: commandCwd, command, env: { OUT: "initial", BASH_ENV: "init.sh" } });
+		const request = await bashRequest(command, commandCwd, { OUT: "initial", BASH_ENV: "init.sh" });
 		expect(evaluateDefault(request, store()).kind).toBe("ask");
 		expect(request.detail.environment).toBeUndefined();
 	});
 
 	it.skipIf(process.platform === "win32").each([["日志/report", "allow"], ["report final", "ask"], ["*.log", "ask"]] as const)("未引用的输出路径按实际展开审批: %s", async (OUT, kind) => {
 		const command = 'echo ready >$OUT';
-		const request = await buildBashApprovalRequest(command, { cwd: commandCwd, command, env: { OUT } });
+		const request = await bashRequest(command, commandCwd, { OUT });
 		expect(evaluateGatePolicy(request, defaultConfig, approvalStore).kind).toBe(kind);
 	});
 
@@ -497,7 +541,7 @@ done
 		const command = 'case "$MODE" in dev) echo >report;; prod) echo >$OUT;; esac';
 		const protectedPath = `${commandCwd.replaceAll("\\", "/")}/protected`;
 		const config = withPathFact(protectedPath);
-		const inspect = (MODE: string, env: NodeJS.ProcessEnv = {}) => buildBashApprovalRequest(command, { cwd: commandCwd, command, env: { MODE, OUT: "protected", ...env } });
+		const inspect = (MODE: string, env: NodeJS.ProcessEnv = {}) => bashRequest(command, commandCwd, { MODE, OUT: "protected", ...env });
 		const dev = await inspect("dev");
 		expect(evaluateGatePolicy(dev, config, approvalStore).kind).toBe("allow");
 		expect(dev.detail.environment).toEqual({ MODE: "dev" });
@@ -825,6 +869,6 @@ function store(): SessionApprovalStore {
 	return approvalStore;
 }
 
-function bashRequest(command: string, cwd = commandCwd): Promise<BashApprovalRequest> {
-	return buildBashApprovalRequest(command, { command, cwd, env: {} });
+function bashRequest(command: string, cwd = commandCwd, env: NodeJS.ProcessEnv = {}): Promise<BashApprovalRequest> {
+	return buildBashApprovalRequest(command, { command, cwd, env }, { askpass: false });
 }

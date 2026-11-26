@@ -38,7 +38,7 @@ export const querySchema = union([
 export type GuiQuery = Static<typeof querySchema>;
 export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "searchApiKeyAvailable" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "modelServices" | "storage" | "searchSessions" | "continueSessionSearch" }>;
 export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" | "lspServers" }>;
-export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery | { query: "files" }>;
+export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery | { query: "files" | "approvalDetails" }>;
 export interface GuiQueryResults {
 	searchSessions: SessionSearchPage;
 	continueSessionSearch: SessionSearchPage;

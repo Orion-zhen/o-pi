@@ -24,14 +24,31 @@ const approval: GuiBashApproval = {
 describe("Bash 审批呈现", () => {
 	it("结构化传递完整命令和敏感项，不把正文塞入标题，响应仍只能消费一次", async () => {
 		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
-		const pending = dialogs.approve(request, decision, ["Allow once", "Deny"]);
+		const pending = dialogs.approve(request, decision, ["Allow once", "Allow for session", "Deny", "Deny with instruction"]);
 		const dialog = dialogs.list()[0];
 		if (dialog?.kind !== "bashApproval") throw new Error("缺少审批弹窗");
 		expect(dialog.approval).toEqual(approval);
-		expect(dialog.options).toEqual(["Allow once", "Deny"].map((value) => ({ label: value, value })));
+		expect(dialog.options).toEqual([
+			{ label: "允许一次", value: "Allow once" }, { label: "本会话允许", value: "Allow for session" },
+			{ label: "拒绝", value: "Deny" }, { label: "拒绝并说明", value: "Deny with instruction" },
+		]);
 		dialogs.respond(dialog.id, "Allow once");
 		await expect(pending).resolves.toBe("Allow once");
 		expect(() => dialogs.respond(dialog.id, "Allow once")).toThrow();
+	});
+
+	it("免密 sudo 执行结束时关闭原审批，期间没有密码框", async () => {
+		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
+		const request = await buildBashApprovalRequest("sudo id", { cwd: "/project", command: "sudo id", env: {} }, { askpass: true });
+		const owner = { refreshDialogs() {} };
+		const pending = dialogs.approve(request, { kind: "ask", reason: "sudo", items: request.units.map((unit) => ({ unit, reason: "sudo" })) }, ["Allow once", "Deny", "Deny with instruction"], undefined, "call");
+		const [approval] = dialogs.list();
+		if (!approval) throw new Error("缺少审批");
+		dialogs.respond(approval.id, "Allow once", owner);
+		await expect(pending).resolves.toMatchObject({ choice: "Allow once" });
+		expect(dialogs.sudoFor(owner)?.dialog).toMatchObject({ id: approval.id, sudo: { kind: "waiting" } });
+		dialogs.finishSudo("call");
+		expect(dialogs.sudoFor(owner)).toBeUndefined();
 	});
 
 	it("命令中的伪标题不改变结构，控制序列被清理且 Unicode 保留", async () => {
@@ -48,7 +65,7 @@ describe("Bash 审批呈现", () => {
 	it("敏感环境值可查看，默认视图和路径都隐藏原值", async () => {
 		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const command = 'echo >"${ACCESS_TOKEN#label-}.log"';
-		const request = await buildBashApprovalRequest(command, { cwd: "/project", command, env: { ACCESS_TOKEN: "label-private-value" } });
+		const request = await buildBashApprovalRequest(command, { cwd: "/project", command, env: { ACCESS_TOKEN: "label-private-value" } }, { askpass: true });
 		const unit = request.units.find(({ action }) => action === "write_redirect");
 		if (!unit) throw new Error("缺少重定向");
 		const pending = dialogs.approve(request, { kind: "ask", reason: "target", items: [{ unit, reason: "target" }] }, ["Deny"]);

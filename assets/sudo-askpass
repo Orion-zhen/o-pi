@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+# 在可信目录以干净环境启动宿主自带的运行时，不加载项目配置。调用凭据不经 argv。
+cd /
+printf '%s' "$OPI_ASKPASS_KEY" | /usr/bin/env -i BUN_BE_BUN=1 ELECTRON_RUN_AS_NODE=1 "$OPI_ASKPASS_RUNTIME" -e '
+const key = require("node:fs").readFileSync(0, "utf8");
+require("node:http").get({ host: "127.0.0.1", port: process.argv[1], headers: { authorization: key } }, response => {
+  if (response.statusCode === 200) response.pipe(process.stdout);
+  else { process.exitCode = 1; response.resume(); }
+}).on("error", () => { process.exitCode = 1; });
+' "$OPI_ASKPASS_PORT"

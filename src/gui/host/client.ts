@@ -46,6 +46,7 @@ export class GuiClient {
 	private unsubscribeHost: () => void;
 	private closed = false;
 	private observing = true;
+	private connection?: { refreshDialogs(): void; close(): void };
 	private attention: GuiAttention | null = null;
 	get focused(): boolean { return this.attention?.focused === true; }
 	get notificationDestination(): string | null { return this.attention?.destination ?? null; }
@@ -73,7 +74,12 @@ export class GuiClient {
 		if (!execution) throw new Error("会话尚未就绪。");
 		return execution;
 	}
-	emit(event: GuiEvent): void { for (const listener of this.listeners) listener(event); }
+	private withPrivateDialog(event: GuiEvent): GuiEvent {
+		if (event.type !== "dialogs") return event;
+		const dialog = this.selected?.dialogs?.sudoFor(this.connection)?.dialog;
+		return dialog ? { type: "dialogs", value: [dialog, ...event.value] } : event;
+	}
+	emit(event: GuiEvent): void { for (const listener of this.listeners) listener(this.withPrivateDialog(event)); }
 	reportError(error: unknown): void { this.emit({ type: "feedback", message: error instanceof Error ? error.message : String(error), tone: "error" }); }
 	subscribe(listener: (event: GuiEvent) => void): () => void {
 		this.listeners.add(listener);
@@ -82,18 +88,31 @@ export class GuiClient {
 	replay(listener: (event: GuiEvent) => void): void {
 		this.host.replay(listener);
 		listener(this.selectionEvent());
-		if (this.selected) this.selected.replay(listener);
+		if (this.selected) this.selected.replay((event) => listener(this.withPrivateDialog(event)));
 		else listener({ type: "snapshot", value: null });
 	}
 	connect(send: (delivery: GuiDelivery) => void) {
+		this.connection?.close();
 		const channel = new GuiChannel(send);
 		const receive = (event: GuiEvent) => channel.accept(event);
 		const unsubscribe = this.subscribe(receive);
+		const connection = {
+			refreshDialogs: () => this.emit({ type: "dialogs", value: this.selected?.dialogs?.list() ?? [] }),
+			close: () => {
+				if (this.connection !== connection) return;
+				delete this.connection;
+				this.attention = null;
+				unsubscribe();
+				channel.close();
+				this.selected?.dialogs?.sudoFor(connection)?.close();
+			},
+		};
+		this.connection = connection;
 		this.replay(receive);
 		return {
 			attend: (value: GuiAttention) => { this.attention = value; },
 			acknowledge: (id: number) => channel.acknowledge(id),
-			close: () => { this.attention = null; unsubscribe(); channel.close(); },
+			close: connection.close,
 		};
 	}
 	private selectionEvent(): Extract<GuiEvent, { type: "selected" }> {
@@ -111,6 +130,7 @@ export class GuiClient {
 	async select(session: GuiSession, draftFrom?: string): Promise<void> {
 		if (this.closed) throw new Error("客户端已断开。");
 		const previous = this.selected;
+		if (session !== previous) previous?.dialogs?.sudoFor(this.connection)?.close();
 		const version = ++this.selection;
 		const refreshing = session.refreshCached();
 		this.unbind();
@@ -309,7 +329,13 @@ export class GuiClient {
 			}));
 			return;
 		}
-		if (action.action === "dialog" || action.action === "clearNotices" || action.action === "abort" || action.action === "cancelLogin") return source.control(action, client);
+		if (action.action === "dialog") {
+			const dialogs = source.dialogs;
+			if (!dialogs) throw new Error("对话框已结束，请刷新当前状态。");
+			dialogs.respond(action.id, action.value, source === this.selected ? this.connection : undefined);
+			return;
+		}
+		if (action.action === "clearNotices" || action.action === "abort" || action.action === "cancelLogin") return source.control(action, client);
 		return source.use(client, (execution) => execution.dispatch(action, client));
 	}
 	query<Q extends GuiQuery>(query: Q, sessionId?: string | null): Promise<GuiQueryResults[Q["query"]]>;
@@ -345,6 +371,10 @@ export class GuiClient {
 				: content };
 		}
 		const session = this.resolveSession(sessionId);
+		if (query.query === "approvalDetails") {
+			if (!session.dialogs) throw new Error("对话框已结束，请刷新当前状态。");
+			return session.dialogs.reveal(query.id);
+		}
 		if (query.query === "files") return completeFiles(session.cwd, query.prefix);
 		return session.use(this.forSession(session), (execution) => execution.query(query));
 	}
@@ -357,6 +387,7 @@ export class GuiClient {
 	close(): void {
 		if (this.closed) return;
 		this.closed = true;
+		this.connection?.close();
 		this.selection++;
 		this.unbind(); this.unsubscribeHost();
 		this.storage.dispose();

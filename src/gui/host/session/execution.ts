@@ -163,6 +163,7 @@ export class GuiExecution {
 				return;
 			}
 			if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") {
+				if (event.type === "tool_execution_end") this.dialogs.finishSudo(event.toolCallId);
 				const mutation = this.liveTools.accept(event);
 				// 变更 diff 作为界面专用条目落盘，父结果完成后仍可恢复。
 				if (mutation) session.sessionManager.appendCustomEntry(NESTED_MUTATION_ENTRY, mutation);
@@ -251,7 +252,6 @@ export class GuiExecution {
 		return this.track(this.readQuery(query));
 	}
 	private async readQuery(query: SessionQuery): Promise<GuiQueryResults[SessionQuery["query"]]> {
-		if (query.query === "approvalDetails") return this.dialogs.reveal(query.id);
 		if (query.query === "image") return this.payloads.image(query.id);
 		if (query.query === "toolOutput") return this.payloads.toolOutput(query.id);
 		if (this.changing) throw new Error("正在处理会话操作，请稍后再试。");
@@ -265,7 +265,6 @@ export class GuiExecution {
 
 	private async perform(action: SessionAction, client: SessionClient): Promise<GuiActionResult> {
 		switch (action.action) {
-			case "dialog": this.dialogs.respond(action.id, action.value); return;
 			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
 			case "cancelLogin": this.loginController?.abort(); if (this.mcpLoggingIn) this.dialogs.cancel(); return;
 			case "abort":

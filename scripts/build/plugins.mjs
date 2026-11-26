@@ -14,6 +14,7 @@ export function runtimePlugin() {
 	return {
 		name: "opi-runtime-assets",
 		setup(build) {
+			build.config.define = { ...build.config.define, OPI_PACKAGED: "true" };
 			build.onResolve({ filter: /^undici$/ }, () => ({ path: require.resolve("undici/index.js") }));
 			// UMD 工厂中的相对 require 无法在 Node 单文件产物中解析。
 			build.onResolve({ filter: /^jsonc-parser$/ }, () => ({ path: require.resolve("jsonc-parser/lib/esm/main.js") }));

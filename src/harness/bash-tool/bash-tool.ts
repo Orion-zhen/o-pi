@@ -1,3 +1,4 @@
+import { withAskpass } from "../bash-runtime/askpass.ts";
 import type { PreparedBashCommand } from "../bash-runtime/prepare.ts";
 import { BASH_STRUCTURED_BYTES, bashStructuredPreview } from "./structured-output.ts";
 import { OutputCapture, limitCapturedPreview } from "./output-capture.ts";
@@ -52,7 +53,8 @@ export async function executeBashCommand(prepared: PreparedBashCommand, runtime:
 		let exitCode: number | undefined;
 		let shellExitAfterSeconds: number | undefined;
 		try {
-			const result = await runtime.operations.exec(prepared.command, prepared.cwd, {
+			const operations = prepared.askpass ? withAskpass(runtime.operations, prepared.askpass) : runtime.operations;
+			const result = await operations.exec(prepared.command, prepared.cwd, {
 				onData(data) {
 					capture.append(data);
 					scheduleUpdate();

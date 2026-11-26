@@ -21,12 +21,12 @@ Approval Gate 在 `tool_call` 中检查 Bash、write、edit 和 webfetch，返�
 
 ## 选择
 
-| 操作 | 效果 |
-| --- | --- |
-| Allow once | 放行当前调用 |
-| Allow for session | 放行当前调用。所有待审批单元均可精确记忆时，保存会话授权 |
-| Deny | 拒绝调用 |
-| Deny with instruction | 拒绝并把附加指令返回给代理 |
+| GUI 按钮 | TUI / RPC 选项 | 效果 |
+| --- | --- | --- |
+| 允许一次 | Allow once | 放行当前调用 |
+| 本会话允许 | Allow for session | 放行当前调用并保存会话授权。仅当所有待审批单元都能精确记忆时提供 |
+| 拒绝 | Deny | 拒绝调用 |
+| 拒绝并说明 | Deny with instruction | 拒绝并把附加指令返回给代理 |
 
 Bash 放行绑定当前工作目录。webfetch 放行绑定完整 origin 和网络范围。
 

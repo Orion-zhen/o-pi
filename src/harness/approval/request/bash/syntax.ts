@@ -86,6 +86,19 @@ export function commandWords(node: SyntaxNode): Array<{ node: SyntaxNode; source
 	return words;
 }
 
+// 只替换命令名，参数的引号、转义和续行由执行该命令的 Bash 解释。
+export function staticSudoCommand(script: string, root: SyntaxNode): string | undefined {
+	if (!/^[ \t\n]*(?:\/usr\/bin\/)?sudo[ \t]/u.test(script) || root.childCount !== 1) return;
+	const command = root.firstChild;
+	if (command?.type !== "command") return;
+	const [name, ...args] = command.children;
+	if (name?.type !== "command_name" || (name.text !== "sudo" && name.text !== "/usr/bin/sudo")) return;
+	if (!args.every((arg) => ["word", "string", "raw_string", "number"].includes(arg.type))) return;
+	const [, program, ...rest] = commandWords(command);
+	if (!program?.literal || program.literal.startsWith("-") || program.literal.includes("=") || rest.some((arg) => arg.literal === undefined)) return;
+	return `exec /usr/bin/sudo -A --${script.slice(name.endIndex)}`;
+}
+
 function isWordContinuation(gap: string): boolean {
 	return /^(?:\\\n)+$/u.test(gap);
 }

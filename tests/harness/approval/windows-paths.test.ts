@@ -5,7 +5,7 @@ vi.mock("node:path", async (load) => ({ default: (await load<typeof import("node
 vi.mock("node:os", async (load) => ({ default: { ...(await load<typeof import("node:os")>()), tmpdir: () => "D:\\Temp" } }));
 
 function bashRequest(command: string, cwd: string) {
-	return buildBashApprovalRequest(command, { command, cwd, env: {} });
+	return buildBashApprovalRequest(command, { command, cwd, env: {} }, { askpass: false });
 }
 
 it.each([

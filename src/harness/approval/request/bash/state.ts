@@ -19,6 +19,7 @@ export interface ResolvedShellValue {
 }
 
 export const MAX_BRANCH_CHOICES = 8;
+export class IncompleteBashAnalysis extends Error {}
 export type Directories = readonly ResolvedShellValue[];
 export const UNKNOWN_DIRECTORY: ResolvedShellValue = { value: UNKNOWN_DIRECTORY_PATH, temporary: false };
 export const UNSET = Symbol("unset");
@@ -36,7 +37,7 @@ export interface BashAnalysisContext {
 	usedEnvironment?: Map<string, string | null>;
 	cwd: Directories;
 	variables: Map<string, VariableValue>;
-	exitTraps: Set<string>;
+	exitTrap: string | undefined;
 }
 
 export function setPositionalVariables(
@@ -54,13 +55,20 @@ export function shellArgumentValue(value: string): ResolvedShellValue {
 	return { value, temporary: isSyntheticTemporaryPath(value) };
 }
 
-export function assignContext(target: BashAnalysisContext, source: BashAnalysisContext): void {
-	target.cwd = source.cwd;
-	target.variables = new Map(source.variables);
-	target.exitTraps = new Set(source.exitTraps);
+// 不同 EXIT 动作在退出时读取各自路径上的变量和工作目录。
+export function joinPaths(paths: BashAnalysisContext[]): BashAnalysisContext[] {
+	if (paths.length <= 1) return paths;
+	const groups = new Map<string | undefined, [BashAnalysisContext, ...BashAnalysisContext[]]>();
+	for (const path of paths) {
+		const group = groups.get(path.exitTrap);
+		if (group) group.push(path);
+		else groups.set(path.exitTrap, [path]);
+	}
+	if (groups.size > MAX_BRANCH_CHOICES) throw new IncompleteBashAnalysis();
+	return Array.from(groups.values(), joinContexts);
 }
 
-export function joinContexts(contexts: readonly [BashAnalysisContext, ...BashAnalysisContext[]]): BashAnalysisContext {
+function joinContexts(contexts: readonly [BashAnalysisContext, ...BashAnalysisContext[]]): BashAnalysisContext {
 	const [first, ...rest] = contexts;
 	const variables = new Map<string, VariableValue>();
 	for (const [name, firstValue] of first.variables) {
@@ -73,7 +81,6 @@ export function joinContexts(contexts: readonly [BashAnalysisContext, ...BashAna
 		...first,
 		cwd: joinDirectories(contexts.flatMap((context) => context.cwd)),
 		variables,
-		exitTraps: new Set(contexts.flatMap((context) => [...context.exitTraps])),
 	};
 }
 
@@ -122,7 +129,6 @@ export function cloneContext(context: BashAnalysisContext): BashAnalysisContext 
 	return {
 		...context,
 		variables: new Map(context.variables),
-		exitTraps: new Set(context.exitTraps),
 	};
 }
 

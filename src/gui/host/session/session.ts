@@ -154,11 +154,7 @@ export class GuiSession {
 	async control(action: SessionControlAction, client: SessionClient): Promise<void> {
 		this.assertOpen();
 		if (this.resources.state === "ready") return this.use(client, (execution) => execution.dispatch(action, client));
-		const dialogs = this.dialogs;
-		if (action.action === "dialog") {
-			if (!dialogs) throw new Error("对话框已结束，请刷新当前状态。");
-			dialogs.respond(action.id, action.value);
-		} else if (action.action === "clearNotices") dialogs?.clearNotices(action.ids);
+		if (action.action === "clearNotices") this.dialogs?.clearNotices(action.ids);
 		else if (this.resources.state === "starting" && action.action === "abort") this.resources.context.cancel();
 	}
 	private assertOpen(): void {

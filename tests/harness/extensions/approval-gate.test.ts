@@ -17,6 +17,7 @@ import { ApprovalDialog } from "../../../src/tui/views/approval/dialog.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../src/harness/approval/types.ts";
 import { readPrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.ts";
 import { registerExtension } from "../../helpers/extension.ts";
+import { dialogUi } from "../../helpers/tui-dialog.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
@@ -169,12 +170,27 @@ describe("approval gate", () => {
 		expect(ui.selectCalls).toBe(0);
 	});
 
-	it("审批中混有动态重定向时，会话放行不单独记住其余命令", async () => {
+	it.skipIf(process.platform !== "darwin" && process.platform !== "linux")("TUI 对静态 sudo 只提供单次授权，批准时尚不索密", async () => {
+		process.env.PI_BASH_TOOL_CONFIG = path.join(dir, "bash.jsonc");
+		await writeFile(process.env.PI_BASH_TOOL_CONFIG, '{"environment":{"inherit":false}}');
+		const panels: string[] = [];
+		const ui = { ...fakeUi([]), ...dialogUi((dialog) => {
+			const panel = dialog.render(80).join("\n");
+			expect(panel).toContain("Allow once");
+			expect(panel).not.toContain("Allow for session");
+			panels.push(panel);
+			dialog.handleInput?.("\r");
+		}) };
+		expect(await handle(bash("sudo id"), { ...ctx(ui), mode: "tui" })).toBeUndefined();
+		expect(panels).toHaveLength(1);
+	});
+
+	it("有待审批单元不能精确记忆时仅允许单次放行", async () => {
 		const handler = captureExtensionHandler();
-		const ui = fakeUi(["Allow for session", "Deny"]);
+		const ui = fakeUi(["Allow once", "Deny"]);
 		const context = ctx(ui);
 		expect(await handler(bash('read output; git push origin main >"$output"'), context)).toBeUndefined();
-		expect(ui.selectOptions[0]).toContain("Allow for session");
+		expect(ui.selectOptions[0]).toEqual(["Allow once", "Deny", "Deny with instruction"]);
 		expect(await handler(bash("git push origin main"), context)).toMatchObject({ block: true });
 		expect(ui.selectCalls).toBe(2);
 	});
@@ -440,7 +456,7 @@ describe("approval gate", () => {
 	it("TUI 和 RPC 默认不展示由敏感环境展开的子脚本", async () => {
 		const command = 'bash -c "$SCRIPT_TOKEN"';
 		const script = "echo demo-only";
-		const request = await buildBashApprovalRequest(command, { cwd: dir, command, env: { SCRIPT_TOKEN: script } });
+		const request = await buildBashApprovalRequest(command, { cwd: dir, command, env: { SCRIPT_TOKEN: script } }, { askpass: false });
 		const unit = request.units.find(({ target }) => target.value === script);
 		if (!unit) throw new Error("缺少子脚本单元");
 		const ask: Extract<ApprovalDecision, { kind: "ask" }> = { kind: "ask", reason: "script", items: [{ unit, reason: "script" }] };
@@ -462,6 +478,19 @@ describe("approval gate", () => {
 		} finally {
 			dialog.dispose();
 		}
+	});
+
+	it("RPC 的 sudo 仍可通过普通审批获得会话授权", async () => {
+		process.env.PI_BASH_TOOL_CONFIG = path.join(dir, "bash.jsonc");
+		await writeFile(process.env.PI_BASH_TOOL_CONFIG, '{"environment":{"inherit":false}}');
+		const ui = fakeUi(["Allow for session"]);
+		const context = ctx(ui);
+		const event = bash("sudo id");
+		const handler = captureExtensionHandler();
+		expect(await handler(event, context)).toBeUndefined();
+		expect(ui.selectOptions[0]).toContain("Allow for session");
+		expect(await handler(bash("sudo id"), context)).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
 	});
 
 	it("审批面板超时后关闭并清理计时器", async () => {
@@ -516,7 +545,7 @@ function dialogForRequest(
 }
 
 async function requiredRequest(event: DialogToolCall): Promise<ApprovalRequest> {
-	if (event.toolName === "bash") return buildBashApprovalRequest(event.input.command, { cwd: dir, command: event.input.command, env: {} });
+	if (event.toolName === "bash") return buildBashApprovalRequest(event.input.command, { cwd: dir, command: event.input.command, env: {} }, { askpass: false });
 	return buildFileApprovalRequest(event, dir);
 }
 

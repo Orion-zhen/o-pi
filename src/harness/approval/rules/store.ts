@@ -4,14 +4,14 @@ import type { ApprovalRequest, ApprovalUnit } from "../types.ts";
 export class SessionApprovalStore {
 	private keys = new Set<string>();
 
-	remember(request: ApprovalRequest, units: readonly ApprovalUnit[]): void {
+	prepareGrant(request: ApprovalRequest, units: readonly ApprovalUnit[]): (() => void) | undefined {
 		const keys: string[] = [];
 		for (const unit of units) {
 			const key = ruleKey(request, unit);
 			if (key === undefined) return;
 			keys.push(key);
 		}
-		for (const key of keys) this.keys.add(key);
+		return () => { for (const key of keys) this.keys.add(key); };
 	}
 
 	matchesAllowRule(request: ApprovalRequest, unit: ApprovalUnit): boolean {

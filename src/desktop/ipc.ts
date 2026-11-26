@@ -63,11 +63,9 @@ export function installDesktopIpc(
 		diagnostics.acknowledge(id, appliedAt);
 		client.send({ kind: "ack", id });
 	});
-	ipcMain.on("gui:unsubscribe", (event) => {
-		trusted(event);
-		diagnostics.reset();
-		client.send({ kind: "unsubscribe" });
-	});
+	const disconnect = () => { diagnostics.reset(); client.send({ kind: "unsubscribe" }); };
+	window.webContents.on("render-process-gone", disconnect);
+	ipcMain.on("gui:unsubscribe", (event) => { trusted(event); disconnect(); });
 	ipcMain.handle("gui:directory", async (event) => {
 		trusted(event);
 		const result = await dialog.showOpenDialog(window, { properties: ["openDirectory"] });

@@ -163,7 +163,7 @@ export async function startWebServer(
 				} catch { ws.close(1008, "Invalid control message"); }
 			});
 			ws.on("error", () => ws.terminate());
-			ws.on("close", () => { connection.close(); client.close(); clients.delete(client.id); });
+			ws.on("close", () => { client.close(); clients.delete(client.id); });
 		});
 	});
 	await new Promise<void>((resolve, reject) => {
