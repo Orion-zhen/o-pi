@@ -33,7 +33,7 @@ GUI“设置 → 工具与代码 → LSP 服务器”可检查可执行文件位
 
 ## 网页请求失败
 
-检查搜索引擎凭据、[网络代理](../reference/web-tools/network.md)和域名过滤。私网网页需要审批。带 Cookie 的请求还需要域名允许列表和认证确认。
+检查搜索引擎凭据、[网络代理](../reference/web-tools/network.md)和域名过滤。除直连本机回环外，私网网页默认需要审批。带 Cookie 的请求还需要域名允许列表和认证确认。
 
 网页工具读取静态响应。结果中的 `partial` 表示存在未取得的内容，`next` 表示可以继续读取的文本位置。字段说明见 [webfetch](../reference/web-tools/webfetch.md)。
 

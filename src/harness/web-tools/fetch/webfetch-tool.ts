@@ -10,6 +10,7 @@ import type {
 import type { ContentConversion, WebFetchPage, WebFetchPdf } from "../content/types.ts";
 import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.ts";
 import { validateRequestUrl } from "../network/network-policy.ts";
+import type { PrivateNetworkGrant } from "../network/private-network-grant.ts";
 import type { ValidatedUrl } from "../network/types.ts";
 import { redactUrl } from "../network/url-utils.ts";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.ts";
@@ -47,8 +48,8 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	}
 	const textMode = mode === "source" ? "source" : "readable";
 	const canReturnImages = !textOnly && textMode === "readable" && offset === 0 && mediaEnabled && runtime.context.acceptsImages === true;
-	const snapshotKey = snapshotKeyFor(requested, textMode, mediaEnabled, runtime.context.privateNetworkGrant?.origin);
-	const pdfKey = `pdf\0${snapshotKeyFor(requested, "readable", false, runtime.context.privateNetworkGrant?.origin)}`;
+	const snapshotKey = snapshotKeyFor(requested, textMode, mediaEnabled, runtime.context.privateNetworkGrant);
+	const pdfKey = `pdf\0${snapshotKeyFor(requested, "readable", false, runtime.context.privateNetworkGrant)}`;
 	const useSnapshot = params.offset !== undefined || textOnly || params.pages !== undefined || mode === "image";
 	const cached = useSnapshot ? runtime.snapshots.get(snapshotKey) ?? runtime.snapshots.getPdf(pdfKey) : undefined;
 	let snapshotStatus: SnapshotStatus = !useSnapshot ? "not_needed" : cached === undefined ? "refetched" : "hit";
@@ -200,9 +201,10 @@ function collectOmissions(
 	return omissions;
 }
 
-function snapshotKeyFor(requested: ValidatedUrl, mode: Exclude<WebFetchMode, "image">, mediaEnabled: boolean, privateNetworkOrigin: string | undefined): string {
+function snapshotKeyFor(requested: ValidatedUrl, mode: Exclude<WebFetchMode, "image">, mediaEnabled: boolean, grant: PrivateNetworkGrant | undefined): string {
 	const normalized = `${requested.url}${mode === "source" ? "" : requested.fragment}`;
-	return `${privateNetworkOrigin ?? "public"}\0${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
+	const access = grant ? `${grant.scope}:${grant.origin}` : "public";
+	return `${access}\0${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
 }
 
 function safeRedact(value: string): string {

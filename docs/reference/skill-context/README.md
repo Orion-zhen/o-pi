@@ -64,7 +64,7 @@ skill://review
 skill://review/references/checklist.md
 ```
 
-已加载技能的根和后代可供六个文件工具访问。write 和 edit 可以修改技能，默认审批策略要求确认。
+已加载技能的根和后代可供六个文件工具访问。write 和 edit 可以修改技能。默认策略不因 `skill://` 路径要求确认。需要确认时，可为这两个工具配置匹配 `skill://**` 的路径事实，见[审批规则](../approval-gate/rules.md#路径规则)。
 
 `skill://` 解析检查逻辑根与真实路径，拒绝 `..`、空路径段、百分号编码等非法形式，也拒绝越界符号链接。
 

@@ -1,4 +1,4 @@
-import type { ApprovalUnit, BashApprovalRequest } from "../../types.ts";
+import type { ApprovalUnit, BashApprovalRequest, BashPipeline } from "../../types.ts";
 import { normalizeTargetPath } from "../path.ts";
 import { analyzeBashScript } from "./analysis.ts";
 import { hasStartupHooks, type StartupFacts } from "./startup.ts";
@@ -14,27 +14,27 @@ export async function buildBashApprovalRequest(command: string, { cwd, command: 
 	const used = new Map<string, string | null>();
 	const unknownStartup = hasStartupHooks(env);
 	const startup = unknownStartup ? undefined : { env, used };
-	const units = await parseBashApprovalUnits(command, cwd, startup, unknownStartup);
+	const pipelines: BashPipeline[] = [];
+	const units = await parseBashApprovalUnits(command, cwd, pipelines, startup, unknownStartup);
 	if (script !== command) {
-		units.push(...await parseBashApprovalUnits(script, cwd, startup, false));
-		units.push({ action: "execute", target: { kind: "command", value: command, effective_value: script, shell_input: script }, remember: false });
+		units.push(...await parseBashApprovalUnits(script, cwd, pipelines, startup, false));
+		units.push({ action: "execute", target: { kind: "command", value: command }, remember: false });
 	}
 	return {
 		tool: "bash", cwd: normalizeTargetPath(".", cwd),
 		detail: { command, ...(used.size ? { environment: Object.fromEntries(used) } : {}) },
-		units,
+		units, pipelines,
 		allowSessionMemory: used.size === 0 && !unknownStartup,
 	};
 }
 
-async function parseBashApprovalUnits(command: string, cwd: string, startup: StartupFacts | undefined, requireOpaque: boolean): Promise<ApprovalUnit[]> {
+async function parseBashApprovalUnits(command: string, cwd: string, pipelines: BashPipeline[], startup: StartupFacts | undefined, requireOpaque: boolean): Promise<ApprovalUnit[]> {
 	const units: ApprovalUnit[] = [];
-	const parsed = await analyzeBashScript(command, cwd, units, startup);
-	if (parsed && units.length === 0) units.push({
-		action: "execute", target: { kind: "command", value: normalizeSource(command), effective_value: command }, remember: true,
-	});
-	if (!parsed || requireOpaque) units.push({
-		action: "execute", target: { kind: "command", value: normalizeSource(command), effective_value: `<opaque> ${command}` }, remember: true,
+	const parsed = await analyzeBashScript(command, cwd, { units, pipelines }, startup);
+	const opaque = !parsed || requireOpaque;
+	if (opaque || units.length === 0) units.push({
+		action: "execute", target: { kind: "command", value: normalizeSource(command) }, remember: true,
+		...(opaque && { analysisFact: "execution.opaque" }),
 	});
 	return units;
 }

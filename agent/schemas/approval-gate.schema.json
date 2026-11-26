@@ -15,52 +15,54 @@
 				"non_interactive": { "enum": ["block", "allow"], "default": "block" }
 			}
 		},
-		"remember": {
-			"type": "object",
-			"additionalProperties": false,
-			"properties": {
-				"allow_session": { "type": "boolean", "default": true }
-			}
-		},
 		"tools": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
 				"bash": { "$ref": "#/$defs/bashPolicy" },
-				"write": { "$ref": "#/$defs/toolPolicy" },
-				"edit": { "$ref": "#/$defs/toolPolicy" },
-				"webfetch": { "$ref": "#/$defs/toolPolicy" }
+				"write": { "$ref": "#/$defs/filePolicy" },
+				"edit": { "$ref": "#/$defs/filePolicy" },
+				"webfetch": { "$ref": "#/$defs/networkPolicy" }
 			}
-		},
-		"ask_rules": {
-			"type": "array",
-			"items": { "$ref": "#/$defs/rule" },
-			"default": []
-		},
-		"deny_rules": {
-			"type": "array",
-			"items": { "$ref": "#/$defs/rule" },
-			"default": []
 		}
 	},
 	"$defs": {
-		"toolPolicy": {
+		"defaultAction": { "enum": ["allow", "ask", "deny"], "default": "allow" },
+		"factAction": { "enum": ["ask", "deny"] },
+		"reason": { "type": "string", "minLength": 1 },
+		"globs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+		"filePolicy": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"default_action": { "enum": ["allow", "ask", "deny"] }
+				"default_action": { "$ref": "#/$defs/defaultAction" },
+				"facts": {
+					"type": "object", "additionalProperties": false,
+					"patternProperties": { "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$": { "anyOf": [{ "const": false }, { "$ref": "#/$defs/fileFact" }] } }
+				}
+			}
+		},
+		"networkPolicy": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"default_action": { "$ref": "#/$defs/defaultAction" },
+				"facts": {
+					"type": "object", "additionalProperties": false,
+					"patternProperties": { "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$": { "anyOf": [{ "const": false }, { "$ref": "#/$defs/networkFact" }] } }
+				}
 			}
 		},
 		"bashPolicy": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"default_action": { "enum": ["allow", "ask", "deny"], "default": "allow" },
+				"default_action": { "$ref": "#/$defs/defaultAction" },
 				"facts": {
 					"type": "object",
 					"additionalProperties": false,
 					"patternProperties": {
-						"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$": { "$ref": "#/$defs/bashFact" }
+						"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$": { "anyOf": [{ "const": false }, { "$ref": "#/$defs/bashFact" }] }
 					}
 				},
 				"combinations": {
@@ -74,38 +76,66 @@
 				}
 			}
 		},
+		"fileFact": {
+			"type": "object", "additionalProperties": false,
+			"properties": {
+				"action": { "$ref": "#/$defs/factAction" }, "reason": { "$ref": "#/$defs/reason" },
+				"match_all": { "const": true }, "path_globs": { "$ref": "#/$defs/globs" }
+			},
+			"not": { "required": ["match_all", "path_globs"] }
+		},
+		"networkFact": {
+			"type": "object", "additionalProperties": false,
+			"properties": {
+				"action": { "$ref": "#/$defs/factAction" }, "reason": { "$ref": "#/$defs/reason" },
+				"match_all": { "const": true }, "network_scope": { "enum": ["public", "private", "loopback"] }
+			},
+			"not": { "required": ["match_all", "network_scope"] }
+		},
 		"bashFact": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"enabled": { "type": "boolean", "default": true },
-				"action": { "enum": ["ask", "deny"] },
+				"action": { "$ref": "#/$defs/factAction" },
+				"reason": { "$ref": "#/$defs/reason" },
+				"match_all": { "const": true },
+				"path_globs": { "$ref": "#/$defs/globs" },
 				"commands": {
 					"type": "object",
 					"additionalProperties": {
 						"anyOf": [
-							{ "type": "string", "minLength": 1 },
 							{ "const": false },
 							{ "$ref": "#/$defs/bashCommandMatcher" }
 						]
 					}
 				}
-			}
+			},
+			"if": { "required": ["match_all"] },
+			"then": { "not": { "anyOf": [{ "required": ["commands"] }, { "required": ["path_globs"] }] } }
+		},
+		"commandPrefix": {
+			"type": "array", "minItems": 1,
+			"items": [{ "type": "string", "minLength": 1, "description": "程序基本名称的 glob。" }],
+			"additionalItems": { "type": "string", "description": "按字面值匹配的参数。" }
 		},
 		"bashCommandMatcher": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"regex": { "type": "string", "minLength": 1 },
-				"scope": { "enum": ["raw-input", "source-unit", "effective-unit"], "default": "source-unit" },
+				"command": { "$ref": "#/$defs/commandPrefix" },
+				"exact": { "type": "boolean" },
+				"arg_globs": { "$ref": "#/$defs/globs" },
+				"pipeline": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/commandPrefix" } },
 				"platform": { "enum": ["linux", "darwin", "win32"] }
-			}
+			},
+			"not": { "required": ["exact", "arg_globs"], "properties": { "exact": { "const": true } } },
+			"if": { "required": ["pipeline"] },
+			"then": { "not": { "anyOf": [{ "required": ["command"] }, { "required": ["exact"] }, { "required": ["arg_globs"] }] } }
 		},
 		"bashCombination": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"enabled": { "type": "boolean", "default": true },
 				"all": {
 					"type": "array",
 					"minItems": 2,
@@ -113,26 +143,6 @@
 					"items": { "type": "string", "minLength": 1 }
 				},
 				"action": { "enum": ["ask", "deny"] }
-			}
-		},
-		"rule": {
-			"type": "object",
-			"additionalProperties": false,
-			"required": ["name", "tools", "reason"],
-			"properties": {
-				"name": { "type": "string", "minLength": 1 },
-				"tools": {
-					"type": "array",
-					"minItems": 1,
-					"items": { "type": "string", "minLength": 1 },
-					"uniqueItems": true
-				},
-				"path_globs": {
-					"type": "array",
-					"minItems": 1,
-					"items": { "type": "string", "minLength": 1 }
-				},
-				"reason": { "type": "string", "minLength": 1 }
 			}
 		}
 	}

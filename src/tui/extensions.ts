@@ -1,6 +1,5 @@
 import type { ExtensionCommandContext, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { createHarnessExtensions } from "../harness/extensions.ts";
-import approvalGate from "../harness/extensions/approval-gate.ts";
 import { createToolsExtension } from "../harness/extensions/cmd-slash-tools.ts";
 import { createPruneExtension } from "../harness/extensions/prune.ts";
 import stats from "../harness/extensions/stats.ts";
@@ -71,7 +70,6 @@ export const presentation = {
 
 export function createTuiExtensions(startup: ToolStartupOptions = {}): InlineExtension[] {
 	const views: InlineExtension[] = [
-		{ name: "approval-gate", factory: (pi) => approvalGate(pi, presentation.approvalGate) },
 		{ name: "cmd-slash-tools", factory: createToolsExtension({ loadTui: presentation.tools, startup }) },
 		{ name: "prune", factory: createPruneExtension(presentation.prune) },
 		{ name: "stats", factory: (pi) => stats(pi, presentation.stats) },
@@ -80,6 +78,7 @@ export function createTuiExtensions(startup: ToolStartupOptions = {}): InlineExt
 	];
 	const extensions = createHarnessExtensions({
 		startup,
+		approvalPresenter: presentation.approvalGate,
 		subagent: createSubagentExtension(presentation.subagent),
 		telemetry: (pi, service) => telemetry(pi, service, presentation.telemetry),
 	}).map(

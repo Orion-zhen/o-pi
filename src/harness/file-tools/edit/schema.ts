@@ -2,7 +2,7 @@ import { Type } from "typebox";
 
 export const editParameters = Type.Object(
 	{
-		path: Type.String({ description: "Previously read or written file." }),
+		path: Type.String({ minLength: 1, description: "Previously read or written file." }),
 		edits: Type.Array(Type.Object({
 			old: Type.String({
 				minLength: 1,

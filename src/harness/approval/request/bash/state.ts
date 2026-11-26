@@ -1,7 +1,7 @@
 import path from "node:path";
 import { decodeShellWord } from "../../../syntax-tree/bash.ts";
 
-import type { NumericFileName } from "../../types.ts";
+import type { BashArg, NumericFileName } from "../../types.ts";
 import { NUMERIC_FIELD } from "./syntax.ts";
 import { isSystemTemporaryDescendant, isUnmappedBashPath, normalizeTargetPath, rulePath } from "../path.ts";
 
@@ -41,11 +41,11 @@ export interface BashAnalysisContext {
 
 export function setPositionalVariables(
 	variables: Map<string, VariableValue>,
-	args: Array<string | undefined>,
+	args: readonly BashArg[],
 ): void {
 	for (const key of variables.keys()) if (/^[1-9]\d*$/u.test(key)) variables.delete(key);
 	for (const [index, value] of args.entries()) {
-		if (value === undefined) break;
+		if (typeof value !== "string") break;
 		variables.set(String(index + 1), shellArgumentValue(value));
 	}
 }

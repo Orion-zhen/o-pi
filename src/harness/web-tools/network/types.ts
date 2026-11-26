@@ -51,7 +51,7 @@ export interface WebHttpBodyReader {
 export interface WebHttpRequestInit {
 	method: "GET" | "POST" | "DELETE";
 	redirect: "manual";
-	dispatcher?: Dispatcher;
+	dispatcher: Dispatcher;
 	signal: AbortSignal;
 	headers: Record<string, string>;
 	body?: string;

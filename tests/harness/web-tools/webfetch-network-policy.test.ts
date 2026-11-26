@@ -10,8 +10,6 @@ import type { WebToolsConfig } from "../../../src/harness/web-tools/config-types
 import { createNetworkDispatcher, networkConfigSignature } from "../../../src/harness/web-tools/network/dispatcher.ts";
 import {
 	inspectWebFetchTarget,
-	isAllowedResolvedAddress,
-	isPublicAddress,
 	resolveAllowedAddresses,
 	validateRequestUrl,
 } from "../../../src/harness/web-tools/network/network-policy.ts";
@@ -58,7 +56,7 @@ describe("webfetch network policy", () => {
 			{ address: "8.8.8.8", family: 4 },
 			{ address: "10.0.0.5", family: 4 },
 		]);
-		const privateTarget = await inspectWebFetchTarget("http://service.internal:8080/path");
+		const privateTarget = await inspectWebFetchTarget("http://service.internal:8080/path", []);
 		expect(privateTarget).toMatchObject({
 			status: "private",
 			validated: { displayUrl: "http://service.internal:8080/path" },
@@ -69,18 +67,24 @@ describe("webfetch network policy", () => {
 		});
 
 		lookup.mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
-		await expect(inspectWebFetchTarget("https://public.example/")).resolves.toMatchObject({ status: "public" });
+		await expect(inspectWebFetchTarget("https://public.example/", [])).resolves.toMatchObject({ status: "public" });
 	});
 
-	it("只把全球单播公网地址视为允许", () => {
-		expect(isPublicAddress("8.8.8.8")).toBe(true);
-		expect(isPublicAddress("2606:4700:4700::1111")).toBe(true);
-		expect(isPublicAddress("10.0.0.1")).toBe(false);
-		expect(isPublicAddress("192.168.1.1")).toBe(false);
-		expect(isPublicAddress("169.254.169.254")).toBe(false);
-		expect(isPublicAddress("::1")).toBe(false);
-		expect(isPublicAddress("fc00::1")).toBe(false);
-		expect(isPublicAddress("::ffff:192.168.1.1")).toBe(false);
+	it.each([
+		["127.42.0.1", "loopback"], ["[::1]", "loopback"], ["0.0.0.0", "private"], ["169.254.169.254", "private"],
+		["[fc00::1]", "private"], ["[::ffff:192.168.1.1]", "private"], ["[2606:4700:4700::1111]", "public"],
+	])("预检字面地址 %s 为 %s", async (host, status) => {
+		await expect(inspectWebFetchTarget(`http://${host}/`, [])).resolves.toMatchObject({ status });
+	});
+
+	it("仅将全部解析到回环的 localhost 名称归入 loopback", async () => {
+		const lookup = vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "::1", family: 6 }, { address: "127.0.0.2", family: 4 }]);
+		for (const host of ["localhost", "dev.localhost."]) {
+			await expect(inspectWebFetchTarget(`http://${host}/`, [])).resolves.toMatchObject({ status: "loopback" });
+		}
+		await expect(inspectWebFetchTarget("http://service.test/", [])).resolves.toMatchObject({ status: "private" });
+		lookup.mockResolvedValue([{ address: "127.0.0.1", family: 4 }, { address: "10.0.0.1", family: 4 }]);
+		await expect(inspectWebFetchTarget("http://localhost/", [])).resolves.toMatchObject({ status: "private" });
 	});
 
 	it.each(invalidLookupResults)("拒绝 DNS $name", async ({ addresses }) => {
@@ -98,7 +102,6 @@ describe("webfetch network policy", () => {
 
 	it("配置的 fake-ip CIDR 只放行 DNS 解析结果，不放行 URL 字面 IP", async () => {
 		vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "198.18.2.86", family: 4 }]);
-		expect(isAllowedResolvedAddress("198.18.2.86", ["198.18.0.0/15"])).toBe(true);
 		await expect(resolveAllowedAddresses("198.18.2.86", {
 			allowedFakeIpRanges: ["198.18.0.0/15"],
 		})).rejects.toMatchObject({ name: "BLOCKED_ADDRESS" });

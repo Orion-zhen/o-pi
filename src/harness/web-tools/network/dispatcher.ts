@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import type { Dispatcher } from "undici";
 
+import { hostServices } from "../../runtime/host-services.ts";
+import { systemProxyUrl } from "../../runtime/system-proxy.ts";
 import type { WebToolsConfig } from "../config-types.ts";
 import { createSecureLookup, resolveAllowedAddresses, type SecureLookupOptions } from "./network-policy.ts";
 
@@ -11,6 +13,13 @@ type NetworkConfig = WebToolsConfig["network"];
 const TARGET_DNS_TTL_MS = 10_000;
 
 export type NetworkDispatcherOptions = SecureLookupOptions;
+
+export async function resolveWebProxy(url: URL, proxy: NetworkConfig["proxy"], signal?: AbortSignal): Promise<NetworkConfig["proxy"]> {
+	if (proxy.enabled || !hostServices) return proxy;
+	const endpoint = systemProxyUrl(await hostServices.resolveProxy(url.href, signal));
+	signal?.throwIfAborted();
+	return endpoint === undefined ? proxy : { enabled: true, http_proxy: endpoint, https_proxy: endpoint, socks5_proxy: "" };
+}
 
 /** 按完整网络配置创建一个可安全直连或代理的共享 dispatcher。 */
 export function createNetworkDispatcher(

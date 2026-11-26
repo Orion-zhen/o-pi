@@ -1,6 +1,7 @@
 import type { ExtensionAPI, InlineExtension } from "@earendil-works/pi-coding-agent";
 import agentsPrompts from "./extensions/agents-prompts.ts";
-import approvalGate from "./extensions/approval-gate.ts";
+import approvalGate, { type ApprovalPresenter } from "./extensions/approval-gate.ts";
+import type { SessionApprovalStore } from "./approval/rules/store.ts";
 import autoTitle from "./extensions/auto-title.ts";
 import bashTool from "./extensions/bash-tool.ts";
 import { createToolsExtension } from "./extensions/cmd-slash-tools.ts";
@@ -28,6 +29,8 @@ import webTools from "./extensions/web-tools.ts";
 import { registerTelemetry, type TelemetryService } from "./telemetry/service.ts";
 
 interface HarnessOptions {
+	approvalPresenter?: ApprovalPresenter;
+	approvalStore?: SessionApprovalStore;
 	startup?: ToolStartupOptions;
 	subagent?: (pi: ExtensionAPI, telemetry: TelemetryService) => void;
 	telemetry?: (pi: ExtensionAPI, service: TelemetryService) => void;
@@ -41,7 +44,7 @@ export function createHarnessExtensions(options: HarnessOptions = {}): InlineExt
 		{ name: "codemode", builtin: true, factory: codemode },
 		{ name: "mcp", builtin: true, factory: mcp },
 		{ name: "agents-prompts", factory: agentsPrompts },
-		{ name: "approval-gate", factory: approvalGate },
+		{ name: "approval-gate", factory: (pi) => approvalGate(pi, options.approvalPresenter, options.approvalStore) },
 		{ name: "auto-title", factory: autoTitle },
 		{ name: "tools-runtime", factory(pi) {
 			const service = registerTelemetry(pi);

@@ -1,6 +1,4 @@
 import type { Dispatcher } from "undici";
-import { hostServices } from "../runtime/host-services.ts";
-import { systemProxyUrl } from "../runtime/system-proxy.ts";
 
 import type {
 	WebFetchCapability,
@@ -10,7 +8,7 @@ import type {
 import type { WebHttpRequestInit, WebHttpResponse } from "./network/types.ts";
 import type { WebToolsConfig } from "./config-types.ts";
 import type { WebToolsRuntime } from "./core/types.ts";
-import { createNetworkDispatcher, networkConfigSignature } from "./network/dispatcher.ts";
+import { createNetworkDispatcher, networkConfigSignature, resolveWebProxy } from "./network/dispatcher.ts";
 import type { PrivateNetworkGrant } from "./network/private-network-grant.ts";
 
 /** 按需初始化两条能力链，统一等待调用结束并释放共享 dispatcher。 */
@@ -47,14 +45,12 @@ export function createWebToolsRuntime(): WebToolsRuntime {
 	}
 
 	async function defaultFetch(input: URL, init: WebHttpRequestInit): Promise<WebHttpResponse> {
-		const policy = init.dispatcher === undefined ? undefined : policies.get(init.dispatcher);
-		if (hostServices && policy && !policy.network.proxy.enabled) {
-			const proxy = systemProxyUrl(await hostServices.resolveProxy(input.href, init.signal));
-			init.signal.throwIfAborted();
-			if (proxy !== undefined) {
-				const network = { ...policy.network, proxy: { enabled: true, http_proxy: proxy, https_proxy: proxy, socks5_proxy: "" } };
-				init = { ...init, dispatcher: await getDispatcher(network, policy.grant) };
-			}
+		const policy = policies.get(init.dispatcher);
+		if (!policy) throw new Error("No network policy registered for dispatcher.");
+		const proxy = await resolveWebProxy(input, policy.network.proxy, init.signal);
+		if (proxy.enabled && policy.grant?.scope === "loopback") throw new Error("Proxy access blocked by direct loopback grant.");
+		if (proxy !== policy.network.proxy) {
+			init = { ...init, dispatcher: await getDispatcher({ ...policy.network, proxy }, policy.grant) };
 		}
 		return (await loadUndici()).fetch(input, init);
 	}
@@ -129,7 +125,7 @@ async function createDefaultDispatcher(
 function dispatcherKey(network: WebToolsConfig["network"], grant?: PrivateNetworkGrant): string {
 	const networkKey = networkConfigSignature(network);
 	if (grant === undefined) return networkKey;
-	return `${networkKey}\0${grant.origin}\0${grant.addresses.map((item) => `${item.family}:${item.address}`).join(",")}`;
+	return `${networkKey}\0${grant.scope}\0${grant.origin}\0${grant.addresses.map((item) => `${item.family}:${item.address}`).join(",")}`;
 }
 
 let undiciModule: Promise<typeof import("undici")> | undefined;

@@ -4,14 +4,14 @@ import type { ApprovalRequest, ApprovalUnit } from "../types.ts";
 export class SessionApprovalStore {
 	private keys = new Set<string>();
 
-	prepareRemember(request: ApprovalRequest, units: readonly ApprovalUnit[]): (() => void) | undefined {
+	remember(request: ApprovalRequest, units: readonly ApprovalUnit[]): void {
 		const keys: string[] = [];
 		for (const unit of units) {
 			const key = ruleKey(request, unit);
-			if (key === undefined) return undefined;
+			if (key === undefined) return;
 			keys.push(key);
 		}
-		return () => { for (const key of keys) this.keys.add(key); };
+		for (const key of keys) this.keys.add(key);
 	}
 
 	matchesAllowRule(request: ApprovalRequest, unit: ApprovalUnit): boolean {
@@ -23,7 +23,7 @@ export class SessionApprovalStore {
 function ruleKey(request: ApprovalRequest, unit: ApprovalUnit): string | undefined {
 	if (!unit.remember || (request.tool === "bash" && !request.allowSessionMemory)) return undefined;
 	const { kind, value } = unit.target;
-	return JSON.stringify([request.tool, kind, kind === "command" ? request.cwd : null, value]);
+	return JSON.stringify([request.tool, kind, request.tool === "webfetch" ? request.detail.scope : kind === "command" ? request.cwd : null, value]);
 }
 
 export type ApprovalRuleMatcher = Pick<SessionApprovalStore, "matchesAllowRule">;

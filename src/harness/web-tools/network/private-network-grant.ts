@@ -1,6 +1,7 @@
-import type { ResolvedAddresses } from "./network-policy.ts";
+import type { NetworkScope, ResolvedAddresses } from "./network-policy.ts";
 
 export interface PrivateNetworkGrant {
+	scope: Exclude<NetworkScope, "public">;
 	origin: string;
 	hostname: string;
 	addresses: ResolvedAddresses;
@@ -8,19 +9,13 @@ export interface PrivateNetworkGrant {
 
 const grants = new WeakMap<object, PrivateNetworkGrant>();
 
-export function createPrivateNetworkGrantFor(
+export function attachPrivateNetworkGrant(
+	input: object,
+	scope: PrivateNetworkGrant["scope"],
 	origin: string,
 	addresses: ResolvedAddresses,
-): PrivateNetworkGrant {
-	return {
-		origin,
-		hostname: normalizeHostname(new URL(origin).hostname),
-		addresses,
-	};
-}
-
-export function attachPrivateNetworkGrant(input: object, grant: PrivateNetworkGrant): void {
-	grants.set(input, grant);
+): void {
+	grants.set(input, { scope, origin, hostname: normalizeHostname(new URL(origin).hostname), addresses });
 }
 
 export function readPrivateNetworkGrant(input: object): PrivateNetworkGrant | undefined {

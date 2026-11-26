@@ -2,9 +2,10 @@ import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import * as host from "../../../src/harness/runtime/host-services.ts";
+import { preflightWebFetch } from "../../../src/harness/web-tools/fetch/approval-preflight.ts";
 import webTools from "../../../src/harness/extensions/web-tools.ts";
-import { attachPrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.ts";
 import { registerExtension, type CapturedExtensionTool } from "../../helpers/extension.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
@@ -54,9 +55,11 @@ async function execute(name: string, params: Record<string, unknown>, vision = f
 	if (!tool) throw new Error(`缺少工具 ${name}`);
 	return tool.execute(name, params, undefined, undefined, { hasUI: false, model: { input: vision ? ["text", "image"] : ["text"] } });
 }
-function approved(pathname: string, extra: Record<string, unknown> = {}) {
+async function approved(pathname: string, extra: Record<string, unknown> = {}) {
 	const params = { url: `${origin}${pathname}`, ...extra };
-	attachPrivateNetworkGrant(params, { origin, hostname: "127.0.0.1", addresses: [{ address: "127.0.0.1", family: 4 }] });
+	const result = await preflightWebFetch(params);
+	if (!("target" in result)) throw new Error(result.error);
+	result.grantPrivateAccess?.();
 	return params;
 }
 
@@ -69,18 +72,31 @@ it("网页搜索经过真实 HTTP 边界，脚本结果只保留检索证据", a
 	] });
 });
 
+it("回环直连可读取本机服务，系统路由改为代理后不能复用直连授权", async () => {
+	await writeFile(path.join(temp.path, "web-tools.jsonc"), "{}");
+	const resolveProxy = vi.fn(async () => "DIRECT");
+	const services = vi.spyOn(host, "hostServices", "get").mockReturnValue({ spawnAgent: vi.fn(), resolveProxy });
+	try {
+		expect((await execute("webfetch", await approved("/text"))).content[0]?.text).toContain("needle Ω");
+		const params = await approved("/text");
+		resolveProxy.mockResolvedValue(`PROXY ${new URL(origin).host}`);
+		expect((await execute("webfetch", params)).content[0]?.text).toContain("BLOCKED_ADDRESS");
+		expect(await preflightWebFetch(params)).toMatchObject({ target: { scope: "private" } });
+	} finally { services.mockRestore(); }
+});
+
 it("私网必须获得授权，授权后的查找返回原文，非法 URL 标记失败", async () => {
 	expect((await execute("webfetch", { url: `${origin}/text` })).isError).toBe(true);
-	const result = await execute("webfetch", approved("/text", { find: "NEEDLE", offset: 0 }));
+	const result = await execute("webfetch", await approved("/text", { find: "NEEDLE", offset: 0 }));
 	expect(result.isError).toBe(false);
 	expect(result.content[0]?.text).toContain("needle Ω");
 	expect((await execute("webfetch", { url: "not-a-url" })).isError).toBe(true);
 });
 
 it.each([false, true])("图片按模型能力返回，PDF 页码与页面图片对应：%s", async (vision) => {
-	const image = await execute("webfetch", approved("/image"), vision);
+	const image = await execute("webfetch", await approved("/image"), vision);
 	expect(image.content.filter((block) => block.type === "image")).toHaveLength(vision ? 1 : 0);
-	const pdf = await execute("webfetch", approved("/pdf", { mode: "image", pages: "2" }), vision);
+	const pdf = await execute("webfetch", await approved("/pdf", { mode: "image", pages: "2" }), vision);
 	expect(pdf.isError).toBe(!vision);
 	if (vision) {
 		expect(pdf.content.map((block) => block.type)).toEqual(["text", "text", "image"]);

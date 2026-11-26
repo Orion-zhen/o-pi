@@ -28,8 +28,10 @@ export interface LookupOptions {
 
 export type SecureLookupOptions = Omit<LookupOptions, "allowedFakeIpRanges">;
 
-export interface WebFetchTargetInspection {
-	status: "public" | "private";
+export type NetworkScope = "public" | "private" | "loopback";
+
+interface WebFetchTargetInspection {
+	status: NetworkScope;
 	validated: ValidatedUrl;
 	addresses: ResolvedAddresses;
 }
@@ -53,7 +55,7 @@ export function validateRequestUrl(
 /** 在 tool hook 阶段解析目标，供审批策略判断并为获批连接固定地址。 */
 export async function inspectWebFetchTarget(
 	rawUrl: string,
-	options: LookupOptions = {},
+	allowedFakeIpRanges: readonly string[],
 ): Promise<WebFetchTargetInspection | WebFetchFailureDetails> {
 	const parsed = parseRequestUrl(rawUrl);
 	if ("status" in parsed) return parsed;
@@ -64,8 +66,11 @@ export async function inspectWebFetchTarget(
 	} catch (error) {
 		return failure("DNS_FAILED", error instanceof Error ? error.message : String(error));
 	}
-	const allowedFakeIpRanges = options.allowedFakeIpRanges ?? [];
-	const isPrivate = isLocalhostName(hostname)
+	const localhost = isLocalhostName(hostname);
+	if ((localhost || ipaddr.isValid(hostname)) && addresses.every(({ address }) => ipaddr.parse(address).range() === "loopback")) {
+		return { status: "loopback", validated: parsed, addresses };
+	}
+	const isPrivate = localhost
 		|| addresses.some((item) => !isAllowedResolvedAddress(item.address, allowedFakeIpRanges));
 	return { status: isPrivate ? "private" : "public", validated: parsed, addresses };
 }
@@ -104,13 +109,13 @@ export async function resolveAllowedAddresses(hostname: string, options: LookupO
 	return resolved;
 }
 
-export function isPublicAddress(address: string): boolean {
+function isPublicAddress(address: string): boolean {
 	if (!ipaddr.isValid(address)) return false;
 	const parsed = ipaddr.process(address);
 	return parsed.range() === "unicast";
 }
 
-export function isAllowedResolvedAddress(address: string, allowedFakeIpRanges: readonly string[]): boolean {
+function isAllowedResolvedAddress(address: string, allowedFakeIpRanges: readonly string[]): boolean {
 	if (isPublicAddress(address)) return true;
 	if (allowedFakeIpRanges.length === 0 || !ipaddr.isValid(address)) return false;
 	const parsed = ipaddr.process(address);

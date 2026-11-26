@@ -6,26 +6,21 @@ import {
 	loadValidatedMergedConfig,
 } from "../config-loader.ts";
 import { compile, type Validator } from "@earendil-works/pi-schema";
-import type { ApprovalGateConfig, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyConfig, BashPolicyFact } from "./types.ts";
+import type { ApprovalGateConfig, BashMatcher, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyFact, FileFact, NetworkFact, ToolPolicy } from "./types.ts";
 
 const SCHEMA_PATH = agentSchemaPath("approval-gate.schema.json");
 let validateComplete: Validator | undefined;
 
-type FileCommandRule = string | false | {
-	regex: string;
-	scope?: BashPolicyCommandMatcher["scope"];
-	platform?: BashPolicyCommandMatcher["platform"];
-};
+type ConfigMatcher = BashMatcher & { platform?: "linux" | "darwin" | "win32" };
+type ConfigBashFact = Omit<BashPolicyFact, "commands"> & { commands?: Record<string, ConfigMatcher | false> };
+
 interface ConfigFile extends Omit<ApprovalGateConfig, "tools"> {
-	tools: Omit<ApprovalGateConfig["tools"], "bash"> & {
-		bash: {
-			default_action: BashPolicyConfig["default_action"];
-			facts: Record<string, {
-				enabled?: boolean;
-				action?: BashPolicyFact["action"];
-				commands: Record<string, FileCommandRule>;
-			}>;
-			combinations: Record<string, false | BashPolicyCombination & { enabled?: boolean }>;
+	tools: {
+		write: ToolPolicy<FileFact | false>;
+		edit: ToolPolicy<FileFact | false>;
+		webfetch: ToolPolicy<NetworkFact | false>;
+		bash: ToolPolicy<ConfigBashFact | false> & {
+			combinations: Record<string, BashPolicyCombination | false>;
 		};
 	};
 }
@@ -43,28 +38,32 @@ function compileConfig(value: unknown): ApprovalGateConfig {
 	const file = value as ConfigFile;
 	return {
 		...file,
-		tools: { ...file.tools, bash: compileBashPolicy(file.tools.bash) },
+		tools: {
+			write: compileTool(file.tools.write), edit: compileTool(file.tools.edit), webfetch: compileTool(file.tools.webfetch),
+			bash: compileBashPolicy(file.tools.bash),
+		},
 	};
 }
 
-function compileBashPolicy(file: ConfigFile["tools"]["bash"]): BashPolicyConfig {
+function compileTool<F extends object>(file: ToolPolicy<F | false>): ToolPolicy<F> {
+	const facts: Record<string, F> = {};
+	for (const [id, fact] of Object.entries(file.facts)) {
+		if (fact !== false) facts[id] = fact;
+	}
+	return { default_action: file.default_action, facts };
+}
+
+function compileBashPolicy(file: ConfigFile["tools"]["bash"]): ApprovalGateConfig["tools"]["bash"] {
 	const facts: Record<string, BashPolicyFact> = {};
 	for (const [factId, fact] of Object.entries(file.facts)) {
+		if (fact === false) continue;
 		const commands: BashPolicyCommandMatcher[] = [];
-		for (const [classifier, rule] of Object.entries(fact.commands)) {
+		for (const [classifier, rule] of Object.entries(fact.commands ?? {})) {
 			if (rule === false) continue;
-			const matcher = typeof rule === "string" ? { regex: rule } : rule;
-			let regex: RegExp;
-			try {
-				regex = new RegExp(matcher.regex, "iu");
-			} catch (error) {
-				throw new ConfigError(`approval bash command regex is invalid: ${factId}/${classifier}.`, {
-					fact: factId, classifier, regex: matcher.regex, error: String(error),
-				});
-			}
-			commands.push({ classifier, regex, scope: matcher.scope ?? "source-unit", ...(matcher.platform === undefined ? {} : { platform: matcher.platform }) });
+			const { platform, ...matcher } = rule;
+			if (platform === undefined || platform === process.platform) commands.push({ classifier, ...matcher });
 		}
-		if (fact.enabled !== false) facts[factId] = { commands, ...(fact.action === undefined ? {} : { action: fact.action }) };
+		facts[factId] = { ...fact, commands };
 	}
 	const combinations: Record<string, BashPolicyCombination> = {};
 	for (const [name, combination] of Object.entries(file.combinations)) {
@@ -74,7 +73,7 @@ function compileBashPolicy(file: ConfigFile["tools"]["bash"]): BashPolicyConfig 
 				throw new ConfigError("approval bash policy combination references an unknown fact.", { combination: name, fact: factId });
 			}
 		}
-		if (combination.enabled !== false) combinations[name] = { all: combination.all, action: combination.action };
+		if (combination.all.every((id) => Object.hasOwn(facts, id))) combinations[name] = combination;
 	}
 	return { default_action: file.default_action, facts, combinations };
 }
@@ -82,22 +81,17 @@ function compileBashPolicy(file: ConfigFile["tools"]["bash"]): BashPolicyConfig 
 /** 覆盖层允许只修改部分字段，合并后则要求所有运行时必需字段存在。 */
 function completeSchemaValidator(): Validator {
 	const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8")) as {
-		required: string[];
-		properties: Record<string, object>;
 		$defs: Record<string, object>;
 	};
-	schema.required = ["enabled", "ui", "remember", "tools", "ask_rules", "deny_rules"];
 	for (const [name, required] of Object.entries({
-		ui: ["timeout_ms", "non_interactive"],
-		remember: ["allow_session"],
-		tools: ["bash", "write", "edit", "webfetch"],
-	})) schema.properties[name] = { ...schema.properties[name], required };
-	for (const [name, required] of Object.entries({
-		toolPolicy: ["default_action"],
+		filePolicy: ["default_action", "facts"], networkPolicy: ["default_action", "facts"],
+		fileFact: ["action"], networkFact: ["action"],
 		bashPolicy: ["default_action", "facts", "combinations"],
-		bashFact: ["commands"],
-		bashCommandMatcher: ["regex"],
 		bashCombination: ["all", "action"],
 	})) schema.$defs[name] = { ...schema.$defs[name], required };
+	for (const [name, selectors] of Object.entries({
+		fileFact: ["path_globs", "match_all"], networkFact: ["network_scope", "match_all"], bashFact: ["commands", "path_globs", "match_all"],
+	})) schema.$defs[name] = { ...schema.$defs[name], anyOf: selectors.map((key) => ({ required: [key] })) };
+	schema.$defs.bashCommandMatcher = { ...schema.$defs.bashCommandMatcher, oneOf: [{ required: ["command"] }, { required: ["pipeline"] }] };
 	return compile(schema);
 }

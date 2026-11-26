@@ -1,3 +1,7 @@
+import type { EditParams } from "../file-tools/edit/types.ts";
+import type { WriteParams } from "../file-tools/write/types.ts";
+import type { NetworkScope } from "../web-tools/network/network-policy.ts";
+
 export interface NumericFileName {
 	prefix: string;
 	suffix: string;
@@ -8,12 +12,6 @@ type ApprovalTarget =
 		kind: "command";
 		/** 用于展示和精确批准匹配的规范值。 */
 		value: string;
-		/** 解包后的命令，用于策略和保守前缀匹配。 */
-		effective_value: string;
-		/** 依赖上下文时，额外匹配展开后、解包前的命令。 */
-		resolved_value?: string;
-		/** 传给子 Shell 的完整脚本，按 raw-input 检查。 */
-		shell_input?: string;
 	}
 	| {
 		kind: "path";
@@ -24,11 +22,23 @@ type ApprovalTarget =
 	}
 	| {
 		kind: "url";
-		/** 内网审批按 origin 匹配。 */
+		/** 网络审批以 origin 为目标。 */
 		value: string;
 	};
 
+/** 未知参数保留源词，不作为字面值。 */
+export type BashArg = string | { source: string };
+export type BashArgv = readonly [program: string, ...args: BashArg[]];
+
+export interface BashPipeline {
+	unit: ApprovalUnit;
+	/** 每个阶段可有多组静态展开结果。 */
+	stages: BashArgv[][];
+}
+
 export interface ApprovalUnit {
+	commands?: BashArgv[];
+	analysisFact?: "execution.opaque" | "system.catastrophic";
 	/** 顶层源表达式。嵌套脚本可能已展开敏感值，不作为脱敏展示来源。 */
 	source?: string;
 	action: "execute" | "write_redirect" | "write_file" | "edit_file" | "fetch_url";
@@ -38,30 +48,29 @@ export interface ApprovalUnit {
 	remember: boolean;
 }
 
-export interface ApprovalEditReplacement {
-	old: string;
-	new: string;
-	replace_all?: boolean;
+export interface WebFetchTarget {
+	scope: NetworkScope;
+	url: string;
+	origin: string;
+	addresses: readonly string[];
 }
 
-export type ApprovalRequest = {
+export interface BashApprovalRequest {
+	tool: "bash";
 	cwd: string;
 	units: ApprovalUnit[];
-} & (
-	| { tool: "bash"; allowSessionMemory: boolean; detail: { command: string; environment?: Readonly<Record<string, string | null>> } }
-	| { tool: "write"; detail: { path: string; content: string } }
-	| { tool: "edit"; detail: { path: string; edits: ApprovalEditReplacement[] } }
-	| {
-		tool: "webfetch";
-		detail: {
-			url: string;
-			origin: string;
-			addresses: import("../web-tools/network/network-policy.ts").ResolvedAddresses;
-		};
-	}
+	pipelines: BashPipeline[];
+	allowSessionMemory: boolean;
+	detail: { command: string; environment?: Readonly<Record<string, string | null>> };
+}
+
+export type SingleTargetRequest = { cwd: string; unit: ApprovalUnit } & (
+	| { tool: "write"; detail: WriteParams }
+	| { tool: "edit"; detail: EditParams }
+	| { tool: "webfetch"; detail: WebFetchTarget }
 );
 
-export type BashApprovalRequest = Extract<ApprovalRequest, { tool: "bash" }>;
+export type ApprovalRequest = BashApprovalRequest | SingleTargetRequest;
 
 interface ApprovalAskItem {
 	unit: ApprovalUnit;
@@ -74,18 +83,27 @@ export type ApprovalDecision =
 	| { kind: "deny"; reason: string; rule_name?: string };
 
 type ApprovalDefaultAction = "allow" | "ask" | "deny";
-type BashPolicyMatchScope = "raw-input" | "source-unit" | "effective-unit";
-type BashPolicyPlatform = "linux" | "darwin" | "win32";
 
-export interface BashPolicyCommandMatcher {
-	classifier: string;
-	regex: RegExp;
-	scope: BashPolicyMatchScope;
-	platform?: BashPolicyPlatform;
+export type BashCommandPrefix = readonly [program: string, ...args: string[]];
+
+export type BashMatcher =
+	| { command: BashCommandPrefix; exact: true; arg_globs?: never }
+	| { command: BashCommandPrefix; exact?: false; arg_globs?: string[] }
+	| { pipeline: BashCommandPrefix[] };
+
+export type BashPolicyCommandMatcher = BashMatcher & { classifier: string };
+
+interface FactAction {
+	action: Exclude<ApprovalDefaultAction, "allow">;
+	reason?: string;
 }
 
-export interface BashPolicyFact {
-	action?: Exclude<ApprovalDefaultAction, "allow">;
+export type FileFact = FactAction & ({ path_globs: string[] } | { match_all: true });
+export type NetworkFact = FactAction & ({ network_scope: WebFetchTarget["scope"] } | { match_all: true });
+
+export interface BashPolicyFact extends Partial<FactAction> {
+	path_globs?: string[];
+	match_all?: true;
 	commands: BashPolicyCommandMatcher[];
 }
 
@@ -94,17 +112,13 @@ export interface BashPolicyCombination {
 	action: Exclude<ApprovalDefaultAction, "allow">;
 }
 
-export interface BashPolicyConfig {
+export interface ToolPolicy<F> {
 	default_action: ApprovalDefaultAction;
-	facts: Record<string, BashPolicyFact>;
-	combinations: Record<string, BashPolicyCombination>;
+	facts: Record<string, F>;
 }
 
-export interface ApprovalRule {
-	name: string;
-	tools: string[];
-	path_globs?: string[];
-	reason: string;
+export interface BashPolicyConfig extends ToolPolicy<BashPolicyFact> {
+	combinations: Record<string, BashPolicyCombination>;
 }
 
 export interface ApprovalGateConfig {
@@ -113,15 +127,10 @@ export interface ApprovalGateConfig {
 		timeout_ms: number;
 		non_interactive: "block" | "allow";
 	};
-	remember: {
-		allow_session: boolean;
-	};
 	tools: {
 		bash: BashPolicyConfig;
-		write: { default_action: ApprovalDefaultAction };
-		edit: { default_action: ApprovalDefaultAction };
-		webfetch: { default_action: ApprovalDefaultAction };
+		write: ToolPolicy<FileFact>;
+		edit: ToolPolicy<FileFact>;
+		webfetch: ToolPolicy<NetworkFact>;
 	};
-	ask_rules: ApprovalRule[];
-	deny_rules: ApprovalRule[];
 }

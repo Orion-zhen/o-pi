@@ -43,8 +43,8 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 			line(`Target: ${request.detail.origin}`),
 			...common,
 			line(`URL: ${request.detail.url}`),
-			line("Resolved addresses:", "dim"),
-			...request.detail.addresses.map((item) => line(item.address, "warning")),
+			line(`Resolved addresses (${request.detail.scope}):`, "dim"),
+			...request.detail.addresses.map((address) => line(address, "warning")),
 		];
 	}
 	return [

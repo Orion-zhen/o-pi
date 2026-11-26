@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { validateToolCall, type Tool } from "@earendil-works/pi-ai";
 import { afterEach, expect, it, vi } from "vitest";
 import fileTools from "../../../src/harness/extensions/file-tools.ts";
 import { lspManager } from "../../../src/harness/lsp/index.ts";
@@ -9,6 +10,15 @@ import { executeTool } from "../file-tools/extension-fixture.ts";
 
 const workspace = useTempDir("opi-file-batch-");
 afterEach(() => vi.restoreAllMocks());
+
+it.each([
+	["write", { content: "text" }],
+	["edit", { edits: [{ old: "a", new: "b" }] }],
+] as const)("%s 在 Pi 参数校验时拒绝空路径", (name, params) => {
+	const { registered } = registerExtension<Tool>(fileTools);
+	const call = { type: "toolCall" as const, id: "file", name, arguments: { ...params, path: "" } };
+	expect(() => validateToolCall(registered, call)).toThrow(/path:/u);
+});
 
 it.each([false, true])("文件修改不受进度通知异常影响，并发和顺序诊断对应各自文件：%s", async (parallel) => {
 	const { registered, handlers } = registerExtension(fileTools);

@@ -1,20 +1,18 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import type { LookupAddress } from "node:dns";
 import dns from "node:dns/promises";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import path from "node:path";
-import type { ExtensionContext, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { presentation } from "../../../src/tui/extensions.ts";
 import bashToolExtension from "../../../src/harness/extensions/bash-tool.ts";
-import approvalGateExtension from "../../../src/harness/extensions/approval-gate.ts";
-import { loadApprovalGateConfig } from "../../../src/harness/approval/config.ts";
+import approvalGate from "../../../src/harness/extensions/approval-gate.ts";
 import { APPROVAL_STATUS_CHANNEL } from "../../../src/harness/approval/events.ts";
 import { formatApprovalPrompt } from "../../../src/harness/approval/presentation.ts";
-import { createApprovalGate } from "../../../src/harness/approval/index.ts";
 import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.ts";
-import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
-import type { ApprovalInteractionPort, ApprovalOptions } from "../../../src/harness/approval/runtime/interaction.ts";
+import { buildFileApprovalRequest, type ApprovalToolCall } from "../../../src/harness/approval/pi/request.ts";
+import type { ApprovalOptions } from "../../../src/harness/approval/runtime/interaction.ts";
 import { ApprovalDialog } from "../../../src/tui/views/approval/dialog.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../src/harness/approval/types.ts";
 import { readPrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.ts";
@@ -23,11 +21,12 @@ import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
-preserveEnv("PI_APPROVAL_GATE_CONFIG", "PI_BASH_TOOL_CONFIG", "NODE_ENV", "OPI_REPORT", "CDPATH", "BASH_ENV");
+preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_APPROVAL_GATE_CONFIG", "PI_BASH_TOOL_CONFIG", "NODE_ENV", "OPI_REPORT", "CDPATH", "BASH_ENV");
 
 beforeEach(() => {
 	process.env.NODE_ENV = "production";
 	dir = temp.path;
+	process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "web-tools.jsonc");
 	process.env.PI_APPROVAL_GATE_CONFIG = path.join(dir, "approval.jsonc");
 });
 
@@ -45,7 +44,6 @@ describe("approval gate", () => {
 		const context = ctx(ui);
 		expect(await handle(event, context)).toBeUndefined();
 		expect(select.mock.calls[0]?.[0]).toContain('OPI_REPORT="approved"');
-		expect(select.mock.calls[0]?.[1]).not.toContain("Allow for session");
 		expect(JSON.stringify(event.input)).not.toContain("approved");
 		const tool = registerExtension(bashToolExtension).registered[0];
 		if (!tool) throw new Error("missing bash tool");
@@ -58,9 +56,9 @@ describe("approval gate", () => {
 		process.env.OPI_REPORT = "host-report";
 		process.env.PI_BASH_TOOL_CONFIG = path.join(dir, "bash.jsonc");
 		await writeFile(process.env.PI_BASH_TOOL_CONFIG, '{"environment":{"inherit":false}}');
-		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ deny_rules: [{
-			name: "fallback", reason: "protected", tools: ["bash"], path_globs: [`${dir.replaceAll("\\", "/")}/fallback`],
-		}] }));
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { bash: { facts: { fallback: {
+			action: "deny", reason: "protected", path_globs: [`${dir.replaceAll("\\", "/")}/fallback`],
+		} } } } }));
 		const command = 'echo >"${OPI_REPORT:-fallback}"';
 		const context = ctx(fakeUi([]));
 		expect(await handle(bash(command), context)).toMatchObject({ block: true, reason: expect.stringContaining("fallback") });
@@ -69,6 +67,7 @@ describe("approval gate", () => {
 		if (!check) throw new Error("missing approval-check");
 		await check(command, context);
 		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Decision: deny"), "warning");
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("fallback <- path_globs"), "warning");
 	});
 
 	it("不受管理的工具不加载审批配置", async () => {
@@ -99,7 +98,7 @@ describe("approval gate", () => {
 			if (outcome === "error") throw new Error("UI unavailable");
 		});
 		const handler = captureExtensionHandler(emitted);
-		const event = webfetch("http://127.0.0.1/private");
+		const event = webfetch("http://10.0.0.1/private");
 		const pending = handler(event, ctx(ui));
 		if (outcome === "error") await expect(pending).rejects.toThrow();
 		else await pending;
@@ -113,7 +112,7 @@ describe("approval gate", () => {
 	it.each([
 		["普通 bash", () => bash("echo hello"), [], 0],
 		["普通 edit", () => edit("src/index.ts"), [], 0],
-		["需审批 write", () => write("skill://demo/SKILL.md"), ["Allow once"], 1],
+		["写入已加载技能", () => write("skill://demo/SKILL.md"), [], 0],
 	] as const)("%s 放行并产生预期交互", async (_name, event, choices, selectCalls) => {
 		const ui = fakeUi([...choices]);
 		expect(await handle(event(), ctx(ui))).toBeUndefined();
@@ -132,16 +131,6 @@ describe("approval gate", () => {
 		if (instruction) expect(result?.reason).toContain(instruction);
 	});
 
-	it("窄 interaction port 可完成审批", async () => {
-		const interaction: ApprovalInteractionPort = {
-			approve: async () => "Allow once",
-			input: async () => undefined,
-		};
-		const gate = createApprovalGate();
-		expect(await gate.authorize(await requiredRequest(bash("git push origin main")), await loadApprovalGateConfig(), interaction))
-			.toEqual({ kind: "approved" });
-	});
-
 	it("复合命令只触发一次聚合审批", async () => {
 		const ui = fakeUi(["Allow once"]);
 		const select = vi.spyOn(ui, "select");
@@ -149,32 +138,45 @@ describe("approval gate", () => {
 		expect(select).toHaveBeenCalledExactlyOnceWith(expect.any(String), expect.any(Array), expect.objectContaining({ blockedKind: "permission" }));
 	});
 
-	it("session allow 记住敏感子命令，不受普通 sibling 变化影响", async () => {
-		const ui = fakeUi(["Allow for session"]);
-		const gate = testGate();
-		expect(await gate.handleToolCall(bash("echo first && git push origin main"), ctx(ui))).toBeUndefined();
-		expect(await gate.handleToolCall(bash("echo changed && git push origin main"), ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(1);
+	it("会话只放行同一目录内已批准的子命令", async () => {
+		const ui = fakeUi(["Allow for session", "Deny", "Deny"]);
+		const handler = captureExtensionHandler();
+		const context = ctx(ui);
+		expect(await handler(bash("echo first && git push origin main"), context)).toBeUndefined();
+		expect(await handler(bash("echo changed && git push origin main"), context)).toBeUndefined();
+		expect(await handler(bash("git push origin dev"), context)).toMatchObject({ block: true });
+		const cwd = path.join(dir, "other");
+		await mkdir(cwd);
+		expect(await handler(bash("git push origin main"), { ...context, cwd })).toMatchObject({ block: true });
+		expect(ui.selectCalls).toBe(3);
+	});
+
+	it("同一命令改用启动脚本后需重新审批", async () => {
+		delete process.env.BASH_ENV;
+		const handler = captureExtensionHandler();
+		const ui = fakeUi(["Allow for session", "Deny"]);
+		const context = ctx(ui);
+		expect(await handler(bash("git push origin main"), context)).toBeUndefined();
+		process.env.BASH_ENV = path.join(dir, "init.sh");
+		expect(await handler(bash("git push origin main"), context)).toMatchObject({ block: true });
+		expect(ui.selectCalls).toBe(2);
 	});
 
 	it("TUI 模式使用自定义面板而非 RPC 选择框", async () => {
 		const ui = { ...fakeUi([]), custom: vi.fn(async () => "Allow once") };
-		expect(await testGate().handleToolCall(bash("git push origin main"), { ...ctx(ui), mode: "tui" })).toBeUndefined();
+		expect(await handle(bash("git push origin main"), { ...ctx(ui), mode: "tui" })).toBeUndefined();
 		expect(ui.custom).toHaveBeenCalledTimes(1);
 		expect(ui.selectCalls).toBe(0);
 	});
 
-	it.each([
-		["静态敏感命令", "git push origin main", true],
-		["依赖启动环境的命令", `"$COMMAND" arg`, false],
-		["不透明命令", `echo "unterminated`, true],
-		["动态写重定向", `echo value > "$OUTPUT"`, false],
-	] as const)("%s 显示预期记忆选项", async (_name, command, canRememberSession) => {
-		const ui = fakeUi(["Allow once"]);
-		expect(await handle(bash(command), ctx(ui))).toBeUndefined();
-		const options = ui.selectOptions[0];
-		if (options === undefined) throw new Error("approval options were not shown");
-		expect(options).toEqual(canRememberSession ? APPROVAL_OPTIONS : APPROVAL_OPTIONS.filter((choice) => choice !== "Allow for session"));
+	it("审批中混有动态重定向时，会话放行不单独记住其余命令", async () => {
+		const handler = captureExtensionHandler();
+		const ui = fakeUi(["Allow for session", "Deny"]);
+		const context = ctx(ui);
+		expect(await handler(bash('read output; git push origin main >"$output"'), context)).toBeUndefined();
+		expect(ui.selectOptions[0]).toContain("Allow for session");
+		expect(await handler(bash("git push origin main"), context)).toMatchObject({ block: true });
+		expect(ui.selectCalls).toBe(2);
 	});
 
 	it("已由 request builder 证明的临时目录脚本不触发审批", async () => {
@@ -189,20 +191,97 @@ describe("approval gate", () => {
 		expect(ui.selectCalls).toBe(0);
 	});
 
-	it.each(["Allow for session", "Always allow similar"])("UI 返回未提供的 %s 选项时 fail closed", async (choice) => {
-		const ui = fakeUi([choice]);
-		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toMatchObject({ block: true });
+	it.each([
+		[{}, 0, false],
+		[{ tools: { webfetch: { default_action: "ask" } } }, 1, false],
+		[{ tools: { webfetch: { facts: { "no-fetch": { action: "deny", match_all: true, reason: "offline" } } } } }, 0, true],
+	] as const)("公网 webfetch 遵循工具策略且不签发私网授权: %j", async (config, prompts, blocked) => {
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify(config));
+		const event = webfetch("https://8.8.8.8/docs");
+		const ui = fakeUi(["Allow once"]);
+		expect((await handle(event, ctx(ui)))?.block === true).toBe(blocked);
+		expect(ui.selectCalls).toBe(prompts);
+		expect(readPrivateNetworkGrant(event.input)).toBeUndefined();
+	});
+
+	it("同一会话的文件授权只匹配原工具和路径；新拒绝规则立即生效", async () => {
+		const file = systemPath("project", "app.conf");
+		const config = path.join(dir, "approval.jsonc");
+		await writeFile(config, JSON.stringify({ tools: { write: { default_action: "ask" }, edit: { default_action: "ask" } } }));
+		const handler = captureExtensionHandler();
+		const ui = fakeUi(["Allow for session", "Deny", "Deny"]);
+		const context = ctx(ui);
+		expect(await handler(write(file), context)).toBeUndefined();
+		expect(await handler(write(file), context)).toBeUndefined();
+		expect(await handler(edit(file), context)).toMatchObject({ block: true });
+		expect(await handler(write(`${file}.bak`), context)).toMatchObject({ block: true });
+		await writeFile(config, JSON.stringify({ tools: { write: { facts: { locked: { match_all: true, action: "deny" } } } } }));
+		expect(await handler(write(file), context)).toMatchObject({ block: true, reason: expect.stringContaining("locked") });
+		expect(ui.selectCalls).toBe(3);
+	});
+
+	it("可按工具为技能路径配置不同动作", async () => {
+		const path_globs = ["skill://**"];
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: {
+			write: { facts: { "skill-modification": { path_globs, action: "ask" } } },
+			edit: { facts: { "skill-modification": { path_globs, action: "deny", reason: "locked" } } },
+		} }));
+		const handler = captureExtensionHandler();
+		const ui = fakeUi(["Allow once"]);
+		const context = ctx(ui);
+		expect(await handler(write("skill://demo/SKILL.md"), context)).toBeUndefined();
+		expect(await handler(edit("skill://demo/SKILL.md"), context)).toMatchObject({ block: true, reason: expect.stringContaining("locked") });
 		expect(ui.selectCalls).toBe(1);
 	});
 
-	it("webfetch 私网审批通过后为同一工具参数签发非序列化授权", async () => {
+	it("仅拒绝公网的规则不影响私网审批", async () => {
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { webfetch: { facts: {
+			"no-public": { action: "deny", network_scope: "public", reason: "intranet only" },
+		} } } }));
+		const handler = captureExtensionHandler();
 		const ui = fakeUi(["Allow once"]);
+		expect(await handler(webfetch("https://8.8.8.8/docs"), ctx(ui))).toMatchObject({ block: true, reason: expect.stringContaining("no-public") });
+		const event = webfetch("http://10.0.0.1/docs");
+		expect(await handler(event, ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
+		expect(readPrivateNetworkGrant(event.input)).toBeDefined();
+	});
+
+	it("同一 origin 的公网会话放行不覆盖新的私网审批", async () => {
+		await writeFile(path.join(dir, "approval.jsonc"), '{"tools":{"webfetch":{"default_action":"ask"}}}');
+		const resolver: { lookup(host: string, options: { all: true }): Promise<LookupAddress[]> } = dns;
+		const lookup = vi.spyOn(resolver, "lookup");
+		try {
+			lookup.mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }]).mockResolvedValueOnce([{ address: "10.0.0.1", family: 4 }]);
+			const handler = captureExtensionHandler();
+			const ui = fakeUi(["Allow for session", "Deny"]);
+			const url = "http://service.test/docs";
+			expect(await handler(webfetch(url), ctx(ui))).toBeUndefined();
+			const event = webfetch(url);
+			expect(await handler(event, ctx(ui))).toMatchObject({ block: true });
+			expect(ui.selectCalls).toBe(2);
+			expect(readPrivateNetworkGrant(event.input)).toBeUndefined();
+		} finally { lookup.mockRestore(); }
+	});
+
+	it("预检 DNS 失败不继续执行未分类的请求", async () => {
+		const lookup = vi.spyOn(dns, "lookup").mockRejectedValue(new Error("lookup failed"));
+		try {
+			const event = webfetch("http://service.test/");
+			expect(await handle(event, ctx(fakeUi([])))).toMatchObject({ block: true, reason: expect.stringContaining("DNS_FAILED") });
+			expect(readPrivateNetworkGrant(event.input)).toBeUndefined();
+		} finally { lookup.mockRestore(); }
+	});
+
+	it("webfetch 直连回环无需审批，并为当前调用固定地址", async () => {
+		const ui = fakeUi([]);
 		const event = webfetch("http://127.0.0.1:8080/private");
 		const handler = captureExtensionHandler();
 
 		expect(await handler(event, ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(1);
+		expect(ui.selectCalls).toBe(0);
 		expect(readPrivateNetworkGrant(event.input)).toEqual({
+			scope: "loopback",
 			origin: "http://127.0.0.1:8080",
 			hostname: "127.0.0.1",
 			addresses: [{ address: "127.0.0.1", family: 4 }],
@@ -210,22 +289,43 @@ describe("approval gate", () => {
 		expect(JSON.stringify(event.input)).toBe('{"url":"http://127.0.0.1:8080/private"}');
 	});
 
+	it("可单独拒绝直连回环", async () => {
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { webfetch: { facts: {
+			"no-loopback": { network_scope: "loopback", action: "deny" },
+		} } } }));
+		const event = webfetch("http://[::1]/");
+		expect(await handle(event, ctx(fakeUi([])))).toMatchObject({ block: true, reason: expect.stringContaining("no-loopback") });
+		expect(readPrivateNetworkGrant(event.input)).toBeUndefined();
+	});
+
+	it("通过代理访问回环仍按私网询问", async () => {
+		await writeFile(path.join(dir, "web-tools.jsonc"), JSON.stringify({ network: { proxy: { enabled: true, http_proxy: "http://proxy.test" } } }));
+		const event = webfetch("http://127.0.0.2/");
+		const ui = fakeUi(["Allow once"]);
+		expect(await handle(event, ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
+		expect(readPrivateNetworkGrant(event.input)?.scope).toBe("private");
+	});
+
 	it("webfetch 私网 origin 可按会话记忆并为每次调用重新签发授权", async () => {
-		const ui = fakeUi(["Allow for session"]);
+		const ui = fakeUi(["Allow for session", "Deny"]);
 		const handler = captureExtensionHandler();
-		const first = webfetch("http://127.0.0.1:8080/first");
-		const second = webfetch("http://127.0.0.1:8080/second");
+		const first = webfetch("http://10.0.0.1:8080/first");
+		const second = webfetch("http://10.0.0.1:8080/second");
 
 		expect(await handler(first, ctx(ui))).toBeUndefined();
 		expect(await handler(second, ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(1);
 		expect(readPrivateNetworkGrant(first.input)).toBeDefined();
 		expect(readPrivateNetworkGrant(second.input)).toBeDefined();
+		const other = webfetch("http://10.0.0.1:9090/first");
+		expect(await handler(other, ctx(ui))).toMatchObject({ block: true });
+		expect(readPrivateNetworkGrant(other.input)).toBeUndefined();
 	});
 
 	it("webfetch 私网 URL 在无 UI 时保持阻止且不签发授权", async () => {
-		const event = webfetch("http://127.0.0.1/private");
-		const result = await testGate().handleToolCall(event, ctx(fakeUi([]), false));
+		const event = webfetch("http://10.0.0.1/private");
+		const result = await handle(event, ctx(fakeUi([]), false));
 		expect(result).toMatchObject({ block: true, reason: expect.stringContaining("Approval required") });
 		expect(readPrivateNetworkGrant(event.input)).toBeUndefined();
 	});
@@ -235,28 +335,10 @@ describe("approval gate", () => {
 		await writeFile(configPath, '{ "ui": { "non_interactive": "allow" } }');
 		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
 		const handler = captureExtensionHandler();
-		const event = webfetch("http://127.0.0.1/private");
+		const event = webfetch("http://10.0.0.1/private");
 
 		expect(await handler(event, ctx(fakeUi([]), false))).toBeUndefined();
 		expect(readPrivateNetworkGrant(event.input)).toBeDefined();
-	});
-
-	it("config disabled 时 extension handler 放行但不签发私网授权", async () => {
-		const configPath = path.join(dir, "approval.jsonc");
-		await writeFile(configPath, '{ "enabled": false }');
-		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
-		const handler = captureExtensionHandler();
-		const event = webfetch("http://127.0.0.1/private");
-		expect(await handler(event, ctx(fakeUi([])))).toBeUndefined();
-		expect(readPrivateNetworkGrant(event.input)).toBeUndefined();
-	});
-
-	it("config disabled 时 extension handler 放行", async () => {
-		const configPath = path.join(dir, "approval.jsonc");
-		await writeFile(configPath, '{ "enabled": false }');
-		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
-		const handler = captureExtensionHandler();
-		expect(await handler(bash("rm -rf /"), ctx(fakeUi([])))).toBeUndefined();
 	});
 
 	it("凭据收集与外部上传组合不提供审批机会", async () => {
@@ -275,20 +357,6 @@ describe("approval gate", () => {
 			block: true,
 			reason: expect.stringContaining("system.catastrophic"),
 		});
-		expect(ui.selectCalls).toBe(0);
-	});
-
-	it("bash policy 不吞掉无效正则配置", async () => {
-		const configPath = path.join(dir, "approval.jsonc");
-		await writeFile(configPath, JSON.stringify({
-			tools: { bash: { facts: { "custom.fact": { commands: { invalid: "(" } } } } },
-		}));
-		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
-		const ui = fakeUi([]);
-		const handler = captureExtensionHandler();
-
-		await expect(handler(bash("git push origin main"), ctx(ui)))
-			.rejects.toThrow();
 		expect(ui.selectCalls).toBe(0);
 	});
 
@@ -349,7 +417,7 @@ describe("approval gate", () => {
 				: { type: "tool_call" as const, toolName: tool, toolCallId: "edit-preview", input: { path: "skill://demo/\u001b[2J文件", edits: [{ old: payload, new: "新内容" }] } };
 		const request = await requiredRequest(event);
 		request.cwd += "\u001b[2J";
-		const unit = request.units[0];
+		const unit = request.tool === "bash" ? request.units[0] : request.unit;
 		if (unit === undefined) throw new Error("missing unit");
 		const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
 			kind: "ask", reason: "原因\u001b[2J", items: [{ unit, reason: "原因\u001b[2J" }],
@@ -420,8 +488,10 @@ const plainTheme = {
 	bold: (text) => text,
 } satisfies Pick<Theme, "fg" | "bg" | "bold">;
 
+type DialogToolCall = Exclude<ApprovalToolCall, { toolName: "webfetch" }>;
+
 async function createDialog(
-	event: ToolCallEvent,
+	event: DialogToolCall,
 	rows: number,
 	done: (choice: string | undefined) => void,
 	timeout?: number,
@@ -435,7 +505,7 @@ function dialogForRequest(
 	done: (choice: string | undefined) => void,
 	timeout?: number,
 ): ApprovalDialog {
-	const unit = request.units[0];
+	const unit = request.tool === "bash" ? request.units[0] : request.unit;
 	if (unit === undefined) throw new Error("approval request has no units");
 	const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
 		kind: "ask",
@@ -445,29 +515,27 @@ function dialogForRequest(
 	return new ApprovalDialog(request, decision, APPROVAL_OPTIONS, plainTheme, () => rows, () => {}, done, timeout);
 }
 
-async function requiredRequest(event: ToolCallEvent): Promise<ApprovalRequest> {
-	if (isToolCallEventType("bash", event)) return buildBashApprovalRequest(event.input.command, { cwd: dir, command: event.input.command, env: {} });
-	const request = await buildApprovalRequest(event, dir);
-	if (request === undefined) throw new Error("approval request was not built");
-	return request;
+async function requiredRequest(event: DialogToolCall): Promise<ApprovalRequest> {
+	if (event.toolName === "bash") return buildBashApprovalRequest(event.input.command, { cwd: dir, command: event.input.command, env: {} });
+	return buildFileApprovalRequest(event, dir);
 }
 
 function systemPath(...segments: string[]): string {
 	return path.join(path.parse(dir).root, ...segments);
 }
 
-function testGate() {
-	return { handleToolCall: captureExtensionHandler() };
+function handle(event: ToolCallEvent, context: TestContext): Promise<ToolCallEventResult | void> {
+	return captureExtensionHandler()(event, context);
 }
 
-function handle(event: ToolCallEvent, context: TestContext): Promise<ToolCallEventResult | void> {
-	return testGate().handleToolCall(event, context);
+function approvalGateExtension(pi: ExtensionAPI) {
+	approvalGate(pi, presentation.approvalGate);
 }
 
 function captureExtensionHandler(
 	emitted: Array<{ channel: string; data: unknown }> = [],
 ): (event: ToolCallEvent, ctx: TestContext) => Promise<ToolCallEventResult | void> {
-	const { handlers } = registerExtension((pi) => approvalGateExtension(pi, presentation.approvalGate), {
+	const { handlers } = registerExtension(approvalGateExtension, {
 		events: {
 			emit(channel: string, data: unknown) { emitted.push({ channel, data }); },
 			on() { return () => {}; },
@@ -509,8 +577,8 @@ function ctx(ui: FakeUi, interactive = true): TestContext {
 	return { cwd: dir, mode: "rpc", hasUI: interactive, ui, sessionManager: { getSessionId: () => "approval", getSessionFile: () => undefined, getBranch: () => [] } };
 }
 
-function bash(command: string): ToolCallEvent {
-	return { type: "tool_call", toolName: "bash", toolCallId: `bash-${command}`, input: { command } };
+function bash(command: string) {
+	return { type: "tool_call", toolName: "bash", toolCallId: `bash-${command}`, input: { command } } satisfies DialogToolCall;
 }
 
 function write(filePath: string): ToolCallEvent {

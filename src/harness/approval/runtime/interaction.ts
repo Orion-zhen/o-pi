@@ -7,11 +7,8 @@ const DENY = "Deny";
 export const DENY_WITH_INSTRUCTION = "Deny with instruction";
 const USER_DENIED_REASON = "User denied this tool call.";
 
-export type ApprovalChoice =
-	| typeof ALLOW_ONCE
-	| typeof ALLOW_SESSION
-	| typeof DENY
-	| typeof DENY_WITH_INSTRUCTION;
+const APPROVAL_OPTIONS = [ALLOW_ONCE, ALLOW_SESSION, DENY, DENY_WITH_INSTRUCTION] as const;
+export type ApprovalChoice = (typeof APPROVAL_OPTIONS)[number];
 export type ApprovalOptions = readonly [ApprovalChoice, ...ApprovalChoice[]];
 
 export interface ApprovalDialogOptions {
@@ -37,14 +34,10 @@ export async function handleAskDecision(
 	store: SessionApprovalStore,
 	interaction: ApprovalInteractionPort,
 ): Promise<ApprovalOutcome> {
-	const remember = config.remember.allow_session ? store.prepareRemember(request, decision.items.map(({ unit }) => unit)) : undefined;
-	const options: ApprovalOptions = remember
-		? [ALLOW_ONCE, ALLOW_SESSION, DENY, DENY_WITH_INSTRUCTION]
-		: [ALLOW_ONCE, DENY, DENY_WITH_INSTRUCTION];
-	const choice = await interaction.approve(request, decision, options, dialogOptions(config));
+	const choice = await interaction.approve(request, decision, APPROVAL_OPTIONS, dialogOptions(config));
 	if (choice === ALLOW_ONCE) return { kind: "approved" };
-	if (choice === ALLOW_SESSION && remember) {
-		remember();
+	if (choice === ALLOW_SESSION) {
+		store.remember(request, decision.items.map(({ unit }) => unit));
 		return { kind: "approved" };
 	}
 	if (choice === DENY_WITH_INSTRUCTION) {

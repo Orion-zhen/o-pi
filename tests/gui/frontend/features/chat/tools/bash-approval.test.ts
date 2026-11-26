@@ -10,7 +10,7 @@ import type { GuiBashApproval } from "../../../../../../src/gui/shared/protocol/
 
 const command = `printf '%s' '${"中文🧪".repeat(90)}' > output.txt`;
 const request: BashApprovalRequest = {
-	tool: "bash", allowSessionMemory: true, cwd: "/project", detail: { command },
+	tool: "bash", pipelines: [], allowSessionMemory: true, cwd: "/project", detail: { command },
 	units: [{ action: "write_redirect", target: { kind: "path", value: "/project/output.txt" }, remember: true }],
 };
 const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
@@ -82,7 +82,7 @@ describe("Bash 审批呈现", () => {
 	it("其他工具保留原审批正文和选项", async () => {
 		const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 		const unit: ApprovalUnit = { action: "write_file", target: { kind: "path", value: "/project/a.txt" }, remember: true };
-		const pending = dialogs.approve({ tool: "write", cwd: "/project", units: [unit], detail: { path: "a.txt", content: "hello" } },
+		const pending = dialogs.approve({ tool: "write", cwd: "/project", unit, detail: { path: "a.txt", content: "hello" } },
 			{ kind: "ask", reason: "write", items: [{ unit, reason: "write" }] }, ["Allow once", "Deny"]);
 		const dialog = dialogs.list()[0];
 		expect(dialog?.kind).toBe("select");

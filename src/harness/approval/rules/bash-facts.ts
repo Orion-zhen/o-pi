@@ -1,4 +1,10 @@
+import path from "node:path/posix";
+import picomatch from "picomatch";
+import { matchesTargetPath } from "./path-match.ts";
+import { builtinCommandFacts, builtinPipelineFacts } from "./bash-builtin-facts.ts";
 import type {
+	BashArgv,
+	BashCommandPrefix,
 	ApprovalUnit,
 	BashApprovalRequest,
 	BashPolicyCombination,
@@ -6,11 +12,21 @@ import type {
 	BashPolicyFact,
 } from "../types.ts";
 
+function matchPrefix([program, ...args]: BashCommandPrefix): (argv: BashArgv) => boolean {
+	const serviceControl = process.platform === "win32" && /^sc(?:\.exe)?$/iu.test(program);
+	const matchesProgram = picomatch(program, { dot: true, nonegate: true, nocase: serviceControl });
+	return (argv) => matchesProgram(argv[0]) && args.every((word, i) => {
+		const arg = argv[i + 1];
+		return arg === word || serviceControl && i === 0 && typeof arg === "string" && arg.toLowerCase() === word.toLowerCase();
+	});
+}
+
 interface BashFactMatch {
 	fact: string;
 	classifier: string;
 	unit: ApprovalUnit;
 	action: BashPolicyFact["action"];
+	reason: string;
 }
 
 export interface BashFactEvaluation {
@@ -25,24 +41,37 @@ export function collectBashFacts(
 	policy: BashPolicyConfig,
 ): BashFactEvaluation {
 	const matches: BashFactMatch[] = [];
-	const rawUnit: ApprovalUnit = {
-		action: "execute",
-		target: { kind: "command", value: request.detail.command, effective_value: request.detail.command },
-		remember: true,
-	};
-	const inputs = [rawUnit, ...request.units.filter(({ target }) => target.kind === "command" && target.shell_input !== undefined)];
+	const analyzed = request.units.map((unit) => {
+		const facts: string[] = unit.commands?.flatMap(builtinCommandFacts) ?? [];
+		if (unit.analysisFact) facts.push(unit.analysisFact);
+		return { unit, facts };
+	});
+	for (const pipe of request.pipelines) analyzed.push({ unit: pipe.unit, facts: builtinPipelineFacts(pipe) });
 	for (const [factId, fact] of Object.entries(policy.facts)) {
+		const reason = fact.reason ?? `bash safety fact: ${factId}`;
+		const add = (unit: ApprovalUnit, classifier: string) => matches.push({ fact: factId, classifier, unit, action: fact.action, reason });
+		if (fact.match_all) {
+			for (const unit of request.units) add(unit, "match_all");
+		} else if (fact.path_globs) {
+			for (const unit of request.units) if (matchesTargetPath(unit.target, fact.path_globs)) add(unit, "path_globs");
+		}
+		for (const { unit, facts } of analyzed) if (facts.includes(factId)) add(unit, "analysis");
 		for (const matcher of fact.commands) {
-			if (matcher.platform !== undefined && matcher.platform !== process.platform) continue;
-			const units = matcher.scope === "raw-input" ? inputs : request.units;
-			for (const unit of units) {
-				if (unit.target.kind !== "command") continue;
-				const candidate = matcher.scope === "raw-input" ? unit.target.shell_input ?? unit.target.value
-					: matcher.scope === "effective-unit" ? unit.target.effective_value : unit.target.value;
-				const resolved = matcher.scope === "source-unit" ? unit.target.resolved_value : undefined;
-				if (matcher.regex.test(candidate) || resolved !== undefined && (matcher.regex.test(resolved) || matcher.regex.test(unit.target.effective_value))) {
-					matches.push({ fact: factId, classifier: matcher.classifier, unit, action: fact.action });
+			if ("pipeline" in matcher) {
+				const patterns = matcher.pipeline.map(matchPrefix);
+				for (const { stages, unit } of request.pipelines) {
+					if (stages.some((_, start) => patterns.every((matches, offset) => stages[start + offset]?.some(matches)))) add(unit, matcher.classifier);
 				}
+				continue;
+			}
+			const prefix = matchPrefix(matcher.command);
+			const glob = matcher.arg_globs && picomatch(matcher.arg_globs, { dot: true, nonegate: true });
+			for (const unit of request.units) {
+				if (unit.commands?.some((argv) => prefix(argv) && (!matcher.exact || argv.length === matcher.command.length)
+					&& (!glob || argv.slice(matcher.command.length).some((arg) => {
+						const text = typeof arg === "string" ? arg : arg.source.replace(/^["']|["']$/gu, "");
+						return glob(text) || glob(path.normalize(text.replaceAll("\\", "/")));
+					})))) add(unit, matcher.classifier);
 			}
 		}
 	}

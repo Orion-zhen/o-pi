@@ -171,7 +171,7 @@ export interface WebSearchResult {
 
 export interface WebFetchExecutionContext {
 	toolCallId: string;
-	/** approval-gate 在工具钩子中签发，仅供网络边界使用。 */
+	/** 私网调用获准后签发，仅对本次调用有效。 */
 	privateNetworkGrant?: import("../network/private-network-grant.ts").PrivateNetworkGrant;
 	signal?: AbortSignal;
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;

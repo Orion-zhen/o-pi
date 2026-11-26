@@ -1,10 +1,9 @@
 import os from "node:os";
 import path from "node:path";
-import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
 import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.ts";
-import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
+import { buildFileApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
 
 const cwd = path.resolve("project");
 const systemPath = path.join(path.parse(cwd).root, "etc", "hosts");
@@ -17,7 +16,8 @@ describe("approval request builder", () => {
 		expect(request).toMatchObject({ tool: "bash" });
 		expect(request.units).toHaveLength(1);
 		expect(request.units[0]).toMatchObject({
-			target: { kind: "command", value: "echo hello", effective_value: "echo hello" },
+			target: { kind: "command", value: "echo hello" },
+			commands: [["echo", "hello"]],
 			remember: true,
 		});
 	});
@@ -59,7 +59,8 @@ describe("approval request builder", () => {
 
 		const dynamic = await bashRequest(`read SCRIPT; bash -c "$SCRIPT"`, cwd);
 		expect(dynamic.units.at(-1)).toMatchObject({
-			target: { effective_value: "bash -c <dynamic>" },
+			analysisFact: "execution.opaque",
+			commands: [["bash", "-c", { source: '"$SCRIPT"' }]],
 			remember: true,
 		});
 	});
@@ -68,7 +69,7 @@ describe("approval request builder", () => {
 		const request = await bashRequest(`echo "unterminated`, cwd);
 		expect(request.units).toEqual([
 			expect.objectContaining({
-				target: expect.objectContaining({ effective_value: `<opaque> echo "unterminated` }),
+				analysisFact: "execution.opaque",
 				remember: true,
 			}),
 		]);
@@ -77,8 +78,7 @@ describe("approval request builder", () => {
 	it("启动状态未知且子脚本解析失败时，只为原命令追加一个 opaque unit", async () => {
 		const command = `bash -c 'echo "unfinished'`;
 		const request = await buildBashApprovalRequest(command, { cwd, command, env: { BASH_ENV: "init.sh" } });
-		expect(request.units.map(({ target }) => target.kind === "command" && target.effective_value))
-			.toEqual(['bash -c echo "unfinished', `<opaque> ${command}`]);
+		expect(request.units.map(({ analysisFact }) => analysisFact)).toEqual([undefined, "execution.opaque"]);
 		expect(request.allowSessionMemory).toBe(false);
 	});
 
@@ -89,7 +89,7 @@ describe("approval request builder", () => {
 		const request = await bashRequest(command, cwd);
 		expect(request.units[0]?.target.kind).toBe("command");
 		expect(request.units.length).toBeGreaterThan(1);
-		expect(request.units.at(-1)).toMatchObject({ target: { effective_value: `<opaque> ${command}` }, remember: true });
+		expect(request.units.at(-1)).toMatchObject({ analysisFact: "execution.opaque", remember: true });
 	});
 
 	it("技能路径替换前后的写入目标均参与审批，展示仍使用原命令", async () => {
@@ -100,13 +100,13 @@ describe("approval request builder", () => {
 		expect(request.detail.command).toBe(command);
 		expect(request.units.filter((unit) => unit.action === "write_redirect").map((unit) => unit.target.value))
 			.toEqual(["skill://demo/result", resolved]);
-		expect(request.units.at(-1)).toMatchObject({ target: { shell_input: script }, remember: false });
+		expect(request.units.at(-1)).toMatchObject({ target: { value: command }, remember: false });
 	});
 
 	it("文件写重定向成为 path unit，fd duplication 不成为写文件 unit", async () => {
 		const redirected = await bashRequest("echo hello > output.log 2>&1", cwd);
 		expect(redirected.units.map((unit) => unit.target)).toEqual([
-			{ kind: "command", value: "echo hello", effective_value: "echo hello" },
+			{ kind: "command", value: "echo hello" },
 			{ kind: "path", value: path.join(cwd, "output.log").replace(/\\/g, "/") },
 		]);
 
@@ -137,7 +137,7 @@ rm -f "$log"
 				effect_scope: "temporary",
 			}),
 			expect.objectContaining({
-				target: expect.objectContaining({ effective_value: "rm -f <temporary>" }),
+				target: expect.objectContaining({ value: 'rm -f "$log"' }),
 				effect_scope: "temporary",
 			}),
 		]));
@@ -197,18 +197,18 @@ done
 			}),
 			expect.objectContaining({
 				action: "execute",
-				target: expect.objectContaining({ effective_value: "git clean -fd" }),
+				commands: [["git", "clean", "-fd"]],
 				effect_scope: "temporary",
 			}),
 			expect.objectContaining({
 				action: "execute",
-				target: expect.objectContaining({ effective_value: "git reset --hard" }),
+				commands: [["git", "reset", "--hard"]],
 				effect_scope: "temporary",
 			}),
 		]));
-		expect(request.units.flatMap((unit) => unit.target.kind === "command" ? [unit.target.effective_value] : [])).toEqual(expect.arrayContaining([
-			"xelatex input.txt",
-			"lualatex input.txt",
+		expect(request.units.flatMap((unit) => unit.commands ?? [])).toEqual(expect.arrayContaining([
+			["xelatex", "input.txt"],
+			["lualatex", "input.txt"],
 		]));
 	});
 
@@ -220,7 +220,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 `, cwd);
 		expect(request.units).toEqual(expect.arrayContaining([
 			expect.objectContaining({
-				target: expect.objectContaining({ effective_value: `rm -rf ${runtimeTempChild}` }),
+				commands: [["rm", "-rf", runtimeTempChild]],
 				effect_scope: "temporary",
 			}),
 			expect.objectContaining({
@@ -228,7 +228,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 				effect_scope: "temporary",
 			}),
 			expect.objectContaining({
-				target: expect.objectContaining({ effective_value: "git clean -fd" }),
+				commands: [["git", "clean", "-fd"]],
 				effect_scope: "temporary",
 			}),
 		]));
@@ -267,9 +267,9 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 
 	it("env wrapper 保留命令原文与解包后的有效命令", async () => {
 		const request = await bashRequest("env -u NODE_ENV npm install lodash", cwd);
-		expect(request.units[0]?.target).toMatchObject({
-			value: "env -u NODE_ENV npm install lodash",
-			effective_value: "npm install lodash",
+		expect(request.units[0]).toMatchObject({
+			target: { value: "env -u NODE_ENV npm install lodash" },
+			commands: [["env", "-u", "NODE_ENV", "npm", "install", "lodash"], ["npm", "install", "lodash"]],
 		});
 	});
 
@@ -277,13 +277,13 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		["write", write(path.join(runtimeTempRoot, "pi-approval", "file"))],
 		["edit", edit(path.join(runtimeTempRoot, "pi-approval", "file"))],
 	] as const)("%s 工具把系统临时目录后代标成 temporary", async (_tool, event) => {
-		const request = await buildApprovalRequest(event, cwd);
-		expect(request?.units[0]?.effect_scope).toBe("temporary");
+		const request = buildFileApprovalRequest(event, cwd);
+		expect(request.unit.effect_scope).toBe("temporary");
 	});
 
 	it.each([write("~/.config/approval-test"), edit("~/.config/approval-test")])("文件工具审批与实际路径解析使用相同的 home 展开", async (event) => {
-		const request = await buildApprovalRequest(event, cwd);
-		expect(request?.units[0]?.target).toEqual({
+		const request = buildFileApprovalRequest(event, cwd);
+		expect(request.unit.target).toEqual({
 			kind: "path",
 			value: path.join(os.homedir(), ".config", "approval-test").replaceAll("\\", "/"),
 		});
@@ -298,46 +298,27 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 	});
 
 	it("write /etc/hosts 生成路径审批单元", async () => {
-		const request = await buildApprovalRequest(write(systemPath), cwd);
+		const request = buildFileApprovalRequest(write(systemPath), cwd);
 		expect(request).toMatchObject({ tool: "write" });
-		expect(request?.units[0]).toMatchObject({ action: "write_file", remember: true });
-		expect(request?.units.map((unit) => unit.target)).toEqual([{ kind: "path", value: systemPath.replace(/\\/g, "/") }]);
+		expect(request.unit).toMatchObject({ action: "write_file", remember: true });
+		expect(request.unit.target).toEqual({ kind: "path", value: systemPath.replace(/\\/g, "/") });
 	});
 
 	it.each([
 		[write("skill://demo/SKILL.md"), "skill://demo/SKILL.md"],
 		[edit("skill://demo/references/testing.md"), "skill://demo/references/testing.md"],
 	] as const)("技能逻辑路径保持原样供审批规则匹配", async (event, expected) => {
-		const request = await buildApprovalRequest(event, cwd);
-		expect(request?.units[0]?.target).toMatchObject({ kind: "path", value: expected });
+		const request = buildFileApprovalRequest(event, cwd);
+		expect(request.unit.target).toMatchObject({ kind: "path", value: expected });
 	});
 
 	it("edit 普通项目文件生成路径审批单元", async () => {
-		const request = await buildApprovalRequest(edit("src/index.ts"), cwd);
+		const request = buildFileApprovalRequest(edit("src/index.ts"), cwd);
 		expect(request).toMatchObject({ tool: "edit" });
-		expect(request?.units[0]).toMatchObject({ action: "edit_file", remember: true });
-		expect(request?.units.map((unit) => unit.target)).toEqual([{ kind: "path", value: path.join(cwd, "src", "index.ts").replace(/\\/g, "/") }]);
+		expect(request.unit).toMatchObject({ action: "edit_file", remember: true });
+		expect(request.unit.target).toEqual({ kind: "path", value: path.join(cwd, "src", "index.ts").replace(/\\/g, "/") });
 	});
 
-	it("webfetch 私网 URL 生成按 origin 匹配的审批单元", async () => {
-		const request = await buildApprovalRequest(webfetch("http://127.0.0.1:8080/admin?q=1#fragment"), cwd);
-		expect(request).toMatchObject({
-			tool: "webfetch",
-			detail: {
-				origin: "http://127.0.0.1:8080",
-				addresses: [{ address: "127.0.0.1", family: 4 }],
-			},
-			units: [{
-				action: "fetch_url",
-				target: { kind: "url", value: "http://127.0.0.1:8080" },
-				remember: true,
-			}],
-		});
-	});
-
-	it("webfetch 公网字面 IP 不生成审批请求", async () => {
-		expect(await buildApprovalRequest(webfetch("https://8.8.8.8/dns-query"), cwd)).toBeUndefined();
-	});
 });
 
 function bashRequest(command: string, cwd: string) {
@@ -350,14 +331,10 @@ function nestedShellCommand(depth: number): string {
 	return command;
 }
 
-function write(filePath: string): ToolCallEvent {
-	return { type: "tool_call", toolName: "write", toolCallId: "write-1", input: { path: filePath, content: "x" } };
+function write(filePath: string) {
+	return { type: "tool_call" as const, toolName: "write" as const, toolCallId: "write-1", input: { path: filePath, content: "x" } };
 }
 
-function edit(filePath: string): ToolCallEvent {
-	return { type: "tool_call", toolName: "edit", toolCallId: "edit-1", input: { path: filePath, edits: [{ old: "a", new: "b" }] } };
-}
-
-function webfetch(url: string): ToolCallEvent {
-	return { type: "tool_call", toolName: "webfetch", toolCallId: "webfetch-1", input: { url } };
+function edit(filePath: string) {
+	return { type: "tool_call" as const, toolName: "edit" as const, toolCallId: "edit-1", input: { path: filePath, edits: [{ old: "a", new: "b" }] } };
 }

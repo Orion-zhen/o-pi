@@ -52,7 +52,6 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 			field("tools.write.default_action", "写入文件", "radio"), field("tools.edit.default_action", "编辑文件", "radio"),
 			field("tools.webfetch.default_action", "读取网页", "radio"), field("tools.bash.default_action", "执行命令", "radio"),
 		] },
-		{ title: "授权记忆", fields: [field("remember.allow_session", "允许会话授权")] },
 	],
 	subagent: [
 		{ title: "默认配置", fields: [field("default_model", "默认模型", "model"), field("default_tools", "默认工具", "tools")] },

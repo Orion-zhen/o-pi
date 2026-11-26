@@ -250,6 +250,7 @@ describe("webfetch tool", () => {
 	it("仅持有匹配 origin 的 approval grant 时允许私网请求", async () => {
 		const requests: string[] = [];
 		const grant: PrivateNetworkGrant = {
+			scope: "loopback",
 			origin: "http://127.0.0.1:8080",
 			hostname: "127.0.0.1",
 			addresses: [{ address: "127.0.0.1", family: 4 }],
@@ -273,6 +274,7 @@ describe("webfetch tool", () => {
 
 	it("私网 dispatcher 只用于获批 origin", async () => {
 		const grant: PrivateNetworkGrant = {
+			scope: "loopback",
 			origin: "http://127.0.0.1:8080",
 			hostname: "127.0.0.1",
 			addresses: [{ address: "127.0.0.1", family: 4 }],
@@ -299,6 +301,7 @@ describe("webfetch tool", () => {
 
 	it("私网 snapshot 后续读取仍要求对应 approval grant", async () => {
 		const grant: PrivateNetworkGrant = {
+			scope: "loopback",
 			origin: "http://127.0.0.1:8080",
 			hostname: "127.0.0.1",
 			addresses: [{ address: "127.0.0.1", family: 4 }],
@@ -310,6 +313,24 @@ describe("webfetch tool", () => {
 		nextRuntime.snapshots = rt.snapshots;
 		const next = await executeWebFetch({ url: "http://127.0.0.1:8080/private", offset: 1000 }, nextRuntime);
 		expect(next.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
+	});
+
+	it("直连回环不复用同一 URL 的私网代理快照", async () => {
+		const origin = "http://127.0.0.1:8080";
+		const grant: PrivateNetworkGrant = { scope: "private", origin, hostname: "127.0.0.1", addresses: [{ address: "127.0.0.1", family: 4 }] };
+		const rt = runtime(async () => httpResponse(200, "private"), { context: { privateNetworkGrant: grant } });
+		expect((await executeWebFetch({ url: origin }, rt)).details).toMatchObject({ snapshot: "created" });
+		rt.context.privateNetworkGrant = { ...grant, scope: "loopback" };
+		expect((await executeWebFetch({ url: origin, offset: 1 }, rt)).details).toMatchObject({ snapshot: "refetched" });
+	});
+
+	it("回环授权不允许重定向到同一主机的其他端口", async () => {
+		const origin = "http://127.0.0.1:8080";
+		const rt = runtime(async () => redirectResponse("http://127.0.0.1:8081/"), { context: { privateNetworkGrant: {
+			scope: "loopback", origin, hostname: "127.0.0.1", addresses: [{ address: "127.0.0.1", family: 4 }],
+		} } });
+		const result = await executeWebFetch({ url: origin }, rt);
+		expect(result.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
 	});
 
 	it("redirect 到私网会被重新校验并拒绝", async () => {

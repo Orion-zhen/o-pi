@@ -4,7 +4,7 @@ import { selectedCaseBody, simpleExpansionSites } from "./simple-expansion.ts";
 import { TREE_SITTER_LANGUAGES } from "../../../syntax-tree/grammars.ts";
 import { parseSyntaxTree, SyntaxAnalysisTimeoutError } from "../../../syntax-tree/parser.ts";
 import type { SyntaxNode } from "../../../syntax-tree/types.ts";
-import type { ApprovalUnit } from "../../types.ts";
+import type { ApprovalUnit, BashArgv, BashPipeline } from "../../types.ts";
 import { isSystemTemporaryDescendant, normalizeTargetPath } from "../path.ts";
 import {
 	commandFacts,
@@ -42,6 +42,8 @@ interface BashAnalysisState {
 	readonly attributedDeclarations: boolean;
 	depth: number;
 	units: ApprovalUnit[];
+	pipelines: BashPipeline[];
+	stage?: { node: number; commands: BashArgv[] };
 	functions: ReadonlyMap<string, readonly ShellFunction[]>;
 	activeFunctions: Set<string>;
 }
@@ -56,7 +58,7 @@ function initialVariables(bash: boolean): Map<string, ResolvedShellValue> {
 export async function analyzeBashScript(
 	script: string,
 	cwd: string,
-	units: ApprovalUnit[],
+	output: Pick<BashAnalysisState, "units" | "pipelines">,
 	startup?: StartupFacts,
 ): Promise<boolean> {
 	const value = normalizeTargetPath(".", cwd);
@@ -68,7 +70,7 @@ export async function analyzeBashScript(
 			functionNames: new Set(), cwd: [{ value, temporary: isSystemTemporaryDescendant(value) }],
 			variables: initialVariables(bash), exitTraps: new Set(),
 			...(startup && { usedEnvironment: startup.used }),
-		}, 0, units, undefined, startup && { ...startup, canNarrow });
+		}, 0, output, undefined, startup && { ...startup, canNarrow });
 		return true;
 	} catch (error) {
 		if (error instanceof IncompleteBashAnalysis || error instanceof SyntaxAnalysisTimeoutError) return false;
@@ -77,7 +79,7 @@ export async function analyzeBashScript(
 }
 
 async function analyzeScript(
-	script: string, entry: BashAnalysisContext, depth: number, units: ApprovalUnit[],
+	script: string, entry: BashAnalysisContext, depth: number, output: Pick<BashAnalysisState, "units" | "pipelines">,
 	inheritedFunctions?: ReadonlyMap<string, readonly ShellFunction[]>, startup?: StartupFacts & { canNarrow: boolean },
 ): Promise<void> {
 	if (script.includes("\0") || depth > MAX_NESTED_SHELL_DEPTH) throw new IncompleteBashAnalysis();
@@ -88,7 +90,7 @@ async function analyzeScript(
 		const state: BashAnalysisState = {
 			attributedDeclarations: document.root.descendantsOfType("declaration_command").length > 0,
 			depth,
-			units,
+			units: output.units, pipelines: output.pipelines,
 			functions: mergeFunctions(inheritedFunctions, collectFunctions(document.root, document.control.check)),
 			activeFunctions: new Set(),
 		};
@@ -118,7 +120,7 @@ async function analyzeNode(
 	}
 	if (node.type === "unset_command") {
 		if (context.functionNames.has("unset")) {
-			await analyzeFunctionCall({ program: "unset", args: node.namedChildren.map(() => undefined) }, context, state, check);
+			await analyzeFunctionCall({ program: "unset", args: node.namedChildren.map((child) => ({ source: child.text })) }, context, state, check);
 		}
 		updateUnset(node, context, !state.attributedDeclarations);
 		await analyzeEmbeddedShell(node, context, state, check);
@@ -147,10 +149,18 @@ async function analyzeNode(
 		return;
 	}
 	if (node.type === "pipeline") {
+		const stages: BashArgv[][] = [];
+		state.pipelines.push({ stages, unit: { action: "execute", target: { kind: "command", value: node.text }, remember: false } });
 		let stage = context;
 		for (const child of node.namedChildren) {
+			if (child.type === "comment") continue;
 			stage = cloneContext(context);
-			await analyzeNode(child, stage, state, check);
+			const commands: BashArgv[] = [];
+			stages.push(commands);
+			await analyzeNode(child, stage, { ...state, stage: { node: child.id, commands } }, check);
+		}
+		if (node.nextSibling?.type === "&" && stages.filter((variants) => variants.some(([program]) => state.activeFunctions.has(program))).length >= 2) {
+			pushUnit(state, { action: "execute", target: { kind: "command", value: node.text }, analysisFact: "system.catastrophic", remember: false });
 		}
 		// lastpipe 可能让最后一段修改当前 Shell。
 		assignContext(context, joinContexts([context, stage]));
@@ -179,13 +189,28 @@ async function analyzeSimpleUnits(
 			for (const assignment of assignments) recordAssignment(assignment, invocation);
 			return { variant, invocation, command: commandUnit(node, variant, invocation) };
 		});
-		if (variants && (inPipeline(node) || calls.some(({ command }) => !command.concreteExecution))) {
-			const unit = dynamicCommandUnit(node, context);
-			if (unit) pushUnit(state, unit);
+		const seenOpaque = new Set<string>();
+		function append(unit: ApprovalUnit | undefined): void {
+			if (!unit) return;
+			if (variants && unit.analysisFact) {
+				const key = JSON.stringify([unit.commands, unit.remember, unit.effect_scope]);
+				if (seenOpaque.has(key)) return;
+				seenOpaque.add(key);
+			}
+			pushUnit(state, unit);
 		}
+		const pipeline = inPipeline(node);
+		if (variants && (pipeline || calls.some(({ command }) => !command.concreteExecution))) append(dynamicCommandUnit(node, context));
+		const checkedDirectories = new Set<Directories>();
 		const destinations = [];
 		for (const { variant, invocation, command } of calls) {
 			check();
+			// 清空变量后，候选上下文之间只有工作目录会影响命令展开。
+			if (pipeline && context.usedEnvironment && command.checkWithoutVariables && !checkedDirectories.has(variant.cwd)) {
+				checkedDirectories.add(variant.cwd);
+				append(dynamicCommandUnit(node, { ...variant, variables: new Map() }));
+			}
+			append(command.unit);
 			destinations.push(await analyzeCommand(node, variant, invocation, command, state, check));
 		}
 		if (allDefined(destinations)) targets = joinDirectories(destinations.flat());
@@ -206,12 +231,7 @@ async function analyzeCommand(
 	node: SyntaxNode, context: BashAnalysisContext, invocation: BashAnalysisContext,
 	command: ReturnType<typeof commandUnit>, state: BashAnalysisState, check: () => void,
 ): Promise<Directories | undefined> {
-	if (context.usedEnvironment && !command.dynamicExecution && inPipeline(node)) {
-		// 解析出单个程序名并不足以按展开后的整条管道匹配 raw-input。
-		const unit = dynamicCommandUnit(node, { ...context, variables: new Map() });
-		if (unit) pushUnit(state, unit);
-	}
-	pushUnit(state, command.unit);
+	if (state.stage && belongsToStage(node, state.stage.node)) state.stage.commands.push(...command.unit.commands);
 	if (command.nestedShell !== undefined) {
 		const nestedContext: BashAnalysisContext = {
 			functionNames: context.functionNames,
@@ -219,7 +239,7 @@ async function analyzeCommand(
 			variables: new Map([...initialVariables(command.nestedShell.bash), ...command.nestedShell.positional]),
 			exitTraps: new Set(),
 		};
-		await analyzeScript(command.nestedShell.script, nestedContext, state.depth + 1, state.units);
+		await analyzeScript(command.nestedShell.script, nestedContext, state.depth + 1, state);
 	}
 	await analyzeEmbeddedShell(node, context, state, check);
 	handleExitTrap(command.rawFacts, context);
@@ -431,9 +451,18 @@ async function analyzeOutcomes(
 	return [success, failure];
 }
 
-// 单个候选不能代表整条管道的 raw-input，不能据此排除跨命令规则。
+// 单个候选不能代表整条管道。
 function inPipeline(node: SyntaxNode): boolean {
 	for (let parent = node.parent; parent !== null; parent = parent.parent) if (parent.type === "pipeline") return true;
+	return false;
+}
+
+// 分组内的命令共享该阶段的管道。参数里的替换有独立的输入输出，不归入外层阶段。
+function belongsToStage(node: SyntaxNode, stage: number): boolean {
+	for (let current: SyntaxNode | null = node; current !== null; current = current.parent) {
+		if (current.id === stage) return true;
+		if (isSubstitution(current) || current.type === "pipeline") return false;
+	}
 	return false;
 }
 
@@ -514,7 +543,7 @@ function invalidateCommandState(facts: CommandFacts, context: BashAnalysisContex
 	const program = facts.program;
 	if (program === "builtin" || program === "command") {
 		const [name, ...args] = facts.args;
-		if (name !== undefined && name !== "builtin" && name !== "command") invalidateCommandState({ program: name, args }, context);
+		if (typeof name === "string" && name !== "builtin" && name !== "command") invalidateCommandState({ program: name, args }, context);
 		return;
 	}
 	// eval 和 source 在当前 Shell 中执行未知代码，先前的变量值不再可靠。
@@ -532,7 +561,7 @@ function invalidateCommandState(facts: CommandFacts, context: BashAnalysisContex
 		return;
 	}
 	if (program === "read" || program === "readarray" || program === "mapfile" || program === "unset") {
-		if (!allDefined(facts.args)) {
+		if (!facts.args.every((arg) => typeof arg === "string")) {
 			context.variables.clear();
 			return;
 		}
@@ -543,14 +572,14 @@ function invalidateCommandState(facts: CommandFacts, context: BashAnalysisContex
 	}
 	if (program === "getopts") {
 		const name = facts.args[1];
-		if (name !== undefined) context.variables.delete(name);
+		if (typeof name === "string") context.variables.delete(name);
 		return;
 	}
 	if (program !== "printf") return;
 	const variableOption = facts.args.findIndex((argument) => argument === "-v");
 	if (variableOption < 0) return;
 	const name = facts.args[variableOption + 1];
-	if (name !== undefined) context.variables.delete(name);
+	if (typeof name === "string") context.variables.delete(name);
 }
 
 function invalidateAssignedVariables(node: SyntaxNode, context: BashAnalysisContext, check: () => void, functionScope = false): void {
@@ -604,7 +633,7 @@ async function analyzeFunctionCall(
 function handleExitTrap(facts: CommandFacts, context: BashAnalysisContext): void {
 	if (facts.program !== "trap" || facts.args.length < 2) return;
 	const action = facts.args[0];
-	if (action === undefined || !facts.args.slice(1).some((signal) => signal === "EXIT" || signal === "0")) return;
+	if (typeof action !== "string" || !facts.args.slice(1).some((signal) => signal === "EXIT" || signal === "0")) return;
 	context.exitTraps.clear();
 	if (action !== "-") context.exitTraps.add(action);
 }
@@ -621,7 +650,7 @@ async function analyzeExitTraps(
 		}
 		const trapContext = cloneContext(context);
 		trapContext.exitTraps.clear();
-		await analyzeScript(action, trapContext, state.depth + 1, state.units, state.functions);
+		await analyzeScript(action, trapContext, state.depth + 1, state, state.functions);
 	}
 }
 
