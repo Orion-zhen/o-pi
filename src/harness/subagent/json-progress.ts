@@ -167,7 +167,7 @@ export class PiJsonProgressAccumulator {
 	}
 
 	private markWrite(name: string): void {
-		if (name === "write" || name === "edit" || name === "bash") this.wrote = true;
+		if (name === "write" || name === "edit" || name === "bash" || name === "powershell") this.wrote = true;
 	}
 }
 

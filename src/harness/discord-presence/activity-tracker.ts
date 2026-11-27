@@ -1,5 +1,5 @@
-import { classifyTool, preserveStableMetadata, stableExecutableFromCommand } from "./activity.ts";
-import { completedTopLevelStringProperty, stringProperty } from "./streaming.ts";
+import { classifyTool, preserveStableMetadata } from "./activity.ts";
+import { completedTopLevelStringProperty } from "./streaming.ts";
 import type { PresenceActivity } from "./types.ts";
 
 interface ToolCall {
@@ -99,8 +99,7 @@ export class PresenceActivityTracker {
 			tool.stream.pathJson = undefined;
 		}
 		if (kind === "shell" && tool.activity.executable === undefined) {
-			const command = stringProperty(call.arguments, "command");
-			const executable = command === undefined ? undefined : stableExecutableFromCommand(command, false);
+			const { executable } = classifyTool(name, call.arguments, false);
 			if (executable !== undefined) tool.activity = { ...tool.activity, executable };
 		}
 		return tool.activity !== previous;

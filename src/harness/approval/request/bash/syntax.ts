@@ -16,12 +16,12 @@ export function* walkNamedNodes(root: SyntaxNode, check: () => void): Generator<
 	}
 }
 
-export function* walkNamedNodesSkippingFunctions(root: SyntaxNode, check: () => void): Generator<SyntaxNode> {
+export function* walkCurrentScope(root: SyntaxNode, check: () => void): Generator<SyntaxNode> {
 	const stack = [root];
 	for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
 		check();
 		yield node;
-		if (node !== root && node.type === "function_definition") continue;
+		if (node.type === "function_definition" || node.type === "subshell" || node.type === "command_substitution" || node.type === "process_substitution") continue;
 		for (const child of [...node.namedChildren].reverse()) stack.push(child);
 	}
 }

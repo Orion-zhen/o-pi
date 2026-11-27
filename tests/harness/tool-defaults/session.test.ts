@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Type } from "typebox";
+import shellTools from "../../../src/harness/extensions/shell-tools.ts";
 import { extensions } from "../../../src/harness/extensions.ts";
 import { createToolsExtension } from "../../../src/harness/extensions/cmd-slash-tools.ts";
 import type { ToolSelectionController } from "../../../src/harness/tool-defaults/controller.ts";
@@ -85,6 +86,31 @@ function requestedTools(): string[] {
 }
 
 describe("工具选择与 SDK 状态", () => {
+	it.skipIf(process.platform !== "win32")("Windows 从工具面板启用 PowerShell 后向模型声明", async () => {
+		const { session, controller } = await start(SessionManager.create(cwd), undefined, shellTools);
+		expect(controller.listTools().find((tool) => tool.name === "powershell")).toMatchObject({ available: true, enabled: false });
+		controller.set("powershell", true);
+		await session.prompt("查询工具");
+		expect(requestedTools()).toContain("powershell");
+	});
+
+	it.skipIf(process.platform !== "win32")("导航到首次请求前的节点保留手动选择的 Bash", async () => {
+		const file = path.join(agentDir, "settings.json");
+		const { defaultTools: _defaults, ...settings } = JSON.parse(await readFile(file, "utf8"));
+		await writeFile(file, JSON.stringify(settings));
+		const { session, controller } = await start(SessionManager.create(cwd), undefined, shellTools);
+		const beforeRequest = session.sessionManager.getLeafId();
+		if (!beforeRequest) throw new Error("缺少会话起始节点");
+		expect(selected(controller)).toContain("powershell");
+		expect(selected(controller)).not.toContain("bash");
+		await session.prompt("使用默认工具");
+		controller.setMany([{ name: "powershell", enabled: false }, { name: "bash", enabled: true }]);
+		await session.navigateTree(beforeRequest, { summarize: false });
+		await session.prompt("使用手动选择的工具");
+		expect(requestedTools()).toContain("bash");
+		expect(requestedTools()).not.toContain("powershell");
+	});
+
 	it("没有候选工具时，显式选择 tool_search 也不向模型声明", async () => {
 		const { session, controller } = await start(SessionManager.create(cwd), ["tool_search"]);
 		expect(controller.listTools().find((tool) => tool.name === "tool_search")).toMatchObject({ available: false, enabled: false });

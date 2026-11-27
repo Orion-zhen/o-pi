@@ -1,10 +1,10 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { binaryResourceDir } from "../runtime/paths.ts";
-import type { ParseOptions, Tree } from "web-tree-sitter";
+import type { ParseCallback, ParseOptions, Tree } from "web-tree-sitter";
 import type { GrammarSpec } from "./types.ts";
 
-type ParseGrammar = (text: string, options: ParseOptions) => Tree | null;
+type ParseGrammar = (text: string | ParseCallback, options: ParseOptions) => Tree | null;
 const require = createRequire(import.meta.url);
 let runtime: Promise<typeof import("web-tree-sitter")> | undefined;
 const grammars = new Map<GrammarSpec, Promise<ParseGrammar>>();

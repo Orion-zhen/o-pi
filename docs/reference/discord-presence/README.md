@@ -32,7 +32,9 @@ Presence 将活动发布到 SDK 后端电脑上的 Discord Desktop。配置开�
 
 模型开始一轮时显示 thinking，工具流式生成时切换到对应活动，结束后恢复仍在运行的上一个工具，全部结束后回到 thinking，任务结束后切到 idle。
 
-文件名在路径字符串完整后提取，Shell 程序名在首个有效单词完整后提取。发布按 `update_interval_ms` 合并和限频，连接失败按 `retry_interval_ms` 重试最新状态。
+文件名在路径字符串完整后提取。Bash 和 PowerShell 都等程序名完整后才展示。PowerShell 支持直接调用和 `&`、`.` 后的静态名称，只展示基本名。例如 `& 'C:\Program Files\Git\bin\git.exe' status` 显示 `Running git.exe`，`& $cmd` 显示 `Running command`。流式和执行事件使用同一规则，不发布命令参数。
+
+发布按 `update_interval_ms` 合并和限频，连接失败按 `retry_interval_ms` 重试最新状态。
 
 ## 隐私
 

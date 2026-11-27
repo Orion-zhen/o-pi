@@ -76,7 +76,7 @@
 
 小图优先级为语言、活动、default。默认按活动发送同名小图，显示取决于 Discord 应用是否上传了对应资源。覆盖某个图标为空字符串可关闭继承值。
 
-语言键支持 c、cpp、css、go、html、java、javascript、json、lua、markdown、python、ruby、rust、shell、sql、toml、typescript、vue、xml、yaml、zig。JSONC 使用 json，JSX 使用 javascript，TSX 使用 typescript。
+语言键支持 c、cpp、css、go、html、java、javascript、json、lua、markdown、python、ruby、rust、shell、sql、toml、typescript、vue、xml、yaml、zig。JSONC 使用 json，JSX 使用 javascript，TSX 使用 typescript。`.ps1` 和 `.psm1` 显示为 PowerShell，使用 shell 图片键。
 
 ## 自建 Discord 应用
 

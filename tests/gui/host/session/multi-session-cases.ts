@@ -7,7 +7,7 @@ import { GuiHost } from "../../../../src/gui/host/host.ts";
 import { GuiStream } from "../../../../src/gui/host/projection/stream.ts";
 import type { GuiClient } from "../../../../src/gui/host/client.ts";
 import type { GuiDialog } from "../../../../src/gui/shared/protocol/state.ts";
-import { takeBashCall } from "../../../../src/harness/bash-runtime/prepare.ts";
+import { takeShellCall } from "../../../../src/harness/shell-runtime/prepare.ts";
 import type { GuiEvent } from "../../../../src/gui/shared/protocol/events.ts";
 import { storeSession } from "../../helpers/session-fixture.ts";
 
@@ -115,7 +115,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 
 		it.skipIf(process.platform !== "darwin" && process.platform !== "linux")("sudo 密码只交给审批连接，关闭连接会取消重试", async () => {
 			const { host, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "bash-tool.jsonc"), '{"environment":{"inherit":false}}');
+			await writeFile(path.join(agentDir, "configs", "shell-tools.jsonc"), '{"environment":{"inherit":false}}');
 			const other = host.host.createClient(host.selected?.id);
 			host.connect(() => {});
 			const connection = other.connect(() => {});
@@ -130,11 +130,11 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				const approving = runner.emitToolCall({ type: "tool_call", toolCallId: "sudo-call", toolName: "bash", input });
 				await expect.poll(() => visibleDialogs(other).length).toBe(1);
 				const [approval] = visibleDialogs(other);
-				if (approval?.kind !== "bashApproval") throw new Error("缺少审批");
+				if (approval?.kind !== "shellApproval") throw new Error("缺少审批");
 				expect(approval.options.map(({ value }) => value)).toEqual(["Allow once", "Deny", "Deny with instruction"]);
 				await other.dispatch({ action: "dialog", id: approval.id, value: "Allow once" });
 				await expect(approving).resolves.toBeUndefined();
-				const plan = await takeBashCall(input, runner.createContext());
+				const plan = await takeShellCall("bash", input, runner.createContext());
 				if (plan.kind !== "resolved" || !plan.askpass) throw new Error("缺少 sudo 执行计划");
 				expect(plan.command).toBe("exec /usr/bin/sudo -A -- id");
 				const askpass = plan.askpass;
@@ -144,7 +144,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				expect(visibleDialogs(other)).toEqual([]);
 				const password = askpass(false, signal);
 				const [challenge] = visibleDialogs(other);
-				if (challenge?.kind !== "bashApproval" || challenge.stage.kind !== "prompting") throw new Error("缺少密码框");
+				if (challenge?.kind !== "shellApproval" || challenge.stage.kind !== "prompting") throw new Error("缺少密码框");
 				expect(challenge.id).toBe(approval.id);
 				expect(visibleDialogs(host)).toEqual([]);
 				await expect(host.dispatch({ action: "dialog", id: approval.id, token: challenge.stage.token, value: "wrong client" })).rejects.toThrow();
@@ -164,12 +164,12 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 
 		it("策略直接放行的 sudo 保留原命令，不绑定密码输入", async () => {
 			const { host, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"ui":{"timeout_ms":200},"tools":{"bash":{"facts":{"sudo":false}}}}');
-			await writeFile(path.join(agentDir, "configs", "bash-tool.jsonc"), '{"environment":{"inherit":false}}');
+			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"ui":{"timeout_ms":200},"tools":{"shell":{"facts":{"sudo":false}}}}');
+			await writeFile(path.join(agentDir, "configs", "shell-tools.jsonc"), '{"environment":{"inherit":false}}');
 			const runner = host.runtime.session.extensionRunner;
 			const input = { command: "sudo id" };
 			await expect(runner.emitToolCall({ type: "tool_call", toolName: "bash", toolCallId: "auto", input })).resolves.toBeUndefined();
-			const plan = await takeBashCall(input, runner.createContext());
+			const plan = await takeShellCall("bash", input, runner.createContext());
 			expect(plan).toMatchObject({ kind: "resolved", command: input.command });
 			expect(plan).not.toHaveProperty("askpass");
 		});

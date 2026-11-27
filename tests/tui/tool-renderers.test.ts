@@ -2,10 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices,
-	initTheme, SessionManager,
+	initTheme, keyHint, keyText, SessionManager,
 	type AgentSessionRuntime, type ExtensionContext, type ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, expect, it } from "vitest";
 import { createTuiExtensions } from "../../src/tui/extensions.ts";
 import { SKILL_CONTEXT_MESSAGE } from "../../src/harness/skill-context/types.ts";
@@ -14,7 +14,7 @@ import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.ts";
 
 const temp = useTempDir("opi-tool-renderers-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE");
-const toolNames = ["ls", "find", "grep", "read", "write", "edit", "bash", "websearch", "webfetch", "skill", "subagent"];
+const toolNames = ["ls", "find", "grep", "read", "write", "edit", "bash", ...(process.platform === "win32" ? ["powershell"] : []), "websearch", "webfetch", "skill", "subagent"];
 const extensionNames = new Set(["tools-runtime", "tool-renderers"]);
 let runtime: AgentSessionRuntime | undefined;
 
@@ -57,7 +57,7 @@ it("TUI 渲染器独立于执行定义，启动和恢复不重新注册工具", 
 		expect(session.getToolDefinition(name)?.renderResult, name).toBeUndefined();
 		const renderers = session.extensionRunner.resolveToolRenderers(name, () => undefined);
 		if (name !== "write") expect(renderers?.renderCall, name).toBeTypeOf("function");
-		if (name !== "bash") expect(renderers?.renderResult, name).toBeTypeOf("function");
+		if (name !== "bash" && name !== "powershell") expect(renderers?.renderResult, name).toBeTypeOf("function");
 	}
 	expect(session.getActiveToolNames()).toEqual(active);
 	expect(session.extensionRunner.resolveToolRenderers("edit", () => undefined)?.renderShell).toBe("self");
@@ -72,15 +72,23 @@ it("TUI 渲染器独立于执行定义，启动和恢复不重新注册工具", 
 	expect(session.extensionRunner.resolveToolRenderers("skill", () => undefined)?.renderCall).toBeTypeOf("function");
 });
 
-it("Bash 保留原生结果渲染，未接管的工具继续使用后续呈现器", async () => {
+it("两种 shell 使用各自的命令前缀，保留原生结果渲染和其他工具的呈现器", async () => {
 	const session = await start();
 	await session.bindExtensions({ mode: "tui", onError: ({ error }) => { throw new Error(error); } });
-	const nativeBash: ToolRenderers = { renderResult: () => new Text("native output", 0, 0) };
-	const bash = session.extensionRunner.resolveToolRenderers("bash", () => nativeBash);
-	expect(bash?.renderCall).toBeTypeOf("function");
-	expect(bash?.renderCall).not.toBe(nativeBash.renderCall);
-	expect(bash?.renderResult).toBe(nativeBash.renderResult);
-	expect(session.extensionRunner.resolveToolRenderers("external", () => nativeBash)).toBe(nativeBash);
+	const native: ToolRenderers = { renderResult: () => new Text("native output", 0, 0) };
+	const theme = session.extensionRunner.createContext().ui.theme;
+	for (const [name, prompt] of [["bash", "$"], ["powershell", "PS>"]] as const) {
+		const renderer = session.extensionRunner.resolveToolRenderers(name, () => native);
+		const args = { command: "git status" };
+		const call = renderer?.renderCall?.(args, theme, {
+			toolCallId: name, args, cwd: temp.path, state: {}, lastComponent: undefined, keyText, keyHint,
+			invalidate() {}, argsComplete: true, executionStarted: true, expanded: false, isPartial: false,
+			showImages: false, isError: false, durationMs: undefined, outputPad: 1,
+		});
+		expect(call?.render(80).map((line) => stripTerminalSequences(line).trimEnd())).toEqual([`${prompt} ${args.command}`]);
+		expect(renderer?.renderResult).toBe(native.renderResult);
+	}
+	expect(session.extensionRunner.resolveToolRenderers("external", () => native)).toBe(native);
 	expect(session.extensionRunner.resolveToolRenderers("external", () => undefined)).toBeUndefined();
 });
 

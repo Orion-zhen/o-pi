@@ -137,18 +137,21 @@ describe("GUI 直接使用 SDK", () => {
 			expect.objectContaining({ id: "anthropic", apiKey: true, oauth: true }),
 		]));
 	});
+	const nonShellTools = ["edit", "find", "grep", "ls", "read", "skill", "webfetch", "websearch", "write"];
+	const defaultTools = [process.platform === "win32" ? "powershell" : "bash", ...nonShellTools];
 	it.each([
-		{ defaults: undefined, expected: ["bash", "edit", "find", "grep", "ls", "read", "skill", "webfetch", "websearch", "write"] },
+		{ defaults: undefined, expected: defaultTools },
 		{ defaults: [], expected: [] },
 		{ defaults: ["read"], expected: ["read"] },
-		{ defaults: ["-bash"], expected: ["edit", "find", "grep", "ls", "read", "skill", "webfetch", "websearch", "write"] },
+		{ defaults: ["-bash"], expected: defaultTools.filter((name) => name !== "bash") },
+		{ defaults: ["-powershell"], expected: defaultTools.filter((name) => name !== "powershell") },
 		{ defaults: ["read", "bash", "-bash", "+find"], expected: ["find", "read"] },
 	])("GUI 初始集合尊重 opi 默认和显式配置：$defaults", async ({ defaults, expected }) => {
 		const file = path.join(temp.path, ".pi", "agent", "settings.json");
 		const settings = JSON.parse(await readFile(file, "utf8"));
 		await writeFile(file, JSON.stringify({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) }));
 		await host.dispatch({ action: "new" });
-		expect(readSnapshot(host).modelTools.filter((name) => name !== "powershell").sort()).toEqual(expected);
+		expect(readSnapshot(host).modelTools.toSorted()).toEqual(expected.toSorted());
 		expect(host.runtime.session.getActiveToolNames()).not.toContain("codemode");
 		expect(host.runtime.session.getActiveToolNames()).not.toContain("subagent");
 		expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) });

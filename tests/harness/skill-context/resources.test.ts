@@ -21,6 +21,7 @@ import { lspOperations } from "../../helpers/lsp.ts";
 const temp = useTempDir("o-pi-skill-resource-");
 let root: string;
 let branch: SessionEntry[];
+let loads: ReadonlyMap<string, SkillLoadEntry>;
 let pathAccess: FilesystemPathAccess;
 
 beforeEach(async () => {
@@ -29,16 +30,17 @@ beforeEach(async () => {
 	await writeFile(path.join(root, "SKILL.md"), "skill");
 	await writeFile(path.join(root, "references", "testing.md"), "testing");
 	branch = [custom(load("demo", root))];
-	pathAccess = buildSkillFilesystemAccess(loadedSkillsByName(branch));
+	loads = loadedSkillsByName(branch);
+	pathAccess = buildSkillFilesystemAccess(loads);
 });
 
 describe("技能资源定位符", () => {
 
 	it("解析已授权资源并保留逻辑地址", async () => {
-		const rootResult = await resolveSkillResourceLocator("skill://demo", branch);
+		const rootResult = await resolveSkillResourceLocator("skill://demo", loads);
 		expect(rootResult).toMatchObject({ kind: "skill", logicalPath: "skill://demo", relativePath: "" });
 
-		const result = await resolveSkillResourceLocator("skill://demo/references/testing.md", branch);
+		const result = await resolveSkillResourceLocator("skill://demo/references/testing.md", loads);
 		expect(result).toMatchObject({
 			kind: "skill",
 			logicalPath: "skill://demo/references/testing.md",
@@ -159,7 +161,7 @@ describe("技能资源定位符", () => {
 	});
 
 	it("拒绝未加载技能", async () => {
-		const unloaded = await resolveSkillResourceLocator("skill://demo/references/testing.md", []);
+		const unloaded = await resolveSkillResourceLocator("skill://demo/references/testing.md", new Map());
 		expect(unloaded).toMatchObject({ kind: "error", code: "access-denied" });
 	});
 
@@ -173,7 +175,7 @@ describe("技能资源定位符", () => {
 		"skill://demo/%2e%2e/secret.md",
 		"skill://demo/",
 	])("拒绝格式错误或可能逃逸的定位符 %s", async (locator) => {
-		const result = await resolveSkillResourceLocator(locator, branch);
+		const result = await resolveSkillResourceLocator(locator, loads);
 		expect(result).toMatchObject({ kind: "error", code: "invalid-locator" });
 	});
 
@@ -181,9 +183,9 @@ describe("技能资源定位符", () => {
 		const outside = path.join(temp.path, "outside.md");
 		await writeFile(outside, "secret");
 		await symlink(outside, path.join(root, "references", "escape.md"));
-		expect(await resolveSkillResourceLocator("skill://demo/references/testing.md\0", branch))
+		expect(await resolveSkillResourceLocator("skill://demo/references/testing.md\0", loads))
 			.toMatchObject({ kind: "error", code: "invalid-locator" });
-		expect(await resolveSkillResourceLocator("skill://demo/references/escape.md", branch))
+		expect(await resolveSkillResourceLocator("skill://demo/references/escape.md", loads))
 			.toMatchObject({ kind: "error", code: "access-denied" });
 	});
 });

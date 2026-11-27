@@ -34,6 +34,7 @@ beforeEach(async () => {
 		PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1",
 		NODE_NO_WARNINGS: "1", TERM: "xterm-256color",
 		...(process.env.SystemRoot === undefined ? {} : { SystemRoot: process.env.SystemRoot }),
+		...(process.env.ProgramFiles === undefined ? {} : { ProgramFiles: process.env.ProgramFiles }),
 	};
 	await mkdir(cwd, { recursive: true });
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
@@ -115,13 +116,17 @@ describe("standalone opi CLI", () => {
 		expect(server.requests[0]?.tools ?? []).toEqual([]);
 	});
 
+	const nonShellTools = ["edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"];
+	const shell = process.platform === "win32" ? "powershell" : "bash";
+	const defaultTools = [shell, ...nonShellTools];
 	it.each([
-		{ defaults: undefined, flags: [], expected: ["bash", "edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
-		{ defaults: undefined, flags: ["--tools", "-bash"], expected: ["edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
+		{ defaults: undefined, flags: [], expected: defaultTools },
+		{ defaults: undefined, flags: ["--tools", "-bash"], expected: defaultTools.filter((name) => name !== "bash") },
+		{ defaults: undefined, flags: ["--tools", "-powershell"], expected: defaultTools.filter((name) => name !== "powershell") },
 		{ defaults: undefined, flags: ["--tools", "read"], expected: ["read"] },
-		{ defaults: ["-bash"], flags: [], expected: ["edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
+		{ defaults: ["-bash"], flags: [], expected: defaultTools.filter((name) => name !== "bash") },
 		{ defaults: ["read", "bash", "-bash", "+find"], flags: [], expected: ["find", "read"] },
-		{ defaults: ["+codemode"], flags: ["--tools", "-codemode"], expected: ["bash", "edit", "find", "grep", "ls", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
+		{ defaults: ["+codemode"], flags: ["--tools", "-codemode"], expected: defaultTools },
 		{ defaults: undefined, flags: ["--no-tools"], expected: [] },
 	])("opi 默认集合和原生 CLI 增减：$defaults / $flags", async ({ defaults, flags, expected }) => {
 		const file = path.join(agentDir, "settings.json");
@@ -129,7 +134,7 @@ describe("standalone opi CLI", () => {
 		const configured = { ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) };
 		await writeFile(file, JSON.stringify(configured));
 		await runJson(flags);
-		expect(server.requests[0]?.tools?.map((tool) => tool.function.name).filter((name) => name !== "powershell").sort() ?? []).toEqual(expected);
+		expect(server.requests[0]?.tools?.map((tool) => tool.function.name).sort() ?? []).toEqual(expected.toSorted());
 		expect(JSON.parse(await readFile(file, "utf8")).defaultTools).toEqual(defaults);
 	});
 
@@ -380,7 +385,7 @@ describe("standalone opi CLI", () => {
 			{ tool: "write", args: { path: "created.txt", content: "written by opi\n" } },
 			{ tool: "bash", args: { command: "printf opi-bash" } },
 		]);
-		const results = toolResults(await runJson());
+		const results = toolResults(await runJson(["--tools", "+bash"]));
 		expect(results.map((result) => result["toolName"])).toEqual(["ls", "find", "read", "grep", "edit", "write", "bash"]);
 		expect(results.every((result) => !result["isError"]), JSON.stringify(results)).toBe(true);
 		expect(JSON.stringify(results.at(-1))).toContain("opi-bash");

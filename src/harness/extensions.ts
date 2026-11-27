@@ -3,7 +3,7 @@ import agentsPrompts from "./extensions/agents-prompts.ts";
 import approvalGate, { type ApprovalPresenter } from "./extensions/approval-gate.ts";
 import type { SessionApprovalStore } from "./approval/rules/store.ts";
 import autoTitle from "./extensions/auto-title.ts";
-import bashTool from "./extensions/bash-tool.ts";
+import shellTools from "./extensions/shell-tools.ts";
 import { createToolsExtension } from "./extensions/cmd-slash-tools.ts";
 import type { ToolStartupOptions } from "./tool-defaults/initial.ts";
 import codemode from "./extensions/codemode.ts";
@@ -48,7 +48,7 @@ export function createHarnessExtensions(options: HarnessOptions = {}): InlineExt
 		{ name: "auto-title", factory: autoTitle },
 		{ name: "tools-runtime", factory(pi) {
 			const service = registerTelemetry(pi);
-			bashTool(pi, service);
+			shellTools(pi, service);
 			fileTools(pi, service);
 			skillContext(pi, service);
 			(options.subagent ?? subagent)(pi, service);

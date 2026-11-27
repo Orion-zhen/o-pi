@@ -123,12 +123,22 @@ describe("工具语义呈现", () => {
 		expect(completed.querySelector(".activity-summary")?.getAttribute("aria-expanded")).toBe("false");
 	});
 
-	it("Shell 日志按纯文本显示，保留空格并转义 HTML", () => {
-		const html = renderResult("bash", { command: "printf 'hello'" }, {}, [{ type: "text", text: "# not a heading\n  <script>alert(1)</script>\n\u001b[31merror\u001b[0m" }]);
-		expect(html).toContain("# not a heading");
-		expect(html).not.toContain("<h1");
-		expect(html).not.toContain("<script>");
-		expect(html).not.toContain("\u001b");
+	it.each(["bash", "powershell"])("%s 卡片按命令语言高亮，显示退出码并保留纯文本日志", (name) => {
+		const args = { command: "git status" };
+		const content = [{ type: "text", text: "# not a heading\n  <script>alert(1)</script>\n\u001b[31merror\u001b[0m" }];
+		const tool: ToolActivity = { id: "shell-1", name, args, state: "failed",
+			output: { kind: "inline", value: projectToolOutput(name, { content, details: { exit_code: 7 } }) } };
+		const doc = parseHTML(renderWithMemory(createElement(ToolActivityView, { tool }), new DisclosureMemory([[`tool:${tool.id}`, true]]))).document;
+		expect(doc.querySelector(".activity-summary")?.textContent).toContain("退出 7");
+		expect(doc.querySelector(`pre[aria-label="命令"] code.language-${name}`)?.textContent).toBe(args.command);
+		expect(doc.querySelector('pre[aria-label="输出"] code')?.textContent).toBe("# not a heading\n  <script>alert(1)</script>\nerror");
+		expect(doc.querySelector("h1, script")).toBeNull();
+	});
+
+	it.each(["script.ps1", "module.psm1"])("read 结果按 PowerShell 高亮 %s", (path) => {
+		const content = "Get-ChildItem";
+		const html = renderResult("read", { path }, { path, total_lines: 1, segments: [{ content, start_line: 1, end_line: 1 }] });
+		expect(parseHTML(html).document.querySelector("code.language-powershell")?.textContent).toContain(content);
 	});
 
 	it("扩展参数按字段、列表和布尔值显示，字符串 payload 不重新解析", () => {

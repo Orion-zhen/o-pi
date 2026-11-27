@@ -2,7 +2,7 @@
 	"enabled": true,
 	"ui": { "timeout_ms": 0, "non_interactive": "block" },
 	"tools": {
-		"bash": {
+		"shell": {
 			"default_action": "allow",
 			"facts": {
 				"release": { "action": "ask", "reason": "确认发布目标", "commands": {

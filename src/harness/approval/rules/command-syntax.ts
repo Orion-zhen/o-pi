@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import type { BashArg, BashArgv } from "../types.ts";
+import type { ShellArg, ShellArgv } from "../types.ts";
 
 const apt = ["-o", "--option", "-c", "--config-file", "-t", "--target-release"];
 const rpm = ["-c", "--config", "--installroot", "--releasever", "--setopt"];
@@ -13,7 +13,7 @@ const packageOptions = new Map<string, readonly string[]>([
 const forwarding = new Set(["exec", "x", "dlx", "workspace", "workspaces", "global", "recursive"]);
 const runForwarders = new Set(["bun", "uv", "yarn"]);
 
-export function isSingleField(arg: BashArg | undefined): boolean {
+export function isSingleField(arg: ShellArg | undefined): boolean {
 	return typeof arg === "string" || arg?.singleField === true;
 }
 
@@ -26,7 +26,7 @@ function packageFlag(program: string, word: string, index: number): boolean {
 	}
 }
 
-function* packageStarts(argv: BashArgv, start: number, options: readonly string[]) {
+function* packageStarts(argv: ShellArgv, start: number, options: readonly string[]) {
 	const program = argv[0];
 	let i = start;
 	while (i < argv.length) {
@@ -51,11 +51,36 @@ const globalValues = new Map<string, readonly string[]>([
 	["docker", ["-c", "-H", "--context", "--host", "--config", "--log-level"]],
 	["podman", ["-c", "--connection", "--url", "--identity", "--log-level"]],
 ]);
-const gitFlags = new Set(["-p", "-P", "--paginate", "--no-pager", "--bare", "--no-replace-objects", "--no-lazy-fetch", "--no-optional-locks", "--no-advice",
-	"--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"]);
+const GIT_WORKTREE_NEUTRAL_FLAGS: ReadonlySet<string> = new Set([
+	"--no-pager", "--paginate", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs",
+]);
+const gitFlags = new Set([...GIT_WORKTREE_NEUTRAL_FLAGS, "-p", "-P", "--bare", "--no-replace-objects", "--no-lazy-fetch", "--no-optional-locks", "--no-advice"]);
+
+export const gitScopeVariable = /^git_(?:dir|common_dir|index_file|work_tree|object_directory|config(?:_.*)?)$/iu;
+
+/** 只接受可按工作目录判断范围的清理或硬重置。各 Shell 检查环境并解析 -C 路径。 */
+export function temporaryGitDirectories(args: readonly string[]): string[] | undefined {
+	const directories: string[] = [], tokens = args.values();
+	for (const command of tokens) {
+		if (GIT_WORKTREE_NEUTRAL_FLAGS.has(command)) continue;
+		if (command === "-C") {
+			const directory = tokens.next().value;
+			if (!directory) return;
+			directories.push(directory);
+			continue;
+		}
+		if (command === "clean" && tokens.every(a => /^-[fdnqxX]+$/u.test(a))) return directories;
+		if (command !== "reset") return;
+		for (const arg of tokens) {
+			if (arg === "--") return;
+			if (arg === "--hard") return directories;
+		}
+		return;
+	}
+}
 
 /** 未知全局选项可能取一个值。不能靠猜测的子命令命中例外。 */
-function* globalStarts(argv: BashArgv, service: boolean): Generator<number> {
+function* globalStarts(argv: ShellArgv, service: boolean): Generator<number> {
 	const program = argv[0];
 	const values = globalValues.get(program);
 	if (!values) { yield 1; return; }
@@ -83,12 +108,13 @@ function* globalStarts(argv: BashArgv, service: boolean): Generator<number> {
 
 const nestedPackages = new Set(["uv", "dnf", "yum", "brew"]);
 
-export function interpretCommand(argv: BashArgv) {
+export function interpretCommand(argv: ShellArgv) {
 	const program = argv[0];
 	const options = packageOptions.get(program);
 	const service = program === "systemctl" || program === "launchctl";
 	return {
 		argv, options: commandOptions(argv), service, packageManager: options !== undefined,
+		hasUnresolved: argv.some(arg => typeof arg === "object" && arg.unresolved),
 		starts: [...(options ? packageStarts(argv, 1, options) : globalStarts(argv, service))],
 		nestedOptions: nestedPackages.has(program) ? options : undefined,
 	};
@@ -100,7 +126,7 @@ export function* nestedCommandStarts({ argv, nestedOptions }: CommandView, start
 	if (nestedOptions && typeof next === "string" && next.startsWith("-")) yield* packageStarts(argv, start, nestedOptions);
 }
 
-function optionTokens(argv: BashArgv, start: number) {
+function optionTokens(argv: ShellArgv, start: number) {
 	// 未解析的词也可能是选项，不能当作普通文件名确认例外。
 	const args = argv.slice(start).map((word) => typeof word === "string" ? word : "--?");
 	return parseArgs({ args, strict: false, tokens: true }).tokens.filter((t) => t.kind === "option");
@@ -109,7 +135,7 @@ function optionTokens(argv: BashArgv, start: number) {
 const cleanFlags = new Set(["-d", "-f", "-i", "-n", "-q", "-x", "-X", "--dry-run", "--force"]);
 
 /** 没有对应选项语法时，规则仍按连续参数匹配。 */
-function commandOptions(argv: BashArgv) {
+function commandOptions(argv: ShellArgv) {
 	switch (argv[0]) {
 		case "curl": {
 			const end = argv.indexOf("--", 1);
@@ -121,7 +147,7 @@ function commandOptions(argv: BashArgv) {
 	}
 }
 
-export function subcommandOptions(argv: BashArgv, pos: number) {
+export function subcommandOptions(argv: ShellArgv, pos: number) {
 	if (argv[0] !== "git") return;
 	const clean = argv[pos - 1] === "clean";
 	const tokens = optionTokens(argv, pos);

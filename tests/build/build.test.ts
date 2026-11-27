@@ -21,7 +21,7 @@ it("GUI 生产构建保留排错名称和映射，且不加载 IPC 校验器或�
 	}
 	expect(chunks.some((chunk) => Object.keys(chunk.modules).some((id) => id.includes("/node_modules/linkedom/")))).toBe(false);
 	expect(chunks.some((chunk) => chunk.code.includes("ReplyBreathing"))).toBe(true);
-	expect(chunks.some((chunk) => chunk.map?.sources.some((source) => source.endsWith("reply-breathing.tsx")))).toBe(true);
+	expect(chunks.some((chunk) => chunk.map?.sources.some((source) => source?.endsWith("reply-breathing.tsx")))).toBe(true);
 	expect(chunks.every((chunk) => !chunk.code.includes("//# sourceMappingURL="))).toBe(true);
 	for (const chunk of chunks) {
 		expect(Object.keys(chunk.modules).some((id) => id.includes("mathjax-newcm-font")), chunk.fileName).toBe(false);

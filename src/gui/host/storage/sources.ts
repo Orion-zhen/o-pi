@@ -2,7 +2,7 @@ import path from "node:path";
 import os from "node:os";
 import { lstat } from "node:fs/promises";
 import { getAgentDir, getSessionsDir, getDebugLogPath } from "../../../harness/storage/sdk-paths.ts";
-import { bashOutputDirectory, exportDirectoryPrefix, forkDirectoryPrefix, resourceCacheDirectory, telemetryReportDirectory, telemetryRunsDirectory, userHistoryPath } from "../../../harness/storage/paths.ts";
+import { shellOutputDirectory, exportDirectoryPrefix, forkDirectoryPrefix, resourceCacheDirectory, telemetryReportDirectory, telemetryRunsDirectory, userHistoryPath } from "../../../harness/storage/paths.ts";
 import type { StorageSourceId } from "../../shared/storage.ts";
 import { readSessionIndex } from "../catalog/session-index.ts";
 import { missingStorage, storageChildren } from "./files.ts";
@@ -22,7 +22,7 @@ export function storageSources(): StorageSource[] {
 	const runs = telemetryRunsDirectory();
 	const report = telemetryReportDirectory();
 	const resources = resourceCacheDirectory();
-	const bash = bashOutputDirectory();
+	const shell = shellOutputDirectory();
 	const temporary = os.tmpdir();
 	const prefixes = [forkDirectoryPrefix(), exportDirectoryPrefix()];
 	const agent = getAgentDir();
@@ -51,13 +51,13 @@ export function storageSources(): StorageSource[] {
 		},
 		{
 			id: "temporary", title: "工具输出与临时文件",
-			paths: [...new Set([bash, temporary, ...prefixes.map((prefix) => path.dirname(prefix))])],
+			paths: [...new Set([shell, temporary, ...prefixes.map((prefix) => path.dirname(prefix))])],
 			async candidates() {
 				const result: StorageCandidate[] = [];
-				for (const directory of await storageChildren(bash, () => true)) {
+				for (const directory of await storageChildren(shell, () => true)) {
 					try { if (!(await lstat(directory)).isDirectory()) continue; }
 					catch (error) { if (missingStorage(error)) continue; throw error; }
-					for (const file of await storageChildren(directory, (name) => name.endsWith(".log"))) result.push(candidate(bash, file));
+					for (const file of await storageChildren(directory, (name) => name.endsWith(".log"))) result.push(candidate(shell, file));
 				}
 				for (const prefix of prefixes) result.push(...await children(path.dirname(prefix), (name) => name.startsWith(path.basename(prefix))));
 				// SDK 暂未提供输出文件的枚举接口，只识别其生成的随机文件名。

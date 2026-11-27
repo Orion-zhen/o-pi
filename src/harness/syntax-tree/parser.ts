@@ -1,4 +1,4 @@
-import type { Tree } from "web-tree-sitter";
+import type { ParseCallback, Tree } from "web-tree-sitter";
 import { loadGrammar } from "./loader.ts";
 import type { GrammarSpec, SyntaxTreeDocument } from "./types.ts";
 
@@ -19,7 +19,7 @@ export class SyntaxAnalysisTimeoutError extends Error {
 }
 
 /** 加载和解析失败返回 undefined，取消向上传播。文档拥有独立于解析器的语法树。 */
-export async function parseSyntaxTree(grammar: GrammarSpec, text: string, signal?: AbortSignal): Promise<SyntaxTreeDocument | undefined> {
+export async function parseSyntaxTree(grammar: GrammarSpec, text: string | ParseCallback, signal?: AbortSignal): Promise<SyntaxTreeDocument | undefined> {
 	if (signal?.aborted === true) throw new SyntaxAnalysisAbortedError();
 	let tree: Tree | null = null;
 	try {

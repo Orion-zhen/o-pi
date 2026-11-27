@@ -6,7 +6,7 @@ import { canPresent, type Presenter } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "../subagent/agents.ts";
 import { loadSubagentConfig } from "../subagent/config.ts";
-import { initialToolDefaults, type ToolStartupOptions } from "../tool-defaults/initial.ts";
+import { sessionToolSelection, type ToolStartupOptions } from "../tool-defaults/initial.ts";
 
 interface ToolSelectorModule {
 	openToolSelector(
@@ -77,12 +77,12 @@ export function createToolsExtension({ loadTui, gui, bindController, startup = {
 		pi.on("session_shutdown", (event, ctx) => {
 			if (event.reason === "reload") reloadTools.set(ctx.sessionManager, pi.getActiveTools());
 		});
-		pi.on("session_start", (_event, ctx) => {
+		pi.on("session_start", (event, ctx) => {
 			const selection = reloadTools.get(ctx.sessionManager);
 			reloadTools.delete(ctx.sessionManager);
-			return refresh(ctx, selection ?? initialToolDefaults(pi, startup, ctx.sessionManager.getBranch()));
+			return refresh(ctx, selection ?? sessionToolSelection(pi, startup, ctx.sessionManager.getBranch(), event.type));
 		});
-		pi.on("session_tree", (_event, ctx) => refresh(ctx, initialToolDefaults(pi, startup, ctx.sessionManager.getBranch())));
+		pi.on("session_tree", (event, ctx) => refresh(ctx, sessionToolSelection(pi, startup, ctx.sessionManager.getBranch(), event.type)));
 	};
 }
 

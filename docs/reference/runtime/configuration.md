@@ -24,7 +24,7 @@ Pi 管理 `settings.json`、`models.json`、`keybindings.json`、认证、主题
 | --- | --- | --- | --- |
 | approval-gate | `PI_APPROVAL_GATE_CONFIG` | — | — |
 | auto-title | `PI_AUTO_TITLE_CONFIG` | — | — |
-| bash-tool | `PI_BASH_TOOL_CONFIG` | — | — |
+| shell-tools | `PI_SHELL_TOOLS_CONFIG` | — | — |
 | discord-presence | `PI_DISCORD_PRESENCE_CONFIG` | `PI_DISCORD_PRESENCE_PROJECT_CONFIG` | `PI_DISCORD_PRESENCE_PROJECT_ROOT` |
 | file-tools | `PI_FILE_TOOLS_CONFIG` | `PI_FILE_TOOLS_PROJECT_CONFIG` | `PI_FILE_TOOLS_PROJECT_ROOT` |
 | lsp | `PI_LSP_CONFIG` | `PI_LSP_PROJECT_CONFIG` | `PI_LSP_PROJECT_ROOT` |
@@ -74,7 +74,9 @@ TUI 的 `/tools` 用 Enter 或空格切换，Ctrl+S 保存全局默认值。GUI 
 
 `/reload` 保留重载前的工具选择，即使尚未发送请求。重新打开会话或导航到已有请求的分支时，普通工具沿用该分支最后一次请求的选择，包括空选择。新安装的普通工具仍可在 `/tools` 中手动启用。切换模型不改变选择。
 
-`codemode` 默认关闭。非 Windows 平台的内置 `powershell` 显示为不可用，Windows 可显式启用。powershell 沿用 SDK 执行，不经过本仓库的 Bash 审批解析和输出管理。子代理工具取决于可用代理定义。Codemode 下脚本工具的可调用范围见 [Codemode](../codemode/README.md)。
+Windows 默认启用 `powershell`，也可手动启用 `bash`。其他平台默认启用 `bash`，不支持 `powershell`。两种工具共用环境、超时、日志与结构化输出，见 [Shell 工具](../shell-tools/README.md)。
+
+`codemode` 默认关闭。子代理工具取决于可用代理定义。Codemode 下脚本工具的可调用范围见 [Codemode](../codemode/README.md)。
 
 ## 配置来源
 

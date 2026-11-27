@@ -20,6 +20,7 @@ export function containsDynamicShellNode(root: SyntaxNode): boolean {
 }
 
 interface ShellWordOptions {
+	ansiQuotes?: boolean;
 	allowUnquotedExpansion?: boolean;
 	allowGlob?: boolean;
 	resolveHome?: () => string | undefined;
@@ -55,6 +56,14 @@ export function decodeShellWord(source: string, options: ShellWordOptions = {}):
 			continue;
 		}
 		if (character === "$") {
+			if (options.ansiQuotes && quote === undefined && source[index + 1] === "'") {
+				const ansi = /^\$'((?:[^'\\]|\\[abefnrtv\\'"])*)'/u.exec(source.slice(index));
+				if (!ansi || ansi[1] === undefined) return;
+				const escapes: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
+				result += ansi[1].replace(/\\(.)/gu, (_, code: string) => escapes[code] ?? code);
+				index += ansi[0].length - 1;
+				continue;
+			}
 			if (quote === undefined && options.allowUnquotedExpansion !== true) return undefined;
 			const expansion = options.resolveExpansion?.(source, index, result);
 			if (expansion === undefined) return undefined;
@@ -64,7 +73,11 @@ export function decodeShellWord(source: string, options: ShellWordOptions = {}):
 		}
 		if (character === "`") return undefined;
 		if (quote === undefined && (character === "*" || character === "?" || character === "[") && options.allowGlob !== true) return undefined;
-		if (quote === undefined && character === "{") return undefined;
+		if (quote === undefined && character === "{") {
+			const group = /^\{[\w./-]*\}/u.exec(source.slice(index))?.[0];
+			if (!group || group.includes("..")) return;
+			result += group; index += group.length - 1; continue;
+		}
 		if (quote === undefined && character === "~" && index === 0) {
 			if (source.length !== 1 && source[1] !== "/") return undefined;
 			const home = options.resolveHome?.();

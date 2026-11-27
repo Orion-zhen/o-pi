@@ -8,6 +8,6 @@ export const resourceCacheDirectory = () => path.join(userCacheDirectory(), "opi
 export const userHistoryPath = () => path.join(userCacheDirectory(), "user-history", "history.jsonl");
 export const telemetryRunsDirectory = () => path.join(storageDirectory(), "telemetry", "runs");
 export const telemetryReportDirectory = () => path.join(storageDirectory(), "telemetry", "reports", "latest");
-export const bashOutputDirectory = () => path.join(os.tmpdir(), "o-pi", "bash");
+export const shellOutputDirectory = () => path.join(os.tmpdir(), "o-pi", "shell");
 export const forkDirectoryPrefix = () => path.join(os.tmpdir(), "pi-subagent-fork-");
 export const exportDirectoryPrefix = () => path.join(os.tmpdir(), "opi-export-");

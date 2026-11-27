@@ -1,5 +1,5 @@
 import { lit, str, union, type Static } from "@earendil-works/pi-schema";
-import type { GuiBashApproval } from "./state.ts";
+import type { GuiShellApproval } from "./state.ts";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "../workspace.ts";
 import type { GuiConfigDocument } from "../config/preferences.ts";
 import type { GuiToolResult } from "../messages/types.ts";
@@ -53,7 +53,7 @@ export interface GuiQueryResults {
 	availableVersion: string | null;
 	image: string;
 	toolOutput: GuiToolResult;
-	approvalDetails: GuiBashApproval;
+	approvalDetails: GuiShellApproval;
 	directories: GuiDirectories;
 	files: string[];
 	workspaceFiles: WorkspaceEntry[];

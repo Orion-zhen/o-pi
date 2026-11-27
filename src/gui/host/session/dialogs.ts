@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { GuiApprovalContent, GuiBashApproval, GuiDialog, GuiDialogContent, GuiNotice } from "../../shared/protocol/state.ts";
+import type { GuiApprovalContent, GuiShellApproval, GuiDialog, GuiDialogContent, GuiNotice } from "../../shared/protocol/state.ts";
 import type { DialogResponse } from "../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import { ALLOW_ONCE, DENY_WITH_INSTRUCTION, answerForChoice, type ApprovalAnswer, type ApprovalChoice } from "../../../harness/approval/runtime/interaction.ts";
-import { approvalText, approvalTarget, approvalEnvironment, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
+import { approvalText, approvalTarget, approvalEnvironment, approvalItemReason, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
 import type { ApprovalPresentationArgs } from "../../../harness/extensions/approval-gate.ts";
 import { SudoPassword, type DialogOwner } from "./sudo-password.ts";
 import { plainTheme } from "./theme.ts";
@@ -15,7 +15,7 @@ const approvalLabels: Record<ApprovalChoice, string> = {
 
 interface PendingDialog<T extends GuiDialogContent = GuiDialogContent> {
 	dialog: GuiDialog<T>;
-	reveal?: () => GuiBashApproval;
+	reveal?: () => GuiShellApproval;
 	publish(): void;
 	finish(value?: string, owner?: DialogOwner): void;
 }
@@ -36,21 +36,21 @@ export class GuiDialogs {
 	approve(...[request, decision, options, opts, sudoToolCallId]: ApprovalPresentationArgs): Promise<ApprovalAnswer> {
 		const initial = { options: options.map((value) => ({ label: approvalLabels[value], value })), stage: { kind: "choose" } } as const;
 		let content: GuiApprovalContent;
-		let reveal: (() => GuiBashApproval) | undefined;
-		if (request.tool === "bash") {
-			const details = (reveal: boolean): GuiBashApproval => ({
-				cwd: approvalText(request.cwd), command: approvalText(request.detail.command),
+		let reveal: (() => GuiShellApproval) | undefined;
+		if ("units" in request) {
+			const details = (reveal: boolean): GuiShellApproval => ({
+				shell: request.tool, cwd: approvalText(request.cwd), command: approvalText(request.detail.command),
 				environment: approvalEnvironment(request.detail.environment, reveal),
 				items: decision.items.map(({ unit, reason }) => ({
-					action: unit.action, kind: unit.target.kind, target: approvalTarget(request, unit, reveal), reason: approvalText(reason),
+					action: unit.action, kind: unit.target.kind, target: approvalTarget(request, unit, reveal), reason: approvalItemReason({ unit, reason }),
 				})),
 			});
-			content = { ...initial, kind: "bashApproval", title: "执行 Bash 命令", approval: details(false) };
+			content = { ...initial, kind: "shellApproval", title: request.tool === "bash" ? "执行 Bash 命令" : "执行 PowerShell 命令", approval: details(false) };
 			if (content.approval.environment.some((entry) => entry.kind === "hidden")) reveal = () => details(true);
 		} else content = { ...initial, kind: "toolApproval", title: formatApprovalPrompt(request, decision) };
 		return new Promise((resolve) => this.open(content, opts, (value, dialog, owner) => {
 			if (dialog.stage.kind === "instruction") return resolve({ kind: "denied", instruction: value });
-			if (dialog.kind !== "bashApproval" || sudoToolCallId === undefined || value !== ALLOW_ONCE) return resolve(answerForChoice(value));
+			if (dialog.kind !== "shellApproval" || sudoToolCallId === undefined || value !== ALLOW_ONCE) return resolve(answerForChoice(value));
 			if (!owner) throw new Error("请在当前会话批准 sudo 命令。");
 			this.sudo = new SudoPassword(sudoToolCallId, owner, dialog);
 			resolve({ kind: "approved", askpass: this.sudo.ask });
@@ -66,7 +66,7 @@ export class GuiDialogs {
 		sudo.close();
 	}
 
-	reveal(id: string): GuiBashApproval {
+	reveal(id: string): GuiShellApproval {
 		const details = this.pending.get(id)?.reveal;
 		if (!details) throw new Error("该对话框没有可查看的敏感值。");
 		return details();
@@ -77,7 +77,7 @@ export class GuiDialogs {
 	}
 
 	private open<T extends GuiDialogContent>(content: T, opts: ExtensionUIDialogOptions | undefined,
-		answer: (value: string | undefined, dialog: GuiDialog<T>, owner?: DialogOwner) => void, reveal?: () => GuiBashApproval): void {
+		answer: (value: string | undefined, dialog: GuiDialog<T>, owner?: DialogOwner) => void, reveal?: () => GuiShellApproval): void {
 		const id = randomUUID();
 		const dialog = { ...content, id, deadline: null };
 		if (opts?.signal?.aborted) return answer(undefined, dialog);

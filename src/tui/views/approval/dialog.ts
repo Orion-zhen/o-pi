@@ -72,7 +72,7 @@ export class ApprovalDialog implements Component {
 			this.done(this.selectedChoice);
 			return;
 		}
-		if (data === "e" && this.request.tool === "bash" && this.request.detail.environment !== undefined) {
+		if (data === "e" && "units" in this.request && this.request.detail.environment !== undefined) {
 			this.showEnvironment = !this.showEnvironment;
 			this.content = buildApprovalContent(this.request, this.decision, this.showEnvironment);
 		} else if (matchesKey(data, Key.up)) this.selectBy(-1);
@@ -140,7 +140,7 @@ export class ApprovalDialog implements Component {
 		const position = `${this.options.indexOf(this.selectedChoice) + 1}/${this.options.length}`;
 		const remaining = this.expiresAt === undefined
 			? "" : ` | timeout ${Math.max(0, Math.ceil((this.expiresAt - Date.now()) / 1000))}s`;
-		const env = this.request.tool === "bash" && this.request.detail.environment !== undefined ? "E show/hide values | " : "";
+		const env = "units" in this.request && this.request.detail.environment !== undefined ? "E show/hide values | " : "";
 		return `${env}Up/Down choose ${position} | PgUp/PgDn scroll | Enter confirm | Esc deny${remaining}`;
 	}
 

@@ -1,11 +1,12 @@
-import { mkdir, readFile, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, utimes } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GuiHost } from "../../../../src/gui/host/host.ts";
 import type { GuiClient } from "../../../../src/gui/host/client.ts";
 import type { StorageEntry } from "../../../../src/gui/shared/storage.ts";
 import { JsonlTelemetryWriter } from "../../../../src/harness/telemetry/writer.ts";
-import { telemetryRunsDirectory, userHistoryPath } from "../../../../src/harness/storage/paths.ts";
+import { shellOutputDirectory, telemetryRunsDirectory, userHistoryPath } from "../../../../src/harness/storage/paths.ts";
+import { OutputCapture } from "../../../../src/harness/shell-tools/output-capture.ts";
 import { UserHistoryStore } from "../../../../src/harness/user-history.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../../helpers/lifecycle.ts";
 import { storeSession } from "../../helpers/session-fixture.ts";
@@ -50,6 +51,22 @@ describe("GUI 存储清理", () => {
 		expect(await history.load(temp.path)).toEqual([]);
 		await history.append({ cwd: temp.path, session: "second", text: "清理后的输入" });
 		expect((await history.load(temp.path)).map((record) => record.text)).toEqual(["清理后的输入"]);
+	});
+
+	it("临时文件分组保留最近 24 小时的 Shell 日志，过期后可清理", async () => {
+		const capture = await OutputCapture.create({ sessionId: "session", toolCallId: "command", maxCaptureBytes: 1024, previewBytes: 128 });
+		capture.append(Buffer.from("shell output"));
+		const file = path.join(shellOutputDirectory(), "session", "command.log");
+		expect((await capture.finish()).log).toEqual({ full_output_path: file });
+		expect(entryAt(await entries(), file).blocked).toContain("24 小时");
+		const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+		await utimes(file, twoDaysAgo, twoDaysAgo);
+		const { groups } = await client.query({ query: "storage" });
+		const temporary = groups.find((group) => group.id === "temporary");
+		expect(temporary?.paths).toContain(path.join(temp.path, "tmp", "o-pi", "shell"));
+		const entry = entryAt(temporary?.entries ?? [], file);
+		await client.dispatch({ action: "removeStorage", ids: [entry.id] });
+		await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
 	it("正在写入的遥测不可删除，关闭写入后刷新即可清理", async () => {

@@ -1,4 +1,4 @@
-import type { Askpass } from "../../bash-runtime/askpass.ts";
+import type { Askpass } from "../../shell-runtime/askpass.ts";
 import type { SessionApprovalStore } from "../rules/store.ts";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
 

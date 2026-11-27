@@ -15,7 +15,8 @@ export const queueModes = ["one-at-a-time", "all"] as const;
 
 export type SessionTarget = { id: string } | { path: string };
 
-export interface GuiBashApproval {
+export interface GuiShellApproval {
+	shell: "bash" | "powershell";
 	environment: ApprovalVariable[];
 	cwd: string;
 	command: string;
@@ -26,7 +27,7 @@ type ApprovalStage = { kind: "choose" } | { kind: "instruction"; token: string }
 export type GuiSudoStage = { kind: "waiting" } | { kind: "prompting"; token: string; account: string; retry: boolean } | { kind: "submitted"; account: string };
 export type GuiApprovalContent = { title: string; options: readonly GuiDialogOption[] } & (
 	| { kind: "toolApproval"; stage: ApprovalStage }
-	| { kind: "bashApproval"; approval: GuiBashApproval; stage: ApprovalStage | GuiSudoStage }
+	| { kind: "shellApproval"; approval: GuiShellApproval; stage: ApprovalStage | GuiSudoStage }
 );
 export type GuiDialogContent = GuiApprovalContent | { title: string } & (
 	| { kind: "select"; options: readonly GuiDialogOption[] }

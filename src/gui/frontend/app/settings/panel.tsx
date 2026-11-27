@@ -64,7 +64,7 @@ export function Settings({ snapshot, guiConfig, dispatch, query, globalQuery, di
 					: <SettingsSection title="会话行为"><p className="settings-empty">未选择工作区</p></SettingsSection>}
 				{module("autoTitle", "自动标题")}
 			</>;
-			case "tools": return <>{module("bashTool", "终端执行")}{module("fileTools", "文件访问")}{module("lsp", "代码智能")}
+			case "tools": return <>{module("shellTools", "终端执行")}{module("fileTools", "文件访问")}{module("lsp", "代码智能")}
 				<LspServers key={snapshot?.cwd} cwd={snapshot?.cwd} query={query} connected={connected} active={category === "tools"} />
 			</>;
 			case "models": return <ModelServicesSettings globalQuery={globalQuery} query={query} send={dispatch} disabled={!connected}

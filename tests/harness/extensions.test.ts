@@ -184,6 +184,7 @@ describe("通过原生 SDK 复用 harness 业务扩展", () => {
 
 	it.each(["during", "before", "after"])("只采纳自身 Bash 执行期间的已读文件变化：%s", async (phase) => {
 		const host = await createRuntime();
+		host.session.setActiveToolsByName(["read", "bash", "edit"]);
 		await call(host, { tool: "read", args: { path: "input.txt" } });
 		if (phase === "before") await writeFile(path.join(cwd, "input.txt"), "external\n");
 		await call(host, { tool: "bash", args: { command: "printf 'formatted\\n' > input.txt; printf 'new\\n' > created.txt; exit 3" } });

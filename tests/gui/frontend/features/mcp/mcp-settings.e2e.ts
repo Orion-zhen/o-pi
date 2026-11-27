@@ -347,7 +347,7 @@ test("共用草稿接口的普通 JSONC 设置仍能保存、放弃与重新读�
 	await selectSettingsCategory(page, "工具与代码");
 	const section = settings(page).getByRole("region", { name: "终端执行", exact: true });
 	await section.getByRole("button", { name: "JSONC", exact: true }).click();
-	const source = section.getByLabel("bashTool 全局 JSONC", { exact: true });
+	const source = section.getByLabel("shellTools 全局 JSONC", { exact: true });
 	const content = '{ "default_timeout_seconds": 42 }';
 	await source.fill(content);
 	const save = settings(page).getByRole("button", { name: "保存", exact: true });

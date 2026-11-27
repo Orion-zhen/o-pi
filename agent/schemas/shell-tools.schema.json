@@ -1,0 +1,46 @@
+{
+	"$schema": "https://json-schema.org/draft-07/schema",
+	"$id": "shell-tools.schema.json",
+	"title": "Pi shell-tools config",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": { "type": "string" },
+		"default_timeout_seconds": {
+			"type": "integer",
+			"minimum": 1,
+			"maximum": 86400,
+			"default": 300
+		},
+		"python_venv_paths": {
+			"type": "array",
+			"items": { "type": "string", "minLength": 1 },
+			"uniqueItems": true,
+			"default": [".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"]
+		},
+		"environment": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"inherit": { "type": "boolean", "default": true },
+				"remove_name_regex": {
+					"type": "array",
+					"items": { "type": "string", "minLength": 1 },
+					"uniqueItems": true,
+					"default": []
+				},
+				"expose_pi_session_file": { "type": "boolean", "default": false }
+			}
+		},
+		"limits": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"success_output_bytes": { "type": "integer", "minimum": 1024, "maximum": 1048576, "default": 24576 },
+				"failure_output_bytes": { "type": "integer", "minimum": 1024, "maximum": 1048576, "default": 49152 },
+				"live_output_bytes": { "type": "integer", "minimum": 1024, "maximum": 262144, "default": 8192 },
+				"max_capture_bytes": { "type": "integer", "minimum": 1024, "maximum": 1073741824, "default": 268435456 }
+			}
+		}
+	}
+}

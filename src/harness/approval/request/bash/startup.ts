@@ -1,6 +1,6 @@
 import { walkNamedNodes } from "./syntax.ts";
 import type { SyntaxNode } from "../../../syntax-tree/types.ts";
-import { UNSET, type BashAnalysisContext } from "./state.ts";
+import { UNSET, type BashAnalysisContext } from "./branches.ts";
 
 export interface StartupFacts {
 	env: Readonly<NodeJS.ProcessEnv>;

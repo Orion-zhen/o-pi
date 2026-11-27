@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { ChevronRight, Eye, EyeOff } from "lucide-react";
-import type { GuiBashApproval } from "../../../../shared/protocol/state.ts";
+import type { GuiShellApproval } from "../../../../shared/protocol/state.ts";
 import { useOperation } from "@/connection/use-operation.ts";
 import { Button } from "@/ui/button.tsx";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
@@ -8,8 +8,8 @@ import { Feedback } from "@/ui/feedback.tsx";
 
 type RevealProps = {
 	revealed: boolean;
-	reveal: () => Promise<GuiBashApproval>;
-	change: (approval: GuiBashApproval | undefined) => void;
+	reveal: () => Promise<GuiShellApproval>;
+	change: (approval: GuiShellApproval | undefined) => void;
 };
 
 function SensitiveValues({ revealed, reveal, change }: RevealProps) {
@@ -21,7 +21,7 @@ function SensitiveValues({ revealed, reveal, change }: RevealProps) {
 }
 
 export function ApprovalEnvironment({ variables, canReveal, ...sensitive }: RevealProps & {
-	variables: GuiBashApproval["environment"]; canReveal: boolean;
+	variables: GuiShellApproval["environment"]; canReveal: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	return <Collapsible className="approval-environment" open={open} onOpenChange={(next) => {

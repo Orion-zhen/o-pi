@@ -35,7 +35,7 @@ export default function (pi) {
 		return { text: "GUI 验证完成" };
 	});
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-		defaultProjectTrust: "never", defaultProvider: "gui-test", defaultModel: "test",
+		defaultProjectTrust: "never", defaultProvider: "gui-test", defaultModel: "test", defaultTools: ["+bash"],
 		enabledModels: ["gui-test/second", "gui-test/test"], compaction: { enabled: false }, retry: { enabled: false },
 	}));
 	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { "gui-test": {

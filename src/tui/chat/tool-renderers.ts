@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agent";
-import { renderBashCall } from "./bash-tool/renderer.ts";
+import { renderShellCall } from "./shell-tools/renderer.ts";
 import {
 	renderLsCall, renderLsResult, renderFindCall, renderFindResult, renderGrepCall, renderGrepResult,
 	renderReadCall, renderReadResult, renderWriteResult, renderEditCall, renderEditResult,
@@ -18,7 +18,8 @@ const renderers = new Map<string, ToolRenderers>([
 	["read", { renderCall: renderReadCall, renderResult: renderReadResult }],
 	["write", { renderResult: renderWriteResult }],
 	["edit", { renderShell: "self", renderCall: renderEditCall, renderResult: renderEditResult }],
-	["bash", { renderCall: renderBashCall }],
+	["bash", { renderCall: renderShellCall }],
+	["powershell", { renderCall: (args, theme, ctx) => renderShellCall(args, theme, ctx, "PS>") }],
 	["websearch", { renderCall: renderWebSearchCall, renderResult: renderWebSearchResult }],
 	["webfetch", { renderCall: renderWebFetchCall, renderResult: renderWebFetchResult }],
 	["skill", {

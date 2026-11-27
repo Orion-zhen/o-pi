@@ -1,8 +1,8 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { answerForChoice, DENY_WITH_INSTRUCTION, type ApprovalAnswer, type ApprovalDialogOptions } from "./runtime/interaction.ts";
-import type { BashFactEvaluation } from "./rules/bash-facts.ts";
+import type { ShellFactEvaluation } from "./rules/shell-facts.ts";
 import { stripTerminalSequences } from "../terminal-text.ts";
-import type { ApprovalDecision, ApprovalRequest, ApprovalUnit, BashApprovalRequest } from "./types.ts";
+import type { ApprovalDecision, ApprovalRequest, ApprovalUnit, ShellApprovalRequest } from "./types.ts";
 
 type AskDecision = Extract<ApprovalDecision, { kind: "ask" }>;
 export type ApprovalLineStyle = "text" | "dim" | "added" | "removed" | "warning";
@@ -18,7 +18,7 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 		...[...new Set(decision.items.map((item) => item.reason))].map((reason) => line(`Reason: ${reason}`, "warning")),
 		line(""),
 	];
-	if (request.tool === "bash") {
+	if ("units" in request) {
 		return [
 			...common,
 			...approvalEnvironment(request.detail.environment, showEnvironment).map((entry) => {
@@ -31,7 +31,7 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 			line("Sensitive units:", "dim"),
 			...decision.items.flatMap((item, index) => [
 				line(`${index + 1}. ${approvalTarget(request, item.unit, showEnvironment)}`, "warning"),
-				line(`   ${item.unit.action} | ${item.reason}`, "dim"),
+				line(`   ${item.unit.action} | ${approvalItemReason(item)}`, "dim"),
 			]),
 		];
 	}
@@ -64,13 +64,17 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 	];
 }
 
+export function approvalItemReason({ unit, reason }: AskDecision["items"][number]): string {
+	return approvalText(unit.analysisNote ? `${reason} ${unit.analysisNote}` : reason);
+}
+
 const sensitiveName = /TOKEN|SECRET|PASS(?:WORD|WD)?|CREDENTIAL|AUTH|(?:API|PRIVATE|ACCESS)_?KEY/iu;
 
-function hasSensitiveEnvironment(request: BashApprovalRequest): boolean {
+function hasSensitiveEnvironment(request: ShellApprovalRequest): boolean {
 	return Object.entries(request.detail.environment ?? {}).some(([name, value]) => sensitiveName.test(name) && Boolean(value));
 }
 
-export function approvalTarget(request: BashApprovalRequest, unit: ApprovalUnit, reveal = false): string {
+export function approvalTarget(request: ShellApprovalRequest, unit: ApprovalUnit, reveal = false): string {
 	if (reveal || !hasSensitiveEnvironment(request)) return approvalText(unit.target.value);
 	// 只显示来自原始输入的片段。嵌套脚本本身也可能是启动变量展开的结果。
 	return approvalText(unit.source ?? request.detail.command);
@@ -78,7 +82,7 @@ export function approvalTarget(request: BashApprovalRequest, unit: ApprovalUnit,
 
 export type ApprovalVariable = { name: string } & ({ kind: "value"; value: string } | { kind: "hidden" | "unset" });
 
-export function approvalEnvironment(environment: BashApprovalRequest["detail"]["environment"], reveal: boolean): ApprovalVariable[] {
+export function approvalEnvironment(environment: ShellApprovalRequest["detail"]["environment"], reveal: boolean): ApprovalVariable[] {
 	const entries = Object.entries(environment ?? {});
 	const secrets = entries.flatMap(([name, value]) => sensitiveName.test(name) && value ? [value] : []);
 	return entries.map(([name, value]) => {
@@ -117,7 +121,7 @@ function lineCount(value: string): number {
 	return value.length === 0 ? 0 : value.split(/\r\n?|\n/u).length;
 }
 
-export function formatBashPolicyEvaluation(request: BashApprovalRequest, evaluation: BashFactEvaluation, decision: ApprovalDecision): string {
+export function formatShellPolicyEvaluation(request: ShellApprovalRequest, evaluation: ShellFactEvaluation, decision: ApprovalDecision): string {
 	return [
 		`Decision: ${decision.kind}`,
 		"",
@@ -128,6 +132,7 @@ export function formatBashPolicyEvaluation(request: BashApprovalRequest, evaluat
 		...(evaluation.matches.length === 0
 			? ["- none"]
 			: evaluation.matches.map((match) => `- ${match.fact} <- ${match.classifier}: ${approvalTarget(request, match.unit)}`)),
+		...(evaluation.unresolved.length ? ["", "Possible matches:", ...evaluation.unresolved.map(({ rule, unit }) => `- ${rule}: ${approvalTarget(request, unit)}`)] : []),
 		...(evaluation.combinations.length === 0
 			? []
 			: ["", "Combinations:", ...evaluation.combinations.map(({ name }) => `- ${name}`)]),

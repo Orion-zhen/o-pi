@@ -38,7 +38,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await mkdir(root, { recursive: true });
 		await mkdir(path.join(agentDir, "configs"), { recursive: true });
 		await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-			defaultProjectTrust: "never", defaultProvider: "gui-test", defaultModel: "test", enabledModels: ["gui-test/test"],
+			defaultProjectTrust: "never", defaultProvider: "gui-test", defaultModel: "test", defaultTools: ["+bash"], enabledModels: ["gui-test/test"],
 			compaction: { enabled: false }, retry: { enabled: false },
 		}));
 		await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: {
@@ -49,7 +49,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		} }));
 		await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 		await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
-		await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"bash":{"default_action":"ask"},"write":{"default_action":"ask"}}}');
+		await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"shell":{"default_action":"ask"},"write":{"default_action":"ask"}}}');
 		await storeSession({ cwd, agentDir, provider: "gui-test", name: "项目 A 历史" });
 		await mkdir(path.join(cwd, "src"));
 		await writeFile(path.join(cwd, "src", "reading.ts"), "export const text = '保持文件阅读位置';\n".repeat(100));
@@ -219,7 +219,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 			await approval.locator(".approval-target").evaluate((element) => getComputedStyle(element).color));
 		await expect(approval.locator("script")).toHaveCount(0);
 		await expect(readFile(path.join(cwd, "output.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-		await page.screenshot({ path: info.outputPath("bash-approval-collapsed.png"), animations: "disabled" });
+		await page.screenshot({ path: info.outputPath("shell-approval-collapsed.png"), animations: "disabled" });
 		await command.getByRole("button", { name: "展开完整命令", exact: true }).click();
 		await expect(command.getByRole("button", { name: "收起命令", exact: true })).toHaveAttribute("aria-expanded", "true");
 		await expect(command.locator('[data-slot="collapsible-content"] pre code')).toHaveText(bashCommand);
@@ -229,7 +229,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(command.getByRole("button", { name: "展开完整命令", exact: true })).toHaveAttribute("aria-expanded", "false");
 		await command.getByRole("button", { name: "展开完整命令", exact: true }).click();
 		await expect(command.locator('[data-slot="collapsible-content"] pre code')).toBeVisible();
-		await page.screenshot({ path: info.outputPath("bash-approval-expanded.png"), animations: "disabled" });
+		await page.screenshot({ path: info.outputPath("shell-approval-expanded.png"), animations: "disabled" });
 		await approval.getByRole("button", { name: "允许一次", exact: true }).click();
 		await expect.poll(() => readFile(path.join(cwd, "output.txt"), "utf8").catch((error: unknown) => {
 			if (error instanceof Error && "code" in error && error.code === "ENOENT") return "";

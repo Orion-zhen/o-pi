@@ -68,7 +68,7 @@ it("禁用 MCP 后，内置预设替换当前选择并用于模型请求，不�
 	expect(readSnapshot(host).tools.some((tool) => tool.mcp)).toBe(false);
 	await host.dispatch({ action: "tool", name: "codemode", enabled: true });
 	expect(readSnapshot(host).toolPreset).toBeNull();
-	const offline = ["bash", "edit", "find", "grep", "ls", "read", "skill", "write"];
+	const offline = [process.platform === "win32" ? "powershell" : "bash", "edit", "find", "grep", "ls", "read", "skill", "write"];
 	for (const [preset, expected] of [
 		["vanilla", [...offline, "websearch", "webfetch"]],
 		["web-chat", ["websearch", "webfetch"]],

@@ -19,7 +19,7 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"bash": { "$ref": "#/$defs/bashPolicy" },
+				"shell": { "$ref": "#/$defs/shellPolicy" },
 				"write": { "$ref": "#/$defs/filePolicy" },
 				"edit": { "$ref": "#/$defs/filePolicy" },
 				"webfetch": { "$ref": "#/$defs/networkPolicy" }
@@ -28,6 +28,7 @@
 	},
 	"$defs": {
 		"defaultAction": { "enum": ["allow", "ask", "deny"], "default": "allow" },
+		"shellName": { "enum": ["bash", "powershell"], "description": "仅匹配指定 Shell。省略时两种 Shell 均可匹配。" },
 		"factAction": { "enum": ["ask", "deny"] },
 		"reason": { "type": "string", "minLength": 1, "description": "合并后，ask 和 deny 规则必须有非空白原因。询问时在审批界面展示，拒绝时返回给代理。" },
 		"globs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
@@ -53,7 +54,7 @@
 				}
 			}
 		},
-		"bashPolicy": {
+		"shellPolicy": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
@@ -62,7 +63,7 @@
 					"type": "object",
 					"additionalProperties": false,
 					"patternProperties": {
-						"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$": { "anyOf": [{ "const": false }, { "$ref": "#/$defs/bashFact" }] }
+						"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$": { "anyOf": [{ "const": false }, { "$ref": "#/$defs/shellFact" }] }
 					}
 				},
 				"combinations": {
@@ -70,7 +71,7 @@
 					"additionalProperties": {
 						"anyOf": [
 							{ "const": false },
-							{ "$ref": "#/$defs/bashCombination" }
+							{ "$ref": "#/$defs/shellCombination" }
 						]
 					}
 				}
@@ -92,10 +93,11 @@
 			},
 			"not": { "required": ["match_all", "network_scope"] }
 		},
-		"bashFact": {
+		"shellFact": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
+				"shell": { "$ref": "#/$defs/shellName" },
 				"action": { "$ref": "#/$defs/factAction" },
 				"reason": { "$ref": "#/$defs/reason" },
 				"match_all": { "const": true },
@@ -105,7 +107,7 @@
 					"additionalProperties": {
 						"anyOf": [
 							{ "const": false },
-							{ "$ref": "#/$defs/bashCommandMatcher" }
+							{ "$ref": "#/$defs/shellCommandMatcher" }
 						]
 					}
 				}
@@ -127,7 +129,7 @@
 				}
 			]
 		},
-		"bashCommandMatcher": {
+		"shellCommandMatcher": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
@@ -136,16 +138,18 @@
 				"exact": { "type": "boolean" },
 				"arg_globs": { "$ref": "#/$defs/globs" },
 				"pipeline": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/pipelineStage" } },
+				"shell": { "$ref": "#/$defs/shellName" },
 				"platform": { "enum": ["linux", "darwin", "win32"] }
 			},
 			"not": { "required": ["exact", "arg_globs"], "properties": { "exact": { "const": true } } },
 			"if": { "required": ["pipeline"] },
 			"then": { "not": { "anyOf": [{ "required": ["command"] }, { "required": ["exact"] }, { "required": ["arg_globs"] }, { "required": ["except"] }] } }
 		},
-		"bashCombination": {
+		"shellCombination": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
+				"shell": { "$ref": "#/$defs/shellName" },
 				"all": {
 					"type": "array",
 					"minItems": 2,

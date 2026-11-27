@@ -21,7 +21,7 @@ export class SessionApprovalStore {
 }
 
 function ruleKey(request: ApprovalRequest, unit: ApprovalUnit): string | undefined {
-	if (!unit.remember || (request.tool === "bash" && !request.allowSessionMemory)) return undefined;
+	if (!unit.remember || ("units" in request && !request.allowSessionMemory)) return undefined;
 	const { kind, value } = unit.target;
 	return JSON.stringify([request.tool, kind, request.tool === "webfetch" ? request.detail.scope : kind === "command" ? request.cwd : null, value]);
 }

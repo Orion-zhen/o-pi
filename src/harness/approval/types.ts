@@ -1,5 +1,6 @@
 import type { EditParams } from "../file-tools/edit/types.ts";
 import type { WriteParams } from "../file-tools/write/types.ts";
+import type { ShellName } from "../shell-runtime/platform.ts";
 import type { NetworkScope } from "../web-tools/network/network-policy.ts";
 
 export interface NumericFileName {
@@ -15,9 +16,12 @@ type ApprovalTarget =
 	}
 	| {
 		kind: "path";
+		/** 仅确定 Bash 绝对路径，未知其 Windows 宿主映射。 */
+		unmapped?: true;
 		/** 文件名不确定时记录父目录，此时 value 仅用于展示。 */
 		directory?: string;
 		numericName?: NumericFileName;
+		guidPrefix?: string;
 		value: string;
 	}
 	| {
@@ -27,24 +31,25 @@ type ApprovalTarget =
 	};
 
 /** 未知参数保留源词，不作为字面值。 */
-export type BashArg = string | { source: string; singleField?: true };
-export type BashArgv = readonly [program: string, ...args: BashArg[]];
+export type ShellArg = string | { source: string; singleField?: true; unresolved?: true; guidPrefix?: string; elements?: readonly string[] };
+export type ShellArgv = readonly [program: string, ...args: ShellArg[]];
 
-export interface BashPipeline {
+export interface ShellPipeline {
 	unit: ApprovalUnit;
 	/** 每个阶段可有多组静态展开结果。 */
-	stages: BashArgv[][];
+	stages: ShellArgv[][];
 }
 
 export interface ApprovalUnit {
-	commands?: BashArgv[];
+	commands?: ShellArgv[];
 	analysisFact?: "shell.run-opaque-input" | "system.disrupt-host";
+	analysisNote?: string;
 	/** 顶层源表达式。嵌套脚本可能已展开敏感值，不作为脱敏展示来源。 */
 	source?: string;
-	action: "execute" | "write_redirect" | "write_file" | "edit_file" | "fetch_url";
+	action: "execute" | "write_redirect" | "create_directory" | "write_file" | "edit_file" | "fetch_url";
 	target: ApprovalTarget;
-	/** 已静态证明副作用不会逃逸一次性临时目录时，无需交互确认。 */
-	effect_scope?: "temporary";
+	/** 已证明脚本无法执行或副作用仅限临时目录，无需交互确认。 */
+	effect_scope?: "none" | "temporary";
 	remember: boolean;
 }
 
@@ -55,11 +60,11 @@ export interface WebFetchTarget {
 	addresses: readonly string[];
 }
 
-export interface BashApprovalRequest {
-	tool: "bash";
+export interface ShellApprovalRequest {
+	tool: ShellName;
 	cwd: string;
 	units: ApprovalUnit[];
-	pipelines: BashPipeline[];
+	pipelines: ShellPipeline[];
 	allowSessionMemory: boolean;
 	detail: { command: string; environment?: Readonly<Record<string, string | null>> };
 }
@@ -70,7 +75,7 @@ export type SingleTargetRequest = { cwd: string; unit: ApprovalUnit } & (
 	| { tool: "webfetch"; detail: WebFetchTarget }
 );
 
-export type ApprovalRequest = BashApprovalRequest | SingleTargetRequest;
+export type ApprovalRequest = ShellApprovalRequest | SingleTargetRequest;
 
 interface ApprovalAskItem {
 	unit: ApprovalUnit;
@@ -84,39 +89,43 @@ export type ApprovalDecision =
 
 type ApprovalDefaultAction = "allow" | "ask" | "deny";
 
-type BashCommandPrefix = readonly [program: string, ...args: string[]];
+export type ShellCommandPrefix = readonly [program: string, ...args: string[]];
 
-type BashPipelineStage = BashCommandPrefix | { command: BashCommandPrefix; arg_globs: string[] };
+/** directory 是配置加载时解析的字面目录，不参与 glob 匹配。 */
+export interface PathGlob {
+	pattern: string;
+	directory?: string;
+}
 
-export type BashMatcher =
-	| ({ command: BashCommandPrefix; except?: BashCommandPrefix[] } & (
-		| { exact: true; arg_globs?: never }
-		| { exact?: false; arg_globs?: string[] }
-	))
-	| { pipeline: BashPipelineStage[] };
+export type ShellScope = { shell?: ShellName };
 
-export type BashPolicyCommandMatcher = BashMatcher & { classifier: string };
+export type CommandRule<G = PathGlob> = { command: ShellCommandPrefix; except?: ShellCommandPrefix[] } & (
+	| { exact: true; arg_globs?: never }
+	| { exact?: false; arg_globs?: G[] }
+);
+
+export type ShellPolicyCommandMatcher = ShellScope & { classifier: string } & (CommandRule | { pipeline: CommandRule[] });
 
 type RuleAction = { action: "ask" | "deny"; reason: string };
 
-export type FileFact = RuleAction & ({ path_globs: string[] } | { match_all: true });
+export type FileFact<G = PathGlob> = RuleAction & ({ path_globs: G[] } | { match_all: true });
 export type NetworkFact = RuleAction & ({ network_scope: WebFetchTarget["scope"] } | { match_all: true });
 
-export type BashFactSettings = (RuleAction | { action?: never; reason?: string }) & {
-	path_globs?: string[];
+export type ShellFactSettings<G = PathGlob> = (RuleAction | { action?: never; reason?: string }) & ShellScope & {
+	path_globs?: G[];
 	match_all?: true;
 };
 
-export type BashPolicyFact = BashFactSettings & { commands: BashPolicyCommandMatcher[] };
-export type BashPolicyCombination = RuleAction & { all: string[] };
+export type ShellPolicyFact = ShellFactSettings & { commands: ShellPolicyCommandMatcher[] };
+export type ShellPolicyCombination = RuleAction & ShellScope & { all: string[] };
 
 export interface ToolPolicy<F> {
 	default_action: ApprovalDefaultAction;
 	facts: Record<string, F>;
 }
 
-export interface BashPolicyConfig extends ToolPolicy<BashPolicyFact> {
-	combinations: Record<string, BashPolicyCombination>;
+export interface ShellPolicyConfig extends ToolPolicy<ShellPolicyFact> {
+	combinations: Record<string, ShellPolicyCombination>;
 }
 
 export interface ApprovalGateConfig {
@@ -126,7 +135,7 @@ export interface ApprovalGateConfig {
 		non_interactive: "block" | "allow";
 	};
 	tools: {
-		bash: BashPolicyConfig;
+		shell: ShellPolicyConfig;
 		write: ToolPolicy<FileFact>;
 		edit: ToolPolicy<FileFact>;
 		webfetch: ToolPolicy<NetworkFact>;

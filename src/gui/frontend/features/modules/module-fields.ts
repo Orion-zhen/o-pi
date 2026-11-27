@@ -20,7 +20,7 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 		field("enabled", "自动生成标题"), field("model", "标题模型", "model"),
 		field("thinking_level", "思考等级", "thinking"), field("max_messages", "正文消息上限"),
 	] }],
-	bashTool: [
+	shellTools: [
 		{ title: "终端执行", fields: [field("default_timeout_seconds", "超时（秒）"), field("python_venv_paths", "Python 虚拟环境")] },
 		{ title: "执行环境", advanced: true, fields: [field("environment.inherit", "继承环境变量"), field("environment.expose_pi_session_file", "暴露会话文件路径")] },
 	],
@@ -49,8 +49,8 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 	approvalGate: [
 		{ title: "权限审批", fields: [field("enabled", "权限审批"), field("ui.timeout_ms", "审批超时（毫秒，0 不超时）"), field("ui.non_interactive", "非交互操作", "radio")] },
 		{ title: "工具默认权限", fields: [
-			field("tools.write.default_action", "写入文件", "radio"), field("tools.edit.default_action", "编辑文件", "radio"),
-			field("tools.webfetch.default_action", "读取网页", "radio"), field("tools.bash.default_action", "执行命令", "radio"),
+			field("tools.shell.default_action", "执行 Shell", "radio"), field("tools.write.default_action", "写入文件", "radio"), field("tools.edit.default_action", "编辑文件", "radio"),
+			field("tools.webfetch.default_action", "读取网页", "radio"),
 		] },
 	],
 	subagent: [

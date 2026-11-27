@@ -1,4 +1,5 @@
 import path from "node:path";
+import { scanStaticPowerShellWord } from "../syntax-tree/powershell.ts";
 import { stringProperty } from "./streaming.ts";
 import type { PresenceActivity, PresenceActivityKind } from "./types.ts";
 
@@ -30,6 +31,8 @@ const LANGUAGES: Readonly<Record<string, { key: string; label: string }>> = {
 	".jsx": { key: "javascript", label: "JavaScript JSX" },
 	".lua": { key: "lua", label: "Lua" },
 	".md": { key: "markdown", label: "Markdown" },
+	".ps1": { key: "shell", label: "PowerShell" },
+	".psm1": { key: "shell", label: "PowerShell" },
 	".py": { key: "python", label: "Python" },
 	".rb": { key: "ruby", label: "Ruby" },
 	".rs": { key: "rust", label: "Rust" },
@@ -45,11 +48,11 @@ const LANGUAGES: Readonly<Record<string, { key: string; label: string }>> = {
 	".zig": { key: "zig", label: "Zig" },
 };
 
-export function classifyTool(toolName: string, args: unknown): PresenceActivity {
+export function classifyTool(toolName: string, args: unknown, commandComplete = true): PresenceActivity {
 	const normalized = toolName.toLowerCase();
 	const targetPath = stringProperty(args, "path");
 	if (normalized === "read" || normalized === "edit" || normalized === "write") {
-		const basename = targetPath === undefined || /[\\/]$/u.test(targetPath) ? "" : path.basename(targetPath);
+		const basename = targetPath === undefined || /[\\/]$/u.test(targetPath) ? "" : path.win32.basename(targetPath);
 		const file = basename.length === 0 ? undefined : basename;
 		const language = file === undefined ? undefined : languageFor(file);
 		return {
@@ -61,9 +64,10 @@ export function classifyTool(toolName: string, args: unknown): PresenceActivity 
 	}
 	if (SEARCH_TOOLS.has(normalized)) return { kind: "searching", tool: toolName };
 	if (BROWSE_TOOLS.has(normalized)) return { kind: "browsing", tool: toolName };
-	if (normalized === "bash") {
+	if (normalized === "powershell" || normalized === "bash") {
 		const command = stringProperty(args, "command");
-		const executable = command === undefined ? undefined : stableExecutableFromCommand(command, true);
+		const extract = normalized === "powershell" ? powerShellExecutable : bashExecutable;
+		const executable = command === undefined ? undefined : extract(command, commandComplete);
 		return {
 			kind: "shell",
 			tool: toolName,
@@ -73,8 +77,32 @@ export function classifyTool(toolName: string, args: unknown): PresenceActivity 
 	return { kind: "other_tool", tool: toolName };
 }
 
-/** 仅在首个非赋值 Shell word 已由分隔符终结，或输入明确结束时返回 executable。 */
-export function stableExecutableFromCommand(command: string, inputComplete: boolean): string | undefined {
+// 只展示命令位置的静态名称。普通字符串、控制语句和动态调用都不是程序名。
+function powerShellExecutable(command: string, complete: boolean): string | undefined {
+	let source = command.trimStart();
+	// 跳过已完整结束的字面赋值，不把变量名、值或表达式当作程序名。
+	for (;;) {
+		const assignment = /^\$(?:env:)?[a-z_]\w*[ \t]*=[ \t]*/iu.exec(source);
+		if (!assignment) break;
+		const rhs = scanStaticPowerShellWord(source, assignment[0].length);
+		if (!rhs || !/^["']/u.test(source.charAt(rhs.start)) && !/^\d+$/u.test(rhs.value)) return;
+		const separator = /^[ \t]*(?:;|\r?\n)/u.exec(source.slice(rhs.end));
+		if (!separator) return;
+		source = source.slice(rhs.end + separator[0].length).trimStart();
+	}
+	const operator = /^(?:&\s*|\.\s+)/u.exec(source)?.[0];
+	const start = operator?.length ?? 0;
+	if (!operator && /^["'\d]/u.test(source)) return;
+	const word = scanStaticPowerShellWord(source, start);
+	if (!word || !complete && word.end === source.length || /[\\/]$/u.test(word.value)) return;
+	const name = path.win32.basename(word.value);
+	if (!/^[\p{L}\p{N}_][\p{L}\p{N}_.'-]*(?: [\p{L}\p{N}_][\p{L}\p{N}_.'-]*)*$/u.test(name)) return;
+	if (!operator && /^(?:begin|break|catch|class|clean|continue|data|define|do|dynamicparam|else|elseif|end|enum|exit|filter|finally|for|foreach|from|function|if|in|param|process|return|switch|throw|trap|try|until|using|while|workflow)$/iu.test(word.value)) return;
+	return name;
+}
+
+/** 仅在首个非赋值 Bash 词已由分隔符终结，或输入明确结束时返回程序名。 */
+function bashExecutable(command: string, inputComplete: boolean): string | undefined {
 	let cursor = 0;
 	while (cursor < command.length) {
 		while (cursor < command.length && isShellSeparator(command[cursor] ?? "")) cursor += 1;

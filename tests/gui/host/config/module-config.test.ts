@@ -54,7 +54,7 @@ it("从校验 schema 返回固定字段的枚举，包括本地引用和未展�
 		"tools.write.default_action": ["allow", "ask", "deny"],
 		"tools.edit.default_action": ["allow", "ask", "deny"],
 		"tools.webfetch.default_action": ["allow", "ask", "deny"],
-		"tools.bash.default_action": ["allow", "ask", "deny"],
+		"tools.shell.default_action": ["allow", "ask", "deny"],
 	} });
 	const lsp = moduleConfigOptions((await host.query({ query: "moduleConfig", id: "lsp" })).schema);
 	expect(lsp).toMatchObject({ options: { "diagnostics.min_severity": ["error", "warning", "information", "hint"] } });

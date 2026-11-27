@@ -1,33 +1,27 @@
 import path from "node:path";
 import type { SyntaxNode } from "../../../syntax-tree/types.ts";
-import type { ApprovalUnit, BashArg, BashArgv } from "../../types.ts";
+import type { ApprovalUnit, ShellArg, ShellArgv } from "../../types.ts";
+import { IncompleteBashAnalysis, UNKNOWN_DIRECTORY, UNSET, readVariable, joinDirectories,
+	type Directories, type BashAnalysisContext, type ResolvedShellValue } from "./branches.ts";
 import {
+	MAX_EXPANDED_FIELDS,
 	TEMPORARY_DIRECTORY_PATH,
 	TEMPORARY_FILE_PATH,
-	UNKNOWN_DIRECTORY,
-	UNSET,
 	absoluteHome,
-	readVariable,
-	joinDirectories,
-	type Directories,
 	displayTemporaryPath,
 	isSyntheticTemporaryPath,
 	resolvePath,
 	resolvePathCandidates,
 	resolveShellToken,
-	setPositionalVariables,
+	positionalValues,
 	shellArgumentValue,
 	singleValue,
-	type BashAnalysisContext,
-	type ResolvedShellValue,
 } from "./state.ts";
+import { temporaryGitDirectories } from "../../rules/command-syntax.ts";
 import { singleField } from "./simple-expansion.ts";
 import { NUMERIC_FIELD, commandWords, normalizeCommandNode, normalizeSource, shellWordSource } from "./syntax.ts";
 
 const SHELL_PROGRAMS = new Set(["bash", "dash", "ksh", "sh", "zsh"]);
-const GIT_WORKTREE_NEUTRAL_FLAGS = new Set([
-	"--no-pager", "--paginate", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs",
-]);
 const NO_OPTIONS_WITH_VALUE = new Set<string>();
 const SUDO_OPTIONS_WITH_VALUE = new Set([
 	"-C", "-D", "-g", "-h", "-p", "-R", "-T", "-u",
@@ -36,21 +30,21 @@ const SUDO_OPTIONS_WITH_VALUE = new Set([
 
 export interface CommandFacts {
 	program: string | undefined;
-	args: BashArg[];
+	args: ShellArg[];
 }
 
 interface NestedShell {
 	bash: boolean;
 	script: string;
-	positional: Map<string, ResolvedShellValue>;
+	args: ShellArg[];
 }
 
 interface ParsedCommand {
-	unit: ApprovalUnit & { commands: BashArgv[] };
+	unit: ApprovalUnit & { commands: ShellArgv[] };
 	checkWithoutVariables: boolean;
 	concreteExecution: boolean;
-	rawFacts: CommandFacts;
-	positionalArgs: string[] | undefined;
+	invoked: CommandFacts;
+	fields: ShellArg[];
 	nestedShell: NestedShell | undefined;
 	cdTarget: Directories | undefined;
 }
@@ -62,10 +56,13 @@ function successfulCdTarget(raw: CommandFacts, context: BashAnalysisContext, exa
 	const unknown = [UNKNOWN_DIRECTORY];
 	if (!exactWords) return unknown;
 	let destination: ResolvedShellValue | undefined;
+	let options = true;
 	for (const value of facts.args) {
 		if (typeof value !== "string") return unknown;
-		if (value === "--") continue;
-		if (value.startsWith("-") || destination !== undefined) return unknown;
+		if (options && value === "--") { options = false; continue; }
+		if (options && value === "-L") continue;
+		if ((options && value.startsWith("-") || value === "-") || destination !== undefined) return unknown;
+		options = false;
 		destination = { value, temporary: isSyntheticTemporaryPath(value) };
 	}
 	if (destination === undefined) {
@@ -175,23 +172,24 @@ function mktempDirectoryMode(args: readonly string[]): boolean | undefined {
 }
 
 export function commandUnit(node: SyntaxNode, context: BashAnalysisContext, invocation: BashAnalysisContext): ParsedCommand {
-	const { facts: rawFacts, globVariant, contextResolved, exactWords, positionalArgs } = resolveCommand(node, context);
+	const { facts: rawFacts, invoked, globVariant, contextResolved, exactWords, fields } = resolveCommand(node, context);
 	const facts = unwrapCommand(rawFacts);
 	const effective = effectiveCommand(facts);
 	const shell = shellInvocation(effective);
-	const nestedShell = shell === "dynamic" ? undefined : shell;
+	const nestedShell = shell && shell !== "dynamic" ? { script: shell.script, bash: effective.program === "bash",
+		args: fields.slice(fields.length - effective.args.length + shell.argsStart) } : undefined;
 	const unit = executionUnit(node, [rawFacts, facts, effective], !contextResolved, shell === "dynamic", globVariant);
-	if (context.cwd.every((cwd) => commandEffectsStayTemporary(facts, cwd))) unit.effect_scope = "temporary";
+	if (commandEffectsStayTemporary(facts, invocation, rawFacts === facts)) unit.effect_scope = "temporary";
 	return {
 		unit,
 		checkWithoutVariables: contextResolved && shell !== "dynamic",
 		concreteExecution: exactWords && effective === rawFacts && effective.program !== undefined
 			&& effective.args.every((arg) => typeof arg === "string" && !arg.includes("\0"))
 			&& (!SHELL_PROGRAMS.has(effective.program) || nestedShell !== undefined),
-		rawFacts,
-		positionalArgs,
+		invoked,
+		fields,
 		nestedShell,
-		cdTarget: successfulCdTarget(rawFacts, invocation, exactWords, node.childForFieldName("name")?.text === "cd"),
+		cdTarget: successfulCdTarget(invoked, invocation, exactWords, node.childForFieldName("name")?.text === "cd"),
 	};
 }
 
@@ -210,7 +208,7 @@ function executionUnit(
 		const unwrapped = unwrapCommand(globVariant);
 		views.push(globVariant, unwrapped, effectiveCommand(unwrapped));
 	}
-	const commands: BashArgv[] = [];
+	const commands: ShellArgv[] = [];
 	for (const { program, args } of new Set(views)) {
 		if (program !== undefined) commands.push([program, ...args]);
 	}
@@ -228,11 +226,20 @@ export function commandFacts(node: SyntaxNode, context: BashAnalysisContext): Co
 }
 
 function resolveCommand(node: SyntaxNode, context: BashAnalysisContext) {
-	const words = commandWords(node);
 	let contextResolved = false;
+	let expandedFields = 0;
+	const words = commandWords(node).flatMap(word => {
+		if (word.source !== '"$@"' && word.source !== '"${@}"') return [word];
+		const args = positionalValues(context);
+		if (!args) return [word];
+		contextResolved = true;
+		expandedFields += args.length;
+		if (expandedFields > MAX_EXPANDED_FIELDS) throw new IncompleteBashAnalysis();
+		return args.map(literal => ({ ...word, literal }));
+	});
 	let exactWords = true;
 	const values = words.map((word, index) => {
-		if (word.literal !== undefined) return { value: word.literal, singleField: true };
+		if (word.literal !== undefined) return { value: word.literal, field: word.literal };
 		const resolve = (allowGlob: boolean) => word.source === word.node.text
 			? resolveShellWord(word.node, context, false, allowGlob)
 			: resolveShellToken(word.source, context, false, allowGlob);
@@ -243,27 +250,21 @@ function resolveCommand(node: SyntaxNode, context: BashAnalysisContext) {
 		if (!resolved || resolved.value.includes(NUMERIC_FIELD) || (resolved.fileDirectory !== undefined && !resolved.temporary)) {
 			// 简单双引号标量即使值未知也只占一个参数；"$@" 和裸展开没有这个保证。
 			const scalar = /^"\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})"$/u.test(word.source);
-			return { value: { source: word.source, ...(scalar && { singleField: true as const }) }, singleField: false as const };
+			const field = { source: word.source };
+			return { value: scalar ? { ...field, singleField: true as const } : field, field };
 		}
 		const singleField = word.source === word.node.text && !resolved.value.includes("\0") && (
-			word.node.type === "string" || (word.node.type === "word" && word.source.startsWith("~")) || context.simpleSites?.has(word.node.id) === true
+			word.node.type === "string" || word.node.type === "ansi_c_string" || (word.node.type === "word" && word.source.startsWith("~")) || context.simpleSites?.has(word.node.id) === true
 		);
-		return { value: resolved.value, singleField, glob: exact === undefined ? { source: word.source } : undefined };
+		return { value: resolved.value, field: singleField ? resolved.value : { source: word.source }, glob: exact === undefined ? { source: word.source } : undefined };
 	});
 	const [program, ...args] = values.map((word) => word.value);
-	let positionalArgs: string[] | undefined;
-	if (words[0]?.literal === "set" && words[1]?.literal === "--") {
-		positionalArgs = [];
-		for (const { value, singleField } of values.slice(2)) {
-			if (!singleField) break;
-			positionalArgs.push(value);
-		}
-	}
+	const fields = values.slice(1).map(word => word.field);
 	const facts = { program: commandBasename(program), args };
 	// 模式文本可用于触发规则，但文件名展开可能改变参数数量，不能仅凭文本命中例外。
 	const globVariant = values.some((word) => word.glob !== undefined)
 		? { ...facts, args: values.slice(1).map((word) => word.glob ?? word.value) } : undefined;
-	return { facts, globVariant, contextResolved, exactWords, positionalArgs };
+	return { facts, invoked: { program: typeof program === "string" ? program : undefined, args }, globVariant, contextResolved, exactWords, fields };
 }
 
 export function redirectUnits(node: SyntaxNode, context: BashAnalysisContext): ApprovalUnit[] {
@@ -275,6 +276,11 @@ export function redirectUnits(node: SyntaxNode, context: BashAnalysisContext): A
 	const resolved = resolveShellWord(destination, context, false, true);
 	if (resolved === undefined || resolved.value === "") return [dynamicRedirectUnit(node)];
 	if (operator === ">&" && (resolved.value === "-" || /^\d+$/u.test(resolved.value))) return [];
+	if (path.sep === "\\" && resolved.value.startsWith("/") && !resolved.value.startsWith("//") && !resolved.value.includes("\\")) {
+		// 未展开的文件名模式和数字占位符不能作为精确路径匹配。
+		if (resolved.value.includes("\0") || resolveShellWord(destination, context) === undefined) return [dynamicRedirectUnit(node)];
+		return [{ action: "write_redirect", target: { kind: "path", value: path.posix.resolve(resolved.value), unmapped: true }, remember: false }];
+	}
 	return context.cwd.flatMap((cwd) => resolvePathCandidates(resolved, cwd)).map((target) => target === undefined ? dynamicRedirectUnit(node) : {
 		action: "write_redirect",
 		target: {
@@ -303,7 +309,7 @@ function writesFile(operator: string, node: SyntaxNode): boolean {
 	return false;
 }
 
-function commandEffectsStayTemporary(facts: CommandFacts, cwd: ResolvedShellValue): boolean {
+function commandEffectsStayTemporary(facts: CommandFacts, context: BashAnalysisContext, direct: boolean): boolean {
 	if (facts.program !== "rm" && facts.program !== "rmdir" && facts.program !== "git") return false;
 	if (!facts.args.every((arg) => typeof arg === "string")) return false;
 	if (facts.program !== "git") {
@@ -312,41 +318,24 @@ function commandEffectsStayTemporary(facts: CommandFacts, cwd: ResolvedShellValu
 		if (operands.length === 0) return false;
 		return operands.every((operand) => {
 			const temporary = isSyntheticTemporaryPath(operand);
-			return resolvePath({ value: operand, temporary }, cwd)?.temporary === true;
+			return context.cwd.every(cwd => resolvePath({ value: operand, temporary }, cwd)?.temporary === true);
 		});
 	}
-	const invocation = temporaryGitInvocation(facts.args, cwd);
-	return invocation !== undefined
-		&& (invocation.command === "clean" || invocation.command === "reset" && invocation.args.includes("--hard"));
+	if (!direct || !context.gitEnvKnown || context.functionNames.has("git")) return false;
+	const directories = temporaryGitDirectories(facts.args);
+	return directories !== undefined && context.cwd.every(cwd => {
+		for (const dest of directories) {
+			const resolved = resolvePath(shellArgumentValue(dest), cwd);
+			if (!resolved) return false;
+			cwd = resolved;
+		}
+		return cwd.temporary;
+	});
 }
 
 function hasRmdirParentsOption(args: string[]): boolean {
 	return args.some((argument) => argument === "--parents"
 		|| (argument.startsWith("-") && !argument.startsWith("--") && argument.slice(1).includes("p")));
-}
-
-function temporaryGitInvocation(
-	args: readonly string[],
-	initialCwd: ResolvedShellValue,
-): { command: string; args: string[] } | undefined {
-	let cwd = { ...initialCwd };
-	let nextIndex = 0;
-	for (const [index, argument] of args.entries()) {
-		if (index < nextIndex) continue;
-		if (argument === "-C") {
-			const destination = args[index + 1];
-			if (destination === undefined) return undefined;
-			const resolved = resolvePath(shellArgumentValue(destination), cwd);
-			if (resolved === undefined) return undefined;
-			cwd = resolved;
-			nextIndex = index + 2;
-			continue;
-		}
-		if (GIT_WORKTREE_NEUTRAL_FLAGS.has(argument)) continue;
-		if (argument.startsWith("-")) return undefined;
-		return cwd.temporary ? { command: argument, args: args.slice(index + 1) } : undefined;
-	}
-	return undefined;
 }
 
 function commandOperands(args: string[]): string[] {
@@ -389,19 +378,35 @@ function unwrapCommand(input: CommandFacts): CommandFacts {
 			facts = commandAfterEnv(facts.args);
 			continue;
 		}
-		if (program === "command") {
-			for (const arg of facts.args) {
-				if (typeof arg !== "string" || !/^-[pvV]+$/u.test(arg)) break;
-				if (/[vV]/u.test(arg)) return facts;
-			}
+		if (program === "builtin" || program === "command" || program === "exec") {
+			const next = builtinOperand(program, facts.args);
+			if (next === undefined) return facts;
+			facts = next; continue;
 		}
-		if (program === "builtin" || program === "command" || program === "exec" || program === "nohup" || program === "time") {
+		if (program === "nohup" || program === "time") {
 			facts = commandAfterOptions(facts.args, NO_OPTIONS_WITH_VALUE);
 			continue;
 		}
 		return facts;
 	}
 	return { ...facts, program: undefined };
+}
+
+/** undefined 表示没有被调用的程序，program: undefined 表示存在无法解析的操作数。 */
+function builtinOperand(wrapper: string, args: ShellArg[]): CommandFacts | undefined {
+	let i = 0;
+	while (i < args.length) {
+		const arg = args[i];
+		if (arg === "--") { i++; break; }
+		if (typeof arg !== "string" || !arg.startsWith("-") || arg === "-") break;
+		if (wrapper === "command" && /^-[pvV]+$/u.test(arg)) {
+			if (/[vV]/u.test(arg)) return;
+		} else if (wrapper === "exec" && /^-[cl]*(?:a.*)?$/u.test(arg)) {
+			if (/^-[cl]*a$/u.test(arg)) i++;
+		} else return { program: undefined, args: [] };
+		i++;
+	}
+	if (i < args.length) return { program: commandBasename(args[i]), args: args.slice(i + 1) };
 }
 
 function effectiveCommand(facts: CommandFacts): CommandFacts {
@@ -412,7 +417,7 @@ function effectiveCommand(facts: CommandFacts): CommandFacts {
 	return current.program === "sudo" ? { ...current, program: undefined } : current;
 }
 
-function commandAfterEnv(args: BashArg[]): CommandFacts {
+function commandAfterEnv(args: ShellArg[]): CommandFacts {
 	let index = 0;
 	while (index < args.length) {
 		const value = args[index];
@@ -442,7 +447,7 @@ function commandAfterEnv(args: BashArg[]): CommandFacts {
 }
 
 function commandAfterOptions(
-	args: BashArg[],
+	args: ShellArg[],
 	optionsWithValue: ReadonlySet<string>,
 	skipAssignments = false,
 ): CommandFacts {
@@ -465,26 +470,24 @@ function commandAfterOptions(
 	return { program: commandBasename(args[index]), args: args.slice(index + 1) };
 }
 
-function shellInvocation(facts: CommandFacts): NestedShell | "dynamic" | undefined {
+function shellInvocation(facts: CommandFacts): { script: string; argsStart: number } | "dynamic" | undefined {
 	if (facts.program === undefined) return "dynamic";
 	if (!SHELL_PROGRAMS.has(facts.program)) return undefined;
 	const index = shellCommandIndex(facts.args);
 	if (index === undefined) return undefined;
 	const script = facts.args[index + 1];
 	if (typeof script !== "string") return "dynamic";
-	const positional = new Map<string, ResolvedShellValue>();
-	setPositionalVariables(positional, facts.args.slice(index + 3));
-	return { script, positional, bash: facts.program === "bash" };
+	return { script, argsStart: index + 3 };
 }
 
-function shellCommandIndex(args: BashArg[]): number | undefined {
+function shellCommandIndex(args: ShellArg[]): number | undefined {
 	for (const [index, value] of args.entries()) {
 		if (value === "-c" || (typeof value === "string" && value.startsWith("-") && !value.startsWith("--") && value.slice(1).includes("c"))) return index;
 	}
 	return undefined;
 }
 
-function commandBasename(value: BashArg | undefined): string | undefined {
+function commandBasename(value: ShellArg | undefined): string | undefined {
 	if (typeof value !== "string" || value.length === 0) return undefined;
 	const normalized = value.replace(/\\/g, "/");
 	return normalized.slice(normalized.lastIndexOf("/") + 1);

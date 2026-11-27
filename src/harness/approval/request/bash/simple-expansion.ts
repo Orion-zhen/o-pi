@@ -1,5 +1,5 @@
 import type { SyntaxNode } from "../../../syntax-tree/types.ts";
-import { readVariable, UNSET, type BashAnalysisContext } from "./state.ts";
+import { readVariable, UNSET, type BashAnalysisContext } from "./branches.ts";
 import { isOrdinaryVariable } from "./startup.ts";
 import { walkNamedNodes } from "./syntax.ts";
 
@@ -9,23 +9,26 @@ const plainNodes = new Set(["redirected_statement", "command", "command_name", "
 // 只在启动选项和变量仍可确定的顶层前缀中收窄。未建模的语句之后沿用常规分析。
 export function simpleExpansionSites(statements: readonly SyntaxNode[], check: () => void): Set<number> {
 	const sites = new Set<number>();
+	const assigned = new Set<string>();
 	for (const statement of statements) {
 		check();
 		if (statement.type === "comment") continue;
 		if (statement.type === "variable_assignment" && statement.nextSibling?.type !== "&") {
 			const name = statement.childForFieldName("name")?.text;
 			const rhs = statement.childForFieldName("value");
-			if (name && isOrdinaryVariable(name) && statement.text.startsWith(`${name}=`) && (!rhs || literal(rhs.text) !== undefined)) continue;
+			if (name && isOrdinaryVariable(name) && statement.text.startsWith(`${name}=`) && (!rhs || literal(rhs.text) !== undefined)) { assigned.add(name); continue; }
 		}
-		const body = statement.type === "redirected_statement" ? statement.childForFieldName("body") : statement;
-		if (statement.type === "case_statement" || body?.type === "list") {
-			sites.add(statement.id);
+		if (statement.type === "case_statement") {
+			if (process.platform !== "win32") sites.add(statement.id);
 			break;
 		}
 		if (statement.type !== "command" && statement.type !== "redirected_statement") break;
 		const fields: number[] = [];
 		for (const node of walkNamedNodes(statement, check)) {
-			if (["simple_expansion", "expansion", "command_name"].includes(node.type) && parameter.test(node.text)) fields.push(node.id);
+			const match = parameter.exec(node.text);
+			if (["simple_expansion", "expansion", "command_name"].includes(node.type) && match) {
+				if (process.platform !== "win32" || assigned.has(match[1] ?? match[2] ?? "")) fields.push(node.id);
+			}
 			else if (!plainNodes.has(node.type)) return sites;
 		}
 		for (const id of fields) sites.add(id);

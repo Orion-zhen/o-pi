@@ -7,8 +7,8 @@ import { replayTranscript } from "../../helpers/transcript-live-fixture.ts";
 test("sudo 审批原位切换密码和重试，保留展开的命令及草稿", async ({ page }) => {
 	const channel = await replayTranscript(page, guiSnapshot());
 	const command = `sudo ls ${"long-path/".repeat(30)}`;
-	const approval: GuiDialog = { kind: "bashApproval", id: "approval", stage: { kind: "choose" }, title: "执行 Bash 命令", deadline: null,
-		approval: { command, cwd: "/project", environment: [], items: [{ kind: "command", action: "execute", target: command, reason: "提升权限" }] },
+	const approval: GuiDialog = { kind: "shellApproval", id: "approval", stage: { kind: "choose" }, title: "执行 Bash 命令", deadline: null,
+		approval: { shell: "bash", command, cwd: "/project", environment: [], items: [{ kind: "command", action: "execute", target: command, reason: "提升权限" }] },
 		options: [{ label: "允许一次", value: "Allow once" }, { label: "拒绝", value: "Deny" }, { label: "拒绝并说明", value: "Deny with instruction" }] };
 	const show = (stage: GuiSudoStage) => channel.accept({ type: "dialogs", value: [{ ...approval, stage }] });
 	const password = (token: string, retry: boolean) => show({ kind: "prompting", token, account: "orion@devbox", retry });

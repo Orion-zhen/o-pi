@@ -21,8 +21,8 @@ export function RawToolContent({ value }: { value: unknown }) {
 export function ToolResult({ tool }: { tool: Omit<ToolActivity, "output"> & { output: GuiToolResult | undefined } }) {
 	const { output, state } = tool;
 	const args = record(tool.args) ? tool.args : {};
-	if (tool.name === "bash") return <>
-		{typeof args.command === "string" && <CodeBlock label="命令" language="bash" text={args.command} />}
+	if (tool.name === "bash" || tool.name === "powershell") return <>
+		{typeof args.command === "string" && <CodeBlock label="命令" language={tool.name} text={args.command} />}
 		{output && <RawToolContent value={output.content} />}
 	</>;
 	if (!output) {

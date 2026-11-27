@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyTool, stableExecutableFromCommand } from "../../../src/harness/discord-presence/activity.ts";
+import { classifyTool } from "../../../src/harness/discord-presence/activity.ts";
 import { PresenceActivityTracker } from "../../../src/harness/discord-presence/activity-tracker.ts";
 import { renderDiscordActivity } from "../../../src/harness/discord-presence/render.ts";
 import { completedTopLevelStringProperty } from "../../../src/harness/discord-presence/streaming.ts";
@@ -13,6 +13,7 @@ describe("Discord presence 活动与渲染", () => {
 		["grep", { query: "secret" }, { kind: "searching" }],
 		["websearch", { query: "private query" }, { kind: "browsing" }],
 		["bash", { command: "TOKEN=x /usr/bin/git status --secret" }, { kind: "shell", executable: "git" }],
+		["powershell", { command: "Get-Content README.md" }, { kind: "shell", executable: "Get-Content" }],
 		["custom", { value: "private" }, { kind: "other_tool", tool: "custom" }],
 	] as const)("将 %s 分类且只保留展示目标", (tool, args, expected) => {
 		expect(classifyTool(tool, args)).toMatchObject(expected);
@@ -79,8 +80,27 @@ describe("Discord presence 活动与渲染", () => {
 		tracker.stream({ ...stream, phase: "start" });
 		tracker.stream({ ...stream, phase: "end", call: { ...stream.call, arguments: { command: "pwd" } } });
 		expect(tracker.current().executable).toBe("pwd");
-		expect(stableExecutableFromCommand("NODE_ENV=test npm run test", false)).toBe("npm");
-		expect(stableExecutableFromCommand("pwd", false)).toBeUndefined();
+	});
+
+	it.each([
+		[String.raw`& 'C:\private dir\git`, String.raw`& 'C:\private dir\git.exe' status`, "git.exe"],
+		["$env:BUILD='private'; np", "$env:BUILD='private'; npm test", "npm"],
+		["& $env:P", "& $env:PRIVATE_TOOL --version", undefined],
+	] as const)("PowerShell 流式、最终和执行事件只发布稳定程序名：%s", (partial, command, executable) => {
+		const tracker = new PresenceActivityTracker();
+		const stream = { messageKey: "m", contentIndex: 0 }, call = { id: "ps", name: "powershell", arguments: { command } };
+		tracker.stream({ ...stream, phase: "start", call: { ...call, arguments: {} } });
+		const prefix = JSON.stringify({ command: partial }).slice(0, -2);
+		tracker.stream({ ...stream, phase: "delta", delta: prefix, call: { ...call, arguments: { command: partial } } });
+		expect(tracker.current().executable).toBeUndefined();
+		tracker.stream({ ...stream, phase: "delta", delta: JSON.stringify(call.arguments).slice(prefix.length), call });
+		expect(tracker.current().executable).toBe(executable);
+		tracker.stream({ ...stream, phase: "end", call });
+		tracker.startTool(call.id, call.name, call.arguments);
+		const config = enabledConfig();
+		const payload = renderDiscordActivity(config, configuredProfile(config, "standard"), tracker.current(), { model: "model", project: "repo", session: "test", startedAt: 1 });
+		expect(payload?.details).toBe(`Running ${executable ?? "command"}`);
+		expect(JSON.stringify(payload)).not.toMatch(/private/iu);
 	});
 
 	it("晚到的 ID 和工具名更新同一调用，中止只清理对应消息", () => {
@@ -98,6 +118,14 @@ describe("Discord presence 活动与渲染", () => {
 		tracker.stream({ ...stream, phase: "start", call: { id: "new", name: "bash", arguments: {} } });
 		tracker.abortMessage("message");
 		expect(tracker.current().file).toBe("previous.ts");
+	});
+
+	it("PowerShell 脚本沿用 shell 图片键，只展示文件基本名", () => {
+		const config = enabledConfig();
+		config.assets.small.languages.shell = "script";
+		const activity = classifyTool("edit", { path: String.raw`C:\private\Export.psm1` });
+		const payload = renderDiscordActivity(config, configuredProfile(config, "detailed"), activity, { project: "repo", model: "model", session: "s", startedAt: 1 });
+		expect(payload).toMatchObject({ details: "Editing Export.psm1", smallImageKey: "script", smallImageText: "PowerShell" });
 	});
 
 	it("只识别顶层完整 path，且空 basename 不回退到完整路径", () => {

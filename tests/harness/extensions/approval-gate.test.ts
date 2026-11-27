@@ -7,11 +7,12 @@ import path from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { presentation } from "../../../src/tui/extensions.ts";
-import bashToolExtension from "../../../src/harness/extensions/bash-tool.ts";
+import { loadedSkill, registeredShellTool } from "../shell-tools/fixture.ts";
 import approvalGate from "../../../src/harness/extensions/approval-gate.ts";
 import { APPROVAL_STATUS_CHANNEL } from "../../../src/harness/approval/events.ts";
 import { formatApprovalPrompt } from "../../../src/harness/approval/presentation.ts";
 import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.ts";
+import { buildPowerShellApprovalRequest } from "../../../src/harness/approval/request/powershell.ts";
 import { buildFileApprovalRequest, type ApprovalToolCall } from "../../../src/harness/approval/pi/request.ts";
 import type { ApprovalOptions } from "../../../src/harness/approval/runtime/interaction.ts";
 import { ApprovalDialog } from "../../../src/tui/views/approval/dialog.ts";
@@ -23,7 +24,7 @@ import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
-preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_APPROVAL_GATE_CONFIG", "PI_BASH_TOOL_CONFIG", "NODE_ENV", "OPI_REPORT", "CDPATH", "BASH_ENV");
+preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_APPROVAL_GATE_CONFIG", "PI_SHELL_TOOLS_CONFIG", "NODE_ENV", "OPI_REPORT", "CDPATH", "BASH_ENV");
 
 beforeEach(() => {
 	process.env.NODE_ENV = "production";
@@ -36,7 +37,7 @@ describe("approval gate", () => {
 	it("审批和执行复用过滤后的环境，授权期间宿主变化不影响本次调用", async () => {
 		process.env.OPI_REPORT = "approved";
 		delete process.env.BASH_ENV;
-		await writeFile(path.join(dir, "approval.jsonc"), '{"tools":{"bash":{"default_action":"ask"}}}');
+		await writeFile(path.join(dir, "approval.jsonc"), '{"tools":{"shell":{"default_action":"ask"}}}');
 		await mkdir(path.join(dir, "build"));
 		const event = { type: "tool_call", toolName: "bash", toolCallId: "env-snapshot",
 			input: { command: 'printf "%s/%s" "$OPI_REPORT" "${PWD##*/}"', workdir: "build" },
@@ -47,18 +48,88 @@ describe("approval gate", () => {
 		expect(await handle(event, context)).toBeUndefined();
 		expect(select.mock.calls[0]?.[0]).toContain('OPI_REPORT="approved"');
 		expect(JSON.stringify(event.input)).not.toContain("approved");
-		const tool = registerExtension(bashToolExtension).registered[0];
-		if (!tool) throw new Error("missing bash tool");
+		const tool = registeredShellTool(event.toolName);
 		const result = await tool.execute(event.toolCallId, event.input, undefined, undefined, context);
 		expect(result.content[0]?.text).toContain("approved/build");
 		expect(result.content[0]?.text).not.toContain("changed");
 	});
 
+	it.runIf(process.platform === "win32")("PowerShell 仅对整段无法执行的差异查询跳过询问，显式拒绝仍生效", async () => {
+		const ui = fakeUi(["Deny"]), context = ctx(ui);
+		const inspect = (command: string) => handle({ ...bash(command), toolName: "powershell" }, context);
+		const config = path.join(dir, "approval.jsonc"), invalid = "git diff -- src/{index,main}.ts";
+		await writeFile(config, '{"tools":{"shell":{"default_action":"ask"}}}');
+		expect(await inspect(invalid)).toBeUndefined();
+		expect(ui.selectCalls).toBe(0);
+		expect(await inspect("git diff -- 'src/{index,main}.ts'")).toMatchObject({ block: true });
+		expect(ui.selectCalls).toBe(1);
+
+		await writeFile(config, '{"tools":{"shell":{"facts":{"blocked":{"match_all":true,"action":"deny","reason":"禁用 Shell"}}}}}');
+		expect(await inspect(invalid)).toMatchObject({ block: true, reason: expect.stringContaining("禁用 Shell") });
+	});
+
+	it.runIf(process.platform === "win32")("PowerShell 静态管道匹配独立规则，动态命令不复用会话授权", async () => {
+		const event = (command: string) => ({ ...bash(command), toolName: "powershell" as const });
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { shell: { facts: { pipeline: {
+			action: "deny", reason: "blocked pipeline", commands: { pair: { shell: "powershell", pipeline: [["Get-Item"], ["Out-String"]] } },
+		} } } } }));
+		const ui = fakeUi(["Allow for session", "Deny"]), context = ctx(ui), handler = captureExtensionHandler();
+		expect(await handler(event("GET-item a | Out-String"), context)).toMatchObject({ block: true, reason: expect.stringContaining("blocked pipeline") });
+		expect(await handler(event("function Report { Get-Item a | Out-String }; if ($run) { Report }"), context))
+			.toMatchObject({ block: true, reason: expect.stringContaining("blocked pipeline") });
+		expect(await handler(event("git push"), context)).toBeUndefined();
+		expect(await handler(event("git push"), context)).toBeUndefined();
+		expect(await handler(event("Write-Output $env:OPI_REPORT"), context)).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
+		expect(await handler(event("& $env:OPI_REPORT"), context)).toMatchObject({ block: true });
+		expect(ui.selectOptions.at(-1)).not.toContain("Allow for session");
+		expect(ui.selectCalls).toBe(2);
+	});
+
+	it.runIf(process.platform === "win32")("PowerShell 交付执行时复用已批准的环境和工作目录", async () => {
+		process.env.OPI_REPORT = "before";
+		await mkdir(path.join(dir, "sub"));
+		const context = ctx(fakeUi(["Allow once"], undefined, () => { process.env.OPI_REPORT = "after"; }));
+		const event = { type: "tool_call", toolName: "powershell", toolCallId: "snapshot", input: { command: "(Get-Location).Path; $env:OPI_REPORT", workdir: "sub" } } as const;
+		expect(await handle(event, context)).toBeUndefined();
+		const tool = registeredShellTool(event.toolName);
+		const result = await tool.execute(event.toolCallId, event.input, undefined, undefined, context);
+		expect(result.content[0]?.text).toContain(path.join(dir, "sub"));
+		expect(result.content[0]?.text).toContain("before");
+		expect(result.content[0]?.text).not.toContain("after");
+	});
+
+	it.runIf(process.platform === "win32").each(["skill://demo/notes.txt", "**/private-docs/notes.txt"])("审批可按技能逻辑地址或实际文件拦截 PowerShell 读取：%s", async (pattern) => {
+		const root = path.join(dir, "private-docs");
+		await mkdir(root);
+		await writeFile(path.join(root, "notes.txt"), "private");
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { shell: { facts: { private: {
+			action: "deny", reason: "禁止读取私有笔记", commands: { read: { command: ["Get-Content"], arg_globs: [pattern] } },
+		} } } } }));
+		const context = ctx(fakeUi([]));
+		context.sessionManager.getBranch = () => loadedSkill(root);
+		const event = { type: "tool_call", toolName: "powershell", toolCallId: "skill-read", input: { command: "Get-Content 'skill://demo/notes.txt'" } } as const;
+		expect(await handle(event, context)).toEqual({ block: true, reason: 'Blocked by Approval Gate rule "private": 禁止读取私有笔记' });
+	});
+
+	it.runIf(process.platform === "win32").each(["skill://demo/report log.txt", "**/skill root/report log.txt"])("嵌套重定向按逻辑或实际目标审批：%s", async (pattern) => {
+		const root = path.join(dir, "skill root");
+		await mkdir(root);
+		await writeFile(path.join(root, "report log.txt"), "before");
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { shell: { facts: { report: {
+			action: "deny", reason: "保留原始报告", path_globs: [pattern],
+		} } } } }));
+		const context = ctx(fakeUi([]));
+		context.sessionManager.getBranch = () => loadedSkill(root);
+		const event = { type: "tool_call", toolName: "powershell", toolCallId: "skill-log", input: { command: "if ($env:PI_SESSION_ID) { Write-Output $env:PI_SESSION_ID >>'skill://demo/report log.txt' }" } } as const;
+		expect(await handle(event, context)).toEqual({ block: true, reason: 'Blocked by Approval Gate rule "report": 保留原始报告' });
+	});
+
 	it("环境过滤后缺失的普通变量按未设置解析，approval-check 与工具决策一致", async () => {
 		process.env.OPI_REPORT = "host-report";
-		process.env.PI_BASH_TOOL_CONFIG = path.join(dir, "bash.jsonc");
-		await writeFile(process.env.PI_BASH_TOOL_CONFIG, '{"environment":{"inherit":false}}');
-		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { bash: { facts: { fallback: {
+		process.env.PI_SHELL_TOOLS_CONFIG = path.join(dir, "bash.jsonc");
+		await writeFile(process.env.PI_SHELL_TOOLS_CONFIG, '{"environment":{"inherit":false}}');
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { shell: { facts: { fallback: {
 			action: "deny", reason: "protected", path_globs: [`${dir.replaceAll("\\", "/")}/fallback`],
 		} } } } }));
 		const command = 'echo >"${OPI_REPORT:-fallback}"';
@@ -124,12 +195,13 @@ describe("approval gate", () => {
 	});
 
 	it("复合命令只触发一次审批，同时展示覆盖和继承的原因", async () => {
-		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { bash: { facts: {
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { shell: { facts: {
 			release: { reason: "请确认远端仓库和分支。" },
 		} } } }));
 		const ui = fakeUi(["Allow once"]);
 		const select = vi.spyOn(ui, "select");
-		expect(await handle(bash("git push origin main && git clean -fd"), ctx(ui))).toBeUndefined();
+		// 临时目录内的 git clean 可豁免；此处验证普通工作区的复合审批。
+		expect(await handle(bash("git push origin main && git clean -fd"), { ...ctx(ui), cwd: systemPath("workspace") })).toBeUndefined();
 		expect(select).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("Reason: 请确认远端仓库和分支。"), expect.any(Array), expect.objectContaining({ blockedKind: "permission" }));
 		expect(select.mock.calls[0]?.[0]).toContain("Reason: 确认清理范围");
 	});
@@ -166,8 +238,8 @@ describe("approval gate", () => {
 	});
 
 	it.skipIf(process.platform !== "darwin" && process.platform !== "linux")("TUI 对静态 sudo 只提供单次授权，批准时尚不索密", async () => {
-		process.env.PI_BASH_TOOL_CONFIG = path.join(dir, "bash.jsonc");
-		await writeFile(process.env.PI_BASH_TOOL_CONFIG, '{"environment":{"inherit":false}}');
+		process.env.PI_SHELL_TOOLS_CONFIG = path.join(dir, "bash.jsonc");
+		await writeFile(process.env.PI_SHELL_TOOLS_CONFIG, '{"environment":{"inherit":false}}');
 		const panels: string[] = [];
 		const ui = { ...fakeUi([]), ...dialogUi((dialog) => {
 			const panel = dialog.render(80).join("\n");
@@ -354,7 +426,7 @@ describe("approval gate", () => {
 
 	it("组合拒绝时不询问，只返回规则 ID 和配置原因", async () => {
 		const reason = "项目配置不得对外传输。";
-		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { bash: {
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ tools: { shell: {
 			facts: { settings: { commands: { read: { command: ["cat"], arg_globs: ["**/.env.local"] } } } },
 			combinations: { publish: { all: ["settings", "release"], action: "deny", reason } },
 		} } }));
@@ -405,7 +477,7 @@ describe("approval gate", () => {
 				: { type: "tool_call" as const, toolName: tool, toolCallId: "edit-preview", input: { path: "skill://demo/\u001b[2J文件", edits: [{ old: payload, new: "新内容" }] } };
 		const request = await requiredRequest(event);
 		request.cwd += "\u001b[2J";
-		const unit = request.tool === "bash" ? request.units[0] : request.unit;
+		const unit = "units" in request ? request.units[0] : request.unit;
 		if (unit === undefined) throw new Error("missing unit");
 		const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
 			kind: "ask", reason: "原因\u001b[2J", items: [{ unit, reason: "原因\u001b[2J" }],
@@ -426,10 +498,11 @@ describe("approval gate", () => {
 		}
 	});
 
-	it("TUI 和 RPC 默认不展示由敏感环境展开的子脚本", async () => {
-		const command = 'bash -c "$SCRIPT_TOKEN"';
+	it.each(["bash", "powershell"])("%s 的 TUI 和 RPC 默认不展示由敏感环境展开的子脚本", async (shell) => {
+		const command = shell === "bash" ? 'bash -c "$SCRIPT_TOKEN"' : 'Invoke-Expression $env:SCRIPT_TOKEN';
 		const script = "echo demo-only";
-		const request = await buildBashApprovalRequest(command, { cwd: dir, command, env: { SCRIPT_TOKEN: script } }, { askpass: false });
+		const call = { cwd: dir, command, env: { SCRIPT_TOKEN: script } };
+		const request = shell === "bash" ? await buildBashApprovalRequest(command, call, { askpass: false }) : await buildPowerShellApprovalRequest(command, call);
 		const unit = request.units.find(({ target }) => target.value === script);
 		if (!unit) throw new Error("缺少子脚本单元");
 		const ask: Extract<ApprovalDecision, { kind: "ask" }> = { kind: "ask", reason: "script", items: [{ unit, reason: "script" }] };
@@ -454,8 +527,8 @@ describe("approval gate", () => {
 	});
 
 	it("RPC 的 sudo 仍可通过普通审批获得会话授权", async () => {
-		process.env.PI_BASH_TOOL_CONFIG = path.join(dir, "bash.jsonc");
-		await writeFile(process.env.PI_BASH_TOOL_CONFIG, '{"environment":{"inherit":false}}');
+		process.env.PI_SHELL_TOOLS_CONFIG = path.join(dir, "bash.jsonc");
+		await writeFile(process.env.PI_SHELL_TOOLS_CONFIG, '{"environment":{"inherit":false}}');
 		const ui = fakeUi(["Allow for session"]);
 		const context = ctx(ui);
 		const event = bash("sudo id");
@@ -490,7 +563,7 @@ const plainTheme = {
 	bold: (text) => text,
 } satisfies Pick<Theme, "fg" | "bg" | "bold">;
 
-type DialogToolCall = Exclude<ApprovalToolCall, { toolName: "webfetch" }>;
+type DialogToolCall = Extract<ApprovalToolCall, { toolName: "bash" | "write" | "edit" }>;
 
 async function createDialog(
 	event: DialogToolCall,
@@ -507,7 +580,7 @@ function dialogForRequest(
 	done: (choice: string | undefined) => void,
 	timeout?: number,
 ): ApprovalDialog {
-	const unit = request.tool === "bash" ? request.units[0] : request.unit;
+	const unit = "units" in request ? request.units[0] : request.unit;
 	if (unit === undefined) throw new Error("approval request has no units");
 	const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
 		kind: "ask",

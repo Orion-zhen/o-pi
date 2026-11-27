@@ -43,7 +43,7 @@ function facts(name: string, result: ToolDetails, details: Record<string, unknow
 		const lines = result.details.diff.split("\n");
 		return `+${lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length} -${lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length}`;
 	}
-	if (name === "bash" && typeof details.exit_code === "number") return `退出 ${details.exit_code}`;
+	if ((name === "bash" || name === "powershell") && typeof details.exit_code === "number") return `退出 ${details.exit_code}`;
 	return "";
 }
 

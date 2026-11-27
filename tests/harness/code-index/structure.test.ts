@@ -3,6 +3,7 @@ import { SymbolKind, type Range } from "vscode-languageserver-protocol";
 import { analyzeCodeFile } from "../../../src/harness/code-index/parser.ts";
 import { mergeCodeStructure } from "../../../src/harness/code-index/structure.ts";
 import { analyzeLspDocument } from "../../../src/harness/lsp/analysis/document.ts";
+import { pathToFileUri } from "../../../src/harness/lsp/protocol/uri.ts";
 import type { AnalyzedFileIndex } from "../../../src/harness/code-index/types.ts";
 
 function span(text: string, start: number, end: number): Range {
@@ -24,10 +25,11 @@ describe("code structure anchors and bindings", () => {
 	it("平面符号校验所属文档，等价文件 URI 可关联，外部 URI 不注入当前文件", () => {
 		const text = "function Target() {}";
 		const location = span(text, 9, 15);
+		const documentUri = pathToFileUri("a.ts");
 		const semantic = analyzeLspDocument({ path: "a.ts", text }, [
-			{ name: "Target", kind: SymbolKind.Function, location: { uri: "file://localhost/a.ts", range: location } },
-			{ name: "Foreign", kind: SymbolKind.Function, location: { uri: "file:///other.ts", range: location } },
-		], "file:///a.ts");
+			{ name: "Target", kind: SymbolKind.Function, location: { uri: new URL("%61.ts", documentUri).href, range: location } },
+			{ name: "Foreign", kind: SymbolKind.Function, location: { uri: pathToFileUri("other.ts"), range: location } },
+		], documentUri);
 		expect(semantic?.units.map((unit) => unit.name)).toEqual(["Target"]);
 	});
 
@@ -106,6 +108,25 @@ describe("code structure anchors and bindings", () => {
 		expect(analysis.callSites?.map((call, index) => call.lookupByte === undefined ? undefined
 			: bytes.subarray(call.lookupByte, call.lookupByte + Buffer.byteLength(lookups[index] ?? "")).toString())).toEqual(lookups);
 		expect(analysis.callSites?.every((call) => call.ownerId === named(analysis, "run").id)).toBe(true);
+	});
+
+	it("PowerShell 跳过缺少名称的声明，保留相邻的具名空函数", async () => {
+		const index = await analyzeCodeFile("module.psm1", "function {}\nfunction Empty {}");
+		expect(index.units.map((unit) => unit.name)).toEqual(["Empty"]);
+	});
+
+	it("PowerShell 管道和静态调用保留精确位置与归属，不把动态表达式、字符串或注释当作目标", async () => {
+		const text = ["# 🧪", "function Invoke-Probe($cmd) { # 说明", "  Get-Item . | Out-String",
+			"  & 'Write-Output' 'Get-Item'; & $cmd; & \"Get-$cmd\"", "  . ./helper.ps1", "}"].join("\r\n");
+		const index = await analyzeCodeFile("module.psm1", text);
+		const unit = named(index, "Invoke-Probe");
+		expect(index.parseErrors).toEqual([]);
+		expect(unit.signature).toBe("function Invoke-Probe($cmd)");
+		const calls = index.callSites?.map((call) => ({ start: call.lookupByte, end: call.callee.endByte, owner: call.ownerId }));
+		expect(calls).toEqual(["Get-Item", "Out-String", "'Write-Output'", "./helper.ps1"].map((name) => {
+			const start = Buffer.byteLength(text.slice(0, text.indexOf(name)));
+			return { start, end: start + Buffer.byteLength(name), owner: unit.id };
+		}));
 	});
 
 	it("具名函数表达式保留递归调用的内部归属，箭头函数使用外部绑定", async () => {

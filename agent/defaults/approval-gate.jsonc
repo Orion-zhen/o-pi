@@ -6,6 +6,7 @@
 		"non_interactive": "block"
 	},
 	// 事实和组合按「领域.行为」命名，commands 下用局部短名。按 ID 覆盖字段，设为 false 可禁用。
+	// ProgramFiles(x86) 不保证存在，默认配置保留该目录的标准路径模式。
 	"tools": {
 		"write": {
 			"default_action": "allow",
@@ -13,7 +14,7 @@
 				"filesystem.write-system-path": {
 					"action": "ask",
 					"reason": "system path modification",
-					"path_globs": ["/etc/**", "/usr/**", "/bin/**", "/sbin/**", "/System/**", "/Library/**", "/var/**"]
+					"path_globs": ["/etc/**", "/usr/**", "/bin/**", "/sbin/**", "/System/**", "/Library/**", "/var/**", "%SystemRoot%/**", "%ProgramFiles%/**"]
 				}
 			}
 		},
@@ -23,7 +24,7 @@
 				"filesystem.write-system-path": {
 					"action": "ask",
 					"reason": "system path modification",
-					"path_globs": ["/etc/**", "/usr/**", "/bin/**", "/sbin/**", "/System/**", "/Library/**", "/var/**"]
+					"path_globs": ["/etc/**", "/usr/**", "/bin/**", "/sbin/**", "/System/**", "/Library/**", "/var/**", "%SystemRoot%/**", "%ProgramFiles%/**"]
 				}
 			}
 		},
@@ -37,7 +38,7 @@
 				}
 			}
 		},
-		"bash": {
+		"shell": {
 			"default_action": "allow",
 			"facts": {
 				"filesystem.write-system-path": {
@@ -50,13 +51,24 @@
 						}
 					}
 				},
+				// 重定向按目标路径匹配。cmdlet 按完整参数匹配，不区分路径参数和内容参数。
+				"filesystem.write-windows-system-path": {
+					"shell": "powershell", "action": "ask", "reason": "Windows system path modification or file-operation argument",
+					"path_globs": ["%SystemRoot%/**", "%ProgramFiles%/**"],
+					"commands": {
+						"file-operation": {
+							"platform": "win32", "command": ["{Set-Content,Add-Content,Clear-Content,Out-File,New-Item,Remove-Item,Copy-Item,Move-Item}"],
+							"arg_globs": ["%SystemRoot%/**", "%ProgramFiles%/**"]
+						}
+					}
+				},
 				// 敏感信息读取与目录扫描。文件模式匹配整个参数，包括搜索词和紧贴选项的值。
 				"credential.read": {
 					"action": "deny",
 					"reason": "Reading credential files can expose authentication secrets.",
 					"commands": {
 						"read-file": {
-							"command": ["{cat,head,tail,sed,awk,grep,base64,xxd,strings}"],
+							"command": ["{cat,head,tail,sed,awk,grep,base64,xxd,strings,Get-Content}"],
 							"arg_globs": [
 								"**/*.ssh/id_*",
 								"**/*.aws/credentials",
@@ -80,9 +92,10 @@
 					"reason": "Shell history may contain credentials or private commands.",
 					"commands": {
 						"read-file": {
-							"command": ["{cat,head,tail,sed,awk,grep,base64,xxd,strings}"],
-							"arg_globs": ["**/*.bash_history", "**/*.zsh_history"]
-						}
+							"command": ["{cat,head,tail,sed,awk,grep,base64,xxd,strings,Get-Content}"],
+							"arg_globs": ["**/*.bash_history", "**/*.zsh_history", "**/PSReadLine/ConsoleHost_history.txt"]
+						},
+						"session-history": { "shell": "powershell", "command": ["{Get-History,h,history,ghy}"] }
 					}
 				},
 				"environment.read-all": {
@@ -98,20 +111,12 @@
 					"commands": {
 						// 只排除以 .env.example、.env.sample 或 .env.template 结尾的模板名。
 						"read-file": {
-							"command": ["{cat,head,tail,sed,awk,grep,base64,xxd,strings}"],
-							"arg_globs": [
-								"**/*.env",
-								"**/*.env.!(example|sample|template)",
-								"**/*.config/codex/config.toml",
-								"**/*.codexrc"
-							]
+							"command": ["{cat,head,tail,sed,awk,grep,base64,xxd,strings,Get-Content}"],
+							"arg_globs": ["**/*.env", "**/*.env.!(example|sample|template)", "**/*.config/codex/config.toml", "**/*.codexrc"]
 						},
 						"find-env-to-cat": {
 							"pipeline": [
-								{
-									"command": ["find"],
-									"arg_globs": ["**/*.env!(.example|.sample|.template)", "**/*.env*/**"]
-								},
+								{ "command": ["find"], "arg_globs": ["**/*.env!(.example|.sample|.template)", "**/*.env*/**"] },
 								["xargs", "cat"]
 							]
 						}
@@ -154,6 +159,12 @@
 						"container-system-prune": { "command": ["{docker,podman}", "system", "prune"] }
 					}
 				},
+				"filesystem.delete-drive-root": {
+					"action": "deny", "reason": "Recursive deletion targets a drive root.",
+					"commands": {
+						"cmd-recursive": { "shell": "powershell", "command": ["cmd:{rd,rmdir}", "/s"], "arg_globs": ["/", "[A-Za-z]:/"] }
+					}
+				},
 				// 分析器另识别后台递归管道。
 				"system.disrupt-host": {
 					"action": "deny",
@@ -171,7 +182,11 @@
 					"action": "deny",
 					"reason": "Downloaded content must not be piped directly into a shell.",
 					"commands": {
-						"download-to-shell": { "pipeline": [["{curl,wget}"], ["{sh,bash,zsh,fish}"]] }
+						"download-to-shell": { "pipeline": [["{curl,wget}"], ["{sh,bash,zsh,fish}"]] },
+						"download-to-expression": {
+							"shell": "powershell",
+							"pipeline": [["{Invoke-RestMethod,irm,Invoke-WebRequest,iwr,curl,wget}"], ["{Invoke-Expression,iex}"]]
+						}
 					}
 				},
 				"package.change": {
@@ -200,6 +215,7 @@
 						"dnf-yum": { "command": ["{dnf,yum}", "{install,remove,rm,up,update,upgrade}"] },
 						"dnf-yum-group": { "command": ["{dnf,yum}", "group", "{install,remove,upgrade}"] },
 						"dnf-yum-module": { "command": ["{dnf,yum}", "module", "{install,remove,update}"] },
+						"winget": { "platform": "win32", "command": ["{winget,winget.exe}", "{install,add,upgrade,update,uninstall,remove,rm}"] },
 						"pacman": { "command": ["pacman", "{-S,-R,-U}"] }
 					}
 				},
@@ -208,6 +224,9 @@
 					"action": "ask",
 					"reason": "This command requests privileges beyond the current account.",
 					"commands": {
+						"runas": { "shell": "powershell", "command": ["Start-Process", "{-Verb,-verb}", "{RunAs,Runas,runas}"] },
+						"runas-after-program": { "shell": "powershell", "command": ["Start-Process", "*", "{-Verb,-verb}", "{RunAs,Runas,runas}"] },
+						"runas-after-filepath": { "shell": "powershell", "command": ["Start-Process", "{-FilePath,-filepath}", "*", "{-Verb,-verb}", "{RunAs,Runas,runas}"] },
 						"sudo": { "command": ["sudo"] }
 					}
 				},
@@ -215,25 +234,20 @@
 					"action": "ask",
 					"reason": "This command may interrupt a service or change its configuration.",
 					"commands": {
+						"service-cmdlet": { "shell": "powershell", "command": ["{Stop-Service,Restart-Service,Set-Service}"] },
 						"systemctl-operation": {
+							"platform": "linux",
 							"command": ["systemctl", "*"],
 							"except": [
 								["systemctl", "{cat,get-default,get-property,help,is-active,is-enabled,is-failed}"],
-								[
-									"systemctl",
-									"{list-dependencies,list-jobs,list-machines,list-sockets,list-timers,list-unit-files,list-units}"
-								],
+								["systemctl", "{list-dependencies,list-jobs,list-machines,list-sockets,list-timers,list-unit-files,list-units}"],
 								["systemctl", "{show,show-environment,status}"]
 							]
 						},
 						"launchctl-operation": {
+							"platform": "darwin",
 							"command": ["launchctl", "*"],
-							"except": [
-								[
-									"launchctl",
-									"{blame,error,getenv,help,hostinfo,list,managername,managerpid,manageruid,print,print-cache,procinfo}"
-								]
-							]
+							"except": [["launchctl", "{blame,error,getenv,help,hostinfo,list,managername,managerpid,manageruid,print,print-cache,procinfo}"]]
 						},
 						"service-operation": { "command": ["service", "*", "*"], "except": [["service", "*", "status"]] },
 						"service-restart-all": { "command": ["service", "--full-restart-all"] }
@@ -244,8 +258,7 @@
 					"reason": "This command may change or remove containers or deployed resources.",
 					"commands": {
 						"container-remove": {
-							"command": ["{docker,podman}"],
-							"arg_globs": ["rm", "prune"],
+							"command": ["{docker,podman}"], "arg_globs": ["rm", "prune"],
 							"except": [
 								["{docker,podman}", "{inspect,ps,logs,images,history,info,stats,top,version,push}"],
 								["{docker,podman}", "image", "push"]
@@ -260,7 +273,8 @@
 					"action": "ask",
 					"reason": "The shell command's effects cannot be determined before execution.",
 					"commands": {
-						"eval": { "command": ["eval"] }
+						"eval": { "shell": "bash", "command": ["eval"] },
+						"invoke-expression": { "shell": "powershell", "command": ["{Invoke-Expression,iex}"] }
 					}
 				}
 			},
@@ -268,18 +282,15 @@
 			"combinations": {
 				"environment.exfiltrate": {
 					"reason": "Listing the environment alongside an external transfer risks exposing secrets.",
-					"all": ["environment.read-all", "network.write-external"],
-					"action": "deny"
+					"all": ["environment.read-all", "network.write-external"], "action": "deny"
 				},
 				"configuration.exfiltrate": {
 					"reason": "Reading sensitive configuration alongside an external transfer risks exposing secrets.",
-					"all": ["configuration.read-sensitive", "network.write-external"],
-					"action": "deny"
+					"all": ["configuration.read-sensitive", "network.write-external"], "action": "deny"
 				},
 				"host.exfiltrate-scan-results": {
 					"reason": "A broad filesystem scan alongside an external transfer risks exposing host data.",
-					"all": ["host.scan-broad", "network.write-external"],
-					"action": "deny"
+					"all": ["host.scan-broad", "network.write-external"], "action": "deny"
 				}
 			}
 		}

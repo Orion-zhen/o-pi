@@ -213,7 +213,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 	pi.on("tool_execution_start", (event) => mutationBatches.started(event.toolCallId));
 	// 嵌套调用在入队前发出 execution_start，参数校验和审批钩子才位于执行队列内。
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName !== "bash") return;
+		if (event.toolName !== "bash" && event.toolName !== "powershell") return;
 		const pathAccess = buildSkillFilesystemAccess(skills.read(ctx.sessionManager));
 		const scope = await host.beginSessionMutation({
 			cwd: ctx.cwd,

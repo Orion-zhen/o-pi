@@ -159,9 +159,9 @@ for (const choice of ["Deny", null]) test(`审批悬浮窗${choice === null ? "�
 	try {
 		const editor = page.getByRole("textbox", { name: "消息", exact: true });
 		await editor.fill("保留草稿");
-		channel.accept({ type: "dialogs", value: [{ id: "approval", kind: "bashApproval", stage: { kind: "choose" }, title: "执行 Bash 命令",
+		channel.accept({ type: "dialogs", value: [{ id: "approval", kind: "shellApproval", stage: { kind: "choose" }, title: "执行 Bash 命令",
 			options: [{ label: "允许一次", value: "Allow once" }, { label: "拒绝", value: "Deny" }], deadline: null,
-			approval: { cwd: "/fixture", command: "printf 'report' > output.txt", environment: [], items: [
+			approval: { shell: "bash", cwd: "/fixture", command: "printf 'report' > output.txt", environment: [], items: [
 				{ action: "write_redirect", kind: "path", target: "/fixture/output.txt", reason: "需要确认写入文件" },
 			] },
 		}] });

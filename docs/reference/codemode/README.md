@@ -30,13 +30,13 @@ Codemode 中 `searchTools()` 搜索脚本可调用工具并返回签名，不改
 
 | 工具 | 脚本返回 |
 | --- | --- |
-| bash | output、status、exit_code、wall_time_seconds、truncated、capture_complete，可含 full_output_path 或 full_output_error，以及 shell_exit_after_seconds |
+| bash、powershell | output、status、exit_code、wall_time_seconds、truncated、capture_complete，可含 full_output_path 或 full_output_error，以及 shell_exit_after_seconds |
 | find | matches、total_matches、truncated，可含 scope_errors |
 | grep | regions、truncated，可含 scope_errors |
 | websearch | results，包含 title、url、snippet |
 | read | 文本字符串，或图片、PDF 对象 |
 
-Bash 原始文本最多 1 MiB，超限保留头尾。非零退出、超时和取消通过字段表示，脚本检查 status 与 exit_code。审批拒绝或没有结构化结果的失败会拒绝 Promise。
+Shell 原始文本最多 1 MiB，超限保留头尾。非零退出、超时和取消通过字段表示，脚本检查 status 与 exit_code。审批拒绝或没有结构化结果的失败会拒绝 Promise。
 
 read 图片可传给 `image()` 或 `models.classify()`，PDF 从 content 中选择图片块。图片 Base64 应通过图片接口传递。
 

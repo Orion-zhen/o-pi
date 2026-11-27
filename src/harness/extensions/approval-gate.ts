@@ -6,29 +6,35 @@ import { loadApprovalGateConfig } from "../approval/config.ts";
 import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../approval/events.ts";
 import { createApprovalGate, type ApprovalOutcome } from "../approval/index.ts";
 import { buildFileApprovalRequest, buildWebFetchApprovalRequest, isApprovalToolCall, type ApprovalToolCall } from "../approval/pi/request.ts";
+import { buildPowerShellApprovalRequest } from "../approval/request/powershell.ts";
 import { buildBashApprovalRequest } from "../approval/request/bash/parse.ts";
-import { prepareBashCall, saveBashCall, type BashParams } from "../bash-runtime/prepare.ts";
-import { evaluateBashGatePolicy } from "../approval/rules/policy.ts";
-import { approvalText, formatBashPolicyEvaluation, formatApprovalPrompt, finishApprovalChoice } from "../approval/presentation.ts";
+import type { ShellName } from "../shell-runtime/platform.ts";
+import { prepareShellCall, saveShellCall, type ShellParams } from "../shell-runtime/prepare.ts";
+import { evaluateShellGatePolicy } from "../approval/rules/policy.ts";
+import { approvalText, formatShellPolicyEvaluation, formatApprovalPrompt, finishApprovalChoice } from "../approval/presentation.ts";
 import type { SessionApprovalStore } from "../approval/rules/store.ts";
 import type { ApprovalRequest } from "../approval/types.ts";
 import { preflightWebFetch } from "../web-tools/fetch/approval-preflight.ts";
-import type { Askpass } from "../bash-runtime/askpass.ts";
+import type { Askpass } from "../shell-runtime/askpass.ts";
 
 type PreparedApproval = { request: ApprovalRequest; sudoToolCallId?: string | undefined; onApproved?: ((askpass?: Askpass) => void) | undefined } | { error: string };
 
-async function inspectBashCall(input: BashParams, ctx: ExtensionContext, sudoToolCallId?: string) {
-	const call = await prepareBashCall(input, ctx);
+async function inspectShellCall(shell: ShellName, input: ShellParams, ctx: ExtensionContext, sudoToolCallId?: string) {
+	const call = await prepareShellCall(shell, input, ctx);
 	if (call.kind === "error") return { error: call.message };
+	if (shell === "powershell") {
+		const request = await buildPowerShellApprovalRequest(input.command, call, ctx.signal);
+		return { request, onApproved: () => saveShellCall(input, call) };
+	}
 	const request = await buildBashApprovalRequest(input.command, call, { askpass: sudoToolCallId !== undefined, signal: ctx.signal });
 	const command = request.askpassCommand;
-	if (command === undefined) return { request, onApproved: () => saveBashCall(input, call) };
-	return { request, sudoToolCallId, onApproved: (askpass?: Askpass) => saveBashCall(input, askpass ? { ...call, command, askpass } : call) };
+	if (command === undefined) return { request, onApproved: () => saveShellCall(input, call) };
+	return { request, sudoToolCallId, onApproved: (askpass?: Askpass) => saveShellCall(input, askpass ? { ...call, command, askpass } : call) };
 }
 
 async function prepareApproval(event: ApprovalToolCall, ctx: ExtensionContext, interactive: boolean): Promise<PreparedApproval> {
 	switch (event.toolName) {
-		case "bash": return inspectBashCall(event.input, ctx, interactive ? event.toolCallId : undefined);
+		case "bash": case "powershell": return inspectShellCall(event.toolName, event.input, ctx, interactive ? event.toolCallId : undefined);
 		case "webfetch": {
 			const web = await preflightWebFetch(event.input);
 			if (!("target" in web)) return web;
@@ -48,22 +54,24 @@ export type ApprovalPresenter = Presenter<(
 export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter, store?: SessionApprovalStore): void {
 	const gate = createApprovalGate(store);
 	pi.registerCommand("approval-check", {
-		description: "Explain the Bash gate decision without executing the command.",
+		description: "Explain the shell gate decision without executing the command.",
 		async handler(args, ctx) {
-			const command = args.trim();
+			const input = args.trim();
+			const shell = /^--powershell(?:\s|$)/u.test(input) ? "powershell" : "bash";
+			const command = shell === "powershell" ? input.slice("--powershell".length).trimStart() : input;
 			if (command.length === 0) {
-				ctx.ui.notify("Usage: /approval-check <bash command>", "warning");
+				ctx.ui.notify("Usage: /approval-check [--powershell] <command>", "warning");
 				return;
 			}
 			const [config, inspection] = await Promise.all([
 				loadApprovalGateConfig(),
-				inspectBashCall({ command }, ctx),
+				inspectShellCall(shell, { command }, ctx),
 			]);
 			if ("error" in inspection) return ctx.ui.notify(inspection.error, "warning");
-			const evaluation = evaluateBashGatePolicy(inspection.request, config, { matchesAllowRule: () => false });
+			const evaluation = evaluateShellGatePolicy(inspection.request, config.tools.shell, { matchesAllowRule: () => false });
 			const decision = config.enabled ? evaluation.decision : { kind: "allow" as const };
 			ctx.ui.notify(
-				approvalText(formatBashPolicyEvaluation(inspection.request, evaluation.bash, decision)),
+				approvalText(formatShellPolicyEvaluation(inspection.request, evaluation.facts, decision)),
 				decision.kind === "deny" ? "warning" : "info",
 			);
 		},

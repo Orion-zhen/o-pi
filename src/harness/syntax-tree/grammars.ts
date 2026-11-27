@@ -1,5 +1,6 @@
 import type { GrammarSpec } from "./types.ts";
 
+export const POWERSHELL_GRAMMAR = "tree-sitter-powershell/tree-sitter-powershell.wasm";
 const javascriptGrammar = "tree-sitter-javascript/tree-sitter-javascript.wasm";
 
 /** 语言和扩展名的唯一目录，不依赖代码提取器或 Tree-sitter 运行时。 */
@@ -14,6 +15,7 @@ export const TREE_SITTER_LANGUAGES = {
 	c: { extensions: [".c"], grammar: "tree-sitter-c/tree-sitter-c.wasm" },
 	cpp: { extensions: [".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"], grammar: "tree-sitter-cpp/tree-sitter-cpp.wasm" },
 	bash: { extensions: [".sh", ".bash"], grammar: "tree-sitter-bash/tree-sitter-bash.wasm" },
+	powershell: { extensions: [".ps1", ".psm1"], grammar: POWERSHELL_GRAMMAR },
 } as const satisfies Record<string, { extensions: readonly string[]; grammar: GrammarSpec }>;
 
 export type TreeSitterLanguage = keyof typeof TREE_SITTER_LANGUAGES;

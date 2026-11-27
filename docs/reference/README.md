@@ -10,7 +10,7 @@
 | [TUI](tui/README.md) | 终端增强、配置、输入历史、公式与工具卡片 |
 | [GUI](gui/README.md) | 设置、会话、文件、存储、连接、设计和诊断 |
 | [文件工具](file-tools/README.md) | `ls`、`find`、`grep`、`read`、`write`、`edit` |
-| [Bash](bash-tool/README.md) | 执行环境、输出管理和技能路径 |
+| [Bash 与 PowerShell](shell-tools/README.md) | 执行环境、输出管理和技能路径 |
 | [网页工具](web-tools/README.md) | 搜索、抓取、网络策略和 Cookie |
 | [LSP](lsp/README.md) | 服务器配置、路由、诊断和代码关系 |
 | [审批](approval-gate/README.md) | 调用策略、Bash 分析和放行规则 |

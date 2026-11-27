@@ -72,12 +72,12 @@ skill://review/references/checklist.md
 
 技能文件保留逻辑路径与版本观测，后续 edit 仍需满足版本校验。
 
-Bash 可将完整静态参数解析为真实路径：
+Bash 和 PowerShell 可将完整静态参数解析为真实路径：
 
 ```bash
 python "skill://review/scripts/check.py"
 ```
 
-动态拼接和内嵌 Shell 脚本中的定位符会被拒绝。命令输出可能包含真实路径。
+动态拼接或交给解释器再次解析的代码字符串中的定位符会被拒绝。PowerShell 支持在函数和脚本块里的命令中使用静态路径，详见 [Shell 工具](../shell-tools/README.md#技能路径)。命令输出可能包含真实路径。
 
 实现位于 `src/harness/skill-context/`，授权状态由 `state.ts` 从分支记录恢复。

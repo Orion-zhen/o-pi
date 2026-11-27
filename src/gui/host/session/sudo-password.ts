@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { hostname, userInfo } from "node:os";
-import type { Askpass } from "../../../harness/bash-runtime/askpass.ts";
+import type { Askpass } from "../../../harness/shell-runtime/askpass.ts";
 import type { DialogResponse } from "../../shared/protocol/actions.ts";
 import type { GuiDialog, GuiSudoStage } from "../../shared/protocol/state.ts";
 
-type Approval = Extract<GuiDialog, { kind: "bashApproval" }>;
+type Approval = Extract<GuiDialog, { kind: "shellApproval" }>;
 type Prompt = Extract<GuiSudoStage, { kind: "prompting" }>;
 type State = Exclude<GuiSudoStage, Prompt> | { kind: "hidden" } | { kind: "closed" }
 	| { kind: "prompting"; prompt: Prompt; finish(value?: string): void };

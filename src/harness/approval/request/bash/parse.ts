@@ -1,4 +1,4 @@
-import type { ApprovalUnit, BashApprovalRequest, BashPipeline } from "../../types.ts";
+import type { ApprovalUnit, ShellApprovalRequest, ShellPipeline } from "../../types.ts";
 import { normalizeTargetPath } from "../path.ts";
 import { analyzeBashScript } from "./analysis.ts";
 import { hasStartupHooks } from "./startup.ts";
@@ -12,11 +12,11 @@ interface BashExecutionInput {
 
 export async function buildBashApprovalRequest(command: string, { cwd, command: script, env }: BashExecutionInput,
 	{ askpass, signal }: { askpass: boolean; signal?: AbortSignal | undefined },
-): Promise<BashApprovalRequest & { askpassCommand?: string }> {
+): Promise<ShellApprovalRequest & { askpassCommand?: string }> {
 	const used = new Map<string, string | null>();
 	const unknownStartup = hasStartupHooks(env);
 	const startup = unknownStartup ? undefined : { env, used };
-	const pipelines: BashPipeline[] = [];
+	const pipelines: ShellPipeline[] = [];
 	const units: ApprovalUnit[] = [];
 	async function inspect(source: string, requireOpaque: boolean) {
 		const parsedUnits: ApprovalUnit[] = [];

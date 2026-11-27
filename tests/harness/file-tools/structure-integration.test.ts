@@ -9,6 +9,7 @@ import { formatReadTextContent } from "../../../src/harness/file-tools/read/pres
 import { formatCompactGrepResult } from "../../../src/harness/file-tools/grep/command.ts";
 import { grepWorkspaceFiles } from "../../helpers/grep-tool.ts";
 import { deferred } from "../../helpers/async.ts";
+import { lspOperations } from "../../helpers/lsp.ts";
 import { createGrepTestContext, expectGrepSuccess } from "./grep-fixtures.ts";
 import { createManager, createProtocolServer, send, useTransportFixture } from "../lsp/transport/fixtures.ts";
 
@@ -69,6 +70,22 @@ function readDetails(result: Awaited<ReturnType<typeof executeRead>>) {
 }
 
 describe("shared read/grep structure", () => {
+	it.each([
+		["script.sh", "Invoke-Outer()", "Invoke-Inner()", "printf"],
+		["script.ps1", "function Invoke-Outer", "function Invoke-Inner", "Write-Output"],
+		["module.PSM1", "function Invoke-Outer", "filter Invoke-Inner", "Write-Output"],
+	])("%s 无 LSP 时按同一函数边界提供局部读取、大纲和搜索归组", async (file, outer, inner, command) => {
+		await context.useConfig({ read_lines: 1 });
+		await writeFile(path.join(context.workspace, file), ["# 🧪", `${outer} {`, `  ${inner} {`,
+			`    ${command} 'needle A'`, `    ${command} 'needle B'`, "  }", "  Invoke-Inner", "}"].join("\r\n"));
+		const runtime = { host, cwd: context.workspace, sessionId: "shell-structure", pathAccess: { mounts: [], managedSchemes: [] }, lsp: async () => lspOperations() };
+		const partial = readDetails(await executeRead({ path: file, lines: "4" }, runtime));
+		expect(partial.segments[0]?.structure?.enclosing_symbol).toEqual({ name: "Invoke-Outer.Invoke-Inner", kind: "function", line: 3, end_line: 6 });
+		const full = readDetails(await executeRead({ path: file }, runtime));
+		expect(full.segments[0]?.structure?.remaining_symbols).toEqual([{ name: "Invoke-Outer", kind: "function", line: 2, end_line: 8 }]);
+		const grep = expectGrepSuccess(await grepWorkspaceFiles(context.workspace, { query: "needle" }));
+		expect(grep.regions).toMatchObject([{ symbol: "Invoke-Outer.Invoke-Inner", start_line: 3, end_line: 6, match_lines: [4, 5], declaration: inner }]);
+	});
 	it("LSP 保留外层范围，两种工具补全声明、内层函数和匿名回调", async () => {
 		const tools = await setup();
 		const read = readDetails(await tools.read("6,9"));

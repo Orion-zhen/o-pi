@@ -1,7 +1,8 @@
 import path from "node:path";
+import { IncompleteBashAnalysis, UNKNOWN_DIRECTORY, UNSET, readVariable, type BashAnalysisContext, type KnownValue, type ResolvedShellValue } from "./branches.ts";
 import { decodeShellWord } from "../../../syntax-tree/bash.ts";
 
-import type { BashArg, NumericFileName } from "../../types.ts";
+import type { ShellArg, NumericFileName } from "../../types.ts";
 import { NUMERIC_FIELD } from "./syntax.ts";
 import { isSystemTemporaryDescendant, isUnmappedBashPath, normalizeTargetPath, rulePath } from "../path.ts";
 
@@ -9,112 +10,48 @@ import { isSystemTemporaryDescendant, isUnmappedBashPath, normalizeTargetPath, r
 export const TEMPORARY_DIRECTORY_PATH = "\0temporary-directory";
 export const TEMPORARY_FILE_PATH = "\0temporary-file";
 const TEMPORARY_PATH_DISPLAY = "<temporary>";
-export const UNKNOWN_DIRECTORY_PATH = "\0unknown-directory";
+export const MAX_EXPANDED_FIELDS = 4096;
+export const MAX_BINDING_LENGTH = 65536;
 
-export interface ResolvedShellValue {
-	readonly value: string;
-	readonly temporary: boolean;
-	/** 已知父目录时，value 用临时文件标记代表生成的路径。命令没有输出时该标记为空串。 */
-	readonly fileDirectory?: string;
+type Variables = BashAnalysisContext["variables"];
+
+export function isPositionalVariable(key: string): boolean {
+	return key === "#" || /^[1-9]\d*$/u.test(key);
 }
 
-export const MAX_BRANCH_CHOICES = 8;
-export class IncompleteBashAnalysis extends Error {}
-export type Directories = readonly ResolvedShellValue[];
-export const UNKNOWN_DIRECTORY: ResolvedShellValue = { value: UNKNOWN_DIRECTORY_PATH, temporary: false };
-export const UNSET = Symbol("unset");
-type KnownValue = ResolvedShellValue | typeof UNSET;
-type Binding = KnownValue | { startup: KnownValue };
-type VariableValue = Binding | { choices: Binding[] };
-
-function bindingValue(binding: Binding): KnownValue {
-	return binding !== UNSET && "startup" in binding ? binding.startup : binding;
+export function clearPositionalVariables(variables: Variables): void {
+	for (const key of variables.keys()) if (isPositionalVariable(key)) variables.delete(key);
 }
 
-export interface BashAnalysisContext {
-	readonly functionNames: ReadonlySet<string>;
-	readonly simpleSites?: ReadonlySet<number> | undefined;
-	usedEnvironment?: Map<string, string | null>;
-	cwd: Directories;
-	variables: Map<string, VariableValue>;
-	exitTrap: string | undefined;
+export function restorePositionalVariables(variables: Variables, caller: Variables): void {
+	clearPositionalVariables(variables);
+	for (const [key, value] of caller) if (isPositionalVariable(key)) variables.set(key, value);
 }
 
-export function setPositionalVariables(
-	variables: Map<string, VariableValue>,
-	args: readonly BashArg[],
-): void {
-	for (const key of variables.keys()) if (/^[1-9]\d*$/u.test(key)) variables.delete(key);
+export function setPositionalVariables(variables: Variables, args: readonly ShellArg[]): void {
+	clearPositionalVariables(variables);
+	if (args.every(v => typeof v === "string")) variables.set("#", shellArgumentValue(String(args.length)));
 	for (const [index, value] of args.entries()) {
 		if (typeof value !== "string") break;
 		variables.set(String(index + 1), shellArgumentValue(value));
 	}
 }
 
+export function positionalValues(context: BashAnalysisContext): string[] | undefined {
+	const count = plainParameter("#", context)?.value;
+	if (count === undefined) return;
+	if (Number(count) > MAX_EXPANDED_FIELDS) throw new IncompleteBashAnalysis();
+	const args: string[] = [];
+	for (let i = 1; i <= Number(count); i++) {
+		const value = plainParameter(String(i), context)?.value;
+		if (value === undefined || value.includes("\0")) return;
+		args.push(value);
+	}
+	return args;
+}
+
 export function shellArgumentValue(value: string): ResolvedShellValue {
 	return { value, temporary: isSyntheticTemporaryPath(value) };
-}
-
-// 不同 EXIT 动作在退出时读取各自路径上的变量和工作目录。
-export function joinPaths(paths: BashAnalysisContext[]): BashAnalysisContext[] {
-	if (paths.length <= 1) return paths;
-	const groups = new Map<string | undefined, [BashAnalysisContext, ...BashAnalysisContext[]]>();
-	for (const path of paths) {
-		const group = groups.get(path.exitTrap);
-		if (group) group.push(path);
-		else groups.set(path.exitTrap, [path]);
-	}
-	if (groups.size > MAX_BRANCH_CHOICES) throw new IncompleteBashAnalysis();
-	return Array.from(groups.values(), joinContexts);
-}
-
-function joinContexts(contexts: readonly [BashAnalysisContext, ...BashAnalysisContext[]]): BashAnalysisContext {
-	const [first, ...rest] = contexts;
-	const variables = new Map<string, VariableValue>();
-	for (const [name, firstValue] of first.variables) {
-		const remainingValues = rest.map((context) => context.variables.get(name));
-		if (!allDefined(remainingValues)) continue;
-		const joined = joinVariable([firstValue, ...remainingValues]);
-		if (joined !== undefined) variables.set(name, joined);
-	}
-	return {
-		...first,
-		cwd: joinDirectories(contexts.flatMap((context) => context.cwd)),
-		variables,
-	};
-}
-
-function sameValue(a: ResolvedShellValue, b: ResolvedShellValue): boolean {
-	return a.value === b.value && a.temporary === b.temporary && a.fileDirectory === b.fileDirectory;
-}
-
-function boundedChoices<T>(values: readonly T[], equal: (a: T, b: T) => boolean): T[] | undefined {
-	const choices: T[] = [];
-	for (const item of values) {
-		if (choices.some((other) => equal(other, item))) continue;
-		if (choices.length === MAX_BRANCH_CHOICES) return undefined;
-		choices.push(item);
-	}
-	return choices;
-}
-
-export function joinDirectories(values: Directories): Directories {
-	return boundedChoices(values, sameValue) ?? [UNKNOWN_DIRECTORY];
-}
-
-function joinVariable(values: VariableValue[]): VariableValue | undefined {
-	const bindings = values.flatMap<Binding>((value) => value !== UNSET && "choices" in value ? value.choices : [value]);
-	const startup = bindings.find((item) => item !== UNSET && "startup" in item);
-	const choices = boundedChoices(bindings.map(bindingValue), sameKnownValue);
-	if (!choices) return undefined;
-	// 相同值只占一个候选。任一分支仍依赖启动值时，合并后保留来源。
-	const merged = choices.map((value) => startup && sameKnownValue(value, startup.startup) ? startup : value);
-	if (merged.length === 1) return merged[0];
-	return choices.some((item) => item !== UNSET && item.fileDirectory !== undefined) ? undefined : { choices: merged };
-}
-
-function sameKnownValue(a: KnownValue, b: KnownValue): boolean {
-	return a === b || a !== UNSET && b !== UNSET && sameValue(a, b);
 }
 
 export function allDefined<T>(values: Array<T | undefined>): values is T[] {
@@ -125,13 +62,6 @@ export function singleValue<T>(values: readonly T[]): T | undefined {
 	return values.length === 1 ? values[0] : undefined;
 }
 
-export function cloneContext(context: BashAnalysisContext): BashAnalysisContext {
-	return {
-		...context,
-		variables: new Map(context.variables),
-	};
-}
-
 export function resolvePath(
 	input: ResolvedShellValue,
 	cwd: ResolvedShellValue,
@@ -140,7 +70,7 @@ export function resolvePath(
 	if (input.value.startsWith("skill://")) return { value: input.value, temporary: false };
 	if (isUnmappedBashPath(input.value)) return undefined;
 	if (path.isAbsolute(input.value)) return resolvedConcretePath(input.value, cwd.value);
-	if (cwd.value === UNKNOWN_DIRECTORY_PATH) return undefined;
+	if (cwd.value === UNKNOWN_DIRECTORY.value) return undefined;
 	if (cwd.temporary && isSyntheticTemporaryValue(cwd.value)) {
 		return isSyntheticTemporaryDirectory(cwd.value)
 			? normalizeSyntheticTemporaryPath(`${cwd.value}/${input.value}`)
@@ -240,6 +170,7 @@ export function resolveShellToken(
 	if (tilde && (allowUnquotedExpansion && source.includes(":~") || /[<>()]/u.test(source))) return undefined;
 	const result = decodeShellWord(source, {
 		allowUnquotedExpansion,
+		ansiQuotes: context.bash,
 		allowGlob: allowGlob && !tilde,
 		resolveHome: () => absoluteHome(context),
 		resolveExpansion(text, start, prefix) {
@@ -282,7 +213,13 @@ function resolveVariableExpansion(
 		const modifier = match?.[2];
 		if (name === undefined || modifier === undefined) return undefined;
 		if (modifier.includes("{") || modifier.includes("\\")) return undefined;
-		const value = parameterValue(variableValue(name, context), modifier, context);
+		const stored = variableValue(name, context);
+		const index = /^\[(0|[1-9]\d*)\]$/u.exec(modifier)?.[1];
+		if (index !== undefined && stored && stored !== UNSET && stored.elements) {
+			const item = stored.elements[Number(index)];
+			return item === undefined ? undefined : { value: shellArgumentValue(item), end };
+		}
+		const value = parameterValue(stored, modifier, context);
 		return value === undefined ? undefined : { value, end };
 	}
 	const match = source.slice(start + 1).match(/^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9])/u);
@@ -292,21 +229,10 @@ function resolveVariableExpansion(
 	return value === undefined ? undefined : { value, end: start + name.length };
 }
 
-export function readVariable(name: string, context: BashAnalysisContext) {
-	const binding = context.variables.get(name);
-	const read = (entry: Binding): KnownValue => {
-		if (entry === UNSET || !("startup" in entry)) return entry;
-		context.usedEnvironment?.set(name, entry.startup === UNSET ? null : entry.startup.value);
-		return entry.startup;
-	};
-	if (binding === undefined) return undefined;
-	return binding !== UNSET && "choices" in binding ? { choices: binding.choices.map(read) } : read(binding);
-}
-
 function variableValue(name: string, context: BashAnalysisContext): KnownValue | undefined {
 	if (name === "PWD") {
 		const cwd = singleValue(context.cwd);
-		return cwd?.value === UNKNOWN_DIRECTORY_PATH ? undefined : cwd;
+		return cwd?.value === UNKNOWN_DIRECTORY.value ? undefined : cwd;
 	}
 	const variable = readVariable(name, context);
 	return variable === UNSET || (variable !== undefined && !("choices" in variable)) ? variable : undefined;
@@ -318,7 +244,7 @@ export function absoluteHome(context: BashAnalysisContext): string | undefined {
 		? home.value : undefined;
 }
 
-function plainParameter(name: string, context: BashAnalysisContext): ResolvedShellValue | undefined {
+export function plainParameter(name: string, context: BashAnalysisContext): ResolvedShellValue | undefined {
 	const value = variableValue(name, context);
 	return value === UNSET ? { value: "", temporary: false } : value;
 }
@@ -328,8 +254,12 @@ function parameterValue(value: KnownValue | undefined, modifier: string, context
 	if (value !== UNSET && value.fileDirectory !== undefined && modifier !== "") return undefined;
 	if (value !== UNSET && preservesKnownValue(modifier, value)) return value;
 	if (value === UNSET && modifier === "") return { value: "", temporary: false };
-	if ((modifier.startsWith("-") && value === UNSET) || (modifier.startsWith(":-") && (value === UNSET || value.value === ""))) {
-		const fallback = modifier.slice(modifier.startsWith(":") ? 2 : 1);
+	const operator = /^(:?[-+])/u.exec(modifier)?.[1];
+	if (operator) {
+		if (operator.endsWith("+") && value !== UNSET && (value.temporary || value.value.includes("\0"))) return;
+		const absent = value === UNSET || operator.startsWith(":") && value.value === "";
+		if (operator.endsWith("+") && absent) return shellArgumentValue("");
+		const fallback = modifier.slice(operator.length);
 		if (/^\$[a-zA-Z_][a-zA-Z_0-9]*$/u.test(fallback)) return plainParameter(fallback.slice(1), context);
 		return /^[\p{L}\p{M}\p{N}_./-]*$/u.test(fallback) ? { value: fallback, temporary: false } : undefined;
 	}

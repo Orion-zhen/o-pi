@@ -105,6 +105,7 @@
 		"tree-sitter-cpp": "latest",
 		"tree-sitter-go": "latest",
 		"tree-sitter-javascript": "latest",
+		"tree-sitter-powershell": "latest",
 		"tree-sitter-python": "latest",
 		"tree-sitter-rust": "latest",
 		"tree-sitter-typescript": "latest",

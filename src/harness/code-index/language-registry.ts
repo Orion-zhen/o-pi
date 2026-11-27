@@ -4,6 +4,7 @@ import { cExtractor } from "./adapters/c.ts";
 import { cppExtractor } from "./adapters/cpp.ts";
 import { goExtractor } from "./adapters/go.ts";
 import { javascriptExtractor } from "./adapters/javascript.ts";
+import { powerShellExtractor } from "./adapters/powershell.ts";
 import { pythonExtractor } from "./adapters/python.ts";
 import { rustExtractor } from "./adapters/rust.ts";
 import type { LanguageExtractor } from "./adapters/types.ts";
@@ -20,4 +21,5 @@ export const LANGUAGE_EXTRACTORS: Record<TreeSitterLanguage, LanguageExtractor> 
 	c: cExtractor,
 	cpp: cppExtractor,
 	bash: bashExtractor,
+	powershell: powerShellExtractor,
 };

@@ -19,7 +19,7 @@ interface CapabilityGroupSummary {
 const CAPABILITY_GROUPS: readonly CapabilityGroupDefinition[] = [
 	{ label: "files", toolNames: ["ls", "read", "write", "edit", "find", "grep"] },
 	{ label: "web", toolNames: ["websearch", "webfetch"] },
-	{ label: "bash", toolNames: ["bash"] },
+	{ label: "shell", toolNames: ["bash", "powershell"] },
 	{ label: "skill", toolNames: ["skill"] },
 	{ label: "subagent", toolNames: ["subagent"] },
 ];

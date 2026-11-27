@@ -1,0 +1,6 @@
+{
+	"json.format.keepLines": true,
+	"[jsonc]": {
+		"editor.defaultFormatter": "vscode.json-language-features"
+	}
+}

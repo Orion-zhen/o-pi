@@ -1,12 +1,12 @@
-import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalUnit, BashApprovalRequest, FileFact, NetworkFact, SingleTargetRequest, ToolPolicy } from "../types.ts";
+import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalUnit, ShellApprovalRequest, ShellPolicyConfig, FileFact, NetworkFact, SingleTargetRequest, ToolPolicy } from "../types.ts";
 import type { ApprovalRuleMatcher } from "./store.ts";
-import { collectBashFacts, type BashFactEvaluation } from "./bash-facts.ts";
+import { collectShellFacts, type ShellFactEvaluation } from "./shell-facts.ts";
 import { matchesTargetPath } from "./path-match.ts";
 
 const defaultAskReason = "This tool requires approval by default.";
 
 export function evaluateGatePolicy(request: ApprovalRequest, config: ApprovalGateConfig, store: ApprovalRuleMatcher): ApprovalDecision {
-	if (request.tool === "bash") return evaluateBashGatePolicy(request, config, store).decision;
+	if ("units" in request) return evaluateShellGatePolicy(request, config.tools.shell, store).decision;
 	if (request.tool === "webfetch") {
 		return decideTarget(request, config.tools.webfetch, store, (fact) => "match_all" in fact || fact.network_scope === request.detail.scope);
 	}
@@ -34,16 +34,15 @@ function decideTarget<F extends FileFact | NetworkFact>(
 	return { kind: "ask", reason, items: [{ unit, reason }] };
 }
 
-export function evaluateBashGatePolicy(
-	request: BashApprovalRequest, config: ApprovalGateConfig, store: ApprovalRuleMatcher,
-): { decision: ApprovalDecision; bash: BashFactEvaluation } {
-	const policy = config.tools.bash;
-	const bash = collectBashFacts(request, policy);
-	return { decision: decideBash(request, policy.default_action, store, bash), bash };
+export function evaluateShellGatePolicy(
+	request: ShellApprovalRequest, policy: ShellPolicyConfig, store: ApprovalRuleMatcher,
+): { decision: ApprovalDecision; facts: ShellFactEvaluation } {
+	const facts = collectShellFacts(request, policy);
+	return { decision: decideShell(request, policy.default_action, store, facts), facts };
 }
 
-function decideBash(
-	request: BashApprovalRequest, defaultAction: ApprovalDecision["kind"], store: ApprovalRuleMatcher, { matches, combinations }: BashFactEvaluation,
+function decideShell(
+	request: ShellApprovalRequest, defaultAction: ApprovalDecision["kind"], store: ApprovalRuleMatcher, { matches, combinations, unresolved }: ShellFactEvaluation,
 ): ApprovalDecision {
 	for (const { name, config } of combinations) {
 		if (config.action === "deny") return { kind: "deny", reason: config.reason, rule_name: name };
@@ -51,7 +50,7 @@ function decideBash(
 	for (const { fact, config } of matches) {
 		if (config.action === "deny") return { kind: "deny", reason: config.reason, rule_name: fact };
 	}
-	if (defaultAction === "deny") return { kind: "deny", reason: "default bash fact policy", rule_name: "default-bash-policy" };
+	if (defaultAction === "deny") return { kind: "deny", reason: `default ${request.tool} fact policy`, rule_name: `default-${request.tool}-policy` };
 
 	const asked = new Map<string, { unit: ApprovalUnit; reasons: Set<string> }>();
 	function ask(unit: ApprovalUnit, reason?: string): void {
@@ -59,7 +58,10 @@ function decideBash(
 		const key = `${unit.action}\0${unit.target.kind}\0${unit.target.value}`;
 		const existing = asked.get(key);
 		if (existing === undefined) asked.set(key, { unit, reasons: new Set([reason ?? defaultAskReason]) });
-		else if (reason !== undefined) existing.reasons.add(reason);
+		else {
+			if (reason !== undefined) existing.reasons.add(reason);
+			if (!existing.unit.analysisNote && unit.analysisNote) existing.unit = { ...existing.unit, analysisNote: unit.analysisNote };
+		}
 	}
 	for (const { config, unit } of matches) {
 		if (config.action === "ask") ask(unit, config.reason);
@@ -69,6 +71,7 @@ function decideBash(
 			if (config.all.includes(match.fact)) ask(match.unit, config.reason);
 		}
 	}
+	for (const { unit, rule, reason } of unresolved) ask(unit, `Possible match (${rule}): ${reason}`);
 	if (defaultAction === "ask") {
 		for (const unit of request.units) ask(unit);
 	}
@@ -81,5 +84,5 @@ function decideBash(
 }
 
 function isExempt(request: ApprovalRequest, unit: ApprovalUnit, store: ApprovalRuleMatcher): boolean {
-	return unit.effect_scope === "temporary" || store.matchesAllowRule(request, unit);
+	return unit.effect_scope !== undefined || store.matchesAllowRule(request, unit);
 }

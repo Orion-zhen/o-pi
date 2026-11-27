@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { SUPPORTED_SHELL_TOOLS } from "../shell-runtime/platform.ts";
 import { saveUserToolDefaults } from "./config.ts";
 import { resolveToolDefaults, toolEntries } from "./initial.ts";
 import { needsToolSearch } from "../tool-search/loadout.ts";
@@ -68,7 +69,7 @@ export class ToolSelectionController {
 
 	private selectable(tool: Pick<ToolInfo, "name" | "exposure">): boolean {
 		return tool.name !== "tool_search" && tool.exposure !== "hidden"
-			&& (tool.name !== "powershell" || process.platform === "win32")
+			&& (tool.name !== "powershell" || SUPPORTED_SHELL_TOOLS.includes("powershell"))
 			&& (tool.name !== "subagent" || this.subagentAvailable);
 	}
 

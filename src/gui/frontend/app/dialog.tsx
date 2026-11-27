@@ -7,14 +7,14 @@ import { useGuiQuery } from "@/connection/query-context.ts";
 import { useOperation } from "@/connection/use-operation.ts";
 import { clean } from "@/ui/content/format.ts";
 import { Feedback } from "@/ui/feedback.tsx";
-import { BashApproval } from "@/features/chat/tools/bash-approval.tsx";
+import { ShellApproval } from "@/features/chat/tools/shell-approval.tsx";
 import { Button } from "@/ui/button.tsx";
 import { Input } from "@/ui/input.tsx";
 import { Textarea } from "@/ui/textarea.tsx";
 import { Dialog as DialogRoot, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/ui/dialog.tsx";
 
 const labels: Record<GuiDialog["kind"], string> = {
-	select: "请选择", toolApproval: "工具审批", bashApproval: "命令审批", confirm: "请确认", input: "需要输入", secret: "需要输入", editor: "需要输入",
+	select: "请选择", toolApproval: "工具审批", shellApproval: "命令审批", confirm: "请确认", input: "需要输入", secret: "需要输入", editor: "需要输入",
 };
 
 export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send: Send; restoreFocus: () => void }) {
@@ -50,8 +50,8 @@ function Deadline({ at }: { at: number }) {
 function DialogBody({ dialog, respond, pending, submit }: { dialog: GuiDialog; submit(value: string | null): Promise<void> } & ResponseControls) {
 	const query = useGuiQuery();
 	switch (dialog.kind) {
-		case "bashApproval": case "toolApproval": return <>
-			{dialog.kind === "bashApproval" && <BashApproval approval={dialog.approval} reveal={() => query({ query: "approvalDetails", id: dialog.id })} />}
+		case "shellApproval": case "toolApproval": return <>
+			{dialog.kind === "shellApproval" && <ShellApproval approval={dialog.approval} reveal={() => query({ query: "approvalDetails", id: dialog.id })} />}
 			<ApprovalActions dialog={dialog} respond={respond} pending={pending} submit={submit} />
 		</>;
 		case "select": return <><Choices options={dialog.options} respond={respond} pending={pending} />
