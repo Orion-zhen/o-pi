@@ -11,7 +11,7 @@ import { type ModuleConfigId, type ModuleConfigDocument } from "../../shared/con
 function paths(id: ModuleConfigId) {
 	const definition = CONFIG_DEFINITIONS[id];
 	return {
-		user: userAgentConfigPath(definition.fileName, definition.userEnv),
+		user: userAgentConfigPath(definition),
 		defaults: defaultAgentConfigPath(definition.fileName),
 	};
 }

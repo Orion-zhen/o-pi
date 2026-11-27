@@ -1,7 +1,8 @@
+import path from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import ipaddr from "ipaddr.js";
 import {
 	CONFIG_DEFINITIONS,
-	userAgentPath,
 	ConfigError,
 	loadValidatedMergedConfig,
 } from "../config-loader.ts";
@@ -9,8 +10,6 @@ import { ConfigCache, type ConfigSnapshot } from "../config-cache.ts";
 import type { WebToolsConfig } from "./config-types.ts";
 import { guardPublicHttpUrlLiteral } from "./network/url-guard.ts";
 import { normalizeDomains } from "./search-providers/query.ts";
-
-const COOKIES_PATH_ENV = "PI_WEB_TOOLS_COOKIES";
 
 const configCache = new ConfigCache(CONFIG_DEFINITIONS.webTools, loadConfigFile);
 
@@ -25,7 +24,7 @@ async function loadConfigFile(): Promise<ConfigSnapshot<WebToolsConfig>> {
 }
 
 export function defaultCookiePath(): string {
-	return userAgentPath("cookies.txt", COOKIES_PATH_ENV);
+	return process.env.PI_WEB_TOOLS_COOKIES ?? path.join(getAgentDir(), "cookies.txt");
 }
 
 function materializeConfig(raw: WebToolsConfig): WebToolsConfig {

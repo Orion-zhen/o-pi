@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, protocol, shell } from "electron";
+import { takeProgramResumeToken } from "@earendil-works/pi-tui";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
@@ -19,6 +20,7 @@ import { desktopScheme, installDesktopLaunch, parseLaunchUrl } from "./launch.ts
 import { installDesktopIpc } from "./ipc.ts";
 import { desktopEntryUrl, installDesktopProtocol } from "./protocol.ts";
 
+takeProgramResumeToken();
 protocol.registerSchemesAsPrivileged([
 	{ scheme: "opi", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);

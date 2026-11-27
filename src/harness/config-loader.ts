@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import os from "node:os";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { agentSchemaPath, defaultAgentConfigPath } from "./runtime/paths.ts";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
@@ -128,7 +129,7 @@ export async function loadValidatedMergedConfig<T>(
 export function resolveConfigLayerPaths(definition: ConfigDefinition, cwd: string): [ConfigLayerPath, ...ConfigLayerPath[]] {
 	const paths: [ConfigLayerPath, ...ConfigLayerPath[]] = [
 		{ kind: "default", path: defaultAgentConfigPath(definition.fileName) },
-		{ kind: "user", path: userAgentConfigPath(definition.fileName, definition.userEnv) },
+		{ kind: "user", path: userAgentConfigPath(definition) },
 	];
 	if (definition.project === undefined) return paths;
 	const projectPath = projectAgentConfigPath(cwd, definition.fileName, definition.project.configEnv, definition.project.rootEnv);
@@ -213,12 +214,8 @@ export function expandHomePath(value: string): string {
 	return value;
 }
 
-export function userAgentConfigPath(fileName: string, envName: string): string {
-	return process.env[envName] ?? path.join(os.homedir(), ".pi", "agent", "configs", fileName);
-}
-
-export function userAgentPath(fileName: string, envName: string): string {
-	return process.env[envName] ?? path.join(os.homedir(), ".pi", "agent", fileName);
+export function userAgentConfigPath({ fileName, userEnv }: ConfigDefinition): string {
+	return process.env[userEnv] ?? path.join(getAgentDir(), "configs", fileName);
 }
 
 function projectAgentConfigPath(cwd: string, fileName: string, configEnvName: string, rootEnvName: string): string | undefined {

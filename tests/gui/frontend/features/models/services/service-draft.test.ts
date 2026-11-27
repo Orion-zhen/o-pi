@@ -45,7 +45,7 @@ it("模型覆盖按模型定义和服务识别默认值，保留动态默认值�
 	expect(changed(original, edit(original, ["modelOverrides", "m", "maxTokens"], 4096))).toBe(true);
 	expect(changed(original, edit(original, ["baseUrl"], "http://localhost/v1"))).toBe(true);
 	const mixed = document({ ...provider, baseUrl: "https://openrouter.ai/api/v1", models: [{ id: "openai/m" }, { id: "other/m" }] });
-	for (const value of [false, true]) expect(changed(mixed, edit(mixed, ["compat", "supportsDeveloperRole"], value))).toBe(true);
+	for (const value of [false, true]) expect(changed(mixed, edit(mixed, ["compat", "supportsDeveloperRole"], value))).toBe(value);
 });
 
 it.each(["chatTemplateKwargs", "chatTemplateArgs"])("%s 按参数名继承，变量对象整体替换，取消省略后仍需保存", (key) => {

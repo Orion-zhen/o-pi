@@ -6,7 +6,7 @@
 
 `compat.thinkingFormat` 选择 SDK 编码。优先级为 modelOverrides、models、provider，均未配置时由 SDK 根据服务商和地址选择。
 
-支持 openai、openrouter、deepseek、together、baseten、zai、qwen、chat-template、qwen-chat-template、string-thinking 和 ant-ling。
+支持 openai、openrouter、deepseek、together、baseten、zai、qwen、chat-template、qwen-chat-template 和 string-thinking。Ant Ling 使用 deepseek 格式，通过 `thinking.type` 开关思考。
 
 chat-template 使用 `compat.chatTemplateKwargs`，baseten 使用 `compat.chatTemplateArgs`。模板参数按参数名继承，同名参数的值整体替换。覆盖变量对象时，省略 `omitWhenOff` 表示不再启用该选项。
 

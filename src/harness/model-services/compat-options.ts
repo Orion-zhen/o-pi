@@ -11,7 +11,7 @@ function literalValues<T>(schema: Schema<T>): T[] {
 }
 
 const compat = OpenAICompletionsCompatSchema.properties as Properties<OpenAICompletionsCompat>;
-export const THINKING_FORMATS = literalValues(compat.thinkingFormat);
+export const THINKING_FORMATS = literalValues(compat.thinkingFormat).filter((format) => format !== "ant-ling");
 export const MAX_TOKENS_FIELDS = literalValues(compat.maxTokensField);
 
 const variants = ChatTemplateKwargValueSchema.anyOf as readonly Schema[];

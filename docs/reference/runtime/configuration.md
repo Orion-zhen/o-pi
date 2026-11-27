@@ -2,7 +2,7 @@
 
 ## Pi 原生配置
 
-Pi 管理 `settings.json`、`models.json`、`keybindings.json`、认证、主题和会话。默认目录是 `~/.pi/agent/`，通过 `PI_CODING_AGENT_DIR` 可改变该目录。
+Pi 管理 `settings.json`、`models.json`、`keybindings.json`、认证、主题和会话。默认目录是 `~/.pi/agent/`，通过 `PI_CODING_AGENT_DIR` 可改变该目录。`opi --agent-dir <目录>` 优先于环境变量。
 
 编辑器 schema 位于 `https://pi.dev/schemas/`，对应 `settings.schema.json`、`models.schema.json`、`keybindings.schema.json` 和 `theme.schema.json`。
 
@@ -33,7 +33,7 @@ Pi 管理 `settings.json`、`models.json`、`keybindings.json`、认证、主题
 | tui | `PI_TUI_CONFIG` | — | — |
 | web-tools | `PI_WEB_TOOLS_CONFIG` | — | — |
 
-GUI 的用户配置目录跟随 `PI_CODING_AGENT_DIR`。表中其他模块的用户路径由各自环境变量覆盖，否则使用 `~/.pi/agent/configs/`。
+各模块默认从当前 Pi 配置目录的 `configs/` 读取用户配置。表中的用户路径环境变量优先于该默认路径。
 
 项目配置依次使用：指定的项目配置文件、指定根目录下的 `.pi/configs/`、从工作目录向上找到的最近 `.pi/configs/`。查找以最近的 `.pi` 目录为准，与 Git 边界无关。
 

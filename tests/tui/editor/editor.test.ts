@@ -174,6 +174,25 @@ describe("会话编辑器", () => {
 		expect(submit).toHaveBeenCalledWith("/help");
 	});
 
+	it("follow-up 只补全路径时不记录历史，真正排队时只记录完整输入一次", async () => {
+		const record = vi.fn();
+		const editor = createEditor({ record });
+		editor.setAutocompleteProvider({
+			getSuggestions: async () => ({ items: [{ value: "file.ts", label: "file.ts" }, { value: "find.ts", label: "find.ts" }], prefix: "fi" }),
+			applyCompletion: () => ({ lines: ["read file.ts"], cursorLine: 0, cursorCol: 12 }),
+		});
+		editor.onAction("app.message.followUp", () => editor.addToHistory(editor.getExpandedText()));
+		editor.setText("read fi");
+		editor.handleInput("\t");
+		await vi.waitFor(() => expect(editor.isShowingAutocomplete()).toBe(true));
+		const followUp = useWindowsKeybindings() ? "\x11" : "\x1b\r";
+		editor.handleInput(followUp);
+		expect(editor.getText()).toBe("read file.ts");
+		expect(record).not.toHaveBeenCalled();
+		editor.handleInput(followUp);
+		expect(record.mock.calls).toEqual([["read file.ts"]]);
+	});
+
 	it("follow-up 快捷键绕过 Enter 时仍记录输入", () => {
 		const record = vi.fn();
 		const editor = createEditor({ record });

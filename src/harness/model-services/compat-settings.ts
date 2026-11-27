@@ -1,12 +1,10 @@
 import type { OpenAICompletionsCompat } from "@earendil-works/pi-ai";
 import type { ConfigObject } from "./document.ts";
-import { configuredModels, type ModelSettings } from "./model-settings.ts";
+import type { ModelSettings } from "./model-settings.ts";
 import { thinkingCapabilities } from "./thinking-capabilities.ts";
 
 // SDK 未导出兼容默认值解析器。只镜像设置所需字段，并用实际请求测试校验。
-function detectedServiceCompat(provider: string, baseUrl: string, modelId?: string):
-	Pick<Required<OpenAICompletionsCompat>, "thinkingFormat" | "maxTokensField" | "supportsStore" | "supportsReasoningEffort">
-	& Pick<OpenAICompletionsCompat, "supportsDeveloperRole"> {
+function detectedServiceCompat(provider: string, baseUrl: string): OpenAICompletionsCompat {
 	const zai = provider === "zai" || provider === "zai-coding-cn" || baseUrl.includes("api.z.ai") || baseUrl.includes("open.bigmodel.cn");
 	const together = provider === "together" || baseUrl.includes("api.together.ai") || baseUrl.includes("api.together.xyz");
 	const moonshot = provider === "moonshotai" || provider === "moonshotai-cn" || baseUrl.includes("api.moonshot.");
@@ -21,11 +19,10 @@ function detectedServiceCompat(provider: string, baseUrl: string, modelId?: stri
 	const chutes = baseUrl.includes("chutes.ai");
 	const nonStandard = nvidia || cerebras || grok || together || chutes || deepseek || zai || moonshot
 		|| provider === "opencode" || baseUrl.includes("opencode.ai") || workers || gateway || antLing;
-	const supportsDeveloperRole = openrouter ? modelId === undefined ? undefined : modelId.startsWith("anthropic/") || modelId.startsWith("openai/") : !nonStandard;
 	return {
-		thinkingFormat: deepseek ? "deepseek" : zai ? "zai" : together ? "together" : antLing ? "ant-ling" : openrouter ? "openrouter" : "openai",
+		thinkingFormat: deepseek || antLing ? "deepseek" : zai ? "zai" : together ? "together" : openrouter ? "openrouter" : "openai",
 		maxTokensField: chutes || deepseek || moonshot || gateway || together || nvidia || antLing || zai ? "max_tokens" : "max_completion_tokens",
-		...(supportsDeveloperRole === undefined ? {} : { supportsDeveloperRole }),
+		supportsDeveloperRole: provider === "openai" || baseUrl.includes("api.openai.com"),
 		supportsStore: !nonStandard,
 		supportsReasoningEffort: !grok && !zai && !moonshot && !together && !gateway && !nvidia && !antLing,
 	};
@@ -52,13 +49,8 @@ export function serviceCompatSettings(providerId: string, provider: ConfigObject
 	const baseUrl = model?.configured.baseUrl ?? model?.defaults?.baseUrl ?? provider.baseUrl;
 	const address = typeof baseUrl === "string" ? baseUrl : "";
 	let defaults: OpenAICompletionsCompat = model && model.defaults === undefined ? {} : api === "openai-completions"
-		? detectedServiceCompat(providerId, address, model?.id)
+		? detectedServiceCompat(providerId, address)
 		: api === "openai-responses" ? { supportsDeveloperRole: true, supportsReasoningEffort: false } : {};
-	if (!model && api === "openai-completions" && defaults.supportsDeveloperRole === undefined) {
-		const values = configuredModels(provider).map(({ id }) => detectedServiceCompat(providerId, address, id).supportsDeveloperRole);
-		const first = values[0];
-		if (first !== undefined && values.every((value) => value === first)) defaults.supportsDeveloperRole = first;
-	}
 	if (model) {
 		for (const layer of [provider, model.defaults]) {
 			defaults = mergeServiceCompat(defaults, layer?.compat as OpenAICompletionsCompat | undefined);

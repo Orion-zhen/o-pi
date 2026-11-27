@@ -22,7 +22,7 @@ Codemode 使用 Pi 的脚本执行与工具发现能力。TUI、Web、Desktop �
 
 Codemode 中 `searchTools()` 搜索脚本可调用工具并返回签名，不改变激活状态。结果通过 `text()` 或顶层 return 返回模型。
 
-工具目录、签名和预算由 SDK 生成，`codemode.inlineBudget` 默认约 3000 tokens。模型能力通过原生 `models` API 提供，支持分类和图片生成。
+工具目录、签名和预算由 SDK 生成，`codemode.inlineBudget` 默认约 3000 tokens。原生 `models` API 支持分类和图片生成。`models.generateImages(model, context, { aspectRatio, size })` 可指定宽高比和分辨率，支持的值取决于模型。检查 `stopReason` 后用 `image()` 展示返回的图片。
 
 检查工具存在性使用 `"name" in tools`，访问缺失成员会抛错。
 

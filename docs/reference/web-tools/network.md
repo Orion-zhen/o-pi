@@ -40,7 +40,7 @@ HTTP 代理接受 `http://` 或 `https://`，SOCKS5 接受 `socks5://`。端点�
 
 ## Cookie
 
-Cookie 供 `webfetch` 使用，默认文件为 `~/.pi/agent/cookies.txt`，可用 `PI_WEB_TOOLS_COOKIES` 指定路径。文件采用 Netscape/Mozilla 格式。Unix 下限制权限：
+`webfetch` 默认从当前 Pi 配置目录读取 `cookies.txt`，可用 `PI_WEB_TOOLS_COOKIES` 指定文件。文件采用 Netscape/Mozilla 格式。Unix 下限制权限：
 
 ```bash
 chmod 600 ~/.pi/agent/cookies.txt

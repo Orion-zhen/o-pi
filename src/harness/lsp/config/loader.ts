@@ -13,8 +13,6 @@ import { mergeConfigValues } from "../../config-values.ts";
 import { validateServerRoutes } from "./routing.ts";
 import type { LoadedLspConfig, LspConfig, LspJsonValue, LspLanguageRoute, LspServerConfig, LspTransport } from "../types.ts";
 
-const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
-
 type RawSelectors = string | string[];
 
 interface RawLspServer {
@@ -58,7 +56,7 @@ export async function loadLspConfig(cwd = process.cwd()): Promise<LoadedLspConfi
 }
 
 export function resolveLspConfigPath(): string {
-	return userAgentConfigPath("lsp.jsonc", CONFIG_PATH_ENV);
+	return userAgentConfigPath(CONFIG_DEFINITIONS.lsp);
 }
 
 function validateRawConfig(raw: RawLspConfig, configPath: string): void {

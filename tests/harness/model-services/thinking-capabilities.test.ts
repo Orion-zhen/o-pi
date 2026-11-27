@@ -16,7 +16,6 @@ it.each([
 	{ format: "zai", effort: true, field: "reasoning_effort", off: false },
 	{ format: "qwen", effort: true, field: "reasoning_effort", off: false },
 	{ format: "string-thinking", effort: false, field: "thinking", off: true },
-	{ format: "ant-ling", effort: false, field: "reasoning.effort", off: false },
 ])("配置 $format 后，设置页映射与实际开关思考请求一致", async ({ format, effort, field, off }) => {
 	const provider = providerConfig({ compat: { thinkingFormat: format, supportsReasoningEffort: effort }, models: [model] });
 	const fixture = await loadProvider(temp.path, provider);
@@ -29,6 +28,18 @@ it.each([
 	const payload = await capturePayload(fixture);
 	if (off) expect(payload).toHaveProperty(field, "none");
 	else expect(payload).not.toHaveProperty(field);
+});
+
+it("Ant Ling 默认使用 DeepSeek 思考开关，不发送独立等级值", async () => {
+	const config = providerConfig({ baseUrl: "https://api.ant-ling.com/v1", models: [model] });
+	const fixture = await loadProvider(temp.path, config);
+	const view = modelSettingsView("gateway", config, { id: "m", defaults: {}, configured: model });
+	expect(view.compat.defaults.thinkingFormat).toBe("deepseek");
+	expect(view.thinking.rows.every((row) => !row.mapsEffort)).toBe(true);
+	const on = await capturePayload(fixture, { reasoning: "high" });
+	expect(on).toMatchObject({ thinking: { type: "enabled" } });
+	expect(on).not.toHaveProperty("reasoning_effort");
+	expect(await capturePayload(fixture)).toMatchObject({ thinking: { type: "disabled" } });
 });
 
 it.each([
@@ -72,7 +83,7 @@ it.each(["gateway", "github-copilot"])("%s Responses 的显示默认值与实际
 	const provider = providerConfig({ api: "openai-responses", models: [{ id: "m", reasoning: true }] }, id);
 	const fixture = await loadProvider(temp.path, provider, id);
 	const { thinking } = modelSettingsView(id, provider, { id: "m", defaults: {}, configured: { reasoning: true } });
-	expect(serviceCompatSettings(id, provider).capabilities?.effortControl).toBe("unused");
+	expect(serviceCompatSettings(id, provider).capabilities?.usesEffortControl).toBe(false);
 	expect(thinking.rows.find((row) => row.level === "high")).toMatchObject({ mapsEffort: true, defaultValue: "high" });
 	expect(await capturePayload(fixture, { reasoning: "high" })).toHaveProperty("reasoning.effort", "high");
 	const off = thinking.rows.find((row) => row.level === "off");

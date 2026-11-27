@@ -40,7 +40,8 @@ it("表单直接选中实际值，渲染不把默认值写入草稿", async () =
 	await expand("协议与思考");
 	expect(field("思考格式")?.textContent).toBe("openai");
 	expect(radioValue("输出上限字段")).toBe("max_completion_tokens");
-	for (const label of ["Developer 角色", "服务端存储", "独立 reasoning_effort 参数"]) {
+	expect(toggle("Developer 角色")?.getAttribute("aria-checked")).toBe("false");
+	for (const label of ["服务端存储", "独立 reasoning_effort 参数"]) {
 		expect(toggle(label)?.getAttribute("aria-checked")).toBe("true");
 		expect(field(label)).toBeNull();
 	}
@@ -212,12 +213,11 @@ it("内置模型覆盖不显示新模型的默认值，显式值仍可重置", a
 	expect(change).toHaveBeenLastCalledWith(["modelOverrides", "claude-sonnet-4-6", "contextWindow"], undefined);
 });
 
-it("模型默认值不一致时服务级显示因模型而异", async () => {
+it("OpenRouter 下的不同模型名不会启用 Developer 角色", async () => {
 	const provider = { api: "openai-completions", baseUrl: "https://openrouter.ai/api/v1", models: [{ id: "openai/m" }, { id: "other/m" }] };
 	await render(<TooltipProvider><ServiceCompat settings={serviceCompatSettings("local", provider)} disabled={false} change={vi.fn()} /></TooltipProvider>);
 	await expand("协议与思考");
 	const control = toggle("Developer 角色");
-	expect(control).not.toBeNull();
-	const descriptionId = control?.getAttribute("aria-describedby");
-	expect(descriptionId && document.getElementById(descriptionId)?.textContent).toBe("因模型而异");
+	expect(control?.getAttribute("aria-checked")).toBe("false");
+	expect(control?.getAttribute("aria-describedby")).toBeNull();
 });

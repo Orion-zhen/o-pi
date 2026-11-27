@@ -28,16 +28,17 @@ interface SessionEditorOptions {
 export class SessionEditor extends CustomEditor {
 	private readonly fullscreenHome: { options: HomeEditorOptions; animation: HomeAnimation } | undefined;
 	private replayQueue: string[];
+	private handlingInput = false;
 
 	constructor(
 		tui: TUI,
 		theme: EditorTheme,
-		private readonly appKeybindings: KeybindingsManager,
+		keybindings: KeybindingsManager,
 		private readonly options: SessionEditorOptions,
 	) {
-		super(tui, theme, appKeybindings);
+		super(tui, theme, keybindings);
 		this.replayQueue = options.replayHistory.map((text) => text.trim()).filter((text) => text.length > 0);
-		for (const text of options.initialHistory) this.remember(text);
+		for (const text of options.initialHistory) super.addToHistory(normalizeHistoryText(text));
 		const home = options.home;
 		this.fullscreenHome = tui.mode === "fullscreen" && home?.isVisible()
 			? { options: home, animation: new HomeAnimation(tui, home.config, () => this.getFullscreenHome() !== undefined) }
@@ -47,21 +48,15 @@ export class SessionEditor extends CustomEditor {
 	override addToHistory(text: string): void {
 		const normalized = text.trim();
 		if (normalized.length === 0) return;
-		if (this.replayQueue[0] === normalized) {
+		if (!this.handlingInput && this.replayQueue[0] === normalized) {
 			this.replayQueue.shift();
 			return;
 		}
 		this.replayQueue = [];
-		this.remember(normalized);
-	}
-
-	private remember(text: string): void {
-		const normalized = normalizeHistoryText(text);
-		if (normalized.length === 0) return;
-		const history = this["history"];
-		const index = history.indexOf(normalized);
-		if (index >= 0) history.splice(index, 1);
-		super.addToHistory(normalized);
+		const entry = normalizeHistoryText(normalized);
+		if (!entry) return;
+		super.addToHistory(entry);
+		if (this.handlingInput) this.options.record(entry);
 	}
 
 	override render(width: number): string[] {
@@ -77,25 +72,20 @@ export class SessionEditor extends CustomEditor {
 	}
 
 	override handleInput(data: string): void {
-		if (this.actionHandlers.has("app.message.followUp") && this.appKeybindings.matches(data, "app.message.followUp")) {
-			this.capture(this.getExpandedText());
-		}
-		// Pi 在创建组件后赋值 onSubmit，按次包装才能保留它的最新回调。
+		// Pi 在真实提交或排队时同步调用 addToHistory，导航回放不应写入磁盘。
+		this.handlingInput = true;
 		const submit = this.onSubmit;
-		if (submit === undefined) {
-			super.handleInput(data);
-			return;
-		}
-		const wrapper = (text: string): void => {
-			if (text.trim().length > 0 && this.options.home?.isVisible()) this.options.home.onSubmit();
-			this.capture(text);
+		const home = this.options.home;
+		const wrapper = submit && home?.isVisible() ? (text: string) => {
+			if (text.trim()) home.onSubmit();
 			submit(text);
-		};
-		this.onSubmit = wrapper;
+		} : undefined;
+		if (wrapper) this.onSubmit = wrapper;
 		try {
 			super.handleInput(data);
 		} finally {
-			if (this.onSubmit === wrapper) this.onSubmit = submit;
+			this.handlingInput = false;
+			if (submit && wrapper && this.onSubmit === wrapper) this.onSubmit = submit;
 		}
 	}
 
@@ -143,13 +133,6 @@ export class SessionEditor extends CustomEditor {
 			? "" : `${this.borderColor(" ")}${theme.fg("dim", labels.right)}${this.borderColor(" ─")}`;
 		const fill = Math.max(0, width - 1 - visibleWidth(leftPart) - visibleWidth(rightPart));
 		return `${this.borderColor("─")}${leftPart}${this.borderColor("─".repeat(fill))}${rightPart}`;
-	}
-
-	private capture(text: string): void {
-		const normalized = normalizeHistoryText(text);
-		if (normalized.length === 0) return;
-		this.remember(normalized);
-		this.options.record(normalized);
 	}
 
 	private getFullscreenHome() {

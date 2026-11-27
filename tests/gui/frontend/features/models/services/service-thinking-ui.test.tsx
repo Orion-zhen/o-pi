@@ -145,14 +145,14 @@ it("模型继承 Anthropic API 时隐藏 OpenAI 控件，覆盖为 OpenAI API �
 	expect(change).not.toHaveBeenCalled();
 });
 
-it.each(["openai", "chat-template", "ant-ling"])("%s 未配置显式映射时提示不发送等级值", async (thinkingFormat) => {
+it.each(["openai", "chat-template"])("%s 未配置显式映射时提示不发送等级值", async (thinkingFormat) => {
 	const provider = { api: "openai-completions", compat: { thinkingFormat, chatTemplateKwargs: { effort: { $var: "thinking.effort" } } },
 		models: [{ id: "m", reasoning: true }] };
 	await render(<TooltipProvider><ServiceModels providerId="local" provider={provider} candidates={[]} disabled={false} change={vi.fn()} /></TooltipProvider>);
 	await act(async () => button("编辑模型 m")?.click());
 	await expand("思考等级映射");
 	expect(input("off")?.placeholder).toBe("不发送等级值");
-	expect(input("high")?.placeholder).toBe(thinkingFormat === "ant-ling" ? "不发送等级值" : "high");
+	expect(input("high")?.placeholder).toBe("high");
 });
 
 it("未开启思考能力时禁用等级设置但保留重置入口", async () => {

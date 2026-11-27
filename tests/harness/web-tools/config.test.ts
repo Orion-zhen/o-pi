@@ -1,11 +1,11 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaultCookiePath, loadWebToolsConfig } from "../../../src/harness/web-tools/config.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 const temp = useTempDir("o-pi-web-config-");
-preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES");
+preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES", "PI_CODING_AGENT_DIR");
 beforeEach(() => {
 	process.env.PI_WEB_TOOLS_CONFIG = path.join(temp.path, "config.jsonc");
 	delete process.env.PI_WEB_TOOLS_COOKIES;
@@ -113,6 +113,16 @@ describe("网页工具配置", () => {
 	])("拒绝不能使用的代理 %j", async (proxy) => {
 		await save({ network: { proxy } });
 		await expect(loadWebToolsConfig()).rejects.toThrow();
+	});
+
+	it("未指定文件时从当前 Pi 配置目录读取用户配置和 cookies", async () => {
+		delete process.env.PI_WEB_TOOLS_CONFIG;
+		const profile = path.join(temp.path, "profile");
+		process.env.PI_CODING_AGENT_DIR = profile;
+		await mkdir(path.join(profile, "configs"), { recursive: true });
+		await writeFile(path.join(profile, "configs", "web-tools.jsonc"), JSON.stringify({ websearch: { default_results: 3 } }));
+		expect((await loadWebToolsConfig()).websearch.default_results).toBe(3);
+		expect(defaultCookiePath()).toBe(path.join(profile, "cookies.txt"));
 	});
 
 	it("显式代理和 fake-IP 配置可用，Cookie 路径可单独覆盖", async () => {

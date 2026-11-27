@@ -102,7 +102,7 @@ test("表单显示实际默认值，修改及重置保留继承行为", async ({
 	await expect(field("思考格式")).toHaveText("openai");
 	await expect(field("思考请求扩展")).toHaveCount(0);
 	await expect(model.getByRole("radiogroup", { name: "输出上限字段", exact: true }).getByRole("radio", { name: "max_completion_tokens", exact: true })).toBeChecked();
-	await expect(toggle("Developer 角色")).toBeChecked();
+	await expect(toggle("Developer 角色")).not.toBeChecked();
 	await expect(toggle("服务端存储")).toBeChecked();
 	await expect(toggle("独立 reasoning_effort 参数")).toBeChecked();
 	await expect(settings(page).getByRole("button", { name: "保存", exact: true })).toBeDisabled();

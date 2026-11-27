@@ -49,7 +49,7 @@ beforeEach(async () => {
 		baseUrl: server.url, api: "openai-completions", apiKey: "fixture-key",
 		models: [{ id: "test", name: "Fixture", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 4096,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	} } }), { mode: 0o600 });
 	await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
 	await writeFile(path.join(agentDir, "agents", "scout.md"), "---\nname: scout\ndescription: Read a source file\ntools: read\n---\nInspect the assigned file.\n");
 });
@@ -106,6 +106,21 @@ describe("standalone opi CLI", () => {
 			(error: { stdout: string; stderr: string; code: number }) => ({ stdout: error.stdout, stderr: error.stderr, code: error.code }),
 		);
 		expect(await capture(run(args))).toEqual(await capture(original));
+	});
+
+	it.each([true, false])("--agent-dir 在子命令前后都不开放包管理（前置：%s）", async (first) => {
+		const profile = ["--agent-dir", agentDir];
+		await expect(run(first ? [...profile, "list"] : ["list", ...profile])).rejects.toMatchObject({
+			code: 1, stderr: expect.stringContaining("opi does not manage Pi packages"),
+		});
+	});
+
+	it("--agent-dir 优先于环境变量，-- 后的参数留在消息中", async () => {
+		env.PI_CODING_AGENT_DIR = path.join(temp.path, "unused");
+		await run(["--agent-dir", agentDir, "--offline", "--approve", "--no-session", "-p", "--", "--agent-dir", "list"]);
+		expect(server.requests.at(-1)?.messages.filter(({ role }) => role === "user").map(({ content }) => content)).toEqual([
+			[{ type: "text", text: "--agent-dir" }], [{ type: "text", text: "list" }],
+		]);
 	});
 
 	it("显式空 defaultTools 不被静态工具注册扩大", async () => {
@@ -224,6 +239,29 @@ describe("standalone opi CLI", () => {
 		expect(results[0]?.content).toEqual(expect.arrayContaining([
 			expect.objectContaining({ type: "text", text: '{"models":["test"],"selected":"test","images":true,"classifiers":true}' }),
 		]));
+	});
+
+	it("codemode 传递图片尺寸选项，图片词元和费用计入父结果", async () => {
+		const extension = path.join(agentDir, "image-model.ts");
+		const png = createCanvas(2, 2).toBuffer("image/png").toString("base64");
+		await writeFile(extension, `export default (pi) => pi.registerProvider("fixture-images", {
+			baseUrl:"http://127.0.0.1", apiKey:"fixture",
+			models:[{type:"image", id:"paint", name:"Paint", api:"fixture-image", input:["text"], output:["image"], cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}],
+			images:{"fixture-image":{generateImages:async (model, context, options) => {
+				if (options.aspectRatio !== "16:9" || options.size !== "2K") throw new Error("Missing image options");
+				return {api:model.api,provider:model.provider,model:model.id,timestamp:Date.now(),stopReason:"stop",
+					output:[{type:"image",mimeType:"image/png",data:${JSON.stringify(png)}}],
+					usage:{input:1,output:10,imageOutput:9,totalTokens:11,cacheRead:0,cacheWrite:0,cost:{input:0,output:0.03,cacheRead:0,cacheWrite:0,total:0.03}}};
+			}}}
+		});`);
+		sequence([{ tool: "codemode", args: { code: `
+			const result = await models.generateImages({provider:"fixture-images",id:"paint"}, {input:[{type:"text",text:"Paint"}]}, {aspectRatio:"16:9",size:"2K"});
+			if (result.stopReason !== "stop") throw new Error(result.errorMessage);
+			image(result.output[0]);
+		` } }]);
+		const results = toolResults(await runJson(["-e", extension, "--tools", "codemode"]));
+		expect(results).toMatchObject([{ isError: false, usage: { output: 10, imageOutput: 9, totalTokens: 11, cost: { total: 0.03 } } }]);
+		expect(results[0]?.content).toContainEqual(expect.objectContaining({ type: "image", data: png }));
 	});
 
 	it("codemode 将 read 图片直接交给分类 API，费用只记入父结果", async () => {

@@ -13,7 +13,7 @@
 
 [体验配置示例](../../agent/settings.example.jsonc)可按需合并到 `settings.json`，保留自己的模型和认证设置。
 
-Pi 原生文件和 GUI 配置支持 `PI_CODING_AGENT_DIR`。其他模块使用各自的配置路径环境变量，见[配置分层](../reference/runtime/configuration.md)。
+设置 `PI_CODING_AGENT_DIR`，或启动 `opi` 时传入 `--agent-dir <目录>`，即可切换 Pi 原生配置、opi 模块配置和网页工具的 Cookie 文件。单独指定文件的环境变量优先，见[配置分层](../reference/runtime/configuration.md)。
 
 ## 添加模型服务
 

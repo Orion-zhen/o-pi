@@ -3,7 +3,7 @@ type OpenAIApiName = "openai-completions" | "openai-responses";
 
 type EffortMapping = false | "level" | "none" | "explicit";
 export interface ThinkingCapabilities {
-	effortControl: "unused" | "available" | "off-only";
+	usesEffortControl: boolean;
 	on: { effort: EffortMapping; toggle: boolean };
 	off: { effort: EffortMapping; toggle: boolean };
 }
@@ -11,7 +11,7 @@ export interface ThinkingCapabilities {
 /** SDK 未导出编码能力。只读取已合并的 compat，并用最终请求测试校验。 */
 export function thinkingCapabilities(api: OpenAIApiName, providerId: string, compat: OpenAICompletionsCompat): ThinkingCapabilities {
 	if (api === "openai-responses") return {
-		effortControl: "unused",
+		usesEffortControl: false,
 		on: { effort: "level", toggle: false },
 		off: { effort: providerId === "github-copilot" ? false : "none", toggle: false },
 	};
@@ -19,38 +19,32 @@ export function thinkingCapabilities(api: OpenAIApiName, providerId: string, com
 	switch (compat.thinkingFormat ?? "openai") {
 		case "openai":
 			return {
-				effortControl: "available",
+				usesEffortControl: true,
 				on: { effort: supportsEffort ? "level" : false, toggle: false },
 				off: { effort: supportsEffort ? "explicit" : false, toggle: false },
 			};
 		case "openrouter":
 		case "string-thinking":
 			return {
-				effortControl: "unused",
+				usesEffortControl: false,
 				on: { effort: "level", toggle: false },
 				off: { effort: "none", toggle: false },
 			};
+		case "ant-ling":
 		case "deepseek":
 		case "together":
 		case "zai":
 		case "qwen":
 			return {
-				effortControl: "available",
+				usesEffortControl: true,
 				on: { effort: supportsEffort ? "level" : false, toggle: true },
 				off: { effort: false, toggle: true },
 			};
 		case "qwen-chat-template":
 			return {
-				effortControl: "unused",
+				usesEffortControl: false,
 				on: { effort: false, toggle: true },
 				off: { effort: false, toggle: true },
-			};
-		case "ant-ling":
-			// SDK 在关闭思考时回落到独立 reasoning_effort 分支。
-			return {
-				effortControl: "off-only",
-				on: { effort: "explicit", toggle: false },
-				off: { effort: supportsEffort ? "explicit" : false, toggle: false },
 			};
 		case "chat-template":
 		case "baseten": {
@@ -60,7 +54,7 @@ export function thinkingCapabilities(api: OpenAIApiName, providerId: string, com
 			const offVariables = variables.filter((value) => !value.omitWhenOff);
 			const independentEffort = baseten && supportsEffort;
 			return {
-				effortControl: baseten ? "available" : "unused",
+				usesEffortControl: baseten,
 				on: {
 					effort: independentEffort || variables.some((value) => value.$var === "thinking.effort") ? "level" : false,
 					toggle: variables.some((value) => value.$var === "thinking.enabled"),
