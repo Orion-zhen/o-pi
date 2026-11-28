@@ -1,8 +1,8 @@
 import { useMemo, type ReactNode } from "react";
-import { Bot, Plus } from "lucide-react";
+import { Bot, Plus, RotateCw } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ReviewState } from "../../../harness/approval/runtime/ai-review.ts";
-import type { GuiApprovalContent } from "../../shared/protocol/state.ts";
+import { RETRY_APPROVAL_REVIEW, type GuiApprovalContent } from "../../shared/protocol/state.ts";
 import type { ResponseControls } from "./approval-actions.tsx";
 import { Button } from "@/ui/button.tsx";
 import { IconButton } from "@/ui/icon-button.tsx";
@@ -23,7 +23,7 @@ function ReviewReason({ reason }: { reason: string }) {
 	</>;
 }
 
-export function ApprovalStatus({ review, deadline }: { review: ReviewState | undefined; deadline: ReactNode }) {
+export function ApprovalStatus({ review, deadline, respond, pending }: ResponseControls & { review: ReviewState | undefined; deadline: ReactNode }) {
 	return <div className="relative" aria-live="polite"><AnimatePresence initial={false} mode="popLayout">
 		{(review || deadline) && <Fade key={review?.kind ?? "deadline"} className="approval-status">
 			{review && <div className="approval-review-copy">
@@ -33,7 +33,12 @@ export function ApprovalStatus({ review, deadline }: { review: ReviewState | und
 						animate={{ backgroundPosition: ["100% center", "0% center"] }}
 						transition={{ duration: motionDuration[7], ease: "easeInOut", repeat: Infinity, repeatDelay: motionDuration[6] }}>
 						正在生成审批意见
-					</motion.span> : "无法获取意见，请手动决定"}
+					</motion.span> : review.retryable ? <>
+						<span>审批意见生成失败</span>
+						<IconButton label="重新生成审批意见" size="icon-xs" disabled={pending} onClick={() => respond(RETRY_APPROVAL_REVIEW)}>
+							<RotateCw aria-hidden="true" />
+						</IconButton>
+					</> : "无法获取意见，请手动决定"}
 			</div>}
 			{deadline && <div className="approval-deadline" aria-live="off">{deadline}</div>}
 		</Fade>}

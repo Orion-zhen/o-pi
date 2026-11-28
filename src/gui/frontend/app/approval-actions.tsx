@@ -40,7 +40,7 @@ export function ApprovalActions({ dialog, respond, pending, submit, deadline }: 
 		</Fade>;
 	}
 	return <motion.footer className="approval-footer" layout="size" transition={settle}>
-		<ApprovalStatus review={review} deadline={deadline} />
+		<ApprovalStatus review={review} deadline={deadline} respond={respond} pending={pending} />
 		<div className="relative"><AnimatePresence initial={false} mode="popLayout">{actions}</AnimatePresence></div>
 	</motion.footer>;
 }

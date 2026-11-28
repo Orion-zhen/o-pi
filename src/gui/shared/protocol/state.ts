@@ -25,6 +25,7 @@ export interface GuiShellApproval {
 	items: { action: ApprovalUnit["action"]; kind: ApprovalUnit["target"]["kind"]; target: string; reason: string }[];
 }
 export interface GuiDialogOption<T extends string = string> { label: string; value: T }
+export const RETRY_APPROVAL_REVIEW = "Retry review";
 type ApprovalStage = { kind: "choose"; review?: ReviewState } | { kind: "instruction"; token: string };
 export type GuiSudoStage = { kind: "waiting" } | { kind: "prompting"; token: string; account: string; retry: boolean } | { kind: "submitted"; account: string };
 export type GuiApprovalContent = { title: string; options: readonly GuiDialogOption<ApprovalChoice>[] } & (

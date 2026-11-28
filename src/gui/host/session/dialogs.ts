@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { GuiApprovalContent, GuiShellApproval, GuiDialog, GuiDialogContent, GuiNotice } from "../../shared/protocol/state.ts";
+import { RETRY_APPROVAL_REVIEW, type GuiApprovalContent, type GuiShellApproval, type GuiDialog, type GuiDialogContent, type GuiNotice } from "../../shared/protocol/state.ts";
 import type { DialogResponse } from "../../shared/protocol/actions.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import { ALLOW_ONCE, DENY_WITH_INSTRUCTION, answerForChoice, answerForReview, type ApprovalAnswer, type ApprovalChoice } from "../../../harness/approval/runtime/interaction.ts";
@@ -17,6 +17,7 @@ const approvalLabels: Record<ApprovalChoice, string> = {
 interface PendingDialog<T extends GuiDialogContent = GuiDialogContent> {
 	dialog: GuiDialog<T>;
 	reveal?: () => GuiShellApproval;
+	startReview?: () => void;
 	timing: DialogTiming;
 	close(): void;
 	finish(value?: string, owner?: DialogOwner): void;
@@ -64,11 +65,12 @@ export class GuiDialogs {
 				resolve({ kind: "approved", askpass: this.sudo.ask });
 			}, reveal);
 			if (!pending) return;
-			if (review) pending.timing.startReview(review, state => {
+			if (!review) return this.publish();
+			pending.startReview = () => pending.timing.startReview(review, state => {
 				pending.dialog = { ...pending.dialog, deadline: pending.timing.deadline, stage: { kind: "choose", review: state } };
 				this.publish();
 			}, opinion => { resolve(answerForReview(opinion)); pending.close(); });
-			else this.publish();
+			pending.startReview();
 		});
 	}
 
@@ -131,6 +133,7 @@ export class GuiDialogs {
 		const stage = "stage" in dialog ? dialog.stage : undefined;
 		if (token !== (stage?.kind === "instruction" ? stage.token : undefined)) throw new Error("对话框阶段已变更，请刷新当前状态。");
 		if (value !== null && stage?.kind !== "instruction" && "options" in dialog) {
+			if (value === RETRY_APPROVAL_REVIEW && stage?.kind === "choose" && stage.review?.kind === "unavailable" && stage.review.retryable) return pending.startReview?.();
 			if (!dialog.options.some((option) => option.value === value)) throw new Error("无效选项。");
 			if ("stage" in dialog && value === DENY_WITH_INSTRUCTION) {
 				pending.timing.waitForUser();
