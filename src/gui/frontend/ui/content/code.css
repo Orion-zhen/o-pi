@@ -7,7 +7,7 @@ div.code-block { margin-block: var(--space-3); min-width: 0; border: 1px solid v
 .code-toolbar button svg { width: 1em; height: 1em; }
 .code-block pre { margin: 0; padding: var(--space-4); max-block-size: 60dvh; overflow: auto; border: 0; border-radius: 0; background: transparent; white-space: pre; overflow-wrap: normal; line-height: 1.65; tab-size: 4; }
 .code-block code { font-size: var(--text-code); }
-.code-block .token { display: inline; }
+:is(.code-block, .file-diff) .token { display: inline; }
 .code-block pre.source-code { inline-size: max-content; min-inline-size: 100%; counter-reset: source-line; }
 .code-block pre.source-code[data-wrap="true"] { inline-size: 100%; min-inline-size: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .source-code code { font-family: var(--gui-font-code); }
