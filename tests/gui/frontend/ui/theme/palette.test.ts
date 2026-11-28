@@ -8,6 +8,7 @@ for (const mode of ["light", "dark"] as const) {
 		const palette = generatePalette(mode, seed);
 		expect(palette.accent).not.toEqual(palette.selected);
 		expect(palette.accent).not.toEqual(palette["secondary-active"]);
+		expect(contrast(palette.foreground, palette.selected)).toBeGreaterThanOrEqual(4.5);
 		expect(contrast(palette.primary, palette.background)).toBeGreaterThanOrEqual(4.5);
 		for (const key of ["primary", "primary-hover", "primary-active"] as const)
 			expect(contrast(palette[key], palette["primary-foreground"]), key).toBeGreaterThanOrEqual(4.5);

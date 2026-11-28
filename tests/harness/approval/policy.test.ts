@@ -38,7 +38,7 @@ it.each(["echo hello", "x=1"])("Bash 默认动作要求审批：%s", async comma
 
 it("单个目标命中多个询问事实时合并原因，不再使用默认拒绝", () => {
 	const origin = "http://10.0.0.1";
-	const request = buildWebFetchApprovalRequest(commandCwd, { scope: "private", origin, url: origin, addresses: ["10.0.0.1"] });
+	const request = buildWebFetchApprovalRequest(commandCwd, { scope: "private", origin, url: origin, redacted: false, addresses: ["10.0.0.1"] });
 	const policy = fixture.config.tools.webfetch;
 	policy.default_action = "deny";
 	policy.facts.audit = { match_all: true, action: "ask", reason: "audit" };

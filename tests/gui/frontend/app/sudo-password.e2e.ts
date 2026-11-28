@@ -27,7 +27,7 @@ test("sudo 审批原位切换密码和重试，保留展开的命令及草稿", 
 		await editor.fill("保留草稿");
 		channel.accept({ type: "dialogs", value: [approval] });
 		const dialog = page.getByRole("dialog", { name: approval.title });
-		await dialog.getByRole("button", { name: "展开完整命令" }).click();
+		await expect(dialog.getByRole("figure", { name: "完整命令" })).toContainText(command);
 		const allow = dialog.getByRole("button", { name: "允许一次" });
 		await allow.click();
 		await expect(allow).toBeDisabled();
@@ -45,7 +45,7 @@ test("sudo 审批原位切换密码和重试，保留展开的命令及草稿", 
 		await expect(dialog.getByRole("alert")).toContainText("认证未通过");
 		await expect(field).toHaveValue("");
 		await expect(field).toBeFocused();
-		await expect(dialog.getByRole("button", { name: "收起命令" })).toHaveAttribute("aria-expanded", "true");
+		await expect(dialog.getByRole("figure", { name: "完整命令" })).toContainText(command);
 		await field.fill("not-submitted");
 		await dialog.getByRole("button", { name: "取消" }).click();
 		await expect(dialog).toHaveCount(0);

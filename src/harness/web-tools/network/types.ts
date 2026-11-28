@@ -4,6 +4,7 @@ import type { WebFetchFailureDetails } from "../core/types.ts";
 export interface ValidatedUrl {
 	url: URL;
 	displayUrl: string;
+	redacted: boolean;
 	fragment: string;
 }
 

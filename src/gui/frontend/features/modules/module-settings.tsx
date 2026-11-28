@@ -81,7 +81,7 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 		let displayValue = value;
 		let controlDisabled = locked;
 		if (field.type === "thinking") {
-			const configuredModel = valueAt("model");
+			const configuredModel = valueAt(field.path.replace(/[^.]+$/, "model"));
 			const model = configuredModel === null ? currentModel : models.find((model) => `${model.provider}/${model.id}` === configuredModel);
 			options = model?.thinking.levels ?? [];
 			displayValue = typeof value === "string" ? model?.thinking.resolved[value] ?? "" : "";

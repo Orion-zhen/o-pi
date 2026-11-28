@@ -51,7 +51,7 @@ describe("Shell 审批呈现", () => {
 		if (dialog?.kind !== "shellApproval") throw new Error("缺少命令审批弹窗");
 		expect(dialog.title).toBe("执行 PowerShell 命令");
 		const document = parseHTML(renderToStaticMarkup(createElement(ShellApproval, { approval: dialog.approval, reveal: vi.fn() }))).document;
-		expect(document.querySelector('[aria-label="PowerShell 命令"] code.language-powershell')?.textContent).toBe(command);
+		expect(document.querySelector("figure code.language-powershell")?.textContent).toBe(command);
 		expect(document.querySelector(".approval-reason")?.textContent).toContain(reason);
 		dialogs.respond({ id: dialog.id, value: "Deny" });
 		await expect(pending).resolves.toEqual({ kind: "denied" });
@@ -153,7 +153,9 @@ describe("Shell 审批呈现", () => {
 			{ kind: "ask", reason: "write", items: [{ unit, reason: "write" }] }, ["Allow once", "Deny with instruction"]);
 		const [dialog] = dialogs.list();
 		if (dialog?.kind !== "toolApproval") throw new Error("缺少文件审批");
-		expect(dialog.title).toContain("hello");
+		expect(dialog.title).toBe("写入文件");
+		expect(dialog.reason).toBe("write");
+		expect(dialog.approval.detail).toMatchObject({ content: "hello" });
 		dialogs.respond({ id: dialog.id, value: "Deny with instruction" });
 		const [instruction] = dialogs.list();
 		if (instruction?.kind !== "toolApproval" || instruction.stage.kind !== "instruction") throw new Error("缺少说明阶段");
@@ -161,12 +163,12 @@ describe("Shell 审批呈现", () => {
 		await expect(pending).resolves.toEqual({ kind: "denied" });
 	});
 
-	it("长命令默认只高亮预览，敏感目标和原因仍可见", () => {
+	it("长命令默认完整高亮，敏感目标和原因可见", () => {
 		const document = parseHTML(renderToStaticMarkup(createElement(ShellApproval, { approval, reveal: vi.fn() }))).document;
-		const main = document.querySelector('[role="group"][aria-label="Bash 命令"]');
-		expect(main?.querySelector("pre code")?.textContent).toBe(Array.from(command).slice(0, 240).join(""));
+		const main = document.querySelector("figure");
+		expect(main?.querySelector("pre code")?.textContent).toBe(command);
 		expect([...main?.querySelectorAll(".token.string") ?? []].some((token) => token.textContent?.includes("中文🧪"))).toBe(true);
-		expect(main?.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+		expect(main?.querySelector("button")).toBeNull();
 		expect(document.querySelector(".approval-target")?.textContent).toBe("/project/output.txt");
 		expect(document.querySelector(".approval-reason")?.textContent).toContain("写入项目文件");
 		expect(document.querySelector(".approval-environment")).toBeNull();
@@ -175,7 +177,7 @@ describe("Shell 审批呈现", () => {
 	it("短命令直接高亮，不提供多余的折叠按钮，HTML 作为文本显示", () => {
 		const command = "printf '<script>alert(1)</script>'";
 		const document = parseHTML(renderToStaticMarkup(createElement(ShellApproval, { approval: { ...approval, command }, reveal: vi.fn() }))).document;
-		const main = document.querySelector('[role="group"][aria-label="Bash 命令"]');
+		const main = document.querySelector("figure");
 		expect(main?.querySelector("pre code")?.textContent).toBe(command);
 		expect(main?.querySelector("button")).toBeNull();
 		expect(document.querySelector("script")).toBeNull();
@@ -188,6 +190,9 @@ describe("Shell 审批呈现", () => {
 		const same = render(command);
 		expect(same.querySelectorAll("pre code")).toHaveLength(1);
 		expect(same.querySelector(".approval-reason")?.textContent).toContain("需要确认执行");
-		expect(render(`${command} && cat output.txt`).querySelectorAll("pre code")).toHaveLength(2);
+		expect(same.querySelector("figcaption")?.textContent).toBe("完整命令");
+		const full = `${command} && cat output.txt`;
+		expect([...render(full).querySelectorAll("figure")].map(block => [block.querySelector("figcaption")?.textContent, block.querySelector("code")?.textContent]))
+			.toEqual([["需确认的子命令", command], ["完整命令", full]]);
 	});
 });

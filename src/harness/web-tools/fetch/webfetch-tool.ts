@@ -12,7 +12,6 @@ import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.ts"
 import { validateRequestUrl } from "../network/network-policy.ts";
 import type { PrivateNetworkGrant } from "../network/private-network-grant.ts";
 import type { ValidatedUrl } from "../network/types.ts";
-import { redactUrl } from "../network/url-utils.ts";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.ts";
 import { selectText } from "./text-selection.ts";
 import type { SnapshotCache } from "./snapshot-cache.ts";
@@ -36,7 +35,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	}
 	const requested = validateRequestUrl(params.url, runtime.context.privateNetworkGrant?.origin);
 	if ("status" in requested) {
-		return failureResult({ ...requested, requested_url: safeRedact(params.url), duration_ms: runtime.now() - options.startedAt });
+		return failureResult({ ...requested, duration_ms: runtime.now() - options.startedAt });
 	}
 	const mediaPolicy = runtime.config.webfetch.media.mode;
 	const mediaEnabled = mediaPolicy === "on" || mediaPolicy === "auto" && mode === "image";
@@ -205,8 +204,4 @@ function snapshotKeyFor(requested: ValidatedUrl, mode: Exclude<WebFetchMode, "im
 	const normalized = `${requested.url}${mode === "source" ? "" : requested.fragment}`;
 	const access = grant ? `${grant.scope}:${grant.origin}` : "public";
 	return `${access}\0${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
-}
-
-function safeRedact(value: string): string {
-	try { return redactUrl(value); } catch { return value; }
 }

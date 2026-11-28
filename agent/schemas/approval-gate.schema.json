@@ -7,6 +7,17 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"enabled": { "type": "boolean", "default": true },
+		"ai_review": {
+			"type": "object", "additionalProperties": false,
+			"properties": {
+				"enabled": { "type": "boolean" },
+				"model": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[^/\\s]+/[^\\s]+$" }] },
+				"thinking_level": { "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+				"auto_apply_seconds": { "type": "integer", "minimum": 0, "maximum": 2147483, "default": 0 },
+				"max_turns": { "type": "integer", "minimum": 1 },
+				"max_tool_calls": { "type": "integer", "minimum": 0 }
+			}
+		},
 		"ui": {
 			"type": "object",
 			"additionalProperties": false,

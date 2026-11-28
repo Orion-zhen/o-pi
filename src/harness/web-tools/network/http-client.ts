@@ -12,7 +12,7 @@ import { mimeFromContentType, supportedImageMimeFromHeader } from "../content/im
 import { classifyNetworkError, networkErrorMessage } from "./errors.ts";
 import { validateRequestUrl } from "./network-policy.ts";
 import { cancelBody, readLimitedResponseBody, responseContentLength } from "./response-body.ts";
-import { matchesDomainRule, redactUrl } from "./url-utils.ts";
+import { matchesDomainRule } from "./url-utils.ts";
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const HTML_ACCEPT_HEADER = "text/html, application/xhtml+xml;q=0.9, */*;q=0.1";
@@ -23,7 +23,7 @@ export interface HttpClientOptions {
 	privateNetworkDispatcher?: Dispatcher;
 	fetchImpl: WebHttpFetch;
 	cookieStore: CookieStore;
-	config: WebToolsConfig;
+	config: Pick<WebToolsConfig, "webfetch">;
 	context: WebFetchExecutionContext;
 	startedAt: number;
 	now: () => number;
@@ -54,20 +54,18 @@ async function fetchWithinDeadline(
 	resource: HttpResourceOptions,
 	signal: AbortSignal,
 ): Promise<HttpFetchResult> {
-	const requestedUrl = requested.displayUrl;
-	let currentUrl = requested.url;
+	let current = requested;
 	let fragment = requested.fragment;
 	let redirectCount = 0;
 	let authenticated = false;
-	let lastStatus: number | undefined;
 
-	function failure(details: WebFetchFailureDetails, httpStatus?: number): Extract<HttpFetchResult, { status: "failed" }> {
+	function failure(details: WebFetchFailureDetails, httpStatus?: number, finalUrl: string | null = current.displayUrl): Extract<HttpFetchResult, { status: "failed" }> {
 		return {
 			status: "failed",
 			details: {
 				...details,
-				requested_url: requestedUrl,
-				final_url: redactUrl(currentUrl),
+				requested_url: requested.displayUrl,
+				...(finalUrl !== null && { final_url: finalUrl }),
 				...(httpStatus !== undefined ? { http_status: httpStatus } : {}),
 				authenticated,
 				redirect_count: redirectCount,
@@ -84,8 +82,8 @@ async function fetchWithinDeadline(
 	function success(response: WebHttpResponse, body: Uint8Array, omitted?: HttpFetchSuccess["bodyOmitted"]): HttpFetchSuccess {
 		return {
 			status: "success",
-			requestedUrl,
-			finalUrl: redactUrl(currentUrl),
+			requestedUrl: requested.displayUrl,
+			finalUrl: current.displayUrl,
 			fragment,
 			httpStatus: response.status,
 			headers: response.headers,
@@ -99,11 +97,7 @@ async function fetchWithinDeadline(
 
 	try {
 		while (true) {
-			if (redirectCount > 0) {
-				const checked = validateRequestUrl(currentUrl.toString(), options.context.privateNetworkGrant?.origin);
-				if ("status" in checked) return failure(checked, lastStatus);
-				currentUrl = checked.url;
-			}
+			const currentUrl = current.url;
 			options.context.onUpdate?.({
 				content: redirectCount > 0 ? "Redirecting..." : "Requesting...",
 				details: { status: "progress", phase: redirectCount > 0 ? "redirecting" : "requesting", redirect_count: redirectCount },
@@ -134,7 +128,6 @@ async function fetchWithinDeadline(
 			} catch (error) {
 				return networkFailure(error);
 			}
-			lastStatus = response.status;
 			const saveCookies = () => cookiesAllowed
 				? waitForAbort(options.cookieStore.storeFromResponse(currentUrl, response.headers.getSetCookie()), signal)
 				: Promise.resolve(undefined);
@@ -148,11 +141,12 @@ async function fetchWithinDeadline(
 				}
 				const location = response.headers.get("location");
 				if (location === null) return failure({ status: "failed", error: { code: "HTTP_ERROR", message: "redirect response has no Location header." } }, response.status);
-				currentUrl = new URL(location, currentUrl);
-				// Location 没有 fragment 时继承原锚点，显式 # 则清空。
-				if (location.includes("#")) fragment = currentUrl.hash;
-				currentUrl.hash = "";
 				redirectCount += 1;
+				const next = validateRequestUrl(location, options.context.privateNetworkGrant?.origin, currentUrl);
+				if ("status" in next) return failure(next, response.status, next.requested_url ?? null);
+				current = next;
+				// Location 没有 fragment 时继承原锚点，显式 # 则清空。
+				if (location.includes("#")) fragment = next.fragment;
 				continue;
 			}
 

@@ -48,6 +48,11 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 	],
 	approvalGate: [
 		{ title: "权限审批", fields: [field("enabled", "权限审批"), field("ui.timeout_ms", "审批超时（毫秒，0 不超时）"), field("ui.non_interactive", "非交互操作", "radio")] },
+		{ title: "AI 辅助审批", fields: [
+			field("ai_review.enabled", "启用 AI 审批"), field("ai_review.model", "审批模型", "model"), field("ai_review.thinking_level", "思考等级", "thinking"),
+			field("ai_review.auto_apply_seconds", "自动采纳延迟（秒，0 不自动采纳）"),
+			field("ai_review.max_turns", "对话轮数上限"), field("ai_review.max_tool_calls", "历史工具调用数上限"),
+		] },
 		{ title: "工具默认权限", fields: [
 			field("tools.shell.default_action", "执行 Shell", "radio"), field("tools.write.default_action", "写入文件", "radio"), field("tools.edit.default_action", "编辑文件", "radio"),
 			field("tools.webfetch.default_action", "读取网页", "radio"),

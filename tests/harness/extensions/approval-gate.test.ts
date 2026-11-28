@@ -14,8 +14,8 @@ import { formatApprovalPrompt } from "../../../src/harness/approval/presentation
 import { buildBashApprovalRequest } from "../../../src/harness/approval/request/bash/parse.ts";
 import { buildPowerShellApprovalRequest } from "../../../src/harness/approval/request/powershell.ts";
 import { buildFileApprovalRequest, type ApprovalToolCall } from "../../../src/harness/approval/pi/request.ts";
-import type { ApprovalOptions } from "../../../src/harness/approval/runtime/interaction.ts";
-import { ApprovalDialog } from "../../../src/tui/views/approval/dialog.ts";
+import type { ApprovalDialogOptions, ApprovalOptions } from "../../../src/harness/approval/runtime/interaction.ts";
+import { ApprovalDialog, openApprovalDialog } from "../../../src/tui/views/approval/dialog.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../src/harness/approval/types.ts";
 import { readPrivateNetworkGrant } from "../../../src/harness/web-tools/network/private-network-grant.ts";
 import { registerExtension } from "../../helpers/extension.ts";
@@ -24,13 +24,16 @@ import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
-preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_APPROVAL_GATE_CONFIG", "PI_SHELL_TOOLS_CONFIG", "NODE_ENV", "OPI_REPORT", "CDPATH", "BASH_ENV");
+preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_APPROVAL_GATE_CONFIG", "PI_SHELL_TOOLS_CONFIG", "NODE_ENV", "OPI_REPORT", "CDPATH", "BASH_ENV", "DEPLOY_TOKEN");
 
-beforeEach(() => {
+beforeEach(async () => {
 	process.env.NODE_ENV = "production";
 	dir = temp.path;
 	process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "web-tools.jsonc");
 	process.env.PI_APPROVAL_GATE_CONFIG = path.join(dir, "approval.jsonc");
+	process.env.PI_SHELL_TOOLS_CONFIG = path.join(dir, "shell.jsonc");
+	await writeFile(process.env.PI_SHELL_TOOLS_CONFIG, JSON.stringify({ environment: { inherit: true, remove_name_regex: ["^(?!(PATH|HOME|TEMP|TMP|SystemRoot|USERPROFILE|OPI_REPORT|BASH_ENV|CDPATH)$).+"] } }));
+	await writeFile(process.env.PI_WEB_TOOLS_CONFIG, JSON.stringify({ network: { proxy: { enabled: false }, fake_ip_ranges: [] } }));
 });
 
 describe("approval gate", () => {
@@ -438,8 +441,8 @@ describe("approval gate", () => {
 
 	it("超长命令使用受限内容视口且审批操作始终可用", async () => {
 		const command = [...Array.from({ length: 80 }, (_, index) => `echo line-${index}`), "echo TAIL_PAYLOAD"].join("\n");
-		const choices: Array<string | undefined> = [];
-		const dialog = await createDialog(bash(command), 18, (choice) => choices.push(choice));
+		const done = vi.fn();
+		const dialog = await createDialog(bash(command), 18, done);
 
 		const initial = dialog.render(72);
 		expect(initial.length).toBeLessThanOrEqual(Math.floor(18 * 0.9));
@@ -452,18 +455,17 @@ describe("approval gate", () => {
 
 		for (let index = 0; index < APPROVAL_OPTIONS.length - 1; index += 1) dialog.handleInput("\u001b[B");
 		dialog.handleInput("\r");
-		expect(choices).toEqual(["Deny with instruction"]);
+		expect(done).toHaveBeenCalledExactlyOnceWith("Deny with instruction");
 		dialog.dispose();
 	});
 
 	it("审批面板保留 edit 的实际修改内容", async () => {
-		const editRequest = await requiredRequest({
+		const dialog = await createDialog({
 			type: "tool_call",
 			toolName: "edit",
 			toolCallId: "edit-preview",
 			input: { path: systemPath("etc", "service.conf"), edits: [{ old: "port=80", new: "port=8443", replace_all: true }] },
-		});
-		const dialog = dialogForRequest(editRequest, 30, () => {});
+		}, 30);
 		const rendered = dialog.render(72).join("\n");
 		expect(rendered).toContain("port=80");
 		expect(rendered).toContain("port=8443");
@@ -516,7 +518,7 @@ describe("approval gate", () => {
 	});
 
 	it.each([[0, 1], [1, 1], [4, 7], [20, 18], [80, 24]] as const)("审批面板不超过终端宽高: %s x %s", async (width, rows) => {
-		const dialog = await createDialog(bash("git push origin main"), rows, () => {});
+		const dialog = await createDialog(bash("git push origin main"), rows);
 		try {
 			const lines = dialog.render(width);
 			expect(lines.length).toBeLessThanOrEqual(Math.max(1, Math.floor(rows * 0.9)));
@@ -539,14 +541,73 @@ describe("approval gate", () => {
 		expect(ui.selectCalls).toBe(1);
 	});
 
+	it.each([
+		bash('git push "$DEPLOY_TOKEN" main'), webfetch("http://127.0.0.1/report?token=sample"),
+	])("敏感调用只等待人工批准，不读取历史或请求审批模型：$toolName", async event => {
+		process.env.DEPLOY_TOKEN = "fixture-value";
+		process.env.PI_SHELL_TOOLS_CONFIG = path.join(dir, "shell.jsonc");
+		await writeFile(process.env.PI_SHELL_TOOLS_CONFIG, JSON.stringify({ environment: { inherit: true, remove_name_regex: ["^(?!DEPLOY_TOKEN$).+"] } }));
+		await writeFile(path.join(dir, "approval.jsonc"), JSON.stringify({ ai_review: { enabled: true, model: "local/review" }, tools: { webfetch: { default_action: "ask" } } }));
+		const panels: string[] = [];
+		const ui = { ...fakeUi([]), ...dialogUi(dialog => {
+			panels.push(dialog.render(80).join("\n"));
+			dialog.handleInput?.("\r");
+		}) };
+		const context = { ...ctx(ui), mode: "tui" as const, modelRegistry: { getAll: vi.fn(() => []) } };
+		const branch = vi.spyOn(context.sessionManager, "getBranch");
+		expect(await handle(event, context)).toBeUndefined();
+		expect(panels).toEqual([expect.stringContaining("AI: unavailable")]);
+		expect(branch).not.toHaveBeenCalled();
+		expect(context.modelRegistry.getAll).not.toHaveBeenCalled();
+	});
+
+	it("TUI 打开前已取消时直接拒绝，不创建弹窗或运行评审", async () => {
+		const request = buildFileApprovalRequest({ type: "tool_call", toolName: "write", toolCallId: "write", input: { path: "notes", content: "test" } }, dir);
+		const ui = { ...dialogUi(() => {}), input: vi.fn() };
+		const custom = vi.spyOn(ui, "custom");
+		const run = vi.fn();
+		await expect(openApprovalDialog(ui, request, { kind: "ask", reason: "write", items: [{ unit: request.unit, reason: "write" }] },
+			APPROVAL_OPTIONS, { signal: AbortSignal.abort(), review: { delay: 0, run } })).resolves.toEqual({ kind: "denied" });
+		expect(custom).not.toHaveBeenCalled();
+		expect(run).not.toHaveBeenCalled();
+	});
+
+	it("TUI 仅展示 AI 建议时标记选项，保留原超时", async () => {
+		vi.useFakeTimers();
+		const done = vi.fn();
+		const dialog = await createDialog(bash("git push origin main"), 30, done,
+			{ timeout: 1000, review: { delay: 0, run: async () => ({ decision: "allow", reason: "已授权" }) } });
+		try {
+			await vi.advanceTimersByTimeAsync(999);
+			expect(dialog.render(100).join("\n")).toContain("[AI] Allow once");
+			expect(done).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1);
+			expect(done).toHaveBeenCalledWith(undefined);
+		} finally { dialog.dispose(); vi.useRealTimers(); }
+	});
+
+	it.skipIf(process.platform !== "darwin" && process.platform !== "linux")("TUI 自动允许 sudo 时不启用人工密码输入", async () => {
+		const command = "sudo id";
+		const request = await buildBashApprovalRequest(command, { command, cwd: dir, env: {} }, { askpass: true });
+		const [unit] = request.units;
+		if (!unit) throw new Error("missing unit");
+		vi.useFakeTimers();
+		try {
+			const pending = openApprovalDialog({ ...dialogUi(() => {}), input: vi.fn() }, request,
+				{ kind: "ask", reason: "sudo", items: [{ unit, reason: "sudo" }] }, ["Allow once", "Deny", "Deny with instruction"],
+				{ review: { delay: 1000, run: async () => ({ decision: "allow", reason: "已授权" }) } }, "sudo-call");
+			await vi.advanceTimersByTimeAsync(1000);
+			await expect(pending).resolves.toEqual({ kind: "approved" });
+		} finally { vi.useRealTimers(); }
+	});
+
 	it("审批面板超时后关闭并清理计时器", async () => {
 		vi.useFakeTimers();
 		try {
-			const choices: Array<string | undefined> = [];
-			const request = await requiredRequest(bash("git push origin main"));
-			const dialog = dialogForRequest(request, 24, (choice) => choices.push(choice), 1000);
+			const done = vi.fn();
+			const dialog = await createDialog(bash("git push origin main"), 24, done, { timeout: 1000 });
 			vi.advanceTimersByTime(1000);
-			expect(choices).toEqual([undefined]);
+			expect(done).toHaveBeenCalledExactlyOnceWith(undefined);
 			dialog.dispose();
 			expect(vi.getTimerCount()).toBe(0);
 		} finally {
@@ -568,18 +629,10 @@ type DialogToolCall = Extract<ApprovalToolCall, { toolName: "bash" | "write" | "
 async function createDialog(
 	event: DialogToolCall,
 	rows: number,
-	done: (choice: string | undefined) => void,
-	timeout?: number,
+	done: (result: unknown) => void = () => {},
+	opts?: ApprovalDialogOptions,
 ): Promise<ApprovalDialog> {
-	return dialogForRequest(await requiredRequest(event), rows, done, timeout);
-}
-
-function dialogForRequest(
-	request: ApprovalRequest,
-	rows: number,
-	done: (choice: string | undefined) => void,
-	timeout?: number,
-): ApprovalDialog {
+	const request = await requiredRequest(event);
 	const unit = "units" in request ? request.units[0] : request.unit;
 	if (unit === undefined) throw new Error("approval request has no units");
 	const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
@@ -587,7 +640,7 @@ function dialogForRequest(
 		reason: "test approval",
 		items: [{ unit, reason: "test approval" }],
 	};
-	return new ApprovalDialog(request, decision, APPROVAL_OPTIONS, plainTheme, () => rows, () => {}, done, timeout);
+	return new ApprovalDialog(request, decision, APPROVAL_OPTIONS, plainTheme, () => rows, () => {}, done, opts);
 }
 
 async function requiredRequest(event: DialogToolCall): Promise<ApprovalRequest> {

@@ -1,3 +1,4 @@
+import "./fixture.ts";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, it } from "vitest";
@@ -124,7 +125,7 @@ it("筛选、排序和回调无需预先登记属性和参数，回调中的实�
 it("未知参数只在可能命中已启用的命令或管道规则时询问", async () => {
 	const report = 'Show-Report $column', query = `Get-Date | ${report}`;
 	expect((await decide(query)).kind).toBe("allow");
-	expect(await decide("git reset $mode")).toMatchObject({ kind: "ask", items: [{ reason: expect.stringContaining("filesystem.discard-data") }] });
+	expect(await decide("git reset $mode")).toMatchObject({ kind: "ask", items: [{ reason: expect.stringContaining("cleanup") }] });
 	expect((await decide("git reset -- $file")).kind).toBe("allow");
 	for (const rule of [{ command: ["Show-Report", "Private"] }, { pipeline: [["Get-Date"], ["Show-Report", "Private"]] }]) {
 		await writeFile(path.join(temp.path, "config.jsonc"), JSON.stringify({ tools: { shell: { facts: {
@@ -196,6 +197,9 @@ it("输出变量只影响指定的变量，其他变量和相对路径仍然可�
 });
 
 it.runIf(process.platform === "win32")("创建随机工作目录时按父路径审批，不因使用 TEMP 就豁免系统目录", async () => {
+	await writeFile(path.join(temp.path, "config.jsonc"), JSON.stringify({ tools: { shell: { facts: {
+		system: { action: "ask", reason: "确认写入系统目录", path_globs: ["%SystemRoot%/**"] },
+	} } } }));
 	const create = "$dir=Join-Path $env:TEMP ('reports-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Path $dir";
 	expect((await decide(create, { TEMP: temp.path })).kind).toBe("allow");
 	const systemRoot = process.env.SystemRoot;

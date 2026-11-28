@@ -1,5 +1,6 @@
 {
 	"enabled": true,
+	"ai_review": { "enabled": false, "model": null, "thinking_level": "off", "auto_apply_seconds": 0, "max_turns": 3, "max_tool_calls": 20 },
 	"ui": { "timeout_ms": 0, "non_interactive": "block" },
 	"tools": {
 		"shell": {
@@ -9,13 +10,17 @@
 					"git": { "command": ["git", "push"] }, "image": { "command": ["docker", "push"] }
 				} },
 				"cleanup": { "action": "ask", "reason": "确认清理范围", "commands": {
-					"remove": { "command": ["rm"] },
+					"remove": { "command": ["rm"] }, "reset": { "command": ["git", "reset", "--hard"] },
 					"clean": { "command": ["git", "clean", "-f"], "except": [["git", "clean", "{-n,--dry-run}"]] }
 				} },
+				"credential.read": { "action": "deny", "reason": "保护 npm 凭据", "commands": { "read": { "command": ["Get-Content"], "arg_globs": ["**/.npmrc"] } } },
+				"history.read": { "action": "deny", "reason": "保护历史记录", "commands": { "history": { "command": ["Get-History"] } } },
+				"dotenv": { "commands": { "read": { "command": ["{cat,Get-Content}"], "arg_globs": ["**/.env", "**/.env.production"] } } },
+				"filesystem.delete-drive-root": { "action": "deny", "reason": "拒绝递归删除盘根", "commands": { "delete": { "shell": "powershell", "command": ["cmd:{rd,rmdir}", "/s"], "arg_globs": ["/", "[A-Za-z]:/"] } } },
 				"sudo": { "action": "ask", "reason": "确认提权", "commands": { "sudo": { "command": ["sudo"] } } },
 				"shell.run-opaque-input": { "action": "ask", "reason": "确认动态命令", "commands": {} }
 			},
-			"combinations": {}
+			"combinations": { "configuration.exfiltrate": { "all": ["dotenv", "release"], "action": "deny", "reason": "禁止读取环境文件后推送" } }
 		},
 		"write": { "default_action": "allow", "facts": {} },
 		"edit": { "default_action": "allow", "facts": {} },

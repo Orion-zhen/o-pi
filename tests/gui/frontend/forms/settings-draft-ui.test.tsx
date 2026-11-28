@@ -1,4 +1,7 @@
 import { readFileSync } from "node:fs";
+import approvalDefaults from "../../../harness/approval/policy-fixture.json" with { type: "json" };
+import approvalGateSchema from "../../../../agent/schemas/approval-gate.schema.json" with { type: "json" };
+import type { GuiModel } from "../../../../src/gui/shared/protocol/state.ts";
 import autoTitleSchema from "../../../../agent/schemas/auto-title.schema.json" with { type: "json" };
 import { parse } from "jsonc-parser";
 import { act, useState, type ComponentProps, type ReactNode } from "react";
@@ -94,6 +97,44 @@ it("正文消息上限默认五条，自动命名关闭时仍可配置并保存"
 	const action = send.mock.calls[0]?.[0];
 	if (action?.action !== "saveModuleConfig") throw new Error("未保存模块配置");
 	expect(parse(action.content)).toEqual({ max_messages: 3 });
+});
+
+it("审批思考等级按审批模型显示，重置为当前模型时不改写等级配置", async () => {
+	const content = '{"ai_review":{"model":"local/review","thinking_level":"xhigh"}}';
+	const query = vi.fn().mockResolvedValue({ path: "approval-gate.jsonc", content, defaults: JSON.stringify(approvalDefaults), schema: approvalGateSchema });
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
+	const review: GuiModel = { provider: "local", id: "review", name: "Review", contextWindow: 4096, thinking: { levels: ["low", "xhigh"], resolved: { xhigh: "xhigh" } } };
+	const current: GuiModel = { ...review, id: "session", name: "Session", thinking: { levels: ["off"], resolved: { xhigh: "off" } } };
+	await render(<View><ModuleSettings id="approvalGate" title="权限与安全" query={query} send={send} disabled={false} models={[current, review]} tools={null} currentModel={current} /></View>);
+	expect(button("思考等级")?.textContent).toBe("xhigh");
+	expectDirty(false);
+	await click(button("重置审批模型"));
+	expect(button("审批模型")?.textContent).toContain("使用当前模型");
+	expect(button("思考等级")?.textContent).toBe("off");
+	await click(named("保存"));
+	const action = send.mock.calls[0]?.[0];
+	if (action?.action !== "saveModuleConfig") throw new Error("未保存审批配置");
+	expect(parse(action.content)).toEqual({ ai_review: { thinking_level: "xhigh" } });
+});
+
+it("AI 审批可分别重置采纳延迟和两项历史上限，保存不改动其他配置", async () => {
+	const content = '{"ai_review":{"auto_apply_seconds":5,"max_turns":1,"max_tool_calls":0,"thinking_level":"high"}}';
+	const query = vi.fn().mockResolvedValue({ path: "approval-gate.jsonc", content, defaults: JSON.stringify(approvalDefaults), schema: approvalGateSchema });
+	const send = vi.fn<ConfigCommand>().mockResolvedValue(undefined);
+	await render(<View><ModuleSettings id="approvalGate" title="权限与安全" query={query} send={send} disabled={false} models={[]} tools={null} currentModel={null} /></View>);
+	for (const [label, saved, fallback] of [
+		["自动采纳延迟（秒，0 不自动采纳）", "5", approvalDefaults.ai_review.auto_apply_seconds],
+		["对话轮数上限", "1", approvalDefaults.ai_review.max_turns], ["历史工具调用数上限", "0", approvalDefaults.ai_review.max_tool_calls],
+	] as const) {
+		const input = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+		expect(input?.value).toBe(saved);
+		await click(button(`重置${label}`));
+		expect(input?.value).toBe(String(fallback));
+	}
+	await click(named("保存"));
+	const action = send.mock.calls[0]?.[0];
+	if (action?.action !== "saveModuleConfig") throw new Error("未保存审批配置");
+	expect(parse(action.content)).toEqual({ ai_review: { thinking_level: "high" } });
 });
 
 it("非法字段类型停留在源码，修复后恢复原有数字控件", async () => {

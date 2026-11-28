@@ -1,3 +1,4 @@
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { EditParams } from "../file-tools/edit/types.ts";
 import type { WriteParams } from "../file-tools/write/types.ts";
 import type { ShellName } from "../shell-runtime/platform.ts";
@@ -56,6 +57,7 @@ export interface ApprovalUnit {
 export interface WebFetchTarget {
 	scope: NetworkScope;
 	url: string;
+	redacted: boolean;
 	origin: string;
 	addresses: readonly string[];
 }
@@ -69,12 +71,13 @@ export interface ShellApprovalRequest {
 	detail: { command: string; environment?: Readonly<Record<string, string | null>> };
 }
 
-export type SingleTargetRequest = { cwd: string; unit: ApprovalUnit } & (
+export type TargetApprovalDetails = { cwd: string } & (
 	| { tool: "write"; detail: WriteParams }
 	| { tool: "edit"; detail: EditParams }
 	| { tool: "webfetch"; detail: WebFetchTarget }
 );
 
+export type SingleTargetRequest = TargetApprovalDetails & { unit: ApprovalUnit };
 export type ApprovalRequest = ShellApprovalRequest | SingleTargetRequest;
 
 interface ApprovalAskItem {
@@ -130,6 +133,14 @@ export interface ShellPolicyConfig extends ToolPolicy<ShellPolicyFact> {
 
 export interface ApprovalGateConfig {
 	enabled: boolean;
+	ai_review: {
+		enabled: boolean;
+		model: string | null;
+		thinking_level: ModelThinkingLevel;
+		auto_apply_seconds: number;
+		max_turns: number;
+		max_tool_calls: number;
+	};
 	ui: {
 		timeout_ms: number;
 		non_interactive: "block" | "allow";

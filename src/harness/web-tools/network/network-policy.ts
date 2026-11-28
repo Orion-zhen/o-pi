@@ -40,14 +40,15 @@ interface WebFetchTargetInspection {
 export function validateRequestUrl(
 	rawUrl: string,
 	approvedPrivateOrigin?: string,
+	base?: URL,
 ): ValidatedUrl | WebFetchFailureDetails {
-	const parsed = parseRequestUrl(rawUrl);
+	const parsed = parseRequestUrl(rawUrl, base);
 	if ("status" in parsed) return parsed;
 	const hostname = normalizeHostname(parsed.url.hostname);
 	const approved = approvedPrivateOrigin === parsed.url.origin;
-	if (isLocalhostName(hostname) && !approved) return failure("BLOCKED_ADDRESS", "localhost is not allowed.");
+	if (isLocalhostName(hostname) && !approved) return { ...failure("BLOCKED_ADDRESS", "localhost is not allowed."), requested_url: parsed.displayUrl };
 	if (ipaddr.isValid(hostname) && !isPublicAddress(hostname) && !approved) {
-		return failure("BLOCKED_ADDRESS", "private or non-global address is not allowed.");
+		return { ...failure("BLOCKED_ADDRESS", "private or non-global address is not allowed."), requested_url: parsed.displayUrl };
 	}
 	return parsed;
 }
@@ -75,15 +76,13 @@ export async function inspectWebFetchTarget(
 	return { status: isPrivate ? "private" : "public", validated: parsed, addresses };
 }
 
-function parseRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailureDetails {
-	if (rawUrl.length > MAX_URL_LENGTH) return failure("INVALID_URL", "url is too long.");
-
-	let url: URL;
-	try {
-		url = new URL(rawUrl);
-	} catch {
-		return failure("INVALID_URL", "url is not valid.");
-	}
+function parseRequestUrl(rawUrl: string, base?: URL): ValidatedUrl | WebFetchFailureDetails {
+	if (!base && rawUrl.length > MAX_URL_LENGTH) return failure("INVALID_URL", "url is too long.");
+	const url = URL.parse(rawUrl, base);
+	if (!url) return failure("INVALID_URL", "url is not valid.");
+	const fragment = url.hash;
+	url.hash = "";
+	if (base && url.href.length > MAX_URL_LENGTH) return failure("INVALID_URL", "url is too long.");
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
 		return failure("INVALID_URL", "only http and https URLs are supported.");
 	}
@@ -91,9 +90,7 @@ function parseRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailureDetails 
 		return failure("INVALID_URL", "URL userinfo is not allowed.");
 	}
 	if (url.hostname === "") return failure("INVALID_URL", "URL hostname is required.");
-	const fragment = url.hash;
-	url.hash = "";
-	return { url, displayUrl: redactUrl(url), fragment };
+	return { url, fragment, ...redactUrl(url) };
 }
 
 /** 解析全部地址并要求每个结果都是公网地址，或显式配置的本机代理 fake-ip。 */

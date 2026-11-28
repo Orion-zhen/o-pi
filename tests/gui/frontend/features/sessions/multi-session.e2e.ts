@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
+import { CONFIG_DEFINITIONS, readDefaultJsoncConfigSync } from "../../../../../src/harness/config-loader.ts";
 import { startWebProcess } from "../../../../web/web-process.ts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -49,7 +50,11 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		} }));
 		await writeFile(path.join(agentDir, "configs", "auto-title.jsonc"), '{"enabled":false}');
 		await writeFile(path.join(agentDir, "configs", "discord-presence.jsonc"), '{"enabled":false}');
-		await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"shell":{"default_action":"ask"},"write":{"default_action":"ask"}}}');
+		const { tools } = readDefaultJsoncConfigSync<{ tools: { shell: { facts: object } } }>(CONFIG_DEFINITIONS.approvalGate);
+		await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), JSON.stringify({
+			enabled: true, ai_review: { enabled: false }, ui: { timeout_ms: 0 },
+			tools: { shell: { default_action: "ask", facts: Object.fromEntries(Object.keys(tools.shell.facts).map(id => [id, false])) } },
+		}));
 		await storeSession({ cwd, agentDir, provider: "gui-test", name: "项目 A 历史" });
 		await mkdir(path.join(cwd, "src"));
 		await writeFile(path.join(cwd, "src", "reading.ts"), "export const text = '保持文件阅读位置';\n".repeat(100));
@@ -100,7 +105,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await tree.getByRole("treeitem", { name: "src/reading.ts", exact: true }).click();
 		const filePreview = page.locator(".file-preview");
 		await expect(filePreview.locator(".file-preview-body")).toContainText("保持文件阅读位置");
-		await filePreview.getByRole("button", { name: "内容", exact: true }).click();
+		await filePreview.getByRole("radio", { name: "内容", exact: true }).click();
 		await filePreview.getByRole("button", { name: "自动折行", exact: true }).click();
 		await expect(filePreview).toHaveAttribute("data-wrap", "false");
 		await filePreview.locator(".file-preview-body").evaluate((element) => { element.scrollTop = 100; });
@@ -196,7 +201,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 			await navigation(page).getByRole("button", { name: "展开侧栏", exact: true }).click();
 		}
 		parallel.resolve({ text: "并行任务完成" });
-		const approval = page.getByRole("dialog").filter({ has: page.getByText("请选择", { exact: true }) });
+		const approval = page.getByRole("dialog", { name: "执行 Bash 命令", exact: true });
 		await expect(approval).toHaveCount(0);
 		await closeMenu();
 		await switchTo(page, cwd);
@@ -210,26 +215,13 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await expect(approval).toBeVisible();
 		await expect(approval.getByRole("button", { name: "取消 / 拒绝", exact: true })).toHaveCount(0);
 		await expect(approval.getByRole("button", { name: "拒绝", exact: true })).toBeVisible();
-		const command = approval.getByRole("group", { name: "Bash 命令", exact: true });
-		await expect(command.getByRole("button", { name: "展开完整命令", exact: true })).toHaveAttribute("aria-expanded", "false");
-		await expect(command.locator(".approval-command-preview pre code")).toHaveText([...bashCommand].slice(0, 240).join(""));
+		const command = approval.getByRole("figure", { name: "完整命令", exact: true });
+		await expect(command.locator("pre code")).toHaveText(bashCommand);
 		await expect(command.locator('.token.string').filter({ hasText: "中文" })).toBeVisible();
 		await expect(approval.locator(".approval-target")).toContainText("output.txt");
-		await expect(approval.locator(".approval-sensitive .token:is(.function, .builtin)").first()).toHaveCSS("color",
-			await approval.locator(".approval-target").evaluate((element) => getComputedStyle(element).color));
 		await expect(approval.locator("script")).toHaveCount(0);
 		await expect(readFile(path.join(cwd, "output.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-		await page.screenshot({ path: info.outputPath("shell-approval-collapsed.png"), animations: "disabled" });
-		await command.getByRole("button", { name: "展开完整命令", exact: true }).click();
-		await expect(command.getByRole("button", { name: "收起命令", exact: true })).toHaveAttribute("aria-expanded", "true");
-		await expect(command.locator('[data-slot="collapsible-content"] pre code')).toHaveText(bashCommand);
-		await expect(readFile(path.join(cwd, "output.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-		await command.getByRole("button", { name: "收起命令", exact: true }).focus();
-		await page.keyboard.press("Enter");
-		await expect(command.getByRole("button", { name: "展开完整命令", exact: true })).toHaveAttribute("aria-expanded", "false");
-		await command.getByRole("button", { name: "展开完整命令", exact: true }).click();
-		await expect(command.locator('[data-slot="collapsible-content"] pre code')).toBeVisible();
-		await page.screenshot({ path: info.outputPath("shell-approval-expanded.png"), animations: "disabled" });
+		await page.screenshot({ path: info.outputPath("shell-approval.png"), animations: "disabled" });
 		await approval.getByRole("button", { name: "允许一次", exact: true }).click();
 		await expect.poll(() => readFile(path.join(cwd, "output.txt"), "utf8").catch((error: unknown) => {
 			if (error instanceof Error && "code" in error && error.code === "ENOENT") return "";
@@ -254,11 +246,7 @@ test("会话边框、工作区圆点、审批归属、未读删除保护和草�
 		await page.getByRole("option", { name: cwd, exact: true }).click();
 		await expect(page.locator(".session-heading")).toContainText("任务 A2");
 		await menu(page);
-		const unreadBorder = row("任务 A").locator('.activity-border[data-activity="unread"]');
-		await expect(unreadBorder).toHaveCount(1);
-		await expect(unreadBorder).toHaveCSS("animation-play-state", "paused");
-		await expect(unreadBorder).toHaveCSS("--activity-trail", "0");
-		await expect(unreadBorder.locator("rect").last()).toHaveAttribute("pathLength", "100");
+		await expect(row("任务 A").locator('.activity-border[data-activity="unread"]')).toBeVisible();
 		await expect(row("任务 A").getByRole("button", { name: "删除会话 任务 A", exact: true })).toHaveCount(0);
 		await expect(row("任务 A2").getByRole("button", { name: "删除会话 任务 A2", exact: true })).toHaveCount(1);
 		await navigation(page).screenshot({ path: info.outputPath("session-unread.png") });

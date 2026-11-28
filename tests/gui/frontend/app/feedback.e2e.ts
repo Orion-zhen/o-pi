@@ -167,8 +167,8 @@ for (const choice of ["Deny", null]) test(`审批悬浮窗${choice === null ? "�
 		}] });
 		const approval = page.getByRole("dialog", { name: "执行 Bash 命令", exact: true });
 		await expect(approval).toBeVisible();
-		await expect(approval.getByRole("group", { name: "Bash 命令", exact: true })).toContainText("printf 'report' > output.txt");
-		await expect(approval.getByRole("region", { name: "需要确认的操作", exact: true })).toContainText("/fixture/output.txt");
+		await expect(approval.getByRole("figure", { name: "完整命令", exact: true })).toContainText("printf 'report' > output.txt");
+		await expect(approval.getByRole("region", { name: "调用详情", exact: true })).toContainText("/fixture/output.txt");
 		const deny = approval.getByRole("button", { name: "拒绝", exact: true });
 		await deny.focus();
 		await page.keyboard.press("Tab");

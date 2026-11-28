@@ -2,7 +2,7 @@ import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { answerForChoice, DENY_WITH_INSTRUCTION, type ApprovalAnswer, type ApprovalDialogOptions } from "./runtime/interaction.ts";
 import type { ShellFactEvaluation } from "./rules/shell-facts.ts";
 import { stripTerminalSequences } from "../terminal-text.ts";
-import type { ApprovalDecision, ApprovalRequest, ApprovalUnit, ShellApprovalRequest } from "./types.ts";
+import type { ApprovalDecision, ApprovalRequest, ApprovalUnit, ShellApprovalRequest, SingleTargetRequest, TargetApprovalDetails } from "./types.ts";
 
 type AskDecision = Extract<ApprovalDecision, { kind: "ask" }>;
 export type ApprovalLineStyle = "text" | "dim" | "added" | "removed" | "warning";
@@ -64,30 +64,40 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 	];
 }
 
+export function targetApprovalDetails(request: SingleTargetRequest): TargetApprovalDetails {
+	const cwd = approvalText(request.cwd);
+	if (request.tool === "webfetch") return { tool: request.tool, cwd, detail: request.detail };
+	const path = approvalText(request.detail.path);
+	if (request.tool === "write") return { tool: request.tool, cwd, detail: { path, content: approvalText(request.detail.content) } };
+	return { tool: request.tool, cwd, detail: { path, edits: request.detail.edits.map(edit => ({ ...edit, old: approvalText(edit.old), new: approvalText(edit.new) })) } };
+}
+
 export function approvalItemReason({ unit, reason }: AskDecision["items"][number]): string {
 	return approvalText(unit.analysisNote ? `${reason} ${unit.analysisNote}` : reason);
 }
 
 const sensitiveName = /TOKEN|SECRET|PASS(?:WORD|WD)?|CREDENTIAL|AUTH|(?:API|PRIVATE|ACCESS)_?KEY/iu;
 
-function hasSensitiveEnvironment(request: ShellApprovalRequest): boolean {
-	return Object.entries(request.detail.environment ?? {}).some(([name, value]) => sensitiveName.test(name) && Boolean(value));
+function sensitiveValues(environment: ShellApprovalRequest["detail"]["environment"]): string[] {
+	return Object.entries(environment ?? {}).flatMap(([name, value]) => sensitiveName.test(name) && value ? [value] : []);
+}
+
+export function hasSensitiveEnvironment(request: ShellApprovalRequest): boolean {
+	return sensitiveValues(request.detail.environment).length > 0;
 }
 
 export function approvalTarget(request: ShellApprovalRequest, unit: ApprovalUnit, reveal = false): string {
-	if (reveal || !hasSensitiveEnvironment(request)) return approvalText(unit.target.value);
-	// 只显示来自原始输入的片段。嵌套脚本本身也可能是启动变量展开的结果。
-	return approvalText(unit.source ?? request.detail.command);
+	// 嵌套脚本可能来自启动变量，隐藏时只展示原始输入。
+	return approvalText(!reveal && hasSensitiveEnvironment(request) ? unit.source ?? request.detail.command : unit.target.value);
 }
 
 export type ApprovalVariable = { name: string } & ({ kind: "value"; value: string } | { kind: "hidden" | "unset" });
 
 export function approvalEnvironment(environment: ShellApprovalRequest["detail"]["environment"], reveal: boolean): ApprovalVariable[] {
-	const entries = Object.entries(environment ?? {});
-	const secrets = entries.flatMap(([name, value]) => sensitiveName.test(name) && value ? [value] : []);
-	return entries.map(([name, value]) => {
+	const secrets = reveal ? [] : sensitiveValues(environment);
+	return Object.entries(environment ?? {}).map(([name, value]) => {
 		if (value === null) return { name, kind: "unset" };
-		if (!reveal && secrets.some((secret) => value.includes(secret))) return { name, kind: "hidden" };
+		if (secrets.some((secret) => value.includes(secret))) return { name, kind: "hidden" };
 		return { name, kind: "value", value: approvalText(value) };
 	});
 }

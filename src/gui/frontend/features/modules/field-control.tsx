@@ -22,7 +22,7 @@ export function FieldControl({ field, schema, value, options, disabled, models, 
 			{options.map((option) => <Label key={option} className="settings-radio-option"><RadioGroupItem value={option} />{field.optionLabels?.[option] ?? option}</Label>)}
 		</RadioGroup>
 		: <Select value={value} disabled={disabled} onValueChange={change}>
-			<SelectTrigger aria-label={field.label}><SelectValue /></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
+			<SelectTrigger aria-label={field.label}><SelectValue>{value}</SelectValue></SelectTrigger><SelectContent>{options.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
 		</Select>;
 	switch (schema.type) {
 		case "boolean": if (typeof value === "boolean") return <Switch aria-label={field.label} checked={value} disabled={disabled} onCheckedChange={change} />; break;

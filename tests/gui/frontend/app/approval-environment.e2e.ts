@@ -29,7 +29,7 @@ test("展开相关变量不读取敏感值，收起后变量和目标重新隐�
 		expect(reads).toBe(0);
 		await dialog.getByRole("button", { name: "查看敏感值" }).click();
 		await expect(dialog.getByRole("definition").getByText("demo-only")).toBeVisible();
-		await expect(dialog.getByRole("region", { name: "需要确认的操作" })).toContainText("reports/demo-only.txt");
+		await expect(dialog.getByRole("region", { name: "调用详情" })).toContainText("reports/demo-only.txt");
 		await toggle.click();
 		await expect(dialog).not.toContainText("demo-only");
 		await toggle.click();

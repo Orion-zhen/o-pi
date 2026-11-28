@@ -11,7 +11,7 @@ export async function preflightWebFetch(input: { url: string }) {
 	const scope = status === "loopback" && (await resolveWebProxy(validated.url, config.network.proxy)).enabled ? "private" : status;
 	const origin = validated.url.origin;
 	return {
-		target: { scope, origin, url: validated.displayUrl, addresses: addresses.map(({ address }) => address) },
+		target: { scope, origin, url: validated.displayUrl, redacted: validated.redacted, addresses: addresses.map(({ address }) => address) },
 		...(scope !== "public" ? { grantPrivateAccess: () => attachPrivateNetworkGrant(input, scope, origin, addresses) } : {}),
 	};
 }

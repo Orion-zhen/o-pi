@@ -20,13 +20,15 @@ const SENSITIVE_QUERY_NAMES = new Set([
 
 const SEARCH_TRACKING_QUERY_NAMES = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"];
 
-export function redactUrl(value: string | URL): string {
-	const url = typeof value === "string" ? new URL(value) : new URL(value.toString());
-	url.hash = "";
-	for (const [key] of url.searchParams) {
-		if (SENSITIVE_QUERY_NAMES.has(key.toLowerCase())) url.searchParams.set(key, "REDACTED");
+export function redactUrl(value: URL) {
+	const url = new URL(value);
+	let redacted = false;
+	for (const key of url.searchParams.keys()) {
+		if (!SENSITIVE_QUERY_NAMES.has(key.toLowerCase())) continue;
+		url.searchParams.set(key, "REDACTED");
+		redacted = true;
 	}
-	return url.toString();
+	return { displayUrl: url.href, redacted };
 }
 
 export function compactUrl(value: unknown, maxLength = 80): string {

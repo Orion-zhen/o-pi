@@ -7,8 +7,12 @@ export interface StartupFacts {
 	used: Map<string, string | null>;
 }
 
+const defaultShellOptions = new Set(["braceexpand", "hashall", "interactive-comments"]);
+
 export function hasStartupHooks(env: Readonly<NodeJS.ProcessEnv>): boolean {
-	return Boolean(env.BASH_ENV || env.ENV || env.BASHOPTS || env.SHELLOPTS || Object.keys(env).some((key) => key.startsWith("BASH_FUNC_")));
+	return Boolean(env.BASH_ENV || env.ENV || env.BASHOPTS
+		|| env.SHELLOPTS?.split(":").some(option => option !== "" && !defaultShellOptions.has(option))
+		|| Object.keys(env).some((key) => key.startsWith("BASH_FUNC_")));
 }
 
 // 这些变量可能由 Shell 创建、改写或随执行进度变化，不是普通继承变量。

@@ -1,6 +1,14 @@
 {
 	"$schema": "../schemas/approval-gate.schema.json",
 	"enabled": true,
+	"ai_review": {
+		"enabled": false,
+		"model": null,
+		"thinking_level": "off",
+		"auto_apply_seconds": 0,
+		"max_turns": 3,
+		"max_tool_calls": 20
+	},
 	"ui": {
 		"timeout_ms": 0,
 		"non_interactive": "block"
@@ -144,7 +152,8 @@
 						"container-push": { "command": ["{docker,podman}", "push"] },
 						"container-image-push": { "command": ["{docker,podman}", "image", "push"] },
 						"gh-release": { "command": ["gh", "release", "{create,delete,edit,upload}"] },
-						"package-publish": { "command": ["{npm,pnpm,yarn,cargo}", "publish"] },
+						"package-publish": { "command": ["{npm,pnpm,yarn,bun,cargo}", "publish"] },
+						"module-publish": { "shell": "powershell", "command": ["Publish-Module"] },
 						"twine": { "command": ["twine", "upload"] }
 					}
 				},

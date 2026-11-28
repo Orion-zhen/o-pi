@@ -15,6 +15,8 @@ import { approvalText, formatShellPolicyEvaluation, formatApprovalPrompt, finish
 import type { SessionApprovalStore } from "../approval/rules/store.ts";
 import type { ApprovalRequest } from "../approval/types.ts";
 import { preflightWebFetch } from "../web-tools/fetch/approval-preflight.ts";
+import { prepareReview } from "../approval/pi/review.ts";
+import { DENIED_ENTRY } from "../approval/pi/review-context.ts";
 import type { Askpass } from "../shell-runtime/askpass.ts";
 
 type PreparedApproval = { request: ApprovalRequest; sudoToolCallId?: string | undefined; onApproved?: ((askpass?: Askpass) => void) | undefined } | { error: string };
@@ -95,12 +97,18 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 					pi.events.emit(APPROVAL_STATUS_CHANNEL, {
 						type: "requested", toolCallId: event.toolCallId, toolName: event.toolName,
 					} satisfies ApprovalStatusEvent);
-					if (presenter) return presenter.show(ctx.ui, request, decision, options, opts, prepared.sudoToolCallId);
+					if (presenter) {
+						const review = prepareReview(ctx, config.ai_review, event.parentToolCallId ?? event.toolCallId, request, decision);
+						return presenter.show(ctx.ui, request, decision, options, { ...opts, ...(ctx.signal && { signal: ctx.signal }), review }, prepared.sudoToolCallId);
+					}
 					const choice = await ctx.ui.select(formatApprovalPrompt(request, decision), [...options], { ...opts, blockedKind: "permission" });
 					return finishApprovalChoice(choice, ctx.ui, opts);
 				} : undefined,
 			);
-			if (outcome.kind === "blocked") return { block: true, reason: outcome.reason };
+			if (outcome.kind === "blocked") {
+				if (config.ai_review.enabled && event.toolName !== "webfetch") pi.appendEntry(DENIED_ENTRY, event.toolCallId);
+				return { block: true, reason: outcome.reason };
+			}
 			prepared.onApproved?.(outcome.askpass);
 		} finally {
 			if (requested) {

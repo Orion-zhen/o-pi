@@ -1,3 +1,4 @@
+import type { ReviewOpinion, ReviewPlan } from "./ai-review.ts";
 import type { Askpass } from "../../shell-runtime/askpass.ts";
 import type { SessionApprovalStore } from "../rules/store.ts";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.ts";
@@ -14,16 +15,22 @@ export type ApprovalOptions = readonly [ApprovalChoice, ...ApprovalChoice[]];
 
 export interface ApprovalDialogOptions {
 	timeout?: number;
+	signal?: AbortSignal;
+	review?: ReviewPlan | undefined;
 }
 
 type Approved = { kind: "approved"; askpass?: Askpass };
 export type ApprovalOutcome = Approved | { kind: "blocked"; reason: string };
-export type ApprovalAnswer = Approved | { kind: "remember" } | { kind: "denied"; instruction?: string | undefined };
+export type ApprovalAnswer = Approved | { kind: "ai-denied"; reason: string } | { kind: "remember" } | { kind: "denied"; instruction?: string | undefined };
 
 export type ApprovalInteraction = (
 	request: ApprovalRequest, decision: Extract<ApprovalDecision, { kind: "ask" }>,
 	options: ApprovalOptions, dialogOptions?: ApprovalDialogOptions,
 ) => Promise<ApprovalAnswer>;
+
+export function answerForReview({ decision, reason }: ReviewOpinion): ApprovalAnswer {
+	return decision === "allow" ? { kind: "approved" } : { kind: "ai-denied", reason };
+}
 
 export function answerForChoice(choice: string | undefined): ApprovalAnswer {
 	if (choice === ALLOW_ONCE) return { kind: "approved" };
@@ -43,6 +50,7 @@ export async function handleAskDecision(
 	const answer = await interaction(request, decision, options, dialogOptions(config));
 	switch (answer.kind) {
 		case "approved": return answer;
+		case "ai-denied": return { kind: "blocked", reason: `Blocked by Approval Gate (AI review): ${answer.reason}` };
 		case "denied": return { kind: "blocked", reason: formatDenyReason(answer.instruction) };
 		case "remember":
 			if (!remember) return { kind: "blocked", reason: USER_DENIED_REASON };

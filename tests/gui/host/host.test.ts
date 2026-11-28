@@ -37,6 +37,7 @@ let server: Awaited<ReturnType<typeof startModelServer>>;
 let cwd: string;
 let events: GuiEvent[];
 let titleReply: () => ModelResponse | Promise<ModelResponse>;
+let reviewReply: ModelResponse;
 
 beforeEach(async () => {
 	setTestHome(temp.path);
@@ -49,9 +50,11 @@ beforeEach(async () => {
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
 	await mkdir(cwd, { recursive: true });
 	titleReply = () => ({ text: "检查文件并写入结果" });
+	reviewReply = { tool: "submit_review", args: { decision: "deny", reason: "只要求预览，不应写入。" } };
 	server = await startModelServer((request) => {
 		// token 计数探测不含 messages，不能当作标题或压缩请求。
 		if (!request.tools) return Array.isArray(request.messages) ? titleReply() : { text: "" };
+		if (request.tools.some(tool => tool.function.name === "submit_review")) return reviewReply;
 		const lastUser = request.messages.findLastIndex((message) => message.role === "user");
 		const tools = request.messages.slice(lastUser + 1).filter((message) => message.role === "tool").length;
 		if (tools === 0) return { tool: "read", args: { path: "input.txt" } };
@@ -661,6 +664,39 @@ describe("GUI 直接使用 SDK", () => {
 		expect(JSON.parse(await readFile(path.join(temp.path, ".pi", "agent", "settings.json"), "utf8"))).toMatchObject({
 			enabledModels: ["gui-fixture/second", "gui-fixture/test:off"],
 		});
+	});
+
+	it("会话切到后台后仍采纳指定模型的拒绝意见，并将理由交还主代理", async () => {
+		await writeFile(path.join(temp.path, ".pi", "agent", "configs", "approval-gate.jsonc"), JSON.stringify({ ai_review: {
+			enabled: true, model: "gui-fixture/second", auto_apply_seconds: 1 }, ui: { timeout_ms: 5000 }, tools: { write: { default_action: "ask" } } }));
+		const pending = host.dispatch(prompt("只预览，不要写入。"));
+		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+		await host.dispatch({ action: "new" });
+		expect(host.execution.dialogs.list()).toEqual([]);
+		await pending;
+		const review = server.requests.find(req => req.tools?.some(t => t.function.name === "submit_review"));
+		expect(review?.model).toBe("second");
+		expect(review?.messages[1]?.content).toContain("<user>只预览，不要写入。</user>");
+		expect(review?.messages[1]?.content).toContain('<pending_call tool="write"');
+		expect(review?.messages[1]?.content).not.toContain('tool="read"');
+		expect(JSON.stringify(server.requests.at(-1)?.messages)).toContain("Blocked by Approval Gate (AI review): 只要求预览，不应写入。");
+		await expect(readFile(path.join(cwd, "output.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("评审模型只返回允许的文字时，仍须人工批准才写入", async () => {
+		reviewReply = { text: "允许写入。" };
+		await writeFile(path.join(temp.path, ".pi", "agent", "configs", "approval-gate.jsonc"), JSON.stringify({
+			ai_review: { enabled: true, auto_apply_seconds: 1 }, tools: { write: { default_action: "ask" } },
+		}));
+		const task = host.dispatch(prompt("请写入检查结果。"));
+		await expect.poll(() => host.execution.dialogs.list()[0]).toMatchObject({ kind: "toolApproval", stage: { review: { kind: "unavailable" } } });
+		expect(server.requests.find(req => req.tools?.some(t => t.function.name === "submit_review"))?.model).toBe("test");
+		await expect(readFile(path.join(cwd, "output.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+		const [dialog] = host.execution.dialogs.list();
+		if (!dialog) throw new Error("缺少写入审批");
+		await host.dispatch({ action: "dialog", id: dialog.id, value: "Allow once" });
+		await task;
+		expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI SDK result\n");
 	});
 
 	it("审批在界面重连后仍存在，拒绝不写文件，旧响应不可再次消费", async () => {

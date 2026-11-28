@@ -1,13 +1,16 @@
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { ShieldX } from "lucide-react";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { ApprovalStatus, ChoiceButton } from "./approval-review.tsx";
+import type { ApprovalChoice } from "../../../harness/approval/runtime/interaction.ts";
 import type { GuiApprovalContent, GuiDialogOption, GuiSudoStage } from "../../shared/protocol/state.ts";
 import { useOperation } from "@/connection/use-operation.ts";
 import { Button } from "@/ui/button.tsx";
 import { clean } from "@/ui/content/format.ts";
 import { Feedback } from "@/ui/feedback.tsx";
 import { Input } from "@/ui/input.tsx";
-import { Fade, Reveal } from "@/ui/motion/animated.tsx";
+import { Fade } from "@/ui/motion/animated.tsx";
+import { settle } from "@/ui/motion/transitions.ts";
 import { Textarea } from "@/ui/textarea.tsx";
 
 export type ResponseControls = { respond: (value: string | null) => void; pending: boolean };
@@ -18,21 +21,28 @@ export function Choices({ options, respond, pending }: { options: readonly GuiDi
 	)}</div>;
 }
 
-export function ApprovalActions({ dialog, respond, pending, submit }: ResponseControls & { dialog: GuiApprovalContent; submit(value: string | null): Promise<void> }) {
+export function ApprovalActions({ dialog, respond, pending, submit, deadline }: ResponseControls & { dialog: GuiApprovalContent; submit(value: string | null): Promise<void>; deadline: ReactNode }) {
 	const { stage } = dialog;
-	const editing = stage.kind !== "choose" && stage.kind !== "waiting";
-	return <div className="grid shrink-0 border-t border-(--divider) pt-4">
-		<Fade className="col-start-1 row-start-1 grid content-start gap-3" initial={false} animate={{ opacity: editing ? 0 : 1 }} inert={editing} aria-hidden={editing}>
-			<Choices options={dialog.options} respond={respond} pending={pending || stage.kind !== "choose"} />
-			{dialog.kind === "toolApproval" && <div className="dialog-actions"><Button variant="outline" disabled={pending || editing} onClick={() => respond(null)}>取消</Button></div>}
-		</Fade>
-		<AnimatePresence initial={false}>
-			{stage.kind === "instruction" && <Reveal key="instruction" className="col-start-1 row-start-1 self-center"><InstructionForm respond={respond} pending={pending} /></Reveal>}
-			{(stage.kind === "prompting" || stage.kind === "submitted") && <Fade key="password" className="col-start-1 row-start-1 grid">
-				<SudoPasswordForm key={stage.kind === "prompting" ? stage.token : stage.kind} prompt={stage} submit={submit} />
-			</Fade>}
-		</AnimatePresence>
-	</div>;
+	const review = stage.kind === "choose" ? stage.review : undefined;
+	let actions: ReactNode;
+	if (stage.kind === "instruction") actions = <Fade key="instruction"><InstructionForm respond={respond} pending={pending} /></Fade>;
+	else if (stage.kind === "prompting" || stage.kind === "submitted") actions = <Fade key="password">
+		<SudoPasswordForm key={stage.kind === "prompting" ? stage.token : stage.kind} prompt={stage} submit={submit} />
+	</Fade>;
+	else {
+		const button = (value: ApprovalChoice) => {
+			const option = dialog.options.find(option => option.value === value);
+			return option && <ChoiceButton option={option} review={review} respond={respond} pending={pending || stage.kind === "waiting"} />;
+		};
+		actions = <Fade key="choices" className="approval-choices">
+			<div className="approval-choice-group">{button("Deny with instruction")}{button("Deny")}</div>
+			<div className="approval-choice-group">{button("Allow for session")}{button("Allow once")}</div>
+		</Fade>;
+	}
+	return <motion.footer className="approval-footer" layout="size" transition={settle}>
+		<ApprovalStatus review={review} deadline={deadline} />
+		<div className="relative"><AnimatePresence initial={false} mode="popLayout">{actions}</AnimatePresence></div>
+	</motion.footer>;
 }
 
 function InstructionForm({ respond, pending }: ResponseControls) {
@@ -65,7 +75,7 @@ function SudoPasswordForm({ prompt, submit }: { prompt: Exclude<GuiSudoStage, { 
 			<label htmlFor={id}>密码</label><span className="text-sm text-muted-foreground">验证 <code>{clean(prompt.account)}</code></span>
 		</div>
 			<div><Input name="password" id={id} type="password" autoFocus required autoComplete="off" disabled={disabled} aria-invalid={retry} aria-describedby={retry ? `${id}-error` : undefined} />
-				{retry && <Reveal><p id={`${id}-error`} role="alert" className="pt-2 text-sm text-destructive">认证未通过，请重新输入。</p></Reveal>}
+				{retry && <Fade><p id={`${id}-error`} role="alert" className="pt-2 text-sm text-destructive">认证未通过，请重新输入。</p></Fade>}
 			</div>
 		</div>
 		<Feedback compact message={error} tone="error" />

@@ -6,7 +6,9 @@ import type { CodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { UsageSnapshot } from "../../../harness/usage/types.ts";
 import type { SubagentDetails } from "../../../harness/subagent/types.ts";
 import type { ApprovalVariable } from "../../../harness/approval/presentation.ts";
-import type { ApprovalUnit } from "../../../harness/approval/types.ts";
+import type { ApprovalChoice } from "../../../harness/approval/runtime/interaction.ts";
+import type { ReviewState } from "../../../harness/approval/runtime/ai-review.ts";
+import type { TargetApprovalDetails, ApprovalUnit } from "../../../harness/approval/types.ts";
 import type { GuiEntry, GuiMessage, GuiNestedCalls, GuiToolOutput } from "../messages/types.ts";
 import type { GuiToolSelectionItem } from "../config/mcp.ts";
 import type { ToolPreset } from "../../../harness/tool-defaults/types.ts";
@@ -22,11 +24,11 @@ export interface GuiShellApproval {
 	command: string;
 	items: { action: ApprovalUnit["action"]; kind: ApprovalUnit["target"]["kind"]; target: string; reason: string }[];
 }
-export interface GuiDialogOption { label: string; value: string }
-type ApprovalStage = { kind: "choose" } | { kind: "instruction"; token: string };
+export interface GuiDialogOption<T extends string = string> { label: string; value: T }
+type ApprovalStage = { kind: "choose"; review?: ReviewState } | { kind: "instruction"; token: string };
 export type GuiSudoStage = { kind: "waiting" } | { kind: "prompting"; token: string; account: string; retry: boolean } | { kind: "submitted"; account: string };
-export type GuiApprovalContent = { title: string; options: readonly GuiDialogOption[] } & (
-	| { kind: "toolApproval"; stage: ApprovalStage }
+export type GuiApprovalContent = { title: string; options: readonly GuiDialogOption<ApprovalChoice>[] } & (
+	| { kind: "toolApproval"; stage: ApprovalStage; approval: TargetApprovalDetails; reason: string }
 	| { kind: "shellApproval"; approval: GuiShellApproval; stage: ApprovalStage | GuiSudoStage }
 );
 export type GuiDialogContent = GuiApprovalContent | { title: string } & (

@@ -1,3 +1,4 @@
+import "./fixture.ts";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, it } from "vitest";

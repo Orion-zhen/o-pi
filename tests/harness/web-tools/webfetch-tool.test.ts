@@ -146,6 +146,15 @@ describe("webfetch tool", () => {
 		expect(result.details.range).toMatchObject({ start: 10, end: 10, total: 10, has_more: false });
 	});
 
+	it.each(["invalid?token=test-secret", "https://demo:test-secret@example.com/"])("URL 校验失败不回显输入：%s", async url => {
+		const fetch = vi.fn<WebHttpFetch>();
+		const result = await executeWebFetch({ url }, runtime(fetch));
+		expect(result.details).toMatchObject({ status: "failed", error: { code: "INVALID_URL" } });
+		expect(result.details).not.toHaveProperty("requested_url");
+		expect(JSON.stringify(result)).not.toContain("test-secret");
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
 	it("跳转后记录 requested 和 final URL", async () => {
 		let calls = 0;
 		const result = await executeWebFetch(
@@ -266,10 +275,10 @@ describe("webfetch tool", () => {
 		expect(requests).toEqual(["http://127.0.0.1:8080/private"]);
 
 		const wrongOrigin = await executeWebFetch(
-			{ url: "http://127.0.0.1:9090/private" },
+			{ url: "http://127.0.0.1:9090/private?token=sample" },
 			runtime(async () => httpResponse(200, "unexpected"), { context: { privateNetworkGrant: grant } }),
 		);
-		expect(wrongOrigin.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
+		expect(wrongOrigin.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" }, requested_url: "http://127.0.0.1:9090/private?token=REDACTED" });
 	});
 
 	it("私网 dispatcher 只用于获批 origin", async () => {
@@ -333,10 +342,18 @@ describe("webfetch tool", () => {
 		expect(result.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
 	});
 
-	it("redirect 到私网会被重新校验并拒绝", async () => {
-		const fetchImpl: WebHttpFetch = async () => redirectResponse("http://127.0.0.1/private");
-		const result = await executeWebFetch({ url: "https://example.com/start" }, runtime(fetchImpl));
-		expect(result.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
+	it.each([
+		["http://127.0.0.1/private?token=test-secret", "BLOCKED_ADDRESS", "http://127.0.0.1/private?token=REDACTED"],
+		["https://demo:test-secret@example.com/", "INVALID_URL", undefined],
+		["http://[invalid/?token=test-secret", "INVALID_URL", undefined],
+	] as const)("拒绝跳转且只记录安全的目标地址：%s", async (location, code, finalUrl) => {
+		const fetch = vi.fn<WebHttpFetch>().mockResolvedValue(redirectResponse(location));
+		const result = await executeWebFetch({ url: "https://example.com/start" }, runtime(fetch));
+		expect(result.details).toMatchObject({ status: "failed", error: { code }, requested_url: "https://example.com/start", http_status: 302, redirect_count: 1 });
+		if (finalUrl === undefined) expect(result.details).not.toHaveProperty("final_url");
+		else expect(result.details.final_url).toBe(finalUrl);
+		expect(JSON.stringify(result)).not.toContain("test-secret");
+		expect(fetch).toHaveBeenCalledTimes(1);
 	});
 
 	it("正文超限和 HTTP 错误返回结构化 failure", async () => {
