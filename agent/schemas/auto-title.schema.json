@@ -4,15 +4,16 @@
 	"additionalProperties": false,
 	"properties": {
 		"$schema": { "type": "string" },
-		"enabled": { "type": "boolean" },
+		"enabled": { "title": "自动生成标题", "type": "boolean" },
 		"model": {
+			"title": "标题模型",
 			"anyOf": [
 				{ "type": "null" },
 				{ "type": "string", "pattern": "^[^/\\s]+/[^\\s]+$" }
 			]
 		},
-		"thinking_level": { "type": "string", "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
-		"max_messages": { "type": "integer", "minimum": 1 },
+		"thinking_level": { "title": "思考等级", "type": "string", "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+		"max_messages": { "title": "正文消息上限", "type": "integer", "minimum": 1 },
 		"system_prompt": { "type": "string", "pattern": "\\S" }
 	}
 }

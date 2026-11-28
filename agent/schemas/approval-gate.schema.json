@@ -6,34 +6,34 @@
 	"additionalProperties": false,
 	"properties": {
 		"$schema": { "type": "string" },
-		"enabled": { "type": "boolean", "default": true },
+		"enabled": { "title": "权限审批", "type": "boolean", "default": true },
 		"ai_review": {
 			"type": "object", "additionalProperties": false,
 			"properties": {
-				"enabled": { "type": "boolean" },
-				"model": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[^/\\s]+/[^\\s]+$" }] },
-				"thinking_level": { "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
-				"auto_apply_seconds": { "type": "integer", "minimum": 0, "maximum": 2147483, "default": 0 },
-				"max_turns": { "type": "integer", "minimum": 1 },
-				"max_tool_calls": { "type": "integer", "minimum": 0 }
+				"enabled": { "title": "启用 AI 审批", "type": "boolean" },
+				"model": { "title": "审批模型", "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[^/\\s]+/[^\\s]+$" }] },
+				"thinking_level": { "title": "思考等级", "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+				"auto_apply_seconds": { "title": "自动采纳延迟（秒，0 不自动采纳）", "type": "integer", "minimum": 0, "maximum": 2147483, "default": 0 },
+				"max_turns": { "title": "对话轮数上限", "type": "integer", "minimum": 1 },
+				"max_tool_calls": { "title": "历史工具调用数上限", "type": "integer", "minimum": 0 }
 			}
 		},
 		"ui": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"timeout_ms": { "type": "integer", "minimum": 0, "maximum": 3600000, "default": 0 },
-				"non_interactive": { "enum": ["block", "allow"], "default": "block" }
+				"timeout_ms": { "title": "审批超时（毫秒，0 不超时）", "type": "integer", "minimum": 0, "maximum": 3600000, "default": 0 },
+				"non_interactive": { "title": "非交互操作", "enum": ["block", "allow"], "default": "block" }
 			}
 		},
 		"tools": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"shell": { "$ref": "#/$defs/shellPolicy" },
-				"write": { "$ref": "#/$defs/filePolicy" },
-				"edit": { "$ref": "#/$defs/filePolicy" },
-				"webfetch": { "$ref": "#/$defs/networkPolicy" }
+				"shell": { "allOf": [{ "$ref": "#/$defs/shellPolicy" }], "properties": { "default_action": { "title": "执行 Shell" } } },
+				"write": { "allOf": [{ "$ref": "#/$defs/filePolicy" }], "properties": { "default_action": { "title": "写入文件" } } },
+				"edit": { "allOf": [{ "$ref": "#/$defs/filePolicy" }], "properties": { "default_action": { "title": "编辑文件" } } },
+				"webfetch": { "allOf": [{ "$ref": "#/$defs/networkPolicy" }], "properties": { "default_action": { "title": "读取网页" } } }
 			}
 		}
 	},

@@ -15,6 +15,7 @@ export function moduleConfigOptions(schema: unknown): ModuleConfigMetadata {
 			visit(node.$ref.slice(2).split("/").reduce<unknown>((value, key) => record(value) ? value[key.replace(/~1/g, "/").replace(/~0/g, "~")] : undefined, schema), path);
 			return;
 		}
+		if (Array.isArray(node.allOf)) for (const part of node.allOf) visit(part, path);
 		const variants = Array.isArray(node.anyOf) ? node.anyOf.filter(record) : [node];
 		const definition = variants.find((variant) => variant.type !== "null");
 		if (!definition) return;
@@ -24,13 +25,13 @@ export function moduleConfigOptions(schema: unknown): ModuleConfigMetadata {
 		if (type === "string" || type === "boolean" || type === "integer" || type === "number" || type === "array") {
 			const field: ModuleConfigMetadata["fields"][string] = { type };
 			if (types.includes("null") || variants.some((variant) => variant.type === "null")) field.nullable = true;
-			if (typeof node.title === "string") field.title = node.title;
 			if ("default" in node) field.default = node.default;
 			for (const key of ["minimum", "maximum", "minLength", "maxLength"] as const) {
 				if (typeof definition[key] === "number") field[key] = definition[key];
 			}
 			fields[path] = field;
 		}
+		if (typeof node.title === "string" && fields[path]) fields[path].title = node.title;
 		if (Array.isArray(definition.enum) && definition.enum.every((value: unknown): value is string => typeof value === "string")) options[path] = definition.enum;
 		if (record(node.items) && Array.isArray(node.items.oneOf)
 			&& node.items.oneOf.every((choice: unknown): choice is { const: string; title: string } => record(choice) && typeof choice.const === "string" && typeof choice.title === "string")) {

@@ -12,10 +12,10 @@
 					"type": "object",
 					"additionalProperties": false,
 					"properties": {
-						"enabled": { "type": "boolean", "default": false },
-						"http_proxy": { "type": "string", "maxLength": 8192, "default": "" },
-						"https_proxy": { "type": "string", "maxLength": 8192, "default": "" },
-						"socks5_proxy": { "type": "string", "maxLength": 8192, "default": "" }
+						"enabled": { "title": "代理", "type": "boolean", "default": false },
+						"http_proxy": { "title": "HTTP 代理", "type": "string", "maxLength": 8192, "default": "" },
+						"https_proxy": { "title": "HTTPS 代理", "type": "string", "maxLength": 8192, "default": "" },
+						"socks5_proxy": { "title": "SOCKS5 代理", "type": "string", "maxLength": 8192, "default": "" }
 					}
 				},
 				"fake_ip_ranges": {
@@ -35,6 +35,7 @@
 			"additionalProperties": false,
 			"properties": {
 				"primary_providers": {
+					"title": "搜索引擎分组",
 					"type": "array",
 					"maxItems": 6,
 					"uniqueItems": true,
@@ -64,9 +65,10 @@
 						]
 					}
 				},
-				"default_results": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 },
+				"default_results": { "title": "总结果条数上限", "type": "integer", "minimum": 1, "maximum": 20, "default": 8 },
 				"total_deadline_seconds": { "type": "integer", "minimum": 1, "maximum": 120, "default": 20 },
 				"include_domains": {
+					"title": "包含域名",
 					"type": "array",
 					"maxItems": 100,
 					"uniqueItems": true,
@@ -74,6 +76,7 @@
 					"default": []
 				},
 				"exclude_domains": {
+					"title": "排除域名",
 					"type": "array",
 					"maxItems": 100,
 					"uniqueItems": true,
@@ -177,7 +180,7 @@
 					"type": "object",
 					"additionalProperties": false,
 					"properties": {
-						"mode": { "enum": ["auto", "on", "off"], "default": "auto" },
+						"mode": { "title": "网页图片", "enum": ["auto", "on", "off"], "default": "auto" },
 						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 20971520, "default": 5242880 }
 					}
 				},
@@ -194,8 +197,9 @@
 					"type": "object",
 					"additionalProperties": false,
 					"properties": {
-						"enabled": { "type": "boolean", "default": true },
+						"enabled": { "title": "浏览器 Cookie", "type": "boolean", "default": true },
 						"blacklist": {
+							"title": "Cookie 黑名单",
 							"description": "不发送 Cookie 的域名黑名单。",
 							"type": "array",
 							"maxItems": 100,

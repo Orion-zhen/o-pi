@@ -2,7 +2,6 @@ import type { ModuleConfigId } from "../../../shared/config/modules.ts";
 
 export interface ConfigField {
 	path: string;
-	label: string;
 	type?: "model" | "thinking" | "tools" | "profile" | "searchProviders" | "radio";
 	enabledBy?: string;
 	optionLabels?: Record<string, string>;
@@ -12,77 +11,77 @@ interface ConfigGroup {
 	fields: ConfigField[];
 	advanced?: boolean;
 }
-const field = (path: string, label: string, type?: ConfigField["type"]): ConfigField =>
-	({ path, label, ...(type ? { type } : {}) });
+const field = (path: string, type?: ConfigField["type"]): ConfigField =>
+	({ path, ...(type ? { type } : {}) });
 
 export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 	autoTitle: [{ title: "自动标题", fields: [
-		field("enabled", "自动生成标题"), field("model", "标题模型", "model"),
-		field("thinking_level", "思考等级", "thinking"), field("max_messages", "正文消息上限"),
+		field("enabled"), field("model", "model"),
+		field("thinking_level", "thinking"), field("max_messages"),
 	] }],
 	shellTools: [
-		{ title: "终端执行", fields: [field("default_timeout_seconds", "超时（秒）"), field("python_venv_paths", "Python 虚拟环境")] },
-		{ title: "执行环境", advanced: true, fields: [field("environment.inherit", "继承环境变量"), field("environment.expose_pi_session_file", "暴露会话文件路径")] },
+		{ title: "终端执行", fields: [field("default_timeout_seconds"), field("python_venv_paths")] },
+		{ title: "执行环境", advanced: true, fields: [field("environment.inherit"), field("environment.expose_pi_session_file")] },
 	],
 	fileTools: [{ title: "文件访问", fields: [
-		field("ignored_path", "忽略路径"), field("blocked_path", "禁止访问路径"),
-		field("ignore.piignore", "遵循 .piignore"), field("ignore.gitignore", "遵循 .gitignore"),
-		field("ignore.git_tracked_files_bypass", "已跟踪文件绕过忽略"),
-		field("limits.read_outline_symbols", "读取大纲符号上限（0 关闭）"),
+		field("ignored_path"), field("blocked_path"),
+		field("ignore.piignore"), field("ignore.gitignore"),
+		field("ignore.git_tracked_files_bypass"),
+		field("limits.read_outline_symbols"),
 	] }],
 	webTools: [
 		{ title: "网络代理", fields: [
-			field("network.proxy.enabled", "代理"),
-			...[field("network.proxy.http_proxy", "HTTP 代理"), field("network.proxy.https_proxy", "HTTPS 代理"), field("network.proxy.socks5_proxy", "SOCKS5 代理")]
+			field("network.proxy.enabled"),
+			...[field("network.proxy.http_proxy"), field("network.proxy.https_proxy"), field("network.proxy.socks5_proxy")]
 				.map((item) => ({ ...item, enabledBy: "network.proxy.enabled" })),
 		] },
 		{ title: "网页搜索", fields: [
-			field("websearch.default_results", "总结果条数上限"), field("websearch.include_domains", "包含域名"), field("websearch.exclude_domains", "排除域名"),
+			field("websearch.default_results"), field("websearch.include_domains"), field("websearch.exclude_domains"),
 		] },
-		{ title: "搜索引擎", fields: [field("websearch.primary_providers", "搜索引擎分组", "searchProviders")] },
+		{ title: "搜索引擎", fields: [field("websearch.primary_providers", "searchProviders")] },
 		{ title: "网页读取", fields: [
-			{ ...field("webfetch.media.mode", "网页图片", "radio"), optionLabels: { auto: "自动", on: "开启", off: "关闭" } },
-			field("webfetch.cookies.enabled", "浏览器 Cookie"),
-			{ ...field("webfetch.cookies.blacklist", "Cookie 黑名单"), enabledBy: "webfetch.cookies.enabled" },
+			{ ...field("webfetch.media.mode", "radio"), optionLabels: { auto: "自动", on: "开启", off: "关闭" } },
+			field("webfetch.cookies.enabled"),
+			{ ...field("webfetch.cookies.blacklist"), enabledBy: "webfetch.cookies.enabled" },
 		] },
 	],
 	approvalGate: [
-		{ title: "权限审批", fields: [field("enabled", "权限审批"), field("ui.timeout_ms", "审批超时（毫秒，0 不超时）"), field("ui.non_interactive", "非交互操作", "radio")] },
+		{ title: "权限审批", fields: [field("enabled"), field("ui.timeout_ms"), field("ui.non_interactive", "radio")] },
 		{ title: "AI 辅助审批", fields: [
-			field("ai_review.enabled", "启用 AI 审批"), field("ai_review.model", "审批模型", "model"), field("ai_review.thinking_level", "思考等级", "thinking"),
-			field("ai_review.auto_apply_seconds", "自动采纳延迟（秒，0 不自动采纳）"),
-			field("ai_review.max_turns", "对话轮数上限"), field("ai_review.max_tool_calls", "历史工具调用数上限"),
+			field("ai_review.enabled"), field("ai_review.model", "model"), field("ai_review.thinking_level", "thinking"),
+			field("ai_review.auto_apply_seconds"),
+			field("ai_review.max_turns"), field("ai_review.max_tool_calls"),
 		] },
 		{ title: "工具默认权限", fields: [
-			field("tools.shell.default_action", "执行 Shell", "radio"), field("tools.write.default_action", "写入文件", "radio"), field("tools.edit.default_action", "编辑文件", "radio"),
-			field("tools.webfetch.default_action", "读取网页", "radio"),
+			field("tools.shell.default_action", "radio"), field("tools.write.default_action", "radio"), field("tools.edit.default_action", "radio"),
+			field("tools.webfetch.default_action", "radio"),
 		] },
 	],
 	subagent: [
-		{ title: "默认配置", fields: [field("default_model", "默认模型", "model"), field("default_tools", "默认工具", "tools")] },
+		{ title: "默认配置", fields: [field("default_model", "model"), field("default_tools", "tools")] },
 		{ title: "任务执行", fields: [
-			field("max_parallel_tasks", "最大并行任务数"), field("max_concurrency", "单任务并发数"), field("timeout_ms", "超时（毫秒）"),
-			field("retries", "重试次数"), field("retry_on_empty_output", "空输出时重试"), field("retry_on_timeout", "超时时重试"),
+			field("max_parallel_tasks"), field("max_concurrency"), field("timeout_ms"),
+			field("retries"), field("retry_on_empty_output"), field("retry_on_timeout"),
 		] },
-		{ title: "项目子代理", fields: [field("allow_project_agents", "允许项目子代理"), field("project_agents_override_user", "项目定义优先"), field("confirm_write_agents", "写入前确认")] },
+		{ title: "项目子代理", fields: [field("allow_project_agents"), field("project_agents_override_user"), field("confirm_write_agents")] },
 	],
 	lsp: [
 		{ title: "代码智能", fields: [
-			field("enabled", "LSP"), field("diagnostics.enabled", "代码诊断"),
-			field("diagnostics.min_severity", "诊断级别", "radio"),
-			field("grep.workspace_symbols", "搜索工作区符号"),
+			field("enabled"), field("diagnostics.enabled"),
+			field("diagnostics.min_severity", "radio"),
+			field("grep.workspace_symbols"),
 		] },
-		{ title: "代码智能高级选项", advanced: true, fields: [field("exclude_paths", "排除路径"), field("request_timeout_ms", "请求超时（毫秒）")] },
+		{ title: "代码智能高级选项", advanced: true, fields: [field("exclude_paths"), field("request_timeout_ms")] },
 	],
 	discordPresence: [
-		{ title: "Discord 状态", fields: [field("enabled", "显示 Discord 状态"), { ...field("profile", "展示内容", "profile"), enabledBy: "enabled" }] },
-		{ title: "Discord 高级选项", advanced: true, fields: [field("application_id", "应用 ID"), field("update_interval_ms", "更新间隔（毫秒）"), field("retry_interval_ms", "重连间隔（毫秒）")] },
+		{ title: "Discord 状态", fields: [field("enabled"), { ...field("profile", "profile"), enabledBy: "enabled" }] },
+		{ title: "Discord 高级选项", advanced: true, fields: [field("application_id"), field("update_interval_ms"), field("retry_interval_ms")] },
 	],
 	tui: [
 		{ title: "CLI 外观", fields: [
-			field("enabled", "界面增强"), field("icons", "图标", "radio"),
-			field("chrome.title", "终端标题"), field("chrome.header", "显示标题栏"), field("chrome.footer", "显示页脚"),
+			field("enabled"), field("icons", "radio"),
+			field("chrome.title"), field("chrome.header"), field("chrome.footer"),
 		] },
-		{ title: "首页与渲染", fields: [field("home.enabled", "显示首页"), field("home.show_tips", "显示提示"), field("math.enabled", "数学公式")] },
+		{ title: "首页与渲染", fields: [field("home.enabled"), field("home.show_tips"), field("math.enabled")] },
 	],
 };

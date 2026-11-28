@@ -7,12 +7,14 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"default_timeout_seconds": {
+			"title": "超时（秒）",
 			"type": "integer",
 			"minimum": 1,
 			"maximum": 86400,
 			"default": 300
 		},
 		"python_venv_paths": {
+			"title": "Python 虚拟环境",
 			"type": "array",
 			"items": { "type": "string", "minLength": 1 },
 			"uniqueItems": true,
@@ -22,14 +24,14 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"inherit": { "type": "boolean", "default": true },
+				"inherit": { "title": "继承环境变量", "type": "boolean", "default": true },
 				"remove_name_regex": {
 					"type": "array",
 					"items": { "type": "string", "minLength": 1 },
 					"uniqueItems": true,
 					"default": []
 				},
-				"expose_pi_session_file": { "type": "boolean", "default": false }
+				"expose_pi_session_file": { "title": "暴露会话文件路径", "type": "boolean", "default": false }
 			}
 		},
 		"limits": {

@@ -61,14 +61,18 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 	};
 	const change = (path: string, value: unknown) => changeFields({ [path]: value });
 	const sourceButton = <SettingsSourceButton key="source" file={document.path} source={source} disabled={blocked || source && parsed.error !== ""} onClick={() => { if (!dirty) editor.discard(); setSource(!source); }} />;
+	const displayField = (path: string) => {
+		const schema = metadata.fields[path];
+		if (!schema?.title) throw new Error(`设置字段缺少 schema 标题: ${path}`);
+		return { schema, label: schema.title };
+	};
 	const fields = (items: ConfigField[]) => <div className="settings-fields">{items.map((field) => {
 		if (field.type === "searchProviders") return <SearchProviderSettings key={field.path} path={field.path} choices={metadata.arrayOptions[field.path]}
 			valueAt={valueAt} defaultAt={(path) => at(defaults, path)} change={change} changeGroups={changeFields} disabled={blocked}
-			renderDetails={(prefix) => fields(Object.entries(metadata.fields)
-				.filter(([path]) => path.startsWith(`${prefix}.`) && path !== `${prefix}.enabled`)
-				.map(([path, schema]) => ({ path, label: schema.title ?? path.slice(prefix.length + 1) })))} />;
-		const schema = metadata.fields[field.path];
-		if (!schema) throw new Error(`设置字段缺少 schema: ${field.path}`);
+			renderDetails={(prefix) => fields(Object.keys(metadata.fields)
+				.filter((path) => path.startsWith(`${prefix}.`) && path !== `${prefix}.enabled`)
+				.map((path) => ({ path })))} />;
+		const { schema, label } = displayField(field.path);
 		const configuredDefault = at(defaults, field.path);
 		const defaultValue = configuredDefault === undefined ? schema.default : configuredDefault;
 		const configuredValue = valueAt(field.path);
@@ -87,8 +91,8 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 			displayValue = typeof value === "string" ? model?.thinking.resolved[value] ?? "" : "";
 			controlDisabled ||= options.length === 0;
 		}
-		const control = <FieldControl field={field} schema={schema} value={displayValue} options={options} disabled={controlDisabled} models={models} tools={tools} change={(value) => change(field.path, value)} />;
-		const row = { label: field.label, reset: { value, defaultValue, apply: () => change(field.path, undefined) }, disabled: locked };
+		const control = <FieldControl field={field} label={label} schema={schema} value={displayValue} options={options} disabled={controlDisabled} models={models} tools={tools} change={(value) => change(field.path, value)} />;
+		const row = { label, reset: { value, defaultValue, apply: () => change(field.path, undefined) }, disabled: locked };
 		if (id === "webTools" && field.path.startsWith("websearch.") && field.path.endsWith(".api_key") && typeof value === "string") {
 			return <SearchApiKeyRow key={field.path} {...row} config={value} query={query}>{control}</SearchApiKeyRow>;
 		}
@@ -108,7 +112,7 @@ function ModuleEditor({ initial, title, id, query, send, disabled, models, tools
 				{group.fields.filter((field) => field.type === "searchProviders").map((field) => {
 					const paths = [field.path, field.path.replace(/primary_providers$/, "auxiliary_providers")];
 					const changed = paths.some((path) => !equalConfigValues(valueAt(path), at(defaults, path)));
-					return changed && <IconButton key={field.path} label={`重置${field.label}`} tooltip="恢复默认分组和顺序" size="icon-sm"
+					return changed && <IconButton key={field.path} label={`重置${displayField(field.path).label}`} tooltip="恢复默认分组和顺序" size="icon-sm"
 						disabled={blocked}
 						onClick={() => changeFields(Object.fromEntries(paths.map((path) => [path, undefined])))}><RotateCcw /></IconButton>;
 				})}

@@ -9,6 +9,7 @@
 			"type": "string"
 		},
 		"blocked_path": {
+			"title": "禁止访问路径",
 			"type": "array",
 			"default": [".git/"],
 			"items": {
@@ -17,6 +18,7 @@
 			}
 		},
 		"ignored_path": {
+			"title": "忽略路径",
 			"type": "array",
 			"default": [],
 			"items": {
@@ -59,6 +61,7 @@
 					"default": 20
 				},
 				"read_outline_symbols": {
+					"title": "读取大纲符号上限（0 关闭）",
 					"description": "整文件截断后的大纲符号上限，0 关闭。",
 					"type": "integer",
 					"minimum": 0,
@@ -168,14 +171,17 @@
 			"additionalProperties": false,
 			"properties": {
 				"piignore": {
+					"title": "遵循 .piignore",
 					"type": "boolean",
 					"default": true
 				},
 				"gitignore": {
+					"title": "遵循 .gitignore",
 					"type": "boolean",
 					"default": true
 				},
 				"git_tracked_files_bypass": {
+					"title": "已跟踪文件绕过忽略",
 					"type": "boolean",
 					"default": true
 				},

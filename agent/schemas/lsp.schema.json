@@ -2,8 +2,9 @@
 	"type": "object",
 	"additionalProperties": false,
 	"properties": {
-		"enabled": { "type": "boolean", "default": true },
+		"enabled": { "title": "LSP", "type": "boolean", "default": true },
 		"exclude_paths": {
+			"title": "排除路径",
 			"type": "array",
 			"maxItems": 100,
 			"default": [],
@@ -11,26 +12,26 @@
 			"uniqueItems": true
 		},
 		"startup_timeout_ms": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 8000 },
-		"request_timeout_ms": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 5000 },
+		"request_timeout_ms": { "title": "请求超时（毫秒）", "type": "integer", "minimum": 100, "maximum": 60000, "default": 5000 },
 		"idle_timeout_ms": { "type": "integer", "minimum": 1000, "maximum": 3600000, "default": 300000 },
 		"max_open_documents": { "type": "integer", "minimum": 1, "maximum": 1024, "default": 64 },
 		"diagnostics": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"enabled": { "type": "boolean", "default": true },
+				"enabled": { "title": "代码诊断", "type": "boolean", "default": true },
 				"max_wait_ms": { "type": "integer", "minimum": 0, "maximum": 60000, "default": 3000 },
 				"settle_ms": { "type": "integer", "minimum": 0, "maximum": 5000, "default": 150 },
 				"max_items": { "type": "integer", "minimum": 0, "maximum": 100, "default": 8 },
 				"max_related_locations": { "type": "integer", "minimum": 0, "maximum": 10, "default": 2 },
-				"min_severity": { "enum": ["error", "warning", "information", "hint"], "default": "warning" }
+				"min_severity": { "title": "诊断级别", "enum": ["error", "warning", "information", "hint"], "default": "warning" }
 			}
 		},
 		"grep": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"workspace_symbols": { "type": "boolean", "default": true },
+				"workspace_symbols": { "title": "搜索工作区符号", "type": "boolean", "default": true },
 				"max_symbols": { "type": "integer", "minimum": 0, "maximum": 200, "default": 20 },
 				"max_exact_leaf_symbols": { "type": "integer", "minimum": 0, "maximum": 200, "default": 2 }
 			}

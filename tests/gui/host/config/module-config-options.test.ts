@@ -1,6 +1,22 @@
 import { expect, it } from "vitest";
 import { moduleConfigOptions } from "../../../../src/gui/shared/config/module-schema.ts";
 
+import { moduleGroups } from "../../../../src/gui/frontend/features/modules/module-fields.ts";
+import { moduleConfigIds } from "../../../../src/gui/shared/config/modules.ts";
+import { CONFIG_DEFINITIONS, configSchema } from "../../../../src/harness/config-loader.ts";
+
+it("模块设置展示的字段都有非空 schema 标题", () => {
+	for (const id of moduleConfigIds) {
+		const { fields, arrayOptions } = moduleConfigOptions(configSchema(CONFIG_DEFINITIONS[id]).schema);
+		const paths = moduleGroups[id].flatMap((group) => group.fields.map((field) => field.path));
+		for (const { value } of arrayOptions["websearch.primary_providers"] ?? []) {
+			const prefix = `websearch.${value}.`;
+			paths.push(...Object.keys(fields).filter((path) => path.startsWith(prefix) && path !== `${prefix}enabled`));
+		}
+		for (const path of paths) expect(fields[path]?.title?.trim(), `${id}.${path}`).toBeTruthy();
+	}
+});
+
 it("设置字段来自 schema，保留标题、默认值、约束和本地引用，不展开动态属性", () => {
 	const metadata = moduleConfigOptions({
 		$defs: { timeout: { type: "integer", title: "请求超时", minimum: 1, maximum: 60, default: 8 } },
